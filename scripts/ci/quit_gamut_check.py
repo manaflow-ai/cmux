@@ -29,6 +29,15 @@ PATHs (only release control methods and the OS, so a NIGHTLY runs it):
   scripted   `action.run quit`, the CLI's `cmux app quit` (origin scripted)
   update     Quit and Keep Sessions (the updater's .explicit(.keep)), the bundle swapped in place for --update-dmg's
              app while it is gone, as Sparkle's installer does, then the new app opened: a version handoff
+  sparkle-update  the update as a person gets it (CMUX-119): the round starts on --update-dmg's older build with
+             automatic downloads and install on quit on (the home's cmux-next.json), asks for an update
+             (palette.checkForUpdates) until Sparkle has staged one (updates.status phase "installing") and the
+             staged update's launch pre-warm has run, makes the round's STATE, then Quit and Keep Sessions: Sparkle's
+             installer replaces the bundle after the app ends, and the newer build Sparkle installed (the feed's
+             newest) is opened by the harness, never by Sparkle. The round keeps the updater log's "launch pre-warm"
+             lines (prewarm_log). A second round of the same STATE then quits and reopens that build the same way
+             with no update (launch "second"), and the first round's first_over_second holds first/second for
+             first_window_ms, settled_ms, prior_chat_front_ms and prior_chat_live_ms
   kill       SIGKILL of the app (a crash)
   term       SIGTERM (origin .signal)
 Startup paths (startup_paths.py; Leo, 2026-11-17: "i mean across all startups we shoudl be fast ofc"):
@@ -51,7 +60,9 @@ STATEs:
 
   quit_gamut_check.py --dmg DMG [--update-dmg DMG] [--paths dock,scripted,kill,term,update] [--states ...]
       [--out DIR] [--video STATE,...]
-Prints one GAMUT-ROUND {json} per round and GAMUT {json} at the end; writes gamut.json and gamut.md to --out.
+Prints one GAMUT-ROUND {json} per round (and GAMUT-RATIO {json} per sparkle-update state) and GAMUT {json} at
+the end; writes gamut.json and gamut.md to --out. sparkle-update is not in the default paths (each round downloads
+and stages a real update): ask for it with --paths sparkle-update.
 --video records the screen (screencapture -v) from the quit to 8 s after the reopen for the named states.
 Exit 0 when every counted round passed, 1 when one failed, 3 when the run could not start.
 """
@@ -61,6 +72,7 @@ import argparse
 import errno
 import json
 import os
+import plistlib
 import shutil
 import signal
 import subprocess
@@ -76,9 +88,18 @@ import relaunch_restore_check as l5  # noqa: E402
 import stable_next_ui_journey as ui  # noqa: E402
 import startup_paths as startup  # noqa: E402
 
-PATHS = ("dock", "cmdq", "scripted", "update", "kill", "term", "fresh-install", "cold-cache", "loaded", "after-run")
+PATHS = ("dock", "cmdq", "scripted", "update", "sparkle-update", "kill", "term",
+         "fresh-install", "cold-cache", "loaded", "after-run")
 REOPEN_PATHS = ("cold-cache", "loaded", "after-run")  # a scripted quit, then a reopen changed by the path
 AFTER_RUN_S = 60.0
+KEEP_SESSIONS = ("update", "sparkle-update")
+# What a person who keeps automatic updates has in their own file (downloadAutomatically is user-only over the
+# socket): post-update-hitches.py's settings.
+SPARKLE_SETTINGS = {"app": {"quitBehavior": "keep"}, "updates": {"installOnQuit": True, "downloadAutomatically": True}}
+STAGE_S = 900.0
+PREWARM_S = 120.0
+INSTALL_S = 300.0
+RATIO_KEYS = ("first_window_ms", "settled_ms", "prior_chat_front_ms", "prior_chat_live_ms")
 STATES = ("stream", "idle", "midturn", "queued", "tool", "long", "many")
 IN_FLIGHT = ("stream", "midturn", "queued", "tool", "many")
 GATED = ("midturn", "queued", "tool", "many")
@@ -163,7 +184,7 @@ def quit_app(app: App, path: str) -> tuple[str | None, int | None]:
         reply = l5.call(app.sock, "action.run", {"action": "quit"}, timeout=10)
         if reply.get("error"):
             return f"action.run quit: {reply['error']}", None
-    elif path == "update":
+    elif path in KEEP_SESSIONS:
         reply = l5.call(app.sock, "action.run", {"action": "quitKeepSessions"}, timeout=10)
         if reply.get("error"):
             return f"action.run quitKeepSessions: {reply['error']}", None
@@ -311,6 +332,7 @@ class Gamut:
         self.rounds: list[dict] = []
         self.serial = 0
         self.pristine: Path | None = None  # cold-cache's unread copy of the bundle
+        self.sparkle: SparkleUpdate | None = None
 
     def boot(self, bundle: Path, env: dict) -> None:
         self.app = App(bundle, env, self.root)
@@ -488,10 +510,14 @@ class Gamut:
             log(f"video: {error}")
             return None
 
-    def round(self, path: str, state: str, update_bundle: Path | None) -> dict:
+    def round(self, path: str, state: str, update_bundle: Path | None, staged: dict | None = None) -> dict:
         self.serial += 1
-        name = f"{path}-{state}"
+        second = path == "sparkle-update" and staged is None
+        name = f"{path}-{state}" + ("-second" if second else "")
         row: dict = {"round": self.serial, "path": path, "state": state}
+        if path == "sparkle-update":
+            row["launch"] = "second" if second else "first"
+            row.update(staged or {})
         failures: list[str] = row.setdefault("failures", [])
         try:
             case = self.setup(state)
@@ -525,6 +551,12 @@ class Gamut:
         row["processes_ended_with_app"] = len(processes_before - set(gone) - {self.app.process.pid})
         if path == "update" and update_bundle is not None:
             swap_bundle(self.app.bundle, update_bundle)
+        if staged is not None:
+            # Sparkle's installer replaces the bundle once the app has ended (install on quit); the harness opens it.
+            why = self.sparkle.installed(row)
+            if why:
+                failures.append(why)
+                return row
         load = None
         if path == "cold-cache":
             row["cold"] = startup.make_cold(self.app.bundle, self.pristine, swap_bundle)
@@ -589,13 +621,21 @@ class Gamut:
         return row
 
     def run(self, bundle: Path, env: dict, update_bundle: Path | None, previous: Path | None) -> None:
+        def emit(row: dict) -> None:
+            self.rounds.append(row)
+            print("GAMUT-ROUND " + json.dumps(row, default=str), flush=True)
+
+        def restart() -> None:
+            if self.app.process.poll() is not None:
+                self.app.start()
+                wait_for(self.app.answers, 60, 0.25)
+
         for path in self.args.paths:
             for state in self.args.states:
-                if path == "update":
+                staged = None
+                if path in KEEP_SESSIONS:
                     if previous is None:
-                        row = {"path": path, "state": state, "not_run": "no older nightly to update from (--update-dmg)"}
-                        self.rounds.append(row)
-                        print("GAMUT-ROUND " + json.dumps(row), flush=True)
+                        emit({"path": path, "state": state, "not_run": "no older nightly to update from (--update-dmg)"})
                         continue
                     # The round starts on the older build, so the reopen is a real version handoff.
                     if self.app.process.poll() is None:
@@ -604,16 +644,148 @@ class Gamut:
                         except QuitFailed as error:
                             log(f"before the update round: {error}")
                     swap_bundle(self.app.bundle, previous)
+                    if path == "sparkle-update":
+                        self.sparkle = self.sparkle or SparkleUpdate(Path(env["HOME"]), self.app.bundle)
+                        self.sparkle.prepare()
                     self.app.start()
                     if not wait_for(self.app.answers, 60, 0.25):
-                        self.rounds.append({"path": path, "state": state, "failures": ["the older build never answered"]})
+                        emit({"path": path, "state": state, "failures": ["the older build never answered"]})
+                        if self.sparkle:
+                            self.sparkle.restore()
                         continue
-                row = self.round(path, state, update_bundle)
-                self.rounds.append(row)
-                print("GAMUT-ROUND " + json.dumps(row, default=str), flush=True)
-                if self.app.process.poll() is not None:
-                    self.app.start()
-                    wait_for(self.app.answers, 60, 0.25)
+                    if path == "sparkle-update":
+                        staged = self.sparkle.stage(self.app)
+                        if staged.get("failures"):
+                            emit({"path": path, "state": state, "launch": "first", **staged})
+                            self.sparkle.restore()
+                            restart()
+                            continue
+                row = self.round(path, state, update_bundle, staged)
+                emit(row)
+                restart()
+                if staged is not None and not row.get("installed_build"):
+                    self.sparkle.restore()  # the round stopped before the install: no second launch to compare
+                elif staged is not None:
+                    # The second launch of the build Sparkle installed: the same quit and reopen, no update.
+                    second = self.round(path, state, None)
+                    emit(second)
+                    row["first_over_second"] = {k: round(row[k] / second[k], 2) for k in RATIO_KEYS
+                                                if row.get(k) and second.get(k)}
+                    print("GAMUT-RATIO " + json.dumps({"state": state, "build": row.get("installed_build"),
+                                                       **row["first_over_second"]}), flush=True)
+                    restart()
+
+
+def bundle_build(bundle: Path) -> str | None:
+    try:
+        with open(bundle / "Contents" / "Info.plist", "rb") as handle:
+            return str(plistlib.load(handle).get("CFBundleVersion"))
+    except (OSError, plistlib.InvalidFileException):
+        return None
+
+
+class SparkleUpdate:
+    """The `sparkle-update` path's update: staged by the older build's own Sparkle, installed by Sparkle on quit."""
+
+    def __init__(self, home: Path, bundle: Path):
+        self.home, self.bundle = home, bundle
+        self.bundle_id, _ = smoke.bundle_info(bundle)
+        self.settings = home / ".config" / "cmux" / "cmux-next.json"
+        self.saved: str | None = None
+        self.from_build: str | None = None
+        # UpdateLogFile: Library/Logs/cmux-next/<bundle id>-updater.log, in the private home (CFFIXED_USER_HOME);
+        # the account's own is read too, in case the log follows the account's home as Sparkle's installer does.
+        name = f"{self.bundle_id}-updater.log"
+        self.logs = [home / "Library/Logs/cmux-next" / name, Path(os.path.expanduser("~")) / "Library/Logs/cmux-next" / name]
+        self.offsets: dict[Path, int] = {}
+
+    def prepare(self) -> None:
+        """Before the older build starts: the home's update settings and Sparkle's staging folder."""
+        self.from_build = bundle_build(self.bundle)
+        self.settings.parent.mkdir(parents=True, exist_ok=True)
+        if self.saved is None:
+            self.saved = self.settings.read_text() if self.settings.exists() else ""
+        current = json.loads(self.saved) if self.saved.strip() else {}
+        for group, values in SPARKLE_SETTINGS.items():
+            current.setdefault(group, {}).update(values)
+        self.settings.write_text(json.dumps(current, indent=1))
+        # The one-time "forget stored defaults" pass drops installOnQuit (true was a former default) from a file
+        # with no record of it, and quit then cancels the staged update (post-update-hitches.py, cmux9s 2026-11-16).
+        record = self.settings.with_name("cmux-next.json.defaults-forgotten.json")
+        if not record.exists():
+            record.write_text(json.dumps({"note": "quit gamut: this home's settings are a person's picks",
+                                          "dropped": {}, "kept": {}}, indent=1))
+        # Sparkle's installer runs from launchd with the account's home and stages under its Library/Caches; the app
+        # looks under the private home. The private folder points at the account's, so both see the staged bundle
+        # and the app's pre-warm finds it, as a person's app does (post-update-hitches.py, #44632).
+        sparkle = Path("Library/Caches") / self.bundle_id / "org.sparkle-project.Sparkle"
+        account = Path(os.path.expanduser("~")) / sparkle
+        account.mkdir(parents=True, exist_ok=True)
+        (self.home / sparkle).parent.mkdir(parents=True, exist_ok=True)
+        if not (self.home / sparkle).exists():
+            (self.home / sparkle).symlink_to(account, target_is_directory=True)
+        self.offsets = {log_path: log_path.stat().st_size if log_path.exists() else 0 for log_path in self.logs}
+
+    def restore(self) -> None:
+        """The home's settings as they were: no later round installs or downloads an update."""
+        if self.saved is not None:
+            self.settings.write_text(self.saved) if self.saved else self.settings.unlink(missing_ok=True)
+            self.saved = None
+
+    def prewarm_lines(self) -> list[str]:
+        lines = []
+        for log_path, start in self.offsets.items():
+            try:
+                with open(log_path, "rb") as handle:
+                    handle.seek(start)
+                    lines += [line for line in handle.read().decode(errors="replace").splitlines() if "launch pre-warm" in line]
+            except OSError:
+                pass
+        return lines
+
+    def stage(self, app: App) -> dict:
+        """Asks the running older build for an update until Sparkle has staged one and its pre-warm has ended."""
+        result: dict = {"from_build": self.from_build}
+        asked = time.monotonic()
+        reply = l5.call(app.sock, "action.run", {"action": "palette.checkForUpdates"}, timeout=30)
+        if reply.get("error"):
+            result["failures"] = [f"action.run palette.checkForUpdates: {reply['error']}"]
+            return result
+        status: dict = {}
+        def installing() -> bool:
+            nonlocal status
+            status = l5.call(app.sock, "updates.status", timeout=10)
+            return status.get("phase") == "installing"
+        if not wait_for(installing, STAGE_S, 2.0):
+            result["failures"] = [f"no update staged in {STAGE_S:.0f} s: {json.dumps(status)[:300]}"]
+            return result
+        result["stage_s"] = round(time.monotonic() - asked, 1)
+        result["staged_version"] = status.get("detected_version")
+        # The pre-warm's last line: "... ms in all", "nothing to run" or "no staged bundle" (StagedUpdatePrewarm).
+        done = wait_for(lambda: any(("in all" in line or "nothing to run" in line or "no staged bundle" in line)
+                                    for line in self.prewarm_lines()), PREWARM_S, 1.0)
+        result["prewarm_log"] = self.prewarm_lines()
+        result["prewarm_done"] = bool(done)
+        return result
+
+    def installed(self, row: dict) -> str | None:
+        """After the quit: waits for Sparkle's installer to replace the bundle; None, or why the round fails."""
+        try:
+            started = time.monotonic()
+            if not wait_for(lambda: bundle_build(self.bundle) not in (None, self.from_build), INSTALL_S, 1.0):
+                return f"install on quit left build {bundle_build(self.bundle)} (from {self.from_build}) after {INSTALL_S:.0f} s"
+            row["installed_build"] = bundle_build(self.bundle)
+            row["install_s"] = round(time.monotonic() - started, 1)
+            row["prewarm_log"] = self.prewarm_lines()
+            time.sleep(3)  # harness: a relaunch by Sparkle would show by now
+            executable = str(self.bundle / "Contents" / "MacOS") + "/"
+            ps = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True, timeout=20).stdout
+            relaunched = [line.split()[0] for line in ps.splitlines() if line.strip().split(None, 1)[-1].startswith(executable)]
+            if relaunched:
+                return f"something relaunched the app (pid {', '.join(relaunched)}): the reopen would lose its environment"
+            return None
+        finally:
+            self.restore()
 
 
 def swap_bundle(bundle: Path, source: Path) -> None:
@@ -649,6 +821,10 @@ def table(rows: list[dict]) -> str:
                      f"{gate.get('syspolicyd_span_ms')}, XProtect {gate.get('xprotect_span_ms')} ms; {notes}")
         elif r.get("cold") or r.get("load"):
             notes = f"{json.dumps(r.get('cold') or r.get('load'))}; {notes}"
+        if r.get("launch"):
+            ratio = r.get("first_over_second")
+            notes = (f"{r['launch']} launch of {r.get('installed_build') or 'this build'}"
+                     + (f", first/second {json.dumps(ratio)}" if ratio else "") + (f"; {notes}" if notes else ""))
         lines.append(f"| {r['path']} | {r['state']} | {ok} | {r.get('first_window_ms')} | {r.get('settled_ms')} | "
                      f"{r.get('prior_chat_live_ms')} | {r.get('warm_switch_ms')} | {r.get('quit_ms')} | {notes[:300]} |")
     return "\n".join(lines) + "\n"
