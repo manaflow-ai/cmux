@@ -8,7 +8,9 @@
 
 use std::cmp::Reverse;
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::sync::Arc;
 
+use super::index::Index;
 use super::intent::Intent;
 use super::item::FeedItem;
 
@@ -75,6 +77,8 @@ pub(crate) struct Ledger {
     /// Items hidden by a snooze, until when: they come back when `now`
     /// passes it.
     snoozed: HashMap<String, i64>,
+    /// The active items by filter, for the Inbox and filtered pages.
+    pub(crate) index: Index,
 }
 
 impl Ledger {
@@ -125,9 +129,13 @@ impl Ledger {
                 }
                 continue;
             }
-            if let Some(old) = old.cloned() {
+            let shared: Arc<str> = Arc::from(id);
+            if let Some(old) = self.visible.remove(id) {
                 self.count(&old, was_active, -1);
                 self.timeline.remove(&TimeKey::of(&old));
+                if was_active {
+                    self.index.remove(&old, &shared);
+                }
             }
             if let Some(key) = self.list_key.remove(id) {
                 self.list.remove(&key);
@@ -140,6 +148,7 @@ impl Ledger {
                         let key = ListKey::of(&new);
                         self.list.insert(key.clone());
                         self.list_key.insert(id.to_owned(), key);
+                        self.index.insert(&new, &shared);
                     }
                     match new.snoozed_until {
                         Some(until) if !new.is_archived() && until > now => {
@@ -153,7 +162,6 @@ impl Ledger {
                 }
                 None => {
                     self.snoozed.remove(id);
-                    self.visible.remove(id);
                 }
             }
             changed.push(id.to_owned());

@@ -1,15 +1,22 @@
 //! `feed.view.read`'s answer (plans/cmux-next/feed-page.md section 2): the
 //! layouts of Swift `FeedListSections` and `FeedInboxGroups`, read from the
-//! mirror's ordered list (no sort per read), with each item's row content,
-//! pending mark and GitHub detail.
+//! ledger's orders and filter index (no sort or scan per read), with each
+//! item's row content, pending mark and GitHub detail.
+//!
+//! A filter without a search query reads its slice of the index
+//! (`client/index.rs`): a page costs what it shows, and the totals are
+//! counts. A search query scans the panel list.
 
 use std::cell::Cell;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
-use super::filter::{Filter, Matcher};
+use super::filter::{Category, Filter, Matcher};
 use super::github::{self, GitHubSync};
+use super::index::{Slice, TimeKey};
 use super::item::FeedItem;
 use super::mirror::Mirror;
 use super::row::{Place, Row};
@@ -84,6 +91,24 @@ pub struct ViewContext<'a> {
     pub place: &'a dyn Fn(&FeedItem) -> Option<Place>,
 }
 
+/// Each group: its id, the entries built (at least the shown ones), and how
+/// many entries it has in all.
+type Group<'a> = (&'a str, Vec<Entry<'a>>, usize);
+
+/// The reader's day as Unix ms `[from, to)`: the items `day(created_at) ==
+/// day(now)` keeps. `None` when the bounds do not fit (an offset or a clock
+/// at the edge of the range), which the scan handles.
+fn day_bounds(now: i64, offset: i64) -> Option<(i64, i64)> {
+    let today = now.checked_add(offset)?.div_euclid(DAY_MS);
+    let from = today.checked_mul(DAY_MS)?.checked_sub(offset)?;
+    let to = today.checked_add(1)?.checked_mul(DAY_MS)?.checked_sub(offset)?;
+    // Any `created_at` outside `[from, to)` must fall on another day even
+    // where `created_at + offset` saturates.
+    let edge = i64::MAX.div_euclid(DAY_MS);
+    (today > i64::MIN.div_euclid(DAY_MS) && today < edge && offset % 60_000 == 0)
+        .then_some((from, to))
+}
+
 impl ViewContext<'_> {
     /// One item as the page reads it: its wire JSON, `pending`, `row`, and
     /// for a GitHub item `github` and `github_actions`.
@@ -92,7 +117,7 @@ impl ViewContext<'_> {
         let place = (self.place)(item);
         let detail = self.github.and_then(|github| github.detail(item));
         if let Some(object) = value.as_object_mut() {
-            object.insert("pending".to_owned(), json!(self.mirror.is_pending(&item.id)));
+            object.insert("pending".to_owned(), Value::Bool(self.mirror.is_pending(&item.id)));
             object.insert("row".to_owned(), json!(Row::of(item, place.as_ref())));
             if let Some(detail) = detail {
                 object.insert("github".to_owned(), detail.to_value());
@@ -104,51 +129,159 @@ impl ViewContext<'_> {
         value
     }
 
+    /// A visible item, counted as read by this view.
+    fn read(&self, id: &str) -> Option<&FeedItem> {
+        visit();
+        self.mirror.ledger().visible.get(id)
+    }
+
     /// The whole view.
     pub fn view(&self, request: &ViewRequest) -> Value {
-        let matcher = Matcher::new(request.filter.clone().unwrap_or_default());
+        let filter = request.filter.clone().unwrap_or_default();
         let limit = request.limit.unwrap_or(MAX_VIEW_ENTRIES).min(MAX_VIEW_ENTRIES);
-        let kept = || self.mirror.list().inspect(|_| visit()).filter(|item| matcher.keeps(item));
-        // Each group: its id, the entries built (at least the shown ones),
-        // and how many entries it has in all.
-        let mut groups: Vec<(&str, Vec<Entry<'_>>, usize)> = Vec::new();
-        let requests = || kept().filter(|item| item.is_open_request()).map(Entry::single);
-        let everything = matcher.is_everything();
-        match request.layout {
-            // Unfiltered, the list is already in group order (open requests
-            // first, counted by the ledger): build the page only, O(page)
-            // however many items the feed holds.
-            Layout::List | Layout::NeedsYou if everything => {
-                let open = self.mirror.counts().open_requests.min(self.mirror.list_len());
-                let mut list = self.mirror.list().inspect(|_| visit());
-                let shown = open.min(limit);
-                let id = if request.layout == Layout::List { "requests" } else { "needs_you" };
-                groups.push((id, list.by_ref().take(shown).map(Entry::single).collect(), open));
-                if request.layout == Layout::List {
-                    let rest_shown = if shown == open { limit.saturating_sub(shown) } else { 0 };
-                    let rest = list.take(rest_shown).map(Entry::single).collect();
-                    groups.push(("rest", rest, self.mirror.list_len().saturating_sub(open)));
-                }
+        let offset = i64::from(request.tz_offset_min.unwrap_or(0)).saturating_mul(60_000);
+        let searched = filter.query.as_deref().is_some_and(|query| !query.trim().is_empty());
+        let day = day_bounds(self.now, offset);
+        let slice = self.mirror.ledger().index.slice(filter.connection, filter.category);
+        let groups = match slice {
+            Some(slice) if !searched && (request.layout != Layout::Inbox || day.is_some()) => {
+                self.indexed(slice, request.layout, filter.category, limit, day)
             }
+            _ => self.scanned(Matcher::new(filter), request.layout, offset),
+        };
+        self.answer(groups, limit)
+    }
+
+    /// The groups from a slice of the index: only the shown entries are
+    /// built; totals are counts.
+    fn indexed<'a>(
+        &'a self,
+        slice: &'a Slice,
+        layout: Layout,
+        category: Category,
+        limit: usize,
+        day: Option<(i64, i64)>,
+    ) -> Vec<Group<'a>> {
+        let mut left = limit;
+        let open_total = slice.open_len();
+        let open: Vec<Entry<'a>> =
+            slice.open().take(left).filter_map(|id| self.read(id)).map(Entry::single).collect();
+        left = left.saturating_sub(open.len());
+        // Needs you keeps the open requests only.
+        let rest_total = if category == Category::NeedsYou { 0 } else { slice.rest_len() };
+        match layout {
             Layout::List => {
-                groups.push(whole("requests", requests().collect()));
-                let rest = kept().filter(|item| !item.is_open_request()).map(Entry::single);
-                groups.push(whole("rest", rest.collect()));
+                let rest: Vec<Entry<'a>> = slice
+                    .rest()
+                    .take(if rest_total == 0 { 0 } else { left })
+                    .filter_map(|id| self.read(id))
+                    .map(Entry::single)
+                    .collect();
+                vec![("requests", open, open_total), ("rest", rest, rest_total)]
             }
-            Layout::NeedsYou => groups.push(whole("needs_you", requests().collect())),
+            Layout::NeedsYou => vec![("needs_you", open, open_total)],
             Layout::Inbox => {
-                let offset = i64::from(request.tz_offset_min.unwrap_or(0)).saturating_mul(60_000);
+                let (mut today, mut earlier) = (Vec::new(), Vec::new());
+                let (mut today_total, mut earlier_total) = (0, 0);
+                if let (Some((from, to)), true) = (day, rest_total > 0) {
+                    let future = slice.future_threads(from, to, |id| {
+                        self.read(id).and_then(|item| item.thread.as_deref()).map(Arc::from)
+                    });
+                    (today_total, earlier_total) = slice.day_totals(from, to, &future);
+                    today = self.day_entries(slice, (from, to), left, true);
+                    left = left.saturating_sub(today.len());
+                    earlier = self.day_entries(slice, (from, to), left, false);
+                }
+                vec![
+                    ("needs_you", open, open_total),
+                    ("today", today, today_total),
+                    ("earlier", earlier, earlier_total),
+                ]
+            }
+        }
+    }
+
+    /// Today's (`today`) or Earlier's first `budget` entries: each thread
+    /// collapsed under its newest item in the group, members fetched from
+    /// the thread's own order. The walk reads only shown heads and the
+    /// members of shown entries.
+    fn day_entries<'a>(
+        &'a self,
+        slice: &'a Slice,
+        (from, to): (i64, i64),
+        budget: usize,
+        today: bool,
+    ) -> Vec<Entry<'a>> {
+        let mut entries = Vec::new();
+        if budget == 0 {
+            return entries;
+        }
+        let heads: Box<dyn Iterator<Item = &TimeKey>> = if today {
+            Box::new(slice.rest_between(Some(from), Some(to)))
+        } else {
+            // Later days first (newest first), then the days before.
+            Box::new(slice.rest_between(Some(to), None).chain(slice.rest_between(None, Some(from))))
+        };
+        let mut seen: HashSet<&str> = HashSet::new();
+        for key in heads {
+            if entries.len() >= budget {
+                break;
+            }
+            let Some(head) = self.read(&key.id) else { continue };
+            let Some(thread) = head.thread.as_deref() else {
+                entries.push(Entry::single(head));
+                continue;
+            };
+            if !seen.insert(thread) {
+                continue;
+            }
+            let members: Vec<&FeedItem> = if today {
+                slice
+                    .thread_after(thread, key, Some(from))
+                    .filter_map(|m| self.read(&m.id))
+                    .collect()
+            } else if key.time() >= to {
+                slice
+                    .thread_after(thread, key, Some(to))
+                    .chain(slice.thread_before(thread, from))
+                    .filter_map(|m| self.read(&m.id))
+                    .collect()
+            } else {
+                slice.thread_after(thread, key, None).filter_map(|m| self.read(&m.id)).collect()
+            };
+            entries.push(Entry { head, members });
+        }
+        entries
+    }
+
+    /// The groups of a search: every kept item of the panel list is read.
+    fn scanned(&self, matcher: Matcher, layout: Layout, offset: i64) -> Vec<Group<'_>> {
+        let kept = || self.mirror.list().inspect(|_| visit()).filter(|item| matcher.keeps(item));
+        let requests = || kept().filter(|item| item.is_open_request()).map(Entry::single);
+        match layout {
+            Layout::List => {
+                let rest = kept().filter(|item| !item.is_open_request()).map(Entry::single);
+                vec![whole("requests", requests().collect()), whole("rest", rest.collect())]
+            }
+            Layout::NeedsYou => vec![whole("needs_you", requests().collect())],
+            Layout::Inbox => {
                 let day = |ms: i64| ms.saturating_add(offset).div_euclid(DAY_MS);
                 let today = day(self.now);
                 let (mut recent, mut older) = (Vec::new(), Vec::new());
                 for item in kept().filter(|item| !item.is_open_request()) {
                     if day(item.created_at) == today { recent.push(item) } else { older.push(item) }
                 }
-                groups.push(whole("needs_you", requests().collect()));
-                groups.push(whole("today", threads(recent)));
-                groups.push(whole("earlier", threads(older)));
+                vec![
+                    whole("needs_you", requests().collect()),
+                    whole("today", threads(recent)),
+                    whole("earlier", threads(older)),
+                ]
             }
         }
+    }
+
+    /// The answer around the groups: the first `limit` entries across them.
+    fn answer(&self, groups: Vec<Group<'_>>, limit: usize) -> Value {
         let total: usize = groups.iter().map(|(_, _, len)| len).sum();
         let mut left = limit;
         let groups: Vec<Value> = groups
@@ -158,7 +291,7 @@ impl ViewContext<'_> {
                 left = left.saturating_sub(shown);
                 let entries: Vec<Value> =
                     entries.iter().take(shown).map(|entry| entry.to_value(self)).collect();
-                json!({"id": id, "entries": entries})
+                object([("id", Value::from(id)), ("entries", Value::Array(entries))])
             })
             .collect();
         let counts = self.mirror.counts();
@@ -167,23 +300,40 @@ impl ViewContext<'_> {
             Some(reason) => json!({"state": connection.state(), "reason": reason}),
             None => json!({"state": connection.state()}),
         };
-        json!({
-            "revision": self.mirror.revision(),
-            "loaded": self.mirror.loaded(),
-            "account": self.account.map(|account| json!({"id": account.id, "user": account.user})),
-            "connection": connection_value,
-            "counts": {
-                "open_requests": counts.open_requests,
-                "unread_notices": counts.unread_notices,
-                "badge": counts.badge(),
-                "unread": counts.unread,
-            },
-            "github": {"enabled": self.github_enabled},
-            "reports": {"available": self.reports_available},
-            "groups": groups,
-            "total": total,
-        })
+        // Built by moving each part in: `json!` would copy every entry again.
+        object([
+            ("revision", json!(self.mirror.revision())),
+            ("loaded", Value::Bool(self.mirror.loaded())),
+            (
+                "account",
+                self.account
+                    .map_or(Value::Null, |account| json!({"id": account.id, "user": account.user})),
+            ),
+            ("connection", connection_value),
+            (
+                "counts",
+                json!({
+                    "open_requests": counts.open_requests,
+                    "unread_notices": counts.unread_notices,
+                    "badge": counts.badge(),
+                    "unread": counts.unread,
+                }),
+            ),
+            ("github", json!({"enabled": self.github_enabled})),
+            ("reports", json!({"available": self.reports_available})),
+            ("groups", Value::Array(groups)),
+            ("total", json!(total)),
+        ])
     }
+}
+
+/// An object of moved members (no copy of any value).
+fn object<const N: usize>(members: [(&str, Value); N]) -> Value {
+    let mut map = Map::new();
+    for (key, value) in members {
+        map.insert(key.to_owned(), value);
+    }
+    Value::Object(map)
 }
 
 /// One row: an item, or a collapsed thread headed by its newest item.
@@ -208,12 +358,16 @@ impl<'a> Entry<'a> {
             None => head.id.clone(),
         };
         let members: Vec<Value> = self.members.iter().map(|item| context.item(item)).collect();
-        json!({
-            "id": id,
-            "item": context.item(head),
-            "members": members,
-            "unread": std::iter::once(head).chain(self.members.iter().copied()).filter(|item| item.is_unread()).count(),
-        })
+        let unread = std::iter::once(head)
+            .chain(self.members.iter().copied())
+            .filter(|item| item.is_unread())
+            .count();
+        object([
+            ("id", Value::String(id)),
+            ("item", context.item(head)),
+            ("members", Value::Array(members)),
+            ("unread", json!(unread)),
+        ])
     }
 }
 
@@ -221,7 +375,7 @@ impl<'a> Entry<'a> {
 /// entry's head is its newest item and entries stay newest first.
 fn threads(items: Vec<&FeedItem>) -> Vec<Entry<'_>> {
     let mut entries: Vec<Entry<'_>> = Vec::new();
-    let mut index: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    let mut index: HashMap<&str, usize> = HashMap::new();
     for item in items {
         match &item.thread {
             Some(thread) => match index.get(thread.as_str()) {
@@ -242,7 +396,7 @@ fn threads(items: Vec<&FeedItem>) -> Vec<Entry<'_>> {
 }
 
 /// A group whose entries are all built: its id, entries and their count.
-fn whole<'a>(id: &'a str, entries: Vec<Entry<'a>>) -> (&'a str, Vec<Entry<'a>>, usize) {
+fn whole<'a>(id: &'a str, entries: Vec<Entry<'a>>) -> Group<'a> {
     let len = entries.len();
     (id, entries, len)
 }

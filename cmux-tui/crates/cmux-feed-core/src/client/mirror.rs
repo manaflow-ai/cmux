@@ -112,6 +112,11 @@ pub struct Mirror {
     confirmed: HashMap<String, FeedItem>,
     /// Pending intents in send order.
     pending: Vec<Intent>,
+    /// How many pending intents name each id, and how many name every id
+    /// (Mark All Read): the view's pending mark per row, without a scan of
+    /// the intents.
+    pending_ids: HashMap<String, usize>,
+    pending_all: usize,
     ledger: Ledger,
     /// Bumps once per commit that changes anything shown.
     revision: u64,
@@ -136,6 +141,8 @@ impl Mirror {
             connection: Connection::Disconnected("signed_out".to_owned()),
             confirmed: HashMap::new(),
             pending: Vec::new(),
+            pending_ids: HashMap::new(),
+            pending_all: 0,
             ledger: Ledger::default(),
             revision: 0,
             hydrated: false,
@@ -204,7 +211,38 @@ impl Mirror {
 
     /// An intent on this item still waits for an owner.
     pub fn is_pending(&self, id: &str) -> bool {
-        self.pending.iter().any(|intent| intent.touches(id))
+        self.pending_all > 0 || self.pending_ids.contains_key(id)
+    }
+
+    /// The ledger: the visible items, their orders and the filter index.
+    pub(crate) fn ledger(&self) -> &Ledger {
+        &self.ledger
+    }
+
+    /// Counts `intent` in (or out of) the pending marks.
+    fn mark_pending(
+        pending_ids: &mut HashMap<String, usize>,
+        pending_all: &mut usize,
+        intent: &Intent,
+        add: bool,
+    ) {
+        let Some(ids) = intent.items() else {
+            *pending_all =
+                if add { pending_all.saturating_add(1) } else { pending_all.saturating_sub(1) };
+            return;
+        };
+        let ids: HashSet<&str> = ids.into_iter().collect();
+        for id in ids {
+            if add {
+                let count = pending_ids.entry(id.to_owned()).or_default();
+                *count = count.saturating_add(1);
+            } else if let Some(count) = pending_ids.get_mut(id) {
+                *count = count.saturating_sub(1);
+                if *count == 0 {
+                    pending_ids.remove(id);
+                }
+            }
+        }
     }
 
     pub fn has_pending(&self, key: &str) -> bool {
@@ -315,6 +353,7 @@ impl Mirror {
             None => self.ledger.visible.keys().cloned().collect(),
         };
         let forced: HashSet<String> = touched.iter().cloned().collect();
+        Self::mark_pending(&mut self.pending_ids, &mut self.pending_all, &intent, true);
         self.pending.push(intent);
         let commit = match self.commit(touched, &forced, now, false) {
             Some(commit) => commit,
@@ -416,6 +455,9 @@ impl Mirror {
                 Some(ids) => touched.extend(ids.into_iter().map(str::to_owned)),
                 None => touched.extend(self.ledger.visible.keys().cloned()),
             }
+        }
+        for intent in self.pending.iter().filter(|intent| intent.key == key) {
+            Self::mark_pending(&mut self.pending_ids, &mut self.pending_all, intent, false);
         }
         self.pending.retain(|intent| intent.key != key);
         touched

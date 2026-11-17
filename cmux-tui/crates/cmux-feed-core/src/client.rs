@@ -12,6 +12,7 @@ mod choice;
 mod cloud;
 mod filter;
 pub mod github;
+mod index;
 mod intent;
 mod item;
 mod ledger;
