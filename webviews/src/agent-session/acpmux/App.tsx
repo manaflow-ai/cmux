@@ -9656,6 +9656,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           leave: () => client.leave(),
           startsOnSend: () => client.startsOnSend,
           open: (sessionId) => client.select(sessionId),
+          attached: (sessionId) => client.shownAndAttached(sessionId),
           // A prompt held behind the trust question goes with the gesture its send kept.
           send: (text, attachments, promptId, ticket) => {
             // One the folder's trust held (trustHeld.ts) goes with its own send's ticket.

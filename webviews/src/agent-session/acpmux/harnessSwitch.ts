@@ -78,6 +78,9 @@ export type SwitchPort = {
   leave(): void;
   /// Shows and attaches `sessionId`; undefined when a newer selection won.
   open(sessionId: string): Promise<string | undefined>;
+  /// Whether `sessionId` is the chat on screen and attached (direct.ts `shownAndAttached`): an open
+  /// that answered undefined although a newer open of the same chat attached it is opened.
+  attached?(sessionId: string): Promise<boolean>;
   /// Sends a prompt to the shown session, its optimistic row keyed by `promptId`. `ticket`: the
   /// gesture ticket its send took while the switch held it (`transport.gesture`), sent with it.
   send(text: string, attachments: ComposerAttachment[], promptId: string, ticket?: string): Promise<unknown>;
@@ -715,6 +718,13 @@ export class HarnessSwitch {
       return;
     }
     if (this.intent !== intent) return;
+    // A newer open of this same chat won (its store sub fell and opened it again, issue 44964): with
+    // the chat on screen and attached, the start is opened, not "cmux did not start a session".
+    if (!opened && this.port === port && port.shown()?.sessionId === sessionId) {
+      const attached = await port.attached?.(sessionId).catch(() => false);
+      if (this.intent !== intent) return;
+      if (attached && port.shown()?.sessionId === sessionId) opened = sessionId;
+    }
     if (!opened) {
       intent.running = undefined;
       if (this.port === port) this.fail(intent, new Error(t("switch.noSession")));

@@ -336,7 +336,9 @@ test("a new chat whose sub is refused while its hold is out: the open resolves t
     await settle(() =>
       asked.some((ask) => ask.method === "_acpmux/attach" && ask.params.sessionId === started && ask.params.hold),
     );
-    feed([JSON.stringify({ kind: "chatError", sid: sids.get(started)!, method: "sub", id: null, code: "invalid_request" })]);
+    feed([
+      JSON.stringify({ kind: "chatError", sid: sids.get(started)!, method: "sub", id: null, code: "invalid_request" }),
+    ]);
     // The fall opens the chat again, as v1.
     await settle(() =>
       asked.some((ask) => ask.method === "_acpmux/attach" && ask.params.sessionId === started && !ask.params.hold),
