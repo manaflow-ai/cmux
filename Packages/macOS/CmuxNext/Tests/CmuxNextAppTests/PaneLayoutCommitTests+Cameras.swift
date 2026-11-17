@@ -47,6 +47,38 @@ extension PaneLayoutCommitTests {
         #expect(harness.provider.released == ["p2"], "the closed pane was not torn down after that frame's commit: \(harness.provider.released)")
     }
 
+    /// The same close, of the pane that has the focus, with the panes without the focus dimmed. The rings and dims are
+    /// part of what a frame shows: the key's turn leaves them as they were, so the pane that gets the focus keeps its dim
+    /// while the closed pane still shows, and the frame tick that hides the closed pane gives it the focus's look.
+    @Test func aKeysCloseWhileACameraMovesKeepsTheRingsAndDimsUntilTheFrameThatPlacesThePanes() throws {
+        let harness = Harness(Self.strip([1, 2, 3, 4]), focused: "p1", holds: false) { $0.rowsEnabledOverride = true }
+        defer { harness.window.closeAfterTest() }
+        // The columns that stay keep their widths (no setting of the Mac the test runs on resizes them).
+        harness.model.newColumnWidthModeOverride = .matchCurrent
+        harness.model.dimsInactivePanes = true
+        Self.rest(harness)
+        let screen = try #require(harness.screen)
+        // The focus goes to the last column: the strip's camera starts its way there, and no frame has stepped it.
+        harness.model.focus("p4", notify: false)
+        harness.root.syncWithModel()
+        let closed = try #require(harness.root.context.hosts["p4"])
+        let next = try #require(harness.root.context.hosts["p3"])
+        let before = try #require(next.chromeInputs, "set-up: the pane beside the focused one has no ring or dim state")
+        try #require(before.dim > 0 && !before.focused, "set-up: the pane beside the focused one is not dimmed: \(before.dim)")
+
+        _ = try #require(harness.model.showPaneClose("p4"), "set-up: the model left p4's close to the daemon's tree")
+        try #require(harness.model.focusedPane == "p3", "set-up: the close gave the focus to \(String(describing: harness.model.focusedPane))")
+        harness.root.syncWithModelForNextFrame()
+        try #require(screen.hasMotion && !closed.isHidden, "set-up: the key's turn showed the close: no camera moves")
+        #expect(next.chromeInputs == before,
+                "the key's turn changed the dim of the pane that gets the focus while the closed pane still shows: \(String(describing: next.chromeInputs?.dim))")
+
+        _ = harness.root.advanceFrame(PaneMotionBench.frameBudget)
+        #expect(closed.isHidden, "the frame tick that places the panes still shows the closed pane")
+        #expect(next.chromeInputs?.focused == true && next.chromeInputs?.dim == 0,
+                "the frame that shows the close did not give the pane that gets the focus its look: dim \(String(describing: next.chromeInputs?.dim))")
+    }
+
     // MARK: A close that moves a camera
 
     /// One full-width column of rows (`heights` in permille of the column), as the daemon sends it: the rows, and the
