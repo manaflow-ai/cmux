@@ -4,7 +4,7 @@ import Testing
 /// `TabMovePlace`: a pending tab move keeps its place by the tabs beside it, and the store takes the move's index from
 /// them each time it applies its pending intents again. One row for each part of the rule.
 ///
-/// Decision of 2026-11-16: a moved tab that shows one slot off its place when the list changes under a pending move
+/// A moved tab that shows one slot off its place when the list changes under a pending move
 /// is an order fault. The fault's own rows, with a person's hidden close, are in
 /// `AMoveMadeWhileACloseIsHiddenKeepsItsSlotTests`. The rows here are the rule's other parts: they pass by design, and
 /// no run at the code before the rule is their proof.
@@ -14,7 +14,7 @@ import Testing
 /// (`DaemonStore.rejectIntent`) makes it longer again, so the move's index and the move's place name two different
 /// slots.
 ///
-/// Three more rows are for a refusal of the daemon and for a held close (decision of 2026-11-17: the store's
+/// Three more rows are for a refusal of the daemon and for a held close (the store's
 /// place is the place that the daemon's own move gives, where the store can know it). No row sends a command: the
 /// daemon's order in a row's comment is the move to the index that `DaemonStore.daemonMoveIndex` gives the command,
 /// made by hand on the daemon's list, and the row reads that index. The closed tab of these rows is right of the
@@ -22,7 +22,7 @@ import Testing
 /// `AMoveMadeWhileACloseIsHiddenKeepsItsSlotTests`: there the store's order is not the daemon's.
 ///
 /// The row of the refused move and the two rows after it are for a later move whose left neighbour has a waiting
-/// move of its own (second decision of 2026-11-17: that move has no place while the neighbour's move waits). The
+/// move of its own (that move has no place while the neighbour's move waits). The
 /// last row pins the limit of that rule.
 @MainActor
 struct TabMovePlaceTests {
@@ -170,7 +170,7 @@ struct TabMovePlaceTests {
     /// `M` moves right after `N` (`t a b N M c`; its command has the index 4). The move of `N` is refused. The
     /// daemon's list is then `t a b c N M`, and its move of `M` to index 4 gives `t a b c M N`. The store shows that
     /// order at the refusal: `M` had no place while the move of `N` waited, so it goes by its own index 4, and its
-    /// place is read when the move of `N` left the log. Until the second decision of 2026-11-17 this row pinned a
+    /// place is read when the move of `N` left the log. Before that rule this row pinned a
     /// limit: `M` stayed right after `N` (`t a b c N M`) until the answer of its own move settled.
     ///
     /// Who reaches it:
@@ -210,10 +210,10 @@ struct TabMovePlaceTests {
     /// event. The app refuses its move for that answer only when the tab goes to another pane, so the move of `t`
     /// settles (`DaemonStore.noteSettled`) and leaves the log. The daemon's list is `t a b`, and its move of `a` to
     /// index 2 gives `t b a`. The store shows that order when the move of `t` settles: `a` had no place while that
-    /// move waited. Until the second decision of 2026-11-17 the store showed `t a b` (`a` directly after `t`) until
+    /// move waited. Before that rule the store showed `t a b` (`a` directly after `t`) until
     /// the answer of `a`'s move settled, and this row failed.
     ///
-    /// Who reaches it, by a read of 2026-11-17. The pinned column's rule has 2 ways for a move inside the pane
+    /// Who reaches it, by a read. The pinned column's rule has 2 ways for a move inside the pane
     /// (`cmux-tui/crates/cmux-tui-core/src/mux/pinned_columns.rs`, `violation`): the column's first tab does not
     /// move from the first place, and no other tab moves to the first place before it. A person drags the column's
     /// first tab inside its strip, or moves it with Move Tab Right, or drags another tab before it. The strip does

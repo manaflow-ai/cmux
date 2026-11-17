@@ -67,8 +67,8 @@ public final class WorkLine<Result: Sendable> {
     /// `limit` (a timer of `owner`), then for `earlier`, the place before the work's (``WorkTurn/earlier``). The wait for
     /// the earlier place gives time, so the thing can be hidden when the turn comes. While it is, and `mayReturn` holds
     /// (what hid it has not ended, so it can come back), the work is counted (``targetsHiddenAtTheirTurn``) and waits for
-    /// the thing again, inside the same limit. That wait also ends when `mayReturn` no longer holds (decision of
-    /// 2026-11-17): the thing is then gone for good, and the works behind this one must not wait for the limit. So
+    /// the thing again, inside the same limit. That wait also ends when `mayReturn` no longer holds:
+    /// the thing is then gone for good, and the works behind this one must not wait for the limit. So
     /// `mayReturn` reads observed values, as `listed` does. A work that did not wait would act on nothing, and the
     /// thing would stay off its place when it came back. True when the thing was listed inside the limit; the caller
     /// reads it again, as it can be gone for good.

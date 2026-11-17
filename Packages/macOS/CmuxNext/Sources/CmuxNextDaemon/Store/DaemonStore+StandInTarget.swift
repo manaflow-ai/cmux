@@ -74,7 +74,7 @@ extension DaemonStore {
         if !rejected { intentLog.noteStandInSettled(entry) }
         // A close that leaves the log changes `closedLately` and `closePending` for its tabs: the tab lists publish
         // (`tabListRevision`), so a new tab's move waiting for one of them stops even when its `tab-closed` applied before
-        // the reply. A refused close too (decision of 2026-11-17): it gives no tab back when the daemon closed the tab.
+        // the reply. A refused close too: it gives no tab back when the daemon closed the tab.
         if case .closeTabs = entry.kind { index.noteTabOrderChanged() }
         guard !rejected, case .createWorkspace(let provisional, _) = entry.kind,
               let workspace = workspacesByKey[provisional.key], !workspace.isProvisional else { return }

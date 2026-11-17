@@ -6,7 +6,7 @@ import Testing
 /// A new tab's move that is made while a close of a tab left of it is not settled: the new tab stays right after the
 /// tab it follows when that close goes on, when its tab comes back, and when the daemon refuses it.
 ///
-/// Decision of 2026-11-16: a new tab that shows one slot left of its place is an order fault that a person can see,
+/// A new tab that shows one slot left of its place is an order fault that a person can see,
 /// not a rare frame of a sample test. `NewTabCloseInterleaveOrderTests` samples the strip against a real daemon, so it
 /// sees that order only when a sample falls in it (`the strip reordered: ["abNc", "bNc", "Nbc", "bNc"]`). This suite
 /// makes the same steps at the store in one turn of the main actor: no daemon, no window, no wait, no sample loop.

@@ -14,8 +14,8 @@ import Testing
 /// hidden at their turn, which is the count of second waits, and how many times the limit's timer fired (the wakeup
 /// ledger's count for the row's own owner name).
 ///
-/// The function was new with the first six rows, so they have no red first. The last row has one (decision of
-/// 2026-11-17: the second wait ends when the thing can no longer come back, not at its limit): before that mend its
+/// The function was new with the first six rows, so they have no red first. The last row has one (the
+/// second wait ends when the thing can no longer come back, not at its limit): before that mend its
 /// wait ends by its limit, and the row fails by its count of the timer's fires.
 ///
 /// Limits:

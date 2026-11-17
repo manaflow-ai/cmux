@@ -11,7 +11,7 @@ import Testing
 /// its slot right after the tab it follows, also when the hide came while the tab's move waited for its turn. And a
 /// new tab that is gone for good in that time does not hold the moves of the pane's later new tabs.
 ///
-/// Decision of 2026-11-16: a new tab that shows off its place is an order fault that a person can see.
+/// A new tab that shows off its place is an order fault that a person can see.
 /// `NewTabCloseInterleaveOrderTests.aNewTabWhoseCloseIsUndoneStillTakesItsSlot` hides the tab from a poll, so the
 /// hide falls in this step only in some runs. This suite makes the step in each run.
 ///
@@ -244,7 +244,7 @@ struct ANewTabHiddenWhileItsMoveWaitsTakesItsSlotTests {
     }
 
     /// The new tab leaves its pane with no close of the person (the daemon closes it, as when its program ends) while
-    /// its move waits for its turn. No close names the tab, so nothing can give it back. Decision of 2026-11-17: the
+    /// its move waits for its turn. No close names the tab, so nothing can give it back. The
     /// move task does not wait for such a tab, so the move of the pane's next new tab does not wait for a limit of
     /// 10 s.
     ///
@@ -292,7 +292,7 @@ struct ANewTabHiddenWhileItsMoveWaitsTakesItsSlotTests {
 
     /// The daemon closes the new tab while a close of the person hides it, and then that close is refused: the tab is
     /// gone, no close names it, and no close settled. The new tab's move task waits for the tab then (its second
-    /// wait). Decision of 2026-11-17: that wait ends when no close that is not settled names the tab, not at its
+    /// wait). That wait ends when no close that is not settled names the tab, not at its
     /// limit of 10 s, so the move of the pane's next new tab does not wait for that limit.
     ///
     /// The row makes the step as the first row does. Then the test's own connection closes the new tab at the daemon,

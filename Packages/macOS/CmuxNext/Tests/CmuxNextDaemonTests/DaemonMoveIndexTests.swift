@@ -114,7 +114,7 @@ struct DaemonMoveIndexTests {
         #expect(store.closedLately(Self.surfaces[1]))
     }
 
-    /// Decision of 2026-11-17: the daemon's records drop the tab (the daemon closed it on its own), and then the
+    /// The daemon's records drop the tab (the daemon closed it on its own), and then the
     /// close of the person is refused. The refusal gives nothing back, so no list changes. The refusal alone still
     /// tells a reader of the tab lists (a new tab's move that waits for its tab) that the close ended.
     @Test func aCloseRefusedAfterItsRecordsTellsTheReadersOfTheTabLists() throws {

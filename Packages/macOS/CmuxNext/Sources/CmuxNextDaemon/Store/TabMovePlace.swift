@@ -4,11 +4,11 @@
 /// before each daemon apply and each settlement, and applies them again after (`DaemonStore.withOverlayLifted`). The
 /// pane's list can have another length then: a tab that a pending close hid is back (its hide ended, or the daemon
 /// refused the close), a stand-in left. The same index is then another place. A new tab that moved right after `b`
-/// while a close of `a` was hidden showed before `b` when the hide ended (`a N b c`, then `N b c`). Decision of
-/// 2026-11-16: that order is a fault. So the log keeps the move's place by its neighbours, read one time at the
+/// while a close of `a` was hidden showed before `b` when the hide ended (`a N b c`, then `N b c`). That order
+/// is a fault. So the log keeps the move's place by its neighbours, read one time at the
 /// move's first apply (``PendingIntent/movePlace``), and each later apply takes the index from them.
 ///
-/// Decision of 2026-11-17: the store's place is the place that the daemon's own move gives, where the store can
+/// The store's place is the place that the daemon's own move gives, where the store can
 /// know it. The command to the daemon has an index that counts from the left of the daemon's list
 /// (`DaemonStore.daemonMoveIndex`), so on that list the tab lands directly after its left neighbour. So the two
 /// neighbours are read in the daemon's order (`DaemonStore.daemonOrder`: the visible tabs and the tabs of each close
@@ -16,7 +16,7 @@
 /// That is the daemon's order when a held close is rolled back, and when the daemon refuses a sent close of a tab
 /// right of the place.
 ///
-/// Second decision of 2026-11-17: a move has no place while the tab on its left has a waiting move of its own. The
+/// A move has no place while the tab on its left has a waiting move of its own. The
 /// store does not know where that tab is on the daemon's list then: the daemon can refuse its move, and it can
 /// leave the tab where it was with no error (a pinned column keeps its first tab at the first place). A place
 /// directly after that tab showed the later moved tab one slot off the daemon's order in each of the two cases. So
