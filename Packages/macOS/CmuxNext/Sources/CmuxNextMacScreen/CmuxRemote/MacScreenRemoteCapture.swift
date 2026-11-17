@@ -30,7 +30,7 @@ nonisolated struct MacScreenRemoteCapture: Sendable {
             "params": ["name": session.name, "view_only": session.viewOnly, "ice_servers": AttachedScreenHost.fields(servers)] as [String: Any],
         ]
         guard channel.write(request) else { throw CmuxRemoteError.refused("cmux Remote closed the screen channel") }
-        let (states, state) = AsyncStream.makeStream(of: RelayState.self, bufferingPolicy: .unbounded)
+        let (states, state) = AsyncStream.makeStream(of: RelayState.self, bufferingPolicy: .bufferingOldest(8))
         // task-owner: the channel's reader; it ends with the channel (the session's end or Stop).
         Task.detached {
             var answered = false
