@@ -3389,6 +3389,22 @@ def nightly_retry_destinations(api: GitHub, target: Target, sleep: Callable[[flo
     return found
 
 
+# The Blacksmith label a re-run of a picker-routed workflow takes after the picker put attempt 1 on an owned pool
+# (the only placement the sweeper watches): test-ios.yml's jobs read `retry_runs_on` from its runner job, which
+# ios_runner_pool.py sets to SMALL_RUNNER for a persistent placement (a test keeps them equal). retry_labels()
+# cannot see through a picker output (PICKED_RETRY), so without this every Blacksmith label counted: on
+# 2026-11-16 one Seed DerivedData job queued on blacksmith-12vcpu-macos-26 from 09:33Z held run 43863208774's
+# ios-simulator-build on glaeda-ios-sim, whose every carrier was held off, from 13:21Z on.
+PICKED_PERSISTENT_RETRY = {IOS_TEST_WORKFLOW_PATH: pr_runner_pool.DEFAULT_RUNNER}
+
+
+def picked_retry_destinations(target: Target) -> set[str] | None:
+    """The label a re-run of an owned placement takes when the workflow's picker fixes it (PICKED_PERSISTENT_RETRY),
+    or None when the workflow's labels decide."""
+    label = PICKED_PERSISTENT_RETRY.get(str(target.path or ""))
+    return {label} if label else None
+
+
 # The side label rerun_side_label() judges when SIDE_LANE_RUNNER is unset (a test, a local run): cmux-next.yml's
 # default side label. The re-run then takes RUNNER_POOLS, so judging this label only holds a job more often.
 CMUX_NEXT_SIDE_FALLBACK = "glaeda-side-std-xcode-26.6"
@@ -3478,7 +3494,7 @@ def move_verdict(api: GitHub, target: Target, *, now: dt.datetime, sleep: Callab
     states = blacksmith_states(snapshot, now)
     if all(state == "free" for state in states.values()):
         return "free", ""
-    resolved = nightly_retry_destinations(api, target, sleep, log)
+    resolved = nightly_retry_destinations(api, target, sleep, log) or picked_retry_destinations(target)
     unknown = sorted((resolved or set()) - set(states))
     if unknown:
         # A label the snapshot's pools do not list has no state to judge: the workflow's labels decide instead.
