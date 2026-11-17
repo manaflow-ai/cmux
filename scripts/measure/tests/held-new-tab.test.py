@@ -12,7 +12,9 @@ packs one file for the step to bring back.
 The `activate` form asked for the shell window as the key window at each sequence. The app shows a Chromium page in a
 window of its own that has the keys while the pane shows the page, and it refuses the shell window then: the
 preflight's Cmd-W, on the new tab page that its own Cmd-T made, failed, and each run went on in the `one-key` form.
-The script now asks for the window that has the keys, by a read of the app's focus (`KeyWindow`).
+The script now asks for the window that has the keys, by a read of the app's focus (`KeyWindow`). A take sends its
+word with no key before its frames start, so a refusal of a stale word is outside the frames; a take that still
+gets a refusal after the frames started is INVALID.
 
 No app, no socket, no build: `run()` and `take()` run with the session helper (`Stress`), `subprocess` and the
 signpost reader replaced by fakes with a small model of one pane's tabs and of what each key does to them; `main()`
@@ -29,6 +31,7 @@ M = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(M)
 ACTION = {"t": "newTab.default", "w": "closeTab"}
 IN_TURN = "each_call_ended_with_its_reply_before_the_next_began"  # the field of `key_calls`
+EARLY = "key_window_refusals_before_the_frames"  # the field of a take: each refusal of its sequence with no key
 HIDDEN = "not_for_a_person"  # the key of a row that holds each number of a row with no proof of the order of its keys
 WIDE = ["action", "stall", "stalls", "tab-switch"]
 BUNDLE = "/fake/cmux DEV fake.app"
@@ -97,6 +100,9 @@ class World:
     def page_has_the_keys(self):
         """The fake app with Chromium pages: the pane shows a new tab page, so the page's own window has the keys."""
         at = self.selected()
+        # The fault of the case: the page gets the keys only when the take's frames start (after the take's read).
+        if self.faults.get("page_takes_the_keys_at_the_frames") and ("debug.frames", "start") not in self.calls:
+            return False
         return bool(self.faults.get("chromium_pages")) and at is not None and self.tabs[at]["kind"] == "newtab"
 
     def key(self, letter, at):
@@ -207,10 +213,12 @@ class World:
         failed = (self.faults.get("call_with_an_error_reply") or {}).get(len(self.takes))
         if failed is not None:
             replies[failed] = {"error": "timed out"}
-        # 2 more faults, each for one take (a count from 1): the take's record has an error of its own (`record_error`:
-        # the words); the recorder made no signpost stream (`no_stream`).
+        # 3 more faults, each for one take (a count from 1): the take's record has an error of its own (`record_error`:
+        # the words) or an entry of `invalid` (`record_invalid`: the words); the recorder made no signpost stream
+        # (`no_stream`).
         errors = [f"keys: key {failed}: timed out"] if failed is not None else []
         errors += [why for why in [(self.faults.get("record_error") or {}).get(len(self.takes))] if why]
+        invalid = [why for why in [(self.faults.get("record_invalid") or {}).get(len(self.takes))] if why]
         said = M.key_calls({"sends": calls, "replies": replies}, form)
         for index in acts:
             letter, at = letters[index], times[index]
@@ -233,7 +241,7 @@ class World:
                 intervals.append(self.interval("stall.main_task", "stall", at + 0.001, 270.0,
                                                {"class": "control", "owner": "debug.key"}))
                 intervals.append(self.interval("switch", "tab-switch", at + 0.21, 20.0, {}))
-        record = {"scenario": name, "errors": errors, "invalid": [], "unit": "tabs", "key_window": "none", "presses": len(letters),
+        record = {"scenario": name, "errors": errors, "invalid": invalid, "unit": "tabs", "key_window": "none", "presses": len(letters),
                   "before": count, "after": {"tabs": len(self.tabs), "panes": 1}, "press_letters": letters,
                   "press_times_s": times, "trace": {"events": list(self.marks), "dropped": 0}, "frames": {}, "settled_ms": 1,
                   "tabs_after": [tab["id"] for tab in self.tabs], "order": {"before": before, "after": self.order()},
@@ -766,6 +774,13 @@ class Rows(Case):
         self.assertEqual([(row.get("invalid"), row.get("state")) for row in report["rows"][1:]], [([], "valid")] * 3)
         self.assertEqual(M.exit_code(report, 1), 2)
 
+    def test_a_take_whose_record_has_an_entry_of_invalid_is_an_invalid_row_and_a_failure_of_the_run(self):
+        why = "the app refused a key window word after the frames started"
+        report = self.rows(World(record_invalid={2: why}))
+        row = report["rows"][1]
+        self.assertEqual((row["scenario"], row["state"], row["invalid"], M.valid(row)), ("hold", "INVALID", [why], False))
+        self.assertIn(f"0 hold: {why}", report["failures"])
+
     def test_a_row_with_no_signpost_stream_is_invalid_and_has_no_number_outside_the_key_that_says_so(self):
         """The recorder made no stream: the row has no fate of a key and so no proof of the order of its keys. A count of
         0 made tabs is then the recorder's fault, not a measure: the row is INVALID for each reader, and its numbers
@@ -1119,27 +1134,69 @@ class KeyWindow(Case):
         """`close` after 2 new tab pages: the pane shows the second page, so the page's window has the keys."""
         world = World(chromium_pages=True)
         record = self.record(world, row="close", form="activate", more=("newtab", "newtab"))
-        self.assertEqual((record["errors"], world.asked), ([], ["page"]))
+        # 2 sequences: the one with no key before the frames, then the keys.
+        self.assertEqual((record["errors"], record["invalid"], world.asked), ([], [], ["page", "page"]))
         self.assertEqual((record.get("key_window"), [tab["kind"] for tab in world.tabs]), ("page", ["terminal"]))
         self.assertNotIn("key_window_refusals", record)
-        # The read of the word is before the frames: no `debug.focus` call is between their start and the keys.
-        names = [name for name, _ in world.calls]
-        started = world.calls.index(("debug.frames", "start"))
-        self.assertNotIn("debug.focus", names[started:world.calls.index(("debug.key", "sequence"))])
+        self.assertEqual(record["take"].get(EARLY), [])
+        self.assertEqual(self.in_the_frames(world), [("debug.key", "sequence")])
 
-    def test_a_take_whose_word_the_app_refuses_reads_the_focus_again_and_its_record_says_so(self):
-        """The take's read of the word still says the shell window, and the page has the keys at the take's sequence."""
+    def in_the_frames(self, world):
+        """Each `debug.focus` and `debug.key` call of the take from the start of its frames to their end."""
+        started, stopped = world.calls.index(("debug.frames", "start")), world.calls.index(("debug.frames", "stop"))
+        return [call for call in world.calls[started:stopped] if call[0] in ("debug.focus", "debug.key")]
+
+    def test_a_take_takes_the_refusal_of_a_stale_word_before_its_frames_start(self):
+        """The take's read of the word still says the shell window, and the page has the keys. The app refuses the
+        word at the take's sequence with no key, which is before the frames: the frames have the keys' send only."""
         world = World(chromium_pages=True)
         world.stale = 2  # the take's 2 reads of the focus before its frames: the tab list, then the word
         record = self.record(world, row="close", form="activate", more=("newtab", "newtab"))
-        self.assertEqual((record["errors"], world.asked), ([], ["shell", "page"]))
-        self.assertEqual((record.get("key_window"), record.get("key_window_refusals"), [tab["kind"] for tab in world.tabs]),
+        self.assertEqual((record["errors"], record["invalid"], world.asked), ([], [], ["shell", "page", "page"]))
+        self.assertEqual((record.get("key_window"), record["take"].get(EARLY), [tab["kind"] for tab in world.tabs]),
                          ("page", ["shell: the shell window did not become key"], ["terminal"]))
+        self.assertNotIn("key_window_refusals", record)
+        self.assertEqual(self.in_the_frames(world), [("debug.key", "sequence")])
+
+    def test_a_take_whose_word_the_app_refuses_after_its_frames_started_is_invalid_and_names_the_refusal(self):
+        """The page gets the keys after the app took the take's word: the refused send and the tool's new read of the
+        focus are inside the frames, so no frame number of that take is valid."""
+        world = World(chromium_pages=True, page_takes_the_keys_at_the_frames=True)
+        record = self.record(world, row="close", form="activate", more=("newtab", "newtab"))
+        self.assertEqual(self.in_the_frames(world), [("debug.key", "sequence"), ("debug.focus", None), ("debug.key", "sequence")])
+        self.assertEqual(record.get("key_window_refusals"), ["shell: the shell window did not become key"])
+        self.assertEqual(record["invalid"],
+                         ["the app refused a key window word after the frames started (shell: the shell window did not become key): "
+                          "the frames have one read of the focus and one refused send of this tool"])
+        self.assertEqual((M.valid(record), record["errors"], record.get("key_window")), (False, [], "page"))
+        self.assertEqual((world.asked, record["take"].get(EARLY), [tab["kind"] for tab in world.tabs]),
+                         (["shell", "shell", "page"], [], ["terminal"]))
+
+    def test_a_take_whose_word_the_app_refuses_at_each_send_gets_no_key_and_is_not_valid(self):
+        """The focus says a page and the app finds no page window for it: 2 sends of the sequence with no key, 2 of
+        the keys, and no other one."""
+        world = World(chromium_pages=True)
+        world.page_has_the_keys = lambda: False  # the app refuses `page`
+        focus = world.rpc
+
+        def rpc(method, params=None, timeout=60):
+            reply = focus(method, params, timeout)
+            if method == "debug.focus":  # the focus read still names a page
+                reply["windows"][0].update({"is_key": False, "appkit": {"child_window_page": "tab9"}})
+            return reply
+
+        world.rpc = rpc
+        record = self.record(world, row="hold", form="activate")
+        refusal = "page: no Chromium page window for pane"
+        self.assertEqual((world.asked, world.keys, M.valid(record)), (["page"] * 4, 0, False))
+        self.assertEqual((record["take"].get(EARLY), record.get("key_window_refusals")), ([refusal] * 2, [refusal]))
+        self.assertEqual(len(record["errors"]), 1)
+        self.assertIn("keys: {'error': 'no Chromium page window for pane'", record["errors"][0])
 
     def test_a_take_that_starts_on_a_terminal_asks_for_the_shell_window(self):
         world = World(chromium_pages=True)
         record = self.record(world, row="hold", form="activate")
-        self.assertEqual((record["errors"], world.asked, record.get("key_window")), ([], ["shell"], "shell"))
+        self.assertEqual((record["errors"], record["invalid"], world.asked, record.get("key_window")), ([], [], ["shell", "shell"], "shell"))
 
     def test_the_preflight_closes_the_new_tab_page_that_its_own_key_made(self):
         """The preflight's Cmd-T makes a new tab page, which takes the keys; its Cmd-W goes to the page's window."""
@@ -1163,6 +1220,9 @@ class KeyWindow(Case):
         window = lambda key, page: {"is_key": key, "appkit": {"child_window_page": page}}
         cases = (("page", {"windows": [window(False, "page1")]}),  # the page's own window is key
                  ("shell", {"windows": [window(True, None)]}),
+                 # A cmux window is key and still names a page (a new page whose window cannot take the keys yet): the
+                 # window that has the keys is the shell window, and the app takes that word.
+                 ("shell", {"windows": [window(True, "page1")]}),
                  # 2 cmux windows: the one that is key shows a terminal, the other one keeps the word of its page.
                  ("shell", {"windows": [window(True, None), window(False, "page1")]}),
                  ("page", {"windows": [window(False, None), window(False, "page1")]}),
@@ -1181,6 +1241,9 @@ class KeyWindow(Case):
             self.preflight(world)
         self.assertEqual(world.asked, ["page", "page"])
         self.assertIn("new-tab: no Chromium page window for pane", str(failed.exception))
+        # The failed line has the word that the tool asked and the refusal before the last send.
+        self.assertIn("no Chromium page window for pane, key_window = page (the app refused page: no Chromium page window for pane)",
+                      str(failed.exception))
 
 
 class InputOrder(unittest.TestCase):
