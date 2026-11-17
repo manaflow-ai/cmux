@@ -67,14 +67,18 @@ jstr() {
 now() { "$WORK/gup" now 2>/dev/null || date +%s; }
 ms_since() { "$WORK/gup" since "$1"; }
 
-# remove_account U: its processes (by PID; every process of a pool uid is this probe's), its launchd domains, the
+# stop_uid_procs U: SIGKILL every process of pool account U by running kill -1 as U (POSIX: all processes the
+# caller may signal, which for an unprivileged uid is exactly its own). No PID lookup, no name.
+stop_uid_procs() { sudo -n -u "$1" /bin/kill -s KILL -- -1 >/dev/null 2>&1 || true; }
+
+# remove_account U: its processes (signalled as U itself with kill -1, which reaches exactly that uid's processes and
+# every one of them is this probe's; no lookup by name), its launchd domains, the
 # account and its home. Only ever called for cmuxci-gui-NN accounts whose full name starts with $MARK.
 remove_account() {
-  local u="$1" uid pids
+  local u="$1" uid
   uid=$(dscl . -read "/Users/$u" UniqueID 2>/dev/null | awk '{print $2}')
   [[ -n "$uid" ]] || return 0
-  pids=$(ps -axo pid=,uid= | awk -v x="$uid" '$2 == x {print $1}')
-  [[ -n "$pids" ]] && kill $pids 2>/dev/null
+  stop_uid_procs "$u"
   launchctl bootout "user/$uid" >/dev/null 2>&1
   launchctl bootout "gui/$uid" >/dev/null 2>&1
   sysadminctl -deleteUser "$u" >/dev/null 2>&1 || dscl . -delete "/Users/$u" >/dev/null 2>&1
@@ -459,7 +463,7 @@ if wait_status "$st" 20; then
 else
   say "{\"stage\":\"app\",\"route\":\"own\",\"user\":\"$u1\",\"ok\":false,\"log\":$(jstr "$(tail -8 "$WORK/own.log")")}"
 fi
-pids=$(ps -axo pid=,uid= | awk -v u="$uid1" '$2 == u {print $1}'); [[ -n "$pids" ]] && kill $pids 2>/dev/null
+stop_uid_procs "$u1"
 
 say "{\"stage\":\"session\",\"as\":\"$u1 in the console session\",\"out\":$(jout as_pool "$u1" console "$WORK/gup" session)}"
 st="$WORK/status/console1.json"
@@ -517,14 +521,14 @@ done
 
 # ------------------------------------------------------------------ (d) per-job reset and teardown
 t0=$(now)
-pids=$(ps -axo pid=,uid= | awk -v u="$uid1" '$2 == u {print $1}'); [[ -n "$pids" ]] && kill $pids 2>/dev/null
+stop_uid_procs "$u1"
 launchctl bootout "user/$uid1" >/dev/null 2>&1
 rm -rf "/Users/$u1"; createhomedir -c -u "$u1" >/dev/null 2>&1
 say "{\"stage\":\"reset\",\"user\":\"$u1\",\"ms\":$(ms_since "$t0"),\"home_back\":$([[ -d "/Users/$u1/Library" ]] && echo true || echo false)}"
 
 for u in "${created[@]}"; do
   uid=$(id -u "$u")
-  pids=$(ps -axo pid=,uid= | awk -v x="$uid" '$2 == x {print $1}'); [[ -n "$pids" ]] && kill $pids 2>/dev/null
+  stop_uid_procs "$u"
   t0=$(now); launchctl bootout "user/$uid" >/dev/null 2>&1; bo_ms=$(ms_since "$t0")
   t0=$(now); dout=$(sysadminctl -deleteUser "$u" 2>&1); del_ms=$(ms_since "$t0")
   gone=$( dscl . -read "/Users/$u" >/dev/null 2>&1 && echo false || echo true )
