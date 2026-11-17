@@ -200,8 +200,25 @@ export function badgeSnippet(key: ListingKey, kind: ListingKind = "extension"): 
   return `[![Get it on cmux](${SITE}/extensions/badge.svg)](${listingUrl(key, kind)})`;
 }
 
-export function authorPath(owner: string): string {
-  return `/u/${encodeURIComponent(owner)}`;
+/**
+ * The site's author page for a listing's owner, `/u/NAME`. Author pages are GitHub
+ * accounts (the registry's /v1/authors is keyed by GitHub login), so an owner on
+ * another host has none: the same name there may be a different person.
+ */
+export function authorPath(key: Pick<ListingKey, "host" | "owner">): string | null {
+  if (key.host !== GITHUB_HOST) return null;
+  return `/u/${encodeURIComponent(key.owner)}`;
+}
+
+/** The owner's profile on their own host, e.g. `https://gitlab.com/OWNER`. */
+export function ownerProfileUrl(key: Pick<ListingKey, "host" | "owner">): string {
+  return `https://${key.host}/${encodeURIComponent(key.owner)}`;
+}
+
+/** Where a listing's author name links: the site's author page on GitHub, else the owner's profile on their host. */
+export function authorHref(key: Pick<ListingKey, "host" | "owner">): { href: string; external: boolean } {
+  const path = authorPath(key);
+  return path ? { href: path, external: false } : { href: ownerProfileUrl(key), external: true };
 }
 
 /** A release's page on its host, or the repository when the host has no stable release URL. */

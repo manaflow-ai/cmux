@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import type { Listing } from "./registry";
-import { SITE, authorPath, listingPath, listingUrl, repositoryTreeUrl, repositoryUrl } from "./refs";
+import { SITE, authorHref, listingPath, listingUrl, repositoryTreeUrl, repositoryUrl } from "./refs";
 
 /** The listing's one-line summary: tagline, else the description's first sentence. */
 export function listingSummary(listing: Listing): string {
@@ -48,6 +48,11 @@ export function listingMetadata(listing: Listing): Metadata {
 }
 
 /** schema.org SoftwareApplication for a listing page. */
+function authorUrl(listing: Listing): string {
+  const author = authorHref(listing);
+  return author.external ? author.href : `${SITE}${author.href}`;
+}
+
 export function listingJsonLd(listing: Listing): Record<string, unknown> {
   const url = listingUrl(listing, listing.kind);
   const source = repositoryTreeUrl(listing, listing.commit);
@@ -69,7 +74,7 @@ export function listingJsonLd(listing: Listing): Record<string, unknown> {
     author: {
       "@type": "Person",
       name: listing.publisher ?? listing.owner,
-      url: `${SITE}${authorPath(listing.owner)}`,
+      url: authorUrl(listing),
     },
   };
   if (listing.categories.length > 0) data.keywords = listing.categories.join(", ");

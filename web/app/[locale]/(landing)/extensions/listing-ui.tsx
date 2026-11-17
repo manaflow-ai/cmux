@@ -6,7 +6,7 @@ import { Readme } from "@/app/extensions/_lib/readme";
 import type { Listing } from "@/app/extensions/_lib/registry";
 import {
   GITHUB_HOST,
-  authorPath,
+  authorHref,
   badgeSnippet,
   installPath,
   installReference,
@@ -24,6 +24,24 @@ const BUTTON_SECONDARY =
 
 function compactNumber(value: number): string {
   return new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(value);
+}
+
+/** The publisher's name, linked to their author page on GitHub or to their profile on another host. */
+function AuthorLink({ listing, className }: { listing: Listing; className: string }) {
+  const author = authorHref(listing);
+  const name = listing.publisher ?? listing.owner;
+  if (author.external) {
+    return (
+      <a href={author.href} rel="nofollow ugc noopener noreferrer" className={className}>
+        {name}
+      </a>
+    );
+  }
+  return (
+    <Link href={author.href} className={className}>
+      {name}
+    </Link>
+  );
 }
 
 export function ListingIcon({ listing, size }: { listing: Listing; size: number }) {
@@ -137,9 +155,7 @@ export async function ListingDetails({ listing }: { listing: Listing }) {
         </DetailRow>
       ) : null}
       <DetailRow label={t("publisher")}>
-        <Link href={authorPath(listing.owner)} className="underline decoration-link-underline underline-offset-2">
-          {listing.publisher ?? listing.owner}
-        </Link>
+        <AuthorLink listing={listing} className="underline decoration-link-underline underline-offset-2" />
       </DetailRow>
       {listing.categories.length > 0 ? (
         <DetailRow label={t("categories")}>
@@ -235,9 +251,7 @@ export async function ListingDetail({ listing, more }: { listing: Listing; more:
         <h1 className="text-3xl font-semibold tracking-tight">{listing.name}</h1>
         <p className="mt-1 text-[16px] text-muted">{listingSummary(listing)}</p>
         <p className="mt-2 flex flex-wrap items-center gap-x-2 text-[13px] text-muted">
-          <Link href={authorPath(listing.owner)} className="text-foreground underline decoration-link-underline underline-offset-2">
-            {listing.publisher ?? listing.owner}
-          </Link>
+          <AuthorLink listing={listing} className="text-foreground underline decoration-link-underline underline-offset-2" />
           <ListingStats listing={listing} prefix="· " />
           {listing.latest ? <span>· v{listing.latest.version}</span> : null}
           {listing.requiresCmux ? <span>· {t("requires", { version: listing.requiresCmux })}</span> : null}

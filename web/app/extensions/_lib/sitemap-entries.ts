@@ -27,13 +27,16 @@ export function extensionSitemapEntries(extensions: readonly Listing[] | null, s
       changeFrequency: "weekly",
       priority: 0.6,
     });
-    const key = listing.owner.toLowerCase();
+    // Only GitHub owners have author pages (refs.ts authorPath).
+    const path = authorPath(listing);
+    if (!path) continue;
+    const key = path.toLowerCase();
     authors.set(key, [...(authors.get(key) ?? []), listing]);
   }
   for (const owned of authors.values()) {
     const date = newest(owned);
     entries.push({
-      url: `${SITE}${authorPath(owned[0]!.owner)}`,
+      url: `${SITE}${authorPath(owned[0]!)}`,
       ...(date ? { lastModified: date } : {}),
       changeFrequency: "weekly",
       priority: 0.4,

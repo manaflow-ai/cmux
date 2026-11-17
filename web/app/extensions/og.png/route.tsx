@@ -2,6 +2,7 @@ import { ImageResponse } from "next/og";
 import { readFile } from "fs/promises";
 import { join } from "path";
 import { KIND_ROOT, type ListingKind, type ListingKey, parseListingSlug } from "@/app/extensions/_lib/refs";
+import { readLimitedBody } from "@/app/extensions/_lib/limited-body";
 import { type Listing, loadListing } from "@/app/extensions/_lib/registry";
 import { listingSummary } from "@/app/extensions/_lib/seo";
 
@@ -44,10 +45,14 @@ async function fetchImage(url: string | undefined): Promise<string | null> {
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(MEDIA_TIMEOUT_MS), redirect: "error" });
     const type = (response.headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
-    if (!response.ok || !IMAGE_TYPES.has(type)) return null;
-    const body = Buffer.from(await response.arrayBuffer());
-    if (body.byteLength === 0 || body.byteLength > MAX_MEDIA_BYTES) return null;
-    return `data:${type};base64,${body.toString("base64")}`;
+    if (!response.ok || !IMAGE_TYPES.has(type)) {
+      await response.body?.cancel().catch(() => undefined);
+      return null;
+    }
+    // Refused before buffering: a declared or streamed size over the limit stops the read.
+    const body = await readLimitedBody(response, MAX_MEDIA_BYTES);
+    if (!body || body.byteLength === 0) return null;
+    return `data:${type};base64,${Buffer.from(body).toString("base64")}`;
   } catch {
     return null;
   }

@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import { JsonLd } from "@/app/[locale]/components/json-ld";
 import { type Listing, loadAuthorListings } from "@/app/extensions/_lib/registry";
-import { SITE, authorPath, isValidOwner } from "@/app/extensions/_lib/refs";
+import { GITHUB_HOST, SITE, authorPath, isValidOwner } from "@/app/extensions/_lib/refs";
 import { listingsItemListJsonLd } from "@/app/extensions/_lib/seo";
 import { ListingIndexBody } from "../../extensions/listing-index";
 
@@ -42,7 +42,7 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
   const name = displayName(found.owner, found.listings);
   const title = t("authorTitle", { owner: name });
   const description = t("authorIntro", { owner: name });
-  const url = `${SITE}${authorPath(found.owner)}`;
+  const url = `${SITE}${authorPath({ host: GITHUB_HOST, owner: found.owner })}`;
   return {
     title: { absolute: title },
     description,
@@ -56,7 +56,7 @@ export default async function AuthorPage({ params }: { params: Params }) {
   if (!found) notFound();
   const t = await getTranslations("extensions");
   const name = displayName(found.owner, found.listings);
-  const url = `${SITE}${authorPath(found.owner)}`;
+  const url = `${SITE}${authorPath({ host: GITHUB_HOST, owner: found.owner })}`;
   return (
     <div className="min-h-screen">
       <SiteHeader section={t("section")} />

@@ -1,4 +1,5 @@
 import { cacheLife } from "next/cache";
+import { readLimitedBody } from "./limited-body";
 import { GITHUB_HOST, type ListingKey, type ListingKind, installReference, isValidKey } from "./refs";
 
 /**
@@ -11,6 +12,8 @@ import { GITHUB_HOST, type ListingKey, type ListingKind, installReference, isVal
  */
 export const DEFAULT_REGISTRY_URL = "https://cmux-platform-production.debussy.workers.dev";
 const REGISTRY_TIMEOUT_MS = 8_000;
+/** A registry answer larger than this is refused before it is buffered (a page is PAGE_LIMIT listings with READMEs). */
+const MAX_REGISTRY_BYTES = 16 * 1024 * 1024;
 const PAGE_LIMIT = 100;
 /** Bound on pages walked for the sitemap and author pages: 50 x 100 listings. */
 const MAX_PAGES = 50;
@@ -250,7 +253,9 @@ async function registryJson(path: string): Promise<{ status: number; body: unkno
   });
   if (response.status === 404) return { status: 404, body: null };
   if (!response.ok) throw new Error(`the registry returned HTTP ${response.status} for ${path}`);
-  return { status: response.status, body: await response.json() };
+  const bytes = await readLimitedBody(response, MAX_REGISTRY_BYTES);
+  if (bytes === null) throw new Error(`the registry answer for ${path} is over ${MAX_REGISTRY_BYTES} bytes`);
+  return { status: response.status, body: JSON.parse(new TextDecoder().decode(bytes)) };
 }
 
 /**
@@ -299,8 +304,8 @@ export async function fetchAuthorListings(owner: string, host = GITHUB_HOST): Pr
   if (!Array.isArray(items)) throw new Error("the registry author has no items");
   return items.flatMap((item) => {
     const listing = parseListing(item);
-    // Only ever the owner's own listings, whatever the registry sends.
-    return listing && listing.owner.toLowerCase() === owner.toLowerCase() ? [listing] : [];
+    // Only ever the owner's own listings on that host, whatever the registry sends.
+    return listing && listing.host === host && listing.owner.toLowerCase() === owner.toLowerCase() ? [listing] : [];
   });
 }
 
