@@ -385,13 +385,13 @@ fn registry_stress_bench() {
         sweep(size, "rename", mux, |round| rename(mux, middle, round));
         if size > 1 {
             sweep(size, "select", mux, |round| {
-                select(mux, if round % 2 == 0 { 0 } else { size - 1 })
+                select(mux, if round % 2 == 0 { 0 } else { size - 1 });
             });
             sweep(size, "move_one", mux, |round| {
                 if round % 2 == 0 {
-                    move_to(mux, middle, middle + 2)
+                    move_to(mux, middle, middle + 2);
                 } else {
-                    move_to(mux, middle + 1, middle)
+                    move_to(mux, middle + 1, middle);
                 }
             });
             sweep(size, "move_first_to_end", mux, |_| move_to(mux, 0, size));
