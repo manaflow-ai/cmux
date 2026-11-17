@@ -173,7 +173,7 @@ pub trait OfferSink: Send + Sync {
 /// offers its first frame before any of its deltas; readiness may be awaited in
 /// the sid's task after subscribe returns. `NotFed` consumes
 /// the offered frame: the source retains only its last taken cursor until resume.
-pub type CloseFuture<'a> = std::pin::Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
+pub type CloseFuture<'a> = Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
 
 pub trait Source: Send + Sync + 'static {
     fn subscribe(
@@ -828,7 +828,7 @@ async fn write_lease<W: AsyncWrite + Unpin>(
         };
         // poll_write cannot retain a lock across Pending. A drop that follows
         // this poll either frees an unstarted frame or lets its prefix finish.
-        std::pin::Pin::new(&mut *writer).poll_write(cx, remaining)
+        Pin::new(&mut *writer).poll_write(cx, remaining)
     })
     .await?;
     if writing.cancelled {
