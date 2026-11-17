@@ -709,9 +709,9 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
 
 # NOTIFY_NEVER_LOST (lw#5184): a ready notify that GitHub refused, whole or for one marker, leaves its key in an
 # artifact of this name (pending.json: {"key", "state"}); artifact uploads spend no REST quota. Every
-# feat-cmux-next push's sweep-commit-manifests job reads the artifacts of this one name (sweep_pending), makes the
-# notify again for each key whose tree is published, and deletes the record once it went through. A miss is then
-# at most one push late, never a same-tree run nothing will dispatch (cmux#43194 at 688722a2: the publish's notify
+# feat-cmux-next push's sweep-pending-tree-notify job (one at a time: its concurrency group) reads the artifacts
+# of this one name (sweep_pending), makes the notify again for each key whose tree is published, and deletes the
+# record once it went through. A miss is then at most one feat-cmux-next push late, never a same-tree run nothing will dispatch (cmux#43194 at 688722a2: the publish's notify
 # was refused with HTTP 403 and only warned; merge_hold held the pull request for hours).
 PENDING_ARTIFACT = "cmux-next-tree-notify-pending"
 

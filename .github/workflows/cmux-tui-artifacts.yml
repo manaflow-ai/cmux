@@ -4088,7 +4088,7 @@ jobs:
       # waited). Start them now: cmux-next.yml same-tree mode.
       # NOTIFY_NEVER_LOST (lw#5184): a notify GitHub refuses (a spent
       # github.token included) leaves a cmux-next-tree-notify-pending record
-      # that the next feat-cmux-next push's sweep-commit-manifests makes again
+      # that the next feat-cmux-next push's sweep-pending-tree-notify makes again
       # on the cmux-bot App's token. publish-tree mints no App token itself: it
       # runs in the `artifacts` environment, for cmux-tui-pin-* helper branches
       # too, which holds only R2 upload secrets
