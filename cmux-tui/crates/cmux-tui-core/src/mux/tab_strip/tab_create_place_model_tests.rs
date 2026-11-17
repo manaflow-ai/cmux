@@ -20,7 +20,7 @@ use proptest::prelude::*;
 use proptest::test_runner::{RngAlgorithm, RngSeed};
 
 use super::super::tab_place::{Anchor, Slot, TabPlace};
-use super::{Asked, PlaceLists};
+use super::{ActiveNow, Asked, PlaceLists, StripNow};
 use crate::{PaneId, SurfaceId};
 
 const PANE: PaneId = 7;
@@ -174,13 +174,37 @@ fn admit(places: &mut PlaceLists, real: &[SurfaceId], request: &Request) -> u64 
     places.admit(PANE, &slots(real), &[], asked)
 }
 
-/// The creation `number` of `request` made its tab: the tab goes into `real`
-/// where the list under test says. Gives if the tab takes the active tab.
+/// The strip of the pane with `tabs`, no tab group, and the active tab `now`.
+fn strip_now(tabs: &[Slot], now: ActiveNow) -> StripNow<'_> {
+    StripNow { tabs, groups: &[], active: now }
+}
+
+/// The active tab `tab` of the pane of a fixed row, with the stamp of the
+/// start: a row says so when a request writes a new stamp.
+fn active_is(tab: SurfaceId) -> ActiveNow {
+    ActiveNow { tab: Some(tab), at: 0 }
+}
+
+/// [`commit_at`] for a tab that comes with no close of the pane before it:
+/// the list reads the active tab of the pane only after a close.
 fn commit(
     places: &mut PlaceLists,
     real: &mut Vec<SurfaceId>,
     number: u64,
     request: &Request,
+) -> bool {
+    commit_at(places, real, number, request, ActiveNow::default())
+}
+
+/// The creation `number` of `request` made its tab: the tab goes into `real`
+/// where the list under test says; `now` is the active tab of the pane.
+/// Gives if the tab takes the active tab.
+fn commit_at(
+    places: &mut PlaceLists,
+    real: &mut Vec<SurfaceId>,
+    number: u64,
+    request: &Request,
+    now: ActiveNow,
 ) -> bool {
     let Request::Create { tab, name, anchor, asks, .. } = request else {
         panic!("{request:?} makes no tab");
@@ -192,18 +216,22 @@ fn commit(
         place: Some(&place),
         activate: *asks,
     };
-    let (settled, active) = places.commit(PANE, &slots(real), &[], Some(number), asked, *tab);
+    let strip = slots(real);
+    let (settled, active) = places.commit(PANE, strip_now(&strip, now), Some(number), asked, *tab);
     assert!(settled.index <= real.len(), "{settled:?} is not a slot of {real:?}");
     real.insert(settled.index, *tab);
     active
 }
 
 /// The pane as the daemon keeps it while the list under test takes the
-/// requests: its tabs, and its active tab.
+/// requests: its tabs, its active tab, and the stamp of the active tab.
 struct Pane {
     places: PlaceLists,
     tabs: Vec<SurfaceId>,
     active: Option<SurfaceId>,
+    /// A new tab that takes the active tab writes a new stamp, as the
+    /// daemon does. A close writes none.
+    at: u64,
     /// The pane had no tab at one time. The daemon removes such a pane, so
     /// the active tab of such a case is not compared.
     was_empty: bool,
@@ -215,6 +243,7 @@ impl Pane {
             places: PlaceLists::default(),
             tabs: FIRST.to_vec(),
             active: Some(FIRST[0]),
+            at: 0,
             was_empty: false,
         }
     }
@@ -222,30 +251,44 @@ impl Pane {
     /// The creation `number` of `request` made its tab.
     fn commit(&mut self, number: u64, request: &Request) {
         let Request::Create { tab, .. } = request else { return };
-        let takes = commit(&mut self.places, &mut self.tabs, number, request);
+        let now = ActiveNow { tab: self.active, at: self.at };
+        let takes = commit_at(&mut self.places, &mut self.tabs, number, request, now);
         // A pane with no tab has no active tab to keep: the new tab is it.
         if takes || self.active.is_none() {
             self.active = Some(*tab);
+            self.at += 1;
         }
+    }
+
+    /// The pane's tabs and its active tab after a close of `tab`: the pane
+    /// gives the active tab to a tab that it has. None for a tab that the
+    /// pane does not have.
+    fn closed(&self, tab: SurfaceId) -> Option<(Vec<SurfaceId>, Option<SurfaceId>)> {
+        let index = self.tabs.iter().position(|open| *open == tab)?;
+        let mut tabs = self.tabs.clone();
+        tabs.remove(index);
+        let next = tabs.get(index).or_else(|| tabs.last()).copied();
+        let active = if self.active == Some(tab) { next } else { self.active };
+        Some((tabs, active))
     }
 
     /// The list gets the call of the close of `tab`, as the close path of
-    /// the daemon gives it: only when the pane keeps a tab.
+    /// the daemon gives it: only when the pane keeps a tab, and with the
+    /// active tab that the pane has after the close.
     fn tell_close(&mut self, tab: SurfaceId) {
-        if self.tabs.len() > 1 && self.tabs.contains(&tab) {
-            self.places.tab_closes(PANE, &self.tabs, tab, self.active == Some(tab));
+        let Some((tabs, active)) = self.closed(tab) else { return };
+        if !tabs.is_empty() {
+            let then = ActiveNow { tab: active, at: self.at };
+            self.places.tab_closes(PANE, &self.tabs, tab, self.active == Some(tab), then);
         }
     }
 
-    /// `tab` closes. The pane gives the active tab to a tab that it has.
+    /// `tab` closes.
     fn close(&mut self, tab: SurfaceId) {
-        let Some(index) = self.tabs.iter().position(|open| *open == tab) else { return };
+        let Some((tabs, active)) = self.closed(tab) else { return };
         self.tell_close(tab);
-        self.tabs.remove(index);
-        if self.active == Some(tab) {
-            let next = self.tabs.get(index).or_else(|| self.tabs.last());
-            self.active = next.copied();
-        }
+        self.tabs = tabs;
+        self.active = active;
         self.was_empty |= self.tabs.is_empty();
     }
 }
@@ -386,17 +429,21 @@ fn a_page_in_the_background_leaves_the_active_tab_to_a_tab_that_launched_late() 
     let background = Asked { activate: false, ..asked };
     let first = places.admit(PANE, &slots(&real), &[], asked);
     let second = places.admit(PANE, &slots(&real), &[], background);
-    let (_, active) = places.commit(PANE, &slots(&real), &[], Some(second), background, 101);
-    assert!(!active, "a tab that did not ask took the active tab");
-    let (_, active) = places.commit(PANE, &slots(&[1, 101, 2, 3]), &[], Some(first), asked, 100);
-    assert!(active, "the terminal's tab did not take the active tab");
+    let strip = slots(&real);
+    let now = active_is(1);
+    let (_, takes) = places.commit(PANE, strip_now(&strip, now), Some(second), background, 101);
+    assert!(!takes, "a tab that did not ask took the active tab");
+    let strip = slots(&[1, 101, 2, 3]);
+    let (_, takes) = places.commit(PANE, strip_now(&strip, now), Some(first), asked, 100);
+    assert!(takes, "the terminal's tab did not take the active tab");
 }
 
 /// A page takes the active tab from a terminal tab that still launches, and
 /// closes before that tab comes. `after_the_terminal` says where the page
 /// is: after the slot of the terminal's tab (the page is the last tab), or
-/// before it. Gives the list, the pane's tabs after the close, and the
-/// number of the terminal's creation with its request.
+/// before it. The pane gives the active tab to `3` at the close. Gives the
+/// list, the pane's tabs after the close, and the number of the terminal's
+/// creation with its request.
 fn a_page_closed_while_a_tab_launches(
     after_the_terminal: bool,
 ) -> (PlaceLists, Vec<SurfaceId>, u64, Request) {
@@ -410,7 +457,7 @@ fn a_page_closed_while_a_tab_launches(
     let second = admit(&mut places, &real, &later);
     assert!(commit(&mut places, &mut real, second, &later), "the page: the last request");
     assert_eq!(real, [1, 2, 3, 101]);
-    places.tab_closes(PANE, &real, 101, true);
+    places.tab_closes(PANE, &real, 101, true, active_is(3));
     real.retain(|tab| *tab != 101);
     (places, real, first, late)
 }
@@ -421,7 +468,8 @@ fn a_page_closed_while_a_tab_launches(
 #[test]
 fn a_tab_that_launched_late_takes_the_active_tab_after_the_later_tab_closed() {
     let (mut places, mut real, first, late) = a_page_closed_while_a_tab_launches(true);
-    assert!(commit(&mut places, &mut real, first, &late), "the terminal's tab is the active tab");
+    let takes = commit_at(&mut places, &mut real, first, &late, active_is(3));
+    assert!(takes, "the terminal's tab is the active tab");
     assert_eq!(real, [1, 2, 3, 100]);
 }
 
@@ -430,7 +478,8 @@ fn a_tab_that_launched_late_takes_the_active_tab_after_the_later_tab_closed() {
 #[test]
 fn a_tab_that_launched_late_takes_the_active_tab_after_the_tab_before_it_closed() {
     let (mut places, mut real, first, late) = a_page_closed_while_a_tab_launches(false);
-    assert!(commit(&mut places, &mut real, first, &late), "the terminal's tab is the active tab");
+    let takes = commit_at(&mut places, &mut real, first, &late, active_is(3));
+    assert!(takes, "the terminal's tab is the active tab");
     assert_eq!(real, [1, 2, 3, 100]);
 }
 
@@ -446,9 +495,9 @@ fn a_refused_close_gives_no_active_tab_to_a_tab_that_launched_late() {
     let first = admit(&mut places, &real, &late);
     let second = admit(&mut places, &real, &later);
     assert!(commit(&mut places, &mut real, second, &later), "the page: the last request");
-    places.tab_closes(PANE, &real, 101, true);
+    places.tab_closes(PANE, &real, 101, true, active_is(3));
     assert!(
-        !commit(&mut places, &mut real, first, &late),
+        !commit_at(&mut places, &mut real, first, &late, active_is(101)),
         "the terminal's tab took the active tab of a page that did not close"
     );
     assert_eq!(real, [1, 2, 3, 100, 101]);
@@ -458,8 +507,9 @@ fn a_refused_close_gives_no_active_tab_to_a_tab_that_launched_late() {
 /// of the active tab is planned and then refused, and then that tab leaves
 /// the pane with no close (a move to another pane). The list does not see a
 /// move: it reads a tab that is not in the pane as closed. So the terminal's
-/// tab takes the active tab when it comes, whichever tab the move left
-/// active.
+/// tab takes the active tab when it comes, if the move left the active tab
+/// on the tab that the refused close gave it to (`3`) and wrote no new
+/// stamp.
 #[test]
 fn limit_a_refused_close_and_then_a_move_of_that_tab_reads_as_its_close() {
     let late = terminal(100, Some("t1"), Anchor::After(3));
@@ -469,10 +519,10 @@ fn limit_a_refused_close_and_then_a_move_of_that_tab_reads_as_its_close() {
     let first = admit(&mut places, &real, &late);
     let second = admit(&mut places, &real, &later);
     assert!(commit(&mut places, &mut real, second, &later), "the page: the last request");
-    places.tab_closes(PANE, &real, 101, true);
+    places.tab_closes(PANE, &real, 101, true, active_is(3));
     // The move: the tab leaves the pane, and the list gets no call.
     real.retain(|tab| *tab != 101);
-    assert!(commit(&mut places, &mut real, first, &late), "this is the limit");
+    assert!(commit_at(&mut places, &mut real, first, &late, active_is(3)), "this is the limit");
 }
 
 /// A tab that does not ask for the active tab can get it from a close: its
@@ -495,10 +545,14 @@ fn a_tab_that_only_a_close_made_active_leaves_the_turn_of_an_earlier_tab_that_as
     let first = admit(&mut places, &real, &asks);
     let second = admit(&mut places, &real, &quiet);
     // No new tab is there yet: the active tab of the pane is `1`.
-    places.tab_closes(PANE, &real, 1, true);
+    places.tab_closes(PANE, &real, 1, true, active_is(2));
     real.retain(|tab| *tab != 1);
-    assert!(commit(&mut places, &mut real, second, &quiet), "the close picked its slot");
-    assert!(commit(&mut places, &mut real, first, &asks), "no later request took the active tab");
+    let takes = commit_at(&mut places, &mut real, second, &quiet, active_is(2));
+    assert!(takes, "the close picked its slot");
+    // The tab `101` took the active tab: a new stamp.
+    let now = ActiveNow { tab: Some(101), at: 1 };
+    let takes = commit_at(&mut places, &mut real, first, &asks, now);
+    assert!(takes, "no later request took the active tab");
     assert_eq!(real, [101, 2, 3, 100]);
 }
 
@@ -516,9 +570,9 @@ fn a_refused_close_of_more_than_one_tab_keeps_the_slot_of_a_tab_that_still_launc
     let first = admit(&mut places, &real, &late);
     // The plan closes its tabs in strip order. The close of the last tab of
     // a pane gives the list no call.
-    places.tab_closes(PANE, &[1, 2, 3], 1, false);
-    places.tab_closes(PANE, &[2, 3], 2, true);
-    assert!(commit(&mut places, &mut real, first, &late), "the only request");
+    places.tab_closes(PANE, &[1, 2, 3], 1, false, active_is(2));
+    places.tab_closes(PANE, &[2, 3], 2, true, active_is(3));
+    assert!(commit_at(&mut places, &mut real, first, &late, active_is(2)), "the only request");
     assert_eq!(real, [1, 100, 2, 3]);
 }
 
@@ -530,9 +584,63 @@ fn a_refused_close_of_more_than_one_tab_keeps_the_slot_of_a_tab_that_still_launc
 #[test]
 fn a_tab_that_launched_late_takes_the_active_tab_after_two_closes() {
     let (mut places, mut real, first, late) = a_page_closed_while_a_tab_launches(true);
-    places.tab_closes(PANE, &real, 3, true);
+    places.tab_closes(PANE, &real, 3, true, active_is(2));
     real.retain(|tab| *tab != 3);
-    assert!(commit(&mut places, &mut real, first, &late), "the terminal's tab is the active tab");
+    let takes = commit_at(&mut places, &mut real, first, &late, active_is(2));
+    assert!(takes, "the terminal's tab is the active tab");
+    assert_eq!(real, [1, 2, 100]);
+}
+
+/// The page was the last tab, and its close gave the active tab of the pane
+/// to `3`. Then a close of `3` is planned on a copy of the session state,
+/// where the active tab goes to `2`, and the plan is refused: `3` stays the
+/// active tab. One by one, no request changed the active tab after the
+/// close of the page: the terminal's tab takes the active tab when it
+/// comes. A guard: a record that keeps only the last tab that a close made
+/// active reads the refused close as a change of the active tab.
+#[test]
+fn a_refused_close_of_the_tab_that_a_close_made_active_keeps_the_turn_of_the_late_tab() {
+    let (mut places, mut real, first, late) = a_page_closed_while_a_tab_launches(true);
+    places.tab_closes(PANE, &real, 3, true, active_is(2));
+    let takes = commit_at(&mut places, &mut real, first, &late, active_is(3));
+    assert!(takes, "the terminal's tab is the active tab");
+    assert_eq!(real, [1, 2, 3, 100]);
+}
+
+/// The page was the last tab, and its close gave the active tab of the pane
+/// to `3`. Then a request wrote a new stamp of the active tab and left `3`
+/// active (a select of another tab and then of `3` again, a focus of the
+/// pane). One by one, that request is the last change of the active tab:
+/// the terminal's tab does not take the active tab when it comes (decision
+/// of 2026-11-17).
+#[test]
+fn a_tab_that_launched_late_leaves_the_active_tab_after_a_new_stamp_on_the_same_tab() {
+    let (mut places, mut real, first, late) = a_page_closed_while_a_tab_launches(true);
+    let now = ActiveNow { tab: Some(3), at: 1 };
+    let takes = commit_at(&mut places, &mut real, first, &late, now);
+    assert!(!takes, "the terminal's tab took the active tab after a later request");
+    assert_eq!(real, [1, 2, 3, 100]);
+}
+
+/// A limit of the rule after a close, kept here so that a change of it
+/// shows. No later request took the active tab from the terminal's tab. `3`
+/// is the active tab and closes: the close gives the active tab to the slot
+/// of the terminal's tab, and `2` is the active tab of the pane. Then a
+/// person selects `1`. The close gives the terminal's tab nothing after
+/// that, but its own request asks for the active tab and no later create
+/// request took it: the terminal's tab takes the active tab from the
+/// selected tab, as after a select between a request and its tab with no
+/// close.
+#[test]
+fn limit_a_late_tab_with_no_later_request_takes_the_active_tab_from_a_selected_tab() {
+    let late = terminal(100, Some("t1"), Anchor::After(3));
+    let mut places = PlaceLists::default();
+    let mut real = FIRST.to_vec();
+    let first = admit(&mut places, &real, &late);
+    places.tab_closes(PANE, &real, 3, true, active_is(2));
+    real.retain(|tab| *tab != 3);
+    let now = ActiveNow { tab: Some(1), at: 1 };
+    assert!(commit_at(&mut places, &mut real, first, &late, now), "this is the limit");
     assert_eq!(real, [1, 2, 100]);
 }
 
@@ -556,10 +664,13 @@ fn limit_a_failed_launch_that_a_close_picked_gives_no_active_tab_to_the_tab_befo
     let second = admit(&mut places, &real, &second_late);
     let third = admit(&mut places, &real, &later);
     assert!(commit(&mut places, &mut real, third, &later), "the page: the last request");
-    places.tab_closes(PANE, &real, 102, true);
+    places.tab_closes(PANE, &real, 102, true, active_is(3));
     real.retain(|tab| *tab != 102);
     places.end(second, None);
-    assert!(!commit(&mut places, &mut real, first, &first_late), "this is the limit");
+    assert!(
+        !commit_at(&mut places, &mut real, first, &first_late, active_is(3)),
+        "this is the limit"
+    );
     assert_eq!(real, [1, 2, 3, 100]);
 }
 

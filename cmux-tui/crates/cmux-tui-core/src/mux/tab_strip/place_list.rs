@@ -10,10 +10,11 @@
 //! creations: a tab that comes after the tab of a later request does not take
 //! the active tab from it ([`PlaceLists::takes_active`]), and a tab whose
 //! slot a close of the active tab picked takes it when it comes
-//! ([`PlaceLists::tab_closes`]).
+//! ([`PlaceLists::tab_closes`]), if no request changed the active tab of the
+//! pane after that close.
 //!
-//! The list is a pure value: it reads the pane's tabs from its caller and
-//! holds no lock.
+//! The list is a pure value: it reads the pane's tabs and its active tab
+//! from its caller and holds no lock.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -39,6 +40,27 @@ pub(crate) struct Asked<'a> {
     pub(crate) place: Option<&'a TabPlace>,
     /// The tab asks for the active tab of its pane when it comes.
     pub(crate) activate: bool,
+}
+
+/// The active tab of a pane and the stamp of its last change by a request
+/// (`Pane::active_at`), as the caller reads them from the pane. A select, a
+/// focus of the pane and a new tab that takes the active tab write a new
+/// stamp. A close writes none.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ActiveNow {
+    /// The active tab; none for a pane with no tab.
+    pub(crate) tab: Option<SurfaceId>,
+    pub(crate) at: u64,
+}
+
+/// The strip of a pane when a creation commits its tab.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct StripNow<'a> {
+    /// The pane's tabs.
+    pub(crate) tabs: &'a [Slot],
+    /// The id of each tab group run of `tabs`.
+    pub(crate) groups: &'a [String],
+    pub(crate) active: ActiveNow,
 }
 
 /// One entry of the list of a pane.
@@ -76,15 +98,39 @@ impl Creation {
     }
 }
 
+/// A close of the active tab picked the slot of a creation that had no tab
+/// yet.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Awaited {
+    /// The creation.
+    number: u64,
+    /// The tab that closed.
+    closed: SurfaceId,
+    /// The stamp of the pane's active tab after that close.
+    at: u64,
+    /// Each tab that a close made the active tab of the pane while the
+    /// creation had no tab: the pane keeps its active tab on a tab that it
+    /// has. More than one: a later close of such a tab gives the active tab
+    /// to the next one, and a close plan that is refused leaves it where it
+    /// was.
+    stand_ins: Vec<SurfaceId>,
+}
+
+impl Awaited {
+    /// The active tab of the pane is still where a close left it: no request
+    /// wrote a new stamp, and the active tab is one of the stand-ins.
+    fn holds(&self, now: ActiveNow) -> bool {
+        self.at == now.at && now.tab.is_some_and(|tab| self.stand_ins.contains(&tab))
+    }
+}
+
 /// The record of the active tab of one pane that has a creation.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct ActiveTab {
     /// The number of the creation that last took the active tab by its own
     /// request.
     last: u64,
-    /// A close of the active tab picked the slot of this creation, which had
-    /// no tab yet; and the tab that closed.
-    awaited: Option<(u64, SurfaceId)>,
+    awaited: Option<Awaited>,
 }
 
 /// The tab creations that have a `place` or a `transaction`, and the list of
@@ -134,20 +180,20 @@ impl PlaceLists {
         number
     }
 
-    /// The creation `hole` made `tab`: gives the index among `tabs` (the
-    /// pane's tabs now) that the tab takes and the run that it joins, and if
-    /// the tab takes the active tab of the pane ([`PlaceLists::takes_active`]).
-    /// A creation that the list does not know takes its slot now, as the
-    /// last creation.
+    /// The creation `hole` made `tab`: gives the index among the tabs of
+    /// `strip` (the pane now) that the tab takes and the run that it joins,
+    /// and if the tab takes the active tab of the pane
+    /// ([`PlaceLists::takes_active`]). A creation that the list does not
+    /// know takes its slot now, as the last creation.
     pub(crate) fn commit(
         &mut self,
         pane: PaneId,
-        tabs: &[Slot],
-        groups: &[String],
+        strip: StripNow<'_>,
         hole: Option<u64>,
         asked: Asked<'_>,
         tab: SurfaceId,
     ) -> (Settled, bool) {
+        let StripNow { tabs, groups, active: now } = strip;
         let known = hole.filter(|number| {
             self.creations.iter().any(|creation| {
                 creation.number == *number
@@ -184,7 +230,7 @@ impl PlaceLists {
         // Before the creation leaves the record: a pane with no creation
         // has no record of its active tab.
         let open = |tab: SurfaceId| tabs.iter().any(|slot| slot.tab == Some(tab));
-        let active = self.takes_active(pane, number, asked.activate, open);
+        let active = self.takes_active(pane, number, asked.activate, open, now);
         if let Some(position) = self.creations.iter().position(|creation| creation.number == number)
         {
             self.finish(position, Some(tab));
@@ -194,29 +240,38 @@ impl PlaceLists {
     }
 
     /// The tab of the creation `number` goes into `pane`; `asks` says if it
-    /// asks for the active tab of the pane, and `open` says if a tab is in
-    /// the pane now. Gives if the tab takes the active tab.
+    /// asks for the active tab of the pane, `open` says if a tab is in the
+    /// pane now, and `now` is the active tab of the pane. Gives if the tab
+    /// takes the active tab.
     ///
     /// A tab that asks gets the active tab if no creation with a later number
     /// took it: the requests applied one by one in the order of their arrival
     /// leave the tab of the last of them active. A tab whose slot a close of
-    /// the active tab picked ([`PlaceLists::tab_closes`]) gets it in each
-    /// case: one by one, that close made it the active tab. A select or a
-    /// move between a request and its tab does not write this record.
+    /// the active tab picked ([`PlaceLists::tab_closes`]) gets it with no
+    /// such condition: one by one, that close made it the active tab. It
+    /// gets it only while the active tab of the pane is where a close left
+    /// it ([`Awaited::holds`]): one by one, a request that changed the
+    /// active tab after the close is the later change.
     pub(crate) fn takes_active(
         &mut self,
         pane: PaneId,
         number: u64,
         asks: bool,
         open: impl Fn(SurfaceId) -> bool,
+        now: ActiveNow,
     ) -> bool {
         let record = self.active.entry(pane).or_default();
         // The tab that the close took away is in the pane: that close did
-        // not happen (a close plan that was refused).
-        if record.awaited.is_some_and(|(_, closed)| open(closed)) {
+        // not happen (a close plan that was refused). Or a request changed
+        // the active tab after the close.
+        if record
+            .awaited
+            .as_ref()
+            .is_some_and(|awaited| open(awaited.closed) || !awaited.holds(now))
+        {
             record.awaited = None;
         }
-        if record.awaited.is_some_and(|(awaited, _)| awaited == number) {
+        if record.awaited.as_ref().is_some_and(|awaited| awaited.number == number) {
             record.awaited = None;
             if asks {
                 record.last = record.last.max(number);
@@ -231,7 +286,8 @@ impl PlaceLists {
     }
 
     /// `closed`, a tab of `pane`, closes: `tabs` are the pane's tabs before
-    /// the close, and `was_active` says if `closed` was the active tab.
+    /// the close, `was_active` says if `closed` was the active tab, and
+    /// `then` is the active tab of the pane after the close.
     ///
     /// The pane gives its active tab to a tab that it has. One by one, the
     /// close gives it to the next entry of the strip, or to the entry before
@@ -239,45 +295,64 @@ impl PlaceLists {
     /// creation whose tab is not there yet. The record then keeps that
     /// creation, and its tab takes the active tab when it comes
     /// ([`PlaceLists::takes_active`]). The record keeps the creation while
-    /// it has no tab: one by one, a later close of another tab is not a
-    /// close of the active tab.
+    /// it has no tab and each close is a close of the tab that a close made
+    /// active: one by one, such a close is not a close of the active tab.
     ///
     /// The caller can be a close plan on a copy of the session state, which
-    /// can be refused after this call. So the record keeps `closed` too, and
-    /// it drops the creation when `closed` is seen in the pane after that.
+    /// can be refused after this call. So this call stores no list of the
+    /// pane, the record keeps `closed` and drops the creation when `closed`
+    /// is seen in the pane after that, and the record keeps each tab that a
+    /// close made active, not only the last one.
+    ///
+    /// The cost: a pane with no creation of the record, and a close of a
+    /// tab that is not the active tab while no creation is kept, return
+    /// before a read of the creations.
     pub(crate) fn tab_closes(
         &mut self,
         pane: PaneId,
         tabs: &[SurfaceId],
         closed: SurfaceId,
         was_active: bool,
+        then: ActiveNow,
     ) {
-        let old = self.active.get(&pane).copied().unwrap_or_default();
+        if !self.lists.contains_key(&pane) {
+            return;
+        }
+        let old = self.active.get(&pane).cloned().unwrap_or_default();
+        if old.awaited.is_none() && !was_active {
+            return;
+        }
         let waits: HashSet<u64> = self
             .creations
             .iter()
             .filter(|creation| creation.pane == pane && creation.pending)
             .map(|creation| creation.number)
             .collect();
-        // The creation that an earlier close picked still has no tab, and
-        // that close happened.
-        let kept =
-            old.awaited.filter(|(number, tab)| waits.contains(number) && !tabs.contains(tab));
+        // The creation that an earlier close picked still has no tab, that
+        // close happened, and `closed` is a tab that a close made active
+        // with no request after it.
+        let before_close = ActiveNow { tab: Some(closed), at: then.at };
+        let kept = old.awaited.as_ref().filter(|awaited| {
+            waits.contains(&awaited.number)
+                && !tabs.contains(&awaited.closed)
+                && awaited.holds(before_close)
+        });
         let awaited = if !was_active {
             // An earlier close of this tab did not happen, and this one
             // gives the active tab to no tab.
-            old.awaited.filter(|(_, tab)| *tab != closed)
+            old.awaited.as_ref().filter(|awaited| awaited.closed != closed).cloned()
+        } else if let Some(kept) = kept {
+            let mut kept = kept.clone();
+            kept.stand_ins.extend(then.tab);
+            Some(kept)
         } else if waits.is_empty() {
             None
-        } else if kept.is_some() {
-            kept
         } else {
             let slots: Vec<Slot> = tabs
                 .iter()
                 .map(|tab| Slot { tab: Some(*tab), pinned: false, group: None })
                 .collect();
-            self.repair(pane, &slots);
-            let list = self.lists.get(&pane).map(Vec::as_slice).unwrap_or_default();
+            let list = self.repaired(pane, &slots);
             let waits_or_tab = |entry: &&Entry| match entry {
                 Entry::Tab(_) => true,
                 Entry::Hole(number) => waits.contains(number),
@@ -291,7 +366,12 @@ impl PlaceLists {
             // nearest entry after the closed tab, else the nearest before.
             let relations = close_focus::TabRelations::<Entry>::default();
             match close_focus::tab(Some(&closed_entry), &before, &after, &shown, &relations) {
-                Some(Entry::Hole(number)) => Some((number, closed)),
+                Some(Entry::Hole(number)) => Some(Awaited {
+                    number,
+                    closed,
+                    at: then.at,
+                    stand_ins: then.tab.into_iter().collect(),
+                }),
                 _ => None,
             }
         };
@@ -303,11 +383,21 @@ impl PlaceLists {
     /// The creation `number` ended with no commit: with `tab` it names that
     /// tab from now on (a create that gave a tab which was there already, or
     /// a tab that took the slot of its kind); with none it made no tab, and
-    /// a creation with a name keeps its slot for the requests that name it.
-    /// Nothing for a creation that has ended.
+    /// a creation with a name keeps its slot for the requests that name it,
+    /// and a close that picked its slot gives the active tab to no later
+    /// tab. Nothing for a creation that has ended.
     pub(crate) fn end(&mut self, number: u64, tab: Option<SurfaceId>) {
         let pending = |creation: &Creation| creation.number == number && creation.pending;
         if let Some(position) = self.creations.iter().position(pending) {
+            if tab.is_none() {
+                let pane = self.creations.get(position).map(|creation| creation.pane);
+                let record = pane.and_then(|pane| self.active.get_mut(&pane));
+                if let Some(record) = record
+                    && record.awaited.as_ref().is_some_and(|awaited| awaited.number == number)
+                {
+                    record.awaited = None;
+                }
+            }
             self.finish(position, tab);
             self.prune();
         }
@@ -343,17 +433,24 @@ impl PlaceLists {
         }
     }
 
-    /// The list of `pane` gets the pane's tabs of now, in their order. A hole
+    /// The list of `pane` gets the pane's tabs of now, in their order
+    /// ([`PlaceLists::repaired`]).
+    fn repair(&mut self, pane: PaneId, tabs: &[Slot]) {
+        let list = self.repaired(pane, tabs);
+        self.lists.insert(pane, list);
+    }
+
+    /// The list of `pane` with the pane's tabs of now, in their order. A hole
     /// stays right of the nearest tab on its left that is still in the pane.
     /// A tab that left the pane leaves a hole if a creation of the record
     /// made it, and no entry if not.
-    fn repair(&mut self, pane: PaneId, tabs: &[Slot]) {
+    fn repaired(&self, pane: PaneId, tabs: &[Slot]) -> Vec<Entry> {
         let open: HashSet<SurfaceId> = tabs.iter().filter_map(|slot| slot.tab).collect();
-        let old = self.lists.remove(&pane).unwrap_or_default();
+        let old = self.lists.get(&pane).map(Vec::as_slice).unwrap_or_default();
         let mut list = Vec::with_capacity(old.len().max(tabs.len()));
         let mut holes_after: HashMap<SurfaceId, Vec<Entry>> = HashMap::new();
         let mut left = None;
-        for entry in old {
+        for entry in old.iter().copied() {
             let hole = match entry {
                 Entry::Tab(tab) if open.contains(&tab) => {
                     left = Some(tab);
@@ -380,7 +477,7 @@ impl PlaceLists {
             list.push(Entry::Tab(tab));
             list.extend(holes_after.remove(&tab).unwrap_or_default());
         }
-        self.lists.insert(pane, list);
+        list
     }
 
     /// The list of `pane` as the place rules see it: each tab as in `tabs`,

@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use super::StripRequest;
-use super::place_list::{Asked, PlaceLists};
+use super::place_list::{ActiveNow, Asked, PlaceLists, StripNow};
 use crate::Actor;
 use crate::Mux;
 use crate::PaneId;
@@ -253,8 +253,8 @@ impl Placed {
             place: self.place.as_ref(),
             activate,
         };
-        let (settled, active) =
-            state.tab_places.lock().commit(pane, &slots, &groups, self.hole, asked, tab);
+        let strip = StripNow { tabs: &slots, groups: &groups, active: active_now(state, pane) };
+        let (settled, active) = state.tab_places.lock().commit(pane, strip, self.hole, asked, tab);
         let run = settled.joined.and_then(|run| {
             let start = slots.iter().position(|slot| slot.group == Some(run))?;
             let members = slots.iter().filter(|slot| slot.group == Some(run)).count();
@@ -280,8 +280,18 @@ impl Placed {
         let Some(number) = self.hole else { return asks };
         let open =
             |tab: SurfaceId| state.panes.get(&pane).is_some_and(|pane| pane.tabs.contains(&tab));
-        state.tab_places.lock().takes_active(pane, number, asks, open)
+        let now = active_now(state, pane);
+        state.tab_places.lock().takes_active(pane, number, asks, open, now)
     }
+}
+
+/// The active tab of `pane` and its stamp; no tab for a pane that the state
+/// does not have.
+fn active_now(state: &State, pane: PaneId) -> ActiveNow {
+    state.panes.get(&pane).map_or_else(ActiveNow::default, |pane| ActiveNow {
+        tab: pane.active_surface(),
+        at: pane.active_at,
+    })
 }
 
 /// The index of a terminal tab's creation ([`super::tab_slot`]) and its
