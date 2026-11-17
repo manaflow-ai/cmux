@@ -115,7 +115,11 @@ import UIKit
             let image = UIGraphicsImageRenderer(bounds: rect.insetBy(dx: 0, dy: -16), format: format).image { context in
                 (style == .dark ? UIColor.black : UIColor.white).setFill()
                 context.fill(rect.insetBy(dx: 0, dy: -16))
-                cell.layer.render(in: context.cgContext)
+                // A layer render draws outside any window, so UILabel resolves its dynamic colors
+                // against the current trait collection, not the cell's override: set it.
+                UITraitCollection(userInterfaceStyle: style).performAsCurrent {
+                    cell.layer.render(in: context.cgContext)
+                }
             }
             let name = "list-\(category == .large ? "large" : "xxl")-\(style == .dark ? "dark" : "light").png"
             if let png = image.pngData() { Attachment.record(png, named: name) }
