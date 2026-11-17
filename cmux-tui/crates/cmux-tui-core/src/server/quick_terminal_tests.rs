@@ -601,7 +601,7 @@ fn a_public_tab_focus_of_the_hidden_quick_terminal_sends_the_layout_with_the_mar
     let request = public_request(
         "tab.focus",
         json!({"machine": "current", "session": "current", "tab": tab}),
-        None,
+        Some("quick-tab-focus"),
     );
     let response = crate::resource_router::handle_resource_message(&wire.mux, &request)
         .expect("the public tab.focus");
@@ -623,7 +623,7 @@ fn a_public_pane_focus_of_the_hidden_quick_terminal_shows_it() {
     let request = public_request(
         "pane.focus",
         json!({"machine": "current", "session": "current", "pane": wire.public_id(quick)}),
-        None,
+        Some("quick-pane-focus"),
     );
     let response = crate::resource_router::handle_resource_message(&wire.mux, &request)
         .expect("the public pane.focus");
