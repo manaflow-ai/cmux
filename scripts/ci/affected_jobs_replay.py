@@ -9,6 +9,11 @@ pull request's own run did. The old router is BASE_REF's scripts/ci/affected_job
 one counts every job as run (the path filters that came before ran them on nearly every cmux-tui change). The new
 router is this tree's.
 
+It also replays the gates that ran before the router (gates_before_router): each workflow's `paths:` trigger at
+BASE_REF, then the spec jobs' own scope steps (cargo_test_verdict.touches and the protocol IR and carrier greps), so
+"before" is what feat-cmux-next really ran, not every job. A job the router skips where those gates ran it is listed
+by commit: each is a skip to audit, the only place a false skip the old gates did not have can hide.
+
 It prints, per job, how many of the pull requests each router runs it on, which ones changed, and, with --minutes
 (a JSON object of job id -> minutes per run), the job-minutes each spends over the window. It fails when the new
 router raises on a commit, or skips a job on a pull request that changes a file inside one of the job's own crates
@@ -21,6 +26,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -64,6 +70,48 @@ def base_router(ref: str, scratch: Path):
     return load_router(scratch, "affected_jobs_base"), map_text
 
 
+SPEC = ".github/workflows/cmux-tui-spec.yml"
+# The scope steps cmux-tui-spec.yml's jobs ran before the router (feat-cmux-next e178066170d8).
+PROTOCOL_IR = re.compile(r"^(cmux-tui/(crates/acpmux/|Cargo\.(toml|lock)$|rust-toolchain(\.toml)?$|\.cargo/)"
+                         r"|\.github/workflows/cmux-tui-spec\.yml$|\.github/actions/setup-cmux-tui-rust/"
+                         r"|\.github/actions/runner-cargo-home/)")
+CARRIER = re.compile(r"^(cmux-tui/crates/(cmux-link|cmux-relay|cmux-tui/src/carrier)/|\.github/workflows/cmux-tui-spec\.yml$)")
+
+
+def gates_before_router(router, tree, changed: list[str], ref: str, jobs) -> dict[str, bool]:
+    """Whether each job ran its tests under the gates before the router, at REF's workflows: its workflow's `paths:`
+    trigger (cmux-tui-spec.yml: the push paths its changes job reads), then the spec jobs' scope steps."""
+    verdict = router.cargo_test_verdict
+
+    def touches(crate: str) -> bool:
+        dirs, files = verdict.crate_inputs(ROOT, crate, tree)
+        always = verdict.ALWAYS + verdict.READ_AT_TEST_TIME.get(crate, ())
+        prefixes = tuple(f"{d}/" for d in dirs) + tuple(p for p in always if p.endswith("/"))
+        exact = set(files) | {p for p in always if not p.endswith("/")}
+        return any(path in exact or path.startswith(prefixes) for path in changed)
+
+    started: dict[str, bool] = {}
+    for workflow in {job.workflow for job in jobs}:
+        try:
+            text = git("show", f"{ref}:{workflow}")
+        except subprocess.CalledProcessError:
+            started[workflow] = True
+            continue
+        globs = router.workflow_paths(text, "push" if workflow == SPEC else "pull_request")
+        started[workflow] = globs is None or any(router.glob_matches(g, p) for g in globs for p in changed)
+    ran = {}
+    for job in jobs:
+        on = started[job.workflow]
+        if on and job.id in ("acpmux-tests", "acpmux-sim"):
+            on = touches("cmux-tui/crates/acpmux")
+        elif on and job.id == "acpmux-protocol-ir":
+            on = any(PROTOCOL_IR.match(p) for p in changed)
+        elif on and job.id == "carrier-sim":
+            on = touches("cmux-tui/crates/cmux-remote") or any(CARRIER.match(p) for p in changed)
+        ran[job.id] = on
+    return ran
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--base-ref", default="HEAD^1")
@@ -78,7 +126,9 @@ def main(argv: list[str] | None = None) -> int:
     commits = git("log", "--first-parent", "--format=%H", args.base_ref, "-n", str(args.limit)).split()
     _, jobs = new.load_map(new_map)
     ids = [job.id for job in jobs]
-    totals = {job_id: {"old": 0, "new": 0, "added": 0, "dropped": 0} for job_id in ids}
+    totals = {job_id: {"old": 0, "new": 0, "added": 0, "dropped": 0, "gates": 0, "gates_dropped": 0}
+              for job_id in ids}
+    dropped_from_gates: list[str] = []
     rows, failures = [], []
     with tempfile.TemporaryDirectory() as tmp:
         old, old_map = base_router(args.base_ref, Path(tmp))
@@ -93,6 +143,10 @@ def main(argv: list[str] | None = None) -> int:
                 except Exception as why:  # noqa: BLE001 - any raise is the finding
                     failures.append(f"{sha[:12]}: the new router raised {type(why).__name__}: {why}")
                     continue
+                try:
+                    run_gates = gates_before_router(new, tree, changed, args.base_ref, jobs)
+                except new.git_tree.Unreadable:
+                    run_gates = {job_id: True for job_id in ids}  # the old scope steps ran the tests then too
             run_new = {key[1]: value for key, value in after.run.items()}
             if old is None:
                 run_old = {job_id: True for job_id in ids}
@@ -105,6 +159,10 @@ def main(argv: list[str] | None = None) -> int:
                 run_old = {key[1]: value for key, value in before.run.items()}
             for job in jobs:
                 was, now = run_old.get(job.id, True), run_new[job.id]
+                totals[job.id]["gates"] += run_gates[job.id]
+                if run_gates[job.id] and not now:
+                    totals[job.id]["gates_dropped"] += 1
+                    dropped_from_gates.append(f"{sha[:12]} {job.id}: {after.why[job.workflow, job.id]}")
                 totals[job.id]["old"] += was
                 totals[job.id]["new"] += now
                 totals[job.id]["added"] += now and not was
@@ -112,19 +170,24 @@ def main(argv: list[str] | None = None) -> int:
                 own = [p for p in changed if any(new.under(p, crate) for crate in job.crates)]
                 if own and not now:
                     failures.append(f"{sha[:12]}: {job.id} skipped although {own[0]} is in its own crate")
-            rows.append({"sha": sha, "files": len(changed), "old": run_old, "new": run_new,
+            rows.append({"sha": sha, "files": len(changed), "old": run_old, "new": run_new, "gates": run_gates,
                          "everything": after.everything})
             print(f"{sha[:12]} {len(changed):4} files  old {''.join('x' if run_old.get(i, True) else '.' for i in ids)}"
                   f"  new {''.join('x' if run_new[i] else '.' for i in ids)}  {after.everything[:70]}", flush=True)
 
     n = len(rows)
     print(f"\n{n} merged pull requests ({args.base_ref}, newest first); jobs: {', '.join(ids)}")
-    print("| job | old router runs it | new router runs it | added | dropped | old min | new min |")
-    print("|---|---|---|---|---|---|---|")
+    print("| job | gates before the router | old router runs it | new router runs it | added | dropped "
+          "| dropped vs gates | gates min | new min |")
+    print("|---|---|---|---|---|---|---|---|---|")
     for job_id, t in totals.items():
         per = minutes.get(job_id)
-        cost = (f"| {t['old'] * per:.0f} | {t['new'] * per:.0f} |" if per else "| - | - |")
-        print(f"| {job_id} | {t['old']}/{n} | {t['new']}/{n} | {t['added']} | {t['dropped']} {cost}")
+        cost = (f"| {t['gates'] * per:.0f} | {t['new'] * per:.0f} |" if per else "| - | - |")
+        print(f"| {job_id} | {t['gates']}/{n} | {t['old']}/{n} | {t['new']}/{n} | {t['added']} | {t['dropped']} "
+              f"| {t['gates_dropped']} {cost}")
+    if dropped_from_gates:
+        print("\nSkipped by the router where the gates before it ran the job (audit each):")
+        print("".join(f"- {line}\n" for line in dropped_from_gates), end="")
     if args.json:
         args.json.write_text(json.dumps({"rows": rows, "totals": totals}, indent=1))
     for failure in failures:
