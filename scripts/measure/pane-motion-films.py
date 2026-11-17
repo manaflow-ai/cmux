@@ -41,7 +41,10 @@ The sources of the acts, and their limits (each row says which it used):
            the session of the Mac.
   pointer  `debug.mouse`: mouse events on the app's own queue, one request for each step of a drag, paced by this
            script; the system pointer does not move in the film. The row has the step rate of the app's input journal.
-  action   `action.run`, for an act with no default key; its label says so.
+  action   `action.run`, for an act with no default key; its label says so. The workspace switch (`P17`) is by the
+           action `goToWorkspace` with the id of a workspace of the session too: a key of Command and a number shows
+           the ROW of the sidebar with that number, and that is a workspace of the session only when no other row
+           (the Home, the App Store, a pinned row) is above it. So that film shows no key's path.
 The panes: `redraw` = htop, else nvim, else /usr/bin/top (--program); `stream` = /sbin/ping on the loopback;
 `page` = a Chromium tab on a page of this script's local server (no network); `chat` = the agent chat page with a
 synthetic thread that streams by the page's own debug hook (`debug.agent_pane` stream): no agent runs and the launch
@@ -87,6 +90,18 @@ refusal message of the app so far, the last 100).
       read that gave no workspace (the pane count, the zoomed panes), a tab read that gave no tab.
       A film of a split and then a close reads the pane with the focus between the 2 keys: when that is not a NEW
       pane, the close is NOT sent (the app asks before it closes a terminal with a program) and the film is `not_made`.
+      The film of a new window (`P16`) reads the app's window list (`debug.window_list`) before the take and, after
+      its key, again each 0.25 s for 20 s at most, until the list has ONE new window of the kind `main` that the app
+      says is on the screen (`visible`, not `occluded`, not `miniaturized`); the film's tail starts only then
+      (`new_windows`, `new_window_at_s` in the row). No such window in that time, or a list that the script could
+      not read, is `not_made`. This is the app's word of its window, not a look at the picture: the script does not
+      compare the window's frame with the recorder's rectangle.
+      The workspace switch (`P17`) shows 2 workspaces that the session's maker made (the workspaces that the app
+      lists after the maker and did not list before it): before the take the first one and then the film's own
+      workspace again, in the take that first one and then the second one, which the script did not show before.
+      After each switch the script reads for 10 s at most if a window shows that workspace: `not_made` if none does.
+      A launch with fewer than 2 such workspaces (--workspaces 0) makes the film `not_run`. `the first time` = the
+      script never showed it; the app has no read that says if it drew the workspace before.
   a dialog that the film opened gets ONE `debug.dialog` `dismiss` (the app's Cancel) at the film's end, so that it is
       not over the next film; the row says `the tool sent Cancel` (`dialog`). If the app does not take it, the launch
       stops. A film that is `not_made` keeps its movie: it shows what the app did. The movie gets the name
@@ -160,6 +175,10 @@ PING = "/sbin/ping -i 0.2 127.0.0.1"
 # undo message of a close 12 s, a refusal with a sign-in offer 16 s (the longest one of a film's act). 16 s and 2 s
 # for the reads. The pointer on a message holds it, and a message with no end time does not go: `not_made` then.
 OVERLAY_S = 18
+# How long the film of a new window reads the app's window list for the window, and how long a workspace switch reads
+# for the workspace in a window. In a run on a Mac with a session of 800 workspaces the new window was not in the
+# picture 3.7 s after its key.
+WINDOW_S, SHOW_S = 20, 10
 ACT_ONLY = "act check: the refusal list, the dialogs and the pane count only"
 NO_NEW_PANE = "the split made no pane (the pane with the focus is not a new pane), so the close was not sent"
 SETUPS = {"T": ("row", ("redraw", "stream")), "B": ("row", ("page", "page")), "A": ("row", ("chat", "chat")),
@@ -186,6 +205,11 @@ def W(seconds):
 
 def A(action, target=""):
     return ("action", action, target)
+
+
+def G(index):
+    """Shows the workspace `index` (0 = the first one) of the session's workspaces by the action `goToWorkspace`: no key."""
+    return ("go", index)
 
 
 def film(ident, title, setup, acts, **more):
@@ -215,9 +239,9 @@ FILMS += [
     film("P13", "A split, then a close, in a row of 5 panes", "R", SPLIT_CLOSE, focus=2),
     film("P14", "A tab dragged to another pane", "P", [("tab",)], tabs=2),
     film("P15", "Focus moved pane to pane", "P", [K(f"opt+cmd+{way}") if way else W(0.5) for way in ("right", "", "down", "", "left", "", "up")]),
-    film("P16", "A new window", "P", [K("shift+cmd+n")], crop="frame", tail=2.5),
-    film("P17", "A workspace switch: one shown before, one shown the first time", "P", [K("cmd+2"), W(1.5), K("cmd+3")],
-         pre=[K("cmd+2"), W(1.0), ("show",)], tail=2.0),
+    film("P16", "A new window", "P", [K("shift+cmd+n")], crop="frame", tail=2.5, windows=1),
+    film("P17", "A workspace switch: one shown before, one shown the first time", "P", [G(0), W(1.5), G(1)],
+         pre=[G(0), W(1.0), ("show",)], tail=2.0),
     film("P18", "Sidebar hidden and shown", "P", [K("cmd+b"), W(1.2), K("cmd+b")]),
     film("P19", "A column docked and not docked", "P", [K("ctrl+cmd+p"), W(1.5), K("ctrl+cmd+p")], focus=1, dock=False),
     film("P20", "A pin and an unpin", "P", [A("palette.toggleWorkspacePin", "workspace"), W(1.2), A("palette.toggleWorkspacePin", "workspace")]),
@@ -484,6 +508,7 @@ def act_check(spec):
     checks += ["the new pane before the close"] if ("tabs",) in spec["acts"] else []
     checks += [f"the tab count ({spec['tab_change']:+d})"] if spec.get("tab_change") else []
     checks += ["the `layout` spans"] if spec.get("layout") else []
+    checks += [f"the new windows ({spec['windows']:+d})"] if spec.get("windows") else []
     return ACT_ONLY if checks == ["the pane count"] else "act check: the refusal list, the dialogs, " + ", ".join(checks)
 
 
@@ -517,8 +542,8 @@ def label(act, zoom="key"):
         mods = "".join(n.capitalize() + "-" for n in names[:-1])
         said = " then ".join(mods + NAMES.get(k, k.capitalize()) for k in names[-1].split(","))
         return said + (f" x{presses}" if presses > 1 else "") + (" held" if hold == "tabs" else f" held {hold:g} s" if hold else "")
-    if act[0] == "action":
-        return f"action {act[1]} (no key)"
+    if act[0] in ("action", "go"):
+        return f"action {act[1] if act[0] == 'action' else 'goToWorkspace'} (no key)"
     return {"divider": "drag of a divider by a debug command", "tab": "drag of a tab by a debug command"}.get(act[0], "")
 
 
@@ -795,6 +820,7 @@ class Films:
         self.zoom = "key"  # the preflight's word: "key", BY_ACTION, or "none: <why>"
         self.speed_fault = ""  # the words of a film's end that did not give the animation speed back: for each row after it
         self.stop = ""  # why no other film of this launch can be made (a dialog or an overlay that stays over the window)
+        self.session = []  # the workspaces that the session's maker made in this launch, in the app's order
         self.st = STRESS.Stress(app.rpc)
         self.program = redraw_program(opts.program)
         self.main_window = next(iter(self.windows()), None)
@@ -803,7 +829,33 @@ class Films:
         return self.opts.deadline - time.monotonic()
 
     def windows(self):
-        return {w.get("id") or w.get("key") for w in self.st.topology().get("windows") or []} - {None}
+        """The model key of each cmux window. By a read of the app's source, `debug.window.focus` takes that key; the
+        layout reply's `id` is the window's public id, and the app answers it with `no window with that id`."""
+        return {w.get("key") or w.get("id") for w in self.st.topology().get("windows") or []} - {None}
+
+    def main_windows(self):
+        """The app's windows of the kind `main` by ONE read of `debug.window_list`: {the window's number: if the app
+        says that it is on the screen (`visible`, not `occluded`, not `miniaturized`)}. A window whose entry does not
+        say all 3 is not on the screen. NotKnown when the read gave no list."""
+        reply = self.app.rpc("debug.window_list")
+        found = reply.get("windows") if isinstance(reply, dict) else None
+        if not isinstance(found, list) or not all(isinstance(window, dict) for window in found):
+            raise NotKnown(f"the window list read gave no list: {str(reply)[:160]}")
+        return {window.get("id"): window.get("visible") is True and window.get("occluded") is False and window.get("miniaturized") is False
+                for window in found if window.get("kind") == "main"}
+
+    def new_windows(self, wanted, had, clock):
+        """Reads the app's window list until `wanted` windows that are not in `had` are on the screen, for WINDOW_S at
+        most. For the row: `new_windows` = their count at the last read (`not read`: that read gave no list), and
+        `new_window_at_s` = the end of the read that had them, from the film's start."""
+        seen = ["not read"]
+
+        def read():
+            seen[0] = "not read"  # the helper's `wait` takes a read that raises as `no value`
+            seen[0] = sum(1 for number, shown in self.main_windows().items() if shown and number not in had)
+            return seen[0] >= wanted
+        came = STRESS.wait(read, WINDOW_S, step=0.25)
+        return {"new_windows": seen[0], **({"new_window_at_s": round(time.monotonic() - clock, 3)} if came else {})}
 
     def chat(self, pane):
         """Waits for the chat page of `pane`, then starts its synthetic stream in a thread (the call ends with the
@@ -1003,6 +1055,15 @@ class Films:
                 reply = self.st.action(act[1], target=f"workspace:{workspace}" if act[2] == "workspace" else None)
                 if isinstance(reply, dict) and reply.get("error"):
                     row["error"] = str(reply["error"])[:160]
+            elif act[0] == "go":
+                # No key: a key of Command and a number shows a row of the sidebar, not a workspace of the session.
+                row["workspace_of_the_session"], target = act[1] + 1, self.session[act[1]]
+                reply = self.st.action("goToWorkspace", {"workspace": target})
+                if isinstance(reply, dict) and reply.get("error"):
+                    row["error"] = str(reply["error"])[:160]
+                elif not STRESS.wait(lambda: self.st.window_showing(target) is not None, SHOW_S, step=0.05):
+                    raise NotMade(("" if checks else "before the take: ") + f"the window did not show the workspace {act[1] + 1} of the session "
+                                  f"in {SHOW_S} s after the action goToWorkspace")
             elif act[0] == "show":
                 self.st.show(workspace)
                 self.st.focus_pane(focus)
@@ -1088,6 +1149,11 @@ class Films:
             faults.append("the zoomed panes at the film's end were not read")
         elif row.get("zoomed_end"):
             faults.append(f"{row['zoomed_end']} zoomed panes at the film's end, not 0")
+        if spec.get("windows") and row["new_windows"] == "not read":
+            faults.append("the window list after the acts was not read")
+        elif spec.get("windows") and row["new_windows"] != spec["windows"]:
+            faults.append(f"{row['new_windows']} new windows of the kind `main` on the screen by the app's window list in {WINDOW_S} s after "
+                          f"the acts: the film's acts make {spec['windows']}")
         row["layout_spans"] = "not recorded"  # a film with no speed has no span record
         if spec.get("layout"):
             (low, high), spans = spec["layout"], row.get("spans")
@@ -1125,6 +1191,9 @@ class Films:
                 raise RuntimeError(f"the turned zoom is 2 zoom keys with a gap, and this launch makes a zoom by the action, not by a key: {self.zoom}")
             if spec["setup"] in MOCK_SETUPS and not self.mock:
                 raise RuntimeError("this launch has the page mock off: a chat thread streams only under the mock")
+            if len(self.session) < 2 and any(act[0] == "go" for part in ("pre", "acts", "post") for act in spec.get(part, ())):
+                raise RuntimeError(f"the film shows 2 workspaces of the session, and this launch has {len(self.session)} (the workspaces "
+                                   "that the app listed after the session's maker and not before it)")
             if speed:
                 had = motion_reply(rpc).get("speed")
                 row["speed_before"], before = had or NOT_READ, had or "fast"
@@ -1157,6 +1226,11 @@ class Films:
                 if not tabs:
                     raise NotMade("before the take: the tab read gave no tab of the pane")
                 row["tabs_before"] = tabs
+            if spec.get("windows"):
+                try:
+                    had = set(self.main_windows())  # each `main` window of now, on the screen or not
+                except NotKnown as error:  # no list: the tool then cannot say which window is new
+                    raise NotMade(f"before the take: {error}") from error
             started = rpc("debug.motion", {"action": "record_start", "path": os.path.join(opts.out, spec["id"] + ".mov"), "seconds": TAKE_S, "mbps": opts.mbps})
             if not isinstance(started, dict) or started.get("error"):
                 raise RuntimeError(f"record_start: {started}")
@@ -1173,6 +1247,8 @@ class Films:
                 time.sleep(LEAD_S)  # the film starts with the still window
                 row["acts"] = self.play(spec["acts"], workspace, panes, focus, key_window, clock, checks=True)
                 self.refused(row["acts"])
+                if spec.get("windows"):
+                    row.update(self.new_windows(spec["windows"], had, clock))  # the film's tail starts when the app has the window
                 time.sleep(max(spec.get("tail", 1.5), MIN_FILM_S - (time.monotonic() - clock)))  # the motion's end is in the film
             finally:
                 if traced:
@@ -1377,10 +1453,12 @@ def launch_films(opts, mock, idents, report, began, form):
         facts["preflight"] = "passed"
         facts["display"] = {k: link.get(k) for k in ("p50_ms", "refresh_ms", "frames")}
         if opts.workspaces:
+            before = {w["id"] for w in maker.st.workspaces()}
             facts["session"] = seed(app, opts.workspaces, opts.live_shells, opts.page_url, opts.seed_deadline, opts.out)
+            maker.session = [w["id"] for w in maker.st.workspaces() if w["id"] not in before]
             pins = [maker.st.action("palette.toggleWorkspacePin", {"pinned": True}, target=f"workspace:{w['id']}", focus=False)
                     for w in maker.st.workspaces()[:opts.pinned]]
-            facts["session"].update(listed_by_the_app=len(maker.st.workspaces()),
+            facts["session"].update(listed_by_the_app=len(maker.st.workspaces()), workspaces_of_the_maker=len(maker.session),
                                     pins_refused=sum(1 for r in pins if isinstance(r, dict) and r.get("error")), pins_asked=len(pins))
             print("PANE-FILMS-SESSION " + json.dumps(facts["session"]), flush=True)
         facts["start_s"] = round(time.monotonic() - began, 1)
