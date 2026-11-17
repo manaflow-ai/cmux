@@ -9,29 +9,39 @@ import Testing
 /// `AMoveMadeWhileACloseIsHiddenKeepsItsSlotTests`. The rows here are the rule's other parts: they pass by design, and
 /// no run at the code before the rule is their proof.
 ///
-/// Each row: one pane `t a b c N` in a store with no daemon. A close of `a` that is not settled makes the list one
-/// shorter while the move is made; the daemon's refusal of that close (`DaemonStore.rejectIntent`) makes it longer
-/// again, so the move's index and the move's place name two different slots.
+/// Each row: one pane in a store with no daemon (`t a b c N` when the row names no other). A close of `a` that is not
+/// settled makes the list one shorter while the move is made; the daemon's refusal of that close
+/// (`DaemonStore.rejectIntent`) makes it longer again, so the move's index and the move's place name two different
+/// slots.
+///
+/// The last three rows are for a refusal of the daemon and for a held close (decision of 2026-11-17: the store's
+/// place is the place that the daemon's own move gives, where the store can know it). No row sends a command: the
+/// daemon's order in a row's comment is the move to the index that `DaemonStore.daemonMoveIndex` gives the command,
+/// made by hand on the daemon's list, and the row reads that index. The closed tab of these rows is right of the
+/// moved tab's place. A refused sent close of a tab left of the place is a row of
+/// `AMoveMadeWhileACloseIsHiddenKeepsItsSlotTests`: there the store's order is not the daemon's.
 @MainActor
 struct TabMovePlaceTests {
     private static let workspace = WorkspaceHandle(rawValue: 1)
     private static let screen = ScreenID(rawValue: 2)
     private static let pane = PaneID(rawValue: 3)
-    /// `t a b c N`.
-    private static let surfaces = (4...8).map { SurfaceID(rawValue: $0) }
-    private static let letters = ["t", "a", "b", "c", "N"]
+    /// The tabs that a row's pane can have, each by its letter. `N` and `M` are new tabs.
+    private static let surfaces = (4...10).map { SurfaceID(rawValue: $0) }
+    private static let letters = ["t", "a", "b", "c", "d", "N", "M"]
 
     private static func surface(_ letter: String) throws -> SurfaceID {
         let index = try #require(letters.firstIndex(of: letter), "setup: no tab \(letter)")
         return surfaces[index]
     }
 
-    private static func store() -> DaemonStore {
+    /// A store with the one pane `tabs` (a letter for each tab, in the pane's order).
+    private static func store(_ tabs: String = "tabcN") -> DaemonStore {
         let store = DaemonStore()
+        let listed = tabs.compactMap { letter in letters.firstIndex(of: String(letter)).map { surfaces[$0] } }
         let snapshot = WorkspaceSnapshot(
             id: workspace, key: WorkspaceKey(rawValue: "00000000-0000-4000-8000-000000000001"), name: "1",
             screens: [ScreenSnapshot(id: screen, active: true, activePane: pane, layout: .leaf(pane),
-                                     panes: [PaneSnapshot(id: pane, tabs: surfaces.map { TabSnapshot(surface: $0) })])])
+                                     panes: [PaneSnapshot(id: pane, tabs: listed.map { TabSnapshot(surface: $0) })])])
         store.apply(snapshot: DaemonTree(workspaceRevision: 1, workspaces: [snapshot]))
         return store
     }
@@ -42,10 +52,18 @@ struct TabMovePlaceTests {
         return model.tabs.map { tab in surfaces.firstIndex(of: tab.surface).map { letters[$0] } ?? "?" }.joined()
     }
 
-    /// A pending move of the tab `letter` to `index` of the pane's list now.
-    private static func move(_ letter: String, to index: Int, in store: DaemonStore) throws {
-        let moved = try surface(letter)
-        store.intend(.moveTab(surface: moved, toPane: pane, index: index), transaction: .generate())
+    /// A pending move of the tab `letter` to `index` of the pane's list now; its transaction.
+    @discardableResult
+    private static func move(_ letter: String, to index: Int, in store: DaemonStore) throws -> ClientTransactionID {
+        let moved = try surface(letter), transaction = ClientTransactionID.generate()
+        store.intend(.moveTab(surface: moved, toPane: pane, index: index), transaction: transaction)
+        return transaction
+    }
+
+    /// The index that the command to the daemon has for a move of the tab `letter` to `index` of the pane's list now.
+    private static func commandIndex(_ letter: String, to index: Int, in store: DaemonStore) throws -> Int {
+        let model = try #require(store.pane(Self.pane), "setup: the store has no pane")
+        return store.daemonMoveIndex(index, moving: try surface(letter), in: model).final
     }
 
     /// The daemon's event that the tab `letter` closed.
@@ -106,5 +124,59 @@ struct TabMovePlaceTests {
 
         try Self.daemonCloses("t", in: store)
         #expect(try Self.order(store) == "Nabc")
+    }
+
+    /// A close that was sent, and that the daemon refuses, of the tab between the moved tab's two neighbours. Pane
+    /// `t a b c d N`. The close of `c` is sent (the store does not hold it back) and not answered. The new tab `N`
+    /// moves right after `b` (index 3 of `t a b d`), and its command has the index 3: a sent close does not count in
+    /// it. The daemon refuses the close, so its list is `t a b c d N`, and its move to index 3 gives `t a b N c d`.
+    /// The store shows that order at the refusal, and not `t a b c N d` until the move's event.
+    @Test func aRefusedSentCloseBetweenTheNeighboursLeavesTheTabWhereTheDaemonsMovePutsIt() throws {
+        let store = Self.store("tabcdN")
+        let close = try #require(store.intendClose([try Self.surface("c")]), "setup: the close found no tab c")
+        try #require(try Self.commandIndex("N", to: 3, in: store) == 3, "setup: the command's index is not 3")
+        try Self.move("N", to: 3, in: store)
+        try #require(try Self.order(store) == "tabNd", "setup: the move did not put N between b and d")
+
+        store.rejectIntent(close)
+        #expect(try Self.order(store) == "tabNcd")
+    }
+
+    /// The same steps with a close that the store holds back from the daemon while a read decides
+    /// (`DaemonStore.holdTabs`). The held tab counts in the command's index (4: the daemon's list has `c`), so the
+    /// daemon's move gives `t a b c N d`. The hold is rolled back (the read found a program): the store shows that
+    /// order. The moved tab's neighbour on its left is the held tab, which the visible list does not have.
+    @Test func aHeldCloseBetweenTheNeighboursThatIsRolledBackLeavesTheTabAfterTheHeldTab() throws {
+        let store = Self.store("tabcdN")
+        let c = try Self.surface("c")
+        let held: Set<String> = [try #require(store.tab(surface: c), "setup: the store has no tab c").id]
+        store.holdTabs(held)
+        let close = try #require(store.intendClose([c]), "setup: the close found no tab c")
+        try #require(try Self.commandIndex("N", to: 3, in: store) == 4, "setup: the command's index is not 4")
+        try Self.move("N", to: 3, in: store)
+        try #require(try Self.order(store) == "tabNd", "setup: the move did not put N between b and d")
+
+        // As `HiddenTabClose.restore` ends a hold.
+        store.releaseHeldTabs(held)
+        store.rejectIntent(close)
+        #expect(try Self.order(store) == "tabcNd")
+    }
+
+    /// A LIMIT, not the daemon's order. Pane `t a b c N M`. `N` moves right after `b` (`t a b N c M`), then `M` moves
+    /// right after `N` (`t a b N M c`; its command has the index 4). The daemon refuses the move of `N`. Its list is
+    /// then `t a b c N M`, and its move of `M` to index 4 gives `t a b c M N`. The store shows `t a b c N M` until the
+    /// move's event: `M` stays right after its neighbour `N`. By a read of the daemon, no act of a person reaches a
+    /// refused move of a tab that stays in its pane: `move-tab` refuses an unknown pane or tab, and a drag into a
+    /// pinned column that takes no tabs (`cmux-tui/crates/cmux-tui-core/src/server/cmd_tabs.rs`, `move-tab`;
+    /// `cmux-tui/crates/cmux-layout-reducer/src/tab_moves.rs`, the same-pane move).
+    @Test func aRefusedMoveOfTheNeighbourLeavesTheLaterMovedTabAfterIt() throws {
+        let store = Self.store("tabcNM")
+        let first = try Self.move("N", to: 3, in: store)
+        try #require(try Self.commandIndex("M", to: 4, in: store) == 4, "setup: the command's index is not 4")
+        try Self.move("M", to: 4, in: store)
+        try #require(try Self.order(store) == "tabNMc", "setup: the two moves did not give t a b N M c")
+
+        store.rejectIntent(first)
+        #expect(try Self.order(store) == "tabcNM")
     }
 }

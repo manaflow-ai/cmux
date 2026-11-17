@@ -133,6 +133,11 @@ struct AMoveMadeWhileACloseIsHiddenKeepsItsSlotTests {
         #expect(scene.order == "tabNc", "the new tab left its slot: \(scene.list)")
     }
 
+    /// Not the end state. The row sends no command and has no daemon. In the app the close of `a` was sent, so the
+    /// move's command did not count `a`: it has the index 2, of the list `t b c N`. The daemon refuses the close and
+    /// then runs the move on its own list `t a b c N`, which gives `t a N b c`. So the person sees this row's order
+    /// `t a b N c` from the refusal to the move's event, and then `t a N b c`. The mend of that end state is the
+    /// command's index, not the store's place.
     @Test
     func theNewTabStaysAfterItsAnchorWhenTheDaemonRefusesTheClose() throws {
         let scene = try Scene()
