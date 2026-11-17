@@ -2916,6 +2916,8 @@ open(out, 'w').write(json.dumps(seen))
     const sha = (s: string) => createHash("sha256").update(s).digest("hex");
     const want = sha("sk-ant-oat01-mine");
     const rows = [{ cred_sha256: sha(MODEL_PLANE_PLACEHOLDER) }, { cred_sha256: sha(MODEL_PLANE_PLACEHOLDER) }, { cred_sha256: want }, { cred_sha256: "" }, { cred_sha256: sha("other") }];
-    expect(credentialSeen(rows, want)).toBe("2 with the model-route placeholder, 1 with the login, 1 with no credential, 1 with another credential");
+    const rowsShaped = rows.map((r, i) => ({ ...r, path: "/v1/messages", model: i === 0 ? "claude-haiku" : "stub-model", stream: i !== 0, tools: i === 0 ? [] : ["Bash"], step: 0 }));
+    expect(credentialSeen(rowsShaped, want)).toBe("2 with the model-route placeholder, 1 with the login, 1 with no credential, 1 with another credential; not the login: /v1/messages model=claude-haiku stream=false tools=0 step=0; /v1/messages model=stub-model stream=true tools=1 step=0; /v1/messages model=stub-model stream=true tools=1 step=0; /v1/messages model=stub-model stream=true tools=1 step=0");
+    expect(credentialSeen([{ cred_sha256: want }], want)).toBe("1 with the login");
   });
 });
