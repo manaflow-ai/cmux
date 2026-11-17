@@ -2265,8 +2265,8 @@ function TranscriptView({
   /// comes and goes while the pane finds acpmux: the room under the last row takes it only once the
   /// rows move anyway (`noticeHold`).
   const [dockNotice, setDockNotice] = useState(0);
+  /// The same, as the stack's observer last measured it (it writes both), for the handlers below.
   const dockNoticeRef = useRef(0);
-  dockNoticeRef.current = dockNotice;
   /// The host line's height the room under the last row last took (`noticeHold` below).
   const noticeBase = useRef(0);
   /// The tray's height the room under the last row was last given (`trayHold` below), and the rows'
@@ -2332,6 +2332,7 @@ function TranscriptView({
       setDockHeight(0);
       setDockCard(0);
       setDockTray(0);
+      dockNoticeRef.current = 0;
       setDockNotice(0);
       return;
     }
@@ -2429,13 +2430,15 @@ function TranscriptView({
       const nextCard = card(drawn) + (drawn > 0 ? rest : 0);
       const nextTray = tray(drawn);
       const nextNotice = notice(drawn);
+      const noticeChanged = Math.abs(nextNotice - dockNoticeRef.current) >= 0.5;
+      dockNoticeRef.current = nextNotice;
       // A tray that went holds nothing: the room is the stack's again.
       if (nextTray <= 0) trayToggled.current = false;
       if (
         Math.abs(next - dockSpaceRef.current) >= 0.5 ||
         Math.abs(nextHeight - dockHeightRef.current) >= 0.5 ||
         Math.abs(nextCard - dockCardRef.current) >= 0.5 ||
-        Math.abs(nextNotice - dockNoticeRef.current) >= 0.5
+        noticeChanged
       )
         flushSync(() => {
           setDockSpace(next);
@@ -2483,7 +2486,8 @@ function TranscriptView({
     setDockHeight(fullHeight);
     setDockCard(card(space));
     setDockTray(tray(space));
-    setDockNotice(notice(space));
+    dockNoticeRef.current = notice(space);
+    setDockNotice(dockNoticeRef.current);
     return () => {
       observer.disconnect();
       dock.removeEventListener("click", toggled, { capture: true });
