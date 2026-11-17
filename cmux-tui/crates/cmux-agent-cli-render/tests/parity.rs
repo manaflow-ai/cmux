@@ -841,6 +841,9 @@ impl BenchStream {
             return false;
         }
         self.alternate = alternate;
+        // A frame at T is the screen of the bytes written before T (the bench's still plays
+        // the PTY bytes before its time); these hold the write at `at_ms`, so they go 1 ms on.
+        let at_ms = at_ms + 1;
         let switch: &[u8] = if alternate { b"\x1b[?1049h" } else { b"\x1b[?1049l" };
         self.frames.push(json!([at_ms, {"event": "output", "surface": 1, "data": b64(switch)}]));
         let (real, cursor) = live_screen(mac);
