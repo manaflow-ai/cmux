@@ -343,4 +343,20 @@ mod tests {
         assert_eq!(sections[0].region, Region::Bottom);
         assert_eq!(sections[1].region, Region::Middle);
     }
+
+    /// A repeated contribution id gives one section, the first entry's
+    /// (base red: each entry gave a section with the same hashed id, and a
+    /// placement of both added one id twice).
+    #[test]
+    fn a_repeated_section_id_gives_one_section() {
+        let mut app = package();
+        app.manifest = json!({"contributes": {"sidebarSections": (0..200)
+            .map(|i| json!({"id": format!("s{}", i % 7), "title": "T", "defaultRegion": if i < 7 { "bottom" } else { "top" }, "render": "render"}))
+            .collect::<Vec<_>>()}});
+        let sections = sections(&app);
+        assert_eq!(sections.len(), 7);
+        let ids: std::collections::HashSet<&str> = sections.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids.len(), 7);
+        assert!(sections.iter().all(|s| s.region == Region::Bottom), "the first entry wins");
+    }
 }
