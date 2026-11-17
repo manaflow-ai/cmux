@@ -102,6 +102,9 @@ public final class CloudAuth {
         var replaceSession: Bool
         var allowsEnvironmentAutoLogin: Bool
         var refusalLog: String?
+        /// A debug build's launch session (`CMUX_UITEST_STACK_REFRESH_TOKEN` in an explicit file with no
+        /// pair): adopted while the build holds none (``tokenStore(configuration:nightlySession:memoryOnly:launchSession:)``).
+        var refreshToken: String?
     }
 
     /// The account the launch signs in from `paths` (``launchSignIn(configuration:environment:home:)``), read here: the
@@ -129,7 +132,7 @@ public final class CloudAuth {
         }
         let login = CloudStartCore().call("cloud_auth_launch_login", Request(signIn: signIn, reads: reads), as: LaunchLogin.self)
         if let reads, let explicit = reads.environment["CMUX_AUTH_CREDENTIALS_FILE"], !explicit.isEmpty,
-           reads.files[explicit] != nil, login?.credentials == nil, login?.refusalLog == nil {
+           reads.files[explicit] != nil, login?.credentials == nil, login?.refusalLog == nil, login?.refreshToken == nil {
             fileLog.notice("credentials file sign-in off: no CMUX_DOGFOOD_STACK_ or CMUX_UITEST_STACK_ email and password pair in it")
         }
         return login
@@ -184,6 +187,7 @@ public final class CloudAuth {
         let launch = useCaptureFixture ? (signIn: LaunchSignIn.noSignIn, paths: [String]())
             : Self.launchSignIn(configuration: configuration, environment: environment)
         let signIn = launch.signIn
+        let login = signIn.autoLogin ? Self.launchLogin(signIn, paths: launch.paths, environment: environment) : nil
         let tokenStore: any StackAuthTokenStoreProtocol
         let client: any AuthClient
         let authDefaults: any CMUXAuthKeyValueStore
@@ -195,12 +199,14 @@ public final class CloudAuth {
             // A capture must not inherit or persist this machine's auth state.
             authDefaults = CaptureFixtureKeyValueStore()
         } else {
+            let launchSession = configuration.isDebugBuild ? login?.refreshToken : nil
             let productionStore = Self.tokenStore(configuration: configuration, nightlySession: nightlySession,
-                                                  memoryOnly: signIn.memoryOnly)
+                                                  memoryOnly: signIn.memoryOnly, launchSession: launchSession)
             let fencedStore = CaptureFencedTokenStore(base: productionStore)
             captureTokenStore = fencedStore
             tokenStore = fencedStore
-            authDefaults = signIn.memoryOnly ? MemoryAuthKeyValueStore() : defaults
+            // A launch session's account stays off the defaults too: it ends with the process.
+            authDefaults = signIn.memoryOnly || launchSession != nil ? MemoryAuthKeyValueStore() : defaults
             client = Self.stackClient(configuration: configuration, tokenStore: fencedStore)
         }
         #else
@@ -231,7 +237,6 @@ public final class CloudAuth {
         // The variables are read from the process environment, so pass them per launch with
         // `open --env`; an exported one would replace a production session signed in by browser.
         var launchEnvironment = environment
-        let login = signIn.autoLogin ? Self.launchLogin(signIn, paths: launch.paths, environment: environment) : nil
         if let refusal = login?.refusalLog {
             Logger(subsystem: "com.cmuxterm.app.next", category: "auth").notice("\(refusal, privacy: .public)")
         }
@@ -292,8 +297,17 @@ public final class CloudAuth {
     /// build starts signed out.
     /// `memoryOnly` (a launch that signs in from an explicit file, ``LaunchSignIn/memoryOnly``) keeps the session
     /// in memory and never opens the Keychain or the file fallback.
+    /// `launchSession` (a debug build's ``LaunchLogin/refreshToken``: a fleet step's own agent session, hq
+    /// build-fleet `sign_in`) is adopted into a memory store, never the Keychain or the file fallback, and
+    /// kept alive on the server by a sign-out: the step's submitter revokes it when the step ends, and the
+    /// step's iPhone holds the same session.
     static func tokenStore(configuration: CloudConfiguration, nightlySession: NightlySession?,
-                           memoryOnly: Bool = false) -> any StackAuthTokenStoreProtocol {
+                           memoryOnly: Bool = false, launchSession: String? = nil) -> any StackAuthTokenStoreProtocol {
+        #if DEBUG
+        if let session = ImportedTokenPair(accessToken: nil, refreshToken: launchSession) {
+            return ImportingTokenStore(primary: MemoryStackTokenStore(), sources: [{ session }], sharesSessions: true)
+        }
+        #endif
         if memoryOnly { return MemoryStackTokenStore() }
         guard configuration.adoptsNightlySession else {
             let own = FallbackTokenStore(

@@ -10,6 +10,9 @@ its own settings file with iPhone connections on, the DEBUG dev account of CmuxA
 single-use token can approve the phone. The page's link (`cmux.mobilePairing.status` `qr.url`)
 is opened on the simulator iPhone, signed in to the same account, as the Camera opens a scanned
 code; the step passes when the Mac logs `phone <id8> paired from this Mac's pairing code`.
+A fleet step with no dev email and password signs both apps in with its own agent session instead
+(`cmux-ci run ... --sign-in agent`, $CMUX_CI_SIGNIN_FILE): the phone through its simctl launch
+environment, the Mac through its 0600 credentials file; the refresh token is never printed.
 
 Screens: the Mac's Mobile Pairing page on a ref that shows no code (a code's image carries its
 token, so on a ref with codes the page is never saved), the phone's Settings > Devices before and after, and its scanner sheet with
@@ -49,7 +52,7 @@ have to fake that stamp, so it would test around the very check this proves. The
 in-source DEBUG dev credential of the dev Stack project (the one verify/e2e/mac.py uses), not a
 production or personal account and not a secret.
 """
-import argparse, glob, hashlib, json, os, plistlib, pwd, re, secrets, shutil, socket, subprocess, sys, threading, time
+import argparse, glob, hashlib, json, os, plistlib, pwd, re, secrets, shutil, socket, stat, subprocess, sys, threading, time
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../.."))
 sys.path.insert(0, os.path.join(ROOT, "scripts/cmux-next"))
@@ -117,7 +120,7 @@ def dev_credential():
     """(email, password) of the DEBUG dev account, from the environment (`CMUX_UITEST_STACK_EMAIL` /
     `CMUX_UITEST_STACK_PASSWORD`, the names the app reads), else from the CI auth profile
     (`~/.secrets/cmuxterm-dev.env`, which ios-e2e.yml materializes from the existing dogfood secrets
-    under those same names); the source holds no credential."""
+    under those same names), else None; the source holds no credential."""
     keys = ("CMUX_UITEST_STACK_EMAIL", "CMUX_UITEST_STACK_PASSWORD")
     found = {k: os.environ.get(k, "") for k in keys}
     profile = os.path.expanduser("~/.secrets/cmuxterm-dev.env")
@@ -126,10 +129,95 @@ def dev_credential():
             k, sep, v = line.rstrip("\n").partition("=")
             if sep and k in keys and not found[k]:
                 found[k] = v
-    if not all(found.values()):
-        raise SystemExit("DEBUG dev credential: set CMUX_UITEST_STACK_EMAIL and CMUX_UITEST_STACK_PASSWORD "
-                         "(or provide ~/.secrets/cmuxterm-dev.env)")
-    return found[keys[0]], found[keys[1]]
+    return (found[keys[0]], found[keys[1]]) if all(found.values()) else None
+
+
+class Account:
+    """The account both apps sign in to: `kind` "password" (`secret` is the dev password) or "session"
+    (`secret` is the step's own refresh token). Its repr never shows the secret."""
+
+    def __init__(self, kind, email, secret):
+        self.kind, self.email, self.secret = kind, email, secret
+
+    def __repr__(self):
+        return f"Account({self.kind!r})"
+
+
+def fleet_session():
+    """(email, refresh token) of the step's own agent session, or None when the step has none.
+
+    A step sent with `cmux-ci run --sign-in agent` gets, in $CMUX_CI_SIGNIN_FILE, a 0600 JSON file
+    ({profile, email, project, refresh_token}): a session its submitter made for the shared agent
+    account on their own Mac, sealed to this worker and revoked when the step ends (hq build-fleet
+    `sign_in`; the same checks as scripts/lib/fleet-signin-session.sh). A refusal never names a value."""
+    path = os.environ.get("CMUX_CI_SIGNIN_FILE", "")
+    if not path:
+        return None
+    try:
+        info = os.lstat(path)
+    except OSError:
+        info = None
+    if info is None or not stat.S_ISREG(info.st_mode):
+        raise SystemExit("the sign-in session file is not a regular file")
+    if info.st_uid != os.getuid() or info.st_mode & 0o077:
+        raise SystemExit("the sign-in session file must be this user's, mode 0600")
+    try:
+        with open(path) as f:
+            s = json.load(f)
+    except (OSError, ValueError):
+        s = None
+    fields = [str(s.get(k) or "") for k in ("email", "project", "refresh_token")] if isinstance(s, dict) else []
+    if (not fields or s.get("profile") != "agent" or "@" not in fields[0] or not all(fields)
+            or any(c in v for v in fields for c in "\r\n")):
+        raise SystemExit("the sign-in session file is not an agent session (profile, email, project, refresh_token)")
+    return fields[0], fields[2]
+
+
+def launch_account():
+    """The DEBUG dev email and password when the step has them (``dev_credential``), else the step's own
+    agent session (``fleet_session``); neither ends the run."""
+    found = dev_credential()
+    if found:
+        return Account("password", *found)
+    session = fleet_session()
+    if session:
+        return Account("session", *session)
+    raise SystemExit("DEBUG dev credential: set CMUX_UITEST_STACK_EMAIL and CMUX_UITEST_STACK_PASSWORD "
+                     "(or provide ~/.secrets/cmuxterm-dev.env), or send the step with "
+                     "`cmux-ci run --sign-in agent` from a Mac signed in to the agent account")
+
+
+def launch_account_note(account, note):
+    """Which way the apps sign in, never a value."""
+    note("- account: " + ("the DEBUG dev email and password" if account.kind == "password" else
+                          "the step's own agent session (cmux-ci run --sign-in agent; refresh token only, "
+                          "revoked when the step ends)"))
+
+
+def account_phone_env(account, base):
+    """`base` plus the account for the phone's `simctl launch` (SIMCTL_CHILD_*: that launch's environment
+    only, never its argv). The session is adopted by the DEBUG app (CmuxMobileAuthModel.launchTokenStore)."""
+    if account.kind == "session":
+        return dict(base, SIMCTL_CHILD_CMUX_MOBILE_STACK_REFRESH_TOKEN=account.secret)
+    return dict(base, SIMCTL_CHILD_CMUX_MOBILE_STACK_EMAIL=account.email,
+                SIMCTL_CHILD_CMUX_MOBILE_STACK_PASSWORD=account.secret)
+
+
+def write_credentials(path, account):
+    """The Mac app's CMUX_AUTH_CREDENTIALS_FILE (0600): the email and password, or the session's refresh
+    token, which a DEBUG build adopts into memory while it holds no session (cmux-cloud-config
+    `Decision::refresh_token`, CloudAuth.tokenStore)."""
+    with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
+        os.fchmod(f.fileno(), 0o600)
+        if account.kind == "session":
+            f.write(f"CMUX_UITEST_STACK_REFRESH_TOKEN={account.secret}\n")
+        else:
+            f.write(f"CMUX_UITEST_STACK_EMAIL={account.email}\nCMUX_UITEST_STACK_PASSWORD={account.secret}\n")
+
+
+def launch_phone(simctl, udid, bundle_id, env, *args):
+    """`simctl launch` with the account in `env` only; its output is captured, never printed."""
+    return subprocess.run(simctl + ["launch", udid, bundle_id, *args], env=env, check=True, capture_output=True)
 
 
 def machine_id(bundle_id):
@@ -228,7 +316,9 @@ def main():
     support = os.path.join(pwd.getpwuid(os.getuid()).pw_dir, "Library/Application Support", mac_bundle)
     rig = os.path.join(a.work, "pair-rig")  # written only once cleanup is armed (below)
     config = os.path.join(rig, "cmux-next.json")
-    email, password = dev_credential()
+    account = launch_account()
+    launch_account_note(account, note)
+    email = account.email
     probe = has_upload_probe()
     # The upload leg's Mac folder: a Chat Folder (agents.chats.roots), which hostd shares
     # (CMUX_MOBILE_FILE_ROOTS), so an upload with it as `cwd` lands in its .cmux/attachments.
@@ -295,13 +385,12 @@ def main():
         return f"screens/{name}.png" if r.get("path") else f"no snapshot ({r.get('error')})"
 
     simctl = ["xcrun", "simctl", "--set", a.sims]
-    phone_env = dict(os.environ, SIMCTL_CHILD_CMUX_MOBILE_STACK_EMAIL=email, SIMCTL_CHILD_CMUX_MOBILE_STACK_PASSWORD=password)
+    phone_env = account_phone_env(account, os.environ)
 
     def phone_launch():
-        """cmux on iPhone on Settings > Devices, signed in to the dev account (DEBUG launch environment)."""
+        """cmux on iPhone on Settings > Devices, signed in to the account (DEBUG launch environment)."""
         subprocess.run(simctl + ["terminate", a.udid, a.bundle_id], capture_output=True)
-        subprocess.run(simctl + ["launch", a.udid, a.bundle_id, "-cmux-mobile-settings-page", "devices"],
-                       env=phone_env, check=True, capture_output=True)
+        launch_phone(simctl, a.udid, a.bundle_id, phone_env, "-cmux-mobile-settings-page", "devices")
 
     def phone_shot(name):
         subprocess.run(simctl + ["io", a.udid, "screenshot", os.path.join(screens, f"{name}.png")], capture_output=True)
@@ -326,8 +415,7 @@ def main():
             settings["agents"] = {"chats": {"roots": [upload_root]}}
         with open(config, "w") as f:
             json.dump(settings, f)
-        with os.fdopen(os.open(creds, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
-            f.write(f"CMUX_UITEST_STACK_EMAIL={email}\nCMUX_UITEST_STACK_PASSWORD={password}\n")
+        write_credentials(creds, account)
         if os.path.exists(sock):
             os.unlink(sock)  # this run's own tag
         plist = plistlib.load(open(os.path.join(a.mac_app, "Contents/Info.plist"), "rb"))

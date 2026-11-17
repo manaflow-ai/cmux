@@ -80,6 +80,29 @@ fn an_explicit_file_is_taken_as_given_unless_another_account_is_declared() {
 }
 
 #[test]
+fn an_explicit_file_with_only_a_session_hands_it_to_a_debug_build_alone() {
+    let file = "CMUX_UITEST_STACK_REFRESH_TOKEN=rt-session\n";
+    let explicit = [("CMUX_AUTH_CREDENTIALS_FILE", "/c.env")];
+    let found = decide(&reads(&explicit, &[("/c.env", file)], true));
+    assert_eq!(found.credentials, None);
+    assert_eq!(found.refresh_token.as_deref(), Some("rt-session"));
+    // Not this user's 0600 file, or a declared account it cannot be checked against: nothing.
+    assert_eq!(decide(&reads(&explicit, &[("/c.env", file)], false)), Decision::default());
+    let declared = [("CMUX_AUTH_CREDENTIALS_FILE", "/c.env"), ("CMUX_DEV_AUTH_ACCOUNT", "Owner@x")];
+    assert_eq!(decide(&reads(&declared, &[("/c.env", file)], true)), Decision::default());
+    // A pair in the same file wins.
+    let both = "CMUX_UITEST_STACK_EMAIL=a@x\nCMUX_UITEST_STACK_PASSWORD=pw\nCMUX_UITEST_STACK_REFRESH_TOKEN=rt\n";
+    let pair = decide(&reads(&explicit, &[("/c.env", both)], true));
+    assert_eq!((pair.credentials, pair.refresh_token), (credentials("a@x", "pw"), None));
+    // Only the debug sign-in surface gets it, and it replaces no stored session.
+    let debug = launch_login(&sign_in(true, true, true, false), Some(&found));
+    assert_eq!(debug.refresh_token.as_deref(), Some("rt-session"));
+    assert!(!debug.replace_session && debug.credentials.is_none());
+    assert_eq!(launch_login(&sign_in(false, true, true, false), Some(&found)).refresh_token, None);
+    assert_eq!(launch_login(&sign_in(false, true, false, true), Some(&found)).refresh_token, None);
+}
+
+#[test]
 fn ambient_files_sign_in_only_the_declared_owner() {
     assert_eq!(decide(&reads(&[], &[], false)).refusal, Some(Refusal::NoDeclaredAccount));
     let other = "CMUX_DOGFOOD_STACK_EMAIL=someone@x\nCMUX_DOGFOOD_STACK_PASSWORD=p1\n";
@@ -207,12 +230,13 @@ fn debug_builds_keep_their_dev_auth() {
 
 #[test]
 fn the_launch_login_hands_over_only_a_resolved_account() {
-    let found = Decision { credentials: credentials("a@x.com", "pw"), refusal: None };
+    let found = Decision { credentials: credentials("a@x.com", "pw"), ..Decision::default() };
     let signed = launch_login(&sign_in(false, true, true, false), Some(&found));
     assert_eq!(signed.credentials, credentials("a@x.com", "pw"));
     assert!(signed.replace_session && signed.allows_environment_auto_login);
     let refused = Decision {
         credentials: None,
+        refresh_token: None,
         refusal: Some(Refusal::AccountMismatch {
             found: "bob@x.com".to_owned(),
             declared: "leo@y.com".to_owned(),

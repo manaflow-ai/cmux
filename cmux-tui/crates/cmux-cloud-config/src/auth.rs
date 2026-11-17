@@ -72,6 +72,11 @@ pub enum Refusal {
 pub struct Decision {
     pub credentials: Option<Credentials>,
     pub refusal: Option<Refusal>,
+    /// A Stack session's refresh token from an explicit file that holds no email and password
+    /// pair (`CMUX_UITEST_STACK_REFRESH_TOKEN`): a fleet step's own agent session (hq build-fleet
+    /// `sign_in`), which its submitter revokes when the step ends. Never logged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
 }
 
 /// The files [`decide`] reads under `home` for `environment`: the explicit credentials file
@@ -122,20 +127,25 @@ pub fn decide(reads: &Reads) -> Decision {
         let Some(found) =
             pair(&values, "CMUX_DOGFOOD_STACK").or_else(|| pair(&values, "CMUX_UITEST_STACK"))
         else {
-            return Decision::default();
+            // A session has no email to check against a declared account: taken only when none is.
+            let refresh_token = values
+                .get("CMUX_UITEST_STACK_REFRESH_TOKEN")
+                .filter(|token| !token.is_empty() && expected.is_none())
+                .cloned();
+            return Decision { refresh_token, ..Decision::default() };
         };
         if let Some(expected) = expected
             && !found.email.eq_ignore_ascii_case(expected)
         {
             return Decision {
-                credentials: None,
                 refusal: Some(Refusal::AccountMismatch {
                     found: found.email,
                     declared: expected.clone(),
                 }),
+                ..Decision::default()
             };
         }
-        return Decision { credentials: Some(found), refusal: None };
+        return Decision { credentials: Some(found), ..Decision::default() };
     }
     let home = &reads.home;
     let declared = expected.cloned().or_else(|| {
@@ -146,7 +156,7 @@ pub fn decide(reads: &Reads) -> Decision {
             .filter(|email| !email.is_empty())
     });
     let Some(declared) = declared else {
-        return Decision { credentials: None, refusal: Some(Refusal::NoDeclaredAccount) };
+        return Decision { refusal: Some(Refusal::NoDeclaredAccount), ..Decision::default() };
     };
     let prefixes: &[&str] =
         match environment.get("CMUX_DEV_AUTH_PROFILE").map(|p| p.to_lowercase()).as_deref() {
@@ -166,14 +176,14 @@ pub fn decide(reads: &Reads) -> Decision {
     for prefix in prefixes {
         for found in sources.iter().filter_map(|values| pair(values, prefix)) {
             if found.email.eq_ignore_ascii_case(&declared) {
-                return Decision { credentials: Some(found), refusal: None };
+                return Decision { credentials: Some(found), ..Decision::default() };
             }
             first.get_or_insert(found);
         }
     }
     Decision {
-        credentials: None,
         refusal: first.map(|found| Refusal::AccountMismatch { found: found.email, declared }),
+        ..Decision::default()
     }
 }
 
@@ -419,11 +429,16 @@ pub struct LaunchLogin {
     pub allows_environment_auto_login: bool,
     /// Why the build starts signed out, masked for the log; never the secret.
     pub refusal_log: Option<String>,
+    /// The explicit file's session ([`Decision::refresh_token`]), for a debug build (the debug
+    /// sign-in surface) to adopt while it holds no session; no other build gets it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
 }
 
 /// The launch's sign-in: `sign_in` from [`launch_sign_in`], `decision` from [`decide`] (absent
 /// when the launch does not sign in from credentials).
 pub fn launch_login(sign_in: &LaunchSignIn, decision: Option<&Decision>) -> LaunchLogin {
+    let refresh_token = decision.and_then(|d| d.refresh_token.clone()).filter(|_| sign_in.dev_auth);
     let credentials = decision.and_then(|d| d.credentials.clone());
     let refusal_log = decision.and_then(|d| d.refusal.as_ref()).map(|refusal| match refusal {
         Refusal::NoDeclaredAccount => "dev auto sign-in off: no declared account (~/.config/cmux/dev-account or CMUX_DEV_AUTH_ACCOUNT)".to_owned(),
@@ -437,6 +452,7 @@ pub fn launch_login(sign_in: &LaunchSignIn, decision: Option<&Decision>) -> Laun
             || (sign_in.auto_login && credentials.is_some()),
         credentials,
         refusal_log,
+        refresh_token,
     }
 }
 
