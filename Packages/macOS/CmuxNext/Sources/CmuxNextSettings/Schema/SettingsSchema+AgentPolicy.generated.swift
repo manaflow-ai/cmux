@@ -272,10 +272,56 @@ extension SettingsSchema {
         "browser.toolbar.downloads", "browser.toolbar.media", "browser.toolbar.profile", "browser.toolbar.menu",
         "browser.omnibox.color", "browser.omnibox.popupColor", "browser.omnibox.popupHoverColor", "layout.stripMargin",
         "layout.columnWidthPresets", "window.trafficLightClearance", "sidebar.workspaceIcons",
+        // Turn checkpoints save the person's Cloud machine to their own snapshot storage: it widens nothing an agent may do.
+        "cloud.turnCheckpoints",
+        // Where the chat scrolls on send: looks only.
+        "agentPane.scrollToBottomOnSend",
+        // A recap line costs one model call: it widens nothing an agent may do.
+        "agents.chats.sessionRecap",
         // Whether old chats' logs are compressed on disk, and after how long: lossless (opening a chat brings its log back), a local disk policy.
         "agents.chats.coldArchive", "agents.chats.coldArchiveAfterDays",
+        // Which folders the picker offers first: looks only.
+        "picker.pinned",
+        // Archived workspaces come back from the sidebar: nothing ends and nothing widens.
+        "workspaces.autoArchive.style", "workspaces.autoArchive.idleDays",
+        // Hibernation frees memory only; terminals and agents keep running.
+        "workspaces.hibernation.enabled", "workspaces.hibernation.idleMinutes",
+        "workspaces.hibernation.hiddenSpaceMinutes",
+        // Whether Chief Home pins the Feed's requests: layout only.
+        "feed.needsYouInChief",
+        // How the agent's pointer moves on screen: looks only.
+        "browser.agentMouse.motion", "browser.agentMouse.maxMoveMs",
         // Whether a chat's pull request link opens the cmux GitHub page or github.com in a cmux tab: both stay in cmux, with no network, privacy or destructive effect.
         "browser.openPullRequestsInGitHubPage",
+        // Which editor's look and keys cmux copies: it widens nothing an agent may do.
+        "editor.importFrom",
+        // Which key brings cmux forward: the person changes it back in Settings.
+        "app.globalHotKey", "app.startAgentGlobalHotKey",
+        // How long Claude Code keeps its prompt cache: cost only.
+        "agents.promptCache",
+        // How the Dock icon gets attention: looks only.
+        "notifications.dockBounce",
+        // Whether banners show what agents said: what agents may do stays the same.
+        "notifications.showPreviews",
+        // Whether the Mac stays awake while agents work: power only.
+        "sessions.keepAwake", "sessions.keepAwakeForCommands",
+        // Next-prompt suggestions cost one model call each: they widen nothing an agent may do.
+        "agents.promptSuggestions",
+        // Sending a failed turn again costs usage: it widens nothing an agent may do.
+        "agents.autoRetry.enabled", "agents.autoRetry.intervalSeconds", "agents.autoRetry.attempts",
+        // Compacting on a timer costs one model call each: it widens nothing an agent may do.
+        "agents.cacheCompact.enabled", "agents.cacheCompact.minContextPercent",
+        // Whether the phone stays awake: power only.
+        "phone.keepAwake",
+        // Which device sizes a shared terminal: looks only.
+        "mobile.terminalSizing", "mobile.terminalSizingOrder",
+        // How much data a remote connection spends for loss protection: it widens nothing an agent may do.
+        "remote.ultra",
+        // Which installed agent a Chief subagent runs on: it widens nothing any of them may do.
+        "chief.autoRouteSubagents",
+        // Which subagents show in the sidebar: looks only.
+        "chief.subagentSidebar", "chief.subagentSidebarShowWords", "chief.subagentSidebarHideWords",
+        "chief.subagentSidebarMinWords",
         // Which of the person's own connections a thread may move to when one runs out: it adds no connection and spends nothing past a connection's own limit.
         "models.spreadUsage",
     ]

@@ -67,7 +67,7 @@ enum ConfirmationStrings {
 
     static func userOnlySettingBody(_ key: String, _ value: String) -> String {
         String(format: String(localized: "confirm.userOnlySetting.body",
-                              defaultValue: "A command asks to set %1$@ to %2$@. Only you can change this setting, so cmux asks you first.",
+                              defaultValue: "A command asks to set %1$@ to %2$@.",
                               table: "Handlers", bundle: .module), key, value)
     }
 
@@ -82,7 +82,7 @@ enum ConfirmationStrings {
 
     static func remoteLocalhostBody(_ workspace: String, _ choice: String) -> String {
         String(format: String(localized: "confirm.remoteLocalhost.body",
-                              defaultValue: "A command asks to set localhost for %1$@ to %2$@. Only you can change this, so cmux asks you first.",
+                              defaultValue: "A command asks to set localhost for %1$@ to %2$@.",
                               table: "Handlers", bundle: .module), workspace, choice)
     }
 }
