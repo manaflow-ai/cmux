@@ -13,7 +13,7 @@
   "needs": true
  },
  {
-  "name": "prompt always",
+  "name": "prompt needs none",
   "frame": {
    "jsonrpc": "2.0",
    "id": 1,
@@ -23,7 +23,7 @@
    }
   },
   "denies": [],
-  "needs": true
+  "needs": false
  },
  {
   "name": "set_mode always",

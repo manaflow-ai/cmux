@@ -27,6 +27,7 @@ parsing, test compilation, executed tests and runtime evidence.
 | Billing implementation, Stripe and entitlements | [cmux-billing](cmux-billing/SKILL.md) |
 | Instrumentation and app/runtime implementation bugs | [cmux-debugging](cmux-debugging/SKILL.md) |
 | User-facing strings and localization | [cmux-localization](cmux-localization/SKILL.md) |
+| The cmux-next iPhone app (`cmux-next-ios/`): fleet simulator tests, App Review gate, TestFlight, iOS merges | [cmux-ios](cmux-ios/SKILL.md) |
 | CLI/socket implementation, threading and focus | [cmux-socket-policy](cmux-socket-policy/SKILL.md) |
 | Any cmux-next feature, action, setting, op or agent capability (standing rules) | [cmux-next-feature](cmux-next-feature/SKILL.md) |
 | Agent session partitioning, ACPM coordination and daemon-local mailbox policy | [cmux-acpmux](cmux-acpmux/SKILL.md) |
