@@ -7,6 +7,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import type { EventRecord } from "./direct";
+import type { AcpmuxRow } from "./model";
 import { settleReact } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
@@ -71,7 +72,7 @@ function recordAt(sessionId: string, seq: number): EventRecord {
 }
 
 /// A chat opened empty, then `count` records of one never-ending turn streamed into it live.
-async function streamed(count: number, following: boolean) {
+async function streamed(count: number, following: boolean, onFlush?: (snapshot: { rows: AcpmuxRow[] }) => void) {
   const { AcpmuxDirectClient, HELD_RECORDS } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   let target = "";
@@ -137,6 +138,7 @@ async function streamed(count: number, following: boolean) {
     if (index % 50 === 49) {
       await tick();
       flush();
+      onFlush?.(snapshot as unknown as { rows: AcpmuxRow[] });
     }
   }
   for (let index = 0; index < 20; index += 1) await tick();
@@ -158,6 +160,49 @@ async function streamed(count: number, following: boolean) {
   };
 }
 
+/// The JS heap after a collection (bun's `Bun.gc`).
+const collect = () => (globalThis as { Bun?: { gc?: (sync: boolean) => void } }).Bun?.gc?.(true);
+
+/// Streams `count` records of the running turn while drawing it as the pane does: its turns shaped (turns.ts
+/// `turnView`, whose running turn keeps its rows' objects by id) and the thread rail's turns (threadMinimap/model.ts
+/// `minimapTurns`, whose cards keep a contribution per row). Returns how many of the rows drawn after the first
+/// `early` records are still alive once the turn went far past them, and the rail's card entries for the turn.
+async function drawnWhileRunning(count: number, early: number) {
+  const { turnView } = await import("./conversation/turns");
+  const { minimapTurns, cardEntries } = await import("./threadMinimap/model");
+  const earlyRows: WeakRef<AcpmuxRow>[] = [];
+  let rail: ReturnType<typeof minimapTurns> | undefined;
+  let prompt: AcpmuxRow | undefined;
+  let records = 0;
+  let drawn = 0;
+  const chat = await streamed(count, true, (snapshot) => {
+    records += 50;
+    const view = turnView(snapshot.rows, new Set(), { working: true, now: 1_700_000_000_000 + records * 10 });
+    rail = minimapTurns(view, "s", rail);
+    prompt = view.find((row) => row.kind === "user") ?? prompt;
+    drawn = view.length;
+    if (records <= early) for (const row of view) if (row.kind !== "user") earlyRows.push(new WeakRef(row));
+  });
+  try {
+    const last = turnView(chat.snapshot().rows as unknown as AcpmuxRow[], new Set(), { working: true });
+    const shown = new Set(last.map((row) => row.id));
+    collect();
+    const alive = earlyRows.filter((ref) => {
+      const row = ref.deref();
+      return row !== undefined && !shown.has(row.id);
+    }).length;
+    return {
+      alive,
+      early: earlyRows.length,
+      drawn,
+      cards: prompt ? cardEntries(prompt) : 0,
+      events: chat.events().length,
+    };
+  } finally {
+    chat.cleanup();
+  }
+}
+
 test("a running turn of calls holds a bounded number of records and rows", async () => {
   const sizes: Record<number, { events: number; rows: number; most: number }> = {};
   for (const count of [6_000, 24_000]) {
@@ -165,38 +210,26 @@ test("a running turn of calls holds a bounded number of records and rows", async
     try {
       const held = chat.events();
       sizes[count] = { events: held.length, rows: chat.snapshot().rows.length, most: chat.most };
-      // What the rows reach (objects and array slots, each counted once): a row that holds what left grows here.
-      const seen = new Set<object>();
-      let slots = 0;
-      const walk = (value: unknown) => {
-        if (value === null || typeof value !== "object" || seen.has(value)) return;
-        seen.add(value);
-        const entries = Array.isArray(value) ? value : Object.values(value);
-        slots += entries.length;
-        for (const entry of entries) walk(entry);
-      };
-      const byKey: string[] = [];
-      for (const [key, value] of Object.entries(chat.snapshot() as object)) {
-        const from = seen.size;
-        walk(value);
-        if (seen.size - from > 1000) byKey.push(`${key}:${seen.size - from}`);
-      }
-      const big = [...seen]
-        .filter((value) => Array.isArray(value) && value.length > 500)
-        .map((value) => (value as unknown[]).length);
-      console.log(
-        `running-calls streamed=${count} snapshot objects=${seen.size} slots=${slots} big arrays=${big} by field ${byKey.join(" ")}`,
-      );
-      console.log(
-        `running-calls streamed=${count} retained_events=${held.length} max_events=${chat.most} ` +
-          `rows=${chat.snapshot().rows.length}`,
-      );
       expect(held.at(-1)!.seq).toBe(chat.total);
     } finally {
       chat.cleanup();
     }
   }
-  const large = sizes[24_000]!;
-  expect(large.most).toBeLessThanOrEqual(6_000);
-  expect(large.rows).toBeLessThanOrEqual(sizes[6_000]!.rows * 1.2);
+  expect(sizes[24_000]!.most).toBeLessThanOrEqual(6_000);
+  expect(sizes[24_000]!.rows).toBeLessThanOrEqual(sizes[6_000]!.rows * 1.2);
+}, 600_000);
+
+// The rows the pane drew for the turn's oldest records, which the chat let go of, are let go of by the view too: the
+// running turn's rows by id (turns.ts `steadyLiveRows`) and the rail's card contributions (`cardStates`) kept every
+// row the turn ever drew, and with it each row's entries in the caches keyed by row (chat-100k-flat running_x1: a
+// 100k-record running turn held about 40 MB more renderer heap than an empty chat, growing with the turn).
+test("a running turn's view lets go of the rows that left it", async () => {
+  const result = await drawnWhileRunning(24_000, 3_000);
+  console.log(
+    `running-view streamed=24000 early_rows=${result.early} early_rows_alive=${result.alive} drawn=${result.drawn} ` +
+      `rail_cards=${result.cards} events=${result.events}`,
+  );
+  expect(result.early).toBeGreaterThan(500);
+  expect(result.alive).toBe(0);
+  expect(result.cards).toBeLessThanOrEqual(2 * result.drawn + 16);
 }, 600_000);

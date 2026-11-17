@@ -149,6 +149,8 @@ export type Event = { seq: number; at: number; msg?: any };
 type Step = { event: Event; update: any };
 /// The most `acpmux run --parent` calls waiting for their sub-session's start at once.
 const PENDING_CHILDREN = 16;
+/// The newest calls that start no run a fold remembers as such (`noteNotRun`).
+const NOT_RUNS_KEPT = 4096;
 type Group = { id: string; at: number; version: number; ids: string[]; seq?: number };
 type ChildIdentity = { name?: string; prompt?: string };
 type PendingParent = {
@@ -218,6 +220,14 @@ export class SubagentFold {
   /// The agent each starting shell call is (``reduceRun``), by call id; the calls that start none.
   private readonly runs = new Map<string, string>();
   private readonly notRuns = new Set<string>();
+  /// Notes that call `call` starts no run. The set is a cache of that answer, kept for the newest NOT_RUNS_KEPT calls:
+  /// a chat that runs commands for days named every call it ever made in it (about 2 MB at 33k calls,
+  /// chat-100k-flat running_x1). A call older than that which says more is read again, as a call never seen is.
+  private noteNotRun(call: string): void {
+    this.notRuns.delete(call);
+    this.notRuns.add(call);
+    if (this.notRuns.size > NOT_RUNS_KEPT) this.notRuns.delete(this.notRuns.values().next().value!);
+  }
   /// A background run's output file (Claude Code's "Output is being written to"), and the calls
   /// that read one: what such a read shows is the run's reply.
   private readonly runOutputs = new Map<string, string>();
@@ -499,7 +509,7 @@ export class SubagentFold {
       if (!agent && isTerminal(update.state)) {
         this.retire(this.parentCalls.get(call)?.identity);
         this.parentCalls.delete(call);
-        this.notRuns.add(call);
+        this.noteNotRun(call);
       }
       if (!agent) return false;
       const state = update.state;
@@ -530,7 +540,7 @@ export class SubagentFold {
       if (ended && !(update.status === "completed" && backgroundOutputPath(outputOf(update)))) {
         this.retire(pending.identity);
         this.parentCalls.delete(call);
-        this.notRuns.add(call);
+        this.noteNotRun(call);
       }
       return false;
     }
@@ -556,12 +566,12 @@ export class SubagentFold {
         if (this.parentCalls.size <= PENDING_CHILDREN) break;
         this.retire(this.parentCalls.get(old)?.identity);
         this.parentCalls.delete(old);
-        this.notRuns.add(old);
+        this.noteNotRun(old);
       }
       return false;
     }
     if (run?.parent !== undefined && !this.harness) this.deferredRun = true;
-    this.notRuns.add(call);
+    this.noteNotRun(call);
     return false;
   }
 
@@ -670,7 +680,7 @@ export class SubagentFold {
     this.parentCalls.delete(call);
     const harness = text(record.harness);
     if (!harness || !this.harness || harnessFamily(harness) === harnessFamily(this.harness)) {
-      this.notRuns.add(call);
+      this.noteNotRun(call);
       return undefined;
     }
     const model = text(record.model);

@@ -1241,8 +1241,9 @@ function steadyLiveRows(user: AcpmuxRow, shaped: AcpmuxRow[]): AcpmuxRow[] {
   // One map for the turn's life, written only where a row changed: a record into a turn of
   // thousands of rows looks up and compares only the rows it handed over as new objects (a row
   // drawn last time in the same place as the same object is passed by), never rebuilding the map.
-  // An id that left keeps its last row, which only ever stands in for an equal one.
-  const byId = before?.byId ?? new Map<string, AcpmuxRow>();
+  // An id that left keeps its last row, which only ever stands in for an equal one, until the ids
+  // that left outnumber the rows drawn (below).
+  let byId = before?.byId ?? new Map<string, AcpmuxRow>();
   const drawn = before?.drawn;
   let out: AcpmuxRow[] | undefined;
   for (let at = 0; at < shaped.length; at += 1) {
@@ -1255,9 +1256,19 @@ function steadyLiveRows(user: AcpmuxRow, shaped: AcpmuxRow[]): AcpmuxRow[] {
     else byId.set(row.id, row);
   }
   const result = out ?? shaped;
+  // A turn that never ends (a coordinator's) lets go of its oldest records (direct.ts `shedOlderHeld`), and their
+  // rows leave the drawn ones for good. Kept here, every row the turn ever drew stayed alive, and with it each
+  // row's entries in the caches keyed by row or tool (messageRuns.ts, acpmuxMcpSends.ts, toolNames.ts ...): a
+  // running turn of 100k records held about 40 MB of renderer heap no row on screen used (chat-100k-flat
+  // running_x1). Once the map holds twice the rows drawn it is made again from them: O(rows drawn) once per as
+  // many rows that left, so O(1) a record, and the map stays within twice the turn's held rows.
+  if (byId.size > 2 * result.length + LIVE_ROWS_SLACK) byId = new Map(result.map((row) => [row.id, row]));
   liveTurnRows.set(user, { byId, drawn: result });
   return result;
 }
+
+/// The ids that left the running turn's drawn rows its map keeps before it is made again (`steadyLiveRows`).
+const LIVE_ROWS_SLACK = 64;
 
 /// How deep `sameShape` compares: a row, its fields' objects and arrays (a group's rows, a tool
 /// call's content), and theirs. Deeper values must be the same object.

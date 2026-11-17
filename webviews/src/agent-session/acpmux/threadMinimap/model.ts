@@ -550,6 +550,8 @@ export function replyMore(turn: MinimapTurn): readonly ReplyBlock[] {
 
 type CardState = { metadata: MinimapTurnMetadata; files: ReadonlySet<string> };
 type CardContribution = {
+  /// The `minimapTurns` pass that last read it (`cardPass`).
+  pass: number;
   version: number;
   shape: string;
   before?: CardState;
@@ -562,6 +564,11 @@ type CardContribution = {
 // owns one entry per row, replaced on revision; releasing the prompt releases the cache.
 const cardStates = new WeakMap<AcpmuxRow, Map<string, CardContribution>>();
 const noFiles: ReadonlySet<string> = new Set();
+/// Each `minimapTurns` pass's number. A turn that never ends (a coordinator's) keeps its prompt while its oldest rows
+/// leave for good (direct.ts `shedOlderHeld`), so its entry by row id kept one contribution for every row it ever
+/// had: about 5 MB at 100k records (chat-100k-flat running_x1). A turn read whole whose entries outnumber twice
+/// the rows it read lets go of the ones that pass did not read (`forgetLeftCards`).
+let cardPass = 0;
 
 function cardState(prompt: AcpmuxRow, row: AcpmuxRow, before?: CardState): CardState {
   let contributions = cardStates.get(prompt);
@@ -571,7 +578,10 @@ function cardState(prompt: AcpmuxRow, row: AcpmuxRow, before?: CardState): CardS
   // revision can name both. Their drawn shape separates those contributions without reading items.
   const shape = `${row.kind}:${row.ended ?? ""}:${row.foldRun ?? ""}:${row.settled ?? ""}`;
   const cached = previous?.version === row.version && previous.shape === shape ? previous : undefined;
-  if (cached && cached.before === before) return cached.state;
+  if (cached && cached.before === before) {
+    cached.pass = cardPass;
+    return cached.state;
+  }
   let state = before ?? {
     metadata: {
       at: row.at,
@@ -625,8 +635,19 @@ function cardState(prompt: AcpmuxRow, row: AcpmuxRow, before?: CardState): CardS
       ...(failure && { failure }),
     };
   if (metadata !== state.metadata || files !== state.files) state = { metadata, files };
-  contributions.set(row.id, { version: row.version, shape, before, state, paths });
+  contributions.set(row.id, { pass: cardPass, version: row.version, shape, before, state, paths });
   return state;
+}
+
+/// How many rows' card contributions the rail keeps for the turn `prompt` opened (tests).
+export const cardEntries = (prompt: AcpmuxRow): number => cardStates.get(prompt)?.size ?? 0;
+
+/// Lets go of `prompt`'s contributions this pass did not read once they are more than twice the `read` rows of its
+/// turn it read whole (`cardPass`): O(entries) once per as many rows that left, so O(1) a row.
+function forgetLeftCards(prompt: AcpmuxRow, read: number): void {
+  const contributions = cardStates.get(prompt);
+  if (!contributions || contributions.size <= 2 * read + 16) return;
+  for (const [id, contribution] of contributions) if (contribution.pass !== cardPass) contributions.delete(id);
 }
 
 /// What a turn's tick on the rail shows: its prompt, by key. A tick changes only when its prompt
@@ -736,8 +757,12 @@ export function minimapTurns(
   let userIndex = 0;
   let reply: AcpmuxRow | undefined;
   let details: CardState | undefined;
+  let cardsRead = 0;
+  cardPass += 1;
   const close = () => {
     if (!user) return;
+    forgetLeftCards(user, cardsRead);
+    cardsRead = 0;
     const kept = turnsByPrompt.get(user);
     const same = kept && kept.sessionId === sessionId && kept.turn.index === userIndex;
     const nextMetadata = details?.metadata;
@@ -784,12 +809,17 @@ export function minimapTurns(
       user = folded ?? row;
       userIndex = index;
       details = cardState(user, user);
+      cardsRead = 1;
     } else if (user) {
       if (!reply && row.kind === "assistant" && row.text) {
         reply = row;
         details = cardState(user, row, details);
+        cardsRead += 1;
       }
-      if (row.kind === "activity" || row.kind === "turnSummary") details = cardState(user, row, details);
+      if (row.kind === "activity" || row.kind === "turnSummary") {
+        details = cardState(user, row, details);
+        cardsRead += 1;
+      }
     }
   }
   close();
