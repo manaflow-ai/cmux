@@ -281,6 +281,36 @@ fn read_hub(
     Some(Ok((hub.mesh.get()?, None)))
 }
 
+/// `_acpmux/send_status` of a `mesh:` delivery `id` for `conn`. A connection that presented a
+/// device reads it with that device alone (`device.revoked` once the hub refused it), and a web
+/// connection with none reads nothing at the hub. Any other connection reads it as before, with
+/// this daemon's identity (None when this daemon is on no hub).
+pub(crate) async fn mesh_status(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    id: &str,
+) -> Option<Result<Value, RpcError>> {
+    use super::super::web_device::Slot;
+    let device = match &*conn.device_mesh.lock().unwrap_or_else(|e| e.into_inner()) {
+        Slot::Device(device) => Some(Arc::clone(device)),
+        Slot::Revoked(reason) => return Some(Err(super::super::web_device::revoked(reason))),
+        Slot::Empty => None,
+    };
+    let Some(device) = device else {
+        if conn.origin == Origin::Web {
+            return Some(Err(RpcError::invalid_params(format!(
+                "no delivery {id}: a web connection reads the mesh hub only with its own device"
+            ))
+            .with_data(json!({"reason": "outbox.unknown", "deliveryId": id}))));
+        }
+        let mesh = hub.mesh.get()?;
+        return Some(super::super::mesh_send::status(hub, conn, &mesh, id).await);
+    };
+    let mesh: Arc<dyn crate::mesh::MeshHub> = device.clone();
+    let reply = super::super::mesh_send::status(hub, conn, &mesh, id).await;
+    Some(settle(conn, Some(&device), reply))
+}
+
 /// Whether anything here may reach the hub for `conn`: [`may_read`], or a device it presented
 /// (or had, until the hub revoked it). The cheap test before a request's routing.
 fn may_reach_hub(conn: &Conn) -> bool {
