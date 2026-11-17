@@ -34,6 +34,10 @@
 //! Wire: crate cmux-rd-proto.
 
 #![cfg_attr(not(any(target_os = "linux", target_os = "macos", windows)), allow(dead_code))]
+// Edition 2021 leaves `std::env::set_var`/`remove_var` safe to call; they race every concurrent
+// read of the environment (a C library's `getenv` too), so each call needs an `unsafe` block and
+// an argument that no other thread exists, as in edition 2024.
+#![deny(deprecated_safe_2024)]
 
 mod args;
 #[cfg(all(feature = "bench", any(target_os = "linux", target_os = "macos")))]
@@ -142,6 +146,41 @@ pub fn is_launch_services_open(args: &[String], executable: &std::path::Path) ->
         .and_then(|bundle| bundle.extension())
         .is_some_and(|extension| extension == "app");
     inside_bundle && args.iter().all(|arg| arg.starts_with("-psn_"))
+}
+
+/// The process environment [`run_cli`] relies on, written once at start: `host`/`serve
+/// --xauthority PATH` becomes `XAUTHORITY` for every X connection and child, and `host
+/// --listen-systemd` takes systemd's `LISTEN_*` variables and clears them so no child inherits
+/// them. `run_cli` itself never writes the environment.
+///
+/// # Safety
+///
+/// No other thread may exist yet (call it first in `main`): `set_var` and `remove_var` race
+/// any concurrent read of the environment, a C library's `getenv` included.
+pub unsafe fn prepare_process_env(args: &[String]) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        let Some(cmd) = args.first().filter(|cmd| matches!(cmd.as_str(), "host" | "serve")) else {
+            return Ok(());
+        };
+        // `run_cli` reports a parse error itself.
+        let Ok(opts) = args::Opts::parse(&args[1..]) else {
+            return Ok(());
+        };
+        if let Some(path) = opts.get("xauthority") {
+            std::fs::File::open(path)
+                .map_err(|e| format!("cmux-rd {cmd}: --xauthority {path}: {e}"))?;
+            // SAFETY: the caller's: no other thread exists.
+            unsafe { std::env::set_var("XAUTHORITY", path) };
+        }
+        if cmd == "host" && opts.flag("listen-systemd") {
+            // SAFETY: as above.
+            unsafe { systemd::take_env() };
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = args;
+    Ok(())
 }
 
 pub fn run_cli(args: &[String]) -> i32 {
