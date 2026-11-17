@@ -277,3 +277,95 @@ fn a_create_that_panics_gives_queued_input_back_at_once() {
     scheduler.finish_and_wait();
     assert_eq!(reason, "failed", "the queued input came back late, as {reason:?}");
 }
+
+/// A safety bound of a wait of the test below on a signal: the test fails at
+/// the bound, and it does not pass by it.
+const LATE_CREATION_WAIT: Duration = Duration::from_secs(30);
+
+/// What an owner reads of its store: the resource revision and the number
+/// of tabs.
+fn revision_and_tabs(registry: &crate::WorkspaceRegistry) -> (u64, usize) {
+    (
+        registry.resource_revision().unwrap(),
+        registry.resource_topology_snapshot().unwrap().tabs.len(),
+    )
+}
+
+/// A New Tab request is in its creation, before the creation's first step on
+/// the store, when the daemon stops and releases its session. The thread of
+/// the creation lives until the process ends, so the creation goes on after
+/// the release. The next owner has the store then: the creation writes
+/// nothing to it and its request gets an error (decision of 2026-11-17).
+///
+/// The order is the test's own, with no clock: the creation waits in its
+/// hook for the test's signal, and the test gives it after the release
+/// returned and after the next owner opened the store.
+///
+/// LIMIT: the request starts before the stop. A request that arrives after
+/// the release has no test here.
+#[test]
+fn session_release_a_tab_creation_that_goes_on_after_the_release_writes_nothing() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-creation-after-release-{}", crate::workspace_registry::new_uuid_v4()));
+    let session = "creation-after-release";
+    let registry = crate::WorkspaceRegistry::open(&root, session).unwrap();
+    let mux = Mux::from_workspace_registry(
+        session.into(),
+        crate::SurfaceOptions::default(),
+        registry,
+        crate::mux::ProviderWorkspaceState::default(),
+        true,
+    )
+    .unwrap();
+    let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+    let (writer, outbound) = captured_writer();
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    // The creation stops after it started and before it takes the creation
+    // fence, until the test lets it go on.
+    let (started_tx, started_rx) = mpsc::channel::<()>();
+    let (go_on_tx, go_on_rx) = mpsc::channel::<()>();
+    mux.set_creation_before_fence_hook_for_test(Box::new(move || {
+        let _ = started_tx.send(());
+        let _ = go_on_rx.recv();
+    }));
+    let request = json!({"id": 60, "cmd": "new-tab", "pane": pane});
+    assert!(handle_connection_frame(
+        &mux,
+        client,
+        ClientTransport::Unix,
+        &request.to_string(),
+        &writer,
+        &scheduler,
+    ));
+    let started = started_rx.recv_timeout(LATE_CREATION_WAIT).is_ok();
+    mux.shutdown();
+    mux.release_ownership(&root.join("control.sock"));
+    let next = crate::WorkspaceRegistry::open(&root, session);
+    let before = next.as_ref().ok().map(revision_and_tabs);
+    // The release returned and the next owner has the store: the creation
+    // goes on.
+    let _ = go_on_tx.send(());
+    scheduler.finish();
+    let ended = scheduler.wait_for_completion(Some(LATE_CREATION_WAIT));
+    let after = next.as_ref().ok().map(revision_and_tabs);
+    let reply = std::iter::from_fn(|| outbound.try_pop())
+        .filter_map(|line| serde_json::from_str::<Value>(&line).ok())
+        .find(|reply| reply["id"] == json!(60));
+    let free = next.as_ref().map(|_| ()).map_err(|error| format!("{error:#}"));
+    drop(next);
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(started, "setup: the creation of the tab did not start");
+    assert!(ended, "the creation of the tab did not end after the test let it go on");
+    assert_eq!(free, Ok(()), "setup: the session is not free for the next owner after the release");
+    let refused = reply.as_ref().is_some_and(|reply| reply["ok"] == json!(false));
+    assert!(
+        refused && before == after,
+        "a tab creation went on after its daemon released the session, and it did not end \
+         with an error and no write: the reply of its request: {reply:?}; the store that the \
+         next owner has, as (revision, tabs): before {before:?}, after {after:?}"
+    );
+}
