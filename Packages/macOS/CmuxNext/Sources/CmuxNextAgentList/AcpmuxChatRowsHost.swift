@@ -77,6 +77,8 @@ public nonisolated final class AcpmuxChatRowsHost: Sendable {
         var lastCall: UInt64 = 0
         /// A hidden page's ops wait out ``hiddenInterval`` on the deadline.
         var waitingWhileHidden = false
+        /// Bumped when the page goes: a deadline armed for an earlier page does nothing.
+        var generation = 0
         var nextBatch = 1
         var backoff: Double = AcpmuxChatRowsHost.firstBackoff
         var reconnecting = false
@@ -208,8 +210,10 @@ public nonisolated final class AcpmuxChatRowsHost: Sendable {
                 }
                 state.driver?.stop()
                 let counters = state.counters
+                let generation = state.generation
                 state = State()
                 state.counters = counters
+                state.generation = generation &+ 1
             }
         }
     }
@@ -239,8 +243,7 @@ public nonisolated final class AcpmuxChatRowsHost: Sendable {
     }
 
     private func deliverHeld(_ state: inout State) {
-        // A shown pane does not wait out a hidden deadline still armed; that deadline only reads again.
-        guard state.outstanding == nil, !(state.hidden && state.waitingWhileHidden) else { return }
+        guard state.outstanding == nil else { return }
         let next: (bytes: Data, driver: AcpmuxClientByteConnection?)
         if let carried = state.carried {
             next = (carried, nil)
@@ -250,15 +253,18 @@ public nonisolated final class AcpmuxChatRowsHost: Sendable {
             return
         }
         var changes = AcpmuxChatRowsBatch.changes(inFramed: next.bytes) ?? []
-        // Hidden, ops wait out the hidden pace; a batch the page waits on goes at once.
-        if state.hidden, !changes.contains(where: { AcpmuxChatRowsBatch.kind(of: $0) != "chatOp" }) {
+        // Hidden, ops wait out the hidden pace; a batch the page waits on (or an empty one) goes at
+        // once, even while a deadline armed earlier is still out. Shown, nothing waits.
+        if state.hidden, !changes.isEmpty, !changes.contains(where: { AcpmuxChatRowsBatch.kind(of: $0) != "chatOp" }) {
+            if state.waitingWhileHidden { return }
             let since = DispatchTime.now().uptimeNanoseconds &- state.lastCall
             let interval = UInt64(hiddenPace * 1e9)
             if state.lastCall != 0, since < interval {
                 state.waitingWhileHidden = true
                 state.counters.timersArmed += 1
+                let generation = state.generation
                 // concurrency-allow: the hidden pace runs on this host's utility queue, never main; one deadline at a time, at most hiddenInterval
-                queue.asyncAfter(deadline: .now() + .nanoseconds(Int(interval - since))) { [weak self] in self?.hiddenIntervalPassed() }
+                queue.asyncAfter(deadline: .now() + .nanoseconds(Int(interval - since))) { [weak self] in self?.hiddenIntervalPassed(generation) }
                 return
             }
         }
@@ -290,9 +296,11 @@ public nonisolated final class AcpmuxChatRowsHost: Sendable {
     }
 
     /// A hidden page's ops waited out ``hiddenInterval``: the held batch goes (shown sooner, it went then).
-    private func hiddenIntervalPassed() {
+    private func hiddenIntervalPassed(_ generation: Int) {
         state.withLock { state in
             state.counters.wakeups += 1
+            // Armed for a page that has gone since: that page's state went with it.
+            guard state.generation == generation else { return }
             state.waitingWhileHidden = false
             deliverHeld(&state)
         }
