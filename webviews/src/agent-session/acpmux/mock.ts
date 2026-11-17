@@ -406,9 +406,7 @@ export class MockAcpmuxSocket {
   ///
   /// `light` turns are a prompt and a one-line reply each (two rows), and the session opens whole
   /// (attach ignores its page caps), so a bench can open a chat of an exact length in rows.
-  /// `queued` prompts wait in its queue after the last turn, as prompts sent while a turn runs do
-  /// (the composer typing bench's `--queue`).
-  seedLoadSession(turns: number, light = false, queued = 0): string {
+  seedLoadSession(turns: number, light = false): string {
     const now = Date.now();
     const id = `load-session-${this.sessions.length + 1}`;
     const created = {
@@ -421,15 +419,20 @@ export class MockAcpmuxSocket {
       const at = now - (turns - turn) * 60_000;
       for (const step of light ? lightTurn(turn) : loadTurn(turn)) this.record(id, step, at);
     }
-    for (let index = 0; index < queued; index += 1)
-      this.record(id, {
-        mux: "queued",
-        msg: { promptId: `${id}-queued-${index}`, text: `Queued prompt ${index + 1}` },
-      });
     if (light) this.openWhole.add(id);
     this.sessions.push(created);
     this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "created", session: created } });
     return id;
+  }
+
+  /// Puts `count` prompts in `target`'s queue, delivered as acpmux's `queued` records for prompts sent
+  /// while a turn runs (the composer typing bench's `--queue`).
+  seedQueue(target: string, count: number): void {
+    for (let index = 0; index < count; index += 1)
+      this.emit(target, {
+        mux: "queued",
+        msg: { promptId: `${target}-queued-${index}`, text: `Queued prompt ${index + 1}` },
+      });
   }
 
   /// Records `updates` into `target`'s log in place of subagent `id`'s own records there, without

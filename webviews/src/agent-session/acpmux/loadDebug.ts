@@ -48,11 +48,7 @@ export async function loadSeed(
   if (!mock) return { error: "the pane is not on the mock daemon (run the app with --showcase)" };
   acpmuxPerf.enable();
   const started = performance.now();
-  const session = mock.seedLoadSession(
-    Math.max(1, Math.floor(turns)),
-    options.light === true,
-    Math.max(0, Math.floor(options.queued ?? 0)),
-  );
+  const session = mock.seedLoadSession(Math.max(1, Math.floor(turns)), options.light === true);
   const seeded = performance.now();
   host.selectSession(session);
   // The transcript is in once its row count stops growing. Each frame also reads what is on
@@ -79,6 +75,8 @@ export async function loadSeed(
     } else if (view.key !== shown) shifts += 1;
     shown = view.key;
   }
+  // Prompts waiting in its queue once it is open, as sent while a turn ran.
+  if (options.queued) mock.seedQueue(session, Math.max(0, Math.floor(options.queued)));
   return {
     session,
     turns,
