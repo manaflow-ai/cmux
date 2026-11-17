@@ -5,13 +5,14 @@
 // before any change, and its first window replaces it in one step. With the chat list still out, the
 // open asks the switch and draws from its attach alone (decision 289). The recording's rows are of kind
 // `assistant`, which the adapter draws nothing of; here they are read as `text` rows.
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test, beforeEach } from "bun:test";
 import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 import { settleReact } from "../../../test/support/domTeardown";
 import { HOLD_KINDS } from "./rows/holdKinds";
-import { resetChatRowsReceiver } from "./rows/receiver";
+import { resetChatRowsReceiver, listenForChatRows } from "./rows/receiver";
 import { promptRowId } from "./rows/rowId";
+import type { Lanes } from "./schedule";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -29,6 +30,20 @@ afterAll(async () => {
   for (const key of ["window", "document"] as const)
     if (had[key]) scope[key] = before[key];
     else delete scope[key];
+});
+/// The document's receiver applies each batch at once, in the receiving task: these tests are about
+/// what a batch draws, not when (rows/receiver.test.ts covers the frame pacing).
+beforeEach(() => {
+  const slice = { timeLeft: () => Number.POSITIVE_INFINITY, shouldYield: () => false };
+  const lanes: Lanes = {
+    frame: (_key, fn) => void fn(slice),
+    idle: (_key, fn) => void fn(slice),
+    inputPending: () => false,
+    yield: () => Promise.resolve(),
+    flush: () => {},
+    dispose: () => {},
+  };
+  listenForChatRows(lanes);
 });
 
 const settle = async (done: () => boolean) => {
@@ -242,8 +257,9 @@ test("an early attach the open dropped while its switch was out, for a chat no l
   const proto = AcpmuxDirectClient.prototype as any;
   const askEarly = proto.askEarly;
   let opening: any;
+  const caught = (client: unknown) => (opening = client);
   proto.askEarly = function (this: unknown) {
-    opening = this;
+    caught(this);
     return askEarly.call(this);
   };
   let listed = () => {};

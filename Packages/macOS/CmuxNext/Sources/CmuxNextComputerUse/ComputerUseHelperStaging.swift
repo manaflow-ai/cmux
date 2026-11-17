@@ -89,16 +89,34 @@ nonisolated struct ComputerUseHelperStaging: Sendable {
     let operations: Operations
     let home: URL
     let fileSystem: FileSystem
+    /// The folder every copy of this kind lives under (`folder` must be inside it): the Computer
+    /// Use helpers' `root(home:)`, or the Screen Sharing helper's (`screenSharing`).
+    let root: URL
 
-    init(folder: URL, home: URL = FileManager.default.homeDirectoryForCurrentUser,
+    init(folder: URL, home: URL = FileManager.default.homeDirectoryForCurrentUser, root: URL? = nil,
          operations: Operations, fileSystem: FileSystem = .init()) {
         self.folder = folder
         self.operations = operations
         self.home = home
         self.fileSystem = fileSystem
+        self.root = root ?? Self.root(home: home)
     }
 
-    /// The legacy helper's copy: `.../cmux-cua/helper/next-<scope>/cmux Computer Use.app`,
+    /// The Screen Sharing helper's copy (plans/cmux-next/screen-sharing-helper.md):
+    /// `~/Library/Application Support/cmux-next/screen-sharing/<scope>/<its name>` (NEXT's own
+    /// folder, ``NextSupport``), checked against
+    /// the source's own designated requirement, as the Computer Use helper v2's copy is.
+    static func screenSharing(bundleID: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
+                              home: URL = FileManager.default.homeDirectoryForCurrentUser) -> ComputerUseHelperStaging {
+        let operations = Operations.system(verify: { copy, source in satisfiesDesignatedRequirement(copy, of: source) },
+                                           requirement: { designatedRequirement(of: $0) })
+        let support = NextSupport(applicationSupport: home.appending(path: "Library/Application Support", directoryHint: .isDirectory))
+        let root = support.folder.appending(path: "screen-sharing", directoryHint: .isDirectory)
+        return ComputerUseHelperStaging(folder: root.appending(path: ComputerUseHelperDaemon.scope(bundleID), directoryHint: .isDirectory),
+                                        home: home, root: root, operations: operations)
+    }
+
+    /// The legacy helper's copy: `.../cmux-next/cmux-cua/helper/next-<scope>/cmux Computer Use.app`,
     /// checked against the release helper's Developer ID requirement.
     static func legacy(bundleID: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
                        home: URL = FileManager.default.homeDirectoryForCurrentUser) -> ComputerUseHelperStaging {
@@ -113,7 +131,7 @@ nonisolated struct ComputerUseHelperStaging: Sendable {
                                         home: home, operations: operations)
     }
 
-    /// The helper v2's copy: `.../cmux-cua/helper/next-v2-<scope>/<its name>`, checked
+    /// The helper v2's copy: `.../cmux-next/cmux-cua/helper/next-v2-<scope>/<its name>`, checked
     /// against the source's own designated requirement.
     static func upstream(bundleID: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
                          home: URL = FileManager.default.homeDirectoryForCurrentUser) -> ComputerUseHelperStaging {
@@ -124,8 +142,8 @@ nonisolated struct ComputerUseHelperStaging: Sendable {
                                         home: home, operations: operations)
     }
 
-    /// `<cmux-cua root>/helper`, where classic cmux keeps its copies too.
-    /// The `next-` names keep the classic installer away from these.
+    /// `<NEXT's cmux-cua root>/helper`, apart from classic cmux's own copies (in its `cmux/cmux-cua/helper`).
+    /// The `next-` names stay, so a copy moved from there keeps its name.
     static func root(home: URL) -> URL {
         ComputerUseHelperDaemon.cuaRoot(home: home).appending(path: "helper", directoryHint: .isDirectory)
     }
@@ -218,7 +236,7 @@ nonisolated struct ComputerUseHelperStaging: Sendable {
         let expected = folder.absoluteURL
         let home = home.absoluteURL
         guard !expected.pathComponents.contains("."), !expected.pathComponents.contains(".."),
-              expected.path.hasPrefix(Self.root(home: home).path + "/"),
+              expected.path.hasPrefix(root.absoluteURL.path + "/"),
               fileSystem.resolve(home) == home.path else { return false }
         var directory = home
         for component in expected.pathComponents.dropFirst(home.pathComponents.count) {
