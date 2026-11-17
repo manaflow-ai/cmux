@@ -1,6 +1,6 @@
 public import CmuxNextActions
 public import CmuxNextCloud
-import Foundation
+public import Foundation
 
 /// The new chat folder picker's GitHub section: `github.status {}`, `github.connect {}` and
 /// `github.repos.list {query?}` (``AgentPaneGitHub`` answers them). The section lists the person's
@@ -75,8 +75,8 @@ public nonisolated enum AgentPaneGitHubRequest: Equatable, Sendable {
     }
 }
 
-/// What answers the picker's GitHub methods for every pane: the signed-in person's session and team
-/// (``CloudGitHubPicker``) and Settings > Accounts' Connect GitHub. The App sets it.
+/// What answers the picker's GitHub methods for every pane: the signed-in person's session, in the team a
+/// Cloud start's machine is made in (``CloudGitHubPicker``). The App sets it.
 public struct AgentPaneGitHub {
     /// `state` (`ready`, `not_connected`, `unavailable`) and `repos_scope` (`all`, `selected`, nil).
     public var status: @MainActor () async -> (state: String, reposScope: String?)
@@ -89,9 +89,11 @@ public struct AgentPaneGitHub {
         (self.status, self.connect, self.repos) = (status, connect, repos)
     }
 
-    /// The App's: `picker` reads as the person, `connect` is the shared Connect GitHub.
-    @MainActor public static func live(_ picker: CloudGitHubPicker, connect: @escaping @MainActor () async -> AgentPaneGitHubConnect) -> AgentPaneGitHub {
-        AgentPaneGitHub(status: { await picker.status() }, connect: connect, repos: { await picker.repos(query: $0) })
+    /// The App's: `picker` reads and connects as the person in the team a Cloud start's machine is made in, and `open`
+    /// opens the page its Connect GitHub answers in the person's browser.
+    @MainActor public static func live(_ picker: CloudGitHubPicker, open: @escaping @MainActor (URL) -> Void) -> AgentPaneGitHub {
+        AgentPaneGitHub(status: { await picker.status() }, connect: { AgentPaneGitHubConnect(await picker.connect(), open: open) },
+                        repos: { await picker.repos(query: $0) })
     }
 }
 
@@ -112,6 +114,15 @@ public enum AgentPaneGitHubConnect: Equatable, Sendable {
         case .success(let fields):
             if case .string(let detail)? = fields["detail"] { self = .failed(detail) } else { self = .failed("") }
         case .failure(let failure): self = .failed(failure.message)
+        }
+    }
+
+    /// The picker's own Connect GitHub (``CloudGitHubPicker/connect()``): its page opened with `open`, or why none.
+    @MainActor public init(_ connect: CloudGitHubPicker.Connect, open: (URL) -> Void) {
+        switch connect {
+        case .open(let url): open(url); self = .opened
+        case .connected: self = .alreadyConnected
+        case .unavailable: self = .failed("")
         }
     }
 }

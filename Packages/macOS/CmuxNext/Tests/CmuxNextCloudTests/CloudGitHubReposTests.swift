@@ -64,4 +64,42 @@ struct CloudGitHubReposTests {
         #expect(CloudGitHubApp.reposScope(status: 200, body: selected) == "selected")
         #expect(CloudGitHubApp.reposScope(status: 200, body: none) == nil)
     }
+
+    static let page = "https://github.com/apps/cmux/installations/new?state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b" // exp 2100-01-01
+
+    @Test func theConnectReplyOpensOnlyTheAppsInstallationPage() {
+        let ok = Self.body(#"{"ok":true,"value":{"connection":{"id":"conn_1"},"authorize_url":"\#(Self.page)"}}"#)
+        #expect(CloudGitHubConnects.answer(status: 200, body: ok) == .page(URL(string: Self.page)!))
+        let elsewhere = Self.body(#"{"ok":true,"value":{"connection":{"id":"conn_1"},"authorize_url":"https://example.com/apps/cmux/installations/new"}}"#)
+        #expect(CloudGitHubConnects.answer(status: 200, body: elsewhere) == .refused)
+        let noConnection = Self.body(#"{"ok":true,"value":{"authorize_url":"\#(Self.page)"}}"#)
+        #expect(CloudGitHubConnects.answer(status: 200, body: noConnection) == .refused)
+        #expect(CloudGitHubConnects.answer(status: 403, body: Self.body(#"{"ok":false,"error":{"code":"policy.denied"}}"#)) == .refused)
+        for status in [408, 429, 500, 503] { #expect(CloudGitHubConnects.answer(status: status, body: Data()) == .noAnswer, "\(status)") }
+        #expect(CloudGitHubApp.authorizationExpiry(URL(string: Self.page)!) == Date(timeIntervalSince1970: 4_102_444_800))
+    }
+
+    /// A second click reopens the page asked before while its state holds; a lost answer keeps the key for the replay,
+    /// a refusal or an expired page asks again with a new key, and each team keeps its own flow.
+    @MainActor @Test func aSecondClickNeverAddsAnotherPendingConnection() async {
+        var made = 0
+        let connects = CloudGitHubConnects(newKey: { made += 1; return "key-\(made)" })
+        var asked: [String] = []
+        let page = URL(string: Self.page)!
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let lost = await connects.page(team: "team_a", now: now) { asked.append($0); return .noAnswer }
+        let replayed = await connects.page(team: "team_a", now: now) { asked.append($0); return .page(page) }
+        let reopened = await connects.page(team: "team_a", now: now) { asked.append($0); return .refused } // not asked
+        #expect(lost == nil)
+        #expect(replayed == page)
+        #expect(reopened == page)
+        #expect(asked == ["key-1", "key-1"])
+        let expired = await connects.page(team: "team_a", now: Date(timeIntervalSince1970: 4_102_444_801)) { asked.append($0); return .refused }
+        let fresh = await connects.page(team: "team_a", now: now) { asked.append($0); return .page(page) }
+        let otherTeam = await connects.page(team: "team_b", now: now) { asked.append($0); return .page(page) }
+        #expect(expired == nil)
+        #expect(fresh == page)
+        #expect(otherTeam == page)
+        #expect(asked == ["key-1", "key-1", "key-2", "key-3", "key-4"])
+    }
 }

@@ -83,6 +83,19 @@ struct AgentPaneGitHubRequestTests {
                 == .failed("GitHub could not be updated. Refresh to try again."))
     }
 
+    /// The picker's own Connect GitHub (in the team a Cloud start's machine is made in): only a page it answers opens.
+    @Test func thePickersConnectOpensOnlyThePageItAnswers() {
+        let page = URL(string: "https://github.com/apps/cmux/installations/new")!
+        var opened: [URL] = []
+        let open = AgentPaneGitHubConnect(.open(page)) { opened.append($0) }
+        let connected = AgentPaneGitHubConnect(.connected) { opened.append($0) }
+        let unavailable = AgentPaneGitHubConnect(.unavailable) { opened.append($0) }
+        #expect(open == .opened)
+        #expect(connected == .alreadyConnected)
+        #expect(unavailable == .failed(""))
+        #expect(opened == [page])
+    }
+
     @Test(arguments: [
         ("github:acme/api", "acme/api"),
         ("github:manaflow-ai/cmux.next_2", "manaflow-ai/cmux.next_2"),
