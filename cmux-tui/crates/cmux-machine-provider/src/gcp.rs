@@ -16,7 +16,7 @@ use crate::contract::{
 };
 use crate::labs;
 use cmux_process::{Command, Stdio};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::fmt;
 use std::io::{Read, Write};
 
@@ -32,7 +32,9 @@ impl AccessToken {
     pub fn new(raw: &[u8]) -> Result<Self, ProviderError> {
         let token = raw.trim_ascii();
         if token.is_empty() || token.len() > 8192 || !token.iter().all(u8::is_ascii_graphic) {
-            return Err(ProviderError::Refused("the access token is not a token".into()));
+            return Err(ProviderError::Refused(
+                "the access token is not a token".into(),
+            ));
         }
         Ok(Self(token.to_vec()))
     }
@@ -108,7 +110,13 @@ impl Transport for CurlTransport {
     ) -> Result<(u16, Value), TransportError> {
         let mut command = Command::new("curl");
         command
-            .args(["-sS", "--max-time", &self.max_seconds.to_string(), "-X", method])
+            .args([
+                "-sS",
+                "--max-time",
+                &self.max_seconds.to_string(),
+                "-X",
+                method,
+            ])
             .args(["-H", "@-", "-H", "Content-Type: application/json"])
             .args(["-w", "\n%{http_code}"]);
         match body {
@@ -135,8 +143,9 @@ impl Transport for CurlTransport {
         if let Some(Err(e)) = wrote {
             return Err(TransportError::NoAnswer(format!("curl stdin: {e}")));
         }
-        let output =
-            child.wait_with_output().map_err(|e| TransportError::NoAnswer(format!("curl: {e}")))?;
+        let output = child
+            .wait_with_output()
+            .map_err(|e| TransportError::NoAnswer(format!("curl: {e}")))?;
         let text = String::from_utf8_lossy(&output.stdout);
         let (body, code) = text.rsplit_once('\n').unwrap_or(("", &text));
         let status = code.trim().parse::<u16>().unwrap_or(0);
@@ -172,7 +181,9 @@ impl GcpProvider {
     ) -> Result<Self, ProviderError> {
         for (what, value) in [("project", project), ("zone", zone)] {
             if !valid_name(value) {
-                return Err(ProviderError::Refused(format!("{what} {value:?} is not a GCP name")));
+                return Err(ProviderError::Refused(format!(
+                    "{what} {value:?} is not a GCP name"
+                )));
             }
         }
         Ok(Self {
@@ -186,7 +197,10 @@ impl GcpProvider {
     }
 
     fn zone_url(&self) -> String {
-        format!("{}/projects/{}/zones/{}", self.base, self.project, self.zone)
+        format!(
+            "{}/projects/{}/zones/{}",
+            self.base, self.project, self.zone
+        )
     }
 
     fn call(&self, method: &str, url: &str, body: Option<&Value>) -> Result<Value, ProviderError> {
@@ -194,17 +208,25 @@ impl GcpProvider {
             .transport
             .send(method, url, &self.token, body)
             .map_err(|TransportError::NoAnswer(m)| ProviderError::Indeterminate(m))?;
-        let message =
-            || body.pointer("/error/message").and_then(Value::as_str).unwrap_or("").to_owned();
+        let message = || {
+            body.pointer("/error/message")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_owned()
+        };
         match status {
             200..=299 => Ok(body),
             401 | 403 => Err(ProviderError::Refused(message())),
             404 => Err(ProviderError::NotFound(message())),
             409 => Err(ProviderError::Conflict(message())),
-            408 | 429 | 500..=599 => {
-                Err(ProviderError::Indeterminate(format!("{status} {}", message())))
-            }
-            _ => Err(ProviderError::Api { status, message: message() }),
+            408 | 429 | 500..=599 => Err(ProviderError::Indeterminate(format!(
+                "{status} {}",
+                message()
+            ))),
+            _ => Err(ProviderError::Api {
+                status,
+                message: message(),
+            }),
         }
     }
 
@@ -214,32 +236,56 @@ impl GcpProvider {
     fn finish(&self, operation: &Value) -> Result<(), ProviderError> {
         // An operation can come back already failed (a retried request id
         // returns the original operation).
-        if let Some(message) = operation.pointer("/error/errors/0/message").and_then(Value::as_str)
+        if let Some(message) = operation
+            .pointer("/error/errors/0/message")
+            .and_then(Value::as_str)
         {
-            return Err(ProviderError::Api { status: 200, message: message.to_owned() });
+            return Err(ProviderError::Api {
+                status: 200,
+                message: message.to_owned(),
+            });
         }
         if !self.wait {
             return Ok(());
         }
-        let Some(name) = operation.get("name").and_then(Value::as_str) else { return Ok(()) };
+        let Some(name) = operation.get("name").and_then(Value::as_str) else {
+            return Ok(());
+        };
         let name_ok = name.len() <= 128
-            && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+            && name
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
         if !name_ok {
             return Err(ProviderError::Indeterminate(format!("operation {name:?}")));
         }
-        let done =
-            self.call("POST", &format!("{}/operations/{name}/wait", self.zone_url()), None)?;
+        let done = self.call(
+            "POST",
+            &format!("{}/operations/{name}/wait", self.zone_url()),
+            None,
+        )?;
         if done.get("status").and_then(Value::as_str) != Some("DONE") {
-            return Err(ProviderError::Indeterminate(format!("operation {name} still running")));
+            return Err(ProviderError::Indeterminate(format!(
+                "operation {name} still running"
+            )));
         }
-        match done.pointer("/error/errors/0/message").and_then(Value::as_str) {
-            Some(message) => Err(ProviderError::Api { status: 200, message: message.to_owned() }),
+        match done
+            .pointer("/error/errors/0/message")
+            .and_then(Value::as_str)
+        {
+            Some(message) => Err(ProviderError::Api {
+                status: 200,
+                message: message.to_owned(),
+            }),
             None => Ok(()),
         }
     }
 
     fn instance(&self, machine: &str) -> Result<Option<Value>, ProviderError> {
-        match self.call("GET", &format!("{}/instances/{machine}", self.zone_url()), None) {
+        match self.call(
+            "GET",
+            &format!("{}/instances/{machine}", self.zone_url()),
+            None,
+        ) {
             Ok(body) => Ok(Some(body)),
             Err(ProviderError::NotFound(_)) => Ok(None),
             Err(e) => Err(e),
@@ -255,8 +301,11 @@ pub fn machine_name(key: &IdempotencyKey) -> String {
 /// The Compute Engine `instances.insert` body for `spec` (the setup sheet's
 /// preview shows exactly this).
 pub fn insert_body(key: &IdempotencyKey, machine: &str, spec: &CreateSpec) -> Value {
-    let mut labels: serde_json::Map<String, Value> =
-        spec.labels.iter().map(|(k, v)| (k.clone(), json!(v))).collect();
+    let mut labels: serde_json::Map<String, Value> = spec
+        .labels
+        .iter()
+        .map(|(k, v)| (k.clone(), json!(v)))
+        .collect();
     labels.insert("cmux-machine".into(), json!("true"));
     labels.insert("cmux-key".into(), json!(key_label(key)));
     json!({
@@ -334,7 +383,9 @@ impl MachineProvider for GcpProvider {
             _ => request.machine.clone().unwrap_or_default(),
         };
         if !valid_name(&machine) {
-            return Err(ProviderError::Refused(format!("machine {machine:?} is not a GCP name")));
+            return Err(ProviderError::Refused(format!(
+                "machine {machine:?} is not a GCP name"
+            )));
         }
         let rid = request_id(key, request.op);
         let zone = self.zone_url();
@@ -351,7 +402,11 @@ impl MachineProvider for GcpProvider {
                     )));
                 }
                 let body = insert_body(key, &machine, spec);
-                match self.call("POST", &format!("{zone}/instances?requestId={rid}"), Some(&body)) {
+                match self.call(
+                    "POST",
+                    &format!("{zone}/instances?requestId={rid}"),
+                    Some(&body),
+                ) {
                     Ok(operation) => {
                         self.finish(&operation)?;
                         Ok((MachineState::Provisioning, None))
@@ -373,7 +428,11 @@ impl MachineProvider for GcpProvider {
                 }
             }
             Op::Start | Op::Stop => {
-                let verb = if request.op == Op::Start { "start" } else { "stop" };
+                let verb = if request.op == Op::Start {
+                    "start"
+                } else {
+                    "stop"
+                };
                 let operation = self.call(
                     "POST",
                     &format!("{zone}/instances/{machine}/{verb}?requestId={rid}"),
@@ -431,7 +490,11 @@ impl MachineProvider for GcpProvider {
                     Ok(operation) => {
                         self.finish(&operation)?;
                         Ok((
-                            if self.wait { MachineState::Deleted } else { MachineState::Deleting },
+                            if self.wait {
+                                MachineState::Deleted
+                            } else {
+                                MachineState::Deleting
+                            },
                             None,
                         ))
                     }
@@ -444,7 +507,9 @@ impl MachineProvider for GcpProvider {
 
     fn observe(&self, machine: &str) -> Result<Option<MachineState>, ProviderError> {
         if !valid_name(machine) {
-            return Err(ProviderError::Refused(format!("machine {machine:?} is not a GCP name")));
+            return Err(ProviderError::Refused(format!(
+                "machine {machine:?} is not a GCP name"
+            )));
         }
         Ok(self.instance(machine)?.map(|i| state_of(Some(&i))))
     }
@@ -455,7 +520,10 @@ impl MachineProvider for GcpProvider {
 }
 
 fn state_of(instance: Option<&Value>) -> MachineState {
-    match instance.and_then(|i| i.get("status")).and_then(Value::as_str) {
+    match instance
+        .and_then(|i| i.get("status"))
+        .and_then(Value::as_str)
+    {
         None => MachineState::Deleted,
         Some("PROVISIONING" | "STAGING" | "REPAIRING") => MachineState::Provisioning,
         Some("RUNNING") => MachineState::Running,
@@ -472,10 +540,13 @@ pub fn valid_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 63
         && name.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
-        && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
-fn key_label(key: &IdempotencyKey) -> String {
+/// The `cmux-key` label a machine or snapshot made under `key` carries.
+pub fn key_label(key: &IdempotencyKey) -> String {
     key.digest_prefix("label", 32)
 }
 
@@ -500,5 +571,12 @@ pub fn request_id(key: &IdempotencyKey, op: Op) -> String {
         })
         .collect();
     let part = |from: usize, to: usize| hex.get(from..to).unwrap_or_default();
-    format!("{}-{}-{}-{}-{}", part(0, 8), part(8, 12), part(12, 16), part(16, 20), part(20, 32))
+    format!(
+        "{}-{}-{}-{}-{}",
+        part(0, 8),
+        part(8, 12),
+        part(12, 16),
+        part(16, 20),
+        part(20, 32)
+    )
 }
