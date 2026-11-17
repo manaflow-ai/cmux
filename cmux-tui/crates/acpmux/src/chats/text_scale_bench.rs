@@ -261,7 +261,8 @@ fn text_scale_bench_degenerate_text() {
         ("hugeneedle", "9000000"),
         ("部署成功", "9000001"),
         ("réussi", "9000001"),
-        ("istanbul", "9000001"),
+        // `İ` lowercases to `i̇` (two characters): its own spelling finds it, `istanbul` does not.
+        ("İstanbul", "9000001"),
         ("🚀", "9000001"),
         ("longneedle", "9000002"),
     ] {
