@@ -644,8 +644,8 @@ impl CongestionController {
                 let sent = self.sent.remove(&a.transport_seq)?;
                 if recovering_from_outage {
                     // A radio burst after an outage is receiver-shaped, not a
-                    // path-delay sample. Drop the receipt so a duplicate burst
-                    // cannot seed queue evidence after recovery.
+                    // path-delay sample. Keep no queue evidence from it.
+                    self.sent.insert(a.transport_seq, sent);
                     None
                 } else if sent.departed {
                     Some((sent.at_us, i64::from(a.arrival_us), sent.bytes))
