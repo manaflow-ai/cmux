@@ -3844,6 +3844,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         -SessionScrollbackReplayStore.staleReplayLifetime
                     )
                 )
+                AgentCommandShimDirectorySweep.sweep()
             }
         }
 

@@ -298,6 +298,50 @@ struct GhosttyTerminalStartupEnvironmentTests {
     }
 
     @Test
+    func liveFilesystemRemovesAClosedSurfaceShimDirectory() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-live-shim-removal-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let wrappers = root.appendingPathComponent("wrappers", isDirectory: true)
+        for directory in [home, wrappers] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        let wrapper = wrappers.appendingPathComponent("cmux-claude-wrapper")
+        try "#!/bin/sh\n".write(to: wrapper, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: wrapper.path)
+        let closedSurface = UUID()
+        let openSurface = UUID()
+
+        let filesystem = TerminalSurfaceRuntimeFilesystem.live(homeDirectory: home)
+        #expect(
+            filesystem.agentCommandShimRootDirectory
+                == TerminalSurfaceRuntimeFilesystem.liveAgentCommandShimRootDirectory(homeDirectory: home)
+        )
+        let closed = try #require(
+            await filesystem.installAgentCommandShims(
+                wrappers, closedSurface, filesystem.agentCommandShimRootDirectory, [.claude]
+            )
+        )
+        let open = try #require(
+            await filesystem.installAgentCommandShims(
+                wrappers, openSurface, filesystem.agentCommandShimRootDirectory, [.claude]
+            )
+        )
+        // The sweep at launch goes by this record.
+        #expect(
+            !TerminalSurfaceAgentCommandShimCleanup.ownerRecords(
+                inDirectory: URL(fileURLWithPath: closed.directoryPath, isDirectory: true)
+            ).isEmpty
+        )
+
+        filesystem.removeAgentCommandShims(closedSurface, filesystem.agentCommandShimRootDirectory)
+
+        #expect(!FileManager.default.fileExists(atPath: closed.directoryPath))
+        #expect(FileManager.default.isExecutableFile(atPath: open.directoryPath + "/claude"))
+    }
+
+    @Test
     func testInstallAgentCommandShimsCreatesAmpHermesAndClaudeExecutablesOutsideBundleBin() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(

@@ -123,6 +123,16 @@ extension TerminalSurface {
     /// is created.
     @MainActor
     public func removeAgentCommandShimsForPermanentClose() {
+        guard !ioMode.usesManualIO else { return }
+        // An install still running would put the directory back after this
+        // removal. Leave that rare leftover to the launch sweep.
+        guard agentCommandShimInstallTask == nil else { return }
+        agentCommandShims = nil
+        agentCommandShimInstallCompleted = false
+        runtimeFilesystem.removeAgentCommandShims(
+            id,
+            runtimeFilesystem.agentCommandShimRootDirectory
+        )
     }
 
     @MainActor
