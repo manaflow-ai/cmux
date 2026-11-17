@@ -889,6 +889,37 @@ export async function revokePendingEmailGrant(input: {
  * same user's next sign-in, or anyone after the TTL, picks up again. The
  * metadata write is idempotent, so a retry after a crash is safe.
  */
+/**
+ * Writes the newest claimed pending grant. False when the account holds a
+ * grant of the other plan family: the pending grant stays open for an
+ * operator to resolve instead of replacing it. Any other failure releases
+ * the claims and is rethrown.
+ */
+async function applyNewestPendingGrant(
+  grant: (input: SetManualPlanGrantInput) => Promise<unknown>,
+  userId: string,
+  plan: AdminGrantablePlanId,
+  newest: { readonly id: string; readonly grantedByUserId: string; readonly grantedByEmail: string | null; readonly createdAt: Date },
+  releaseClaims: () => Promise<void>,
+): Promise<boolean> {
+  try {
+    await grant({
+      targetUserId: userId,
+      plan,
+      admin: { id: newest.grantedByUserId, primaryEmail: newest.grantedByEmail },
+      // A direct admin decision made after this grant was created wins.
+      unlessAuditNewerThan: newest.createdAt,
+      supersedePending: false,
+      pendingGrantId: newest.id,
+    });
+    return true;
+  } catch (error) {
+    await releaseClaims();
+    if (error instanceof AdminGrantPlanFamilyConflictError) return false;
+    throw error;
+  }
+}
+
 export async function applyPendingEmailGrants(
   user: { readonly id: string; readonly primaryEmail?: string | null },
   options: {
@@ -958,25 +989,7 @@ export async function applyPendingEmailGrants(
 
   const newest = [...claimed].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0]!;
   const plan = isAdminGrantablePlanId(newest.plan) ? newest.plan : null;
-  if (plan !== null) {
-    try {
-      await grant({
-        targetUserId: user.id,
-        plan,
-        admin: { id: newest.grantedByUserId, primaryEmail: newest.grantedByEmail },
-        // A direct admin decision made after this grant was created wins.
-        unlessAuditNewerThan: newest.createdAt,
-        supersedePending: false,
-        pendingGrantId: newest.id,
-      });
-    } catch (error) {
-      await releaseClaims();
-      // The account holds a grant of the other plan family: the pending
-      // grant stays open for an operator to resolve instead of replacing it.
-      if (error instanceof AdminGrantPlanFamilyConflictError) return 0;
-      throw error;
-    }
-  }
+  if (plan !== null && !(await applyNewestPendingGrant(grant, user.id, plan, newest, releaseClaims))) return 0;
 
   // Finalize only rows this sign-in still owns: a claim stolen after the TTL
   // belongs to that later sign-in, which finalizes (or compensates) itself.
