@@ -699,7 +699,7 @@
 :root[data-prompt-pending-look="clock"] .cv-user__pending-words {
   display: none;
 }
-:root[data-prompt-pending-look="dim"] .cv-user:has(.cv-user__actions--pending) .cv-user__bubble {
+:root[data-prompt-pending-look="dim"] .cv-user__body[data-actions-pending] > .cv-user__bubble {
   color: var(--cv-text-muted);
 }
 .cv-user__status--failed {
@@ -7662,9 +7662,14 @@ button.cv-user__file-open:focus-visible {
    Under a bubble it is laid in the turn gap with no layout height, a waiting steer's (Send now
    first) as a sent prompt's, so sending a steer moves nothing (#27580 left the steer's row in flow:
    the row lost 28px on send and the transcript shifted). A waiting prompt of images alone has no
-   bubble, so its row stays in flow (model.ts userMetaHeight). */
-.cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble)) > .cv-user__actions,
-.cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble)) > .cv-user__body > .cv-user__actions {
+   bubble, so its row stays in flow (model.ts userMetaHeight). A waiting steer's controls mark their
+   prompt `data-steer-pending` (PendingSteer.tsx) and a bubble comes before the row in its box: no
+   `:has()` here, which Chromium answered by restyling every prompt's row in the pane whenever the
+   rail under the transcript gained an entry, each older page of a scroll up. */
+.cv-user:not([data-steer-pending]) > .cv-user__actions,
+.cv-user > .cv-user__bubble ~ .cv-user__actions,
+.cv-user:not([data-steer-pending]) > .cv-user__body > .cv-user__actions,
+.cv-user > .cv-user__body > .cv-user__bubble ~ .cv-user__actions {
   position: absolute;
   right: calc(-1 * var(--cv-action-inset));
   top: calc(100% + (var(--grid-gap-turn) - var(--cv-meta-row)) / 2);
@@ -7674,8 +7679,10 @@ button.cv-user__file-open:focus-visible {
 /* Over the live line the gap is the block gap (24), not the turn gap (transcriptGrid.ts waiting
    rule), so the row is centred in that: its 28 hit box overhangs the gap by 2 on each side
    (grid.md Rule 6 allows 6), and its 16 glyphs keep 4 to the bubble and 4 to the live line. */
-article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble)) > .cv-user__actions,
-article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble)) > .cv-user__body > .cv-user__actions {
+article.acpmux-row--before-indicator .cv-user:not([data-steer-pending]) > .cv-user__actions,
+article.acpmux-row--before-indicator .cv-user > .cv-user__bubble ~ .cv-user__actions,
+article.acpmux-row--before-indicator .cv-user:not([data-steer-pending]) > .cv-user__body > .cv-user__actions,
+article.acpmux-row--before-indicator .cv-user > .cv-user__body > .cv-user__bubble ~ .cv-user__actions {
   top: calc(100% + (var(--grid-gap-block) - var(--cv-meta-row)) / 2);
 }
 
@@ -8071,8 +8078,9 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
 /* A prompt's pending note starts where its bubble's text starts (Leo, 2026-11-14: "this is
    misaligned"). The row hangs under the bubble out of flow, anchored right; with a bubble the body
    becomes the row's box (the bubble's width) and the row starts one bubble padding in, still
-   anchored right and as wide as its words when they are wider than the bubble's text. */
-.cv-user__body:has(> .cv-user__bubble):has(> .cv-user__actions--pending) {
+   anchored right and as wide as its words when they are wider than the bubble's text. The body
+   says it holds the pending row with `data-actions-pending` (UserBubble.tsx), not a `:has()`. */
+.cv-user__body[data-actions-pending]:has(> .cv-user__bubble) {
   --cv-bubble-scale: calc(var(--cmux-chat-text-scale, 1) / var(--cmux-interface-scale, 1));
   --cv-bubble-pad-inline: calc(4 * var(--grid-base) * var(--cv-bubble-scale));
   display: block;
@@ -8080,10 +8088,10 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   align-self: flex-end;
   max-width: 70%;
 }
-.cv-user__body:has(> .cv-user__actions--pending) > .cv-user__bubble {
+.cv-user__body[data-actions-pending] > .cv-user__bubble {
   max-width: none;
 }
-.cv-user .cv-user__body:has(> .cv-user__bubble) > .cv-user__actions.cv-user__actions--pending {
+.cv-user .cv-user__body > .cv-user__bubble ~ .cv-user__actions.cv-user__actions--pending {
   right: calc(-1 * var(--cv-action-inset));
   width: max-content;
   min-width: calc(100% - var(--cv-bubble-pad-inline) + var(--cv-action-inset));
