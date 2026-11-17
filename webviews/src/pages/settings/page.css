@@ -7,5 +7,6 @@
 @import "./layout.css";
 @import "./refined.css";
 @import "./look.css";
+@import "../shared/pageDensity.css";
 
 @import "../shared/transientMaterial.css";

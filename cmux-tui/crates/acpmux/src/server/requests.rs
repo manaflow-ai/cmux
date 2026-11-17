@@ -1254,22 +1254,28 @@ async fn dispatch_request_with_identity(
         }
         method::MUX_RESOLVE => {
             let names_hosts = conn.auth != ConnAuth::ReadOnlyDevice && conn.origin != Origin::Peer;
-            if params.get("exactSessionId").and_then(Value::as_bool) == Some(true) {
-                hub.locate_exact(
-                    str_param(&params, "sessionId")
-                        .or_else(|| str_param(&params, "query"))
-                        .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?,
-                    names_hosts,
-                )
+            let exact = params.get("exactSessionId").and_then(Value::as_bool) == Some(true);
+            let query = if exact {
+                str_param(&params, "sessionId")
+                    .or_else(|| str_param(&params, "query"))
+                    .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?
             } else {
-                hub.locate(
-                    str_param(&params, "query")
-                        .ok_or_else(|| RpcError::invalid_params("query is required"))?,
-                    params.get("bead").and_then(Value::as_bool) == Some(true),
-                    // A read-only machine reads what its session list shows (`pairing/read_only.rs`), and a
-                    // peer daemon's connection never learns this host's peers (`redact::hide_peers_from_peer`).
-                    names_hosts,
-                )
+                str_param(&params, "query")
+                    .ok_or_else(|| RpcError::invalid_params("query is required"))?
+            };
+            let bead_only = params.get("bead").and_then(Value::as_bool) == Some(true);
+            // A peer request is always owner-only: it cannot ask this daemon to transit a
+            // selector to a third machine. Local callers stay on v1 until cut E removes the
+            // watched table; this additive cut must not change what a local reader sees.
+            if conn.origin == Origin::Peer {
+                let query = Hub::validate_owner_selector(query)?;
+                hub.locate_owner(query, bead_only, exact, names_hosts)
+            } else {
+                if exact {
+                    hub.locate_exact(query, names_hosts)
+                } else {
+                    hub.locate(query, bead_only, names_hosts)
+                }
             }
         }
         method::INITIALIZE => {
@@ -1603,13 +1609,15 @@ async fn dispatch_request_with_identity(
                     .await;
                 crate::hub::merge_mux_meta(&mut p, created_by_stamp(hub, conn, &params));
                 // This caller's own opt-out for its remote chains there (`hub/vm_boundary.rs`),
-                // for the person's own clients here only (`vm_boundary::owner`).
-                if peer.vm_boundary()
-                    && crate::hub::vm_boundary::owner(
-                        conn.auth,
-                        super::remote_guard::control_of(conn.origin, conn.auth, &params),
-                        &params,
-                    )
+                // for the person's own clients here only (`vm_boundary::owner`): a saved
+                // `vmBoundary`, or a dedicated agent VM of this caller's own fleet registry
+                // (`hub/agent_vm.rs`).
+                if crate::hub::vm_boundary::owner(
+                    conn.auth,
+                    super::remote_guard::control_of(conn.origin, conn.auth, &params),
+                    &params,
+                ) && (peer.vm_boundary()
+                    || crate::hub::agent_vm::registry_agent_vm(&peer.name, &peer.url))
                 {
                     crate::hub::merge_mux_meta(
                         &mut p,
@@ -1815,11 +1823,12 @@ async fn dispatch_request_with_identity(
             if conn.origin.web_class() {
                 let peer = super::remote_guard::settles_as_peer(conn.origin, conn.auth, &params);
                 let cloud_mobile = super::remote_guard::cloud_mobile(&params);
-                heap(|| super::remote_guard::settle_web_session_mode(hub, &s, peer, cloud_mobile))
-                    .await?;
                 // The VM boundary its caller asked for (`hub/vm_boundary.rs`): a
                 // session the owner's peer daemon starts with no policy runs
-                // approve-all, as vmHost's did. Web clients still ask.
+                // approve-all, as vmHost's did. Web clients still ask. Before the
+                // mode settles, so a Codex chat there settles in full access
+                // (`policy_mode.rs` `bridge_settle_modes`), not the asking mode a
+                // narrower policy needs.
                 let vm_boundary = s.meta().vm_boundary && hub.takes_vm_boundary().await;
                 if !asked_policy
                     && crate::hub::vm_boundary_peer_approves(
@@ -1832,6 +1841,8 @@ async fn dispatch_request_with_identity(
                 {
                     heap(|| hub.grant_vm_host_approve_all(&s)).await;
                 }
+                heap(|| super::remote_guard::settle_web_session_mode(hub, &s, peer, cloud_mobile))
+                    .await?;
             } else {
                 heap(|| hub.start_in_mode(conn.is_person(), conn.caller(), &params, &s, adopting))
                     .await?;
@@ -2621,10 +2632,13 @@ async fn dispatch_request_with_identity(
                 .await
                 .map_err(|e| RpcError::internal(e.to_string()))?
         }
-        // Names every machine and its numbers: this machine's own clients only.
-        "_acpmux/place" if conn.origin != Origin::Local => Err(RpcError::invalid_params(
-            "_acpmux/place answers on this machine's unix socket only",
-        )),
+        // Names every machine and its numbers: this machine's own clients only, its unix socket
+        // and the app's own pane (the composer's Auto row and busy chip), never the Web or a peer.
+        "_acpmux/place" if !matches!(conn.origin, Origin::Local | Origin::LocalApp) => {
+            Err(RpcError::invalid_params(
+                "_acpmux/place answers on this machine's unix socket and the app's own pane only",
+            ))
+        }
         "_acpmux/place" => Ok(super::place::place(hub, &params).await),
         "_acpmux/directories" => {
             let home = dirs::home_dir().unwrap_or_default();
@@ -3582,6 +3596,10 @@ async fn dispatch_request_with_identity(
                 reason = %shutdown_reason(&params),
                 "a client asked this daemon to stop"
             );
+            crate::daemon::supervision::stopping(crate::daemon::supervision::shutdown_cause(
+                &shutdown_reason(&params),
+                params.get("restart").and_then(Value::as_bool) == Some(true),
+            ));
             // `endAgents: true` (the app's Quit Everything) ends agents that
             // run under agent hosts; otherwise they keep running for the next
             // daemon.

@@ -37,6 +37,9 @@ pub mod author;
 pub mod beads;
 pub mod bg_hook;
 pub mod bg_run;
+#[path = "cli/bounded_child.rs"]
+pub(crate) mod bounded_child;
+pub mod build_info;
 pub mod byo_endpoint;
 pub mod capabilities;
 pub mod catalog;
@@ -71,6 +74,7 @@ pub mod cua_socket;
 pub mod cua_v2;
 pub mod cwd_pin;
 pub mod daemon;
+pub(crate) mod daemon_parts;
 mod dead_temps;
 mod default_harness;
 pub mod deliver;
@@ -115,11 +119,13 @@ pub mod harness_health;
 pub mod harness_icon_set;
 pub mod harness_install;
 pub mod harness_limits;
+pub(crate) mod harness_secret_ref;
 pub(crate) mod heap_future;
 pub mod heap_profile;
 pub(crate) mod home_fs;
 #[cfg(test)]
 mod home_writers_by_path_tests;
+pub(crate) mod host_fingerprint;
 pub mod host_load;
 pub mod host_pressure;
 pub mod hosted_mcp;
@@ -144,7 +150,10 @@ pub mod login_env;
 pub mod lossy_lines;
 #[cfg(test)]
 mod lost_home_race_tests;
+#[path = "cli/machine_consent.rs"]
+pub(crate) mod machine_consent;
 pub(crate) mod machine_info;
+pub(crate) mod machine_record;
 /// A local route to each of the person's other machines' cmux-tui session (`machine_routes.rs`).
 #[cfg(feature = "hub-carrier")]
 pub mod machine_routes;
@@ -156,6 +165,7 @@ pub mod mcp_hint;
 pub mod mesh;
 pub mod mesh_control;
 pub mod mesh_http;
+pub mod mesh_node_key;
 pub mod mesh_relay_config;
 pub mod meta_fields;
 pub mod model_copies;
@@ -168,6 +178,8 @@ pub mod offer_mcp;
 pub mod oom_rank;
 pub mod opaque_agent_id;
 pub(crate) mod opencode_ask;
+#[path = "daemon/owner_exit.rs"]
+pub(crate) mod owner_exit;
 #[cfg(windows)]
 mod owner_only;
 pub mod pairing;
@@ -183,7 +195,9 @@ pub mod peer_mirror;
 pub mod peer_paths;
 pub mod peer_states;
 pub mod person_proof;
+pub mod person_tokens;
 pub mod placement;
+pub mod plan_build_records;
 #[cfg(not(unix))]
 mod platform;
 pub mod pricing;
@@ -200,10 +214,13 @@ pub mod provenance_keys;
 mod provider_cloud_auth;
 pub mod qos;
 pub mod question_answer;
+pub(crate) mod questions;
 #[cfg(target_os = "linux")]
 mod quiet_dirs;
+pub mod race_records;
 pub mod recovery;
 pub mod registry;
+pub(crate) mod remote_chain_profile;
 pub mod request_cancel;
 pub mod resume;
 pub mod review_box;
@@ -220,6 +237,7 @@ pub mod schema;
 pub mod secret_mcp;
 pub mod secret_scan;
 pub mod self_command;
+pub(crate) mod sender_env;
 pub mod sender_harness;
 pub mod sender_program;
 pub mod sender_token;
@@ -236,11 +254,17 @@ pub mod session_search;
 pub mod session_service;
 pub mod session_status;
 pub mod sha256;
+/// The approval behind Share This Mac confirmed on the owner's other device (`share_approval.rs`).
+pub mod share_approval;
+/// The share host: a joined Mac's daemon serves screen shares with no app running (`share_host/`).
+pub mod share_host;
 // The shadow admission verdict beside each placement and create (cmuxterm-hq#7342).
 pub mod memory_inbox;
 pub mod prompt_coach;
 pub mod shadow_admission;
+pub(crate) mod shell_readonly;
 pub mod shell_words;
+pub mod sidecar_census;
 #[cfg(feature = "sim")]
 pub mod sim_agent;
 pub(crate) mod slow_notice;
@@ -261,10 +285,14 @@ pub mod subagent_notice;
 pub mod subagents;
 pub mod subrouter_session;
 pub mod subsession_mcp;
+pub mod subsession_settings;
 pub mod subsession_worktree;
 pub mod suggestion_gate;
 pub(crate) mod supervise;
 pub mod tailnet;
+#[cfg(unix)]
+#[path = "daemon/term_sender.rs"]
+pub(crate) mod term_sender;
 #[cfg(test)]
 mod test_exec;
 #[cfg(test)]
@@ -274,6 +302,7 @@ mod test_stack;
 /// Another crate's tests' daemon (`test-support`; row 7c's `cmux-tui-core` gates). Never shipped.
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub mod test_support;
+pub(crate) mod time_breakdown;
 pub mod tools_mcp;
 pub mod touched_files;
 pub mod transcript;
@@ -281,6 +310,8 @@ pub mod trust;
 pub mod trust_auto;
 pub mod tui;
 pub mod turn_attestation;
+pub(crate) mod turn_errors;
+pub(crate) mod uniichat_endpoint;
 pub mod usage_stats;
 pub mod user_settings;
 pub mod vault;

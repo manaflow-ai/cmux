@@ -780,7 +780,7 @@ impl App {
 }
 
 fn session_route_id(session: &Value) -> Option<String> {
-    crate::cli::resolve::routed_id(session).ok()
+    crate::session_identity::routed_id(session).ok()
 }
 
 /// A session or transcript status with a turn still open: running, or waiting on a permission.

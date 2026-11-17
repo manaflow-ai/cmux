@@ -40,7 +40,7 @@ public extension WebKitRenderRate {
             let shown: Void? = try? await clock.sleep(for: .milliseconds(33))
             webView.isHidden = false
             if focused, let window = webView.window, window.firstResponder === handedTo {
-                window.makeFirstResponder(webView)
+                FocusRoute(.system, "a reshown web view keeps the keys").moveKeyboard(in: window, to: webView)
             }
             if shown != nil {
                 // wakeup-allow: one-shot bounded step of a render-rate change (50 ms covered) on the owner's injected clock, cancelled with the owner

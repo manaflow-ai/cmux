@@ -9,7 +9,8 @@ run (with one SIGTERM to the new instance only) if that open started a second in
 
 No app, no socket, no build: `main()` runs with the launcher (`BenchApp`), the session helper (`Stress`) and
 `subprocess`, `os.kill` and the clock replaced by fakes with a small model of tabs, panes, zoom and the app's active
-state (no signal goes to a process, and no test reads a real clock). So this proves the
+state (no signal goes to a process, and no test reads a real clock). The fake's key window, its refusals, its
+animation speed and its span record are a model from a read of the app's code. So this proves the
 script's own logic (names, flow, rows, exit codes), NOT the app and NOT what LaunchServices does on a Mac.
 Run: python3 -I scripts/measure/tests/pane-motion-films.test.py"""
 import contextlib, importlib.util, io, itertools, json, os, shutil, signal, subprocess, sys, tempfile, unittest
@@ -24,6 +25,16 @@ CODE = {code: name for name, code in M.KEY.items()}
 BUNDLE = "/fake/cmux DEV fake.app"
 BINARY = BUNDLE + "/Contents/MacOS/cmux DEV fake"
 INSTANCE_100 = f"PREFLIGHT activate: instance pid 100: parent 50, command {BINARY}"
+PAGES = ("newtab", "chromium", "chat")  # the tab kinds that the app shows as a Chromium page in a child window
+NO_PAGE_WINDOW = "page: no Chromium page window for pane"  # a refused `page` word, as a row and a PREFLIGHT line say it
+# The end of a PREFLIGHT line of a key that had 3 sends: `page` refused 2 times, then the shell window.
+THIRD_TRY = f"; the third try, in the shell window, after the app refused the word 2 times ({NO_PAGE_WINDOW}; {NO_PAGE_WINDOW})"
+# Each field that only the row of a film with a speed has.
+SPEED_KEYS = ("speed", "speed_before", "speed_after", "speed_at_stop", "speed_fault", "spans", "spans_total", "spans_cut", "source_ms",
+              "reduce_motion", "animations_enabled", "pane_animations", "disabled_categories")
+# The key sequences of a preflight that passes: a new tab, its close, a split, the zoom in, the zoom out. A fault
+# `...-in-a-film` starts after them.
+PREFLIGHT_KEYS = 5
 
 
 class Clock:
@@ -61,6 +72,28 @@ class World:
         # pid: its parent. 100 = the launch's own process; 150 = an instance that launchd started before this run.
         self.pids = {100: 50, **({150: 1} if "other-instance-before" in faults else {})}
         self.ps_calls, self.pending, self.zoom_keys_at_a_pending_tab = 0, 0, []
+        self.words = []  # for each key sequence to the active app: (the `key_window` word of the call, the window that had the keys)
+        # The animation speed and each call that set it (the word, the workspaces at that time); the spans of the
+        # motion record; the steps of each key sequence; the zoomed pane after each zoom.
+        self.speed, self.speeds, self.spans, self.played, self.zoom_states = "fast", [], [], [], []
+        # Each `debug.motion` call for the speed or the span record, by its action; if the span record runs.
+        self.motion, self.tracing = [], False
+        # After a Cmd-T the app moves the keys to the new page, and that takes time (FocusEffectApplier.swift). `held`
+        # (fault `keys-move-late`): the next focus read still says `shell`, and the page takes the keys after it.
+        # `unplaced` (faults `page-window-late`, `page-window-never`): the page has the focus, and its window is not
+        # yet in its place over the pane, so the app finds no page window for the next `page` sequence.
+        self.held, self.unplaced = False, False
+        self.targets = []  # the `target` of each call of the one-key form
+
+    def page(self):
+        """With the fault `page-takes-keys`, the app's design by a read of its code (ChildPageFocus.swift,
+        FocusEffectApplier.swift): a Chromium page shows in a child window, and that window has the keys while its
+        page has focus. Returns the id of that page (the last tab of the focused pane, when it is a page and the app
+        is active), else None: the shell window has the keys. A model of the app, not the app."""
+        pane = next((p for p in self.spaces.get(self.shown, {}).get("panes", []) if p["id"] == self.focus), None)
+        if "page-takes-keys" not in self.faults or not self.active or not pane or not pane["tabs"]:
+            return None
+        return pane["tabs"][-1]["id"] if pane["tabs"][-1]["kind"] in PAGES else None
 
     def ident(self, kind):
         self.count += 1
@@ -82,21 +115,34 @@ class World:
                 for tab in (tab for space in self.spaces.values() for pane in space["panes"] for tab in pane["tabs"]):
                     tab["id"] = tab["id"].removeprefix("pending_tab_")
 
-    def zoom(self, pane):
+    def zoom(self, pane, turned=False):
+        """The app's span record by a read of its code (DisplayLinkDriver.swift, MotionTrace.swift): each pane motion
+        is one span with the name `layout`, and a motion that is turned before its rest stays ONE span."""
         space = self.spaces[self.shown]
         space["zoomed"] = None if space["zoomed"] else pane
+        self.zoom_states.append(space["zoomed"])
+        if not (turned and self.spans):
+            self.spans.append({"name": "layout", "ms": M.ZOOM_MS[self.speed], "at_ms": len(self.spans) + 1, "more": "not for the row"})
         self.changed()
 
-    def key(self, name):
+    def key(self, name, turned=False):
         space = self.spaces[self.shown]
         pane = next(p for p in space["panes"] if p["id"] == self.focus)
         if name == "t":
             pane["tabs"].append({"id": self.ident("tab"), "kind": "newtab"})
+            self.held = "keys-move-late" in self.faults
+            self.unplaced = bool(self.faults & {"page-window-late", "page-window-never"}) or (
+                "page-window-never-in-a-film" in self.faults and self.sequences > PREFLIGHT_KEYS)
         elif name == "w":
             pane["tabs"].pop()
+            if not pane["tabs"] and len(space["panes"]) > 1:  # the close of a pane's last tab closes the pane
+                at = space["panes"].index(pane)
+                space["panes"].remove(pane)
+                self.focus = space["panes"][max(at - 1, 0)]["id"]
         elif name == "d":
             space["panes"].append(self.pane())
-            self.focus = space["panes"][-1]["id"]
+            if "split-keeps-focus" not in self.faults:  # the fault: the focus stays in the pane that had it
+                self.focus = space["panes"][-1]["id"]
             if self.faults & {"split-settles-late", "split-never-settles"}:  # the app's stand-in for the new tab
                 tab = space["panes"][-1]["tabs"][0]
                 tab["id"], self.pending = "pending_tab_" + tab["id"], 4
@@ -106,7 +152,7 @@ class World:
                 return False
             if "zoom-key-refused" in self.faults:
                 return "refused"
-            return self.zoom(self.focus) or True
+            return self.zoom(self.focus, turned) or True
         self.changed()
         return True
 
@@ -131,12 +177,42 @@ class FakeApp:
 
     def rpc(self, method, params=None, timeout=60):
         world, params = self.world, params or {}
+        # `focus-read-fails`: the read before the preflight's close of a tab, and each read while a film with a speed runs.
+        if method == "debug.focus" and "focus-read-fails" in world.faults and (world.tracing or world.sequences == 1):
+            return {"error": "a fake fault of the focus read"}  # as the socket call gives a read that failed
         if method == "debug.focus":
-            return {"app_active": world.active, "key_window": "ShellWindow" if world.active else None}
+            page = None if world.held else world.page()  # `held`: this read is before the page takes the keys
+            world.held = False
+            said = {"app_active": world.active, "key_window": ("CefNSWindow" if page else "ShellWindow") if world.active else None}
+            if "page-takes-keys" in world.faults:  # the part of the app's reply that says which window has the keys
+                said["windows"] = [{"id": "window1", "is_key": world.active and not page, "appkit": {"child_window_page": page}}]
+            return said
         if method == "debug.frames":
             return {} if params.get("action") == "start" else {"frames": 120, "p50_ms": 8.33, "refresh_ms": 8.33}
         if method == "debug.window_frame":
             return {"frame": params.get("frame") or [100, 100, 1100, 720], "visible_frame": [0, 0, 1920, 1175], "screen_frame": [0, 0, 1920, 1200]}
+        if method == "debug.motion" and params.get("action") in ("speed", "read", "start", "stop"):
+            action = params["action"]
+            world.motion.append(action)
+            if action == "start" and "start-raises" in world.faults:
+                raise RuntimeError("a fake fault of the start call")
+            if action == "speed":
+                world.speeds.append((params.get("value"), len(world.spaces)))
+                # The faults: an app that keeps its speed; an app that does not go back from `normal`.
+                if "speed-ignored" not in world.faults and not ("speed-stays-normal" in world.faults and world.speed == "normal"):
+                    world.speed = params.get("value")
+            if action == "start":  # `many-spans`: 75 spans of another animator are in the record too
+                world.spans = [{"name": "tabstrip", "ms": 90.0, "at_ms": 0.5} for _ in range(75 if "many-spans" in world.faults else 0)]
+            world.tracing = action == "start" or (world.tracing and action != "stop")
+            said = {"recording": world.tracing, "speed": world.speed, "reduce_motion": "reduce-motion" in world.faults,
+                    "animations_enabled": "animations-off" not in world.faults, "pane_animations": "pane-animations-off" not in world.faults,
+                    "disabled_categories": ["panes"] if "panes-category-off" in world.faults else [], "spans": list(world.spans)}
+            if "older-app" in world.faults:  # an app whose reply does not say if a pane motion animates
+                for name in ("reduce_motion", "animations_enabled", "pane_animations", "disabled_categories"):
+                    del said[name]
+            if action == "read" and "speed-not-read" in world.faults:  # the fault: a reply with no speed word
+                del said["speed"]
+            return said
         if method == "debug.motion":
             if params.get("action") == "record_start":
                 world.record = {"capturing": True, "written": False, "complete": 0, "frames": 0}
@@ -145,19 +221,47 @@ class FakeApp:
                 world.record.update(capturing=False, written=True, frames=world.record["complete"], first_t=1.0, last_t=6.0, movie_status="completed")
             return dict(world.record or {})
         if method == "debug.key" and "sequence" in params:
-            if not world.active:  # the app's own words for a window that cannot become key
-                return {"error": f"the {params.get('key_window')} window did not become key"}
+            wanted, page = params.get("key_window"), world.page()
+            if world.active:
+                world.words.append((wanted, "page" if page else "shell"))
+            if "film-key-refused" in world.faults and world.tracing:  # the fault: a refusal of each key of a film with a speed
+                return {"error": "a fake refusal of a key in the film"}
+            # The app's own words for a window that cannot become key: no window of an app that is not active, and
+            # not the shell window while a page has the keys (the app gives them back to the page).
+            # `page-with-no-window`: the focus says a page, the app finds no page window for it at each call (a tab
+            # that is no Chromium child window), and the shell window keeps the keys.
+            no_window = "page-with-no-window" in world.faults
+            if not world.active or (wanted == "shell" and page and not no_window):
+                return {"error": f"the {wanted} window did not become key"}
+            if wanted == "page" and "page-takes-keys" in world.faults and (not page or world.unplaced or no_window):
+                # `page-window-late`: the window is in its place after this call
+                world.unplaced = bool(world.faults & {"page-window-never", "page-window-never-in-a-film"})
+                return {"error": "no Chromium page window for pane"}
             world.sequences += 1
-            for name in (CODE[step["key_code"]] for step in params["sequence"] if step["down"]):
-                if name not in M.MODIFIERS:
-                    world.key(name)
+            world.played.append(params["sequence"])
+            at, zoom_at = 0, None
+            for step in params["sequence"]:
+                at += step.get("after_ms", 0)
+                name = CODE[step["key_code"]]
+                if step["down"] and name not in M.MODIFIERS:
+                    # A second zoom key before the visible end of the first one turns that motion.
+                    turned = name == "return" and zoom_at is not None and at - zoom_at < M.ZOOM_MS[world.speed]
+                    zoom_at = at if name == "return" else zoom_at
+                    world.key(name, turned)
+            if wanted == "page" and "page-send-times-out" in world.faults and world.sequences > PREFLIGHT_KEYS:
+                return {"error": "timed out"}  # the app TOOK the keys of a film; the reply did not come (the socket call's words)
             return {"base_s": 12.5, "duration_ms": 30, "scheduled": len(params["sequence"]), "key_window": params.get("key_window")}
         if method == "debug.key" and params.get("dry_run"):
             world.dry_runs += 1
             return {"decision": f"run(fake.{params['key']})", "action": "fake." + params["key"], "focus": "terminal"}
         if method == "debug.key":
             world.one_keys += 1
+            world.targets.append(params.get("target"))
+            if params.get("target") == "page" and "page-refuses-one-key" in world.faults:
+                return {"error": "no Chromium page window for pane"}  # the app's refusal, before a dispatch of the key
             took = world.key(params["key"])
+            if params.get("target") == "page" and "page-send-times-out" in world.faults:
+                return {"error": "timed out"}  # the app TOOK the key; the reply did not come
             if took == "refused":  # the app took the key for an action and the action did not run
                 return {"handled_by": "app", "action": "toggleSplitZoom", "refused_action": "toggleSplitZoom",
                         "trace": ["KeyRouter: the action is not available"]}
@@ -294,7 +398,8 @@ class FilmsCase(unittest.TestCase):
             code = M.main()
         with open(os.path.join(out, "films.json")) as f:
             report = json.load(f)
-        return code, report, [line for line in said.getvalue().splitlines() if line.startswith("PREFLIGHT")], list(FakeApp.made)
+        self.printed = said.getvalue().splitlines()  # each line of the run, for a test of a line that is no PREFLIGHT line
+        return code, report, [line for line in self.printed if line.startswith("PREFLIGHT")], list(FakeApp.made)
 
     @staticmethod
     def forms(launches):
@@ -312,6 +417,16 @@ class FilmsCase(unittest.TestCase):
         self.assertEqual(hosts, ["PREFLIGHT host: " + report["host"]])
         self.assertIn(", python ", hosts[0])
 
+    def test_a_host_that_cannot_be_read_is_a_note_and_the_films_are_made(self):
+        with mock.patch.object(M.platform, "mac_ver", side_effect=OSError("a fake fault")):
+            try:
+                code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "T-D")
+            except OSError as error:
+                self.fail(f"the read of the host ended the run: {error!r}")
+        hosts = [line for line in lines if line.startswith("PREFLIGHT host: ")]
+        self.assertEqual((code, hosts), (0, ["PREFLIGHT host: " + report["host"]]))
+        self.assertTrue(report["host"].startswith("not read"), report["host"])
+
     def test_one_open_makes_the_app_active_and_the_films_are_of_the_activate_form(self):
         code, report, lines, launches = self.run_films({"open-activates"}, "--films", "T-D,T-Z")
         self.assertEqual((code, self.forms(launches), launches[0].world.opens), (0, ["activate"], [[BUNDLE]]))
@@ -320,6 +435,25 @@ class FilmsCase(unittest.TestCase):
         self.assertEqual({row["id"]: (row["status"], row["launch_form"]) for row in report["films"]}, {"T-D": ("made", "activate"), "T-Z": ("made", "activate")})
         self.assertEqual((launches[0].world.one_keys, next(row for row in report["films"] if row["id"] == "T-Z")["zoom"]), (0, "key"))
         self.assertEqual((BOUNDS[0], 15 in BOUNDS), (10, True))  # 10 s for the app after the open; 15 s for the split to settle
+
+    def test_the_key_window_word_of_each_key_sequence_is_the_window_that_has_the_keys(self):
+        # The fake has the app's design here: after a new tab its page has the keys in its own window, and the app
+        # then refuses `shell` (`the shell window did not become key`); it refuses `page` when no page has them.
+        code, report, lines, launches = self.run_films({"open-activates", "page-takes-keys"}, "--films", "T-D,P07")
+        failed = [line for line in lines if " FAILED: " in line]
+        self.assertEqual((code, self.forms(launches), failed), (0, ["activate"], []))
+        words = launches[0].world.words
+        self.assertEqual([word for word, _ in words], [has for _, has in words])
+        # The preflight: a new tab, its close (the page has the keys), a split, the zoom in and out. T-D: Cmd-D.
+        # P07: a held Cmd-T, then the closes (a page has the keys).
+        self.assertEqual([word for word, _ in words], ["shell", "page", "shell", "shell", "shell", "shell", "shell", "page"])
+        self.assertTrue(any(line.startswith("PREFLIGHT close-tab ok: ") and "key_window = page" in line for line in lines))
+        rows = {row["id"]: row for row in report["films"]}
+        self.assertEqual({ident: (row["status"], row["launch_form"]) for ident, row in rows.items()},
+                         {"T-D": ("made", "activate"), "P07": ("made", "activate")})
+        self.assertEqual([act.get("key_window") for act in rows["P07"]["acts"]], ["shell", "page"])
+        self.assertFalse(any("refused_as" in act for row in rows.values() for act in row["acts"]))
+        self.assertEqual(launches[0].world.one_keys, 0)  # no key by the one-key call
 
     def test_an_open_that_does_not_make_the_app_active_goes_on_in_the_one_key_form(self):
         code, report, lines, launches = self.run_films(set(), "--films", "T-D")
@@ -486,6 +620,301 @@ class FilmsCase(unittest.TestCase):
         self.assertEqual((rows["T-D"]["launch_form"], rows["A-D"]["launch_form"]), ("activate", "one-key"))
         self.assertNotIn("forms_not_run", rows["T-D"])
         self.assertEqual(list(rows["A-D"]["forms_not_run"]), ["activate"])
+
+    def test_a_film_with_a_speed_sets_it_before_its_set_up_and_its_row_has_the_app_s_word_and_spans(self):
+        code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "T-Z.N")
+        row, world = report["films"][0], launches[0].world
+        self.assertEqual((code, row["status"], row["speed"], row["speed_after"]), (0, "made", "normal", "fast"))
+        # The speed call when no workspace of the film is there yet; the speed of before while its workspace still is.
+        self.assertEqual(world.speeds, [("normal", 0), ("fast", 1)])
+        # The 2 spans that the fake app recorded between `start` and `stop` (not those of the preflight's zooms).
+        self.assertEqual(row["spans"], [{"name": "layout", "ms": 294, "at_ms": 1}, {"name": "layout", "ms": 294, "at_ms": 2}])
+        self.assertEqual(row["source_ms"], {"zoom": "294 ms", "unzoom": "about 266 ms (by arithmetic: the source gives no number)"})
+
+    def test_an_app_that_gives_back_another_speed_gets_no_film_at_that_speed(self):
+        code, report, lines, launches = self.run_films({"launch-activates", "speed-ignored"}, "--films", "T-Z.2,T-Z.N")
+        rows = {row["id"]: row for row in report["films"]}
+        self.assertEqual((code, rows["T-Z.2"]["status"], rows["T-Z.2"]["speed"], rows["T-Z.N"]["status"]), (2, "made", "fast", "not_run"))
+        self.assertEqual(rows["T-Z.N"]["reason"], "the app did not take the animation speed `normal`: its reply says `fast`")
+        self.assertNotIn("spans", rows["T-Z.N"])
+        self.assertEqual(launches[0].world.speeds[-2:], [("normal", 0), ("fast", 0)])  # no workspace was made for that film
+
+    def test_the_turned_zoom_is_one_sequence_of_2_zoom_keys_with_the_gap_of_its_speed(self):
+        code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "T-ZT,T-ZT.N")
+        world, gaps = launches[0].world, []
+        for steps in world.played:
+            at, downs = 0, []
+            for step in steps:
+                at += step.get("after_ms", 0)
+                if step["down"] and CODE[step["key_code"]] == "return":
+                    downs.append(at)
+            if len(downs) == 2:
+                gaps.append(downs[1] - downs[0])
+        self.assertEqual((code, gaps), (0, [118, 147]))  # the half of 235 ms and of 294 ms, from key-down to key-down
+        self.assertEqual([bool(pane) for pane in world.zoom_states[-4:]], [True, False, True, False])  # no pane stays zoomed
+        self.assertEqual([(row["id"], row["status"], row["launch_form"], row["zoom"], row["keys"], len(row["acts"]), row["speed"]) for row in report["films"]],
+                         [("T-ZT", "made", "activate", "key", "Cmd-Shift-Enter x2", 1, "fast"),
+                          ("T-ZT.N", "made", "activate", "key", "Cmd-Shift-Enter x2", 1, "normal")])
+        self.assertEqual(world.speeds, [("fast", 0), ("fast", 1), ("normal", 0), ("fast", 1)])
+
+    def test_the_turned_zoom_of_the_one_key_form_says_the_time_of_each_key_down(self):
+        code, report, lines, launches = self.run_films(set(), "--films", "T-ZT", "--launch-form", "one-key")
+        row = report["films"][0]
+        times = row["acts"][0]["key_down_ms"]
+        self.assertEqual((code, row["status"], row["launch_form"], len(times), times == sorted(times)), (0, "made", "one-key", 2, True))
+        self.assertEqual([bool(pane) for pane in launches[0].world.zoom_states[-2:]], [True, False])
+
+    def test_the_turned_zoom_is_not_run_when_the_zoom_is_made_by_the_action(self):
+        code, report, lines, launches = self.run_films({"zoom-key-dead"}, "--films", "T-Z.2,T-ZT", "--launch-form", "one-key")
+        rows = {row["id"]: row for row in report["films"]}
+        self.assertEqual((code, rows["T-Z.2"]["status"], rows["T-Z.2"]["zoom"], rows["T-ZT"]["status"]), (2, "made", M.BY_ACTION, "not_run"))
+        self.assertIn("the turned zoom is 2 zoom keys with a gap, and this launch makes a zoom by the action, not by a key", rows["T-ZT"]["reason"])
+        self.assertNotIn("speed", rows["T-ZT"])  # no speed call for a film that is not run for its zoom
+
+    def test_the_split_and_close_film_says_the_tab_kinds_of_the_pane_that_the_close_takes(self):
+        code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "T-C")
+        row = report["films"][0]
+        self.assertEqual((code, row["status"], row["panes"], row["panes_before"], row["panes_after"]), (0, "made", ["redraw", "stream", "shell"], 3, 3))
+        self.assertEqual((row["keys"], [act["label"] for act in row["acts"]]), ("Cmd-D, Cmd-W", ["Cmd-D", "read: the tabs of the pane with the focus", "Cmd-W"]))
+        self.assertEqual(row["acts"][1]["tab_kinds"], ["terminal"])  # the fake's new pane has a terminal; the app's own word is in a real row
+        self.assertEqual((row["speed"], row["source_ms"]), ("fast", {"split": "101 ms", "paneClose": "75 ms"}))
+
+    def test_the_group_cap_is_the_6_films_with_a_speed_and_the_group_kinds_stays_the_9(self):
+        ids = [spec["id"] for spec in M.FILMS]
+        self.assertEqual([i for i in ids if M.GROUPS["cap"](i)], ["T-C", "T-Z.2", "T-ZT", "T-C.N", "T-Z.N", "T-ZT.N"])
+        self.assertEqual({spec["id"]: spec["speed"] for spec in M.FILMS if spec.get("speed")},
+                         {"T-C": "fast", "T-Z.2": "fast", "T-ZT": "fast", "T-C.N": "normal", "T-Z.N": "normal", "T-ZT.N": "normal"})
+        self.assertEqual([i for i in ids if M.GROUPS["kinds"](i)], [f"{kind}-{act}" for kind in "TBA" for act in ("D", "SD", "Z")])
+        self.assertEqual(len(ids), len(set(ids)))
+        said = io.StringIO()
+        with mock.patch.object(sys, "argv", ["pane-motion-films.py", "--films", "list"]), contextlib.redirect_stdout(said):
+            self.assertEqual(M.main(), 0)
+        listed = {line.split("\t")[0]: line.split("\t")[2] for line in said.getvalue().splitlines()}
+        self.assertEqual((listed["T-C.N"], listed["T-Z.2"], listed["T-ZT.N"]), ("Cmd-D, Cmd-W", "Cmd-Shift-Enter, Cmd-Shift-Enter", "Cmd-Shift-Enter x2"))
+
+    def test_a_film_with_no_speed_sends_no_speed_call_and_its_row_has_no_field_of_a_speed(self):
+        code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "kinds,P06")
+        self.assertEqual((code, [row["status"] for row in report["films"]], self.forms(launches)), (0, ["made"] * 10, ["activate", "activate"]))
+        self.assertEqual([app.world.speeds for app in launches], [[], []])
+        self.assertEqual([app.world.motion for app in launches], [[], []])
+        self.assertFalse([key for row in report["films"] for key in SPEED_KEYS if key in row])
+        held = next(row for row in report["films"] if row["id"] == "P06")["acts"][0]
+        self.assertEqual((held["label"], held["key_window"], "key_down_ms" in held), ("Cmd-T held 3 s", "shell", False))
+
+    def test_a_key_window_word_that_the_app_refuses_gets_one_new_read_and_one_more_send(self):
+        # Directly after a Cmd-T the app moves the keys to the new page. The read and the key are 2 calls, so:
+        # (1) the read still says `shell`, and the page then takes the keys; (2) the read says `page`, and the page's
+        # window is not yet in its place. In each case: ONE new read and ONE more send, with the first refusal kept.
+        cases = (("keys-move-late", "shell", "shell: the shell window did not become key"),
+                 ("page-window-late", "page", "page: no Chromium page window for pane"))
+        for fault, first, refusal in cases:
+            code, report, lines, launches = self.run_films({"open-activates", "page-takes-keys", fault}, "--films", "P07")
+            failed = [line for line in lines if " FAILED: " in line]
+            self.assertEqual((code, self.forms(launches), failed), (0, ["activate"], []), fault)
+            calm, again = [("shell", "shell")], [(first, "page"), ("page", "page")]  # again: the refused send, then the ONE more
+            # The preflight: a new tab, its close, a split, the zoom in and out. P07: a held Cmd-T, then the closes.
+            self.assertEqual(launches[0].world.words, calm + again + calm * 4 + again, fault)
+            passed = next(line for line in lines if line.startswith("PREFLIGHT close-tab ok: "))
+            self.assertIn("key_window = page", passed, fault)
+            self.assertTrue(passed.endswith(f"; the second try, after the app refused the first one ({refusal})"), passed)
+            close = report["films"][0]["acts"][1]
+            self.assertEqual((report["films"][0]["status"], close["label"], close.get("refused_as"), close.get("key_window"), "error" in close),
+                             ("made", "Cmd-W x5", [refusal], "page", False), fault)
+            self.assertEqual(launches[0].world.one_keys, 0, fault)  # no key by the one-key call
+
+    def test_a_page_word_that_the_app_refuses_2_times_gets_one_last_send_in_the_shell_window_and_no_fourth(self):
+        code, report, lines, launches = self.run_films({"open-activates", "page-takes-keys", "page-window-never"}, "--films", "T-D")
+        self.assertEqual((code, self.forms(launches)), (0, ["activate", "one-key"]))
+        # The new tab; then the close: `page` refused 2 times, ONE last send in the shell window (refused: the page
+        # has the keys), and the launch ends.
+        self.assertEqual(launches[0].world.words, [("shell", "shell"), ("page", "page"), ("page", "page"), ("shell", "page")])
+        failed = next(line for line in lines if line.startswith("PREFLIGHT close-tab FAILED: "))
+        self.assertTrue(failed.startswith("PREFLIGHT close-tab FAILED: the shell window did not become key; "), failed)
+        self.assertIn(THIRD_TRY, failed)
+
+    def test_a_tab_whose_page_window_the_app_does_not_find_gets_its_keys_in_the_shell_window(self):
+        # The focus says a page; the app finds no page window for it (a tab that is no Chromium child window), and
+        # the shell window keeps the keys. `page` is refused 2 times; the ONE last send, as `shell`, is taken.
+        code, report, lines, launches = self.run_films({"open-activates", "page-takes-keys", "page-with-no-window"}, "--films", "P07")
+        self.assertEqual((code, self.forms(launches), [line for line in lines if " FAILED: " in line]), (0, ["activate"], []))
+        third = ["page", "page", "shell"]
+        # The preflight: a new tab, its close, a split, the zoom in and out. P07: a held Cmd-T, then the closes.
+        self.assertEqual([word for word, _ in launches[0].world.words], ["shell"] + third + ["shell"] * 4 + third)
+        passed = next(line for line in lines if line.startswith("PREFLIGHT close-tab ok: "))
+        self.assertTrue(passed.endswith(THIRD_TRY), passed)
+        close = report["films"][0]["acts"][1]
+        self.assertEqual((report["films"][0]["status"], close["label"], close.get("refused_as"), close.get("key_window"), "error" in close),
+                         ("made", "Cmd-W x5", [NO_PAGE_WINDOW] * 2, "shell", False))
+
+    def test_an_act_of_a_film_that_the_app_refuses_at_each_send_has_3_sends_and_the_film_is_not_run(self):
+        code, report, lines, launches = self.run_films({"open-activates", "page-takes-keys", "page-window-never-in-a-film"}, "--films", "P07")
+        row, world = report["films"][0], launches[0].world
+        self.assertEqual((self.forms(launches), [line for line in lines if " FAILED: " in line]), (["activate"], []))
+        # After the preflight's 5 sends: the held Cmd-T, then the closes: `page`, `page`, `shell`, and no fourth send.
+        self.assertEqual(world.words[PREFLIGHT_KEYS:], [("shell", "shell"), ("page", "page"), ("page", "page"), ("shell", "page")])
+        self.assertEqual((code, row["status"], row["reason"]), (1, "not_run", "the app refused Cmd-W x5: the shell window did not become key"))
+        self.assertEqual(row["acts"][1].get("refused_as"), [NO_PAGE_WINDOW] * 2)
+
+    def test_a_send_that_timed_out_is_never_sent_again(self):
+        # The app TOOK the keys and the reply did not come. A second send would do the act 2 times.
+        code, report, lines, launches = self.run_films({"open-activates", "page-takes-keys", "page-send-times-out"}, "--films", "P07")
+        row, world = report["films"][0], launches[0].world
+        self.assertEqual(self.forms(launches), ["activate"])
+        self.assertEqual(world.words[PREFLIGHT_KEYS:], [("shell", "shell"), ("page", "page")])  # the held Cmd-T; the closes, ONE time
+        self.assertEqual((code, row["status"], row["reason"]), (1, "not_run", "the app refused Cmd-W x5: timed out"))
+        self.assertNotIn("refused_as", row["acts"][1])
+
+    def test_the_one_key_form_sends_a_page_key_again_only_after_a_refusal_of_the_key_window_before_a_key_went(self):
+        code, report, lines, launches = self.run_films({"page-send-times-out"}, "--films", "B-Z", "--launch-form", "one-key")
+        row = report["films"][0]
+        world = next(app.world for app in launches if "page" in app.world.targets)
+        # Each of the film's 2 zoom keys went to the page ONE time and timed out: no key in the shell window after it.
+        self.assertEqual(world.targets[world.targets.index("page"):], ["page", "page"])
+        self.assertEqual((code, row["status"], row["reason"]), (1, "not_run", "the app refused Cmd-Shift-Enter: timed out"))
+        refusal = "no Chromium page window for pane"
+        self.assertEqual([M.shell_try(word, said) for word, said in (
+            ("page", {"error": refusal, "key_down_ms": [0.0]}),          # the window was refused before a key went
+            ("page", {"error": refusal, "key_down_ms": [0.0, 250.0]}),   # the first key went: no second send of both
+            ("page", {"error": "timed out", "key_down_ms": [0.0]}),      # no refusal of the window
+            ("shell", {"error": refusal, "key_down_ms": [0.0]}),         # the shell window is the last one
+            ("page", {"key_down_ms": [0.0]}))],                          # the app took the key
+            [True, False, False, False, False])
+
+    def test_the_one_key_form_sends_a_page_key_that_the_app_refuses_before_its_dispatch_in_the_shell_window(self):
+        code, report, lines, launches = self.run_films({"page-refuses-one-key"}, "--films", "B-Z", "--launch-form", "one-key")
+        row = report["films"][0]
+        world = next(app.world for app in launches if "page" in app.world.targets)
+        self.assertEqual(world.targets[world.targets.index("page"):], ["page", None] * 2)  # the 2 zoom keys of the film
+        self.assertEqual((code, row["status"], [(act.get("refused_as"), act.get("key_window"), len(act.get("key_down_ms", ()))) for act in row["acts"]]),
+                         (0, "made", [([NO_PAGE_WINDOW], "shell", 1)] * 2))
+
+    def test_the_row_of_a_film_with_a_speed_says_if_the_app_animates_and_the_speed_before_and_at_the_stop(self):
+        code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "T-Z.N")
+        row = report["films"][0]
+        self.assertEqual((code, row["status"]), (0, "made"))
+        self.assertEqual({key: row.get(key) for key in SPEED_KEYS if key not in ("spans", "source_ms")},
+                         {"speed_before": "fast", "speed": "normal", "speed_at_stop": "normal", "speed_after": "fast", "speed_fault": None,
+                          "reduce_motion": False, "animations_enabled": True, "pane_animations": True, "disabled_categories": [],
+                          "spans_total": 2, "spans_cut": 0})
+        self.assertEqual(launches[0].world.motion, ["read", "speed", "start", "stop", "speed"])
+
+    def test_an_app_that_animates_no_pane_motion_gets_no_film_at_a_speed(self):
+        for fault, said in (("reduce-motion", "reduce_motion = true, animations_enabled = true, pane_animations = true"),
+                            ("pane-animations-off", "reduce_motion = false, animations_enabled = true, pane_animations = false")):
+            code, report, lines, launches = self.run_films({"launch-activates", fault}, "--films", "T-Z.N")
+            row = report["films"][0]
+            self.assertEqual((code, row["status"]), (1, "not_run"), fault)
+            self.assertEqual(row.get("reason"), "the app animates no pane motion now, so a film at a speed would show none: " + said, fault)
+            self.assertEqual((row.get("reduce_motion"), row.get("pane_animations")), (fault == "reduce-motion", fault != "pane-animations-off"), fault)
+            self.assertEqual(launches[0].world.speeds, [("normal", 0), ("fast", 0)], fault)  # no workspace was made for the film
+
+    def test_an_app_with_the_category_of_the_pane_motions_off_gets_no_film_at_a_speed(self):
+        code, report, lines, launches = self.run_films({"launch-activates", "panes-category-off"}, "--films", "T-Z.N")
+        row = report["films"][0]
+        self.assertEqual((code, row["status"], row.get("disabled_categories")), (1, "not_run", ["panes"]))
+        self.assertEqual(row.get("reason"), "the app animates no pane motion now, so a film at a speed would show none: reduce_motion = false, "
+                                            "animations_enabled = true, pane_animations = true, disabled_categories = [\"panes\"]")
+        self.assertEqual(launches[0].world.speeds, [("normal", 0), ("fast", 0)])  # no workspace was made for the film
+
+    def test_the_master_switch_off_gets_no_film_and_an_app_that_does_not_say_if_it_animates_gets_its_film(self):
+        code, report, lines, launches = self.run_films({"launch-activates", "animations-off"}, "--films", "T-Z.N")
+        row = report["films"][0]
+        self.assertEqual((code, row["status"], row.get("animations_enabled")), (1, "not_run", False))
+        self.assertEqual(row.get("reason"), "the app animates no pane motion now, so a film at a speed would show none: reduce_motion = false, "
+                                            "animations_enabled = false, pane_animations = true")
+        # An older app: its reply has none of the fields. The tool cannot know, so the film is made and the row says `null`.
+        code, report, lines, launches = self.run_films({"launch-activates", "older-app"}, "--films", "T-Z.N")
+        row = report["films"][0]
+        self.assertEqual((code, row["status"], [row.get(name, "no field") for name in ("reduce_motion", "animations_enabled", "pane_animations")]),
+                         (0, "made", [None, None, None]))
+
+    def test_a_row_has_60_spans_at_most_keeps_each_layout_span_and_says_how_many_are_cut(self):
+        code, report, lines, launches = self.run_films({"launch-activates", "many-spans"}, "--films", "T-Z.N")
+        row = report["films"][0]
+        names = [span["name"] for span in row["spans"]]
+        # 75 spans of another animator, then the 2 of the zoom: the row keeps the 2, in the app's order.
+        self.assertEqual((code, row.get("spans_total"), row.get("spans_cut"), names), (0, 77, 17, ["tabstrip"] * 58 + ["layout"] * 2))
+
+    def span_cut(self, names):
+        """What `motion_spans` keeps of a reply with these span names, each span at its place in the app's list."""
+        row = M.motion_spans({"spans": [{"name": name, "ms": 1.0, "at_ms": place} for place, name in enumerate(names)], "speed": 1})
+        return [(span["name"], span["at_ms"]) for span in row["spans"]], row["spans_total"], row["spans_cut"]
+
+    def test_the_span_cut_keeps_the_first_60_layout_spans_and_no_other_span_when_the_app_gives_more_than_60(self):
+        # 61 `layout` spans with 5 other spans between them: 5 groups of 12 and one other span, then the 61st.
+        names = (["layout"] * 12 + ["tabstrip"]) * 5 + ["layout"]
+        first_60 = [(name, place) for place, name in enumerate(names) if name == "layout"][:60]
+        self.assertEqual(self.span_cut(names), (first_60, 66, 6))
+
+    def test_the_span_cut_keeps_a_layout_span_between_other_spans_and_behind_them_in_the_order_of_the_app(self):
+        # 40 other spans, a `layout` span, 40 other spans, a `layout` span: the 2 and the first 58 others, in the app's order.
+        names = ["tabstrip"] * 40 + ["layout"] + ["tabstrip"] * 40 + ["layout"]
+        kept = [("tabstrip", place) for place in range(40)] + [("layout", 40)] + [("tabstrip", place) for place in range(41, 59)] + [("layout", 81)]
+        self.assertEqual(self.span_cut(names), (kept, 82, 22))
+
+    def test_a_focus_read_that_fails_is_said_in_the_preflight_line_and_in_the_row_of_the_act(self):
+        # The tool then sends `shell`: a reader of the line or of the row must know that no read gave that word.
+        code, report, lines, launches = self.run_films({"launch-activates", "focus-read-fails"}, "--films", "T-Z.N")
+        row, unread = report["films"][0], "debug.focus: a fake fault of the focus read"
+        self.assertEqual((code, row["status"]), (0, "made"))
+        passed = next(line for line in lines if line.startswith("PREFLIGHT close-tab ok: "))
+        self.assertTrue(passed.endswith(f"; the focus was not read ({unread}), so the word `shell` was sent"), passed)
+        self.assertEqual([line for line in lines if "the focus was not read" in line], [passed])  # no other key of the preflight
+        self.assertEqual([(act.get("key_window"), act.get("focus_not_read")) for act in row["acts"]], [("shell", unread)] * 2)
+
+    def test_the_turned_zoom_says_its_gap_as_the_gap_that_was_asked_and_is_one_span(self):
+        code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "T-ZT,T-ZT.N")
+        self.assertEqual([(row["title"], row["acts"][0].get("gap_asked_ms")) for row in report["films"]],
+                         [("Zoom turned back at its half (118 ms asked from key to key), speed fast", 118),
+                          ("Zoom turned back at its half (147 ms asked from key to key), speed normal", 147)])
+        self.assertEqual([(row.get("spans_total"), [span["name"] for span in row["spans"]]) for row in report["films"]],
+                         [(1, ["layout"]), (1, ["layout"])])
+
+    def test_the_split_and_close_film_says_if_the_close_takes_the_new_pane_and_if_its_tab_is_a_stand_in(self):
+        for faults, new_pane, provisional in ((set(), True, False), ({"split-never-settles"}, True, True), ({"split-keeps-focus"}, False, False)):
+            code, report, lines, launches = self.run_films(faults, "--films", "T-C", "--launch-form", "one-key")
+            row = report["films"][0]
+            read = row["acts"][1]
+            self.assertEqual((code, row["status"], read.get("new_pane"), read.get("provisional"), read["tab_kinds"]),
+                             (0, "made", new_pane, provisional, ["terminal"]), faults)
+
+    def test_a_film_that_fails_after_its_speed_is_set_stops_the_span_record_and_gives_the_speed_back(self):
+        code, report, lines, launches = self.run_films({"launch-activates", "film-key-refused"}, "--films", "T-Z.N")
+        row, world = report["films"][0], launches[0].world
+        self.assertEqual((code, row["status"], row["reason"]), (1, "not_run", "the app refused Cmd-Shift-Enter: a fake refusal of a key in the film"))
+        self.assertEqual((world.motion, world.speeds), (["read", "speed", "start", "stop", "speed"], [("normal", 0), ("fast", 1)]))
+        self.assertEqual((row["speed"], row["speed_after"], row["spans"]), ("normal", "fast", []))
+
+    def test_a_span_record_whose_start_call_fails_still_gets_its_stop(self):
+        code, report, lines, launches = self.run_films({"launch-activates", "start-raises"}, "--films", "T-Z.N")
+        row, world = report["films"][0], launches[0].world
+        self.assertEqual((code, row["status"]), (1, "not_run"))
+        self.assertIn("a fake fault of the start call", row["reason"])
+        self.assertEqual(world.motion, ["read", "speed", "start", "stop", "speed"])
+
+    def test_a_speed_that_cannot_be_read_before_the_film_is_said_in_the_row(self):
+        code, report, lines, launches = self.run_films({"launch-activates", "speed-not-read"}, "--films", "T-Z.N")
+        row = report["films"][0]
+        self.assertEqual((code, row["status"], row.get("speed_before"), row["speed_after"]),
+                         (0, "made", "not read: `fast`, the app's default, is set at the film's end", "fast"))
+        self.assertEqual(launches[0].world.speeds, [("normal", 0), ("fast", 1)])
+
+    def test_a_speed_that_does_not_go_back_is_said_in_the_row_of_that_film_and_of_each_film_after_it(self):
+        code, report, lines, launches = self.run_films({"launch-activates", "speed-stays-normal"}, "--films", "T-Z.N,T-D")
+        rows = {row["id"]: row for row in report["films"]}
+        fault = "the animation speed did not go back to `fast` after the film T-Z.N: the app says `normal`"
+        self.assertEqual((code, rows["T-Z.N"]["status"], rows["T-Z.N"]["speed_after"], rows["T-D"]["status"]), (0, "made", "normal", "made"))
+        self.assertEqual((rows["T-Z.N"].get("speed_fault"), rows["T-D"].get("speed_fault")), (fault, fault))
+        # The exit code does not say it: ONE printed line does, with each film that has no speed of its own after it.
+        self.assertEqual([line for line in self.printed if line.startswith("PANE-FILMS speed fault: ")],
+                         [f"PANE-FILMS speed fault: {fault}; made after it with no speed call of its own: T-D"])
+
+    def test_each_key_row_of_the_one_key_form_has_the_time_of_its_key_down_and_a_film_of_kinds_gets_no_speed_call(self):
+        code, report, lines, launches = self.run_films(set(), "--films", "kinds", "--launch-form", "one-key")
+        self.assertEqual((code, [row["status"] for row in report["films"]], self.forms(launches)), (0, ["made"] * 9, ["one-key", "one-key"]))
+        self.assertEqual([app.world.motion for app in launches], [[], []])
+        self.assertEqual({len(act.get("key_down_ms", ())) for row in report["films"] for act in row["acts"]}, {1})
+        self.assertFalse([key for row in report["films"] for key in SPEED_KEYS if key in row])
 
     def test_the_instances_are_the_processes_of_the_binary_that_no_other_one_started(self):
         FakeApp.made, FakeApp.faults = [], set()

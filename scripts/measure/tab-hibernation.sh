@@ -17,6 +17,10 @@ cd "$(git rev-parse --show-toplevel)"
 git submodule update --init --depth 1 ghostty ghostty-next >/dev/null
 tag="tabhib"
 out="$(mktemp -d)"
+# Remove the scratch folder on every exit (a failed build, a TERM), not only at the end: a leaked one holds a build.
+trap 'rm -rf -- "$out"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 # --config=<debug|release|bench> picks reload.sh's build configuration (bench: Release optimization with the
 # debug.* control commands kept); every other argument goes to the bench.
 reload_config=() bench_args=()
