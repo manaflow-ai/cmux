@@ -224,3 +224,26 @@ fn only_the_session_variables_come_from_the_user_manager() {
     let keys: Vec<&str> = vars.iter().map(|(k, _)| k.as_str()).collect();
     assert_eq!(keys, ["DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR"]);
 }
+
+#[test]
+#[cfg(target_os = "linux")]
+fn a_local_x_display_is_up_only_while_its_socket_exists() {
+    let env = |k: &str, v: &str| vec![(k.to_owned(), v.to_owned())];
+    let only_99 = |n: u32| n == 99;
+    assert!(linux::display_up(&env("DISPLAY", ":99"), only_99));
+    assert!(linux::display_up(&env("DISPLAY", ":99.0"), only_99));
+    // A virtual display stopped when idle leaves its DISPLAY behind.
+    assert!(!linux::display_up(&env("DISPLAY", ":100"), only_99));
+    assert!(linux::display_up(&env("DISPLAY", "host:0"), only_99));
+    assert!(linux::display_up(&env("WAYLAND_DISPLAY", "wayland-0"), only_99));
+    assert!(!linux::display_up(&env("DISPLAY", ""), only_99));
+    assert!(!linux::display_up(&[], only_99));
+}
+
+#[test]
+#[cfg(target_os = "linux")]
+fn the_virtual_display_is_read_from_cmux_rd_display() {
+    assert_eq!(linux::display_line(":99\n").as_deref(), Some(":99"));
+    assert_eq!(linux::display_line("starting\n :100 \n").as_deref(), Some(":100"));
+    assert_eq!(linux::display_line("no display\n"), None);
+}

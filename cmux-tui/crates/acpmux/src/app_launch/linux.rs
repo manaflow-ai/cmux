@@ -9,6 +9,10 @@ use std::time::{Duration, Instant};
 /// How long `systemctl --user show-environment` may take.
 // timeout: one local systemd query; past it there is no desktop session to open in.
 const SYSTEMCTL_BUDGET: Duration = Duration::from_secs(2);
+/// How long `cmux-rd linux-host display` may take.
+// timeout: it starts the virtual display and waits up to 10 s for its socket; past it there is
+// no display to open in.
+const DISPLAY_BUDGET: Duration = Duration::from_secs(12);
 /// How long a launch watches its program for an exit at once (a missing library, a bad flag).
 // timeout: only how long a launch looks for an at-once failure; the app keeps running past it.
 const EARLY_EXIT: Duration = Duration::from_millis(700);
@@ -41,10 +45,16 @@ impl Session {
         if has_display(&own) {
             return Self { env: own };
         }
-        let manager =
+        let mut manager =
             super::output_bounded(&["systemctl", "--user", "show-environment"], SYSTEMCTL_BUDGET)
                 .map(|out| session_vars(&out))
                 .unwrap_or_default();
+        if !display_up(&manager, x11_socket_exists) {
+            if let Some(display) = virtual_display() {
+                manager.retain(|(k, _)| k != "DISPLAY" && k != "WAYLAND_DISPLAY");
+                manager.push(("DISPLAY".to_owned(), display));
+            }
+        }
         Self { env: manager }
     }
 
@@ -134,6 +144,49 @@ fn keep(child: cmux_process::Child, app: &App) -> u32 {
 
 fn has_display(env: &[(String, String)]) -> bool {
     env.iter().any(|(k, v)| (k == "DISPLAY" || k == "WAYLAND_DISPLAY") && !v.is_empty())
+}
+
+/// Whether `env` names a display that is up: any Wayland display or remote X display, or a
+/// local X display `:N` whose socket exists (a virtual display stopped when idle leaves its
+/// `DISPLAY` behind).
+pub(super) fn display_up(env: &[(String, String)], socket_exists: impl Fn(u32) -> bool) -> bool {
+    env.iter().any(|(k, v)| match k.as_str() {
+        "WAYLAND_DISPLAY" => !v.is_empty(),
+        "DISPLAY" => match local_x_display(v) {
+            Some(n) => socket_exists(n),
+            None => !v.is_empty(),
+        },
+        _ => false,
+    })
+}
+
+/// `N` of a local X display `:N` or `:N.S`.
+fn local_x_display(display: &str) -> Option<u32> {
+    let number = display.strip_prefix(':')?;
+    number.split('.').next()?.parse().ok()
+}
+
+fn x11_socket_exists(n: u32) -> bool {
+    Path::new(&format!("/tmp/.X11-unix/X{n}")).exists()
+}
+
+/// A headless machine's virtual display (hq docs/design/remote-screen-share-zero-touch.md,
+/// Linux L2): `cmux-rd linux-host display` starts it when it is down and prints `:N`. None
+/// where the share host is not installed or the machine has no display to start.
+fn virtual_display() -> Option<String> {
+    // Where acpmux installs cmux-rd on a joined machine, else the PATH's.
+    let installed = dirs::home_dir().map(|home| home.join(".local/bin/cmux-rd"));
+    let program = match installed.filter(|p| p.is_file()) {
+        Some(path) => path.to_string_lossy().into_owned(),
+        None => "cmux-rd".to_owned(),
+    };
+    let out = super::output_bounded(&[&program, "linux-host", "display"], DISPLAY_BUDGET)?;
+    display_line(&out)
+}
+
+/// The `:N` line `cmux-rd linux-host display` prints.
+pub(super) fn display_line(out: &str) -> Option<String> {
+    out.lines().map(str::trim).find(|l| local_x_display(l).is_some()).map(str::to_owned)
 }
 
 /// The [`SESSION_VARS`] of `systemctl --user show-environment`'s `KEY=value` lines.
