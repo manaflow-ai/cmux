@@ -42,7 +42,7 @@ fn limits_are_enforced() {
             "validation.invalid"
         );
     }
-    assert!(s.pending(10).is_empty(), "a refused write queues nothing");
+    assert!(s.pending(10, |_| true).is_empty(), "a refused write queues nothing");
 }
 
 /// The cloud's side as the wire contract states it: it orders writes, keeps
@@ -135,7 +135,7 @@ impl Device {
 
     /// Sends the outbox; the HTTP answers come before the stream's events.
     fn flush(&mut self, cloud: &mut Cloud) {
-        for op in self.storage.pending(100) {
+        for op in self.storage.pending(100, |_| true) {
             let revision = cloud.send(&op);
             let changed = self.storage.acked(&op, Some(revision));
             self.note(changed);
@@ -193,7 +193,10 @@ fn two_replicas_over_a_fake_stream_converge() {
     // The mac heard each key another device changed.
     let heard = mac.heard.get(APP).cloned().unwrap_or_default();
     assert!(heard.contains("item:2") && heard.contains("shared") && heard.contains("item:1"));
-    assert!(mac.storage.pending(10).is_empty() && laptop.storage.pending(10).is_empty());
+    assert!(
+        mac.storage.pending(10, |_| true).is_empty()
+            && laptop.storage.pending(10, |_| true).is_empty()
+    );
 }
 
 #[test]
@@ -207,7 +210,7 @@ fn offline_writes_serve_reads_and_flush_once_online() {
     // Offline: reads come from the replica, and only the newest write per key queues.
     assert_eq!(device.get("a"), json!(2));
     assert_eq!(device.keys(), json!(["a"]));
-    let pending = device.storage.pending(10);
+    let pending = device.storage.pending(10, |_| true);
     assert_eq!(pending.len(), 2, "{pending:?}");
     assert_eq!(pending[0].value, Some(json!(2)));
     assert_eq!(pending[1].value, None);
@@ -217,7 +220,7 @@ fn offline_writes_serve_reads_and_flush_once_online() {
     cloud.send(&lost);
     device.flush(&mut cloud);
     assert_eq!(cloud.revision, 2, "the resent key was decided once");
-    assert!(device.storage.pending(10).is_empty());
+    assert!(device.storage.pending(10, |_| true).is_empty());
     device.read_stream(&cloud);
     assert_eq!(device.dump(), BTreeMap::from([("a".to_string(), json!(2))]));
 }
@@ -260,7 +263,7 @@ fn a_row_the_cloud_ordered_after_a_pending_write_applies_after_its_ack() {
     let mut cloud = Cloud::default();
     let (mut mac, mut laptop) = (Device::new(), Device::new());
     mac.set("k", json!("mac"));
-    let mine = mac.storage.pending(1).remove(0);
+    let mine = mac.storage.pending(1, |_| true).remove(0);
     let revision = cloud.send(&mine);
     // The laptop's write lands after ours; the mac hears both before its ack.
     laptop.set("k", json!("laptop"));
@@ -272,14 +275,14 @@ fn a_row_the_cloud_ordered_after_a_pending_write_applies_after_its_ack() {
     assert_eq!(mac.get("k"), json!("laptop"));
     // A delete the cloud ordered after a pending write applies the same way.
     mac.set("d", json!(1));
-    let mine = mac.storage.pending(1).remove(0);
+    let mine = mac.storage.pending(1, |_| true).remove(0);
     let revision = cloud.send(&mine);
     mac.read_stream(&cloud);
     laptop.read_stream(&cloud);
     laptop.delete("d");
     laptop.flush(&mut cloud);
     mac.set("d", json!(2));
-    let newer = mac.storage.pending(1).remove(0);
+    let newer = mac.storage.pending(1, |_| true).remove(0);
     mac.read_stream(&cloud);
     assert_eq!(mac.get("d"), json!(2));
     assert!(mac.storage.acked(&mine, Some(revision)).is_empty(), "an older ack keeps it dirty");
@@ -302,16 +305,16 @@ fn a_delete_heard_before_a_pending_writes_echo_is_ordered_by_its_revision() {
     let mac = Device::new();
     // Committed after ours (ours is 5, the delete 6): the delete wins.
     mac.set("later", json!("mac"));
-    let mine = mac.storage.pending(1).remove(0);
+    let mine = mac.storage.pending(1, |_| true).remove(0);
     mac.storage.apply_writes(&[delete("later", 6)], synced).unwrap();
     assert_eq!(mac.get("later"), json!("mac"), "pending until the ack");
     let changed = mac.storage.acked(&mine, Some(5));
     assert_eq!(changed.get(APP).map(|k| k.contains("later")), Some(true));
     assert_eq!(mac.get("later"), Value::Null);
-    assert!(mac.storage.pending(10).is_empty());
+    assert!(mac.storage.pending(10, |_| true).is_empty());
     // Committed before ours (the delete 7, ours 8): our write stays.
     mac.set("earlier", json!("mac"));
-    let mine = mac.storage.pending(1).remove(0);
+    let mine = mac.storage.pending(1, |_| true).remove(0);
     mac.storage.apply_writes(&[delete("earlier", 7)], synced).unwrap();
     assert!(mac.storage.acked(&mine, Some(8)).is_empty());
     assert_eq!(mac.get("earlier"), json!("mac"));
@@ -347,11 +350,11 @@ fn a_refused_write_goes_back_to_the_clouds_value() {
     laptop.flush(&mut cloud);
     mac.set("k", json!("refused"));
     mac.read_stream(&cloud);
-    let op = mac.storage.pending(1).remove(0);
+    let op = mac.storage.pending(1, |_| true).remove(0);
     let changed = mac.storage.refused(&op);
     assert!(changed[APP].contains("k"));
     assert_eq!(mac.get("k"), json!("cloud"));
-    assert!(mac.storage.pending(1).is_empty());
+    assert!(mac.storage.pending(1, |_| true).is_empty());
 }
 
 #[test]
@@ -363,7 +366,7 @@ fn local_only_apps_are_unaffected_by_sync() {
         .storage
         .call(APP, "app.storage.set", &json!({ "key": "k", "value": "local" }), false)
         .unwrap();
-    assert!(device.storage.pending(10).is_empty(), "a local write never queues");
+    assert!(device.storage.pending(10, |_| true).is_empty(), "a local write never queues");
     assert!(!device.storage.has_replica(APP));
     let mut laptop = Device::new();
     laptop.set("k", json!("synced"));
@@ -380,7 +383,7 @@ fn local_only_apps_are_unaffected_by_sync() {
     assert_eq!(device.get("k"), json!("synced"));
     device.storage.clear(APP).unwrap();
     assert_eq!(device.keys(), json!([]));
-    assert!(device.storage.pending(10).is_empty());
+    assert!(device.storage.pending(10, |_| true).is_empty());
 }
 
 #[test]
@@ -392,7 +395,7 @@ fn another_account_drops_the_previous_accounts_replica() {
     let changed = device.storage.reset_synced();
     assert!(changed[APP].contains("k"));
     assert_eq!(device.keys(), json!([]));
-    assert!(device.storage.pending(10).is_empty(), "user_a's writes never go to user_b");
+    assert!(device.storage.pending(10, |_| true).is_empty(), "user_a's writes never go to user_b");
 }
 
 #[test]

@@ -12,8 +12,12 @@
 //!   `app.storage.changed {keys}` for the keys that changed.
 //! - A different account on the stream drops the replicas and the queued
 //!   writes of the previous one; writes made before any sign-in go to the
-//!   first account.
+//!   first account. An event of any account but the current lease's (a late
+//!   one from the previous socket) is ignored before it touches the replica.
+//! - An app that loses `storage:synced` sends nothing: its queued writes are
+//!   held while it is revoked, and a regrant reads a snapshot first.
 
+use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, PoisonError, Weak};
 use std::time::Duration;
@@ -100,6 +104,9 @@ pub(crate) struct SyncState {
     /// A snapshot held only the newest rows: page `appkv.list` before the
     /// next send.
     needs_list: AtomicBool,
+    /// Apps with a replica here that did not sync at the last refresh: their
+    /// replica heard nothing meanwhile, so syncing again asks for a snapshot.
+    inactive: Mutex<BTreeSet<String>>,
 }
 
 impl SyncState {
@@ -160,6 +167,20 @@ impl Supervisor {
         let Some(cloud) = self.synced.cloud.get() else { return };
         let synced: Vec<&String> =
             inner.mirror.apps.keys().filter(|app| Self::synced_locked(inner, app)).collect();
+        // A replica that stopped syncing (revoked, or no longer asked for)
+        // misses the stream's rows until it syncs again.
+        let regranted = {
+            let storage = self.storage();
+            let mut inactive = self.synced.inactive.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(storage) = storage.as_ref() {
+                inactive.extend(
+                    storage.replica_apps().into_iter().filter(|app| !synced.contains(&app)),
+                );
+            }
+            let before = inactive.len();
+            inactive.retain(|app| !synced.contains(&app));
+            inactive.len() != before
+        };
         if synced.is_empty() {
             if self.synced.subscribed.swap(false, Ordering::SeqCst) {
                 cloud.unsubscribe();
@@ -167,10 +188,11 @@ impl Supervisor {
             return;
         }
         self.synced.subscribe(cloud.as_ref());
-        let fresh = self
-            .storage()
-            .as_ref()
-            .is_some_and(|storage| synced.iter().any(|app| !storage.has_replica(app)));
+        let fresh = regranted
+            || self
+                .storage()
+                .as_ref()
+                .is_some_and(|storage| synced.iter().any(|app| !storage.has_replica(app)));
         if fresh {
             cloud.resync();
         }
@@ -194,21 +216,26 @@ impl Supervisor {
             }
             return;
         }
+        // Only the current lease's account: a late event of the previous
+        // socket must not reset the replica the new account writes into.
+        let Some(cloud) = self.synced.cloud.get() else { return };
+        let lease = cloud.account();
+        let Some(account) = event.account().filter(|a| lease.as_deref() == Some(*a)) else {
+            return;
+        };
         let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         let guard = self.storage();
         let Some(storage) = guard.as_ref() else { return };
         let mut changed = Changed::new();
-        if let Some(account) = event.account() {
-            match storage.account() {
-                Some(previous) if previous != account => {
-                    changed = storage.reset_synced();
-                    let _ = storage.set_account(account);
-                }
-                None => {
-                    let _ = storage.set_account(account);
-                }
-                Some(_) => {}
+        match storage.account() {
+            Some(previous) if previous != account => {
+                changed = storage.reset_synced();
+                let _ = storage.set_account(account);
             }
+            None => {
+                let _ = storage.set_account(account);
+            }
+            Some(_) => {}
         }
         let synced = |app: &str| Self::synced_locked(&inner, app);
         let applied = match event {
@@ -266,6 +293,7 @@ impl Supervisor {
             return Flush::Retry;
         }
         let ops = {
+            let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
             let storage = self.storage();
             let Some(storage) = storage.as_ref() else { return Flush::Idle };
             match storage.account() {
@@ -277,10 +305,20 @@ impl Supervisor {
                     let _ = storage.set_account(&account);
                 }
             }
-            storage.pending(BATCH)
+            // An app that lost `storage:synced` keeps its writes queued,
+            // never sent.
+            storage.pending(BATCH, |app| Self::synced_locked(&inner, app))
         };
         let full = ops.len() == BATCH;
         for op in ops {
+            // The scope can go between the read above and this send.
+            let allowed = {
+                let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+                Self::synced_locked(&inner, &op.app)
+            };
+            if !allowed {
+                continue;
+            }
             let sent = cloud.send(&op);
             let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
             let changed = {
@@ -308,20 +346,34 @@ impl Supervisor {
     }
 
     /// Pages every row (`appkv.list`) and applies them as one snapshot read
-    /// at the first page's head revision; `false` when the cloud did not answer.
+    /// at the first page's head revision; `false` when the cloud did not
+    /// answer or the pages never reached the last one (the page cap, a cursor
+    /// that does not advance): a list not read whole removes nothing.
     fn list_all(&self, cloud: &dyn AppKvCloud) -> bool {
         /// 500 rows a page: past this many pages the account is not one a
         /// person's devices could have written (4 MiB per app, 256 apps).
         const MAX_PAGES: usize = 10_000;
         let (mut rows, mut after, mut head) = (Vec::new(), 0, None);
+        let mut whole = false;
         for _ in 0..MAX_PAGES {
             let Ok((page, next, revision)) = cloud.list(after) else { return false };
             head.get_or_insert(revision);
             rows.extend(page);
             match next {
+                None => {
+                    whole = true;
+                    break;
+                }
                 Some(next) if next > after => after = next,
-                _ => break,
+                Some(next) => {
+                    eprintln!("cmux-tui: synced app storage: appkv.list stuck at {next}");
+                    return false;
+                }
             }
+        }
+        if !whole {
+            eprintln!("cmux-tui: synced app storage: appkv.list passed {MAX_PAGES} pages");
+            return false;
         }
         let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         let changed = {

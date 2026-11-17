@@ -279,16 +279,16 @@ impl Storage {
         tx.commit().map_err(failed)
     }
 
-    /// Queued cloud writes, oldest first, at most `limit`.
-    pub fn pending(&self, limit: usize) -> Vec<PendingOp> {
-        let Ok(mut statement) = self
-            .db
-            .prepare("SELECT app, key, value, idem FROM appkv_outbox ORDER BY rowid LIMIT ?1")
+    /// Queued cloud writes of the apps `sends` allows, oldest first, at most
+    /// `limit`; the others' (an app that lost `storage:synced`) stay queued.
+    pub fn pending(&self, limit: usize, sends: impl Fn(&str) -> bool) -> Vec<PendingOp> {
+        let Ok(mut statement) =
+            self.db.prepare("SELECT app, key, value, idem FROM appkv_outbox ORDER BY rowid")
         else {
             return Vec::new();
         };
         statement
-            .query_map(params![limit as i64], |row| {
+            .query_map([], |row| {
                 let value: Option<String> = row.get(2)?;
                 Ok(PendingOp {
                     app: row.get(0)?,
@@ -297,7 +297,9 @@ impl Storage {
                     idempotency_key: row.get(3)?,
                 })
             })
-            .map(|rows| rows.filter_map(Result::ok).collect())
+            .map(|rows| {
+                rows.filter_map(Result::ok).filter(|op| sends(&op.app)).take(limit).collect()
+            })
             .unwrap_or_default()
     }
 
@@ -574,7 +576,8 @@ impl Storage {
         Ok(changed)
     }
 
-    fn replica_apps(&self) -> Vec<String> {
+    /// The apps with a replica here.
+    pub fn replica_apps(&self) -> Vec<String> {
         let Ok(mut statement) = self.db.prepare("SELECT app FROM appkv_apps ORDER BY app") else {
             return Vec::new();
         };
