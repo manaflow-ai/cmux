@@ -292,3 +292,31 @@ test("a spare parks its chat view drawn once idle, so the adopt's reveal runs no
   expect(host.querySelector(".acpmux-composer-prompt [contenteditable]"), "the same editor").toBe(editor);
   await until(() => rows() > 0, "the adopted chat draws its rows");
 }, 60_000);
+
+test("a spare's adopt pass draws only the rows in view; the rest mount in a render after it", async () => {
+  // The kept tail of a chat many viewports tall, carried by the adopt event (AgentPaneView.adoptSession),
+  // so its rows draw in the event's own task.
+  const { papercutEvents, PAPERCUT_CHAT } = await import("./support/papercutChat");
+  const { events, session } = papercutEvents({ turns: 60, running: false });
+  const tail = { events, summary: session, historyExhausted: true, queue: [], configSeq: 0, usageFromSeq: 0 };
+  await mount("spare");
+  await until(() => dock() !== null && host.querySelector(".nt-field") !== null, "the spare built the chat view");
+  const { SESSION_ADOPT_EVENT } = await import("../src/agent-session/acpmux/newtab/adoption");
+  // Outside act: what the event's own task (its flushSync pass and the effects it flushes) drew, before
+  // any render scheduled after it.
+  dom.window.dispatchEvent(
+    new dom.window.CustomEvent(SESSION_ADOPT_EVENT, {
+      detail: { sessionId: PAPERCUT_CHAT, tail, scrollAnchor: null },
+    }),
+  );
+  const inTask = rows();
+  const last = [...host.querySelectorAll(".acpmux-row[data-row-id]")].at(-1)?.textContent ?? "";
+  expect(inTask, "the adopt's task drew the chat's rows").toBeGreaterThan(0);
+  expect(last, "the rows in view are the chat's newest").toContain("Answer 60");
+  // The history above the view (several viewports) mounts after: the task drew well under half of it.
+  await until(
+    () => rows() > 2 * inTask,
+    `the rows past the view mount after the adopt's task: ${inTask} in it, ${rows()} after`,
+    5_000,
+  );
+}, 60_000);
