@@ -50,6 +50,19 @@ public struct CloudMachineRequest: Equatable, Sendable {
     /// Cloud only): from its snapshot when it is built, otherwise from the image with its setup started
     /// on the machine. Not an option of the machine itself, so ``isDefault`` ignores it.
     public var environment: String?
+    /// The ladder size a chat's folder needs (``CloudChatSize``, from the start's preflight): the create asks at least
+    /// its vCPUs, memory and disk (``atLeast(cpu:memoryMb:diskMb:)``). Nil: the create's own default.
+    public var chatSize: CloudChatSize?
+    /// The disk in MiB a chat's folder needs past ``chatSize``'s own (``CloudChatSize/grownDiskMb(_:bytes:planMax:)``):
+    /// the create asks at least it. Nil: the size's own.
+    public var chatDiskMb: Int?
+
+    /// The create's `size` axes, each at least ``chatSize``'s (its disk at least ``chatDiskMb``): the default machine's
+    /// `cpu`, `memoryMb` and `diskMb` when they are already as large.
+    public func atLeast(cpu: Int, memoryMb: Int, diskMb: Int) -> (cpu: Int, memoryMb: Int, diskMb: Int) {
+        guard let chatSize else { return (cpu, memoryMb, diskMb) }
+        return (max(cpu, chatSize.cpu), max(memoryMb, chatSize.memoryMb), max(diskMb, chatSize.diskMb, chatDiskMb ?? 0))
+    }
 
     /// A machine name `cloud new-machine` takes: 1-64 of letters, digits, `.`, `_` and `-`, not
     /// starting with `-`, so it is also a host name and a shell word in the commands it prints.
