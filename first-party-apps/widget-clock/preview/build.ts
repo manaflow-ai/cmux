@@ -19,7 +19,11 @@ export const VARIANTS: Record<string, Render> = {
   // The look settings (the New Tab clock's options): rounded and serif draw once the scene has fontDesign.
   "thin-glass": { size: "large", settings: { font: "system", weight: "thin", color: "glass" } },
   "mono-accent": { size: "small", settings: { font: "mono", weight: "bold", color: "accent" } },
-  "serif-orange-no-date": { size: "medium", settings: { font: "serif", weight: "regular", color: "#FF9500", date: false } }
+  "serif-orange-no-date": { size: "medium", settings: { font: "serif", weight: "regular", color: "#FF9500", date: false } },
+  // The widest times at 10:58 PM: the digits sized to the small tile so the time and its PM fit.
+  "small-12h-widest": { size: "small", settings: { hourCycle: "12h" }, at: Date.UTC(2026, 10, 17, 6, 58) },
+  "small-mono-12h-widest": { size: "small", settings: { hourCycle: "12h", font: "mono", weight: "heavy" }, at: Date.UTC(2026, 10, 17, 6, 58) },
+  "small-24h-widest": { size: "small", settings: { hourCycle: "24h" }, at: Date.UTC(2026, 10, 17, 6, 58) }
 }
 
 export async function buildScenes(): Promise<string> {

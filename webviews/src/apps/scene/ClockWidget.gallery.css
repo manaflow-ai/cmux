@@ -20,6 +20,11 @@
   color: var(--agent-text);
   overflow: hidden;
 }
+/* The New Tab host's small tile, 148 points (a DEV build), which the widget fits its time to. */
+.gallery-clock-widget-tile[data-size="small"] {
+  width: 148px;
+  height: 148px;
+}
 .gallery-clock-widget-tile[data-size="medium"] {
   width: 364px;
 }
