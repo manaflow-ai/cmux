@@ -3634,12 +3634,15 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         guard view.window != nil else { return }
         tuiSizing.keyboardSettled(stackTop: bottomStack.frame.minY + composerGrowth + jumpRowHeight, restingStackTop: restingStackTop,
                                   keyboardShown: dock.softKeyboard == .shown, isTUI: model.isTUI)
-        if dock.softKeyboard == .shown, let lift = tuiSizing.keyboardLift { lastShownKeyboardLift = lift }
+        if dock.softKeyboard == .shown, let lift = tuiSizing.keyboardLift { lastShownKeyboardLift = (lift, view.bounds.size) }
     }
 
     /// How far the soft keyboard lifted the composer stack the last time it
     /// was up: the target of the next show our own key starts.
-    private var lastShownKeyboardLift: CGFloat?
+    /// With the page's size it was measured at: after a rotation (an
+    /// unfolded foldable) or a resize the keyboard's height differs, and
+    /// will-show claims from its end frame instead.
+    private var lastShownKeyboardLift: (lift: CGFloat, pageSize: CGSize)?
     /// Bumped by every will-show and will-hide: a toggle our key started that
     /// UIKit never carried out is put back (`keyboardToggleWillStart`).
     private var keyboardWills = 0
@@ -3656,8 +3659,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         guard model.isTUI, view.window != nil, GCKeyboard.coalesced == nil, cell.height > 0 else { return }
         let lift: CGFloat
         if showing {
-            guard !model.keyboardVisible, let last = lastShownKeyboardLift else { return }
-            lift = last
+            guard !model.keyboardVisible, let last = lastShownKeyboardLift, last.pageSize == view.bounds.size else { return }
+            lift = last.lift
         } else {
             guard model.keyboardVisible else { return }
             lift = 0

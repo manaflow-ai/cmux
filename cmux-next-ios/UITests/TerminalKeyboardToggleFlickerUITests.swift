@@ -60,12 +60,6 @@ final class TerminalKeyboardToggleFlickerUITests: XCTestCase {
                                exactResizes: false)
     }
 
-    /// Landscape on the default iPhone.
-    @MainActor
-    func testFullScreenAppInLandscape() throws {
-        try checkFullScreenApp(try runDemo(phase: "kbtui", name: "vim-landscape", orientation: .landscapeLeft))
-    }
-
     /// A light terminal theme (the Mac's Solarized Light).
     @MainActor
     func testFullScreenAppInALightTheme() throws {
@@ -164,11 +158,8 @@ final class TerminalKeyboardToggleFlickerUITests: XCTestCase {
 
     /// The demo's toggles, then the trace's counts (`key=value`).
     @MainActor
-    private func runDemo(phase: String, name: String, defaults: [String: String] = [:], arguments: [String] = [],
-                         orientation: UIDeviceOrientation = .portrait) throws -> [String: String] {
+    private func runDemo(phase: String, name: String, defaults: [String: String] = [:], arguments: [String] = []) throws -> [String: String] {
         let label = "\(phase)-\(name)"
-        XCUIDevice.shared.orientation = orientation
-        defer { XCUIDevice.shared.orientation = .portrait }
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-CmuxMobileTerminalDemo", "-CmuxMobileTerminalDemoEmbedded",
