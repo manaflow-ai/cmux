@@ -83,6 +83,33 @@ export type RealAcpmuxOptions = {
   settings?: Record<string, unknown>;
 };
 
+/**
+ * The stand-in Codex's catalog (FAKE_CODEX_CATALOG): a real one's shape, `model/list` rows with id
+ * and model, one the default, each model with its own levels and default level. GPT-6 Astra is the
+ * default and GPT-6.1 Sol sits beside it.
+ */
+function levels(...ids: string[]) {
+  return ids.map((reasoningEffort) => ({ reasoningEffort, description: `${reasoningEffort} reasoning` }));
+}
+
+export const CODEX_CATALOG = [
+  {
+    id: "gpt-6-astra",
+    model: "gpt-6-astra",
+    displayName: "GPT-6 Astra",
+    isDefault: true,
+    supportedReasoningEfforts: levels("low", "medium", "high"),
+    defaultReasoningEffort: "medium",
+  },
+  {
+    id: "gpt-6.1-sol",
+    model: "gpt-6.1-sol",
+    displayName: "GPT-6.1 Sol",
+    supportedReasoningEfforts: levels("low", "medium", "high", "xhigh"),
+    defaultReasoningEffort: "medium",
+  },
+];
+
 function freePort(): number {
   const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response("") });
   const port = server.port;
@@ -138,6 +165,8 @@ export async function startRealAcpmux(options: RealAcpmuxOptions): Promise<RealA
   };
   writeFileSync(path.join(home, "config.json"), JSON.stringify(config, null, 2));
   if (options.settings) writeFileSync(path.join(userHome, "cmux.json"), JSON.stringify(options.settings, null, 2));
+  const catalog = path.join(scratch, "codex-catalog.json");
+  writeFileSync(catalog, JSON.stringify(CODEX_CATALOG));
 
   const listenerToken = randomBytes(24).toString("hex");
   let daemonPort = 0;
@@ -154,6 +183,7 @@ export async function startRealAcpmux(options: RealAcpmuxOptions): Promise<RealA
     CMUX_NEXT_CONFIG_FILE: path.join(userHome, "cmux.json"),
     ACPMUX_SESSION_CPU_CLASS: "normal",
     ACPMUX_SPARE_HARNESS: "0",
+    FAKE_CODEX_CATALOG: catalog,
     ...options.env,
   };
 
@@ -390,8 +420,10 @@ export async function startRealAcpmux(options: RealAcpmuxOptions): Promise<RealA
   };
 }
 
-/** The pane's dev page against `daemon`: `#endpoint=…&token=…&cwd=…&<hash>`. */
-export function paneUrl(pageBase: string, daemon: RealAcpmux, hash = "newtab"): string {
+export const NEW_TAB = "new&newtab";
+
+/** The pane's dev page against `daemon`: `#endpoint=…&token=…&cwd=…&<hash>`; a New Tab (`new&newtab`, as the app opens one) by default. */
+export function paneUrl(pageBase: string, daemon: RealAcpmux, hash = NEW_TAB): string {
   const endpoint = encodeURIComponent(daemon.endpoint);
   return `${pageBase}/#endpoint=${endpoint}&token=${daemon.token}&cwd=${encodeURIComponent(daemon.cwd)}&${hash}`;
 }

@@ -21,10 +21,11 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Page } from "playwright";
 import { COMPOSER_EDITOR, MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
+import { installWireLog, timeline } from "./support/chipValues";
 import { COMPACT_MODEL_MENU, MODEL_ROW_NAME } from "./support/compactModelMenu";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { paneUrl } from "./support/realAcpmux";
-import { openRealPaneLane, realPaneLane, turnDone, type RealPaneLane } from "./support/realPaneLane";
+import { openRealPaneLane, realPaneLane, turnDone, withFailureDump, type RealPaneLane } from "./support/realPaneLane";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import {
   collect,
@@ -54,7 +55,8 @@ await requireBrowserLane("agent-pane-new-chat-settles.test.ts", async () => {
     async function newChat(page: Page, harness: "codex" | "claude") {
       await installPaintedFrames(page);
       await installShiftRecorder(page);
-      await page.goto(paneUrl(lane.base, lane.daemon, "newtab"));
+      await installWireLog(page);
+      await page.goto(paneUrl(lane.base, lane.daemon));
       await page.locator(".nt-field").waitFor();
       // The New Tab's own pickers have their values before the person types.
       await page.waitForFunction(() => !!document.querySelector(".acpmux-model-name")?.textContent?.trim());
@@ -75,76 +77,94 @@ await requireBrowserLane("agent-pane-new-chat-settles.test.ts", async () => {
       test(`a new ${harness} chat holds still from its first message through its first reply`, async () => {
         const context = await lane.browser.newContext({ viewport: { width: 1000, height: 760 } });
         const page = await context.newPage();
-        await newChat(page, harness);
-        await startFrameSampler(page);
-        await mark(page, "start");
-        await page.locator(".nt-field").click();
-        await page.keyboard.type("Add retry to the uploader");
-        await mark(page, "send");
-        await page.keyboard.press("Enter");
-        await page.locator(".acpmux-user").first().waitFor({ timeout: 30_000 });
-        await mark(page, "shown");
-        // The harness is ready once acpmux answered the chat's session/new: the pane has its session.
-        await page.waitForFunction(() => !!(window as any).cmuxAcpmuxDebug?.chatState?.().sessionId);
-        await mark(page, "ready");
-        await page.locator(COMPOSER_EDITOR).first().waitFor();
-        // The reply: the stand-in streams "ok" (codex) or its arguments (claude), then ends the turn.
-        await page.waitForFunction(() => !!(window as any).cmuxAcpmuxDebug?.chatState?.().lastAssistant, undefined, {
-          timeout: 60_000,
-        });
-        await mark(page, "streaming");
-        await turnDone(page);
-        await mark(page, "done");
-        // Two seconds after the turn ends: anything that lands late (titles, usage, the context ring).
-        for (let i = 0; i < 120; i++) await page.evaluate(() => window.cmuxPaintFrame());
-        const { frames, shifts, marks } = await collect(page);
-        const from = chatFrom(frames);
-        expect(from).toBeDefined();
-        const moves = shiftsAfter(frames, from!, ["transcript"]);
-        const score = scoreAfter(shifts, marks.send!);
-        const scoreAfterShown = scoreAfter(shifts, from!);
-        // The score in each phase: send to the chat showing, then to the harness ready, the reply
-        // streaming, the turn done, and the two seconds after.
-        const edges = [marks.send!, from!, marks.ready!, marks.streaming!, marks.done!, Infinity];
-        const names = ["send", "shown", "ready", "streaming", "done"];
-        const phases = Object.fromEntries(
-          names.map((name, at) => [
-            name,
-            {
-              cls: Number(scoreAfter(shifts, edges[at]!, edges[at + 1]!).toFixed(4)),
-              moves: moves.filter((m) => m.t >= edges[at]! && m.t < edges[at + 1]!).length,
-            },
-          ]),
-        );
-        console.log(`settle ${harness} phases: ${JSON.stringify(phases)}`);
-        const report = {
-          phases,
-          harness,
-          frames: frames.length,
-          marks,
-          chatFrom: from,
-          moves: moves.slice(0, 40),
-          score,
-          scoreAfterShown,
-          shifts: shifts.filter((s) => s.t >= marks.send!),
-        };
-        if (out) {
-          mkdirSync(out, { recursive: true });
-          writeFileSync(path.join(out, `settle-${harness}.json`), JSON.stringify(report, null, 1));
-          await page.screenshot({ path: path.join(out, `settle-${harness}.png`) });
+        try {
+          await withFailureDump(lane, page, `settle-${harness}`, async () => {
+            await newChat(page, harness);
+            await startFrameSampler(page);
+            await mark(page, "start");
+            await page.locator(".nt-field").click();
+            await page.keyboard.type("Add retry to the uploader");
+            await mark(page, "send");
+            await page.keyboard.press("Enter");
+            await page.locator(".acpmux-user").first().waitFor({ timeout: 30_000 });
+            await mark(page, "shown");
+            // The harness is ready once acpmux answered the chat's session/new: the pane has its session.
+            await page.waitForFunction(() => !!(window as any).cmuxAcpmuxDebug?.chatState?.().sessionId);
+            await mark(page, "ready");
+            await page.locator(COMPOSER_EDITOR).first().waitFor();
+            // The reply: the stand-in streams "ok" (codex) or its arguments (claude), then ends the turn.
+            await page.waitForFunction(
+              () => !!(window as any).cmuxAcpmuxDebug?.chatState?.().lastAssistant,
+              undefined,
+              {
+                timeout: 60_000,
+              },
+            );
+            await mark(page, "streaming");
+            await turnDone(page);
+            await mark(page, "done");
+            // Two seconds after the turn ends: anything that lands late (titles, usage, the context ring).
+            for (let i = 0; i < 120; i++) await page.evaluate(() => window.cmuxPaintFrame());
+            const { frames, shifts, marks } = await collect(page);
+            const from = chatFrom(frames);
+            expect(from).toBeDefined();
+            const moves = shiftsAfter(frames, from!, ["transcript"]);
+            const score = scoreAfter(shifts, marks.send!);
+            const scoreAfterShown = scoreAfter(shifts, from!);
+            // The score in each phase: send to the chat showing, then to the harness ready, the reply
+            // streaming, the turn done, and the two seconds after.
+            const edges = [marks.send!, from!, marks.ready!, marks.streaming!, marks.done!, Infinity];
+            const names = ["send", "shown", "ready", "streaming", "done"];
+            const phases = Object.fromEntries(
+              names.map((name, at) => [
+                name,
+                {
+                  cls: Number(scoreAfter(shifts, edges[at]!, edges[at + 1]!).toFixed(4)),
+                  moves: moves.filter((m) => m.t >= edges[at]! && m.t < edges[at + 1]!).length,
+                },
+              ]),
+            );
+            console.log(`settle ${harness} phases: ${JSON.stringify(phases)}`);
+            const report = {
+              phases,
+              harness,
+              frames: frames.length,
+              marks,
+              chatFrom: from,
+              moves: moves.slice(0, 40),
+              wire: await timeline(page, marks.send!),
+              // What the picker row said, each time it changed, from the send on.
+              chips: frames
+                .filter((f) => f.t >= marks.send!)
+                .map((f) => ({
+                  t: Math.round(f.t - marks.send!),
+                  text: f.chips.map((c) => `${c.text}@${c.box.w}`).join(" | "),
+                }))
+                .filter((f, at, all) => at === 0 || f.text !== all[at - 1]!.text),
+              score,
+              scoreAfterShown,
+              shifts: shifts.filter((s) => s.t >= marks.send!),
+            };
+            if (out) {
+              mkdirSync(out, { recursive: true });
+              writeFileSync(path.join(out, `settle-${harness}.json`), JSON.stringify(report, null, 1));
+              await page.screenshot({ path: path.join(out, `settle-${harness}.png`) });
+            }
+            console.log(
+              `settle ${harness}: ${moves.length} moves after the chat showed, CLS-style ${scoreAfterShown.toFixed(4)} after it (${score.toFixed(4)} from the send)`,
+            );
+            for (const move of moves.slice(0, 12))
+              console.log(
+                `  ${move.part} moved ${move.px.toFixed(1)}px at ${Math.round(move.t - from!)}ms: ${JSON.stringify(move.from)} -> ${JSON.stringify(move.to)}`,
+              );
+            // No empty-chat view and no New Tab field once the chat shows.
+            expect(frames.filter((f) => f.t >= from! && (f.parts.empty || f.parts.newTab)).length).toBe(0);
+            expect(moves).toEqual([]);
+            expect(scoreAfterShown).toBe(0);
+          });
+        } finally {
+          await context.close();
         }
-        console.log(
-          `settle ${harness}: ${moves.length} moves after the chat showed, CLS-style ${scoreAfterShown.toFixed(4)} after it (${score.toFixed(4)} from the send)`,
-        );
-        for (const move of moves.slice(0, 12))
-          console.log(
-            `  ${move.part} moved ${move.px.toFixed(1)}px at ${Math.round(move.t - from!)}ms: ${JSON.stringify(move.from)} -> ${JSON.stringify(move.to)}`,
-          );
-        // No empty-chat view and no New Tab field once the chat shows.
-        expect(frames.filter((f) => f.t >= from! && (f.parts.empty || f.parts.newTab)).length).toBe(0);
-        expect(moves).toEqual([]);
-        expect(scoreAfterShown).toBe(0);
-        await context.close();
       });
     }
   });

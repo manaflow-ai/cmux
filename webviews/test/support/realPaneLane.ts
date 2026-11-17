@@ -65,6 +65,43 @@ export async function openRealPaneLane(options: Omit<RealAcpmuxOptions, "pageOri
   };
 }
 
+/**
+ * Runs `body`; when it throws, leaves what the page and acpmux showed in FAST_CHECKS_OUT (a
+ * screenshot, the pane's chat state and text, the frames the relay carried, the daemon's log) and
+ * throws again.
+ */
+export async function withFailureDump<T>(
+  lane: RealPaneLane,
+  page: Page,
+  name: string,
+  body: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await body();
+  } catch (error) {
+    const out = process.env.FAST_CHECKS_OUT;
+    if (out) {
+      const { mkdirSync, writeFileSync } = await import("node:fs");
+      mkdirSync(out, { recursive: true });
+      const at = (file: string) => path.join(out, `${name}-failed-${file}`);
+      await page.screenshot({ path: at("page.png") }).catch(() => {});
+      const state = await page
+        .evaluate(() => ({
+          url: location.href,
+          chatState: (window as any).cmuxAcpmuxDebug?.chatState?.(),
+          text: document.body.innerText.slice(0, 4000),
+        }))
+        .catch((e) => ({ error: String(e) }));
+      writeFileSync(at("state.json"), JSON.stringify(state, null, 1));
+      const tail = (frames: unknown[]) => frames.slice(-200).map((f) => JSON.stringify(f).slice(0, 2000));
+      writeFileSync(at("sent.jsonl"), tail(lane.daemon.sent).join("\n"));
+      writeFileSync(at("received.jsonl"), tail(lane.daemon.received).join("\n"));
+      writeFileSync(at("daemon.log"), lane.daemon.log().slice(-200_000));
+    }
+    throw error;
+  }
+}
+
 /** Waits until the shown chat's turn ended with a reply; returns the chat's session id. */
 export async function turnDone(page: Page, timeout = 60_000): Promise<string> {
   const handle = await page.waitForFunction(

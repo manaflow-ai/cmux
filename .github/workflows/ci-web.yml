@@ -387,7 +387,7 @@ jobs:
           engines: chromium
 
       - name: Install browser for instant navigation tests
-        run: ./node_modules/.bin/playwright install --with-deps webkit && bash "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
+        run: bash "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
 
       - name: Instant navigation tests
         env:

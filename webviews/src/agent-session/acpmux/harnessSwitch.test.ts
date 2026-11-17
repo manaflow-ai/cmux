@@ -192,3 +192,107 @@ test("a new chat still sends every pick its session differs on before the first 
   expect(calls.slice(0, 3).sort()).toEqual(["config effort=high", "mode acceptEdits", "model opus"]);
   expect(calls[3]).toBe("send fix the tests");
 });
+
+/** A port whose opened session runs `sonnet` in `default`, effort `high` (the old model's levels). */
+function openedPort(calls: string[]): SwitchPort {
+  let open = false;
+  return {
+    ...trustRefusingPort(),
+    shown: () =>
+      open
+        ? {
+            sessionId: "s1",
+            harness: "claude",
+            model: "sonnet",
+            modeId: "default",
+            empty: true,
+            configOptions: [
+              {
+                id: "effort",
+                category: "thought_level",
+                currentValue: "high",
+                options: [{ value: "low" }, { value: "high" }],
+              },
+            ],
+          }
+        : undefined,
+    create: async () => "s1",
+    open: async (sessionId) => {
+      open = true;
+      return sessionId;
+    },
+    send: async (text) => void calls.push(`send ${text}`),
+    // The agent answers a model switch a moment later than an option pick.
+    setModel: async (model) => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      calls.push(`model ${model}`);
+    },
+    setMode: async (mode) => void calls.push(`mode ${mode}`),
+    setConfig: async (configId, value) => void calls.push(`config ${configId}=${value}`),
+  };
+}
+
+test("a new chat's held model goes before its effort, which goes even when the old model did not list it", async () => {
+  // A model switch resets an effort the new model lacks (cmux-codex-acp set_option): an effort that
+  // landed first was reset, and the chat ran on the model's default level, not the one picked (Leo
+  // 2026-11-17: picks "don't randomly change to other things").
+  const calls: string[] = [];
+  const harnessSwitch = new HarnessSwitch();
+  harnessSwitch.connect(openedPort(calls));
+  const started = harnessSwitch.switchTo("claude", "/work", { model: "opus", options: { effort: "xhigh" } });
+  harnessSwitch.pickMode("bypassPermissions");
+  const sent = harnessSwitch.send("fix the tests");
+  await started;
+  await sent;
+  expect(calls[0]).toBe("model opus");
+  expect(calls.slice(1, 3).sort()).toEqual(["config effort=xhigh", "mode bypassPermissions"]);
+  expect(calls[3]).toBe("send fix the tests");
+});
+
+test("the chips keep a new chat's held picks until its session reports them", async () => {
+  // The switch ends (its prompt goes) once the agent answered each pick, before the session's own
+  // report of them: the chips went from the pick back to the start value, then to the pick again.
+  const harnessSwitch = new HarnessSwitch();
+  harnessSwitch.connect(openedPort([]));
+  const started = harnessSwitch.switchTo("claude", "/work", { model: "opus", options: { effort: "xhigh" } });
+  harnessSwitch.pickMode("bypassPermissions");
+  const sent = harnessSwitch.send("fix the tests");
+  await started;
+  await sent;
+  const reported = (model: string, mode: string, effort: string): AcpmuxSnapshot =>
+    ({
+      sessionId: "s1",
+      rows: [],
+      catalog: [],
+      summary: {
+        sessionId: "s1",
+        turnCount: 1,
+        harness: "claude",
+        model,
+        modes: { availableModes: [{ id: "default" }, { id: "bypassPermissions" }], currentModeId: mode },
+        configOptions: [
+          {
+            id: "effort",
+            category: "thought_level",
+            currentValue: effort,
+            options: [{ value: "low" }, { value: "high" }, { value: "xhigh" }],
+          },
+        ],
+      },
+    }) as unknown as AcpmuxSnapshot;
+  const chips = (snapshot: AcpmuxSnapshot) => {
+    const summary = applySwitch(snapshot, harnessSwitch.view()).summary!;
+    return [summary.model, summary.modes?.currentModeId, summary.configOptions?.[0]?.currentValue];
+  };
+  // Before the session's report: the picks, not what the session started on.
+  const before = reported("sonnet", "default", "high");
+  harnessSwitch.reconcile(before);
+  expect(chips(before)).toEqual(["opus", "bypassPermissions", "xhigh"]);
+  // The report names them: nothing is left to draw over it.
+  const after = reported("opus", "bypassPermissions", "xhigh");
+  harnessSwitch.reconcile(after);
+  expect(harnessSwitch.view().settling).toBeUndefined();
+  expect(chips(after)).toEqual(["opus", "bypassPermissions", "xhigh"]);
+  // A value set elsewhere later shows as it is.
+  expect(chips(reported("opus", "default", "low"))).toEqual(["opus", "default", "low"]);
+});

@@ -3,7 +3,8 @@ import type { ComposerAttachment } from "./attachments";
 import { agentName } from "./agents";
 import { harnessProfiles, type HarnessProfiles } from "./harnessProfiles";
 import { lastModel } from "./lastPick";
-import { heldOptionPick } from "./heldOptions";
+import { harnessFamilyMenu } from "./harnessModes";
+import { heldOptionPick, isEffortOption } from "./heldOptions";
 import { isTrustRefusal } from "./direct";
 // Outside render: the store reads the pane language when it builds a string.
 import { translate as t } from "./i18n";
@@ -149,6 +150,23 @@ export type SwitchView = {
   /// `answered` as for `model`: once the agent answered, it draws only while the session still
   /// reports `from`, so a value set elsewhere (another window, the CLI, a peer) shows as it is.
   config?: { sessionId: string; configId: string; from?: string; value: string; answered?: boolean };
+  /// The held picks a new chat's switch set on its session as it ended (`run`), each drawn while
+  /// the session still reports the value it had before.
+  settling?: Settling;
+};
+
+/// What a switch's held picks set on the session it opened, the agent having answered each: the
+/// model, the mode and each config option, with the value the session reported before (`from`).
+/// The switch ends (its prompts go) as soon as the agent answered, often before the session's own
+/// report of the new values arrives; meanwhile each draws over the value it replaced, so a chip
+/// goes straight from the held pick to the session's report of it, never back to the start value
+/// in between (Leo 2026-11-17: picks "don't randomly change to other things"). Each draws only
+/// while the session still reports `from`, as an answered live pick does.
+export type Settling = {
+  sessionId: string;
+  model?: { from?: string; value: string };
+  mode?: { from?: string; value: string };
+  options: readonly { configId: string; from?: string; value: string }[];
 };
 
 type Queued = QueuedSwitchPrompt & {
@@ -233,10 +251,33 @@ function settledPick(
   return reported === picked || (pick.answered === true && reported !== pick.from);
 }
 
+/// `settling` less each pick with nothing left to draw: the session reports a value other than the
+/// one the pick replaced (the picked one, or one set elsewhere since), or the pane shows another
+/// chat. The same object when nothing changed; undefined once none is left.
+function settledPicks(
+  snapshot: Pick<AcpmuxSnapshot, "sessionId" | "summary">,
+  settling: Settling,
+): Settling | undefined {
+  if (!snapshot.sessionId) return settling;
+  if (snapshot.sessionId !== settling.sessionId) return undefined;
+  const summary = snapshot.summary;
+  const done = (pick: { from?: string } | undefined, reported: string | undefined) =>
+    pick !== undefined && reported !== undefined && reported !== pick.from;
+  const model = done(settling.model, summary?.model) ? undefined : settling.model;
+  const mode = done(settling.mode, summary?.modes?.currentModeId) ? undefined : settling.mode;
+  const options = settling.options.filter(
+    (pick) => !done(pick, summary?.configOptions?.find((option) => option.id === pick.configId)?.currentValue),
+  );
+  if (model === settling.model && mode === settling.mode && options.length === settling.options.length) return settling;
+  if (!model && !mode && !options.length) return undefined;
+  return { sessionId: settling.sessionId, ...(model && { model }), ...(mode && { mode }), options };
+}
+
 export class HarnessSwitch {
   private intent?: Intent;
   private modelPick?: SwitchView["model"];
   private configPick?: SwitchView["config"];
+  private settling?: Settling;
   private port?: SwitchPort;
   private generation = 0;
   private current: SwitchView = {};
@@ -283,9 +324,11 @@ export class HarnessSwitch {
         this.configPick,
         snapshot.summary?.configOptions?.find((item) => item.id === this.configPick?.configId)?.currentValue,
       );
-    if (!model && !config) return;
+    const settling = this.settling && settledPicks(snapshot, this.settling);
+    if (!model && !config && settling === this.settling) return;
     if (model) this.modelPick = undefined;
     if (config) this.configPick = undefined;
+    this.settling = settling;
     this.changed();
   }
 
@@ -380,6 +423,7 @@ export class HarnessSwitch {
     if (previous) this.retire(previous, false);
     this.modelPick = undefined;
     this.configPick = undefined;
+    this.settling = undefined;
     this.intent = intent;
     // Each held option takes its gesture ticket now, in the pick's own handler.
     for (const [configId, value] of held) this.holdConfig(intent, configId, value);
@@ -490,6 +534,8 @@ export class HarnessSwitch {
     const pick: NonNullable<SwitchView["model"]> = { sessionId: live.sessionId, from: live.model, model };
     this.modelPick = pick;
     this.configPick = undefined;
+    // The person's own pick now is what the chip draws: no earlier held pick draws over it.
+    this.settling = undefined;
     this.changed();
     return port.setModel(model).then(
       () => {
@@ -524,6 +570,7 @@ export class HarnessSwitch {
       const pick = { sessionId: live.sessionId, configId, from: live.current, value };
       this.configPick = pick;
       this.modelPick = undefined;
+      this.settling = undefined;
       this.changed();
       void port.setConfig(configId, value).then(
         () => {
@@ -624,6 +671,7 @@ export class HarnessSwitch {
     }
     this.modelPick = undefined;
     this.configPick = undefined;
+    this.settling = undefined;
     this.left = undefined;
     this.changed();
   }
@@ -720,16 +768,29 @@ export class HarnessSwitch {
     }
     this.left = undefined;
     this.handlers.opened?.(opened);
-    // What was picked while acpmux started the harness, one request at a time, in pick order of kind.
-    // A pick the opened session already has is not sent: the first prompt waits on every pick, and
-    // each is a round trip to the agent, seconds apiece on a busy Mac (Leo, 2026-11-05, on a new
-    // chat: "it thinks so so long..."). A model switch can reset the options the session reported,
-    // so with one in flight every option pick still goes.
+    // What was picked while acpmux started the harness. A pick the opened session already has is
+    // not sent: the first prompt waits on every pick, and each is a round trip to the agent, seconds
+    // apiece on a busy Mac (Leo, 2026-11-05, on a new chat: "it thinks so so long..."). The model
+    // goes first and the rest after it, together: a model switch resets an effort or Fast tier the
+    // new model lacks (cmux-codex-acp `set_option`), so an effort sent beside it could land first
+    // and be reset, and the chat ran on the model's default level, not the one picked (Leo
+    // 2026-11-17: picks "don't randomly change to other things").
     const { model, mode, options } = intent.config;
     const live = port.shown();
     const switchesModel = model !== undefined && model !== live?.model;
+    // What the agent answered for, drawn over the session's reports until they name it (`Settling`).
+    const settled: { model?: Settling["model"]; mode?: Settling["mode"]; options: Settling["options"][number][] } = {
+      options: [],
+    };
+    if (model && switchesModel)
+      await port.setModel(model).then(
+        () => {
+          settled.model = { ...(live?.model !== undefined && { from: live.model }), value: model };
+        },
+        (error) => this.refused(model, error),
+      );
+    if (this.intent !== intent) return;
     const applied: Promise<void>[] = [];
-    if (model && switchesModel) applied.push(port.setModel(model).catch((error) => this.refused(model, error)));
     // A pick the host refuses (a transport refusal) says so; any other refusal stays quiet, as before.
     const pickRefused = (error: unknown) => {
       if (isHostRefusal(error)) this.handlers.notice?.(errorMessage(error));
@@ -739,7 +800,9 @@ export class HarnessSwitch {
     // the opened session's own option id and value; one it offers no option or no such value for is
     // not sent, and a session that reports an empty list takes none. A session whose attach carried
     // no list at all (an older acpmux, a port that cannot read it) has said nothing to resolve the
-    // picks against: they go as they were held, as before, and the agent answers for them.
+    // picks against: they go as they were held, as before, and the agent answers for them. After a
+    // model switch the levels the session listed were the old model's: an effort goes under the
+    // session's effort option whatever it listed, as the composer offered it for the picked model.
     const offered = live?.configOptions;
     // A held mode the agent refuses always says so: a company-managed Mac's Claude Code settings can
     // disable a mode, and the chat would otherwise run on another one with no reason given.
@@ -747,24 +810,38 @@ export class HarnessSwitch {
       applied.push(
         ticket("mode")
           .then((t) => port.setMode(mode, t))
-          .catch((error) => this.handlers.notice?.(switchFailedText("mode", mode, error))),
+          .then(
+            () => {
+              settled.mode = { ...(live?.modeId !== undefined && { from: live.modeId }), value: mode };
+            },
+            (error) => this.handlers.notice?.(switchFailedText("mode", mode, error)),
+          ),
       );
     for (const [configId, value] of Object.entries(options)) {
-      const pick = offered ? heldOptionPick(configId, value, offered) : { configId, value };
+      const pick = offered
+        ? heldOptionPick(configId, value, offered, { anyEffortLevel: switchesModel })
+        : { configId, value };
       if (!pick) continue;
-      if (!switchesModel && offered?.find((option) => option.id === pick.configId)?.currentValue === pick.value)
-        continue;
+      const current = offered?.find((option) => option.id === pick.configId)?.currentValue ?? undefined;
+      if (!switchesModel && current === pick.value) continue;
       // The ticket is bound to this config pick. `heldOptionPick` may rename an effort or Fast
       // option to the id the opened harness reports; the native relay accepts those aliases.
       applied.push(
         ticket(`config:${configId}`)
           .then((t) => port.setConfig(pick.configId, pick.value, t))
-          .catch(pickRefused),
+          .then(() => {
+            settled.options.push({
+              configId: pick.configId,
+              ...(current !== undefined && { from: current }),
+              value: pick.value,
+            });
+          }, pickRefused),
       );
     }
     // Prompts go out after the picks, so the first turn runs on what the user chose.
     await Promise.all(applied);
     if (this.intent !== intent) return;
+    if (settled.model || settled.mode || settled.options.length) this.settling = { sessionId: opened, ...settled };
     // A ticket taken on an earlier connection cannot cross the reconnect boundary. Sending the
     // prompt without it would recreate the issue's failed bubble, so return it to the composer and
     // make the next Enter start a fresh switch with a new gesture.
@@ -902,6 +979,7 @@ export class HarnessSwitch {
       }),
       ...(this.modelPick && { model: this.modelPick }),
       ...(this.configPick && { config: this.configPick }),
+      ...(this.settling && { settling: this.settling }),
     };
     for (const listener of this.listeners) listener();
   }
@@ -944,6 +1022,28 @@ export function lastOfferedModel(harness: string, catalog: Catalog, folder?: str
   return picked && (models.length === 0 || models.some((model) => model.id === picked)) ? picked : undefined;
 }
 
+/// `raw` with each of a finished switch's picks drawn over the value it replaced while the session
+/// still reports that value (`Settling`).
+function withSettling(raw: AcpmuxSnapshot, settling: Settling | undefined): AcpmuxSnapshot {
+  const summary = raw.summary;
+  if (!settling || !summary || summary.sessionId !== settling.sessionId) return raw;
+  const replaces = (pick: { from?: string; value: string } | undefined, reported: string | undefined) =>
+    pick !== undefined && reported === pick.from && reported !== pick.value;
+  let next = summary;
+  if (replaces(settling.model, summary.model))
+    next = { ...next, model: settling.model!.value, confirmedModel: summary.model };
+  if (summary.modes && replaces(settling.mode, summary.modes.currentModeId))
+    next = { ...next, modes: { ...summary.modes, currentModeId: settling.mode!.value } };
+  if (summary.configOptions && settling.options.length) {
+    const configOptions = summary.configOptions.map((option) => {
+      const pick = settling.options.find((candidate) => candidate.configId === option.id);
+      return pick && replaces(pick, option.currentValue) ? { ...option, currentValue: pick.value } : option;
+    });
+    if (configOptions.some((option, at) => option !== summary.configOptions![at])) next = { ...next, configOptions };
+  }
+  return next === summary ? raw : { ...raw, summary: next };
+}
+
 export function applySwitch(
   raw: AcpmuxSnapshot,
   view: SwitchView,
@@ -952,8 +1052,9 @@ export function applySwitch(
 ): AcpmuxSnapshot {
   const intent = view.intent;
   if (!intent) {
+    const base = withSettling(raw, view.settling);
     const pick = view.model;
-    const summary = raw.summary;
+    const summary = base.summary;
     if (
       pick &&
       summary &&
@@ -961,15 +1062,15 @@ export function applySwitch(
       summary.model !== pick.model &&
       (summary.model === pick.from || !pick.answered)
     )
-      return { ...raw, summary: { ...summary, model: pick.model, confirmedModel: summary.model } };
+      return { ...base, summary: { ...summary, model: pick.model, confirmedModel: summary.model } };
     const config = view.config;
-    if (!config || !summary || summary.sessionId !== config.sessionId) return raw;
+    if (!config || !summary || summary.sessionId !== config.sessionId) return base;
     const option = summary.configOptions?.find((item) => item.id === config.configId);
-    if (!option || option.currentValue === config.value) return raw;
+    if (!option || option.currentValue === config.value) return base;
     // Answered, and the session reports another value than the pick left: it is the session's.
-    if (config.answered && option.currentValue !== config.from) return raw;
+    if (config.answered && option.currentValue !== config.from) return base;
     return {
-      ...raw,
+      ...base,
       summary: {
         ...summary,
         configOptions: summary.configOptions?.map((item) =>
@@ -996,19 +1097,46 @@ export function applySwitch(
           ? undefined
           : exactStartMode(intent.harness, intent.cwd)?.modeId,
     });
-  const configOptions = live?.configOptions ?? profile?.configOptions;
+  const entry = catalog.find((candidate) => candidate.id === intent.harness);
+  // A held mode with no modes to name it among (the harness's first chat on this page, its session
+  // not attached yet) is named from the harness family's own menu, so the access chip keeps the
+  // pick from the New Tab into the chat's first frames instead of the inert "Mode" chip.
+  const familyMenu = !modes && config.mode ? harnessFamilyMenu(entry?.family, intent.harness) : undefined;
+  const heldModes = familyMenu && {
+    availableModes: familyMenu.rows.map(({ id, name, description }) => ({ id, name, description })),
+  };
+  const reported = live?.configOptions ?? profile?.configOptions;
+  // A held effort with no effort option to draw it on (as for the mode) is drawn on one made from
+  // the picked model's catalog levels, so the chip keeps the level picked, not acpmux's start level.
+  const heldEffort = Object.entries(config.options).find(([id]) => isEffortOption({ id }));
+  const levels = entry?.models.find((choice) => choice.id === predicted)?.efforts ?? [];
+  const configOptions =
+    heldEffort && levels.length > 1 && !reported?.some(isEffortOption)
+      ? [
+          ...(reported ?? []),
+          {
+            id: heldEffort[0],
+            category: "thought_level",
+            currentValue: heldEffort[1],
+            options: levels.map((value) => ({ value })),
+          },
+        ]
+      : reported;
   const held = { ...config.options };
   for (const [configId, value] of Object.entries(config.options)) {
-    const pick = heldOptionPick(configId, value, configOptions ?? []);
+    // The levels a session lists are its model's; a held effort is one the composer offered for the
+    // picked model.
+    const pick = heldOptionPick(configId, value, configOptions ?? [], { anyEffortLevel: true });
     if (pick && !(pick.configId in held)) held[pick.configId] = pick.value;
   }
+  const shownModes = modes ?? heldModes;
   const summary: Summary = {
     ...(live ?? { sessionId: "", turnCount: 0, cwd: raw.summary?.cwd ?? intent.cwd }),
     harness: intent.harness,
     model: predicted,
     // Nothing to confirm before a session: the composer sequences picks against what it draws.
     confirmedModel: live ? live.model : predicted,
-    modes: modes && config.mode ? { ...modes, currentModeId: config.mode } : modes,
+    modes: shownModes && config.mode ? { ...shownModes, currentModeId: config.mode } : shownModes,
     configOptions: configOptions?.map((option) =>
       option.id in held ? { ...option, currentValue: held[option.id] } : option,
     ),

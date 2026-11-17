@@ -22,48 +22,34 @@
 // No value changes to another by itself at any point: not Full access to the default mode, not
 // Sol to another model, not the effort back to the model's default.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import os from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Page } from "playwright";
 import { COMPOSER_EDITOR, MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
-import { chipValues, startValueSampler, takeValues, type ValueFrame } from "./support/chipValues";
+import {
+  chipValues,
+  installWireLog,
+  startValueSampler,
+  takeValues,
+  timeline,
+  type ValueFrame,
+} from "./support/chipValues";
 import { COMPACT_MODEL_MENU, MODEL_ROW_NAME } from "./support/compactModelMenu";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { paneUrl } from "./support/realAcpmux";
-import { openRealPaneLane, realPaneLane, turnDone, type RealPaneLane } from "./support/realPaneLane";
+import { openRealPaneLane, realPaneLane, turnDone, withFailureDump, type RealPaneLane } from "./support/realPaneLane";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("agent-pane-picks-hold.test.ts", async () => {
   await realPaneLane("agent-pane-picks-hold.test.ts", async () => {
     setDefaultTimeout(360_000);
     const out = process.env.FAST_CHECKS_OUT;
-    const scratch = mkdtempSync(path.join(os.tmpdir(), "picks-hold-"));
-    const catalog = path.join(scratch, "codex-catalog.json");
-    writeFileSync(
-      catalog,
-      JSON.stringify([
-        {
-          model: "gpt-6-astra",
-          displayName: "GPT-6 Astra",
-          isDefault: true,
-          supportedReasoningEfforts: ["low", "medium", "high"],
-          defaultReasoningEffort: "medium",
-        },
-        {
-          model: "gpt-6.1-sol",
-          displayName: "GPT-6.1 Sol",
-          supportedReasoningEfforts: ["low", "medium", "high", "xhigh"],
-          defaultReasoningEffort: "medium",
-        },
-      ]),
-    );
     let lane: RealPaneLane;
     beforeAll(async () => {
-      // New chats start in the harness's own mode (Settings > Agents), so Full access is a pick the
-      // person makes, not the default that would hide a reset to it.
+      // The stand-in Codex answers a real catalog's shape (realAcpmux.ts CODEX_CATALOG). New chats
+      // start in the harness's own mode (Settings > Agents), so Full access is a pick the person
+      // makes, not the default that would hide a reset to it.
       lane = await openRealPaneLane({
-        env: { FAKE_CODEX_CATALOG: catalog },
         settings: { agents: { defaultPermissionMode: "standard" } },
       });
     });
@@ -97,8 +83,11 @@ await requireBrowserLane("agent-pane-picks-hold.test.ts", async () => {
 
     /** Nothing changed in the window: one value per chip. */
     function held(what: string, frames: ValueFrame[], want: { model: RegExp; access: RegExp }) {
-      const models = [...new Set(frames.map((f) => f.model))];
-      const access = [...new Set(frames.map((f) => f.access))];
+      // Every value each chip showed, in order: a value that left and came back counts twice.
+      const steps = (key: "model" | "access") =>
+        frames.map((f) => f[key]).filter((value, at, all) => at === 0 || value !== all[at - 1]);
+      const models = steps("model");
+      const access = steps("access");
       note(`${what}: model ${models.join(" -> ")}; access ${access.join(" -> ")}`);
       expect(models).toHaveLength(1);
       expect(access).toHaveLength(1);
@@ -161,96 +150,103 @@ await requireBrowserLane("agent-pane-picks-hold.test.ts", async () => {
     test("Sol, High and Full access hold through a first send, a reload, a daemon restart and a harness switch", async () => {
       const context = await lane.browser.newContext({ viewport: { width: 1100, height: 800 } });
       const page = await context.newPage();
-      await installPaintedFrames(page);
-      await page.goto(paneUrl(lane.base, lane.daemon, "newtab"));
-      await page.locator(".nt-field").waitFor();
-      await page.waitForFunction(() => !!document.querySelector(".acpmux-access-trigger"));
-      const start = await settled(page);
-      note(`new tab: ${JSON.stringify(start)}`);
-      await startValueSampler(page);
-      await takeValues(page);
+      try {
+        await withFailureDump(lane, page, "picks-hold", async () => {
+          await installPaintedFrames(page);
+          await installWireLog(page);
+          await page.goto(paneUrl(lane.base, lane.daemon));
+          await page.locator(".nt-field").waitFor();
+          await page.waitForFunction(() => !!document.querySelector(".acpmux-access-trigger"));
+          const start = await settled(page);
+          note(`new tab: ${JSON.stringify(start)}`);
+          await startValueSampler(page);
+          await takeValues(page);
 
-      await pickModel(page, undefined, "GPT-6.1 Sol");
-      await settled(page);
-      oneStep("pick Sol", await takeValues(page), "model", SOL);
+          await pickModel(page, undefined, "GPT-6.1 Sol");
+          await settled(page);
+          oneStep("pick Sol", await takeValues(page), "model", SOL);
 
-      await pickEffort(page, "GPT-6.1 Sol", "High");
-      await settled(page);
-      oneStep("pick High", await takeValues(page), "model", HIGH);
+          await pickEffort(page, "GPT-6.1 Sol", "High");
+          await settled(page);
+          oneStep("pick High", await takeValues(page), "model", HIGH);
 
-      await pickAccess(page, FULL);
-      await settled(page);
-      oneStep("pick Full access", await takeValues(page), "access", FULL);
-      const picked = await chipValues(page);
-      const want = { model: new RegExp(`^${picked.model.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`), access: FULL };
-      expect(picked.model).toMatch(SOL);
-      expect(picked.model).toMatch(HIGH);
+          await pickAccess(page, FULL);
+          await settled(page);
+          oneStep("pick Full access", await takeValues(page), "access", FULL);
+          const picked = await chipValues(page);
+          const want = { model: new RegExp(`^${picked.model.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`), access: FULL };
+          expect(picked.model).toMatch(SOL);
+          expect(picked.model).toMatch(HIGH);
 
-      // The first send.
-      await page.locator(".nt-field").click();
-      await page.keyboard.type("Add retry to the uploader");
-      await page.keyboard.press("Enter");
-      await page.locator(".acpmux-user").first().waitFor({ timeout: 30_000 });
-      const sessionId = await turnDone(page);
-      await settled(page);
-      held("first send", await takeValues(page), want);
-      const ran = await daemonPicks(sessionId);
-      note(`acpmux runs: ${JSON.stringify(ran)}`);
-      expect(String(ran.model)).toContain("gpt-6.1-sol");
-      expect(JSON.stringify(ran.options)).toContain("high");
+          // The first send.
+          await page.locator(".nt-field").click();
+          await page.keyboard.type("Add retry to the uploader");
+          await page.keyboard.press("Enter");
+          await page.locator(".acpmux-user").first().waitFor({ timeout: 30_000 });
+          const sessionId = await turnDone(page);
+          await settled(page);
+          held("first send", await takeValues(page), want);
+          const ran = await daemonPicks(sessionId);
+          note(`acpmux runs: ${JSON.stringify(ran)}`);
+          expect(String(ran.model)).toContain("gpt-6.1-sol");
+          expect(JSON.stringify(ran.options)).toContain("high");
 
-      // A reload of the page on the chat.
-      await page.goto(paneUrl(lane.base, lane.daemon, `session=${sessionId}`));
-      await page.locator(".acpmux-user").first().waitFor({ timeout: 30_000 });
-      await page.waitForFunction(() => !!document.querySelector(".acpmux-access-trigger"));
-      await startValueSampler(page);
-      const reloaded = await settled(page);
-      held("reload", await takeValues(page), want);
-      expect(reloaded).toEqual(picked);
+          // A reload of the page on the chat.
+          await page.goto(paneUrl(lane.base, lane.daemon, `session=${sessionId}`));
+          await page.locator(".acpmux-user").first().waitFor({ timeout: 30_000 });
+          await page.waitForFunction(() => !!document.querySelector(".acpmux-access-trigger"));
+          await startValueSampler(page);
+          const reloaded = await settled(page);
+          held("reload", await takeValues(page), want);
+          expect(reloaded).toEqual(picked);
 
-      // A restart of the daemon: the page loses its socket and reconnects to the new one.
-      const before = lane.daemon.connections();
-      await lane.daemon.restart();
-      await page.waitForFunction(
-        () => (window as any).cmuxAcpmuxDebug?.chatState?.().connection === "connected",
-        undefined,
-        { timeout: 60_000 },
-      );
-      expect(lane.daemon.connections()).toBeGreaterThan(before);
-      await settled(page);
-      held("daemon restart", await takeValues(page), want);
-      const restarted = await daemonPicks(sessionId);
-      note(`acpmux runs after restart: ${JSON.stringify(restarted)}`);
-      expect(String(restarted.model)).toContain("gpt-6.1-sol");
+          // A restart of the daemon: the page loses its socket and reconnects to the new one.
+          const before = lane.daemon.connections();
+          await lane.daemon.restart();
+          await page.waitForFunction(
+            () => (window as any).cmuxAcpmuxDebug?.chatState?.().connection === "connected",
+            undefined,
+            { timeout: 60_000 },
+          );
+          expect(lane.daemon.connections()).toBeGreaterThan(before);
+          await settled(page);
+          held("daemon restart", await takeValues(page), want);
+          const restarted = await daemonPicks(sessionId);
+          note(`acpmux runs after restart: ${JSON.stringify(restarted)}`);
+          expect(String(restarted.model)).toContain("gpt-6.1-sol");
 
-      // A New Tab: Claude Code and back.
-      await page.goto(paneUrl(lane.base, lane.daemon, "newtab"));
-      await page.locator(".nt-field").waitFor();
-      await page.waitForFunction(() => !!document.querySelector(".acpmux-access-trigger"));
-      note(`second new tab: ${JSON.stringify(await settled(page))}`);
-      await startValueSampler(page);
-      await takeValues(page);
-      await pickAccess(page, FULL);
-      await settled(page);
-      await takeValues(page);
-      await pickModel(page, "Claude Code", "Opus");
-      note(`on Claude: ${JSON.stringify(await settled(page))}`);
-      await takeValues(page);
-      await pickModel(page, "Codex", "GPT-6.1 Sol");
-      const back = await settled(page);
-      note(`back on Codex: ${JSON.stringify(back)}`);
-      const switched = await takeValues(page);
-      expect(back.model).toMatch(SOL);
-      expect(back.model).toMatch(HIGH);
-      expect(back.access).toMatch(FULL);
-      // The way back went straight to its values.
-      expect(new Set(switched.map((f) => f.model)).size).toBeLessThanOrEqual(2);
-      if (out) {
-        mkdirSync(out, { recursive: true });
-        writeFileSync(path.join(out, "picks-hold.txt"), log.join("\n"));
-        await page.screenshot({ path: path.join(out, "picks-hold.png") });
+          // A New Tab: Claude Code and back.
+          await page.goto(paneUrl(lane.base, lane.daemon));
+          await page.locator(".nt-field").waitFor();
+          await page.waitForFunction(() => !!document.querySelector(".acpmux-access-trigger"));
+          note(`second new tab: ${JSON.stringify(await settled(page))}`);
+          await startValueSampler(page);
+          await takeValues(page);
+          await pickAccess(page, FULL);
+          await settled(page);
+          await takeValues(page);
+          await pickModel(page, "Claude Code", "Opus");
+          note(`on Claude: ${JSON.stringify(await settled(page))}`);
+          await takeValues(page);
+          await pickModel(page, "Codex", "GPT-6.1 Sol");
+          const back = await settled(page);
+          note(`back on Codex: ${JSON.stringify(back)}`);
+          const switched = await takeValues(page);
+          expect(back.model).toMatch(SOL);
+          expect(back.model).toMatch(HIGH);
+          expect(back.access).toMatch(FULL);
+          // The way back went straight to its values.
+          expect(new Set(switched.map((f) => f.model)).size).toBeLessThanOrEqual(2);
+          if (out) await page.screenshot({ path: path.join(out, "picks-hold.png") });
+        });
+      } finally {
+        if (out) {
+          mkdirSync(out, { recursive: true });
+          const wire = await timeline(page).catch((error) => [String(error)]);
+          writeFileSync(path.join(out, "picks-hold.txt"), [...log, "", "timeline (this page):", ...wire].join("\n"));
+        }
+        await context.close();
       }
-      await context.close();
     });
   });
 });
