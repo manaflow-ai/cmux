@@ -75,22 +75,28 @@ elif [[ "$before" == ref:* ]]; then
   ref="${before#ref:}"
   ab="$(mktemp -d)"
   # Each arm's three binaries side by side in a folder of its own: the daemon runs its hosts from the
-  # cmux-tui-host beside it. The base builds into the same target folder, so only the workspace crates rebuild.
+  # cmux-tui-host beside it. The base's cmux-tui/ is put in place of this head's in this same checkout (a worktree
+  # of a sparse checkout lacks files the crates read) and built into the same target folder, so only the changed
+  # crates rebuild; this head's cmux-tui/ comes back after, and this head's harness runs both arms.
   mkdir "$ab/after" "$ab/before"
   cp "$target/release/acpmux" "$target/release/cmux-tui" "$target/release/cmux-tui-host" "$ab/after/"
   git rev-parse --verify -q "$ref^{commit}" >/dev/null || git fetch -q --depth 1 origin "$ref"
   base_sha="$(git rev-parse --verify -q "$ref^{commit}" || git rev-parse FETCH_HEAD)"
-  git worktree add -q --detach "$ab/src" "$base_sha"
-  ghostty_src="${CMUX_GHOSTTY_SRC:-}"
-  if [ "$(git -C "$ab/src" rev-parse HEAD:ghostty-next)" == "$(git rev-parse HEAD:ghostty-next)" ]; then
-    ghostty_src="${ghostty_src:-$root/ghostty-next}"
-  else
-    git -C "$ab/src" submodule update --init --depth 1 ghostty-next
+  if [ "$(git rev-parse "$base_sha:ghostty-next")" != "$(git rev-parse HEAD:ghostty-next)" ]; then
+    echo "infinite-items-linux.sh: $base_sha pins another ghostty-next; before=ref: needs the same pin" >&2
+    exit 2
   fi
-  (cd "$ab/src/cmux-tui" && CMUX_GHOSTTY_SRC="$ghostty_src" CARGO_TARGET_DIR="$target" cargo build --locked --release \
-    -p acpmux --bin acpmux -p cmux-tui --bin cmux-tui --bin cmux-tui-host 2>&1 | tail -n 3)
+  trap 'git restore --source=HEAD --staged --worktree -- cmux-tui; rm -rf "$ab"; [ -n "${FAST_CHECKS_OUT:-}" ] || rm -rf "$out"' EXIT
+  git restore --source="$base_sha" --staged --worktree -- cmux-tui
+  base_status=0
+  (cd "$root/cmux-tui" && cargo build --locked --release -p acpmux --bin acpmux -p cmux-tui --bin cmux-tui \
+    --bin cmux-tui-host 2>&1 | tail -n 3; exit "${PIPESTATUS[0]}") || base_status=$?
+  git restore --source=HEAD --staged --worktree -- cmux-tui
+  if [ "$base_status" != 0 ]; then
+    echo "infinite-items-linux.sh: the build of $base_sha failed ($base_status)" >&2
+    exit 1
+  fi
   cp "$target/release/acpmux" "$target/release/cmux-tui" "$target/release/cmux-tui-host" "$ab/before/"
-  git worktree remove --force "$ab/src"
   echo "INFINITE-AB before=$base_sha after=$(git rev-parse HEAD) repeat=$repeat counts=$counts days=$days"
   for i in $(seq 1 "$repeat"); do
     for arm in before after; do
