@@ -263,7 +263,7 @@ fn read_registry_in(
 /// holds the id of the session it made once that is inserted (`claim`), so a
 /// create whose session already runs is counted once, as that session.
 #[derive(Default)]
-pub(crate) struct Admitting(StdMutex<Vec<Arc<Making>>>);
+pub(crate) struct Admitting(pub(super) StdMutex<Vec<Arc<Making>>>);
 
 /// One admitted create: the name it asked for, and the id of the session it made.
 #[derive(Default)]
