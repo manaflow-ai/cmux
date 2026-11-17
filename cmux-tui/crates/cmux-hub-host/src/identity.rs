@@ -1,11 +1,11 @@
-//! This Linux desktop's device hub identity and account, kept like the Mac's Keychain items
-//! but in files only this user can read: `$XDG_CONFIG_HOME/cmux/screen-host/` (0700), with
+//! A screen host's device hub identity and account, kept like the Mac's Keychain items but in
+//! files only this user can read (on Linux `$XDG_CONFIG_HOME/cmux/screen-host/`, 0700), with
 //! `device.json` (the device id, name and its two P-256 keys as PKCS#8) and `account.json`
 //! (the hub, the user id and when the anchor ends), each 0600. Writes go through a
 //! same-directory temp file created with `O_EXCL | O_NOFOLLOW` and a rename; reads refuse a
 //! symlink, a file another user owns, or one any other user can read.
 
-use super::b64;
+use crate::b64;
 use crate::Res;
 use ring::rand::{SecureRandom, SystemRandom};
 use ring::signature::{EcdsaKeyPair, KeyPair, ECDSA_P256_SHA256_FIXED_SIGNING};
@@ -59,7 +59,7 @@ pub fn write_private(path: &Path, bytes: &[u8]) -> Res<()> {
     let tmp = dir.join(format!(
         ".{}.{}",
         path.file_name().and_then(|n| n.to_str()).unwrap_or("file"),
-        crate::serve::hex(&nonce)
+        crate::hex(&nonce)
     ));
     let written = (|| -> std::io::Result<()> {
         let mut file = OpenOptions::new()
@@ -113,7 +113,7 @@ pub struct Device {
     /// PKCS#8 of the P-256 signing key (base64).
     pub signing_pkcs8: String,
     /// PKCS#8 of the P-256 key whose public point is the registered agreement key (base64).
-    /// Relays the person seals to it are not opened yet: this host uses the hub's relays.
+    /// The relay secrets the person seals to it open with [`Device::open_sealed`].
     pub agreement_pkcs8: String,
 }
 
@@ -141,6 +141,37 @@ impl Device {
     /// The agreement key's public point (base64 X9.63, 65 bytes).
     pub fn agreement_key(&self) -> Res<String> {
         Ok(Signer::from_pkcs8(&self.agreement_pkcs8)?.public_key())
+    }
+
+    /// Opens what was sealed to the agreement key: HPKE base mode (RFC 9180) with
+    /// DHKEM(P-256, HKDF-SHA256), HKDF-SHA256 and AES-256-GCM, no associated data. A relay
+    /// blob (PROTOCOL.md, Relays) is the 65-byte `encapsulated_key` then the `ciphertext`,
+    /// with `info` `cmux-device-hub relay v1 <relay id>`.
+    pub fn open_sealed(
+        &self,
+        ciphertext: &[u8],
+        encapsulated_key: &[u8],
+        info: &[u8],
+    ) -> Res<Vec<u8>> {
+        use hpke::Deserializable;
+        use p256::pkcs8::DecodePrivateKey;
+        type Kem = hpke::kem::DhP256HkdfSha256;
+        let der = b64::decode(&self.agreement_pkcs8).ok_or("key is not base64")?;
+        let secret = p256::SecretKey::from_pkcs8_der(&der)
+            .map_err(|_| "the agreement key is not a P-256 PKCS#8 key")?;
+        let private = <Kem as hpke::Kem>::PrivateKey::from_bytes(&secret.to_bytes())
+            .map_err(|_| "the agreement key is not a P-256 private key")?;
+        let encapsulated = <Kem as hpke::Kem>::EncappedKey::from_bytes(encapsulated_key)
+            .map_err(|_| "the encapsulated key is not a P-256 point")?;
+        hpke::single_shot_open::<hpke::aead::AesGcm256, hpke::kdf::HkdfSha256, Kem>(
+            &hpke::OpModeR::Base,
+            &private,
+            &encapsulated,
+            info,
+            ciphertext,
+            &[],
+        )
+        .map_err(|_| "the sealed secret does not open with this device's agreement key".into())
     }
 
     pub fn load(dir: &Path) -> Res<Option<Self>> {
@@ -205,12 +236,13 @@ impl Signer {
     }
 }
 
+#[allow(clippy::string_slice, reason = "the hex of 16 bytes is 32 ASCII characters")]
 fn uuid_v4(rng: &SystemRandom) -> Res<String> {
     let mut b = [0u8; 16];
     rng.fill(&mut b).map_err(|_| "no randomness")?;
     b[6] = (b[6] & 0x0f) | 0x40;
     b[8] = (b[8] & 0x3f) | 0x80;
-    let h = crate::serve::hex(&b);
+    let h = crate::hex(&b);
     Ok(format!("{}-{}-{}-{}-{}", &h[0..8], &h[8..12], &h[12..16], &h[16..20], &h[20..32]))
 }
 
@@ -248,6 +280,63 @@ mod tests {
         assert_eq!(b64::decode(&back.signer().unwrap().public_key()).unwrap().len(), 65);
         assert_ne!(back.signer().unwrap().public_key(), back.agreement_key().unwrap());
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// An RNG for the test's sealing side, from ring's system randomness.
+    struct TestRng(SystemRandom);
+
+    impl hpke::rand_core::RngCore for TestRng {
+        fn next_u32(&mut self) -> u32 {
+            let mut b = [0; 4];
+            self.fill_bytes(&mut b);
+            u32::from_le_bytes(b)
+        }
+        fn next_u64(&mut self) -> u64 {
+            let mut b = [0; 8];
+            self.fill_bytes(&mut b);
+            u64::from_le_bytes(b)
+        }
+        fn fill_bytes(&mut self, dest: &mut [u8]) {
+            self.0.fill(dest).unwrap();
+        }
+    }
+
+    impl hpke::rand_core::CryptoRng for TestRng {}
+
+    #[test]
+    fn relay_secrets_sealed_to_the_agreement_key_open() {
+        use hpke::{Deserializable, Serializable};
+        type Kem = hpke::kem::DhP256HkdfSha256;
+        let device = Device::generate("desk").unwrap();
+        // What a viewer does with the registered agreement key (base64 X9.63, 65 bytes).
+        let public = b64::decode(&device.agreement_key().unwrap()).unwrap();
+        let public = <Kem as hpke::Kem>::PublicKey::from_bytes(&public).unwrap();
+        let info = b"cmux-device-hub relay v1 relay-1";
+        let secret = br#"{"username":"u","credential":"c"}"#;
+        let (encapsulated, ciphertext) =
+            hpke::single_shot_seal::<hpke::aead::AesGcm256, hpke::kdf::HkdfSha256, Kem, _>(
+                &hpke::OpModeS::Base,
+                &public,
+                info,
+                secret,
+                &[],
+                &mut TestRng(SystemRandom::new()),
+            )
+            .unwrap();
+        let encapsulated = encapsulated.to_bytes();
+        assert_eq!(encapsulated.len(), 65);
+        let opened = device.open_sealed(&ciphertext, &encapsulated, info).unwrap();
+        assert_eq!(opened, secret);
+        // Another relay's info, another device, or a changed byte opens nothing.
+        assert!(device
+            .open_sealed(&ciphertext, &encapsulated, b"cmux-device-hub relay v1 relay-2")
+            .is_err());
+        let other = Device::generate("other").unwrap();
+        assert!(other.open_sealed(&ciphertext, &encapsulated, info).is_err());
+        let mut tampered = ciphertext.clone();
+        tampered[0] ^= 1;
+        assert!(device.open_sealed(&tampered, &encapsulated, info).is_err());
+        assert!(device.open_sealed(&ciphertext, &encapsulated[1..], info).is_err());
     }
 
     #[test]
