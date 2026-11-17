@@ -130,6 +130,14 @@ pub fn machine_plane() -> BTreeMap<String, String> {
     read_at(Path::new(PLANE_FILE), true).unwrap_or_default()
 }
 
+/// The part of `plane` a spawn may use, given `resolves` (whether a host resolves here).
+pub fn where_resolves(
+    plane: BTreeMap<String, String>,
+    _resolves: impl Fn(&str) -> bool,
+) -> BTreeMap<String, String> {
+    plane
+}
+
 /// The `plane` variables for each name `present` says the child does not have yet.
 pub fn missing(
     plane: &BTreeMap<String, String>,
@@ -246,6 +254,34 @@ mod tests {
             assert_eq!(read_at(&link, false), Err(Problem::Untrusted));
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Staging and production machines get no edge rule, so the baked host does not resolve
+    /// there and no spawn may get the route: the person's own sign-in stays in charge
+    /// (cmux-platform#1442). Where it resolves (development), the route is kept whole.
+    #[test]
+    fn a_machine_whose_plane_host_does_not_resolve_gets_no_route() {
+        let plane = validate(parse(BAKED)).unwrap();
+        assert!(where_resolves(plane.clone(), |_| false).is_empty(), "unresolved: no route");
+        let asked = std::cell::RefCell::new(Vec::new());
+        let kept = where_resolves(plane.clone(), |host| {
+            asked.borrow_mut().push(host.to_owned());
+            true
+        });
+        assert_eq!(kept, plane, "resolved: the whole route");
+        assert_eq!(*asked.borrow(), ["coderouter.cmux.internal"], "one host, asked once");
+        // A route naming a second host needs both to resolve.
+        let mut split = plane.clone();
+        split.insert("OPENAI_BASE_URL".into(), "https://other.example:8443/v1".into());
+        assert!(where_resolves(split.clone(), |h| h == "coderouter.cmux.internal").is_empty());
+        let asked = std::cell::RefCell::new(Vec::new());
+        let kept = where_resolves(split.clone(), |host| {
+            asked.borrow_mut().push(host.to_owned());
+            true
+        });
+        assert_eq!(kept, split);
+        assert_eq!(*asked.borrow(), ["coderouter.cmux.internal", "other.example:8443"]);
+        assert!(where_resolves(BTreeMap::new(), |_| true).is_empty());
     }
 
     /// The reported bug: a daemon env with no route gets the machine's; a value anything else
