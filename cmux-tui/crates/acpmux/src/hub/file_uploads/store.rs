@@ -10,7 +10,8 @@
 //!
 //! - **Record.** Each upload's folder holds `.record`, `{name, source, at, sha256, size}`: the
 //!   name it was shown as, the app it came from when the sender said, when it was stored, and
-//!   which stored bytes it is.
+//!   which stored bytes it is. It is written once the store takes the upload, just after its
+//!   finish has answered; an upload the store could not take keeps its own copy and has none.
 //! - **References.** A stored file's references are its other hard links (its link count less
 //!   the store's own), so the count can never drift from what is on disk, a crash included.
 //! - **Deletion.** Stored bytes go once no upload links them ([`release`] when an upload folder
@@ -118,7 +119,9 @@ pub(crate) fn sha256_of(path: &Path) -> std::io::Result<String> {
 /// Puts the finished upload at `file` (`<root>/<chat>/<upload id>/<name>`) into the store and
 /// writes its record: bytes the store already holds are linked in place of `file`'s own copy,
 /// which goes; new bytes are linked into the store. `file`'s path never stops naming the bytes
-/// (the swap is a rename). `sha256` is the file's hash when the caller already has it. Blocking.
+/// (the swap is a rename). The record is written first, so a reader that finds the file has
+/// another name always finds the record that names the store's (`is_stored_link`). `sha256` is
+/// the file's hash when the caller already has it. Blocking.
 pub(crate) fn adopt(
     root: &Path,
     file: &Path,
@@ -134,12 +137,12 @@ pub(crate) fn adopt(
         _ => sha256_of(file)?,
     };
     let record = Record { name, source: source.map(str::to_owned), at: now_ms, sha256: hash, size };
+    let bytes = serde_json::to_vec(&record.to_json())?;
+    crate::agent_tools::write_private(&dir.join(RECORD), &bytes)?;
     #[cfg(unix)]
     link_into_store(root, file, &record)?;
     #[cfg(not(unix))]
     let _ = root;
-    let bytes = serde_json::to_vec(&record.to_json())?;
-    crate::agent_tools::write_private(&dir.join(RECORD), &bytes)?;
     Ok(record)
 }
 
