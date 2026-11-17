@@ -2289,9 +2289,11 @@ The rules:
 - A creation writes the record of the active tab. A select or a move between
   a create request and its tab does not: the tab that comes later takes the
   active tab if no later create request with a slot took it, also from a tab
-  that a person selected after the request. For a person: a new tab that the
-  person asked for is the active tab when it comes, also if the person
-  selected another tab while it launched.
+  that a person selected after the request. For a person, today: a new tab
+  that the person asked for is the active tab when it comes, also if the
+  person selected another tab while it launched. This is what the daemon
+  does today. The decision on this rule is open (2026-11-17), and the rule
+  can change.
 - A close of the active tab while a tab still launches follows the rule of
   the requests applied one by one too. One by one, the close gives the
   active tab to the next entry of the strip, or to the entry before when no
@@ -2347,6 +2349,11 @@ The rules:
     takes the active tab of the pane when it comes, if the move left the
     active tab on the tab that the refused close gave it to and wrote no
     stamp.
+  - A move to another pane of the tab that a close made active. The pane
+    that the tab leaves gives its active tab to another tab and gets no
+    stamp. When that other tab is not a tab that a close made active, the
+    late tab does not take the active tab, where one by one it is the
+    active tab from the close.
 - The cost of the rule at a close: a pane with no create request that took a
   slot, and a close of a tab that is not the active tab while no close gave
   the active tab to a slot, read nothing of the list.
