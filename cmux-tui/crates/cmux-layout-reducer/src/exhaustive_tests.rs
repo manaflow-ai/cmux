@@ -294,7 +294,7 @@ fn check_op(state: &LayoutState, op: &LayoutOp) -> bool {
         Err(_) => {
             // A rejection in place puts back everything the op changed.
             let mut in_place = state.clone();
-            assert!(crate::apply_mut(&mut in_place, op).is_err(), "{op:?} on {state:?}");
+            assert!(apply_mut(&mut in_place, op).is_err(), "{op:?} on {state:?}");
             assert_eq!(&in_place, state, "a rejected {op:?} changed the state");
             return false;
         }
