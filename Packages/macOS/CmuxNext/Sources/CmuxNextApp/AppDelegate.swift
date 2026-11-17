@@ -188,6 +188,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppProcessRoot.shared.adopt(hangReports: WatchdogReporting.install(control.watchdog, services: services))
         services.quit.watchdog = control.watchdog
         DebugTimings.markReveal(services.launchReveal)
+        services.launchReveal.firstFrame = firstFrame // the views' own launch work waits on it (FirstFrameHold)
         // This launch's times, in every build, for `cmux app launch-times` (CMUX-571): once the first frame and Home have shown.
         if let bundleID = environment.launch.bundleID, let file = LaunchTimesFile.app(bundleID: bundleID) {
             let recorder = LaunchTimesRecorder(file: file, work: services.work, info: Bundle.main.infoDictionary ?? [:]) { StagedUpdatePrewarm.consumeLaunchMarker(build: $0, bundleIdentifier: bundleID) }

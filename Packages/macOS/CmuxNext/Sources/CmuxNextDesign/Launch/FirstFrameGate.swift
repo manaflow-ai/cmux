@@ -63,3 +63,29 @@ public final class FirstFrameGate {
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in whenOpen { done.resume() } }
     }
 }
+
+/// One view's launch work held for the turn after the first frame's commit (as ``FirstFrameGate/afterOpen``'s
+/// steps), so it neither delays that frame nor runs inside its commit; `runNow` makes it sooner, when the
+/// person or an action needs it. Work given while some is held is dropped: the held work reads the view's
+/// latest state when it runs (Home's first conversation host, ~90 ms on main: TopHomePageView).
+@MainActor
+public final class FirstFrameHold {
+    private var held: (@MainActor () -> Void)?
+
+    public init() {}
+
+    /// Runs `work` at once when `gate` is nil or open; else holds it until the turn after the gate opens.
+    public func run(after gate: FirstFrameGate?, _ work: @escaping @MainActor () -> Void) {
+        guard held == nil else { return }
+        guard let gate, !gate.isOpen else { return work() }
+        held = work
+        gate.whenOpen { AfterFrameCommit().run { [weak self] in self?.runNow() } }
+    }
+
+    /// Runs the held work now, once (nothing when none is held).
+    public func runNow() {
+        let work = held
+        held = nil
+        work?()
+    }
+}
