@@ -1087,6 +1087,10 @@ const SCROLL_LEAD_STEPS = 2;
 // motion-allow: a scroll idle timeout, not a motion
 const SCROLL_LEAD_IDLE_MS = 120;
 
+/// How long the frame guard (VirtualTranscript `armFrameGuard`) keeps reading the offset each frame after
+/// it last moved: a fling's frames and the pauses between a trackpad's flicks.
+const SCROLL_GUARD_IDLE_MS = 250;
+
 /// More new rows than this in one update are a load (a session switch, older history), not live rows.
 const LIVE_ROWS_PER_UPDATE = 3;
 /// How recent an empty chat's first prompt is when its transcript mounts for it to enter (above).
@@ -1915,6 +1919,15 @@ function TranscriptView({
   /// Where the warm rows were built from (warmAnchor), held while a fast scroll outruns them (below).
   const heldWarmAt = useRef<string | undefined>(undefined);
   const scrollLeadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /// The frame guard's pending frame and observer, when the offset last moved, the offset it last read and
+  /// the one it handled (`armFrameGuard`).
+  const frameGuard = useRef<{
+    handle: number | undefined;
+    observer: ResizeObserver | undefined;
+    movedAt: number;
+    seen: number | undefined;
+    handled: number | undefined;
+  }>({ handle: undefined, observer: undefined, movedAt: 0, seen: undefined, handled: undefined });
   const [, setScroll] = useState(scrollRef.current);
   const scheduleScrollLeadReset = () => {
     clearTimeout(scrollLeadTimer.current);
@@ -2122,10 +2135,16 @@ function TranscriptView({
     transcriptMounted.current = true;
     // The flicker detector's remount count (flickerLog.ts): a second mount on one page is a remount.
     noteTranscriptMount();
+    // One object for the transcript's life (its fields change, never it).
+    const guard = frameGuard.current;
     return () => {
       transcriptMounted.current = false;
       scrollPacer.current?.cancel();
       clearTimeout(scrollLeadTimer.current);
+      if (guard.handle !== undefined) cancelAnimationFrame(guard.handle);
+      guard.handle = undefined;
+      guard.observer?.disconnect();
+      guard.observer = undefined;
     };
   }, []);
   /// Where Jump to latest's glide is headed while it is in flight: its steps are the view following,
@@ -6054,7 +6073,71 @@ function TranscriptView({
   const checkOlderNow = useRef<() => void>(() => {});
   /// The reader's speed up and how long pages take, which move the older-history ask further ahead.
   const [olderAhead] = useState(() => new OlderAhead());
+  /// The room held above the loaded rows for history still to load (conversation/olderReserve.ts), 0 once
+  /// it went (`roomGone`): what is left then is no history, only what keeps a short tail at the view's foot.
+  const roomWent = () => roomGone !== undefined && roomGone.sessionId === sessionId && rows[0]?.id === roomGone.firstId;
+  const roomAbove = () => (roomWent() ? 0 : (latestLayout.current.layout.origin ?? 0));
+  /// The view is in that room, where no row is drawn, and no scrollbar drag holds it there (handleScroll
+  /// gives it back).
+  const inRoom = (node: HTMLDivElement, room: number) =>
+    room > 0 && layoutScrollTop(node) < room && !userScrollIntent(node).isScrollbarDragging();
+  /// The frame guard: while the reader scrolls, each frame reads the offset once more after its frame
+  /// callbacks ran and before it paints and, if it moved since the last commit, handles it as its scroll
+  /// event would and commits at once, so the frame paints the rows at the offset it paints. The scroll
+  /// event of an offset written in a frame callback (a fling's or a drag's step, a wheel's default
+  /// applied there) comes only in the next frame, and the scroll pacer's frame callback, run before that
+  /// write or cancelled (an older page landing re-anchored the view) or not asked for (a scroll from
+  /// rest), left the frame painting the rows the last commit mounted: a jump past them painted a view
+  /// with no row, and a step into the room above the loaded rows was given back only after a frame had
+  /// painted that room empty (Leo, 2026-11-17: "scrolling.. bit of blank screening when the content
+  /// loads"). It mounts nothing the pacer would not: the same commit, earlier.
+  /// The read runs in a ResizeObserver callback, the one hook after every frame callback and before the
+  /// paint: a frame callback re-observes the scroller, whose new observation is delivered that frame.
+  /// It runs until the offset has stood still SCROLL_GUARD_IDLE_MS. `handled` is the offset it handled,
+  /// whose own scroll event (the next frame's) is then not handled again (`frameGuard`, above).
+  const guardOffset = (node: HTMLDivElement) => {
+    const guard = frameGuard.current;
+    const live = node.scrollTop;
+    // Only a move restarts the idle clock: an offset the handler leaves unhandled (a chat not opened
+    // yet, a hidden pane) would otherwise keep the guard running.
+    if (live !== guard.seen) guard.movedAt = performance.now();
+    // The pacer may have committed this offset already, inside the room: given back only by the handler.
+    if (Math.abs(live - scrollRef.current.top) > 0.5 || (node.clientHeight > 0 && inRoom(node, roomAbove()))) {
+      motionScroll.current(node, true);
+      guard.handled = node.scrollTop;
+    }
+    guard.seen = node.scrollTop;
+  };
+  const armFrameGuard = () => {
+    const guard = frameGuard.current;
+    guard.movedAt = performance.now();
+    if (guard.observer === undefined && typeof ResizeObserver === "function")
+      guard.observer = new ResizeObserver(() => {
+        const node = ref.current;
+        if (node && transcriptMounted.current) guardOffset(node);
+      });
+    // This frame too: an input that moves the offset in this frame's callbacks (a wheel's default) is
+    // read before this frame paints, not only from the next.
+    const watch = (node: HTMLDivElement) => {
+      if (!guard.observer) return guardOffset(node);
+      guard.observer.unobserve(node);
+      guard.observer.observe(node);
+    };
+    if (ref.current && transcriptMounted.current && guard.observer) watch(ref.current);
+    if (guard.handle !== undefined) return;
+    const tick = () => {
+      guard.handle = undefined;
+      // An offset handled a frame ago has had its scroll event by now (or never gets one).
+      guard.handled = undefined;
+      const node = ref.current;
+      if (!node || !transcriptMounted.current) return;
+      watch(node);
+      if (performance.now() - guard.movedAt < SCROLL_GUARD_IDLE_MS) guard.handle = requestAnimationFrame(tick);
+    };
+    guard.handle = requestAnimationFrame(tick);
+  };
   const handleScroll = (node: HTMLDivElement, immediate = false) => {
+    armFrameGuard();
     pacing.scrolled();
     // A row whose glide the reader's input held, scrolled out of view, lands now where nobody sees it,
     // so it never plays on under the view when they come back to the latest row (tailGlide.ts).
@@ -6069,9 +6152,9 @@ function TranscriptView({
     // the room. A view inside it showed nothing, and the pages then landed under it unseen.
     // Once it went (`roomGone`), what is left is no history to load, only what keeps a short tail at
     // the view's foot: nothing to hold the reader from.
-    const gone = roomGone !== undefined && roomGone.sessionId === sessionId && rows[0]?.id === roomGone.firstId;
-    const room = gone ? 0 : (latestLayout.current.layout.origin ?? 0);
-    if (room > 0 && layoutScrollTop(node) < room && !userScrollIntent(node).isScrollbarDragging()) {
+    const gone = roomWent();
+    const room = roomAbove();
+    if (inRoom(node, room)) {
       // Only a pointer held on the scroller (a thumb drag the scrollbar check missed) keeps its target
       // for the page to bring into reach. A wheel's step into the room is given back here and stays
       // given back: kept, it was replayed in one frame when the page landed, and the row being read
@@ -6213,7 +6296,15 @@ function TranscriptView({
     node.addEventListener(MOTION_SCROLL_EVENT, moved);
     return () => node.removeEventListener(MOTION_SCROLL_EVENT, moved);
   }, []);
-  const onScroll = (event: React.UIEvent<HTMLDivElement>) => handleScroll(event.currentTarget);
+  const onScroll = (event: React.UIEvent<HTMLDivElement>) => {
+    const node = event.currentTarget;
+    // The frame guard handled this offset in the frame that wrote it: handled again, its zero move would
+    // read as the reader stopping (OlderAhead's speed) and the older pages would ask late.
+    const handled = frameGuard.current.handled;
+    frameGuard.current.handled = undefined;
+    if (handled !== undefined && Math.abs(node.scrollTop - handled) <= 0.5) return;
+    handleScroll(node);
+  };
   // Jump to latest (the button, ChatGPT and Codex style): a smooth scroll to the latest message, then a
   // landing on it, so a reply that grew meanwhile is followed again.
   const jumpToLatest = (focused: boolean, path = "jump") => {
@@ -6945,10 +7036,19 @@ function TranscriptView({
   // A wheel up with the view already at the loaded rows' top moves nothing, so no scroll event says the reader
   // wants more: it asks itself, unless an ask is still out.
   const onWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    // Its default moves the offset before the frame paints (in a frame callback, as a synthetic wheel's
+    // is applied): the frame guard reads it this frame.
+    armFrameGuard();
     // Held at the loaded rows' top, a wheel up moves nothing: the reader is still scrolling up (`rising`).
-    if (event.deltaY < 0) olderAhead.wheeledUp(performance.now());
+    if (event.deltaY < 0) olderAhead.wheeledUp(performance.now(), event.deltaMode === 0 ? -event.deltaY : 0);
     const loadedTop = layout.origin ?? 0;
-    if (event.deltaY >= 0 || layoutScrollTop(event.currentTarget) > loadedTop + 0.5 || olderAsking.current) return;
+    if (event.deltaY >= 0 || olderAsking.current) return;
+    // A fling's first wheel asks as far ahead as its step reaches while a page is read (OlderAhead), a
+    // frame before its scroll event would.
+    if (layoutScrollTop(event.currentTarget) > loadedTop + 0.5) {
+      checkOlderNow.current();
+      return;
+    }
     olderLoadRequested.current = undefined;
     checkOlderNow.current();
   };
