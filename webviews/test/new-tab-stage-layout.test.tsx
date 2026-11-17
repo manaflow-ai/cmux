@@ -147,18 +147,12 @@ test("the Default template is Claude Code desktop's page: cards over the compose
     expect(rows.map((row) => row.textContent).join("|")).toContain("web");
     expect(env.querySelector("hr.nt-stage-divider")).toBeTruthy();
     expect(env.textContent).toContain("Choose environment");
-    // The suggestions card: the chat that needs you, then the three create actions, as rows.
+    // The suggestions card keeps chats needing attention; creation is found through search.
     const suggest = stage!.querySelector(".nt-suggest")!;
     expect([...suggest.querySelectorAll(".nt-suggest-chat")].map((row) => row.textContent)).toEqual([
       expect.stringContaining("Ship the release notes"),
     ]);
-    expect([...suggest.querySelectorAll(".nt-create [data-create]")].map((b) => b.textContent?.trim())).toEqual([
-      "New terminal",
-      "New browser tab",
-      "New chat",
-    ]);
-    // No ghost pills: the create actions are rows of the card.
-    expect(host.querySelector(".nt-create.ui-ghost-row")).toBeNull();
+    expect(host.querySelector(".nt-create")).toBeNull();
     // Default's own composer, only placed at the foot (#22285 keeps the second dot's composer): the
     // folder strip over the box, Send in it, and no Claude Code quiet row under it.
     expect(composer!.querySelector(".nt-above .nt-location")).toBeTruthy();

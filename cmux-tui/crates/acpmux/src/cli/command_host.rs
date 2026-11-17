@@ -143,8 +143,8 @@ pub enum PeerCmd {
         #[arg(long)]
         user_id: Option<String>,
     },
-    /// Request screen/control consent through the daemon. Changing it requires
-    /// the local app's person proof; a shell or agent cannot grant consent.
+    /// Screen/control consent. From the cmux app (its person proof), or as this Mac's admin
+    /// with sudo (`sudo acpmux machine consent grant --control`); a plain shell is refused.
     Consent {
         #[command(subcommand)]
         cmd: ConsentCmd,
@@ -452,23 +452,32 @@ pub enum TunnelCmd {
 
 #[derive(Subcommand)]
 pub enum ConsentCmd {
-    /// Ask the app to grant screen or control consent (exactly one of --screen, --control).
+    /// Grant screen, control or signed-in-machines consent (exactly one). Under sudo it is set
+    /// here as this Mac's admin; otherwise the daemon takes it only from the cmux app.
+    #[command(group(clap::ArgGroup::new("surface").required(true).args(["screen", "control", "signed_in_machines"])))]
     Grant {
         /// Screen recording.
-        #[arg(long, conflicts_with = "control", required_unless_present = "control")]
+        #[arg(long)]
         screen: bool,
         /// Keyboard and mouse control.
         #[arg(long)]
         control: bool,
+        /// Control from this person's other machines signed in to the same account.
+        #[arg(long)]
+        signed_in_machines: bool,
     },
-    /// Ask the app to revoke screen or control consent (exactly one of --screen, --control).
+    /// Revoke screen, control or signed-in-machines consent (exactly one), the same ways.
+    #[command(group(clap::ArgGroup::new("surface").required(true).args(["screen", "control", "signed_in_machines"])))]
     Revoke {
         /// Screen recording.
-        #[arg(long, conflicts_with = "control", required_unless_present = "control")]
+        #[arg(long)]
         screen: bool,
         /// Keyboard and mouse control.
         #[arg(long)]
         control: bool,
+        /// Control from this person's other machines signed in to the same account.
+        #[arg(long)]
+        signed_in_machines: bool,
     },
 }
 

@@ -363,25 +363,33 @@ async fn gate_run(caller: &str, proxy: &Counted) -> (u128, u128) {
     let via = || Via::List(proxy.path.clone());
     let before = proxy.bytes.load(Ordering::Relaxed);
     let started = Instant::now();
-    match caller {
+    // The MCP `ls` answers a refusal as a value, never an error: kept, and checked past the clock.
+    let mcp_reply = match caller {
         "ls" => {
             super::ls::output(ls_args(&[]), false, &client, via(), crate::store::now_ms())
                 .await
                 .unwrap();
+            None
         }
         "pending" => {
             super::standard::pending_output(&client, via(), false).await.unwrap();
+            None
         }
         "send_tag_dry_run" => {
             super::fanout::targets_via(&client, via(), "area=acpmux", None).await.unwrap();
+            None
         }
-        "mcp_ls" => {
-            crate::acpmux_mcp::ls_via(&client, &json!({}), via()).await;
-        }
+        "mcp_ls" => Some(crate::acpmux_mcp::ls_via(&client, &json!({}), via()).await),
         _ => unreachable!(),
-    }
+    };
     let wall = started.elapsed().as_nanos();
     drop(client);
+    // A timed sample proves it did the work (decision 271): a refused `ls` is no fast `ls`.
+    if let Some(reply) = mcp_reply {
+        assert_eq!(reply["isError"], json!(false), "the gate's MCP ls was refused: {reply}");
+        let sessions = reply["structuredContent"]["sessions"].as_array().map(Vec::len);
+        assert_eq!(sessions, Some(20), "the gate's MCP ls lists its 20 live chats");
+    }
     proxy.settled().await.unwrap();
     // The client's initialize reply is counted too, alike on both sides.
     (wall, u128::from(proxy.bytes.load(Ordering::Relaxed) - before))
@@ -503,11 +511,8 @@ async fn v2_pr07b_usage_first_read() {
     let rebuilt =
         [small.hub.list_order_rebuilds_for_test(), god.hub.list_order_rebuilds_for_test()];
     assert_eq!(rebuilt, built, "a timed pass sorted every chat again");
-    acpmux_book::gate_rounds::report(
-        "v2.pr07b.usage_first_read",
-        &[("small", &small_wall), ("god", &god_wall)],
-    );
-    // The row's line last, with no assert after it: the home judges the ratio.
+    // The row's rounds and line last (`emit` prints both), with no assert after it: the home
+    // judges the ratio.
     emit("v2.pr07b.usage_first_read", &small_wall, &god_wall, "ns");
 }
 

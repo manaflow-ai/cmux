@@ -309,8 +309,24 @@ impl ProviderError {
     /// Whether a provider failed because its current carrier path disappeared
     /// or could not be established. Configuration, authentication, and
     /// protocol failures remain terminal.
+    ///
+    /// A far refusal ([`LinkError::Refused`]) counts as retryable here, as it did before it had
+    /// a type: an established link keeps redialing through one (a far daemon restarting answers
+    /// `service.off` for a moment). Only a first connect ends on it, by asking [`Self::refusal`]
+    /// first.
     pub fn is_retryable_carrier_failure(&self) -> bool {
-        matches!(self, Self::Link(LinkError::Closed | LinkError::Transport(_)))
+        matches!(
+            self,
+            Self::Link(LinkError::Closed | LinkError::Transport(_) | LinkError::Refused(_))
+        )
+    }
+
+    /// The far side's refusal, when it refused the route for good ([`LinkError::Refused`]).
+    pub fn refusal(&self) -> Option<&crate::link::Refusal> {
+        match self {
+            Self::Link(error) => error.refusal(),
+            _ => None,
+        }
     }
 }
 

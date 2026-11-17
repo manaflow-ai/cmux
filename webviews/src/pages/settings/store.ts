@@ -33,6 +33,7 @@ import {
   type ScopeData,
   type ThemeColorsData,
   type Write,
+  type ModelsData,
 } from "./queries";
 import { rowsByKey } from "./schema";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, resolveHarnessPlacement } from "../../ui/harnessPlacement";
@@ -74,9 +75,13 @@ import {
   type SettingsStreams,
   type WireError,
   type WorkspaceBackground,
+  type ModelsRun,
+  type ModelsState,
   SETTINGS_SENTENCES,
   type CustomizeTryOn,
   type JoinConsentSurface,
+  type LibraryListing,
+  type LibraryRun,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -127,6 +132,8 @@ export type SettingsState = {
   harnesses: HarnessesState | null;
   /** The Devices part (Settings > Devices); null until read, or when the host has none. */
   devices: DevicesState | null;
+  /** Settings > Models; null until read, or when the host has none. */
+  models: ModelsState | null;
   /** Theme colors by name (cmux.settings.theme.colors); null until read or when the host has none. */
   themeColors: ReadonlyMap<string, GhosttyTheme> | null;
 };
@@ -145,6 +152,7 @@ export type CacheView = {
   accounts: AccountsData | undefined;
   harnesses?: HarnessesData | undefined;
   devices?: DevicesData | undefined;
+  models?: ModelsData | undefined;
   themeColors: ThemeColorsData | undefined;
 };
 
@@ -189,6 +197,7 @@ export function composeState(ui: UiState, cache: CacheView): SettingsState {
     accounts: cache.accounts ?? null,
     harnesses: cache.harnesses ?? null,
     devices: cache.devices ?? null,
+    models: cache.models ?? null,
     themeColors: cache.themeColors ?? null,
   };
 }
@@ -238,6 +247,11 @@ export class SettingsStore {
     this.queryClient.setQueryDefaults(settingsKeys.devices, {
       queryFn: () => this.native("cmux.settings.devices.state"),
     });
+    this.queryClient.setQueryDefaults(settingsKeys.models, {
+      queryFn: () => this.native("cmux.settings.models.state"),
+      // A page that opened before this Mac's agent service was up reads again until it answers.
+      refetchInterval: (query) => modelsRetryMs(query.state.data as ModelsState | undefined),
+    });
     this.queryClient.setQueryDefaults(settingsKeys.themeColors, {
       queryFn: async (): Promise<ThemeColorsData> =>
         new Map((await this.native("cmux.settings.theme.colors")).themes.map((theme) => [theme.name, theme])),
@@ -260,6 +274,9 @@ export class SettingsStore {
       ),
       this.listen("cmux.settings.devices.changed", (devices) =>
         this.queryClient.setQueryData(settingsKeys.devices, devices),
+      ),
+      this.listen("cmux.settings.models.changed", (models) =>
+        this.queryClient.setQueryData(settingsKeys.models, models),
       ),
       // A key request arrived or ended: Settings > Keys reads its list again (the event has no values).
       this.listen("cmux.settings.keys.changed", () =>
@@ -747,6 +764,19 @@ export class SettingsStore {
     return this.integrationsState();
   }
 
+  /** Reads Settings > Models (a host without it rejects, and the part stays null). */
+  async refreshModels(): Promise<void> {
+    await this.fetchNative(settingsKeys.models);
+  }
+
+  /** One Settings > Models gesture, then a fresh read of the part; answers the host's refusal in plain
+   * words (userMessage), null when it took the gesture. */
+  async runModels(run: ModelsRun): Promise<string | null> {
+    const reply = await this.request("cmux.settings.models.run", run);
+    await this.refreshModels();
+    return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
+  }
+
   /** One Harnesses gesture (Settings > Agents), then a fresh read of the part. */
   async runHarnesses(run: HarnessesRun): Promise<void> {
     await this.request("cmux.settings.harnesses.run", run);
@@ -812,6 +842,21 @@ export class SettingsStore {
   async shares(): Promise<SharesState | null> {
     const reply = await this.request("cmux.settings.shares.list", {});
     return reply.ok ? reply.value : null;
+  }
+
+  /** Personalization > Customization Library: one `cmux customize library` verb. Answers the
+   * library after it (null when the host has no CLI or did not answer) and the CLI's refusal in its
+   * own words (a toggle while a preview is open), else null. */
+  async customizeLibrary(run: LibraryRun): Promise<{ library: LibraryListing | null; refusal: string | null }> {
+    const reply = await this.request("cmux.settings.customize.library", run);
+    // A read the host could not run (no CLI in this build) draws the card's own Unavailable line.
+    if (!reply.ok)
+      return { library: null, refusal: run.verb === "list" ? null : userMessage(reply.error, SETTINGS_SENTENCES) };
+    const answer = reply.value ?? {};
+    const refusal = answer.library
+      ? null
+      : (answer.message ?? (answer.code ? t("settingsPage.customizeLibrary.notChanged") : null));
+    return { library: answer.library ?? null, refusal };
   }
 
   /** Settings > Keys: this Mac's keys and the requests waiting for the person; null when the host
@@ -914,6 +959,7 @@ export class SettingsStore {
       accounts: this.queryClient.getQueryData<AccountsData>(settingsKeys.accounts),
       harnesses: this.queryClient.getQueryData<HarnessesData>(settingsKeys.harnesses),
       devices: this.queryClient.getQueryData<DevicesData>(settingsKeys.devices),
+      models: this.queryClient.getQueryData<ModelsData>(settingsKeys.models),
       themeColors: this.queryClient.getQueryData<ThemeColorsData>(settingsKeys.themeColors),
     };
   }
@@ -933,6 +979,7 @@ export class SettingsStore {
       last.cache.accounts === cache.accounts &&
       last.cache.harnesses === cache.harnesses &&
       last.cache.devices === cache.devices &&
+      last.cache.models === cache.models &&
       last.cache.themeColors === cache.themeColors
     )
       return last.state;
@@ -1247,4 +1294,9 @@ export function managedOf(state: SettingsState, key: string): ManagedInfo | null
 export function valueOf(state: SettingsState, key: string): unknown {
   const row = state.rows.get(key);
   return row ? row.value : rowsByKey.get(key)?.default;
+}
+
+/** How soon the Models state is read again: only while this Mac's connections could not be listed. */
+export function modelsRetryMs(state: ModelsState | undefined): number | false {
+  return state && !state.personal.available ? 2000 : false;
 }

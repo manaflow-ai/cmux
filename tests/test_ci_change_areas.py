@@ -3153,7 +3153,9 @@ def test_feat_next_route_preserves_focused_package_lane() -> None:
     start = workflow.index("      - name: Route cmux-next pull requests away from legacy product lanes")
     block = workflow[start:workflow.index("      - name: Route standalone project workflows", start)]
     assert "package_route=true" in block
-    assert "cmuxnext_route=true" in block
+    # A pull request that changes CmuxNext and another package still tests the other package (hq#11644).
+    assert "!/^Packages\\/macOS\\/CmuxNext\\//" in block
+    assert "cmuxnext_route" not in block
     assert 'echo "macos=false"' in block
     assert 'echo "swift_packages=true"' in block
     assert 'echo "release_build=false"' in block

@@ -33,6 +33,9 @@
 # copy keeps it, and only then is the rest of the bundle signed around the
 # helper's signature and the app sealed. cmux copies the helper out of the app
 # before it runs it, and the helper's own ticket keeps that copy valid offline.
+# The Screen Sharing helper ("<app> Screen Sharing.app",
+# plans/cmux-next/screen-sharing-helper.md), when the app carries it, goes
+# through the same steps after it as its own submission, with no entitlements.
 # Exit 75: Apple had not answered within the wait (nothing signed after it).
 # stapler validate and the Gatekeeper assessment of the copy run on a Mac
 # (scripts/ci/check-signed-app.sh in the verify job).
@@ -68,6 +71,22 @@ MODE="${CMUX_SIGN_MODE:-all}"
 [[ "$MODE" == all || "$MODE" == helper-first ]] && [[ -z "${CMUX_NEXT_CEF_ON_DEMAND:-}" ]] ||
   { echo "error: CMUX_SIGN_MODE=$MODE and CMUX_NEXT_CEF_ON_DEMAND are not supported here" >&2; exit 2; }
 computer_use="$APP_PATH/Contents/Library/cmux Computer Use.app"
+# The Screen Sharing helper ("<app> Screen Sharing.app"), when the app carries
+# one: stamped for the app's final bundle id and name first (the nightly-next
+# identity went into Info.plist after the build), as sign-cmux-bundle.sh step 2b.
+screen_share=""
+find_screen_share() {
+  local found
+  screen_share=""
+  for found in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
+    if [[ -d "$found/Contents" ]]; then screen_share="$found"; return 0; fi
+  done
+}
+find_screen_share
+if [[ -n "$screen_share" ]]; then
+  "${CMUX_SCREEN_HELPER_STAMP_TOOL:-$SCRIPTS_DIR/cmux-next/bundle-screen-sharing-helper.sh}" --stamp "$APP_PATH"
+  find_screen_share
+fi
 if [[ "$MODE" == helper-first ]]; then
   [[ -d "$computer_use/Contents" ]] || { echo "error: nested cmux Computer Use app not found: $computer_use" >&2; exit 1; }
   : "${ASC_API_KEY_ID:?}" "${ASC_API_ISSUER_ID:?}" "${p8:?ASC_API_KEY_P8_BASE64 is not set}"
@@ -241,74 +260,87 @@ exe_of() { # <bundle>: sets exe to the bundle-relative path of its Mach-O execut
 }
 exe_of "$APP_PATH"; main_exe="$exe"
 
-# The Computer Use helper first (helper-first), in the order and with the checks
+# The nested helpers first (helper-first), each in the order and with the checks
 # of notarize-computer-use-helper.sh --start, then --finish up to its host
-# re-seal, which is the bundle pass below.
+# re-seal, which is the bundle pass below: the Computer Use helper, then the
+# Screen Sharing helper when the app carries it. cmux copies both out
+# of the app before it runs them, so each keeps its own stapled ticket.
+first_helpers=() first_rels=() first_cdhashes=()
 if [[ "$MODE" == helper-first ]]; then
   # shellcheck source=../lib/notarization-ticket.sh
   source "$SCRIPTS_DIR/ci/lib/notarization-ticket.sh"
   slice_cdhashes() { python3 -I "$SCRIPTS_DIR/ci/release-signer/slice-cdhashes.py" "$1"; }
-  cu_rel="${computer_use#"$APP_PATH/"}"
-  cu_machos=()
-  for rel in "${machos[@]}"; do [[ "$rel" == "$cu_rel/"* ]] && cu_machos+=("$rel"); done
-  verify_helper() { # <helper.app>: every Mach-O in it
-    local rel
-    for rel in ${cu_machos[@]+"${cu_machos[@]}"}; do
-      run_signer "$R" verify --config-file /dev/null "$1/${rel#"$cu_rel/"}" > "$work/log" 2>&1 ||
-        { tail -5 "$work/log" >&2; echo "error: signature check failed for $rel" >&2; exit 1; }
+  # notarize_first_helper <helper.app> <entitlements, or empty for none> <label> <standalone copy name>
+  notarize_first_helper() {
+    local hb="$1" hent="$2" label="$3" standalone="$work/$4" hrel rel hmachos=() hargs=()
+    local submitted_cdhash notary_status submission accepted attempt
+    hrel="${hb#"$APP_PATH/"}"
+    for rel in "${machos[@]}"; do [[ "$rel" == "$hrel/"* ]] && hmachos+=("$rel"); done
+    verify_helper() { # <helper.app>: every Mach-O in it
+      local rel
+      for rel in ${hmachos[@]+"${hmachos[@]}"}; do
+        run_signer "$R" verify --config-file /dev/null "$1/${rel#"$hrel/"}" > "$work/log" 2>&1 ||
+          { tail -5 "$work/log" >&2; echo "error: signature check failed for $rel" >&2; exit 1; }
+      done
+    }
+    # A new nonce in Info.plist separates this submission from every other one.
+    isolate_helper_submission "$hb"
+    hargs=(--code-signature-flags runtime)
+    [[ -z "$hent" ]] || hargs+=(--entitlements-xml-file "$hent")
+    for rel in ${hmachos[@]+"${hmachos[@]}"}; do hargs+=(--code-signature-flags "${rel#"$hrel/"}:runtime"); done
+    echo "==> signing nested helper ${hb##*/}"
+    run_signer "$R" sign "${identity_args[@]}" "${hargs[@]}" "$hb" > "$work/log" 2>&1 ||
+      { tail -40 "$work/log" >&2; echo "error: signing the $label helper failed" >&2; exit 1; }
+    verify_helper "$hb"
+    submitted_cdhash="$(slice_cdhashes "$hb" | paste -sd ',' -)"
+    [[ -n "$submitted_cdhash" ]] || { echo "error: could not resolve the $label helper CDHash" >&2; exit 1; }
+    echo "==> notarizing the $label helper ($submitted_cdhash)"
+    notary_status=0
+    notary_submit "$R" --config-file /dev/null --api-key-file "$secrets/api-key.json" \
+      --wait --max-wait-seconds "$helper_wait" "$hb" > "$work/notary.log" 2>&1 || notary_status=$?
+    cat "$work/notary.log"
+    submission="$(grep -oiE 'submission id:? *[0-9a-f-]{36}' "$work/notary.log" | grep -oE '[0-9a-f-]{36}' | head -n 1 || true)"
+    if grep -qE 'reached (wait|time) limit' "$work/notary.log"; then
+      echo "error: Apple has not answered the $label helper submission ${submission:-?} within ${helper_wait}s" >&2
+      exit 75
+    fi
+    # notary-submit --wait also fetches the log once and fails when it is not
+    # ready yet; a submission whose last polled state was Accepted goes on to the
+    # bounded log reads below, which check the status again.
+    accepted=false
+    [[ "$(grep -oE 'poll state after [0-9]+s: [A-Za-z]+' "$work/notary.log" | tail -n 1)" == *": Accepted" ]] && accepted=true
+    (( notary_status == 0 )) || [[ "$accepted" == true ]] || submission=""
+    [[ -n "$submission" ]] ||
+      { echo "error: $label helper notarization failed (submission ${submission:-none})" >&2; exit 1; }
+    # Apple can answer Accepted before the ticket log is ready: a few bounded
+    # tries, then 75 (accepted, nothing signed after it), as the Mac script.
+    for attempt in 1 2 3 4; do
+      run_signer python3 "$SCRIPTS_DIR/ci/run_with_timeout.py" --timeout-seconds 120 -- "$R" notary-log --config-file /dev/null \
+        --api-key-file "$secrets/api-key.json" "$submission" > "$work/notary-log.json" 2> "$work/log" &&
+        python3 -I -c 'import json, sys; json.load(open(sys.argv[1]))' "$work/notary-log.json" 2>/dev/null && break
+      tail -5 "$work/log" >&2
+      (( attempt < 4 )) || { echo "error: the $label helper ticket log is not ready (submission $submission, Accepted)" >&2; exit 75; }
+      sleep "${CMUX_HELPER_LOG_RETRY_SECONDS:-15}"
     done
+    cat "$work/notary-log.json"
+    verify_ticket_contents_cover_slices "$work/notary-log.json" "$hb"
+    run_signer "$R" staple --config-file /dev/null "$hb" > "$work/log" 2>&1 ||
+      { tail -20 "$work/log" >&2; echo "error: stapling the $label helper failed" >&2; exit 1; }
+    # The shipped ticket must be readable by every user.
+    chmod 0644 "$hb/Contents/CodeResources"
+    verify_stapled_ticket_covers_slices "$hb"
+    verify_helper "$hb"
+    # The shape the runtime launches: a standalone copy outside the host app.
+    cp -pR "$hb" "$standalone"
+    verify_stapled_ticket_covers_slices "$standalone"
+    verify_helper "$standalone"
+    first_helpers+=("$hb") first_rels+=("$hrel") first_cdhashes+=("$submitted_cdhash")
+    echo "==> $label helper notarized (submission $submission) and stapled"
   }
-  # A new nonce in Info.plist separates this submission from every other one.
-  isolate_helper_submission "$computer_use"
-  cu_args=(--code-signature-flags runtime --entitlements-xml-file "$HELPER_ENTITLEMENTS")
-  for rel in ${cu_machos[@]+"${cu_machos[@]}"}; do cu_args+=(--code-signature-flags "${rel#"$cu_rel/"}:runtime"); done
-  echo "==> signing nested helper ${computer_use##*/}"
-  run_signer "$R" sign "${identity_args[@]}" "${cu_args[@]}" "$computer_use" > "$work/log" 2>&1 ||
-    { tail -40 "$work/log" >&2; echo "error: signing the Computer Use helper failed" >&2; exit 1; }
-  verify_helper "$computer_use"
-  submitted_cdhash="$(slice_cdhashes "$computer_use" | paste -sd ',' -)"
-  [[ -n "$submitted_cdhash" ]] || { echo "error: could not resolve the Computer Use helper CDHash" >&2; exit 1; }
-  echo "==> notarizing the Computer Use helper ($submitted_cdhash)"
-  notary_status=0
-  notary_submit "$R" --config-file /dev/null --api-key-file "$secrets/api-key.json" \
-    --wait --max-wait-seconds "$helper_wait" "$computer_use" > "$work/notary.log" 2>&1 || notary_status=$?
-  cat "$work/notary.log"
-  submission="$(grep -oiE 'submission id:? *[0-9a-f-]{36}' "$work/notary.log" | grep -oE '[0-9a-f-]{36}' | head -n 1 || true)"
-  if grep -qE 'reached (wait|time) limit' "$work/notary.log"; then
-    echo "error: Apple has not answered the Computer Use helper submission ${submission:-?} within ${helper_wait}s" >&2
-    exit 75
+  notarize_first_helper "$computer_use" "$HELPER_ENTITLEMENTS" "Computer Use" standalone.app
+  if [[ -n "$screen_share" ]]; then
+    notarize_first_helper "$screen_share" "" "Screen Sharing" standalone-screen-sharing.app
   fi
-  # notary-submit --wait also fetches the log once and fails when it is not
-  # ready yet; a submission whose last polled state was Accepted goes on to the
-  # bounded log reads below, which check the status again.
-  accepted=false
-  [[ "$(grep -oE 'poll state after [0-9]+s: [A-Za-z]+' "$work/notary.log" | tail -n 1)" == *": Accepted" ]] && accepted=true
-  (( notary_status == 0 )) || [[ "$accepted" == true ]] || submission=""
-  [[ -n "$submission" ]] ||
-    { echo "error: Computer Use helper notarization failed (submission ${submission:-none})" >&2; exit 1; }
-  # Apple can answer Accepted before the ticket log is ready: a few bounded
-  # tries, then 75 (accepted, nothing signed after it), as the Mac script.
-  for attempt in 1 2 3 4; do
-    run_signer python3 "$SCRIPTS_DIR/ci/run_with_timeout.py" --timeout-seconds 120 -- "$R" notary-log --config-file /dev/null \
-      --api-key-file "$secrets/api-key.json" "$submission" > "$work/notary-log.json" 2> "$work/log" &&
-      python3 -I -c 'import json, sys; json.load(open(sys.argv[1]))' "$work/notary-log.json" 2>/dev/null && break
-    tail -5 "$work/log" >&2
-    (( attempt < 4 )) || { echo "error: the Computer Use helper ticket log is not ready (submission $submission, Accepted)" >&2; exit 75; }
-    sleep "${CMUX_HELPER_LOG_RETRY_SECONDS:-15}"
-  done
-  cat "$work/notary-log.json"
-  verify_ticket_contents_cover_slices "$work/notary-log.json" "$computer_use"
-  run_signer "$R" staple --config-file /dev/null "$computer_use" > "$work/log" 2>&1 ||
-    { tail -20 "$work/log" >&2; echo "error: stapling the Computer Use helper failed" >&2; exit 1; }
-  # The shipped ticket must be readable by every user.
-  chmod 0644 "$computer_use/Contents/CodeResources"
-  verify_stapled_ticket_covers_slices "$computer_use"
-  verify_helper "$computer_use"
-  # The shape the runtime launches: a standalone copy outside the host app.
-  cp -pR "$computer_use" "$work/standalone.app"
-  verify_stapled_ticket_covers_slices "$work/standalone.app"
-  verify_helper "$work/standalone.app"
-  echo "==> Computer Use helper notarized (submission $submission) and stapled"
 fi
 
 # 1. Helpers in Resources/bin and libexec (feat-cmux-next
@@ -367,12 +399,13 @@ PY
   echo "==> signed and re-pinned ${#signed[@]} cmux-tui SSH payload(s)"
 fi
 
-# 2. The Computer Use helper app: its executable gets the helper entitlements.
-# helper-first keeps the notarized helper as it is, ticket included, and seals it.
+# 2. The Computer Use helper app: its executable gets the helper entitlements;
+# the Screen Sharing helper app's gets none.
+# helper-first keeps the notarized helpers as they are, tickets included, and seals them.
 if [[ "$MODE" == helper-first ]]; then
-  excludes+=(--exclude "$cu_rel" --exclude "$cu_rel/**")
-elif [[ -d "$computer_use" ]]; then
-  exe_of "$computer_use"; ent["$exe"]="$HELPER_ENTITLEMENTS"
+  for hrel in ${first_rels[@]+"${first_rels[@]}"}; do excludes+=(--exclude "$hrel" --exclude "$hrel/**"); done
+else
+  if [[ -d "$computer_use" ]]; then exe_of "$computer_use"; ent["$exe"]="$HELPER_ENTITLEMENTS"; fi
 fi
 
 # 3. Plugins (--deep, no entitlements).
@@ -432,8 +465,13 @@ done
 args=(--entitlements-xml-file "$work/app.entitlements" --code-signature-flags runtime)
 for rel in "${!ent[@]}"; do args+=(--entitlements-xml-file "$rel:${ent[$rel]}"); done
 for rel in "${!ident[@]}"; do args+=(--binary-identifier "$rel:${ident[$rel]}"); done
+is_first_helper() { # <rel>: inside a helper notarized first
+  local hrel
+  for hrel in ${first_rels[@]+"${first_rels[@]}"}; do [[ "$1" == "$hrel/"* ]] && return 0; done
+  return 1
+}
 for rel in "${machos[@]}"; do
-  [[ "$rel" == Contents/Resources/bin/cmux-tui-ssh/* || ( "$MODE" == helper-first && "$rel" == "$cu_rel/"* ) ]] ||
+  [[ "$rel" == Contents/Resources/bin/cmux-tui-ssh/* ]] || is_first_helper "$rel" ||
     args+=(--code-signature-flags "$rel:runtime")
 done
 echo "==> signing ${APP_PATH##*/}: ${#machos[@]} Mach-O files, ${#ent[@]} with scoped entitlements"
@@ -448,10 +486,12 @@ done
 echo "==> signature check: $(( ${#machos[@]} - bad ))/${#machos[@]} Mach-O files OK"
 (( bad == 0 ))
 if [[ "$MODE" == helper-first ]]; then
-  # The app seal kept the exact helper Apple notarized, and its ticket.
-  current_cdhash="$(slice_cdhashes "$computer_use" | paste -sd ',' -)"
-  [[ "$current_cdhash" == "$submitted_cdhash" ]] ||
-    { echo "error: Computer Use helper changed after notarization ($submitted_cdhash -> ${current_cdhash:-none})" >&2; exit 1; }
-  verify_stapled_ticket_covers_slices "$computer_use"
+  # The app seal kept the exact helpers Apple notarized, and their tickets.
+  for i in "${!first_helpers[@]}"; do
+    current_cdhash="$(slice_cdhashes "${first_helpers[$i]}" | paste -sd ',' -)"
+    [[ "$current_cdhash" == "${first_cdhashes[$i]}" ]] ||
+      { echo "error: ${first_helpers[$i]##*/} changed after notarization (${first_cdhashes[$i]} -> ${current_cdhash:-none})" >&2; exit 1; }
+    verify_stapled_ticket_covers_slices "${first_helpers[$i]}"
+  done
 fi
 echo "==> signing OK: $APP_PATH"

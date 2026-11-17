@@ -40,6 +40,8 @@ export default defineConfig({
       "src/agent-session/acpmux/handoff/schema/acpmux-schema.json",
       "src/agent-session/acpmux/icons/cmuxIcons.json",
       "src/agent-session/acpmux/icons/cmuxIconsCustom.json",
+      // scripts/icons/build_pack.py --check owns the native/web catalog bytes.
+      "src/agent-session/acpmux/icons/iconCatalog.json",
       // Gallery-only output of scripts/icons/build_pack.py.
       "src/agent-session/acpmux/icons/nekoCandidate.json",
       "src/agent-session/acpmux/icons/nekoRounds.json",

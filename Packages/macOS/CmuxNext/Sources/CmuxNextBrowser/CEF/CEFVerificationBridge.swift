@@ -20,6 +20,9 @@ final class CEFVerificationBridge {
 
     init(tab: CEFTab) { self.tab = tab }
 
+    /// Whether a page's detector reported, never what the page shows.
+    private static let log = Logger(subsystem: "com.cmuxterm.app.next", category: "verification-autofill")
+
     private static var binding: (String, [String: Any]) {
         ("Runtime.addBinding", ["name": VerificationPageScripts.channel, "executionContextName": VerificationPageScripts.world])
     }
@@ -36,8 +39,14 @@ final class CEFVerificationBridge {
     /// The tab's browser exists (`CEFAgentRelay.browserAttached`).
     func attach(_ browser: Int32) {
         guard let tab else { return }
-        let scripts = CEFDocumentScripts(post: .binding).verification.map { script -> (String, [String: Any]) in
-            ("Page.addScriptToEvaluateOnNewDocument", ["source": script.source, "worldName": script.world, "runImmediately": true])
+        // The Web Store's button labels ride along (`BrowserWebStoreLabels`): this is the one
+        // document-start install a DevTools-path tab makes that has no channel of its own.
+        let documentScripts = CEFDocumentScripts(post: .binding)
+        let scripts = (documentScripts.verification + documentScripts.webStoreLabels).map { script -> (String, [String: Any]) in
+            // No worldName for a page-world script: an empty name would make an isolated world.
+            var params: [String: Any] = ["source": script.source, "runImmediately": true]
+            if !script.world.isEmpty { params["worldName"] = script.world }
+            return ("Page.addScriptToEvaluateOnNewDocument", params)
         }
         run([("Page.enable", [:])] + scripts + [Self.binding], browser, tab: tab)
         observation = ObservationLoop { [weak self] in self?.documentChanged() }
@@ -106,6 +115,8 @@ final class CEFVerificationBridge {
 
     /// The detector's report (a binding payload or a page channel post), untrusted.
     func report(_ payload: String) {
-        if VerificationPageScripts.isWaitingReport(payload) { tab?.emit(.verificationPageWaiting) }
+        let waiting = VerificationPageScripts.isWaitingReport(payload)
+        Self.log.debug("detector report (waiting: \(waiting, privacy: .public))")
+        if waiting { tab?.emit(.verificationPageWaiting) }
     }
 }

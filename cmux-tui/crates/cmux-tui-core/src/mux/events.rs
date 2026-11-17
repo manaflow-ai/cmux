@@ -147,6 +147,11 @@ pub enum MuxEvent {
     FeedReportsChanged {
         revision: u64,
     },
+    /// The Cloud pushed a GitHub change for this person, or whether it can push them moved
+    /// (`live`), over the feed socket (feed_client.rs). Apps hear it as `github.changed`.
+    GitHubChanged {
+        live: Option<bool>,
+    },
     /// The settings file or a managed layer changed (`settings-v1`;
     /// mux/settings.rs).
     SettingsChanged(cmux_config::Change),

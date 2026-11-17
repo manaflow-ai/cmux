@@ -357,3 +357,132 @@ fn tile_frames_are_standalone_and_keep_their_video_reference() {
     let third = send(3, 910, 500, 2_000, false);
     assert_eq!(third.iter().map(|f| f.frame).collect::<Vec<_>>(), vec![3]);
 }
+
+// Release timing: a frame goes to the decoder in the call that completes it,
+// and waits for nothing it does not need.
+
+type Shard = (DatagramHeader, Vec<u8>);
+
+fn shards(p: &mut Packetizer, frame: u32, f: u8, b: &FrameBody, parity: usize) -> Vec<Shard> {
+    let out = p.packetize(frame, f, b, parity).expect("packetize");
+    out.datagrams
+        .iter()
+        .map(|d| {
+            let (h, payload) = DatagramHeader::decode(d).expect("decode");
+            (h, payload.to_vec())
+        })
+        .collect()
+}
+
+fn push_all(r: &mut Reassembler, shards: &[Shard], now: u64) -> Vec<u32> {
+    shards.iter().flat_map(|(h, p)| r.push(h, p, now)).map(|f| f.frame).collect()
+}
+
+/// A frame whose reference is `ref_frame`.
+fn p_frame(frame: u32, ref_frame: u32) -> FrameBody {
+    FrameBody { ref_frame, ..body(frame, 3000, false) }
+}
+
+#[test]
+fn a_complete_frame_goes_out_with_its_last_shard_without_a_tick() {
+    let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
+    // A long deadline: nothing here may depend on it passing.
+    let mut r = Reassembler::new(10_000_000);
+    let s = shards(&mut p, 1, flags::KEYFRAME, &body(1, 3000, true), 0);
+    let (last, rest) = s.split_last().expect("shards");
+    assert!(push_all(&mut r, rest, 0).is_empty());
+    assert_eq!(r.push(&last.0, &last.1, 0).iter().map(|f| f.frame).collect::<Vec<_>>(), vec![1]);
+    assert_eq!(r.next_expiry_us(), None, "no timer is left armed");
+}
+
+#[test]
+fn a_frame_with_all_data_shards_does_not_wait_for_parity() {
+    let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
+    let mut r = Reassembler::new(10_000_000);
+    let s = shards(&mut p, 1, flags::KEYFRAME, &body(1, 3000, true), 2);
+    let data: Vec<Shard> = s.iter().filter(|(h, _)| h.index < h.count).cloned().collect();
+    let parity: Vec<Shard> = s.iter().filter(|(h, _)| h.index >= h.count).cloned().collect();
+    assert_eq!(parity.len(), 2);
+    assert_eq!(push_all(&mut r, &data, 0), vec![1]);
+    // Late parity of a released frame is ignored.
+    assert!(push_all(&mut r, &parity, 1).is_empty());
+    assert!(r.take_losses().is_empty());
+}
+
+#[test]
+fn a_complete_frame_on_a_released_reference_skips_an_older_incomplete_frame() {
+    let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
+    let mut r = Reassembler::new(10_000_000);
+    assert_eq!(
+        push_all(&mut r, &shards(&mut p, 1, flags::KEYFRAME, &body(1, 3000, true), 0), 0),
+        vec![1]
+    );
+    // Frame 2 arrives in part.
+    let two = shards(&mut p, 2, 0, &p_frame(2, 1), 0);
+    assert!(push_all(&mut r, &two[1..], 1_000).is_empty());
+    // Frame 3 predicts from frame 1, already shown: it goes now, not at frame 2's deadline.
+    assert_eq!(push_all(&mut r, &shards(&mut p, 3, 0, &p_frame(3, 1), 0), 2_000), vec![3]);
+    assert_eq!(r.take_losses(), vec![FrameLoss::Incomplete { frame: 2 }]);
+    assert_eq!(r.last_released(), 3);
+    // Frame 2's repair, late, is ignored.
+    assert!(push_all(&mut r, &two[..1], 3_000).is_empty());
+    assert!(r.take_losses().is_empty());
+}
+
+#[test]
+fn a_recovery_frame_skips_older_incomplete_frames() {
+    let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
+    let mut r = Reassembler::new(10_000_000);
+    assert_eq!(
+        push_all(&mut r, &shards(&mut p, 1, flags::KEYFRAME, &body(1, 3000, true), 0), 0),
+        vec![1]
+    );
+    assert_eq!(push_all(&mut r, &shards(&mut p, 2, 0, &p_frame(2, 1), 0), 0), vec![2]);
+    let three = shards(&mut p, 3, 0, &p_frame(3, 2), 0);
+    assert!(push_all(&mut r, &three[1..], 1_000).is_empty());
+    let four = shards(&mut p, 4, 0, &p_frame(4, 3), 0);
+    assert!(push_all(&mut r, &four[1..], 1_000).is_empty());
+    // A recovery frame on frame 1 (acked, not the newest) goes at once.
+    let recovery = shards(&mut p, 5, flags::RECOVERY, &p_frame(5, 1), 0);
+    assert_eq!(push_all(&mut r, &recovery, 2_000), vec![5]);
+    let losses = r.take_losses();
+    assert!(losses.contains(&FrameLoss::Incomplete { frame: 3 }));
+    assert!(losses.contains(&FrameLoss::Incomplete { frame: 4 }));
+    assert!(!r.need_recovery());
+}
+
+#[test]
+fn a_frame_that_needs_a_waiting_frame_goes_with_its_repair() {
+    let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
+    let mut r = Reassembler::new(10_000_000);
+    assert_eq!(
+        push_all(&mut r, &shards(&mut p, 1, flags::KEYFRAME, &body(1, 3000, true), 0), 0),
+        vec![1]
+    );
+    let two = shards(&mut p, 2, 0, &p_frame(2, 1), 0);
+    assert!(push_all(&mut r, &two[1..], 1_000).is_empty());
+    // Frame 3 predicts from frame 2, which is still repairable: it waits.
+    assert!(push_all(&mut r, &shards(&mut p, 3, 0, &p_frame(3, 2), 0), 2_000).is_empty());
+    // The repair releases both in the same call, in order.
+    assert_eq!(push_all(&mut r, &two[..1], 30_000), vec![2, 3]);
+    assert!(r.take_losses().is_empty());
+}
+
+#[test]
+fn a_waiting_frame_is_dropped_one_microsecond_past_its_deadline() {
+    let deadline = 50_000;
+    let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
+    let mut r = Reassembler::new(deadline);
+    assert_eq!(
+        push_all(&mut r, &shards(&mut p, 1, flags::KEYFRAME, &body(1, 3000, true), 0), 0),
+        vec![1]
+    );
+    let two = shards(&mut p, 2, 0, &p_frame(2, 1), 0);
+    assert!(push_all(&mut r, &two[1..], 1_000).is_empty());
+    assert_eq!(r.next_expiry_us(), Some(1_000 + deadline + 1));
+    assert!(r.tick(1_000 + deadline).is_empty());
+    assert!(r.take_losses().is_empty(), "held through the deadline");
+    assert!(r.tick(1_000 + deadline + 1).is_empty());
+    assert_eq!(r.take_losses(), vec![FrameLoss::Incomplete { frame: 2 }]);
+    assert!(r.need_recovery());
+}

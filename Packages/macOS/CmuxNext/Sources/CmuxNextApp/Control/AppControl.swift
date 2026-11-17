@@ -140,7 +140,7 @@ final class AppControl {
         // The newest action runs and the over-budget counters (zero-latency.md, the budget contract).
         service.router.register([budget.method(registry: registry)])
         service.router.register(DebugHibernationControl.methods(services))
-        service.router.register([services.chiefPetMini.debugMethod()])  // debug.chief_pet: the pet and its reply box for captures
+        service.router.register([services.chiefPetMini.debugMethod(), services.personInput.actAsMe.debugMethod()])  // debug.chief_pet, debug.act_as_me: captures
         service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugRequestLatencyMethod()] + services.daemon.creationHold.methods + services.daemon.closeReadHold.methods)
         terminalDisplayProbe.terminals = { [weak services] in services?.cache.terminals.map { ($0.key, $0.value.session) } ?? [] }
         service.router.register([
@@ -166,6 +166,12 @@ final class AppControl {
             // Measured animation spans (plans/cmux-next/motion.md).
             .mainActor("debug.motion") { [weak services, probe = motionCommitProbe] call in
                 .value(DebugMotion.handle(call.params, services, commitProbe: probe))
+            },
+            // The newest keyboard focus changes with their route (caller and reason), kept while the focus log is off too:
+            // `cmux app call debug.focus_log '{"limit": 50}'` (plans/cmux-next/focus-loss-AUDIT.md).
+            .mainActor("debug.focus_log") { [weak services] call in
+                let entries = services?.focusLog.recent(limit: call.params["limit"]?.intValue ?? FocusLog.recentLimit) ?? []
+                return .value((try? JSONDecoder().decode(CmuxNextSettings.JSONValue.self, from: JSONEncoder().encode(["changes": entries]))) ?? .null) // main-actor-ok: at most FocusLog.recentLimit (200) entries, a debug call only.
             },
             // Launch, palette-open and terminal-creation spans (bench-stalls.py).
             .mainActor("debug.timings") { call in .value(DebugTimings.handle(call.params)) },

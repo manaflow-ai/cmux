@@ -11069,6 +11069,10 @@
           },
           "displayName": {
             "type": "string"
+          },
+          "inputs_sha256": {
+            "type": "string",
+            "description": "64 lowercase hex: a digest of every image input but cmux-tui. Two images with one value differ only in cmux-tui. Listed by GET /v1/vm-images when the operator recorded it; absent otherwise and from VM creation receipts."
           }
         },
         "additionalProperties": false,

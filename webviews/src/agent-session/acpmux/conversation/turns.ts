@@ -140,7 +140,19 @@ export function spanDuration(t: Translate, ms: number): string | undefined {
 
 export const toolCalls = (t: Translate, count = 0) => t("turn.toolCalls", { n: count });
 
-/// The disclosure's label: "Worked for 1m 16s", "You stopped after 40s",
+/// How a turn's time reads, by how the turn ended: a turn that died on an API error (a 429, a
+/// capacity refusal) says so, never "Worked for" (Leo's coordinator looped on 429s for hours and
+/// every dead turn read as work). `turnTimeKey` is the same choice for a label that draws the time
+/// itself (TurnRows.tsx WorkedLabel's TimedLabel).
+export function turnTimeKey(row: AcpmuxRow): "turn.failedAfter" | "turn.stopped" | "turn.worked" {
+  if (row.status === "failed" || row.status === "error") return "turn.failedAfter";
+  if (row.status === "cancelled" || row.status === "interrupted") return "turn.stopped";
+  return "turn.worked";
+}
+
+const turnTimeLabel = (t: Translate, row: AcpmuxRow, time: string) => t(turnTimeKey(row), { time });
+
+/// The disclosure's label: "Worked for 1m 16s", "Failed after 40s", "You stopped after 40s",
 /// or "34 previous messages" for a Codex fold that mixes the agent's messages with its work
 /// (`foldMixesMessages`). It shows no tool-call count.
 export function workedLabel(t: Translate, row: AcpmuxRow): string {
@@ -148,13 +160,7 @@ export function workedLabel(t: Translate, row: AcpmuxRow): string {
     return row.previous === 1 ? t("turn.previous.one") : t("turn.previous.other", { n: row.previous });
   if (row.durationMs === undefined) return toolCalls(t, row.toolCount) + workedMessagesText(t, row);
   const time = formatDuration(row.durationMs);
-  return (
-    (row.status === "cancelled" || row.status === "interrupted"
-      ? t("turn.stopped", { time })
-      : t("turn.worked", { time })) +
-    workedCallsText(t, row) +
-    workedMessagesText(t, row)
-  );
+  return turnTimeLabel(t, row, time) + workedCallsText(t, row) + workedMessagesText(t, row);
 }
 
 /// " · 14 tool calls" after a finished turn's time when its family counts them (`workedCalls`), else "".
@@ -415,8 +421,6 @@ export type TurnView = {
   /// (`settleNextSteps`).
   nextSteps: NextStepAt[];
   rows: AcpmuxRow[];
-  /// Visible assistant source ids, used to detect a partial refresh without rescanning unchanged rows.
-  visibleReplyIds: ReadonlySet<string>;
 };
 
 /// ``turnView``, building on `previous`: the turns before the one holding the first row that
@@ -430,14 +434,16 @@ const sameIds = (a: ReadonlySet<string>, b: ReadonlySet<string>) =>
 
 /// A refresh can publish a tool row before the assistant body that was already on screen. Keep
 /// that settled body in the source until a later snapshot carries it again, so shaping cannot turn
-/// a visible reply into a tool-only "Worked for" line during the gap.
+/// a visible reply into a tool-only "Worked for" line during the gap. The replies it keeps are the
+/// visible assistant rows of `previous` from the first changed row on, read from those rows: no set
+/// of every reply id in the chat is copied per update (a god chat's thousands of replies made each
+/// streamed token cost more the longer the chat, CMUX-571).
 const retainVisibleReplies = (
   rows: readonly AcpmuxRow[],
   previous: readonly AcpmuxRow[] | undefined,
-  previousVisibleIds: ReadonlySet<string> | undefined,
   supersededReplyIds: ReadonlySet<string> | undefined,
 ): readonly AcpmuxRow[] => {
-  if (!previous || !previousVisibleIds) return rows;
+  if (!previous) return rows;
   const changedAt = Math.max(0, keptPrefix(previous, rows) - 1);
   const changedRows = rows.slice(changedAt);
   if (!changedRows.some((row) => row.kind === "activity")) return rows;
@@ -445,12 +451,7 @@ const retainVisibleReplies = (
   const missingReplyIds = new Set<string>();
   for (let index = changedAt; index < previous.length; index += 1) {
     const row = previous[index]!;
-    if (
-      row.kind === "assistant" &&
-      previousVisibleIds.has(row.id) &&
-      !supersededReplyIds?.has(row.id) &&
-      !isVisiblyEmptyMessage(row)
-    )
+    if (row.kind === "assistant" && !supersededReplyIds?.has(row.id) && !isVisiblyEmptyMessage(row))
       missingReplyIds.add(row.id);
   }
   for (const row of changedRows)
@@ -529,24 +530,6 @@ const retainVisibleReplies = (
   );
 };
 
-const visibleReplyIdsFor = (rows: readonly AcpmuxRow[], previous: TurnView | undefined): ReadonlySet<string> => {
-  if (!previous) {
-    return new Set(rows.filter((row) => row.kind === "assistant" && !isVisiblyEmptyMessage(row)).map((row) => row.id));
-  }
-  const changedAt = keptPrefix(previous.source, rows);
-  if (changedAt === rows.length && rows.length === previous.source.length) return previous.visibleReplyIds;
-  const ids = new Set(previous.visibleReplyIds);
-  for (let index = changedAt; index < previous.source.length; index += 1) {
-    const row = previous.source[index]!;
-    if (row.kind === "assistant" && !isVisiblyEmptyMessage(row)) ids.delete(row.id);
-  }
-  for (let index = changedAt; index < rows.length; index += 1) {
-    const row = rows[index]!;
-    if (row.kind === "assistant" && !isVisiblyEmptyMessage(row)) ids.add(row.id);
-  }
-  return ids;
-};
-
 const firstDateUnchanged = (view: TurnView, now: number) =>
   view.firstVisible === undefined ||
   showsTimestamp(view.times[view.firstVisible]!, undefined, now, view.lead === 0) === view.dated[view.firstVisible];
@@ -600,7 +583,7 @@ export function turnViewFrom(
     firstDateUnchanged(previous, now)
   )
     return previous;
-  const retainedRows = retainVisibleReplies(rows, previous?.source, previous?.visibleReplyIds, supersededReplyIds);
+  const retainedRows = retainVisibleReplies(rows, previous?.source, supersededReplyIds);
   if (retainedRows !== rows)
     return turnViewFrom(
       retainedRows,
@@ -819,7 +802,6 @@ export function turnViewFrom(
     ends,
     nextSteps,
     rows: out,
-    visibleReplyIds: visibleReplyIdsFor(rows, previous),
   };
 }
 
@@ -1793,8 +1775,20 @@ function shapeTurn(
   // still marks them, so each keeps its action row once the fold opens. A reply whose question another
   // agent's message cut off stays out: its card waits on the person, under it (`cutOff`).
   const repliesArm = experimentArm(turnFoldReplies);
+  // A turn whose harness marks its final answer (Codex's `final_answer` phase) folds every
+  // `commentary` message before it with the work, however short the answer, as the Codex app does:
+  // the harness has said which message answers. Lucas, 2026-11-14, on ten build updates drawn
+  // under a closed Worked for over a two-sentence answer: "why did it yap so much in the response?
+  // shouldnt that stuff have been in the Worked for".
+  const commentary =
+    lastFinalAnswer(body) === undefined
+      ? undefined
+      : new Set(body.filter((row) => row.assistantPhase === "commentary").map((row) => row.id));
+  const foldsUnderAnswer = (id: string) => commentary?.has(id) ?? false;
   const keptOut: ReadonlySet<string> =
-    repliesArm === "answer" ? new Set([...replies, ...(cutOff ? [cutOff.reply.id] : [])]) : replies;
+    repliesArm === "answer"
+      ? new Set([...[...replies].filter((id) => !foldsUnderAnswer(id)), ...(cutOff ? [cutOff.reply.id] : [])])
+      : replies;
   const steerDialogue = steerDialogueIn(body);
   // A turn the person steered still has one fold (Leo, 2026-11-07, on a closed "Worked for 5m 15s"
   // with "Finished 2 background tasks and ran 8 commands" beside it: "this could have been, like,
@@ -3322,6 +3316,12 @@ export function isTakeaway(row: AcpmuxRow): boolean {
     /\?|```|~~~|\n\s*\n|^\s*(?:[-*+]|\d+[.)])\s|\]\(|https?:\/\//m.test(text) ||
     !isWorkNarration(text)
   );
+}
+
+/// The turn's last reply the provider marked final (`isFinalAnswer`), the one `answerAt` picks.
+function lastFinalAnswer(rows: readonly AcpmuxRow[]): AcpmuxRow | undefined {
+  for (let at = rows.length - 1; at >= 0; at -= 1) if (isFinalAnswer(rows[at]!)) return rows[at];
+  return undefined;
 }
 
 /// Only recognizable short progress narration belongs to the work. Unknown prose can be a brief

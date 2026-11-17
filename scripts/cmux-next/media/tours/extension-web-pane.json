@@ -1,0 +1,46 @@
+{
+  "title": "Extension web pane: a customize-folder extension whose pane is its own HTML page (render: web), shown in a tab and reloaded in place when its files are saved",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 4,
+      "shot": false
+    },
+    {
+      "title": "A workspace whose terminal writes the extension",
+      "cmux": ["workspace", "new", "--name", "Web pane"],
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "Shell helpers: the customize folder, a page writer and a manifest writer",
+      "daemon": true,
+      "cmux": ["workspace", "name:Web pane", "screen", "current", "pane", "current", "tab", "current", "terminal", "current", "write", "--text",
+        "clear; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D/web\"; pg() { printf '<!doctype html>\\n<html><head><meta charset=\"utf-8\"><title>Web pane</title><link rel=\"stylesheet\" href=\"page.css\"></head>\\n<body><h1>%s</h1><p>This pane is the extension page, served from its web folder.</p></body></html>\\n' \"$1\"; }; css() { printf 'body { font: 15px -apple-system, sans-serif; color: var(--cmux-text, CanvasText); padding: 24px; }\\nh1 { color: var(--cmux-accent, AccentColor); }\\n'; }; mf() { printf '{\"manifestVersion\": 2, \"id\": \"local/customize\", \"name\": \"Web pane probe\", \"version\": \"1.0.0\", \"description\": \"A web pane the tour rewrites.\", \"engines\": {\"cmux\": \"^2.0\"}, \"runtime\": {\"web\": {\"root\": \"web\"}}, \"implements\": {\"cmux.pane/1\": {\"web\": \"web/index.html\", \"title\": \"Web pane probe\", \"symbol\": \"globe\"}}, \"files\": [\"web/\"]}\\n'; }; echo \"customize folder: $D\"\r"],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Install: web/index.html, web/page.css, then cmux-app.json, into the customize folder",
+      "daemon": true,
+      "cmux": ["workspace", "name:Web pane", "screen", "current", "pane", "current", "tab", "current", "terminal", "current", "write", "--text",
+        "css > \"$D/web/page.css\"; pg 'Web pane: first page' > \"$D/web/index.html\"; mf > \"$D/cmux-app.json\"; clear\r"],
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "Open the extension's pane: its page renders in a tab",
+      "cmux": ["action", "run", "app.open", "--app", "local/customize", "--focus"],
+      "wait": 4,
+      "shot": true
+    },
+    {
+      "title": "Save: rewrite web/index.html in place; the open page reloads",
+      "daemon": true,
+      "cmux": ["workspace", "name:Web pane", "screen", "current", "pane", "current", "tab", "current", "terminal", "current", "write", "--text",
+        "pg 'Web pane: saved, reloaded in place' > \"$D/web/index.html\"\r"],
+      "wait": 4,
+      "shot": true
+    }
+  ]
+}

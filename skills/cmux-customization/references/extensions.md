@@ -16,6 +16,17 @@ errors and `scene` (an outline of what rendered). Before saying it is done, it r
 `cmux ext shot --json` and looks at `shot.path`, a picture of the cmux window that
 shows the extension ([docs/cmux-next/extensions/dev-loop.md](../../../docs/cmux-next/extensions/dev-loop.md)).
 
+To share it from a git repository, scaffold with `cmux ext new NAME --repo OWNER/REPO`
+(or inside a clone of the person's empty GitHub repository, whose `origin` names it): the
+id becomes `owner/NAME`, the manifest gets `repository`, and the README carries the
+"Get it on cmux" badge and the install line `cmux apps install github.com/OWNER/REPO`.
+`cmux ext dev` still loads it as `local/NAME`. `cmux ext publish --json` (no network
+writes) checks it is ready to list (manifest, id, badge, repository, an icon or
+screenshot; `--write-badge` adds the badge) and prints the steps: push, `cmux ext pack`
+and a release tagged with the manifest's version carrying its two files, and a pull
+request to manaflow-ai/cmux-extensions adding the entry it prints. Pushing, releasing and
+the registry PR are the person's to do; ask before running them.
+
 ## Start from a template
 
 Each folder in [`../templates/`](../templates/) is a complete customize app
@@ -101,6 +112,8 @@ views" in the Command Palette (no scope), `cmux action run app.open --app local/
 | Type into a terminal | `cmux.terminal.input.write` | `terminal:execute` |
 | Agents, git, GitHub, notes, the feed | `cmux.agent.list`, `cmux.git.*`, `cmux.integrations.github.request`, `cmux.notes.*`, `cmux.feed.*` | each family's read or write scope |
 | Keep state, call a server | `cmux.storage.*`, `cmux.net.fetch`, `cmux.timer.*`, `cmux.clipboard` | `storage:local`, `net:<host>`, none, `clipboard:write` |
+| Read a browser page (reader mode) | `cmux.page.read({ tab? })`: the page's url and title, its main text as blocks (heading, paragraph, list_item, quote, code, image) with title, byline and site, and its links. No `tab`: the focused browser tab | `page:read` (highlighted on the consent sheet) |
+| Link hints on a browser page | `cmux.page.hints({ action: "show" \| "clear", tab? })` draws the built-in `f` labels and answers `{tab, hints: [{label, text, href}]}`; `cmux.page.follow({ label, new_split?, tab? })` clicks the hint's element, or opens its link in a new split (`F`). Both need a gesture (a key or a click) | `page:write` |
 | Errors | `cmux raw command --request-json '{"cmd":"apps-logs","app":"local/customize"}'` | |
 
 The whole op list with scopes is `cmux-tui/crates/cmux-app-host/generated/cmux-app.d.ts`

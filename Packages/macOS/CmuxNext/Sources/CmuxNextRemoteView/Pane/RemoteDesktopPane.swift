@@ -126,7 +126,7 @@ public final class RemoteDesktopPane {
         })
         let cursors = source.cursorUpdates()
         tasks.append(Task { [weak self] in
-            for await cursor in cursors { self?.view.video.setRemoteCursor(cursor) }
+            for await cursor in cursors { self?.view.cursor.setRemoteCursor(cursor) }
         })
     }
 
