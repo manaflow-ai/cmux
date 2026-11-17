@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44066242881",
+  "recorded_at": "2026-11-17T10:53:13Z",
+  "reason": "image inputs changed in bbf96bb50133541428cd8628fa161338f003b591..5e277b833e98cb47df2b837a3ff767c5ce8f5076",
+  "dry_run": false,
+  "cmux_tui": "413d72630f98905773e53ff4b6d426f592e0b79b",
+  "fixes": [
+    {
+      "sha": "5e277b833e98cb47df2b837a3ff767c5ce8f5076",
+      "mergedAt": "2026-11-17T10:35:23Z",
+      "subject": "Cloud VM image: install the agents' managed model route only where the coderouter edge resolves (#45426)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T10:53:13Z",
+    "snapshot_id": "sh-9345688cfb914a839ff9c04ede5a0d09",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44066242881): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9452e98293d1bfd940a8c5dee545d690669b4706",
+    "image": "cloud-native-auto-413d7263-44066242881-1",
+    "revision": "ci-44066242881-1",
+    "at": "2026-11-17T10:53:13Z"
+  },
+  "rolled_back": false
+}
