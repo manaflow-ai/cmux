@@ -319,6 +319,8 @@ def summarize_key(report: dict | None) -> dict:
         "host_loss_pct_last": _num(stats.get("loss_pct")),
         "ended": report.get("ended"),
         "stage_ledger": ledger_of(report),
+        "diag": report.get("diag"),
+        "host_stats_last": stats,
     }
 
 
