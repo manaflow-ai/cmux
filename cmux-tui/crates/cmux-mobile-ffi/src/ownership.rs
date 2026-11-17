@@ -22,6 +22,7 @@
 //! `view()`, `set_listener`, an applied snapshot and `reset` (`rows_full`).
 //! `tests/list_stress.rs` holds that bound at 5000 rows and 100k rows.
 
+use std::collections::VecDeque;
 use std::fmt;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
@@ -140,9 +141,13 @@ pub struct OwnershipResume {
 
 /// Receives the mirror's view after every call that changed it (an applied
 /// frame, a new, settled or expired intent, a connection change, a snapshot
-/// retry). Swift and Kotlin implement it. Delivery happens on the calling
-/// thread after the mirror's lock is released, so the listener may call the
-/// mirror again; with several calling threads, keep the highest `generation`.
+/// retry). Swift and Kotlin implement it. Views arrive one at a time, in
+/// `generation` order, each exactly once, after the mirror's lock is
+/// released, so the listener may call the mirror again. A view whose
+/// `rows_changed` follow the one before it is never skipped or reordered.
+/// A call returns once its view is queued: when another thread is telling
+/// the listener, or the listener itself made the call, that thread tells it
+/// right after the view in hand.
 #[uniffi::export(with_foreign)]
 pub trait OwnershipMirrorListener: Send + Sync {
     fn on_change(&self, view: OwnershipMirrorView);
@@ -152,6 +157,23 @@ struct Inner {
     mirror: StreamMirror,
     listener: Option<Arc<dyn OwnershipMirrorListener>>,
     generation: u64,
+    /// Views made and not told yet, oldest first. A view with only
+    /// `rows_changed` holds only on top of the one before it, so they are
+    /// told strictly in order, by one thread at a time.
+    outbox: VecDeque<OwnershipMirrorView>,
+    /// A thread is telling the listener (it drains `outbox`).
+    telling: bool,
+}
+
+/// Ends a drain whose listener call unwound, so a later call drains again.
+struct Telling<'a>(&'a OwnershipMirror);
+
+impl Drop for Telling<'_> {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            self.0.lock().telling = false;
+        }
+    }
 }
 
 /// What a view shows, short of the head and rows (which move only with an
@@ -292,12 +314,13 @@ impl OwnershipMirror {
     }
 
     /// Runs one call on the mirror and tells the listener when the view
-    /// changed, after the lock is released. `replaces`: the call may replace
-    /// the head and rows (a snapshot frame, a reset), so with a listener
-    /// they are kept to compare (the one O(rows) step, as the snapshot is).
+    /// changed, in order, after the lock is released ([`Self::tell`]).
+    /// `replaces`: the call may replace the head and rows (a snapshot frame,
+    /// a reset), so with a listener they are kept to compare (the one
+    /// O(rows) step, as the snapshot is).
     // perf-hot: 250us phone-mirror-change (p95 per frame at 5000 rows and 100k rows)
     fn mutate<T>(&self, replaces: bool, call: impl FnOnce(&mut StreamMirror) -> (T, Moved)) -> T {
-        let (value, delivery) = {
+        let (value, drain) = {
             let mut inner = self.lock();
             let mark = Mark::of(&inner.mirror);
             let listening = inner.listener.is_some();
@@ -319,17 +342,45 @@ impl OwnershipMirror {
                     (Mark::of(mirror) != mark).then(|| view_with(mirror, generation, Vec::new()))
                 }
             };
-            let mut delivery = None;
+            let mut drain = false;
             if let Some(view) = view {
                 inner.generation = generation;
-                delivery = inner.listener.clone().map(|listener| (listener, view));
+                if inner.listener.is_some() {
+                    inner.outbox.push_back(view);
+                    drain = !std::mem::replace(&mut inner.telling, true);
+                }
             }
-            (value, delivery)
+            (value, drain)
         };
-        if let Some((listener, view)) = delivery {
-            listener.on_change(view);
+        if drain {
+            self.tell();
         }
         value
+    }
+
+    /// Tells the listener every queued view in order, each after the lock
+    /// is released; views queued meanwhile (by other threads or by the
+    /// listener itself) are told by this loop too.
+    fn tell(&self) {
+        let telling = Telling(self);
+        loop {
+            let next = {
+                let mut inner = self.lock();
+                match (inner.outbox.pop_front(), inner.listener.clone()) {
+                    (Some(view), Some(listener)) => Some((listener, view)),
+                    _ => {
+                        // Under the same lock that found it empty: a view
+                        // queued after this starts its own drain.
+                        inner.outbox.clear();
+                        inner.telling = false;
+                        None
+                    }
+                }
+            };
+            let Some((listener, view)) = next else { break };
+            listener.on_change(view);
+        }
+        drop(telling);
     }
 }
 
@@ -345,7 +396,13 @@ impl OwnershipMirror {
     ) -> Result<Arc<Self>, OwnershipMirrorError> {
         let initial: Value = serde_json::from_str(&initial_json)?;
         let mirror = StreamMirror::new(key_prefix, initial);
-        let inner = Inner { mirror, listener: None, generation: 0 };
+        let inner = Inner {
+            mirror,
+            listener: None,
+            generation: 0,
+            outbox: VecDeque::new(),
+            telling: false,
+        };
         Ok(Arc::new(Self { inner: Mutex::new(inner) }))
     }
 
@@ -365,6 +422,8 @@ impl OwnershipMirror {
     ) -> OwnershipMirrorView {
         let mut inner = self.lock();
         let now = view_of(&inner.mirror, inner.generation);
+        // Every queued view is older than `now`, which has every row.
+        inner.outbox.clear();
         inner.listener = listener;
         now
     }
