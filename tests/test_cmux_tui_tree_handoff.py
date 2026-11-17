@@ -22,6 +22,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 import yaml
@@ -43,11 +44,25 @@ FAKE_GH = r"""#!/usr/bin/env python3
 import json, os, sys
 state = json.load(open(os.environ["FAKE_STATE"]))
 args = sys.argv[1:]
+LIMITED = "gh: API rate limit exceeded for installation ID 1. (HTTP 403)"
+if args[:2] == ["api", "rate_limit"]:
+    # GitHub answers /rate_limit even for a spent token, and it costs no quota.
+    open(os.environ["FAKE_LOG"] + ".rate", "a").write("rate_limit\n")
+    print(json.dumps({"resources": {"core": state.get("core", {"remaining": 5000, "reset": 0})}})); sys.exit(0)
 if os.environ.get("GH_TOKEN") in state.get("rate_limited", []):
-    print("gh: API rate limit exceeded for installation ID 1. (HTTP 403)", file=sys.stderr); sys.exit(1)
+    print(LIMITED, file=sys.stderr); sys.exit(1)
+# rate_limited_calls: the first N calls are refused for the rate limit, whatever the token.
+counter = os.environ["FAKE_LOG"] + ".count"
+seen = int(open(counter).read()) if os.path.exists(counter) else 0
+open(counter, "w").write(str(seen + 1))
+if seen < state.get("rate_limited_calls", 0):
+    print(LIMITED, file=sys.stderr); sys.exit(1)
 open(os.environ["FAKE_LOG"], "a").write(json.dumps(args) + "\n")
 open(os.environ["FAKE_LOG"] + ".tokens", "a").write(os.environ.get("GH_TOKEN", "") + "\n")
 if args[:2] == ["run", "rerun"]:
+    if args[2] in state.get("rerun_rate_limited", []):
+        print("HTTP 429: Too Many Requests (https://api.github.com/repos/o/r/actions/runs/%s/rerun)" % args[2],
+              file=sys.stderr); sys.exit(1)
     sys.exit(0 if args[2] not in state.get("rerun_fails", []) else 1)
 path = next(a for a in args[1:] if a.startswith("repos/"))
 if "-X" in args:
@@ -70,10 +85,14 @@ if "/jobs?" in path:
     sys.exit(0)
 if "/artifacts?" in path:
     assert "--paginate" not in args and "per_page=100" in path, args
+    if state.get("artifacts_malformed"):
+        print("<html>not json</html>"); sys.exit(0)
     artifacts = state.get("artifacts", [])
     print(json.dumps({"total_count": len(artifacts), "artifacts": artifacts if path.endswith("page=1") else []}))
     sys.exit(0)
 run = path.rsplit("/", 1)[1]
+if run in state.get("run_rate_limited", []):
+    print(LIMITED, file=sys.stderr); sys.exit(1)
 if run not in state["runs"]:
     print("HTTP 404", file=sys.stderr); sys.exit(1)
 print(json.dumps(state["runs"][run]))
@@ -150,18 +169,22 @@ class CandidateTests(unittest.TestCase):
 class CommandTests(unittest.TestCase):
     """Runs the script with a fake gh on PATH."""
 
-    def run_handoff(self, state, token="t", spare="", extra=()):
+    def run_handoff(self, state, token="t", spare="", extra=(), wait_s="0"):
         with tempfile.TemporaryDirectory() as tmp:
             gh = Path(tmp, "gh")
             gh.write_text(FAKE_GH)
             gh.chmod(gh.stat().st_mode | stat.S_IEXEC)
             Path(tmp, "state.json").write_text(json.dumps(state))
             env = {**os.environ, "PATH": f"{tmp}:{os.environ['PATH']}", "GH_TOKEN": token, "GH_TOKEN_SPARE": spare,
-                   "FAKE_STATE": str(Path(tmp, "state.json")), "FAKE_LOG": str(Path(tmp, "log"))}
+                   "FAKE_STATE": str(Path(tmp, "state.json")), "FAKE_LOG": str(Path(tmp, "log")),
+                   # The rate-limit wait budget: none unless a test gives one, so no test sleeps by accident.
+                   "TREE_HANDOFF_RATE_LIMIT_WAIT_S": wait_s}
             if not token:
                 env.pop("GH_TOKEN")
+            started = time.monotonic()
             result = subprocess.run([sys.executable, str(SCRIPT), "--repo", "o/r", "--run-id", "99", "--key", KEY, *extra],
                                     capture_output=True, text=True, env=env)
+            self.elapsed = time.monotonic() - started
             log_path, tokens_path = Path(tmp, "log"), Path(tmp, "log.tokens")
             calls = [json.loads(line) for line in log_path.read_text().splitlines()] if log_path.exists() else []
             # The token of each answered call, in order (the refused calls are in neither list).
@@ -219,6 +242,91 @@ class CommandTests(unittest.TestCase):
         result, _ = self.run_handoff(state, extra=("--published",))
         self.assertEqual(result.returncode, 1)
         self.assertIn("::error title=deferred runs not re-run::", result.stdout)
+
+    # 2026-11-17: feat-cmux-next run 44024006431 published tree 1c37b55b, and its re-run job went red on
+    # "gh api .../actions/artifacts?name=cmux-tui-tree-deferred-... failed: gh: API rate limit exceeded",
+    # with the spare token spent too (PR runs, 44769's among them, failed the same way). The re-run is
+    # best-effort: the next push's sweep (cmux_tui_manifest_sweep.py) re-runs a commit whose manifest is
+    # missing. A rate limit that outlasts the wait budget is a warning naming what was not re-run, and
+    # the step passes.
+    def test_published_rate_limited_listing_warns_and_passes(self):
+        state = {"artifacts": [marker(31, 12)], "runs": {"12": {"status": "completed", "run_attempt": 1}},
+                 "rate_limited": ["t", "s"]}
+        result, calls = self.run_handoff(state, spare="s", extra=("--published",))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("::error", result.stdout)
+        warning = next(line for line in result.stdout.splitlines() if line.startswith("::warning"))
+        self.assertIn("rate limit", warning)
+        self.assertIn(KEY, warning)
+        self.assertIn("not re-run", warning)
+        self.assertEqual(calls, [])
+
+    def test_published_rate_limit_mid_loop_names_the_runs_left(self):
+        # Run 13 (newest feat-cmux-next marker) is re-run; the re-run of 12 is refused for the rate limit,
+        # so 12 and the lane run 10 after it are left, named, for a later run.
+        state = {"artifacts": [marker(31, 12), marker(32, 13), marker(33, 10, "lane/x")],
+                 "runs": {"13": {"status": "completed", "run_attempt": 1},
+                          "12": {"status": "completed", "run_attempt": 1},
+                          "10": {"status": "completed", "run_attempt": 1}},
+                 "rerun_rate_limited": ["12"]}
+        result, calls = self.run_handoff(state, extra=("--published",))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Re-ran run 13", result.stdout)
+        self.assertNotIn("::error", result.stdout)
+        warning = next(line for line in result.stdout.splitlines() if line.startswith("::warning"))
+        self.assertIn("12", warning)
+        self.assertIn("10", warning)
+        self.assertFalse(any(c[:3] == ["run", "rerun", "10"] for c in calls), "nothing more is spent once limited")
+        self.assertNotIn(["api", "-X", "DELETE", "repos/o/r/actions/artifacts/31"], calls, "12's marker is kept")
+
+    def test_published_rate_limited_run_read_warns_and_passes(self):
+        state = {"artifacts": [marker(31, 12)], "runs": {"12": {"status": "completed", "run_attempt": 1}},
+                 "run_rate_limited": ["12"]}
+        result, _ = self.run_handoff(state, extra=("--published",))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("::error", result.stdout)
+        self.assertIn("12", next(line for line in result.stdout.splitlines() if line.startswith("::warning")))
+
+    def test_published_malformed_answer_stays_red(self):
+        result, _ = self.run_handoff({"artifacts_malformed": True, "runs": {}}, extra=("--published",))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("::error title=deferred runs not re-run::", result.stdout)
+
+    def test_published_mixed_real_failure_and_rate_limit_stays_red(self):
+        # A real re-run error before the limit is still the step's red.
+        state = {"artifacts": [marker(31, 12), marker(32, 13)],
+                 "runs": {"13": {"status": "completed", "run_attempt": 1},
+                          "12": {"status": "completed", "run_attempt": 1}},
+                 "rerun_fails": ["13"], "rerun_rate_limited": ["12"]}
+        result, _ = self.run_handoff(state, extra=("--published",))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("could not re-run run 13", result.stdout)
+
+    def test_a_short_rate_limit_is_waited_out_within_the_budget(self):
+        # The first call is refused; the wait (no reset known: a short backoff) fits the budget, and the retry
+        # answers.
+        state = {"artifacts": [marker(31, 12)], "runs": {"12": {"status": "completed", "run_attempt": 1}},
+                 "rate_limited_calls": 1}
+        result, calls = self.run_handoff(state, extra=("--published",), wait_s="5")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Re-ran run 12", result.stdout)
+        self.assertIn(["run", "rerun", "12", "--repo", "o/r"], calls)
+
+    def test_a_reset_past_the_budget_is_not_waited_for(self):
+        # The core quota is spent until an hour from now: waiting would only burn the step's minutes.
+        state = {"artifacts": [marker(31, 12)], "runs": {"12": {"status": "completed", "run_attempt": 1}},
+                 "rate_limited": ["t"], "core": {"remaining": 0, "reset": int(time.time()) + 3600}}
+        result, _ = self.run_handoff(state, extra=("--published",), wait_s="30")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertLess(self.elapsed, 10, "no wait for a reset beyond the budget")
+        self.assertIn("::warning", result.stdout)
+
+    def test_a_reset_within_the_budget_is_waited_for(self):
+        state = {"artifacts": [marker(31, 12)], "runs": {"12": {"status": "completed", "run_attempt": 1}},
+                 "rate_limited_calls": 1, "core": {"remaining": 0, "reset": int(time.time()) + 1}}
+        result, _ = self.run_handoff(state, extra=("--published",), wait_s="20")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Re-ran run 12", result.stdout)
 
     def test_published_cap_is_a_backstop(self):
         self.assertTrue(handoff.may_rerun({"status": "completed", "run_attempt": 3}, handoff.PUBLISHED_MAX_ATTEMPT)[0])

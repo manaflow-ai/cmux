@@ -2778,6 +2778,109 @@ def test_sweep_reruns_a_deferred_run_that_was_in_progress_at_publish():
         assert rerun_commits == [] and reruns == [], kwargs
 
 
+def run_sweep_main(answer):
+    """sweeper.main over two marked revs whose manifests answer 404, with `answer(args)` as gh."""
+    import contextlib
+    import io
+    from unittest import mock
+    import cmux_tui_manifest_sweep as sweeper
+
+    revs = ["a" * 40, "b" * 40]
+    calls: list[tuple[str, ...]] = []
+
+    def gh(*args):
+        calls.append(args)
+        code, out, err = answer(args)
+        return subprocess.CompletedProcess(["gh", *args], code, out, err)
+
+    out = io.StringIO()
+    with mock.patch.object(sweeper, "git_revs", lambda window, branch: revs), \
+            mock.patch.object(sweeper, "adopts", lambda rev: True), \
+            mock.patch.object(sweeper, "cdn_status", lambda url: 200 if "/tree-commits/" in url else 404), \
+            mock.patch.object(sweeper.handoff, "_gh", gh), \
+            mock.patch.dict(os.environ, {"GH_TOKEN": "t"}), contextlib.redirect_stdout(out):
+        code = sweeper.main(["--repo", "o/r"])
+    return code, out.getvalue(), calls, revs
+
+
+def test_sweep_lists_the_branch_runs_once_not_once_per_commit():
+    # One listing of the branch's push runs answers every commit in it: N commits cost 1 call, not N.
+    def answer(args):
+        if args[:2] == ("run", "rerun"):
+            return 0, "", ""
+        assert "head_sha=" not in args[-1], args
+        runs = [{"id": 10 + i, "head_sha": rev, "status": "completed", "run_attempt": 1}
+                for i, rev in enumerate(["a" * 40, "b" * 40])]
+        return 0, json.dumps({"workflow_runs": runs}), ""
+
+    code, out, calls, revs = run_sweep_main(answer)
+    assert code == 0, out
+    listings = [c for c in calls if c[0] == "api"]
+    assert len(listings) == 1, listings
+    assert "per_page=100" in listings[0][-1] and "event=push" in listings[0][-1]
+    assert sorted(c[2] for c in calls if c[:2] == ("run", "rerun")) == ["10", "11"]
+
+
+def test_sweep_falls_back_to_a_commit_query_for_a_commit_past_the_listing():
+    def answer(args):
+        if args[:2] == ("run", "rerun"):
+            return 0, "", ""
+        if "head_sha=" in args[-1]:
+            rev = args[-1].split("head_sha=")[1].split("&")[0]
+            return 0, json.dumps({"workflow_runs": [{"id": 20, "head_sha": rev, "status": "completed",
+                                                     "run_attempt": 1}]}), ""
+        return 0, json.dumps({"workflow_runs": [{"id": 10, "head_sha": "a" * 40, "status": "completed",
+                                                 "run_attempt": 1}]}), ""
+
+    code, out, calls, _ = run_sweep_main(answer)
+    assert code == 0, out
+    assert sorted(c[2] for c in calls if c[:2] == ("run", "rerun")) == ["10", "20"]
+
+
+def test_sweep_rate_limited_warns_names_what_was_left_and_passes():
+    # 2026-11-17, feat-cmux-next run 44024006431: "could not list the runs of 298219a6b387: gh: API rate
+    # limit exceeded for installation ID 175618676" failed the sweep. The next push's sweep looks again.
+    limited = (1, "", "gh: API rate limit exceeded for installation ID 175618676. (HTTP 403)")
+    code, out, calls, revs = run_sweep_main(lambda args: limited)
+    assert code == 0, out
+    assert "::error" not in out, out
+    warning = next(line for line in out.splitlines() if line.startswith("::warning"))
+    assert "rate limit" in warning and revs[0][:12] in warning
+
+
+def test_sweep_rate_limited_rerun_warns_and_passes():
+    def answer(args):
+        if args[:2] == ("run", "rerun"):
+            return 1, "", "HTTP 429: Too Many Requests"
+        runs = [{"id": 10 + i, "head_sha": rev, "status": "completed", "run_attempt": 1}
+                for i, rev in enumerate(["a" * 40, "b" * 40])]
+        return 0, json.dumps({"workflow_runs": runs}), ""
+
+    code, out, calls, _ = run_sweep_main(answer)
+    assert code == 0, out
+    assert "::error" not in out, out
+    assert len([c for c in calls if c[:2] == ("run", "rerun")]) == 1, "nothing more is spent once limited"
+
+
+def test_sweep_real_rerun_failure_stays_red():
+    def answer(args):
+        if args[:2] == ("run", "rerun"):
+            return 1, "", "HTTP 422: run cannot be rerun"
+        runs = [{"id": 10, "head_sha": "a" * 40, "status": "completed", "run_attempt": 1},
+                {"id": 11, "head_sha": "b" * 40, "status": "completed", "run_attempt": 1}]
+        return 0, json.dumps({"workflow_runs": runs}), ""
+
+    code, out, _, _ = run_sweep_main(answer)
+    assert code == 1, out
+    assert "::error title=commit manifests missing::" in out
+
+
+def test_sweep_malformed_listing_stays_red():
+    code, out, _, _ = run_sweep_main(lambda args: (0, "<html>", ""))
+    assert code == 1, out
+    assert "::error" in out
+
+
 def test_sweep_runs_after_the_markers_on_every_feat_push_without_waiting():
     artifacts = workflow("cmux-tui-artifacts.yml")
     job = workflow_job(artifacts, "sweep-commit-manifests")
