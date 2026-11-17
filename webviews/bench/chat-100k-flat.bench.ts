@@ -19,7 +19,11 @@
 // row chat_100k_flat_ratio_max, target 1.2, the worse of ratio_max and grown_many.ratio_max). A CPU ratio is
 // taken over a floor of CPU_FLOOR_PCT (default 1 % of a core) on both sides, so two near-idle readings are not a ratio
 // of noise.
-// HIDDEN=0 keeps every chat shown.
+// HIDDEN=0 keeps every chat shown; HIDDEN_FOCUS=1 lets the hidden chats keep their composer's focus (the fake hide
+// before cmux#45531).
+// TRACE=DIR (with WAKES=1 for the rAF sites) writes browser-wide Chrome traces of each xN launch's idle windows, of a
+// later idle window, and of one with every page's focus blurred, and prints what each renderer thread ran (idleTrace.ts):
+// the frames' owner and the thread pool's work (in long x20, V8's memory-reducer GC marking the bigger heap).
 // CASES=long-many runs only empty xN and long xN; with PROFILE it profiles every page of long xN. WAKES=1 also splits
 // each idle window's renderer CPU by thread, so a burst on V8's worker threads reads apart from steady idle, and
 // traces one hidden and the shown page of an xN launch. PROFILE=DIR writes CDP CPU profiles of the long x1 and grown x1 idle and streaming
@@ -60,6 +64,7 @@ const STREAM_S = Number(process.env.STREAM_S ?? 10);
 const TPS = Number(process.env.TPS ?? 30);
 const CPU_FLOOR_PCT = Number(process.env.CPU_FLOOR_PCT ?? 1);
 const HIDDEN = process.env.HIDDEN !== "0";
+const HIDDEN_FOCUS = process.env.HIDDEN_FOCUS === "1";
 const PROFILE = process.env.PROFILE;
 const GROW_BATCH = Number(process.env.GROW_BATCH ?? 400);
 const REPEAT = Math.max(1, Number(process.env.REPEAT ?? 3));
@@ -338,12 +343,6 @@ try {
     const root = server.process().pid!;
     const browser = await chromium.connect(server.wsEndpoint());
     const context = await browser.newContext({ viewport: { width: 1200, height: 800 } });
-    if (process.env.NO_LOAF === "1")
-      await context.addInitScript(() => {
-        const Observer = globalThis.PerformanceObserver;
-        const types = Observer.supportedEntryTypes.filter((type) => type !== "long-animation-frame");
-        Object.defineProperty(Observer, "supportedEntryTypes", { configurable: true, get: () => types });
-      });
     if (WAKES)
       await context.addInitScript(() => {
         const wakes = { timers: 0, raf: 0, posts: 0, mutations: 0 };
@@ -566,16 +565,20 @@ try {
       );
       for (const { page } of pages) await settledAt(page).catch(() => undefined);
       if (HIDDEN) {
-        // A chat tab that is not shown: its document turns hidden, as CEF's WasHidden makes it in the app. Only the
-        // document's state is faked: Chromium still draws these pages (40 main frames a second each, in the trace
-        // WAKES=1 takes), which the app's hidden pages do not. Minimizing each page's window does not hide it in
-        // headless Chromium (tried: 0 of 19 turned hidden), so the hidden pages' frame cost is still unmeasured here.
+        // A chat tab that is not shown: its document turns hidden, as CEF's WasHidden makes it in the app, and it
+        // loses focus, as a tab switched away from does. Headless Chromium emulates focus for every page, so each
+        // chat's composer kept the caret and blinked it: a main frame each blink (~2 a second a page, 0 paints;
+        // every page's in one renderer, the 40 a second the browser-wide traces read). Blurring the field stops it
+        // (TRACE=DIR, run 44093806454: 40 to 0 main frames a second). Only the document's state is faked: Chromium
+        // would still draw a hidden page that asked; minimizing a page's window does not hide it in headless Chromium
+        // (tried: 0 of 19 turned hidden). HIDDEN_FOCUS=1 keeps the old fake (the hidden pages keep their focus).
         for (const { page } of pages.slice(0, -1))
-          await page.evaluate(() => {
+          await page.evaluate((blur) => {
             Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
             Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
             document.dispatchEvent(new Event("visibilitychange"));
-          });
+            if (blur) (document.activeElement as HTMLElement | null)?.blur?.();
+          }, !HIDDEN_FOCUS);
         await new Promise((resolve) => setTimeout(resolve, 2000));
       }
       const shownProfiler = pages.at(-1)!.cdp;
