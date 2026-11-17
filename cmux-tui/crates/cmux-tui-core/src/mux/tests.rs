@@ -75,6 +75,7 @@ mod resource_selectors;
 mod respawn_gate_jump;
 mod restart;
 mod rows;
+mod scoped_load_side_tables;
 mod session_lists;
 mod signaled_mutex;
 mod single_reads;
@@ -100,6 +101,8 @@ mod workspace_close_cost;
 #[cfg(unix)]
 mod workspace_close_time;
 mod workspace_materialize;
+#[cfg(unix)]
+mod workspace_registry_stress;
 mod workspaces;
 mod writer_lock_order;
 
