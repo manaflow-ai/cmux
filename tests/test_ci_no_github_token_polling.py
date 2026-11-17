@@ -58,7 +58,7 @@ ALLOWED: dict[str, str] = {
     'cmux-next-generated-catch-up.yml: Select PRs that conflict with feat-cmux-next':
         "per feat-cmux-next push, only while a PR's mergeable is UNKNOWN: re-lists open PRs every 20 s, at most 5 more times",
     "app-ffi-release.yml: Watch the build and rescue it to Blacksmith macOS":
-        "per feat-cmux-next app-ffi-release run, only while vars.CI_BLACKSMITH_MACOS is on "
+        "per feat-cmux-next app-ffi-release run, only while vars.CI_BLACKSMITH_MACOS is pr-rescue or on "
         "(app_ffi_rescue.py, #45076, hq#3690): one jobs page every 120 s, at most 50 reads, ending once the "
         "build has a runner; a candidate for the owned-pool rescue's one sweeper",
     'published-in.yml: Comment the release on its PRs':

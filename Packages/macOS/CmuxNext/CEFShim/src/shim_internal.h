@@ -67,6 +67,8 @@ struct ForkApi {
   int (*tab_set_transparent_background)(int, int) = nullptr;
   uint32_t (*browser_set_layer_hosting)(int, int) = nullptr;
   int (*browser_set_resize_sync)(int, int) = nullptr;
+  // API 32 (version >= 34 on the Chromium 157 line): window frame sync.
+  int (*browser_resize_fence)(int, uint32_t, int, int, int, void (*)(void*, int), void*) = nullptr;
   void (*set_new_tab_page_url)(const char*) = nullptr;
   void (*set_install_prompt_handler)(void (*)(void*, int, int, const char*), void*) = nullptr;
   int (*install_prompt_reply)(int, int) = nullptr;
