@@ -530,6 +530,9 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
 
     var queuedFrames: Int { state.withLock { $0.inbox.count } }
 
+    /// Tests: the socket is in a shed episode (it dropped stream frames past its bound).
+    var isShedding: Bool { state.withLock { $0.shed != nil } }
+
     /// Queues a frame the host made (a refusal) as if the daemon had sent it.
     /// The relay's own answer to a refused request, straight to the page queue. It can reach the page
     /// before earlier daemon frames that still wait in `raw` for the inbound pass.

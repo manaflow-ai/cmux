@@ -61,6 +61,22 @@ struct AgentPaneHiddenPacingTests {
         }
     }
 
+    /// The probe saw the pane hidden before the transport listened (a pane put in a hidden spot
+    /// before its transport was wired): the listener still learns it, so the socket uses its
+    /// hidden bound, not the visible 8192-frame queue.
+    @Test func aListenerInstalledAfterTheProbeReportedLearnsThePaneIsHidden() {
+        let rig = Rig(hidden: true)
+        rig.pacer.visibilityChanged()
+        var told: [Bool] = []
+        rig.pacer.onHiddenChange = { told.append($0) }
+        #expect(told == [true], "a pane hidden before its listener was installed was never reported hidden")
+        // A later change is reported once, as before.
+        rig.hidden = false
+        rig.pacer.visibilityChanged()
+        rig.pacer.visibilityChanged()
+        #expect(told == [true, false])
+    }
+
     @Test func aHiddenPaneGetsFramesItsPageWaitsOnAtMostEveryQuarterSecond() {
         let rig = Rig(hidden: true)
         // Idle: the first frames go at once.
