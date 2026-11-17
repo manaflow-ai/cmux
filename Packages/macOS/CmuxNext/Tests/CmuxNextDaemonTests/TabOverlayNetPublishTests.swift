@@ -127,6 +127,29 @@ struct TabOverlayNetPublishTests {
         #expect(store.mirrorViolations.isEmpty, "\(store.mirrorViolations)")
     }
 
+    /// The list's own work (the unread count, the first tab) runs one time at the batch's end for a pane whose
+    /// creations wait. Inside the batch a screen that sums its panes' unread counts can read the old count of such a
+    /// pane. The row holds what a reader sees after the batch: the daemon's new first tab with an unread notification
+    /// counts in the store's unread count, the stored count is the count from each tab, and the pane's first tab is
+    /// the new one.
+    @Test func aBatchThatAddsAnUnreadFirstTabToAPaneWhoseCreationsWaitCountsItAtItsEnd() throws {
+        let store = Self.store()
+        let pane = try Self.withWaitingCreations(store)
+        try #require(store.unreadBadge() == 0, "setup: the store counts \(store.unreadBadge()) unread tabs before the batch")
+        let surface = SurfaceID(rawValue: 150)
+        let unread = TabSnapshot(surface: surface, notification: TabNotification(notification: NotificationID(rawValue: 7), unread: true))
+
+        _ = store.apply(batch: [DaemonEventEnvelope(sequence: 1, event: .tabAdded(TabDelta(
+            workspace: WorkspaceHandle(rawValue: 1), screen: ScreenID(rawValue: 100), pane: Self.shownPane, surface: surface, index: 0,
+            entity: unread, clientTransactionID: nil)))])
+
+        #expect(store.unreadBadge() == 1, "the store counts \(store.unreadBadge()) unread tabs after the batch, want 1")
+        #expect(store.recountedUnreadTotals() == store.unreadTotals, "the stored unread count is not the count from each tab")
+        #expect(pane.firstTab?.surface == surface, "the pane's first tab is not the daemon's new first tab")
+        #expect(pane.tabs.count == 2 + Self.waiting)
+        #expect(store.mirrorViolations.isEmpty, "\(store.mirrorViolations)")
+    }
+
     /// The time of the store's work for a hold of the New Tab key whose answers come one by one after the keys
     /// (decision of 2026-11-17): a print with no bound, for 3 sizes of the hold. Each key is one creation that
     /// waits. Each answer is the daemon's `tab-added` event with the creation's transaction, then the reply's
