@@ -1151,7 +1151,8 @@
               "browser.passwords.offerToSave",
               "browser.passwords.generate",
               "browser.passwords.allowExport",
-              "browser.verificationAutofill.enabled"
+              "browser.verificationAutofill.enabled",
+              "browser.verificationAutofill.accounts"
             ],
             "title" : {
               "key" : "settings.group.passwords",
@@ -5516,7 +5517,7 @@
       },
       "help" : {
         "key" : "settings.tabs.toolbarButtons.help",
-        "text" : "Actions shown as buttons at the tab bar's trailing end. Pin or unpin one from Show in Tab Bar in the tab bar's right-click menu."
+        "text" : "Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.toolbarButtons",
@@ -5604,7 +5605,7 @@
           "operations" : [
 
           ],
-          "reason" : "action ids; toggled from the tab bar's right-click menu (Show in Tab Bar)",
+          "reason" : "action ids; toggled from the tab bar's More menu (Show in Tab Bar)",
           "row" : null
         },
         "socket" : {
@@ -90581,6 +90582,160 @@
       "title" : {
         "key" : "settings.browser.verificationAutofill.enabled",
         "text" : "Fill Codes from Verification Emails"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "ws-1",
+          "2B7F0C3A-workspace"
+        ]
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.passwords",
+        "text" : "Passwords"
+      },
+      "help" : {
+        "key" : "settings.browser.verificationAutofill.accounts.help",
+        "text" : "Codes come only from these addresses: Gmail accounts you are signed in to in this browser, and accounts in the Mail app. Mail is read on this Mac and never stored or sent."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.verificationAutofill.accounts",
+      "keywords" : [
+        "email",
+        "gmail",
+        "mail",
+        "account",
+        "verification",
+        "code"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "verificationAutofill",
+        "accounts"
+      ],
+      "placeholder" : {
+        "key" : null,
+        "text" : "you@example.com"
+      },
+      "refuses" : [
+        "ws-1",
+        [
+          1
+        ],
+        [
+          ""
+        ],
+        {
+
+        }
+      ],
+      "section" : "browser",
+      "summary" : {
+        "key" : "settings.browser.verificationAutofill.accounts.summary",
+        "text" : "Addresses cmux may read codes from"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:browser.verificationAutofill.accounts"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.browser.verificationAutofill.accounts",
+        "text" : "Email Accounts for Codes"
       },
       "validation" : "portable"
     },

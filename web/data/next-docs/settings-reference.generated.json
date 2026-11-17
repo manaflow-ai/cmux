@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 624,
+  "count": 625,
   "sections": [
     {
       "id": "general",
@@ -5750,6 +5750,14 @@
           "kind": "string_list",
           "default": [],
           "group": "Opening Links"
+        },
+        {
+          "key": "browser.verificationAutofill.accounts",
+          "title": "Email Accounts for Codes",
+          "help": "Codes come only from these addresses: Gmail accounts you are signed in to in this browser, and accounts in the Mail app. Mail is read on this Mac and never stored or sent.",
+          "kind": "string_list",
+          "default": [],
+          "group": "Passwords"
         },
         {
           "key": "browser.verificationAutofill.enabled",
