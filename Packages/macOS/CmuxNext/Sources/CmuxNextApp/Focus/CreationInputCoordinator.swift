@@ -237,8 +237,8 @@ final class CreationInputCoordinator {
         // Automation's focus move (a new generation) does not take the key from it: the claim decides first.
         let forNewWorkspace = claimHolds(in: shell) || controller.map { buffer.newestGeneration == $0.focus.state.generation } ?? false
         if kind == .content, let controller, buffer.passesOn(focusedTab: controller.focus.state.typingTab), Self.responderTakesKeys(controller, window: shell) { return false } // moved on
-        // A close key (Cmd-W) acts now on what it closes; the Close Tab key waits behind a held key that makes or closes a tab.
-        let closes = controller.map { focused in buffer.closeKeyActsNow(Self.act(event, in: shell, controller: focused, router: router)) { Self.act($0, in: shell, controller: focused, router: router).tabKey } } ?? false
+        // A close key (Cmd-W) acts now on what it closes; in the content the Close Tab key waits behind a held key of its pane that makes or closes a tab (a panel's key is the panel's).
+        let closes = controller.map { focused in let act = Self.act(event, in: shell, controller: focused, router: router); return kind == .content ? buffer.closeKeyActsNow(act, pane: focused.focus.state.pane) { Self.act($0, in: shell, controller: focused, router: router).tabKey } : act.closes } ?? false
         // A close of a pending creation of this hold (the focus it asked for is still on its way):
         // the keys typed for it go with it, the others keep waiting in order, and the close runs now
         // (TabLifecycle cancels the creation). Nothing is run into whatever has the focus first.
@@ -257,14 +257,14 @@ final class CreationInputCoordinator {
             if buffer.waitedPastReplyBound() { buffer.onBound?(buffer, .reply) } else { flush(in: shell, force: true, end: .focusLeft) }
             guard let next = buffers[shell.windowNumber] else { return kind == .content && keepsFromWindow(event, in: shell) }
             guard next.holds(event, limit: holdLimit, expiring: false, closes: closes) else { return false }
-            next.capture(event, focusedTab: controller?.focus.state.typingTab)
+            next.capture(event, focusedTab: controller?.focus.state.typingTab, pane: controller?.focus.state.pane)
             return true
         }
         // A pending creation's early view has the keyboard: the keys held for it first, then this one if it was typed for
         // it too. Keys typed for another creation wait for that one's terminal (P0 1193).
         if let controller, let lane = Self.keyboardTerminal(controller, shell).flatMap(buffer.earlyLane(tab:)), runAgain(buffer.take(lane: lane), from: buffer, in: shell),
            lane == buffer.lane(focusedTab: controller.focus.state.typingTab) { return false }
-        buffer.capture(event, focusedTab: controller?.focus.state.typingTab, forNewWorkspace: forNewWorkspace, forNewestIntent: controller.map { buffer.newestGeneration == $0.focus.state.generation } ?? false)
+        buffer.capture(event, focusedTab: controller?.focus.state.typingTab, forNewWorkspace: forNewWorkspace, forNewestIntent: controller.map { buffer.newestGeneration == $0.focus.state.generation } ?? false, pane: controller?.focus.state.pane)
         return true
     }
 
@@ -276,9 +276,9 @@ final class CreationInputCoordinator {
         for (index, key) in keys.enumerated() {
             replaying = (key.lane != nil, run)
             switch key {
-            case .run(let event, _): if let router { replay(event, window, router) }
-            case .type(let events, let lane): type(events, into: lane)
-            case .command(let event, let lane): // with that terminal's tab as its target; no binding now: its key
+            case .run(let event, _, _): if let router { replay(event, window, router) }
+            case .type(let events, let lane, _): type(events, into: lane)
+            case .command(let event, let lane, _): // with that terminal's tab as its target; no binding now: its key
                 guard let (binding, context) = shortcut(event, tab: lane.tab, in: window), let router else { type([event], into: lane); break }
                 RegistryKeyBindings(router.registry).run(binding, keyContext: context.bits, target: ActionTargetRef(kind: .tab, id: lane.tab))
             }

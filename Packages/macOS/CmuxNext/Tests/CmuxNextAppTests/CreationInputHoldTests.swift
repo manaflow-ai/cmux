@@ -89,7 +89,7 @@ import Testing
         let forB = Self.key("b", code: 11), forSplit = Self.key("s", code: 1)
         let terminalA = CreationInputBuffer.HeldLane(tab: "terminalA", machine: nil)
         // The rest of the replay: a key of the issuing lane (it moves to the split) and a line for terminal B.
-        buffer.prepend([(event: forSplit, lane: terminalA), (event: forB, lane: CreationInputBuffer.HeldLane(tab: "terminalB", machine: nil))],
+        buffer.prepend([(event: forSplit, lane: terminalA, pane: nil), (event: forB, lane: CreationInputBuffer.HeldLane(tab: "terminalB", machine: nil), pane: nil)],
                        issuer: terminalA)
         #expect(buffer.cancel(tab: "split"))
         #expect(buffer.take() == [forB], "the line carried for terminal B was dropped with the closed split (or the split's key was kept)")
