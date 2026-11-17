@@ -251,11 +251,13 @@ public final class CmuxMobileMacTheme: @unchecked Sendable {
 
     /// A Mac's appearance, live: it wins over the cached one and is kept for the next launch. The
     /// palette changes at once; the write happens off the main actor (``settled()`` awaits it).
+    /// `keep: false` applies it for this launch only (a demo's theme).
     @MainActor
-    public func apply(_ appearance: CmuxMobileMacAppearance) {
+    public func apply(_ appearance: CmuxMobileMacAppearance, keep: Bool = true) {
         guard let palette = CmuxMobileMacPalette(appearance) else { return }
         if self.appearance != appearance { self.appearance = appearance }
         if macPalette != palette { macPalette = palette }
+        guard keep else { return }
         let cache = cache
         enqueue { cache.save(appearance) }
     }

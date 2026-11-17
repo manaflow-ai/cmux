@@ -15,13 +15,13 @@ public struct TerminalDemoRoot: View {
 
     public init() {
         // `-CmuxMobileTerminalDemoLight`: a light terminal theme (the Mac's
-        // Solarized Light), set before the terminal engine reads its colors.
+        // Solarized Light), set before the terminal engine reads its colors,
+        // for this launch only: the next test's launch keeps its own theme.
         if CommandLine.arguments.contains("-CmuxMobileTerminalDemoLight") {
-            CmuxMobileMacTheme.shared.matchesMac = true
             CmuxMobileMacTheme.shared.apply(CmuxMobileMacAppearance(theme: .init(
                 background: "#fdf6e3", foreground: "#657b83",
                 palette: ["#073642", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198", "#eee8d5"],
-                accent: "blue")))
+                accent: "blue")), keep: false)
         }
         let session: any TerminalSession = TerminalHostGridDemoSession.requestedSpec
             .flatMap(TerminalHostGridDemoSession.init(spec:)) ?? MockTerminalSession(macResize: Self.macResize)
