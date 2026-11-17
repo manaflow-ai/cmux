@@ -510,6 +510,57 @@ fn unwritten_output_of_a_terminal_of_the_session_with_no_runtime_keeps_the_sessi
     );
 }
 
+/// The owner's output store holds output of a private terminal that is in
+/// no file. By design no write of the store takes it: a private terminal
+/// stays in memory. So it is not a missing last write: the release gives
+/// the session up, and the drop of the owner changes no file of the store.
+#[test]
+fn unwritten_output_of_a_private_terminal_does_not_keep_the_session() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-session-release-private-terminal-{}",
+        crate::workspace_registry::new_uuid_v4()
+    ));
+    let (mux, surface, terminal) = open_owner_with_a_terminal(&root, "release-private-terminal");
+    let folder = session_folder(&mux);
+    let store = store_folder(&mux);
+    mux.output_store.mark_private(&terminal);
+    print(&mux, &surface, &terminal, format!("a first line\r\n{LAST_LINE}\r\n").as_bytes());
+    // The terminal's host put a new screen in its place: the store owes a
+    // snapshot of the terminal from then on, and no pass writes one of a
+    // private terminal.
+    mux.output_store.stream_gap(&terminal, &Arc::from(DROP_INCARNATION));
+    mux.shutdown();
+    let unwritten = mux.output_store.has_unwritten_output_of(&terminal);
+    let release = mux.release_ownership(&root.join("control.sock"));
+    let before = files_of(&store);
+    drop(surface);
+    // The drop runs here, on this thread, when this handle is the last one.
+    let dropped = Arc::into_inner(mux).is_some();
+    let changed = changed_files(&before, &files_of(&store));
+    crate::workspace_registry::owner_release::end_kept_owner_for_test(&folder);
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(
+        unwritten && !has_a_file_of(&before, &terminal),
+        "setup: after the owner's stop the output store holds no unwritten output of the \
+         private terminal, or it has a file of that terminal (unwritten: {unwritten})"
+    );
+    assert!(
+        release == lifecycle::OwnershipRelease::Released,
+        "an owner kept its session for output of a private terminal, which no write of its \
+         output store takes: its release: {release:?}"
+    );
+    assert!(
+        changed.is_empty(),
+        "after its release returned, the drop of the owner changed files of its output \
+         store, which the next owner has from then on: {changed:?}"
+    );
+    assert!(
+        dropped,
+        "setup: the test's handle of the owner was not the last one, so the owner's drop did \
+         not run between the two reads of the store's folder"
+    );
+}
+
 /// A commit that the registry's log holds when the owner releases the
 /// session is not lost at the owner's drop: the owner after it reads that
 /// commit, whether the drop wrote the log into the main file or left it.

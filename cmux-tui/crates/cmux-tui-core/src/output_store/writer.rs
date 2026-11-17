@@ -334,6 +334,20 @@ mod worker_tests {
             *writer.thread.lock().unwrap_or_else(PoisonError::into_inner) = Some(thread);
             ended
         }
+
+        /// Whether the store's state of `terminal` says that output of it is
+        /// in no file: bytes that no write took, a tail that no sync made
+        /// durable, or a snapshot that a pass owes.
+        pub(crate) fn has_unwritten_output_of(
+            &self,
+            terminal: &crate::resource::TerminalPublicId,
+        ) -> bool {
+            let logs = self.logs.lock().unwrap_or_else(PoisonError::into_inner);
+            logs.get(terminal).is_some_and(|log| {
+                let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+                !state.pending.is_empty() || state.tail_unsynced || state.force_snapshot
+            })
+        }
     }
 }
 
