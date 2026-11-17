@@ -96,7 +96,9 @@ impl Mux {
                 len,
                 len,
                 (low..=high).chain(std::iter::once(active_at)),
-                |position| self.registry_workspace(&state.workspaces[source(position)]),
+                |position| {
+                    state.workspaces.get(source(position)).map(|w| self.registry_workspace(w))
+                },
             );
             let commit = registry.commit_workspace_change(
                 mutation,

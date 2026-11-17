@@ -72,7 +72,7 @@ impl ChangedWorkspaces {
         len_before: usize,
         workspaces_len: usize,
         positions: impl IntoIterator<Item = usize>,
-        row: impl Fn(usize) -> RegistryWorkspace,
+        row: impl Fn(usize) -> Option<RegistryWorkspace>,
     ) -> Self {
         let mut positions =
             positions.into_iter().filter(|position| *position < workspaces_len).collect::<Vec<_>>();
@@ -81,7 +81,10 @@ impl ChangedWorkspaces {
         Self {
             len_before,
             len: workspaces_len,
-            rows: positions.into_iter().map(|position| (position, row(position))).collect(),
+            rows: positions
+                .into_iter()
+                .filter_map(|position| Some((position, row(position)?)))
+                .collect(),
         }
     }
 
@@ -92,7 +95,7 @@ impl ChangedWorkspaces {
             &self.rows.iter().map(|(_, workspace)| workspace.clone()).collect::<Vec<_>>(),
         )?;
         anyhow::ensure!(
-            self.rows.windows(2).all(|pair| pair[0].0 < pair[1].0)
+            self.rows.iter().zip(self.rows.iter().skip(1)).all(|(a, b)| a.0 < b.0)
                 && self.rows.last().is_none_or(|(position, _)| *position < self.len),
             "changed workspace rows are not at distinct positions below {}",
             self.len

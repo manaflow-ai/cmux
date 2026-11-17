@@ -196,9 +196,9 @@ impl Mux {
                     [index, state.active_workspace],
                     |position| {
                         if position == index {
-                            created.clone()
+                            Some(created.clone())
                         } else {
-                            self.registry_workspace(&state.workspaces[position])
+                            state.workspaces.get(position).map(|w| self.registry_workspace(w))
                         }
                     },
                 );

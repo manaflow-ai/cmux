@@ -755,7 +755,9 @@ impl State {
         let workspace = self.workspaces.remove(old_index);
         self.workspaces.insert(new_index, workspace);
         for index in old_index.min(new_index)..=old_index.max(new_index) {
-            self.workspace_index_by_id.insert(self.workspaces[index].id, index);
+            if let Some(workspace) = self.workspaces.get(index) {
+                self.workspace_index_by_id.insert(workspace.id, index);
+            }
         }
     }
 

@@ -190,9 +190,9 @@ impl Mux {
             let len = state.workspaces.len();
             let row = |position: usize| {
                 if position == index {
-                    renamed.clone()
+                    Some(renamed.clone())
                 } else {
-                    self.registry_workspace(&state.workspaces[position])
+                    state.workspaces.get(position).map(|w| self.registry_workspace(w))
                 }
             };
             let rows = crate::workspace_registry::ChangedWorkspaces::of_positions(

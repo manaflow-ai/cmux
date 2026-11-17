@@ -243,7 +243,7 @@ impl Mux {
         crate::walk_counters::index_rebuild_visited(moved.clone().count());
         let mut shared = HashSet::new();
         for workspace_index in moved {
-            let workspace = &state.workspaces[workspace_index];
+            let Some(workspace) = state.workspaces.get(workspace_index) else { continue };
             for (screen_index, screen) in workspace.screens.iter().enumerate() {
                 index_split_node(
                     &screen.root,
@@ -342,7 +342,9 @@ fn placement_order(state: &State, slot: SurfaceId) -> Option<(usize, usize, usiz
     let workspace_index = state.workspace_index(*indexes.screen_workspace.get(&screen_id)?)?;
     let workspace = state.workspaces.get(workspace_index)?;
     let screen_index = workspace.screens.iter().position(|screen| screen.id == screen_id)?;
-    let pane_index = workspace.screens[screen_index]
+    let pane_index = workspace
+        .screens
+        .get(screen_index)?
         .root
         .pane_ids_vec()
         .iter()
