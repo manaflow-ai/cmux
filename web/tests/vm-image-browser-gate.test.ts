@@ -56,7 +56,8 @@ describe("image roll browser check: only regressions block", () => {
   test("the probe runs the browser checks on its live image clone and applies the gate to the candidate's", () => {
     const probe = readFileSync(path.join(HERE, "../scripts/cmux-vm-image/agent-tools-probe.ts"), "utf8");
     const body = probe.slice(probe.indexOf("export async function agentToolsProbe("), probe.indexOf("export async function main("));
-    expect(body).toContain("checkRegressionGate(BROWSER_CHECKS");
+    expect(body).toContain("browserGate(result, live.checks)");
+    expect(probe).toContain("checkRegressionGate(BROWSER_CHECKS, result.checks, live)");
     const live = probe.slice(probe.indexOf("async function liveBaseline("), probe.indexOf("export async function agentToolsProbe("));
     expect(live).toContain("callServers(");
     expect(live).toContain("harnessEnsureOutputs(");
