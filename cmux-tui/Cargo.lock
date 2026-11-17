@@ -1831,6 +1831,7 @@ dependencies = [
 name = "cmux-mobile-ffi"
 version = "0.1.0"
 dependencies = [
+ "cmux-conversation",
  "cmux-mobile-core",
  "serde_json",
  "uniffi",
