@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44045480137",
+  "recorded_at": "2026-11-17T08:26:33Z",
+  "reason": "cmux-tui 8b34d017bf38 changes the image's cmux-tui (pinned d23aedd2cc7c)",
+  "dry_run": false,
+  "cmux_tui": "8b34d017bf384255e2addf06660fb4c7e8c688e0",
+  "fixes": [
+    {
+      "sha": "c4f3557ec83a7f254bb5e6458cb27c02484343a9",
+      "mergedAt": "2026-11-16T23:58:39-08:00",
+      "subject": "Palette ranker: a keystroke that extends the query scores only the rows the shorter query could still match (#45164)"
+    },
+    {
+      "sha": "d253d654bf818f3b261265373bcce8d39cf4fe46",
+      "mergedAt": "2026-11-16T23:58:26-08:00",
+      "subject": "cmux-tui: chat search scale benches at 1k/50k/500k; large messages are held to their bound and found (#45111)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T08:26:33Z",
+    "snapshot_id": "sh-056ac897f5404201a6af2202513d8282",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44045480137): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "eb4587ed78196f6cbf58bfafbb6347e2b85d5411",
+    "image": "cloud-native-auto-8b34d017-44045480137-1",
+    "revision": "ci-44045480137-1",
+    "at": "2026-11-17T08:26:33Z"
+  },
+  "rolled_back": false
+}
