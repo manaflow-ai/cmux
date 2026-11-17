@@ -81,7 +81,7 @@ struct CmuxToastDetailCopyTests {
         // One title line: Hide Details and close on it, at the trailing edge.
         #expect(abs(buttonFrame.midY - closeFrame.midY) < 0.5)
         #expect(abs(buttonFrame.midY - titleFrame.midY) < 1, "\(buttonFrame) \(titleFrame)")
-        #expect(view.bounds.maxX - closeFrame.maxX <= Metrics.space4 + 0.5, "close left the trailing edge: \(closeFrame)")
+        #expect(abs(view.bounds.maxX - closeFrame.maxX - view.geometry.padding) <= 0.5, "close left the trailing inset: \(closeFrame)")
         #expect(buttonFrame.maxX <= closeFrame.minX)
         // The plain words under the title, the code under them (the view is not flipped).
         #expect(detailFrame.maxY <= titleFrame.minY - Metrics.space2 + 0.5, "\(detailFrame) \(titleFrame)")

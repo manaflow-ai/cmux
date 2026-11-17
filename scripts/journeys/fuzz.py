@@ -46,7 +46,7 @@ import ext_fuzz  # noqa: E402  (plan, CORPUS; nothing of it runs at import)
 
 JOURNEY = "action-fuzz"
 HANDOFF = Path("/Users/lawrence/fun/wt/handoff/dogfood-fuzz")
-# cmux17 is reserved for the Cua grant (STATUS "CUA GRANTED cmux17"); cmux16 is Leo's builder.
+# cmux17 is reserved for the Cua grant (STATUS "CUA GRANTED cmux17"); cmux16 is Leo's own machine, never a fuzz host.
 # cmux20-bench is the quiet measurement host (cmux-ad 07:1xZ): no fuzz there except row m on --host cmux20, one lease.
 # cmux21 holds the tip watcher's smoke candidates since 08:47Z (mini scheduler 09:1xZ): not a default fuzz host.
 # cmux18, 22, 23 and 24 are in the scheduler's Cua grant list (lead 09:3xZ): each needs an empty slot until STATUS has

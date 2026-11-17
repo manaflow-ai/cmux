@@ -2,6 +2,8 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { setComposerLook, useComposerLook } from "../src/agent-session/acpmux/composerLook";
 
+import { OnNewTab } from "../src/agent-session/acpmux/newTabComposer";
+
 const storageDescriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
 let values: Map<string, string>;
 
@@ -60,4 +62,19 @@ test("a look selection remains usable when preference storage is unavailable", (
   expect(currentLook()).toBe("<span>claude</span>");
   setComposerLook("codex");
   expect(currentLook()).toBe("<span>codex</span>");
+});
+
+test("New Tab ignores saved and unknown chat looks without rewriting storage", () => {
+  for (const saved of [null, "claude", "codex", "retired-look"]) {
+    if (saved) values.set("cmux.composer.look", saved);
+    else values.delete("cmux.composer.look");
+    expect(
+      renderToStaticMarkup(
+        <OnNewTab.Provider value={true}>
+          <Look />
+        </OnNewTab.Provider>,
+      ),
+    ).toBe("<span>claude</span>");
+    expect(values.get("cmux.composer.look") ?? null).toBe(saved);
+  }
 });
