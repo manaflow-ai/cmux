@@ -1,5 +1,7 @@
 import type { PrivacyPolicySection } from "./content";
 
+// Guard: the product facts this section states are held by a test in prime-interface,
+// apps/web/src/core/privacy-facts.test.ts. A product change that breaks one fails that test; change this text with it.
 // DRAFT, legal review needed. The cmux Cloud section of the privacy policy. It is English on every locale until
 // legal review is done; translate it into every locale of web/i18n/routing.ts before merge. [LEGAL REVIEW: owner
 // decision: translate before publication, or render this section only on the English route until it is translated.]
