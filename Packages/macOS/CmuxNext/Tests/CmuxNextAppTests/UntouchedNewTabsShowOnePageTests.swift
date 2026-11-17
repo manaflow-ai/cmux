@@ -593,8 +593,9 @@ struct UntouchedNewTabsShowOnePageTests {
             await Self.frame(keyed.services)
             await Self.frame(keyed.services)
             let left = Self.newTabTabs(keyed)
-            if let other = left.first {
-                keyed.pane.select(StripTabID(other))
+            let other = keyed.pane.stripModel.tabs.map(\.id).first(where: { keyed.services.agentTabs.isNewTabPage($0.rawValue) })
+            if let other {
+                keyed.pane.select(other)
                 await Self.frame(keyed.services)
             }
             let shown = Self.shownPage(keyed.pane)
