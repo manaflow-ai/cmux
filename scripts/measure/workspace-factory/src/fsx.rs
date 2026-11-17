@@ -128,14 +128,29 @@ pub fn usage(root: &Path) -> io::Result<Usage> {
     };
     while let Some(dir) = stack.pop() {
         let entries = match fs::read_dir(&dir) {
-            // A live workspace can delete a directory while we walk it.
-            Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+            // A live workspace can delete a directory while we walk it, and another user's 0700 dir in a
+            // shared TMPDIR is not ours to read: neither is a reason to fail the whole count.
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    io::ErrorKind::NotFound | io::ErrorKind::PermissionDenied
+                ) =>
+            {
+                continue
+            }
             r => r?,
         };
         for ent in entries {
             let ent = ent?;
             let m = match ent.metadata() {
-                Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        io::ErrorKind::NotFound | io::ErrorKind::PermissionDenied
+                    ) =>
+                {
+                    continue
+                }
                 r => r?,
             };
             if m.dev() != dev {

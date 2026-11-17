@@ -48,6 +48,9 @@ cleanup() {
   rm -rf "$root"
 }
 trap cleanup EXIT
+# df's own number, before anything is built, so the factory's cargo target is in the end-to-start delta too.
+df_free() { df -k "$root" | awk 'NR==2 {print $4 * 1024}'; }
+start_free=$(df_free)
 
 now_ms() { python3 -c 'import time; print(time.time_ns() // 1000000)'; }
 emit() { printf 'WSFACTORY %s\n' "$1"; }
@@ -64,7 +67,7 @@ home_caches=(
   "$HOME/Library/org.swift.swiftpm"
   "$HOME/.swiftpm"
   "$HOME/Library/Developer/Xcode/DerivedData/ModuleCache.noindex"
-  "${TMPDIR:-/tmp}"
+  "$(cd "${TMPDIR:-/tmp}" && pwd -P)"
 )
 home_bytes() {
   "$wsf" usage "${home_caches[@]}" | python3 -c '
@@ -102,7 +105,6 @@ fresh_tree() {
   rm -rf "$1"/*/*/.build
 }
 
-start_free=$(free_bytes)
 cold_compiled=0
 
 # cold: today's step with no warm slot.

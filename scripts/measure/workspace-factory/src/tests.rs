@@ -202,6 +202,42 @@ fn create_reclaims_lease_from_crash_before_clone() {
 }
 
 #[test]
+fn dead_lease_never_takes_a_live_jobs_tree() {
+    // A job that lost the race for a path and died before removing its lease shares the path with the
+    // live job that holds it. Neither create nor reconcile may remove that tree.
+    let t = Tmp::new("shared");
+    let root = t.join("root");
+    let (build, _) = publish(&t, &root);
+    create(&root, "s", "a-live", None, me()).unwrap();
+    fs::write(build.join("work"), "the live job's").unwrap();
+    let scratch = root.join("jobs").join("0-dead");
+    fs::create_dir_all(&scratch).unwrap();
+    let lease = Obj::new()
+        .with("job", "0-dead")
+        .with("path", utf8(&build).unwrap())
+        .with("seed", "s")
+        .with("scratch", utf8(&scratch).unwrap())
+        .with("pid", dead_pid())
+        .with("created_at_unix", now_unix());
+    write_atomic(&lease_path(&root, "0-dead"), &lease.to_string()).unwrap();
+
+    assert!(create(&root, "s", "b", None, me()).is_err());
+    assert!(
+        build.join("work").exists(),
+        "create kept the live job's tree"
+    );
+    let r = reconcile(&root).unwrap();
+    assert_eq!(r.arr("reclaimed"), Some(&[Val::Str("0-dead".into())][..]));
+    assert!(
+        build.join("work").exists(),
+        "reconcile kept the live job's tree"
+    );
+    assert!(fsx::gone(&scratch).unwrap());
+    destroy(&root, "a-live").unwrap();
+    assert!(fsx::gone(&build).unwrap());
+}
+
+#[test]
 fn verify_detects_a_write_into_the_seed() {
     let t = Tmp::new("verify");
     let root = t.join("root");

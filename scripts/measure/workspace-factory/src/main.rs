@@ -490,19 +490,21 @@ pub(crate) fn create(
 
     // A lease for this path whose owner died is a crashed job (maybe mid-clone): take it back.
     // One whose owner lives is a running job, and its workspace is not ours to touch.
+    // Every lease is checked before any is reclaimed, so a dead lease never takes a live job's tree.
+    let on_path: Vec<Lease> = list_leases(&root)?
+        .into_iter()
+        .filter(|l| l.path == path)
+        .collect();
+    if let Some(l) = on_path.iter().find(|l| fsx::pid_alive(l.pid)) {
+        return Err(format!(
+            "{} is in use by job {} (pid {} is alive)",
+            path.display(),
+            l.job,
+            l.pid
+        ));
+    }
     let mut reclaimed = Vec::new();
-    for l in list_leases(&root)? {
-        if l.path != path {
-            continue;
-        }
-        if fsx::pid_alive(l.pid) {
-            return Err(format!(
-                "{} is in use by job {} (pid {} is alive)",
-                path.display(),
-                l.job,
-                l.pid
-            ));
-        }
+    for l in on_path {
         destroy(&root, &l.job)?;
         reclaimed.push(l.job);
     }
@@ -587,8 +589,18 @@ pub(crate) fn destroy(root: &Path, job: &str) -> Result<Obj, String> {
     let Some(lease) = read_lease(&root, job)? else {
         return Ok(Obj::new().with("job", job).with("already", true));
     };
+    // A job that lost the race for its path (or crashed before cloning) shares the path with the job
+    // that holds it: its own scratch and lease go, the path stays with the other lease.
+    let shared = list_leases(&root)?
+        .iter()
+        .any(|l| l.job != lease.job && l.path == lease.path);
     let mut removed = 0u64;
-    for p in [&lease.path, &lease.scratch] {
+    let owned: &[&PathBuf] = if shared {
+        &[&lease.scratch]
+    } else {
+        &[&lease.path, &lease.scratch]
+    };
+    for &p in owned {
         check_removable(p)?;
         removed += fsx::usage(p).map_err(ctx(p.display()))?.bytes;
         fsx::remove_tree(p).map_err(ctx(format!("remove {}", p.display())))?;
