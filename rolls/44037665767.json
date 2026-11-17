@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44037665767",
+  "recorded_at": "2026-11-17T07:35:05Z",
+  "reason": "cmux-tui 7a3a4ae0d1ed changes the image's cmux-tui (pinned 98e2c61e17c4)",
+  "dry_run": false,
+  "cmux_tui": "7a3a4ae0d1ed27fad99812b5fd5b2c717244f263",
+  "fixes": [
+    {
+      "sha": "7a3a4ae0d1ed27fad99812b5fd5b2c717244f263",
+      "mergedAt": "2026-11-16T22:59:59-08:00",
+      "subject": "fix(acpmux): name an unknown host key under OpenSSH's default policy (#44864)"
+    },
+    {
+      "sha": "ed04d630421681b829f911463f05b32bab4e4534",
+      "mergedAt": "2026-11-17T06:58:14Z",
+      "subject": "cmux-wg: tunnel streams end with an error on reset, keep their tail, and accept CLOSE-WAIT (model-based TCP test) (#45019)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T07:35:05Z",
+    "snapshot_id": "sh-5d87a113cad84ff289de9e27bfa894fc",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44037665767): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d10ad6d26ba9d95504549aa36a3b08b350106e32",
+    "image": "cloud-native-auto-7a3a4ae0-44037665767-1",
+    "revision": "ci-44037665767-1",
+    "at": "2026-11-17T07:35:05Z"
+  },
+  "rolled_back": false
+}
