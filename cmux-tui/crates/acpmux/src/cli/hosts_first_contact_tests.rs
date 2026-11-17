@@ -136,6 +136,29 @@ fn first_contact_quiet_probe_keeps_diagnostics() {
     assert_eq!(f.stored(), empty);
 }
 
+/// OpenSSH's default `StrictHostKeyChecking ask` under BatchMode names nothing but "Host key
+/// verification failed." for an unknown key; the strict re-check names it and records nothing.
+#[test]
+fn first_contact_default_policy_unknown_key_needs_the_strict_recheck() {
+    let Some(f) = Fixture::new() else { return };
+    let empty = f.stored();
+    let config = std::fs::read_to_string(&f.client).unwrap();
+    std::fs::write(
+        &f.client,
+        config.replace("StrictHostKeyChecking yes", "StrictHostKeyChecking ask"),
+    )
+    .unwrap();
+    let bare = f.contact(false).expect_err("BatchMode cannot ask about an unknown key");
+    assert_eq!(SshFailure::of(&bare), SshFailure::HostKeyUntrusted, "{bare}");
+    let strict = f
+        .run(&strict_host_key_check_argv("first-contact-test").unwrap())
+        .expect_err("strict re-check must reject an unknown key");
+    assert_eq!(SshFailure::of(&strict), SshFailure::HostKeyUnknown, "{strict}");
+    assert_eq!(f.stored(), empty);
+    passed_host_key_check(f.contact(true));
+    assert!(!f.stored().is_empty());
+}
+
 #[test]
 fn first_contact_real_ssh_records_only_unknown_keys() {
     let Some(f) = Fixture::new() else { return };

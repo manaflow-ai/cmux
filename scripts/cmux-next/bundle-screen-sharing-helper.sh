@@ -34,8 +34,11 @@ repo_root="${SRCROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 EXECUTABLE=cmux-screen-sharing
 SUFFIX=" Screen Sharing"
 
-# PlistBuddy on a Mac; plistlib elsewhere (the Linux release signer stamps before it signs).
+# PlistBuddy on a Mac; plistlib elsewhere (the Linux release signer stamps before it signs). Empty for a plist that
+# is not there: PlistBuddy's Print then writes "File Doesn't Exist, Will Create: PATH" to stdout, which became the
+# helper's name and an mv to that path failed the build (a launch-ready A/B's head build, 2026-11-17).
 plist_get() {
+  [[ -f "$1" ]] || return 0
   if [[ -x /usr/libexec/PlistBuddy ]]; then
     /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null || true
   else

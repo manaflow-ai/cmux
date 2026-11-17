@@ -19,6 +19,9 @@
 //!   linux-host enable|share on|off|run|requests|approve|deny|status   (Linux) this desktop as a
 //!            device hub screen host a Mac views: its own device key, the hub link and
 //!            consent, driving `serve` per approved session (src/linux_host/)
+//!   windows-host enable|run|status|share off   (Windows) this PC on the device hub as a
+//!            `windows` device with the same hub client (src/screen_host/, src/windows_host.rs);
+//!            it lists and captures, and serves no session until `serve` has a Windows port
 //!   permissions  read-only Screen Recording and Accessibility snapshot as JSON (macOS)
 //!   request-permission screen-recording|accessibility   macOS's prompt for that one grant,
 //!            then the snapshot (src/permissions.rs; the Screen Sharing helper's)
@@ -31,6 +34,10 @@
 //! Wire: crate cmux-rd-proto.
 
 #![cfg_attr(not(any(target_os = "linux", target_os = "macos", windows)), allow(dead_code))]
+// Edition 2021 leaves `std::env::set_var`/`remove_var` safe to call; they race every concurrent
+// read of the environment (a C library's `getenv` too), so each call needs an `unsafe` block and
+// an argument that no other thread exists, as in edition 2024.
+#![deny(deprecated_safe_2024)]
 
 mod args;
 #[cfg(all(feature = "bench", any(target_os = "linux", target_os = "macos")))]
@@ -84,6 +91,9 @@ mod pipewire_capture;
 mod portal;
 #[cfg(all(feature = "bench", target_os = "linux"))]
 mod present;
+// The device hub client of the desktop hosts (`linux-host`, `windows-host`).
+#[cfg(any(all(feature = "link", target_os = "linux"), windows))]
+mod screen_host;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod selftest;
 #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
@@ -109,6 +119,8 @@ mod view;
 mod vtdecode;
 #[cfg(windows)]
 mod windows;
+#[cfg(windows)]
+mod windows_host;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod wire;
 #[cfg(target_os = "linux")]
@@ -136,10 +148,45 @@ pub fn is_launch_services_open(args: &[String], executable: &std::path::Path) ->
     inside_bundle && args.iter().all(|arg| arg.starts_with("-psn_"))
 }
 
+/// The process environment [`run_cli`] relies on, written once at start: `host`/`serve
+/// --xauthority PATH` becomes `XAUTHORITY` for every X connection and child, and `host
+/// --listen-systemd` takes systemd's `LISTEN_*` variables and clears them so no child inherits
+/// them. `run_cli` itself never writes the environment.
+///
+/// # Safety
+///
+/// No other thread may exist yet (call it first in `main`): `set_var` and `remove_var` race
+/// any concurrent read of the environment, a C library's `getenv` included.
+pub unsafe fn prepare_process_env(args: &[String]) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        let Some(cmd) = args.first().filter(|cmd| matches!(cmd.as_str(), "host" | "serve")) else {
+            return Ok(());
+        };
+        // `run_cli` reports a parse error itself.
+        let Ok(opts) = args::Opts::parse(&args[1..]) else {
+            return Ok(());
+        };
+        if let Some(path) = opts.get("xauthority") {
+            std::fs::File::open(path)
+                .map_err(|e| format!("cmux-rd {cmd}: --xauthority {path}: {e}"))?;
+            // SAFETY: the caller's: no other thread exists.
+            unsafe { std::env::set_var("XAUTHORITY", path) };
+        }
+        if cmd == "host" && opts.flag("listen-systemd") {
+            // SAFETY: as above.
+            unsafe { systemd::take_env() };
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = args;
+    Ok(())
+}
+
 pub fn run_cli(args: &[String]) -> i32 {
     let Some(cmd) = args.first() else {
         eprintln!(
-            "usage: cmux-rd host|bench|observe|observe-cpu|testapp|serve|connect|view|permissions|request-permission|linux-host|encode-selftest|openh264-install [--key value ...]"
+            "usage: cmux-rd host|bench|observe|observe-cpu|testapp|serve|connect|view|permissions|request-permission|linux-host|windows-host|encode-selftest|openh264-install [--key value ...]"
         );
         return 2;
     };
@@ -147,6 +194,10 @@ pub fn run_cli(args: &[String]) -> i32 {
     #[cfg(all(feature = "link", target_os = "linux"))]
     if cmd == "linux-host" {
         return linux_host::run_cli(&args[1..]);
+    }
+    #[cfg(windows)]
+    if cmd == "windows-host" {
+        return windows_host::run_cli(&args[1..]);
     }
     #[cfg(all(feature = "link", feature = "openh264", target_os = "linux"))]
     if cmd == "view" {
