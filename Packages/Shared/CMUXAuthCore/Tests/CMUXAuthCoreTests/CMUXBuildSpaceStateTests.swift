@@ -1,5 +1,8 @@
 import CMUXAuthCore
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import Testing
 
 /// The three states a build's cloud data space can be in, and what a client does with each: a tagged dev build's

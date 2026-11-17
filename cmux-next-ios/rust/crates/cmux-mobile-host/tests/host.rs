@@ -1757,6 +1757,7 @@ async fn device_traffic_reads_back_a_phones_bytes_over_the_link_socket() {
         identity: tokio::sync::watch::channel(None).1,
         activity: Arc::new(cmux_mobile_host::activity::Activity::memory()),
         links: Default::default(),
+        build_space: None,
     });
     let server = tokio::spawn(serve(path.clone(), dialer));
     for _ in 0..200 {
