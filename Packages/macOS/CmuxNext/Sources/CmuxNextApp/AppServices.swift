@@ -369,8 +369,8 @@ final class AppServices {
     let workspaceVerticalTabs = WorkspaceVerticalTabs()
     /// Pane controller mounts and releases in any window (`PaneMounts`).
     let paneMounts = PaneMounts()
-    /// The new tab screen's Search | Ask mode and last agent, and what `!` typed ahead.
-    let newTabChoices = NewTabChoiceMemory()
+    /// The new tab screen's Search | Ask mode and last agent, and what `!` typed ahead; every workspace's rows for its bar (`NewTabPlacesFeed`).
+    let newTabChoices = NewTabChoiceMemory(); let newTabPlaces: NewTabPlacesKept
     /// The models picked per harness in the Chief card's Model menu (its Recent section).
     let chiefModelRecents = HomeChiefModelRecents(defaults: .standard)
     /// Where this Mac's Chief runs and its running move (the Home header's location chip, the Chief
@@ -584,12 +584,12 @@ final class AppServices {
          launchReveal: LaunchReveal = .shared, agentPaneEnvironment: [String: String]? = nil,
          work: BackgroundWork = BackgroundWork(), mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil), peerApprover: AgentPanePeerApprover? = nil,
-         agentPaneStateFiles: AgentPaneStateFiles = AgentPaneStateFiles()) {
+         agentPaneStateFiles: AgentPaneStateFiles = AgentPaneStateFiles(), newTabPlaceSource: @escaping @MainActor (WorkspaceModel) -> NewTabPlaces.Source = { NewTabPlaces.Source($0) }) {
         self.work = work
         bundledCLI = BundledExecutable.cli(resources: Bundle.main.resourceURL, work: work)
         (iphone, browserStores) = (IPhoneHostService(loginKeychain: loginKeychain, appearance: ThemeScope.app), .application(loginKeychain: loginKeychain))
         (self.launchImages, self.relaunchWake, self.keyWindowSource, self.appActiveSource, self.peerApprover, self.heldKeyReplay) = (launchImages, relaunchWake, keyWindowSource, appActiveSource, peerApprover, heldKeyReplay)
-        self.agentPaneStateFiles = agentPaneStateFiles
+        (self.agentPaneStateFiles, self.newTabPlaces) = (agentPaneStateFiles, NewTabPlacesKept(home: NSHomeDirectory(), source: newTabPlaceSource))
         agentPaneStateLoss = AgentPaneStateLoss(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
         // Before the updater's What's New tracker writes its record: an install that ran before

@@ -19,7 +19,7 @@
           },
           "help": {
             "key": "settings.updates.channel.help",
-            "text": "Canary and Dev get builds before they reach Nightly. Stable gets only builds that have run a week without problems, so switching to it may mean no updates for a while."
+            "text": "Stable gets builds that ran a week without problems; Canary and Dev get them first."
           },
           "kind": "choice",
           "swift_enum": {
@@ -115,7 +115,7 @@
           },
           "help": {
             "key": "settings.updates.downloadAutomatically.help",
-            "text": "Off: cmux checks for updates and asks before it downloads one. On: updates download by themselves. Either way, cmux asks before it restarts into an update."
+            "text": "Off: cmux asks before downloading. It always asks before restarting."
           },
           "kind": "toggle",
           "default": false,
@@ -135,7 +135,7 @@
           },
           "help": {
             "key": "settings.updates.oneClickInstall.help",
-            "text": "Off: Update downloads the update, then cmux asks before it restarts into it. On: one click on Update downloads it, shows its progress, then installs it and restarts cmux. Terminals and agents keep running across the restart."
+            "text": "One click on Update downloads, installs and restarts. Terminals and agents keep running."
           },
           "kind": "toggle",
           "default": false,
@@ -156,7 +156,7 @@
           },
           "help": {
             "key": "settings.updates.whatsNewInstall.help",
-            "text": "Each day in What's New lists its versions with an Install button. cmux checks the download's signature, then restarts into that version with your terminals and agents."
+            "text": "An Install button for each version listed in What's New."
           },
           "kind": "toggle",
           "default": false,
@@ -226,7 +226,7 @@
           },
           "help": {
             "key": "settings.updates.web.help",
-            "text": "Every Merge: changes to the web UI arrive minutes after they land, without waiting for the next app update. Off: the web UI this app shipped with."
+            "text": "Every Merge gets web UI changes minutes after they land."
           },
           "kind": "choice",
           "swift_enum": {
@@ -275,7 +275,7 @@
           },
           "help": {
             "key": "settings.updates.liveWebReload.help",
-            "text": "The switch that lets cmux live start and Edit cmux Live… show your own checkout's web UI in this app: each saved edit shows at once, with no build and no relaunch. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with. cmux live start --swift is the Swift path (Labs > Live Code)."
+            "text": "Lets cmux live start show your checkout's web UI, each saved edit at once."
           },
           "kind": "toggle",
           "default": true,
@@ -383,7 +383,7 @@
           },
           "help": {
             "key": "settings.updates.showWhatsNew.help",
-            "text": "After an update, a card at the bottom of the sidebar links to What's New until you open or dismiss it."
+            "text": "A sidebar card links to What's New after an update."
           },
           "kind": "toggle",
           "default": true,
@@ -404,7 +404,7 @@
           },
           "help": {
             "key": "settings.updates.showFeatureTips.help",
-            "text": "Now and then, a small tip points at a feature an update added. Close it or use the feature and it never comes back."
+            "text": "A small tip now and then points at a feature an update added."
           },
           "kind": "toggle",
           "default": true,
@@ -426,7 +426,7 @@
           },
           "help": {
             "key": "settings.updates.idleInstallMaxWait.help",
-            "text": "A downloaded nightly installs by itself once agents and commands finish and you stop typing, and never waits longer than this. Terminals and agents carry on after the restart."
+            "text": "A nightly installs when you are idle, and never waits longer than this."
           },
           "kind": "number",
           "range": {
@@ -455,7 +455,7 @@
           },
           "help": {
             "key": "settings.updates.idleInstallQuiet.help",
-            "text": "How long the keyboard and mouse must be idle before a downloaded nightly installs by itself."
+            "text": "How long you must be idle before a nightly installs."
           },
           "kind": "number",
           "range": {

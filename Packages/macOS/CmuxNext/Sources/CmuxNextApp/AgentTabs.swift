@@ -554,7 +554,7 @@ final class AgentTabStore {
         // already as idle work (``reserveWorkspace(on:cwd:)``): a take here was a cold open on an empty pool, marking a launch's pool used.
         if known == nil, local, kind == .local, sessions[tabKey] == nil, record.session == nil, let newTab = newTabPages[tabKey],
            seed?.holdsOnlyFolder ?? true, wakeStates[tabKey] == nil, !relaunchWake.mayHold(tabKey.relaunchKeyCandidates), let spare = takeSpare?(.now) {
-            adoptSpare(spare, key: tabKey, page: newTab.page)
+            adoptSpare(spare, key: tabKey, page: newTab.page.listing(newTab.handler.places(tabKey.key)))
             track(key, in: store, machine: tabKey.machine)
             onPageBuilt?(key)
             return spare
@@ -588,7 +588,7 @@ final class AgentTabStore {
             sessionId: sessions[tabKey] ?? record.session,
             seed: seed,
             // A new chat this app opened on another machine shows the same New Tab page (cx-k21v).
-            newTab: local || record.host.hasPrefix(AgentTabRemoteStart.registryPrefix) ? newTabPages[tabKey]?.page : nil,
+            newTab: local || record.host.hasPrefix(AgentTabRemoteStart.registryPrefix) ? newTabPages[tabKey].map { $0.page.listing($0.handler.places(tabKey.key)) } : nil,
             allowsTabConversion: local
         )
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: tabKey) ?? seed?.revealTurn

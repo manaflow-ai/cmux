@@ -10,7 +10,7 @@ extension BrowserSettingsSchema {
                 section: .browser,
                 group: group,
                 title: SettingsText.keyed("settings.browser.showAgentCursor", "Show Agent Cursor"),
-                help: SettingsText.keyed("settings.browser.showAgentCursor.help", "When an agent drives a browser tab, show its cursor, clicks and typed keys on the page. Password fields show dots."),
+                help: SettingsText.keyed("settings.browser.showAgentCursor.help", "Shows an agent's cursor, clicks and typing in browser tabs. Passwords show dots."),
                 kind: .toggle,
                 default: .bool(AgentCursorSetting.fallback),
                 keywords: ["agent", "cursor", "keystrokes", "typing", "automation", "overlay"]
@@ -20,7 +20,7 @@ extension BrowserSettingsSchema {
                 section: .browser,
                 group: group,
                 title: SettingsText.keyed("settings.browser.agentMouseMotion", "Agent Pointer Motion"),
-                help: SettingsText.keyed("settings.browser.agentMouseMotion.help", "How an agent moves the pointer in browser tabs. Human moves along a curved path and rests before each click, as a person does, so pages see hover and timing like a person's. Instant jumps to the target and clicks at once."),
+                help: SettingsText.keyed("settings.browser.agentMouseMotion.help", "Human moves along a curve and pauses before clicks; Instant jumps."),
                 kind: .choice([
                     SettingChoice(AgentMouseMotion.human.rawValue, SettingsText.keyed("settings.choice.agentMouseHuman", "Human")),
                     SettingChoice(AgentMouseMotion.instant.rawValue, SettingsText.keyed("settings.choice.agentMouseInstant", "Instant")),
@@ -51,7 +51,7 @@ extension BrowserSettingsSchema {
                 section: .browser,
                 group: group,
                 title: SettingsText.keyed("settings.browser.builtInAdBlocker", "Built-in uBlock Origin"),
-                help: SettingsText.keyed("settings.browser.builtInAdBlocker.help", "The full uBlock Origin blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts."),
+                help: SettingsText.keyed("settings.browser.builtInAdBlocker.help", "Blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts."),
                 kind: .toggle,
                 default: .bool(BuiltInAdBlockerSetting.fallback),
                 keywords: ["ublock", "ad blocker", "adblock", "extensions", "trackers"]
@@ -104,7 +104,7 @@ extension BrowserSettingsSchema {
                 section: .browser,
                 group: group,
                 title: SettingsText.keyed("settings.browser.freezeHiddenTabs", "Freeze Hidden Tabs"),
-                help: SettingsText.keyed("settings.browser.freezeHiddenTabs.help", "Saves power: a hidden Chromium tab stops running until you show it. Pinned tabs and Never Hibernate hosts stay awake."),
+                help: SettingsText.keyed("settings.browser.freezeHiddenTabs.help", "A hidden Chromium tab stops running until you show it, to save power."),
                 kind: .choiceOrNumber([
                     SettingChoice("off", SettingsText.keyed("settings.choice.never", "Never")),
                 ], SettingNumber(BrowserHibernationSetting.freezeSecondsRange, step: 5, unit: .seconds, placeholder: BrowserHibernationSetting.freezeSecondsPlaceholder)),
@@ -116,7 +116,7 @@ extension BrowserSettingsSchema {
                 section: .browser,
                 group: group,
                 title: SettingsText.keyed("settings.browser.keepNeighborTabsAwake", "Keep Neighbor Tabs Awake"),
-                help: SettingsText.keyed("settings.browser.keepNeighborTabsAwake.help", "Tabs on each side of the shown tab stay loaded and running, so switching to them is instant. 0 turns it off. Memory pressure and Low Power Mode turn it off."),
+                help: SettingsText.keyed("settings.browser.keepNeighborTabsAwake.help", "Tabs beside the shown one stay loaded so switching is instant. 0 turns it off."),
                 kind: .number(SettingNumber(BrowserHibernationSetting.neighborRadiusRange, step: 1, unit: .count)),
                 default: .number(BrowserHibernationSetting.neighborRadiusDefault),
                 keywords: ["neighbor", "adjacent", "preload", "warm", "instant", "switch", "hibernation", "freeze"]
@@ -126,7 +126,7 @@ extension BrowserSettingsSchema {
                 section: .browser,
                 group: group,
                 title: SettingsText.keyed("settings.browser.wakeTabsOnHover", "Wake Tabs on Hover"),
-                help: SettingsText.keyed("settings.browser.wakeTabsOnHover.help", "When the pointer rests on a tab or a workspace, its sleeping pages start to load before you click. Uses more memory."),
+                help: SettingsText.keyed("settings.browser.wakeTabsOnHover.help", "Sleeping pages start loading when the pointer rests on their tab. Uses more memory."),
                 kind: .toggle,
                 default: .bool(BrowserHibernationSetting.wakesOnHoverDefault),
                 keywords: ["hover", "preload", "prerender", "warm", "instant", "hibernation", "sleep"]
@@ -189,7 +189,7 @@ extension BrowserSettingsSchema {
                 section: .browser,
                 group: group,
                 title: SettingsText.keyed("settings.browser.customSuggest", "Custom Suggestions Address"),
-                help: SettingsText.keyed("settings.browser.customSuggest.help", "Optional. Answers in the OpenSearch suggestions format, with {searchTerms} for the typed text."),
+                help: SettingsText.keyed("settings.browser.customSuggest.help", "An OpenSearch suggestions URL, with {searchTerms} for the typed text."),
                 kind: .url,
                 default: .string(BrowserOmnibarSetting.customSuggestDefault),
                 keywords: ["search", "suggest", "custom", "opensearch"]
@@ -199,7 +199,7 @@ extension BrowserSettingsSchema {
                 section: .browser,
                 group: group,
                 title: SettingsText.keyed("settings.browser.omnibar.remoteSuggestions", "Search Suggestions"),
-                help: SettingsText.keyed("settings.browser.omnibar.remoteSuggestions.help", "Sends what you type to the search engine for suggestions. Never addresses, files or local hosts."),
+                help: SettingsText.keyed("settings.browser.omnibar.remoteSuggestions.help", "Sends what you type to the search engine. Never addresses, files or local hosts."),
                 summary: SettingsText.keyed("settings.browser.omnibar.remoteSuggestions.summary", "Sends what you type to the search engine"),
                 kind: .toggle,
                 default: .bool(BrowserOmnibarSetting.remoteSuggestionsDefault),
@@ -249,7 +249,6 @@ extension BrowserSettingsSchema {
                 section: .browser,
                 group: group,
                 title: SettingsText.keyed("settings.browser.omnibar.glass", "Address Bar Glass"),
-                help: SettingsText.keyed("settings.browser.omnibar.glass.help", "The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color."),
                 kind: .choice([
                     SettingChoice("transparent", SettingsText.keyed("settings.choice.transparent", "Transparent")),
                     SettingChoice("regular", SettingsText.keyed("settings.choice.glass", "Glass")),
@@ -264,7 +263,7 @@ extension BrowserSettingsSchema {
                 section: .browser,
                 group: group,
                 title: SettingsText.keyed("settings.browser.omnibar.glassTint", "Glass Tint"),
-                help: SettingsText.keyed("settings.browser.omnibar.glassTint.help", "The color over the glass, from the terminal theme. Accent is the theme's own accent color, or gray when the theme has none."),
+                help: SettingsText.keyed("settings.browser.omnibar.glassTint.help", "The color over the glass, from the terminal theme."),
                 kind: .choice([
                     SettingChoice("background", SettingsText.keyed("settings.choice.themeBackground", "Theme Background")),
                     SettingChoice("accent", SettingsText.keyed("settings.choice.themeAccent", "Theme Accent")),
@@ -310,7 +309,7 @@ extension BrowserSettingsSchema {
                 section: .browser,
                 group: group,
                 title: SettingsText.keyed("settings.browser.omnibar.backgroundOpacity", "Address Bar Opacity"),
-                help: SettingsText.keyed("settings.browser.omnibar.backgroundOpacity.help", "How much the address bar covers a see-through window. At 0 it is as see-through as the window, but never so clear that its text stops being readable."),
+                help: SettingsText.keyed("settings.browser.omnibar.backgroundOpacity.help", "How much the address bar covers a see-through window."),
                 kind: .number(SettingNumber(BrowserOmnibarSetting.backgroundOpacityRange, step: 0.05, unit: .fraction)),
                 default: .number(BrowserOmnibarSetting.backgroundOpacityDefault),
                 keywords: ["opacity", "transparency", "background", "translucent", "address bar", "omnibox"]
