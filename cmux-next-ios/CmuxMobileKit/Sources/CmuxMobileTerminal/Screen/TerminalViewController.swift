@@ -788,6 +788,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             sample.gridTop = probe.onScreen(surface, in: view).minY + surface.gridPadding.y
             sample.gridRows = rows
             sample.pageRows = tuiRows
+            sample.heldAreaRows = tuiGridHold.heldRows ?? 0
+            sample.areaInset = tuiHostTop.constant
+            sample.sentRows = claimedTUIRows ?? 0
             sample.coverTop = probe.onScreen(tuiBelowCover, in: view).minY
             sample.clipTop = probe.onScreen(tuiClip, in: view).minY
             sample.cellHeight = cell.height

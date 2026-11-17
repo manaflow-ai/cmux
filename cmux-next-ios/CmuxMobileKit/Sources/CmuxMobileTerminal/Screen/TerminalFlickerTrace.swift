@@ -69,6 +69,11 @@ final class TerminalFlickerTrace: NSObject {
         var coverTop: CGFloat = 0
         /// The rows the page asks for now (the grid the Mac redraws to).
         var pageRows = 0
+        /// The rows the area keeps for a grid on its way (0: none), the area's
+        /// top inset, and the rows last sent to the Mac.
+        var heldAreaRows = 0
+        var areaInset: CGFloat = 0
+        var sentRows = 0
         // Shell.
         var contentBottom: CGFloat = 0
         var legibleBlank = false
@@ -193,8 +198,8 @@ final class TerminalFlickerTrace: NSObject {
                           now.held ? 1 : 0, now.stackTop, now.resizes, interval)
         if now.isTUI {
             let pin = now.gridTop + CGFloat(now.gridRows) * now.cellHeight - now.stackTop
-            line += String(format: " grid=%.2f rows=%d clip=%.2f pin=%.2f note=%d nb=%d", now.gridTop, now.gridRows, now.clipTop, pin,
-                           now.noteShown ? 1 : 0, now.nonBlankRows)
+            line += String(format: " grid=%.2f rows=%d clip=%.2f pin=%.2f note=%d nb=%d page=%d hr=%d ins=%.2f sent=%d", now.gridTop, now.gridRows,
+                           now.clipTop, pin, now.noteShown ? 1 : 0, now.nonBlankRows, now.pageRows, now.heldAreaRows, now.areaInset, now.sentRows)
             if now.held { line += String(format: " htop=%.2f hbot=%.2f harea=%d", now.heldTop, now.heldBottom, now.heldIsArea ? 1 : 0) }
         } else {
             line += String(format: " cb=%.2f gap=%.2f blank=%d off=%.2f offd=%.2f inb=%.2f sft=%.2f sfb=%.2f fol=%d", now.contentBottom,
