@@ -82,7 +82,9 @@ pub(crate) fn relay_ls(relay: &SendRelay, deadline: Option<Instant>) -> Result<O
             .cloned()
             .map(|mut row| {
                 // How the row is reached: through the relay that listed it, not this daemon.
-                row["via"] = json!(VIA);
+                if let Some(fields) = row.as_object_mut() {
+                    fields.insert("via".to_owned(), json!(VIA));
+                }
                 row
             })
             .collect(),
