@@ -432,6 +432,10 @@ if Path(sys.argv[0]).name == "git":
         ref = args[-1].removeprefix("refs/heads/")
         if ref in refs: print(refs[ref] + "\trefs/heads/" + ref)
     elif args[0] in ("fetch", "checkout"): pass
+    elif args[0] == "merge-base" and "--is-ancestor" not in args:
+        # `git merge-base HEAD TIP`: the commit the re-pin head was staged on, when the test gives one.
+        if not state.get("staged_on"): sys.exit(1)
+        print(state["staged_on"])
     elif args[0] == "merge-base":
         # --is-ancestor A B: A is older than B when the test lists it so; a commit it does not know is unknown here.
         older, newer = args[-2], args[-1]
@@ -502,9 +506,17 @@ elif args[0] == "api":
         print("gh: Resource not accessible by integration (HTTP 403)", file=sys.stderr); sys.exit(1)
     elif endpoint.endswith("/status") and state.get("status_read") == "fail":
         print("gh: Server Error (HTTP 502)", file=sys.stderr); sys.exit(1)
-    elif endpoint.endswith("/check-runs?per_page=100"):
-        runs = [{"conclusion": c} for c in state.get("checks", [])]
-        emit({"total_count": state.get("check_total", len(runs)), "check_runs": runs})
+    elif "/check-runs?" in endpoint:
+        # Named check-0, check-1, ...; at the staged-on commit, the test's base_checks. Served a page at a time
+        # (per_page/page, as scripts/ci/gh_pages.py asks).
+        base = state.get("staged_on") and f"/commits/{state['staged_on']}/" in endpoint
+        if state.get("base_checks_read" if base else "checks_read") == "fail":
+            print("gh: Server Error (HTTP 502)", file=sys.stderr); sys.exit(1)
+        runs = [{"name": f"check-{i}", "conclusion": c}
+                for i, c in enumerate(state.get("base_checks" if base else "checks", []))]
+        query = dict(part.split("=", 1) for part in endpoint.split("?", 1)[1].split("&") if "=" in part)
+        size, number = int(query.get("per_page", 30)), int(query.get("page", 1))
+        emit({"total_count": len(runs), "check_runs": runs[(number - 1) * size:number * size]})
     elif endpoint.endswith("/status"): emit({"state": state.get("status", "pending")})
     elif "/commits/" in endpoint:
         import datetime
@@ -549,9 +561,10 @@ class RePinPublication(unittest.TestCase):
 
     def run_repin(self, *, closed=False, write_mode="ok", push_mode="ok", wrong_head=False, close_on_edit=False,
                   refs=None, cache=None, ref_read="ok", head_age_min=600, checks=(), status="pending", status_read="ok",
-                  check_total=None, runs=(), ancestry=(), runs_read="ok", jobs=None, same_inputs=False,
+                  runs=(), ancestry=(), runs_read="ok", jobs=None, same_inputs=False,
                   workflow=WORKFLOW, pr_files=None, current_pin=None, diff_exit=None,
-                  jobs_read="ok", base_result="newer", base_enabled="true", pin_age_min=None):
+                  jobs_read="ok", base_result="newer", base_enabled="true", pin_age_min=None,
+                  staged_on=None, base_checks=(), base_checks_read="ok", checks_read="ok"):
         step = pin_step(yaml.safe_load(workflow.read_text())["jobs"]["repin"])
         with tempfile.TemporaryDirectory() as temp:
             work = Path(temp)
@@ -580,6 +593,8 @@ class RePinPublication(unittest.TestCase):
             # The current pin, read as the check reads it.
             (work / "scripts/ci").mkdir()
             executable(work / "scripts/ci/app_ffi_pin.py", PIN_READER_FAKE)
+            # The bounded page reader the hold reads check runs with (tests/test_gh_pages.py tests it).
+            executable(work / "scripts/ci/gh_pages.py", (ROOT / "scripts/ci/gh_pages.py").read_text())
             # The newest published release (NewestPublishedRelease tests the real one).
             executable(scripts / "newest_app_ffi_release.py",
                        f"print('{'d' * 40} {'e' * 64}')\n")
@@ -600,8 +615,8 @@ class RePinPublication(unittest.TestCase):
                 "status_read": status_read, "runs": list(runs), "ancestry": [list(pair) for pair in ancestry],
                 "runs_read": runs_read, "jobs": jobs or {}, "same_inputs": same_inputs,
                 "pr_files": pr_files or {}, "diff_exit": diff_exit, "jobs_read": jobs_read,
-                "pin_age_min": pin_age_min,
-                **({} if check_total is None else {"check_total": check_total})}))
+                "pin_age_min": pin_age_min, "staged_on": staged_on, "base_checks": list(base_checks),
+                "base_checks_read": base_checks_read, "checks_read": checks_read}))
             env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", STATE=str(state_path),
                        GH_TOKEN="pr-token", APP_TOKEN="contents-token", READ_TOKEN="read-token", TAG=TAG, CHECKSUM="f" * 64,
                        BASE_TOKEN="base-token", BASE_PIN_ENABLED=base_enabled,
@@ -718,6 +733,44 @@ class RePinPublication(unittest.TestCase):
         self.assertEqual(state["published"], [])
         self.assertEqual(state["writes"], 0)
 
+    def test_a_failed_read_leaves_the_re_pin_branch_alone(self):
+        # 2026-11-16: the open-PR read hit the App's rate limit and moved #44074 from 8f7f9e7d to 1b93c4a6 (run
+        # 43937628010), restarting its CI; a failed read now leaves the branch for the next re-pin run.
+        cases = {
+            "a failed status read": {"status_read": "fail"},
+            "a failed check-run read": {"checks_read": "fail"},
+        }
+        for name, options in cases.items():
+            with self.subTest(name):
+                result, state = self.run_repin(head_age_min=20, **options)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("left app-ffi-repin alone", result.stdout)
+                self.assertEqual(state["refs"], {"app-ffi-repin": "c" * 40})
+                self.assertEqual(state["published"], [])
+                self.assertEqual(state["writes"], 0)
+
+    def test_a_head_whose_only_failures_fail_on_its_base_or_were_cancelled_is_kept(self):
+        # 2026-11-16: #44074 had about 200 check runs and the cmux-next checks job red on base reds; one page and
+        # any failure moved it at every publish (6f1d36c1, fe47e481, a30893db, c5a8aa57), and no head finished CI.
+        cases = {
+            "more check runs than one page": {"checks": ("success",) * 150},
+            "a failure the base has too": {"checks": ("failure", "success"), "staged_on": "5" * 40,
+                                           "base_checks": ("failure", "success")},
+            # 2026-11-17: the re-pin's own PR edit started a size budget run that cancelled the head's (group
+            # cmux-next-size-budget-<PR>, cancel-in-progress), and run 44042861860 moved #45149's head df6ee657 for
+            # "8 failed check(s) of its own" while its Mac jobs were still queued: a cancel is not a failure.
+            "a check run cancelled by a newer run of its workflow": {"checks": ("success", "cancelled"),
+                                                                     "staged_on": "5" * 40,
+                                                                     "base_checks": ("success",)},
+        }
+        for name, options in cases.items():
+            with self.subTest(name):
+                result, state = self.run_repin(head_age_min=20, **options)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("kept #1 at cccccccccccc", result.stdout)
+                self.assertEqual(state["refs"], {"app-ffi-repin": "c" * 40})
+                self.assertEqual(state["writes"], 0)
+
     def test_a_head_past_the_hold_or_with_a_failed_check_is_moved(self):
         cases = {
             "past the hold": {"head_age_min": 95},
@@ -726,10 +779,14 @@ class RePinPublication(unittest.TestCase):
             "a check run that never started": {"head_age_min": 20, "checks": ("startup_failure",)},
             "a stale check run": {"head_age_min": 20, "checks": ("stale",)},
             "a check run waiting for approval": {"head_age_min": 20, "checks": ("action_required",)},
-            "more check runs than one page": {"head_age_min": 20, "checks": ("success",), "check_total": 101},
+            "a failure on the second page": {"head_age_min": 20, "checks": ("success",) * 100 + ("failure",)},
+            "a failure the base does not have": {"head_age_min": 20, "checks": ("success", "failure"),
+                                                 "staged_on": "5" * 40, "base_checks": ("failure", "success")},
+            "a failure, and the base's checks unreadable": {"head_age_min": 20, "checks": ("failure",),
+                                                          "staged_on": "5" * 40, "base_checks": ("failure",),
+                                                          "base_checks_read": "fail"},
             "a failed commit status": {"head_age_min": 20, "status": "failure"},
             "an errored commit status": {"head_age_min": 20, "status": "error"},
-            "a failed status read": {"head_age_min": 20, "status_read": "fail"},
             "the PR is closed": {"head_age_min": 20, "closed": True},
         }
         for name, options in cases.items():
@@ -1267,8 +1324,9 @@ class BuildSpeedAndSupersede(unittest.TestCase):
         self.assertLess(hold + build, grace, f"re-pin hold {hold} min + build {build} min vs pin grace {grace} min")
 
     def test_build_checkout_is_treeless_with_full_history(self):
-        checkout = self.jobs["build"]["steps"][0]
-        self.assertTrue(checkout["uses"].startswith("actions/checkout@"))
+        # The first checkout: "Drop a reused shallow checkout" runs before it (cmux#44583).
+        checkout = next(step for step in self.jobs["build"]["steps"]
+                        if str(step.get("uses", "")).startswith("actions/checkout@"))
         self.assertEqual(checkout["with"]["fetch-depth"], 0)
         self.assertEqual(checkout["with"]["filter"], "tree:0")
 
@@ -1282,6 +1340,93 @@ def load_module(name: str, path: Path):
     sys.modules[name] = module  # dataclasses resolve their module through sys.modules
     spec.loader.exec_module(module)
     return module
+
+
+class WaitingBuildIsReplacedByTheNewestRun(unittest.TestCase):
+    """A build still waiting for a runner never holds the build group against a newer run.
+
+    A build queued for a runner counts as the group's running job. Run 43978720557 (2026-11-16) queued its build
+    on the saturated side-std label for hours while newer FFI runs 43979315440, 43982240915 and 43985437623 each
+    went pending behind it and were replaced by the next: nothing built, and the pin stayed red. Each new push or
+    dispatch's placement now cancels an older run whose build has not started on a runner; a running build is
+    never cancelled (BuildSpeedAndSupersede).
+    """
+
+    OWN = 43993339863
+    BRANCH = "feat-cmux-next"
+
+    def setUp(self):
+        self.workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        self.module = load_module("ffi_build_supersede", ROOT / "scripts/ci/ffi_build_supersede.py")
+
+    def play(self, runs: list[dict], jobs: dict[int, list[dict]]) -> tuple[list[int], list[tuple[str, str]]]:
+        calls: list[tuple[str, str]] = []
+
+        def request(method: str, path: str):
+            calls.append((method, path))
+            if method == "GET" and "/workflows/app-ffi-release.yml/runs" in path:
+                return {"workflow_runs": runs}
+            if method == "GET" and path.split("?")[0].endswith("/jobs"):
+                return {"jobs": jobs[int(path.split("/runs/")[1].split("/")[0])]}
+            if method == "POST" and path.endswith("/cancel"):
+                return {}
+            raise AssertionError(f"unexpected call {method} {path}")
+
+        cancelled = self.module.supersede(request, REPO, self.OWN, self.BRANCH, log=lambda _line: None)
+        return cancelled, calls
+
+    def run_(self, run_id: int, status: str = "queued", branch: str = BRANCH) -> dict:
+        return {"id": run_id, "status": status, "head_branch": branch}
+
+    @staticmethod
+    def build(status: str, runner: str = "") -> list[dict]:
+        return [{"name": "place the build", "status": "completed", "runner_name": "blacksmith-linux"},
+                {"name": "build xcframework", "status": status, "runner_name": runner}]
+
+    def test_an_older_build_queued_for_a_runner_is_cancelled(self):
+        cancelled, calls = self.play([self.run_(self.OWN, "in_progress"), self.run_(43978720557)],
+                                     {43978720557: self.build("queued")})
+        self.assertEqual(cancelled, [43978720557])
+        self.assertIn(("POST", f"/repos/{REPO}/actions/runs/43978720557/cancel"), calls)
+
+    def test_an_older_run_still_placing_is_cancelled_before_its_build_takes_the_group(self):
+        # Two close pushes: the older run's build is not created until its placement ends.
+        placing = [{"name": "place the build", "status": "in_progress", "runner_name": "blacksmith-linux"}]
+        cancelled, _calls = self.play([self.run_(43979315440, "in_progress")], {43979315440: placing})
+        self.assertEqual(cancelled, [43979315440])
+
+    def test_a_running_or_finished_build_is_never_cancelled(self):
+        cancelled, calls = self.play(
+            [self.run_(43978720557, "in_progress"), self.run_(43979315440, "in_progress")],
+            {43978720557: self.build("in_progress", "side-runner-6"),
+             43979315440: self.build("completed", "side-runner-6")})
+        self.assertEqual(cancelled, [])
+        self.assertFalse([call for call in calls if call[0] == "POST"])
+
+    def test_newer_finished_or_other_branch_runs_are_left_alone(self):
+        cancelled, calls = self.play(
+            [self.run_(self.OWN + 1), self.run_(43978720557, "completed"), self.run_(43979315440, branch="main")],
+            {})
+        self.assertEqual(cancelled, [])
+        self.assertEqual([call[0] for call in calls], ["GET"])
+
+    def test_a_failed_call_never_fails_the_placement(self):
+        def broken(_method, _path):
+            raise self.module.urllib.error.URLError("HTTP 502")
+
+        env = {"GH_TOKEN": "t", "GITHUB_REPOSITORY": REPO, "GITHUB_REF_NAME": self.BRANCH,
+               "GITHUB_RUN_ID": str(self.OWN)}
+        with unittest.mock.patch.object(self.module, "github_request", return_value=broken):
+            self.assertEqual(self.module.main(env), 0)
+
+    def test_the_placement_runs_it_with_a_write_token_and_never_fails_on_it(self):
+        placement = self.workflow["jobs"]["placement"]
+        self.assertEqual(placement["permissions"].get("actions"), "write")
+        step = next(step for step in placement["steps"] if "ffi_build_supersede.py" in str(step.get("run", "")))
+        self.assertIs(step.get("continue-on-error"), True)
+        self.assertEqual(step["env"]["GH_TOKEN"], "${{ github.token }}")
+        # The build does not wait on it: the placement's outputs come from the place step alone.
+        self.assertNotIn("supersede", json.dumps(placement["outputs"]))
 
 
 class BuildGoesAheadOfThePullRequestQueue(unittest.TestCase):
@@ -1334,6 +1479,246 @@ class BuildGoesAheadOfThePullRequestQueue(unittest.TestCase):
         self.assertEqual(pr[self.SMALL], ())
         nightly = cascade.cascade(["release-compile"], live, waiting, reserved=held, fresh=("release-compile",))
         self.assertEqual(nightly[self.SMALL], ("release-compile",))
+
+
+class BuildRescueToBlacksmith(unittest.TestCase):
+    """hq#3690: a build no owned runner took in 20 minutes is re-dispatched to Blacksmith macOS (scripts/ci/
+    app_ffi_rescue.py). On 2026-11-16 run 43978720557's build sat queued on glaeda-side-std-xcode-26.6 from 23:23Z to
+    02:38Z with no runner and was cancelled having never run."""
+
+    SMALL, LARGE = "blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26"
+    SIDE = "glaeda-side-std-xcode-26.6"
+    MINUTE = 60.0
+
+    def setUp(self):
+        self.workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        self.rescue_module = load_module("app_ffi_rescue", ROOT / "scripts/ci/app_ffi_rescue.py")
+
+    def runner(self, rescue: str, twelve: bool = False, switch: str = "pr-rescue", six: bool = True) -> str:
+        build = self.workflow["jobs"]["build"]
+        return evaluate(workflow_jobs.single_runs_on(build), {
+            "github": {"repository_owner": "manaflow-ai", "event_name": "workflow_dispatch", "run_attempt": 1},
+            "inputs": {"rescue": rescue, "rescue_pool": ""},
+            "needs": {"placement": {"outputs": {"placed_attempt": "1",
+                                                "blacksmith_12_jobs": " app-ffi-build " if twelve else "",
+                                                "blacksmith_6_jobs": " app-ffi-build " if six else ""}}},
+            "vars": {"CI_SIDE_LANE_RUNNER": self.SIDE, "CI_BLACKSMITH_MACOS": switch, "RUNNER_POOLS": json.dumps(
+                {"macos_26": self.SMALL, "macos_26_large": self.LARGE})}})
+
+    def test_a_rescued_run_takes_the_placements_blacksmith_slot_ahead_of_every_owned_route(self):
+        self.assertEqual(self.runner("blacksmith"), self.SMALL)
+        self.assertEqual(self.runner("blacksmith", twelve=True), self.LARGE)
+        # No live slot (BuildRescueNeverToAnOffOrDeadBlacksmith): no Blacksmith label.
+        self.assertEqual(self.runner("blacksmith", six=False), self.SIDE)
+
+    def test_an_ordinary_run_keeps_its_owned_route(self):
+        self.assertEqual(self.runner(""), self.SIDE)
+        self.assertEqual(self.runner("something-else"), self.SIDE)
+
+    POOL = "glaeda-promote-trusted-light-xcode-26.6"
+
+    def pool_runner(self, pool: str, rescue: str = "", event: str = "push", attempt: int = 1) -> str:
+        build = self.workflow["jobs"]["build"]
+        return evaluate(workflow_jobs.single_runs_on(build), {
+            "github": {"repository_owner": "manaflow-ai", "event_name": event, "run_attempt": attempt},
+            "inputs": {"rescue": rescue, "rescue_pool": ""},
+            "needs": {"placement": {"outputs": {"placed_attempt": "1",
+                                                "blacksmith_6_jobs": " app-ffi-build " if rescue else ""}}},
+            "vars": {"CI_FFI_RELEASE_POOL": pool, "CI_SIDE_LANE_RUNNER": self.SIDE,
+                     "CI_NEXT_PROMOTE_POOL": "glaeda-promote-trusted-std-xcode-26.6",
+                     "RUNNER_POOLS": json.dumps({"macos_26": self.SMALL, "macos_26_large": self.LARGE})}})
+
+    def test_the_ffi_release_pool_takes_every_attempt_when_set(self):
+        for event in ("push", "workflow_dispatch"):
+            for attempt in (1, 2):
+                with self.subTest(event=event, attempt=attempt):
+                    self.assertEqual(self.pool_runner(self.POOL, event=event, attempt=attempt), self.POOL)
+
+    def test_a_rescue_still_goes_first_and_unset_keeps_the_earlier_routes(self):
+        self.assertEqual(self.pool_runner(self.POOL, rescue="blacksmith"), self.SMALL)
+        self.assertEqual(self.pool_runner(""), self.SIDE)
+
+    def test_only_this_workflow_reads_the_ffi_release_pool(self):
+        readers = sorted(path.name for path in (ROOT / ".github/workflows").glob("*.yml")
+                         if "CI_FFI_RELEASE_POOL" in path.read_text(encoding="utf-8"))
+        self.assertEqual(readers, ["app-ffi-release.yml"])
+
+    def test_a_rescued_run_places_with_blacksmith_on(self):
+        place = next(step for step in self.workflow["jobs"]["placement"]["steps"] if step.get("id") == "place")
+        expression = place["env"]["CI_BLACKSMITH_MACOS"]
+        self.assertEqual(render(expression, {"inputs": {"rescue": "blacksmith"}, "vars": {"CI_BLACKSMITH_MACOS": ""}}),
+                         "on")
+        self.assertEqual(render(expression, {"inputs": {"rescue": ""}, "vars": {"CI_BLACKSMITH_MACOS": "pr-rescue"}}),
+                         "pr-rescue")
+
+    def rescue_runs(self, switch: str, rescue: str = "", ref: str = "refs/heads/feat-cmux-next") -> bool:
+        """Whether the watch runs; the switch no longer gates it (the script reads it)."""
+        job = self.workflow["jobs"]["rescue"]
+        return bool(evaluate(str(job["if"]).strip()[3:-2].replace("!cancelled()", "true"), {
+            "github": {"ref": ref, "repository_owner": "manaflow-ai"}, "inputs": {"rescue": rescue},
+            "vars": {"CI_BLACKSMITH_MACOS": switch}}))
+
+    def test_the_watch_runs_on_feat_cmux_next_and_never_in_a_rescued_run(self):
+        for switch in ("pr-rescue", "on", "", "off"):
+            self.assertTrue(self.rescue_runs(switch), switch)
+        self.assertFalse(self.rescue_runs("pr-rescue", rescue="blacksmith"))
+        self.assertFalse(self.rescue_runs("", rescue="owned"))
+        self.assertFalse(self.rescue_runs("pr-rescue", ref="refs/heads/main"))
+
+    def test_nothing_waits_on_the_watch(self):
+        for name, job in self.workflow["jobs"].items():
+            needs = job.get("needs") or []
+            self.assertNotIn("rescue", [needs] if isinstance(needs, str) else needs, name)
+        self.assertEqual(self.workflow["jobs"]["rescue"]["permissions"], {"actions": "write", "contents": "read"})
+
+    def test_decide(self):
+        m = self.rescue_module
+        queued = {"name": m.BUILD_JOB, "status": "queued", "runner_name": None}
+        self.assertEqual(m.decide(None, None, 0.0), (m.WAIT, None))
+        self.assertEqual(m.decide(queued, None, 100.0), (m.WAIT, 100.0))
+        self.assertEqual(m.decide(queued, 100.0, 100.0 + 19 * self.MINUTE)[0], m.WAIT)
+        self.assertEqual(m.decide(queued, 100.0, 100.0 + 20 * self.MINUTE)[0], m.RESCUE)
+        self.assertEqual(m.decide(dict(queued, runner_name="cmux18-glaeda-3"), 100.0, 1e9)[0], m.DONE)
+        for status in ("in_progress", "completed"):
+            self.assertEqual(m.decide(dict(queued, status=status), 100.0, 1e9)[0], m.DONE)
+        # A build that stops being queued (pending again) restarts the clock.
+        self.assertEqual(m.decide(dict(queued, status="pending"), 100.0, 1e9), (m.WAIT, None))
+
+    def watch(self, switch: str, pages: list) -> tuple[str, list]:
+        m = self.rescue_module
+        calls, clock = [], [0.0]
+
+        def api(method, path, token, body=None):
+            calls.append((method, path, body))
+            return {"jobs": pages[min(len([c for c in calls if c[0] == "GET"]) - 1, len(pages) - 1)]} \
+                if method == "GET" else None
+
+        def sleep(seconds):
+            clock[0] += seconds
+
+        env = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_RUN_ID": "7", "GITHUB_RUN_ATTEMPT": "1",
+               "GH_TOKEN": "t", "GITHUB_REF_NAME": "feat-cmux-next", "CI_BLACKSMITH_MACOS": switch}
+        verdict = m.watch(env, api=api, clock=lambda: clock[0], sleep=sleep, out=lambda line: None)
+        return verdict, [c for c in calls if c[0] == "POST"]
+
+    def test_a_build_queued_20_minutes_is_dispatched_to_blacksmith_then_its_run_cancelled(self):
+        m = self.rescue_module
+        verdict, posts = self.watch("pr-rescue", [[{"name": m.BUILD_JOB, "status": "queued"}]])
+        self.assertEqual(verdict, m.RESCUE)
+        self.assertEqual(posts, [
+            ("POST", "repos/manaflow-ai/cmux/actions/workflows/app-ffi-release.yml/dispatches",
+             {"ref": "feat-cmux-next", "inputs": {"rescue": "blacksmith", "rescue_pool": ""}}),
+            ("POST", "repos/manaflow-ai/cmux/actions/runs/7/cancel", None)])
+
+    def test_a_build_that_got_a_runner_or_a_switch_off_with_no_other_owned_pool_rescues_nothing(self):
+        m = self.rescue_module
+        started = [[{"name": m.BUILD_JOB, "status": "queued"}], [{"name": m.BUILD_JOB, "status": "in_progress",
+                                                                  "runner_name": "cmux14-glaeda-2"}]]
+        self.assertEqual(self.watch("pr-rescue", started), (m.DONE, []))
+        self.assertEqual(self.watch("off", [[{"name": m.BUILD_JOB, "status": "queued"}]]), (m.WAIT, []))
+
+    def test_the_watch_is_bounded(self):
+        m = self.rescue_module
+        self.assertEqual(self.watch("pr-rescue", [[]]), (m.WAIT, []))
+
+
+class BuildRescueNeverToAnOffOrDeadBlacksmith(unittest.TestCase):
+    """2026-11-17: vars.CI_BLACKSMITH_MACOS was unset (off) and the Blacksmith macOS labels had 0 of 267 runners
+    online, yet a rescued FFI build's runs-on fell back to blacksmith-6vcpu-macos-26 whatever the placement saw. The
+    rescue takes Blacksmith macOS only when the switch allows it and the rescued run's placement (dead- and
+    stall-aware, next_macos_cascade) found a live slot; otherwise it takes another owned pool than the one the build
+    sat on, never Blacksmith."""
+
+    SMALL, LARGE = "blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26"
+    SIDE = "glaeda-side-std-xcode-26.6"
+    FFI_POOL = "glaeda-promote-trusted-light-xcode-26.6"
+    PROMOTE = "glaeda-promote-trusted-std-xcode-26.6"
+    BLACKSMITH = re.compile(r"blacksmith-\d+vcpu-macos-")
+
+    def setUp(self):
+        self.workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        self.rescue_module = load_module("app_ffi_rescue", ROOT / "scripts/ci/app_ffi_rescue.py")
+
+    def runner(self, rescue: str, pool: str, switch: str, twelve: bool = False, six: bool = False) -> str:
+        """The rescued run's build label; the placement read Blacksmith live (twelve/six) or dead (neither)."""
+        return evaluate(workflow_jobs.single_runs_on(self.workflow["jobs"]["build"]), {
+            "github": {"repository_owner": "manaflow-ai", "event_name": "workflow_dispatch", "run_attempt": 1},
+            "inputs": {"rescue": rescue, "rescue_pool": pool},
+            "needs": {"placement": {"outputs": {"placed_attempt": "1",
+                                                "blacksmith_12_jobs": " app-ffi-build " if twelve else "",
+                                                "blacksmith_6_jobs": " app-ffi-build " if six else ""}}},
+            "vars": {"CI_SIDE_LANE_RUNNER": self.SIDE, "CI_BLACKSMITH_MACOS": switch,
+                     "CI_FFI_RELEASE_POOL": self.FFI_POOL, "CI_NEXT_PROMOTE_POOL": self.PROMOTE,
+                     "RUNNER_POOLS": json.dumps({"macos_26": self.SMALL, "macos_26_large": self.LARGE})}})
+
+    def test_a_dead_blacksmith_label_sends_the_rescued_build_to_the_other_owned_pool(self):
+        for switch in ("on", "pr-rescue"):
+            with self.subTest(switch=switch):
+                label = self.runner("blacksmith", "promote", switch)
+                self.assertIsNone(self.BLACKSMITH.match(label), label)
+                self.assertEqual(label, self.PROMOTE)
+                # A live slot the placement found is still taken.
+                self.assertEqual(self.runner("blacksmith", "promote", switch, six=True), self.SMALL)
+                self.assertEqual(self.runner("blacksmith", "promote", switch, twelve=True), self.LARGE)
+
+    def test_a_switch_off_rescue_takes_the_other_owned_pool(self):
+        for switch in ("", "off"):
+            for pool, label in (("promote", self.PROMOTE), ("ffi-pool", self.FFI_POOL), ("side", self.SIDE)):
+                with self.subTest(switch=switch, pool=pool):
+                    self.assertEqual(self.runner("owned", pool, switch), label)
+
+    def watch(self, switch: str, stuck_on: str) -> tuple[str, list]:
+        m = self.rescue_module
+        calls, clock = [], [0.0]
+
+        def api(method, path, token, body=None):
+            calls.append((method, path, body))
+            return {"jobs": [{"name": m.BUILD_JOB, "status": "queued", "labels": [stuck_on]}]} \
+                if method == "GET" else None
+
+        def sleep(seconds):
+            clock[0] += seconds
+
+        env = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_RUN_ID": "7", "GITHUB_RUN_ATTEMPT": "1",
+               "GH_TOKEN": "t", "GITHUB_REF_NAME": "feat-cmux-next", "CI_BLACKSMITH_MACOS": switch,
+               "CI_FFI_RELEASE_POOL": self.FFI_POOL, "CI_NEXT_PROMOTE_POOL": self.PROMOTE,
+               "CI_SIDE_LANE_RUNNER": self.SIDE}
+        verdict = m.watch(env, api=api, clock=lambda: clock[0], sleep=sleep, out=lambda line: None)
+        return verdict, [c for c in calls if c[0] == "POST"]
+
+    def test_switch_off_dispatches_an_owned_rescue_never_blacksmith(self):
+        m = self.rescue_module
+        for switch in ("", "off"):
+            with self.subTest(switch=switch):
+                verdict, posts = self.watch(switch, self.FFI_POOL)
+                self.assertEqual(verdict, m.RESCUE)
+                self.assertEqual(posts[0][2], {"ref": "feat-cmux-next",
+                                               "inputs": {"rescue": "owned", "rescue_pool": "promote"}})
+                self.assertEqual(posts[1], ("POST", "repos/manaflow-ai/cmux/actions/runs/7/cancel", None))
+        # The pool the build sat on is never the rescue's pool.
+        self.assertEqual(self.watch("", self.PROMOTE)[1][0][2]["inputs"], {"rescue": "owned", "rescue_pool": "ffi-pool"})
+
+    def test_switch_on_names_the_owned_pool_its_rescued_run_falls_back_to(self):
+        m = self.rescue_module
+        verdict, posts = self.watch("pr-rescue", self.FFI_POOL)
+        self.assertEqual(verdict, m.RESCUE)
+        self.assertEqual(posts[0][2]["inputs"], {"rescue": "blacksmith", "rescue_pool": "promote"})
+
+    def rescue_runs(self, switch: str, rescue: str = "") -> bool:
+        job = self.workflow["jobs"]["rescue"]
+        return bool(evaluate(str(job["if"]).strip()[3:-2].replace("!cancelled()", "true"), {
+            "github": {"ref": "refs/heads/feat-cmux-next", "repository_owner": "manaflow-ai"},
+            "inputs": {"rescue": rescue}, "vars": {"CI_BLACKSMITH_MACOS": switch}}))
+
+    def test_the_watch_runs_with_the_switch_off_and_never_in_a_rescued_run(self):
+        for switch in ("", "off", "on", "pr-rescue"):
+            self.assertTrue(self.rescue_runs(switch), switch)
+            for rescue in ("blacksmith", "owned"):
+                self.assertFalse(self.rescue_runs(switch, rescue), (switch, rescue))
+        rescue = self.workflow["jobs"]["rescue"]
+        env = next(step for step in rescue["steps"] if "app_ffi_rescue.py" in str(step.get("run")))["env"]
+        for name in ("CI_FFI_RELEASE_POOL", "CI_NEXT_PROMOTE_POOL", "CI_SIDE_LANE_RUNNER"):
+            self.assertEqual(env.get(name), f"${{{{ vars.{name} }}}}", name)
 
 
 STATUS_CALL = re.compile(r"\b(success|failure|cancelled|always)\(\)")

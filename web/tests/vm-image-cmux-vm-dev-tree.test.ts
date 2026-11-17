@@ -51,7 +51,10 @@ describe("the cmux dev tree (bake.ts --dev-tree)", () => {
     expect(problems).toContain("devTree.aptRoots: clang is not in devTree.apt");
     expect(problems).toContain("devTree.rustupInit.sha256: missing or not 64 lowercase hex");
     const without = fresh();
+    const orphan = Object.entries(without.devTree.apt).map(([name, version]) => `${name}=${version}`);
     delete without.devTree;
+    expect(problemsOf(without)).toEqual(orphan.map((pin) => `apt.ubuntu.debs[${pin}]: no package pins this version`));
+    for (const pin of orphan) delete without.apt.ubuntu.debs[pin];
     expect(problemsOf(without)).toEqual([]);
   });
 

@@ -50,6 +50,11 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let browserSetLayerHosting: @convention(c) (Int32, Int32) -> UInt32
     /// Fork API 27: `cmux_shim_browser_set_resize_sync` (deadline in ms, 0 never holds the commit).
     let browserSetResizeSync: @convention(c) (Int32, Int32) -> Int32
+    /// Fork API 32: `cmux_shim_browser_resize_fence(browser, port, timeout ms, done, context)` (1 when the fork took
+    /// the fence); nil in an older shim.
+    let browserResizeFence: (@convention(c) (Int32, UInt32, Int32,
+                                             (@convention(c) (UnsafeMutableRawPointer?, Int32) -> Void)?,
+                                             UnsafeMutableRawPointer?) -> Int32)?
     /// Fork API 30: `cmux_shim_browser_set_detached_hosting` (1 when the fork took it); nil in an older shim.
     let browserSetDetachedHosting: (@convention(c) (Int32, Int32) -> Int32)?
     let initialize: @convention(c) (
@@ -169,6 +174,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let deleteCookies: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     /// A tab's favicon through its own request context (``CEFRuntime/favicon(_:url:maxPixels:)``).
     let downloadFavicon: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, Int32) -> Int32
+    /// An https GET with the tab's profile cookies (``CEFRuntime/profileFetch(_:url:maxBytes:)``); nil in older shims.
+    let profileFetch: (@convention(c) (Int32, Int32, UnsafePointer<CChar>?, Int32) -> Int32)?
     /// Browser import: cookies into a profile's request context.
     let importCookies: @convention(c) (UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?) -> Int32
     let clearCookies: @convention(c) (UnsafePointer<CChar>?, Int32, Int64) -> Int32
@@ -355,6 +362,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         fileDialogAnswer = try r("cmux_shim_file_dialog_answer")
         browserSetLayerHosting = try r("cmux_shim_browser_set_layer_hosting")
         browserSetResizeSync = try r("cmux_shim_browser_set_resize_sync")
+        browserResizeFence = r.optional("cmux_shim_browser_resize_fence")
         browserSetDetachedHosting = r.optional("cmux_shim_browser_set_detached_hosting")
         initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
@@ -431,6 +439,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         visitCookies = try r("cmux_shim_visit_cookies")
         deleteCookies = try r("cmux_shim_delete_cookies")
         downloadFavicon = try r("cmux_shim_download_favicon")
+        profileFetch = r.optional("cmux_shim_profile_fetch")
         importCookies = try r("cmux_shim_import_cookies")
         clearCookies = try r("cmux_shim_clear_cookies")
         importPasswords = try r("cmux_shim_import_passwords")

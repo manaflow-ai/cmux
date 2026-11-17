@@ -317,6 +317,17 @@ CMUX_SHIM_EXPORT unsigned int cmux_shim_browser_set_layer_hosting(int browser_id
 // never holds it (the fork's default). Returns 0 when the fork lacks the call
 // or the browser has no page window.
 CMUX_SHIM_EXPORT int cmux_shim_browser_set_resize_sync(int browser_id, int timeout_ms);
+// Fork API 32 (fork version >= 34 on the Chromium 157 line): window frame
+// sync. Gives browser_id's page compositor a send right of fence_port, a Core
+// Animation fence this app made on its window's context in the turn that
+// resized the page's view (-[CAContext createFencePort]). The GPU sets it on
+// the commit of the page's first frame at the compositor's new size, so that
+// frame and this app's commit show together, or drops it after timeout_ms.
+// done(context, presented) runs once on the UI thread when this returned 1.
+// The caller keeps its own right and drops it at done or its own deadline.
+// Returns 0 when the fork lacks the call or took no fence. UI thread only.
+CMUX_SHIM_EXPORT int cmux_shim_browser_resize_fence(int browser_id, unsigned int fence_port, int timeout_ms,
+                                                    void (*done)(void* context, int presented), void* context);
 // Fork API 30: the helper-app browser process (plans/cmux-next/cef-helper-app-DESIGN.md).
 // Each returns 0 (or does nothing) when the fork lacks the call; the fork's
 // include/cef_cmux.h documents the semantics. UI thread only unless noted.
@@ -678,6 +689,14 @@ CMUX_SHIM_EXPORT int cmux_shim_delete_cookies(int browser_id, int reply, const c
 // a = HTTP status (0 when the fetch failed), s1 = base64 PNG at 1x, or "".
 // Returns 0 when the browser is gone, url is empty or max_size <= 0.
 CMUX_SHIM_EXPORT int cmux_shim_download_favicon(int browser_id, int reply, const char* url, int max_size);
+// GETs an https url through the browser's request context with that
+// profile's stored cookies, first party for url itself, never following a
+// redirect, never answering an auth prompt, bypassing the cache (email
+// verification AutoFill reads Gmail's inbox feed with it). The body never
+// reaches a page. REPLY with `reply` follows: a = HTTP status (0 on failure
+// or a body over max_bytes), s1 = base64 body. Returns 0 when the browser is
+// gone, url is not https or max_bytes <= 0.
+CMUX_SHIM_EXPORT int cmux_shim_profile_fetch(int browser_id, int reply, const char* url, int max_bytes);
 // Browser import: writes cookies into the request context of
 // profile_cache_path (a persistent profile; an off-the-record key returns 0),
 // creating the context when no tab opened it yet. json = [{"url","name",

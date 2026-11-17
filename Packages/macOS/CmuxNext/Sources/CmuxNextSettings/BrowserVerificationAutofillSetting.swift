@@ -1,11 +1,13 @@
 /// Email verification AutoFill in cmux.json (plans/cmux-next/email-verification-autofill/DESIGN.md):
 ///
 /// ```jsonc
-/// "browser": { "verificationAutofill": { "enabled": false } }
+/// "browser": { "verificationAutofill": { "enabled": false, "accounts": ["you@example.com"] } }
 /// ```
 ///
-/// `enabled`: when a site's page waits for a verification email, the tab's prompt bar offers the
-/// code or link from that site's email. Off by default: it reads mail the person opted into. The
+/// `enabled`: when a site's page waits for a verification email, the tab offers the code or link
+/// from that site's email. Off by default: it reads mail the person opted into.
+/// `accounts`: the mailbox addresses the person opted in, one by one; mail of any other account is
+/// never read for codes. Empty by default, so turning `enabled` on alone reads nothing. The
 /// app reads it from the effective root (``current(_:)``), so the snapshot type does not grow; a
 /// bad value is the default plus a diagnostic. Agents can neither read offers nor change it.
 ///
@@ -13,6 +15,8 @@
 public nonisolated struct BrowserVerificationAutofillSetting: Sendable, Hashable {
     /// Whether the browser offers codes and links from verification emails.
     public var enabled = BrowserVerificationAutofillSetting.enabledDefault
+    /// The opted-in mailbox addresses, lowercased and trimmed, each once.
+    public var accounts = BrowserVerificationAutofillSetting.accountsDefault
 
     public init() {}
 
@@ -32,11 +36,19 @@ public nonisolated struct BrowserVerificationAutofillSetting: Sendable, Hashable
         var setting = fallback
         for descriptor in BrowserSettingsSchema.verificationAutofill {
             guard let value = root.value(at: descriptor.path) else { continue }
-            guard descriptor.accepts(value), let flag = value.boolValue else {
+            guard descriptor.accepts(value) else {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
                 continue
             }
-            if descriptor.path == enabledPath { setting.enabled = flag }
+            if descriptor.path == enabledPath, let flag = value.boolValue { setting.enabled = flag }
+            if descriptor.path == accountsPath, case .array(let items) = value {
+                var addresses: [String] = []
+                for case .string(let text) in items {
+                    let address = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                    if address.contains("@"), !addresses.contains(address) { addresses.append(address) }
+                }
+                setting.accounts = addresses
+            }
         }
         return setting
     }

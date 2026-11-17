@@ -14,10 +14,17 @@
 //!            stdin and stdout (src/serve.rs); macOS and Linux
 //!   connect  the viewer side of a hub session: bridges the pane's framed byte stream on a
 //!            private Unix socket to the secure link (src/connect.rs)
+//!   view     [DEVICE] [--scope full|view] (Linux) view and control another of your devices
+//!            through the device hub, in an X11 window (src/view/)
 //!   linux-host enable|share on|off|run|requests|approve|deny|status   (Linux) this desktop as a
 //!            device hub screen host a Mac views: its own device key, the hub link and
 //!            consent, driving `serve` per approved session (src/linux_host/)
+//!   windows-host enable|run|status|share off   (Windows) this PC on the device hub as a
+//!            `windows` device with the same hub client (src/screen_host/, src/windows_host.rs);
+//!            it lists and captures, and serves no session until `serve` has a Windows port
 //!   permissions  read-only Screen Recording and Accessibility snapshot as JSON (macOS)
+//!   request-permission screen-recording|accessibility   macOS's prompt for that one grant,
+//!            then the snapshot (src/permissions.rs; the Screen Sharing helper's)
 //!   encode-selftest --codec videotoolbox|vaapi|x264|openh264 --workload marker|text [--width 1920 --height 1080 --frames 300]
 //!   openh264-install [--dir PATH]   the host enable flow's step: downloads Cisco's OpenH264
 //!            from Cisco into the per-user data directory (pinned SHA-256) and prints its path
@@ -80,6 +87,9 @@ mod pipewire_capture;
 mod portal;
 #[cfg(all(feature = "bench", target_os = "linux"))]
 mod present;
+// The device hub client of the desktop hosts (`linux-host`, `windows-host`).
+#[cfg(any(all(feature = "link", target_os = "linux"), windows))]
+mod screen_host;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod selftest;
 #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
@@ -98,10 +108,15 @@ mod testapp;
 mod token;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod upstream;
+// `cmux-rd view`: the Linux viewer of a device hub session (Windows follows from the same module).
+#[cfg(all(feature = "link", feature = "openh264", target_os = "linux"))]
+mod view;
 #[cfg(all(target_os = "macos", feature = "bench"))]
 mod vtdecode;
 #[cfg(windows)]
 mod windows;
+#[cfg(windows)]
+mod windows_host;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod wire;
 #[cfg(target_os = "linux")]
@@ -115,10 +130,24 @@ pub type Res<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 /// Runs one `cmux-rd` subcommand (`args[0]`) with its options. Returns the process exit
 /// code: 0 on success, 1 when the command failed, 2 for a usage error.
+/// Whether this start is LaunchServices opening the Screen Sharing helper app by itself (macOS's
+/// "Quit & Reopen" after a grant, or a double click): no arguments, or only the old
+/// process-serial-number one, from an executable inside an app bundle. There is no app driving
+/// it then, so the executable exits at once (main.rs); the next session starts a fresh helper.
+pub fn is_launch_services_open(args: &[String], executable: &std::path::Path) -> bool {
+    let inside_bundle = executable
+        .parent()
+        .filter(|dir| dir.ends_with("Contents/MacOS"))
+        .and_then(|dir| dir.parent()?.parent())
+        .and_then(|bundle| bundle.extension())
+        .is_some_and(|extension| extension == "app");
+    inside_bundle && args.iter().all(|arg| arg.starts_with("-psn_"))
+}
+
 pub fn run_cli(args: &[String]) -> i32 {
     let Some(cmd) = args.first() else {
         eprintln!(
-            "usage: cmux-rd host|bench|observe|observe-cpu|testapp|serve|connect|permissions|linux-host|encode-selftest|openh264-install [--key value ...]"
+            "usage: cmux-rd host|bench|observe|observe-cpu|testapp|serve|connect|view|permissions|request-permission|linux-host|windows-host|encode-selftest|openh264-install [--key value ...]"
         );
         return 2;
     };
@@ -127,9 +156,31 @@ pub fn run_cli(args: &[String]) -> i32 {
     if cmd == "linux-host" {
         return linux_host::run_cli(&args[1..]);
     }
+    #[cfg(windows)]
+    if cmd == "windows-host" {
+        return windows_host::run_cli(&args[1..]);
+    }
+    #[cfg(all(feature = "link", feature = "openh264", target_os = "linux"))]
+    if cmd == "view" {
+        return view::run_cli(&args[1..]);
+    }
     if cmd == "permissions" && args.len() != 1 {
         eprintln!("cmux-rd permissions takes no arguments");
         return 2;
+    }
+    if cmd == "request-permission" {
+        let Some(grant) = (args.len() == 2).then(|| permissions::Grant::parse(&args[1])).flatten()
+        else {
+            eprintln!("usage: cmux-rd request-permission screen-recording|accessibility");
+            return 2;
+        };
+        return match permissions::run_request(grant) {
+            Ok(()) => 0,
+            Err(e) => {
+                eprintln!("cmux-rd request-permission: {e}");
+                1
+            }
+        };
     }
     let opts = match args::Opts::parse(&args[1..]) {
         Ok(o) => o,

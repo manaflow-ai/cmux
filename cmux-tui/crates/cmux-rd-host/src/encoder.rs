@@ -87,6 +87,19 @@ pub fn install_openh264(opts: &crate::args::Opts) -> Res<()> {
     Ok(())
 }
 
+/// The host enable flow's OpenH264 step without a separate command (`windows-host enable`):
+/// Cisco's library in the per-user data directory, downloaded from Cisco when it is not there
+/// yet. Its path.
+#[cfg(feature = "openh264")]
+pub fn ensure_openh264() -> Res<PathBuf> {
+    let platform = Platform::current().ok_or("Cisco publishes no OpenH264 for this platform")?;
+    let dir = cmux_encode::cisco::default_dir().ok_or("no per-user data directory")?;
+    if let Some(path) = installed_library(Some(&dir), platform) {
+        return Ok(path);
+    }
+    Ok(cmux_encode::cisco::install(&dir, platform)?)
+}
+
 /// Cisco's library from `--openh264-lib`, else the installer's per-user copy.
 #[cfg(feature = "openh264")]
 fn cisco_api(lib: Option<&str>) -> Res<Option<OpenH264Api>> {
@@ -124,6 +137,47 @@ fn openh264_api(lib: Option<&str>) -> Res<OpenH264Api> {
     return Ok(OpenH264Api::from_source());
     #[cfg(not(feature = "bench"))]
     Err("openh264 is not installed: run `cmux-rd openh264-install` (downloads Cisco's library from Cisco)".into())
+}
+
+/// The software encoder's threads (and OpenH264's slices) for this machine:
+/// [`threads_for_cores`] of the cores this process may run on.
+pub fn default_threads() -> u16 {
+    threads_for_cores(std::thread::available_parallelism().map_or(1, |n| n.get()))
+}
+
+/// Two below 8 cores, four from 8. Measured with Cisco's OpenH264 at 1080p
+/// (`scripts/encode-matrix.sh`, cmux#44552): one thread is slower than two even on a 2-vCPU
+/// VM; four gain 5-10% from 8 cores and lose at 4, where they compete with capture and the
+/// session's loop thread.
+pub fn threads_for_cores(cores: usize) -> u16 {
+    if cores >= 8 {
+        4
+    } else {
+        2
+    }
+}
+
+/// [`open`], with OpenH264 coded under the bench's `key=value` settings when given
+/// (`cmux-rd encode-selftest --openh264-options`; cmux-encode `OpenH264Options::parse`).
+pub fn open_with(cfg: &EncCfg<'_>, openh264_options: Option<&str>) -> Res<Box<dyn H264Encoder>> {
+    #[cfg(any(feature = "openh264", feature = "bench"))]
+    if let (Some(options), "openh264") = (openh264_options, cfg.codec) {
+        let enc_cfg = cmux_encode::EncCfg {
+            width: cfg.width,
+            height: cfg.height,
+            fps: cfg.fps,
+            kbps: cfg.kbps,
+            threads: cfg.threads,
+            screen_content: cfg.screen_content,
+        };
+        let options = cmux_encode::openh264::OpenH264Options::parse(options)?;
+        let api = openh264_api(cfg.openh264_lib)?;
+        return Ok(Box::new(OpenH264::with_options(&enc_cfg, api, &options)?));
+    }
+    if openh264_options.is_some() && cfg.codec != "openh264" {
+        return Err("--openh264-options needs --codec openh264".into());
+    }
+    open(cfg)
 }
 
 /// The encoder `--codec auto` (the Linux default) picks: the GPU's through VAAPI when a
@@ -207,5 +261,14 @@ pub fn open(cfg: &EncCfg<'_>) -> Res<Box<dyn H264Encoder>> {
                 .ok_or_else(|| format!("codec {} not available in this build", cfg.codec).into())
         }
         other => Err(format!("codec {other} not available in this build").into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn eight_cores_encode_on_four_threads_and_fewer_on_two() {
+        let threads: Vec<u16> = [1, 2, 4, 6, 8, 16].map(super::threads_for_cores).to_vec();
+        assert_eq!(threads, [2, 2, 2, 2, 4, 4]);
     }
 }

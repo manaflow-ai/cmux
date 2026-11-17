@@ -64,6 +64,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// their surfaces pause and only the warm set's LRU may destroy one; it sends no focus events,
     /// because the window's focus follows the shown workspace.
     private(set) var isParked = false
+    /// Its window showed this workspace as a guest when it was built: another window owns it, so its terminals are
+    /// views of this window's own (`PaneController+SharedSpace`). The window builds it again when that changes.
+    let isGuestView: Bool
     #if DEBUG
     /// This controller's share of `DebugLayoutCounters.workspaceApplies` and `.topologySends`: the
     /// process-wide counters also count every other workspace (tests run side by side).
@@ -144,6 +147,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     init(workspace: WorkspaceModel, daemon: DaemonService, services: AppServices, state: WindowState, parked: Bool = false) {
         self.workspace = workspace
         isParked = parked
+        isGuestView = services.windows.registry.value.isGuest(workspace.id, in: state.id)
         self.daemon = daemon
         self.services = services
         self.state = state
@@ -192,6 +196,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     }
 
     func teardown() {
+        if contentView.deferredPastPaintHold({ [self] in teardown() }) { return } // a closed workspace the window still shows: it goes with the swap
         observation?.cancel()
         connectionObservation?.cancel()
         attentionObservation?.cancel()
@@ -406,7 +411,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         let spare = ProvisionalPane.isStandIn(handle) ? paneSpare.take() : nil // a stand-in pane (a key's create) adopts the views made ahead
         let controller = PaneController(pane: model, daemon: daemon, layoutPaneID: pane, services: services, state: state, workspace: self, spare: spare)
         AfterFrameCommit().run { [weak self] in self?.refillPaneSpare() } // after the key's frame; a motion that started refills when it lands
-        controller.view.toolbar = PaneToolbar(pane: controller) // the tab bar's pinned buttons and Exit Zoom
+        controller.view.toolbar = PaneToolbar(pane: controller, view: spare?.toolbarView) // the tab bar's pinned buttons and Exit Zoom
         controller.view.swapDrag = PaneSwapDrag(pane: controller)
         panes[pane] = controller
         services.themes.applyPaneBackground(controller) // its own background and tint, before the first frame
@@ -445,8 +450,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         services.paneMounts.changed()
     }
 
-    /// A springing close hid `pane` until its motion lands: it leaves `panes` (what the window shows) in this update, so
-    /// no key, focus or lookup finds a closed pane; only its teardown waits. Taken back, it shows again.
+    /// A close took `pane` out of the layout; its host goes after the frame that shows the close. It leaves `panes` (what the
+    /// window shows) in this update, so no key, focus or lookup finds a closed pane; only its teardown waits. Taken back, it shows again.
     func retainContentView(_ view: NSView, for pane: LayoutPaneID, retired: Bool) {
         if retired { retiredPanes[pane] = panes.removeValue(forKey: pane) } else if let back = retiredPanes.removeValue(forKey: pane) { panes[pane] = back; sendTopology() }
         services.paneMounts.changed()

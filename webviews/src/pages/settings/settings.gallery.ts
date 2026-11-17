@@ -1,4 +1,5 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
+import { mockAgentKeys } from "./mockAgentKeys";
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
 import type {
   AccountsCmux,
@@ -9,6 +10,7 @@ import type {
   HostLists,
   ProviderAccount,
 } from "./ops";
+import { pageDensities, pageDensityPlay } from "../../gallery/pageDensityFixtures";
 import { minutesAgo } from "../../gallery/clock";
 import { categories } from "./categories";
 import { PERSONALIZATION_KEYS } from "./personalizationParts";
@@ -494,48 +496,7 @@ Object.assign(variants, {
       ],
     },
   }),
-  // Remove asks first, in the row. Three states of the one flow: the question open on an added
-  // Codex login (shadow home), on a Claude API-key account, and a signed-out account whose usage
-  // read before its sign-out is no longer shown.
-  "agents-harnesses-account-remove-confirm": variant("agents", {
-    note: "Remove on ChatGPT 2 asks first, in its row: only cmux's record goes; the login folder and the CLI's own sign-in stay.",
-    harnesses: { loading: false, problem: null, accounts: providerAccounts, harnesses: codexHarness },
-    steps: [
-      wait('[data-account="codex-2"] [data-account-action="remove"]'),
-      click('[data-account="codex-2"] [data-account-action="remove"]'),
-      wait('[data-account="codex-2"] [data-account-remove-confirm]'),
-    ],
-  }),
-  "agents-harnesses-account-remove-confirm-key": variant("agents", {
-    note: "Remove on a Claude API-key account asks the same question; says the API key stays where it is stored.",
-    harnesses: {
-      loading: false,
-      problem: null,
-      accounts: [
-        ...providerAccounts,
-        {
-          id: "claude-key",
-          family: "claude",
-          name: "Work key",
-          home: null,
-          defaultHome: "~/.claude",
-          shadowOf: null,
-          signedIn: true,
-          plan: null,
-          email: null,
-          enabled: true,
-          builtin: false,
-          key: true,
-        },
-      ],
-      harnesses: [{ id: "claude", name: null, kind: "claude-stdio", source: "path", problem: null, version: "2.0.9" }],
-    },
-    steps: [
-      wait('[data-account="claude-key"] [data-account-action="remove"]'),
-      click('[data-account="claude-key"] [data-account-action="remove"]'),
-      wait('[data-account="claude-key"] [data-account-remove-confirm]'),
-    ],
-  }),
+  // A signed-out account whose usage read before its sign-out is no longer shown.
   "agents-harnesses-account-signed-out": variant("agents", {
     note: "ChatGPT 2 after its sign-out: Sign In comes back and the usage read before it is no longer shown.",
     harnesses: {
@@ -910,7 +871,7 @@ Object.assign(variants, {
       card.scrollIntoView({ block: "center" });
     },
   }),
-  "cloud-environments-row-shape": variant("accounts", {
+  "cloud-environments-row-shape": variant("cloud", {
     environments: rowShapeEnvironments,
     note: "One failed Cloud Environment row with status, repository, error log and actions.",
     play: async (ctx) => {
@@ -1762,6 +1723,19 @@ variants["github-connect-empty"] = variant("accounts", {
     },
   ),
 });
+// Settings > Accounts > Team agent keys (TeamAgentKeysCard.tsx): admin, member, signed out,
+// personal team and a conflict refusal, each with the app's copy (mockAgentKeys.ts).
+for (const [state, agentKeys] of Object.entries(mockAgentKeys)) {
+  // Variant names are lower kebab case: the mock's `signedOut` is `signed-out` here.
+  const name = state.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+  variants[`team-agent-keys-${name}`] = variant("accounts", {
+    accounts: accounts({}, { agentKeys }),
+    play: async (ctx) => {
+      await ctx.waitFor(() => ctx.document.querySelector('[data-card="team-agent-keys"]'));
+      ctx.document.querySelector<HTMLElement>('[data-card="team-agent-keys"]')!.scrollIntoView({ block: "center" });
+    },
+  });
+}
 variants["github-connect-pending"] = variant("accounts", {
   accounts: accounts(
     {},
@@ -1823,6 +1797,24 @@ variants["devices-screen-sharing-offline"] = variant("devices", {
   note: "An offline Mac keeps its disabled View screen affordance while its name and captions remain readable.",
 });
 
+for (const { name, scale } of pageDensities) {
+  variants[`density-${name}`] = variant("appearance", {
+    note: `${name}: scaled content, controls and navigation, with centered disclosure content and concentric corners on hover.`,
+    play: async (ctx) => {
+      await pageDensityPlay(scale)(ctx);
+      await ctx.hover({ selector: ".content .more-options" });
+    },
+  });
+  variants[`density-${name}-disclosure-open`] = variant("appearance", {
+    note: `${name}: centered disclosure content with its rows open.`,
+    play: async (ctx) => {
+      await pageDensityPlay(scale)(ctx);
+      await ctx.click({ selector: ".content .more-options" });
+      await ctx.hover({ selector: ".content .more-options" });
+    },
+  });
+}
+
 export default settingsPageEntry({
   id: "pages.settings",
   anchors: [{ selector: "[data-settings-search]" }, { selector: '[data-section-link="general"]' }],
@@ -1833,6 +1825,11 @@ export default settingsPageEntry({
   widths: { narrow: 480, normal: 1000, wide: 1440 },
   covers: [
     "page:cmux.settings",
+    "pages/shared/pageDensity.css",
+    "pages/settings/look.css",
+    "pages/settings/refined.css",
+    "pages/settings/layout.css",
+    "pages/settings/styles.css",
     "pages/settings/components/AccentPicker.tsx",
     "pages/settings/components/AccountsSection.tsx",
     "pages/settings/components/AccountsTeams.tsx",

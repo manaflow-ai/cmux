@@ -202,6 +202,8 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("cloud.owner.acpmux_person_holds", CLOUD_API_REASON),
     ("cloud.owner.fork_run", CLOUD_API_REASON),
     ("cloud.owner.github_app", CLOUD_API_REASON),
+    ("cloud.owner.github_connect", CLOUD_API_REASON),
+    ("cloud.owner.github_repos", CLOUD_API_REASON),
     ("cloud.owner.handoff_begin_turn", CLOUD_API_REASON),
     ("cloud.owner.handoff_open", CLOUD_API_REASON),
     ("cloud.owner.handoff_wait", CLOUD_API_REASON),

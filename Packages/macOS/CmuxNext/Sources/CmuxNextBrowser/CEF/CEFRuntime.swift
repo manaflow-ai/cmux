@@ -35,6 +35,8 @@ final class CEFRuntime {
     /// The pump's gate for requests from Chromium threads (read off the main thread).
     nonisolated let pumpGate = CEFPumpCrossThreadGate()
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef")
+    /// This turn's window resize fences (fork API 32), one set for every hosted page of the process.
+    let resizeFences = CEFResizeFences()
 
     // Routing tables (main thread).
     var tabsByBrowser: [Int32: CEFTab] = [:]
@@ -67,11 +69,7 @@ final class CEFRuntime {
                 return CEFPageRendererGC.Page(browser: browser, isCmuxPage: CEFPageRendererGC.isCmuxPage(tab.state.url), rendererClients: clients)
             }
         },
-        heapUsed: { [weak self] browser in
-            guard let tab = self?.tabsByBrowser[browser],
-                  let reply = try? await tab.devTools(method: "Runtime.getHeapUsage", params: [:]) else { return nil }
-            return CEFPageRendererGC.usedSize(reply)
-        },
+        heapUsed: { [weak self] browser in await self?.rendererHeapUsed(browser) },
         collect: { [weak self] browser in
             guard let tab = self?.tabsByBrowser[browser] else { return }
             _ = try? await tab.devTools(method: "HeapProfiler.collectGarbage", params: [:], timeout: .seconds(10))
@@ -162,9 +160,11 @@ final class CEFRuntime {
     weak var initializeAfter: FirstFrameGate?
     /// Hides or closes top-level Chromium windows that slip through (see
     /// `ChromiumWindowGuard`).
-    private(set) lazy var windowGuard = ChromiumWindowGuard(logger: logger) { [weak self] window in
-        self?.isPlacedDevToolsWindow(window) ?? false
-    }
+    private(set) lazy var windowGuard: ChromiumWindowGuard = {
+        let guard_ = ChromiumWindowGuard(logger: logger) { [weak self] window in self?.isPlacedDevToolsWindow(window) ?? false }
+        guard_.onBecameKey = { [weak self] window in self?.keyReturn.windowBecameKey(window) }
+        return guard_
+    }()
     /// The one display-change observer (`CEFLayerHosting.displaysChanged` caps each resize wait). Made when CEF is ready.
     private var displayObservation: MainActorObservation?
     /// True when `--load-extension` is in use (development, verification).
@@ -191,6 +191,8 @@ final class CEFRuntime {
     /// The App's browser stores, handed over by the engine before it starts or makes a tab
     /// (`adopt`); in memory until then (a spy runtime in tests).
     private(set) var stores = BrowserSharedStores.inMemory()
+    /// Gives the keys back from a parked agent page's window (``AgentRenderKeyReturn``), told by ``windowGuard``.
+    let keyReturn = AgentRenderKeyReturn()
     /// The App's sign-in tabs (`adopt`): the shim's AUTH_CALLBACK events go here.
     private(set) var signInCallbacks = CEFSignInCallbacks()
 
@@ -576,6 +578,15 @@ final class CEFRuntime {
                 CEFRuntime.shared.logger.error("CEF still running at willTerminate; skipping CefShutdown")
             }
         }
+    }
+
+    /// The used heap of the renderer behind `browser`, for ``pageRendererGC``: one `Runtime.getHeapUsage` call,
+    /// its reply decoded off the main actor (`CEFPageRendererGC.usedSize`). A method, not code in the lazy
+    /// initializer, which may not reference both main-actor and nonisolated declarations.
+    private func rendererHeapUsed(_ browser: Int32) async -> Int? {
+        guard let tab = tabsByBrowser[browser],
+              let reply = try? await tab.devTools(method: "Runtime.getHeapUsage", params: [:]) else { return nil }
+        return await CEFPageRendererGC.usedSize(reply)
     }
 
     /// The request context key of a pane's store (`CEFProfileStorage.contextKey`).

@@ -2147,6 +2147,7 @@ class LateSnapshotStall(unittest.TestCase):
         self.assertEqual(result.jobs, none_placed(), result.why)
         self.assertIn(SMALL, result.fresh_stall)
         self.assertIn("has waited 179 min", result.why)
+        self.assertIn("queued at its 10 slots or more", result.why)  # 166 queued: both reasons named
         # A feed's compile stays off it too, as with a fresh reading (fresh_stalled()).
         feed = env(CASCADE_RUNS=" cmux-scheme-compile ", FRESH_JOBS="cmux-scheme-compile")
         self.assertEqual(cascade.place(feed, (), live, None, seen).jobs, none_placed())
@@ -2300,6 +2301,26 @@ class DeadLabel(unittest.TestCase):
         _, _, seen = cascade.read(feed, mock.Mock(GitHub=mock.Mock(return_value=mock.Mock(
             snapshot=mock.Mock(return_value=observed_dead(38))))), now=NOW, log=lambda _: None)
         self.assertEqual(cascade.place(feed, (), None, None, seen).jobs[SMALL], ("cmux-scheme-compile",))
+
+    def test_a_stale_snapshot_keeps_a_feed_compile_off_a_6_vcpu_queued_at_its_slot_count(self):
+        """2026-11-17 (cmux#44204's DEV Release compile, run 44018999063): no count under 15 minutes sent a
+        compile to 6 vCPU blind while it ran 10 with 56 queued. Its queue is judged against its slots."""
+        feed = env(CASCADE_RUNS=" cmux-scheme-compile ", FRESH_JOBS="cmux-scheme-compile",
+                   SNAPSHOT_TOKEN="s", GITHUB_REPOSITORY="manaflow-ai/cmux")
+
+        def placed(queued: int, minutes_old: float):
+            late = observed_dead(minutes_old, dead=LARGE, **{SMALL: {"queued": queued, "running": 10,
+                                                                     "oldest_queued_minutes": 4}})
+            _, _, seen = cascade.read(feed, mock.Mock(GitHub=mock.Mock(return_value=mock.Mock(
+                snapshot=mock.Mock(return_value=late)))), now=NOW, log=lambda _: None)
+            return cascade.place(feed, (), None, None, seen)
+        result = placed(56, 38)
+        self.assertEqual(result.jobs, none_placed(), result.why)
+        self.assertIn("slots or more", result.why)
+        self.assertEqual(cascade.queued_full(observed_dead(38, **{SMALL: {"queued": 10}}), NOW), frozenset({SMALL}))
+        # Under its slot count it stays the feed's last resort; a snapshot past 45 minutes counts nothing.
+        self.assertEqual(placed(9, 38).jobs[SMALL], ("cmux-scheme-compile",))
+        self.assertEqual(cascade.queued_full(observed_dead(50, **{SMALL: {"queued": 56}}), NOW), frozenset())
 
     def test_no_evidence_changes_nothing(self):
         """A truncated listing, a snapshot past the six-hour evidence window, or every label dead proves nothing."""
@@ -2506,6 +2527,11 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
     # separate, explicitly selected compatibility lane and is not changed by
     # cmux#43103.
     BLACKSMITH_MACOS = re.compile(r"blacksmith-\d+vcpu-macos-26(?:['\"]|$)")
+    # The repository variables that name a macOS 26 Blacksmith label. MACOS_RUNNER_15, _DISPLAY, _DUAL_XCODE and
+    # _BACKGROUND name the macOS 15 lane, which this switch leaves alone. MACOS_RUNNER_PR holds a macOS 26 label too,
+    # but the macOS 15 lane's jobs read it beside fromJSON(vars.RUNNER_POOLS).macos_15 as their pull-request runner,
+    # so it is left out here; a macOS 26 job that reads only it would pass (a known gap).
+    MACOS_26_RUNNER_VARIABLE = re.compile(r"\bvars\.MACOS_RUNNER_(?:26_LARGE|26|IOS|TESTS)\b")
     # Jobs no pull request runs, with why they still name Blacksmith macOS while the switch is off.
     NOT_A_PR_JOB = {
         "dev-landing-compile": "the DEV landing compile (dispatch only) takes dev_landing_place.py's own Blacksmith pick",
@@ -2544,14 +2570,21 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
         "resume-nightly-notarization.yml verify-stapled: runs-on[0]",
         "cmux-next-perf-budgets.yml blacksmith-mac: runs-on[0]",
         "stable-next.yml sign: runs-on[0]",
+        # Its one Blacksmith branch is a rescued run's (inputs.rescue == 'blacksmith', dispatched only while the
+        # switch allows it, scripts/ci/app_ffi_rescue.py), and it reads only the slot its placement found live
+        # (blacksmith_12_jobs / blacksmith_6_jobs; none for a dead or stalled label), which this resolver cannot see.
+        # tests/test_app_ffi_release_workflow.py BuildRescueNeverToAnOffOrDeadBlacksmith holds the rest.
+        "app-ffi-release.yml build: runs-on[0]",
     })
 
     def blacksmith_labels(self, expression: str, switch: tuple[str, ...]) -> set[str]:
         from runs_on_labels import resolve_labels  # noqa: PLC0415 - the over-approximating label resolver
         # The repository sets the side lane variable (.github/single-host-fallbacks.json): the switch's owned route.
+        # The fork clause ends at its own literal: `.*?` used to run on past a Linux fork clause's `||` to the next
+        # macOS literal, cutting a parenthesis, and the expression fell to the literal scan below (swift-canary).
         text = re.sub(
             r"github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != "
-            r"github\.repository.*?&& '(?:blacksmith-6|blacksmith-12)vcpu-macos-26'",
+            r"github\.repository[^|]*?&& '(?:blacksmith-6|blacksmith-12)vcpu-macos-26'",
             "false", expression,
         ).replace("vars.CI_SIDE_LANE_RUNNER", f"'{SIDE}'")
         # reload-build's explicit-ref path keeps an untrusted revision on the
@@ -2562,6 +2595,10 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
             r"needs\.resolve-ref\.outputs\.trusted_ref != 'true' && fromJSON\(vars\.RUNNER_POOLS\)\.macos_26",
             "false", text,
         )
+        # A runner variable that holds a macOS 26 Blacksmith label (each does on 2026-11-17) is that label
+        # whenever it is set: read ahead of the gate it wins, as `vars.MACOS_RUNNER_26 || (<gate> || <pool>)` did on
+        # stable-next's re-runs. Unknown to the resolver, it used to pass.
+        text = self.MACOS_26_RUNNER_VARIABLE.sub("'blacksmith-6vcpu-macos-26'", text)
         try:
             labels = resolve_labels(text, variables={"CI_BLACKSMITH_MACOS": switch})
             return {label for label in labels if isinstance(label, str) and self.BLACKSMITH_MACOS.match(label)}
@@ -2773,17 +2810,36 @@ SWITCH_READ = re.compile(r"vars\.CI_BLACKSMITH_MACOS(?!\s*\}\})")
 SWITCH_COMPARED = re.compile(r"vars\.CI_BLACKSMITH_MACOS\s*(?:==|!=)\s*'on'")
 
 
+# The dispatch inputs that name a cmux-next.yml run other than `cmux-next · <sha>`, or a push's same-tree run: under
+# pr-rescue a bot's re-run of any of them keeps the side lane (DEV daily is a delivery build).
+NOT_A_PULL_DISPATCH = ({"dev_daily": True}, {"tip_swift_suite": True}, {"tip_daemon_suite": True},
+                       {"base_tier": True}, {"no_reuse": True}, {"same_tree_origin": "push"},
+                       {"same_tree_origin": "dispatch"}, {"same_tree_origin": "pull_request", "dev_daily": True})
+# A same-tree run of a pull request (scripts/ci/cmux_next_tree_notify.py), and a plain dispatch on its branch.
+PULL_DISPATCH = ({"same_tree_origin": "pull_request", "same_tree_sha": "a" * 40, "same_tree_tiers": "daemon,scheme"},
+                 {"same_tree_origin": ""})
+
+
 def route_at(expression: str, event: str, attempt: int, switch: str, placed: int = 1,
-             actor: str = RERUN_BOT) -> object:
-    """rerun_route_at() for any event and triggering actor."""
+             actor: str = RERUN_BOT, inputs: dict | None = None, retry: tuple = ()) -> object:
+    """rerun_route_at() for any event, triggering actor and dispatch inputs; with retry (jobs), the placement at
+    attempt `placed` also wrote the small Blacksmith label as their retry label."""
     context = github_context(event, CI_PR_POOL_OWNED="1", CI_SIDE_LANE_RUNNER=SIDE,
                              CI_BLACKSMITH_MACOS=switch, MACOS_RUNNER_26=SMALL)
+    if inputs is not None:
+        context["inputs"] = {"same_tree_origin": "", "dev_daily": False, "tip_swift_suite": False,
+                             "tip_daemon_suite": False, "base_tier": False, "no_reuse": False, **inputs}
     pull = {"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}},
                              "author_association": "MEMBER", "labels": []}}
     context["github"].update(run_attempt=str(attempt), triggering_actor=actor, repository="manaflow-ai/cmux",
                              event=pull if event == "pull_request" else {})
-    context["needs"] = _RerunPlacedNeeds(placed)
+    context["needs"] = _RetryPlacedNeeds(placed, SMALL, retry) if retry else _RerunPlacedNeeds(placed)
     return evaluate(expression, context)
+
+
+# The jobs whose route reads the placement's retry label (retry_jobs, retry_runner).
+RETRY_JOBS = ("fast-tier", "swift-canary", "cmux-scheme-compile", "release-compile", "swift-test", "daemon-test",
+              "generated-files")
 
 
 def rescue_env(**overrides: str) -> dict:
@@ -2859,11 +2915,25 @@ class BlacksmithPrRescue(unittest.TestCase):
             with self.subTest(where=where):
                 # Attempt 1 without a placement that opened the rescue is unchanged.
                 self.assertEqual(route_at(expression, "pull_request", 1, RESCUE), first)
-                for event in ("push", "schedule", "workflow_dispatch"):
+                for event in ("push", "schedule"):
                     for attempt in (1, 2, 4):
                         self.assertEqual(route_at(expression, event, attempt, RESCUE),
                                          route_at(expression, event, attempt, ""), f"{event} attempt {attempt}")
-                rerun = route_at(expression, "pull_request", 2, RESCUE)
+                # A dispatch that gates no pull request, and a person's re-run of one that does, keep their route
+                # (a bot's re-run of one that does: test_a_bot_rerun_of_a_pull_requests_dispatch_takes_blacksmith).
+                for inputs, actor, attempt in itertools.product(NOT_A_PULL_DISPATCH + PULL_DISPATCH,
+                                                                (RERUN_BOT, "a-person"), (1, 2, 4)):
+                    if inputs in PULL_DISPATCH and actor == RERUN_BOT and attempt > 1:
+                        continue
+                    self.assertEqual(route_at(expression, "workflow_dispatch", attempt, RESCUE, actor=actor,
+                                              inputs=inputs),
+                                     route_at(expression, "workflow_dispatch", attempt, "", actor=actor,
+                                              inputs=inputs), f"dispatch {inputs} by {actor} attempt {attempt}")
+                # A re-run the placement wrote no retry label for keeps its route (cmux#44966); one it did takes it.
+                for placed in (1, 2):
+                    self.assertEqual(route_at(expression, "pull_request", 2, RESCUE, placed=placed),
+                                     route_at(expression, "pull_request", 2, "", placed=placed), f"placed {placed}")
+                rerun = route_at(expression, "pull_request", 2, RESCUE, placed=2, retry=RETRY_JOBS)
                 if isinstance(rerun, str) and RERUN_BLACKSMITH_MACOS.match(rerun):
                     moved.add(where.split(" ", 2)[1].rstrip(":"))
         for job in ("fast-tier", "swift-test", "daemon-test", "cmux-scheme-compile"):
@@ -2874,9 +2944,114 @@ class BlacksmithPrRescue(unittest.TestCase):
         job = yaml.safe_load(WORKFLOW.read_text())["jobs"]["cmux-scheme-compile"]
         expression = runs_on_of(job)
         self.assertEqual(route_at(expression, "pull_request", 1, RESCUE), SIDE)
-        self.assertEqual(route_at(expression, "pull_request", 2, RESCUE), SMALL)
+        self.assertEqual(route_at(expression, "pull_request", 2, RESCUE, placed=2, retry=RETRY_JOBS), SMALL)
+        self.assertEqual(route_at(expression, "pull_request", 2, RESCUE, placed=2), SIDE)
         self.assertEqual(route_at(expression, "pull_request", 2, ""), SIDE)
         self.assertEqual(route_at(expression, "push", 2, RESCUE), route_at(expression, "push", 2, ""))
+
+    def test_a_bot_rerun_of_a_pull_requests_dispatch_takes_only_the_placements_label(self):
+        """cmux#44529's scheme compile (job 133341854319) in same-tree run 43879624016, `cmux-next · <head>`, queued
+        on glaeda-side-std-xcode-26.6 from 13:50Z on 2026-11-16 (cmuxterm-hq#12109). Its re-run took the plain
+        fallback, vars.MACOS_RUNNER_26, until cmux#44966 showed that label can have no runner online: a re-run now
+        takes Blacksmith macOS only through the placement's retry label, as the pull_request run's does."""
+        job = yaml.safe_load(WORKFLOW.read_text())["jobs"]["cmux-scheme-compile"]
+        expression = runs_on_of(job)
+        for inputs in PULL_DISPATCH + NOT_A_PULL_DISPATCH:
+            with self.subTest(inputs=inputs):
+                self.assertEqual(route_at(expression, "workflow_dispatch", 1, RESCUE, inputs=inputs), SIDE)
+                for actor, placed in itertools.product((RERUN_BOT, "a-person"), (1, 2)):
+                    self.assertEqual(route_at(expression, "workflow_dispatch", 2, RESCUE, placed=placed, actor=actor,
+                                              inputs=inputs), SIDE)
+                self.assertEqual(route_at(expression, "workflow_dispatch", 2, RESCUE, placed=2, inputs=inputs,
+                                          retry=RETRY_JOBS), SMALL)
+        moved = set()
+        for where, route in rerun_routes(WORKFLOW).items():
+            try:
+                rerun = route_at(route, "workflow_dispatch", 2, RESCUE, placed=2, inputs=PULL_DISPATCH[0],
+                                 retry=RETRY_JOBS)
+            except Exception:  # noqa: BLE001 - an expression this evaluator cannot read
+                continue
+            if isinstance(rerun, str) and RERUN_BLACKSMITH_MACOS.match(rerun):
+                moved.add(where.split(" ", 2)[1].rstrip(":"))
+        for name in ("fast-tier", "swift-canary", "cmux-scheme-compile", "release-compile"):
+            self.assertIn(name, moved)
+
+class _RetryPlacedNeeds(_RerunPlacedNeeds):
+    """_RerunPlacedNeeds whose placement also wrote a retry label for `jobs` (retry_runner, retry_jobs)."""
+
+    def __init__(self, placed, runner, jobs):
+        super().__init__(placed)
+        self.runner, self.jobs = runner, f" {' '.join(jobs)} " if jobs else ""
+
+    def get(self, key, default=None):
+        out = super().get(key, default)
+        out["outputs"].update(retry_runner=self.runner, retry_jobs=self.jobs)
+        return out
+
+
+def rescue_rerun_routes() -> dict[str, str]:
+    """Every cmux-next.yml route a pull request's re-run reads: runs-on, CMUX_NEXT_RUNNER and CMUX_NEXT_SIDE_ROUTE
+    (the workflow's and each job's)."""
+    workflow = yaml.safe_load(WORKFLOW.read_text())
+    routes = dict(rerun_routes(WORKFLOW))
+    routes["cmux-next.yml env: CMUX_NEXT_SIDE_ROUTE"] = workflow["env"]["CMUX_NEXT_SIDE_ROUTE"]
+    for name, job in workflow["jobs"].items():
+        side = (job.get("env") or {}).get("CMUX_NEXT_SIDE_ROUTE") if isinstance(job, dict) else None
+        if isinstance(side, str) and "${{" in side:
+            routes[f"cmux-next.yml {name}: CMUX_NEXT_SIDE_ROUTE"] = side
+    return routes
+
+
+class PrRescueRerunTakesBlacksmithOnlyThroughPlacement(unittest.TestCase):
+    """cmux#44966, run 43995551911 attempts 2 and 3: with vars.CI_BLACKSMITH_MACOS=pr-rescue a pull request's re-run
+    fell through to vars.MACOS_RUNNER_26 (blacksmith-6vcpu-macos-26, 0 of 267 runners online) and queued forever.
+    Under pr-rescue a re-run reaches Blacksmith macOS only through the placement's dead-aware retry label
+    (next_macos_cascade writes retry_runner empty for a dead or stalled label); otherwise the side lane."""
+    maxDiff = None
+
+    def test_a_rerun_with_no_retry_label_keeps_the_side_lane(self):
+        stranded = {}
+        for where, expression in rescue_rerun_routes().items():
+            for attempt, placed, actor in itertools.product((2, 3), (1, 2, 3), (RERUN_BOT, "a-person")):
+                if placed > attempt:
+                    continue
+                try:
+                    off = route_at(expression, "pull_request", attempt, "", placed=placed, actor=actor)
+                    rescue = route_at(expression, "pull_request", attempt, RESCUE, placed=placed, actor=actor)
+                except Exception:  # noqa: BLE001 - an expression this evaluator cannot read
+                    break
+                if rescue != off and isinstance(rescue, str) and RERUN_BLACKSMITH_MACOS.match(rescue):
+                    stranded[where] = f"attempt {attempt} placed at {placed} by {actor}: {rescue}, off {off}"
+                    break
+        self.assertEqual(stranded, {}, "under pr-rescue these routes send a re-run to a Blacksmith macOS label the "
+                         "placement did not choose: read it only through retry_runner")
+
+    def test_the_incident_routes_take_the_side_lane(self):
+        workflow = yaml.safe_load(WORKFLOW.read_text())
+        jobs = workflow["jobs"]
+        routes = {"fast-tier": runs_on_of(jobs["fast-tier"]), "swift-canary": runs_on_of(jobs["swift-canary"]),
+                  "CMUX_NEXT_SIDE_ROUTE": workflow["env"]["CMUX_NEXT_SIDE_ROUTE"]}
+        for name, expression in routes.items():
+            for attempt in (2, 3):
+                with self.subTest(route=name, attempt=attempt):
+                    route = route_at(expression, "pull_request", attempt, RESCUE, placed=attempt)
+                    self.assertEqual(route, SIDE)
+                    self.assertNotEqual(route, SMALL)
+
+    def test_a_retry_label_the_placement_wrote_still_takes_blacksmith(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        for name in ("fast-tier", "swift-canary", "cmux-scheme-compile"):
+            expression = runs_on_of(jobs[name])
+            context = github_context("pull_request", CI_PR_POOL_OWNED="1", CI_SIDE_LANE_RUNNER=SIDE,
+                                     CI_BLACKSMITH_MACOS=RESCUE, MACOS_RUNNER_26=SMALL)
+            context["github"].update(run_attempt="2", triggering_actor=RERUN_BOT, repository="manaflow-ai/cmux",
+                                     event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}},
+                                                             "author_association": "MEMBER", "labels": []}})
+            with self.subTest(job=name):
+                context["needs"] = _RetryPlacedNeeds(2, SMALL, (name,))
+                self.assertEqual(evaluate(expression, context), SMALL)
+                context["needs"] = _RetryPlacedNeeds(2, "", (name,))
+                self.assertEqual(evaluate(expression, context), SIDE)
 
 
 if __name__ == "__main__":

@@ -28,7 +28,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "BUNDLE host $(hostname -s) macOS $(sw_vers -productVersion) dmg $dmg"
-curl -fsSL --proto '=https' --retry 3 -o "$work/in.dmg" "$dmg" || { echo "BUNDLE download failed"; exit 3; }
+curl -fsSL --proto '=https' --retry 3 --retry-all-errors -o "$work/in.dmg" "$dmg" || { echo "BUNDLE download failed"; exit 3; }
 mnt="$work/mnt"; mkdir -p "$mnt"
 hdiutil attach -nobrowse -readonly -noverify -mountpoint "$mnt" "$work/in.dmg" >/dev/null || { echo "BUNDLE mount failed"; exit 3; }
 app="$(find "$mnt" -maxdepth 1 -name '*.app' -type d | head -1)"
