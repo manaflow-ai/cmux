@@ -1,5 +1,7 @@
 //! `rdhost testapp`: one undecorated full-screen X11 window with the marker and a workload.
-//! The marker counter increments on every KeyPress and is redrawn inside the event loop at once.
+//! The marker counter increments on every KeyPress and ButtonPress (as the macOS marker app counts
+//! keys and clicks), and is redrawn inside the event loop at once, so a viewer's pointer-to-frame is
+//! timed against a Linux host the same way as its key-to-frame.
 
 use crate::args::Opts;
 use crate::clock::now_ns;
@@ -30,7 +32,7 @@ pub fn run(opts: &Opts) -> Res<()> {
     let aux = CreateWindowAux::new()
         .override_redirect(1)
         .background_pixel(crate::workload::GRAY)
-        .event_mask(EventMask::KEY_PRESS | EventMask::EXPOSURE);
+        .event_mask(EventMask::KEY_PRESS | EventMask::BUTTON_PRESS | EventMask::EXPOSURE);
     conn.create_window(
         screen.root_depth,
         win,
@@ -63,7 +65,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         let mut redraw = false;
         while let Some(ev) = conn.poll_for_event()? {
             match ev {
-                Event::KeyPress(_) => {
+                Event::KeyPress(_) | Event::ButtonPress(_) => {
                     counter = counter.wrapping_add(1);
                     dirty_marker = true;
                 }

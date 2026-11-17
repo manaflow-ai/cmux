@@ -50,6 +50,10 @@ cmux-process = { path = "../cmux-process" }
 zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"], optional = true }
 pipewire = { version = "0.10", optional = true }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# `cmux-rd observe --input-cmd`: the input poster child, owned and ended with the run.
+cmux-process = { path = "../cmux-process" }
+
 [target.'cfg(windows)'.dependencies]
 # `cmux-rd windows-host` (src/windows_host.rs): the same device hub client as `linux-host`.
 cmux-hub-host = { path = "../cmux-hub-host" }

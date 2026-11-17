@@ -173,6 +173,50 @@ fn input(pid: i32, kind: &str, at: CGPoint) -> Res<u64> {
     Ok(sent)
 }
 
+/// `--input-cmd PATH`: a long-lived poster that holds the Accessibility grant this process lacks
+/// (a computer-use driver such as CuaDriver). observe starts it once with no arguments and, per
+/// sample, writes one line `key X Y` or `click X Y` (display points) to its stdin; the poster posts
+/// that input to the viewer and answers one line (`ok`, anything else fails the run). The sample is
+/// timed from just before the write (the upper bound) and from the answer (the lower bound), since
+/// the post happens somewhere between the two.
+struct Poster {
+    // Dropped while it runs, cmux_process::Child ends the poster's process group and reaps it.
+    child: cmux_process::Child,
+    stdin: std::process::ChildStdin,
+    stdout: std::io::BufReader<std::process::ChildStdout>,
+}
+
+impl Poster {
+    fn start(path: &str) -> Res<Self> {
+        use cmux_process::{Command, Stdio};
+        let mut child = Command::new(path)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .map_err(|e| format!("--input-cmd {path}: {e}"))?;
+        let stdin = child.stdin.take().ok_or("--input-cmd: no stdin")?;
+        let stdout = std::io::BufReader::new(child.stdout.take().ok_or("--input-cmd: no stdout")?);
+        Ok(Self { child, stdin, stdout })
+    }
+
+    /// Returns (before the write, after the answer), both in microseconds of `now_ns`.
+    fn post(&mut self, kind: &str, at: CGPoint) -> Res<(u64, u64)> {
+        use std::io::{BufRead, Write};
+        let line = format!("{kind} {:.1} {:.1}\n", at.x, at.y);
+        let before = now_ns() / 1000;
+        self.stdin.write_all(line.as_bytes())?;
+        self.stdin.flush()?;
+        let mut answer = String::new();
+        self.stdout.read_line(&mut answer)?;
+        let after = now_ns() / 1000;
+        if answer.trim() != "ok" {
+            return Err(format!("--input-cmd answered {:?} instead of ok", answer.trim()).into());
+        }
+        Ok((before, after))
+    }
+}
+
 fn counter(capture: &Capture, origin: (usize, usize), cell: usize) -> Option<(u16, u64)> {
     let (pixels, times) = capture.newest()?;
     let (shown, _) = times?;
@@ -466,9 +510,13 @@ pub fn run(opts: &Opts) -> Res<()> {
     }
     sys::load()?;
     window_api::available()?;
+    let mut poster = match opts.get("input-cmd") {
+        Some(path) => Some(Poster::start(path)?),
+        None => None,
+    };
     // SAFETY: preflight only; never prompt for or change permissions.
-    if !unsafe { window_api::CGPreflightPostEventAccess() } {
-        return Err("Accessibility input permission is missing".into());
+    if poster.is_none() && !unsafe { window_api::CGPreflightPostEventAccess() } {
+        return Err("Accessibility input permission is missing (or pass --input-cmd PATH, a poster that holds it)".into());
     }
     let display = opts.str_or("display", "main");
     let fps = super::capture::refresh_fps(&display);
@@ -500,6 +548,10 @@ pub fn run(opts: &Opts) -> Res<()> {
     let mut before = await_counter(&capture, origin, cell, 3000, |value, _| Ok(Some(value)))?;
     let mut rng = Rng::new(seed);
     let mut samples_us = Vec::with_capacity(samples);
+    // With --input-cmd: the same samples timed from the poster's answer (lower bound), and the
+    // write-to-answer gap (how wide the bracket is).
+    let mut acked_us = Vec::with_capacity(samples);
+    let mut gap_us = Vec::with_capacity(samples);
     for _ in 0..samples {
         // Deliberate stimulus jitter breaks refresh-phase locking. This is the
         // standalone bench thread, not an app/main-thread synchronization wait.
@@ -508,20 +560,45 @@ pub fn run(opts: &Opts) -> Res<()> {
         if counter(&capture, origin, cell).map(|x| x.0) != Some(before) {
             return Err("marker changed before input; the scene is not isolated".into());
         }
-        let sent = input(pid, &kind, CGPoint::new(click.0, click.1))?;
+        let (sent, acked) = match poster.as_mut() {
+            Some(poster) => poster.post(&kind, CGPoint::new(click.0, click.1))?,
+            None => {
+                let sent = input(pid, &kind, CGPoint::new(click.0, click.1))?;
+                (sent, sent)
+            }
+        };
         let latency = await_counter(&capture, origin, cell, timeout, |value, shown| {
             observe::response(before, sent, value, shown).map_err(Into::into)
         })?;
         guard_target(window, pid, &points)?;
         samples_us.push(latency);
+        // A frame can show before the answer arrives; the lower bound then floors at zero.
+        acked_us.push(latency.saturating_sub(acked - sent));
+        gap_us.push(acked - sent);
         before = before.wrapping_add(1);
     }
     let (p50, p95) = observe::percentiles(&samples_us).ok_or("no samples")?;
+    let external = poster.is_some().then(|| {
+        let (low50, low95) = observe::percentiles(&acked_us).unwrap_or((0.0, 0.0));
+        let (gap50, gap95) = observe::percentiles(&gap_us).unwrap_or((0.0, 0.0));
+        serde_json::json!({
+            "upper_bound": "p50_ms/p95_ms: from just before the line to the poster",
+            "lower_p50_ms": low50, "lower_p95_ms": low95,
+            "post_gap_p50_ms": gap50, "post_gap_p95_ms": gap95,
+            "lower_samples_us": acked_us,
+        })
+    });
+    drop(poster);
     println!(
         "{}",
         serde_json::json!({
             "schema": "cmux.presented-marker/1", "complete": true,
-            "method": "CGEventPostToPid to SCK viewer-display timestamp; excludes physical scanout",
+            "method": if external.is_some() {
+                "--input-cmd poster (its own Accessibility grant) to SCK viewer-display timestamp; excludes physical scanout"
+            } else {
+                "CGEventPostToPid to SCK viewer-display timestamp; excludes physical scanout"
+            },
+            "input_cmd": external,
             "pid": pid, "window": window, "input": kind, "n": samples,
             "p50_ms": p50, "p95_ms": p95, "samples_us": samples_us,
             "capture_pixels": [width, height], "capture_fps_requested": fps,
