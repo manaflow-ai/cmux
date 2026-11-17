@@ -323,9 +323,9 @@ fn floating_pane_frame_moves_and_raises() {
     wire.float(panes[1], "on");
     assert_eq!(wire.floating_panes(), vec![panes[0], panes[1]], "the last float is the front");
 
-    // A frame that reaches past the screen is moved into it; the pane comes to the front.
+    // A frame that reaches past the screen keeps its corner; the pane comes to the front.
     let data = wire.float_at(panes[0], [0.9, 0.9, 0.5, 0.5]);
-    assert_eq!(data["frame"], frame(0.5, 0.5, 0.5, 0.5), "{data}");
+    assert_eq!(data["frame"], frame(0.9, 0.9, 0.5, 0.5), "{data}");
     assert_eq!(wire.floating_panes(), vec![panes[1], panes[0]]);
 
     // A frame below the smallest size takes the smallest size.
@@ -334,6 +334,48 @@ fn floating_pane_frame_moves_and_raises() {
     assert_eq!(wire.floating_panes(), vec![panes[0], panes[1]]);
     assert_eq!(wire.floating()[1]["h"], 0.15);
     wire.assert_rules("after two frames");
+}
+
+/// A frame may leave the pane area (a floating pane beside the window): the answer and the list have the corner
+/// and the size of the request, and a restart keeps them.
+#[test]
+fn floating_pane_frame_outside_the_area_survives_a_restart() {
+    let (root, session) = seeded_store("wire-outside", |_| {});
+    let mut wire = Wire::on(open_restart_mux(&root, &session));
+    let free = wire.mux.with_state(|state| {
+        let screen = &state.workspaces[0].screens[0];
+        let panes = screen.root.pane_ids_vec();
+        panes.into_iter().filter(|pane| !screen.pane_never_floats(*pane)).collect::<Vec<_>>()
+    });
+    assert_eq!(free.len(), 2, "the fixture: 2 panes float");
+
+    let left = wire.float_at(free[0], [-0.25, -1.5, 0.5, 0.5]);
+    assert_eq!(left["frame"], frame(-0.25, -1.5, 0.5, 0.5), "{left}");
+    let right = wire.float_at(free[1], [1.25, 3.0, 2.5, 0.5]);
+    assert_eq!(right["frame"], frame(1.25, 3.0, 2.5, 0.5), "{right}");
+    let before = wire.floating_by_public_id();
+    assert_eq!((&before[0]["x"], &before[0]["y"]), (&json!(-0.25), &json!(-1.5)), "{before:?}");
+    assert_eq!((&before[1]["x"], &before[1]["w"]), (&json!(1.25), &json!(2.5)), "{before:?}");
+    wire.assert_rules("before the restart");
+    wire.mux.shutdown();
+    drop(wire);
+
+    let wire = Wire::on(open_restart_mux(&root, &session));
+    assert_eq!(wire.floating_by_public_id(), before, "a restart keeps a frame outside the area");
+    assert_eq!(wire.panes().len(), 4, "each pane is a pane of the screen after the restart");
+    wire.assert_rules("after the restart");
+    wire.mux.shutdown();
+    drop(wire);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn floating_pane_frame_outside_the_area_stops_at_the_ends() {
+    let (mut wire, panes) = Wire::with_panes(3);
+    let data = wire.float_at(panes[0], [-20.0, 40.0, 9.0, 0.01]);
+    assert_eq!(data["frame"], frame(-16.0, 16.0, 8.0, 0.15), "{data}");
+    assert_eq!(wire.floating()[0]["x"], -16.0);
+    wire.assert_rules("after a frame past the ends");
 }
 
 #[test]

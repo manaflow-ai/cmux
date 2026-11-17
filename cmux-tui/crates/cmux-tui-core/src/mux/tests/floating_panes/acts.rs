@@ -161,10 +161,10 @@ fn floating_pane_frame_moves_and_raises() {
     float(&mux, panes[1], FloatMode::On).unwrap();
     assert_eq!(floating(&mux), vec![panes[0], panes[1]], "the last float is the front pane");
 
-    // A frame that reaches past the screen is moved into it; the pane comes to the front.
+    // A frame that reaches past the screen keeps its corner; the pane comes to the front.
     let past = FloatFrame { x: 900_000, y: 900_000, w: 500_000, h: 500_000 };
     let outcome = float_at(&mux, panes[0], past, None).unwrap();
-    assert_eq!(outcome.frame, Some(FloatFrame { x: 500_000, y: 500_000, w: 500_000, h: 500_000 }));
+    assert_eq!(outcome.frame, Some(past));
     assert_eq!(floating(&mux), vec![panes[1], panes[0]]);
 
     // A frame below the smallest size takes the smallest size.
@@ -319,8 +319,8 @@ fn floating_pane_sequence_of_acts_keeps_the_rules() {
             }
             2 | 3 => {
                 // Twentieths of the pane area, in millionths.
-                let x = (next(21) * 50_000) as u32;
-                let y = (next(21) * 50_000) as u32;
+                let x = (next(21) * 50_000) as i32;
+                let y = (next(21) * 50_000) as i32;
                 let w = (next(21) * 50_000) as u32;
                 let h = (next(21) * 50_000) as u32;
                 let transaction = Some(next(3));

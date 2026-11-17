@@ -60,7 +60,9 @@ fn desired(screen: &RegistryScreen) -> Records {
             continue;
         }
         let frame = entry.frame;
-        records.push((pane, [frame.x, frame.y, frame.w, frame.h].map(i64::from)));
+        let [x, y] = [frame.x, frame.y].map(i64::from);
+        let [w, h] = [frame.w, frame.h].map(i64::from);
+        records.push((pane, [x, y, w, h]));
     }
     records
 }
@@ -122,7 +124,7 @@ pub(super) fn write(transaction: &Transaction<'_>, screen: &RegistryScreen) -> a
 /// Overlays the stored list of each of `screens`: one statement reads the
 /// records of these screens only, and none runs for an empty `screens`. A
 /// record with a value that is not valid (a value that is not an integer, a
-/// frame value that is not a `u32`, a pane id that is not a pane id) is
+/// corner value that is not an `i32`, a size value that is not a `u32`, a pane id that is not a pane id) is
 /// ignored with one log line. A record of a pane that is no longer a pane of
 /// the screen's layout is ignored too; the rules of the list then apply to
 /// what is left.
@@ -213,10 +215,12 @@ fn in_stack(node: &RegistryLayoutNode, pane: &PanePublicId) -> bool {
     }
 }
 
-/// The frame of four stored values; `None` when one is not a `u32`.
+/// The frame of four stored values; `None` when `x` or `y` is not an `i32`, or `w` or `h` is not a `u32`. The
+/// corner has a sign: a floating pane may be left of or above the pane area.
 fn stored_frame([x, y, w, h]: [i64; 4]) -> Option<FloatFrame> {
-    let value = |value: i64| u32::try_from(value).ok();
-    Some(FloatFrame { x: value(x)?, y: value(y)?, w: value(w)?, h: value(h)? })
+    let corner = |value: i64| i32::try_from(value).ok();
+    let size = |value: i64| u32::try_from(value).ok();
+    Some(FloatFrame { x: corner(x)?, y: corner(y)?, w: size(w)?, h: size(h)? })
 }
 
 /// Every pane of a stored layout, each once, in tree order.

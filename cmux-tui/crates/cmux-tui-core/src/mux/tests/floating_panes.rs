@@ -173,7 +173,7 @@ fn floating_pane_records_load_by_the_rules() {
         screen.floating = vec![
             // A pane that is not a pane of this screen: an older build closed it.
             Floating { pane: restore_pane_id(77), frame: FloatFrame::centered(600_000, 600_000) },
-            // A frame that reaches past the screen and is too small.
+            // A frame that reaches past the screen and is too small: it keeps its corner.
             Floating {
                 pane: low.clone(),
                 frame: FloatFrame { x: 950_000, y: 0, w: 10, h: 400_000 },
@@ -184,7 +184,7 @@ fn floating_pane_records_load_by_the_rules() {
         ];
     });
     let expected = vec![
-        Floating { pane: low, frame: FloatFrame { x: 850_000, y: 0, w: 150_000, h: 400_000 } },
+        Floating { pane: low, frame: FloatFrame { x: 950_000, y: 0, w: 150_000, h: 400_000 } },
         Floating {
             pane: right,
             frame: FloatFrame { x: 250_000, y: 250_000, w: 500_000, h: 500_000 },

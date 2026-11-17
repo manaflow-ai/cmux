@@ -90,6 +90,50 @@ fn floating_pane_record_with_a_wrong_value_is_dropped_and_the_load_goes_on() {
     }
 }
 
+/// The corner of a frame may be outside the pane area (a floating pane beside the window), so a record can have
+/// an `x` or a `y` below 0 or above the whole extent. The load keeps such a record with its corner, and a
+/// corner past the ends stops at the end.
+#[test]
+fn floating_pane_record_with_a_corner_outside_the_area_loads() {
+    let right = restore_pane_id(4);
+    let low = restore_pane_id(3);
+    let screen = restore_screen_id(1);
+    let good = vec![centered(right.clone())];
+    let cases = [
+        ("x = -250000, y = 1250000", [-0.25, 1.25, 0.3, 0.3]),
+        ("x = -20000000, y = 20000000", [-16.0, 16.0, 0.3, 0.3]),
+    ];
+    for (index, (stored, frame)) in cases.into_iter().enumerate() {
+        let (root, session) = store_with_a_wrong_value(&format!("outside-{index}"), stored, &good);
+        let list = WorkspaceRegistry::open(&root, &session)
+            .unwrap()
+            .resource_topology_snapshot()
+            .unwrap()
+            .screens
+            .into_iter()
+            .find(|loaded| loaded.public_id == screen)
+            .unwrap()
+            .floating;
+        let frames = list
+            .iter()
+            .map(|entry| (entry.pane.clone(), entry.frame.fractions()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            frames,
+            vec![(right.clone(), [0.25, 0.25, 0.5, 0.5]), (low.clone(), frame)],
+            "{stored}: the record stays, with its corner"
+        );
+
+        let mux = open_restart_mux(&root, &session);
+        let live = live_list(&mux);
+        assert_eq!(live.len(), 2, "{stored}: the pane floats after the restart");
+        assert_eq!(live[1].frame.fractions(), frame, "{stored}");
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
 /// A commit that states the screen with the list that the load gave takes the record that is not valid out of
 /// the table: while such a record is there, the stored list does not agree with the list of a commit. The same
 /// commit one more time writes no record of the screen, so the first write came from that record and from no

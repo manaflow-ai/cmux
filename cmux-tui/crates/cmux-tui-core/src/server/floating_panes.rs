@@ -3,8 +3,9 @@
 //!
 //! A floating pane stays a leaf of `Screen.layout`; `Screen.floating` names
 //! the leaves the tiled layout leaves out, back to front, each with its frame
-//! as four fractions of the screen's pane area. A client without the
-//! capability ignores the list and shows every pane tiled.
+//! as four fractions of the screen's pane area. A frame may leave the pane
+//! area: `x` and `y` are from -16 to 16, `w` and `h` from 0.15 to 8. A client
+//! without the capability ignores the list and shows every pane tiled.
 
 use cmux_layout_reducer::floating_panes::{FloatFrame, FloatMode, Floating};
 
