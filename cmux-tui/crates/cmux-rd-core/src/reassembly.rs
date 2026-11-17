@@ -264,7 +264,7 @@ impl Reassembler {
         // A frame over one FEC block needs enough shards in every block (design D6).
         let blocks = Self::blocks(p);
         blocks == 1
-            || p.shards[..count].iter().all(Option::is_some)
+            || p.shards.get(..count).is_some_and(|data| data.iter().all(Option::is_some))
             || fec::decodable_blocks(&p.shards, count, blocks)
     }
 

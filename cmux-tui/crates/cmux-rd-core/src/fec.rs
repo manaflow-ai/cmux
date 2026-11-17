@@ -166,9 +166,11 @@ pub fn encode_blocks(data: &[&[u8]], m: usize, blocks: usize) -> Result<Vec<Vec<
     let mut parity = vec![Vec::new(); m];
     for block in 0..blocks {
         let (d, p) = block_indexes(k, m, blocks, block);
-        let refs: Vec<&[u8]> = d.iter().map(|&i| data[i]).collect();
+        let refs: Vec<&[u8]> = d.iter().filter_map(|&i| data.get(i).copied()).collect();
         for (shard, &at) in encode(&refs, p.len())?.into_iter().zip(&p) {
-            parity[at - k] = shard;
+            if let Some(slot) = at.checked_sub(k).and_then(|j| parity.get_mut(j)) {
+                *slot = shard;
+            }
         }
     }
     Ok(parity)
@@ -180,7 +182,8 @@ pub fn decodable_blocks(shards: &[Option<Vec<u8>>], k: usize, blocks: usize) -> 
     let (m, blocks) = (shards.len().saturating_sub(k), blocks.max(1));
     (0..blocks).all(|block| {
         let (d, p) = block_indexes(k, m, blocks, block);
-        let present = d.iter().chain(&p).filter(|&&i| shards[i].is_some()).count();
+        let present =
+            d.iter().chain(&p).filter(|&&i| shards.get(i).is_some_and(Option::is_some)).count();
         present >= d.len()
     })
 }
@@ -199,17 +202,20 @@ pub fn reconstruct_blocks(
     if k == 0 || k > shards.len() || blocks > k {
         return Err(FecError::BlockSize);
     }
-    let m = shards.len() - k;
+    let m = shards.len().saturating_sub(k);
     for block in 0..blocks {
         let (d, p) = block_indexes(k, m, blocks, block);
-        if d.iter().all(|&i| shards[i].is_some()) {
+        if d.iter().all(|&i| shards.get(i).is_some_and(Option::is_some)) {
             continue;
         }
         let order: Vec<usize> = d.iter().chain(&p).copied().collect();
-        let mut sub: Vec<Option<Vec<u8>>> = order.iter().map(|&i| shards[i].take()).collect();
+        let mut sub: Vec<Option<Vec<u8>>> =
+            order.iter().map(|&i| shards.get_mut(i).and_then(Option::take)).collect();
         let result = reconstruct(&mut sub, d.len());
         for (&i, shard) in order.iter().zip(sub) {
-            shards[i] = shard;
+            if let Some(slot) = shards.get_mut(i) {
+                *slot = shard;
+            }
         }
         result?;
     }
