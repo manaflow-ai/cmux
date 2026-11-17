@@ -17,12 +17,9 @@ cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_age
 # caller PR yet. `--update` drops each line once its caller lands.
 cmux-tui/crates/cmux-app-ffi/include/cmux_launch_record.h	cmux_launch_record_front_window
 cmux-tui/crates/cmux-app-ffi/include/cmux_launch_record.h	cmux_launch_record_write
-# Held until the stage-0 launch window (launch-stage0-window lane) calls them: launch record v2 adds the
-# window list, layout check and shell plan reads ahead of that Swift caller.
-cmux-tui/crates/cmux-app-ffi/include/cmux_launch_record.h	cmux_launch_record_layout_matches
+# Held until the stage-0 launch window (launch-stage0-window lane) calls it: launch record v2 adds the
+# window list read ahead of that Swift caller.
 cmux-tui/crates/cmux-app-ffi/include/cmux_launch_record.h	cmux_launch_record_windows
-cmux-tui/crates/cmux-app-ffi/include/cmux_launch_record.h	cmux_launch_record_windows_now
-cmux-tui/crates/cmux-app-ffi/include/cmux_launch_record.h	cmux_launch_shell_plan
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_hover_card_machine_init
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_hover_card_reduce
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_hover_card_room

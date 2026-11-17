@@ -1,23 +1,25 @@
 //! Bounded launch record consumed by the cmux shell before the app core.
 //! The reader owns only the bounded file buffer; fields are views into it.
+//!
+//! Reading, for a dependent crate: `LaunchRecord::read(path)` validates the
+//! whole file, `LaunchRecord::version()` is its format version, and
+//! `LaunchRecord::windows()` yields a `WindowView` per window, front first.
+//! tests/public_api.rs pins that surface.
 use std::ffi::{CStr, c_char};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub mod shell;
-pub use shell::{CmuxLaunchShellDisplay, CmuxLaunchShellNow, CmuxLaunchShellPlan};
-
 /// Version 2 adds scale, appearance, full screen and the display frame, and
 /// replaces the image path with an image key. Version 1 records still read.
 pub const FORMAT_VERSION: u16 = 2;
+/// A record file larger than this is rejected unread; the writer never exceeds it.
 pub const MAX_BYTES: usize = 64 * 1024;
 const MAGIC: &[u8; 8] = b"CMUXLR01";
 /// Smallest encoded v2 window: empty strings, no tabs. Bounds FFI counts.
 const WINDOW_MIN_BYTES: usize = 103;
-/// More displays than any Mac drives; a larger count is a caller bug.
-const MAX_DISPLAYS: usize = 1024;
+
 /// Startup work is explicitly classified so a new task cannot accidentally
 /// move ahead of the first committed frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +49,7 @@ pub fn stage_zero_task_is_allowed(task: LaunchTask) -> bool {
     task.stage != LaunchStage::Shell || STAGE_ZERO_ALLOWLIST.contains(&task.name)
 }
 
+/// A rectangle in AppKit global points: origin `x`, `y`, size `width`, `height`.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Frame {
     pub x: f64,
@@ -171,32 +174,44 @@ impl LaunchRecord {
     pub fn windows(&self) -> WindowIter<'_> {
         WindowIter { record: self, index: 0, pos: self.windows_start }
     }
+    /// Sidebar rows in written order.
     pub fn sidebar_rows(&self) -> SidebarIter<'_> {
         SidebarIter { record: self, index: 0, pos: self.sidebar_start }
     }
     pub fn session_socket_path(&self) -> &str {
         span_str(&self.bytes, self.socket).unwrap_or("")
     }
+    /// The first window, `windows().next()`.
     pub fn front_window(&self) -> Option<WindowView<'_>> {
         self.windows().next()
     }
 }
-/// A v1 window reads with an empty image key, scale 0 (unknown), light,
-/// not following the system, not full screen and a zero screen frame.
+/// One saved window, borrowed from the record's buffer.
+///
+/// A v1 window reads with `backing_scale` 0.0 (unknown), an empty
+/// `image_key`, `appearance` 0, `appearance_follows_system` 0, `fullscreen` 0
+/// and a zero `screen_frame`; its image pixel size is what v1 stored.
 pub struct WindowView<'a> {
     bytes: &'a [u8],
     pub id: &'a str,
+    /// The window's frame when written.
     pub frame: Frame,
     pub display_id: u32,
     pub background_rgba: [u8; 4],
     pub bar_rgba: [u8; 4],
+    /// `<build>/<window_id>/<generation>`; empty for v1.
     pub image_key: &'a str,
     pub image_pixel_width: u32,
     pub image_pixel_height: u32,
+    /// The display's backing scale when written; 0.0 for v1.
     pub backing_scale: f64,
+    /// 0 light, 1 dark.
     pub appearance: u8,
+    /// Nonzero when the theme follows the system appearance.
     pub appearance_follows_system: u8,
+    /// Nonzero when the window was full screen.
     pub fullscreen: u8,
+    /// The frame of the window's display when written.
     pub screen_frame: Frame,
     pub visible_workspace_id: &'a str,
     tabs_start: usize,
@@ -264,25 +279,7 @@ impl<'a> Iterator for TabIter<'a> {
     }
 }
 
-/// A display as the app sees it now, for `layout_matches`.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Display {
-    pub display_id: u32,
-    pub frame: Frame,
-    pub backing_scale: f64,
-}
-/// True iff every saved window's display is present with the same frame and scale.
-pub fn layout_matches(record: &LaunchRecord, now: &[Display]) -> bool {
-    record.windows().all(|w| {
-        now.iter().any(|d| {
-            d.display_id == w.display_id
-                && d.frame == w.screen_frame
-                && d.backing_scale == w.backing_scale
-        })
-    })
-}
-
-pub(crate) fn frame_is_usable(f: Frame) -> bool {
+fn frame_is_usable(f: Frame) -> bool {
     [f.x, f.y, f.width, f.height].iter().all(|n| n.is_finite()) && f.width > 0.0 && f.height > 0.0
 }
 
@@ -531,9 +528,6 @@ pub struct CmuxLaunchWindow {
     pub appearance: u8,
     pub appearance_follows_system: u8,
     pub fullscreen: u8,
-    /// 1 when the window's saved image may be drawn now (`shell::image_for`);
-    /// set only by `cmux_launch_record_windows_now`, else 0.
-    pub image_ok: u8,
 }
 
 /// v2 fields follow the v1 fields so their offsets are unchanged.
@@ -570,18 +564,7 @@ pub struct CmuxLaunchSidebarInput {
     pub icon_key: *const c_char,
 }
 
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-pub struct CmuxLaunchDisplay {
-    pub display_id: u32,
-    pub frame_x: f64,
-    pub frame_y: f64,
-    pub frame_width: f64,
-    pub frame_height: f64,
-    pub backing_scale: f64,
-}
-
-pub(crate) unsafe fn c_string<'a>(p: *const c_char) -> Option<&'a str> {
+unsafe fn c_string<'a>(p: *const c_char) -> Option<&'a str> {
     if p.is_null() {
         return None;
     }
@@ -735,26 +718,6 @@ fn fill_window(w: &WindowView<'_>, o: &mut CmuxLaunchWindow) -> bool {
 unsafe fn read_at(path: *const c_char) -> Option<LaunchRecord> {
     LaunchRecord::read(unsafe { c_string(path)? })
 }
-unsafe fn displays_from(p: *const CmuxLaunchDisplay, n: usize) -> Option<Vec<Display>> {
-    if n > MAX_DISPLAYS || (n != 0 && p.is_null()) {
-        return None;
-    }
-    let raw = if n == 0 { &[][..] } else { unsafe { std::slice::from_raw_parts(p, n) } };
-    Some(
-        raw.iter()
-            .map(|d| Display {
-                display_id: d.display_id,
-                frame: Frame {
-                    x: d.frame_x,
-                    y: d.frame_y,
-                    width: d.frame_width,
-                    height: d.frame_height,
-                },
-                backing_scale: d.backing_scale,
-            })
-            .collect(),
-    )
-}
 /// Returns false with a zeroed output when the record is unusable.
 ///
 /// # Safety
@@ -778,39 +741,9 @@ pub unsafe extern "C" fn cmux_launch_record_front_window(
     }
     true
 }
-/// Fills up to `cap` entries of `out` from `record`, front first; `image_ok`
-/// sets each entry's flag. Returns the window count, or 0 (entries it wrote
-/// zeroed) when a window does not fit `CmuxLaunchWindow`.
-fn windows_into(
-    record: &LaunchRecord,
-    out: &mut [CmuxLaunchWindow],
-    image_ok: impl Fn(&WindowView<'_>) -> bool,
-) -> usize {
-    for (i, w) in record.windows().enumerate() {
-        let mut one = CmuxLaunchWindow::default();
-        if !fill_window(&w, &mut one) {
-            out.fill(CmuxLaunchWindow::default());
-            return 0;
-        }
-        one.image_ok = image_ok(&w) as u8;
-        if let Some(slot) = out.get_mut(i) {
-            *slot = one;
-        }
-    }
-    record.window_count()
-}
-/// The first `min(count, cap)` entries of `out`; empty when `cap` is 0.
-unsafe fn out_slice<'a>(
-    record: &LaunchRecord,
-    out: *mut CmuxLaunchWindow,
-    cap: usize,
-) -> &'a mut [CmuxLaunchWindow] {
-    let filled = cap.min(record.window_count());
-    if filled == 0 { &mut [] } else { unsafe { std::slice::from_raw_parts_mut(out, filled) } }
-}
 /// Returns the record's window count and fills the first `min(count, cap)`
-/// entries, front window first, with `image_ok` 0. Returns 0 when the record
-/// or any window is unusable, with the entries it wrote zeroed.
+/// entries, front window first. Returns 0 when the record or any window is
+/// unusable, with the entries it wrote zeroed.
 ///
 /// # Safety
 /// `out` must be writable for `cap` entries unless `cap` is 0. `path`, if
@@ -825,60 +758,24 @@ pub unsafe extern "C" fn cmux_launch_record_windows(
         return 0;
     }
     let Some(record) = (unsafe { read_at(path) }) else { return 0 };
-    windows_into(&record, unsafe { out_slice(&record, out, cap) }, |_| false)
-}
-/// `cmux_launch_record_windows`, with each entry's `image_ok` set when that
-/// window's saved image in `image_dir` may be drawn `now`. `now->support_dir`
-/// is not read. Returns 0 for a null `now` or a non-UTF-8 string.
-///
-/// # Safety
-/// As `cmux_launch_record_windows`; `image_dir` and `now->build` are null or
-/// NUL-terminated, and `now->displays` readable for `now->display_count`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn cmux_launch_record_windows_now(
-    path: *const c_char,
-    image_dir: *const c_char,
-    now: *const CmuxLaunchShellNow,
-    out: *mut CmuxLaunchWindow,
-    cap: usize,
-) -> usize {
-    if (cap != 0 && out.is_null()) || now.is_null() {
-        return 0;
+    let count = record.window_count();
+    let filled = cap.min(count);
+    let out = if filled == 0 {
+        &mut [][..]
+    } else {
+        unsafe { std::slice::from_raw_parts_mut(out, filled) }
+    };
+    for (i, w) in record.windows().enumerate() {
+        let mut one = CmuxLaunchWindow::default();
+        if !fill_window(&w, &mut one) {
+            out.fill(CmuxLaunchWindow::default());
+            return 0;
+        }
+        if let Some(slot) = out.get_mut(i) {
+            *slot = one;
+        }
     }
-    let now = unsafe { &*now };
-    let (Some(image_dir), Some(build)) =
-        (unsafe { c_string(image_dir) }, unsafe { c_string(now.build) })
-    else {
-        return 0;
-    };
-    let displays = unsafe { shell::displays_from_c(now.displays, now.display_count) };
-    let now = shell::Now {
-        build,
-        appearance: shell::Appearance::from_u8(now.appearance),
-        displays: &displays,
-        support_dir: None,
-    };
-    let Some(record) = (unsafe { read_at(path) }) else { return 0 };
-    let image_dir = Path::new(image_dir);
-    windows_into(&record, unsafe { out_slice(&record, out, cap) }, |w| {
-        shell::image_for(&shell::SavedWindow::from_view(w), image_dir, &now).is_ok()
-    })
-}
-/// True iff every saved window's display is in `now` with the same frame and scale.
-/// False for a missing or unreadable record.
-///
-/// # Safety
-/// `now` must be readable for `n` entries unless `n` is 0. `path`, if
-/// non-null, must point to a readable NUL-terminated string for the call.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn cmux_launch_record_layout_matches(
-    path: *const c_char,
-    now: *const CmuxLaunchDisplay,
-    n: usize,
-) -> bool {
-    let Some(displays) = (unsafe { displays_from(now, n) }) else { return false };
-    let Some(record) = (unsafe { read_at(path) }) else { return false };
-    layout_matches(&record, &displays)
+    count
 }
 #[cfg(test)]
 mod tests {
@@ -944,12 +841,6 @@ mod tests {
         }
         put_string(&mut o, &r.session_socket_path).unwrap();
         o
-    }
-    fn displays() -> Vec<Display> {
-        vec![
-            Display { display_id: 3, frame: Frame { x: 1512., ..SCREEN }, backing_scale: 1.0 },
-            Display { display_id: 7, frame: SCREEN, backing_scale: 2.0 },
-        ]
     }
     #[test]
     fn round_trip() {
@@ -1077,28 +968,6 @@ mod tests {
         assert_eq!((w.appearance, w.appearance_follows_system, w.fullscreen), (0, 0, 0));
         assert_eq!(r.sidebar_rows().next().unwrap().title, "Side");
         assert_eq!(r.session_socket_path(), "/tmp/sock");
-        assert!(!layout_matches(&r, &displays()));
-    }
-    #[test]
-    fn layout_matches_every_window() {
-        let mut data = sample();
-        let mut second = window("second");
-        second.display_id = 3;
-        second.screen_frame = Frame { x: 1512., ..SCREEN };
-        second.backing_scale = 1.0;
-        data.windows.push(second);
-        let record = LaunchRecord::from_bytes(encode(&data).unwrap()).unwrap();
-        assert!(layout_matches(&record, &displays()));
-        let mut d = displays();
-        d[0].backing_scale = 2.0;
-        assert!(!layout_matches(&record, &d));
-        let mut d = displays();
-        d[1].frame.width = 1000.;
-        assert!(!layout_matches(&record, &d));
-        assert!(!layout_matches(&record, &displays()[1..]));
-        data.windows.clear();
-        let empty = LaunchRecord::from_bytes(encode(&data).unwrap()).unwrap();
-        assert!(layout_matches(&empty, &[]));
     }
     #[test]
     fn ffi_windows_front_first_and_bounded_by_cap() {
@@ -1134,33 +1003,6 @@ mod tests {
         write_atomic(dir.record(), &data).unwrap();
         assert_eq!(unsafe { cmux_launch_record_windows(path.as_ptr(), out.as_mut_ptr(), 4) }, 0);
         assert_eq!(ids(&out[..3]), ["", "", ""]);
-    }
-    #[test]
-    fn ffi_layout_matches() {
-        let dir = TestDir::new();
-        let record = std::ffi::CString::new(dir.record().to_str().unwrap()).unwrap();
-        let d = displays()
-            .iter()
-            .map(|d| CmuxLaunchDisplay {
-                display_id: d.display_id,
-                frame_x: d.frame.x,
-                frame_y: d.frame.y,
-                frame_width: d.frame.width,
-                frame_height: d.frame.height,
-                backing_scale: d.backing_scale,
-            })
-            .collect::<Vec<_>>();
-        let matches =
-            |n| unsafe { cmux_launch_record_layout_matches(record.as_ptr(), d.as_ptr(), n) };
-        assert!(!matches(d.len()));
-        write_atomic(dir.record(), &sample()).unwrap();
-        assert!(matches(d.len()));
-        assert!(!matches(1));
-        let null = std::ptr::null();
-        assert!(!unsafe { cmux_launch_record_layout_matches(record.as_ptr(), null, 2) });
-        assert!(!unsafe { cmux_launch_record_layout_matches(null.cast(), d.as_ptr(), 2) });
-        fs::write(dir.record(), b"garbage").unwrap();
-        assert!(!matches(d.len()));
     }
 
     struct TestDir(std::path::PathBuf);
@@ -1287,7 +1129,6 @@ mod tests {
             }
             .is_none()
         );
-        assert!(unsafe { displays_from(std::ptr::null(), usize::MAX) }.is_none());
     }
 
     #[test]

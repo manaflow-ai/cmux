@@ -1,7 +1,4 @@
-use cmux_launch_record::{
-    CmuxLaunchDisplay, CmuxLaunchShellDisplay, CmuxLaunchShellNow, CmuxLaunchShellPlan,
-    CmuxLaunchSidebarInput, CmuxLaunchWindow, CmuxLaunchWindowInput,
-};
+use cmux_launch_record::{CmuxLaunchSidebarInput, CmuxLaunchWindow, CmuxLaunchWindowInput};
 use std::{
     mem::{align_of, offset_of, size_of},
     path::Path,
@@ -42,8 +39,7 @@ fn launch_record_c_layout_and_exports_match_rust() {
         screen_frame_height,
         appearance,
         appearance_follows_system,
-        fullscreen,
-        image_ok
+        fullscreen
     );
     check!(
         CmuxLaunchWindowInput,
@@ -71,32 +67,6 @@ fn launch_record_c_layout_and_exports_match_rust() {
         fullscreen
     );
     check!(CmuxLaunchSidebarInput, id, title, icon_key);
-    check!(
-        CmuxLaunchDisplay,
-        display_id,
-        frame_x,
-        frame_y,
-        frame_width,
-        frame_height,
-        backing_scale
-    );
-    check!(CmuxLaunchShellDisplay, x, y, width, height, scale);
-    check!(CmuxLaunchShellNow, build, appearance, displays, display_count, support_dir);
-    check!(
-        CmuxLaunchShellPlan,
-        frame_x,
-        frame_y,
-        frame_width,
-        frame_height,
-        background_rgba,
-        bar_rgba,
-        appearance,
-        reason,
-        shows_window,
-        uses_default_frame,
-        window_id,
-        image_path
-    );
     std::fs::write(&source, c).unwrap();
     let output = Command::new("cc")
         .arg("-std=c11")
@@ -125,9 +95,6 @@ fn launch_record_c_layout_and_exports_match_rust() {
         "_cmux_launch_record_front_window",
         "_cmux_launch_record_write",
         "_cmux_launch_record_windows",
-        "_cmux_launch_record_windows_now",
-        "_cmux_launch_record_layout_matches",
-        "_cmux_launch_shell_plan",
     ] {
         assert!(exports.lines().any(|line| line == name), "missing packaged symbol {name}");
     }
