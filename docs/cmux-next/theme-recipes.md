@@ -29,7 +29,7 @@ Each one is in the Theme File list by name. Your own file with the same name win
 | `phosphor` | A green-screen terminal | `appearance.theme: "Green Phosphor CRT"`, `appearance.chromeStyle: "bare"`, `appearance.borders: "none"`, `appearance.statusIndicator.style: "braille"` |
 | `claude-desktop` | Warm paper and clay | `appearance.theme: "Claude Light"`, a clay `colors.accent`, a beige `appearance.surfaces.sidebar.color` |
 | `charcoal` | A quiet dark chat app | a charcoal `colors.background`, a near-black sidebar, `appearance.accent: "neutral"` |
-| `minimal-sessions` | Only the sidebar: one line per session, its status first, then its name; your colors stay | `sidebar.workspaceRow.statusPlacement: "leading"`, `appearance.statusIndicator.iconSet`, `sidebar.detailedStatusIcons`, every `sidebar.workspaceRow.*` element off, `sidebar.showColors: false` |
+| `minimal-sessions` | Only the sidebar: one line per session, its status first, then its name; your colors stay | `sidebar.workspaceRow.statusPlacement: "leading"`, `appearance.statusIndicator.iconSet`, `sidebar.detailedStatusIcons`, every `sidebar.workspaceRow.*` element off but `working` and `progress` (the spinners), `sidebar.showColors: false` |
 
 ## What a theme file can and can't change
 

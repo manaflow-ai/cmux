@@ -16,15 +16,16 @@
   "sidebar.groupHeader.memberCount": false,
   "sidebar.groupHeader.unreadCount": false,
 
-  // The status leads the row, with a separate mark for working, blocked, done and error.
+  // The status leads the row, with a separate mark for working, blocked, done and error. A running program
+  // spins as an agent does (`progress` is also the busy mark of running work; a known progress draws a thin bar).
   "sidebar.workspaceRow.statusPlacement": "leading",
   "sidebar.detailedStatusIcons": true,
   "appearance.statusIndicator.iconSet": "symbols",
+  "sidebar.workspaceRow.working": true,
+  "sidebar.workspaceRow.progress": true,
 
   // Only the name follows it: no icon, second line, counts, times or colors.
   "sidebar.workspaceRow.icon": false,
-  "sidebar.workspaceRow.working": true,
-  "sidebar.workspaceRow.progress": false,
   "sidebar.workspaceRow.notification": false,
   "sidebar.workspaceRow.directory": false,
   "sidebar.workspaceRow.branch": false,

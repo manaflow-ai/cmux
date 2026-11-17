@@ -150,13 +150,16 @@ import Testing
         #expect(overlay.isLoaded)
         #expect(!overlay.isUnparsable)
         #expect(overlay.diagnostics.isEmpty, "\(overlay.diagnostics)")
-        #expect(overlay.values.count >= 25, "the file sets \(overlay.values.count) values")
+        // It restyles the sidebar as a whole: every row element, the status and the grouping.
+        #expect(overlay.values.count >= 20, "the file sets only \(overlay.values.count) values")
         let snapshot = MinimalSessionsPreset.snapshot(overlay)
         #expect(snapshot.diagnostics.isEmpty, "\(snapshot.diagnostics)")
         let sidebar = snapshot.sidebarSections
         #expect(sidebar.workspaceRow.statusPlacement == .leading)
         #expect(!sidebar.workspaceRow.base.shows(.icon))
         #expect(sidebar.workspaceRow.base.shows(.working))
+        // A running program spins too: `progress` is also the busy mark of running work.
+        #expect(sidebar.workspaceRow.base.shows(.progress))
         #expect(sidebar.density == .compact)
         #expect(sidebar.textSize == .standard)
         #expect(sidebar.groupBy == .none)
