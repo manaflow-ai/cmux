@@ -8,9 +8,9 @@
 //! Only the hub knows that; `run` exits with `EXIT_NEEDS_SETUP` when it hears it.
 
 use super::consent::LocalConsent;
-use super::identity::{self, Account, Device};
 use crate::capture::Readback;
 use crate::capture_backend::{x_display, CaptureBackend};
+use cmux_hub_host::identity::{self, Account, Device};
 use serde_json::{json, Value};
 
 pub const SCHEMA: &str = "cmux.screen-share.status/1";
