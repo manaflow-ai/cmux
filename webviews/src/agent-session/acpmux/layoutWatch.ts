@@ -10,8 +10,52 @@ import { chatSnapshotReport } from "./chatSnapshot/live";
 
 export type LayoutWatchOptions = { ms?: number; tolerance?: number };
 
+/** An intended move: its owner names it before it runs (transcript motion model rule 4). `rows` are the
+ *  elements that move, each with what it holds; `ms` is how long the move runs from now. */
+export type ExpectedMove = { rows: readonly Element[]; ms: number };
+
+type Expectation = { reason: string; rows: readonly Element[]; from: number; until: number };
+
+/** The moves declared in the last few seconds, newest last; a watch reads them for its frames. */
+const expectations: Expectation[] = [];
+/** How long a declared move is kept past its end: a watch started after it still reads it. */
+const KEEP_MS = 10_000;
+/** A frame read at most this late after the move's end still belongs to it (its settle frame). */
+const SETTLE_MS = 50;
+
+/** Declares a move the caller owns and is about to run: what moves in `rows` until `ms` from now is
+ *  reported as expected (with its reason), not as a shift. Cheap: no read, one small list. */
+function expectMove(reason: string, { rows, ms }: ExpectedMove): void {
+  const now = performance.now();
+  // From the start of the frame it is declared in (the document timeline's time is that frame's): a
+  // move its owner starts in the frame's callbacks may already be laid out by an earlier callback.
+  const timeline = typeof document === "undefined" ? null : document.timeline?.currentTime;
+  const from = typeof timeline === "number" && timeline <= now ? timeline : now;
+  while (expectations.length > 0 && expectations[0]!.until + KEEP_MS < now) expectations.shift();
+  if (expectations.length >= 64) expectations.shift();
+  expectations.push({ reason, rows: [...rows], from, until: now + Math.max(0, ms) + SETTLE_MS });
+}
+
+/** The declared move that covers `node` moving at `at` (performance.now), if any. */
+function expectedFor(node: Element | undefined, at: number): string | undefined {
+  for (let index = expectations.length - 1; index >= 0; index -= 1) {
+    const move = expectations[index]!;
+    if (at < move.from || at > move.until) continue;
+    if (!node || move.rows.some((row) => row === node || row.contains(node) || node.contains(row))) return move.reason;
+  }
+  return undefined;
+}
+
 type Box = { x: number; y: number; w: number; h: number };
-type Frame = { at: number; boxes: Map<string, Box>; scrollTop: number; empty: boolean };
+type Frame = {
+  at: number;
+  /** performance.now() of the read. */
+  now: number;
+  boxes: Map<string, Box>;
+  nodes: Map<string, Element>;
+  scrollTop: number;
+  empty: boolean;
+};
 
 const ROWS = ".cv-message, .cv-worked, .cv-tool, .cv-turn-actions";
 const MAX_ROWS = 40;
@@ -46,9 +90,12 @@ function scroller(): Element | undefined {
 
 function read(start: number): Frame {
   const boxes = new Map<string, Box>();
+  const nodes = new Map<string, Element>();
   const add = (name: string, node: Element | null | undefined) => {
     const box = node && boxOf(node);
-    if (box) boxes.set(name, box);
+    if (!box) return;
+    boxes.set(name, box);
+    nodes.set(name, node);
   };
   add("composer", document.querySelector(".acpmux-composer"));
   for (const chip of document.querySelectorAll<HTMLElement>("button[data-menu]"))
@@ -57,9 +104,12 @@ function read(start: number): Frame {
   const rows = [...document.querySelectorAll(ROWS)];
   // The newest rows are the ones on screen when a chat opens at its latest message.
   for (const row of rows.slice(-MAX_ROWS)) add(nameOf(row, "row"), row);
+  const now = performance.now();
   return {
-    at: performance.now() - start,
+    at: now - start,
+    now,
     boxes,
+    nodes,
     scrollTop: Math.round(scroller()?.scrollTop ?? 0),
     empty: emptyChat(),
   };
@@ -69,7 +119,7 @@ const shown = (frame: Frame) =>
   frame.boxes.has("composer") && ([...frame.boxes.keys()].some((name) => name.startsWith("row#")) || frame.empty);
 const emptyChat = () => document.querySelectorAll(ROWS).length === 0 && document.body.innerText.trim().length > 0;
 
-export async function layoutWatch(options: LayoutWatchOptions = {}): Promise<Record<string, unknown>> {
+async function watch(options: LayoutWatchOptions = {}): Promise<Record<string, unknown>> {
   const ms = Math.max(100, Math.min(options.ms ?? 1500, 10_000));
   const tolerance = options.tolerance ?? 1;
   const start = performance.now();
@@ -97,10 +147,15 @@ export async function layoutWatch(options: LayoutWatchOptions = {}): Promise<Rec
   const shifts: Record<string, unknown>[] = [];
   const appeared: Record<string, unknown>[] = [];
   const seen = new Set(base.boxes.keys());
+  // Where each element rests: its first paint, then where a declared move left it.
+  const resting = new Map(base.boxes);
   const moved = new Set<string>();
+  // Moves their owner declared (`layoutWatch.expect`): reported with the reason, never as a shift.
+  const expected: Record<string, unknown>[] = [];
+  const expectedSeen = new Set<string>();
   for (const frame of frames.slice(first + 1)) {
     for (const [name, box] of frame.boxes) {
-      const was = base.boxes.get(name);
+      const was = resting.get(name);
       if (!was) {
         if (!seen.has(name)) {
           seen.add(name);
@@ -115,6 +170,15 @@ export async function layoutWatch(options: LayoutWatchOptions = {}): Promise<Rec
         Math.abs(box.h - was.h),
       );
       if (delta > tolerance && !moved.has(name)) {
+        const reason = expectedFor(frame.nodes.get(name), frame.now);
+        if (reason) {
+          resting.set(name, box);
+          if (!expectedSeen.has(`${name} ${reason}`)) {
+            expectedSeen.add(`${name} ${reason}`);
+            expected.push({ element: name, reason, at_ms: Math.round(frame.at) });
+          }
+          continue;
+        }
         moved.add(name);
         shifts.push({ element: name, at_ms: Math.round(frame.at), from: was, to: box });
       }
@@ -123,6 +187,11 @@ export async function layoutWatch(options: LayoutWatchOptions = {}): Promise<Rec
   const scrollJumps = frames
     .slice(first + 1)
     .filter((frame, index, list) => Math.abs(frame.scrollTop - (index ? list[index - 1]! : base).scrollTop) > tolerance)
+    // A declared move's own scroll (the rows it moves are the scroller's content) is no jump.
+    .filter((frame) => {
+      const view = scroller();
+      return !view || !expectedFor(view, frame.now);
+    })
     .map((frame) => ({ at_ms: Math.round(frame.at), scroll_top: frame.scrollTop }));
   return {
     frames: frames.length,
@@ -136,10 +205,17 @@ export async function layoutWatch(options: LayoutWatchOptions = {}): Promise<Rec
     // the page's own clock (ms since the document began), or why none drew, and the page's writes.
     snapshot: chatSnapshotReport(),
     shifts,
+    expected,
     appeared,
     scroll_jumps: scrollJumps,
   };
 }
+
+/** What moved on the page after it first showed its content, watched for `ms`; `expect` declares an
+ *  intended move (its owner calls it as the move starts), which the watch reports apart. */
+export const layoutWatch: ((options?: LayoutWatchOptions) => Promise<Record<string, unknown>>) & {
+  expect: typeof expectMove;
+} = Object.assign(watch, { expect: expectMove });
 
 /// The composer's chips as drawn: each shown `data-menu` button's visible label (a copy laid out
 /// off screen to measure the row has no box and is skipped), and the access chip as `Mode`.

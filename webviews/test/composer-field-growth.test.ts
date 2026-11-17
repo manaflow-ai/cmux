@@ -7,8 +7,12 @@ import { FIELD_GROWTH_EVENT, type FieldGrowthEvent } from "../src/agent-session/
 import { teardownDom } from "./support/domTeardown";
 
 const observers = new Set<() => void>();
-/** The frame after an edit: its layout made, its observers deliver. */
+let callbacks: FrameRequestCallback[] = [];
+/** The frame after an edit: its animation callbacks run, then its layout is made and its observers deliver. */
 const frame = () => {
+  const due = callbacks;
+  callbacks = [];
+  for (const callback of due) callback(0);
   for (const callback of observers) callback();
 };
 
@@ -31,7 +35,8 @@ test("one line grows and shrinks in CSS pixels at every composer zoom", async ()
       observe() {}
       disconnect() {}
     },
-    requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0),
+    requestAnimationFrame: (callback: FrameRequestCallback) => callbacks.push(callback),
+    cancelAnimationFrame: () => {},
   };
   const saved = Object.keys(globals).map((key) => [key, key in scope, scope[key]] as const);
   Object.assign(scope, globals);
