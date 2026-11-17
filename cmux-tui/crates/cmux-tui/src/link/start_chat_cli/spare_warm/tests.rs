@@ -221,38 +221,36 @@ fn no_spare_is_no_copy_and_a_refusal_keeps_its_code() {
 
 #[test]
 fn errors_are_attempts_the_gap_throttles() {
-    for answer in
-        [Err(PlatformCallError::Status { status: 503, code: "owner.unreachable", facts: None })]
-    {
-        let dir = tempfile::tempdir().unwrap();
-        let calls = Cell::new(0_usize);
-        let transport = |_: &Request, _: &str, _: &str| {
-            calls.set(calls.get().saturating_add(1));
-            answer.clone()
-        };
-        let warm = |now| {
-            run(
-                &flags(r#"{"account":"user_a"}"#),
-                dir.path(),
-                now,
-                &mut stdin(Some(TEAM)).as_bytes(),
-                &transport,
-            )
-            .unwrap()
-        };
-        let first = warm(1_000_000);
-        assert!(first.get("copy").is_none());
-        // Every activation within the gap replays the attempt: no platform call.
-        for now in [1_010_000, 1_060_000, 1_110_000] {
-            let again = warm(now);
-            assert_eq!(again["throttled"], json!(true));
-            assert_eq!((again["ok"].clone(), again.get("copy")), (first["ok"].clone(), None));
-        }
-        assert_eq!(calls.get(), 1);
-        // Past the gap the platform is asked again.
-        assert!(warm(1_130_000).get("throttled").is_none());
-        assert_eq!(calls.get(), 2);
+    let answer: Result<Value, PlatformCallError> =
+        Err(PlatformCallError::Status { status: 503, code: "owner.unreachable", facts: None });
+    let dir = tempfile::tempdir().unwrap();
+    let calls = Cell::new(0_usize);
+    let transport = |_: &Request, _: &str, _: &str| {
+        calls.set(calls.get().saturating_add(1));
+        answer.clone()
+    };
+    let warm = |now| {
+        run(
+            &flags(r#"{"account":"user_a"}"#),
+            dir.path(),
+            now,
+            &mut stdin(Some(TEAM)).as_bytes(),
+            &transport,
+        )
+        .unwrap()
+    };
+    let first = warm(1_000_000);
+    assert!(first.get("copy").is_none());
+    // Every activation within the gap replays the attempt: no platform call.
+    for now in [1_010_000, 1_060_000, 1_110_000] {
+        let again = warm(now);
+        assert_eq!(again["throttled"], json!(true));
+        assert_eq!((again["ok"].clone(), again.get("copy")), (first["ok"].clone(), None));
     }
+    assert_eq!(calls.get(), 1);
+    // Past the gap the platform is asked again.
+    assert!(warm(1_130_000).get("throttled").is_none());
+    assert_eq!(calls.get(), 2);
 }
 
 #[test]
@@ -842,6 +840,8 @@ fn a_scope_whose_install_token_names_another_team_mints_no_receipt() {
     );
 }
 
+const _: () = assert!(NONE_GAP_MS < WARM_GAP_MS && NONE_GAP_MS <= 15_000);
+
 /// Burst 43951741299: a warm that found no spare replayed that answer for the whole 120 s gap, so a
 /// 290 s wait asked the platform about three times while the claim, asking fresh, took a ready spare
 /// in 7 of 9 claims. A "no spare" is replayed only for NONE_GAP_MS: a spare that turns ready after it
@@ -881,7 +881,6 @@ fn no_spare_then_a_ready_spare_is_named_by_the_next_warm() {
     assert_eq!(named["machine"], json!(MACHINE));
     assert!(named.get("throttled").is_none());
     assert_eq!(calls.get(), 2);
-    assert!(NONE_GAP_MS < WARM_GAP_MS && NONE_GAP_MS <= 15_000);
 }
 
 /// A cloud.spare.ready for the pair ends the "no spare" replay at once: the next warm asks the
