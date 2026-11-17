@@ -35,6 +35,7 @@ import Testing
         }
         """#.utf8).write(to: url)
         let settings = SettingsController(
+            writer: TestSettingsWriter(),
             registry: ActionRegistry(catalog: []),
             design: DesignSettings(),
             fileURL: url,
