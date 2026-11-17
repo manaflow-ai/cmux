@@ -73,6 +73,40 @@ require_cef_read_credentials() {
   exit 3
 }
 
+# Each submodule commit the build checks out must be fetchable before the build starts: a pointer to a ghostty commit
+# its fork lacks, or a host mirror (url.*.insteadOf) older than the pointer, failed with "cannot fetch" only after the
+# step had taken the host (a fleet Mac, 2026-11-16). One commit object is fetched (--depth 1 --filter=tree:0, under a second)
+# into a scratch bare repository under DIR; on a miss the line says which: a stale mirror, an unreachable remote, or a
+# commit the fork never received (push it there first). Exit 3, could not measure.
+require_submodule_refs() { # SRC DIR
+  local src="$1" dir="$2" sub sha url probe effective why
+  # A stalled transfer (under 1 byte/s for 20 s) gives up: macOS has no timeout(1).
+  local stall=(-c http.lowSpeedLimit=1 -c http.lowSpeedTime=20)
+  for sub in ghostty ghostty-next; do
+    sha="$(git -C "$src" rev-parse --verify --quiet "HEAD:$sub" 2>/dev/null)" || continue
+    [ -e "$src/$sub/.git" ] && continue # prepare_build reuses a checked-out submodule as it is
+    url="$(git -C "$src" config -f .gitmodules "submodule.$sub.url" 2>/dev/null)" || continue
+    probe="$dir/submodule-probe-$sub"
+    rm -rf -- "$probe" && git init --quiet --bare "$probe"
+    if git "${stall[@]}" -C "$probe" fetch --quiet --no-tags --depth 1 --filter=tree:0 "$url" "$sha" 2>/dev/null; then
+      rm -rf -- "$probe"
+      continue
+    fi
+    effective="$(git ls-remote --get-url "$url" 2>/dev/null || echo "$url")"
+    if [[ "$effective" != "$url" ]] && GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+      git "${stall[@]}" -C "$probe" fetch --quiet --no-tags --depth 1 --filter=tree:0 "$url" "$sha" 2>/dev/null; then
+      why="this host's mirror $effective lacks it but $url has it: refresh the mirror"
+    elif ! git "${stall[@]}" ls-remote --exit-code "$url" HEAD >/dev/null 2>&1; then
+      why="$effective cannot be reached from this host"
+    else
+      why="$url does not have it: the cmux commit records a $sub pointer that was never pushed to the fork"
+    fi
+    rm -rf -- "$probe"
+    echo "TSW cannot fetch submodule $sub at $sha: $why. Not building."
+    exit 3
+  done
+}
+
 # Submodules, GhosttyKit and the pinned bun a tagged build needs (a fleet step checks out no submodules).
 prepare_build() {
   local tmp="$1"
@@ -164,6 +198,7 @@ frames_main() {
       src="$tmp/src"
       git worktree add --quiet --detach "$src" "$build" || exit 3
     fi
+    require_submodule_refs "$src" "$tmp"
     label="$(git -C "$src" rev-parse HEAD)"
     local configuration=(--release)
     [[ "$config" == bench ]] && configuration=(--config bench)
@@ -212,6 +247,7 @@ out="$(mktemp -d)"
 trap 'rm -rf -- "$out"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+require_submodule_refs "$PWD" "$out"
 prepare_build "$out"
 # --config=<debug|release|bench> picks reload.sh's build configuration (bench: Release optimization with the
 # debug.* control commands kept); every other argument goes to the bench.

@@ -1032,6 +1032,11 @@ jobs:
         if: ${{ !cancelled() }}
         run: bash scripts/measure/tests/tab-switch-cef-creds.test.sh
 
+      # A submodule pointer the fork lacks, or a stale host mirror, fails in seconds, not after the step took the host.
+      - name: tab-switch.sh checks the submodule commits are fetchable before it builds
+        if: ${{ !cancelled() }}
+        run: bash scripts/measure/tests/tab-switch-submodule-refs.test.sh
+
       - name: install-zig-ci.sh installs only a reviewed Zig
         if: ${{ !cancelled() }}
         run: python3 tests/test_install_zig_ci_reviewed_version.py
