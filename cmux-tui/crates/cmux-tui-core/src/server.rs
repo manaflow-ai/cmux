@@ -888,6 +888,9 @@ enum Command {
         screen_sharing: Option<bool>,
         #[serde(default)]
         headless: Option<bool>,
+        /// The app's own Screen Recording and Accessibility (memory only).
+        #[serde(default)]
+        app_permissions: Option<crate::remote_host::AppPermissions>,
     },
     RemoteHostApp,
     /// `cmux device setup|start` for the app (server/device_setup_command.rs).
