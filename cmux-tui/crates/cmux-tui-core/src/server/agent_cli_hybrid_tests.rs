@@ -528,7 +528,7 @@ fn a_full_screen_shell_attaches_with_its_bytes() {
 }
 
 /// Every terminal is calculated, not only a shell's (Leo, 2026-11-17: "Surely we can just
-/// calculate a fucking terminal and resize whatever needs exceptions when it comes Fall back if
+/// calculate a f***ing terminal and resize whatever needs exceptions when it comes Fall back if
 /// need be"): a program that is neither a shell nor an agent CLI reaches a lines viewer as lean
 /// frames, and only its full-screen part falls back to PTY bytes.
 #[test]

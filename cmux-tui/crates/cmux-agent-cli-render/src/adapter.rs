@@ -1,7 +1,7 @@
 //! Which stream a viewer gets for a terminal: what each program needs drawn, not a 1:1 PTY
 //! mirror (Leo, 2026-11-16, about the phone: "surely we dont need to stream the [...] thing").
 //! Every terminal is calculated; only an exception falls back to its bytes (Leo, 2026-11-17:
-//! "Surely we can just calculate a fucking terminal and resize whatever needs exceptions when
+//! "Surely we can just calculate a f***ing terminal and resize whatever needs exceptions when
 //! it comes Fall back if need be").
 //!
 //! - [`Adapter::Agent`]: Claude Code, Codex and opencode, the cell deltas of the hybrid stream
