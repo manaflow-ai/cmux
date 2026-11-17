@@ -1715,9 +1715,7 @@
         "CmuxMobileRPC",
         "CmuxMobileSSH"
       ],
-      "reads": [
-        "scripts/cmux-next/pin-cmux-tui.sh"
-      ]
+      "reads": []
     },
     "CmuxNextNotifications": {
       "kind": "regular",

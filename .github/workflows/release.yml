@@ -523,6 +523,21 @@ jobs:
       # The Bundle cmux-tui phase bundles none (deferred): "Install universal
       # Ghostty CLI helper" below installs this tree's universal cmux-tui client
       # (install-cmux-tui-client.sh); the phase never takes another build's client.
+      # The app build refuses missing or stale cmux-next web bundles (agent pane, React pages, webviews).
+      # feat-cmux-next publishes them per source key (cmux-next-web-bundle-publish.yml); take that exact
+      # bundle, else build it here with this job's Node and Bun (handoff dry run 44014686155, 2026-11-17).
+      - name: Provide the cmux-next web bundles
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          status=0
+          scripts/cmux-next/fetch-web-bundles.sh --install || status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "No published web bundles for this source key (exit $status); building them"
+            scripts/cmux-next/build-web-bundles.sh --force
+          fi
+          scripts/cmux-next/build-web-bundles.sh --verify
+
       - name: Build universal app (Release)
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |

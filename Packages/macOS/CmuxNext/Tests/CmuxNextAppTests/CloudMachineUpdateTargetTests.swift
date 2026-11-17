@@ -422,6 +422,11 @@ struct CloudMachineUpdateTargetTests {
         #expect(outcome("machine_update_foreign_daemon") == .held(reason: "why"))
         #expect(DaemonUpdatePolicy.recorded(outcome("machine_update_foreign_daemon")) == nil)
         #expect(!CloudMachineUpdateTarget.mayHaveRestarted(CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_foreign_daemon", error: "why")))
+        // A start's own run cut at its bound (a machine whose updater never takes an older build kept the CLI waiting
+        // 25 minutes): held, so the queue moves on and no later start or update waits behind it; a start reads no change.
+        #expect(outcome(CloudMoveCLI.machineUpdateAbandoned) == .held(reason: "why"))
+        #expect(!outcome(CloudMoveCLI.machineUpdateAbandoned).mayHaveChangedTarget)
+        #expect(DaemonUpdatePolicy.recorded(outcome(CloudMoveCLI.machineUpdateAbandoned)) == nil)
         #expect(outcome(CloudMoveCLI.badAnswer, error: nil) == .failed(reason: CloudMoveCLI.badAnswer))
         // Not final: nothing recorded, so a later connect or launch asks again.
         #expect(DaemonUpdatePolicy.recorded(outcome("machine_update_unavailable")) == nil)
