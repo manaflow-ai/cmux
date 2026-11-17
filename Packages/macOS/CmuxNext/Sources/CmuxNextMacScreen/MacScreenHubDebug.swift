@@ -35,6 +35,9 @@ import Foundation
 /// - `relay_delete` {id}; `relay_check` {id}.
 /// - `refresh`: devices, permissions, relays and the audit log again.
 /// - `audit` {limit?}: the newest entries as History shows them.
+/// - `preview_approval` {name?, scope?}: shows the approval prompt for a
+///   fixture request (no hub needed), for screenshots; its answers reach
+///   no device. `preview_approval_clear` takes it away.
 extension MacScreenPages {
     public func registerDeviceHubDebug(on router: ControlRouter?, settings: MacScreenDevicesSettings?,
                                 openTab: @escaping @MainActor (MacScreenRecord, String?) -> String?) {
