@@ -302,9 +302,11 @@ def kind_of(argv: str) -> str:
     if "__bg-run" in rest:
         return "bg-run"
     if base == "acpmux" or base.startswith("acpmux"):
+        # Any word of the command line: acpmux's own servers run as `acpmux acp tools-mcp` too.
+        mcp = next((t for t in rest if t.endswith("-mcp")), "")
+        if mcp:
+            return "acpmux-" + mcp
         sub = next((t for t in rest if not t.startswith("-")), "")
-        if sub.endswith("-mcp"):
-            return "acpmux-" + sub
         if sub == "daemon":
             return "acpmux-daemon"
         return "acpmux-" + (sub or "other")
