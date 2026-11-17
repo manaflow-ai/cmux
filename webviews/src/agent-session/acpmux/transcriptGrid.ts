@@ -25,6 +25,9 @@ export const TRANSCRIPT_FOOTER_CONTROL = gridLength("transcript-footer-control")
 /// happen"; 32 (cmux#43627). Every consumer reads this one value: model.ts `liveLineRow` and conversation.css
 /// `--cv-live-line`; no live-line rule sets a height of its own (test/live-line-height.test.ts).
 export const TRANSCRIPT_LIVE_LINE = TRANSCRIPT_FOOTER_CONTROL;
+/// The gap over that live line under a run: Lucas's 16 from #41213, the run gap, kept with the 32 height (Leo,
+/// 2026-11-16: "Use 32px size with Lucas's 16px gap"). transcriptGap reads it for MARK_LIVE_STEP.
+export const TRANSCRIPT_LIVE_LINE_GAP = TRANSCRIPT_RUN_GAP;
 
 /// The interface scale the CSS grid tokens multiply by (desktop.css: `calc(24px *
 /// var(--cmux-interface-scale, 1))`). The virtual stack places its gaps with the same factor, so
@@ -167,7 +170,7 @@ export function transcriptGap(previous: number, next: number): number {
   // The live state is separate from completed activity. Leo, 2026-11-04: "the gap between tool
   // calls and thinking needs to be bigger". Use the same scaled run gap as activity to prose.
   if (line(previous) && (next === MARK_INDICATOR || next === MARK_FOOTER_SLOT)) return TRANSCRIPT_RUN_GAP;
-  if (next === MARK_LIVE_STEP) return TRANSCRIPT_RUN_GAP;
+  if (next === MARK_LIVE_STEP) return TRANSCRIPT_LIVE_LINE_GAP;
   // A run, or any status line, and the reply's prose around it sit 16 apart, either way.
   if ((line(previous) && next === MARK_MESSAGE) || (previous === MARK_MESSAGE && line(next))) return TRANSCRIPT_RUN_GAP;
   return TRANSCRIPT_BLOCK_GAP;

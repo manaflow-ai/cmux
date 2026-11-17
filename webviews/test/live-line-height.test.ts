@@ -7,7 +7,14 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, test } from "bun:test";
-import { TRANSCRIPT_FOOTER_CONTROL, TRANSCRIPT_LIVE_LINE } from "../src/agent-session/acpmux/transcriptGrid";
+import {
+  MARK_LIVE_STEP,
+  MARK_STEP,
+  TRANSCRIPT_FOOTER_CONTROL,
+  TRANSCRIPT_LIVE_LINE,
+  TRANSCRIPT_LIVE_LINE_GAP,
+  transcriptGap,
+} from "../src/agent-session/acpmux/transcriptGrid";
 
 const src = path.resolve(import.meta.dir, "../src/agent-session/acpmux");
 const css = readFileSync(path.join(src, "conversation/conversation.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
@@ -33,6 +40,11 @@ describe("the live line's one height", () => {
     expect(TRANSCRIPT_LIVE_LINE).toBe(32);
     expect(TRANSCRIPT_LIVE_LINE).toBe(TRANSCRIPT_FOOTER_CONTROL);
     expect(css).toMatch(/--cv-live-line:\s*var\(--cv-footer-row\)/);
+  });
+
+  test("keeps Lucas's 16 gap over it under a run", () => {
+    expect(TRANSCRIPT_LIVE_LINE_GAP).toBe(16);
+    expect(transcriptGap(MARK_STEP, MARK_LIVE_STEP)).toBe(TRANSCRIPT_LIVE_LINE_GAP);
   });
 
   test("every live-line rule that sets a height reads --cv-live-line", () => {
