@@ -244,6 +244,99 @@ fn the_look_lists_match_the_apps() {
     assert!(swift.contains(&format!("static let rowPrefix = \"{ROW_PREFIX}\"")));
 }
 
+/// The shipped Minimal sessions file sets every key it writes, each to the
+/// value it writes, with no refusal: read through the same reader the app's
+/// copy uses, applied over an empty root, every value reads back.
+#[test]
+fn the_minimal_sessions_file_applies_every_value_it_writes() {
+    let text = shipped("minimal-sessions").expect("minimal-sessions ships");
+    let file = ThemeFile::read(
+        "minimal-sessions",
+        Some(Ok(text)),
+        &json!({}),
+        None,
+        Schema::embedded(),
+        &Domains::default(),
+    );
+    assert!(file.is_loaded);
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    let Value::Object(written) = crate::jsonc::parse(text).expect("the file is JSONC") else {
+        panic!("the file is no object");
+    };
+    let written: Vec<(&String, &Value)> =
+        written.iter().filter(|(key, _)| !RESERVED_KEYS.contains(&key.as_str())).collect();
+    assert!(written.len() >= 25, "the file writes {} keys", written.len());
+    let mut keys: Vec<String> = written.iter().map(|(key, _)| (*key).clone()).collect();
+    keys.sort();
+    assert_eq!(file.keys(), keys, "every key it writes is taken, none twice");
+    let root = file.applied(&json!({}), &none());
+    for (key, value) in &written {
+        assert_eq!(at(&root, key), Some(*value), "{key}");
+    }
+    // The ones that make it a minimal session list.
+    assert_eq!(at(&root, "sidebar.workspaceRow.statusPlacement"), Some(&json!("leading")));
+    assert_eq!(at(&root, "appearance.statusIndicator.iconSet"), Some(&json!("symbols")));
+    assert_eq!(at(&root, "sidebar.workspaceRow.icon"), Some(&json!(false)));
+    assert_eq!(at(&root, "sidebar.density"), Some(&json!("compact")));
+    // A managed key keeps the managed value.
+    let managed: BTreeSet<String> = ["sidebar.workspaceRow".to_string()].into();
+    let kept = file.applied(&json!({"sidebar": {"workspaceRow": {"icon": true}}}), &managed);
+    assert_eq!(at(&kept, "sidebar.workspaceRow.icon"), Some(&json!(true)));
+    assert_eq!(at(&kept, "sidebar.workspaceRow.statusPlacement"), None);
+}
+
+/// A theme file of 5,000 keys, nearly all junk (per-kind row overrides, row
+/// names no schema has, keys of no setting), still loads: every junk key is
+/// refused by name, the valid ones apply, and nothing else is taken.
+#[test]
+fn a_theme_file_of_five_thousand_junk_keys_still_applies_its_valid_ones() {
+    let valid: [(&str, Value); 6] = [
+        ("sidebar.density", json!("compact")),
+        ("sidebar.groupBy", json!("none")),
+        ("sidebar.workspaceRow.statusPlacement", json!("leading")),
+        ("sidebar.workspaceRow.icon", json!(false)),
+        ("sidebar.showColors", json!(false)),
+        ("appearance.statusIndicator.iconSet", json!("symbols")),
+    ];
+    let kinds = ["terminal", "agent", "browser", "mixed"];
+    let mut junk: Vec<String> = Vec::new();
+    for index in 0..(5_000 - valid.len()) {
+        junk.push(match index % 3 {
+            0 => format!("sidebar.workspaceRow.{}.j{index}", kinds[index % kinds.len()]),
+            1 => format!("sidebar.workspaceRow.j{index}"),
+            _ => format!("nope.j{index}"),
+        });
+    }
+    let mut members: Vec<String> = junk.iter().map(|key| format!("  \"{key}\": true")).collect();
+    for (offset, (key, value)) in valid.iter().enumerate() {
+        // Spread the valid keys through the junk.
+        members.insert(offset * 800, format!("  \"{key}\": {value}"));
+    }
+    let text = format!("{{\n{}\n}}", members.join(",\n"));
+    assert!(text.len() <= MAXIMUM_BYTES, "{} bytes", text.len());
+    let started = std::time::Instant::now();
+    let file = overlay(&text);
+    let elapsed = started.elapsed();
+    assert!(file.is_loaded);
+    let mut want: Vec<String> = valid.iter().map(|(key, _)| (*key).to_string()).collect();
+    want.sort();
+    assert_eq!(file.keys(), want);
+    let refused: BTreeSet<&str> = file.diagnostics.iter().map(|d| d.path.as_str()).collect();
+    for key in &junk {
+        assert!(refused.contains(key.as_str()), "{key} was not refused");
+    }
+    for (key, _) in &valid {
+        assert!(!refused.contains(key), "{key} was refused");
+    }
+    assert_eq!(file.diagnostics.len(), junk.len(), "one refusal per junk key");
+    let root = file.applied(&json!({}), &none());
+    for (key, value) in &valid {
+        assert_eq!(at(&root, key), Some(value), "{key}");
+    }
+    // Each refusal looks up its line in the text: keep that from going quadratic.
+    assert!(elapsed.as_secs_f64() < 5.0, "reading 5,000 keys took {elapsed:?}");
+}
+
 #[test]
 fn a_relative_picture_resolves_against_the_themes_folder() {
     let folder = Path::new("/tmp/cmux-config/themes");
