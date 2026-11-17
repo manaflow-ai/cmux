@@ -38,7 +38,7 @@ struct AgentCLIHybridLeanDecoder: Sendable {
         guard let flags = reader.varint() else { return nil }
         if flags & Self.head != 0 {
             guard let length = reader.varint().flatMap(Int.init(exactly:)),
-                  reader.position + length <= reader.bytes.count,
+                  length <= reader.bytes.count - reader.position,
                   let stream = String(bytes: reader.bytes[reader.position..<reader.position + length], encoding: .utf8)
             else { return nil }
             reader.position += length
@@ -62,7 +62,7 @@ struct AgentCLIHybridLeanDecoder: Sendable {
                 base = value
             }
         } else {
-            guard let last else { return nil }
+            guard let last, last < Int.max else { return nil }
             number = last + 1
             base = last
         }
@@ -91,7 +91,7 @@ struct AgentCLIHybridLeanDecoder: Sendable {
                 if reader.position < reader.bytes.count, reader.bytes[reader.position] == 2 {
                     reader.position += 1
                     guard let times = reader.varint().flatMap(Int.init(exactly:)), times > 0,
-                          cells.count + times <= width, let text = Self.text(&reader) else { return nil }
+                          times <= width - cells.count, let text = Self.text(&reader) else { return nil }
                     cells.append(contentsOf: repeatElement(AgentCLIHybridFrame.Cell(text: text, style: style), count: times))
                 } else {
                     guard let text = Self.text(&reader) else { return nil }
@@ -127,7 +127,7 @@ struct AgentCLIHybridLeanDecoder: Sendable {
         case 0: return ""
         case 1:
             guard let length = reader.varint().flatMap(Int.init(exactly:)),
-                  reader.position + length <= reader.bytes.count else { return nil }
+                  length <= reader.bytes.count - reader.position else { return nil }
             defer { reader.position += length }
             return String(bytes: reader.bytes[reader.position..<reader.position + length], encoding: .utf8)
         default: return nil

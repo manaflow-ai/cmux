@@ -467,6 +467,44 @@ enum HybridWire {
         return Data(out)
     }
 
+    /// v1 deltas whose varints sit at the edge of `UInt64` and `Int`, each with what it tries:
+    /// the phone must fall back on every one, never trap.
+    static let extremeDeltas: [(name: String, delta: Data)] = {
+        let max = UInt64.max
+        let intMax = UInt64(Int.max)
+        func delta(_ values: [UInt64], _ tail: [UInt8] = []) -> Data { Data(values.flatMap(varint) + tail) }
+        let oneCell: [UInt64] = [0, 0, 0, 1, 0, 0, 1 << 1 | 1]
+        return [
+            ("shift Int.min", delta([0, 0, max, 0])),
+            ("clear at row UInt64.max", delta([0, 0, 0, 1, max, 0, 2 << 1])),
+            ("clear at column UInt64.max", delta([0, 0, 0, 1, 0, max, 2 << 1])),
+            ("clear of Int.max cells", delta([0, 0, 0, 1, 0, 0, max - 1])),
+            ("set span of Int.max cells", delta([0, 0, 0, 1, 0, 0, max])),
+            ("attrs UInt64.max", delta(oneCell, [0, 0] + varint(max) + [0x78])),
+            ("cell text Int.max bytes long", delta(oneCell, [0, 0, 0, 1] + varint(intMax))),
+            ("cell text UInt64.max bytes long", delta(oneCell, [0, 0, 0, 1] + varint(max))),
+        ]
+    }()
+
+    /// Lean frames of the same kind, each one line (a keyframe of `stream`, `columns` x `rows`).
+    static func extremeLeanFrames(stream: String, columns: Int, rows: Int) -> [(name: String, frame: Data)] {
+        let intMax = UInt64(Int.max)
+        let head = varint(1 | 2 | 4)
+        func keyframe(_ tail: [UInt8]) -> Data {
+            Data(head + varint(UInt64(stream.utf8.count)) + Array(stream.utf8) + varint(UInt64(columns))
+                 + varint(UInt64(rows)) + varint(1) + varint(0) + varint(1) + tail)
+        }
+        // A span at 0,0 of two cells in a new plain style.
+        let span = varint(0) + varint(0) + varint(2 << 1 | 1) + varint(0) + [0, 0] + varint(0)
+        return [
+            ("stream name Int.max bytes long", Data(head + varint(intMax))),
+            ("run of Int.max cells", keyframe(span + [2] + varint(intMax) + [0x78])),
+            ("cell text Int.max bytes long", keyframe(span + [1] + varint(intMax))),
+            ("cell text UInt64.max bytes long", keyframe(span + [1] + varint(UInt64.max))),
+            ("span at row UInt64.max", keyframe(varint(UInt64.max) + varint(0) + varint(2 << 1))),
+        ]
+    }
+
     static func leanLine(_ bytes: Data, surface: Int = 1) -> Data {
         line(["event": "agent-cli-lean", "surface": surface, "f": bytes.base64EncodedString()])
     }

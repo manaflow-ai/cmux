@@ -237,6 +237,11 @@ public final class MacScreenDevicesSettings {
                 return State(available: true, status: .init(text: message, tone: "danger"), signIn: nil,
                              error: message, labels: labels, thisDevice: nil, others: [], sharing: nil, relays: [], history: [])
             }
+            if box.restoring || box.connecting {
+                // The saved sign-in is still restoring, or signed in with the hub still starting: not signed out.
+                return State(available: true, status: .init(text: L.t("macScreen.home.devicesLoading", "Loading your devices…"), tone: "neutral"),
+                             signIn: nil, error: nil, labels: labels, thisDevice: nil, others: [], sharing: nil, relays: [], history: [])
+            }
             let signIn = canSignIn() ? L.t("devices.signIn", "Sign In to Your Devices") : nil
             let text = signIn == nil ? L.t("devices.status.signedOut", "Sign in to cmux to see your devices.")
                 : L.t("devices.status.removed", "This Mac left your devices.")
@@ -304,7 +309,7 @@ public final class MacScreenDevicesSettings {
             fingerprint: device.fingerprint.map(DeviceIdentity.displayFingerprint), fingerprintFull: device.fingerprint, online: isMe || device.online, presence: presence,
             thisDevice: isMe, sharesText: device.macScreenShared ? L.t("devices.shares", "Shares Mac Screen") : nil,
             access: isMe ? nil : hub.scope(host: me, viewer: device.id).rawValue,
-            screenAction: device.platform == .macos
+            screenAction: device.hostsScreenThisMacViews
                 ? .init(kind: isMe ? "share" : "view", title: isMe ? L.t("devices.shareScreen", "Share") : L.t("devices.viewScreen", "View screen"), disabled: !isMe && !device.online)
                 : nil,
             removeConfirm: confirm)
@@ -498,10 +503,10 @@ public final class MacScreenDevicesSettings {
                 await hub.refreshAll()
                 await hub.refreshAudit()
             case "openScreen":
-                guard let id = run.id, let device = hub.devices.first(where: { $0.id == id }), device.platform == .macos else {
+                guard let id = run.id, let device = hub.devices.first(where: { $0.id == id }) else {
                     return RunResult(error: L.t("devices.error.gone", "That device is no longer in your devices."))
                 }
-                guard id != hub.identity.id else { return RunResult(error: L.t("devices.error.invalidAction", "That action is not available for this device.")) }
+                guard id != hub.identity.id, device.hostsScreenThisMacViews else { return RunResult(error: L.t("devices.error.invalidAction", "That action is not available for this device.")) }
                 guard device.online else { return RunResult(error: L.t("devices.error.offline", "That Mac is offline.")) }
                 openScreen(id)
             case "shareThisMac":
@@ -516,7 +521,10 @@ public final class MacScreenDevicesSettings {
             case "remove":
                 guard let id = run.id else { return RunResult(error: "id") }
                 let isMe = id == hub.identity.id
-                try await hub.removeDevice(id)
+                // Another Mac lists once for all its records (its builds, renewals): Remove takes them all.
+                for record in isMe ? [id] : hub.recordIDs(of: id) {
+                    try await hub.removeDevice(record)
+                }
                 if isMe { thisDeviceRemoved() }
             case "setAccess":
                 guard let id = run.id, let scope = run.scope.flatMap(MacScreenAccess.init(value:)) else {

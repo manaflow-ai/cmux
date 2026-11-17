@@ -701,6 +701,9 @@ public final class DaemonTerminalSession: TerminalSession {
             let initialSize = claimsSize && (identify.map(Self.acceptsInitialSize) ?? false)
             leased = identify.map { Self.lists(Self.sizeLeaseCapability, $0) } ?? false
             sharedSizing = identify.map { Self.lists(Self.sharedSizingCapability, $0) } ?? false
+            // A daemon that does not list the hybrid stream would refuse a resume's fields
+            // (one older than it, or one this phone reached after a Mac update rolled back).
+            let hybridResumable = identify.map { Self.lists(Self.agentCLIHybridCapability, $0) } ?? false
             tailReplay = identify.map { Self.lists(Self.replayHistoryRowsCapability, $0) } ?? false
             // `attach-surface` with this view's size (if any) and history
             // allowance. A lane that refuses the allowance (a Mac app older
@@ -711,7 +714,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 func send(historyRows: Int?) async throws -> Data {
                     // Settings → Transport → Agent CLI Screen Changes: a reattach resumes
                     // the hybrid stream from the frame this mirror drew.
-                    if hybridWanted, let resume = hybridResume {
+                    if hybridWanted, hybridResumable, let resume = hybridResume {
                         var params: [String: Any] = ["surface": surface, "hybrid_stream": resume.stream, "hybrid_frame": resume.frame]
                         if let size {
                             params["cols"] = size.columns

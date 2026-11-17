@@ -54,6 +54,8 @@ final class FakeTerminalDaemon: @unchecked Sendable {
     /// connection that declared it gets these events after its reply instead of `afterAttach`
     /// (empty: the daemon is older than the hybrid stream and ignores the capability).
     var hybridEvents: [[String: Any]] = []
+    /// `identify` lists agent-cli-hybrid-v1 and v2.
+    var advertisesHybrid = false
     private var declaredHybrid = false
 
     var recorded: [[String: Any]] { lock.withLock { commands } }
@@ -77,8 +79,9 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             return [reply()]
         case "send" where lock.withLock({ unansweredSends }):
             return []
-        case "identify" where initialSize || sizeLease || sharedSizing || tailReplay:
+        case "identify" where initialSize || sizeLease || sharedSizing || tailReplay || lock.withLock({ advertisesHybrid }):
             return [reply(["capabilities": (initialSize ? ["attach-initial-size"] : []) + (sizeLease ? ["size-lease-v1"] : [])
+                    + (lock.withLock { advertisesHybrid } ? ["agent-cli-hybrid-v1", "agent-cli-hybrid-v2"] : [])
                     + (sharedSizing ? ["shared-sizing-v1", "host-size-policy-v1"] : [])
                     + (tailReplay ? ["attach-replay-history-rows-v1"] : [])])]
         case "attach-surface" where object["replay_history_rows"] != nil && lock.withLock({ laneRefusesHistoryRows }):
