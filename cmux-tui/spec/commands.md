@@ -2289,12 +2289,77 @@ The rules:
   after `a` still launches; a `move-tab` puts `c` at index 1. The strip is
   then `[a, new, c, b]`. The same requests applied one by one give
   `[a, c, new, b]`.
-- Only a creation writes the record of the active tab: a select or a move
-  between a request and its tab does not. The tab that comes later takes the
-  active tab if no later create request with a slot took it. The active tab
-  after a close of the tab of that later request, while the earlier tab
-  still launches, is not a rule of this capability: a client must not rely
-  on it.
+- A creation writes the record of the active tab. A select or a move between
+  a create request and its tab does not: the tab that comes later takes the
+  active tab if no later create request with a slot took it, also from a tab
+  that a person selected after the request. For a person, today: a new tab
+  that the person asked for is the active tab when it comes, also if the
+  person selected another tab while it launched. This is what the daemon
+  does today. The decision on this rule is open (2026-11-17), and the rule
+  can change.
+- A close of the active tab while a tab still launches follows the rule of
+  the requests applied one by one too. One by one, the close gives the
+  active tab to the next entry of the strip, or to the entry before when no
+  next one is there. When that entry is the slot of a tab that still
+  launches, a tab that the pane has is the active tab until the new tab
+  comes, and the new tab takes the active tab then. Example: the strip is
+  `[a]`; a `new-tab` with a `transaction` after `a` still launches; a page
+  with `place: {after_creation}` of that `transaction` comes and is the
+  active tab; the page closes. `a` is the active tab until the terminal's
+  tab comes, and the terminal's tab is the active tab after that. A close of
+  a tab that is not the active tab gives the active tab to no tab. A close
+  of the tab that the first close made active keeps the turn of the new tab:
+  one by one, that close is not a close of the active tab.
+- The close gives the active tab to the new tab only while the active tab of
+  the pane is where a close left it. A request that changes the active tab
+  of the pane after the close is the later change, and the close then gives
+  the new tab nothing: a select of a tab (also a select of another tab and
+  then of the same tab again), and a new tab that takes the active tab. The
+  new tab then has only the rule of its own request, as with no close: it
+  does not take the active tab when a later create request with a slot took
+  it. Example: the strip is `[a, b]`; a `new-tab` with a `transaction` after
+  `b` still launches; a page with `place: {after_creation}` of that
+  `transaction` comes, is the active tab, and closes; `b` is the active tab.
+  A person selects `a`. The terminal's tab comes and `a` stays the active
+  tab.
+- The limits of the rule after a close. The daemon does not keep the order of
+  each request: it reads the stamp of the last change of the pane's active
+  tab, and the tabs that a close made active. In each limit, the late tab is
+  the tab of a request that does not take the active tab by itself (a later
+  create request with a slot took it, or the request does not ask for it).
+  - With no such later request, the late tab takes the active tab by its own
+    request, also from a tab that a person selected after the close: the
+    rule of a select between a request and its tab, above.
+  - Each request that writes a new stamp ends the turn of the new tab, also
+    when it leaves the active tab where it was: a focus of the pane (also a
+    focus that comes back from another pane), and a move of a tab that
+    writes a stamp. The late tab does not take the active tab, where one by
+    one it is the active tab from the close.
+  - A launch that fails after a close gave the active tab to its slot. One by
+    one, a request that makes no tab leaves no entry, and the close gives
+    the active tab to the entry next to that slot, which can be the slot of
+    another tab that still launches. The daemon does not pick a second
+    time: the late tab does not take the active tab.
+  - A move that makes a tab the active tab and writes no stamp (a
+    `terminal.move` to an index of the same pane). When the moved tab is a
+    tab that a close made active while the new tab launched, the late tab
+    takes the active tab when it comes, where one by one the moved tab
+    keeps it.
+  - A close request of the active tab can fail (the daemon refuses it by a
+    rule of its session), and the tab stays: the close gives the new tab
+    nothing then. When the tab that stays moves to another pane before the
+    new tab comes, the daemon reads the move as the close: the late tab
+    takes the active tab of the pane when it comes, if the move left the
+    active tab on the tab that the refused close gave it to and wrote no
+    stamp.
+  - A move to another pane of the tab that a close made active. The pane
+    that the tab leaves gives its active tab to another tab and gets no
+    stamp. When that other tab is not a tab that a close made active, the
+    late tab does not take the active tab, where one by one it is the
+    active tab from the close.
+- The cost of the rule at a close: a pane with no create request that took a
+  slot, and a close of a tab that is not the active tab while no close gave
+  the active tab to a slot, read nothing of the list.
 - A retry of a create request with an `idempotency_key` sends the same
   `place` and `transaction` as the first request: both are part of the
   request that the key names.
@@ -10442,6 +10507,36 @@ filed under this store's `registry:` host with its session in
 chat in a tab of its own and shows it with `agent-session-attach`); any other
 session there is `conversation_tab.machine_mismatch`.
 
+### agent-session-side
+
+`agent-session-side-v1`: `{id, cmd:"agent-session-side", surface, through_seq |
+live:true, prompt?, prompt_id?}` on the owner's own attached tab opens a side
+chat of the attached chat (the app's New side chat and `/side [prompt]` for a
+chat on another machine). Everything runs on this machine's acpmux.
+
+Exactly one boundary: `through_seq` (a completed turn, above 0) or `live:true`
+(the chat as it is now). The daemon forks the attached chat (acpmux
+`acp.session.fork`) and tags the fork its side chat (`_acpmux/side`) in one
+step; a fork whose tag is refused, or that the attachment has no room to
+follow (`agent_session.limit`), is ended, so no untagged copy stays. With
+`prompt` and `prompt_id` (both or neither, the id as `agent-session-prompt`'s)
+the text is sent to the side chat as its first prompt. Answers `{sessionId,
+prompted}`, and `notSent` (a refusal code) when acpmux did not take the
+prompt: the side chat is open either way.
+
+The frame names no folder, command, agent, model, name, tag or session; any
+other field is `agent_session.bad_request`. The side chat's id may be filed in
+`new-conversation-tab` like a child chat's.
+
+Owner only. A teammate link, a Cloud team member, a link guest and a phone
+are refused the verb (`agent_session.not_trusted`, or their entry's own
+refusal), an observer gets `agent_session.read_only`. A side chat is its
+owner's alone: an authored `agent-session-attach` to a tab whose session the
+daemon opened as a side chat, or whose acpmux summary carries the `side` tag,
+is `agent_session.not_trusted`. `agent-session-team-list` reads acpmux's
+`side` tags (`_acpmux/sessions`) each time and leaves such tabs out, also on a
+daemon that just restarted; when that list cannot be read it lists no chat.
+
 ### agent-session-typing, agent-session-view
 
 `agent-session-presence-v1` (advertised with `agent-session-attach-v1`): who is
@@ -10639,7 +10734,10 @@ it runs; otherwise `agent_session.untrusted_folder` (the daemon never answers
 the trust question; the person answers it on the machine or through
 `agent-session-trust`). There is no command, env, policy, mode,
 peer, preset or MCP server param; `model` is only accepted with the additive
-`agent-session-start-model-v1` capability and is passed to the first session; an unknown param is
+`agent-session-start-model-v1` capability and is passed to the first session; `permission_mode` (`fullAccess`,
+`standard` or `ask`, with `agent-session-start-permission-mode-v1`, advertised wherever the start is served) is
+the person's `agents.defaultPermissionMode`, read only on the caller's own Cloud VM, where `fullAccess` and `standard`
+start the chat with no `ask` policy (anywhere else, and for a phone, the start keeps `ask`); an unknown param is
 `agent_session.bad_request`. The machine kind decides first, read again at
 each start: a team VM (kind `team` in the root-owned `/etc/cmux/vm-kind` that
 cmux-host writes at a team enroll, or the team files root `/srv/team`,
@@ -11316,7 +11414,7 @@ or null), hidden?, target_kind?}`.
 
 | Command | Params | Data | Error codes |
 | --- | --- | --- | --- |
-| `fs.stat` | `{path}` | entry + `{mode_display, owner_display, revision}` | `fs.not_found` |
+| `fs.stat` | `{path}` | entry + `{mode_display, owner_display, revision}`, and for a folder `available_bytes` (what a writer may still use on its file system; an older daemon leaves it out) | `fs.not_found` |
 | `fs.list` | `{path, sort?, filter?, limit (1..1000, default 200), cursor?, listing?}` | `{entries, listing, cursor, total, revision}` | `fs.not_a_directory`, `fs.too_large`, `cursor.expired` |
 | `fs.read` | `{path, offset?, max_bytes}` | `{text \| bytes_base64, truncated, size, encoding: "utf-8"\|"base64"}` | `fs.not_a_file` |
 | `fs.write` | `{path, text \| bytes_base64, mode: "create"\|"overwrite"\|"replace"\|"append", expected?, permissions?}` (`append` adds the bytes in place to a regular, singly linked file while it has the revision `expected`, for files over the single-write limit; a failed append is cut back. `permissions` gives the written file 0644, 0755, 0600 or 0700, as a decimal number) | `{entry}` (with `revision`) | `fs.exists`, `fs.revision_mismatch` (`error_details.current`), `fs.too_large`, `fs.no_space`, `fs.read_only` |

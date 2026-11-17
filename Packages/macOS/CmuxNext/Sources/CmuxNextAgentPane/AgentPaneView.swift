@@ -1,6 +1,6 @@
 public import AppKit
 import CmuxNextCompat
-import enum CmuxNextControl.LaunchPriorChat
+import struct CmuxNextControl.LaunchPriorChat
 public import CmuxNextDesign
 import CmuxNextDesignTokens
 import CmuxNextDictation
