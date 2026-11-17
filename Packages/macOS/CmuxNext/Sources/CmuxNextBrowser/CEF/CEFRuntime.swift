@@ -196,15 +196,23 @@ final class CEFRuntime {
     /// Tests inject a spy (which thread maps, and when).
     typealias LibraryLoader = @Sendable (CEFRuntimeLayout?) -> Result<CEFLoadedLibrary, BootError>
     private let libraryLoader: LibraryLoader
+    /// Reads the framework binary into the file cache without mapping it (``CEFFrameworkPrefetch/readBinary(_:)``):
+    /// no lock and no Chromium code, so it may run while the first window builds. Tests inject a spy.
+    typealias LibraryRead = @Sendable (CEFRuntimeLayout?) -> Void
+    private let libraryRead: LibraryRead
     /// A load begun from any thread before any page asked (`CEFEngine.beginEarlyLoad`, handed over by the engine with
     /// its stores, `adopt(earlyLoad:)`); the first start or preload of its layout takes it instead of loading again.
     private(set) var earlyLoad: CEFEarlyLoad?
 
-    private init() { libraryLoader = { CEFRuntime.loadLibrary($0) } }
+    private init() {
+        libraryLoader = { CEFRuntime.loadLibrary($0) }
+        libraryRead = { layout in if let layout { CEFFrameworkPrefetch.readBinary(layout) } }
+    }
 
-    /// An idle runtime whose framework load is `libraryLoader` (tests).
-    init(libraryLoader: @escaping LibraryLoader) {
+    /// An idle runtime whose framework load is `libraryLoader` and file read `libraryRead` (tests).
+    init(libraryLoader: @escaping LibraryLoader, libraryRead: @escaping LibraryRead = { _ in }) {
         self.libraryLoader = libraryLoader
+        self.libraryRead = libraryRead
     }
 
     /// Takes the engine's early load (`CEFEngine.beginEarlyLoad`).
@@ -239,6 +247,7 @@ final class CEFRuntime {
         self.shim = shim
         self.storage = storage
         libraryLoader = { _ in .failure(.notEmbedded) }
+        libraryRead = { _ in }
         state = .ready
     }
 
