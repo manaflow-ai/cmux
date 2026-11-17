@@ -86,7 +86,7 @@ fn state_spelling(noun: &str, verb: &str) -> Option<(String, [String; 2])> {
 
 /// `pinnedOnly` as its flag: `pinned-only`.
 fn kebab(name: &str) -> String {
-    let mut flag = String::with_capacity(name.len() + 2);
+    let mut flag = String::with_capacity(name.len());
     for character in name.chars() {
         if character.is_ascii_uppercase() {
             flag.push('-');
