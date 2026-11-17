@@ -730,3 +730,29 @@ fn a_web_view_that_fills_on_its_first_read_is_in_the_first_look() {
     e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1"}));
     assert_eq!(*d.walks.lock().unwrap(), walks + 1);
 }
+
+#[test]
+fn the_live_preview_streaming_the_window_leaves_an_unchanged_look_one_sentence() {
+    // The preview's frames are the window's pixels on their own stream: a
+    // look after them still compares the elements only, and says nothing
+    // changed in one sentence.
+    let (d, e) = rig();
+    let lines = Arc::new(Mutex::new(Vec::<Value>::new()));
+    let sink = lines.clone();
+    e.preview().watch(Arc::new(move |line: &Value| {
+        sink.lock().unwrap().push(line.clone());
+        true
+    }));
+    e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1"}));
+    let click = e.call(&ctx(), "click", &json!({"window_id": "1", "element_id": "3"}));
+    assert!(!click.is_error, "{}", click.body);
+    e.preview().frame("1", b"one");
+    e.preview().frame("1", b"two");
+    let card = lines.lock().unwrap().iter().rev().find(|l| l["card"]["frame"].is_string()).cloned();
+    let card = card.unwrap_or_else(|| panic!("no preview frame: {:?}", lines.lock().unwrap()));
+    assert_eq!(card["session"], "s1");
+    set_tree(&d, form(3, false, false, ""));
+    let again = e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1"}));
+    assert_eq!(tree_text(&again), "No change since your last look.");
+    assert!(again.body.get("changes").is_none(), "{}", again.body);
+}
