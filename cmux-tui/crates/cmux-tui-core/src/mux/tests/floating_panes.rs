@@ -11,6 +11,7 @@ use std::path::PathBuf;
 mod acts;
 mod follow;
 mod load;
+mod mark_columns;
 
 pub(crate) fn open_restart_mux(root: &Path, session: &str) -> Arc<Mux> {
     Mux::from_workspace_registry(
