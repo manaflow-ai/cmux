@@ -23,7 +23,7 @@ use crate::{
 /// What one op may touch: workspaces by id, and the panes and tabs it
 /// names (some not created yet).
 pub(crate) struct Scope {
-    workspaces: BTreeSet<WorkspaceId>,
+    workspaces: Vec<WorkspaceId>,
     panes: BTreeSet<PaneId>,
     tabs: BTreeSet<TabId>,
 }
@@ -57,7 +57,7 @@ impl Scope {
     /// every tab (a runtime's exit), which the whole-state check covers.
     pub(crate) fn of(state: &LayoutState, kind: &LayoutOpKind) -> Option<Self> {
         let mut scope =
-            Self { workspaces: BTreeSet::new(), panes: BTreeSet::new(), tabs: BTreeSet::new() };
+            Self { workspaces: Vec::new(), panes: BTreeSet::new(), tabs: BTreeSet::new() };
         match kind {
             LayoutOpKind::MoveTab { tab, pane, .. } => {
                 scope.tab(state, *tab);
@@ -76,12 +76,12 @@ impl Scope {
             }
             LayoutOpKind::MoveTabToNewWorkspace { tab, new_workspace, new_pane, .. } => {
                 scope.tab(state, *tab);
-                scope.workspaces.insert(*new_workspace);
+                scope.workspace(*new_workspace);
                 scope.panes.insert(*new_pane);
             }
             LayoutOpKind::MoveTabToWorkspace { tab, workspace, pane, new_pane, .. } => {
                 scope.tab(state, *tab);
-                scope.workspaces.insert(*workspace);
+                scope.workspace(*workspace);
                 if let Some(pane) = pane {
                     scope.pane(state, *pane);
                 }
@@ -104,12 +104,20 @@ impl Scope {
                         screen.columns_active && screen.columns.iter().any(|c| c.id == *column)
                     })
                 });
-                scope.workspaces.extend(workspace.map(|workspace| workspace.id));
+                if let Some(workspace) = workspace {
+                    scope.workspace(workspace.id);
+                }
             }
             LayoutOpKind::CloseTab { tab } => scope.tab(state, *tab),
             LayoutOpKind::RuntimeExited { .. } => return None,
         }
         Some(scope)
+    }
+
+    fn workspace(&mut self, workspace: WorkspaceId) {
+        if !self.workspaces.contains(&workspace) {
+            self.workspaces.push(workspace);
+        }
     }
 
     fn tab(&mut self, state: &LayoutState, tab: TabId) {
@@ -121,19 +129,21 @@ impl Scope {
 
     fn pane(&mut self, state: &LayoutState, pane: PaneId) {
         self.panes.insert(pane);
-        self.workspaces.extend(state.workspace_of_pane(pane));
+        if let Some(workspace) = state.workspace_of_pane(pane) {
+            self.workspace(workspace);
+        }
     }
 
-    /// The scope's workspaces in `state`, with their positions.
+    /// The scope's workspaces that `state` has, with their positions (one
+    /// to three ids, each found by its position).
     fn workspaces<'a>(
         &'a self,
         state: &'a LayoutState,
     ) -> impl Iterator<Item = (usize, &'a Workspace)> + 'a {
-        state
-            .workspaces
-            .iter()
-            .enumerate()
-            .filter(|(_, workspace)| self.workspaces.contains(&workspace.id))
+        self.workspaces.iter().filter_map(|id| {
+            let position = state.workspace_position(*id)?;
+            Some((position, &state.workspaces[position]))
+        })
     }
 
     /// The region's check and members in `state`; `panes` and `tabs` are
@@ -167,43 +177,49 @@ impl Scope {
                 }
             }
         }
+        // Each pane and tab is looked up once: the maps hold the whole corpus.
+        let mut region_panes = BTreeMap::new();
         for (pane, count) in &positions {
-            if !state.panes.contains_key(pane) {
-                violations.insert(Violation::LayoutPaneMissing { pane: *pane });
+            match state.panes.get(pane) {
+                Some(tabs) => {
+                    region_panes.insert(*pane, tabs);
+                }
+                None => {
+                    violations.insert(Violation::LayoutPaneMissing { pane: *pane });
+                }
             }
             if *count > 1 {
                 violations.insert(Violation::PanePlacedTwice { pane: *pane });
             }
         }
-        let mut region_panes = BTreeSet::new();
-        for pane in positions.keys().copied().chain(panes) {
-            if !state.panes.contains_key(&pane) || !region_panes.insert(pane) {
+        for pane in panes {
+            if positions.contains_key(&pane) || region_panes.contains_key(&pane) {
                 continue;
             }
-            if !positions.contains_key(&pane) {
+            if let Some(tabs) = state.panes.get(&pane) {
+                region_panes.insert(pane, tabs);
                 violations.insert(Violation::PaneOutsideLayout { pane });
             }
         }
         let mut placed = BTreeSet::new();
-        for pane in &region_panes {
-            let tabs = &state.panes[pane];
+        let mut region_tabs = BTreeSet::new();
+        for (pane, tabs) in &region_panes {
             if tabs.is_empty() {
                 violations.insert(Violation::EmptyPane { pane: *pane });
             }
-            for tab in tabs {
-                if !placed.insert(*tab) {
+            for tab in *tabs {
+                let first = placed.insert(*tab);
+                if !first {
                     violations.insert(Violation::TabPlacedTwice { tab: *tab });
                 }
                 if !state.tabs.contains_key(tab) {
                     violations.insert(Violation::TabWithoutContent { tab: *tab, pane: *pane });
+                } else if first {
+                    region_tabs.insert(*tab);
                 }
             }
         }
-        let mut region_tabs = placed
-            .iter()
-            .filter(|tab| state.tabs.contains_key(tab))
-            .copied()
-            .collect::<BTreeSet<_>>();
+        let region_panes = region_panes.into_keys().collect::<BTreeSet<_>>();
         for tab in tabs {
             if state.tabs.contains_key(&tab) && region_tabs.insert(tab) && !placed.contains(&tab) {
                 violations.insert(Violation::TabWithoutPane { tab });
@@ -309,17 +325,26 @@ impl Scope {
                 placed.push((pane, workspace.id));
             }
         }
+        // Write only what changed: a reorder changes no entry.
         let index = &mut state.index;
         for pane in before.panes.iter().chain(&self.panes) {
-            index.pane_workspace.remove(pane);
+            if !state.panes.contains_key(pane) {
+                index.pane_workspace.remove(pane);
+            }
         }
         for tab in before.tabs.keys().chain(&self.tabs) {
-            index.tab_pane.remove(tab);
+            if !state.tabs.contains_key(tab) {
+                index.tab_pane.remove(tab);
+            }
         }
         for (pane, workspace) in placed {
-            index.pane_workspace.insert(pane, workspace);
+            if index.pane_workspace.get(&pane) != Some(&workspace) {
+                index.pane_workspace.insert(pane, workspace);
+            }
             for tab in state.panes.get(&pane).into_iter().flatten() {
-                index.tab_pane.insert(*tab, pane);
+                if index.tab_pane.get(tab) != Some(&pane) {
+                    index.tab_pane.insert(*tab, pane);
+                }
             }
         }
     }
