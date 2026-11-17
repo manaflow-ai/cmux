@@ -23,7 +23,9 @@ struct DisabledActionRunIsSilentTests {
         #expect(!registry.perform("minimizeWindow", invocation: ActionInvocation(origin: .user)))
         #expect(runs() == 0, "the disabled action ran")
         #expect(refusals().map(\.0) == [Self.reason])
-        #expect(refusals().allSatisfy(\.1), "a disabled action's shortcut run asked for the refusal toast")
+        // Out of #expect: the macro passes the key path as a throwing argument, which does not compile.
+        let everyRefusalQuiet = refusals().allSatisfy(\.1)
+        #expect(everyRefusalQuiet, "a disabled action's shortcut run asked for the refusal toast")
     }
 
     @Test func aCallerStillGetsTheReason() {
