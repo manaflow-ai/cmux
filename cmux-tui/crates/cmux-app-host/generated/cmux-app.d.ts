@@ -581,6 +581,13 @@ interface CmuxPageRead {
 /** A link-hint label `page.hints` drew: type it to `page.follow` it. `href` is null for a button, field or other non-link. */
 interface CmuxPageHint { label: string; text: string; href: string | null }
 
+/** Whether cmux may read the person's calendar: the system's answer, or `unavailable` where there is no system calendar (not macOS). */
+type CmuxCalendarAccess = "granted" | "denied" | "restricted" | "notDetermined" | "unavailable"
+/** One event of the person's calendar (`system_calendar.events`). Times are epoch ms; `calendar` is the calendar's title, `color` its color as `#rrggbb` when it has one. */
+interface CmuxCalendarEvent { id: string; title: string; start: number; end: number; allDay: boolean; calendar: string; location?: string; url?: string; color?: string }
+/** `system_calendar.events`' answer: the access status, and the events (empty unless `access` is `granted`). */
+interface CmuxCalendarEvents { access: CmuxCalendarAccess; events: CmuxCalendarEvent[] }
+
 interface CmuxGlobal {
   agent: {
     /** `agent.list` (read, scope `agent:read`) */
@@ -1919,6 +1926,13 @@ interface CmuxGlobal {
     hints: CmuxOp<{ tab?: string; action: "show" | "clear" }, { tab: string; hints: CmuxPageHint[] }>
     /** `page.follow` (mutation, scope `page:write`, needs a gesture): clicks the element of a shown hint, or with `new_split` opens its link in a new browser split (the built-in `F`), then clears the hints. `followed` is false when the label is not shown (any more), or `new_split` names a hint with no link. */
     follow: CmuxOp<{ tab?: string; label: string; new_split?: boolean }, { tab: string; followed: boolean; href: string | null }>
+  }
+  /** The person's system calendar, read by the cmux app on the Mac (EventKit). Not the Cloud's Google `calendar.*` ops. */
+  system_calendar: {
+    /** `system_calendar.events` (read, scope `system_calendar:read`): events from now (ones in progress too) through `days` (1-31, default 7), sorted by start, at most `limit` (1-50, default 20), from every calendar. Never prompts: without full access it answers the status and no events. */
+    events: CmuxOp<{ days?: number; limit?: number }, CmuxCalendarEvents>
+    /** `system_calendar.request_access` (mutation, scope `system_calendar:read`, needs a gesture): shows the system calendar prompt when the person has not answered it yet, and answers the access status. */
+    request_access: CmuxOp<{}, { access: CmuxCalendarAccess }>
   }
   palette: CmuxPalette
   act: typeof act
