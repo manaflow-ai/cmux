@@ -125,7 +125,7 @@ enum DebugInstantCreateBench {
             }, start: start, window: 0, deadline: diff ? 20_000 : 5_000)
         let opensNewTab = visible != nil && (command == .newWorkspace || command == .newTab), shownAt = OSAllocatedUnfairLock<Double?>(initialState: nil) // Cmd-N, Cmd-T: `shown_ms`, the first frame showing the page's empty state (its pixels or its picture) with nothing kept over it; `ready_ms` also counts a page held away or under the ground
         let ready = !opensNewTab ? nil : await frames.settled(until: { if shownAt.withLock({ $0 == nil }), Probe.newTabShown(controller) { shownAt.withLock { $0 = BenchSpans.ms(.now - start) } }; return Probe(controller).newTabReady(services) }, start: start, window: 0, deadline: 5_000)
-        let shown = !opensNewTab ? nil : shownAt.withLock({ $0 }) ?? (await frames.settled(until: { Probe.newTabShown(controller) }, start: start, window: 0, deadline: 5_000))
+        var shown = opensNewTab ? shownAt.withLock({ $0 }) : nil; if opensNewTab, shown == nil { shown = await frames.settled(until: { Probe.newTabShown(controller) }, start: start, window: 0, deadline: 5_000) }
         let confirmed = visible == nil ? nil : await frames.settled(until: { Probe(controller).confirmed(command) }, start: start, window: 0, deadline: 5_000)
         let spans = BenchSpans.end(), stats = frames.stop()
         let refresh = { if case .object(let fields) = stats, let value = fields["refresh_ms"]?.doubleValue, value > 0 { return value }; return 1_000.0 / 60 }()
