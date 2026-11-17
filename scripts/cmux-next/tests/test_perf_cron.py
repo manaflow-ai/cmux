@@ -299,6 +299,20 @@ class FinishTests(OneRunRule):
         self.assertEqual(state["last_good"]["sha"], "d" * 40)
         self.assertEqual(state["regressions"], [])
 
+    def test_an_open_regression_keeps_its_newest_reading_beside_first_bad(self):
+        state = cron.empty_state(T0)
+        self.measured(state, "a" * 40, {"t.e2e": row(5.0)}, 0)
+        self.measured(state, "b" * 40, {"t.e2e": row(9.0)}, 1)
+        self.assertEqual(self.measured(state, "c" * 40, {"t.e2e": row(9.4)}, 50), "still")
+        reg = state["regressions"][0]
+        self.assertEqual(reg["first_bad"]["sha"], "b" * 40, "the detection stays")
+        self.assertEqual(reg["first_bad"]["measured_at"], cron.iso(at(1)))
+        self.assertEqual(reg["latest"]["sha"], "c" * 40)
+        self.assertEqual(reg["latest"]["p95"], 9.4)
+        self.assertEqual(reg["latest"]["measured_at"], cron.iso(at(50)), "a newer tip shows its own date")
+        self.bisected(state, "d" * 40, {"t.e2e": row(9.1)}, 51)
+        self.assertEqual(state["regressions"][0]["latest"]["sha"], "c" * 40, "a bisect step is no newer reading")
+
     def test_bisect_narrows_the_range(self):
         state = cron.empty_state(T0)
         self.measured(state, "a" * 40, {"t.e2e": row(5.0)}, 0)

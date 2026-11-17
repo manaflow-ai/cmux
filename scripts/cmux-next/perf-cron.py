@@ -2679,6 +2679,13 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
             r["range"] = {"good": start, "bad": first, "skip": [], "steps": 0}
             r.setdefault("first_bad", {"sha": cur["sha"], "run_url": run_url, "measured_at": iso(t)})
         r["confirmed"] = True
+        # The newest reading of an open regression, beside its first_bad record (which stays the detection): a tip
+        # measurement replaces it; a bisect step measures an older commit, so it keeps the one it had. Without it a
+        # still-regressed row showed its detection-time value and date, and the probe read it as unmeasured.
+        if cur.get("kind") == "tip" and isinstance(r.get("p95"), (int, float)):
+            r["latest"] = {"sha": cur["sha"], "p95": r["p95"], "measured_at": iso(t), "run_url": run_url}
+        elif prev and isinstance(prev.get("latest"), dict):
+            r["latest"] = prev["latest"]
         regressions.append(r)
     now_bad = {r["name"] for r in regressions} | held
     row_ok.update({name: cur["sha"] for name in judged if name not in now_bad})
