@@ -489,7 +489,7 @@ final class TabCell {
         var closeRect: CGRect?
         if let x = visibility.closeButtonOriginX(pillWidth: bounds.width, metrics: m) {
             let side = m.closeButtonSize
-            closeRect = placedCloseRect(CGRect(x: pixel(x), y: pixel(midY - side / 2), width: side, height: side), pillWidth: bounds.width)
+            closeRect = CGRect(x: pixel(x), y: pixel(midY - side / 2), width: side, height: side)
         }
         var iconX = Self.iconX(form: visibility, pillWidth: bounds.width, metrics: m)
         // Lawrence 2026-10-20: "i should not see layout shift here at all". Hover shows or hides the
