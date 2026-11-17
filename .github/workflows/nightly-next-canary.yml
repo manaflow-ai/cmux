@@ -215,6 +215,11 @@ jobs:
           [[ "$SHORT" =~ ^[0-9a-f]{7,40}$ ]] || { echo "invalid CMUXCommit '$SHORT'" >&2; exit 1; }
           sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHORT" --jq .sha)"
           git fetch --no-tags --depth=1 origin "$sha"
+          # The owned Macs keep this checkout between jobs but empty RUNNER_TEMP, so an earlier job's worktree
+          # can still be registered here with its folder gone ("is a missing but already registered worktree",
+          # run 44020590372). Remove one whose folder survived, then prune the rest.
+          git worktree remove --force "$RUNNER_TEMP/build-src" 2>/dev/null || true
+          git worktree prune
           git worktree add --detach "$RUNNER_TEMP/build-src" "$sha"
           echo "dir=$RUNNER_TEMP/build-src" >> "$GITHUB_OUTPUT"
           echo "harness from $sha (CMUXCommit $SHORT)"
@@ -259,6 +264,14 @@ jobs:
           if [ -d "$RUNNER_TEMP/canary-mount" ]; then
             hdiutil detach "$RUNNER_TEMP/canary-mount" -force >/dev/null 2>&1 || true
           fi
+
+      # Unregister the harness worktree so the next job on this runner starts clean, also after a failed or
+      # timed-out canary (a cancelled job's is cleared by the prune before the next add).
+      - name: Remove the harness worktree
+        if: always() && steps.harness.outcome != 'skipped'
+        run: |
+          git worktree remove --force "$RUNNER_TEMP/build-src" 2>/dev/null || true
+          git worktree prune
 
   # The durable verdict (nightly-next-verdict.yml writes verdicts/<build>.json
   # next to the cmux NEXT appcast in R2). The train's base is the newest feed

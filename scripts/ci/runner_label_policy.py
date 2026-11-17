@@ -21,6 +21,7 @@ two cannot drift apart.
 
 from __future__ import annotations
 
+import json
 import re
 from functools import cache
 from pathlib import Path
@@ -160,6 +161,42 @@ def side_lane_reason(label: str) -> str | None:
     return forbidden_reason(label)
 
 
+# The side lane as what a job needs, not one pool: a JSON label array that every runs-on reading
+# vars.CI_SIDE_LANE_RUNNER takes first, when set (tests/test_ci_side_lane_capability_labels.py keeps every
+# reader on it). It holds one side pool label (glaeda-side-<class>-xcode-<v>, or glaeda-side-xcode-<v>: every
+# side runner with that Xcode, whatever its class) and the capability tiers the job needs. GitHub gives a job
+# a runner carrying every label, so `["glaeda-side-xcode-26.6", "glaeda-ram-48"]` reaches any 48 GiB+ side
+# runner with Xcode 26.6. The tiers are the ones cmuxterm-hq build-fleet/mini-ops/runner_labels.py
+# CAPABILITY_LABELS gives every root, side, gui and session runner from its host's measured shape.
+SIDE_LANE_LABELS_VARIABLE = "CI_SIDE_LANE_LABELS"
+SHARED_SIDE_LABEL = re.compile(r"glaeda-side-xcode-[0-9]+(?:\.[0-9]+)*")
+CAPABILITY_LABEL = re.compile(r"glaeda-(?:ram-(?:16|48|96)|cores-(?:10|12|14|30)|display)")
+
+
+def side_lane_labels_reason(value: str) -> str | None:
+    """Why a CI_SIDE_LANE_LABELS value is not allowed, or None when it is fine (empty is off)."""
+    if not value.strip():
+        return None
+    try:
+        labels = json.loads(value)
+    except (TypeError, ValueError):
+        return "is not valid JSON; it must be a JSON array of runner labels"
+    if not isinstance(labels, list) or not labels or not all(isinstance(label, str) for label in labels):
+        return "must be a non-empty JSON array of runner label strings"
+    if len(set(labels)) != len(labels):
+        return "names a label twice"
+    pools = [label for label in labels if SHARED_SIDE_LABEL.fullmatch(label) or (
+        label.startswith(SIDE_LANE_PREFIX) and side_lane_reason(label) is None)]
+    if len(pools) != 1:
+        return ("must name exactly one side pool label (glaeda-side-<class>-xcode-<version> or "
+                f"glaeda-side-xcode-<version>), not {len(pools)}")
+    for label in labels:
+        if label not in pools and not CAPABILITY_LABEL.fullmatch(label):
+            return (f"`{label}` is not a capability label every host of a tier carries "
+                    "(glaeda-ram-16|48|96, glaeda-cores-10|12|14|30, glaeda-display)")
+    return None
+
+
 TRUSTED_POOL_VARIABLE = "CI_SEED_TRUSTED_POOL"
 TRUSTED_POOL_PREFIX = "glaeda-trusted-"
 
@@ -295,6 +332,8 @@ def drifted_runner_variables(
                       f"must name the one nightly mini's label ({label}) or be unset")
         elif name in SIDE_LANE_VARIABLES:
             reason = side_lane_reason(value.strip())
+        elif name == SIDE_LANE_LABELS_VARIABLE:
+            reason = side_lane_labels_reason(value)
         elif name in (TRUSTED_POOL_VARIABLE, "CI_NIGHTLY_NEXT_TRUSTED_POOL"):
             reason = trusted_pool_reason(value.strip())
         elif name == NIGHTLY_SLOT_VARIABLE:

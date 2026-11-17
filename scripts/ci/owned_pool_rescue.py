@@ -1920,6 +1920,11 @@ class GitHub:
         (end_on_spent), before this thread has sent any write. After a cancel, its reads and re-run wait as before."""
         return self.end_on_spent and not getattr(self._limits, "wrote", False)
 
+    def sent_write(self) -> bool:
+        """Whether this thread (one watch of the sweeper) has sent any write: before one, a watch that ends on a read
+        error or a rate limit changed nothing, so the sweeper may watch the run again (sweep(), WatchKept)."""
+        return bool(getattr(self._limits, "wrote", False))
+
     def _fresh_token(self, stale: str | None = None) -> None:
         """Swap in a new installation token when the current one is TOKEN_REFRESH_SECONDS old, or when
         it is still `stale` (the Authorization a request was refused with: concurrent 401s mint once)."""
@@ -5764,8 +5769,13 @@ def long_queue_move(api: GitHub, target: Target, side_label: str, *, now: Callab
 def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | None,
            now: Callable[[], dt.datetime], sleep: Callable[[float], None], log: Callable[[str], None],
            rescue_sleep: Callable[[float], None] | None = None, latest: dt.datetime | None = None,
-           light_retry: bool = False, side_seconds: int | None = None, side_label: str = "") -> str:
+           light_retry: bool = False, side_seconds: int | None = None, side_label: str = "",
+           kept: WatchKept | None = None) -> str:
     """Watch one run and rescue it when it needs it. Returns the outcome; raises READ_ERRORS or Aborted.
+
+    `kept` (WatchKept) carries an earlier watch's start and job sightings into a watch the sweeper took up again
+    after that one ended on a read error or a rate limit before any write: each job's budget keeps counting from
+    when it was first seen, so a job already past it is judged at the first look.
 
     The sweeper stops a watch by making `sleep` raise; a rescue paces itself
     with `rescue_sleep` (default `sleep`) so a cancel it started is always
@@ -5801,12 +5811,19 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
     # A rescue may run past the watch deadline, within the job's own timeout,
     # so a cancel is never started without the time to settle and re-run.
     started = clock()
+    # A watch taken up again gets a fresh watch limit (a rescue needs its deadline's room), never a fresh budget.
+    kept = WatchKept() if kept is None else kept
+    if kept.started is None:
+        kept.started = started
+    else:
+        log(f"watching again: the first watch began at {kept.started:%H:%M:%SZ}, and {len(kept.seen)} job(s) keep "
+            "their first sighting, so their budget is not reset")
     deadline = started + dt.timedelta(seconds=target.watch_limit)
     rescue_deadline = capped(deadline + dt.timedelta(seconds=RESCUE_GRACE_SECONDS))
     # Every attempt gets the queue allowance: a re-run's owned jobs queue on the owned labels like attempt 1's.
     first_budget = effective_seconds + queue_extra
-    seen: dict[Any, dt.datetime] = {}
-    sign_seen: dict[Any, dt.datetime] = {}
+    seen: dict[Any, dt.datetime] = kept.seen
+    sign_seen: dict[Any, dt.datetime] = kept.sign_seen
     sign_text: list[str | None] = []
     outcome, reason = watch(client, target, budget_seconds=first_budget, now=clock, sleep=sleep,
                             log=log, deadline=deadline, floor_seconds=effective_seconds, seen=seen,
@@ -7000,6 +7017,50 @@ def code_changed(client: Any, running: Mapping[str, str], log: Callable[[str], N
     return sorted(name for name in CODE_FILES if (current.get(name) or "") != (running.get(name) or ""))
 
 
+# A sweeper's watch that ends on a read error, a read refused for a rate limit or QuotaSpent before it sent any write
+# (GitHub.sent_write()) changed nothing, so the sweeper takes the run up again on a later tick, no earlier than the
+# rate limit's reset when it is known, else after this. Before, the run stayed in `seen` and its watch was over for
+# the sweeper's remaining five hours, while the next sweepers waited behind it in the concurrency group: cmux#44053's
+# test-ios.yml run 44019100451 (2026-11-17) had ios-simulator-build queued on [glaeda-std-xcode-26.6, glaeda-ios-sim]
+# from 04:44Z; its watch's read was refused for the cmux-bot installation's spent budget at 05:24Z, about 30 s before
+# the budget would have moved it to retry_runs_on, gave up at 05:39Z, and nothing looked at the run again for hours.
+RELEASE_BACKOFF_SECONDS = 5 * 60
+
+
+@dataclasses.dataclass
+class WatchKept:
+    """What a watch the sweeper takes up again keeps from the one that ended (follow()): when that one began, and
+    when it first saw each job queued (watch()'s `seen`) or each signing job (`sign_seen`)."""
+    started: dt.datetime | None = None
+    seen: dict[Any, dt.datetime] = dataclasses.field(default_factory=dict)
+    sign_seen: dict[Any, dt.datetime] = dataclasses.field(default_factory=dict)
+
+
+def release_delay(client: Any, error: BaseException) -> float:
+    """Seconds until a released run may be watched again: until the rate limit's reset (the refusal's own
+    X-RateLimit-Reset, else a spent budget_left()) or its Retry-After when known, else RELEASE_BACKOFF_SECONDS."""
+    headers = getattr(error, "headers", None)
+    try:
+        get = {str(key).lower(): str(value).strip() for key, value in (headers or {}).items()}.get
+    except AttributeError:
+        get = {}.get
+    reset: float | None = None
+    if get("x-ratelimit-remaining") == "0" and (get("x-ratelimit-reset") or "").isdigit():
+        reset = float(get("x-ratelimit-reset") or 0)
+    elif (get("retry-after") or "").isdigit():
+        return max(float(get("retry-after") or 0), float(SWEEP_TICK_SECONDS))
+    if reset is None and hasattr(client, "budget_left"):
+        try:
+            remaining, at = client.budget_left()
+        except Exception:  # noqa: BLE001 - an unread budget leaves the backoff
+            remaining, at = None, None
+        if remaining is not None and remaining < BUDGET_RESERVE and at:
+            reset = at
+    if reset is None:
+        return float(RELEASE_BACKOFF_SECONDS)
+    return max(reset - time.time() + 5, float(SWEEP_TICK_SECONDS))
+
+
 def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | None,
           now: Callable[[], dt.datetime], log: Callable[[str], None],
           sweep_seconds: int = SWEEP_SECONDS, tick_seconds: float = SWEEP_TICK_SECONDS,
@@ -7028,6 +7089,9 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
     # The watch thread of each adopted run: a side lane's watch stops once the fleet accepted its jobs,
     # and a runner stopped after that fails the run later, so the failed-run listing takes it up again.
     watching: dict[int, threading.Thread] = {}
+    # Runs whose watch ended on a read error or a rate limit before any write: (when it may be watched again, whether
+    # it was a late marker's, what the new watch keeps). Written by the watch threads, under `lock`.
+    released: dict[int, tuple[dt.datetime, bool, WatchKept]] = {}
     started = now()
     latest = started + dt.timedelta(seconds=sweep_seconds + RESCUE_GRACE_SECONDS)
     since = started - dt.timedelta(seconds=SWEEP_FINISHED_SECONDS)
@@ -7038,23 +7102,36 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
         if stopping.wait(delay):
             raise Stopping("the sweeper is handing over")
 
-    def one(target: Target) -> None:
+    def release(target: Target, kept: WatchKept, error: BaseException, say: Callable[[str], None]) -> None:
+        """Watch the run again on a later tick (RELEASE_BACKOFF_SECONDS) when this watch sent no write."""
+        wrote = getattr(client, "sent_write", None)
+        if not callable(wrote) or wrote():
+            return
+        at = now() + dt.timedelta(seconds=release_delay(client, error))
+        with lock:
+            released[target.run_id] = (at, target.late, kept)
+        say(f"nothing was written: watched again from {at:%H:%M:%SZ}, keeping this watch's job sightings")
+
+    def one(target: Target, kept: WatchKept) -> None:
         def say(text: str) -> None:
             log(f"[run {target.run_id}] {text}")
         try:
             outcome = follow(client, target, seconds=seconds, queue_rounds=queue_rounds,
                              now=now, sleep=watch_sleep, log=say, rescue_sleep=wait, latest=latest,
-                             light_retry=light_retry, side_seconds=side_seconds, side_label=side_label)
+                             light_retry=light_retry, side_seconds=side_seconds, side_label=side_label, kept=kept)
         except Stopping:
             outcome = "handed over"
         except QuotaSpent as error:
             outcome = "quota spent"
             say(f"stopped: {error.why}")
+            release(target, kept, error, say)
         except (*READ_ERRORS, Aborted) as error:
             outcome = "gave up"
             say(f"gave up: {error}")
             if target.nightly:
                 log(gave_up(target, error))  # unprefixed, so the runner reads the annotation
+            if isinstance(error, READ_ERRORS):
+                release(target, kept, error, say)
         except Exception as error:  # noqa: BLE001 - one run's bug must not end every other watch
             outcome = "error"
             say(f"error: {type(error).__name__}: {error}")
@@ -7066,6 +7143,10 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
 
     def adopt(run_id: int, late: bool, *, refusals_known: bool = True) -> bool:
         """Watch the run if it needs it. False when it could not be judged yet (a read failed): try later."""
+        with lock:
+            pending = released.get(run_id)
+        if pending is not None and now() < pending[0]:
+            return False  # released (one()): not before its time, whichever listing names it
         was_seen = run_id in seen
         seen.add(run_id)
         try:
@@ -7106,12 +7187,17 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
         target = sweep_target(run, repository, late=late, full_rerun=full_rerun, since=since, stranded=stranded)
         if isinstance(target, str):
             log(f"[run {run_id}] not watched: {target}")
+            with lock:
+                released.pop(run_id, None)
             # An ended watch no longer makes the queued listing take it up again: it would be read every listing.
             watching.pop(run_id, None)
             return True
         if run_id in refusals_runs:
             target = dataclasses.replace(target, refusals_only=True)
-        thread = threading.Thread(target=one, args=(target,), name=f"run-{run_id}", daemon=True)
+        with lock:
+            released.pop(run_id, None)
+        kept = pending[2] if pending is not None else WatchKept()
+        thread = threading.Thread(target=one, args=(target, kept), name=f"run-{run_id}", daemon=True)
         thread.start()
         threads.append(thread)
         watching[run_id] = thread
@@ -7184,6 +7270,13 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
                 if run_id in seen or (created is not None and created < oldest):
                     continue
                 adopt(run_id, late)
+        # A watch that ended on a read error or a rate limit before any write (one()) is taken up again once due,
+        # at any age: its run was adopted before.
+        with lock:
+            due = sorted((run_id, late) for run_id, (at, late, _) in released.items() if now() >= at)
+        for run_id, late in due:
+            if not (watching.get(run_id) and watching[run_id].is_alive()):
+                adopt(run_id, late, refusals_known=refusals_listed)
         # A re-run of failed jobs goes back to the minis with no marker of its own; two listings a tick.
         try:
             reruns = client.owned_reruns(SWEEP_LISTING)
