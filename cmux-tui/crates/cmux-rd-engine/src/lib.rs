@@ -25,6 +25,12 @@ use cmux_rd_proto::{
 
 pub use cmux_rd_core::loss::LossMeter;
 
+mod idr;
+pub use idr::{
+    IDR_REPAIR_WAIT_US, IDR_SEND_BUDGET_US, IdrGate, IdrHold, MAX_IDR_REPAIR_WAIT_US,
+    MIN_FORCED_IDR_INTERVAL_US, MIN_IDR_RATE_DIVISOR,
+};
+
 /// Frames kept for NACK resends.
 pub const HISTORY_FRAMES: usize = 16;
 /// Keep a short, bounded RTT history so queueing spikes do not set the window,
@@ -33,8 +39,6 @@ const ACK_RTT_WINDOW_US: u64 = 1_000_000;
 const ACK_RTT_SAMPLES: usize = 64;
 /// Datagrams resent per feedback, so a hostile feedback cannot amplify.
 pub const MAX_RESENDS_PER_FEEDBACK: usize = 64;
-/// Shortest time between two forced keyframes.
-pub const MIN_FORCED_IDR_INTERVAL_US: u64 = 250_000;
 /// How long a stream's newest frame may go unacknowledged before the host
 /// resends it (a tail-loss probe). On a datagram path a frame whose every
 /// datagram was lost leaves the viewer nothing to NACK and the gate nothing
@@ -126,6 +130,11 @@ pub enum IdrReason {
 }
 
 impl IdrReason {
+    /// A keyframe that answers a loss: the gate may hold it and bounds its size.
+    pub fn is_loss(self) -> bool {
+        matches!(self, IdrReason::Recovery | IdrReason::TailProbe)
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             IdrReason::Start => "start",
@@ -162,6 +171,9 @@ pub struct Output {
     pub halve_bitrate: bool,
     /// Complete upstream media frames (stream, frame) from the viewer (rd change C4).
     pub upstream: Vec<(u16, CompleteFrame)>,
+    /// A loss the engine did not answer with a keyframe, and why (stream,
+    /// hold), for the source's timing log.
+    pub idr_held: Option<(u16, IdrHold)>,
 }
 
 /// Why a stream cannot be added.
@@ -306,7 +318,8 @@ struct StreamState {
     last_frame: u32,
     /// The next frame is a keyframe, and why.
     force_idr: Option<IdrReason>,
-    last_forced_idr_us: Option<u64>,
+    /// When a loss may cost a keyframe, and how large (see `idr`).
+    idr_gate: IdrGate,
     /// The first damage covers the whole stream.
     started: bool,
     /// A tile stream's surface stream (rd change C3).
@@ -330,7 +343,7 @@ impl StreamState {
             history: BTreeMap::new(),
             last_frame: 0,
             force_idr: Some(IdrReason::Start),
-            last_forced_idr_us: None,
+            idr_gate: IdrGate::default(),
             started: false,
             tile_of: None,
             probe_from_us: None,
@@ -362,6 +375,8 @@ pub struct MediaEngine {
     clock: Option<ClockEstimate>,
     /// Recent cumulative frame-ack round trips: (observation time, round trip).
     ack_rtts: VecDeque<(u64, u64)>,
+    /// The carrier's latest round trip, when it measures one.
+    path_rtt_us: Option<u64>,
     upstreams: BTreeMap<u16, Upstream>,
 }
 
@@ -386,6 +401,7 @@ impl MediaEngine {
             keyframes: 0,
             clock: None,
             ack_rtts: VecDeque::new(),
+            path_rtt_us: None,
             upstreams: BTreeMap::new(),
             cfg,
         }
@@ -420,6 +436,7 @@ impl MediaEngine {
     /// while the carrier has no RTT measurement. The caller supplies its current
     /// route's measurement each time, or None after falling back to a socket.
     pub fn update_frames_in_flight_from_rtt(&mut self, path_rtt_us: Option<u64>) {
+        self.path_rtt_us = path_rtt_us;
         if let Some(rtt_us) = path_rtt_us.or_else(|| self.ack_rtt_us()) {
             self.set_frames_in_flight(frames_in_flight_for(rtt_us, self.cfg.max_fps).max(2));
             // A measured LAN round trip starts the target high (until the first overuse).
@@ -515,14 +532,22 @@ impl MediaEngine {
     fn request(&self, stream: u16, action: FlowAction) -> Option<EncodeRequest> {
         let state = self.streams.get(&stream)?;
         match action {
-            FlowAction::Encode { damage, frame } => Some(EncodeRequest {
-                stream,
-                frame,
-                damage,
-                force_idr: state.force_idr.is_some(),
-                idr_reason: state.force_idr,
-                target_kbps: self.target_kbps(stream),
-            }),
+            FlowAction::Encode { damage, frame } => {
+                let target_kbps = self.target_kbps(stream);
+                Some(EncodeRequest {
+                    stream,
+                    frame,
+                    damage,
+                    force_idr: state.force_idr.is_some(),
+                    idr_reason: state.force_idr,
+                    // A loss keyframe is asked at a rate that bounds its size.
+                    target_kbps: if state.force_idr.is_some_and(IdrReason::is_loss) {
+                        state.idr_gate.bounded_kbps(target_kbps)
+                    } else {
+                        target_kbps
+                    },
+                })
+            }
             FlowAction::Wait => None,
         }
     }
@@ -601,8 +626,8 @@ impl MediaEngine {
             },
             access_unit: enc.access_unit,
         };
-        let data_shards =
-            (body.access_unit.len() + FRAME_PREFIX_LEN).div_ceil(self.packetizer.shard_len());
+        let body_len = body.access_unit.len();
+        let data_shards = (body_len + FRAME_PREFIX_LEN).div_ceil(self.packetizer.shard_len());
         // Tile frames are standalone, so they get keyframe-grade protection.
         let parity = parity_for(data_shards, loss, enc.idr || tile);
         let flags = if tile {
@@ -636,6 +661,12 @@ impl MediaEngine {
         }
         while state.history.len() > HISTORY_FRAMES {
             state.history.pop_first();
+        }
+        if enc.idr && !tile {
+            state.idr_gate.on_keyframe_sent(req.frame, now_us);
+            if req.idr_reason.is_some_and(IdrReason::is_loss) {
+                state.idr_gate.on_loss_keyframe_sized(body_len, req.target_kbps);
+            }
         }
         state.force_idr = None;
         state.last_frame = req.frame;
@@ -700,7 +731,9 @@ impl MediaEngine {
         let congestion_loss = self.loss_meter.take_congestion_loss(now_us).unwrap_or(0.0);
         self.cc.on_feedback(&fb.arrivals, congestion_loss, now_us);
         self.last_feedback_us = now_us;
+        let rtt_us = self.rtt_us();
         let Some(state) = self.streams.get_mut(&stream) else { return };
+        state.idr_gate.on_ack(fb.acked_frame);
         if fb.acked_frame > 0
             && let Some(sent_at_us) = state.sent_at_us.remove(&fb.acked_frame)
         {
@@ -731,12 +764,15 @@ impl MediaEngine {
             }
         }
         let mut action = state.gate.ack(fb.acked_frame, now_us);
-        let idr_allowed = state
-            .last_forced_idr_us
-            .is_none_or(|t| now_us.saturating_sub(t) >= MIN_FORCED_IDR_INTERVAL_US);
-        if fb.need_recovery && idr_allowed {
-            state.last_forced_idr_us = Some(now_us);
-            state.force_idr = Some(IdrReason::Recovery);
+        let gate = fb.need_recovery.then(|| state.idr_gate.check(now_us, rtt_us));
+        if let Some(Err(hold)) = gate {
+            state.idr_gate.note_held();
+            out.idr_held = Some((stream, hold));
+        }
+        if let Some(Ok(())) = gate {
+            state.idr_gate.on_forced(now_us);
+            // A keyframe already asked for (start, too large) keeps its reason.
+            state.force_idr.get_or_insert(IdrReason::Recovery);
             state.gate.clear_in_flight();
             let full = state.full();
             action = state.gate.damage(full, now_us);
@@ -777,8 +813,12 @@ impl MediaEngine {
             if out.encode.is_some() {
                 continue;
             }
+            // No gate check: the probes restart with every frame sent, so this
+            // keyframe is already TAIL_PROBES + 1 probe intervals (1 s) after the
+            // last frame, past any repair window and the spacing. It still
+            // counts for the spacing of the next recovery keyframe.
             state.probe_from_us = None;
-            state.last_forced_idr_us = Some(now_us);
+            state.idr_gate.on_forced(now_us);
             state.force_idr = Some(IdrReason::TailProbe);
             state.gate.clear_in_flight();
             let full = state.full();
@@ -846,6 +886,17 @@ impl MediaEngine {
     /// a slower route for the rest of the session.
     pub fn ack_rtt_us(&self) -> Option<u64> {
         self.ack_rtts.iter().map(|(_, rtt)| *rtt).min()
+    }
+
+    /// The round trip the keyframe gate sizes its repair window with: the
+    /// carrier's, else the frame-ack one, else none known (0).
+    fn rtt_us(&self) -> u64 {
+        self.path_rtt_us.or_else(|| self.ack_rtt_us()).unwrap_or(0)
+    }
+
+    /// Loss keyframes the gate held back on `stream` (repairing or spacing).
+    pub fn idr_holds(&self, stream: u16) -> u64 {
+        self.streams.get(&stream).map_or(0, |s| s.idr_gate.held())
     }
 
     /// Answers a clock ping at once (receive and send time are the same call).

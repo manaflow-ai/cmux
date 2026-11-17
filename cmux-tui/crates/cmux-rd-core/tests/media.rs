@@ -145,6 +145,58 @@ fn a_frame_that_references_a_lost_frame_is_never_released() {
     assert_eq!(r.last_released(), 4);
 }
 
+/// A keyframe that is still arriving, or waiting for a NACKed shard, will
+/// recover the stream: the viewer does not ask for another one meanwhile.
+/// If it misses its deadline the request comes back.
+#[test]
+fn a_keyframe_still_in_repair_holds_the_recovery_request() {
+    let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
+    let mut r = Reassembler::new(50_000);
+    let mut deliver = |r: &mut Reassembler, frame: u32, keyframe: bool, skip: &[u16], now: u64| {
+        let out = p
+            .packetize(
+                frame,
+                if keyframe { flags::KEYFRAME } else { 0 },
+                &body(frame, 3000, keyframe),
+                0,
+            )
+            .expect("packetize");
+        let mut released = Vec::new();
+        let mut missing = Vec::new();
+        for d in &out.datagrams {
+            let (h, payload) = DatagramHeader::decode(d).expect("decode");
+            if skip.contains(&h.index) {
+                missing.push(d.clone());
+            } else {
+                released.extend(r.push(&h, payload, now));
+            }
+        }
+        (released, missing)
+    };
+    deliver(&mut r, 1, true, &[], 0);
+    // Frame 2 is lost: the viewer needs a keyframe.
+    deliver(&mut r, 2, false, &[0], 1_000);
+    assert!(r.tick(60_000).is_empty());
+    assert!(r.need_recovery());
+    // The recovery keyframe arrives with one shard missing: it is in repair.
+    let (released, missing) = deliver(&mut r, 3, true, &[1], 70_000);
+    assert!(released.is_empty());
+    assert!(r.keyframe_in_repair());
+    assert!(!r.need_recovery(), "a second keyframe while the first is repairable");
+    // The NACKed shard is repaired: the keyframe recovers the stream.
+    let (h, payload) = DatagramHeader::decode(&missing[0]).expect("decode");
+    assert_eq!(r.push(&h, payload, 90_000).len(), 1);
+    assert!(!r.need_recovery());
+    // A later keyframe that misses its deadline is lost, and recovery is asked again.
+    deliver(&mut r, 4, false, &[0], 100_000);
+    assert!(r.tick(160_000).is_empty());
+    deliver(&mut r, 5, true, &[1], 170_000);
+    assert!(!r.need_recovery());
+    assert!(r.tick(230_000).is_empty());
+    assert!(!r.keyframe_in_repair());
+    assert!(r.need_recovery(), "the lost keyframe brings the request back");
+}
+
 #[test]
 fn recovery_frame_referencing_the_last_released_frame_is_released() {
     let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
