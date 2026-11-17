@@ -633,7 +633,8 @@ class Workflow(unittest.TestCase):
         env = {**os.environ, "PATH": f"{scratch / 'bin'}:{os.environ['PATH']}", "CALLS": str(calls),
                "CMUX_CI_CLIENT": str(client), "RUNNER_TEMP": str(temp), "GITHUB_OUTPUT": str(out),
                "GITHUB_STEP_SUMMARY": str(summary), "CONTROLLER": "http://controller", "PR": "7",
-               "HEAD_SHA": HEAD, "GITHUB_RUN_ID": "99", "GITHUB_RUN_ATTEMPT": "1", "RUNNER_NAME": "test"}
+               "HEAD_SHA": HEAD, "GITHUB_RUN_ID": "99", "GITHUB_RUN_ATTEMPT": "1", "RUNNER_NAME": "test",
+               "ATTEMPT": "1"}  # the last look: no `look again` follows to rejoin its step
         scripts = self.look_steps()
         done = subprocess.run(["bash", "-c", scripts[0]], cwd=ROOT, env=env, capture_output=True, text=True)
         self.assertNotEqual(done.returncode, 0)  # no look result is never green
@@ -645,6 +646,68 @@ class Workflow(unittest.TestCase):
         done = subprocess.run(["bash", "-c", scripts[-1]], cwd=ROOT, env=env, capture_output=True, text=True)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertIn(f"cancel {step}", calls.read_text())
+
+    def look_env(self, scratch: Path, client_body: str, run_id: str, attempt: str) -> tuple[dict, Path]:
+        """The look step's environment, with a fake cmux-ci of client_body and a fake curl."""
+        (scratch / "bin").mkdir(exist_ok=True)
+        client = scratch / "bin" / "cmux-ci"
+        client.write_text("#!/bin/bash\necho \"$*\" >> \"$CALLS\"\n" + client_body)
+        client.chmod(0o755)
+        curl = scratch / "bin" / "curl"
+        curl.write_text("#!/bin/bash\nwhile [[ $# -gt 0 ]]; do [[ $1 == -o ]] && { shift; printf '{\"commit\": \"%s\"}' "
+                        f"{HEAD} > \"$1\"; }}; shift; done\n")
+        curl.chmod(0o755)
+        temp = scratch / f"temp-{run_id}"
+        temp.mkdir()
+        calls = scratch / "client-calls"
+        return {**os.environ, "PATH": f"{scratch / 'bin'}:{os.environ['PATH']}", "CALLS": str(calls),
+                "CMUX_CI_CLIENT": str(client), "RUNNER_TEMP": str(temp), "GITHUB_OUTPUT": str(scratch / "out"),
+                "GITHUB_STEP_SUMMARY": str(scratch / "summary"), "CONTROLLER": "http://controller", "PR": "7",
+                "HEAD_SHA": HEAD, "GITHUB_RUN_ID": run_id, "GITHUB_RUN_ATTEMPT": "1", "RUNNER_NAME": "test",
+                "ATTEMPT": attempt}, calls
+
+    def test_a_look_again_rejoins_the_queued_fleet_step_of_its_head(self) -> None:
+        # 2026-11-17: a look step runs about 2.5 min (p50 of 297) but waits 18 min p50 and 2 h p90 for a Mac. The client
+        # stops waiting at 30 min and `look again` used to submit a new step under a new key, at the back of the queue;
+        # #45314's step ran at 10:24 after waiting 2 h, with nobody left to post it. One key per PR head lets the retry
+        # rejoin the step where it stands, or take its out.tar when it has run since.
+        step = "0123456789abcdef01234567"
+        scratch = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="hot-verify-rejoin-")))
+        body = (f"if [[ $1 == run ]]; then echo 'cmux-ci: step {step} (light, key x)'; exit 75; fi\n"
+                "[[ $1 == cancel ]] && exit 0\nexit 1\n")
+        script = self.look_steps()[0]
+        keys = []
+        for run_id, attempt in (("99", ""), ("100", "1")):
+            env, calls = self.look_env(scratch, body, run_id, attempt)
+            if calls.exists():
+                calls.unlink()
+            done = subprocess.run(["bash", "-c", script], cwd=ROOT, env=env, capture_output=True, text=True)
+            self.assertNotEqual(done.returncode, 0)
+            made = calls.read_text().splitlines()
+            keys.append(next(c.split("--key ", 1)[1].split()[0] for c in made if c.startswith("run ")))
+            # The first look leaves its step queued for `look again`; the last one has no retry after it.
+            self.assertEqual(any(c.startswith(f"cancel {step}") for c in made), attempt == "1", made)
+        self.assertEqual(keys[0], keys[1])
+        self.assertEqual(keys[0], f"hv-7-{HEAD[:12]}")
+
+    def test_a_look_whose_head_step_already_failed_runs_a_fresh_one(self) -> None:
+        # The same key returns the step it made in any state: one that failed before must not be the only answer.
+        old, new = "aaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbb"
+        scratch = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="hot-verify-fresh-")))
+        body = ("if [[ $1 == run ]]; then\n"
+                "  for a in \"$@\"; do [[ $prev == --key ]] && key=$a; prev=$a; done\n"
+                f"  if [[ $key == hv-7-{HEAD[:12]} ]]; then echo 'cmux-ci: step {old} (light, key x)'; exit 1; fi\n"
+                f"  echo 'cmux-ci: step {new} (light, key y)'; exit 0\n"
+                "fi\n"
+                f"if [[ $1 == artifact && $2 == {new} ]]; then echo tar > \"$3\"; exit 0; fi\n"
+                "exit 1\n")
+        env, calls = self.look_env(scratch, body, "99", "")
+        done = subprocess.run(["bash", "-c", self.look_steps()[0]], cwd=ROOT, env=env, capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, (done.stdout, done.stderr))
+        runs = [c for c in calls.read_text().splitlines() if c.startswith("run ")]
+        self.assertEqual(len(runs), 2, runs)
+        self.assertIn(f"--key hv-7-{HEAD[:12]}-99-1 ", runs[1])
+        self.assertIn("result=ok", (scratch / "out").read_text())
 
     def test_the_web_publisher_takes_a_pr_dispatch(self) -> None:
         text = WEB_PUBLISH.read_text()
