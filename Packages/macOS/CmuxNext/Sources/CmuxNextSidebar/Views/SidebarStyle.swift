@@ -332,7 +332,8 @@ enum SidebarStyle {
     /// secondary ink, not a smaller semibold label. The Codex heading measures 13 px over 13 px rows, about 59% of
     /// the way from its ground to white, which `textSecondary` (62%) matches.
     static var headerFont: NSFont {
-        tuned(derivedHeaderFont, size: SidebarRowTuning.headingSize.tunable.override, weight: SidebarRowTuning.headingWeight)
+        tuned(derivedHeaderFont, size: SidebarRowTuning.headingSize.tunable.override ?? Metrics.densityToken("sidebarHeadingSize"),
+              weight: SidebarRowTuning.headingWeight)
     }
     /// ``headerFont`` before the Sidebar Row Tuner (`sidebarRows.headingSize`'s default).
     static var derivedHeaderFont: NSFont { sized(rowTitleBase, weight: .regular) }

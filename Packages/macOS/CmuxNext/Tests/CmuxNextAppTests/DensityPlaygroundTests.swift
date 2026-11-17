@@ -111,10 +111,13 @@ struct DensityPlaygroundTests {
             let current = DensityPlaygroundModel.value(entry, in: base) ?? entry.range.lowerBound
             let delta = entry.unit == .factor ? 0.2 : max(4, entry.step * 8)
             let moved = current + delta <= entry.range.upperBound ? current + delta : current - delta
-            let tuned = DensityTokenCatalog.setting(entry, to: moved, in: base)
             let before = DensityTokens.$scoped.withValue(base) { probe() }
-            let after = DensityTokens.$scoped.withValue(tuned) { probe() }
-            if before == after { dead.append("\(entry.key) (\(current) → \(moved): \(before))") }
+            // A nudge first; a value with a floor (the selected tab's minimum never drops under its icon and close
+            // button) must still move what is drawn somewhere in its range.
+            let reaches = [moved, entry.range.upperBound, entry.range.lowerBound].contains { value in
+                DensityTokens.$scoped.withValue(DensityTokenCatalog.setting(entry, to: value, in: base)) { probe() } != before
+            }
+            if !reaches { dead.append("\(entry.key) (\(current) → \(moved): \(before))") }
         }
         #expect(dead.isEmpty, "\(preset): values that change nothing on screen: \(dead)")
     }
@@ -266,18 +269,25 @@ struct DensityPlaygroundTests {
         let gap = try #require(DensityTokenCatalog.entry("sidebarRowGap"))
         let saved = DesignSettings.shared.densityTokens
         defer { DesignSettings.shared.densityTokens = saved }
+        func ms(_ duration: Duration) -> Double {
+            Double(duration.components.seconds) * 1000 + Double(duration.components.attoseconds) / 1e15
+        }
         var samples: [Double] = []
+        var applies: [Double] = []
         for tick in 0..<40 {
-            mine = DensityTokenCatalog.setting(gap, to: Double(tick % 8), in: mine)
             let start = ContinuousClock.now
+            mine = DensityTokenCatalog.setting(gap, to: Double(tick % 8), in: mine)
             DesignSettings.shared.densityTokens = mine
+            let applied = ContinuousClock.now
             sidebar.renderNow()
             sidebar.layoutSubtreeIfNeeded()
-            let elapsed = ContinuousClock.now - start
-            samples.append(Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1e15)
+            applies.append(ms(applied - start))
+            samples.append(ms(ContinuousClock.now - start))
         }
         let median = samples.sorted()[samples.count / 2]
-        print("density-playground tick: median \(String(format: "%.2f", median)) ms, max \(String(format: "%.2f", samples.max() ?? 0)) ms over \(samples.count)")
+        let applyMedian = applies.sorted()[applies.count / 2]
+        print("density-playground tick: median \(String(format: "%.2f", median)) ms (apply \(String(format: "%.3f", applyMedian)) ms), "
+            + "max \(String(format: "%.2f", samples.max() ?? 0)) ms over \(samples.count)")
         #expect(median < 16, "median \(median) ms")
     }
 
