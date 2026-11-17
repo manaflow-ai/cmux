@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44088713069",
+  "recorded_at": "2026-11-17T13:11:06Z",
+  "reason": "cmux-tui b64e62a7b217 changes the image's cmux-tui (pinned 772860a08177)",
+  "dry_run": false,
+  "cmux_tui": "b64e62a7b217de5aa399d1317e82ca0abdd0a800",
+  "fixes": [
+    {
+      "sha": "b64e62a7b217de5aa399d1317e82ca0abdd0a800",
+      "mergedAt": "2026-11-17T04:41:56-08:00",
+      "subject": "acpmux: permission matrix e2e (harness x access x chat x host x default policy), run in PR CI (#45327)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T13:11:06Z",
+    "snapshot_id": "sh-4f5ba4d94e714fb99b91abfcd987d975",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44088713069): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "824d2970c134ac289ed43a38057258ffe3863531",
+    "image": "cloud-native-auto-b64e62a7-44088713069-1",
+    "revision": "ci-44088713069-1",
+    "at": "2026-11-17T13:11:06Z"
+  },
+  "rolled_back": false
+}
