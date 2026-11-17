@@ -2751,13 +2751,17 @@ function TranscriptView({
       const entering = enteringRows.current;
       for (const row of arrived) if (live || row.below || isLineRow(row)) entering.add(rowFrameKey(row));
     }
-    // The rows a chat shed (a grown chat keeps its newest few thousand) stay out of what is known: kept,
-    // they were 150,000 keys and 4 MB of a 50,000-turn chat's page (chat-100k-flat grown_x1). A shed row
-    // that comes back is a page of older history, drawn as one; one drawn lately is in `chatRowsDrawn`.
-    // Cut back once twice the rows, so O(1) per row added.
-    if (knownRows.current.size > 2 * rows.length + KNOWN_ROWS_SLACK) knownRows.current = new Set(rows.map(rowFrameKey));
   }
   knownFor.current = rows;
+  // The rows a chat shed (a grown chat keeps its newest few thousand) stay out of what is known: kept,
+  // they were 150,000 keys and 4 MB of a 50,000-turn chat's page (chat-100k-flat grown_x1). A shed row
+  // that comes back is a page of older history, drawn as one; one drawn lately is in `chatRowsDrawn`.
+  // Cut back once twice the rows, so O(1) per row added; after the commit, so render only reads it.
+  useEffect(() => {
+    const known = knownRows.current;
+    if (known !== null && known.size > 2 * rows.length + KNOWN_ROWS_SLACK)
+      knownRows.current = new Set(rows.map(rowFrameKey));
+  }, [rows]);
   // The rows a commit drew are the page's (openBreakpoint.ts `ChatDrawn`): those from the first one
   // that differs from the last commit's on, so a render React drops leaves no trace and a StrictMode
   // second render records what the first one did. O(changed rows).
