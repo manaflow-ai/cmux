@@ -9,7 +9,26 @@
 //! Rules (plans/cmux-next/transport.md section 4):
 //! - Only an answered probe makes a path alive. A path that loses
 //!   `dead_after_lost` probes in a row is dead until it answers again.
-//! - Any alive direct path beats every relay, at once.
+//! - Any alive direct path beats every relay, at once, unless it is lossy.
+//! - A path is lossy when the throughput one TCP stream could hold on it,
+//!   from its measured loss and smoothed RTT (Mathis et al.,
+//!   `MSS / RTT * 1.22 / sqrt(p)`), falls below [`LossRule::lossy_below_kbps`].
+//!   A lossy path ranks below every path that is not, relays included, so a
+//!   lossy direct path hands the session to the relay at once. A relay on
+//!   kernel TCP (the Durable Object WebSocket) repairs its own loss and is
+//!   never lossy here; a TURN relay over UDP can be. cmux-wg's userspace TCP sits at that loss limit: at
+//!   50 ms / 2 % loss it holds 1.6 Mbit/s and delivers 0.1 on-time frames a
+//!   second where kernel TCP on the relay delivers 55 (cmuxterm-hq
+//!   connectivity-map 3.2). Loss comes from the engine
+//!   ([`Selector::on_loss_sample`]: datagrams delivered and lost on the path),
+//!   never from probes alone, which come too rarely to see 2 %.
+//! - Hysteresis on loss: a path is judged only after
+//!   [`LossRule::min_samples`] datagrams. A lossy path carries no traffic, so
+//!   its verdict is retried after [`LossRule::retry_after_answers`] answered
+//!   probes, doubling with each demotion in a row (at most
+//!   [`LossRule::max_retry_after_answers`]): the estimate starts over and the
+//!   path ranks by its class again until its new samples judge it. A path
+//!   that stays healthy for four windows starts the backoff over.
 //! - Inside a class a better [`Medium`] wins at once: a Thunderbolt Bridge
 //!   beats the office LAN, which beats a routed or tailnet address. The
 //!   medium comes from this machine's own interface table, never from the
@@ -42,11 +61,66 @@ pub struct SelectorConfig {
     pub min_gain_us: u64,
     /// ...and by at least this share of the current RTT, in percent.
     pub min_gain_percent: u64,
+    /// When a direct path loses to a relay on loss; `None` never.
+    pub loss: Option<LossRule>,
 }
 
 impl Default for SelectorConfig {
     fn default() -> Self {
-        Self { dead_after_lost: 3, switch_streak: 3, min_gain_us: 3_000, min_gain_percent: 10 }
+        Self {
+            dead_after_lost: 3,
+            switch_streak: 3,
+            min_gain_us: 3_000,
+            min_gain_percent: 10,
+            loss: Some(LossRule::default()),
+        }
+    }
+}
+
+/// When a direct path's loss makes it lose to a relay (see the module rules).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LossRule {
+    /// The segment size in the loss-limited throughput estimate: cmux-wg's
+    /// TCP MSS inside a 1420-byte tunnel MTU over a relay-sized path.
+    pub segment_bytes: u64,
+    /// A path turns lossy when its loss-limited throughput is below this.
+    pub lossy_below_kbps: u64,
+    /// Datagrams the estimate needs before it may turn a path lossy.
+    pub min_samples: u32,
+    /// Each datagram weighs `1 / window` of the estimate (exponential decay).
+    pub window: u32,
+    /// Answered probes on a lossy path before its verdict is retried...
+    pub retry_after_answers: u32,
+    /// ...doubling on each demotion in a row, up to this.
+    pub max_retry_after_answers: u32,
+}
+
+impl Default for LossRule {
+    fn default() -> Self {
+        // A desktop stream needs about 1.7 Mbit/s (60 fps of 3.5 KB frames);
+        // 3 Mbit/s leaves headroom. 50 ms / 2 % estimates 1.6 Mbit/s,
+        // 150 ms / 1 % 0.75 and 100 ms / 3 % 0.65: all lossy. 50 ms / 0.5 %
+        // (3.2) and 20 ms / 2 % (4.0) stay direct.
+        Self {
+            segment_bytes: 1160,
+            lossy_below_kbps: 3_000,
+            min_samples: 512,
+            window: 2048,
+            retry_after_answers: 2,
+            max_retry_after_answers: 32,
+        }
+    }
+}
+
+impl LossRule {
+    /// The throughput one TCP stream holds at loss `p` (0..1) and `rtt_us`,
+    /// in kbit/s (Mathis et al. 1997); `None` without loss or an RTT.
+    pub fn limited_kbps(&self, p: f64, rtt_us: u64) -> Option<f64> {
+        if p <= 0.0 || rtt_us == 0 {
+            return None;
+        }
+        // bits per RTT, times 1000 / rtt_us = kbit/s.
+        Some(self.segment_bytes as f64 * 8.0 * 1.22 * 1000.0 / (rtt_us as f64 * p.sqrt()))
     }
 }
 
@@ -83,12 +157,18 @@ pub struct PathView {
     pub state: PathState,
     /// Smoothed RTT (EWMA, weight 1/4 for each new answer).
     pub rtt_us: Option<u64>,
+    /// Measured datagram loss in parts per million, once the engine reported
+    /// [`LossRule::min_samples`] datagrams on the path.
+    pub loss_ppm: Option<u32>,
+    /// A path whose loss makes it rank below every path that is not.
+    pub lossy: bool,
 }
 
 impl PathView {
-    /// The rank compared before any RTT: class, then medium.
-    pub fn rank(&self) -> (PathClass, Medium) {
-        (self.kind.class(), self.medium)
+    /// The rank compared before any RTT: lossy last, then class, then
+    /// medium.
+    pub fn rank(&self) -> (bool, PathClass, Medium) {
+        (self.lossy, self.kind.class(), self.medium)
     }
 }
 
@@ -105,6 +185,52 @@ struct Path {
     view: PathView,
     lost: u8,
     better_streak: u8,
+    loss: LossEstimate,
+}
+
+/// Decayed counts of datagrams delivered and lost on one path, and the
+/// lossy verdict's retry state.
+#[derive(Debug, Clone, Copy, Default)]
+struct LossEstimate {
+    delivered: f64,
+    lost: f64,
+    /// Datagrams reported since the last reset, for `min_samples`.
+    samples: u64,
+    /// Answered probes since the path turned lossy.
+    answers_while_lossy: u32,
+    /// Demotions in a row (reset once the path stays healthy past its
+    /// samples), for the retry backoff.
+    demotions: u32,
+}
+
+impl LossEstimate {
+    fn add(&mut self, rule: &LossRule, delivered: u64, lost: u64) {
+        let total = delivered.saturating_add(lost);
+        let keep = 1.0 - 1.0 / f64::from(rule.window.max(1));
+        let scale = keep.powi(i32::try_from(total).unwrap_or(i32::MAX));
+        self.delivered = self.delivered * scale + delivered as f64;
+        self.lost = self.lost * scale + lost as f64;
+        self.samples = self.samples.saturating_add(total);
+    }
+
+    fn ratio(&self) -> f64 {
+        let total = self.delivered + self.lost;
+        if total <= 0.0 { 0.0 } else { self.lost / total }
+    }
+
+    fn judged(&self, rule: &LossRule) -> bool {
+        self.samples >= u64::from(rule.min_samples)
+    }
+
+    fn retry_after(&self, rule: &LossRule) -> u32 {
+        let shift = self.demotions.saturating_sub(1).min(16);
+        rule.retry_after_answers.saturating_mul(1 << shift).min(rule.max_retry_after_answers)
+    }
+
+    fn restart(&mut self) {
+        let demotions = self.demotions;
+        *self = Self { demotions, ..Self::default() };
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -164,9 +290,18 @@ impl Selector {
             return Err(SelectorError::DuplicatePath(id));
         }
         self.paths.push(Path {
-            view: PathView { id, kind, medium, state: PathState::Probing, rtt_us: None },
+            view: PathView {
+                id,
+                kind,
+                medium,
+                state: PathState::Probing,
+                rtt_us: None,
+                loss_ppm: None,
+                lossy: false,
+            },
             lost: 0,
             better_streak: 0,
+            loss: LossEstimate::default(),
         });
         Ok(())
     }
@@ -199,6 +334,22 @@ impl Selector {
                     Some(old) => (old.saturating_mul(3).saturating_add(rtt_us)) / 4,
                     None => rtt_us,
                 });
+                if let Some(rule) = self.config.loss {
+                    if path.view.lossy {
+                        path.loss.answers_while_lossy =
+                            path.loss.answers_while_lossy.saturating_add(1);
+                        if path.loss.answers_while_lossy >= path.loss.retry_after(&rule) {
+                            // Retry: the estimate starts over and the path
+                            // ranks as direct until its new samples judge it.
+                            path.loss.restart();
+                            path.view.lossy = false;
+                            path.view.loss_ppm = None;
+                            path.better_streak = 0;
+                        }
+                    } else {
+                        judge_loss(&rule, path);
+                    }
+                }
                 self.update_streaks(id);
             }
             ProbeOutcome::Lost => {
@@ -232,6 +383,63 @@ impl Selector {
         Ok(self.reselect(before))
     }
 
+    /// The engine counted `delivered` datagrams and `lost` ones on `id`
+    /// since its last report (gaps in what arrived on the path). With a
+    /// [`LossRule`], this can make the path lossy, and the session then
+    /// moves at once to an alive path that is not (a relay).
+    pub fn on_loss_sample(
+        &mut self,
+        id: PathId,
+        delivered: u64,
+        lost: u64,
+    ) -> Result<Option<Switch>, SelectorError> {
+        let before = self.current();
+        let rule = self.config.loss;
+        let path = self
+            .paths
+            .iter_mut()
+            .find(|path| path.view.id == id)
+            .ok_or(SelectorError::UnknownPath(id))?;
+        let Some(rule) = rule else { return Ok(None) };
+        if path.view.lossy || delivered.saturating_add(lost) == 0 {
+            // A demoted path's stragglers do not judge it again; its retry
+            // does (`on_probe`).
+            return Ok(None);
+        }
+        path.loss.add(&rule, delivered, lost);
+        if !judge_loss(&rule, path) {
+            return Ok(None);
+        }
+        for path in &mut self.paths {
+            path.better_streak = 0;
+        }
+        Ok(self.reselect(before))
+    }
+
+    /// The peer stopped sending on `id` and sends on a relay instead: it
+    /// judged the path lossy from its side (each end sees only the loss of
+    /// what it receives). With a [`LossRule`], `id` turns lossy here too, with
+    /// the same retry backoff, so both directions move together.
+    pub fn on_peer_left(&mut self, id: PathId) -> Result<Option<Switch>, SelectorError> {
+        let before = self.current();
+        let rule = self.config.loss;
+        let path = self
+            .paths
+            .iter_mut()
+            .find(|path| path.view.id == id)
+            .ok_or(SelectorError::UnknownPath(id))?;
+        if rule.is_none() || path.view.lossy {
+            return Ok(None);
+        }
+        path.view.lossy = true;
+        path.loss.answers_while_lossy = 0;
+        path.loss.demotions = path.loss.demotions.saturating_add(1);
+        for path in &mut self.paths {
+            path.better_streak = 0;
+        }
+        Ok(self.reselect(before))
+    }
+
     /// A path's medium, read again from a changed interface table. Takes
     /// effect at the next reselection (the network change that follows).
     pub fn set_medium(&mut self, id: PathId, medium: Medium) -> Result<(), SelectorError> {
@@ -250,8 +458,11 @@ impl Selector {
         for path in &mut self.paths {
             path.view.state = PathState::Probing;
             path.view.rtt_us = None;
+            path.view.loss_ppm = None;
+            path.view.lossy = false;
             path.lost = 0;
             path.better_streak = 0;
+            path.loss = LossEstimate::default();
         }
         self.reselect(before)
     }
@@ -349,6 +560,30 @@ impl Selector {
         let held_died = chosen.is_some() && self.chosen().is_none();
         (after != before || held_died).then_some(Switch { from: before, to: after })
     }
+}
+
+/// Updates a path that is not lossy from its estimate and RTT; true when it
+/// turned lossy.
+fn judge_loss(rule: &LossRule, path: &mut Path) -> bool {
+    if path.view.lossy || !path.loss.judged(rule) {
+        return false;
+    }
+    let p = path.loss.ratio();
+    path.view.loss_ppm = Some((p * 1_000_000.0).round() as u32);
+    let Some(rtt_us) = path.view.rtt_us else { return false };
+    let kbps = rule.limited_kbps(p, rtt_us).unwrap_or(f64::INFINITY);
+    if kbps < rule.lossy_below_kbps as f64 {
+        path.view.lossy = true;
+        path.loss.answers_while_lossy = 0;
+        path.loss.demotions = path.loss.demotions.saturating_add(1);
+        return true;
+    }
+    if path.loss.demotions > 0 && path.loss.samples >= 4 * u64::from(rule.window) {
+        // Healthy for four windows since its last demotion: the backoff
+        // starts over.
+        path.loss.demotions = 0;
+    }
+    false
 }
 
 /// Whether `challenger` beats `incumbent` by the hysteresis margin.
@@ -481,5 +716,159 @@ mod tests {
         answer(&mut selector, LINK, 2_000);
         answer(&mut selector, LINK, 2_000);
         assert_eq!(selector.current(), Some(LINK));
+    }
+
+    /// A direct WAN path and a relay, the WAN answering first.
+    fn wan_and_relay() -> Selector {
+        let mut selector = Selector::new(SelectorConfig::default());
+        selector.add_path(LAN, PathKind::DirectWan).unwrap();
+        selector.add_path(RELAY, PathKind::DoRelay).unwrap();
+        answer(&mut selector, LAN, 50_000);
+        answer(&mut selector, RELAY, 60_000);
+        assert_eq!(selector.current(), Some(LAN));
+        selector
+    }
+
+    /// Reports `n` datagrams on `id` at loss `percent`, in batches of 100.
+    fn traffic(selector: &mut Selector, id: PathId, n: u64, percent: u64) -> Option<Switch> {
+        let mut last = None;
+        for _ in 0..n / 100 {
+            if let Some(switch) = selector.on_loss_sample(id, 100 - percent, percent).unwrap() {
+                last = Some(switch);
+            }
+        }
+        last
+    }
+
+    #[test]
+    fn the_loss_limit_matches_the_measured_wg_tcp_ceiling() {
+        let rule = LossRule::default();
+        // connectivity-map 3.2 measured 1.6 Mbit/s at 50 ms / 2 % and 0.7
+        // at 150 ms / 1 %.
+        let at = |p: f64, rtt_ms: u64| rule.limited_kbps(p, rtt_ms * 1000).unwrap();
+        assert!((1_500.0..1_700.0).contains(&at(0.02, 50)), "{}", at(0.02, 50));
+        assert!((700.0..800.0).contains(&at(0.01, 150)), "{}", at(0.01, 150));
+        assert!(at(0.03, 100) < 3_000.0);
+        assert!(at(0.005, 50) > 3_000.0, "50 ms / 0.5 % stays direct");
+        assert!(at(0.02, 20) > 3_000.0, "20 ms / 2 % stays direct");
+        assert_eq!(rule.limited_kbps(0.0, 50_000), None);
+    }
+
+    #[test]
+    fn a_lossy_direct_path_loses_to_the_relay_at_once() {
+        let mut selector = wan_and_relay();
+        let switch = traffic(&mut selector, LAN, 1_000, 2);
+        assert_eq!(switch, Some(Switch { from: Some(LAN), to: Some(RELAY) }));
+        let view = selector.path(LAN).unwrap();
+        assert!(view.lossy);
+        assert_eq!(view.state, PathState::Alive, "lossy is not dead");
+        assert!((15_000..25_000).contains(&view.loss_ppm.unwrap()), "{view:?}");
+        // Its answers alone do not bring it back before the retry.
+        assert_eq!(answer(&mut selector, LAN, 50_000), None);
+        assert_eq!(selector.current(), Some(RELAY));
+    }
+
+    #[test]
+    fn a_clean_or_short_direct_path_keeps_the_session() {
+        let mut selector = wan_and_relay();
+        assert_eq!(traffic(&mut selector, LAN, 10_000, 0), None);
+        // 2 % on a 20 ms path still holds 4 Mbit/s.
+        let mut short = Selector::new(SelectorConfig::default());
+        short.add_path(LAN, PathKind::DirectWan).unwrap();
+        short.add_path(RELAY, PathKind::DoRelay).unwrap();
+        answer(&mut short, LAN, 20_000);
+        answer(&mut short, RELAY, 30_000);
+        assert_eq!(traffic(&mut short, LAN, 10_000, 2), None);
+        assert_eq!(short.current(), Some(LAN));
+    }
+
+    #[test]
+    fn too_few_datagrams_never_judge_a_path() {
+        let mut selector = wan_and_relay();
+        // 50 % loss, but only 400 datagrams.
+        assert_eq!(traffic(&mut selector, LAN, 400, 50), None);
+        assert_eq!(selector.current(), Some(LAN));
+        assert!(!selector.path(LAN).unwrap().lossy);
+    }
+
+    #[test]
+    fn without_a_loss_rule_loss_changes_nothing() {
+        let mut selector =
+            Selector::new(SelectorConfig { loss: None, ..SelectorConfig::default() });
+        selector.add_path(LAN, PathKind::DirectWan).unwrap();
+        selector.add_path(RELAY, PathKind::DoRelay).unwrap();
+        answer(&mut selector, LAN, 50_000);
+        answer(&mut selector, RELAY, 60_000);
+        assert_eq!(traffic(&mut selector, LAN, 10_000, 5), None);
+        assert_eq!(selector.current(), Some(LAN));
+    }
+
+    #[test]
+    fn a_lossy_path_is_retried_with_a_growing_backoff() {
+        let mut selector = wan_and_relay();
+        traffic(&mut selector, LAN, 1_000, 2);
+        assert_eq!(selector.current(), Some(RELAY));
+        // First retry after two answers: the direct path wins again...
+        answer(&mut selector, LAN, 50_000);
+        let switch = answer(&mut selector, LAN, 50_000);
+        assert_eq!(switch, Some(Switch { from: Some(RELAY), to: Some(LAN) }));
+        assert_eq!(selector.path(LAN).unwrap().loss_ppm, None, "the estimate starts over");
+        // ...until its new samples judge it again; the next retry waits four.
+        traffic(&mut selector, LAN, 1_000, 2);
+        assert_eq!(selector.current(), Some(RELAY));
+        for _ in 0..3 {
+            assert_eq!(answer(&mut selector, LAN, 50_000), None);
+        }
+        assert_eq!(
+            answer(&mut selector, LAN, 50_000),
+            Some(Switch { from: Some(RELAY), to: Some(LAN) })
+        );
+        // Healed: it stays, and four clean windows start the backoff over.
+        assert_eq!(traffic(&mut selector, LAN, 10_000, 0), None);
+        traffic(&mut selector, LAN, 1_000, 5);
+        assert_eq!(selector.current(), Some(RELAY));
+        answer(&mut selector, LAN, 50_000);
+        assert_eq!(selector.current(), Some(RELAY));
+        answer(&mut selector, LAN, 50_000);
+        assert_eq!(selector.current(), Some(LAN), "two answers again after the reset");
+    }
+
+    #[test]
+    fn a_lossy_relay_ranks_below_a_clean_one_and_a_lossy_direct_above_a_lossy_relay() {
+        const TURN: PathId = PathId(3);
+        let mut selector = Selector::new(SelectorConfig::default());
+        selector.add_path(LAN, PathKind::DirectWan).unwrap();
+        selector.add_path(TURN, PathKind::TurnRelay).unwrap();
+        answer(&mut selector, LAN, 50_000);
+        answer(&mut selector, TURN, 60_000);
+        traffic(&mut selector, TURN, 1_000, 3);
+        assert!(selector.path(TURN).unwrap().lossy);
+        traffic(&mut selector, LAN, 1_000, 3);
+        assert!(selector.path(LAN).unwrap().lossy);
+        assert_eq!(selector.current(), Some(LAN), "both lossy: class decides again");
+    }
+
+    #[test]
+    fn a_network_change_forgets_the_loss() {
+        let mut selector = wan_and_relay();
+        traffic(&mut selector, LAN, 1_000, 2);
+        selector.on_network_change();
+        answer(&mut selector, LAN, 50_000);
+        let view = selector.path(LAN).unwrap();
+        assert!(!view.lossy);
+        assert_eq!(view.loss_ppm, None);
+        assert_eq!(selector.current(), Some(LAN));
+    }
+
+    #[test]
+    fn a_path_the_peer_left_turns_lossy_here_too() {
+        let mut selector = wan_and_relay();
+        let switch = selector.on_peer_left(LAN).unwrap();
+        assert_eq!(switch, Some(Switch { from: Some(LAN), to: Some(RELAY) }));
+        assert!(selector.path(LAN).unwrap().lossy);
+        assert_eq!(selector.on_peer_left(LAN).unwrap(), None, "once");
+        answer(&mut selector, LAN, 50_000);
+        answer(&mut selector, LAN, 50_000);
+        assert_eq!(selector.current(), Some(LAN), "retried like any lossy path");
     }
 }

@@ -24,6 +24,15 @@
 //! answers or dies, so a dropped fast path costs about two windows instead
 //! of three probe timeouts.
 //!
+//! Each path also counts the peer's datagrams it delivered and the gaps in
+//! their WireGuard counters ([`GapCounter`]), and reports them to the
+//! selector, so a direct path whose loss would collapse the tunnel's TCP
+//! loses to a relay (`cmux_transport::selector`, the loss rule). Each end
+//! sees only the loss of what it receives, so an end whose current path is
+//! direct follows a peer that moved its sends to a relay: after
+//! [`FOLLOW_PEER_AFTER`] of the peer's datagrams in a row on a relay and none
+//! on the direct path, the direct path turns lossy here too.
+//!
 //! Both halves share one mutex. The driver holds it only for the duration of
 //! one send or one receive poll, never across an await.
 
@@ -49,6 +58,20 @@ const TRANSIENT_RETRIES: usize = 8;
 
 /// Path events go out at least this often while the session carries traffic.
 const EVENT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+/// Datagrams counted on a path before the count goes to the selector.
+const LOSS_REPORT_EVERY: u64 = 64;
+/// A counter gap wider than this is the peer sending elsewhere for a while
+/// (another path, a spray that ended), not loss.
+const MAX_COUNTED_GAP: u64 = 16;
+/// Arrivals on a path further apart than this restart its gap count: probes
+/// (every 100 ms at most) and keepalives on a path the peer does not send its
+/// stream on are not a stream; a 60 fps stream's frames are 17 ms apart.
+const GAP_COUNT_IDLE: std::time::Duration = std::time::Duration::from_millis(50);
+
+/// The peer's datagrams in a row on a relay, none on the current direct
+/// path, before this end follows it there.
+pub const FOLLOW_PEER_AFTER: u32 = 64;
+
 /// Path events a slow subscriber may fall behind before it misses some.
 const EVENT_BACKLOG: usize = 64;
 /// The shortest silence window: below it, scheduling jitter alone would
@@ -103,6 +126,73 @@ struct Slot {
     last_rtt_us: Option<u64>,
     jitter_us: f64,
     loss_pct: f64,
+    gaps: GapCounter,
+}
+
+/// Loss on one path, read from the counters of the peer's WireGuard
+/// transport datagrams that arrive on it: each counter skipped is a
+/// datagram lost (the peer sends them in counter order). Gaps count only
+/// while datagrams arrive as a stream: a gap wider than
+/// [`MAX_COUNTED_GAP`], a new receiver index (a rekey) or an arrival more
+/// than [`GAP_COUNT_IDLE`] after the last starts over without counting.
+/// A late datagram takes one back.
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct GapCounter {
+    last: Option<(u32, u64, Instant)>,
+    delivered: u64,
+    lost: u64,
+}
+
+impl GapCounter {
+    /// Counts `datagram` arriving at `now`; anything but a WireGuard
+    /// transport datagram is ignored.
+    pub(crate) fn arrived(&mut self, datagram: &[u8], now: Instant) {
+        let Some((index, counter)) = transport_counter(datagram) else { return };
+        match self.last {
+            Some((last_index, last, at))
+                if last_index == index && now.saturating_duration_since(at) <= GAP_COUNT_IDLE =>
+            {
+                if counter > last {
+                    let gap = counter - last - 1;
+                    if gap <= MAX_COUNTED_GAP {
+                        self.lost += gap;
+                    }
+                    self.delivered += 1;
+                    self.last = Some((index, counter, now));
+                } else {
+                    // Late (or a duplicate): it was not lost after all.
+                    if self.lost > 0 {
+                        self.lost -= 1;
+                        self.delivered += 1;
+                    }
+                }
+            }
+            _ => {
+                self.delivered += 1;
+                self.last = Some((index, counter, now));
+            }
+        }
+    }
+
+    /// The counts since the last take, once there are enough of them.
+    pub(crate) fn take(&mut self) -> Option<(u64, u64)> {
+        if self.delivered + self.lost < LOSS_REPORT_EVERY {
+            return None;
+        }
+        Some((std::mem::take(&mut self.delivered), std::mem::take(&mut self.lost)))
+    }
+}
+
+/// The receiver index and counter of a WireGuard transport data message
+/// (type 4: type, 3 reserved bytes, receiver index, counter, then the
+/// sealed packet with its 16-byte tag).
+fn transport_counter(datagram: &[u8]) -> Option<(u32, u64)> {
+    if datagram.len() < 32 || datagram[..4] != [4, 0, 0, 0] {
+        return None;
+    }
+    let index = u32::from_le_bytes(datagram[4..8].try_into().ok()?);
+    let counter = u64::from_le_bytes(datagram[8..16].try_into().ok()?);
+    Some((index, counter))
 }
 
 struct Shared {
@@ -135,6 +225,9 @@ struct Shared {
     /// The path that carried the session went quiet (datagrams now go on
     /// every path) or died since the last `take_path_change`.
     left_path: bool,
+    /// The peer's transport datagrams in a row that came on a relay while
+    /// the current path is direct ([`FOLLOW_PEER_AFTER`]).
+    peer_elsewhere: u32,
 }
 
 impl Shared {
@@ -220,6 +313,28 @@ impl Shared {
         switch
     }
 
+    /// A transport datagram of the peer arrived on `arrival`: see
+    /// [`FOLLOW_PEER_AFTER`].
+    fn follow_peer(&mut self, arrival: PathId) {
+        let Some(current) = self.selector.current() else {
+            self.peer_elsewhere = 0;
+            return;
+        };
+        let class = |id| self.selector.path(id).map(|view| view.kind.class());
+        let on_relay = class(arrival).is_some_and(|class| !class.is_direct());
+        if arrival == current || !on_relay || !class(current).is_some_and(|c| c.is_direct()) {
+            self.peer_elsewhere = 0;
+            return;
+        }
+        self.peer_elsewhere += 1;
+        if self.peer_elsewhere >= FOLLOW_PEER_AFTER {
+            self.peer_elsewhere = 0;
+            if let Ok(Some(_)) = self.selector.on_peer_left(current) {
+                self.publish();
+            }
+        }
+    }
+
     fn probe(&mut self, id: PathId, outcome: ProbeOutcome) {
         let _ = self.record(id, outcome);
     }
@@ -298,6 +413,7 @@ impl Multipath {
             fixed_paths: false,
             networks: local_networks(),
             left_path: false,
+            peer_elsewhere: 0,
         }));
         (Self { shared: Arc::clone(&shared) }, MultipathControl { shared })
     }
@@ -364,6 +480,7 @@ impl MultipathControl {
                 last_rtt_us: None,
                 jitter_us: 0.0,
                 loss_pct: 0.0,
+                gaps: GapCounter::default(),
             });
             (id, shared.waker.take())
         };
@@ -591,8 +708,21 @@ impl Underlay for Multipath {
                 match slot.carrier.poll_recv(cx, buffer) {
                     Poll::Ready(Ok(received)) => {
                         slot.received += 1;
-                        let origin = Origin { path: slot.id, addr: received.origin.addr };
+                        let id = slot.id;
+                        let datagram = &buffer[..received.len];
+                        let transport = transport_counter(datagram).is_some();
+                        slot.gaps.arrived(datagram, Instant::now());
+                        let counts = slot.gaps.take();
+                        let origin = Origin { path: id, addr: received.origin.addr };
                         shared.next_poll = index + 1;
+                        if let Some((delivered, lost)) = counts
+                            && let Ok(Some(_)) = shared.selector.on_loss_sample(id, delivered, lost)
+                        {
+                            shared.publish();
+                        }
+                        if transport {
+                            shared.follow_peer(id);
+                        }
                         return Poll::Ready(Ok(Received { len: received.len, origin }));
                     }
                     Poll::Ready(Err(error)) if is_transient(&error) => {
@@ -663,5 +793,49 @@ pub(crate) fn medium_for(
             medium_of(peer.ip(), networks)
         }
         _ => default_medium(kind),
+    }
+}
+
+#[cfg(test)]
+mod gap_tests {
+    use super::*;
+
+    fn datagram(index: u32, counter: u64) -> Vec<u8> {
+        let mut bytes = vec![0u8; 64];
+        bytes[0] = 4;
+        bytes[4..8].copy_from_slice(&index.to_le_bytes());
+        bytes[8..16].copy_from_slice(&counter.to_le_bytes());
+        bytes
+    }
+
+    #[test]
+    fn skipped_counters_are_lost_and_late_ones_are_not() {
+        let now = Instant::now();
+        let mut gaps = GapCounter::default();
+        for counter in (0..80).filter(|counter| counter % 10 != 5) {
+            gaps.arrived(&datagram(7, counter), now);
+        }
+        assert_eq!(gaps.take(), Some((72, 8)));
+        // 80 and 82 arrive, then 81 late: nothing lost.
+        for counter in [80, 82, 81] {
+            gaps.arrived(&datagram(7, counter), now);
+        }
+        assert_eq!((gaps.delivered, gaps.lost), (3, 0));
+    }
+
+    #[test]
+    fn a_wide_gap_a_rekey_or_an_idle_path_counts_nothing() {
+        let now = Instant::now();
+        let mut gaps = GapCounter::default();
+        gaps.arrived(&datagram(7, 1), now);
+        gaps.arrived(&datagram(7, 1 + MAX_COUNTED_GAP + 2), now);
+        gaps.arrived(&datagram(8, 500), now);
+        gaps.arrived(&datagram(8, 510), now + GAP_COUNT_IDLE * 2);
+        assert_eq!((gaps.delivered, gaps.lost), (4, 0));
+        // A handshake or a cookie is not a transport datagram.
+        let mut handshake = datagram(8, 511);
+        handshake[0] = 1;
+        gaps.arrived(&handshake, now);
+        assert_eq!(gaps.delivered, 4);
     }
 }

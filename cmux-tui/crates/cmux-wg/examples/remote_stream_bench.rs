@@ -37,6 +37,16 @@
 //!   the viewer drops that path's datagrams both ways, the host's
 //!   interfaces stay as they are.
 //!
+//! - `--path wg-relay-race`: one stream through cmux-wg, each end a
+//!   multipath underlay with two paths to the other: direct UDP and a relay
+//!   stand-in, the WireGuard datagrams framed on one kernel TCP connection
+//!   (the carrier relay's WebSocket is kernel TCP). Both cross loopback, so
+//!   run it inside the connectivity harness's netns, where netem impairs
+//!   both alike; `--rtt-ms` and `--loss-pct` are refused. The direct path
+//!   wins first; the selector's loss rule moves the session to the relay when
+//!   the direct path's loss would collapse the tunnel's TCP.
+//!   `--loss-rule off` runs the selector without the rule (the baseline).
+//!   `final_path` names the path that carried the end of the stream.
 //! - `--path wg-mesh` runs the same `--paths` and `--drop-at` through two
 //!   `WgMesh` ends (the `cmux link` and acpmux engine) instead: the viewer's
 //!   peer gets one candidate address per path, the host learns the viewer's
@@ -128,6 +138,8 @@ struct Args {
     rd_frames_in_flight: u32,
     /// `--rd-deadline-ms`: how long the rd viewer waits for a frame's shards.
     rd_deadline_ms: u64,
+    /// `--loss-rule on|off`: the selector's loss rule in `wg-relay-race`.
+    loss_rule: bool,
 }
 
 fn args() -> Args {
@@ -152,6 +164,7 @@ fn args_from(flags: impl IntoIterator<Item = String>) -> Args {
         seed: 1,
         rd_frames_in_flight: 0,
         rd_deadline_ms: 200,
+        loss_rule: true,
     };
     let mut iter = flags.into_iter();
     while let Some(flag) = iter.next() {
@@ -184,6 +197,7 @@ fn args_from(flags: impl IntoIterator<Item = String>) -> Args {
             "--seed" => parsed.seed = number(),
             "--rd-frames-in-flight" => parsed.rd_frames_in_flight = number() as u32,
             "--rd-deadline-ms" => parsed.rd_deadline_ms = number(),
+            "--loss-rule" => parsed.loss_rule = value != "off",
             other => eprintln!("ignoring unknown flag {other}"),
         }
     }
@@ -1131,6 +1145,10 @@ async fn run_one_process(
         "wg-tcp" => run_wg_tcp(&args, clock, record.clone()).await?,
         "wg-dgram" => run_wg_dgram(&args, clock, record.clone()).await?,
         "wg-mesh" => run_wg_mesh(&args, clock, record.clone()).await?,
+        "wg-relay-race" if args.rtt_ms > 0 || args.loss_pct > 0.0 => {
+            return Err(io::Error::other("wg-relay-race is impaired by netem, not --rtt-ms"));
+        }
+        "wg-relay-race" => run_relay_race(&args, clock, record.clone()).await?,
         "rd-link" => rd_link::run(&args, clock, record.clone()).await?,
         other => return Err(io::Error::other(format!("unknown path {other}"))),
     }
@@ -1186,4 +1204,149 @@ fn print_record(args: &Args, record: &Shared) {
         args.drop_at.map(|(at, index)| format!("{at}:{index}")).unwrap_or_default(),
         note,
     );
+}
+
+/// A relay path stand-in for `wg-relay-race`: WireGuard datagrams framed
+/// (16-bit length, then the bytes) on one kernel TCP connection, as the
+/// carrier relay's WebSocket carries them.
+struct TcpDatagrams {
+    incoming: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
+    outgoing: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
+    peer: SocketAddr,
+    local: SocketAddr,
+}
+
+impl TcpDatagrams {
+    fn new(stream: TcpStream) -> io::Result<Self> {
+        stream.set_nodelay(true)?;
+        let (peer, local) = (stream.peer_addr()?, stream.local_addr()?);
+        let (mut read, mut write) = stream.into_split();
+        let (incoming_tx, incoming) = tokio::sync::mpsc::unbounded_channel();
+        let (outgoing, mut outgoing_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+        tokio::spawn(async move {
+            let mut length = [0u8; 2];
+            while read.read_exact(&mut length).await.is_ok() {
+                let mut datagram = vec![0u8; usize::from(u16::from_be_bytes(length))];
+                if read.read_exact(&mut datagram).await.is_err()
+                    || incoming_tx.send(datagram).is_err()
+                {
+                    break;
+                }
+            }
+        });
+        tokio::spawn(async move {
+            let mut batch = Vec::new();
+            while let Some(first) = outgoing_rx.recv().await {
+                batch.clear();
+                let mut next = Some(first);
+                while let Some(datagram) = next {
+                    let length = u16::try_from(datagram.len()).unwrap_or(u16::MAX);
+                    batch.extend_from_slice(&length.to_be_bytes());
+                    batch.extend_from_slice(&datagram[..usize::from(length)]);
+                    next = outgoing_rx.try_recv().ok();
+                }
+                if write.write_all(&batch).await.is_err() {
+                    break;
+                }
+            }
+        });
+        Ok(Self { incoming, outgoing, peer, local })
+    }
+}
+
+impl cmux_wg::DatagramSocket for TcpDatagrams {
+    fn poll_recv_from(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+        buffer: &mut [u8],
+    ) -> std::task::Poll<io::Result<(usize, SocketAddr)>> {
+        match self.incoming.poll_recv(cx) {
+            std::task::Poll::Ready(Some(datagram)) => {
+                let n = datagram.len().min(buffer.len());
+                buffer[..n].copy_from_slice(&datagram[..n]);
+                std::task::Poll::Ready(Ok((n, self.peer)))
+            }
+            std::task::Poll::Ready(None) => {
+                std::task::Poll::Ready(Err(io::Error::other("relay connection closed")))
+            }
+            std::task::Poll::Pending => std::task::Poll::Pending,
+        }
+    }
+
+    fn poll_send_ready(
+        &mut self,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+
+    fn try_send_to(&mut self, datagram: &[u8], _target: SocketAddr) -> io::Result<usize> {
+        self.outgoing
+            .send(datagram.to_vec())
+            .map_err(|_| io::Error::other("relay connection closed"))?;
+        Ok(datagram.len())
+    }
+
+    fn local_addr(&self) -> io::Result<SocketAddr> {
+        Ok(self.local)
+    }
+}
+
+/// Both ends of `wg-relay-race`: (viewer, host, the host's stream address,
+/// the viewer's paths labelled).
+async fn start_relay_race(
+    args: &Args,
+) -> io::Result<(WgNet, WgNet, SocketAddr, MultipathControl, Vec<(PathId, String)>)> {
+    let err = |error: cmux_wg::WgError| io::Error::other(error.to_string());
+    let viewer_udp = UdpSocket::bind("127.0.0.1:0").await?;
+    let host_udp = UdpSocket::bind("127.0.0.1:0").await?;
+    let (viewer_addr, host_addr) = (viewer_udp.local_addr()?, host_udp.local_addr()?);
+    let relay = TcpListener::bind("127.0.0.1:0").await?;
+    let (viewer_tcp, accepted) =
+        tokio::join!(TcpStream::connect(relay.local_addr()?), relay.accept());
+    let (viewer_tcp, (host_tcp, _)) = (viewer_tcp?, accepted?);
+    let config = if args.loss_rule {
+        cmux_transport::SelectorConfig::default()
+    } else {
+        cmux_transport::SelectorConfig { loss: None, ..Default::default() }
+    };
+    let end = |udp: UdpSocket, peer: SocketAddr, tcp: TcpStream| -> io::Result<_> {
+        let (underlay, control) = Multipath::with_probes(config, ProbeConfig::default());
+        let direct = control.add_path(PathKind::DirectWan, SocketPath::new(udp, Some(peer)));
+        let tcp = TcpDatagrams::new(tcp)?;
+        let relay_peer = tcp.peer;
+        let relay = control.add_path(PathKind::DoRelay, SocketPath::new(tcp, Some(relay_peer)));
+        Ok((underlay, control, direct, relay))
+    };
+    let (viewer_underlay, viewer_control, direct, relay) = end(viewer_udp, host_addr, viewer_tcp)?;
+    let (host_underlay, _host_control, _, _) = end(host_udp, viewer_addr, host_tcp)?;
+    let pair = config_pair(host_addr);
+    let viewer = WgNet::start_with_underlay(pair.client, viewer_underlay).map_err(err)?;
+    let host = WgNet::start_with_underlay(pair.server, host_underlay).map_err(err)?;
+    let labels = vec![(direct, "direct".to_owned()), (relay, "relay".to_owned())];
+    Ok((viewer, host, SocketAddr::new(pair.server_v4, STREAM_PORT), viewer_control, labels))
+}
+
+/// `--path wg-relay-race`: the stream, then bulk on a fresh pair.
+async fn run_relay_race(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Result<()> {
+    let err = |error: cmux_wg::WgError| io::Error::other(error.to_string());
+    let (viewer_net, host_net, target, control, labels) = start_relay_race(args).await?;
+    let mut listener = host_net.listen(STREAM_PORT).await.map_err(err)?;
+    let viewer = viewer_net.connect(target).await.map_err(err)?;
+    let host = listener.accept().await.ok_or_else(|| io::Error::other("no accept"))?;
+    stream_session(host, viewer, args, clock, record.clone()).await;
+    lock(&record).final_path = Some(path_label(&control, &labels));
+    viewer_net.shutdown().await;
+    host_net.shutdown().await;
+    if args.bulk_bytes == 0 {
+        return Ok(());
+    }
+    let (viewer_net, host_net, target, _control, _labels) = start_relay_race(args).await?;
+    let mut listener = host_net.listen(BULK_PORT).await.map_err(err)?;
+    let viewer = viewer_net.connect(SocketAddr::new(target.ip(), BULK_PORT)).await.map_err(err)?;
+    let host = listener.accept().await.ok_or_else(|| io::Error::other("no accept"))?;
+    lock(&record).bulk_mbit_s = bulk(host, viewer, args.bulk_bytes).await;
+    viewer_net.shutdown().await;
+    host_net.shutdown().await;
+    Ok(())
 }

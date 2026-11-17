@@ -39,5 +39,5 @@ pub use path::{PathClass, PathId, PathKind};
 pub use probe::{Probe, ProbeError, ProbeKind};
 pub use relay_frame::{FrameKind, PeerId, RelayFrame, RelayFrameError};
 pub use selector::{
-    PathState, PathView, ProbeOutcome, Selector, SelectorConfig, SelectorError, Switch,
+    LossRule, PathState, PathView, ProbeOutcome, Selector, SelectorConfig, SelectorError, Switch,
 };
