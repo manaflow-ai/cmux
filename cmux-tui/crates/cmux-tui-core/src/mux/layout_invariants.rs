@@ -183,7 +183,7 @@ pub(crate) fn operation_scope(
                 named.push(indexes.workspaces.get(&screen.workspace_id).copied());
             }
             ResourceChange::TombstoneScreen { screen_id } => {
-                named.push(screen_workspace(screen_id))
+                named.push(screen_workspace(screen_id));
             }
             ResourceChange::UpsertPane(pane) => {
                 named.extend([public_pane(&pane.public_id), screen_workspace(&pane.screen_id)]);

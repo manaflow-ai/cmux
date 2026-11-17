@@ -544,7 +544,7 @@ fn build(mux: &Arc<Mux>, layout: &[Vec<usize>]) {
 struct Handles {
     tabs: Vec<SurfaceId>,
     panes: Vec<PaneId>,
-    workspaces: Vec<crate::WorkspaceId>,
+    workspaces: Vec<WorkspaceId>,
 }
 
 fn handles(mux: &Mux) -> Handles {

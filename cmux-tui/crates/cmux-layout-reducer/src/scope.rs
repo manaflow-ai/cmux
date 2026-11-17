@@ -40,7 +40,8 @@ pub(crate) struct Before {
     outside_tabs: usize,
     /// The scope's workspaces as they were, with their positions.
     workspaces: Vec<(usize, Workspace)>,
-    /// Every pane entry and tab entry the op may write, as it was.
+    /// Every pane entry the op may write, and the tab entries it names
+    /// outside `tabs`, as they were (`None`: absent).
     pane_entries: Vec<(PaneId, Option<Vec<TabId>>)>,
     tab_entries: Vec<(TabId, Option<TabContent>)>,
 }
@@ -231,27 +232,30 @@ impl Scope {
     /// The region before the op, and every entry the op may write.
     pub(crate) fn capture(&self, state: &LayoutState, created: &BTreeSet<TabId>) -> Before {
         let region = self.region(state, self.panes.iter().copied(), self.tabs.iter().copied());
+        // The region's entries, then the named ones outside it (absent ones
+        // too, so a restore removes what the op created).
         let pane_entries = region
             .panes
             .iter()
-            .chain(&self.panes)
-            .collect::<BTreeSet<_>>()
-            .into_iter()
+            .chain(self.panes.iter().filter(|pane| !region.panes.contains(pane)))
             .map(|pane| (*pane, state.panes.get(pane).cloned()))
             .collect();
-        let tab_entries = region
+        let tabs = region
             .tabs
             .iter()
-            .chain(&self.tabs)
+            .filter_map(|tab| Some((*tab, state.tabs.get(tab)?.clone())))
+            .collect::<BTreeMap<_, _>>();
+        let tab_entries = self
+            .tabs
+            .iter()
             .chain(created)
-            .collect::<BTreeSet<_>>()
-            .into_iter()
+            .filter(|tab| !tabs.contains_key(tab))
             .map(|tab| (*tab, state.tabs.get(tab).cloned()))
             .collect();
         Before {
             outside_panes: state.panes.len() - region.panes.len(),
             outside_tabs: state.tabs.len() - region.tabs.len(),
-            tabs: region.tabs.iter().map(|tab| (*tab, state.tabs[tab].clone())).collect(),
+            tabs,
             panes: region.panes,
             violations: region.violations,
             workspaces: self
@@ -371,5 +375,6 @@ impl Scope {
                 None => state.tabs.remove(&tab),
             };
         }
+        state.tabs.extend(before.tabs);
     }
 }
