@@ -171,6 +171,23 @@ public struct Value {
         self.assertEqual(result.others[test], '@testable import struct Fixture.Policy\n')
         self.assertEqual(result.others[other], 'import enum Elsewhere.Policy\n')
 
+    def test_fix_leaves_imports_of_a_top_level_enum_when_it_converts_a_nested_one(self):
+        # Review F1 of #45122: converting Owner.Policy must not rewrite `import enum Fixture.Policy`.
+        source = '''public struct Owner {
+    public let id: Int
+    public nonisolated enum Policy {
+        public static let enabled = true
+    }
+}
+public enum Policy {
+    case on, off
+}
+'''
+        user = 'Packages/iOS/CmuxMobileFixture/Sources/User/User.swift'
+        result = self.lint(source, fix=True, others={user: 'import enum Fixture.Policy\n'})
+        self.assertIn('public nonisolated struct Policy {', result.fixed_source)
+        self.assertEqual(result.others[user], 'import enum Fixture.Policy\n')
+
 
     def test_fix_does_not_change_class_or_actor_semantics(self):
         for kind in ("class", "actor"):

@@ -121,8 +121,11 @@ def schedule_fix(path, original, masked, match, declares_init):
     edits = fixes.setdefault(path, [])
     if kind == "enum":
         edits.append((match.start("kind"), match.end("kind"), "struct"))
+        # Only a top-level enum is importable as `import enum Module.Name`; a nested `Owner.Name` is not, and its
+        # bare name may belong to another top-level type of the module (review F1 of #45122).
+        top_level = masked.count("{", 0, match.start()) == masked.count("}", 0, match.start())
         module = declaring_module(path)
-        if module:
+        if module and top_level:
             converted_enums.add((module, match.group("name")))
     edits.append((brace + 1, brace + 1, initializer))
     fixed_declarations.add(declaration)
