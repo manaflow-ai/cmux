@@ -1186,6 +1186,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-auth-coordinator"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-automations"
 version = "0.1.0"
 dependencies = [
