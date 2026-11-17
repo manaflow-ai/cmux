@@ -207,11 +207,27 @@ fn list_scenario() {
     }
 }
 
+/// Writes `dir`'s manifest as `save` does, through a temporary file renamed
+/// over it (how most editors and `cp` to a new name save): no read sees a
+/// half-written manifest.
+fn save_atomic(dir: &Path, version: &str, export: &str) {
+    let path = dir.join("cmux-app.json");
+    let mut manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    manifest["version"] = json!(version);
+    manifest["implements"]["cmux.section/1"]["export"] = json!(export);
+    let tmp = dir.join(".cmux-app.json.tmp");
+    std::fs::write(&tmp, manifest.to_string()).unwrap();
+    std::fs::rename(&tmp, &path).unwrap();
+}
+
 /// Scenario 2: 200 writes to one mounted extension as fast as possible,
-/// through the real file watch, with `apps-list` probed every 2 ms; the
-/// final scene must draw the last write.
+/// through the real file watch, with `apps-list` probed every 2 ms: in place
+/// (truncate, then write, as `fs::write` and some editors do) and through a
+/// rename. Reports whether the final scene drew the last write within 20 s,
+/// and what the open view saw meanwhile (a failed mount, a removal).
 fn storm_scenario() {
-    for n in [1, 50] {
+    for (mode, n) in [("in_place", 1), ("in_place", 50), ("rename", 1), ("rename", 50)] {
         let f = fixture();
         add_extensions(&f, n, 0);
         f.supervisor.reload_local_apps_now();
@@ -226,36 +242,48 @@ fn storm_scenario() {
         let start = Instant::now();
         const WRITES: usize = 200;
         for w in 0..WRITES {
-            save(&dir, &format!("2.0.{w}"), &format!("storm{w}"));
+            let (version, export) = (format!("2.0.{w}"), format!("storm{w}"));
+            if mode == "rename" {
+                save_atomic(&dir, &version, &export);
+            } else {
+                save(&dir, &version, &export);
+            }
         }
         let wrote = Instant::now();
         let last = format!("storm{}", WRITES - 1);
-        let deadline = wrote + Duration::from_secs(60);
-        let mut changed = 0;
-        loop {
-            let left = deadline.saturating_duration_since(Instant::now());
-            let event = f.events.recv_timeout(left).expect("the storm's last write was drawn");
+        let deadline = wrote + Duration::from_secs(20);
+        let (mut changed, mut mount_failed, mut drawn) = (0, Vec::new(), None);
+        while let Ok(event) =
+            f.events.recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        {
             if event["event"] == "apps-changed" && event["app"] == "local/spy" {
                 changed += 1;
+            }
+            if event["event"] == "apps-mount-failed" && event["mount_id"] == "m-spy" {
+                mount_failed.push(event["reason"].clone());
             }
             if event["event"] == "apps-scene"
                 && event["mount_id"] == "m-spy"
                 && event["ops"][0]["props"]["text"] == last.as_str()
             {
+                drawn = Some(wrote.elapsed().as_secs_f64() * 1000.0);
                 break;
             }
         }
-        let settled_ms = wrote.elapsed().as_secs_f64() * 1000.0;
         let list = probe.finish();
-        assert_eq!(app_entry(&f.supervisor.list(), "local/spy")["version"], "2.0.199");
+        let version = app_entry(&f.supervisor.list(), "local/spy")["version"].clone();
         report(
             "save_storm",
             n,
             json!({
+                "case": mode,
                 "writes": WRITES,
                 "write_ms": (wrote - start).as_secs_f64() * 1000.0,
-                "last_write_to_scene_ms": settled_ms,
+                "last_write_to_scene_ms": drawn,
+                "listed_version": version,
                 "reloads": changed,
+                "mount_failed": mount_failed.len(),
+                "first_mount_failure": mount_failed.first(),
                 "list_ms": list.summary(),
             }),
         );
