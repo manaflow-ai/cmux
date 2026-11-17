@@ -347,9 +347,15 @@ impl Mirror {
     }
 
     pub fn project(&mut self, input: &[u8]) -> Value {
+        serde_json::from_str(&self.project_json(input)).unwrap_or_else(error)
+    }
+
+    /// `project`'s answer as the FFI hands it over: serialized straight from
+    /// the kept view (no JSON value tree, no copy of the rows' records).
+    pub fn project_json(&mut self, input: &[u8]) -> String {
         match self.view_rows(input) {
-            Ok(()) => json!(self.cache.projection(&self.shown)),
-            Err(e) => e,
+            Ok(()) => self.cache.projection_json(&self.shown),
+            Err(e) => e.to_string(),
         }
     }
 

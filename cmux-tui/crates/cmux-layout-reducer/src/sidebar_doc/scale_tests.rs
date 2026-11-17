@@ -241,7 +241,7 @@ fn scale_bench() {
                     apply_in_place(&mut s.doc, &[to], &mut mint).expect("move");
                     let touched = s.doc.take_touched();
                     cache.refresh(&s.doc, request.clone(), touched);
-                    drop(cache.projection(&s.doc));
+                    drop(cache.projection_json(&s.doc));
                 }
             }),
         );

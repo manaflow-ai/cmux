@@ -24,8 +24,10 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use super::doc::{Doc, Touched};
 use super::model::*;
+use serde::Serialize;
+
 use super::project::{self, BandItem, Group, Member, Node, ProjectedSection, Projection};
-use super::view::{self, Context, LiveIndex, Row, ViewRequest, WindowFilter};
+use super::view::{self, Context, Live, LiveIndex, Row, ViewRequest, WindowFilter};
 
 /// One block's share of the projection.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -234,7 +236,7 @@ impl ViewCache {
             request.live = live.list().to_vec();
             return self.rebuild(doc, request);
         }
-        let context = Context::new(&self.live, &self.request);
+        let context = Context::new(Live::Kept(&self.live), &self.request);
         // Unindex every block that goes or is rebuilt, then build: a member
         // that moved between two rebuilt blocks ends in the new one.
         let mut rebuild: Vec<(usize, ItemId)> = Vec::new();
@@ -390,7 +392,7 @@ impl ViewCache {
         self.live = LiveIndex::new(std::mem::take(&mut request.live));
         self.request = request;
         self.index.clear();
-        let context = Context::new(&self.live, &self.request);
+        let context = Context::new(Live::Kept(&self.live), &self.request);
         let unplaced = view::unplaced_by_session(doc, self.live.list());
         let sections = view::shown_sections(
             doc,
@@ -445,10 +447,35 @@ impl ViewCache {
         out
     }
 
-    /// The projection, as [`project::project`] answers for [`Self::rows`],
-    /// from each block's kept part.
+    /// The projection, as [`project::project`] answers for [`Self::rows`]
+    /// (read back from [`Self::projection_json`], so both are one path).
     pub fn projection(&self, doc: &Doc) -> Projection {
-        let mut out = Projection::default();
+        serde_json::from_str(&self.projection_json(doc)).unwrap_or_default()
+    }
+
+    /// The projection's JSON, byte for byte what `serde_json::to_string` of
+    /// [`project::project`] writes, serialized from the kept blocks' parts
+    /// with no copy of them and no JSON value tree.
+    pub fn projection_json(&self, doc: &Doc) -> String {
+        serde_json::to_string(&self.projection_ref(doc)).unwrap_or_else(|_| "{}".into())
+    }
+
+    fn projection_ref<'a>(&'a self, doc: &'a Doc) -> ProjectionRef<'a> {
+        let mut out = ProjectionRef {
+            sections: Vec::new(),
+            machines: BTreeMap::new(),
+            items: Chain::default(),
+            machine_sections: BTreeMap::new(),
+            machine_order: Vec::new(),
+            unplaced: Vec::new(),
+            band_groups: Chain::default(),
+            host_groups: &self.host_groups,
+            archived: Chain::default(),
+            group_sorts: &self.settings.sorts,
+            pinned_in_group: &self.settings.pinned_in_group,
+            group_row_limits: &self.settings.row_limits,
+            group_revealed: &self.settings.revealed,
+        };
         let mut placed_list = false;
         for view in &self.sections {
             if !view.draws() {
@@ -456,49 +483,100 @@ impl ViewCache {
             }
             let body = !view.folded();
             let section = doc.section(&view.section.id).unwrap_or(&view.section);
-            let parts = view.blocks.iter().filter(|_| body).map(|block| &block.part);
+            let parts: Vec<&Part> =
+                if body { view.blocks.iter().map(|block| &block.part).collect() } else { vec![] };
+            for part in &parts {
+                out.items.push(&part.items);
+                out.archived.push(&part.archived);
+            }
             if let Some(session) = section.kind.machine() {
                 if !out.machine_sections.contains_key(session) {
-                    out.machine_order.push(section.id.clone());
+                    out.machine_order.push(&section.id);
                 }
-                out.machine_sections.insert(session.to_string(), section.id.clone());
+                out.machine_sections.insert(session, &section.id);
                 if !placed_list {
                     placed_list = true;
-                    out.sections.push(ProjectedSection::Workspaces { like: Some(section.clone()) });
+                    out.sections.push(SectionRef::Workspaces { like: Some(section) });
                 }
-                for part in parts {
+                for part in &parts {
                     if !part.nodes.is_empty() {
-                        out.machines
-                            .entry(session.to_string())
-                            .or_default()
-                            .extend(part.nodes.iter().cloned());
+                        out.machines.entry(session).or_default().push(&part.nodes);
                     }
-                    out.items.extend(part.items.iter().cloned());
-                    out.archived.extend(part.archived.iter().cloned());
                 }
                 if body {
                     out.unplaced
-                        .extend(view.unplaced.iter().filter_map(|(_, row)| row.reference.clone()));
+                        .extend(view.unplaced.iter().filter_map(|(_, row)| row.reference.as_ref()));
                 }
                 continue;
             }
-            let mut items = Vec::new();
-            for part in parts {
-                items.extend(part.band_items.iter().cloned());
-                out.band_groups.extend(part.band_groups.iter().cloned());
-                out.items.extend(part.items.iter().cloned());
-                out.archived.extend(part.archived.iter().cloned());
+            let mut items = Chain::default();
+            for part in &parts {
+                items.push(&part.band_items);
+                out.band_groups.push(&part.band_groups);
             }
-            out.sections.push(ProjectedSection::Band { section: section.clone(), items });
+            out.sections.push(SectionRef::Band { section, items });
         }
         if !placed_list {
-            out.sections.push(ProjectedSection::Workspaces { like: None });
+            out.sections.push(SectionRef::Workspaces { like: None });
         }
-        out.host_groups = self.host_groups.clone();
-        out.group_sorts = self.settings.sorts.clone();
-        out.group_row_limits = self.settings.row_limits.clone();
-        out.group_revealed = self.settings.revealed.clone();
-        out.pinned_in_group = self.settings.pinned_in_group.iter().cloned().collect();
         out
     }
+}
+
+/// Slices serialized as one flat sequence.
+struct Chain<'a, T>(Vec<&'a [T]>);
+
+impl<T> Default for Chain<'_, T> {
+    fn default() -> Self {
+        Chain(Vec::new())
+    }
+}
+
+impl<'a, T> Chain<'a, T> {
+    fn push(&mut self, slice: &'a [T]) {
+        if !slice.is_empty() {
+            self.0.push(slice);
+        }
+    }
+}
+
+impl<T: Serialize> Serialize for Chain<'_, T> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_seq(self.0.iter().flat_map(|slice| slice.iter()))
+    }
+}
+
+/// [`ProjectedSection`] by reference (the same wire form).
+#[derive(Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum SectionRef<'a> {
+    Workspaces {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        like: Option<&'a Section>,
+    },
+    Band {
+        section: &'a Section,
+        items: Chain<'a, BandItem>,
+    },
+}
+
+/// [`Projection`] by reference: the same fields in the same order with the
+/// same skips, so the bytes match.
+#[derive(Serialize)]
+struct ProjectionRef<'a> {
+    sections: Vec<SectionRef<'a>>,
+    machines: BTreeMap<&'a str, Chain<'a, Node>>,
+    items: Chain<'a, Member>,
+    machine_sections: BTreeMap<&'a str, &'a SectionId>,
+    machine_order: Vec<&'a SectionId>,
+    unplaced: Vec<&'a WorkspaceRef>,
+    band_groups: Chain<'a, Group>,
+    host_groups: &'a [SectionId],
+    archived: Chain<'a, ItemId>,
+    group_sorts: &'a BTreeMap<ItemId, String>,
+    pinned_in_group: &'a BTreeSet<ItemId>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    group_row_limits: &'a BTreeMap<ItemId, u32>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    group_revealed: &'a BTreeMap<ItemId, u32>,
 }

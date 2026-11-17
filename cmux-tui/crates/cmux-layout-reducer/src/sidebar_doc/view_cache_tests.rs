@@ -191,11 +191,13 @@ fn run(seed: u64, steps: usize, workspaces: usize, sections: usize, group: usize
         cache.refresh(&doc, request.clone(), touched);
         let rows = view(&doc, &request);
         assert_eq!(cache.rows(), rows, "seed {seed} step {n}: rows");
+        let full = project(&doc, &rows);
         assert_eq!(
-            cache.projection(&doc),
-            project(&doc, &rows),
-            "seed {seed} step {n}: projection"
+            cache.projection_json(&doc),
+            serde_json::to_string(&full).expect("projection"),
+            "seed {seed} step {n}: projection bytes"
         );
+        assert_eq!(cache.projection(&doc), full, "seed {seed} step {n}: projection");
         // A search rebuilds every time; it lasts one step, so most steps
         // take the incremental path.
         request.filter = None;

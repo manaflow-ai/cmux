@@ -133,16 +133,42 @@ impl LiveIndex {
     }
 }
 
+/// The live set a view reads: borrowed from the request for one full view
+/// (no copy), or the kept index of an incremental one.
+pub(super) enum Live<'a> {
+    Borrowed(HashMap<(&'a str, &'a str), &'a LiveWorkspace>),
+    Kept(&'a LiveIndex),
+}
+
+impl<'a> Live<'a> {
+    pub(super) fn borrowed(list: &'a [LiveWorkspace]) -> Self {
+        Live::Borrowed(
+            list.iter()
+                .map(|live| ((live.session_id.as_str(), live.workspace_id.as_str()), live))
+                .collect(),
+        )
+    }
+
+    fn get(&self, reference: &WorkspaceRef) -> Option<&'a LiveWorkspace> {
+        match self {
+            Live::Borrowed(map) => {
+                map.get(&(reference.session_id.as_str(), reference.workspace_id.as_str())).copied()
+            }
+            Live::Kept(index) => index.get(reference),
+        }
+    }
+}
+
 /// What every row of one view reads besides the document: the live set, the
 /// text filter and the collapsed ids.
 pub(super) struct Context<'a> {
-    live: &'a LiveIndex,
+    live: Live<'a>,
     pub(super) needle: Option<String>,
     collapsed: Option<HashSet<&'a str>>,
 }
 
 impl<'a> Context<'a> {
-    pub(super) fn new(live: &'a LiveIndex, request: &'a ViewRequest) -> Self {
+    pub(super) fn new(live: Live<'a>, request: &'a ViewRequest) -> Self {
         Context {
             live,
             needle: request
@@ -282,21 +308,30 @@ pub(super) fn block_rows(
     section: &Section,
     item: &Item,
 ) -> Vec<Row> {
+    let mut out = Vec::new();
+    push_block(doc, context, section, item, &mut out);
+    out
+}
+
+/// [`block_rows`] appended to `out`.
+fn push_block(
+    doc: &Doc,
+    context: &Context<'_>,
+    section: &Section,
+    item: &Item,
+    out: &mut Vec<Row>,
+) {
     match &item.body {
         Body::Workspace { reference } => {
             let live = context.is_live(reference);
             if (live || section.keeps_closed) && context.shows(item) {
-                vec![item_row(item, 0, !live, false, false)]
-            } else {
-                Vec::new()
+                out.push(item_row(item, 0, !live, false, false));
             }
         }
-        Body::Group { .. } => group_rows(doc, context, section, item, 0, false, false),
+        Body::Group { .. } => out.extend(group_rows(doc, context, section, item, 0, false, false)),
         _ => {
             if context.shows(item) {
-                vec![item_row(item, 0, false, false, false)]
-            } else {
-                Vec::new()
+                out.push(item_row(item, 0, false, false, false));
             }
         }
     }
@@ -419,43 +454,35 @@ pub(super) fn unplaced_at<'r>(heads: impl DoubleEndedIterator<Item = Option<&'r 
 
 /// The rows of `doc` for one window.
 pub fn view(doc: &Doc, request: &ViewRequest) -> Vec<Row> {
-    let live = LiveIndex::new(request.live.clone());
-    let context = Context::new(&live, request);
+    let context = Context::new(Live::borrowed(&request.live), request);
     let unplaced = unplaced_by_session(doc, &request.live);
     let sections =
         shown_sections(doc, &request.window, unplaced.iter().map(|(session, _)| session.as_str()));
     let machine_count = sections.iter().filter(|s| s.kind.machine().is_some()).count();
     let mut rows = Vec::new();
     for section in &sections {
-        let blocks: Vec<Vec<Row>> = doc
-            .list(&section.id, None)
-            .map(|item| block_rows(doc, &context, section, item))
-            .collect();
-        let mut extra: Vec<Row> = Vec::new();
+        let mut body: Vec<Row> = Vec::new();
+        for item in doc.list(&section.id, None) {
+            push_block(doc, &context, section, item, &mut body);
+        }
         if let Some(session) = section.kind.machine()
             && let Some((_, list)) = unplaced.iter().find(|(s, _)| s == session)
         {
-            for live in list {
-                if context.matches(live.title.as_deref().unwrap_or_default()) {
-                    extra.push(unplaced_row(section, live));
-                }
-            }
+            // Above the archived tail (each block's top row is its depth-0 row).
+            let at = unplaced_at(body.iter().map(|row| (row.depth == 0).then_some(row)));
+            let extra: Vec<Row> = list
+                .iter()
+                .filter(|live| context.matches(live.title.as_deref().unwrap_or_default()))
+                .map(|live| unplaced_row(section, live))
+                .collect();
+            body.splice(at..at, extra);
         }
-        let at = unplaced_at(blocks.iter().map(|block| block.first()));
-        let body_empty = extra.is_empty() && blocks.iter().all(Vec::is_empty);
-        let header = header_row(section, &context, machine_count, body_empty);
+        let header = header_row(section, &context, machine_count, body.is_empty());
         let folded = header.as_ref().is_some_and(|header| header.collapsed);
         rows.extend(header);
-        if folded {
-            continue;
+        if !folded {
+            rows.append(&mut body);
         }
-        for (index, block) in blocks.into_iter().enumerate() {
-            if index == at {
-                rows.append(&mut extra);
-            }
-            rows.extend(block);
-        }
-        rows.append(&mut extra);
     }
     rows
 }
