@@ -19,6 +19,7 @@ import Testing
     /// ghostty-vt for the same check.
     @Test(arguments: HybridParityFixture.names)
     func everyFrameDrawsTheReferenceScreen(name: String) throws {
+        #expect(!Thread.isMainThread, "the parity proof holds the main thread")
         let fixture = try #require(HybridParityFixture.load(name), "\(name): no fixture at \(HybridParityFixture.url(name).path)")
         var parser = DaemonTerminalEventParser(surface: 1)
         var decoder = AgentCLIHybridLeanDecoder()
@@ -157,6 +158,7 @@ import Testing
     /// falls back (a full resync, then bytes mode) before it draws a wrong one. Seeded:
     /// the same 6,000 cases on every run.
     @Test func randomFrameStreamsNeverDrawAWrongScreenSilently() throws {
+        #expect(!Thread.isMainThread, "6,000 fuzz cases hold the main thread")
         let fixtures = HybridParityFixture.all
         try #require(fixtures.count == HybridParityFixture.names.count, "the parity fixtures")
         var rng = SeededGenerator(seed: 0x4405_2C0F_FEE0_7CEE)
