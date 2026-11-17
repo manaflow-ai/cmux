@@ -88,6 +88,11 @@ impl Cap {
         self.bytes > self.max_bytes || self.files > self.max_files
     }
 
+    /// The bytes of every file counted so far.
+    pub(super) fn bytes(&self) -> u64 {
+        self.bytes
+    }
+
     /// The size `relative` was counted at (0 for one never counted).
     pub(super) fn size_of(&self, relative: &str) -> u64 {
         self.sizes.get(relative).copied().unwrap_or(0)
