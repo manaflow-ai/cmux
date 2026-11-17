@@ -727,7 +727,29 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         var turns = Set<String>()
         for id in ids { if let row = rows[id] { turns.insert(row.turnID) } }
         guard !turns.isEmpty else { return }
-        for turn in turns { shownTurns[turn] = nil }
+        // Only the landed rows' items change (their estimate becomes the real height); the rest of
+        // each turn keeps its item. Dropping the turns' kept rows instead weighed every row of every
+        // landed turn again on the main thread: on open, one batch for the whole history, a frame
+        // over 100 ms in a 200-turn chat (`ChatOpenCostTests`).
+        let landed = Set(ids)
+        var unpatched = Set<String>()
+        for turn in turns {
+            guard var shown = shownTurns[turn] else { continue }
+            var whole = true
+            for (position, id) in shown.ids.enumerated() where landed.contains(id) {
+                guard let row = rows[id], lookup.eligible(row) else { continue }
+                let revision = revisions[id] ?? 0
+                guard shown.items[position].revision == revision,
+                      let height = lookup.layouts.height(id, revision: revision, expanded: lookup.expanded(id)) else {
+                    whole = false
+                    break
+                }
+                shown.items[position].estimate = height
+                shown.items[position].exact = true
+            }
+            if whole { shownTurns[turn] = shown } else { unpatched.insert(turn) }
+        }
+        for turn in unpatched { shownTurns[turn] = nil }
         reload()
     }
 
