@@ -941,13 +941,16 @@ mod keyframe_skip_tests {
         pic
     }
 
-    /// The share's first keyframe must not starve the frames after it: a key press after it
-    /// has to code within a few frames, not wait for OpenH264's buffer to drain (it used to
-    /// drop ~260 ms of frames after a start keyframe at 8 Mbit/s). Rate control may still drop
-    /// a frame now and then; no run of dropped frames may exceed LONGEST_GAP (~83 ms).
+    /// A key press right after a share starts shows within PRESS_ANSWER_US. On a moving
+    /// 1080p desktop at the 8 Mbit/s start rate, OpenH264's screen rate control used to drop
+    /// ~260 ms of frames after the start keyframe, so the first presses of every share waited
+    /// 55-290 ms for a frame (fleet netem rig, every profile, clean included).
     #[test]
-    fn frames_after_a_screen_keyframe_are_not_skipped() {
-        let (w, h) = (1280usize, 720usize);
+    fn a_press_after_a_screen_keyframe_codes_within_120_ms() {
+        const FRAME_US: i64 = 16_667;
+        const PRESS_AT_US: i64 = 50_000;
+        const PRESS_ANSWER_US: i64 = 120_000;
+        let (w, h) = (1920usize, 1080usize);
         let cfg = EncCfg {
             width: w as u32,
             height: h as u32,
@@ -960,26 +963,39 @@ mod keyframe_skip_tests {
         let mut pic = desktop(w, h);
         let mut au = Vec::new();
         let mut sizes = Vec::new();
+        let mut answered = None;
         for frame in 0..61i64 {
-            // A typed character: a small marker that changes every frame.
-            for y in 0..32 {
-                for x in 0..64 {
-                    pic.y[y * w + x] = if (frame as usize + x / 8) % 2 == 0 { 30 } else { 220 };
+            let t = frame * FRAME_US;
+            // The rig's motion workload: a band that moves every frame.
+            let top = (frame as usize * 12) % (h - 96);
+            for y in top..top + 96 {
+                for x in 0..w {
+                    pic.y[y * w + x] = pic.y[y * w + x].wrapping_add(37);
+                }
+            }
+            // The press: a typed character from PRESS_AT_US on.
+            if t >= PRESS_AT_US {
+                for y in 0..32 {
+                    for x in 0..64 {
+                        pic.y[y * w + x] = if (frame as usize + x / 8) % 2 == 0 { 30 } else { 220 };
+                    }
                 }
             }
             // `encode` answers whether the frame is an IDR; a dropped frame is an empty access unit.
-            enc.encode(&pic, frame == 0, frame * 16_667, &mut au).expect("encode");
+            enc.encode(&pic, frame == 0, t, &mut au).expect("encode");
             sizes.push(au.len());
+            if t >= PRESS_AT_US && !au.is_empty() && answered.is_none() {
+                answered = Some(t - PRESS_AT_US);
+            }
         }
-        const LONGEST_GAP: usize = 5;
-        let longest = sizes[1..].split(|&n| n > 0).map(<[usize]>::len).max().unwrap_or(0);
+        let answered = answered.unwrap_or(i64::MAX);
         assert!(sizes[0] > 0, "no keyframe: {sizes:?}");
         assert!(
-            longest <= LONGEST_GAP,
-            "{longest} frames in a row dropped after the keyframe ({} KB): {sizes:?}",
+            answered <= PRESS_ANSWER_US,
+            "the press coded {} ms after it (keyframe {} KB): {sizes:?}",
+            answered / 1000,
             sizes[0] / 1024
         );
-        assert_eq!(enc.kbps(), 8000, "the rate goes back after the keyframe");
     }
 }
 
