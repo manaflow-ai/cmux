@@ -3499,8 +3499,8 @@
         true,
         false
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -3567,7 +3567,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -3579,9 +3579,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -3637,8 +3639,8 @@
         true,
         false
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -3704,7 +3706,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -3716,9 +3718,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -11785,8 +11789,8 @@
         "pluggedIn",
         "always"
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "choices" : [
         {
           "title" : {
@@ -11876,7 +11880,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -11888,9 +11892,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -11946,8 +11952,8 @@
         true,
         false
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -12013,7 +12019,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -12025,9 +12031,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -12485,8 +12493,8 @@
         true,
         false
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -12550,7 +12558,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -12562,9 +12570,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -12621,8 +12631,8 @@
         "pluggedIn",
         "always"
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "choices" : [
         {
           "title" : {
@@ -12707,7 +12717,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -12719,9 +12729,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -13778,8 +13790,8 @@
         true,
         false
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -13844,7 +13856,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -13856,9 +13868,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -15145,8 +15159,8 @@
         true,
         false
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -15209,7 +15223,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -15221,9 +15235,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -15280,8 +15296,8 @@
         3600,
         1800
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -15351,7 +15367,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -15363,9 +15379,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -15422,8 +15440,8 @@
         12,
         6.5
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -15491,7 +15509,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -15503,9 +15521,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -15697,8 +15717,8 @@
         true,
         false
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -15762,7 +15782,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -15774,9 +15794,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -15833,8 +15855,8 @@
         95,
         52.5
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -15902,7 +15924,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -15914,9 +15936,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -16537,8 +16561,8 @@
         "latest",
         "priority"
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "choices" : [
         {
           "title" : {
@@ -16633,7 +16657,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -16645,9 +16669,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -16708,8 +16734,8 @@
           "2B7F0C3A-workspace"
         ]
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -16780,7 +16806,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -16792,9 +16818,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -21919,8 +21947,8 @@
         true,
         false
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -21983,7 +22011,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -21995,9 +22023,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -22479,8 +22509,8 @@
           "~/notes"
         ]
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -22548,7 +22578,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -22560,9 +22590,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -22897,8 +22929,8 @@
         "manual",
         "off"
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "choices" : [
         {
           "title" : {
@@ -23002,7 +23034,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -23014,9 +23046,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -23073,8 +23107,8 @@
         365,
         183
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -23143,7 +23177,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -23155,9 +23189,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -23213,8 +23249,8 @@
         true,
         false
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -23281,7 +23317,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -23293,9 +23329,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -23352,8 +23390,8 @@
         10080,
         5042.5
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -23422,7 +23460,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -23434,9 +23472,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -23493,8 +23533,8 @@
         1440,
         722.5
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -23566,7 +23606,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -23578,9 +23618,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -33978,7 +34020,7 @@
       },
       "help" : {
         "key" : "settings.appearance.fontSmoothing.help",
-        "text" : "How text draws. Auto keeps the Mac's own smoothing for tabs, the sidebar and other controls, and each page's own style. Thin draws lighter strokes everywhere. Smooth draws the heavier macOS smoothing everywhere. Pages change at once; other text changes after cmux restarts. Terminal text keeps its own setting."
+        "text" : "How text draws. Auto keeps the Mac's own smoothing for tabs, the sidebar and other controls, and each page's own style. Thin draws lighter strokes everywhere. Smooth draws the heavier macOS smoothing everywhere. Pages, tabs and the sidebar change at once; other text changes after cmux restarts. Terminal text keeps its own setting."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.fontSmoothing",
@@ -60477,8 +60519,8 @@
         "zed",
         "none"
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "choices" : [
         {
           "title" : {
@@ -60596,7 +60638,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -60608,9 +60650,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -83741,8 +83785,8 @@
         "human",
         "instant"
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "choices" : [
         {
           "title" : {
@@ -83822,7 +83866,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -83834,9 +83878,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -83893,8 +83939,8 @@
         1000,
         530
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -83963,7 +84009,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -83975,9 +84021,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -93549,8 +93597,8 @@
         true,
         false
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -93615,7 +93663,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -93627,9 +93675,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -93686,8 +93736,8 @@
         "always",
         "never"
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "choices" : [
         {
           "title" : {
@@ -93775,7 +93825,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -93787,9 +93837,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -93850,8 +93902,8 @@
           "2B7F0C3A-workspace"
         ]
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -93930,7 +93982,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -93942,9 +93994,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -94005,8 +94059,8 @@
           "2B7F0C3A-workspace"
         ]
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -94085,7 +94139,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -94097,9 +94151,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -94156,8 +94212,8 @@
         1000,
         500
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -94231,7 +94287,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -94243,9 +94299,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -96117,8 +96175,8 @@
         "once",
         "untilActive"
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "choices" : [
         {
           "title" : {
@@ -96201,7 +96259,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -96213,9 +96271,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -96272,8 +96332,8 @@
         "whenUnlocked",
         "never"
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "choices" : [
         {
           "title" : {
@@ -96357,7 +96417,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -96369,9 +96429,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -96849,8 +96911,8 @@
         true,
         false
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -96913,7 +96975,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -96925,9 +96987,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -103712,8 +103776,8 @@
         true,
         false
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -103776,7 +103840,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -103788,9 +103852,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -104439,8 +104505,8 @@
         "1h",
         "5m"
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "choices" : [
         {
           "title" : {
@@ -104520,7 +104586,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -104532,9 +104598,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -105721,8 +105789,8 @@
         "auto",
         "always"
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "choices" : [
         {
           "title" : {
@@ -105814,7 +105882,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -105826,9 +105894,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {

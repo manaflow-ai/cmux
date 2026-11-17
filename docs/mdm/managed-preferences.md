@@ -196,7 +196,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.customDensities` | string | `[]` |  | Custom Densities |
 | `app.uiScale` | real | `1` | 0.25 to 5 | App Zoom. Zoom for chat, Settings and other app pages. Density and Text Size set the rest of the app. |
 | `appearance.metrics.chromeFontSize` | real |  | 10 to 16 | Text Size. Text size of tabs, the sidebar, chat and other controls, over the density's. Terminal text has its own size. |
-| `appearance.fontSmoothing` | string | `"auto"` | `auto`, `antialiased`, `subpixel` | Text Smoothing. How text draws. Auto keeps the Mac's own smoothing for tabs, the sidebar and other controls, and each page's own style. Thin draws lighter strokes everywhere. Smooth draws the heavier macOS smoothing everywhere. Pages change at once; other text changes after cmux restarts. Terminal text keeps its own setting. |
+| `appearance.fontSmoothing` | string | `"auto"` | `auto`, `antialiased`, `subpixel` | Text Smoothing. How text draws. Auto keeps the Mac's own smoothing for tabs, the sidebar and other controls, and each page's own style. Thin draws lighter strokes everywhere. Smooth draws the heavier macOS smoothing everywhere. Pages, tabs and the sidebar change at once; other text changes after cmux restarts. Terminal text keeps its own setting. |
 | `appearance.interfaceScale` | real |  | 0.9 to 1.25 | Interface Size. Text size of tabs, the sidebar and other controls. Terminal text has its own size. |
 | `appearance.metrics.sidebarWidth` | real |  | 160 to 420 | Sidebar Width |
 | `appearance.metrics.columnGap` | real |  | 0 to 24 | Column Gap |

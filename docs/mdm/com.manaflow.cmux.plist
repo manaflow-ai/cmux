@@ -3359,7 +3359,7 @@
 			<key>pfm_default</key>
 			<string>auto</string>
 			<key>pfm_description</key>
-			<string>How text draws. Auto keeps the Mac's own smoothing for tabs, the sidebar and other controls, and each page's own style. Thin draws lighter strokes everywhere. Smooth draws the heavier macOS smoothing everywhere. Pages change at once; other text changes after cmux restarts. Terminal text keeps its own setting.</string>
+			<string>How text draws. Auto keeps the Mac's own smoothing for tabs, the sidebar and other controls, and each page's own style. Thin draws lighter strokes everywhere. Smooth draws the heavier macOS smoothing everywhere. Pages, tabs and the sidebar change at once; other text changes after cmux restarts. Terminal text keeps its own setting.</string>
 			<key>pfm_name</key>
 			<string>appearance.fontSmoothing</string>
 			<key>pfm_range_list</key>
