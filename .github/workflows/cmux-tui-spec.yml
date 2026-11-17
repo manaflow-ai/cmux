@@ -276,8 +276,10 @@ jobs:
   # suites miss such a crate or one of its tests/ files. acpmux's own tests/v2_gate_home.rs
   # runs here as well: it is the only test build of the v2 gate registry (benches/v2/mod.rs),
   # no hosted job ran it, and #42725 left two of its tests red on base. The same Python test
-  # asks for every tests/v2_*.rs of acpmux that holds a test a plain run starts. The job and
-  # step keep their names: the scope step finds earlier runs by them.
+  # asks for every tests/v2_*.rs of acpmux that holds a test a plain run starts.
+  # tests/daemon_list_order_start.rs (the start task sorts the list order before any chat log
+  # is read) runs here too: no pull request check ran it. The job and step keep their names:
+  # the scope step finds earlier runs by them.
   acpmux-tests:
     name: acpmux tests (lib, hub_integration)
     needs: changes
@@ -400,7 +402,8 @@ jobs:
           head_log="$RUNNER_TEMP/acpmux-tests-head.log"
           suites=(--locked -p acpmux -p acpmux-book -p acpmux-build-id -p acpmux-client -p acpmux-core
             -p acpmux-list-types --lib --test hub_integration --test ffi --test v2_client
-            --test v2_gate_home --test v2_chat_recorded_stream --no-fail-fast)
+            --test v2_gate_home --test v2_chat_recorded_stream --test daemon_list_order_start
+            --no-fail-fast)
           started=$SECONDS
           if cargo test "${suites[@]}" 2>&1 | tee "$head_log"; then
             echo "acpmux tests: green in $((SECONDS - started)) s" >> "$GITHUB_STEP_SUMMARY"
