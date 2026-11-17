@@ -83,7 +83,7 @@ impl AsyncRead for WgStream {
                 Poll::Ready(None) if this.reset.load(Ordering::Acquire) => {
                     return Poll::Ready(Err(io::Error::new(
                         io::ErrorKind::ConnectionReset,
-                        "the tunnel peer of this connection was removed",
+                        "the tunnel connection was reset, timed out or lost its peer",
                     )));
                 }
                 Poll::Ready(None) => return Poll::Ready(Ok(())),
