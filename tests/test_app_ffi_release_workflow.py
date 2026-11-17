@@ -1547,12 +1547,11 @@ class BuildRescueToBlacksmith(unittest.TestCase):
             "github": {"ref": ref, "repository_owner": "manaflow-ai"}, "inputs": {"rescue": rescue},
             "vars": {"CI_BLACKSMITH_MACOS": switch}}))
 
-    def test_the_watch_runs_only_under_a_rescue_switch_and_never_in_a_rescued_run(self):
-        self.assertTrue(self.rescue_runs("pr-rescue"))
-        self.assertTrue(self.rescue_runs("on"))
-        for switch in ("", "off", "pr-rescue-later"):
-            self.assertFalse(self.rescue_runs(switch), switch)
+    def test_the_watch_runs_under_every_switch_and_never_in_a_rescued_run(self):
+        for switch in ("pr-rescue", "on", "", "off", "pr-rescue-later"):
+            self.assertTrue(self.rescue_runs(switch), switch)
         self.assertFalse(self.rescue_runs("pr-rescue", rescue="blacksmith"))
+        self.assertFalse(self.rescue_runs("", rescue="nightly-slot"))
         self.assertFalse(self.rescue_runs("pr-rescue", ref="refs/heads/main"))
 
     def test_nothing_waits_on_the_watch(self):
@@ -1600,12 +1599,32 @@ class BuildRescueToBlacksmith(unittest.TestCase):
              {"ref": "feat-cmux-next", "inputs": {"rescue": "blacksmith"}}),
             ("POST", "repos/manaflow-ai/cmux/actions/runs/7/cancel", None)])
 
-    def test_a_build_that_got_a_runner_or_a_switch_that_is_off_rescues_nothing(self):
+    def test_a_build_that_got_a_runner_rescues_nothing(self):
         m = self.rescue_module
         started = [[{"name": m.BUILD_JOB, "status": "queued"}], [{"name": m.BUILD_JOB, "status": "in_progress",
                                                                   "runner_name": "cmux14-glaeda-2"}]]
-        self.assertEqual(self.watch("pr-rescue", started), (m.DONE, []))
-        self.assertEqual(self.watch("off", [[{"name": m.BUILD_JOB, "status": "queued"}]]), (m.WAIT, []))
+        for switch in ("pr-rescue", "", "off"):
+            with self.subTest(switch=switch):
+                self.assertEqual(self.watch(switch, started), (m.DONE, []))
+
+    def test_with_blacksmith_off_a_build_queued_3_minutes_moves_to_the_nightly_slot(self):
+        # 2026-11-16/17: CI_BLACKSMITH_MACOS was unset, the rescue only watched, and runs 43993339863, 44028300302
+        # and 44042861860 waited 54 to 194 min on glaeda-side-std-xcode-26.6.
+        m = self.rescue_module
+        for switch in ("", "off"):
+            with self.subTest(switch=switch):
+                verdict, posts = self.watch(switch, [[{"name": m.BUILD_JOB, "status": "queued"}]])
+                self.assertEqual(verdict, m.RESCUE)
+                self.assertEqual(posts, [
+                    ("POST", "repos/manaflow-ai/cmux/actions/workflows/app-ffi-release.yml/dispatches",
+                     {"ref": "feat-cmux-next", "inputs": {"rescue": "nightly-slot"}}),
+                    ("POST", "repos/manaflow-ai/cmux/actions/runs/7/cancel", None)])
+        queued = {"name": m.BUILD_JOB, "status": "queued", "runner_name": None}
+        self.assertEqual(m.decide(queued, 0.0, 2 * self.MINUTE, m.NIGHTLY_SLOT_MINUTES)[0], m.WAIT)
+        self.assertEqual(m.decide(queued, 0.0, 3 * self.MINUTE, m.NIGHTLY_SLOT_MINUTES)[0], m.RESCUE)
+
+    def test_a_nightly_slot_rescue_takes_the_nightly_slot_label(self):
+        self.assertEqual(self.runner("nightly-slot", switch=""), "glaeda-nightly-std-xcode-26.6")
 
     def test_the_watch_is_bounded(self):
         m = self.rescue_module

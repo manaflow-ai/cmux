@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rescue app-ffi-release.yml's build to Blacksmith macOS when no owned runner took it (hq#3690).
+"""Rescue app-ffi-release.yml's build to the nightly slot or Blacksmith macOS when no runner took it (hq#3690).
 
 The build's runs-on is fixed when its job is created, and GitHub never re-routes a queued job: on 2026-11-16 run
 43978720557's `build xcframework` sat queued on glaeda-side-std-xcode-26.6 from 23:23Z to 02:38Z behind about 70
@@ -18,8 +18,15 @@ build that waits for an older build in its concurrency group as queued too (2026
 waits in the group on the Blacksmith route instead, and a rescued run never rescues again, so there is no loop. The
 watch ends after WATCH_MINUTES whatever it saw.
 
-Only BLACKSMITH_SWITCH (vars.CI_BLACKSMITH_MACOS) `pr-rescue` or `on` rescues; anything else (off) only watches and
-reports. A rescued run never rescues again (the workflow's `rescue` job is skipped when inputs.rescue is set).
+BLACKSMITH_SWITCH (vars.CI_BLACKSMITH_MACOS) `pr-rescue` or `on` rescues to Blacksmith after RESCUE_MINUTES. Anything
+else (off, the default since 2026-11-11) rescues to the std minis' nightly slot (`rescue: nightly-slot`, the label
+glaeda-nightly-std-xcode-26.6) after NIGHTLY_SLOT_MINUTES. No pull request job asks for that label, the slot's
+listener gate listens however full its mini is, and glaeda's hook admits this build there as a nightly-tier job and
+puts it first in the mini's line (glaeda#2037 RELEASE_FIRST, RELEASE_PIN_BUILDS), so it starts within a minute or two
+of the dispatch. Before, an off switch only watched: on 2026-11-16/17 the builds of runs 43993339863, 44028300302 and
+44042861860 waited 54 to 194 min on glaeda-side-std-xcode-26.6 behind about 77 pull request jobs while feat-cmux-next
+was red on "Check the app FFI pin". A rescued run never rescues again (the workflow's `rescue` job runs only when
+inputs.rescue is empty).
 """
 from __future__ import annotations
 
@@ -34,9 +41,13 @@ from typing import Any, Callable, Mapping
 BUILD_JOB = "build xcframework"
 RESCUE_MINUTES = 20.0  # coordinator (claude-sr2-coord), 2026-11-17: "If still unplaced after 20 min, it goes to Blacksmith"
 WATCH_MINUTES = 100.0  # the build's own wait in its concurrency group plus RESCUE_MINUTES, bounded
-POLL_S = 120.0  # at most WATCH_MINUTES * 60 / POLL_S (50) reads of one jobs page per run
+POLL_S = 60.0  # at most WATCH_MINUTES * 60 / POLL_S (100) reads of one jobs page per run
+# The stall-aware failover's bound (fleet-capacity-routing, 2026-11-17): a build no runner took in this long moves to
+# the nightly slot, a live owned pool no PR job competes for.
+NIGHTLY_SLOT_MINUTES = 3.0
 RESCUE_SWITCHES = ("pr-rescue", "on")
 RESCUE_INPUT = "blacksmith"
+NIGHTLY_SLOT_INPUT = "nightly-slot"
 WORKFLOW_FILE = "app-ffi-release.yml"
 API = "https://api.github.com"
 
@@ -82,6 +93,10 @@ def watch(env: Mapping[str, str], api: Callable[..., Any] = _api, clock: Callabl
     repo, run, attempt = env["GITHUB_REPOSITORY"], env["GITHUB_RUN_ID"], env.get("GITHUB_RUN_ATTEMPT") or "1"
     token, ref = env["GH_TOKEN"], env.get("GITHUB_REF_NAME") or "feat-cmux-next"
     switch = (env.get("CI_BLACKSMITH_MACOS") or "").strip()
+    blacksmith = switch in RESCUE_SWITCHES
+    minutes = RESCUE_MINUTES if blacksmith else NIGHTLY_SLOT_MINUTES
+    rescue_input = RESCUE_INPUT if blacksmith else NIGHTLY_SLOT_INPUT
+    where = "Blacksmith macOS" if blacksmith else "the std minis' nightly slot, glaeda-nightly-std-xcode-26.6"
     start, queued_since = clock(), None
     while True:
         now = clock()
@@ -92,24 +107,20 @@ def watch(env: Mapping[str, str], api: Callable[..., Any] = _api, clock: Callabl
             out(f"jobs unread ({type(error).__name__}: {error}); next read in {POLL_S:.0f} s")
             jobs = None
         if jobs is not None:
-            verdict, queued_since = decide(build_job(jobs), queued_since, now)
+            verdict, queued_since = decide(build_job(jobs), queued_since, now, minutes)
             if verdict == DONE:
                 out(f"{BUILD_JOB} has a runner or ended: nothing to rescue")
                 return DONE
             if verdict == RESCUE:
                 waited = (now - queued_since) / 60
-                if switch not in RESCUE_SWITCHES:
-                    out(f"::warning::{BUILD_JOB} queued {waited:.0f} min with no runner; vars.CI_BLACKSMITH_MACOS is "
-                        f"`{switch}`, not one of {', '.join(RESCUE_SWITCHES)}, so it is left queued")
-                    return WAIT
                 out(f"::warning::{BUILD_JOB} queued {waited:.0f} min with no runner: dispatching {WORKFLOW_FILE} on "
-                    f"{ref} with rescue={RESCUE_INPUT} (Blacksmith macOS), then cancelling run {run} (hq#3690)")
+                    f"{ref} with rescue={rescue_input} ({where}), then cancelling run {run} (hq#3690)")
                 api("POST", f"repos/{repo}/actions/workflows/{WORKFLOW_FILE}/dispatches", token,
-                    {"ref": ref, "inputs": {"rescue": RESCUE_INPUT}})
+                    {"ref": ref, "inputs": {"rescue": rescue_input}})
                 api("POST", f"repos/{repo}/actions/runs/{run}/cancel", token)
                 return RESCUE
         if now - start >= WATCH_MINUTES * 60:
-            out(f"watched {WATCH_MINUTES:.0f} min; {BUILD_JOB} never stayed queued {RESCUE_MINUTES:.0f} min on a label")
+            out(f"watched {WATCH_MINUTES:.0f} min; {BUILD_JOB} never stayed queued {minutes:.0f} min on a label")
             return WAIT
         sleep(POLL_S)
 
