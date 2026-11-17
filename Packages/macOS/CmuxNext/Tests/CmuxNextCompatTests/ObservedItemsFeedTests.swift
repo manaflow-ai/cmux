@@ -102,4 +102,179 @@ import Testing
         await settle { counts.changes == 2 }
         #expect(counts.changes == 2, "a reopen counted as a change, or a rename after it did not")
     }
+
+    /// Lets the main actor run what is queued: a fixed number of yields, no wait for time to pass.
+    private func drain() async {
+        for _ in 0..<160 { await Task.yield() }
+    }
+
+    /// SplitMix64 as a plain value: the same seed gives the same steps.
+    struct Seed {
+        var state: UInt64
+
+        /// The next number in `0..<bound`.
+        mutating func next(below bound: Int) -> Int {
+            state &+= 0x9E37_79B9_7F4A_7C15
+            var z = state
+            z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+            z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+            return Int((z ^ (z >> 31)) % UInt64(bound))
+        }
+    }
+
+    /// One model's change visits no other model of the list, whatever the length of the list: the feed puts the one
+    /// changed item in its place in the items that it handed out last. The base's row above counts the maps of the
+    /// item (`reads`); a pass over the list maps no model again, so that count does not see it. This count is the
+    /// module's own work counter (``ObservationWork``), which the test sets around the feed's start.
+    ///
+    /// The sign that the feed ran is a condition of the setup: the feed's items have the changed item.
+    @Test func aChangeOfOneItemVisitsNoOtherModelOfTheList() async throws {
+        let places = Places(826)
+        let counts = Counts()
+        let work = ObservationWork()
+        let feed = feed(places, counts)
+        ObservationWork.$current.withValue(work) { feed.start() }
+        defer { feed.stop() }
+        await drain()
+        let first = feed.observedItems?.count ?? -1
+        try #require(first == 826, "setup: the feed has \(first) items after the drain, want 826")
+
+        work.reset()
+        let changed = places.list[400]
+        changed.title = "renamed"
+        await drain()
+        try #require(feed.observedItems?[400] == "renamed", "setup: the feed does not have the changed item after the drain")
+        let listed = work.byStep["ObservedItems.list"] ?? 0
+        let mapped = work.byStep["ObservedItems.map"] ?? 0
+        print("observed items feed, 826 models: the change of one item visited \(listed) models in passes over the list and mapped \(mapped)")
+        #expect(listed == 0, "the change of one item visited \(listed) models of 826 in passes over the list, want 0")
+        #expect(mapped <= 2, "the change of one item mapped \(mapped) models, want the changed one only")
+        #expect(counts.changes == 1, "the change of one item ran the feed's `changed` \(counts.changes) times, want 1")
+        #expect(feed.observedItems == places.list.map(\.title), "the feed's items are not the map of the list after the change of one item")
+    }
+
+    /// A model that the list has at 2 places has its change at each of them, and at its one place after the list
+    /// has it once again: the feed writes no item by its place while the list has one id at 2 places.
+    ///
+    /// This row has no red first: it holds what must stay when a change of one item makes no pass.
+    @Test func aModelThatTheListHasTwiceHasItsChangeAtEachOfItsPlaces() async throws {
+        let places = Places(5)
+        let twice = places.list[1]
+        places.list.append(twice)
+        let counts = Counts()
+        let feed = feed(places, counts)
+        feed.start()
+        defer { feed.stop() }
+        await drain()
+        try #require(feed.observedItems == ["w0", "w1", "w2", "w3", "w4", "w1"], "setup: the feed's first items are not the map of the list")
+
+        twice.title = "renamed"
+        await drain()
+        #expect(feed.observedItems == ["w0", "renamed", "w2", "w3", "w4", "renamed"],
+                "a model at 2 places of the list does not have its change at each of them: \(String(describing: feed.observedItems))")
+
+        places.list.removeLast()
+        await drain()
+        twice.title = "once"
+        await drain()
+        #expect(feed.observedItems == ["w0", "once", "w2", "w3", "w4"],
+                "a model at one place again does not have its change there: \(String(describing: feed.observedItems))")
+    }
+
+    /// The feed's items after each step of a run of steps from a seed: a change of one item, of 2 items in one turn,
+    /// a model that comes, goes or moves, a change of one item in the turn of a change of the list (before or after
+    /// it, so the item's change comes between the list's change and the feed's pass), a change of a model in the
+    /// turn in which it leaves the list, a list that ends and comes again, and a second model under an id that the
+    /// list has.
+    ///
+    /// The items are the map of the list after each step, with one exception that the feed has always had: of 2
+    /// listed models under one id only the later one is observed, so a change of the earlier one alone shows at
+    /// the next pass over the list. While the list has 2 models under one id, each change of an observed item
+    /// makes that pass (the feed writes no item by its place then), so each model is mapped again.
+    ///
+    /// This row has no red first: it holds what must stay when a change of one item makes no pass.
+    @Test func theItemsFollowTheListThroughEachStepOfARunFromASeed() async throws {
+        for seed in 1...8 {
+            var random = Seed(state: UInt64(seed))
+            let places = Places(12)
+            let counts = Counts()
+            let feed = feed(places, counts)
+            feed.start()
+            defer { feed.stop() }
+            await drain()
+            var made = 12
+            var want: [String]? = places.list.map(\.title)
+            for step in 0..<160 {
+                let kind = random.next(below: 12)
+                let pick = places.list[random.next(below: places.list.count)]
+                let other = places.list[random.next(below: places.list.count)]
+                let title = "s\(seed)-\(step)"
+                /// Whether the feed observes `place`: the later of 2 listed models under one id takes the observation.
+                func observed(_ place: Place) -> Bool { places.list.last(where: { $0.id == place.id }) === place }
+                // True when the step makes the feed pass over its list: the list changed, or an observed item did.
+                var pass = observed(pick)
+                switch kind {
+                case 0, 1, 2:
+                    pick.title = title
+                case 3:
+                    pass = pass || observed(other)
+                    pick.title = title
+                    other.title = title + "-b"
+                case 4:
+                    places.list.append(Place("n\(seed)-\(made)"))
+                    made += 1
+                    pass = true
+                case 5:
+                    // 2 models change places (2 different places: the list has 2 models or more).
+                    let from = random.next(below: places.list.count)
+                    let to = (from + 1 + random.next(below: places.list.count - 1)) % places.list.count
+                    places.list.swapAt(from, to)
+                    pass = true
+                case 6:
+                    // The list changes, then one item of it: the item's change is there before the feed's pass.
+                    places.list.insert(Place("n\(seed)-\(made)"), at: random.next(below: places.list.count))
+                    made += 1
+                    pick.title = title
+                    pass = true
+                case 7:
+                    // One item changes, then the list: the feed's pass can come before the item's change is seen.
+                    pick.title = title
+                    if places.list.count > 2 {
+                        places.list.remove(at: random.next(below: places.list.count))
+                        pass = true
+                    }
+                case 8:
+                    // A model changes in the turn in which it leaves the list.
+                    pick.title = title
+                    if places.list.count > 2 {
+                        places.list.removeAll { $0 === pick }
+                        pass = true
+                    }
+                case 9:
+                    // A second model under an id that the list has.
+                    let twin = Place(pick.id)
+                    twin.title = title
+                    places.list.insert(twin, at: random.next(below: places.list.count))
+                    pass = true
+                case 10:
+                    places.open.toggle()
+                    pass = true
+                default:
+                    pick.title = title
+                    places.open.toggle()
+                    pass = true
+                }
+                await drain()
+                if !places.open {
+                    want = nil
+                } else if pass || want == nil {
+                    want = places.list.map(\.title)
+                }
+                let has = feed.observedItems
+                try #require(has == want, """
+                    seed \(seed), step \(step), kind \(kind): the feed has \(String(describing: has)), want \(String(describing: want))
+                    """)
+            }
+        }
+    }
 }
