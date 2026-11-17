@@ -174,7 +174,7 @@ final class AgentCLIHybridBench {
             }
             geometry = Self.geometryLine(probe.readGeometry?(), alternate: terminal.isAlternateScreen)
             finish(["mode": mode, "stillMs": stillMs, "firstFrameParity": firstParity.percent,
-                    "attaches": daemon.attaches])
+                    "attaches": daemon.attaches, "session": terminal.benchState])
             // Nothing moves from here on, but the page can (a rotation, the background and
             // back): the geometry follows it until the test ends the app.
             while !Task.isCancelled {

@@ -183,6 +183,8 @@ final class AgentCLIHybridPixelMatrixUITests: XCTestCase {
         /// The bench's `attach-surface` answers (1: no reattach; a reattach gets the attach
         /// moment's screen again, which the frames after it do not build on).
         var attaches = 1
+        /// The bench's result line (its session's state at the still).
+        var result = ""
     }
 
     static func pause(_ seconds: TimeInterval) {
@@ -230,7 +232,8 @@ final class AgentCLIHybridPixelMatrixUITests: XCTestCase {
         let shot = XCUIScreen.main.screenshot()
         return Still(image: shot.image, grid: grid, cursor: Self.rect(geometry["cursor"]), cell: CGSize(width: cell[0], height: cell[1]),
                      fullScreen: geometry["fullScreen"] as? Bool ?? false, alternate: geometry["alternate"] as? Bool ?? false,
-                     scale: CGFloat(geometry["scale"] as? Double ?? Double(shot.image.scale)), attaches: attaches)
+                     scale: CGFloat(geometry["scale"] as? Double ?? Double(shot.image.scale)), attaches: attaches,
+                     result: result.label)
     }
 
     static func rect(_ value: Any?) -> CGRect? {
@@ -285,7 +288,8 @@ final class AgentCLIHybridPixelMatrixUITests: XCTestCase {
             + "share=\(String(format: "%.4f", gridShare * 100))% \(bands) fullScreen=\(pty.fullScreen)/\(lean.fullScreen) "
             + "alternate=\(pty.alternate)/\(lean.alternate) attaches=\(pty.attaches)/\(lean.attaches)" + (failures.isEmpty ? "" : " why=\(failures.joined(separator: "; "))")
         print(line)
-        let summary = XCTAttachment(string: line)
+        // The bench's session state at each still: the Mac's grid as heard, the reclaim hold.
+        let summary = XCTAttachment(string: line + "\nPTY bench: \(pty.result)\nlean bench: \(lean.result)")
         summary.name = "\(id)-summary"
         summary.lifetime = .keepAlways
         add(summary)

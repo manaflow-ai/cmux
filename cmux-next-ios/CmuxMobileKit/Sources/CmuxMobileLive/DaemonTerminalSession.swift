@@ -1412,6 +1412,23 @@ public final class DaemonTerminalSession: TerminalSession {
     private struct Overruled { var asked: (columns: Int, rows: Int); var mac: (columns: Int, rows: Int) }
     private var overruled: Overruled?
 
+    #if DEBUG
+    /// What the agent CLI hybrid bench reports with a still (`AgentCLIHybridBench`): the Mac's
+    /// grid as this session last heard it, whether the reclaim hold holds events, and whether
+    /// events wait for the attach's answer.
+    var benchState: [String: Any] {
+        [
+            "macGrid": [reportedColumns ?? -1, reportedRows ?? -1],
+            "phoneGrid": lastSize.map { [$0.columns, $0.rows] } ?? [],
+            "reclaimHolding": reclaimHold.isHolding,
+            "heldBeforeAttach": heldEvents?.count ?? 0,
+            "claims": claimsSize,
+            "attached": attached,
+            "outputPaused": outputPaused,
+        ]
+    }
+    #endif
+
     /// Events that arrived before the Mac confirmed the attach (nil: none held).
     private var heldEvents: [DaemonTerminalInbound]?
     /// Failed reattach attempts since the last good attach.
