@@ -350,6 +350,22 @@ mod tests {
     }
 
     #[test]
+    fn a_gui_chat_offers_no_toggle_on_the_phone() {
+        // Leo, 2026-11-17: "stop showing the toggle on gui". Whether a terminal runs it or not,
+        // a chat tab is only a chat: no Show Terminal row, no tap that answers NO_TERMINAL.
+        for facts in [chat("claude", Some("h-3"), false), chat("codex", Some("h-2"), true)] {
+            let faces = terminal_chat_faces(facts.clone());
+            assert!(!faces.offered, "{facts:?}");
+            assert_eq!(faces.default_face, TabFace::Chat);
+            assert!(faces.chat_enabled && !faces.terminal_enabled, "{facts:?}");
+            assert_eq!(faces.disabled_reason, None, "{facts:?}");
+            assert_eq!(terminal_chat_swap(facts, TabFace::Chat, TabFace::Terminal), TerminalChatSwap::Stay);
+        }
+        // A terminal tab keeps its toggle.
+        assert!(terminal_chat_faces(terminal(Some("claude"), Some("h-1"))).offered);
+    }
+
+    #[test]
     fn a_chat_a_terminal_runs_offers_both_faces() {
         let faces = terminal_chat_faces(chat("codex", Some("h-2"), true));
         assert!(faces.offered);
