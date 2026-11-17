@@ -983,6 +983,57 @@ class PendingRecords(unittest.TestCase):
                                               fetch_completion=lambda key: completion_json(key)), [KEY])
         self.assertEqual((made, again[-1]), ([], [KEY]))
 
+    def test_an_error_partway_through_the_claim_records_what_was_already_deleted(self):
+        """Review of #45587: an exception that is not a GitHub error (http.client.IncompleteRead, a KeyError)
+        raised by a later DELETE escaped before the first record write, and the records deleted before it were lost."""
+        import http.client
+        other = "e" * 40
+        api = PendingApi([pr_marker()], [(500, pending_zip(), None), (501, pending_zip(key=other), None)])
+        plain = api.delete
+
+        def delete(path):
+            if path.endswith("/501"):
+                raise http.client.IncompleteRead(b"")
+            return plain(path)
+        api.delete = delete
+        again: list[list[str]] = []
+        made: list[str] = []
+        with self.assertRaises(http.client.IncompleteRead):
+            notify.sweep_pending(api, "o/r", log=lambda _l: None, record=again.append,
+                                 make=lambda *a, **kw: made.append(kw["key"]) or 0,
+                                 fetch_completion=lambda key: completion_json(key))
+        self.assertEqual(api.deleted, [500])
+        self.assertEqual(made, [])
+        self.assertTrue(again and KEY in again[-1], again)
+
+    def test_an_error_partway_through_the_claim_leaves_the_key_in_the_pending_file(self):
+        import http.client
+        import os
+        import tempfile
+        import unittest.mock
+        other = "e" * 40
+        api = PendingApi([pr_marker()], [(500, pending_zip(), None), (501, pending_zip(key=other), None)])
+        plain = api.delete
+
+        def delete(path):
+            if path.endswith("/501"):
+                raise http.client.IncompleteRead(b"")
+            return plain(path)
+        api.delete = delete
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "p", "pending.json")
+            real = notify.sweep_pending
+
+            def sweep(_api, repo, record):
+                return real(api, repo, record=record, log=lambda _l: None,
+                            fetch_completion=lambda key: completion_json(key))
+            with unittest.mock.patch.object(notify, "sweep_pending", sweep), \
+                    unittest.mock.patch.dict(os.environ, {"GH_TOKEN": "t"}):
+                with self.assertRaises(http.client.IncompleteRead):
+                    notify.main(["--repo", "o/r", "--sweep-pending", "--pending-file", path])
+            with open(path) as handle:
+                self.assertIn(KEY, json.load(handle)["keys"])
+
     def test_the_sweep_reads_its_own_records_too(self):
         api = PendingApi([pr_marker()], [], swept=[(600, pending_zip(), None)])
         made: list[str] = []
