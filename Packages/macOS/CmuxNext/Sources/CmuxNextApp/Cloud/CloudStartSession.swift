@@ -393,7 +393,7 @@ struct CloudStartSession {
                 if let named = machines.cloud.first(where: { $0.machine.title == name }) { return (named, false) }
                 try still()
                 // The answer of a create asked in another account never joins this one's list.
-                return (try await cloud.createMachine(name: name, startedByPerson: byPerson, capCard: capCard, askedBy: askedBy ?? invocation.callerAgentSession, proceed: still), true)
+                return (try await cloud.createMachine(name: name, startedByPerson: byPerson, ownCreate: capCard && invocation.isPersonsOwnRun && ActionRunScope.isPersonsAction(), capCard: capCard, askedBy: askedBy ?? invocation.callerAgentSession, proceed: still), true)
             }
         } catch is CancellationError {
             throw CancellationError()
