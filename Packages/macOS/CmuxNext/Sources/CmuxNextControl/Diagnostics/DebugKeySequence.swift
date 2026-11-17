@@ -73,6 +73,38 @@ public struct DebugKeySequence: Sendable, Equatable {
             return Stamp(base: hostTicks, ticksPerSecond: 1e9 * Double(timebaseDenom) / Double(timebaseNumer))
         }
 
+        /// The start for a probe with no timestamp, from the host's clock in the unit that AppKit reads (decision of
+        /// 2026-11-17). Not written yet: this is the start of the form with no `stampedRate`.
+        ///
+        /// - Parameters:
+        ///   - probeTimestamp: A fresh probe event's `timestamp`.
+        ///   - probeSeconds: The seconds AppKit reads from that probe (`NSEvent.timestamp`), nil without one.
+        ///   - hostTicks: `mach_absolute_time()` now.
+        ///   - timebaseNumer: `mach_timebase_info` numerator (nanoseconds per tick, times `timebaseDenom`).
+        ///   - timebaseDenom: `mach_timebase_info` denominator.
+        ///   - stampedRate: The event ticks in a second for a probe stamped with the host's nanoseconds now (its
+        ///     argument).
+        /// - Returns: The start, or nil when neither clock is usable.
+        public static func start(probeTimestamp: CGEventTimestamp, probeSeconds: Double?, hostTicks: UInt64,
+                                 timebaseNumer: UInt32, timebaseDenom: UInt32,
+                                 stampedRate: (CGEventTimestamp) -> Double) -> Stamp? {
+            start(probeTimestamp: probeTimestamp, probeSeconds: probeSeconds, hostTicks: hostTicks,
+                  timebaseNumer: timebaseNumer, timebaseDenom: timebaseDenom)
+        }
+
+        /// The event ticks that AppKit takes for a second, by its own read of a probe stamped with `ticks`. Not
+        /// written yet: no stamp, no read.
+        ///
+        /// - Parameters:
+        ///   - probe: A probe event; its timestamp becomes `ticks`.
+        ///   - ticks: The timestamp to stamp the probe with.
+        ///   - read: The seconds AppKit reads from an event (`NSEvent(cgEvent:)?.timestamp`), nil without one.
+        /// - Returns: Event ticks per second.
+        public static func eventTicksPerSecond(stamping probe: CGEvent, with ticks: CGEventTimestamp,
+                                               read: (CGEvent) -> Double?) -> Double {
+            0
+        }
+
         /// ``start(probeTimestamp:probeSeconds:hostTicks:timebaseNumer:timebaseDenom:)`` with this host's
         /// mach clock now.
         ///
