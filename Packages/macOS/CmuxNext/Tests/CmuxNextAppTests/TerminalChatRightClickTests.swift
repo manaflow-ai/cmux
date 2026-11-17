@@ -32,6 +32,19 @@ struct TerminalChatRightClickTests {
         #expect(!offered(.init(agent: "claude", session: "s")))
     }
 
+    // Leo, 2026-11-17: "bro this is pretty goofy / why is this even a behaviour that happens / just... stop showijg
+    // the toggle on gui." A chat no terminal runs, where this app cannot start one (a remote chat's run, no acpmux),
+    // offers no row: no click ever lands on "no terminal runs this chat". A live terminal running it still pairs them.
+    @Test func aChatNoTerminalCanStartForIsOfferedNoRow() {
+        let rules = WindowRules()
+        let offered = { (facts: WindowRules.ToggleFacts) in TerminalChatHandler.offersToggle(rules.terminalChatToggle(facts)) }
+        #expect(rules.terminalChatToggle(.init(chat: true, agent: "codex", session: "s-2", cannotStartTerminal: true)) == .noTerminal)
+        #expect(!offered(.init(chat: true, agent: "codex", session: "s-2", cannotStartTerminal: true)))
+        #expect(!offered(.init(chat: true, agent: "codex", session: "s-2", busy: true, cannotStartTerminal: true)))
+        #expect(offered(.init(chat: true, agent: "codex", session: "s-2", running: true, cannotStartTerminal: true)))
+        #expect(offered(.init(terminal: true, agent: "claude", session: "s-1", cannotStartTerminal: true)))
+    }
+
     @Test func aPlainTerminalTabIsOfferedNoRow() {
         let services = TerminalChatTests.services()
         let tab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 1)))

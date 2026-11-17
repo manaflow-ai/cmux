@@ -295,6 +295,14 @@ struct TerminalPage: View {
                 Text("Shows a Jump to bottom button above the composer when you scroll up. Full-screen apps such as vim never show it.")
             }
             Section {
+                Toggle(isOn: $settings.terminalChatToggle) {
+                    SettingsLabel("Terminal and Chat Toggle", symbol: "arrow.left.arrow.right")
+                }
+                .accessibilityIdentifier("settings.terminalChatToggle")
+            } footer: {
+                Text("Adds Show Chat and Show Terminal to a Claude Code or Codex tab's menu when both views can open. Still in progress.")
+            }
+            Section {
                 Toggle(isOn: $settings.wrapCode) { SettingsLabel("Wrap code and diff lines", symbol: "text.word.spacing") }
                 Toggle(isOn: $settings.keyClicks) { SettingsLabel("Key clicks", symbol: "keyboard") }
             } header: {
