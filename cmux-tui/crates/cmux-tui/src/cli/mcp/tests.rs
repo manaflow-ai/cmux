@@ -2486,3 +2486,62 @@ fn device_tools_are_listed_and_check_their_arguments() {
         ["start", "studio-mac"]
     );
 }
+
+/// `app_launch` and `app_list` are listed, refuse wrong arguments before running anything, and
+/// pass each of the app's arguments as one argv element.
+#[test]
+fn app_launch_tools_are_listed_and_keep_each_argument_whole() {
+    let mut server = Server::new(Fake::default(), None);
+    let listed =
+        server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
+    let tools = listed["result"]["tools"].as_array().cloned().unwrap();
+    let launch = tools.iter().find(|t| t["name"] == app_launch_tools::LAUNCH).unwrap();
+    assert_eq!(launch["inputSchema"]["required"], json!(["app"]));
+    assert_eq!(launch["inputSchema"]["properties"]["args"]["type"], "array");
+    let list = tools.iter().find(|t| t["name"] == app_launch_tools::LIST).unwrap();
+    assert_eq!(list["annotations"]["readOnlyHint"], true);
+    for (name, arguments) in [
+        (app_launch_tools::LAUNCH, json!({})),
+        (app_launch_tools::LAUNCH, json!({"app": "--all"})),
+        (app_launch_tools::LAUNCH, json!({"app": "Safari", "args": "a b"})),
+        (app_launch_tools::LAUNCH, json!({"app": "Safari", "args": [1]})),
+        (app_launch_tools::LIST, json!({"machine": "--json"})),
+    ] {
+        let answer = server
+            .handle(&json!({"jsonrpc": "2.0", "id": "c", "method": "tools/call",
+                            "params": {"name": name, "arguments": arguments}}))
+            .unwrap();
+        assert_eq!(answer["result"]["isError"], true, "{name} {arguments}: {answer}");
+    }
+    let words = |name: &str, arguments: Value| {
+        app_launch_tools::words(name, arguments.as_object().unwrap()).unwrap()
+    };
+    assert_eq!(
+        words(
+            app_launch_tools::LAUNCH,
+            json!({"machine": "mini", "app": "Terminal", "activate": true,
+                   "args": ["; rm -rf ~", "$(id)"]})
+        ),
+        [
+            "--json",
+            "app",
+            "launch",
+            "--on",
+            "mini",
+            "--activate",
+            "Terminal",
+            "--",
+            "; rm -rf ~",
+            "$(id)"
+        ]
+    );
+    assert_eq!(
+        words(app_launch_tools::LAUNCH, json!({"app": "Safari"})),
+        ["--json", "app", "launch", "Safari"]
+    );
+    assert_eq!(
+        words(app_launch_tools::LIST, json!({"machine": "mini"})),
+        ["--json", "app", "list", "--on", "mini"]
+    );
+    assert_eq!(words(app_launch_tools::LIST, json!({})), ["--json", "app", "list"]);
+}

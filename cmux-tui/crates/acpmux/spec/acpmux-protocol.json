@@ -2003,6 +2003,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/app_launch",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/app_list",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/host_notice",
       "params": true,
       "result": true

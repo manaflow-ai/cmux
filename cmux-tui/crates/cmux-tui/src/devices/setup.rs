@@ -167,6 +167,39 @@ pub(crate) trait Asking {
     /// "on":true}`, and gives the app's answer or error ([`allow_answer`] reads it). The app
     /// always asks the person. Only for `--allow-agents`.
     fn allow_agents(&self) -> Result<Value, Value>;
+    /// `cmux app launch --on MACHINE <NIGHTLY> --hidden --json`: its exit code (`None`: it did
+    /// not run or end) and stdout. [`daemon_start`] reads it.
+    fn launch_nightly(&self, machine: &str) -> (Option<i32>, String);
+}
+
+/// What the start step does after the target's acpmux was asked to open NIGHTLY.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum DaemonStart {
+    /// It opened (or already ran): only the readiness wait runs over ssh.
+    Opened,
+    /// Not reached, not allowed, an acpmux without app launch, or no answer: the ssh START script.
+    Fallback,
+    /// The machine answered no (NIGHTLY not there, nobody logged in, it did not open): its error
+    /// and next step. ssh would hit the same wall, so it is reported, not retried.
+    Refused { error: String, next: String },
+}
+
+/// The start path for `cmux app launch`'s exit `code` and `stdout` (`{"ok":false,"error","next"}`).
+pub(crate) fn daemon_start(code: Option<i32>, stdout: &str) -> DaemonStart {
+    match code {
+        Some(0) => DaemonStart::Opened,
+        Some(1) => {
+            let answer = serde_json::from_str::<Value>(stdout.trim()).unwrap_or(Value::Null);
+            let text = |key: &str| answer.get(key).and_then(Value::as_str).unwrap_or_default();
+            let error = if text("error").is_empty() {
+                "the machine did not open cmux NIGHTLY".to_owned()
+            } else {
+                text("error").to_owned()
+            };
+            DaemonStart::Refused { error, next: text("next").to_owned() }
+        }
+        _ => DaemonStart::Fallback,
+    }
 }
 
 /// The account's standing permission, in the words the share helper's setting uses.
@@ -404,7 +437,7 @@ pub(crate) fn run_device(
     push(&mut run, "login-item", state, detail, fix);
 
     // 4. start
-    let (state, detail, fix) = start_step(name, remote, &mut probe, dry_run, &mut run);
+    let (state, detail, fix) = start_step(name, remote, asking, &mut probe, dry_run, &mut run);
     push(&mut run, "start", state, detail, fix);
     if mode == Mode::Start {
         return run;
@@ -543,9 +576,13 @@ fn login_item_step(name: &str, remote: &dyn Remote, dry_run: bool, run: &mut Run
     }
 }
 
+/// Starts NIGHTLY: first through the target's acpmux (`cmux app launch --on NAME`, which needs
+/// it to be a connected peer with app launch), else over ssh ([`START`]). Either way it then
+/// waits up to 30 s for the app to answer.
 fn start_step(
     name: &str,
     remote: &dyn Remote,
+    asking: &dyn Asking,
     probe: &mut Probe,
     dry_run: bool,
     run: &mut Run,
@@ -563,7 +600,20 @@ fn start_step(
     if dry_run {
         return (StepState::Skip, "dry run: would start cmux NIGHTLY".into(), String::new());
     }
-    let out = exec(remote, START, None);
+    let (code, stdout) = asking.launch_nightly(name);
+    let (script, how) = match daemon_start(code, &stdout) {
+        DaemonStart::Opened => (READY, " through acpmux"),
+        DaemonStart::Fallback => (START, ""),
+        DaemonStart::Refused { error, next } => {
+            let fix = if next.is_empty() { format!("cmux device setup {name}") } else { next };
+            return (
+                StepState::Fail,
+                format!("{name}'s acpmux did not open cmux NIGHTLY: {error}"),
+                fix,
+            );
+        }
+    };
+    let out = exec(remote, script, None);
     if !out.ok {
         return (
             StepState::Fail,
@@ -574,11 +624,11 @@ fn start_step(
     probe.running = true;
     run.changed.push("started".into());
     if field(&out.stdout, "ready") == Some("1") {
-        (StepState::Changed, "started cmux NIGHTLY; it answers".into(), String::new())
+        (StepState::Changed, format!("started cmux NIGHTLY{how}; it answers"), String::new())
     } else {
         (
             StepState::Warn,
-            "started cmux NIGHTLY, but it did not answer within 30 s".into(),
+            format!("started cmux NIGHTLY{how}, but it did not answer within 30 s"),
             String::new(),
         )
     }

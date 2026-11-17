@@ -441,6 +441,13 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 Err(e) => errors::exit_with(&e, json_out),
             }
         }
+        Some(Command::App(cmd)) => {
+            let json_out = cli.json;
+            match crate::cli::app::run(cmd, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
         Some(Command::Ledger(args)) => {
             let json_out = cli.json;
             match crate::cli::ledger::run(args, json_out).await {

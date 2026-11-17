@@ -63,6 +63,10 @@ pub enum Command {
     /// files, what the session this shell runs in edited lately.
     #[command(name = "who-else", alias = "whoelse", alias = "overlap")]
     WhoElse(crate::cli::who_else::WhoElseArgs),
+    /// Open an app on this machine or a connected one (`app launch --machine M APP -- ARGS`), and
+    /// list what can be opened there and what runs (`app list`). `cmux app launch --on` runs it.
+    #[command(subcommand)]
+    App(crate::cli::app::AppCmd),
     /// What turns on this machine cost, whatever harness ran them: totals, then one line per
     /// repository, pull request, day, person, workspace, vendor, model or account.
     #[command(alias = "cost", alias = "spend")]

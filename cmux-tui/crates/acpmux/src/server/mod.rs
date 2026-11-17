@@ -422,6 +422,11 @@ impl Conn {
         self.caller.get().map(String::as_str)
     }
 
+    /// The client name its `initialize` gave (`clientInfo.name`), empty before one.
+    pub(super) fn client_name(&self) -> String {
+        self.name.lock_or_recover().clone()
+    }
+
     /// What its first `initialize` declared about its caller (`cli_caller.rs`).
     pub(super) fn declared(&self) -> Option<&crate::cli_caller::Declared> {
         self.declared.get()
@@ -2407,6 +2412,7 @@ mod secrets;
 mod share_host;
 mod vault;
 pub(crate) use vault::reply as vault_reply;
+mod app_launch;
 mod races;
 mod session_auth;
 mod session_files;
