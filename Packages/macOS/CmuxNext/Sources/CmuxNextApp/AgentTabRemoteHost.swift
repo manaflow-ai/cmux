@@ -52,7 +52,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     /// The chat runs on the person's own Cloud VM (``RemoteAcpmuxWire/ownerCloud(_:served:)``).
     var ownerCloud: RemoteAcpmuxWire.OwnerCloud?
     /// A Cloud chat whose folder came from this Mac: the files changed here reach the machine right
-    /// before each send (``CloudPushOnSend``). Nil for any other chat; never on an observation.
+    /// before each send (`CloudMovedChats.pushOnSend`). Nil for any other chat; never on an observation.
     var beforeSend: RemoteAcpmuxWire.BeforeSend?
 
     func cloudRepository(method: String, params: [String: any Sendable], timeout: Duration?) async throws -> Data {
