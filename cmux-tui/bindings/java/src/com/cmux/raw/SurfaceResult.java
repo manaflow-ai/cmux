@@ -18,6 +18,8 @@ public final class SurfaceResult implements WireValue {
     private final Field<String> terminalId;
     private final Field<String> terminalIncarnation;
     private final Field<String> terminalResourceId;
+    /** The transaction of a new-tab request, when it sent one. */
+    private final Field<String> transaction;
     private final Field<String> workspaceId;
 
     private SurfaceResult(Builder builder) {
@@ -29,6 +31,7 @@ public final class SurfaceResult implements WireValue {
         this.terminalId = builder.terminalId;
         this.terminalIncarnation = builder.terminalIncarnation;
         this.terminalResourceId = builder.terminalResourceId;
+        this.transaction = builder.transaction;
         this.workspaceId = builder.workspaceId;
     }
 
@@ -41,6 +44,7 @@ public final class SurfaceResult implements WireValue {
     public Field<String> terminalId() { return terminalId; }
     public Field<String> terminalIncarnation() { return terminalIncarnation; }
     public Field<String> terminalResourceId() { return terminalResourceId; }
+    public Field<String> transaction() { return transaction; }
     public Field<String> workspaceId() { return workspaceId; }
 
     public static SurfaceResult fromWire(Object value) {
@@ -72,6 +76,10 @@ public final class SurfaceResult implements WireValue {
         if (!Wire.isMissing(rawTerminalResourceId)) {
             builder.terminalResourceId(Wire.string(rawTerminalResourceId, "SurfaceResult.terminal_resource_id"));
         }
+        Object rawTransaction = Wire.optional(object, "transaction");
+        if (!Wire.isMissing(rawTransaction)) {
+            builder.transaction(Wire.string(rawTransaction, "SurfaceResult.transaction"));
+        }
         Object rawWorkspaceId = Wire.optional(object, "workspace_id");
         if (!Wire.isMissing(rawWorkspaceId)) {
             builder.workspaceId(Wire.string(rawWorkspaceId, "SurfaceResult.workspace_id"));
@@ -89,6 +97,7 @@ public final class SurfaceResult implements WireValue {
         Wire.put(object, "terminal_id", terminalId);
         Wire.put(object, "terminal_incarnation", terminalIncarnation);
         Wire.put(object, "terminal_resource_id", terminalResourceId);
+        Wire.put(object, "transaction", transaction);
         Wire.put(object, "workspace_id", workspaceId);
         return Collections.unmodifiableMap(object);
     }
@@ -96,11 +105,11 @@ public final class SurfaceResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof SurfaceResult that)) return false;
-        return Objects.equals(paneId, that.paneId) && Objects.equals(screenId, that.screenId) && Objects.equals(surface, that.surface) && Objects.equals(tabId, that.tabId) && Objects.equals(terminalId, that.terminalId) && Objects.equals(terminalIncarnation, that.terminalIncarnation) && Objects.equals(terminalResourceId, that.terminalResourceId) && Objects.equals(workspaceId, that.workspaceId);
+        return Objects.equals(paneId, that.paneId) && Objects.equals(screenId, that.screenId) && Objects.equals(surface, that.surface) && Objects.equals(tabId, that.tabId) && Objects.equals(terminalId, that.terminalId) && Objects.equals(terminalIncarnation, that.terminalIncarnation) && Objects.equals(terminalResourceId, that.terminalResourceId) && Objects.equals(transaction, that.transaction) && Objects.equals(workspaceId, that.workspaceId);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(paneId, screenId, surface, tabId, terminalId, terminalIncarnation, terminalResourceId, workspaceId); }
+    public int hashCode() { return Objects.hash(paneId, screenId, surface, tabId, terminalId, terminalIncarnation, terminalResourceId, transaction, workspaceId); }
 
     @Override
     public String toString() { return "SurfaceResult" + toWire(); }
@@ -114,6 +123,7 @@ public final class SurfaceResult implements WireValue {
         private Field<String> terminalId = Field.omitted();
         private Field<String> terminalIncarnation = Field.omitted();
         private Field<String> terminalResourceId = Field.omitted();
+        private Field<String> transaction = Field.omitted();
         private Field<String> workspaceId = Field.omitted();
 
         public Builder paneId(String value) {
@@ -143,6 +153,10 @@ public final class SurfaceResult implements WireValue {
         }
         public Builder terminalResourceId(String value) {
             this.terminalResourceId = Field.of(value);
+            return this;
+        }
+        public Builder transaction(String value) {
+            this.transaction = Field.of(value);
             return this;
         }
         public Builder workspaceId(String value) {

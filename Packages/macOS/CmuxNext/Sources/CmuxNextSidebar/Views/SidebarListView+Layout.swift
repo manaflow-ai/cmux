@@ -494,7 +494,6 @@ extension SidebarListViewComponents {
         case let (.workspace(id), view as WorkspaceRowView):
             guard let ws = workspaces[id] else { return }
             view.configure(ws, row: row, badgeStyle: model.rowBadgeStyle)
-            view.configureScreen(model.groupsByComputer ? nil : sections[row.section]?.machine)
             paintSecondaryFills(view, id)
             view.isDropTarget = external?.proposal == .intoWorkspace(id) || drag?.target == .ontoWorkspace(id) || standsForDropGroup(row)
             // A group drawn as its one row draws its header's keyboard focus ring (`SidebarGroupKeys`).
