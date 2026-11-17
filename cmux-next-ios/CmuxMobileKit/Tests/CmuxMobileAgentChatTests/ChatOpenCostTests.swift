@@ -75,6 +75,27 @@ import UIKit
         return (list, window)
     }
 
+    /// The history's off-main layouts landing give the landed rows their real heights and weigh no
+    /// row again: before, each landed batch dropped its turns' kept rows, so the open's one batch for
+    /// the whole history weighed all ~1,400 rows again on the main thread, in one frame.
+    @Test func landedLayoutsWeighNoRowAgain() async {
+        let store = AgentChatStore(source: SmoothChatTests.Silent())
+        store.nextFrame = nil
+        store.apply(.batch(Self.stressTurns(60)))
+        let list = ChatTranscriptList(store: store, surface: AgentChatSurface())
+        list.collectionView.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        list.boundsMayHaveChanged()
+        let weighedAtOpen = list.rowsWeighed
+        let waiting = list.layout.items.filter { !$0.exact && list.canLayOut($0.id) }.count
+        #expect(waiting > 100, "the oldest rows wait for their off-main layout")
+        for _ in 0..<1000 {
+            try? await Task.sleep(for: .milliseconds(10))
+            if list.layout.items.allSatisfy({ $0.exact || !list.canLayOut($0.id) }) { break }
+        }
+        #expect(list.layout.items.allSatisfy { $0.exact || !list.canLayOut($0.id) }, "every native row has its real height")
+        #expect(list.rowsWeighed - weighedAtOpen == 0, "rows weighed again when the layouts landed: \(list.rowsWeighed - weighedAtOpen) of \(list.layout.items.count)")
+    }
+
     @Test func reportsTheOpensMainThreadWork() async {
         let (list, window) = await Self.open(turns: 200)
         defer { window.isHidden = true }
