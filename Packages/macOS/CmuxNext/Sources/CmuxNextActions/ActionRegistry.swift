@@ -295,8 +295,8 @@ public final class ActionRegistry {
 
     /// Ids a bind named that the loaded catalog lacks: App code that binds a row before the pinned app
     /// FFI carries it (the Swift and the Rust row land together; the release with the row is pinned an
-    /// hour or more later). Checked by tests, never trapped, so the Debug app still launches; the app
-    /// logs a fault.
+    /// hour or more later). Never trapped, so the Debug app still launches; the app logs a fault
+    /// (BindAheadOfPinTests). An empty list on the real catalog is not checked yet: it is red until each re-pin.
     public private(set) var bindsWithoutRow: [ActionID] = []
 
     /// Records `id` on ``bindsWithoutRow`` when `bound`, a bind's result, is false.
