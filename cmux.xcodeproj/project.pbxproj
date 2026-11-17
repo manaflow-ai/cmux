@@ -1037,6 +1037,8 @@
 					Carbon,
 					"-Xlinker",
 					"-objc_stubs_small",
+					"-Xlinker",
+					"-dead_strip_dylibs",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app.debug;
 				PRODUCT_NAME = "cmux DEV";
@@ -1091,6 +1093,8 @@
 					Carbon,
 					"-Xlinker",
 					"-objc_stubs_small",
+					"-Xlinker",
+					"-dead_strip_dylibs",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app;
 				PRODUCT_NAME = cmux;
