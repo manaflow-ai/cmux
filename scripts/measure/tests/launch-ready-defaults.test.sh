@@ -21,6 +21,8 @@ import os, plistlib, sys
 verb, bundle, rest = sys.argv[1], sys.argv[2], sys.argv[3:]
 store = os.path.join(os.environ["DEFAULTS_STORE"], bundle + ".plist")
 domain = plistlib.load(open(store, "rb")) if os.path.exists(store) else None
+if verb == "import" and os.environ.get("DEFAULTS_FAIL_IMPORT"):
+    sys.exit(1)
 if verb == "delete":
     sys.exit(0 if domain is not None and not os.remove(store) else 1)
 if verb == "export":
@@ -71,6 +73,9 @@ got="$(defaults read com.example.shared)"
 [[ -z "$(python3 -I "$out/defaults.py" check "$root/a/defaults.plist" "$root/a/home/")" ]] || fail "side a's own path was named"
 cross="$(python3 -I "$out/defaults.py" check "$root/b/defaults.plist" "$root/a/home/" || true)"
 [[ "$cross" == *"$root/b/home/launch-snapshot.json"* ]] || fail "side b's path read from side a's home was not named: '$cross'"
+
+# A put-back that fails is a failure (the step exits 4), and the copy stays for the next run to put back.
+DEFAULTS_FAIL_IMPORT=1 defaults_restore "$out" && fail "a failed put-back returned success"
 
 # At exit the account's defaults come back as they were.
 defaults_restore "$out"

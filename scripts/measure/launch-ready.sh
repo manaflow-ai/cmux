@@ -44,7 +44,7 @@ main() {
   # worker "$out/home-SIDE/app.sock" is 112: the app bound no socket there and stress3's seed never got an answer.
   LR_SOCKETS="$(mktemp -d /tmp/lr.XXXXXX)" && chmod 0777 "$LR_SOCKETS" || exit 3
   LR_ASIDE=""
-  trap 'rm -rf "$LR_SOCKETS"; defaults_restore "$out"' EXIT
+  trap 'rm -rf "$LR_SOCKETS"; defaults_restore "$out" || exit 4' EXIT
   for arg in "$@"; do
     case "$arg" in
       dmg=nightly|dmg=build|dmg=https://*) dmg="${arg#dmg=}" ;;
@@ -113,7 +113,7 @@ main() {
     hdiutil attach "$out/$side.dmg" -nobrowse -readonly -mountpoint "$mount" >/dev/null || { echo "LR attach $side failed"; exit 3; }
     local found; found="$(find "$mount" -maxdepth 1 -name '*.app' | head -1)"
     ditto "$found" "$out/$side/$(basename "$found")" || exit 3
-    if [[ "$copy" == fresh ]]; then ditto "$found" "$out/$side-dmg/$(basename "$found")" || exit 3; fi
+    if [[ "$copy" == fresh ]]; then mkdir -p "$out/$side-dmg" && ditto "$found" "$out/$side-dmg/$(basename "$found")" || exit 3; fi
     hdiutil detach "$mount" >/dev/null || hdiutil detach -force "$mount" >/dev/null
     echo "LR app $side $(basename "$found") $(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$out/$side/$(basename "$found")/Contents/Info.plist" 2>/dev/null)"
     defaults_aside "$out" "$out/$side/$(basename "$found")" || { echo "LR-FAIL $side defaults not set aside"; exit 3; }
@@ -195,9 +195,14 @@ probe() {
     sleep 5 # the recorder's own start (a measurement script, not runtime code)
   fi
   line="$(GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh "$out/launch-ready" "$app" "$out/home-$side" "$label" "$settle" "$LR_SOCKETS/$side.sock" 2>>"$out/probe.log" | grep '^LR-RUN ')"
-  side_defaults "$out" save "$app" "$out/home-$side/defaults.plist" || echo "LR-FAIL $side $label defaults not saved"
   # Every launch snapshot path the launch left must be in its own home: one in the other side's means it read that.
-  cross="$(python3 -I "$out/defaults.py" check "$out/home-$side/defaults.plist" "$out/home-$side/")"
+  # Unsaved defaults fail the same way, and the stale copy goes: the side's next launch starts empty, not from it.
+  if side_defaults "$out" save "$app" "$out/home-$side/defaults.plist"; then
+    cross="$(python3 -I "$out/defaults.py" check "$out/home-$side/defaults.plist" "$out/home-$side/")"
+  else
+    rm -f "$out/home-$side/defaults.plist"
+    cross='{"defaults_not_saved": true}'
+  fi
   if [[ -n "$recorder" ]]; then
     kill -INT "$recorder" 2>/dev/null; wait "$recorder" 2>/dev/null
   fi
@@ -269,12 +274,14 @@ defaults_aside() {
   LR_ASIDE="$LR_ASIDE $bundle"
 }
 
+# Any domain not put back fails the step (the trap exits 4); its copy stays beside the lock for the next run.
 defaults_restore() {
-  local out="$1" bundle
+  local out="$1" bundle failed=0
   for bundle in $LR_ASIDE; do
     GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh python3 -I "$out/defaults.py" restore "$bundle" \
-      || echo "LR-FAIL $bundle defaults not put back: they stay set aside for the next run to put back"
+      || { echo "LR-FAIL $bundle defaults not put back: they stay set aside for the next run to put back"; failed=1; }
   done
+  return "$failed"
 }
 
 # fresh_copy OUT SIDE N: SIDE's copy deleted, once its processes are gone, and copied again from the DMG's.
