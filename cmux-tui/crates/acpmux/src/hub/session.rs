@@ -268,6 +268,9 @@ pub struct Session {
     /// The owner's Cloud credential its agent launches with (`agent_credentials.rs`): in memory
     /// only, never in its meta, log, transcript or events; None runs the machine's own route.
     pub(super) credential: StdMutex<Option<crate::agent_credentials::AgentCredential>>,
+    /// Woken each time the owner's Mac sets `credential` (`hub/credentials.rs`): a start that
+    /// waits for it (`owner_credential_ready`) goes on at once.
+    pub(super) credential_set: Notify,
     /// The chat's route changed during a turn: restart the harness on it when
     /// the turn ends (`route_switch.rs`).
     pub(super) route_switch: AtomicBool,

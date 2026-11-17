@@ -2043,6 +2043,7 @@ impl Hub {
             launched_with_tools: std::sync::atomic::AtomicU8::new(0),
             launch_env: StdMutex::new(None),
             credential: StdMutex::new(None),
+            credential_set: Notify::new(),
             route_switch: AtomicBool::new(false),
             profile_respawn: AtomicBool::new(false),
             ending: StdMutex::new(None),
