@@ -922,7 +922,7 @@ extension AppServices {
     func paidPlanUpgrade() -> PaidPlanUpgrade {
         let client = cloud.isSignedIn ? accounts.client : nil
         return PaidPlanUpgrade(checkout: client.map(PaidPlanUpgrade.cmuxComCheckout), open: { LinkRouter.shared.open($0) },
-                               scheme: cloud.configuration.callbackScheme, onboarding: PaidPlanOnboarding(defaults: .standard), pricing: StaticURL.pricing.url, web: cloud.configuration.apiBaseURL)
+                               scheme: cloud.configuration.callbackScheme, onboarding: PaidPlanOnboarding(defaults: .standard), pricing: StaticURL.pricing.url, web: cloud.configuration.authWebOrigin)
     }
 
     /// The welcome card for a plan the Cloud list read (shown once, after an upgrade).

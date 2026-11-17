@@ -27,8 +27,9 @@ package struct PaidPlanUpgrade {
     package var onboarding: PaidPlanOnboarding
     /// The pricing page (the app's `StaticURL.pricing`).
     package var pricing: URL
-    /// cmux.com's base (the Cloud configuration's `apiBaseURL`), whose checkout page a cmux NEXT plan opens
-    /// (``nextPlans``); nil: those take the native checkout too.
+    /// The web origin (the Cloud configuration's `authWebOrigin`: cmux.com in production, never the Cloud API's
+    /// origin, which has no checkout page), whose checkout page a cmux NEXT plan opens (``nextPlans``); nil: those take
+    /// the native checkout too.
     package var web: URL?
 
     package init(checkout: (@MainActor (_ plan: String, _ scheme: String) async throws -> URL)?, open: @escaping @MainActor (URL) -> Void,
