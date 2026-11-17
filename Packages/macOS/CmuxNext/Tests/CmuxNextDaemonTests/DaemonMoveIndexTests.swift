@@ -109,4 +109,25 @@ struct DaemonMoveIndexTests {
         #expect(told.told, "the settlement told the reader")
         #expect(store.closedLately(Self.surfaces[1]))
     }
+
+    /// Decision of 2026-11-17: the daemon's records drop the tab (the daemon closed it on its own), and then the
+    /// close of the person is refused. The refusal gives nothing back, so no list changes. The refusal alone still
+    /// tells a reader of the tab lists (a new tab's move that waits for its tab) that the close ended.
+    @Test func aCloseRefusedAfterItsRecordsTellsTheReadersOfTheTabLists() throws {
+        let store = Self.store()
+        let close = try #require(store.intendClose([Self.surfaces[1]]))
+        let workspace = WorkspaceSnapshot(
+            id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "00000000-0000-4000-8000-000000000001"), name: "1",
+            screens: [ScreenSnapshot(id: ScreenID(rawValue: 2), active: true, activePane: Self.pane, layout: .leaf(Self.pane),
+                                     panes: [PaneSnapshot(id: Self.pane, tabs: Self.surfaces.filter { $0 != Self.surfaces[1] }.map { TabSnapshot(surface: $0) })])])
+        store.apply(snapshot: DaemonTree(workspaceRevision: 2, workspaces: [workspace]))
+        try #require(!store.pendingIntents.isEmpty, "setup: the close is not settled by the records alone")
+        @MainActor final class Told { var told = false }
+        let told = Told()
+        withObservationTracking { _ = store.closedLately(Self.surfaces[1]) } onChange: { MainActor.assumeIsolated { told.told = true } }
+        store.rejectIntent(close)
+        #expect(store.pendingIntents.isEmpty, "the refusal ended the close")
+        #expect(told.told, "the refusal told the reader")
+        #expect(store.tab(surface: Self.surfaces[1]) == nil && !store.closedLately(Self.surfaces[1]), "the tab is gone, and it is not a tab that the person closed")
+    }
 }

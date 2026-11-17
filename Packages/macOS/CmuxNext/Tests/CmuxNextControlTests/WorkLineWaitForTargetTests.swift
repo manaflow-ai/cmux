@@ -14,20 +14,26 @@ import Testing
 /// hidden at their turn, which is the count of second waits, and how many times the limit's timer fired (the wakeup
 /// ledger's count for the row's own owner name).
 ///
-/// The function is new, so each row is new with it: no row has a red first.
+/// The function was new with the first six rows, so they have no red first. The last row has one (decision of
+/// 2026-11-17: the second wait ends when the thing can no longer come back, not at its limit): before that mend its
+/// wait ends by its limit, and the row fails by its count of the timer's fires.
 ///
 /// Limits:
 /// - No row sleeps, polls or reads a clock. A row whose wait must not end by its limit passes a limit of 10 minutes and
-///   asserts that the timer did not fire. A row that needs the end of the limit passes a limit of 0.
+///   asserts that the timer did not fire. A row that needs the end of the limit passes a limit of 0. The last row
+///   passes a limit of 20 seconds, so that its red comes inside the suite's time limit; no expect reads that time.
+/// - The function asks if the thing can come back at the turn, and again inside the second wait (each time the
+///   Observation reads the wait's condition). So a row counts at least one question, not one.
 /// - The suite's time limit of 1 minute stops a row whose wait does not end. It is no verdict of a row.
 /// - The fake is not the store: the rows do not say that the store's tab list is tracked. The app's row does
 ///   (`ANewTabHiddenWhileItsMoveWaitsTakesItsSlotTests`).
 @MainActor @Suite(.timeLimit(.minutes(1)))
 struct WorkLineWaitForTargetTests {
-    /// The thing that a work acts on: shown or hidden, and whether what hid it has settled.
+    /// The thing that a work acts on: shown or hidden, whether what hid it has settled, and whether it can come back.
     @Observable @MainActor final class Thing {
         var shown: Bool
         var hideSettled = false
+        var canReturn = true
 
         init(shown: Bool) { self.shown = shown }
     }
@@ -73,12 +79,12 @@ struct WorkLineWaitForTargetTests {
         let earlier = Task { @MainActor in thing.shown = false; return 0 }
         let found = await line.waitForTarget(after: earlier, listed: { thing.shown }, mayReturn: {
             asked.count += 1
-            Task { @MainActor in thing.shown = true } // runs when the function is in its second wait
+            if asked.count == 1 { Task { @MainActor in thing.shown = true } } // runs when the function is in its second wait
             return true
         }, limit: Self.long, owner: owner)
         #expect(found && thing.shown, "found \(found), shown \(thing.shown) (want both: the thing came back)")
-        #expect(line.targetsHiddenAtTheirTurn == 1 && asked.count == 1,
-                "\(line.targetsHiddenAtTheirTurn) second waits and \(asked.count) questions if the thing can come back (want 1 and 1: one wait, and no turn of the loop after the thing came back)")
+        #expect(line.targetsHiddenAtTheirTurn == 1 && asked.count >= 1,
+                "\(line.targetsHiddenAtTheirTurn) second waits and \(asked.count) questions if the thing can come back (want 1 wait and at least 1 question: no second wait after the thing came back)")
         #expect(Self.fires(owner) == before, "the limit's timer fired \(Self.fires(owner) - before) times (want 0: the thing's return ended the second wait, not the limit)")
     }
 
@@ -116,5 +122,22 @@ struct WorkLineWaitForTargetTests {
         #expect(found && !thing.shown, "found \(found), shown \(thing.shown) (want found, as the thing was listed inside the limit, and not shown)")
         #expect(line.targetsHiddenAtTheirTurn == 0, "\(line.targetsHiddenAtTheirTurn) second waits (want 0: the limit was at its end)")
         #expect(Self.fires(owner) == before, "the limit's timer fired \(Self.fires(owner) - before) times (want 0: there was no wait)")
+    }
+
+    /// The thing is hidden at its turn and can come back, and after the second wait began it can no longer come back
+    /// (in the app: the close that hid a tab ended, and the tab is gone). The second wait ends then: one second wait,
+    /// and the timer did not fire. The works behind this one do not wait for the limit.
+    @Test func aThingThatCanNoLongerComeBackEndsTheSecondWait() async {
+        let owner = "WorkLineWaitForTargetTests.canNoLongerComeBack", before = Self.fires(owner)
+        let line = WorkLine<Int>(), thing = Thing(shown: true), asked = Asked()
+        let earlier = Task { @MainActor in thing.shown = false; return 0 }
+        let found = await line.waitForTarget(after: earlier, listed: { thing.shown }, mayReturn: {
+            asked.count += 1
+            if asked.count == 1 { Task { @MainActor in thing.canReturn = false } } // runs when the function is in its second wait
+            return thing.canReturn
+        }, limit: .seconds(20), owner: owner)
+        #expect(found && !thing.shown, "found \(found), shown \(thing.shown) (want found, as the thing was listed inside the limit, and not shown)")
+        #expect(line.targetsHiddenAtTheirTurn == 1, "\(line.targetsHiddenAtTheirTurn) second waits (want 1: the thing could come back at its turn)")
+        #expect(Self.fires(owner) == before, "the limit's timer fired \(Self.fires(owner) - before) times (want 0: the second wait ends when the thing can no longer come back, not at its limit)")
     }
 }

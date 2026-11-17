@@ -8,7 +8,8 @@ import Foundation
 import Testing
 
 /// A new tab that a close hid, and that came back (the daemon refused the close, or a program ran in the tab), takes
-/// its slot right after the tab it follows, also when the hide came while the tab's move waited for its turn.
+/// its slot right after the tab it follows, also when the hide came while the tab's move waited for its turn. And a
+/// new tab that is gone for good in that time does not hold the moves of the pane's later new tabs.
 ///
 /// Decision of 2026-11-16: a new tab that shows off its place is an order fault that a person can see.
 /// `NewTabCloseInterleaveOrderTests.aNewTabWhoseCloseIsUndoneStillTakesItsSlot` hides the tab from a poll, so the
@@ -18,20 +19,24 @@ import Testing
 /// move of the pane's earlier new tab (its turn in the pane's line of moves), then reads the tab again and makes the
 /// move. A hide between the first wait's end and the second read is the step.
 ///
-/// How the test holds the step open, with no clock: it takes a turn in the pane's line of moves before the New Tab
-/// action (`NewTabSlot.reserve`, as an earlier new tab does at its press) and keeps it. The new tab's move task then
-/// waits for that turn after its list wait found the tab. The test hides the tab and lets its turn go. The move task
-/// reads the tab again and finds it hidden: the pane's line of moves counts that read
-/// (`WorkLine.targetsHiddenAtTheirTurn`), and the test waits for the count (a set-up wait by the shared poll, not a
-/// verdict). Then the test gives the tab back and takes the pane's next turn: that turn starts when the move task
-/// ended, and the test reads the store's list then. That read is the verdict, and it has no clock.
+/// How a row holds the step open, with no clock (`theKeptTurn`, `theStep`): it takes a turn in the pane's line of
+/// moves before the New Tab action (`NewTabSlot.reserve`, as an earlier new tab does at its press) and keeps it. The
+/// new tab's move task then waits for that turn after its list wait found the tab. The row hides the tab and lets its
+/// turn go. The move task reads the tab again and finds it hidden: the pane's line of moves counts that read
+/// (`WorkLine.targetsHiddenAtTheirTurn`), and the row waits for the count (a set-up wait, not a verdict). Then the
+/// row ends the close in its own way and takes the pane's next turn: that turn starts when the move task ended, and
+/// the row reads its verdict then. No verdict has a clock, and no verdict reads the strip: the app shows a new tab at
+/// its slot for some time before its move, so a strip that is right says nothing of the move. The strip's samples
+/// are only in the words of a failure.
 ///
-/// The wait of 500 ms before the hide is not the step: it gives the creation's reply the time to start the move
-/// task. If the task had not found the tab before the hide, the count does not rise, and the test fails with a
-/// line that starts with `setup:` (no result). The 4 s of strip samples at the end are a guard with a fixed time.
+/// The wait of 500 ms before the hide is not the step, and it is a fixed time. Its cause: the creation's reply
+/// starts the move task, and the task reads the tab one time before it waits for its turn. No fact of the app tells
+/// a test that this read is done. If the task had not found the tab before the hide, the row fails with a line that
+/// starts with `setup:` (no result).
 ///
 /// Limits: one new tab (a New Tab page), one pane, a close intent of the store that is never sent (the form of the
-/// neighbor test, not a key and not a click). The earlier turn is the test's own, not a second new tab.
+/// neighbor test, not a key and not a click), and its refusal by the store's own call. The earlier turn is the test's
+/// own, not a second new tab. Each row hides the new tab, which is right of the tabs `a` and `b` and left of `c`.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(2)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct ANewTabHiddenWhileItsMoveWaitsTakesItsSlotTests {
     /// The strip as letters, one entry per change: `a`, `b`, `c` for the three tabs, `N` for the new one (the
@@ -98,60 +103,82 @@ struct ANewTabHiddenWhileItsMoveWaitsTakesItsSlotTests {
         WakeupLedger.shared.snapshot().filter { $0.owner == "NewTabSlot.listed" || $0.owner == "NewTabSlot.answer" }.reduce(0) { $0 + $1.count }
     }
 
+    /// A new tab whose move task waits for the test's kept turn.
+    private struct KeptTurn {
+        let pane: PaneController
+        let frames: Frames
+        /// The turn of an earlier move of the pane that has not ended: the test keeps it.
+        let held: WorkTurn<ActionWorkFailure?>
+        /// The new tab (the daemon's tab of the New Tab page).
+        let tab: TabModel
+        /// The store's list with the new tab, as letters.
+        let before: String
+        /// The fires of the two limits before the New Tab action, and when the test took its turn.
+        let fires: UInt64
+        let taken: ContinuousClock.Instant
+    }
+
+    /// `a b c`, a kept turn in the pane's line of moves, the New Tab action, and the pane lists the daemon's tab of
+    /// the new tab as its last tab: the tab's move waits for the kept turn. Each check here is a set-up check.
+    private static func theKeptTurn(_ services: AppServices, _ connection: DaemonConnection) async throws -> KeptTurn {
+        let (pane, frames, known) = try await threeTabs(services, connection)
+        let held = try #require(NewTabSlot.reserve(pane.pane, services: services), "setup: the pane gave no turn in its line of moves")
+        let fires = limitFires(), taken = ContinuousClock.now
+
+        try #require(services.registry.perform("newTab.default", invocation: ActionInvocation(origin: .user)),
+                     "setup: the New Tab action was refused")
+        frames.sample(pane)
+        let model = pane.pane
+        let listed: @MainActor @Sendable () -> Bool = { model.tabs.contains { !known.contains($0.id) && !ProvisionalTab.isProvisional($0.id) } }
+        if !listed() { await ObservationDeadline(owner: "ANewTabHiddenWhileItsMoveWaitsTakesItsSlotTests.listed").until(listed, limit: .seconds(4)) }
+        // Not the step, and a fixed time: the creation's reply starts the move task, and the task reads the tab
+        // before it waits for its turn. No fact of the app tells a test that this read is done (the suite's comment).
+        try await frames.sample(pane, for: .milliseconds(500))
+        let tab = try #require(pane.pane.tabs.first { !known.contains($0.id) && !ProvisionalTab.isProvisional($0.id) },
+                               "setup: the pane does not list the daemon's tab of the creation")
+        let before = pane.pane.tabs.map { $0.id == tab.id ? "N" : (frames.name($0.id) ?? "-") }.joined()
+        try #require(pane.pane.tabs.last?.id == tab.id,
+                     "setup: the new tab is not the last tab of the store's list (\(before)): its move was made, the test's turn did not hold it")
+        return KeptTurn(pane: pane, frames: frames, held: held, tab: tab, before: before, fires: fires, taken: taken)
+    }
+
+    /// The step, made (the suite's comment): the kept turn, the hide of the new tab by a close that is never sent,
+    /// the kept turn let go, and the wait until the pane's line of moves counted the move task's read of the hidden
+    /// tab. Each check here is a set-up check. The close's transaction comes with the kept turn.
+    private static func theStep(_ services: AppServices, _ connection: DaemonConnection) async throws -> (KeptTurn, ClientTransactionID) {
+        let kept = try await theKeptTurn(services, connection)
+        let pane = kept.pane
+
+        // The hide: a close of the new tab that is never sent.
+        let close = try #require(services.daemon.store.intendClose([kept.tab.surface]), "setup: the close found no tab")
+        kept.frames.sample(pane)
+        let time = ContinuousClock.now - kept.taken
+        try #require(time < .seconds(8), "setup: the test kept its turn for \(time), near the turn's own limit of 10 s")
+
+        // The test's turn goes: the new tab's move task goes on and reads the tab again. The tab is hidden.
+        kept.held.pass()
+        let line = pane.placements
+        try await PasswordManagerRouteTests.until({ line.targetsHiddenAtTheirTurn == 1 }, report: {
+            "setup: the new tab's move task did not read the tab while it was hidden (count \(line.targetsHiddenAtTheirTurn)): it had not found the tab before the hide, so the test did not make the step"
+        })
+        kept.frames.sample(pane)
+        return (kept, close)
+    }
+
     @Test func aNewTabHiddenWhileItsMoveWaitsForAnEarlierMoveTakesItsSlotWhenItComesBack() async throws {
         try await PasswordManagerRouteTests.withApp { services, connection in
-            let (pane, frames, known) = try await Self.threeTabs(services, connection)
-            let store = services.daemon.store
-
-            // The turn of an earlier move of the pane that has not ended: the test keeps it.
-            let held = try #require(NewTabSlot.reserve(pane.pane, services: services), "setup: the pane gave no turn in its line of moves")
-            let taken = ContinuousClock.now
-
-            try #require(services.registry.perform("newTab.default", invocation: ActionInvocation(origin: .user)),
-                         "setup: the New Tab action was refused")
-            frames.sample(pane)
-            let listed = ContinuousClock.now + .seconds(5)
-            while ContinuousClock.now < listed, !pane.pane.tabs.contains(where: { !known.contains($0.id) && !ProvisionalTab.isProvisional($0.id) }) {
-                frames.sample(pane)
-                try await Task.sleep(for: .milliseconds(1))
-            }
-            // Not the step: the creation's reply starts the move task in this time.
-            try await frames.sample(pane, for: .milliseconds(500))
-            let tab = try #require(pane.pane.tabs.first { !known.contains($0.id) && !ProvisionalTab.isProvisional($0.id) },
-                                   "setup: the pane does not list the daemon's tab of the creation")
-            let before = pane.pane.tabs.map { $0.id == tab.id ? "N" : (frames.name($0.id) ?? "-") }.joined()
-            try #require(pane.pane.tabs.last?.id == tab.id,
-                         "setup: the new tab is not the last tab of the store's list (\(before)): its move was made, the test's turn did not hold it")
-
-            // The hide: a close of the new tab that is never sent.
-            let close = try #require(store.intendClose([tab.surface]), "setup: the close found no tab")
-            frames.sample(pane)
-            let kept = ContinuousClock.now - taken
-            try #require(kept < .seconds(8), "setup: the test kept its turn for \(kept), near the turn's own limit of 10 s")
-
-            // The test's turn goes: the new tab's move task goes on and reads the tab again. The tab is hidden.
-            held.pass()
-            let line = pane.placements
-            try await PasswordManagerRouteTests.until({ line.targetsHiddenAtTheirTurn == 1 }, report: {
-                "setup: the new tab's move task did not read the tab while it was hidden (count \(line.targetsHiddenAtTheirTurn)): it had not found the tab before the hide, so the test did not make the step"
-            })
-            frames.sample(pane)
+            let (step, close) = try await Self.theStep(services, connection)
+            let pane = step.pane, frames = step.frames, tab = step.tab
 
             // The daemon refuses the close: the tab comes back. A turn after the move task's starts when that task ended.
-            store.rejectIntent(close)
+            services.daemon.store.rejectIntent(close)
             let after = try #require(NewTabSlot.reserve(pane.pane, services: services), "setup: the pane gave no second turn")
             _ = await after.earlier?.value
             after.pass()
+            frames.sample(pane)
             let list = pane.pane.tabs.map { $0.id == tab.id ? "N" : (frames.name($0.id) ?? "-") }.joined()
             #expect(list.filter { $0 != "-" } == "abNc",
-                    "when the new tab's move task ended the store lists \(list) (want a, b, N, c in that order); the store's list before the hide: \(before)")
-
-            // A guard, with a fixed time: past the time in which the app shows a new tab at its slot before its move.
-            try await frames.sample(pane, for: .seconds(4))
-
-            let seen = frames.all.map { $0.joined() }
-            #expect(frames.all.last == ["a", "b", "N", "c"],
-                    "settled at \(frames.all.last?.joined() ?? "-"), want abNc; the store's list before the hide: \(before); the strip: \(seen)")
+                    "when the new tab's move task ended the store lists \(list) (want a, b, N, c in that order); the store's list before the hide: \(step.before); the strip: \(frames.all.map { $0.joined() })")
         }
     }
 
@@ -211,6 +238,107 @@ struct ANewTabHiddenWhileItsMoveWaitsTakesItsSlotTests {
             let moves = store.pendingIntents.filter { if case .moveTab = $0 { true } else { false } }
             #expect(moves.isEmpty, "the store has \(moves.count) moves that wait for the daemon's answer (want 0: a closed tab is not moved)")
             #expect(frames.all.last == ["a", "b", "c"], "the strip at the end: \(frames.all.last?.joined() ?? "-"), want abc; the strip: \(frames.all.map { $0.joined() })")
+        }
+    }
+
+    /// The new tab leaves its pane with no close of the person (the daemon closes it, as when its program ends) while
+    /// its move waits for its turn. No close names the tab, so nothing can give it back. Decision of 2026-11-17: the
+    /// move task does not wait for such a tab, so the move of the pane's next new tab does not wait for a limit of
+    /// 10 s.
+    ///
+    /// The row keeps a turn as the first row does. The test's own connection closes the new tab at the daemon, and
+    /// the row waits until the pane no longer lists it (the store's own observation with a bound, no poll). Then it
+    /// lets its turn go and takes the pane's next turn, which starts when the move task ended. The verdict has no
+    /// clock: the pane's line of moves counts no second wait, and no limit of a new tab's move fired (the wakeup
+    /// ledger).
+    ///
+    /// Red before the mend: the move task asked only if the pane was there, so it waited for the tab until its limit:
+    /// one second wait, and the timer's fire in the ledger. The red row takes up to 10 s.
+    ///
+    /// A fired limit with no second wait is no result (`setup:`): the move task had not found the tab before the
+    /// daemon closed it, so its first wait ran to its limit. That wait is not this row's step.
+    @Test func aNewTabThatLeftItsPaneWithNoCloseDoesNotHoldThePanesNextTurn() async throws {
+        try await PasswordManagerRouteTests.withApp { services, connection in
+            let kept = try await Self.theKeptTurn(services, connection)
+            let pane = kept.pane, frames = kept.frames, model = pane.pane, line = pane.placements, id = kept.tab.id
+
+            // The daemon closes the new tab. The store has no close of it.
+            try await connection.closeTab(kept.tab.surface)
+            let gone: @MainActor @Sendable () -> Bool = { !model.tabs.contains { $0.id == id } }
+            if !gone() { await ObservationDeadline(owner: "ANewTabHiddenWhileItsMoveWaitsTakesItsSlotTests.gone").until(gone, limit: .seconds(4)) }
+            try #require(gone(), "setup: the pane lists the new tab 4 s after the daemon closed it")
+            let time = ContinuousClock.now - kept.taken
+            try #require(time < .seconds(8), "setup: the test kept its turn for \(time), near the turn's own limit of 10 s")
+
+            // The test's turn goes. A turn after the move task's starts when that task ended.
+            kept.held.pass()
+            let after = try #require(NewTabSlot.reserve(pane.pane, services: services), "setup: the pane gave no second turn")
+            _ = await after.earlier?.value
+            after.pass()
+            frames.sample(pane)
+
+            let fired = Self.limitFires() - kept.fires, waits = line.targetsHiddenAtTheirTurn
+            try #require(!(fired > 0 && waits == 0), "setup: \(fired) limits of a new tab's move fired with no second wait: the move task had not found the tab before the daemon closed it, so the test did not make the step")
+            #expect(waits == 0 && fired == 0,
+                    "the move task waited \(waits) times for a tab that no close names, and \(fired) limits of a new tab's move fired (want 0 and 0: nothing can give the tab back)")
+            let list = model.tabs.map { $0.id == id ? "N" : (frames.name($0.id) ?? "-") }.joined()
+            #expect(list.filter { $0 != "-" } == "abc", "at the start of the pane's next turn the store lists \(list) (want a, b, c in that order, and no new tab)")
+            let moves = services.daemon.store.pendingIntents.filter { if case .moveTab = $0 { true } else { false } }
+            #expect(moves.isEmpty, "the store has \(moves.count) moves that wait for the daemon's answer (want 0: a tab that is gone is not moved)")
+        }
+    }
+
+    /// The daemon closes the new tab while a close of the person hides it, and then that close is refused: the tab is
+    /// gone, no close names it, and no close settled. The new tab's move task waits for the tab then (its second
+    /// wait). Decision of 2026-11-17: that wait ends when no close that is not settled names the tab, not at its
+    /// limit of 10 s, so the move of the pane's next new tab does not wait for that limit.
+    ///
+    /// The row makes the step as the first row does. Then the test's own connection closes the new tab at the daemon,
+    /// and then the tab `c`. The store hides the new tab, so no list of the store tells when the store has the
+    /// daemon's close of it. The daemon's events come in order: the store has that close when the pane no longer
+    /// lists `c` (the store's own observation with a bound, no poll). Then the close of the person is refused
+    /// (`DaemonStore.rejectIntent`, as in the first row), and the test takes the pane's next turn, which starts when
+    /// the move task ended. The verdict has no clock: no limit of a new tab's move fired (the wakeup ledger), and the
+    /// pane's line of moves counts one second wait.
+    ///
+    /// Red before the mend: the refusal gave no tab back, so it changed no list, and nothing told the move task. Its
+    /// wait ended by its limit, and the timer's fire is in the ledger. The red row takes up to 10 s.
+    ///
+    /// Limits: the refusal is the store's call with no command, and the row does not read what the daemon answers to
+    /// a close of a tab that it closed before.
+    @Test func aNewTabThatTheDaemonClosedWhileACloseHidItDoesNotHoldThePanesNextTurn() async throws {
+        try await PasswordManagerRouteTests.withApp { services, connection in
+            let (step, close) = try await Self.theStep(services, connection)
+            let pane = step.pane, frames = step.frames, model = pane.pane, line = pane.placements
+            let c = try #require(model.tabs.first { frames.name($0.id) == "c" }, "setup: the pane does not list the tab c")
+            let witness = c.id
+
+            // The daemon closes the new tab, which the store hides, and then the tab c, which the store lists.
+            try await connection.closeTab(step.tab.surface)
+            try await connection.closeTab(c.surface)
+            let gone: @MainActor @Sendable () -> Bool = { !model.tabs.contains { $0.id == witness } }
+            if !gone() { await ObservationDeadline(owner: "ANewTabHiddenWhileItsMoveWaitsTakesItsSlotTests.witness").until(gone, limit: .seconds(4)) }
+            try #require(gone(), "setup: the pane lists the tab c 4 s after the daemon closed it, so the store does not have the daemon's close of the new tab")
+            let time = ContinuousClock.now - step.taken
+            try #require(time < .seconds(6), "setup: the test took \(time) to this point, near the limit of 10 s of the move task's wait")
+            try #require(line.targetsHiddenAtTheirTurn == 1 && Self.limitFires() == step.fires,
+                         "setup: before the refusal the line counts \(line.targetsHiddenAtTheirTurn) second waits and \(Self.limitFires() - step.fires) limits fired (want 1 and 0: the move task waits for its tab)")
+
+            // The close is refused. The tab does not come back: the daemon closed it. A turn after the move task's
+            // starts when that task ended.
+            services.daemon.store.rejectIntent(close)
+            let after = try #require(NewTabSlot.reserve(pane.pane, services: services), "setup: the pane gave no second turn")
+            _ = await after.earlier?.value
+            after.pass()
+            frames.sample(pane)
+
+            let now = Self.limitFires()
+            #expect(now == step.fires, "\(now - step.fires) limits of a new tab's move fired (want 0: the move task's wait ends when no close names the tab, not at its limit of 10 s)")
+            #expect(line.targetsHiddenAtTheirTurn == 1, "the pane's line of moves counts \(line.targetsHiddenAtTheirTurn) second waits (want 1: no wait after the close ended)")
+            let list = model.tabs.map { $0.id == step.tab.id ? "N" : (frames.name($0.id) ?? "-") }.joined()
+            #expect(list.filter { $0 != "-" } == "ab", "at the start of the pane's next turn the store lists \(list) (want a, b: the daemon closed the new tab and c)")
+            let moves = services.daemon.store.pendingIntents.filter { if case .moveTab = $0 { true } else { false } }
+            #expect(moves.isEmpty, "the store has \(moves.count) moves that wait for the daemon's answer (want 0: a tab that is gone is not moved)")
         }
     }
 }
