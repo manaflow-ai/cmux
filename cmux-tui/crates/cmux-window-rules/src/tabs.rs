@@ -362,6 +362,11 @@ pub struct ToggleFacts {
     pub hand_off_open: bool,
     /// Now, in seconds since 1970 (`hand_off`'s clock).
     pub now: f64,
+    /// A chat: the device asking cannot start a terminal for its session (the phone, which has
+    /// no `acpmux resume-here`; a Mac whose chat runs on another machine's acpmux). With no
+    /// terminal running the session, such a chat is only a chat and offers no toggle (Leo,
+    /// 2026-11-17: "just... stop showijg the toggle on gui").
+    pub cannot_start_terminal: bool,
 }
 
 /// A chat's session handed to a new terminal (its acpmux run stopped, the
@@ -401,6 +406,9 @@ pub enum TerminalChatToggle {
     /// Not returned since the mid-turn hand-off: a chat mid-turn resumes in a terminal too.
     /// Kept so an app built against the older route still decodes every answer.
     Busy,
+    /// A chat no terminal runs, on a device that cannot start one (`cannot_start_terminal`):
+    /// only a chat, so no toggle shows, never a dead end a person can tap into.
+    NoTerminal,
 }
 
 pub fn terminal_chat_toggle(facts: &ToggleFacts) -> TerminalChatToggle {
@@ -436,6 +444,10 @@ pub fn terminal_chat_toggle(facts: &ToggleFacts) -> TerminalChatToggle {
         if lasts {
             return TerminalChatToggle::HandingOff { tab: hand_off.tab.clone() };
         }
+    }
+    // Nothing here can start the terminal: the chat is only a chat.
+    if facts.cannot_start_terminal {
+        return TerminalChatToggle::NoTerminal;
     }
     // Mid-turn too: the new terminal waits for the turn instead of cutting it off.
     TerminalChatToggle::ResumeInTerminal { harness, session }

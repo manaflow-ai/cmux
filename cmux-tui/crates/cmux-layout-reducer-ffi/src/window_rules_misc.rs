@@ -1,9 +1,10 @@
 //! The smaller window handlers' ops (`window_notifications_*`,
 //! `window_history_*`, `window_remote_*`, `window_browser_*`,
-//! `window_files_*`, `window_appearance_*`): their tables and refusals.
+//! `window_files_*`, `window_appearance_*`, `window_launch_*`, `window_restore_*`): their tables
+//! and refusals.
 
 use cmux_window_rules::{
-    appearance, browser, files, history, notifications, remote, restore, screen_share,
+    appearance, browser, files, history, launch, notifications, remote, restore, screen_share,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -147,7 +148,7 @@ struct RestoreOrder {
 }
 
 /// The domains whose ops this module answers.
-const DOMAINS: [&[u8]; 7] = [
+const DOMAINS: [&[u8]; 8] = [
     b"window_restore_",
     b"window_notifications_",
     b"window_history_",
@@ -155,6 +156,7 @@ const DOMAINS: [&[u8]; 7] = [
     b"window_browser_",
     b"window_files_",
     b"window_appearance_",
+    b"window_launch_",
 ];
 
 /// Whether `operation` is one of this module's.
@@ -269,6 +271,11 @@ pub(crate) fn respond_misc(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, 
         b"window_appearance_keymap_toast" => {
             let request: Keymap = read(request)?;
             value(appearance::keymap_toast(&request.preset, &request.changed))?
+        }
+        // Whether the launch snapshot drawn before the daemon answered is stale (cmuxterm-hq#12660).
+        b"window_launch_snapshot_verdict" => {
+            let facts: launch::SnapshotFacts = read(request)?;
+            json!({ "verdict": launch::verdict(&facts) })
         }
         _ => return Err(ERR_INVALID),
     };

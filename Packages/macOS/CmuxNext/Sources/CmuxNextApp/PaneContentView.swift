@@ -340,7 +340,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
         // now (its header would jump while it stays). While an earlier switch waits, what shows is the content it keeps.
         let kept = paintHold.kept.flatMap { $0.superview === contentHost ? $0 : nil }
         let shown = kept ?? hosted
-        let holds = !isBandActive && holdsForFirstPaint(view, replacing: shown)
+        let holds = !isBandActive && PanePaintHold.holds(view, replacing: shown)
         // The strip's band pins end before the browser leaves (R109).
         if hosted !== view { releaseBand() }
         if holds, kept != nil {
