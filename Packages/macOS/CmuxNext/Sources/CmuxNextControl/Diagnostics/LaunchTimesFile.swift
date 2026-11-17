@@ -161,13 +161,16 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
     /// The launch before this one (in the file) was another build or there was none: the first launch of
     /// this bundle's build, so likely the first exec of its files.
     public var firstLaunchOfBuild: Bool
+    /// Process start to each of ``phaseMarks`` this launch reached, by mark name; nil in a row written before
+    /// it. A regression names its phase from the file alone (2026-11-16: main to first frame, 650 to 1900 ms).
+    public var phases: [String: Double]?
 
     enum CodingKeys: String, CodingKey {
         case startedAt = "started_at", version, build, commit
         case preMainMs = "pre_main_ms", mainMs = "main_ms", firstWindowFrameMs = "first_window_frame_ms"
         case homeFirstPageMs = "home_first_page_ms", homeRevealedBy = "home_revealed_by"
         case priorChatPaintedMs = "prior_chat_painted_ms", priorChatLiveMs = "prior_chat_live_ms"
-        case prewarmed, firstLaunchOfBuild = "first_launch_of_build"
+        case prewarmed, firstLaunchOfBuild = "first_launch_of_build", phases
     }
 
     /// The record of a launch whose marks are `marks` (name to milliseconds since process start).
@@ -184,12 +187,22 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
         homeFirstPageMs = round(marks["home.saved_page_shown"] ?? marks["home.first_page"])
         if marks["reveal.home"] != nil { homeRevealedBy = marks["reveal.home.by_deadline"] != nil ? "deadline" : "mark" }
         if let chat = LaunchPriorChat.times(marks) { (priorChatPaintedMs, priorChatLiveMs) = (round(chat.painted), round(chat.live)) }
+        let phases = marks.filter { Self.phaseMarks.contains($0.key) }.mapValues { ($0 * 10).rounded() / 10 }
+        self.phases = phases.isEmpty ? nil : phases
         self.prewarmed = prewarmed
         firstLaunchOfBuild = true
     }
 
     /// The marks the record waits for before it is written: the first window frame and Home's reveal.
     public static let awaitedMarks = ["first_window_frame_committed", "reveal.home"]
+
+    /// The launch marks a row keeps under ``phases``, in launch order (`cmux app launch-times --phases`).
+    public static let phaseMarks = [
+        "did_finish_launching_start", "dfl.settings_read", "dfl.services", "dfl.bind", "dfl.menu",
+        "daemon.prepare_start", "daemon.prepare_end", "daemon.socket_connected", "daemon_connected",
+        "launch_snapshot_applied", "launch_snapshot_shown", "dfl.windows", "did_finish_launching_end",
+        "cef.initialize_start", "cef.ready", "reveal.sidebar", "reveal.home",
+    ]
 }
 
 /// `~/Library/Application Support/<bundle id>/launch-times.jsonl`: one ``LaunchTimesRecord`` per
