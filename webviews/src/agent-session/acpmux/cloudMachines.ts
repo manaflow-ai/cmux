@@ -226,7 +226,8 @@ function publish(next: readonly CloudMachine[]): void {
   for (const listener of listeners) listener();
 }
 
-/// The team the account works in (the reply's `team`), shown on the Cloud row and face. Kept only
+/// The team the account works in (the reply's `team`); the Cloud row and face no longer name it
+/// (https://github.com/manaflow-ai/cmux/issues/45695), it stays for diagnostics. Kept only
 /// in memory, from this page's own reply: an account switch never shows the previous team.
 let activeTeam: ActiveTeamTag | undefined;
 
@@ -425,11 +426,6 @@ const accountSnapshot = () => accountSignedIn;
 const teamSnapshot = () => activeTeam;
 /// The team as last read (tests and capture diagnostics).
 export const currentCloudTeam = teamSnapshot;
-
-/// The team the signed-in account works in, once the app said; undefined before or signed out.
-export function useCloudTeam(): ActiveTeamTag | undefined {
-  return useSyncExternalStore(subscribe, teamSnapshot, teamSnapshot);
-}
 
 const planSnapshot = () => cloudPlan;
 /// The plan as last read: a Send reads it at once (App `sendToCloud`), the pricing card's wait after a read.

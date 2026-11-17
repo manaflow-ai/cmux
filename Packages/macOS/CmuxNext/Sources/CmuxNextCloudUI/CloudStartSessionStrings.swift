@@ -99,7 +99,14 @@ public struct CloudStartSessionStrings {
         guard let plan = locked.upgrade else {
             return String(format: String(localized: "cloud.startSession.sizeLockedNoUpgrade", defaultValue: "this folder needs a %1$@ machine (%2$@ vCPU, %3$@ GB memory), larger than your plan includes", table: "CloudSessions", bundle: .module), name, cpu, memory)
         }
-        return String(format: String(localized: "cloud.startSession.sizeLocked", defaultValue: "this folder needs a %1$@ machine (%2$@ vCPU, %3$@ GB memory), which your plan doesn't include. Upgrade to cmux %4$@ to use one", table: "CloudSessions", bundle: .module), name, cpu, memory, plan == "max" ? "Max" : "Pro")
+        // The words after "cmux": product names, never translated.
+        let words = switch plan {
+        case "max": "Max"
+        case "next_pro": "NEXT Pro"
+        case "next_max": "NEXT Max"
+        default: "Pro"
+        }
+        return String(format: String(localized: "cloud.startSession.sizeLocked", defaultValue: "this folder needs a %1$@ machine (%2$@ vCPU, %3$@ GB memory), which your plan doesn't include. Upgrade to cmux %4$@ to use one", table: "CloudSessions", bundle: .module), name, cpu, memory, words)
     }
 
     /// The machine to create (`--name`) could not be created; `reason` says why. `quoted` is the
