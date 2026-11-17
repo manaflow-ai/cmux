@@ -299,6 +299,114 @@ fn two_toggles_at_once_from_2_screens_make_one_quick_terminal_in_the_workspace()
     assert_eq!(lost["focused"], json!(quick), "{lost}");
 }
 
+/// The 2 toggles of the test above, and the store refuses the commit of the creation that won 2 times: that
+/// creation fails, and its pane leaves. The request that lost plans again after the end of that creation. It
+/// sees no quick terminal then, so it makes the quick terminal of the workspace in its own screen, and its
+/// answer names a pane that stays.
+///
+/// The order: a third request, a split, joins the group of the 2 creations and stops at its join. A group
+/// commits after each of its creations ran, so the creation that won has no commit while the split stops.
+/// The split goes on at the next step of the request that lost: its wait for the creations that run, or its
+/// answer.
+#[test]
+fn a_toggle_that_lost_names_no_pane_of_a_creation_whose_commit_failed() {
+    let (mut wire, panes) = Wire::with_panes(1);
+    let first_screen = wire.screen()["id"].clone();
+    let (second_screen, there) = new_screen(&mut wire);
+
+    let (first_steps, first) = channel::<Step>();
+    let (go_on, wait) = channel::<()>();
+    let at_fence = first_steps.clone();
+    wire.mux.set_creation_before_fence_hook_for_test(Box::new(move || {
+        at_fence.send(Step::AtCreation).unwrap();
+        wait.recv().unwrap();
+    }));
+    let (mux, toggle) =
+        (wire.mux.clone(), json!({"cmd": "quick-terminal", "screen": first_screen}));
+    let first_thread = std::thread::spawn(move || {
+        let response = Wire::on(mux).send(toggle);
+        first_steps.send(Step::Response(response)).unwrap();
+    });
+    at_creation(&first, "first");
+
+    let (second_steps, second) = channel::<Step>();
+    // The first request took its hook. The next one is for the request that lost: it tells the test that
+    // it waits for the creations that run.
+    let waits = second_steps.clone();
+    wire.mux.set_creation_before_fence_hook_for_test(Box::new(move || {
+        waits.send(Step::AtCreation).unwrap();
+    }));
+    let (mux, toggle) =
+        (wire.mux.clone(), json!({"cmd": "quick-terminal", "screen": second_screen}));
+    let second_thread = std::thread::spawn(move || {
+        let joined = second_steps.clone();
+        let response = crate::mux::with_group_join_notice(
+            Box::new(move || joined.send(Step::AtCreation).unwrap()),
+            || Wire::on(mux).send(toggle),
+        );
+        second_steps.send(Step::Response(response)).unwrap();
+    });
+    at_creation(&second, "second");
+
+    let (third_joined, third) = channel::<()>();
+    let (release, held) = channel::<()>();
+    let (mux, beside) = (wire.mux.clone(), panes[0]);
+    let third_thread = std::thread::spawn(move || {
+        crate::mux::with_group_join_notice(
+            Box::new(move || {
+                third_joined.send(()).unwrap();
+                held.recv().unwrap();
+            }),
+            || mux.split(beside, SplitDir::Right, Some((38, 22))).map(|surface| surface.id),
+        )
+    });
+    third.recv().expect("the split joined no group of creations");
+    // The commit of the group and the second commit of the creation that won.
+    wire.mux.set_resource_patch_failures_remaining_for_test(2);
+    go_on.send(()).unwrap();
+
+    let early = match second.recv() {
+        Ok(Step::AtCreation) => None,
+        Ok(Step::Response(response)) => Some(response),
+        Err(_) => panic!("the toggle that lost ended with no response"),
+    };
+    release.send(()).unwrap();
+    let Ok(Step::Response(won)) = first.recv() else {
+        panic!("the toggle that won ended with no response")
+    };
+    let lost = early.unwrap_or_else(|| match second.recv() {
+        Ok(Step::Response(response)) => response,
+        _ => panic!("the toggle that lost ended with no response"),
+    });
+    first_thread.join().unwrap();
+    second_thread.join().unwrap();
+    let split = third_thread.join().unwrap();
+
+    assert_eq!(won["ok"], false, "the fixture: the creation that won fails: {won}");
+    assert_eq!(lost["ok"], true, "the toggle that lost failed: {lost}");
+    let lost = &lost["data"];
+    let named = pane(&lost["pane"]);
+    let screens = screens(&wire);
+    assert!(
+        screens.iter().any(|screen| panes_of(screen).contains(&named)),
+        "the toggle that lost names a pane that did not stay: {lost}"
+    );
+    assert_eq!(lost["created"], true, "the toggle that lost makes the quick terminal: {lost}");
+    let marks: Vec<&Value> = screens
+        .iter()
+        .map(|screen| &screen["quick_terminal"])
+        .filter(|mark| !mark.is_null())
+        .collect();
+    assert_eq!(marks.len(), 1, "one quick terminal in the workspace: {marks:?}");
+    assert_eq!(
+        screens[1]["quick_terminal"],
+        json!({"pane": named, "hidden": false, "from": there}),
+        "the quick terminal is in the screen of the toggle that lost"
+    );
+    assert_eq!(lost["screen"], second_screen, "{lost}");
+    assert!(split.is_ok(), "the fixture: the split has its pane: {:?}", split.err());
+}
+
 /// A float request with a frame for a hidden quick terminal shows it at that frame, as each act that brings
 /// a floating pane to the front does. It gives no focus: the focus stays on the pane that has it.
 #[test]

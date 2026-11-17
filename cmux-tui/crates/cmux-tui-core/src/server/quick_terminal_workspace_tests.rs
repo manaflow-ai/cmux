@@ -346,6 +346,87 @@ fn an_undo_in_a_screen_that_came_into_a_workspace_with_a_quick_terminal_puts_no_
     );
 }
 
+/// As the test above, with a change that made a pane: a new pane in the screen, after its quick terminal. The
+/// undo of that change closes the new pane after a confirmation. It puts back no mark: the workspace has
+/// one quick terminal still, and the pane that came floats still.
+#[test]
+fn a_confirmed_undo_in_a_screen_that_came_into_a_workspace_puts_no_mark_back() {
+    let (mut wire, panes) = Wire::with_panes(2);
+    let (quick, _) = made(&mut wire, panes[0]);
+    wire.mux.new_workspace(None, Some((80, 22))).unwrap();
+    let (first, second) =
+        wire.mux.with_state(|state| (state.workspaces[0].id, state.workspaces[1].id));
+    wire.ok(json!({"cmd": "new-screen", "workspace": second, "cols": 80, "rows": 22}));
+    let other = screens_of(&wire, 1)[1].clone();
+    let (other, beside) = (other["id"].clone(), pane(&other["active_pane"]));
+    let data = toggle_in(&mut wire, &other);
+    assert_eq!(
+        data["created"], true,
+        "the fixture: the second workspace has a quick terminal: {data}"
+    );
+    let came = pane(&data["pane"]);
+    // The change to undo is a new pane: its snapshot of before has the mark, and its undo closes the pane.
+    let surface = wire.mux.new_pane_right(beside, 0.5, Some((38, 22))).unwrap();
+    let added = wire.pane_of(surface.id).unwrap();
+    wire.ok(json!({"cmd": "move-screen", "screen": other, "workspace": first}));
+    assert_eq!(
+        marks(&screens(&wire)).len(),
+        1,
+        "the fixture: the move ended the mark of the pane that came"
+    );
+    let asks = wire.ok(json!({"cmd": "undo-layout", "pane": beside}));
+    assert_eq!(
+        asks["closes_panes"],
+        json!([added]),
+        "the fixture: the undo asks to close the new pane: {asks}"
+    );
+
+    let response = wire.send(json!({
+        "cmd": "undo-layout", "pane": beside, "revision": asks["revision"], "confirm_close": true,
+    }));
+    let screens = screens(&wire);
+    let marks = marks(&screens);
+    assert_eq!(marks.len(), 1, "an undo made a second quick terminal in the workspace: {marks:?}");
+    assert_eq!(marks[0]["pane"], json!(quick), "the workspace keeps its quick terminal");
+    assert_eq!(response["data"]["undone"], true, "the undo of the new pane: {response}");
+    assert!(!panes_of(&screens[1]).contains(&added), "the undo closes the new pane");
+    let floating: Vec<PaneId> =
+        floating_of(&screens[1]).into_iter().map(|(pane, _)| pane).collect();
+    assert_eq!(floating, vec![came], "the pane that came floats still");
+}
+
+/// As the first test of an undo, and then the new quick terminal of the workspace closes: no screen has a
+/// quick terminal. The undo in the first screen puts the pane back into the list of floating panes with its
+/// mark: the workspace has one quick terminal again.
+#[test]
+fn an_undo_after_the_quick_terminal_of_the_other_screen_closed_puts_the_mark_back() {
+    let (mut wire, panes) = Wire::with_panes(2);
+    let (once, _) = made(&mut wire, panes[0]);
+    wire.ok(json!({"cmd": "float-pane", "pane": once, "mode": "off"}));
+    assert!(wire.mark().is_null(), "the fixture: a tiled pane has no mark");
+    let (second, _) = new_screen(&mut wire);
+    let data = toggle_in(&mut wire, &second);
+    assert_eq!(
+        data["created"], true,
+        "the fixture: the workspace has a new quick terminal: {data}"
+    );
+    wire.ok(json!({"cmd": "close-pane", "pane": pane(&data["pane"])}));
+    assert!(
+        marks(&screens(&wire)).is_empty(),
+        "the fixture: the workspace has no quick terminal after the close"
+    );
+
+    let response = wire.send(json!({"cmd": "undo-layout", "pane": panes[0]}));
+    assert_eq!(response["data"]["undone"], true, "the undo of the float request: {response}");
+    let screens = screens(&wire);
+    let marks = marks(&screens);
+    assert_eq!(marks.len(), 1, "the undo puts the mark back: {marks:?}");
+    assert_eq!(screens[0]["quick_terminal"]["pane"], json!(once), "{}", screens[0]);
+    let floating: Vec<PaneId> =
+        floating_of(&screens[0]).into_iter().map(|(pane, _)| pane).collect();
+    assert_eq!(floating, vec![once], "the undo puts the pane back into the list");
+}
+
 /// A bring is a move of a pane between 2 screens: it ends the layout undo of both, as each move of a pane
 /// between screens does. An undo in the screen that the quick terminal left, and one in the screen that it
 /// came to, have no change to undo.
