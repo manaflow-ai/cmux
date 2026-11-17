@@ -75,6 +75,7 @@ mod resource_selectors;
 mod respawn_gate_jump;
 mod restart;
 mod rows;
+mod scoped_load_side_tables;
 mod session_lists;
 mod signaled_mutex;
 mod single_reads;
