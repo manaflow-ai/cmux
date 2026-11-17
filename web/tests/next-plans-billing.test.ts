@@ -9,7 +9,8 @@ import { nextPlanMirrorMetadata } from "../services/billing/nextPlanBilling";
 import { NextPlanUnavailableError, resolveNextPlanPrice } from "../services/billing/stripe";
 
 function subscription(price: { id: string; lookup_key?: string | null }, plan?: string) {
-  return { items: { data: [{ price }] }, metadata: plan ? { plan } : {} };
+  const metadata: Record<string, string> = plan ? { plan } : {};
+  return { items: { data: [{ price }] }, metadata };
 }
 
 afterEach(() => {

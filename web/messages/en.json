@@ -757,7 +757,8 @@
         "team_admin_required": "Only team admins can manage this team's billing.",
         "team_not_found": "That team is not available. You may have left it, or it was deleted.",
         "authorization_unavailable": "Team permissions could not be checked. Try again shortly.",
-        "personal_team_not_upgradable_to_team": "Your personal account uses Pro or Max. Create a team to buy Team."
+        "personal_team_not_upgradable_to_team": "Your personal account uses Pro or Max. Create a team to buy Team.",
+        "plan_unavailable": "That plan is not available yet."
       },
       "free": {
         "name": "Free",
@@ -963,6 +964,30 @@
         "title": "Billed through the App Store",
         "body": "Your plan was purchased in the cmux iPhone app and is billed by Apple. Change or cancel it in your App Store subscriptions.",
         "manage": "Manage in the App Store"
+      },
+      "nextCloud": {
+        "heading": "cmux NEXT Cloud",
+        "currentPlan": "Current cmux NEXT plan: {plan}",
+        "granted": "(granted by cmux)",
+        "none": "None",
+        "current": "Current plan",
+        "perMonth": "per month",
+        "names": {
+          "next_pro": "cmux NEXT Pro",
+          "next_max": "cmux NEXT Max"
+        },
+        "features": {
+          "includedUsage": "{amount} of Cloud usage included each month",
+          "running": "Up to {count} machines running at once",
+          "kept": "Up to {count} machines kept, running or paused",
+          "snapshots": "Up to {count} saved snapshots",
+          "largest": "Machines up to {vcpus} vCPU and {memory} GiB RAM",
+          "disk": "Disks up to {disk} GiB per machine"
+        },
+        "subscribe": "Subscribe to {plan}",
+        "upgrade": "Upgrade to {plan}",
+        "comingSoon": "Coming soon",
+        "usageNote": "Included usage is counted at list rates and resets each month. Machines pause when it runs out; a paused machine costs only its disk."
       }
     },
     "testflight": {

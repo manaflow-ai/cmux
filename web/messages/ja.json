@@ -757,7 +757,8 @@
         "team_admin_required": "このチームの請求を管理できるのはチーム管理者のみです。",
         "team_not_found": "このチームは利用できません。チームから退出したか、チームが削除された可能性があります。",
         "authorization_unavailable": "チームの権限を確認できませんでした。しばらくしてからもう一度お試しください。",
-        "personal_team_not_upgradable_to_team": "個人アカウントでは Pro または Max を利用できます。Team を購入するにはチームを作成してください。"
+        "personal_team_not_upgradable_to_team": "個人アカウントでは Pro または Max を利用できます。Team を購入するにはチームを作成してください。",
+        "plan_unavailable": "このプランはまだご利用いただけません。"
       },
       "free": {
         "name": "Free",
@@ -963,6 +964,30 @@
         "title": "App Store で請求されています",
         "body": "このプランは cmux の iPhone アプリで購入され、Apple から請求されています。変更や解約は App Store のサブスクリプションから行ってください。",
         "manage": "App Store で管理"
+      },
+      "nextCloud": {
+        "heading": "cmux NEXT Cloud",
+        "currentPlan": "現在の cmux NEXT プラン: {plan}",
+        "granted": "（cmux により付与）",
+        "none": "なし",
+        "current": "現在のプラン",
+        "perMonth": "/月",
+        "names": {
+          "next_pro": "cmux NEXT Pro",
+          "next_max": "cmux NEXT Max"
+        },
+        "features": {
+          "includedUsage": "毎月 {amount} 分の Cloud 利用料を含む",
+          "running": "同時に最大 {count} 台のマシンを実行",
+          "kept": "実行中と一時停止中を合わせて最大 {count} 台のマシンを保持",
+          "snapshots": "最大 {count} 個のスナップショットを保存",
+          "largest": "最大 {vcpus} vCPU・{memory} GiB RAM のマシン",
+          "disk": "マシンあたり最大 {disk} GiB のディスク"
+        },
+        "subscribe": "{plan} に登録",
+        "upgrade": "{plan} にアップグレード",
+        "comingSoon": "近日公開",
+        "usageNote": "含まれる利用料は定価で計算され、毎月リセットされます。使い切るとマシンは一時停止し、一時停止中のマシンはディスク分のみ課金されます。"
       }
     },
     "testflight": {
