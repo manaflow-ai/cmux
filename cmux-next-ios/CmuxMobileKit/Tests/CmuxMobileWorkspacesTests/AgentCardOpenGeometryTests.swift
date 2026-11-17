@@ -160,15 +160,19 @@ import UIKit
         }
     }
 
-    /// The rows the card shows (their top inside the card's height), compared by id.
+    /// The rows the card's part of the page shows (inside the card's height), on either side,
+    /// compared by id: a row on only one side (the card blank where the page has a turn) counts
+    /// as an infinite shift.
     static func shift(card: [String: CGRect], live: [String: CGRect], cardHeight: CGFloat) -> Shift {
-        let shown = card.filter { $0.value.minY < cardHeight && $0.value.maxY > 0 }.sorted { $0.value.minY < $1.value.minY }
-        return Shift(rows: shown.map { id, frame in (id, frame.minY, live[id]?.minY ?? .infinity) })
+        func inCard(_ frame: CGRect) -> Bool { frame.minY < cardHeight && frame.maxY > 0 }
+        let ids = Set(card.filter { inCard($0.value) }.keys).union(live.filter { inCard($0.value) }.keys)
+        let rows = ids.map { id in (id: id, card: card[id]?.minY ?? .infinity, live: live[id]?.minY ?? .infinity) }
+        return Shift(rows: rows.sorted { min($0.card, $0.live) < min($1.card, $1.live) })
     }
 
     /// The tab was shown before: its surface measured its composer stack. The card drawn now and
     /// the page it opens to put every message the card shows at the same point.
-    @Test(arguments: [(1, 1), (3, 4)])
+    @Test(arguments: [(1, 1), (3, 4), (8, 0)])
     func aMeasuredTabsCardMatchesItsPage(turns: Int, paragraphs: Int) async throws {
         let harness = Harness()
         defer { harness.window.isHidden = true }
@@ -192,7 +196,7 @@ import UIKit
     /// The tab was never shown in this launch (a workspace opened on another tab): its surface
     /// has not measured a composer. Its card, and the page's first frames as the zoom opens it
     /// (no accessory yet) and after (the stack lands), put every message at the same point.
-    @Test(arguments: [(1, 1), (3, 4)])
+    @Test(arguments: [(1, 1), (3, 4), (8, 0)])
     func anUnmeasuredTabsCardMatchesItsPageAsItOpens(turns: Int, paragraphs: Int) async throws {
         let harness = Harness()
         defer { harness.window.isHidden = true }

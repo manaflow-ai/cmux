@@ -221,20 +221,29 @@ final class AgentChatPreviewModel {
         if builder?.diffs !== store.diffs { builder = ChatTranscriptBuilder(diffs: store.diffs) }
         guard let builder else { return [] }
         let turns = frozen ?? store.turns
-        // The newest two turns, as the card showed before.
-        let shown = Array(turns.suffix(2))
-        let built = builder.build(turns: shown, pendingPermission: store.pendingPermission,
-                                  askOpen: store.pendingPermission != nil || store.pendingQuestion != nil, permissionBarHidden: false)
-        var out: [ChatRow] = []
-        var height: CGFloat = 0
-        for row in built.flatMap(\.rows).reversed() {
-            // The session line belongs to the chat's first turn only.
-            if row.id == "session-start", turns.count > 2 { continue }
-            out.append(row)
-            height += row.gap + row.estimatedHeight(width: 350)
-            if height > Self.budget { break }
+        // The newest turns that fill the page, as the page shows them: two newest turns shorter
+        // than the page left the card's top blank where the page shows older turns (the part
+        // of the page a card shows is its top). More turns are taken until the rows fill the
+        // budget or the chat begins.
+        var count = min(2, turns.count)
+        while true {
+            let shown = Array(turns.suffix(count))
+            let built = builder.build(turns: shown, pendingPermission: store.pendingPermission,
+                                      askOpen: store.pendingPermission != nil || store.pendingQuestion != nil, permissionBarHidden: false,
+                                      earlierHistory: count >= turns.count && store.hasEarlierHistory)
+            var out: [ChatRow] = []
+            var height: CGFloat = 0
+            var filled = false
+            for row in built.flatMap(\.rows).reversed() {
+                // The session line belongs to the chat's first turn only.
+                if row.id == "session-start", count < turns.count { continue }
+                out.append(row)
+                height += row.gap + row.estimatedHeight(width: 350)
+                if height > Self.budget { filled = true; break }
+            }
+            if filled || count >= turns.count { return out.reversed() }
+            count = min(turns.count, count * 2)
         }
-        return out.reversed()
     }
 }
 #endif
