@@ -104,7 +104,7 @@ use it before the build is done. The agent itself runs it there only when asked;
   iPhone, not only the configured one, through the authenticated install
   (`scripts/verify-iphone-auth.sh` must pass; never raw `devicectl`), then checks the build in a
   fleet simulator (hq's `verify-remote.sh`, signed in, with a screenshot and recording). Nothing
-  boots in a simulator on the person's Mac. If it fails before the iOS build with "Development
+  boots in a simulator on the person's Mac. If it fails with "Development
   backend is unreachable or returned an HTTP error" (hq probes the dev backend once, unretried),
   rerun the same command: it reuses the saved fleet jobs instead of resubmitting.
   Details: [ios/AGENTS.md](ios/AGENTS.md#finishing-a-task).
