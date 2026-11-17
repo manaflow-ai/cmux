@@ -2,59 +2,6 @@
 // schemas/settings/source/machines.json. Do not edit; edit the JSON and rerun.
 
 extension MachineSettingsSchema {
-    static var remote: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.cmuxRemote", "cmux Remote")
-        return [
-            SettingDescriptor(
-                RemoteSettings.endSharingOnQuitPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.remote.endSharingOnQuit", "End Sharing When cmux Quits"),
-                help: SettingsText.keyed("settings.remote.endSharingOnQuit.help", "Off, cmux Remote keeps this Mac available to your devices and shows their requests while cmux is quit."),
-                summary: SettingsText.keyed("settings.remote.endSharingOnQuit.summary", "A session ends when cmux quits"),
-                kind: .toggle,
-                default: .bool(RemoteSettings.endSharingOnQuitDefault),
-                keywords: ["cmux remote", "screen sharing", "mac screen", "quit", "background", "device hub"]
-            ),
-            SettingDescriptor(
-                RemoteSettings.ultraPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.remote.ultra", "Ultra Connection Mode"),
-                help: SettingsText.keyed("settings.remote.ultra.help", "Sends repair data with connections to Cloud and your other machines, so a network that drops packets stays fast. Auto sends it only once packets are lost, and nothing extra on a clean network. Always sends it all the time, about 2 to 3 times the data. Applies to the next connection."),
-                summary: SettingsText.keyed("settings.remote.ultra.summary", "Uses more data to stay fast on lossy networks"),
-                kind: .choice([
-                    SettingChoice(UltraConnectionMode.off.rawValue, SettingsText.keyed("settings.remote.ultra.off", "Off")),
-                    SettingChoice(UltraConnectionMode.auto.rawValue, SettingsText.keyed("settings.remote.ultra.auto", "Auto")),
-                    SettingChoice(UltraConnectionMode.always.rawValue, SettingsText.keyed("settings.remote.ultra.always", "Always")),
-                ]),
-                default: .string(RemoteSettings.ultraDefault.rawValue),
-                keywords: ["ultra", "auto", "lossy", "packet loss", "bandwidth", "data", "wireguard", "cloud", "latency", "fec"]
-            ),
-        ]
-    }
-}
-
-extension MachineSettingsSchema {
-    static var deviceHub: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.deviceHub", "Device Hub")
-        return [
-            SettingDescriptor(
-                DeviceHubSettings.urlPath,
-                section: .development,
-                group: group,
-                title: SettingsText.keyed("settings.deviceHub.url", "Device Hub Address"),
-                help: SettingsText.keyed("settings.deviceHub.url.help", "Overrides the device hub this build signs its devices in to, for Mac Screen sharing between your devices. Leave it empty to use the built-in hub."),
-                summary: SettingsText.keyed("settings.deviceHub.url.summary", "Device hub address"),
-                kind: .url,
-                default: .string(DeviceHubSettings.urlDefault),
-                keywords: ["device hub", "devices", "mac screen", "backend", "development", "debug"]
-            ),
-        ]
-    }
-}
-
-extension MachineSettingsSchema {
     static var imessage: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.section.accounts", "Accounts")
         return [
@@ -63,7 +10,7 @@ extension MachineSettingsSchema {
                 section: .accounts,
                 group: group,
                 title: SettingsText.keyed("settings.imessage.enabled", "Connect iMessage"),
-                help: SettingsText.keyed("settings.imessage.enabled.help", "Allow reading Messages conversations on this Mac after connecting in Session Info. Sending still needs your click."),
+                help: SettingsText.keyed("settings.imessage.enabled.help", "Lets cmux read Messages conversations on this Mac. Sending needs your click."),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.imessageEnabledDefault),
                 keywords: ["imessage", "messages", "connector", "privacy"]
@@ -73,7 +20,7 @@ extension MachineSettingsSchema {
                 section: .accounts,
                 group: group,
                 title: SettingsText.keyed("settings.imessage.automationSkipped", "Skip Messages Automation"),
-                help: SettingsText.keyed("settings.imessage.automationSkipped.help", "Remember skipping the Messages Automation step. This does not grant access or authorize sending."),
+                help: SettingsText.keyed("settings.imessage.automationSkipped.help", "Remembers that you skipped the Messages Automation step."),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.imessageAutomationSkippedDefault),
                 keywords: ["imessage", "messages", "automation", "connector"]

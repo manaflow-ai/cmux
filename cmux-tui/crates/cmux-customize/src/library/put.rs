@@ -79,4 +79,58 @@ impl Customize {
             Ok(())
         })
     }
+
+    /// The names of the library's entries now.
+    pub(crate) fn library_names(&self) -> Result<Vec<String>, Error> {
+        Ok(self.read_library()?.entries.iter().map(|entry| entry.name().to_owned()).collect())
+    }
+
+    /// `library_remove` or `library_set_on(name, false)` for a caller that
+    /// holds the store lock: what was under the entry comes back.
+    pub(crate) fn library_take_off_locked(
+        &self,
+        name: &str,
+        delete: bool,
+        origin: &str,
+        now_ms: u64,
+    ) -> Result<Changed, Error> {
+        let verb = if delete { "remove" } else { "off" };
+        let label = format!("library: {verb} {name}");
+        self.library_change_locked(&label, origin, now_ms, |library| {
+            if delete {
+                library.entries.retain(|entry| entry.name() != name);
+            } else if let Some(entry) = library.entries.iter_mut().find(|e| e.name() == name) {
+                entry.on = false;
+            }
+            Ok(())
+        })
+    }
+
+    /// The library file as it is now (`None`: there is none), to write back
+    /// with [`Customize::library_write_back`] when a change made of several
+    /// steps fails after one of them. Its entries and the base under them
+    /// come back exactly, which removing and adding an entry again would not.
+    pub(crate) fn library_snapshot(&self) -> Result<Option<Vec<u8>>, Error> {
+        match std::fs::read(self.library_path()) {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// Writes a [`Customize::library_snapshot`] back. The caller makes what
+    /// is live match it (a generation restore).
+    pub(crate) fn library_write_back(&self, snapshot: Option<&[u8]>) -> Result<(), Error> {
+        let path = self.library_path();
+        match snapshot {
+            Some(bytes) => cmux_config::fsio::write_atomic(&path, bytes)?,
+            None => match std::fs::remove_file(&path) {
+                Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                    return Err(error.into());
+                }
+                _ => {}
+            },
+        }
+        Ok(())
+    }
 }

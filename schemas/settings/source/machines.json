@@ -17,7 +17,7 @@
           },
           "help": {
             "key": "settings.computerUse.enabled.help",
-            "text": "Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them."
+            "text": "Agents can see and use your apps. macOS asks for Accessibility and Screen Recording."
           },
           "summary": {
             "key": "settings.computerUse.enabled.summary",
@@ -43,7 +43,7 @@
           },
           "help": {
             "key": "settings.computerUse.driver.help",
-            "text": "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately."
+            "text": "Upstream is the new helper; macOS asks for its permissions again."
           },
           "summary": {
             "key": "settings.computerUse.driver.summary",
@@ -89,7 +89,7 @@
           },
           "help": {
             "key": "settings.computerUse.livePreview.help",
-            "text": "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity."
+            "text": "A small live view of the app an agent uses. Click it for Agent Activity."
           },
           "summary": {
             "key": "settings.computerUse.livePreview.summary",
@@ -124,7 +124,7 @@
           },
           "help": {
             "key": "settings.freeModel.enabled.help",
-            "text": "Lets agents use the free cmux AI model while you are signed out. The first time an agent uses it, cmux proves to the Cloud service that this is a real Mac. Sign in for more models and higher limits."
+            "text": "Agents can use the free cmux model while signed out. cmux checks this is a real Mac."
           },
           "summary": {
             "key": "settings.freeModel.enabled.summary",
@@ -159,7 +159,7 @@
           },
           "help": {
             "key": "settings.machines.sshLinkHosts.help",
-            "text": "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and cmux peers never ask."
+            "text": "ssh:// links from other apps connect to these hosts without asking."
           },
           "kind": "string_list",
           "default": [],
@@ -199,7 +199,7 @@
           },
           "help": {
             "key": "settings.cloud.newWorkspacesInCloud.help",
-            "text": "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine."
+            "text": "Each new workspace gets its own Cloud machine, and its chats run there."
           },
           "kind": "toggle",
           "default": false,
@@ -225,7 +225,7 @@
           },
           "help": {
             "key": "settings.cloud.newWorkspaceFolder.help",
-            "text": "Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder."
+            "text": "Current Folder copies your git working copy to the new machine."
           },
           "kind": "choice",
           "choices": [
@@ -261,56 +261,6 @@
           "swift_enum": {
             "name": "CloudWorkspaceFolder"
           }
-        },
-        {
-          "key": "cloud.useMyClaudeLoginOnMyCloudMachines",
-          "title": {
-            "key": "settings.cloud.useMyClaudeLogin",
-            "text": "Use My Claude Login on My Own Cloud Machines"
-          },
-          "help": {
-            "key": "settings.cloud.useMyClaudeLogin.help",
-            "text": "Copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. Never to team or shared machines, and cmux never stores it. Off: each machine offers Sign in to Claude instead."
-          },
-          "kind": "toggle",
-          "default": false,
-          "keywords": [
-            "cloud",
-            "claude",
-            "login",
-            "sign in",
-            "token",
-            "credential",
-            "machine",
-            "consent",
-            "copy"
-          ],
-          "swift_owner": "CloudLoginCopyConsentSetting"
-        },
-        {
-          "key": "cloud.useMyCodexLoginOnMyCloudMachines",
-          "title": {
-            "key": "settings.cloud.useMyCodexLogin",
-            "text": "Use My Codex Login on My Own Cloud Machines"
-          },
-          "help": {
-            "key": "settings.cloud.useMyCodexLogin.help",
-            "text": "Gives Cloud machines you own short-lived access from the Codex sign-in on this Mac, so their chats start signed in. The machine never gets your refresh token, and cmux never stores it. Off: a machine asks for a Codex sign-in instead."
-          },
-          "kind": "toggle",
-          "default": false,
-          "keywords": [
-            "cloud",
-            "codex",
-            "chatgpt",
-            "login",
-            "sign in",
-            "token",
-            "credential",
-            "machine",
-            "consent"
-          ],
-          "swift_owner": "CloudCodexSignInConsentSetting"
         },
         {
           "key": "cloud.agentsStartWithoutAsking",
@@ -352,7 +302,7 @@
           },
           "help": {
             "key": "settings.cloud.turnCheckpoints.help",
-            "text": "Saves the whole Cloud machine between turns of a Cloud chat, so Back to Before This Turn restores it in seconds. Keeps the newest few checkpoints of each chat. Off: no checkpoints are saved."
+            "text": "Back to Before This Turn restores the machine in seconds. Keeps the newest few."
           },
           "kind": "toggle",
           "default": false,
@@ -386,7 +336,7 @@
           },
           "help": {
             "key": "settings.mobile.allowIPhoneConnections.help",
-            "text": "Lets the cmux app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account."
+            "text": "The cmux app on your iPhone can open this Mac's workspaces, on the same account."
           },
           "summary": {
             "key": "settings.mobile.allowIPhoneConnections.summary",
@@ -411,7 +361,7 @@
           },
           "help": {
             "key": "settings.mobile.terminalSizing.help",
-            "text": "Decides the size of a terminal while this Mac and a phone show it at once. A device that gets a larger terminal than it fits scrolls sideways or shows empty space; text never wraps wrong. Set the priority order in the cmux app on your iPhone."
+            "text": "The size of a terminal shown on this Mac and a phone at once."
           },
           "kind": "choice",
           "choices": [
@@ -473,7 +423,7 @@
           },
           "help": {
             "key": "settings.mobile.terminalSizingOrder.help",
-            "text": "The devices whose size a shared terminal takes first, highest first, when Terminal Size When Shared is Priority Order."
+            "text": "The devices a shared terminal sizes to first, highest first."
           },
           "kind": "string_list",
           "default": [],
@@ -505,7 +455,7 @@
           },
           "help": {
             "key": "settings.macScreen.systemShortcuts.help",
-            "text": "While a Mac Screen tab has the keyboard, shortcuts like ⌘Tab, ⌘Space, Mission Control and ⌘Q go to the other Mac. Needs Accessibility."
+            "text": "Shortcuts like ⌘Tab and ⌘Space go to the other Mac. Needs Accessibility."
           },
           "summary": {
             "key": "settings.macScreen.systemShortcuts.summary",
@@ -581,7 +531,7 @@
           },
           "help": {
             "key": "settings.macScreen.debug.relayOnly.help",
-            "text": "Mac Screen tabs connect through the TURN relay only, never directly, to check the relay path. Tabs that are connected reconnect."
+            "text": "Mac Screen tabs connect only through the relay, to test it."
           },
           "summary": {
             "key": "settings.macScreen.debug.relayOnly.summary",
@@ -617,7 +567,7 @@
           },
           "help": {
             "key": "settings.remote.endSharingOnQuit.help",
-            "text": "Off, cmux Remote keeps this Mac available to your devices and shows their requests while cmux is quit."
+            "text": "Off: this Mac stays available to your devices while cmux is quit."
           },
           "summary": {
             "key": "settings.remote.endSharingOnQuit.summary",
@@ -644,7 +594,7 @@
           },
           "help": {
             "key": "settings.remote.ultra.help",
-            "text": "Sends repair data with connections to Cloud and your other machines, so a network that drops packets stays fast. Auto sends it only once packets are lost, and nothing extra on a clean network. Always sends it all the time, about 2 to 3 times the data. Applies to the next connection."
+            "text": "Sends repair data so lossy networks stay fast. Always uses 2 to 3 times the data."
           },
           "summary": {
             "key": "settings.remote.ultra.summary",
@@ -712,7 +662,7 @@
           },
           "help": {
             "key": "settings.deviceHub.url.help",
-            "text": "Overrides the device hub this build signs its devices in to, for Mac Screen sharing between your devices. Leave it empty to use the built-in hub."
+            "text": "The device hub for Mac Screen sharing. Empty uses the built-in one."
           },
           "summary": {
             "key": "settings.deviceHub.url.summary",
@@ -748,7 +698,7 @@
           },
           "help": {
             "key": "settings.imessage.enabled.help",
-            "text": "Allow reading Messages conversations on this Mac after connecting in Session Info. Sending still needs your click."
+            "text": "Lets cmux read Messages conversations on this Mac. Sending needs your click."
           },
           "kind": "toggle",
           "default": false,
@@ -769,7 +719,7 @@
           },
           "help": {
             "key": "settings.imessage.automationSkipped.help",
-            "text": "Remember skipping the Messages Automation step. This does not grant access or authorize sending."
+            "text": "Remembers that you skipped the Messages Automation step."
           },
           "kind": "toggle",
           "default": false,
