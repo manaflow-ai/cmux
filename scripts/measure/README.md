@@ -183,6 +183,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `chromium-host-bench.sh` | Chromium host input hop time (hop_us). | cef-host-input | 2026-11-03 | active |
 | `cef-app-size.sh` | Installed-size proof for CEF binary with V8 snapshots. | CMUX-570 | 2026-11-14 | active |
 | `cef-snapshot-resources.py` | Pairs a CEF binary with its generated V8 snapshots. | CMUX-570 | 2026-11-14 | active |
+| `clear-cache-look.sh` | Clear Browsing Data's cache option on a real Chromium engine: a service worker's Cache Storage before and after (correctness). | - | 2026-11-17 | active |
 
 ## Build and dev loop
 

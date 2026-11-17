@@ -66,6 +66,7 @@ import bisect
 import contextvars
 import copy
 import functools
+import hashlib
 import importlib.util
 import io
 import json
@@ -325,6 +326,87 @@ def escape_flag_unknown(stderr: str) -> bool:
     return bool(gh_lines) and gh_lines[0] == UNKNOWN_ESCAPE_FLAG
 
 
+# Conditional CI reads. Every judgement is a new process, and every landing check of a head judges its reds again: on
+# 2026-11-17 (2 h to 12:58Z on cosmic-gray) this script spent 673 REST under merge_hold, 402 of them a run's jobs and
+# 133 of those the exact page read again, mostly base runs that finished long before. When the caller names a folder in
+# BASE_RED_EXCUSE_ETAGS (merge_hold names its own, teamleaderleo/leo-workspace tools/merge_hold.py ci_etags_root), a
+# run's jobs, a run, a workflow's runs and a commit's check runs and statuses are read with the ETag of the answer kept
+# there for the same route and --jq (gh_conditional's file format and names, so merge_hold's reads and these share one
+# store), and GitHub answers an unchanged one 304, which costs no quota. A 304 is GitHub's word that the answer is the
+# same, so every judgement reads exactly what a plain read gives. Anything but a 200 or a 304 (a wrapper refusing the
+# conditional form, an error, a timeout) is the plain read, as before; with no folder named, every read is plain.
+ETAGS_ENV = "BASE_RED_EXCUSE_ETAGS"
+CONDITIONAL_ROUTE = re.compile(r"repos/[^/]+/[^/]+/(?:actions/runs(?:/\d+(?:/attempts/\d+)?(?:/jobs)?)?"
+                               r"|actions/workflows/[^/?]+/runs|commits/[0-9A-Fa-f]{40}/(?:check-runs|status|statuses))"
+                               r"(?:\?.*)?")
+HTTP_STATUS = re.compile(r"HTTP/[0-9.]+ ([0-9]{3})")
+CONDITIONAL_SECONDS = 90  # main_fix_evidence.GitHub.run's bound
+
+
+def etags_root() -> Path | None:
+    """The folder BASE_RED_EXCUSE_ETAGS names (absolute), or None: every read is plain."""
+    folder = os.environ.get(ETAGS_ENV, "")
+    return Path(folder) if folder and os.path.isabs(folder) else None
+
+
+def conditional_read(args: list[str], root: Path) -> str | None:
+    """gh ARGS' answer by a conditional read against the one kept under ROOT, for `api ROUTE [--jq JQ]` of a
+    CONDITIONAL_ROUTE; None for any other ARGS, or when GitHub's answer was neither a 200 nor a 304 (the caller reads
+    it plainly)."""
+    if args[:1] != ["api"] or len(args) not in (2, 4) or (len(args) == 4 and args[2] != "--jq"):
+        return None
+    route, jq = args[1], (args[3] if len(args) == 4 else None)
+    if not CONDITIONAL_ROUTE.fullmatch(route):
+        return None
+    name = f"{route}\0{jq}" if jq is not None else f"{route}\0\0whole"
+    store = root / (hashlib.sha256(name.encode()).hexdigest()[:32] + ".json")
+    try:
+        kept = json.loads(store.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        kept = None
+    if not (isinstance(kept, dict) and kept.get("url") == route and kept.get("jq") == jq
+            and isinstance(kept.get("etag"), str) and kept["etag"] and isinstance(kept.get("out"), str)):
+        kept = None
+    argv = ["gh", "api", "--include", *(["-H", f"If-None-Match: {kept['etag']}"] if kept else []), route,
+            *(["--jq", jq] if jq is not None else [])]
+    with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
+        try:
+            process = subprocess.Popen(argv, stdout=output, stderr=errors, stdin=subprocess.DEVNULL)
+        except OSError:
+            return None
+        try:
+            process.wait(timeout=CONDITIONAL_SECONDS)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+            return None
+        if output.tell() > _evidence.MAX_OUTPUT:
+            return None
+        output.seek(0)
+        said = output.read().decode(errors="replace")
+    head, _, body = said.replace("\r\n", "\n").partition("\n\n")
+    status = HTTP_STATUS.match(head)
+    if status and status.group(1) == "304" and kept:
+        try:
+            os.utime(store)
+        except OSError:
+            pass
+        return kept["out"]
+    if not (status and status.group(1) == "200" and process.returncode == 0):
+        return None
+    etag = next((line.split(":", 1)[1].strip() for line in head.splitlines()[1:]
+                 if line.lower().startswith("etag:")), "")
+    if etag:
+        try:
+            root.mkdir(parents=True, exist_ok=True)
+            tmp = store.with_name(f".{store.name}.{os.getpid()}.tmp")
+            tmp.write_text(json.dumps({"url": route, "jq": jq, "etag": etag, "out": body}), encoding="utf-8")
+            os.replace(tmp, store)
+        except OSError:
+            pass  # a failed write only costs the next read its 304
+    return body
+
+
 class GitHub(_evidence.GitHub):
     """GitHub client for red attribution, including logs of finished jobs in live runs."""
 
@@ -332,7 +414,13 @@ class GitHub(_evidence.GitHub):
         """gh ARGS' output; a read is read once per judgement (JUDGEMENT_READS), whatever asked it."""
         if not gh_read(args):
             return _evidence.GitHub.run(self, args)
-        return read_once(("gh", *args), lambda: _evidence.GitHub.run(self, args))
+        return read_once(("gh", *args), lambda: self.read_conditional(args))
+
+    def read_conditional(self, args: list[str]) -> str:
+        """gh ARGS (a read): conditional first when the caller named an ETag folder (etags_root), else plain."""
+        root = etags_root()
+        said = conditional_read(args, root) if root is not None else None
+        return said if said is not None else _evidence.GitHub.run(self, args)
 
     def log(self, repo: str, job: dict) -> str:
         # `gh run view --log` waits for every job in the run. The Actions job
