@@ -161,7 +161,7 @@ extension CloudService {
         let base = FeedService.apiBaseURL(auth: auth)
         let auth = auth, session = Self.sessionTransport
         return { path, body in
-            try await session.data(for: CloudPersonCreate.post(base.appendingPathComponent(path), body: body, bearer: try await auth.tokens().access, team: team)).0
+            try await CloudConnectHedge().data(for: CloudPersonCreate.post(base.appendingPathComponent(path), body: body, bearer: try await auth.tokens().access, team: team), on: session).0
         }
     }
 
