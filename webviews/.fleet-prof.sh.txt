@@ -1,0 +1,15 @@
+set -u
+cd webviews
+bun install --frozen-lockfile >/dev/null 2>&1
+A=src/agent-session/acpmux
+rsync -a --exclude node_modules ./ ../webviews-base/
+ln -s "$PWD/node_modules" ../webviews-base/node_modules
+cp .base-tpr.ts.txt ../webviews-base/$A/summary/transcriptPullRequests.ts
+cp .base-direct.ts.txt ../webviews-base/$A/direct.ts
+H="bench/zz-heavy.bench.ts --lengths 1500 --keys 60 --stream 60 --tool-lines 2000 --profile"
+OUT=${FAST_CHECKS_OUT:-/tmp}/prof.txt
+for arm in base fix base fix; do
+  d=.; [ $arm = base ] && d=../webviews-base
+  echo "=== $arm profile" | tee -a $OUT
+  (cd $d && bun $H 2>&1 | grep -vE "^\s*$" | cut -c1-200 | head -150) | tee -a $OUT
+done

@@ -1,0 +1,1025 @@
+diff --git a/scripts/bench/README.md b/scripts/bench/README.md
+index 79f6c423468d..f56a9ca3d01b 100644
+--- a/scripts/bench/README.md
++++ b/scripts/bench/README.md
+@@ -80,3 +80,34 @@ with both numbers. It skips an issue with the same title that is still open.
+ 5. Add the bench to `scripts/measure/README.md`.
+ 
+ Tests: `python3 -m unittest discover -s scripts/bench/tests -p 'test_*.py'` (pure Python, no app).
++
++## Composer typing under load
++
++The canonical browser diagnostic is `webviews/bench/composer-typing.bench.ts`:
++
++```sh
++cmux-ci test --setup playwright --timeout 2400 -- bash -lc 'cd webviews && bun install --frozen-lockfile && bun bench/composer-typing.bench.ts --mode L0,L1,L2,L3 --engines chromium,webkit --lengths 60 --keys 500 --gap 20'
++```
++
++`--modes idle,stream` retains its Chromium render-cost comparison. `--mode L0,L1,L2,L3`
++adds idle, focused reply/tool stream (60 chunks and 2,000 tool lines per second), ten
++other streaming documents (five visible, five hidden), and a focused 100k-row stream.
++`--stream` and `--tool-lines` change the focused load. Every load ends explicitly or
++at its 120-second safety deadline. L2 is an iframe approximation, not native tab or
++process placement; L4/L5 and daemon wakeups require the native Mac harness.
++
++`COMPOSER-TYPING` rows include exact ordered key/text integrity, load continuity/rates,
++p50/p95/p99/max, frame bursts, frame intervals over 16 ms, and raw samples. Invalid
++load/cadence receipts never meet the target. Budgets are report-only (16 ms p95 and
++33 ms p99, at least 200 keys); the browser clock starts at DOM keydown, so these
++rows cannot certify native admission or physical presentation. Long Tasks observes
++only tasks of at least 50 ms: zero means none observed above that threshold, and
++unsupported engines (including WebKit) report null, never a fabricated zero.
++`valid` establishes experiment integrity, not a latency pass. Short diagnostic runs remain
++valid but are not `acceptance_eligible`; acceptance requires `target_met` (valid load,
++at least 200 keys, and both latency limits). Consumers must never interpret `valid` alone
++as a budget pass.
++Tool output updates carry the accumulated output at each reply tick, matching the mock
++tool-update format. This deliberately stresses growing frontend payloads; it does not
++model native provider transport. Cross-document epoch receipts require wall-clock
++agreement within 2 ms or invalidate the run.
+diff --git a/scripts/cmux-next/agent-engine-bench.py b/scripts/cmux-next/agent-engine-bench.py
+index 86dc51ff037f..d359c7e6efb6 100755
+--- a/scripts/cmux-next/agent-engine-bench.py
++++ b/scripts/cmux-next/agent-engine-bench.py
+@@ -51,6 +51,8 @@
+ opts = parser.parse_args()
+ if opts.activate:
+     require_no_person_mac("agent-engine-bench")  # --open --activate takes focus without BenchApp's check
++if opts.typing_loads and not opts.activate:
++    parser.error("--typing-loads requires --activate on an isolated fleet Mac (foreground input/QoS)")
+ if (opts.rows < 1 or opts.flings < 1 or not math.isfinite(opts.fling_seconds) or opts.fling_seconds <= 0
+         or opts.target_hz is not None and (not math.isfinite(opts.target_hz) or opts.target_hz <= 0)):
+     parser.error("--rows, --flings, --fling-seconds and --target-hz must be positive and finite")
+diff --git a/webviews/bench/composer-load.ts b/webviews/bench/composer-load.ts
+new file mode 100644
+index 000000000000..d720c9e88e4f
+--- /dev/null
++++ b/webviews/bench/composer-load.ts
+@@ -0,0 +1,275 @@
++// l10n-allow-file: benchmark diagnostics, not shipped UI.
++import type { Frame, Page } from "playwright";
++
++type Surface = Page | Frame;
++type LoadReceipt = {
++  running: boolean;
++  started_epoch_ms: number;
++  epoch_clock_error_ms: number;
++  deltas: number;
++  toolLines: number;
++  elapsedMs: number;
++  maxGapMs: number;
++  maxScheduleOffsetMs: number;
++  error?: string;
++};
++const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
++const quantile = (xs: number[], q: number) => [...xs].sort((a, b) => a - b)[Math.round((xs.length - 1) * q)] ?? null;
++
++export async function seedComposer(surface: Surface, turns: number) {
++  await surface.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
++  const receipt = await surface.evaluate(
++    (count) => (window as any).cmuxAcpmuxDebug.loadSeed(count, { light: true }),
++    turns,
++  );
++  if (receipt.error) throw new Error(`loadSeed: ${receipt.error}`);
++  await surface.locator(PROMPT).first().waitFor({ timeout: 30_000 });
++  return {
++    rows: Number(receipt.rows),
++    logicalRows: Number(receipt.logical_rows ?? receipt.rows),
++    seedReady: receipt.seed_ready === true,
++    seedTimedOut: receipt.seed_timed_out === true,
++    seedDeadlineMs: Number(receipt.seed_deadline_ms ?? 25_000),
++  };
++}
++
++// Browser-only L2 puts five visible and five hidden documents in this renderer tree. Native
++// tab/pane process placement and daemon/provider wakeups are measured by the Mac harness.
++export async function runComposerLoad(
++  page: Page,
++  options: {
++    port: number;
++    mode: string;
++    length: number;
++    keys: number;
++    gap: number;
++    stream: number;
++    toolLines: number;
++  },
++) {
++  const { port, mode, length, keys, gap } = options;
++  await page.goto(`http://127.0.0.1:${port}/?mock`);
++  // A light turn reduces to prompt, reply and turnSummary (direct.ts turn_result).
++  // Always report/check the actual model count too; the old fixture comment omits the summary.
++  const requestedRows = mode === "L3" ? 100000 : length;
++  const seed = await seedComposer(page, Math.ceil(requestedRows / 3));
++  const rows = seed.rows;
++  const backgrounds: Frame[] = [];
++  if (mode === "L2") {
++    await page.evaluate((port) => {
++      document.body.style.width = "760px";
++      for (let i = 0; i < 10; i++) {
++        const frame = document.createElement("iframe");
++        frame.name = `typing-background-${i}`;
++        frame.src = `http://127.0.0.1:${port}/?mock`;
++        frame.style.cssText = `position:fixed;right:0;top:${(i % 5) * 160}px;width:320px;height:160px;border:0`;
++        document.body.append(frame);
++      }
++    }, port);
++    // Resolve the documents only after all frame navigations install the app's debug surface.
++    await page.waitForFunction(
++      () => {
++        const frames = [...document.querySelectorAll<HTMLIFrameElement>("iframe[name^='typing-background-']")];
++        return (
++          frames.length === 10 &&
++          frames.every((frame) => frame.contentWindow && "cmuxAcpmuxDebug" in frame.contentWindow)
++        );
++      },
++      null,
++      { timeout: 60_000 },
++    );
++    // Sequential fixture creation bounds setup pressure; all streams start after all documents exist.
++    for (let i = 0; i < 10; i++) {
++      const element = page.locator(`iframe[name="typing-background-${i}"]`);
++      const handle = await element.elementHandle();
++      const frame = await handle?.contentFrame();
++      if (!frame) throw new Error("background frame missing");
++      await seedComposer(frame, 20);
++      backgrounds.push(frame);
++    }
++    await page.evaluate(() => {
++      document.querySelectorAll<HTMLIFrameElement>("iframe[name^='typing-background-']").forEach((frame, index) => {
++        if (index >= 5) frame.style.display = "none";
++      });
++    });
++  }
++  const prompt = page.locator(PROMPT).first();
++  await prompt.click();
++  for (const key of "warm") await page.keyboard.press(key);
++  for (let i = 0; i < 4; i++) await page.keyboard.press("Backspace");
++  await page.waitForTimeout(500);
++  const loads: Surface[] = mode === "L2" ? backgrounds : mode === "L0" ? [] : [page];
++  const rate = mode === "L2" ? 30 : options.stream;
++  const lines = mode === "L2" ? 0 : options.toolLines;
++  for (const surface of loads) {
++    const receipt = await surface.evaluate(
++      ({ rate, lines }) =>
++        (window as any).cmuxAcpmuxDebug.typingLoad({
++          chunks_per_second: rate,
++          tool_lines_per_second: lines,
++          seconds: 120,
++        }),
++      { rate, lines },
++    );
++    if (receipt.error) throw new Error(receipt.error);
++  }
++  await page.waitForTimeout(500);
++  const readLoads = () =>
++    Promise.all(
++      loads.map(
++        (surface) => surface.evaluate(() => (window as any).cmuxAcpmuxDebug.typingLoad()) as Promise<LoadReceipt>,
++      ),
++    );
++  const before = await readLoads();
++  await page.evaluate(() => {
++    const debug = (window as any).cmuxAcpmuxDebug;
++    debug.resetTyping();
++    debug.renders();
++    const frames: number[] = [];
++    const tasks: number[] = [];
++    let last: number | undefined;
++    let raf = 0;
++    const tick = (now: number) => {
++      if (last !== undefined) frames.push(now - last);
++      last = now;
++      raf = requestAnimationFrame(tick);
++    };
++    raf = requestAnimationFrame(tick);
++    const supported = PerformanceObserver.supportedEntryTypes?.includes("longtask") ?? false;
++    const record = (entries: PerformanceEntry[]) => {
++      for (const entry of entries) tasks.push(entry.duration);
++    };
++    const observer = supported ? new PerformanceObserver((list) => record(list.getEntries())) : undefined;
++    observer?.observe({ type: "longtask" });
++    (window as any).__finishTypingWatch = () => {
++      cancelAnimationFrame(raf);
++      if (observer) record(observer.takeRecords());
++      observer?.disconnect();
++      // Long Tasks only observes >=50ms tasks. Zero observed is NOT a zero-cost main thread.
++      return {
++        frames,
++        long_task_supported: supported,
++        longest_observed_task_ms: supported ? Math.max(0, ...tasks) : null,
++        task_observation_threshold_ms: supported ? 50 : null,
++      };
++    };
++  });
++  const expected = Array.from({ length: keys }, (_, i) => "abcdefghijklmnopqrstuvwxyz"[i % 26]).join("");
++  const late: number[] = [];
++  const started = performance.now();
++  for (let i = 0; i < keys; i++) {
++    const due = started + i * gap;
++    await new Promise((resolve) => setTimeout(resolve, Math.max(0, due - performance.now())));
++    late.push(Math.max(0, performance.now() - due));
++    await page.keyboard.press(expected[i]!);
++  }
++  // Flush only the final key's frame. Streams remain active through this read.
++  await page.evaluate(
++    () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
++  );
++  const result = await page.evaluate(() => {
++    const debug = (window as any).cmuxAcpmuxDebug;
++    return { typing: debug.typingStats(), renders: debug.renders(), watch: (window as any).__finishTypingWatch() };
++  });
++  const after = await readLoads();
++  for (const surface of loads) await surface.evaluate(() => (window as any).cmuxAcpmuxDebug.typingLoad({ stop: true }));
++  const loadRates = after.map((receipt, i) => {
++    const ms = receipt.elapsedMs - before[i]!.elapsedMs;
++    return {
++      ...receipt,
++      chunks_per_second: (1000 * (receipt.deltas - before[i]!.deltas)) / ms,
++      tool_lines_per_second: (1000 * (receipt.toolLines - before[i]!.toolLines)) / ms,
++      max_schedule_offset_ms: receipt.maxScheduleOffsetMs,
++    };
++  });
++  const samples = result.typing.samples as {
++    key: string;
++    frame_timestamp_ms: number;
++    paint: number;
++    frame: number;
++    paint_epoch_ms: number;
++  }[];
++  const frames = new Map<number, number>();
++  for (const sample of samples) frames.set(sample.frame_timestamp_ms, (frames.get(sample.frame_timestamp_ms) ?? 0) + 1);
++  const errors: string[] = [];
++  if (
++    samples.length !== keys ||
++    result.typing.composer_text !== expected ||
++    samples.map((s) => s.key).join("") !== expected
++  )
++    errors.push("key count, order or final text mismatch");
++  if (mode === "L3" && seed.logicalRows < 100000) errors.push("fixture requested fewer than 100000 logical rows");
++  if (mode === "L3" && (!seed.seedReady || rows === 0))
++    errors.push("fixture did not reach stable nonempty row readiness before deadline");
++  if ((quantile(late, 0.95) ?? Infinity) > gap) errors.push("driver missed input cadence");
++  if (
++    !Number.isFinite(result.typing.epoch_clock_error_ms) ||
++    Math.abs(result.typing.epoch_clock_error_ms) >= 2 ||
++    loadRates.some((r) => !Number.isFinite(r.epoch_clock_error_ms) || Math.abs(r.epoch_clock_error_ms) >= 2)
++  )
++    errors.push("cross-document epoch clocks do not match wall time within 2ms");
++  if (
++    loadRates.some(
++      (r) =>
++        !r.running ||
++        r.error ||
++        !Number.isFinite(r.chunks_per_second) ||
++        r.chunks_per_second < rate * 0.9 ||
++        r.tool_lines_per_second < lines * 0.9 ||
++        r.maxGapMs > 250 ||
++        r.maxScheduleOffsetMs > 250 ||
++        r.started_epoch_ms + r.elapsedMs < (samples.at(-1)?.paint_epoch_ms ?? Infinity) - 250,
++    )
++  )
++    errors.push("requested stream rate or continuity not sustained");
++  if (
++    !samples.every(
++      (s) =>
++        Number.isFinite(s.frame) &&
++        s.frame >= 0 &&
++        Number.isFinite(s.paint) &&
++        s.paint >= 0 &&
++        Number.isFinite(s.frame_timestamp_ms),
++    )
++  )
++    errors.push("missing or invalid timing samples");
++  return {
++    mode,
++    requested_rows: requestedRows,
++    logical_rows: seed.logicalRows,
++    rows,
++    seed_ready: seed.seedReady,
++    seed_timed_out: seed.seedTimedOut,
++    seed_deadline_ms: seed.seedDeadlineMs,
++    keys: samples.length,
++    valid: errors.length === 0,
++    acceptance_eligible: errors.length === 0 && keys >= 200,
++    minimum_acceptance_keys: 200,
++    errors,
++    measurement: "DOM-keydown-to-rAF; after-frame is a paint proxy; mock daemon",
++    load_topology:
++      mode === "L2" ? "5 visible + 5 hidden same-origin iframe documents; not native host tabs" : "focused document",
++    to_frame_p50: result.typing.to_frame.p50_ms,
++    to_frame_p95: result.typing.to_frame.p95_ms,
++    to_frame_p99: result.typing.to_frame.p99_ms,
++    to_frame_max: result.typing.to_frame.max_ms,
++    to_paint_p95: result.typing.to_paint.p95_ms,
++    to_paint_p99: result.typing.to_paint.p99_ms,
++    to_listener_p95: result.typing.to_listener.p95_ms,
++    to_work_p95: result.typing.to_work.p95_ms,
++    frames_over_16_ms: result.watch.frames.filter((ms: number) => ms > 16).length,
++    longest_observed_task_ms: result.watch.longest_observed_task_ms,
++    long_task_supported: result.watch.long_task_supported,
++    task_observation_threshold_ms: result.watch.task_observation_threshold_ms,
++    keys_sharing_frame: [...frames.values()].filter((n) => n > 1).reduce((sum, n) => sum + n, 0),
++    driver_late_p95_ms: quantile(late, 0.95),
++    load_rates: loadRates,
++    budget_p95_ms: 16,
++    budget_p99_ms: 33,
++    budget_policy: "report-only",
++    target_met:
++      errors.length === 0 && keys >= 200 && result.typing.to_paint.p95_ms <= 16 && result.typing.to_paint.p99_ms <= 33,
++    renders: result.renders,
++    samples,
++  };
++}
+diff --git a/webviews/bench/composer-typing.bench.ts b/webviews/bench/composer-typing.bench.ts
+index 286f028be4f9..5e312b418c80 100644
+--- a/webviews/bench/composer-typing.bench.ts
++++ b/webviews/bench/composer-typing.bench.ts
+@@ -25,7 +25,8 @@
+ //     [--arms A=.,B=../webviews-b] [--rounds 6] [--no-floor]
+ /// <reference types="bun" />
+ import path from "node:path";
+-import { chromium } from "./browsers";
++import { chromium, webkit } from "./browsers";
++import { runComposerLoad } from "./composer-load";
+ import type { Page } from "playwright";
+ import { parseArms, runArms, servePane } from "./composer-arms";
+ 
+@@ -37,9 +38,28 @@ const flag = (name: string) => {
+ const LENGTHS = (flag("--lengths") ?? "60,1500,6000").split(",").map(Number);
+ const KEYS = Number(flag("--keys") ?? 60);
+ const GAP_MS = Number(flag("--gap") ?? 80);
+-const MODES = (flag("--modes") ?? "idle").split(",") as ("idle" | "stream")[];
++const MODES = (flag("--mode") ?? flag("--modes") ?? "idle").split(",");
++const ENGINES = (flag("--engines") ?? "chromium").split(",");
++const STREAM = Number(flag("--stream") ?? 60);
++const TOOL_LINES = Number(flag("--tool-lines") ?? 2000);
++if (
++  MODES.some((mode) => !["idle", "stream", "L0", "L1", "L2", "L3"].includes(mode)) ||
++  ENGINES.some((engine) => !["chromium", "webkit"].includes(engine)) ||
++  !Number.isInteger(KEYS) ||
++  KEYS < 1 ||
++  KEYS > 4096 ||
++  !Number.isFinite(GAP_MS) ||
++  GAP_MS < 1 ||
++  KEYS * GAP_MS > 90000 ||
++  LENGTHS.some((length) => !Number.isInteger(length) || length < 1)
++)
++  throw new Error("Invalid benchmark modes, engines, keys, gap or lengths (typing window must be <=90s)");
+ /// With --profile: a CPU profile over the typed keys, and the functions with the most time per key (inclusive and self).
+ const PROFILE = argv.includes("--profile");
++if (PROFILE && (ENGINES.includes("webkit") || MODES.some((mode) => mode.startsWith("L"))))
++  throw new Error(
++    "--profile currently supports legacy Chromium idle/stream only; L modes report observer capability explicitly",
++  );
+ const DEV = argv.includes("--dev");
+ const webviews = path.resolve(import.meta.dir, "..");
+ const ARMS = parseArms(flag("--arms"), webviews);
+@@ -139,10 +159,34 @@ const releases: (() => unknown)[] = [];
+ const serveOptions = { dev: DEV, unminified: PROFILE };
+ 
+ /// One length in one mode on the pane served at `port`: a fresh browser process and page, the keys typed, its row.
+-async function measure(port: number, length: number, mode: "idle" | "stream"): Promise<Record<string, unknown>> {
+-  const browser = await chromium.launch({ headless: true });
++async function measure(
++  port: number,
++  length: number,
++  mode: string,
++  engine: "chromium" | "webkit" = "chromium",
++): Promise<Record<string, unknown>> {
++  const browser = await (engine === "webkit" ? webkit : chromium).launch({ headless: true });
+   try {
+     const page = await browser.newPage({ viewport: { width: 1100, height: 820 } });
++    if (mode.startsWith("L") || engine === "webkit") {
++      const canonical = mode === "idle" ? "L0" : mode === "stream" ? "L1" : mode;
++      try {
++        return {
++          engine,
++          ...(await runComposerLoad(page, {
++            port,
++            mode: canonical,
++            length,
++            keys: KEYS,
++            gap: GAP_MS,
++            stream: STREAM,
++            toolLines: TOOL_LINES,
++          })),
++        };
++      } finally {
++        await page.close();
++      }
++    }
+     await page.addInitScript(longTaskProbe);
+     const rows = await openChat(page, port, Math.max(1, Math.round(length / 3)));
+     const cdp = await page.context().newCDPSession(page);
+@@ -175,7 +219,7 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
+     const streaming =
+       mode === "stream"
+         ? page.evaluate(
+-            (seconds) =>
++            (seconds: number) =>
+               (window as any).cmuxAcpmuxDebug.loadRun({ seconds, chunk_ms: 16, tool_every: 30, scroll_speed: 0 }),
+             (KEYS * (GAP_MS + 20)) / 1000 + 1,
+           )
+@@ -235,6 +279,7 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
+         .reduce((total, [, value]) => total + value, 0);
+     const delta = (name: string) => (after[name] ?? 0) - (before[name] ?? 0);
+     return {
++      engine,
+       mode,
+       rows,
+       keys: typing.keys,
+@@ -272,6 +317,8 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
+ 
+ try {
+   const cases = LENGTHS.flatMap((length) => MODES.map((mode) => ({ length, mode })));
++  if (ARMS && ENGINES.some((engine) => engine === "webkit"))
++    throw new Error("--engines webkit cannot be combined with --arms; run WebKit as a single source tree");
+   if (ARMS) {
+     // Two source trees in one run: each built and served once, then every case interleaved (composer-arms.ts).
+     const ports = new Map<string, number>();
+@@ -293,7 +340,9 @@ try {
+   } else {
+     const port = await servePane(webviews, serveOptions, releases);
+     const table: Record<string, unknown>[] = [];
+-    for (const { length, mode } of cases) table.push(await measure(port, length, mode));
++    for (const engine of ENGINES)
++      for (const { length, mode } of cases)
++        table.push(await measure(port, length, mode, engine as "chromium" | "webkit"));
+     console.table(table.map(({ busiest: _, nativePosts: __, ...row }) => row));
+     for (const row of table)
+       console.log(
+diff --git a/webviews/src/agent-session/acpmux/debug.ts b/webviews/src/agent-session/acpmux/debug.ts
+index 49b068e3f7b8..ee6a3e88ca5d 100644
+--- a/webviews/src/agent-session/acpmux/debug.ts
++++ b/webviews/src/agent-session/acpmux/debug.ts
+@@ -19,6 +19,7 @@ import { composerAttachmentsState } from "./composerAttachmentsState";
+ import { cloudSignedInForDebug } from "./cloudMachines";
+ import type { SeedSnapshotFields } from "./waitingSteersFixture";
+ import type { PasteProbeOptions } from "./pasteProbe";
++import type { TypingLoadOptions } from "./typingLoadDebug";
+ 
+ // `window.cmuxAcpmuxDebug`, called by the DEBUG `debug.agent_pane` socket
+ // method. The first measurement call turns on measurement (acpmuxPerf.enabled);
+@@ -89,6 +90,7 @@ export type AcpmuxDebug = {
+   loadSeed(turns?: number, options?: { light?: boolean }): Promise<Record<string, unknown>>;
+   /** Streams a turn at full speed into it while scrolling, and reports every frame (loadDebug.ts). */
+   loadRun(options?: LoadRunOptions): Promise<Record<string, unknown>>;
++  typingLoad(options?: TypingLoadOptions): Promise<Record<string, unknown>>;
+   /** Scrolls it while a tool call runs and another chat changes, and counts row renders (loadDebug.ts). */
+   loadTick(options?: LoadTickOptions): Promise<Record<string, unknown>>;
+   /** Committed renders per component since the last call (perf.ts `renders`: `row:<id>`, `content:<id>`,
+@@ -334,7 +336,15 @@ export function createAcpmuxDebug(
+     typingStats() {
+       acpmuxPerf.enable();
+       // With what the keys asked of the app since the reset (native.ts).
+-      return { ...typingSummary(acpmuxPerf.typing), native_posts: takeNativePosts() };
++      const prompt = document.querySelector<HTMLElement>(
++        '.acpmux-composer-prompt[contenteditable="true"], .acpmux-composer-prompt [contenteditable="true"]',
++      );
++      return {
++        ...typingSummary(acpmuxPerf.typing),
++        composer_text: prompt?.textContent ?? null,
++        epoch_clock_error_ms: Date.now() - (performance.timeOrigin + performance.now()),
++        native_posts: takeNativePosts(),
++      };
+     },
+ 
+     resetTyping() {
+@@ -372,7 +382,11 @@ export function createAcpmuxDebug(
+       // The menu may hand its rows to the window's host a frame after it shows (popupHost.ts).
+       await nextFrame();
+       await nextFrame();
+-      return { opened: label, open: button?.getAttribute("aria-expanded") === "true", menu: openMenuRows() };
++      return {
++        opened: label,
++        open: button?.getAttribute("aria-expanded") === "true",
++        menu: openMenuRows(),
++      };
+     },
+ 
+     acpLog(options = {}) {
+@@ -503,6 +517,10 @@ export function createAcpmuxDebug(
+       const { loadRun } = await import("./loadDebug");
+       return loadRun({ sessionId: () => host.sessionId?.(), rowCount: host.rowCount }, options);
+     },
++    async typingLoad(options = {}) {
++      const { typingLoad } = await import("./typingLoadDebug");
++      return typingLoad(host.sessionId?.(), options);
++    },
+     async loadTick(options = {}) {
+       const { loadTick } = await import("./loadDebug");
+       return loadTick({ sessionId: () => host.sessionId?.(), rowIds: () => host.rowIds?.() ?? [] }, options);
+diff --git a/webviews/src/agent-session/acpmux/loadDebug.ts b/webviews/src/agent-session/acpmux/loadDebug.ts
+index 1c7fea0514bf..7800cf4e6d04 100644
+--- a/webviews/src/agent-session/acpmux/loadDebug.ts
++++ b/webviews/src/agent-session/acpmux/loadDebug.ts
+@@ -60,7 +60,12 @@ export async function loadSeed(
+   let firstAtLatest: boolean | undefined;
+   let shifts = 0;
+   let shown: string | undefined;
+-  const deadline = performance.now() + 25_000;
++  // Large typing fixtures need time for the reducer and virtual transcript to mount their rows. A
++  // fixed 25 s deadline returned zero rows on Chromium before the 100k-row L3 fixture had rendered,
++  // which made the load result an invalid setup diagnostic rather than a typing measurement. Keep
++  // ordinary load benches bounded at 25 s; only the explicitly large fixture gets the longer window.
++  const deadlineMs = turns >= 10_000 ? 120_000 : 25_000;
++  const deadline = performance.now() + deadlineMs;
+   while (still < 20 && performance.now() < deadline) {
+     await frame();
+     const now = await afterRender();
+@@ -75,15 +80,20 @@ export async function loadSeed(
+     } else if (view.key !== shown) shifts += 1;
+     shown = view.key;
+   }
++  const rows = host.rowCount();
+   return {
+     session,
+     turns,
+-    rows: host.rowCount(),
++    logical_rows: turns * 3,
++    rows,
+     seed_ms: round2(seeded - started),
+     first_content_ms: firstContent === undefined ? null : round2(firstContent),
+     first_content_at_latest: firstAtLatest ?? null,
+     shifts_after_first_content: shifts,
+     open_ms: round2(performance.now() - seeded),
++    seed_deadline_ms: deadlineMs,
++    seed_ready: still >= 20 && rows > 0,
++    seed_timed_out: still < 20 && performance.now() >= deadline,
+   };
+ }
+ 
+@@ -127,6 +137,7 @@ export async function loadRun(
+   const nominal = Math.min(1000 / 60, Math.max(1, median(warmup.slice(1).map((time, index) => time - warmup[index]!))));
+   acpmuxPerf.resetFrames();
+   acpmuxPerf.resetRenders();
++  const streamStarted = performance.timeOrigin + performance.now();
+   const streaming = mock.streamLoadTurn(session, {
+     seconds,
+     chunkChars: Math.max(1, Math.floor(options.chunk_chars ?? 32)),
+@@ -134,7 +145,11 @@ export async function loadRun(
+     toolEvery: Math.max(0, Math.floor(options.tool_every ?? 60)),
+   });
+   let streamDone = false;
+-  void streaming.then(() => (streamDone = true));
++  let streamFinished: number | undefined;
++  void streaming.then(() => {
++    streamFinished = performance.timeOrigin + performance.now();
++    streamDone = true;
++  });
+   const timestamps: number[] = [];
+   const work: number[] = [];
+   const late: number[] = [];
+@@ -188,6 +203,8 @@ export async function loadRun(
+   return {
+     rows: host.rowCount(),
+     ...streamed,
++    stream_started_epoch_ms: streamStarted,
++    stream_finished_epoch_ms: streamFinished,
+     seconds,
+     scroll_speed: speed,
+     display: frameStats(timestamps, nominal),
+@@ -488,7 +505,12 @@ function stillWatch(parts: Record<string, string>, started: number, seconds: num
+         }
+         if (!part.watch) {
+           const watch = new MutationObserver((records) => tally(part, records));
+-          watch.observe(node, { subtree: true, childList: true, attributes: true, characterData: true });
++          watch.observe(node, {
++            subtree: true,
++            childList: true,
++            attributes: true,
++            characterData: true,
++          });
+           part.watch = watch;
+         }
+         part.nodes.add(node);
+diff --git a/webviews/src/agent-session/acpmux/loadFixture.ts b/webviews/src/agent-session/acpmux/loadFixture.ts
+index 15684317c825..b6cbc3f1de7e 100644
+--- a/webviews/src/agent-session/acpmux/loadFixture.ts
++++ b/webviews/src/agent-session/acpmux/loadFixture.ts
+@@ -127,8 +127,8 @@ export function loadTurn(turn: number, opts: { diffLines?: number; logLines?: nu
+   return steps;
+ }
+ 
+-/// A light finished turn: a one-line prompt and a one-line reply, two transcript rows (the
+-/// renders-per-delta bench opens chats of an exact length with these).
++/// A light finished turn: a one-line prompt, a one-line reply and the turnSummary produced by
++/// turn_result: three model rows. The renders-per-delta bench opens exact lengths with these.
+ export function lightTurn(turn: number): LoadStep[] {
+   return [
+     { mux: "user_message", msg: { text: `Turn ${turn}: one short question` } },
+diff --git a/webviews/src/agent-session/acpmux/mock.ts b/webviews/src/agent-session/acpmux/mock.ts
+index a69322818458..5290d0dd452c 100644
+--- a/webviews/src/agent-session/acpmux/mock.ts
++++ b/webviews/src/agent-session/acpmux/mock.ts
+@@ -248,7 +248,24 @@ export function mockTurn(prompt: string, turn: number): Step[] {
+ 
+ /// How a load run streams its turn: text deltas of `chunkChars` every `chunkMs`, and a large
+ /// tool call (a log or an edit) after every `toolEvery` deltas.
+-export type LoadStreamOptions = { seconds: number; chunkChars: number; chunkMs: number; toolEvery: number };
++export type LoadStreamOptions = {
++  seconds: number;
++  chunkChars: number;
++  chunkMs: number;
++  toolEvery: number;
++  /// Assign each text delta a fixed due time. A delayed timer sends one due delta in the next task;
++  /// it never emits a same-task catch-up batch.
++  fixedSchedule?: boolean;
++  toolLinesPerSecond?: number;
++  stopped?: () => boolean;
++  progress?: (counts: {
++    deltas: number;
++    toolLines: number;
++    elapsedMs: number;
++    maxGapMs: number;
++    maxScheduleOffsetMs: number;
++  }) => void;
++};
+ 
+ /// Whether `event` is subagent `id`'s own record (hub/paging.rs `subagent_owns`): an agent update
+ /// acpmux tagged with it (`_meta.acpmux.subagent`) or one that starts or changes it (`subagents[].id`).
+@@ -419,7 +436,10 @@ export class MockAcpmuxSocket {
+       const at = now - (turns - turn) * 60_000;
+       for (const step of light ? lightTurn(turn) : loadTurn(turn)) this.record(id, step, at);
+     }
+-    if (light) this.openWhole.add(id);
++    // Small light fixtures are opened whole so the short composer rows are exact. Large typing
++    // fixtures must use the normal paged attach: the production row store intentionally holds a
++    // bounded window, and one 100k-event whole response never becomes a usable page.
++    if (light && turns < 10_000) this.openWhole.add(id);
+     this.sessions.push(created);
+     this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "created", session: created } });
+     return id;
+@@ -444,21 +464,61 @@ export class MockAcpmuxSocket {
+     this.emit(target, { mux: "user_message", msg: { text: `Turn ${turn}: stream a long answer` } });
+     this.emit(target, { mux: "turn_started" });
+     const reply = streamedReply(turn, 400);
+-    const end = performance.now() + options.seconds * 1000;
++    const started = performance.now();
++    const end = started + options.seconds * 1000;
++    const call = `load-stream-tool-${turn}`;
++    if (options.toolLinesPerSecond)
++      this.emit(target, {
++        update: tool(call, "execute", "Stream benchmark output", "in_progress", { rawInput: { command: "benchmark" } }),
++      });
++    let toolLines = 0;
++    let output = "";
++    let previous = started;
++    let maxGapMs = 0;
++    let maxScheduleOffsetMs = 0;
+     let at = 0;
+     let deltas = 0;
+     let tools = 0;
+-    while (performance.now() < end && !this.closed) {
+-      await this.delay(options.chunkMs);
++    let nextChunkAt = started + options.chunkMs;
++    while (performance.now() < end && !this.closed && !options.stopped?.()) {
++      if (options.fixedSchedule) {
++        const waitMs = nextChunkAt - performance.now();
++        if (waitMs > 0) await this.delay(waitMs);
++      } else await this.delay(options.chunkMs);
++      if (options.stopped?.() || this.closed) break;
++      const now = performance.now();
++      maxGapMs = Math.max(maxGapMs, now - previous);
++      previous = now;
++      if (options.fixedSchedule) {
++        maxScheduleOffsetMs = Math.max(maxScheduleOffsetMs, Math.max(0, now - nextChunkAt));
++        nextChunkAt = started + (deltas + 2) * options.chunkMs;
++      }
+       const chunk = reply.slice(at % reply.length, (at % reply.length) + options.chunkChars);
+       at += options.chunkChars;
+       this.emit(target, { update: text(chunk) });
+       deltas += 1;
++      const due = Math.floor(((now - started) * (options.toolLinesPerSecond ?? 0)) / 1000);
++      if (due > toolLines) {
++        output += Array.from({ length: due - toolLines }, (_, index) => `benchmark line ${toolLines + index}\n`).join(
++          "",
++        );
++        toolLines = due;
++        this.emit(target, {
++          update: {
++            sessionUpdate: "tool_call_update",
++            toolCallId: call,
++            status: "in_progress",
++            content: [{ type: "content", content: { type: "text", text: output } }],
++          },
++        });
++      }
++      options.progress?.({ deltas, toolLines, elapsedMs: now - started, maxGapMs, maxScheduleOffsetMs });
+       if (options.toolEvery > 0 && deltas % options.toolEvery === 0) {
+         this.emit(target, { update: streamedTool(turn, tools) });
+         tools += 1;
+       }
+     }
++    if (options.toolLinesPerSecond) this.emit(target, { update: done(call) });
+     this.emit(target, { mux: "turn_result", msg: { status: "completed" } });
+     this.touch(target, { status: "idle", indicator: "done" });
+     return { deltas, chars: at, tools };
+diff --git a/webviews/src/agent-session/acpmux/perf.ts b/webviews/src/agent-session/acpmux/perf.ts
+index 70130c252bff..eb2292c22cca 100644
+--- a/webviews/src/agent-session/acpmux/perf.ts
++++ b/webviews/src/agent-session/acpmux/perf.ts
+@@ -126,7 +126,13 @@ export class FrameRing {
+ 
+   /** Samples oldest first. `other` is the interval not spent in layout or React. */
+   samples(): { interval: number; layout: number; react: number; other: number; blank: boolean }[] {
+-    const out: { interval: number; layout: number; react: number; other: number; blank: boolean }[] = [];
++    const out: {
++      interval: number;
++      layout: number;
++      react: number;
++      other: number;
++      blank: boolean;
++    }[] = [];
+     const start = (this.next - this.count + this.capacity) % this.capacity;
+     for (let offset = 0; offset < this.count; offset += 1) {
+       const index = (start + offset) % this.capacity;
+@@ -146,7 +152,17 @@ export class FrameRing {
+ /// wait for the key to reach the page: the app, its web view and the page's main thread), `work` when the
+ /// key's edit and its render were done (a task queued from its `input` event, after the microtasks
+ /// ProseMirror and React run it in), `frame` the next frame's start and `paint` after that frame.
+-export type TypingSample = { frame: number; paint: number; listener?: number; work?: number };
++export type TypingSample = {
++  frame: number;
++  paint: number;
++  listener?: number;
++  work?: number;
++  key?: string;
++  /** Same-host epoch clock, for joining the native bench's dispatch to this after-frame callback. */
++  paint_epoch_ms?: number;
++  /** Shared rAF timestamp identifies keys delivered in the same display-frame callback batch. */
++  frame_timestamp_ms?: number;
++};
+ type AgentMark = "handshakeStart" | "handshakeReady" | "composerReady" | "snapshotPaint" | "firstToken";
+ /**
+  * The page's connect path on the wall clock (`Date.now()`), the first time of each since the page
+@@ -163,12 +179,22 @@ export const LIVE_EVENT_LAG_MS = 1000;
+ 
+ /** Typing latency: keydown event time to the next frame and to after that frame paints. */
+ export function typingSummary(samples: TypingSample[]) {
++  const stages = (values: number[]) => ({
++    ...summary(values),
++    p99_ms: round2(
++      percentile(
++        [...values].sort((a, b) => a - b),
++        0.99,
++      ),
++    ),
++  });
+   return {
+     keys: samples.length,
+-    to_frame: summary(samples.map((sample) => sample.frame)),
+-    to_paint: summary(samples.map((sample) => sample.paint)),
+-    to_listener: summary(samples.flatMap((sample) => (sample.listener === undefined ? [] : [sample.listener]))),
+-    to_work: summary(samples.flatMap((sample) => (sample.work === undefined ? [] : [sample.work]))),
++    to_frame: stages(samples.map((sample) => sample.frame)),
++    to_paint: stages(samples.map((sample) => sample.paint)),
++    to_listener: stages(samples.flatMap((sample) => (sample.listener === undefined ? [] : [sample.listener]))),
++    to_work: stages(samples.flatMap((sample) => (sample.work === undefined ? [] : [sample.work]))),
++    samples: samples.map((sample) => ({ ...sample })),
+   };
+ }
+ 
+@@ -212,7 +238,12 @@ export class AcpmuxPerf {
+       // The chat's composer and the New Tab page's (its omnibar's keys, Lawrence 2026-11-13).
+       if (!element?.closest?.(".acpmux-composer, .nt-composer")) return;
+       const start = event.timeStamp;
+-      const sample: TypingSample = { frame: 0, paint: 0, listener: performance.now() - start };
++      const sample: TypingSample = {
++        frame: 0,
++        paint: 0,
++        listener: performance.now() - start,
++        key: event.key,
++      };
+       // The key's edit: its `input` event, then the microtasks the field and React run it in.
+       const input = () => {
+         const done = new MessageChannel();
+@@ -223,13 +254,16 @@ export class AcpmuxPerf {
+         done.port2.postMessage(0);
+       };
+       page.addEventListener("input", input, { capture: true, once: true });
+-      requestAnimationFrame(() => {
++      requestAnimationFrame((timestamp) => {
+         const frame = performance.now();
++        sample.frame_timestamp_ms = timestamp;
+         page.removeEventListener("input", input, { capture: true });
+         const channel = new MessageChannel();
+         channel.port1.onmessage = () => {
+           sample.frame = frame - start;
+-          sample.paint = performance.now() - start;
++          const painted = performance.now();
++          sample.paint = painted - start;
++          sample.paint_epoch_ms = performance.timeOrigin + painted;
+           this.typing.push(sample);
+           if (this.typing.length > 4096) this.typing.shift();
+           channel.port1.close();
+diff --git a/webviews/src/agent-session/acpmux/typingLoadDebug.ts b/webviews/src/agent-session/acpmux/typingLoadDebug.ts
+new file mode 100644
+index 000000000000..ce638be8a9d3
+--- /dev/null
++++ b/webviews/src/agent-session/acpmux/typingLoadDebug.ts
+@@ -0,0 +1,97 @@
++import { MockAcpmuxSocket } from "./mock";
++
++// Benchmark-only traffic, through the mock daemon and the real reducer. No frame observer,
++// scrolling or layout reads: those would add measurement work to the key's critical path.
++export type TypingLoadOptions = {
++  stop?: boolean;
++  chunks_per_second?: number;
++  tool_lines_per_second?: number;
++  seconds?: number;
++};
++let active:
++  | {
++      stopped: boolean;
++      done: Promise<unknown>;
++      receipt: {
++        running: boolean;
++        started_epoch_ms: number;
++        finished_epoch_ms: number | null;
++        deltas: number;
++        toolLines: number;
++        elapsedMs: number;
++        maxGapMs: number;
++        maxScheduleOffsetMs: number;
++        error?: string;
++      };
++    }
++  | undefined;
++
++function snapshot(receipt: Record<string, unknown>) {
++  return { ...receipt, epoch_clock_error_ms: Date.now() - (performance.timeOrigin + performance.now()) };
++}
++
++export async function typingLoad(
++  session: string | undefined,
++  options: TypingLoadOptions = {},
++): Promise<Record<string, unknown>> {
++  if (options.stop) {
++    if (!active) return { error: "no typing load" };
++    const current = active;
++    current.stopped = true;
++    await current.done;
++    return snapshot(current.receipt);
++  }
++  // With no rate, read the receipt without starting or resetting the generator.
++  if (options.chunks_per_second === undefined) return active ? snapshot(active.receipt) : { error: "no typing load" };
++  if (active?.receipt.running) return { error: "typing load already running" };
++  const mock = MockAcpmuxSocket.live;
++  if (!mock || !session) return { error: "typing load requires a seeded mock session" };
++  const rate = options.chunks_per_second;
++  const lines = options.tool_lines_per_second ?? 0;
++  const seconds = options.seconds ?? 120;
++  if (
++    ![rate, lines, seconds].every(Number.isFinite) ||
++    rate <= 0 ||
++    rate > 1000 ||
++    lines < 0 ||
++    lines > 10000 ||
++    seconds <= 0 ||
++    seconds > 120
++  )
++    return { error: "typing load requires rate 1..1000, lines 0..10000, duration (0,120]" };
++  const state = {
++    stopped: false,
++    done: Promise.resolve<unknown>(undefined),
++    receipt: {
++      running: true,
++      started_epoch_ms: performance.timeOrigin + performance.now(),
++      finished_epoch_ms: null as number | null,
++      deltas: 0,
++      toolLines: 0,
++      elapsedMs: 0,
++      maxGapMs: 0,
++      maxScheduleOffsetMs: 0,
++      error: undefined as string | undefined,
++    },
++  };
++  active = state;
++  state.done = mock
++    .streamLoadTurn(session, {
++      seconds,
++      chunkChars: 32,
++      chunkMs: 1000 / rate,
++      toolEvery: 0,
++      fixedSchedule: true,
++      toolLinesPerSecond: lines,
++      stopped: () => state.stopped,
++      progress: (counts) => Object.assign(state.receipt, counts),
++    })
++    .catch((error: unknown) => {
++      state.receipt.error = String(error);
++    })
++    .finally(() => {
++      state.receipt.running = false;
++      state.receipt.finished_epoch_ms = performance.timeOrigin + performance.now();
++    });
++  return snapshot(state.receipt);
++}
+diff --git a/webviews/test/typing-load-control.test.ts b/webviews/test/typing-load-control.test.ts
+new file mode 100644
+index 000000000000..3d623f7b0b53
+--- /dev/null
++++ b/webviews/test/typing-load-control.test.ts
+@@ -0,0 +1,74 @@
++import { afterAll, expect, spyOn, test } from "bun:test";
++import { JSDOM } from "jsdom";
++
++const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
++const scope = globalThis as Record<string, unknown>;
++const saved = { window: scope.window, document: scope.document };
++const had = { window: "window" in scope, document: "document" in scope };
++scope.window = dom.window;
++scope.document = dom.window.document;
++afterAll(async () => {
++  for (const key of ["window", "document"] as const) {
++    if (had[key]) scope[key] = saved[key];
++    else delete scope[key];
++  }
++  dom.window.close();
++});
++
++test("light fixture includes the summary in the model row count used by the 100k typing mode", async () => {
++  const { AcpmuxDirectClient } = await import("../src/agent-session/acpmux/direct");
++  const { MockAcpmuxSocket, mockHost } = await import("../src/agent-session/acpmux/mock");
++  let rows: readonly { kind: string }[] = [];
++  const client = await AcpmuxDirectClient.connect(
++    mockHost,
++    (next) => {
++      rows = next.rows;
++    },
++    undefined,
++    () => new MockAcpmuxSocket(() => Promise.resolve()) as unknown as WebSocket,
++  );
++  try {
++    await client.select(MockAcpmuxSocket.live!.seedLoadSession(4, true));
++    expect(rows).toHaveLength(12);
++    expect(rows.filter((row) => row.kind === "turnSummary")).toHaveLength(4);
++  } finally {
++    client.close();
++  }
++});
++
++test("typing load emits the requested tool lines, exposes progress and stops without another delta", async () => {
++  const { MockAcpmuxSocket } = await import("../src/agent-session/acpmux/mock");
++  const { typingLoad } = await import("../src/agent-session/acpmux/typingLoadDebug");
++  let now = 1000;
++  const clock = spyOn(performance, "now").mockImplementation(() => now);
++  let tick: (() => void) | undefined;
++  const socket = new MockAcpmuxSocket(
++    (ms) =>
++      new Promise((resolve) => {
++        tick = () => {
++          now += ms;
++          resolve();
++        };
++      }),
++  );
++  try {
++    const session = socket.seedLoadSession(1, true);
++    const started = await typingLoad(session, { chunks_per_second: 20, tool_lines_per_second: 2000, seconds: 10 });
++    expect(started.running).toBe(true);
++    tick!();
++    await Promise.resolve();
++    const receipt = await typingLoad(session);
++    expect(receipt.deltas).toBe(1);
++    expect(receipt.toolLines).toBe(100);
++    expect(receipt.elapsedMs).toBe(50);
++    const stopping = typingLoad(session, { stop: true });
++    tick!();
++    const stopped = await stopping;
++    expect(stopped.running).toBe(false);
++    expect(stopped.deltas).toBe(1);
++    expect(stopped.finished_epoch_ms).not.toBeNull();
++  } finally {
++    socket.close();
++    clock.mockRestore();
++  }
++});
+diff --git a/webviews/test/typing-samples.test.ts b/webviews/test/typing-samples.test.ts
+new file mode 100644
+index 000000000000..04edd34f223b
+--- /dev/null
++++ b/webviews/test/typing-samples.test.ts
+@@ -0,0 +1,20 @@
++import { expect, test } from "bun:test";
++import { typingSummary } from "../src/agent-session/acpmux/perf";
++
++test("typing retains the slow tail and detached raw samples for native dispatch joins", () => {
++  const samples = Array.from({ length: 500 }, (_, index) => ({
++    key: "a",
++    frame: 5,
++    paint: index >= 490 ? 80 : 7,
++    listener: 1,
++    work: 3,
++    paint_epoch_ms: 100000 + index * 20,
++  }));
++  const stats = typingSummary(samples);
++  expect(stats.to_paint.p95_ms).toBe(7);
++  expect(stats.to_paint.p99_ms).toBe(80);
++  expect(stats.samples).toHaveLength(500);
++  samples[0]!.paint = 99;
++  expect(stats.samples[0]!.paint).toBe(7);
++  expect(stats.samples[0]!.paint_epoch_ms).toBe(100000);
++});

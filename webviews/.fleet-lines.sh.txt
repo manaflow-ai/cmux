@@ -1,0 +1,13 @@
+set -u
+cd webviews
+bun install --frozen-lockfile >/dev/null 2>&1
+A=src/agent-session/acpmux
+rsync -a --exclude node_modules ./ ../webviews-base/
+ln -s "$PWD/node_modules" ../webviews-base/node_modules
+cp .base-tpr.ts.txt ../webviews-base/$A/summary/transcriptPullRequests.ts
+cp .base-direct.ts.txt ../webviews-base/$A/direct.ts
+H="bench/zz-heavy.bench.ts --lengths 1500 --keys 60 --stream 60 --tool-lines 2000 --profile"
+for arm in base fix; do
+  d=.; [ $arm = base ] && d=../webviews-base
+  echo "=== $arm"; (cd $d && bun $H 2>&1 | grep -E "LINETICKS|pullRequestRowKey" | cut -c1-260 | head -20)
+done

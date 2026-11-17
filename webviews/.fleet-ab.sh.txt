@@ -1,0 +1,14 @@
+set -u
+cd webviews
+bun install --frozen-lockfile >/dev/null 2>&1
+F=src/agent-session/acpmux/summary/transcriptPullRequests.ts
+echo "--- lint"; bunx vp lint $F test/transcript-pull-requests.test.ts 2>&1 | tail -3
+echo "--- typecheck"; bunx tsc --noEmit -p . 2>&1 | tail -3
+echo "--- test fix"; bun test test/transcript-pull-requests.test.ts 2>&1 | grep -E "pass|fail|✗|scanned" | tail -8
+git apply .heavy-44416.patch.txt && echo "--- applied 44416"
+rsync -a --exclude node_modules ./ ../webviews-base/
+ln -s "$PWD/node_modules" ../webviews-base/node_modules
+cp .base-tpr.ts.txt ../webviews-base/$F
+echo "--- test base"; (cd ../webviews-base && bun test test/transcript-pull-requests.test.ts 2>&1 | grep -E "pass|fail|✗|scanned" | tail -8)
+echo "--- heavy arms"
+bun bench/composer-typing.bench.ts --lengths 1500 --modes L1 --stream 60 --tool-lines 2000 --keys 60 --arms base=../webviews-base,fix=. --rounds 5 2>&1 | grep -vE "^\s*$" | tail -40

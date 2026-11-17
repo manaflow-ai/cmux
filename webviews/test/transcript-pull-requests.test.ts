@@ -244,7 +244,7 @@ test("a streamed reply's key still moves for a mention split across chunks, a lo
   });
   const start = { ...assistant(filler, 1), streaming: true };
   const keyOf = (row: ReturnType<typeof assistant>, previous?: ReturnType<typeof assistant>) =>
-    pullRequestRowKey(row, true, previous);
+    pullRequestRowKey(row, true, previous, previous && pullRequestRowKey(previous));
   expect(keyOf(start)).toBe("");
   const split = grow(start, "See acme/uplo");
   expect(keyOf(split, start)).toBe("");

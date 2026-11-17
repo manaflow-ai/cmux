@@ -2333,7 +2333,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     if (!unchanged) {
       const kept = this.pullRequestKeys.get(id);
       const before = kept && kept.row === previous ? kept.key : pullRequestRowKey(previous);
-      const after = pullRequestRowKey(row, true, previous);
+      const after = pullRequestRowKey(row, true, previous, before);
       if (kept) {
         kept.row = row;
         kept.key = after;

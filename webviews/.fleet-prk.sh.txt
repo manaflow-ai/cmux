@@ -1,0 +1,9 @@
+set -u
+cd webviews
+exec > >(tee ${FAST_CHECKS_OUT:-/tmp}/prk.txt) 2>&1
+bun install --frozen-lockfile >/dev/null 2>&1
+A=src/agent-session/acpmux
+cp .diag-tpr.ts.txt $A/summary/transcriptPullRequests.ts
+cp .base-direct.ts.txt $A/direct.ts
+cp .diag-bench.txt bench/zz-prk.bench.ts
+bun bench/zz-prk.bench.ts --lengths 1500 --keys 60 --stream 60 --tool-lines 2000 2>&1 | grep -E "PRK|COMPOSER-TYPING|rror" | cut -c1-1500
