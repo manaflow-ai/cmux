@@ -181,24 +181,34 @@ impl Mux {
             let workspace_id = state.workspaces[index].id;
             let key = state.workspaces[index].key.clone();
             let changed = state.workspaces[index].name != name;
-            let mut desired = self.registry_projection(&state);
-            name_authority.apply_workspace(
-                &mut desired[index],
-                name.clone(),
-                registry.generation(),
-            )?;
-            let (name_source, name_revision) =
-                (desired[index].name_source, desired[index].name_revision);
+            let mut renamed = self.registry_workspace(&state.workspaces[index]);
+            name_authority.apply_workspace(&mut renamed, name.clone(), registry.generation())?;
+            let (name_source, name_revision) = (renamed.name_source, renamed.name_revision);
             let desired_active_workspace =
                 state.workspaces.get(state.active_workspace).map(|workspace| &workspace.public_id);
-            let intent = registry.prepare_workspace_commit(
+            // Only the renamed row and the active one: the rest stays as stored.
+            let len = state.workspaces.len();
+            let row = |position: usize| {
+                if position == index {
+                    renamed.clone()
+                } else {
+                    self.registry_workspace(&state.workspaces[position])
+                }
+            };
+            let rows = crate::workspace_registry::ChangedWorkspaces::of_positions(
+                len,
+                len,
+                [index, state.active_workspace],
+                row,
+            );
+            let intent = registry.prepare_workspace_change(
                 mutation,
                 &fingerprint,
                 expected_generation,
                 expected_revision,
                 "workspace-renamed",
                 &key,
-                &desired,
+                rows,
                 desired_active_workspace,
                 &serde_json::json!({
                     "workspace": workspace_id,
@@ -206,7 +216,11 @@ impl Mux {
                     "index": index,
                     "changed": changed,
                 }),
-                true,
+                || {
+                    let mut desired = self.registry_projection(&state);
+                    desired[index] = renamed.clone();
+                    desired
+                },
             )?;
             // The commit rides the journal writer batch. State is released
             // before the receipt wait (the registry stays held, so no other

@@ -275,6 +275,26 @@ impl WorkspaceRegistry {
         Some((fold.revision, workspaces))
     }
 
+    /// [`Self::stated_workspaces`] of `ids` only: what a commit that changes those workspaces
+    /// compares its upserts with. A commit of one workspace copies one value, not the value of
+    /// every workspace of the session.
+    pub(crate) fn stated_workspaces_of(
+        &mut self,
+        ids: &[&str],
+    ) -> Option<(u64, HashMap<String, Value>)> {
+        self.catch_up_public_fold();
+        let fold = self.public_fold.as_ref()?;
+        let mut key = ("workspace".to_string(), String::new());
+        let mut workspaces = HashMap::with_capacity(ids.len());
+        for id in ids {
+            id.clone_into(&mut key.1);
+            if let Some(value) = fold.values.get(&key) {
+                workspaces.insert((*id).to_string(), value.clone());
+            }
+        }
+        Some((fold.revision, workspaces))
+    }
+
     /// Whether the fold holds every live topology resource (a full projection was folded).
     #[cfg(test)]
     pub(crate) fn public_fold_complete_for_test(&self) -> bool {

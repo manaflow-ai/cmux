@@ -9,19 +9,20 @@ impl Mux {
     pub(crate) fn registry_projection(&self, state: &State) -> Vec<RegistryWorkspace> {
         #[cfg(test)]
         crate::walk_counters::registry_rows_visited(state.workspaces.len());
-        state
-            .workspaces
-            .iter()
-            .map(|workspace| RegistryWorkspace {
-                id: workspace.id,
-                public_id: workspace.public_id.clone(),
-                key: workspace.key.clone(),
-                name: workspace.name.clone(),
-                name_source: workspace.name_source,
-                name_revision: workspace.name_revision,
-                group_key: self.session.clone(),
-            })
-            .collect()
+        state.workspaces.iter().map(|workspace| self.registry_workspace(workspace)).collect()
+    }
+
+    /// The registry row of one workspace (`registry_projection` of it).
+    pub(crate) fn registry_workspace(&self, workspace: &Workspace) -> RegistryWorkspace {
+        RegistryWorkspace {
+            id: workspace.id,
+            public_id: workspace.public_id.clone(),
+            key: workspace.key.clone(),
+            name: workspace.name.clone(),
+            name_source: workspace.name_source,
+            name_revision: workspace.name_revision,
+            group_key: self.session.clone(),
+        }
     }
 
     pub(crate) fn ordinary_resource_selectors() -> crate::ResourceSelectors {

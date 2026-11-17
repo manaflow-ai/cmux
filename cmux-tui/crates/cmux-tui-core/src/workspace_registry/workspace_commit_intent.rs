@@ -25,7 +25,13 @@ pub(crate) struct WorkspaceCommitIntent {
     expected_revision: Option<u64>,
     event_kind: String,
     workspace_key: String,
+    /// The whole desired registry; empty when `changed` holds the commit's rows instead.
     workspaces: Vec<RegistryWorkspace>,
+    /// The rows of a commit that changes only some workspaces ([`ChangedWorkspaces`]).
+    changed: Option<ChangedWorkspaces>,
+    /// With `changed`, when the projection cross-check runs (debug builds,
+    /// `CMUX_TUI_PROJECTION_CROSSCHECK=1`): the whole-registry commit it stands for.
+    whole_check: Option<Box<WholeRegistryCheck>>,
     active_workspace: Option<WorkspacePublicId>,
     result: Value,
     result_json: String,
@@ -41,6 +47,72 @@ pub(crate) struct WorkspaceCommitIntent {
     session_id: SessionPublicId,
     /// Rows written after the ledger, before the resource batch.
     extra: Option<ExtraRows>,
+}
+
+/// The desired registry of a commit that changes a few workspaces: each of `rows` at its
+/// desired position, every other live workspace as stored, at its stored position. A rename
+/// changes one row, a one-step move two, an empty create adds one; only a move across many
+/// positions has many rows. It closes none.
+#[derive(Debug, Clone)]
+pub(crate) struct ChangedWorkspaces {
+    /// Live workspaces before the commit.
+    pub(crate) len_before: usize,
+    /// Live workspaces after it.
+    pub(crate) len: usize,
+    /// Each workspace whose row or public value the commit may change, with its desired
+    /// position, in position order: every workspace that it writes, adds or moves, and the
+    /// active workspace before and after it.
+    pub(crate) rows: Vec<(usize, RegistryWorkspace)>,
+}
+
+impl ChangedWorkspaces {
+    /// The rows at `positions` of a desired order of `workspaces_len` workspaces, `row(i)`
+    /// being the workspace at `i`: only those are copied.
+    pub(crate) fn of_positions(
+        len_before: usize,
+        workspaces_len: usize,
+        positions: impl IntoIterator<Item = usize>,
+        row: impl Fn(usize) -> RegistryWorkspace,
+    ) -> Self {
+        let mut positions =
+            positions.into_iter().filter(|position| *position < workspaces_len).collect::<Vec<_>>();
+        positions.sort_unstable();
+        positions.dedup();
+        Self {
+            len_before,
+            len: workspaces_len,
+            rows: positions.into_iter().map(|position| (position, row(position))).collect(),
+        }
+    }
+
+    /// The rows are valid workspaces at distinct positions below `len`, in order, with
+    /// distinct keys and public ids; the commit adds or keeps workspaces, never closes one.
+    pub(crate) fn validate(&self) -> anyhow::Result<()> {
+        validate_registry(
+            &self.rows.iter().map(|(_, workspace)| workspace.clone()).collect::<Vec<_>>(),
+        )?;
+        anyhow::ensure!(
+            self.rows.windows(2).all(|pair| pair[0].0 < pair[1].0)
+                && self.rows.last().is_none_or(|(position, _)| *position < self.len),
+            "changed workspace rows are not at distinct positions below {}",
+            self.len
+        );
+        anyhow::ensure!(
+            self.len >= self.len_before && !self.rows.is_empty(),
+            "a workspace change closes no workspace and names at least one"
+        );
+        Ok(())
+    }
+}
+
+/// The whole-registry commit that a [`ChangedWorkspaces`] commit stands for: the desired
+/// registry, the topology and the journal fold it would read. The change commit compares,
+/// in its transaction, the rows it writes and the changes it journals with that commit's.
+#[derive(Debug)]
+pub(crate) struct WholeRegistryCheck {
+    workspaces: Vec<RegistryWorkspace>,
+    topology: ResourceTopologySnapshot,
+    stated: HashMap<String, Value>,
 }
 
 /// [`OwnedTransactionWrite`] with a `Debug` for the intent.
@@ -99,6 +171,8 @@ impl WorkspaceRegistry {
             event_kind: event_kind.to_string(),
             workspace_key: workspace_key.to_string(),
             workspaces: workspaces.to_vec(),
+            changed: None,
+            whole_check: None,
             active_workspace: active_workspace.cloned(),
             result: result.clone(),
             result_json: canonical_json(result)?,
@@ -110,6 +184,124 @@ impl WorkspaceRegistry {
             session_id: self.session_id.clone(),
             extra: None,
         })
+    }
+
+    /// [`Self::prepare_workspace_commit`] (with `project_resource`) of a commit that changes
+    /// only the workspaces of `changed`: it copies, reads and journals those rows, not every
+    /// workspace of the session. The commit writes the same rows and journals the same
+    /// changes as the whole-registry commit of `full()` would, whenever these hold, which it
+    /// checks here (on the registry's thread, which stays held until the receipt): the
+    /// journal's public fold is at the current resource revision (else that commit states
+    /// every workspace), the registry holds as many live workspace rows as live workspace
+    /// resource rows, and `changed` holds the active workspace before and after the commit.
+    /// When one does not hold, it prepares the whole-registry commit of `full()`.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn prepare_workspace_change(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        fingerprint: &Value,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        event_kind: &str,
+        workspace_key: &str,
+        changed: ChangedWorkspaces,
+        active_workspace: Option<&WorkspacePublicId>,
+        result: &Value,
+        full: impl FnOnce() -> Vec<RegistryWorkspace>,
+    ) -> anyhow::Result<WorkspaceCommitIntent> {
+        self.connection.drain_unsettled()?;
+        let ids =
+            changed.rows.iter().map(|(_, workspace)| &workspace.public_id).collect::<Vec<_>>();
+        let prepared = (if active_workspace.is_some_and(|active| !ids.contains(&active))
+            || !self.live_workspace_rows_match(changed.len_before)?
+        {
+            None
+        } else {
+            self.resource_topology_for_workspace_change(&ids, active_workspace)?
+        })
+        .and_then(|topology| {
+            let ids = ids.iter().map(|id| id.as_str()).collect::<Vec<_>>();
+            let stated = self.stated_workspaces_of(&ids)?;
+            (stated.0 == topology.revision).then_some((topology, stated))
+        });
+        let Some((previous_topology, stated)) = prepared else {
+            return self.prepare_workspace_commit(
+                mutation,
+                fingerprint,
+                expected_generation,
+                expected_revision,
+                event_kind,
+                workspace_key,
+                &full(),
+                active_workspace,
+                result,
+                true,
+            );
+        };
+        validate_identifier("mutation id", &mutation.id)?;
+        validate_identifier("mutation origin", &mutation.origin)?;
+        #[cfg(test)]
+        crate::walk_counters::registry_rows_visited(changed.rows.len() + stated.1.len());
+        let whole_check = if crate::mux::projection_crosscheck_enabled() {
+            let workspaces = full();
+            let topology =
+                self.resource_topology_for_workspace_commit(&workspaces, active_workspace)?;
+            let stated = self.stated_workspaces().map(|(_, stated)| stated).unwrap_or_default();
+            Some(Box::new(WholeRegistryCheck { workspaces, topology, stated }))
+        } else {
+            None
+        };
+        Ok(WorkspaceCommitIntent {
+            mutation: mutation.clone(),
+            fingerprint: canonical_json(fingerprint)?,
+            expected_generation: expected_generation.map(str::to_string),
+            generation: self.generation.clone(),
+            expected_revision,
+            event_kind: event_kind.to_string(),
+            workspace_key: workspace_key.to_string(),
+            workspaces: Vec::new(),
+            changed: Some(changed),
+            whole_check,
+            active_workspace: active_workspace.cloned(),
+            result: result.clone(),
+            result_json: canonical_json(result)?,
+            project_resource: true,
+            previous_topology: Some(previous_topology),
+            stated_workspaces: Some(stated),
+            session_id: self.session_id.clone(),
+            extra: None,
+        })
+    }
+
+    /// [`WorkspaceRegistry::commit_with_active_workspace`] of a commit that changes only
+    /// `changed` ([`Self::prepare_workspace_change`]).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn commit_workspace_change(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        fingerprint: &Value,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        event_kind: &str,
+        workspace_key: &str,
+        changed: ChangedWorkspaces,
+        active_workspace: Option<&WorkspacePublicId>,
+        result: &Value,
+        full: impl FnOnce() -> Vec<RegistryWorkspace>,
+    ) -> anyhow::Result<RegistryCommit> {
+        let intent = self.prepare_workspace_change(
+            mutation,
+            fingerprint,
+            expected_generation,
+            expected_revision,
+            event_kind,
+            workspace_key,
+            changed,
+            active_workspace,
+            result,
+            full,
+        )?;
+        Ok(self.commit_registry_intent(RegistryIntent::Workspace(intent))?.into_workspace()?.commit)
     }
 
     /// Commit a workspace registry revision: through the journal writer when
@@ -172,6 +364,9 @@ impl WorkspaceCommitIntent {
             .len()
             .saturating_add(self.result_json.len().saturating_mul(2))
             .saturating_add(self.workspaces.len().saturating_mul(512))
+            .saturating_add(
+                self.changed.as_ref().map_or(0, |changed| changed.rows.len().saturating_mul(512)),
+            )
             .saturating_add(
                 self.previous_topology
                     .as_ref()
@@ -256,7 +451,11 @@ impl WorkspaceCommitIntent {
         }
 
         validate_workspace_key(workspace_key)?;
-        validate_registry(workspaces)?;
+        if let Some(changed) = &self.changed {
+            changed.validate()?;
+        } else {
+            validate_registry(workspaces)?;
+        }
         if let Some(expected) = expected_generation
             && expected != self.generation
         {
@@ -264,6 +463,9 @@ impl WorkspaceCommitIntent {
                 "workspace generation conflict: expected {expected}, current {}",
                 self.generation
             );
+        }
+        if let Some(changed) = &self.changed {
+            return self.apply_changed(tx, extra, changed);
         }
         if let Some(active_workspace) = active_workspace {
             anyhow::ensure!(
@@ -615,3 +817,6 @@ fn raw_upsert_stated(change: &Value, stated: &HashMap<String, Value>, keep: Opti
         _ => stated.get(field) == Some(raw),
     })
 }
+
+#[path = "workspace_change_commit.rs"]
+mod change;

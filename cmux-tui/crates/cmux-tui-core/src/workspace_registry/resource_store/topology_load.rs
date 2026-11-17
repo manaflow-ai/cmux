@@ -112,6 +112,80 @@ impl WorkspaceRegistry {
         Ok(topology)
     }
 
+    /// [`Self::resource_topology_for_workspace_commit`] of a commit that changes only
+    /// `changed` (which hold the active workspace before and after it, and close none): the
+    /// active screen of each of them, not of every workspace, and, when the active workspace
+    /// changes, the active screens of its two ends with their panes and tabs. `None` when the
+    /// active workspace before the commit is not one of `changed`.
+    pub(crate) fn resource_topology_for_workspace_change(
+        &self,
+        changed: &[&WorkspacePublicId],
+        active: Option<&WorkspacePublicId>,
+    ) -> anyhow::Result<Option<ResourceTopologySnapshot>> {
+        let connection = self.connection.get();
+        let active_workspace = meta_value(&connection, "active_workspace_id")?
+            .map(WorkspacePublicId::parse)
+            .transpose()?;
+        if active_workspace.as_ref().is_some_and(|before| !changed.contains(&before)) {
+            return Ok(None);
+        }
+        let mut statement = connection.prepare_cached(
+            "SELECT active_screen_id FROM resource_workspaces
+             WHERE public_id = ?1 AND deleted_revision IS NULL",
+        )?;
+        let mut active_screens = Vec::with_capacity(changed.len());
+        for workspace in changed {
+            let screen = statement
+                .query_row([workspace.as_str()], |row| row.get::<_, Option<String>>(0))
+                .optional()?;
+            if let Some(screen) = screen {
+                active_screens
+                    .push(((*workspace).clone(), screen.map(ScreenPublicId::parse).transpose()?));
+            }
+        }
+        drop(statement);
+        let mut topology = ResourceTopologySnapshot {
+            session_id: self.session_id.clone(),
+            generation: self.generation.clone(),
+            revision: current_resource_revision(&connection)?,
+            active_workspace,
+            active_screens,
+            screens: Vec::new(),
+            panes: Vec::new(),
+            tabs: Vec::new(),
+            browsers: Vec::new(),
+        };
+        if topology.active_workspace.as_ref() != active {
+            let focus_ends = [topology.active_workspace.as_ref(), active]
+                .into_iter()
+                .flatten()
+                .filter_map(|workspace| {
+                    topology
+                        .active_screens
+                        .iter()
+                        .find(|(id, _)| id == workspace)
+                        .and_then(|(_, screen)| screen.clone())
+                })
+                .collect::<Vec<_>>();
+            load_screen_subtrees(&connection, &mut topology, &focus_ends)?;
+        }
+        Ok(Some(topology))
+    }
+
+    /// Whether every live workspace row of the registry has a live resource row and the other
+    /// way around, as far as two counts tell: the number of each, and both `expected`.
+    pub(crate) fn live_workspace_rows_match(&self, expected: usize) -> anyhow::Result<bool> {
+        let connection = self.connection.get();
+        let (ledger, resource) = connection.query_row(
+            "SELECT (SELECT COUNT(*) FROM workspaces WHERE tombstoned = 0),
+                    (SELECT COUNT(*) FROM resource_workspaces WHERE deleted_revision IS NULL)",
+            [],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+        )?;
+        let expected = i64::try_from(expected).ok();
+        Ok(Some(ledger) == expected && Some(resource) == expected)
+    }
+
     /// The stored subtrees of the active workspace and of `workspaces`: what
     /// a focus change reads, since it changes only the workspace it leaves and
     /// the one it focuses. One frame read names the active workspace.
