@@ -31,6 +31,9 @@ const MAX_LOG_CHARS: usize = 4096;
 /// Bytes of messages one entry point may produce; more kills the VM (the
 /// outbox lives outside the counted engine heap).
 const MAX_OUTBOX_BYTES: usize = 8 * 1024 * 1024;
+/// What one call refused by the pending cap charges to the outbox budget (its id and the
+/// `app.limit` answer it is owed).
+const REFUSED_CALL_BYTES: usize = 64;
 /// Armed timers and live subscriptions per VM; more kills the VM.
 const MAX_TIMERS: usize = 256;
 const MAX_SUBSCRIPTIONS: usize = 256;
@@ -613,6 +616,11 @@ impl AppVm {
                 break;
             }
             for cb in overflow {
+                // The deadline stays armed while refused calls are answered; past it (or any
+                // other limit) the rest go unanswered, since the VM dies at the end of the entry.
+                if self.limit_hit() {
+                    return;
+                }
                 let body = json!({"code": "app.limit", "message": "too many pending calls", "retryable": true}).to_string();
                 let outcome = self.context.with(|ctx| {
                     call_global::<_, ()>(&ctx, "__cmuxAppResolve", (cb as f64, false, body))
@@ -712,6 +720,13 @@ fn install_native<'js>(ctx: &Ctx<'js>, shared: &Rc<RefCell<Shared>>) -> rquickjs
                     return;
                 }
                 if shared.pending_calls.len() >= shared.max_pending_calls {
+                    // Refused ids live outside the engine heap until the entry ends; they count
+                    // toward the outbox budget so a flood of them floods the VM.
+                    shared.outbox_bytes = shared.outbox_bytes.saturating_add(REFUSED_CALL_BYTES);
+                    if shared.outbox_bytes > MAX_OUTBOX_BYTES {
+                        shared.flooded = true;
+                        return;
+                    }
                     shared.overflow.push(cb);
                     return;
                 }
