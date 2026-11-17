@@ -680,8 +680,9 @@ impl Customize {
             }
             match library.entries.iter().position(|have| have.name() == name) {
                 Some(at) if !top => {
-                    let on = library.entries[at].on;
-                    library.entries[at] = Entry { on, ..entry };
+                    if let Some(have) = library.entries.get_mut(at) {
+                        *have = Entry { on: have.on, ..entry };
+                    }
                 }
                 Some(at) => {
                     library.entries.remove(at);

@@ -322,7 +322,7 @@ fn theme_profile(dir: &Path, header: &Value) -> Result<(Profile, Vec<String>), E
         names.push(name.to_owned());
     }
     let active = match header.get("use") {
-        None | Some(Value::Null) => names[0].clone(),
+        None | Some(Value::Null) => names.first().cloned().unwrap_or_default(),
         Some(Value::String(name)) if names.contains(name) => name.clone(),
         Some(_) => {
             return Err(refuse(format!(
@@ -500,10 +500,10 @@ pub fn check_engines(package: &Package, release: &str) -> Result<(), Error> {
 pub fn fetches(css: &str) -> Option<&'static str> {
     let mut plain = String::with_capacity(css.len());
     let mut rest = css;
-    while let Some(at) = rest.find("/*") {
-        plain.push_str(&rest[..at]);
+    while let Some((before, after)) = rest.split_once("/*") {
+        plain.push_str(before);
         plain.push(' ');
-        rest = rest[at + 2..].find("*/").map_or("", |end| &rest[at + 2 + end + 2..]);
+        rest = after.split_once("*/").map_or("", |(_, tail)| tail);
     }
     plain.push_str(rest);
     let lower = plain.to_ascii_lowercase();
@@ -517,12 +517,12 @@ pub fn fetches(css: &str) -> Option<&'static str> {
         return Some("it loads an image or font by address");
     }
     let mut search = lower.as_str();
-    while let Some(at) = search.find("url(") {
-        let inner = search[at + 4..].trim_start().trim_start_matches(['"', '\'']).trim_start();
+    while let Some((_, after)) = search.split_once("url(") {
+        let inner = after.trim_start().trim_start_matches(['"', '\'']).trim_start();
         if !inner.starts_with("data:") {
             return Some("it has a url() that is not a data: URL");
         }
-        search = &search[at + 4..];
+        search = after;
     }
     None
 }

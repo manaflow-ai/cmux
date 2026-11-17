@@ -157,8 +157,8 @@ impl Consent {
 
 fn fail(global: &GlobalArgs, code: &str, message: String, details: Option<Value>) -> i32 {
     let mut error = json!({ "code": code, "message": message });
-    if let Some(details) = details {
-        error["details"] = details;
+    if let (Some(details), Some(map)) = (details, error.as_object_mut()) {
+        map.insert("details".to_owned(), details);
     }
     super::wire::print_local_error(&error, global.output, 1)
 }
@@ -433,10 +433,10 @@ impl RepoRef {
             None => (rest, None),
         };
         let segments: Vec<&str> = location.trim_end_matches('/').split('/').collect();
-        if segments.len() < 3 {
+        let [host, owner, repo, path @ ..] = segments.as_slice() else {
             return bad("name the repository as HOST/OWNER/REPO");
-        }
-        let host = segments[0].to_ascii_lowercase();
+        };
+        let host = host.to_ascii_lowercase();
         if !host.contains('.')
             || host.parse::<std::net::IpAddr>().is_ok()
             || !host.split('.').all(|label| {
@@ -445,12 +445,12 @@ impl RepoRef {
         {
             return bad("the host is not a public host name");
         }
-        let owner = segments[1].to_owned();
-        let repo = segments[2].trim_end_matches(".git").to_owned();
+        let owner = (*owner).to_owned();
+        let repo = repo.trim_end_matches(".git").to_owned();
         if !segment_ok(&owner) || !segment_ok(&repo) {
             return bad("the owner or repository name has characters a repository cannot have");
         }
-        let path: Vec<&str> = segments[3..].to_vec();
+        let path: Vec<&str> = path.to_vec();
         if path.iter().any(|segment| !segment_ok(segment)) {
             return bad("the path has an empty, hidden or unusual directory name");
         }
