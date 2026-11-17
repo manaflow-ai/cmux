@@ -63,8 +63,11 @@ final class TerminalHistoryWindowDemo {
         let daemon = daemon
         session = DaemonTerminalSession(
             surface: 1,
-            open: { DaemonClient(channel: daemon.main, eventCapacity: BoundedDaemonEventBuffer.defaultCapacity) },
-            openInput: { DaemonClient(channel: daemon.lane, eventCapacity: BoundedDaemonEventBuffer.defaultCapacity) }
+            // A channel per open, as the link opens one per attach: a history
+            // fetch is a second attach, and closing the one it replaces must
+            // not end the new one's stream.
+            open: { DaemonClient(channel: daemon.openChannel(), eventCapacity: BoundedDaemonEventBuffer.defaultCapacity) },
+            openInput: { DaemonClient(channel: daemon.openChannel(), eventCapacity: BoundedDaemonEventBuffer.defaultCapacity) }
         )
         model = TerminalModel(session: session, artifactSource: MockArtifactSource(), title: "history window demo")
     }
@@ -75,7 +78,7 @@ final class TerminalHistoryWindowDemo {
     var state: String {
         let window = session.historyWindowStart.map(String.init) ?? "tail"
         return "omitted=\(session.historyRowsOmitted) window=\(window) skipped=\(session.historyRowsSkipped) "
-            + "fetches=\(daemon.attachCount) maxHeld=\(daemon.maxHeldRows) of=\(daemon.historyRows)"
+            + "fetches=\(daemon.attachCount) down=\(daemon.windowStepsDown) maxHeld=\(daemon.maxHeldRows) of=\(daemon.historyRows)"
     }
 }
 
@@ -83,9 +86,8 @@ final class TerminalHistoryWindowDemo {
 /// a numbered screen, served as cmux-tui serves a windowed viewer.
 final class HistoryWindowDaemon: @unchecked Sendable {
     let historyRows: Int
-    let main: FloodChannel
-    let lane: FloodChannel
     private let lock = NSLock()
+    private var nextChannel: UInt32 = 0
     private var attaches = 0
     private var held = 0
     /// The terminal's grid: the last size an attach or `resize-surface` gave it.
@@ -93,13 +95,27 @@ final class HistoryWindowDaemon: @unchecked Sendable {
 
     var attachCount: Int { lock.withLock { attaches } }
     var maxHeldRows: Int { lock.withLock { held } }
+    /// Window fetches whose first row is nearer the screen than the window
+    /// asked for before: the reader coming down moved the window.
+    var windowStepsDown: Int { lock.withLock { stepsDown } }
+    /// The first row of the last window asked for (`replay_history_start`).
+    private var lastWindowStart: Int?
+    private var stepsDown = 0
 
     init(historyRows: Int) {
         self.historyRows = historyRows
-        main = FloodChannel(id: 1)
-        lane = FloodChannel(id: 2)
-        main.onSend = { [weak self] line in self?.request(line, on: self?.main) }
-        lane.onSend = { [weak self] line in self?.request(line, on: self?.lane) }
+    }
+
+    /// A new daemon channel (an attach or an input lane); each request is
+    /// answered, and its events sent, on the channel it came on.
+    func openChannel() -> FloodChannel {
+        let id = lock.withLock { () -> UInt32 in
+            nextChannel += 1
+            return nextChannel
+        }
+        let channel = FloodChannel(id: id)
+        channel.onSend = { [weak self, weak channel] line in self?.request(line, on: channel) }
+        return channel
     }
 
     static func line(_ row: Int) -> String {
@@ -161,6 +177,10 @@ final class HistoryWindowDaemon: @unchecked Sendable {
             lock.withLock {
                 attaches += 1
                 held = max(held, rows.count)
+                if let start = object["replay_history_start"] as? Int {
+                    if let last = lastWindowStart, start > last { stepsDown += 1 }
+                    lastWindowStart = start
+                }
             }
             NSLog("[history-window-demo] attach %ldx%ld rows=%@ start=%@ held=%ld", cols, screenRows,
                   String(describing: object["replay_history_rows"] ?? "all"),
@@ -180,7 +200,7 @@ final class HistoryWindowDaemon: @unchecked Sendable {
             channel.push([reply()])
             if changed {
                 NSLog("[history-window-demo] resized %ldx%ld", cols, rows)
-                main.push([Self.encode(["event": "resized", "surface": 1, "cols": cols, "rows": rows,
+                channel.push([Self.encode(["event": "resized", "surface": 1, "cols": cols, "rows": rows,
                                         "history_rows_omitted": historyRows,
                                         "replay": Data(("\u{1B}c" + screen(rows: rows)).utf8).base64EncodedString()])])
             }

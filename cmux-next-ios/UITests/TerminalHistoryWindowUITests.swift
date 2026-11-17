@@ -21,6 +21,8 @@ final class TerminalHistoryWindowUITests: XCTestCase {
         var window: Int?
         var skipped = -1
         var fetches = 0
+        /// Window fetches that moved the window toward the screen.
+        var down = 0
         var maxHeld = 0
         var of = 0
     }
@@ -53,13 +55,19 @@ final class TerminalHistoryWindowUITests: XCTestCase {
         attach(app, "3-line-1")
 
         // Back down: reaching the window's end moves it toward the screen.
+        // Read from the fake Mac's side (`down`: window fetches whose first
+        // row is nearer the screen than the one before), not the caption's
+        // window, which one fling can carry past every step to the tail
+        // between two reads. Without `loadNewerHistory` from the scroll this
+        // stays 0 and the test fails here.
         drags = 0
-        while (state(caption).window ?? 0) == 0, drags < 200 {
+        while state(caption).down == 0, drags < 200 {
             fling(app, from: 0.7, to: 0.2)
             drags += 1
         }
         let down = state(caption)
-        XCTAssertGreaterThan(down.window ?? 0, 0, "coming down moves the window toward the screen after \(drags) drags: \(caption.label)")
+        XCTAssertGreaterThan(down.down, 0, "coming down moves the window toward the screen after \(drags) drags: \(caption.label)")
+        XCTAssertLessThanOrEqual(down.maxHeld, 10_000, "no replay on the way down held more than 10,000 rows: \(caption.label)")
         attach(app, "4-window-moved-down")
 
         // To the screen, then up from it: the newest rows come back, contiguous.
@@ -80,7 +88,12 @@ final class TerminalHistoryWindowUITests: XCTestCase {
         let newest = state(caption)
         XCTAssertNil(newest.window, "the mirror holds the newest rows again: \(caption.label)")
         XCTAssertEqual(newest.skipped, 0, "its rows reach the Mac's screen: \(caption.label)")
-        XCTAssertEqual(newest.omitted, 20_000, "the newest 10,000 rows: \(caption.label)")
+        // The newest rows: at most 10,000 of them (the tail's cap), and some.
+        // Their count depends on how it got there: up from the screen asks
+        // for 10,000; the window stepping down to within its size of the
+        // screen keeps the rows from its start (at most twice the window).
+        XCTAssertLessThan(newest.omitted, 30_000, "the mirror holds history rows: \(caption.label)")
+        XCTAssertLessThanOrEqual(30_000 - newest.omitted, 10_000, "at most the newest 10,000 rows: \(caption.label)")
         XCTAssertLessThanOrEqual(newest.maxHeld, 10_000, "no replay held more than 10,000 rows: \(caption.label)")
         attach(app, "6-newest-rows")
         print("HISTORY-WINDOW-UI final: \(caption.label)")
@@ -108,6 +121,7 @@ final class TerminalHistoryWindowUITests: XCTestCase {
             case "window": state.window = value
             case "skipped": state.skipped = value ?? -1
             case "fetches": state.fetches = value ?? 0
+            case "down": state.down = value ?? 0
             case "maxHeld": state.maxHeld = value ?? 0
             case "of": state.of = value ?? 0
             default: break
