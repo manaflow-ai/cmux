@@ -14,6 +14,8 @@ animation speed and its span record are a model from a read of the app's code. S
 script's own logic (names, flow, rows, exit codes), NOT the app and NOT what LaunchServices does on a Mac.
 The fake's dialogs, overlays, messages and refusal list (`debug.dialog`, `debug.focus`, `debug.toast`) are such a model
 too: no test here says what the app shows over its window, or when it asks before a close.
+The fake's window list (`debug.window_list`), its window focus command, its session maker and its workspace switch
+are such a model too: no test here says when the app has a new window on the screen, or what a switch shows.
 Run: python3 -I scripts/measure/tests/pane-motion-films.test.py"""
 import contextlib, importlib.util, io, itertools, json, os, shutil, signal, subprocess, sys, tempfile, unittest
 from unittest import mock
@@ -107,6 +109,16 @@ class World:
         self.layout_dead = False
         self.cleared = False  # True from the last read of the check before a take (`debug.toast`) to the recorder's start
         self.no_panes = False  # `layout-has-no-pane-from-the-take`: as `layout_dead`, with a reply that has the workspace
+        # The app's windows of the kind `main`: the window number (the `id` of `debug.window_list`), the model key
+        # (the layout reply has it as `key`, and `win_` + the key as `id`), and how many reads of the window list
+        # the app needs before it has the window (`new-window-comes-late`: 3; the app has no window before that).
+        # `front`: the key of the window that the last `debug.window.focus` moved to the front. `window_came`: for
+        # each new window, if the recorder of a film captured when the app had the window first.
+        self.wins, self.front, self.window_came = [{"number": 1, "key": "window1", "reads_left": 0}], "window1", []
+        self.mods = set()  # the modifier keys that are down at the key of `key`
+        # The workspaces that the session's maker made, and each `goToWorkspace` action: (the workspace, if the
+        # recorder of a film captured).
+        self.session, self.shows = [], []
 
     def film(self, state):
         """If the recorder of a FILM (not of the preflight) is in `state` now: `capturing` or `written`."""
@@ -158,6 +170,21 @@ class World:
         self.changed()
 
     def key(self, name, turned=False):
+        if name == "n" and self.mods == {"shift", "cmd"}:  # a new window
+            self.changed()  # the programs of the panes draw: the recorder has frames with no new window too
+            if "no-new-window" not in self.faults:
+                late = "new-window-comes-late" in self.faults
+                number = self.wins[-1]["number"] + 1
+                self.wins.append({"number": number, "key": f"window{number}", "reads_left": 3 if late else 0})
+                if not late:
+                    self.window_came.append(self.film("capturing"))
+            return True
+        if name in ("2", "3") and self.mods == {"cmd"}:
+            # As on a Mac with the session: the rows 2 and 3 of the sidebar are the App Store and the Home, and no
+            # workspace of the session is shown.
+            self.shown = {"2": "app-store", "3": "home"}[name]
+            self.changed()
+            return True
         space = self.spaces[self.shown]
         pane = next(p for p in space["panes"] if p["id"] == self.focus)
         if name in "tw" and "tab-keys-dead-in-a-film" in self.faults and self.sequences > PREFLIGHT_KEYS:
@@ -268,6 +295,27 @@ class FakeApp:
                 toast["replies_left"] -= "message-stays" not in world.faults
             world.toasts[:] = [toast for toast in world.toasts if toast["replies_left"] > 0]
             return {"windows": [{"window": "window1", "toasts": shown}], "refusals": list(world.refusals)}
+        if method == "debug.window_list":
+            if "window-list-read-fails" in world.faults or ("window-list-read-fails-in-the-take" in world.faults and world.film("capturing")):
+                return {"error": "a fake fault of the window list read"}  # as the socket call gives a read that failed
+            for window in world.wins:
+                if window["reads_left"]:
+                    window["reads_left"] -= 1
+                    if not window["reads_left"]:  # the app has the window from this read
+                        world.window_came.append(world.film("capturing"))
+                        world.changed()
+            covered = "new-window-not-on-the-screen" in world.faults  # the app has the window, and it is not on the screen
+            listed = [{"id": w["number"], "kind": "main", "visible": True, "occluded": covered and w["number"] > 1, "miniaturized": False}
+                      for w in world.wins if not w["reads_left"]]
+            # One window that is no `main` window, with a new id after each new window: a panel is not the film's window.
+            return {"windows": listed + [{"id": 90 + len(world.wins), "kind": "panel", "visible": True, "occluded": False, "miniaturized": False}]}
+        if method == "debug.window.focus":
+            # By a read of the app's code (DebugKey.swift): the command takes the window's model key, not its public id.
+            found = next((w for w in world.wins if w["key"] == params.get("window") and not w["reads_left"]), None)
+            if not found:
+                return {"error": "no window with that id"}
+            world.front = found["key"]
+            return {"key": world.front, "front": world.front}
         if method == "debug.frames":
             return {} if params.get("action") == "start" else {"frames": 120, "p50_ms": 8.33, "refresh_ms": 8.33}
         if method == "debug.window_frame":
@@ -332,6 +380,8 @@ class FakeApp:
             for step in params["sequence"]:
                 at += step.get("after_ms", 0)
                 name = CODE[step["key_code"]]
+                if name in M.MODIFIERS:
+                    (world.mods.add if step["down"] else world.mods.discard)(name)
                 if step["down"] and name not in M.MODIFIERS:
                     # A second zoom key before the visible end of the first one turns that motion.
                     turned = name == "return" and zoom_at is not None and at - zoom_at < M.ZOOM_MS[world.speed]
@@ -346,6 +396,7 @@ class FakeApp:
         if method == "debug.key":
             world.one_keys += 1
             world.targets.append(params.get("target"))
+            world.mods = {{"option": "opt"}.get(name, name) for name in params.get("modifiers") or []}
             if params.get("target") == "page" and "page-refuses-one-key" in world.faults:
                 return {"error": "no Chromium page window for pane"}  # the app's refusal, before a dispatch of the key
             took = world.key(params["key"])
@@ -366,7 +417,8 @@ class FakeStress:
         self.world, self.made, self.refusals, self.chat_fallbacks = rpc.__self__.world, {}, [], 0
 
     def topology(self):
-        return {"windows": [{"id": "window1"}]}
+        # As the app's layout reply: `id` = the window's public id, `key` = its model key.
+        return {"windows": [{"id": "win_" + w["key"], "key": w["key"]} for w in self.world.wins if not w["reads_left"]]}
 
     def workspaces(self):
         return [{"id": ident} for ident in self.world.spaces]
@@ -435,6 +487,18 @@ class FakeStress:
             self.world.zoom(ident)
         elif name == "closeWorkspace":
             self.world.spaces.pop(ident, None)
+        elif name == "closeWindow":  # the app closes its front window; the fake keeps its first window
+            self.world.wins[:] = [w for w in self.world.wins if w["key"] != self.world.front or w["number"] == 1]
+            self.world.front = "window1"
+        elif name == "goToWorkspace":
+            wanted = (params or {}).get("workspace")
+            self.world.shows.append((wanted, self.world.film("capturing")))
+            if "switch-refused" in self.world.faults:
+                return {"error": "a fake refusal of the switch"}
+            # The faults: the app takes the action and the window shows the workspace that it showed before.
+            if not ("switch-shows-nothing" in self.world.faults or ("switch-shows-nothing-in-a-film" in self.world.faults and self.world.film("capturing"))):
+                self.world.shown = wanted
+                self.world.changed()
         elif name == "newTab.page":
             next(p for s in self.world.spaces.values() for p in s["panes"] if p["id"] == ident)["tabs"].append({"id": self.world.ident("tab"), "kind": "newtab"})
         elif name == "closeTab":
@@ -466,6 +530,13 @@ class FakeSubprocess:
                 return subprocess.CompletedProcess(command, 1, "", "ps: a fake fault")
             # 101: a process that the app started with its own binary (no instance); 300: another app.
             said = "".join(f"{pid} {parent} {BINARY}\n" for pid, parent in world.pids.items()) + f"101 100 {BINARY} --helper\n300 1 /Applications/Other.app/Contents/MacOS/Other\n"
+        elif "make" in command[:3] and "--workspaces" in command:
+            # The session's maker: it makes the workspaces on the app's daemon, and the app lists them.
+            count = 0 if "maker-makes-none" in world.faults else int(command[command.index("--workspaces") + 1])
+            for _ in range(count):
+                world.session.append(world.ident("workspace"))
+                world.spaces[world.session[-1]] = {"panes": [world.pane()], "zoomed": None}
+            said = f"made {count}/{count}\n"
         elif command[:2] == ["/usr/bin/lsappinfo", "front"]:
             said = "ASN:0x0-0x1b01b:\n"
         elif command[0] == "/usr/bin/lsappinfo":
@@ -1192,6 +1263,84 @@ class FilmsCase(unittest.TestCase):
         code, report, lines, launches = self.run_films({"launch-activates", "layout-has-no-pane-after-the-acts"}, "--films", "T-Z")
         row = report["films"][0]
         self.assertEqual((code, row["status"], row.get("panes_after"), row.get("zoomed_end")), (1, "not_made", "not read", "not read"))
+
+    def test_the_film_of_a_new_window_ends_only_after_the_app_has_the_window_on_the_screen(self):
+        # The app needs time for a new window: its window list has the window at the third read after the key.
+        code, report, lines, launches = self.run_films({"launch-activates", "new-window-comes-late"}, "--films", "P16")
+        row, world = report["films"][0], launches[0].world
+        self.assertEqual((code, row["status"], row.get("new_windows"), world.window_came), (0, "made", 1, [True]))
+        self.assertEqual(row["act_check"], "act check: the refusal list, the dialogs, the pane count, the new windows (+1)")
+        self.assertIn("new_window_at_s", row)
+
+    def test_a_new_window_that_the_app_does_not_have_on_the_screen_is_not_made(self):
+        # `no-new-window`: the app takes the key and makes no window. `new-window-not-on-the-screen`: the app has the
+        # window, and its list says that the window is covered. In each case one more window that is no `main` window
+        # is in the list: it is not the film's window.
+        for fault in ("no-new-window", "new-window-not-on-the-screen"):
+            with self.subTest(fault=fault):
+                code, report, lines, launches = self.run_films({"launch-activates", fault}, "--films", "P16")
+                row = report["films"][0]
+                self.assertEqual((code, row["status"], row.get("new_windows"), row.get("reason"), row.get("take_file")), (
+                    1, "not_made", 0, "0 new windows of the kind `main` on the screen by the app's window list in 20 s after the acts: "
+                    "the film's acts make 1", "P16.not-made.mov"))
+                self.assertNotIn("new_window_at_s", row)
+
+    def test_a_window_list_that_is_not_read_is_not_made_and_is_no_count_of_windows(self):
+        code, report, lines, launches = self.run_films({"launch-activates", "window-list-read-fails"}, "--films", "P16")
+        row = report["films"][0]
+        self.assertEqual((code, row["status"], row.get("reason")), (
+            1, "not_made", "before the take: the window list read gave no list: {'error': 'a fake fault of the window list read'}"))
+        self.assertNotIn("take_file", row)  # no recorder start, no movie
+        code, report, lines, launches = self.run_films({"launch-activates", "window-list-read-fails-in-the-take"}, "--films", "P16")
+        row = report["films"][0]
+        self.assertEqual((code, row["status"], row.get("new_windows"), row.get("reason")), (
+            1, "not_made", "not read", "the window list after the acts was not read"))
+
+    def test_the_tool_closes_the_window_that_a_film_made(self):
+        # The app's window focus command takes the window's model key. With the public id of the layout reply the app
+        # says `no window with that id`, and the window stays open under each later film.
+        code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "P16")
+        row, world = report["films"][0], launches[0].world
+        self.assertEqual((code, row["status"], row["left_open"], [w["key"] for w in world.wins]), (0, "made", [], ["window1"]))
+
+    def test_the_workspace_switch_shows_2_workspaces_of_the_session_by_the_action_and_by_no_key(self):
+        code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "P17", "--workspaces", "3")
+        row, world = report["films"][0], launches[0].world
+        self.assertEqual((code, row["status"], row["keys"]), (0, "made", "action goToWorkspace (no key), action goToWorkspace (no key)"))
+        # Before the take: the first workspace of the session, then the film's own workspace again. In the take: that
+        # first one (shown before), then the second one (the tool did not show it before).
+        first, second = world.session[:2]
+        self.assertEqual((world.shows, world.shown), ([(first, False), (first, True), (second, True)], second))
+        self.assertEqual([act.get("workspace_of_the_session") for act in row["acts"]], [1, 2])
+        self.assertEqual(report["launches"][0]["session"]["workspaces_of_the_maker"], 3)
+        # A key of Command and a row number shows the row of the sidebar with that number: that is a workspace of the
+        # session only when no other row is above it. No film has such a key.
+        rows = [f"cmd+{number}" for number in range(1, 10)]
+        self.assertEqual([spec["id"] for spec in M.FILMS for part in ("pre", "acts", "post") for act in spec.get(part, ())
+                          if act[0] == "keys" and act[1] in rows], [])
+
+    def test_a_switch_that_does_not_show_the_workspace_of_the_session_is_not_made(self):
+        words = "the window did not show the workspace 1 of the session in 10 s after the action goToWorkspace"
+        code, report, lines, launches = self.run_films({"launch-activates", "switch-shows-nothing-in-a-film"}, "--films", "P17", "--workspaces", "3")
+        row = report["films"][0]
+        self.assertEqual((code, row["status"], row.get("reason"), row.get("take_file")), (1, "not_made", words, "P17.not-made.mov"))
+        code, report, lines, launches = self.run_films({"launch-activates", "switch-shows-nothing"}, "--films", "P17", "--workspaces", "3")
+        row = report["films"][0]
+        self.assertEqual((code, row["status"], row.get("reason")), (1, "not_made", "before the take: " + words))
+        self.assertNotIn("take_file", row)  # no recorder start, no movie
+        code, report, lines, launches = self.run_films({"launch-activates", "switch-refused"}, "--films", "P17", "--workspaces", "3")
+        row = report["films"][0]
+        self.assertEqual((code, row["status"], row.get("reason")), (
+            1, "not_run", "the app refused action goToWorkspace (no key): a fake refusal of the switch"))
+
+    def test_the_workspace_switch_is_not_run_in_a_launch_with_no_2_workspaces_of_the_session(self):
+        for count, args, faults in ((0, (), ()), (1, ("--workspaces", "1"), ()), (0, ("--workspaces", "3"), ("maker-makes-none",))):
+            with self.subTest(args=args, faults=faults):
+                code, report, lines, launches = self.run_films({"launch-activates", *faults}, "--films", "P17", *args)
+                row, world = report["films"][0], launches[0].world
+                self.assertEqual((code, row["status"], row.get("reason"), world.shows, world.sequences), (
+                    1, "not_run", f"the film shows 2 workspaces of the session, and this launch has {count} (the workspaces that the app "
+                    "listed after the session's maker and not before it)", [], PREFLIGHT_KEYS))
 
     def test_a_span_record_with_no_list_is_not_made(self):
         code, report, lines, launches = self.run_films({"launch-activates", "no-span-list"}, "--films", "T-Z.2")
