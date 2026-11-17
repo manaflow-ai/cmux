@@ -26,8 +26,9 @@ After MAX_MINUTES it goes anyway; an unreadable feed or ref does not skip. It re
 
 The two waits hold only while one Mac signs (--signers 1). Since 2026-11-12 two do (Leo, hq#10366: "ultra1 signs
 the nightly too, cmux15 stays ready as the standby signer"), and the loop builds one nightly at a time, so the
-build in flight holds one and the deltas take the other: with --signers 2 or more only the newer-build skip is
-left. The waits never ended in a busy loop (a landing every few minutes keeps feat-cmux-next past nightly-next,
+build in flight holds one and the deltas usually take the other: with --signers 2 or more only the newer-build
+skip is left. A build can still wait for the deltas (about 10 min of the keyed job) when another signing job, such
+as the classic nightly, holds the second Mac at that moment; deltas, at 10x smaller updates, are worth that. The waits never ended in a busy loop (a landing every few minutes keeps feat-cmux-next past nightly-next,
 and the next build publishes before the loop is quiet): run 44023631489 waited 33 min and skipped, and 6 of the
 8 published builds before it (2026-11-16 21:14Z to 2026-11-17 05:22Z) skipped their deltas, so the feed served
 231 MB full DMGs where the delta from the build before was 15-24 MB. NIGHTLY_NEXT_SIGNERS=1 (a repository
@@ -117,7 +118,7 @@ def main(argv: list[str], feed=read_feed, ref=ls_remote,
     parser.add_argument("--build", required=True, type=int)
     parser.add_argument("--feed", required=True)
     parser.add_argument("--signers", type=int, default=1,
-                        help="Macs that carry the nightly-next signing label; 2 or more never wait for the loop")
+                        help="Macs that carry the nightly-next signing label; with 2 or more the deltas do not wait for the loop")
     parser.add_argument("--quiet-minutes", type=float, default=QUIET_MINUTES)
     parser.add_argument("--max-minutes", type=float, default=MAX_MINUTES)
     parser.add_argument("--poll-seconds", type=float, default=POLL_SECONDS)

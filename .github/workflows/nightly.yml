@@ -6699,7 +6699,7 @@ jobs:
           retention-days: 1
           overwrite: true
       # Before the keyed job asks for the signer Mac; scripts/ci/nightly_deltas_yield.py. Two signers (ultra1, cmux15)
-      # never wait for the loop; NIGHTLY_NEXT_SIGNERS=1 puts the wait back while one is out.
+      # do not wait for the loop (a build may wait when another job holds the second); NIGHTLY_NEXT_SIGNERS=1 waits again.
       - name: Yield the signer Mac to the nightly-next build loop
         id: deltas-yield
         if: needs.published-build.outputs.track == 'nightly-next'
