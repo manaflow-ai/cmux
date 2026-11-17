@@ -12,6 +12,11 @@ import os
 // WebKit view stays as an unloaded, hidden subview, so a page that fails in Chromium reopens in
 // WebKit at once (``fallBackToWebKit(_:)``) and WebKit-only hosts keep compiling.
 extension PageWebView {
+    var chromiumZoomScript: String {
+        PageChromiumDocumentScripts.pageZoomScript(
+            backingScale: Double(window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1))
+    }
+
     /// Re-syncs every Chromium page in a view subtree with its AppKit state.
     public static func syncChromiumVisibility(in root: NSView) {
         if let page = root as? PageWebView { page.setChromiumVisibility(true) }
@@ -213,7 +218,7 @@ extension PageWebView {
         }
         chromiumSession = session
         scriptTarget.bridge = bridge
-        bridge.evaluate(DesignSettings.shared.interfaceScaleScript(pageZoom: pageZoom))
+        bridge.evaluate(chromiumZoomScript + DesignSettings.shared.interfaceScaleScript(pageZoom: pageZoom))
         page.setZoom(pageZoom)
         // The WebKit page draws no background (`drawsBackground` off): the Chromium page neither.
         page.setSeeThrough(true)
@@ -305,6 +310,7 @@ extension PageWebView {
             }
             chromiumSession.bridge.rebind()
             documentCommitted()
+            chromiumSession.bridge.evaluate(chromiumZoomScript)
         case .finished:
             documentFinished()
         case .crashed:
@@ -456,10 +462,18 @@ extension PageWebView {
         return PageSchemeHandler.readyResponse(to: request, source: ready)
     }
 
-    /// `url`'s file of `page` at `root` as the live web loop answers it, for a Chromium tab that has
-    /// no page host (a browser tab at a `cmux-page://` address). A dynamic path is a 404 there.
-    public static func liveChromiumResource(_ url: URL, range: String?, page: PageDescriptor, root: URL) async -> PageChromiumResponse {
+    /// `url`'s file of `page` at `root` for a Chromium page, including a browser tab without a
+    /// page host. A dynamic path is a 404 here.
+    /// `bundledOnly` keeps imports beside a document served directly by the shim, outside the live loop.
+    public static func liveChromiumResource(_ url: URL, range: String?, page: PageDescriptor, root: URL,
+                                           bundledOnly: Bool = false) async -> PageChromiumResponse {
         guard PageSchemeHandler.dynamicRequest(for: url, page: page) == nil else { return .notFound }
+        if bundledOnly {
+            guard let file = PageSchemeHandler.fileURL(for: url, page: page, root: root),
+                  let body = await PageSchemeHandler.read(file) else { return .notFound }
+            return PageSchemeHandler.chromiumResponse(PageSchemeHandler.reply(url: url, csp: page.csp,
+                status: 200, mimeType: PageSchemeHandler.mimeType(forExtension: file.pathExtension), body: body))
+        }
         return await PageSchemeHandler.liveChromiumResponse(to: url, range: range, page: page, root: root, dynamicSource: nil)
     }
 

@@ -113,6 +113,13 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // answered here while the peer is down too.
     "_acpmux/peer_snapshot",
     "_acpmux/peer_snapshots_clear",
+    // A launch credential is for this daemon's own session only (`agent_credentials.rs`).
+    crate::agent_credentials::UPDATE_METHOD,
+    // The machine's own journal takes records only from its owner's link or its own socket
+    // (`hub/journal_restore.rs`): never one this daemon passes on for a client, whose origin the
+    // peer would read as this daemon's.
+    "_acpmux/journal_restore",
+    "_acpmux/attachments_held",
 ];
 
 /// Whether `m` names a session that a peer's session forwards for: not one this daemon answers
@@ -276,7 +283,7 @@ pub(super) async fn forward(
     m: &str,
     params: &Value,
 ) -> Option<Result<Value, RpcError>> {
-    let reply = forward_inner(hub, conn, m, params).await.transpose();
+    let reply = gated(hub, conn, m, params).await;
     // A message this daemon handed to a peer's session is a cross-host send (`xhost_audit.rs`).
     if matches!(m, method::SESSION_PROMPT | method::MUX_SEND_QUEUE) && matches!(reply, Some(Ok(_)))
     {
@@ -303,6 +310,44 @@ pub(super) async fn forward(
         return reply.map(|r| r.map_err(super::redact::hide_unreachable_peer));
     }
     reply
+}
+
+/// [`forward_inner`], for a prompt to a peer after its link's restores are decided: run first, it
+/// would take the seqs they need (`hub/peer_snapshot/restore.rs`). It goes on the link the
+/// decision was of, or not at all (review of #37284 at 4dcbe192, F2): a link that replaced it
+/// meanwhile refuses it, and it goes back through the gate, of the new link, a few times at most.
+async fn gated(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    m: &str,
+    params: &Value,
+) -> Option<Result<Value, RpcError>> {
+    let remote = (m == method::SESSION_PROMPT)
+        .then(|| session_key(params).ok())
+        .flatten()
+        .filter(|key| hub.resolve(key).is_err())
+        .and_then(|key| hub.resolve_remote(key));
+    let Some((peer, id, _)) = remote else {
+        return forward_inner(hub, conn, m, params, None).await.transpose();
+    };
+    let mut tries = 0;
+    loop {
+        tries += 1;
+        let link = match hub.peer_snapshots.restores_done(&peer, &id).await {
+            Ok(link) => link,
+            Err(e) => return Some(Err(e)),
+        };
+        let reply = forward_inner(hub, conn, m, params, link).await.transpose();
+        let moved = link.is_some_and(|l| (peer.generation, peer.link_epoch()) != l);
+        if tries < 4
+            && moved
+            && matches!(&reply, Some(Err(e)) if e.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str) == Some("peer_unreachable"))
+            && peer.ready()
+        {
+            continue;
+        }
+        return reply;
+    }
 }
 
 /// What a request refused because `peer`'s link is down asks of the peer: a message (from any
@@ -361,6 +406,7 @@ async fn forward_inner(
     conn: &Arc<Conn>,
     m: &str,
     params: &Value,
+    gate: Option<crate::hub::peer_snapshot::Link>,
 ) -> Result<Option<Value>, RpcError> {
     if super::remote_guard::cloud_mobile(params)
         && let Ok(key) = session_key(params)
@@ -669,6 +715,9 @@ async fn forward_inner(
                 | method::ACP_SESSION_FORK
         ) {
             if m == method::MUX_ATTACH {
+                if let Some(error) = hold_attach_peer_refusal(params) {
+                    return Err(error);
+                }
                 let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
                 let event_stream =
                     params.get("eventStream").and_then(Value::as_bool).unwrap_or(false);
@@ -842,7 +891,14 @@ async fn forward_inner(
         // must reach the peer even when its client is gone.
         // A page goes on the link it is labelled with, or fails; so does a held prompt, an
         // answer to one or a read of one, on the link that listed its feature.
-        let on = bound.unwrap_or_else(|| pages.then_some(link).or(resume_link.flatten()));
+        let mut on = bound.unwrap_or_else(|| pages.then_some(link).or(resume_link.flatten()));
+        // A prompt goes on the link whose restore decision let it go, and no other.
+        if let Some((generation, epoch)) = gate {
+            if peer.generation != generation || on.is_some_and(|o| o != epoch) {
+                return Err(peer.unreachable_error());
+            }
+            on = Some(epoch);
+        }
         let result = if matches!(m, method::MUX_INFO | method::MUX_EVENTS | method::MUX_HISTORY) {
             // History reads answer from the current snapshot, even during a running turn.
             // A connected link can still have a stuck handler; do not inherit its ten-minute
@@ -993,19 +1049,26 @@ async fn forward_inner(
         }
         return Ok(Some(result));
     }
-    // `PEER/name` for a peer that is down and lists no such session: say
-    // the peer is unreachable, not that the session does not exist. A peer daemon's
+    // `PEER/name` for a peer that is down (or whose list is not in yet) and lists no such session:
+    // say the peer is unreachable, not that the session does not exist. A peer daemon's
     // connection never learns this host's peers or their state (`redact::hide_peers_from_peer`):
     // it gets the answer a name no peer has gets.
     if !SESSION_SCOPED_EXCLUDED.contains(&m)
         && conn.origin != Origin::Peer
         && let Ok(key) = session_key(params)
         && hub.resolve(key).is_err()
-        && let Some(e) = hub.peer_down_for(key)
+        && let Some(e) = hub.peer_down_for(key).or_else(|| hub.peer_unlisted_for(key))
     {
         return Err(e);
     }
     Ok(None)
+}
+
+fn hold_attach_peer_refusal(params: &Value) -> Option<RpcError> {
+    (params.get("hold") == Some(&Value::Bool(true))).then(|| {
+        RpcError::invalid_params("attach hold is local-only; peer chats retain the v1 attach")
+            .with_data(json!({"reason": "attach_hold.peer_refused"}))
+    })
 }
 
 /// A peer's `_acpmux/permission_groups` reply, as this daemon's client may draw it. This
@@ -1144,12 +1207,21 @@ pub(super) fn strip_new_meta(p: &mut Value) {
         m.remove("promptFileText");
         // Only this daemon decides the VM boundary, never its caller.
         m.remove(crate::hub::vm_boundary::FIELD);
+        // A launch credential never leaves this daemon (`agent_credentials.rs`).
+        m.remove(crate::agent_credentials::FIELD);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_peer_hold_attach_is_refused_before_forwarding() {
+        let error = hold_attach_peer_refusal(&json!({"hold": true})).expect("refusal");
+        assert_eq!(error.data.unwrap()["reason"], "attach_hold.peer_refused");
+        assert!(hold_attach_peer_refusal(&json!({"hold": false})).is_none());
+    }
 
     /// A registration's NAME is never a destination: it is not forwarded to a peer session of that
     /// name, so the caller's messaging token never leaves this daemon.

@@ -527,7 +527,7 @@ impl Hub {
         let mut subs: HashMap<String, (Value, Value, bool)> = HashMap::new();
         let kinds = ["subagent_state_update"];
         let scanned =
-            self.store.scan_kinds(&session.id, &kinds, &mut |e: crate::store::EventRecord| {
+            self.scan_for_rebuild(session, &kinds, &mut |e: crate::store::EventRecord| {
                 let entries =
                     e.msg.pointer("/params/_meta/acpmux/subagents").and_then(Value::as_array);
                 for entry in entries.into_iter().flatten() {

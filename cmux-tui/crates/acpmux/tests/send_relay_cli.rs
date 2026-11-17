@@ -38,6 +38,13 @@ fn scratch(tag: &str) -> PathBuf {
         ),
     )
     .unwrap();
+    let record_class = format!(
+        "printf '%s\\n' \"${{ACPMUX_SEND_CLASS-unset}}\" >> {}\n",
+        dir.join("classes").display()
+    );
+    let script = fs::read_to_string(&relay).unwrap();
+    fs::write(&relay, script.replacen("#!/bin/sh\n", &format!("#!/bin/sh\n{record_class}"), 1))
+        .unwrap();
     fs::set_permissions(&relay, fs::Permissions::from_mode(0o755)).unwrap();
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     fs::write(
@@ -57,6 +64,7 @@ fn cli_with(dir: &Path, args: &[&str], stdin: Option<&str>) -> Output {
     cmd.args(args)
         .env("ACPMUX_HOME", dir)
         .env("ACPMUX_LOGIN_ENV", "0")
+        .env("ACPMUX_SEND_CLASS", "stale-inherited-class")
         .env_remove("ACPMUX_FROM")
         .env_remove("ACPMUX_SESSION_ID")
         .current_dir(dir.join("p"))
@@ -303,4 +311,90 @@ fn w5s_a_subagents_relayed_send_names_the_subagent_as_a_label() {
         ],
         "the label's name is one line of at most 64 bytes"
     );
+}
+
+#[test]
+fn relay_preserves_explicit_message_class_and_clears_inherited_class() {
+    let dir = scratch("class");
+    let _shutdown = Shutdown(&dir);
+    let made = cli(&dir, &["run", "-n", "lane", "warm up"]);
+    assert!(made.status.success(), "{}", text(&made));
+    for value in ["block", "question", "result", "fyi", "blocker", "action"] {
+        let sent =
+            cli(&dir, &["send", "--no-wait", "--class", value, "far/coordinator", "classed"]);
+        assert!(sent.status.success(), "{}", text(&sent));
+    }
+    let sent = cli(&dir, &["send", "--no-wait", "far/coordinator", "unclassed"]);
+    assert!(sent.status.success(), "{}", text(&sent));
+    // An agent's waiting send infers question for the direct path; that is not explicit relay metadata.
+    let waited =
+        cli(&dir, &["send", "--wait", "--from", "vm/lane", "far/coordinator", "unclassed wait"]);
+    assert!(waited.status.success(), "{}", text(&waited));
+    assert_eq!(
+        fs::read_to_string(dir.join("classes")).unwrap(),
+        "block\nquestion\nresult\nfyi\nblock\nresult\nunset\nunset\n"
+    );
+    let count = relayed(&dir).len();
+    let bad = cli(&dir, &["send", "--no-wait", "--class", "urgent", "far/coordinator", "invalid"]);
+    assert!(!bad.status.success());
+    assert_eq!(relayed(&dir).len(), count, "an invalid class never reaches the relay");
+}
+
+/// gcp-agent-lane-3, 2026-11-17: `acpmux ls` listed `huge-blue/rd-peer-flap` from the relay's
+/// `lsArgv` (`lane-gh sessions`), with no `via`, and `info`/`last` on that `HOST/NAME` or its id
+/// answered no_session: the list showed a row nothing here could reach. A row the relay lists is
+/// reached through the relay: it says so (`via: "relay"`), `info` answers it from the relay's row
+/// by `HOST/NAME` or bare id, `send` relays to it, and a read the relay cannot carry (`last`)
+/// names the relay and `acpmux send` instead of "no session".
+#[test]
+fn a_row_the_relay_lists_is_reached_through_the_relay() {
+    let dir = scratch("ls");
+    let _shutdown = Shutdown(&dir);
+    let listing = dir.join("relay-ls");
+    let row = json!({"sessionId": "01far-flap", "agentSessionId": "01far-agent",
+        "name": "rd-peer-flap", "peer": "far", "status": "running", "harness": "codex",
+        "model": "gpt-6", "cwd": "/home/far/briefs", "title": "Measure the flap",
+        "turnCount": 5, "updatedAt": 1_794_884_348_976_u64});
+    fs::write(dir.join("relay-ls.json"), json!({"sessions": [row]}).to_string()).unwrap();
+    fs::write(&listing, format!("#!/bin/sh\ncat {}\n", dir.join("relay-ls.json").display()))
+        .unwrap();
+    fs::set_permissions(&listing, fs::Permissions::from_mode(0o755)).unwrap();
+    let mut config: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dir.join("config.json")).unwrap()).unwrap();
+    config["sendRelay"]["lsArgv"] = json!([listing.display().to_string()]);
+    fs::write(dir.join("config.json"), config.to_string()).unwrap();
+
+    // `info` by HOST/NAME and by the bare id the list printed: the relay's row, marked.
+    for key in ["far/rd-peer-flap", "far/01far-flap", "01far-flap"] {
+        let info = cli(&dir, &["--json", "info", key]);
+        assert!(info.status.success(), "info {key}: {}", text(&info));
+        let out: serde_json::Value = serde_json::from_slice(&info.stdout).unwrap();
+        assert_eq!(out["sessionId"], "01far-flap", "info {key}: {out}");
+        assert_eq!(out["peer"], "far", "info {key}: {out}");
+        assert_eq!(out["via"], "relay", "info {key}: {out}");
+    }
+
+    // The list says how the row is reached.
+    let ls = cli(&dir, &["ls", "--json"]);
+    assert!(ls.status.success(), "{}", text(&ls));
+    let out: serde_json::Value = serde_json::from_slice(&ls.stdout).unwrap();
+    let listed: Vec<&serde_json::Value> = out["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["sessionId"] == "01far-flap")
+        .collect();
+    assert_eq!(listed.len(), 1, "{out}");
+    assert_eq!(listed[0]["via"], "relay", "{out}");
+
+    // A prompt goes through the relay that listed it.
+    let sent = cli(&dir, &["send", "--no-wait", "far/rd-peer-flap", "status?"]);
+    assert!(sent.status.success(), "{}", text(&sent));
+    assert_eq!(relayed(&dir), vec!["send far/rd-peer-flap -|unset|status?"]);
+
+    // A read the relay does not carry says what reaches the row, still a no-session exit.
+    let last = cli(&dir, &["last", "far/rd-peer-flap"]);
+    assert_eq!(last.status.code(), Some(4), "{}", text(&last));
+    let said = String::from_utf8_lossy(&last.stderr);
+    assert!(said.contains("send relay") && said.contains("acpmux send"), "{}", text(&last));
 }

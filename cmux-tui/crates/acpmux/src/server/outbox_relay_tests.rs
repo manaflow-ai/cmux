@@ -87,7 +87,7 @@ fn setup_peer(fake: FakeHub) -> (Arc<Hub>, Arc<FakeHub>, Arc<crate::peer::Peer>)
                      "updatedAt": 5});
     let peer = hub.seed_down_peer("huge-blue", vec![row]);
     let fake = Arc::new(fake);
-    assert!(hub.mesh.set(fake.clone()).is_ok());
+    hub.mesh.set(fake.clone());
     (hub, fake, peer)
 }
 
@@ -225,6 +225,9 @@ async fn a_delivery_that_may_have_reached_the_peer_is_never_relayed() {
             attempts: 1,
             never_sent: false,
             relay_post: None,
+            open_on_peer: false,
+            pin: None,
+            proof: None,
             error: Some("peer disconnected".into()),
             accepted: None,
             created_at: now,
@@ -289,6 +292,9 @@ fn an_attempt_on_the_peer_link_is_saved_as_maybe_sent_until_the_link_refuses_it(
         attempts: 0,
         never_sent: true,
         relay_post: None,
+        open_on_peer: false,
+        pin: None,
+        proof: None,
         error: None,
         accepted: None,
         created_at: now,
@@ -298,6 +304,39 @@ fn an_attempt_on_the_peer_link_is_saved_as_maybe_sent_until_the_link_refuses_it(
     start_attempt(&mut d, 1);
     assert_eq!(d.state, State::Delivering);
     assert!(!d.never_sent, "a crash mid-attempt could relay what the peer may run: {d:?}");
+}
+
+/// A delivery to a session of a peer that is down, which the relay cannot carry (an
+/// attachment), after its first attempt: the pin it keeps.
+async fn the_pin_of_an_attempt_that_reached_nothing(rules: u8) -> Option<crate::hub::outbox::Pin> {
+    let mut config = Config::default();
+    config.store.mode = StoreMode::Memory;
+    let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(config, store);
+    hub.replay_rules(rules);
+    let row = json!({"sessionId": LANE, "name": "lane", "status": "idle", "turnCount": 1,
+                     "updatedAt": 5, "createdAt": 5});
+    hub.seed_down_peer("huge-blue", vec![row]);
+    assert!(hub.mesh.set(Arc::new(FakeHub::default())).is_none(), "no client before");
+    let shot = crate::attach::block("shot.png", b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR");
+    let mut attached = request("huge-blue/lane", "prompt-pin");
+    attached["request"]["prompt"] = json!([{"type": "text", "text": "see this"}, shot]);
+    let id = queue(&hub, attached).await;
+    let d = after_attempt(&hub, &id, 1).await;
+    assert_eq!(d.state, State::Queued, "{d:?}");
+    assert!(d.never_sent, "{d:?}");
+    d.pin
+}
+
+/// Review of #37284 at c4a6f4e7, F3: an attempt that reached nothing (the peer down, the relay
+/// unable to carry it) keeps no pin, so the next one reads the session as the peer lists it
+/// then: a session the peer made again meanwhile is the one it goes to, never failed as stale.
+/// Under c4a6f4e7's rules it kept the generation it read before anything reached the peer.
+#[tokio::test]
+async fn an_attempt_that_reached_nothing_keeps_no_pin() {
+    let old = the_pin_of_an_attempt_that_reached_nothing(crate::hub::journal_restore::AT_C4A6);
+    assert_eq!(old.await.map(|p| p.generation), Some(5), "c4a6f4e7 kept it");
+    assert_eq!(the_pin_of_an_attempt_that_reached_nothing(0).await, None);
 }
 
 /// A send whose record cannot be written is refused, so the sender knows to send it again, and

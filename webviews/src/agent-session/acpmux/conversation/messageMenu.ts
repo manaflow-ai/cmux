@@ -15,6 +15,7 @@ import { withoutSkillDollars } from "../slashCommands";
 import { currentLanguage, type Translate } from "../i18n";
 import { replyMenuTime } from "./relativeTime";
 import { selectionText } from "./chipCopy";
+import { onVisualViewport } from "../../../ui/visualViewportBox";
 import {
   sendPromptAgainMenu,
   sendPromptAgainTarget,
@@ -341,7 +342,9 @@ export const hasMessageMenuHost = () => menuHandler() !== undefined;
 export function openForkMenu(throughSeq: number, anchor?: Element): boolean {
   const handler = menuHandler();
   if (!handler) return false;
-  const { left, top, right, bottom } = (anchor ?? document.body).getBoundingClientRect();
+  const at = anchor ?? document.body;
+  // Where the anchor shows under a trackpad pinch, so the App's menu opens under it.
+  const { left, top, right, bottom } = onVisualViewport(at.getBoundingClientRect(), at.ownerDocument.defaultView);
   // Its opener stays lit while the destination menu is open, as More's does; the host reports the close.
   clearMessagePopup();
   const popupId = anchor ? crypto.randomUUID() : undefined;
@@ -369,7 +372,10 @@ export function openMessageMenu(rowId: string, anchor: Element): boolean {
   if (!message || !handler) return false;
   reportedImage = undefined;
   reportedPicture = undefined;
-  const { left, top, right, bottom } = anchor.getBoundingClientRect();
+  const { left, top, right, bottom } = onVisualViewport(
+    anchor.getBoundingClientRect(),
+    anchor.ownerDocument.defaultView,
+  );
   clearMessagePopup();
   const popupId = crypto.randomUUID();
   openPopup = { id: popupId, anchor };

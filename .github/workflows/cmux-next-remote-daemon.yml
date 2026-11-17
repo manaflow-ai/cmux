@@ -19,6 +19,8 @@ on:
       # The license guard's classifier and allowlist.
       - "cmux-tui/build-support/notices/license_match.py"
       - "scripts/cmux-next/check_app_crate_licenses.py"
+      # It names a stale Cargo.lock through cargo-locks.py.
+      - "scripts/cmux-next/cargo-locks.py"
       - ".github/workflows/cmux-next-remote-daemon.yml"
   push:
     branches: [feat-cmux-next]
@@ -30,6 +32,8 @@ on:
       # The license guard's classifier and allowlist.
       - "cmux-tui/build-support/notices/license_match.py"
       - "scripts/cmux-next/check_app_crate_licenses.py"
+      # It names a stale Cargo.lock through cargo-locks.py.
+      - "scripts/cmux-next/cargo-locks.py"
       - ".github/workflows/cmux-next-remote-daemon.yml"
   workflow_dispatch:
 

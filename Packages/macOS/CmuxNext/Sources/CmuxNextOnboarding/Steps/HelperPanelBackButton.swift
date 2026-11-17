@@ -8,10 +8,10 @@ import CmuxNextDesign
 /// over System Settings while cmux is in the background, so its hover tracks
 /// in any window, not only the key one.
 final class HelperPanelBackButton: NSButton {
-    /// The circle's diameter.
+    /// The button's side (a rounded square, as round as a tab).
     static let side: CGFloat = 28
     // The button draws its chevron in its own layer: the fill is that layer's background, under it.
-    private(set) lazy var hover = ChromeHover(self, cornerRadius: Self.side / 2, behindContent: true)
+    private(set) lazy var hover = ChromeHover(self, cornerRadius: Metrics.buttonCornerRadius, behindContent: true)
 
     convenience init(target: AnyObject?, action: Selector?) {
         let image = NSImage(systemSymbolName: "chevron.left", accessibilityDescription: OnboardingStrings.back) ?? NSImage()
@@ -30,7 +30,7 @@ final class HelperPanelBackButton: NSButton {
     }
 
     /// The resting circle to lay under the button.
-    static func makeCircle() -> NSView { OnboardingCardView(cornerRadius: side / 2) }
+    static func makeCircle() -> NSView { OnboardingCardView(cornerRadius: Metrics.buttonCornerRadius) }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 

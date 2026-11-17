@@ -399,11 +399,11 @@ test("Legacy models name each model's provider and tag", async () => {
     },
   ];
   await mount("opencode/deepseek-v4-pro", { catalog, fixed: false });
-  // The tab's older models follow its "Legacy models" caption in the same column.
+  // The tab's older models follow its own in the same column, with no caption between them (#41212).
   const list = [...cols()!.querySelector('[role="listbox"]')!.children] as HTMLElement[];
-  const caption = list.findIndex((item) => item.textContent === "Legacy models");
-  expect(caption).toBeGreaterThan(0);
-  const rows = list.slice(caption + 1).filter((item) => item.getAttribute("role") === "option");
+  expect(list.some((item) => item.textContent === "Legacy models")).toBe(false);
+  const options = list.filter((item) => item.getAttribute("role") === "option");
+  const rows = options.slice(-2);
   expect(rows.length).toBeGreaterThan(0);
   for (const row of rows) expect(colProvider(row), colName(row)).not.toBe("");
   expect(rows.map(colName).sort()).toEqual(["Kimi K2", "Qwen Coder 2.5"]);

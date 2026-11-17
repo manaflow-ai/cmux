@@ -13,6 +13,17 @@
 // `pending` names the PR that brings a gap to its value: until it lands the test expects that row to
 // fail (bun `test.failing`), so the landing PR must drop `pending` and the row is enforced from then on.
 
+import {
+  TRANSCRIPT_LINE_ROW,
+  TRANSCRIPT_LINE_TO_LIVE_STEP,
+  TRANSCRIPT_LIVE_STEP_GAP,
+  TRANSCRIPT_LIVE_STEP_GAP_TOKEN,
+  TRANSCRIPT_LIVE_STEP_HEIGHT,
+} from "./transcriptGrid";
+
+/// The live line under a one-line row: its distance comes from its box and gap in transcriptGrid.ts, never typed here.
+const LIVE_STEP_SOURCE = `${TRANSCRIPT_LINE_ROW} line, half each side + ${TRANSCRIPT_LIVE_STEP_GAP_TOKEN} ${TRANSCRIPT_LIVE_STEP_GAP} + the live line's ${TRANSCRIPT_LIVE_STEP_HEIGHT} box, half (transcriptGrid.ts TRANSCRIPT_LIVE_STEP_BOX)`;
+
 export type SpacingRow = {
   /** The measurement's id, as the test names it. */
   id: string;
@@ -81,10 +92,18 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
   },
   {
     id: "step-pitch",
-    between: "two consecutive one-line rows (tool runs, sent and received message lines, inbox rows), centre to centre",
+    between:
+      "two consecutive one-line rows (an opened run's commands, received message lines, inbox rows), centre to centre",
     value: 22,
     tolerance: 0.5,
     source: "Claude Code desktop verbose rows 22; Codex desktop 26; chat-transcript.md one-line row pitch (#29965)",
+  },
+  {
+    id: "call-pitch",
+    between: "two consecutive calls listed in a running turn's run (sent message lines, a command), centre to centre",
+    value: 26,
+    tolerance: 0.5,
+    source: "22 line + grid base 4 between a run's calls (.cv-tools gap, #42247); Codex desktop 26",
   },
   {
     id: "run-to-step",
@@ -103,9 +122,9 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
   {
     id: "step-to-live",
     between: 'the waiting group and the live line under it ("Sending message to …"), centre to centre',
-    value: 38,
+    value: TRANSCRIPT_LINE_TO_LIVE_STEP,
     tolerance: 0.5,
-    source: "22 line + Codex transcript run gap 16",
+    source: LIVE_STEP_SOURCE,
   },
 ];
 
@@ -199,7 +218,7 @@ export const TRANSCRIPT_SPACING_KINDS: readonly SpacingRow[] = [
 /** The status rows at the bottom of a running turn (design/transcript-spacing.md, "Row kinds", the
  * status rows; Leo, 2026-11-03 04:44Z, on two captures of a running Claude chat where they stood
  * 55 to 70 apart, then cramped: "this is pretty bad spacing and formatting" / "i thought we made this
- * stuff smaller"). Each is a one-line row: a run's last call, "Subagent finished", the live "Thinking"
+ * stuff smaller"). Each is a one-line row: a run's last call, a subagent's start line and its "finished" line, the live "Thinking"
  * line, the waiting group's "1 message from 1 session", another agent's received line and "Sent to".
  * Activity rows sit flush on the 22 pitch; the live line takes the run gap below activity. Measured over gallery
  * variants `working-bottom`, `reply-received`, `notes-live` and `status-prompt` by test/transcript-spacing-kinds.test.ts. */
@@ -210,7 +229,15 @@ export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & {
     id: "work-to-subagent",
     variant: "working-bottom",
     between:
-      'the running turn\'s last call ("Read src/turns.ts", its run in sight) and "Subagent finished" under it, centre to centre',
+      'the running turn\'s last call ("Read src/turns.ts", its run in sight) and the subagent\'s start line under it ("… started working", #42247), centre to centre',
+    value: 22,
+    tolerance: 0.5,
+    source: "one-line rows sit flush (rule 3)",
+  },
+  {
+    id: "started-to-subagent",
+    variant: "working-bottom",
+    between: 'the subagent\'s start line and its "… finished" line under it, centre to centre',
     value: 22,
     tolerance: 0.5,
     source: "one-line rows sit flush (rule 3)",
@@ -227,9 +254,9 @@ export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & {
     id: "waiting-to-live",
     variant: "working-bottom",
     between: '"1 message from 1 session" and the live "Thinking" line under it, the turn\'s last, centre to centre',
-    value: 38,
+    value: TRANSCRIPT_LINE_TO_LIVE_STEP,
     tolerance: 0.5,
-    source: "22 line + Codex transcript run gap 16",
+    source: LIVE_STEP_SOURCE,
   },
   {
     id: "reply-footer-to-received",
@@ -251,18 +278,18 @@ export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & {
     id: "sent-to-live",
     variant: "reply-received",
     between: '"Sent to" and the live "Thinking" line under it, centre to centre',
-    value: 38,
+    value: TRANSCRIPT_LINE_TO_LIVE_STEP,
     tolerance: 0.5,
-    source: "22 line + Codex transcript run gap 16",
+    source: LIVE_STEP_SOURCE,
   },
   {
     id: "note-to-live",
     variant: "notes-live",
     between:
       'the last "Background task finished" note, after "Received 6 messages", and the live "Thinking" line under it, centre to centre',
-    value: 38,
+    value: TRANSCRIPT_LINE_TO_LIVE_STEP,
     tolerance: 0.5,
-    source: "22 line + Codex transcript run gap 16",
+    source: LIVE_STEP_SOURCE,
   },
   {
     id: "status-to-prompt",
@@ -346,9 +373,10 @@ export const FOOTER = {
 
 /** The person's prompt bubble (design/transcript-spacing.md, "Prompt bubble"). */
 export const BUBBLE = {
-  /** A one-line bubble's height, edge to edge: chatgpt.com 44, claude.ai and Claude Code desktop 45.
-   * Its block padding is what our line leaves, (44 - line height) / 2, so the text sits as inset. */
-  oneLine: 44,
+  /** A one-line bubble's height, edge to edge, at the default reading size: its 22.75 line and the
+   * Codex block padding of 10 above and below (conversation.css --cv-bubble-pad-block, #42247), at
+   * any reading size. chatgpt.com 44, claude.ai and Claude Code desktop 45. */
+  oneLine: 42.75,
   /** chatgpt.com and claude.ai 16. */
   paddingInline: 16,
   /** claude.ai and Claude Code desktop 12 (ChatGPT's 22 superellipse is a pill; Leo: no capsule pills). */

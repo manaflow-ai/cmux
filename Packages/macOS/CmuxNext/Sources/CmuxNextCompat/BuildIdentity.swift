@@ -171,8 +171,8 @@ public nonisolated struct BuildIdentity: Sendable, Equatable {
         ownsRoots ? root.appendingPathComponent("builds/\(key)", isDirectory: true) : root
     }
 
-    /// This build's directory under `~/Library/Application Support/cmux`
-    /// (`appSupport` is that `cmux` directory): the directory itself for
+    /// This build's directory under the app's support root `appSupport`
+    /// (`~/Library/Application Support/cmux-next`): the root itself for
     /// NIGHTLY and outside any bundle, else `builds/<key>` below it.
     public func appSupport(_ appSupport: URL) -> URL {
         ownsRoots ? appSupport.appendingPathComponent("builds/\(key)", isDirectory: true) : appSupport

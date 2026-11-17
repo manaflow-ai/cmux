@@ -26,6 +26,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
 type Rect = { x: number; y: number; width: number; height: number };
 /// One painted frame: the attachment tiles in the strip, and each node in the text (its element's
@@ -71,7 +72,7 @@ await requireBrowserLane("composer-attachment-loads-in-place.test.ts", async () 
     await vite?.close();
   });
 
-  const PROMPT = ".acpmux-composer-prompt [contenteditable='true']";
+  const PROMPT = COMPOSER_EDITOR;
 
   /// The mock pane, with two holds the test opens: the page's file reads (a pasted image's bytes and
   /// its decode in the image worker) and the chat's draft read from acpmux.

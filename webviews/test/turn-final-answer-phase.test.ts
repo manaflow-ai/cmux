@@ -68,7 +68,7 @@ test("manual expansion survives final answer chunks and completion without losin
 
 test("commentary is never selected as the final answer and every explicit final remains outside", () => {
   const anotherFinal = { ...answer, id: "second-answer", text: "One more result." };
-  const tailComment = { ...commentary, id: "tail-commentary", text: "Follow-up narration." };
+  const tailComment = { ...commentary, id: "tail-commentary", text: "Checking the follow-up." };
   const done = turnViewFrom([...work, answer, anotherFinal, tailComment, summary], new Set(), {
     ...options,
     working: false,
@@ -196,3 +196,31 @@ for (const status of ["cancelled", "interrupted"])
     expect(closed.rows.find((row) => row.id === foldId)?.foldOpen).toBe(false);
     expect(closed.rows.some((row) => row.id === call.id)).toBe(false);
   });
+
+test("commentary folds beside an explicit final receipt once the turn ends, and opens with the fold", () => {
+  // 2026-11-14: a marked final answer is the answer, however short; marked commentary before it
+  // folds with the work, as the Codex app draws it (Lucas: "shouldnt that stuff have been in the
+  // Worked for"). This takes back Leo's 2026-11-13 rule that kept substantive commentary beside a
+  // short receipt.
+  const finding = {
+    ...commentary,
+    id: "finding",
+    text: "Small is slower because startup dominates.\n\n| lane | time |\n| --- | --- |\n| small | 14s |\n| huge | 3s |\n\nThe larger lane amortizes setup.",
+  };
+  // Even narration-shaped text is an answer when the provider explicitly marks it final.
+  const receipt = { ...answer, text: "Checking the follow-up." };
+  const source = [prompt, commentary, finding, call, receipt];
+  const live = turnViewFrom(source, new Set(), options);
+  const completed = [prompt, commentary, finding, call, { ...receipt, streaming: false }, summary];
+  const settled = { ...options, working: false };
+  const done = turnViewFrom(completed, new Set(), settled, live);
+  const reloaded = turnViewFrom(completed, new Set(), settled);
+  for (const view of [done, reloaded]) {
+    expect(view.rows.filter((row) => row.id === receipt.id)).toHaveLength(1);
+    expect(view.rows.some((row) => row.id === finding.id)).toBe(false);
+    expect(view.rows.some((row) => row.id === commentary.id)).toBe(false);
+    expect(view.rows.some((row) => row.id === call.id)).toBe(false);
+  }
+  const opened = turnViewFrom(completed, toggleTurnFold(completed, new Set(), foldId), settled);
+  expect(opened.rows.filter((row) => row.id === finding.id)).toHaveLength(1);
+});

@@ -55,7 +55,7 @@ from pathlib import Path
 
 SCHEMA = "cmux-next-base-autofix-exports/v1"
 # Part of the artifact name: bump it to drop every recorded pack (a change to how a pack is made).
-RECIPE = "v1"
+RECIPE = "v2"
 NAME_PREFIX = f"cmux-next-base-exports-{RECIPE}-"
 WORKFLOW_PATH = ".github/workflows/cmux-next.yml"
 WORKFLOW_FILE = "cmux-next.yml"
@@ -65,7 +65,8 @@ BRANCH = "feat-cmux-next"
 GENERATED_JOB = "cmux-next generated files"
 DAEMON_JOB = "cmux-next daemon tests"
 UPLOAD_STEP = "Upload the exports for the base autofix"
-ACTION_EXPORTS = ("plans/cmux-next/action-surfaces.json", "plans/cmux-next/actions.md", "plans/cmux-next/links.json")
+ACTION_EXPORTS = ("plans/cmux-next/action-surfaces.json", "plans/cmux-next/action-catalog.json",
+                  "plans/cmux-next/actions.md", "plans/cmux-next/links.json")
 OID = re.compile(r"^[0-9a-f]{40}$")
 MAX_JSON_BYTES = 8 * 1024**2
 # Only this lookup's validated REST bodies, never persisted or shared between tokens/jobs. Eviction

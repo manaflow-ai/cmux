@@ -70,6 +70,10 @@ path = "tests/test_ci_classify_failures.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_cloud_journey_prod_preclaim_login.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_cloud_overflow_switch.py"
 lane = "linux-guard"
 
@@ -89,6 +93,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_cmux_next_compile_status.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_cmux_tui_fat_warm_target.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Checks that the shipped fat-LTO cmux-tui legs of cmux-tui-build-package.yml mount their own warm sticky disks (keys apart from the thin ones) and wrap their builds in machine-channel-warm-target.sh restore/record, and that the script empties a disk whose toolchain stamp changed; run python3 tests/test_ci_cmux_tui_fat_warm_target.py yourself after changing those steps, macos-cross.sh all or the script (about 2 s, no build)."
 
 [[test]]
 path = "tests/test_ci_cmux_tui_latest_acpmux.py"
@@ -313,6 +322,10 @@ path = "tests/test_ci_nightly_push_throttle.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_no_bare_urlopen.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_no_github_hosted_macos.py"
 lane = "linux-guard"
 
@@ -403,6 +416,10 @@ path = "tests/test_ci_portable_job_placement.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_post_merge_checks.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_pr_media_privacy.py"
 lane = "linux-guard"
 
@@ -476,6 +493,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_r2_storage_census.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_recovery_runs_after_a_timeout.py"
 lane = "linux-guard"
 
 [[test]]
@@ -597,6 +618,10 @@ path = "tests/test_ci_session_label_routing.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_side_lane_capability_labels.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_side_lane_placement.py"
 lane = "linux-guard"
 
@@ -634,6 +659,10 @@ path = "tests/test_ci_starved_labels.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_step_table.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_swift_packages_linux_cache.py"
 lane = "linux-guard"
 
@@ -650,6 +679,11 @@ reason = "Lawrence 2026-10-23: no new CI tests. Checks that every suite lands in
 [[test]]
 path = "tests/test_ci_swiftpm_build_metrics.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_swiftpm_prefetch_shared_cache.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_swiftpm_prefetch_shared_cache.py"
 
 [[test]]
 path = "tests/test_ci_take_canonical_root.py"
@@ -719,6 +753,10 @@ lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/ci/webviews_affected.py's selection for the react-apps-check shards on pull requests; run python3 tests/test_ci_webviews_affected.py yourself after changing it or focused_tests.py's webviews graph (about 5 s, no build)."
 
 [[test]]
+path = "tests/test_ci_workflow_file_size.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_workflow_guards_are_wired.py"
 lane = "linux-guard"
 
@@ -740,6 +778,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_workflow_run_sources.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflow_tailnet_oidc_pr_gate.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflows_pin_no_fleet_pool.py"
 lane = "linux-guard"
 
 [[test]]

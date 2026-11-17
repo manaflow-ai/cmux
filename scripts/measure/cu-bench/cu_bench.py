@@ -316,16 +316,19 @@ class Mcp:
         return result, size
 
     def close(self) -> None:
-        if self.proc.poll() is None:
+        # The group, whatever its leader's state: an exited leader can leave a child running in it (cmux#41767
+        # review F1). The group keeps the leader's pid as its id while any member lives.
+        for sig in (signal.SIGTERM, signal.SIGKILL):
             try:
-                os.killpg(self.proc.pid, signal.SIGTERM)
-            except (ProcessLookupError, PermissionError):
-                self.proc.terminate()
+                os.killpg(self.proc.pid, sig)
+            except ProcessLookupError:
+                break
+            except PermissionError:
+                pass
             try:
-                self.proc.wait(timeout=10)
+                self.proc.wait(timeout=10 if sig == signal.SIGTERM else 5)
             except subprocess.TimeoutExpired:
-                self.proc.kill()
-                self.proc.wait(timeout=5)
+                pass
         for stream in (self.proc.stdin, self.proc.stdout, self.stderr):
             try:
                 if stream:

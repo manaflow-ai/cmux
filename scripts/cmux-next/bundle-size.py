@@ -6,6 +6,14 @@
     bundle-size.py summary APP --budget BUDGET.json --variant arm64 --dmg DMG
                            [--previous-dmg-bytes N] [--json OUT]
     bundle-size.py tree   APP [--dmg DMG] [--json OUT] [--top N]
+    bundle-size.py breakdown APP [--dmg DMG] [--json OUT]
+
+`breakdown` is the installed app by what it is made of (CEF, cmux-tui, the
+Swift app, other executables and frameworks, webviews, assets; every file in
+one row, so they add up), then the symbols, unwind tables and identical copies
+inside them. It hashes and reads load commands only, so it takes seconds; the
+nightly's size step prints it and emits it as a `Bundle size breakdown`
+annotation (one line of JSON) that cmuxterm-hq's NOW reads.
 
 `report` prints the bundle by component: bytes on disk (file sizes, symlinks
 not followed, so the CEF framework's top-level links count once) and, with
@@ -15,7 +23,10 @@ not followed, so the CEF framework's top-level links count once) and, with
 each component, each Mach-O binary split into code, unwind tables, symbols and
 signature, the bytes by kind (binaries, JS, CSS, HTML, fonts, images, wasm,
 localizations, licenses), identical files shipped more than once, and the
-largest files. Its DMG column compresses every file on its own in 1 MiB LZMA
+largest files, and the app executable's code by language (Swift, Rust, C++,
+Zig, C), read from the function map the app ships for in-app symbolication
+(Contents/Resources/cmux-symbols.bin, written by scripts/write-app-symbol-map.py).
+Its DMG column compresses every file on its own in 1 MiB LZMA
 blocks, as a UDIF DMG does (its chunks are 1 MiB, so two copies of a file cost
 twice in the DMG, unlike in `report --compressed`). It runs on Linux: get the
 nightly's app with scripts/cmux-next/fetch-nightly-dmg.py.
@@ -44,8 +55,11 @@ import hashlib
 import json
 import lzma
 import os
+import plistlib
+import re
 import struct
 import sys
+import zlib
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
@@ -364,6 +378,81 @@ def file_facts(job: tuple[str, str]) -> dict:
     return facts
 
 
+SYMBOL_MAP = "Contents/Resources/cmux-symbols.bin"
+# Unmangled names that are not C: Ghostty's C API is Zig, the app's Rust crates export C-ABI
+# entry points, and Swift emits a few helpers without its mangling.
+ZIG_PREFIXES = ("ghostty_",)
+RUST_PREFIXES = ("cmux_", "uniffi_", "ffi_", "rust_")
+SWIFT_PREFIXES = ("objectdestroy", "__swift_", "swift_")
+RUST_LEGACY = re.compile(r"17h[0-9a-f]{16}E$")
+
+
+def symbol_language(name: str) -> str:
+    """The language a symbol map name was compiled from, by its mangling.
+
+    The map drops Mach-O's leading underscore, as dladdr does: Swift's `_$s` reads `$s`, and the
+    `__ZN` / `__RN` of C++ and Rust read `_ZN` / `_RN`.
+    """
+    if name.startswith(("$s", "_$s", "$S")) or name.startswith(SWIFT_PREFIXES):
+        return "Swift"
+    if name.startswith("_R") or (name.startswith("_ZN") and RUST_LEGACY.search(name)) or name.startswith(RUST_PREFIXES):
+        return "Rust"
+    if name.startswith("_Z"):
+        return "C++"
+    if name.startswith(("-[", "+[")):
+        return "Objective-C"
+    if name.startswith(ZIG_PREFIXES):
+        return "Zig"
+    return "C and other"
+
+
+def code_by_language(data: bytes) -> dict[str, int] | None:
+    """__TEXT,__text bytes by language from a cmux-symbols.bin (its first slice), or None.
+
+    The map names every function the linker kept a symbol for. A function with none (a static
+    Zig or C function) counts toward the named one before it, so the Zig and C rows are close,
+    not exact; Swift and Rust keep their names.
+    """
+    if data[:8] != b"CMXSYM1\0" or len(data) < 32:
+        return None
+    try:
+        size, = struct.unpack_from("<I", data, 28)
+        payload = zlib.decompress(data[32:32 + size], -15)
+        count, = struct.unpack_from("<I", payload, 0)
+        at, offsets, current = 4, [], 0
+        for _ in range(count):
+            value = shift = 0
+            while True:
+                byte = payload[at]
+                at += 1
+                value |= (byte & 0x7F) << shift
+                shift += 7
+                if not byte & 0x80:
+                    break
+            current += value
+            offsets.append(current)
+    except (struct.error, zlib.error, IndexError):
+        return None
+    names = payload[at:].split(b"\0")
+    if len(names) < count:
+        return None
+    out: dict[str, int] = {}
+    for i in range(count - 1):
+        language = symbol_language(names[i].decode("latin-1"))
+        out[language] = out.get(language, 0) + offsets[i + 1] - offsets[i]
+    return dict(sorted(out.items(), key=lambda kv: -kv[1]))
+
+
+def app_executable(app: Path) -> str:
+    """Contents/MacOS/<CFBundleExecutable>, or the app's name when Info.plist does not say."""
+    try:
+        with open(app / "Contents/Info.plist", "rb") as f:
+            name = plistlib.load(f).get("CFBundleExecutable")
+    except (OSError, plistlib.InvalidFileException, ValueError):
+        name = None
+    return f"Contents/MacOS/{name if isinstance(name, str) and name else app.stem}"
+
+
 def tree(app: Path, dmg: Path | None, top: int, jobs: int | None = None) -> dict:
     """The full attribution of the app (see `tree` in the module doc)."""
     if not (app / "Contents").is_dir():
@@ -428,6 +517,10 @@ def tree(app: Path, dmg: Path | None, top: int, jobs: int | None = None) -> dict
         "largest_files": [{"path": f["rel"], "bytes": f["bytes"], "dmg_bytes": f["dmg"]}
                           for f in sorted(facts, key=lambda f: -f["bytes"])[:top]],
     }
+    symbol_map = app / SYMBOL_MAP
+    languages = code_by_language(symbol_map.read_bytes()) if symbol_map.is_file() else None
+    if languages:
+        out["code_by_language"] = {"binary": app_executable(app), "source": SYMBOL_MAP, "bytes": languages}
     if dmg is not None:
         out["dmg"] = dmg.name
         out["dmg_bytes"] = dmg.stat().st_size
@@ -453,11 +546,142 @@ def print_tree(t: dict, top: int) -> None:
         p = b["parts"]
         print(f"| `{b['path']}` | {mb(b['bytes'])} | {mb(b['dmg_bytes'])} | {mb(p.get('code and data', 0))} | "
               f"{mb(p.get('unwind tables', 0))} | {mb(p.get('symbols', 0))} | {mb(p.get('code signature', 0))} |")
+    lang = t.get("code_by_language")
+    if lang:
+        total = sum(lang["bytes"].values()) or 1
+        print(f"\n`{lang['binary']}` code (`__text`) by language, from `{lang['source']}`:")
+        print("\n| Language | MB | Share |\n|---|---:|---:|")
+        for name, n in lang["bytes"].items():
+            print(f"| {name} | {mb(n)} | {100 * n / total:.1f}% |")
     d = t["duplicates"]
     print(f"\nIdentical files shipped more than once: {mb(d['extra_bytes'])} MB extra on disk, "
           f"{mb(d['extra_dmg_bytes'])} MB in the DMG.")
     for g in d["groups"][:10]:
         print(f"- {g['copies']}x {g['bytes_each']} bytes: `{g['paths'][0]}`, `{g['paths'][1]}`")
+
+
+# The installed app split into what it is made of (CMUX-570, Leo: "what's the state of these"). Every file
+# lands in exactly one category, so the rows add up to the app; the cross-cutting rows (symbols, unwind
+# tables, identical copies) are parts of those files, shown again on their own.
+CEF_FRAMEWORK = "Contents/Frameworks/Chromium Embedded Framework.framework"
+WEBVIEW_ROOTS = ("Contents/Resources/markdown-viewer", "Contents/Resources/code-mode")
+CATEGORIES = (
+    ("cef", "CEF (Chromium framework and its helper apps)"),
+    ("cmux_tui", "cmux-tui (Resources/bin/cmux: cmux, acpmux, cmux-tui)"),
+    ("swift_app", "Swift app (Contents/MacOS, Rust FFI linked in)"),
+    ("other_executables", "Other executables (Rust helpers, Computer Use, remote browser host, ghostty)"),
+    ("other_frameworks", "Other frameworks (WebRTC, Sentry, ...)"),
+    ("webviews", "Webviews (React pages, agent pane, markdown viewer)"),
+    ("assets", "Assets and data (images, fonts, localizations, themes, extensions, licenses)"),
+)
+
+
+def category_of(rel: str, is_macho: bool) -> str:
+    if rel.startswith(CEF_FRAMEWORK + "/") or (rel.startswith("Contents/Frameworks/")
+                                              and (" Helper" in rel.split("/")[2] or "cef" in rel.split("/")[2].lower())):
+        return "cef"
+    if rel == "Contents/Resources/bin/cmux":
+        return "cmux_tui"
+    if rel.startswith("Contents/MacOS/"):
+        return "swift_app"
+    if is_macho and rel.startswith(("Contents/Resources/", "Contents/Helpers/", "Contents/Library/",
+                                    "Contents/PlugIns/", "Contents/XPCServices/")):
+        return "other_executables"
+    if rel.startswith(("Contents/Helpers/", "Contents/Library/", "Contents/PlugIns/", "Contents/XPCServices/")):
+        return "other_executables"  # their plists, signatures and resources
+    if rel.startswith("Contents/Frameworks/"):
+        return "other_frameworks"
+    top = "/".join(rel.split("/")[:3])
+    if top.startswith("Contents/Resources/CmuxNext_") or top in WEBVIEW_ROOTS:
+        return "webviews"
+    return "assets"
+
+
+def breakdown_facts(job: tuple[str, str]) -> dict:
+    """A file's size, hash and Mach-O parts, without the DMG estimate (runs in a worker)."""
+    root, rel = job
+    path = os.path.join(root, rel)
+    facts = {"rel": rel, "bytes": os.path.getsize(path), "sha256": sha256_of(path)}
+    with open(path, "rb") as f:
+        head = f.read(4)
+    if head in (b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe", b"\xca\xfe\xba\xbf"):
+        with open(path, "rb") as f:
+            try:
+                facts["macho"] = macho_parts(f.read())
+            except struct.error:
+                facts["macho"] = None
+    return facts
+
+
+def breakdown(app: Path, dmg: Path | None, jobs: int | None = None) -> dict:
+    """The installed app by category, plus symbols, unwind tables and identical copies (see CATEGORIES).
+
+    It reads sizes, hashes and Mach-O load commands only (no compression), so the nightly's size step
+    runs it in seconds; `tree` is the deeper attribution."""
+    if not (app / "Contents").is_dir():
+        raise SystemExit(f"bundle-size: {app} is not an app bundle (no Contents/)")
+    rels = [rel for rel, _ in walk_files(app)]
+    with ProcessPoolExecutor(max_workers=jobs) as pool:
+        facts = list(pool.map(breakdown_facts, [(str(app), r) for r in rels], chunksize=16))
+    cats = {key: {"bytes": 0, "files": 0} for key, _ in CATEGORIES}
+    symbols = unwind = debug_files = 0
+    by_hash: dict[str, list[dict]] = {}
+    for f in facts:
+        parts = f.get("macho")
+        row = cats[category_of(f["rel"], bool(parts))]
+        row["bytes"] += f["bytes"]
+        row["files"] += 1
+        by_hash.setdefault(f["sha256"], []).append(f)
+        if parts:
+            symbols += parts.get("symbols", 0) + parts.get("debug info", 0)
+            unwind += parts.get("unwind tables", 0)
+        elif kind_of(f["rel"]) == "debug info":
+            debug_files += f["bytes"]
+    groups = sorted(([g for g in by_hash.values() if len(g) > 1 and g[0]["bytes"] > 0]),
+                    key=lambda g: -g[0]["bytes"] * (len(g) - 1))
+    out = {
+        "schema": "cmux-bundle-breakdown/v1",
+        "app": app.name,
+        "app_bytes": sum(f["bytes"] for f in facts),
+        "files": len(facts),
+        "categories": [{"key": key, "title": title, **cats[key]} for key, title in CATEGORIES],
+        "symbols_bytes": symbols,
+        "debug_files_bytes": debug_files,
+        "unwind_bytes": unwind,
+        "duplicate_extra_bytes": sum(g[0]["bytes"] * (len(g) - 1) for g in groups),
+        "duplicates": [{"bytes_each": g[0]["bytes"], "copies": len(g), "paths": sorted(x["rel"] for x in g)[:4]}
+                       for g in groups[:10]],
+    }
+    try:
+        with open(app / "Contents/Info.plist", "rb") as fh:
+            info = plistlib.load(fh)
+        out["version"] = str(info.get("CFBundleVersion", ""))
+    except (OSError, plistlib.InvalidFileException, ValueError):
+        pass
+    if dmg is not None:
+        out["dmg"] = dmg.name
+        out["dmg_bytes"] = dmg.stat().st_size
+    return out
+
+
+def breakdown_lines(b: dict) -> list[str]:
+    """Markdown: one row per category (MB = 10^6 bytes), then the cross-cutting rows."""
+    def mb(n: int) -> str:
+        return f"{n / 1e6:.1f}"
+
+    total = b["app_bytes"] or 1
+    lines = [f"Installed **{mb(b['app_bytes'])} MB** in {b['files']} files"
+             + (f"; DMG {mb(b['dmg_bytes'])} MB" if "dmg_bytes" in b else "") + ".", "",
+             "| What | MB | Share | Files |", "|---|---:|---:|---:|"]
+    for c in sorted(b["categories"], key=lambda c: -c["bytes"]):
+        lines.append(f"| {c['title']} | {mb(c['bytes'])} | {100 * c['bytes'] / total:.1f}% | {c['files']} |")
+    lines += ["", "Inside those files:", "",
+              f"- Symbols and debug info in binaries: {mb(b['symbols_bytes'])} MB; dSYM files: {mb(b['debug_files_bytes'])} MB.",
+              f"- Unwind tables in binaries: {mb(b['unwind_bytes'])} MB.",
+              f"- Identical files shipped more than once: {mb(b['duplicate_extra_bytes'])} MB extra."]
+    for g in b["duplicates"][:5]:
+        lines.append(f"  - {g['copies']}x {mb(g['bytes_each'])} MB: " + ", ".join(f"`{p}`" for p in g["paths"][:2]))
+    return lines
 
 
 def main(argv: list[str]) -> int:
@@ -486,7 +710,18 @@ def main(argv: list[str]) -> int:
     t.add_argument("--json", type=Path)
     t.add_argument("--top", type=int, default=30)
     t.add_argument("--jobs", type=int)
+    b = sub.add_parser("breakdown")
+    b.add_argument("app", type=Path)
+    b.add_argument("--dmg", type=Path)
+    b.add_argument("--json", type=Path)
+    b.add_argument("--jobs", type=int)
     a = ap.parse_args(argv)
+    if a.cmd == "breakdown":
+        out = breakdown(a.app, a.dmg, a.jobs)
+        print("\n".join(breakdown_lines(out)))
+        if a.json:
+            a.json.write_text(json.dumps(out, indent=2) + "\n")
+        return 0
     if a.cmd == "tree":
         out = tree(a.app, a.dmg, a.top, a.jobs)
         print_tree(out, a.top)

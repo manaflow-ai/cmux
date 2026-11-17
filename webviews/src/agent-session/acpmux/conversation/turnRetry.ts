@@ -28,7 +28,7 @@ export async function retryFailedTurn(deps: TurnRetryDeps): Promise<RetryNote | 
       return undefined;
     } catch (error) {
       const note = refusalNote(error);
-      if (note !== "unknown-method" && note !== "ask") return note;
+      if (note !== "unsupported") return note;
     }
   }
   if (!deps.resend) return "retry.failed";

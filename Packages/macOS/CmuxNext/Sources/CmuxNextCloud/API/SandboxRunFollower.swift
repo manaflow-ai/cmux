@@ -3,7 +3,7 @@ import CmuxNextWakeups
 
 /// The app's one waiter on each cloud task it handed off, whatever happens to the tab that sent it
 /// (closed, reloaded) and across a relaunch. Its ``Source`` says what a task is: a sandboxed Run
-/// (``Source/runs(wait:)``, `GET /api/runs/:id/wait`, held up to 10 s) or a hand-off (`GET
+/// (``Source/runs(wait:)``, the daemon's `cloud.runs.wait`, held up to 10 s) or a hand-off (`GET
 /// /v1/handoffs/:id/wait`, held up to 25 s). There is no push: each task gets one long-poll, and a
 /// Run's send awaits that same wait (``follow(_:)``). When the Run ends, ``onEnd`` hears it once.
 ///
@@ -27,7 +27,7 @@ public final class SandboxRunFollower {
         public enum Kind: String, Sendable, Encodable {
             case runs, handoffs
             /// The path a follow's error names (Rust's `Kind::path`).
-            var path: String { self == .runs ? "/api/runs" : "/v1/handoffs" }
+            var path: String { self == .runs ? "cloud.runs" : "/v1/handoffs" }
         }
         /// One wait on task `id` in `team`, past `cursor` (nil: from its start).
         public var wait: @Sendable (_ id: String, _ team: String?, _ cursor: Int?) async throws -> Data
@@ -89,7 +89,7 @@ public final class SandboxRunFollower {
     /// snapshot. An error of a wait (or a 200 that is no Run snapshot) answers this call with
     /// `timedOut`, as the send's own poll did, while the follow goes on for the notification.
     public func follow(_ record: SandboxRunRecord) async throws -> Data {
-        if let refused = step(Event(on: "follow", record: record))?.refused { throw Self.error(refused) }
+        if let refused = step(Event(on: "follow", record: record))?.refused { throw followError(refused, id: record.id) }
         let token = UUID()
         let id = record.id
         let path = "\(source.kind.path)/\(id)"
@@ -190,9 +190,9 @@ public final class SandboxRunFollower {
         switch effect.action {
         case "save": save()
         case "start": start(id)
-        case "endPoll": endPoll(id, error: effect.error.map(Self.error) ?? CancellationError())
+        case "endPoll": endPoll(id, error: effect.error.map { followError($0, id: id) } ?? CancellationError())
         case "clearPoll": polls.removeValue(forKey: id)
-        case "answer": answerAll(id, effect.error.map { .failure(Self.error($0)) } ?? .success(answer))
+        case "answer": answerAll(id, effect.error.map { .failure(followError($0, id: id)) } ?? .success(answer))
         case "tell":
             guard let record = effect.record, let outcome = effect.outcome else { return }
             let replayed = effect.replayed == true
@@ -228,8 +228,10 @@ public final class SandboxRunFollower {
         defaults.set(Data(saved.utf8), forKey: source.defaultsKey)
     }
 
-    private static func error(_ failure: Failure) -> any Error {
-        failure.kind == "notSignedIn" ? CloudAPIError.notSignedIn : CloudAPIError.timedOut(failure.path ?? "")
+    /// A failure Rust names, labelled with this side's own `source.kind.path`: the pinned FFI
+    /// release may still carry an older path than the source tree.
+    private func followError(_ failure: Failure, id: String) -> any Error {
+        failure.kind == "notSignedIn" ? CloudAPIError.notSignedIn : CloudAPIError.timedOut("\(source.kind.path)/\(id)")
     }
 
     // MARK: The FFI's words (cmux-cloud-tasks `follower`)
@@ -273,7 +275,7 @@ public final class SandboxRunFollower {
         var cancelled: Bool?
     }
 
-    private nonisolated struct Failure: Decodable { var kind: String, path: String? }
+    private nonisolated struct Failure: Decodable { var kind: String }
 
     private nonisolated struct Effect: Decodable {
         /// What to do (`save`, `start`, `endPoll`, `clearPoll`, `answer`, `tell`, `forget`).

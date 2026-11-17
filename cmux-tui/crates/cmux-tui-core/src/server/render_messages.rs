@@ -31,6 +31,9 @@ pub(super) struct VtStateMessage {
     /// A tail replay's count of older history rows left out
     /// (`attach-replay-history-rows-v1`); `None`: the field is omitted.
     pub(super) history_rows_omitted: Option<u64>,
+    /// A window replay's count of history rows between its window and the
+    /// screen, left out (`attach-replay-history-window-v1`); `None`: omitted.
+    pub(super) history_rows_skipped: Option<u64>,
 }
 
 /// Additive attach-event fields captured from the client's advertised

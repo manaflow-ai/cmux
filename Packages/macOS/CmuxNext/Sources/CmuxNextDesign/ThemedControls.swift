@@ -13,7 +13,7 @@ public final class ThemedTableRowView: NSTableRowView {
         guard selectionHighlightStyle != .none else { return }
         let rect = bounds.insetBy(dx: Metrics.space1, dy: 1)
         performWithTheme { Palette.selectionFill }.setFill()
-        NSBezierPath(roundedRect: rect, xRadius: Metrics.itemCornerRadius, yRadius: Metrics.itemCornerRadius).fill()
+        NSBezierPath(roundedRect: rect, xRadius: Metrics.itemCornerRadius, yRadius: Metrics.itemCornerRadius).fill() // radius-allow: a table row's selection, not a button
     }
 }
 

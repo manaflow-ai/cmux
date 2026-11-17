@@ -77,3 +77,12 @@
   color: var(--agent-status-warning);
   background: color-mix(in srgb, var(--agent-status-warning) 16%, transparent);
 }
+/* `wrap` body look (noticeLook.ts, a gallery version): while open, the line's title wraps whole and
+   the panel holds the body alone. */
+.cv-received.cv-notice.body-wrap[data-open] .cv-notice__title {
+  flex-wrap: wrap;
+}
+.cv-received.cv-notice.body-wrap[data-open] .cv-notice__lead {
+  overflow: visible;
+  white-space: normal;
+}

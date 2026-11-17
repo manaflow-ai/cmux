@@ -24,14 +24,26 @@
 // Inline `translate` and `clip-path` only: no layout, so the virtualizer's heights and the scroll
 // offset stay exact. O(1) a frame: the live row and the row over it, kept from the pass. Reduce Motion
 // and motion off never move the chase (x stays 0), so this draws nothing.
+import { motionMode } from "../../../ui/motion/motionMode";
 import { LIVE_THINKING } from "./turns";
 
 export const PIN_LIVE_ATTR = "data-pin-live";
 
 type Pinned = {
   live: HTMLElement;
-  /// The rows over the live line that its held place can cover, with their layout bottoms.
+  /// The rows over the live line read so far (`reachAbove`), nearest first, with their layout bottoms:
+  /// those its held place reaches now, and each that played a glide of its own while pinned. Each one
+  /// read stays listed for the pin, so a clip set on it is cleared with the pin.
   above: { row: HTMLElement; bottom: number }[];
+  /// The rows `above` lists.
+  listed: Set<Element>;
+  /// The next row up not yet read, and its layout bottom; null past the thread's first row.
+  next: HTMLElement | null;
+  nextBottom: number;
+  nextHeight: number;
+  /// The farthest the line's held place may reach above its top this pin (a viewport, or the chase's
+  /// offset when it is drawn further away): no row past it is ever read.
+  reach: number;
   /// The live line's layout top in the thread.
   top: number;
   /// The thread offset last drawn against.
@@ -76,13 +88,84 @@ function rowsAbove(live: HTMLElement, reach: number): { row: HTMLElement; bottom
   return out;
 }
 
-/// Ends the clip animations playing on `row` (Web Animations override its inline clip). O(its own).
-function dropClipGlides(row: HTMLElement) {
-  if (typeof row.getAnimations !== "function") return;
-  for (const animation of row.getAnimations()) {
+/// The row over `from` (it, or its nearest earlier sibling row) as the next one `reachAbove` reads.
+function stepUp(rows: Pinned, from: Element | null): void {
+  for (let at = from; at; at = at.previousElementSibling)
+    if (at instanceof HTMLElement && at.classList.contains("acpmux-row")) {
+      rows.next = at;
+      rows.nextHeight = at.offsetHeight;
+      rows.nextBottom = at.offsetTop + rows.nextHeight;
+      return;
+    }
+  rows.next = null;
+}
+
+/// Lists the rows over the live line that end within `px` above its top (at most the pin's `reach`),
+/// reading each row once a pin, nearest first: O(rows the line's held place reaches), never every
+/// row in view. A streamed token holds the line back by a line at most, so a pass reads a row or two;
+/// a pass over 60 rows in view read all 60, 3 layout reads each (Leo, 2026-11-04: "never ...
+/// acceptable ... linear time growth degradation").
+function reachAbove(rows: Pinned, px: number): void {
+  const floor = rows.top - Math.min(Math.max(px, 0), rows.reach);
+  while (rows.next && rows.nextBottom >= floor) {
+    const row = rows.next;
+    const [bottom, height] = [rows.nextBottom, rows.nextHeight];
+    stepUp(rows, row.previousElementSibling);
+    if (height > 0 && !rows.listed.has(row)) {
+      rows.above.push({ row, bottom });
+      rows.listed.add(row);
+    }
+  }
+}
+
+/// Ends the clip animations `playing` on a row (Web Animations override its inline clip). O(its own).
+function dropClipGlides(playing: readonly Animation[]) {
+  for (const animation of playing) {
     const effect = animation.effect as KeyframeEffect | null;
     if (effect?.getKeyframes?.().some((frame) => "clipPath" in frame)) animation.cancel();
   }
+}
+
+const NONE: readonly Animation[] = [];
+
+/// `Node.DOCUMENT_POSITION_PRECEDING`: the other node comes before this one.
+const PRECEDING = 2;
+
+/// The animations on each row over the line (not their children or pseudo-elements, as `row.getAnimations()`
+/// reads them), from one read of the thread's: O(animations playing in it). A read per row cost each streamed
+/// update a style check per row in view, 1.4 ms of a token or tool call in a chat of short turns (60 rows in
+/// view, against 0.04 to 0.19 ms with 31; bench/transcript-replay.bench.ts PROFILE=1, FIXTURE=god).
+/// A row over the line not yet listed that plays a translate of its own (a glide, tailGlide.ts) is listed
+/// now, within the pin's reach: drawn down from its place it can pass the line's top from farther up than
+/// the held place reaches, and only it can.
+function playingOn(thread: HTMLElement, rows: Pinned): Map<Element, Animation[]> {
+  const out = new Map<Element, Animation[]>();
+  if (typeof thread.getAnimations !== "function") return out;
+  const listed = rows.listed;
+  for (const animation of thread.getAnimations({ subtree: true })) {
+    const effect = animation.effect as KeyframeEffect | null;
+    const target = effect?.target;
+    if (!target || effect.pseudoElement) continue;
+    if (!listed.has(target)) {
+      if (
+        target.parentElement !== thread ||
+        !(target instanceof HTMLElement) ||
+        !target.classList.contains("acpmux-row") ||
+        !(rows.live.compareDocumentPosition(target) & PRECEDING) ||
+        translatingOf([animation]).length === 0
+      )
+        continue;
+      const height = target.offsetHeight;
+      const bottom = target.offsetTop + height;
+      if (height <= 0 || bottom < rows.top - rows.reach) continue;
+      rows.above.push({ row: target, bottom });
+      listed.add(target);
+    }
+    const list = out.get(target);
+    if (list) list.push(animation);
+    else out.set(target, [animation]);
+  }
+  return out;
 }
 
 /// Draws the pinned live line of `thread` against the thread's offset `x`: the chase's frame calls
@@ -95,16 +178,20 @@ export function drawPinned(thread: HTMLElement, x: number): void {
   rows.x = x;
   // Held back by what the thread is drawn away past the line's cap.
   const held = x - rows.cap;
-  // Read every gliding offset before changing any row's translate or clip.
+  // Read every gliding offset before changing any row's translate or clip: first the rows the held
+  // place reaches, then any row farther up that a glide draws down.
+  reachAbove(rows, held);
+  const playing = playingOn(thread, rows);
   const above = rows.above.map(({ row, bottom }) => {
-    const slides = translating(row);
+    const own = playing.get(row) ?? NONE;
+    const slides = translatingOf(own);
     const translate = slides.length ? row.ownerDocument.defaultView?.getComputedStyle(row).translate : undefined;
     const offset = Number.parseFloat(translate?.split(" ")[1] ?? "") || 0;
-    return { row, slides, over: bottom + held + offset - rows.top };
+    return { row, own, slides, over: bottom + held + offset - rows.top };
   });
   if (Math.abs(held) < 0.25) rows.live.style.removeProperty("translate");
   else rows.live.style.translate = `0 ${-held}px`;
-  for (const { row, slides, over } of above) {
+  for (const { row, own, slides, over } of above) {
     for (const slide of slides) {
       if (watchedGlides.has(slide)) continue;
       watchedGlides.add(slide);
@@ -121,7 +208,7 @@ export function drawPinned(thread: HTMLElement, x: number): void {
       // reaches the row, the pin's clip is its whole clip, so that one ends. Only there: a row the line
       // does not reach keeps the clip a glide set against a row gliding under it (rows that came over
       // the pinned line glide among themselves).
-      dropClipGlides(row);
+      dropClipGlides(own);
       row.style.clipPath = `inset(-4096px -4096px ${Math.ceil(over)}px -4096px)`;
     } else row.style.removeProperty("clip-path");
   }
@@ -150,8 +237,12 @@ function moving(row: HTMLElement): boolean {
 }
 
 function translating(row: HTMLElement): Animation[] {
-  if (typeof row.getAnimations !== "function") return [];
-  return row.getAnimations().filter((animation) => {
+  return typeof row.getAnimations === "function" ? translatingOf(row.getAnimations()) : [];
+}
+
+/// Of the animations on a row, those that play a translate.
+function translatingOf(animations: readonly Animation[]): Animation[] {
+  return animations.filter((animation) => {
     if (animation.playState === "finished" || animation.playState === "idle") return false;
     const frames = (animation.effect as KeyframeEffect | null)?.getKeyframes?.();
     return frames?.some((frame) => "translate" in frame || "transform" in frame) ?? false;
@@ -183,7 +274,20 @@ export function pinLiveLine(thread: HTMLElement | null, pin: boolean, hold = fal
     // turn-transition-jumps steer-tools, the line taken again mid-chase after a steer's rise).
     const kept = was?.live === live;
     const cap = kept ? was.cap : Math.max(0, x);
-    pinned.set(thread, { live, above: rowsAbove(live, reach), top: live.offsetTop, x: kept ? was.x : x, cap });
+    const rows: Pinned = {
+      live,
+      above: [],
+      listed: new Set(),
+      next: null,
+      nextBottom: 0,
+      nextHeight: 0,
+      reach,
+      top: live.offsetTop,
+      x: kept ? was.x : x,
+      cap,
+    };
+    stepUp(rows, live.previousElementSibling);
+    pinned.set(thread, rows);
     thread.setAttribute(PIN_LIVE_ATTR, "");
     drawPinned(thread, x);
     return undefined;
@@ -198,7 +302,8 @@ export function pinLiveLine(thread: HTMLElement | null, pin: boolean, hold = fal
   return { id: LIVE_THINKING, y: held, used: false };
 }
 
-/// Plays a line let go and not taken by a glide home from where it was held, on `step`.
+/// Plays a line let go and not taken by a glide home from where it was held, on `step`. With Reduce
+/// Motion (or motion off) the line stays at its layout place, where the glide would have ended.
 export function finishCarry(
   thread: HTMLElement | null,
   carry: PinCarry | undefined,
@@ -207,6 +312,7 @@ export function finishCarry(
   if (!thread || !carry || carry.used) return;
   const row = thread.querySelector<HTMLElement>(`:scope > .acpmux-row[data-row-id="${carry.id}"]`);
   if (!row || typeof row.animate !== "function") return;
+  if (motionMode(thread.ownerDocument, row) !== "full") return;
   const { ms, easing } = step(carry.y);
   if (!(ms > 0)) return;
   const timed = { duration: ms, easing };

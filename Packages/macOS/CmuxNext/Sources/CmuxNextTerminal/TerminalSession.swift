@@ -204,7 +204,6 @@ public final class TerminalSession {
         view.onVeil = { [weak self] veil in self?.setVeil(veil) }
         view.install(surfaceView)
         find.target = self
-        view.attachFind(find)
         echo?.colors = { [weak self] in self?.theme?.colors ?? GhosttyRuntime.shared.themeColors }
         echo?.attach(to: surfaceView)
 
@@ -609,7 +608,7 @@ public final class TerminalSession {
         TerminalFontScale(old).carry(to: fresh) // after the theme: its config update can reset the size
         // Nothing was parsed into the fresh surface yet: no drain needed.
         if let canonicalGrid { fresh.applyAnnouncedGrid(canonicalGrid) }
-        if wasFirstResponder { fresh.window?.makeFirstResponder(fresh) }
+        if wasFirstResponder { FocusRoute(.system, "a terminal surface swapped").moveKeyboard(in: fresh.window, to: fresh) }
         surfaceHasContent = false
         // The fresh surface has no search; an open find bar searches it again.
         find.surfaceReplaced()

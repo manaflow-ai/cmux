@@ -40,7 +40,8 @@ public nonisolated enum SidebarWorkspaceKind: String, Codable, Hashable, Sendabl
         switch self {
         case .harness: .agentChat
         case .terminal: .terminal
-        case .browser: .browser
+        // The browser tab's own globe (Lucas 2026-11-14: one icon on the tab and its sidebar row).
+        case .browser: .tabBrowser
         }
     }
 }
@@ -144,6 +145,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// compact row has no second line of its own, Leo 2026-10-30). Nil for
     /// every other row.
     public var stage: String?
+    /// Its front tab is a New Tab page whose Send starts a Cloud chat (`AgentCloudStartTitles`): the row draws the
+    /// cloud mark from the Send, as the chat's own row on its machine does once it opens (``WorkspaceRowContent/runsInCloud``).
+    public var startsInCloud = false
     /// Archived in the sidebar document (`extra.archived`, or under an archived group): the row
     /// draws dimmed at the end of its list (plans/cmux-next/archiving-DESIGN.md). Set by `arrange`.
     public var isArchived = false

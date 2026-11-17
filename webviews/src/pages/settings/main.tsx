@@ -7,6 +7,7 @@ import "../../ui/ui.css";
 import { createPageClient } from "../shared/pageClient";
 import { createMockClient } from "./mockProvider";
 import { mountSettingsPage } from "./mount";
+import type { HarnessRow } from "./ops";
 import "./page.css";
 import "./tailwind.css";
 import { installCatalog } from "./strings";
@@ -20,6 +21,22 @@ if (process.env.NODE_ENV !== "production" && !globalThis.__cmuxStrings) {
 const search = new URLSearchParams(location.search);
 const bridge = search.has("mock") ? null : createPageClient();
 let mock = bridge ? undefined : createMockClient().client;
+// A first-user journey cell (`?mock&journey=HARNESS:STATE`, scripts/first-user-journey): Agents lists
+// what the mock daemon's cell has, nothing else. Production drops this.
+if (bridge === null && process.env.NODE_ENV !== "production" && search.has("journey")) {
+  const { journeyCell, journeySettingsHarnesses } = await import("../../agent-session/acpmux/journeyFixture");
+  const cell = journeyCell();
+  if (cell) {
+    const created = createMockClient();
+    created.provider.harnesses = {
+      loading: false,
+      problem: null,
+      harnesses: journeySettingsHarnesses(cell) as unknown as HarnessRow[],
+      accounts: [],
+    };
+    mock = created.client;
+  }
+}
 // The dev server and tests can give the mock the app's timing (mockTiming.ts); production drops this.
 if (mock && process.env.NODE_ENV !== "production") mock = (await import("./mockTiming")).withMockTiming(mock, search);
 void mountSettingsPage(document.getElementById("root")!, bridge ?? mock!);

@@ -4,14 +4,232 @@ import { existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { claudeTranscriptModelsProgram, transcriptModels } from "./cloud-journey";
-import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
+import { ensureBenchCommand, ensureBenchMarkdown, parseEnsureBench } from "./cloud-journey";
+import { execProbe, execProbeCommand, execProbeHop, execProbeMarkdown, markRanOnGuest, EXEC_PROBE_NONCES, type ExecProbeRun } from "./cloud-journey";
+import { Api, clientPlatformOrigin, Journey, preclaimDeployFields, preclaimGuestFacts, preclaimHoldMinutes, preclaimMetMarkdown, preclaimRefillImage, preclaimRefillToReady, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
+import { claudeLoginPrograms, loginBearer, loginPrograms, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
 import { directExec, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opRetryable, IDLE_JOURNEY_MS, listAllMachines, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
+import { http as journeyHttp, socketDropped } from "./cloud-journey";
 
 describe("cloud journey", () => {
+  test("preclaim table survives the enclosing journey step on success and failure", async () => {
+    for (const fail of [false, true]) {
+      const out = mkdtempSync(join(tmpdir(), "preclaim-summary-test-"));
+      try {
+        const journey = new Journey(resolveBackend("staging"), out, { account: "private-account" }, true);
+        const row = preclaimClaimRecord({ claim: 1, machine: "private-machine", leaseHit: true, firstReplyMs: 27 });
+        const burst = journey.step("preclaim burst", async () => {
+          Object.assign(journey, { preclaimRows: [row] });
+          journey.flush();
+          if (fail) throw new Error("private failure detail");
+          return { value: 0, detail: "private step detail" };
+        });
+        if (fail) await expect(burst).rejects.toThrow("private failure detail");
+        else await burst;
+        journey.flush();
+        const summary = readFileSync(join(out, "summary.md"), "utf8");
+        expect(summary).toContain(preclaimSummaryMarkdown([row]));
+        expect(summary).toContain("preclaim burst");
+        expect(summary).not.toContain("private-");
+        expect(summary).not.toContain("private failure detail");
+        expect(summary).not.toContain("private step detail");
+      } finally {
+        rmSync(out, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test("preclaim reply waits through idle before a queued prompt starts", async () => {
+    const replies = ["@@exit 0", "@@exit 0", "@@wait 0\n", "@@wait 0\nThe measured reply."];
+    const commands: string[] = [];
+    const result = await runPreclaimChat(async (command) => {
+      commands.push(command);
+      const stdout = replies.shift();
+      if (stdout === undefined) throw new Error("unexpected extra command");
+      return { code: 0, stdout, stderr: "" };
+    }, "fixture-session", "Reply once", 1000);
+    expect(commands).toHaveLength(4);
+    expect(replies).toEqual([]);
+    expect(result.replyMs).toBeGreaterThanOrEqual(0);
+  });
+
+  test("preclaim records preserve the claim-to-bound split and receipt state", () => {
+    const row = preclaimClaimRecord({
+      claim: 2,
+      spare: "vm_spare",
+      answer: {
+        machine_id: "vm_claim",
+        lease_hit: true,
+        stages_ms: [
+          { step: "machine", ms: 40 },
+          { step: "join", ms: 12 },
+          { step: "guest_bind", ms: 8 },
+          { step: "connect_info", ms: 10 },
+          { step: "bound", ms: 5 },
+        ],
+      },
+      postBindLogin: "receipt",
+    });
+    expect(row).toEqual({
+      claim: 2,
+      machine: "vm_claim",
+      spare: "vm_spare",
+      lease_id: null,
+      lease_hit: true,
+      health_before: { http_status: 0, outcome: "error", commit: null, commit_unavailable: "not read" },
+      health_after: { http_status: 0, outcome: "error", commit: null, commit_unavailable: "not read" },
+      platform_health_before: { http_status: 0, outcome: "error", commit: null, commit_unavailable: "not read" },
+      platform_health_after: { http_status: 0, outcome: "error", commit: null, commit_unavailable: "not read" },
+      claim_to_bound: { claim_answer_ms: 40, join_ms: 52, guest_bind_ms: 60, connect_info_ms: 70, bound_ms: 75 },
+      post_bind_login: "receipt",
+      first_chat_ms: null,
+      first_reply_ms: null,
+      refill_to_ready_ms: null, refill_to_ready_unavailable: "not recorded", refill_image: null, refill_image_unavailable: "not recorded",
+      post_bind_login_ms: null, post_bind_login_ms_unavailable: "not recorded", claim_to_first_text_ms: null, claim_to_first_text_unavailable: "not recorded",
+      staging_sha: null, staging_sha_unavailable: "platform: not read; api: not read",
+      deploy_overlap: null, deploy_overlap_unavailable: "no service's /v1/health named a deploy commit both before and after the claim",
+      reply_not_judged: null,
+      spare_wait_ms: null,
+      cold_after_wait: false,
+      claimed_behind: null,
+      spare_skips: null,
+      spare_fallback: null,
+    });
+  });
+
+  test("a bounded wait for a ready spare retries until the warm names one, and reports the wait", async () => {
+    let t = 0;
+    const answers = [null, null, "vm_spare"];
+    const sleeps: number[] = [];
+    const out = await waitForReadySpare(async () => ({ spare: answers.shift() ?? null }), 120_000, { pollMs: 15_000, now: () => t, sleep: async (ms) => { sleeps.push(ms); t += ms; } });
+    expect(out.prepared.spare).toBe("vm_spare");
+    expect(out.wait).toEqual({ waited_ms: 30_000, attempts: 3, cold_after_wait: false });
+    expect(sleeps).toEqual([15_000, 15_000]);
+  });
+
+  test("a wait that runs out claims anyway and marks the claim cold after the wait; no wait asks once", async () => {
+    let t = 0;
+    let calls = 0;
+    const out = await waitForReadySpare(async () => { calls++; return { spare: null }; }, 40_000, { pollMs: 15_000, now: () => t, sleep: async (ms) => { t += ms; } });
+    expect(out.prepared.spare).toBeNull();
+    expect(out.wait).toEqual({ waited_ms: 30_000, attempts: 3, cold_after_wait: true });
+    expect(calls).toBe(3);
+    calls = 0;
+    const once = await waitForReadySpare(async () => { calls++; return { spare: null }; }, 0);
+    expect(once.wait).toBeNull();
+    expect(calls).toBe(1);
+  });
+
+  test("cold creates after a ready spare was reported count apart from claims made after the wait ran out", () => {
+    const rows = [
+      preclaimClaimRecord({ claim: 0, leaseHit: true, spareWait: { waited_ms: 15_000, attempts: 2, cold_after_wait: false } }),
+      preclaimClaimRecord({ claim: 1, leaseHit: false, spareWait: { waited_ms: 300_000, attempts: 21, cold_after_wait: true } }),
+      preclaimClaimRecord({ claim: 2, leaseHit: false, spare: "vm_spare", spareWait: { waited_ms: 0, attempts: 1, cold_after_wait: false } }),
+    ];
+    expect(rows[0].spare_wait_ms).toBe(15_000);
+    expect(rows[1].cold_after_wait).toBe(true);
+    expect(preclaimSummary(rows)).toMatchObject({ lease_misses: 2, cold_creates: 1, cold_after_wait: 1, spare_wait_p90_ms: 300_000 });
+    const md = preclaimSummaryMarkdown(rows);
+    expect(md).toContain("- cold creates: 1");
+    expect(md).toContain("- cold after the ready-spare wait ran out: 1");
+    expect(md).toContain("| spare wait |");
+    expect(md).toContain("| 300000 (ran out) |");
+  });
+
+  test("preclaim records name a claim served one image roll behind (held across a roll) and the claim's skips", () => {
+    const held = preclaimClaimRecord({ claim: 0, answer: { claim: { behind: true }, spare_skips: { image: 2, "vm_private id": 1 }, spare_fallback: "image" } });
+    expect(held.claimed_behind).toBe(true);
+    expect(held.spare_skips).toEqual({ image: 2 });
+    expect(held.spare_fallback).toBe("image");
+    const current = preclaimClaimRecord({ claim: 1, answer: { claim: { behind: false } } });
+    expect(current.claimed_behind).toBe(false);
+    expect(preclaimClaimRecord({ claim: 2, answer: { machine_id: "vm_cold" } }).claimed_behind).toBeNull();
+  });
+
+  test("the preclaim summary counts held claims and their failures apart from normal hits", () => {
+    const ok = { postBindLogin: "receipt" as const, firstChatMs: 5, firstReplyMs: 9 };
+    const rows = [
+      preclaimClaimRecord({ claim: 0, leaseHit: true, answer: { claim: { behind: false }, spare_skips: { image: 1 } }, ...ok }),
+      preclaimClaimRecord({ claim: 1, leaseHit: true, answer: { claim: { behind: true } }, ...ok }),
+      preclaimClaimRecord({ claim: 2, leaseHit: true, answer: { claim: { behind: true }, spare_skips: { image: 3, disconnected: 1 } }, postBindLogin: "receipt", firstChatMs: 5, firstReplyMs: null }),
+      // Claim 2 got no reply but its login arrived: the reply is never judged, so it is not a held failure.
+      preclaimClaimRecord({ claim: 3, leaseHit: false, answer: { spare_fallback: "image", spare_skips: { image: 2 } }, postBindLogin: "post-bind", firstReplyMs: 40 }),
+    ];
+    const failures = [preclaimFailureRecord(4, new Error("reply wait exit 1"), [], true), preclaimFailureRecord(5, new Error("create refused"))];
+    expect(failures[0].claimed_behind).toBe(true);
+    expect(failures[1].claimed_behind).toBeNull();
+    const summary = preclaimSummary(rows, failures);
+    expect(summary).toMatchObject({ claims: 4, lease_hits: 3, lease_misses: 1, cold_creates: 1, held_claims: 3, held_failures: 1, image_skips: 6, claims_with_image_skip: 3 });
+    const md = preclaimSummaryMarkdown(rows, failures);
+    expect(md).toContain("- held claims (one image roll behind): 3");
+    expect(md).toContain("- held claim failures: 1");
+    expect(md).toContain("- cold creates: 1");
+    expect(md).toContain("| held |");
+    expect(md).not.toContain("reply wait exit 1");
+  });
+
+  test("preclaim health and lease evidence stay bounded and opaque", () => {
+    expect(opaquePreclaimLeaseId("lease-secret-value")).toMatch(/^lease:[0-9a-f]{12}$/);
+    expect(opaquePreclaimLeaseId("lease-secret-value")).not.toContain("secret");
+    expect(preclaimHealthSnapshot({ status: 200, body: { commit: "c684eb73", account: "other-account" } })).toEqual({ http_status: 200, outcome: "ok", commit: "c684eb73", commit_unavailable: null });
+    const row = preclaimClaimRecord({ claim: 1, leaseId: "lease:opaque", healthBefore: { http_status: 200, outcome: "ok", commit: "a", commit_unavailable: null }, healthAfter: { http_status: 200, outcome: "ok", commit: "b", commit_unavailable: null }, firstChatMs: 11, firstReplyMs: 22 });
+    expect(row.lease_id).toBe("lease:opaque");
+    expect(row.machine).toBeNull();
+    expect(row.health_before.commit).toBe("a");
+    expect(row.first_reply_ms).toBe(22);
+    const publicText = preclaimSummaryMarkdown([preclaimClaimRecord({ claim: 1, machine: "vm_private", spare: "vm_spare", leaseId: "lease:opaque", leaseHit: true, firstChatMs: 11, firstReplyMs: 22 })]);
+    expect(publicText).toContain("lease:opaque");
+    expect(publicText).toContain("11");
+    expect(publicText).not.toContain("vm_private");
+    expect(publicText).not.toContain("vm_spare");
+  });
+
+  test("preclaim public journey output drops setup identifiers", () => {
+    const safe = preclaimPublicStep({ step: "user.ensure", status: "pass", ms: 17, detail: "user user_secret install install_secret" });
+    expect(safe).toEqual({ step: "user.ensure", status: "pass", ms: 17, detail: "pass" });
+    const md = summaryMarkdown(resolveBackend("staging"), [safe], preclaimPublicMeta());
+    expect(md).toContain("mode: preclaim");
+    expect(md).not.toContain("user_secret");
+    expect(md).not.toContain("install_secret");
+  });
+
+  test("cold preclaim claims use the post-bind login fallback before chat", () => {
+    expect(preclaimLoginMode(null, "cold-machine")).toBe("post-bind");
+    expect(preclaimLoginMode("ready-spare", "ready-spare")).toBe("preclaim");
+    expect(preclaimLoginMode("ready-spare", "different-claimed-machine")).toBe("post-bind");
+  });
+
+  test("preclaim failures retain a private failed row and force a nonzero incomplete run", () => {
+    const failure = preclaimFailureRecord(3, new Error("credential installer refused: secret-value"), ["secret-value"]);
+    expect(failure).toEqual({ claim: 3, outcome: "fail", error: "credential installer refused: [secret]", claimed_behind: null });
+    expect(preclaimRunComplete([], [failure], 1)).toBe(false);
+    expect(preclaimRunComplete([preclaimClaimRecord({ claim: 0 })], [], 1)).toBe(true);
+  });
+
+  test("lease classification uses explicit broker evidence and keeps unknown separate from a miss", () => {
+    expect(classifyLeaseHit({ lease_hit: false })).toBe(false);
+    expect(classifyLeaseHit({ source: "warm" })).toBe(true);
+    expect(classifyLeaseHit({}, "claim lease_hit=no")).toBe(false);
+    expect(classifyLeaseHit({ message: "claimed spare" }, "claimed spare")).toBeNull();
+    expect(classifyLeaseHit({ machine_id: "vm_cold" })).toBeNull();
+  });
+
+  test("preclaim waits only for the owner's team stream and accepts its replayed ready event", () => {
+    expect(cloudSpareReadyFrame({ event: "cloud.spare.ready", stream: "cloud:team_a", data: { machine: "vm_spare", team: "team_a" } }, "vm_spare", "team_a")).toBe(true);
+    expect(cloudSpareReadyFrame({ event: "cloud.spare.ready", stream: "cloud:team_b", data: { machine: "vm_spare", team: "team_b" } }, "vm_spare", "team_a")).toBe(false);
+    expect(cloudSpareReadyFrame({ t: "snapshot", stream: "cloud:team_a", spares_needing_login: ["vm_spare"] }, "vm_spare", "team_a")).toBe(true);
+    expect(cloudSpareReadyFrame({ event: "cloud.spare.ready", stream: "cloud:team_a", data: { machine: "vm_other", team: "team_a" } }, "vm_spare", "team_a")).toBe(false);
+  });
+
+  test("claim stage extraction accepts the cloud start-session steps object without inventing missing stages", () => {
+    expect(claimToBoundSplit({ steps: [{ step: "claim", ms: 10 }, { step: "bound", ms: 5 }] })).toEqual({ claim_answer_ms: 10, join_ms: null, guest_bind_ms: null, connect_info_ms: null, bound_ms: 15 });
+    expect(claimToBoundSplit(undefined)).toEqual({ claim_answer_ms: null, join_ms: null, guest_bind_ms: null, connect_info_ms: null, bound_ms: null });
+  });
+
   test("--sign-in oidc trades the job's OIDC token for the API's session and keeps both out of the output", async () => {
     const calls: Array<{ method: string; url: string; auth: string }> = [];
     const fake = async (method: string, url: string, _body: unknown, headers: Record<string, string>) => {
@@ -98,10 +316,25 @@ describe("cloud journey", () => {
     const bad = probeRow("p", [{ step: "create machine", status: "fail", ms: 5, detail: "HTTP 503" }], undefined, at);
     expect(bad).toMatchObject({ outcome: "fail", error: "create machine: HTTP 503" });
   });
+  test("create machine to agent running is the sum of its steps, only when each passed", () => {
+    const at = new Date("2026-11-04T11:00:00Z");
+    const st = (step: string, ms: number, status: "pass" | "fail" | "skip" = "pass") => ({ step, status, ms, detail: "" });
+    const steps = [st("health", 9), st("create machine", 16500), st("running (status)", 2700), st("first exec", 3000), st("pass Claude login", 10900), st("start agent (claude)", 3700), st("send chat", 800), st("reply", 4200)];
+    expect(readyMs(steps)).toBe(36800);
+    expect(probeRow("p", steps, undefined, at)).toMatchObject({ outcome: "ok", ms: 5000, ready_ms: 36800 });
+    expect(summaryMarkdown(resolveBackend("staging"), steps).split("\n")[0]).toContain("; create machine to agent running 36.8 s");
+    // A skipped login copy (no login given) or a failed step is not a comparable total.
+    expect(readyMs(steps.map((s) => (s.step === "pass Claude login" ? { ...s, status: "skip" as const } : s)))).toBeNull();
+    expect(readyMs(steps.filter((s) => s.step !== "first exec"))).toBeNull();
+    expect(probeRow("p", [st("create machine", 5, "fail")], undefined, at)).not.toHaveProperty("ready_ms");
+  });
   test("the journey's stub script is valid for the shared model stub and its reply repeats the tool output", () => {
     expect(readFileSync(MODEL_STUB_PY, "utf8")).toContain("--ready-file");
     expect(JOURNEY_STUB_SCRIPT.steps[0].shell).not.toContain("{{nonce}}-tool");
     expect(JOURNEY_STUB_SCRIPT.steps[1].text).toContain("{{result.0}}");
+    expect(JOURNEY_STUB_SCRIPT.turns).toEqual(expect.arrayContaining([
+      { match: "\\[chaos-felt \\S+\\]", steps: [{ text: "Felt reply {{prompt}}." }] },
+    ]));
   });
   test("a team machine gets the DEV creator allowance, as a nightly build copies", () => {
     const team = claudeLoginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), true);
@@ -254,6 +487,31 @@ describe("cloud journey: leaked machine sweep", () => {
     expect(asked).toEqual([{ limit: 100 }, { limit: 100, cursor: "c1" }, { limit: 100, cursor: "c2" }]);
     // A list that never ends is an error (the sweep then deletes nothing), not a partial sweep.
     await expect(listAllMachines(async () => ({ machines: [], next_cursor: "again" }), 3)).rejects.toThrow("more than 3 pages");
+  });
+});
+
+describe("cloud journey: leaked install sweep", () => {
+  const now = Date.UTC(2026, 10, 16, 9, 0, 0);
+  const tagAt = (ms: number) => `jr-${ms.toString(36)}`;
+  const old = tagAt(now - STALE_JOURNEY_MS - 60_000);
+  const young = tagAt(now - STALE_JOURNEY_MS + 60_000);
+  const inst = (id: string, name: string, extra: Record<string, unknown> = {}) => ({ id, name, kind: "cli", revoked_at: null, ...extra });
+
+  test("takes only a live cli install a journey run named, older than any journey run", () => {
+    expect(staleJourneyInstalls([
+      inst("i_old", `cloud journey ${old}`),
+      inst("i_young", `cloud journey ${young}`),
+      inst("i_revoked", `cloud journey ${old}`, { revoked_at: now - 1000 }),
+      inst("i_mac", `cloud journey ${old}`, { kind: "mac" }),
+      inst("i_person", "Leo's MacBook"),
+      inst("i_auto", `cloud journey auto ${old}`),
+      inst("i_future", `cloud journey ${tagAt(now + 3_600_000)}`),
+      inst("i_nottime", "cloud journey jr-zz"),
+    ], now)).toEqual(["i_old"]);
+  });
+
+  test("a malformed list row is skipped, never thrown on", () => {
+    expect(staleJourneyInstalls([null, {}, { name: 7 }, inst("", `cloud journey ${old}`)], now)).toEqual([]);
   });
 });
 
@@ -424,6 +682,79 @@ describe("opRetryable", () => {
     expect(opRetryable({ ok: false, error: { code: "cloud.provider.unavailable", retryable: true } })).toBe(false);
     expect(opRetryable({ ok: true, value: {} })).toBe(false);
     expect(opRetryable("vm_unavailable")).toBe(false);
+  });
+});
+
+describe("Api owner.unreachable retry (cmux-platform#1442)", () => {
+  const unreachable = { status: 503, body: { _tag: "OwnerUnreachable", code: "owner.unreachable", message: "Error: Network connection lost.", retryable: true } };
+  const timedOut = { status: 503, body: { ok: false, error: { code: "owner.unreachable", message: "CallTimedOut: team machines: get did not answer", retryable: true } } };
+  const ok = { status: 200, body: { ok: true, value: { id: "vm_1" } } };
+  /** Answers each request with the next of `answers` (the last repeats) and keeps the bodies sent. */
+  async function withAnswers<T>(answers: { status: number; body: unknown }[], run: (sent: any[]) => Promise<T>): Promise<T> {
+    const sent: any[] = [];
+    const real = globalThis.fetch;
+    globalThis.fetch = (async (_url: string, init: RequestInit = {}) => {
+      sent.push(JSON.parse(String(init.body)));
+      const a = answers[Math.min(sent.length - 1, answers.length - 1)]!;
+      return new Response(JSON.stringify(a.body), { status: a.status });
+    }) as typeof fetch;
+    try {
+      return await run(sent);
+    } finally {
+      globalThis.fetch = real;
+    }
+  }
+  const journey = () => new Journey(resolveBackend("staging"), null, {});
+  const api = () => Object.assign(new Api("https://api.invalid"), { bearer: "t" });
+
+  test("op() sends the same request once more under the same key, and the step says so", async () => {
+    await withAnswers([unreachable, ok], async (sent) => {
+      const J = journey();
+      const v = await J.step("create", async () => ({ value: await api().op("cloud.machine.create", { name: "n" }, "tag-create"), detail: "vm_1" }));
+      expect(v).toEqual({ id: "vm_1" });
+      expect(sent.length).toBe(2);
+      expect(sent[1]).toEqual(sent[0]);
+      expect(sent[1].idempotency_key).toBe("tag-create");
+      expect(J.steps[0]!.detail).toBe("vm_1; retried once after owner.unreachable");
+    });
+  });
+
+  test("read() reads once more, and a second owner.unreachable fails the step naming the retry", async () => {
+    await withAnswers([timedOut, ok], async (sent) => {
+      expect(await api().read("cloud.machine.get", { machine: "vm_1" })).toEqual({ id: "vm_1" });
+      expect(sent.length).toBe(2);
+    });
+    await withAnswers([unreachable], async (sent) => {
+      const J = journey();
+      await expect(J.step("get", async () => ({ value: await api().read("cloud.machine.get", { machine: "vm_1" }), detail: "" }))).rejects.toThrow("owner.unreachable");
+      expect(sent.length).toBe(2);
+      expect(J.steps[0]!.status).toBe("fail");
+      expect(J.steps[0]!.detail).toContain("retried once after owner.unreachable");
+    });
+    await withAnswers([unreachable], async (sent) => {
+      await expect(api().op("cloud.machine.start", { machine: "vm_1" }, "tag-start")).rejects.toThrow("owner.unreachable");
+      expect(sent.length).toBe(2);
+    });
+  });
+
+  test("no retry on other codes, on owner.unreachable not marked retryable, or on an op without a key", async () => {
+    const answers = [
+      { status: 503, body: { ok: false, error: { code: "cloud.provider.unavailable", retryable: true } } },
+      { status: 503, body: { code: "owner.unreachable", retryable: false } },
+      { status: 409, body: { ok: false, error: { code: "cloud.machine.busy", retryable: false } } },
+    ];
+    for (const a of answers) {
+      // Every request gets the error: op and read each send exactly one.
+      await withAnswers([a], async (sent) => {
+        await expect(api().op("cloud.machine.start", { machine: "vm_1" }, "k")).rejects.toThrow();
+        await expect(api().read("cloud.machine.get", { machine: "vm_1" })).rejects.toThrow();
+        expect(sent.length).toBe(2);
+      });
+    }
+    await withAnswers([unreachable, ok], async (sent) => {
+      await expect(api().op("cloud.machine.start", { machine: "vm_1" })).rejects.toThrow("owner.unreachable");
+      expect(sent.length).toBe(1);
+    });
   });
 });
 
@@ -2131,5 +2462,404 @@ describe("claudeTranscriptModelsProgram", () => {
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
+  });
+
+  test("a warm-spare refusal names the verb's own error_code and error, else stderr's last line", () => {
+    // The shape start_chat_cli.rs `refused` prints before it exits 1 (run 43804741509 recorded only "exit 1").
+    const stdout = `${JSON.stringify({ ok: false, error: "the install token names no team", error_code: "team_unresolved" })}\n`;
+    expect(warmSpareRefusal({ code: 1, stdout, stderr: "" })).toBe("warm-spare refused (exit 1): team_unresolved: the install token names no team");
+    expect(warmSpareRefusal({ code: 64, stdout: "", stderr: "usage: cmux link start-chat ...\nunknown flag --x\n" })).toBe("warm-spare refused (exit 64): unknown flag --x");
+    expect(warmSpareRefusal({ code: 1, stdout: "", stderr: "" })).toBe("warm-spare refused (exit 1)");
+  });
+
+  test("the preclaim burst warms at client-config's platform_origin, not the API host", async () => {
+    // cloud-api forwards a fixed list of platform paths; /v1/cloud/spare/warm is not one, so a warm sent to the API
+    // host gets an empty 404 (runs 43804741509 and 43809949753). The app sends it to client-config's platform_origin.
+    const dir = mkdtempSync(join(tmpdir(), "preclaim-platform-test-"));
+    try {
+      const cmux = join(dir, "cmux");
+      writeFileSync(cmux, `#!/bin/sh\nprintf '%s\\n' "$@" > "${dir}/argv"\necho '{"ok":false,"error":"stub refused","error_code":"stub"}'\nexit 1\n`, { mode: 0o755 });
+      const api: any = {
+        origin: "https://cloud-api-staging.cmux.dev",
+        bearer: "session-token",
+        raw: async (method: string, route: string) => route === "/v1/client-config"
+          ? { status: 200, body: { platform_origin: "https://cmux-platform-staging.debussy.workers.dev" } }
+          : { status: 200, body: { ok: true } },
+      };
+      const journey = new Journey(resolveBackend("staging"), null, {}, true);
+      const code = runPreclaimBurst({
+        backend: resolveBackend("staging"), api, cmux, install: { id: "install-1", token: "install-token" }, account: "user-1/team_0123456789abcdef0123",
+        login: `sk-ant-oat01-journeystub-${"a".repeat(48)}`, claims: 2, tag: "t", journey, outDir: null, team: "team_0123456789abcdef0123", user: {},
+        fetchJson: async () => ({ status: 200, body: { ok: true, commit: "0123456789abcdef" } }),
+      });
+      // A failed claim is recorded with its step and the burst goes on to the next (run 43918388959 stopped at claim 2
+      // of 20 on one reset); the burst still ends red.
+      expect(await code).toBe(1);
+      expect(journey.preclaimFailures.map((f) => [f.claim, f.error])).toEqual([
+        [0, "warm spare: warm-spare refused (exit 1): stub: stub refused"],
+        [1, "warm spare: warm-spare refused (exit 1): stub: stub refused"],
+      ]);
+      const argv = readFileSync(join(dir, "argv"), "utf8").split("\n");
+      const request = JSON.parse(argv[argv.indexOf("--request") + 1]);
+      expect(request.platform).toBe("https://cmux-platform-staging.debussy.workers.dev");
+      expect(request.scope.platform).toBe("https://cmux-platform-staging.debussy.workers.dev");
+      expect(() => clientPlatformOrigin({})).toThrow("client-config names no https platform_origin");
+      expect(() => clientPlatformOrigin({ platform_origin: "http://x.test" })).toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a read that drops while the reply is awaited is not judged, and does not fail the claim", async () => {
+    // run 43918388959 claim 2: the session started and the prompt was taken, then a /exec read reset (ECONNRESET).
+    const replies: Array<string | Error> = ["@@exit 0", "@@exit 0", new Error("ECONNRESET: The socket connection was closed unexpectedly")];
+    const result = await runPreclaimChat(async () => {
+      const next = replies.shift();
+      if (next === undefined) throw new Error("unexpected extra command");
+      if (next instanceof Error) throw next;
+      return { code: 0, stdout: next, stderr: "" };
+    }, "fixture-session", "Reply once", 1000);
+    expect(result.replyMs).toBeNull();
+    expect(result.replyNotJudged).toBe("reply wait read failed: ECONNRESET: The socket connection was closed unexpectedly");
+  });
+
+  test("a preclaim reply the model refuses is not judged, names the turn's error, and does not fail the claim", async () => {
+    // run 43817240410 recorded only "reply wait exit 1"; run 43860687099's turn hit the account's weekly limit after the
+    // claim, spare and login all worked. The reply is measured, never gated.
+    const replies = ["@@exit 0", "@@exit 0", "@@wait 1\n", '{"kind":"turn_error","error":"You\'ve hit your weekly limit · resets Nov 18, 3am (UTC)"}\n'];
+    const result = await runPreclaimChat(async () => {
+      const stdout = replies.shift();
+      if (stdout === undefined) throw new Error("unexpected extra command");
+      return { code: 0, stdout, stderr: "" };
+    }, "fixture-session", "Reply once", 1000);
+    expect(result.replyMs).toBeNull();
+    expect(result.replyNotJudged).toBe("reply wait exit 1: You've hit your weekly limit · resets Nov 18, 3am (UTC)");
+    // The agent not starting is a claim-path fact and still fails the claim.
+    const refused = runPreclaimChat(async () => ({ code: 0, stdout: "@@exit 1", stderr: "" }), "fixture-session", "Reply once", 1000);
+    await expect(refused).rejects.toThrow("preclaim fixture-session: agent start refused");
+  });
+
+  test("the burst's gate reads claim-path fields only: a held claim with no reply but its login is not a failure", () => {
+    const held = preclaimClaimRecord({ claim: 0, machine: "vm_a", answer: { claim: { behind: true } }, leaseHit: true, postBindLogin: "receipt", firstChatMs: 900, firstReplyMs: null, replyNotJudged: "reply wait exit 1: You've hit your weekly limit" });
+    expect(held.reply_not_judged).toBe("reply wait exit 1: You've hit your weekly limit");
+    expect(preclaimSummary([held])).toMatchObject({ held_claims: 1, held_failures: 0, replies: 0, replies_not_judged: 1 });
+    expect(preclaimRunComplete([held], [], 1)).toBe(true);
+    expect(preclaimSummaryMarkdown([held])).toContain("- replies not judged: 1");
+    expect(preclaimSummaryMarkdown([held])).not.toContain("weekly limit");
+    const noLogin = preclaimClaimRecord({ claim: 1, machine: "vm_b", answer: { claim: { behind: true } }, postBindLogin: "missing", firstReplyMs: 2000 });
+    expect(preclaimSummary([noLogin])).toMatchObject({ held_failures: 1 });
+  });
+
+  test("a failed claim keeps the claimed machine's facts, scrubbed, in its private row", async () => {
+    // run 43824872130 deleted the claimed machine after "reply wait exit 1" and kept nothing that said why.
+    const commands: string[] = [];
+    const guest = await preclaimGuestFacts(async (command) => {
+      commands.push(command);
+      return { code: 0, stdout: "== own login\nno\n== acp tail s\nlogin sk-ant-oat01-secret-value expired\n", stderr: "" };
+    }, "preclaim-t-0");
+    expect(commands[0]).toContain("cmux_agent_has_own_login claude");
+    expect(commands[0]).toContain("acp tail 'preclaim-t-0'");
+    const record = preclaimFailureRecord(0, new Error("reply wait exit 1"), ["sk-ant-oat01-secret-value"], null, guest);
+    expect(record.guest).toContain("== own login\nno");
+    expect(record.guest).not.toContain("sk-ant-oat01-secret-value");
+    expect(preclaimFailureRecord(0, "x").guest).toBeUndefined();
+  });
+});
+
+describe("preclaim MET table fields", () => {
+  test("preclaim health names a deploy commit only: staging's fixed API version and a refused read say why", () => {
+    // Staging's cmux-api answers {ok, environment, version: "0.1.0"} (its deploy config API_VERSION): a version, never a deploy.
+    expect(preclaimHealthSnapshot({ status: 200, body: { ok: true, environment: "staging", version: "0.1.0" } })).toEqual({ http_status: 200, outcome: "ok", commit: null, commit_unavailable: "/v1/health names 0.1.0, not a deploy commit" });
+    expect(preclaimHealthSnapshot({ status: 503, body: { commit: "c684eb73" } })).toEqual({ http_status: 503, outcome: "error", commit: null, commit_unavailable: "/v1/health answered HTTP 503" });
+    expect(preclaimHealthSnapshot({ status: 200, body: { ok: true } }).commit_unavailable).toBe("/v1/health names no deploy commit");
+    const api = preclaimHealthSnapshot({ status: 200, body: { version: "0.1.0" } });
+    const a = preclaimHealthSnapshot({ status: 200, body: { commit: "aaaaaaa1111" } });
+    const b = preclaimHealthSnapshot({ status: 200, body: { commit: "bbbbbbb2222" } });
+    expect(preclaimDeployFields(api, api, a, b)).toEqual({ staging_sha: "aaaaaaa1111", staging_sha_unavailable: null, deploy_overlap: true, deploy_overlap_unavailable: null });
+    expect(preclaimDeployFields(api, api, b, b)).toMatchObject({ staging_sha: "bbbbbbb2222", deploy_overlap: false });
+    expect(preclaimDeployFields(api, api, api, api)).toEqual({
+      staging_sha: null,
+      staging_sha_unavailable: "platform: /v1/health names 0.1.0, not a deploy commit; api: /v1/health names 0.1.0, not a deploy commit",
+      deploy_overlap: null,
+      deploy_overlap_unavailable: "no service's /v1/health named a deploy commit both before and after the claim",
+    });
+  });
+
+  test("preclaim refill-to-ready times the claim's spare from created_at to ready, and says why when it cannot", () => {
+    const frame = { t: "ephemeral", stream: "cloud:team_a", event: "cloud.spare.ready", data: { machine: "vm_spare", team: "team_a", at: 4_000 } };
+    const row = { status: "running", created_at: 1_000, running_since: 9_000 };
+    expect(preclaimRefillToReady(1, "vm_spare", frame, row)).toEqual({ refill_to_ready_ms: 3_000, refill_to_ready_unavailable: null });
+    // A spare ready before the journey subscribed arrives as the snapshot, which carries no time: its running_since does.
+    expect(preclaimRefillToReady(2, "vm_spare", { t: "snapshot", stream: "cloud:team_a", spares_needing_login: ["vm_spare"] }, row)).toEqual({ refill_to_ready_ms: 8_000, refill_to_ready_unavailable: null });
+    expect(preclaimRefillToReady(0, "vm_spare", frame, row).refill_to_ready_unavailable).toBe("claim 0's spare was warmed before the burst, not refilled after a claim");
+    expect(preclaimRefillToReady(1, null, null, null).refill_to_ready_unavailable).toBe("warm-spare named no spare (the claim was a cold create)");
+    expect(preclaimRefillToReady(1, "vm_spare", { t: "snapshot" }, { created_at: 1_000 }).refill_to_ready_unavailable).toBe("neither the spare.ready frame nor the spare's record carries a ready time");
+    expect(preclaimRefillToReady(1, "vm_spare", frame, {}).refill_to_ready_unavailable).toBe("the spare's record has no created_at");
+    expect(preclaimRefillToReady(1, "vm_spare", frame, { created_at: 5_000 }).refill_to_ready_ms).toBeNull();
+    expect(preclaimRefillImage({ claim: { behind: true } }, "vm_spare", "vm_spare")).toEqual({ refill_image: "behind", refill_image_unavailable: null });
+    expect(preclaimRefillImage({ claim: {} }, "vm_spare", "vm_spare")).toEqual({ refill_image: "current", refill_image_unavailable: null });
+    expect(preclaimRefillImage({}, "vm_spare", "vm_spare").refill_image_unavailable).toBe("the claim answer has no value.claim to say behind or current");
+    expect(preclaimRefillImage({ claim: { behind: true } }, "vm_spare", "vm_other").refill_image_unavailable).toBe("the claim did not take the spare the journey timed");
+    expect(preclaimRefillImage({ claim: {} }, null, "vm_cold").refill_image).toBeNull();
+  });
+
+  test("preclaim hold minutes at t0 read cloud.plan.get usage, the caller's share first, and never invent a 0", () => {
+    expect(preclaimHoldMinutes({ usage: { vm_hours_used: 4, vm_hours_used_by_you: 1.5 } })).toEqual({ hold_minutes_t0: 90, hold_minutes_t0_unavailable: null });
+    expect(preclaimHoldMinutes({ usage: { vm_hours_used: 0.25 } })).toEqual({ hold_minutes_t0: 15, hold_minutes_t0_unavailable: null });
+    expect(preclaimHoldMinutes({ usage: { vm_hours_used: null, vm_hours_used_by_you: null } })).toEqual({ hold_minutes_t0: null, hold_minutes_t0_unavailable: "cloud.plan.get usage names no machine-hours (the meter has no total for this month)" });
+    const refused = preclaimHoldMinutes(new Error("cloud.plan.get: HTTP 403 team_0123456789abcdef0123 secret-token"), ["secret-token"]);
+    expect(refused.hold_minutes_t0).toBeNull();
+    expect(refused.hold_minutes_t0_unavailable).toBe("cloud.plan.get failed: <host>: HTTP 403 <id> [secret]");
+    expect(refused.hold_minutes_t0_unavailable).not.toContain("team_0123456789abcdef0123");
+    expect(refused.hold_minutes_t0_unavailable).not.toContain("secret-token");
+  });
+
+  test("the MET table spells out every field it cannot fill as unavailable: <reason>", () => {
+    const cold = preclaimClaimRecord({ claim: 0, machine: "vm_private", leaseHit: false, firstReplyMs: 900, answer: { stages_ms: [{ step: "bound", ms: 400 }] }, met: { ...preclaimRefillToReady(0, null, null, null), ...preclaimRefillImage({}, null, "vm_private"), post_bind_login_ms: 1_200, post_bind_login_ms_unavailable: null, claim_to_first_text_ms: 3_000, claim_to_first_text_unavailable: null } });
+    const md = preclaimMetMarkdown([cold], { claims_expected: 10, hold_minutes_t0: null, hold_minutes_t0_unavailable: "cloud.plan.get usage names no machine-hours (the meter has no total for this month)" });
+    expect(md).toContain("| hit rate | 0/1 | 10/10 | no |");
+    expect(md).toContain("| refill-to-ready p50 / p90 (behind) | unavailable: claim 0's spare was warmed before the burst, not refilled after a claim | - | - |");
+    expect(md).toContain("| post-bind login p90 (hits) | unavailable: no claim was a lease hit | 500 ms | - |");
+    expect(md).toContain("| claim-to-first-text p90 | 3000 ms (n=1) | 3300 ms (bound p90 400 + reply p90 900 + 2000) | yes |");
+    expect(md).toContain("| hold minutes at t0 | unavailable: cloud.plan.get usage names no machine-hours (the meter has no total for this month) | - | - |");
+    expect(md).toContain("| claims | 1 of 10 | 10 | no |");
+    expect(md).toContain("unavailable: platform: not read; api: not read");
+    expect(md).not.toContain("vm_private");
+    expect(md).not.toMatch(/\| 0 ms|: 0 \|/);
+    const empty = preclaimMetMarkdown([], { claims_expected: 10, hold_minutes_t0: 12.5, hold_minutes_t0_unavailable: null });
+    expect(empty).toContain("| hit rate | unavailable: no claim completed | 10/10 | no |");
+    expect(empty).toContain("| claim-to-first-text p90 | unavailable: no claim completed | unavailable: no claim answer named its bound stage | - |");
+    expect(empty).toContain("| hold minutes at t0 | 12.5 | - | - |");
+    expect(preclaimSummaryMarkdown([cold], [], { claims_expected: 10, hold_minutes_t0: 1, hold_minutes_t0_unavailable: null })).toContain("### MET table");
+    expect(preclaimSummaryMarkdown([cold])).not.toContain("### MET table");
+  });
+
+  test("runPreclaimBurst records every MET field per claim on a hit burst, and the public table carries no identifier", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "preclaim-met-test-"));
+    const team = "team_0123456789abcdef0123";
+    const spare = "vm_Spare0123456789";
+    const frame = { t: "ephemeral", stream: `cloud:${team}`, event: "cloud.spare.ready", data: { machine: spare, team, at: 4_000 } };
+    class FakeWire {
+      private on: Record<string, Array<(e: unknown) => void>> = {};
+      constructor() { setTimeout(() => this.emit("open", {}), 0); }
+      addEventListener(type: string, fn: (e: unknown) => void) { (this.on[type] ??= []).push(fn); }
+      send() { setTimeout(() => this.emit("message", { data: JSON.stringify(frame) }), 0); }
+      close() {}
+      private emit(type: string, e: unknown) { for (const fn of this.on[type] ?? []) fn(e); }
+    }
+    const realWebSocket = (globalThis as any).WebSocket;
+    (globalThis as any).WebSocket = FakeWire;
+    try {
+      // warm-spare's four answers, by request: the warm names the spare, ready names the copy, installed acks, the receipt holds.
+      const cmux = join(dir, "cmux");
+      writeFileSync(cmux, `#!/bin/sh\ncat >/dev/null\ncase "$*" in\n  *loginReceipt*) echo '{"installed":true}' ;;\n  *'"installed":'*) echo '{"ok":true}' ;;\n  *'"ready":'*) echo '{"copy":{"generation":"gen-1"}}' ;;\n  *) echo '{"machine":"${spare}"}' ;;\nesac\n`, { mode: 0o755 });
+      const guest = (command: string) => command.includes("acp wait") ? "@@wait 0\nThe measured reply." : command.includes("acp ensure") || command.includes("acp send") ? "@@exit 0" : command.includes("own-login") ? "own-login" : "";
+      const api: any = {
+        origin: "https://cloud-api-staging.cmux.dev",
+        bearer: "session-token",
+        raw: async (_method: string, route: string, body: any) => route === "/v1/client-config" ? { status: 200, body: { platform_origin: "https://platform.example" } }
+          : route === "/v1/health" ? { status: 200, body: { ok: true, environment: "staging", version: "0.1.0" } }
+          : route.endsWith("/client-session") ? { status: 501, body: { ok: false, error: { code: "cloud.provider.unsupported" } } }
+          : route.endsWith("/exec") ? { status: 200, body: { value: { exitCode: 0, stdout: guest(String(body?.command ?? "")) } } }
+          : { status: 200, body: { ok: true } },
+        read: async (op: string) => op === "cloud.plan.get" ? { usage: { active: 0, saved: 0, vm_hours_used: 4, vm_hours_used_by_you: 1.5 } } : { status: "running", host: "host-1", created_at: 1_000, running_since: 9_000 },
+        op: async () => ({ machine: { id: spare, status: "running" }, claim: { behind: true }, stages_ms: [{ step: "claim", ms: 40 }, { step: "bound", ms: 60 }] }),
+        deleteMachine: async () => undefined,
+      };
+      // The platform's deploy moves during claim 0 (its health_after reads the new commit), then stays.
+      let platformReads = 0;
+      const fetchJson = async (_method: string, url: string) => {
+        expect(url).toBe("https://platform.example/v1/health");
+        return { status: 200, body: { ok: true, commit: platformReads++ === 0 ? "aaaaaaa1111aaaa" : "bbbbbbb2222bbbb" } };
+      };
+      const rowsPath = join(dir, "rows.json");
+      const journey = new Journey(resolveBackend("staging"), dir, {}, true);
+      const code = await runPreclaimBurst({
+        backend: resolveBackend("staging"), api, cmux, install: { id: "install-1", token: "install-token" }, account: `user-1/${team}`,
+        login: `sk-ant-oat01-journeystub-${"a".repeat(48)}`, claims: 2, tag: "t", journey, outDir: dir, privateRowsPath: rowsPath, team, user: {}, fetchJson: fetchJson as never,
+      });
+      expect(code).toBe(0);
+      const written = JSON.parse(readFileSync(rowsPath, "utf8"));
+      expect(written.header.burst).toEqual({ claims_expected: 2, hold_minutes_t0: 90, hold_minutes_t0_unavailable: null });
+      const [first, second] = written.rows;
+      expect(first.lease_hit).toBe(true);
+      expect(first.refill_to_ready_ms).toBeNull();
+      expect(first.refill_to_ready_unavailable).toBe("claim 0's spare was warmed before the burst, not refilled after a claim");
+      expect(second).toMatchObject({ refill_to_ready_ms: 3_000, refill_to_ready_unavailable: null });
+      for (const row of written.rows) {
+        expect(row).toMatchObject({ refill_image: "behind", refill_image_unavailable: null, post_bind_login: "receipt", post_bind_login_ms_unavailable: null, claim_to_first_text_unavailable: null });
+        expect(row.post_bind_login_ms).toBeGreaterThanOrEqual(0);
+        expect(row.claim_to_first_text_ms).toBeGreaterThanOrEqual(row.first_reply_ms);
+        expect(row.health_before.commit_unavailable).toBe("/v1/health names 0.1.0, not a deploy commit");
+      }
+      expect(first).toMatchObject({ staging_sha: "aaaaaaa1111aaaa", deploy_overlap: true, deploy_overlap_unavailable: null });
+      expect(second).toMatchObject({ staging_sha: "bbbbbbb2222bbbb", deploy_overlap: false });
+      const summary = readFileSync(join(dir, "summary.md"), "utf8");
+      expect(summary).toContain("| hit rate | 2/2 | 10/10 | no |");
+      expect(summary).toContain("| refill-to-ready p50 / p90 (behind) | 3000 / 3000 ms (n=1) | - | - |");
+      expect(summary).toContain("| refill-to-ready p50 / p90 (current) | unavailable: no timed refill took a spare on the current image | - | - |");
+      expect(summary).toContain("| hold minutes at t0 | 90 | - | - |");
+      expect(summary).toContain("| aaaaaaa1111a | yes |");
+      for (const id of [spare, team, "install-1", "host-1", "platform.example"]) expect(summary).not.toContain(id);
+    } finally {
+      (globalThis as any).WebSocket = realWebSocket;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("--ensure-bench times acp ensure on a fresh machine", () => {
+  // Claim 4 of run 43873927808: "agent start refused" after ~2 min on a 2-core machine at load 3.9. The bench measures
+  // ensure right after boot, once boot settles, and with both cores loaded, so a slow start is timed instead of cut off.
+  test("the guest program times one ensure in its own session and stops it", () => {
+    const quiet = ensureBenchCommand("bench-1", false);
+    expect(quiet).toContain("acp ensure 'bench-1' -m claude --json");
+    expect(quiet).toContain("acp stop 'bench-1'");
+    expect(quiet).toContain("/proc/loadavg");
+    expect(quiet).not.toContain("yes >/dev/null");
+    const loaded = ensureBenchCommand("bench-2", true);
+    expect(loaded).toContain("yes >/dev/null & y1=$!");
+    expect(loaded).toContain("kill $y1 $y2");
+  });
+
+  test("a run's answer parses into its timing, exit, load and boot state", () => {
+    const stdout = "@@ms 131250\n@@exit 1\n@@load1 3.92\n@@state starting\n@@top 98.0 yes;97.5 yes;12.0 claude\n@@out acp: harness claude did not start\n@@slow\nline a\nline b\n";
+    expect(parseEnsureBench(stdout, "loaded", 2)).toEqual({ condition: "loaded", run: 2, ms: 131250, exit: "1", load1: "3.92", state: "starting", top: "98.0 yes;97.5 yes;12.0 claude", output: "acp: harness claude did not start", slow: "line a\nline b" });
+    expect(parseEnsureBench("", "boot", 0)).toMatchObject({ ms: null, exit: "none", slow: "" });
+  });
+
+  test("the table names each condition's p50 and max and whether any crossed the 120 s exec", () => {
+    const runs = [
+      parseEnsureBench("@@ms 4000\n@@exit 0\n@@load1 0.5\n@@state running\n@@top 1 x\n@@out ok\n", "settled", 0),
+      parseEnsureBench("@@ms 6000\n@@exit 0\n@@load1 0.6\n@@state running\n@@top 1 x\n@@out ok\n", "settled", 1),
+      parseEnsureBench("@@ms 125000\n@@exit 0\n@@load1 3.9\n@@state running\n@@top 1 x\n@@out ok\n", "loaded", 0),
+    ];
+    const md = ensureBenchMarkdown(runs);
+    expect(md).toContain("| settled | 2 | 4000 | 6000 | 0 |");
+    expect(md).toContain("| loaded | 1 | 125000 | 125000 | 1 |");
+    expect(md).toContain("crossed 120 s: 1 of 3");
+    expect(md).not.toContain("@@");
+  });
+});
+
+describe("a preclaim agent start that fails says why", () => {
+  // Run 43873927808's claim 4 recorded only "agent start refused": acp ensure's exit, output and time were dropped, and
+  // the guest facts kept the journal's tail, which pushed out the own-login and acp tail sections.
+  test("the refusal names acp ensure's exit, its output and how long it ran", async () => {
+    const refused = runPreclaimChat(async () => ({ code: 0, stdout: "acp: harness claude did not start: spawn failed\n@@exit 1\n", stderr: "" }), "s", "Reply once", 1000);
+    await expect(refused).rejects.toThrow(/^preclaim s: agent start refused \(exit 1 after \d+ s\): acp: harness claude did not start: spawn failed$/);
+  });
+
+  test("an ensure the exec cut off reads as a timeout, with what it printed so far", async () => {
+    const cut = runPreclaimChat(async () => ({ code: 124, stdout: "starting claude", stderr: "" }), "s", "Reply once", 1000);
+    await expect(cut).rejects.toThrow(/^preclaim s: agent start refused \(no exit within the 120 s exec, code 124, after \d+ s\): starting claude$/);
+  });
+
+  test("a long journal never pushes the own-login and acp sections out of a failure's guest facts", () => {
+    const guest = `== own login\nyes\n== acp tail s\n{"kind":"turn_error"}\n== acp list\ns ready\n== journal\n${"x".repeat(120)}\n`.repeat(1) + "j\n".repeat(20_000);
+    const record = preclaimFailureRecord(4, new Error("agent start refused"), [], null, guest);
+    expect(record.guest).toContain("== own login\nyes");
+    expect(record.guest).toContain("== acp tail s");
+    expect(record.guest!.length).toBeLessThanOrEqual(12_000);
+  });
+});
+
+describe("exec probe bench", () => {
+  const run = (over: Partial<ExecProbeRun>): ExecProbeRun => ({ condition: "settled", kind: "short", run: 0, nonce: "n0", ms: 300, status: 200, code: "", cause: "", ranOnGuest: null, ...over });
+
+  test("a probe leaves its nonce on the guest before it waits", () => {
+    expect(execProbeCommand("p-1", 0)).toBe(`echo p-1 >> ${EXEC_PROBE_NONCES}; echo ok`);
+    expect(execProbeCommand("p-2", 20)).toBe(`echo p-2 >> ${EXEC_PROBE_NONCES}; sleep 20; echo ok`);
+  });
+
+  test("a request that throws with no answer is kept as a probe with its code, not thrown", async () => {
+    const reset = Object.assign(new Error("The socket connection was closed unexpectedly."), { code: "ECONNRESET" });
+    const r = await execProbe(async () => { throw reset; }, "p-1", 0);
+    expect(r).toMatchObject({ status: null, code: "ECONNRESET", cause: "The socket connection was closed unexpectedly." });
+  });
+
+  test("each answer names its hop", async () => {
+    const answer = (status: number, body: unknown) => execProbe(async () => ({ status, body }), "p", 0);
+    expect(await answer(200, { ok: true, value: { exitCode: 0, stdout: "ok\n", stderr: "" } })).toMatchObject({ status: 200, code: "" });
+    const doReset = await answer(503, { ok: false, error: { code: "vm_unavailable", message: "the Cloud service restarted during the call; retry", reason: "restarted" } });
+    expect(execProbeHop(run(doReset))).toBe("Worker → CloudDO (restarted)");
+    expect(execProbeHop(run(await answer(502, { ok: false, error: { code: "vm_unavailable", message: "the machine did not answer; retry" } })))).toBe("CloudDO → provider exec");
+    expect(execProbeHop(run(await answer(524, { raw: "<html>" })))).toBe("edge → Worker (HTTP 524)");
+    expect(execProbeHop(run(await answer(200, { ok: true, value: { exitCode: 1, stdout: "", stderr: "x" } })))).toBe("guest command (exit 1)");
+    expect(execProbeHop(run({}))).toBeNull();
+  });
+
+  test("a probe with no answer is placed by whether the guest holds its nonce", () => {
+    const lost = [run({ nonce: "a", status: null, code: "ECONNRESET" }), run({ nonce: "b", status: null, code: "ECONNRESET" }), run({ nonce: "c" })];
+    const marked = markRanOnGuest(lost, "a\nc\n");
+    expect(marked.map((r) => execProbeHop(r))).toEqual(["answer lost after the guest ran it", "request lost before the guest", null]);
+    expect(markRanOnGuest(lost, null).map((r) => execProbeHop(r))).toEqual(["no answer; guest nonces unread", "no answer; guest nonces unread", null]);
+  });
+
+  test("the table counts failures per condition and kind and lists each one", () => {
+    const md = execProbeMarkdown([
+      run({ condition: "boot", nonce: "a", ms: 100 }),
+      run({ condition: "boot", nonce: "b", ms: 900, status: null, code: "ECONNRESET", cause: "socket | closed", ranOnGuest: true }),
+      run({ condition: "settled", kind: "wait", nonce: "c", ms: 20_400 }),
+    ]);
+    expect(md).toContain("- probes: 3; failed: 1 (no answer: 1, refused: 0)");
+    expect(md).toContain("| boot | short | 2 | 1 | 100 | 900 |");
+    expect(md).toContain("| settled | wait | 1 | 0 | 20400 | 20400 |");
+    expect(md).toContain("| boot | short | 0 | 900 | - | ECONNRESET | yes | answer lost after the guest ran it | socket \\| closed |");
+  });
+});
+
+describe("a request whose socket drops (run 43927514723: connect_info ECONNRESET 40 ms in)", () => {
+  /** A local HTTP server that resets the socket of the first `resets` requests and answers the rest with `{ok:true}`. */
+  async function resetting<T>(resets: number, run: (url: string, seen: () => number) => Promise<T>): Promise<T> {
+    const { createServer } = await import("node:net");
+    let seen = 0;
+    const server = createServer((c) => {
+      c.on("data", () => {
+        seen++;
+        if (seen <= resets) return c.resetAndDestroy();
+        const body = JSON.stringify({ ok: true, value: { host: "h" } });
+        c.end(`HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: ${body.length}\r\nconnection: close\r\n\r\n${body}`);
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    try {
+      return await run(`http://127.0.0.1:${(server.address() as { port: number }).port}`, () => seen);
+    } finally {
+      server.close();
+    }
+  }
+
+  test("a read is sent once more on a fresh connection and answers", async () => {
+    await resetting(1, async (url, seen) => {
+      const r = await journeyHttp("POST", `${url}/v1/read`, { op: "cloud.machine.connect_info", params: {} }, {}, 5_000, true);
+      expect(r.status).toBe(200);
+      expect(r.body.value).toEqual({ host: "h" });
+      expect(seen()).toBe(2);
+    });
+  });
+
+  test("a GET retries by default; a second drop fails naming both", async () => {
+    await resetting(1, async (url, seen) => {
+      expect((await journeyHttp("GET", `${url}/v1/health`, undefined, {})).status).toBe(200);
+      expect(seen()).toBe(2);
+    });
+    await resetting(2, async (url, seen) => {
+      await expect(journeyHttp("GET", `${url}/v1/health`, undefined, {})).rejects.toThrow("sent once more on a fresh connection");
+      expect(seen()).toBe(2);
+    });
+  });
+
+  test("a POST that is not repeatable (an op with no key, an exec) is sent once", async () => {
+    await resetting(1, async (url, seen) => {
+      await expect(journeyHttp("POST", `${url}/v1/cloud/machines/m/exec`, { command: "true" }, {})).rejects.toThrow();
+      expect(seen()).toBe(1);
+    });
+  });
+
+  test("socketDropped knows a dropped socket from a timeout", () => {
+    expect(socketDropped(Object.assign(new TypeError("ECONNRESET: The socket connection was closed unexpectedly."), { code: "ECONNRESET" }))).toBe(true);
+    expect(socketDropped(new TypeError("fetch failed", { cause: Object.assign(new Error("other side closed"), { code: "UND_ERR_SOCKET" }) }))).toBe(true);
+    expect(socketDropped(new DOMException("The operation timed out.", "TimeoutError"))).toBe(false);
   });
 });

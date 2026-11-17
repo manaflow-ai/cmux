@@ -11,6 +11,10 @@
 //! ID`), labels for the relay to show; `ACPMUX_FROM` stays the lead's name, the one reply address
 //! the relay has, so the far side's answer reaches the lead (W5-M (b), 2026-11-09).
 //!
+//! An explicit message class is passed as `ACPMUX_SEND_CLASS` (canonical `block`, `question`,
+//! `result` or `fyi`); without one, that variable is removed. The argv remains `SESSION -`
+//! for existing relay commands. A relay that understands classes forwards this metadata.
+//!
 //! Only the no-session refusal relays: a target here or on a peer, down or not, is sent as
 //! always, and with no `sendRelay` nothing changes. The relay carries text only, so a send with
 //! `--attach` is refused rather than relayed without its files. The MCP `send` tool relays the
@@ -26,23 +30,15 @@
 use crate::cli::errors::{AppError, Code};
 use crate::cli::output::print_json;
 use crate::cli::sender::{FROM_ENV, Subagent};
+use crate::prompt_class::PromptClass;
 use anyhow::{Context, Result, anyhow};
-use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use tokio::time::Instant;
 
-/// `sendRelay`: the relay command's argv; the CLI appends the session and `-`. `lsArgv`, when
-/// set, prints the other machines' live sessions as `{"sessions": [...]}` (see the module doc).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct SendRelay {
-    pub argv: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ls_argv: Option<Vec<String>>,
-}
+pub use crate::config::SendRelay;
 
 /// How long a relay listing may take before `ls` goes on without it.
 pub(crate) const LS_DEADLINE: std::time::Duration = std::time::Duration::from_secs(20);
@@ -84,8 +80,86 @@ pub(crate) fn relay_ls(relay: &SendRelay, deadline: Option<Instant>) -> Result<O
             })
             .take(LS_MAX_ROWS)
             .cloned()
+            .map(|mut row| {
+                // How the row is reached: through the relay that listed it, not this daemon.
+                if let Some(fields) = row.as_object_mut() {
+                    fields.insert("via".to_owned(), json!(VIA));
+                }
+                row
+            })
             .collect(),
     ))
+}
+
+/// The `via` of a row the relay lists: no peer link or hub of this daemon reaches it, so only
+/// the relay's own verbs do (`send` through `argv`, its row through `lsArgv`).
+pub(crate) const VIA: &str = "relay";
+
+/// How long a lookup of one key in the relay's listing may take (`listed_row`).
+const LOOKUP_DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The one row of `rows` that `key` names: `HOST/NAME`, `HOST/ID`, the qualified id, the bare
+/// id, or a bare name only one row carries (the relay may list a name with its host's prefix).
+pub(crate) fn find_row<'a>(rows: &'a [Value], key: &str) -> Option<&'a Value> {
+    let text = |r: &'a Value, k: &str| r.get(k).and_then(Value::as_str).unwrap_or_default();
+    let named = |r: &'a Value| {
+        let (peer, id, name) = (text(r, "peer"), text(r, "sessionId"), text(r, "name"));
+        let bare = name.strip_prefix(peer).and_then(|n| n.strip_prefix('/')).unwrap_or(name);
+        let on_peer = |rest: &str| {
+            !rest.is_empty()
+                && key.strip_prefix(peer).and_then(|k| k.strip_prefix('/')) == Some(rest)
+        };
+        key == id
+            || key == text(r, "qualifiedSessionId")
+            || on_peer(id)
+            || on_peer(bare)
+            || (!bare.is_empty() && (key == bare || key == name))
+    };
+    let mut found = rows.iter().filter(|&r| named(r));
+    let first = found.next()?;
+    found.next().is_none().then_some(first)
+}
+
+/// The row the configured relay's listing has for `key` ([`find_row`]), or none: no relay with
+/// an `lsArgv`, a listing that failed or ran past [`LOOKUP_DEADLINE`], or no one row it names.
+/// Asked only once this daemon found no session for `key`.
+pub(crate) async fn listed_row(key: &str) -> Option<Value> {
+    let relay = configured().filter(|r| r.ls_argv.is_some())?;
+    let deadline = Instant::now() + LOOKUP_DEADLINE;
+    let rows = tokio::task::spawn_blocking(move || relay_ls(&relay, Some(deadline)))
+        .await
+        .ok()?
+        .ok()??;
+    find_row(&rows, key).cloned()
+}
+
+/// The no-session refusal for `key`, which only the relay lists as `row`: still the refusal a
+/// send relays on ([`no_such_session`]), saying what reaches the row, with the row in its data
+/// ([`relayed_row`]), so `info` answers with the row as the relay listed it.
+pub(crate) fn listed_refusal(key: &str, row: Value) -> AppError {
+    let text = |k: &str| row.get(k).and_then(Value::as_str).unwrap_or_default().to_owned();
+    let (peer, name) = (text("peer"), text("name"));
+    let bare =
+        name.strip_prefix(peer.as_str()).and_then(|n| n.strip_prefix('/')).unwrap_or(name.as_str());
+    let target = if bare.is_empty() {
+        format!("{peer}/{}", text("sessionId"))
+    } else {
+        format!("{peer}/{bare}")
+    };
+    AppError::new(
+        Code::NoSession,
+        "no_session",
+        format!(
+            "{key:?} is {target}, which only the send relay lists (sendRelay.lsArgv): this daemon has no link to read or attach to it; prompt it with `acpmux send {target} MESSAGE`, which the send relay delivers"
+        ),
+    )
+    .with_data(json!({"via": VIA, "target": target, "row": row}))
+}
+
+/// The relay's row a [`listed_refusal`] carries.
+pub(crate) fn relayed_row(e: &anyhow::Error) -> Option<&Value> {
+    let data = e.downcast_ref::<AppError>()?.data.as_ref()?;
+    if data.get("via").and_then(Value::as_str) == Some(VIA) { data.get("row") } else { None }
 }
 
 /// At most this many rows from one relay listing.
@@ -210,18 +284,23 @@ fn hidden_in_a_label(c: char) -> bool {
         )
 }
 
-/// Who a relayed send is from: `name`, the relay's `ACPMUX_FROM` (the sender's session, where
-/// the far side's answer goes), and the Claude Code subagent of that session that sent it, if
-/// one did (`cli::sender::SUBAGENT_ENV`, or the MCP call's tool use id).
+/// A relayed send's explicit class and sender metadata. `name` is the relay's `ACPMUX_FROM`
+/// (the sender's session, where the far side's answer goes); `subagent` names the Claude Code
+/// subagent that sent it (`cli::sender::SUBAGENT_ENV`, or the MCP call's tool use id).
 #[derive(Debug, Default, Clone, PartialEq)]
-pub(crate) struct RelaySender {
+pub(crate) struct RelayMetadata {
     pub name: Option<String>,
     pub subagent: Option<Subagent>,
+    pub class: Option<PromptClass>,
 }
 
-impl RelaySender {
+impl RelayMetadata {
     /// `name`'s send, by the subagent `sub` (`{id, type}`, plain words) when one is given.
-    pub(crate) fn new(name: Option<String>, sub: Option<&Value>) -> Self {
+    pub(crate) fn new(
+        name: Option<String>,
+        sub: Option<&Value>,
+        class: Option<PromptClass>,
+    ) -> Self {
         let subagent = sub.and_then(|sub| {
             let word = |key: &str| {
                 sub.get(key)
@@ -231,7 +310,7 @@ impl RelaySender {
             };
             Some(Subagent { kind: word("type")?, id: word("id")? })
         });
-        Self { name, subagent }
+        Self { name, subagent, class }
     }
 
     /// `ACPMUX_FROM_LABEL`: "lane's general-purpose subagent a0a68e7a". The name comes from
@@ -259,7 +338,7 @@ impl RelaySender {
 
 /// The cross-host audit line of one relayed send (`xhost_audit.rs`), never its text: `sent`
 /// when the relay took it, `refused` when it exited non-zero (nothing crossed machines).
-pub(crate) fn audit_sent(session: &str, text: &str, from: &RelaySender, done: &Relayed) {
+pub(crate) fn audit_sent(session: &str, text: &str, from: &RelayMetadata, done: &Relayed) {
     let sub = from.subagent.as_ref().map(Subagent::to_value);
     crate::xhost_audit::record(
         if done.status == 0 { "sent" } else { "refused" },
@@ -304,7 +383,7 @@ pub(crate) fn relay_with_deadline(
     relay: &SendRelay,
     session: &str,
     text: &str,
-    from: &RelaySender,
+    from: &RelayMetadata,
     capture: bool,
     deadline: Option<Instant>,
 ) -> Result<Relayed> {
@@ -329,6 +408,11 @@ pub(crate) fn relay_with_deadline(
             .env(FROM_SUBAGENT_ENV, format!("{}:{}", sub.kind, sub.id))
             .env(FROM_LABEL_ENV, label),
         _ => cmd.env_remove(FROM_SUBAGENT_ENV).env_remove(FROM_LABEL_ENV),
+    };
+    // Per-message metadata must never inherit a previous relay's class.
+    match from.class {
+        Some(class) => cmd.env("ACPMUX_SEND_CLASS", class.as_str()),
+        None => cmd.env_remove("ACPMUX_SEND_CLASS"),
     };
     let child = cmd.spawn().with_context(|| format!("cannot run the send relay {program:?}"))?;
     // Written beside the wait, so a relay that answers before reading it all never blocks us.
@@ -371,7 +455,7 @@ pub(crate) fn send_with_deadline(
     config: &SendRelay,
     session: &str,
     text: &str,
-    from: &RelaySender,
+    from: &RelayMetadata,
     attachments: bool,
     json_out: bool,
     deadline: Option<Instant>,
@@ -414,8 +498,8 @@ pub(crate) fn send_with_deadline(
 mod tests {
     use super::*;
 
-    fn named(name: &str) -> RelaySender {
-        RelaySender { name: Some(name.to_owned()), subagent: None }
+    fn named(name: &str) -> RelayMetadata {
+        RelayMetadata { name: Some(name.to_owned()), ..Default::default() }
     }
 
     #[test]
@@ -426,6 +510,26 @@ mod tests {
         assert_eq!(delivery_id(Some(r#"{"deliveryId":"hello across"}"#)), None);
         assert_eq!(delivery_id(Some(r#"{"echo":"hello","deliveryId":"x"}"#)).as_deref(), Some("x"));
         assert_eq!(delivery_id(None), None);
+    }
+
+    #[test]
+    fn a_key_finds_the_one_relay_row_it_names() {
+        let rows = vec![
+            json!({"peer": "far", "sessionId": "01a", "name": "flap", "qualifiedSessionId": "far/01a"}),
+            json!({"peer": "lane-2", "sessionId": "01b", "name": "lane-2/goal"}),
+            json!({"peer": "lane-4", "sessionId": "01c", "name": "flap"}),
+        ];
+        let id = |key: &str| find_row(&rows, key).and_then(|r| r["sessionId"].as_str());
+        assert_eq!(id("far/flap"), Some("01a"));
+        assert_eq!(id("far/01a"), Some("01a"));
+        assert_eq!(id("01a"), Some("01a"));
+        assert_eq!(id("lane-2/goal"), Some("01b"));
+        assert_eq!(id("goal"), Some("01b"));
+        assert_eq!(id("lane-4/flap"), Some("01c"));
+        // A bare name two hosts carry, another host's name, or nothing: no row.
+        assert_eq!(id("flap"), None);
+        assert_eq!(id("far/goal"), None);
+        assert_eq!(id("nothing"), None);
     }
 
     #[test]
@@ -515,8 +619,9 @@ mod tests {
         assert_eq!(done.output.as_deref(), Some("delivery-42"));
         assert_eq!(std::fs::read_to_string(&seen).unwrap(), "send|lane-b|-|vm/lane|hello\nthere");
 
-        let done = relay_with_deadline(&config, "refuse", "x", &RelaySender::default(), true, None)
-            .unwrap();
+        let done =
+            relay_with_deadline(&config, "refuse", "x", &RelayMetadata::default(), true, None)
+                .unwrap();
         assert_eq!(done.status, 7);
         assert_eq!(std::fs::read_to_string(&seen).unwrap(), "send|refuse|-|unset|x");
 
@@ -528,14 +633,14 @@ mod tests {
         );
         let early = SendRelay { argv: vec![early.display().to_string()], ls_argv: None };
         let big = "x".repeat(1 << 20);
-        let e = relay_with_deadline(&early, "lane-b", &big, &RelaySender::default(), true, None)
+        let e = relay_with_deadline(&early, "lane-b", &big, &RelayMetadata::default(), true, None)
             .unwrap_err();
         assert!(e.to_string().contains("did not read the whole message"), "{e}");
 
         let missing =
             SendRelay { argv: vec![dir.join("absent").display().to_string()], ls_argv: None };
         assert!(
-            relay_with_deadline(&missing, "lane-b", "x", &RelaySender::default(), true, None)
+            relay_with_deadline(&missing, "lane-b", "x", &RelayMetadata::default(), true, None)
                 .is_err()
         );
         let _ = std::fs::remove_dir_all(&dir);
@@ -545,7 +650,7 @@ mod tests {
     fn a_relayed_send_with_attachments_is_refused() {
         let config = SendRelay { argv: vec!["/nonexistent/relay".into()], ls_argv: None };
         let e =
-            send_with_deadline(&config, "lane-b", "x", &RelaySender::default(), true, true, None)
+            send_with_deadline(&config, "lane-b", "x", &RelayMetadata::default(), true, true, None)
                 .unwrap_err();
         assert_eq!(e.downcast_ref::<AppError>().map(|a| a.code), Some(Code::Usage));
         assert!(e.to_string().contains("text only"), "{e}");

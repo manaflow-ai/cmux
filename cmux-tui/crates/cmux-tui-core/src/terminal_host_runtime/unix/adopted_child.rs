@@ -33,7 +33,7 @@ pub(super) fn leads_session(pid: libc::pid_t, session: libc::pid_t) -> bool {
 fn is_zombie(pid: libc::pid_t) -> bool {
     // `/proc/<pid>/stat` is "pid (comm) S ..."; comm may contain spaces or
     // parentheses, so the state follows the last ')'.
-    fs::read_to_string(format!("/proc/{pid}/stat")).ok().is_some_and(|stat| {
+    crate::process_resources::stat_line(format!("/proc/{pid}/stat")).ok().is_some_and(|stat| {
         stat.rsplit_once(')').is_some_and(|(_, rest)| rest.trim_start().starts_with('Z'))
     })
 }
@@ -281,6 +281,17 @@ impl HostShared {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A process that ended and is not reaped is a zombie whatever bytes
+    /// the name of its program has.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn an_ended_process_is_a_zombie_for_each_program_name() {
+        let mut child = cmux_tui_platform::CutNameChild::start("zombie").expect("child");
+        child.end_unreaped().expect("end");
+        let pid = libc::pid_t::try_from(child.id()).unwrap();
+        assert!(is_zombie(pid), "an ended child that is not reaped is not a zombie");
+    }
 
     /// A shell that died a moment before its host must not get a
     /// replacement: an exited, unreaped process is a zombie on every

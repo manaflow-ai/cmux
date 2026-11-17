@@ -11,6 +11,7 @@ import { chromium, webkit, type Browser, type BrowserType, type Page } from "pla
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("quiet-access-chip.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -74,6 +75,9 @@ await requireBrowserLane("quiet-access-chip.test.ts", async () => {
   /** The composer's Codex access-menu stage with Full access picked and the menu closed. */
   const fullAccess = async (engine: string): Promise<Page> => {
     const page = await browsers.get(engine)!.newPage({ viewport: { width: 760, height: 600 } });
+    // Claude's look, whose access chip is quiet: Codex's (the default since #42247) draws Full access
+    // in the accent on purpose (composerLook.css).
+    await page.addInitScript(() => localStorage.setItem("cmux.composer.look", "claude"));
     await installPaintedFrames(page);
     await page.goto(stageURL("agent-pane.composer", "access-menu-codex"));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
@@ -96,24 +100,27 @@ await requireBrowserLane("quiet-access-chip.test.ts", async () => {
   for (const [engine] of engines) {
     test(`${engine}: Full access draws in the mode's quiet tone`, async () => {
       const page = await fullAccess(engine);
-      const colors = await page.evaluate((selector) => {
-        const access = document.querySelector<HTMLElement>(selector)!;
-        const model = document.querySelector<HTMLElement>(".acpmux-model .acpmux-picker-button")!;
-        return {
-          access: getComputedStyle(access).color,
-          shield: getComputedStyle(access.querySelector("svg")!).color,
-          model: getComputedStyle(model).color,
-          // The footer's mode tone, resolved where the chip draws.
-          soft: (() => {
-            const probe = document.createElement("span");
-            probe.style.color = "var(--agent-soft)";
-            access.parentElement!.append(probe);
-            const color = getComputedStyle(probe).color;
-            probe.remove();
-            return color;
-          })(),
-        };
-      }, trigger);
+      const colors = await page.evaluate(
+        ({ selector, MODEL_PICKER }) => {
+          const access = document.querySelector<HTMLElement>(selector)!;
+          const model = document.querySelector<HTMLElement>(MODEL_PICKER)!;
+          return {
+            access: getComputedStyle(access).color,
+            shield: getComputedStyle(access.querySelector("svg")!).color,
+            model: getComputedStyle(model).color,
+            // The footer's mode tone, resolved where the chip draws.
+            soft: (() => {
+              const probe = document.createElement("span");
+              probe.style.color = "var(--agent-soft)";
+              access.parentElement!.append(probe);
+              const color = getComputedStyle(probe).color;
+              probe.remove();
+              return color;
+            })(),
+          };
+        },
+        { selector: trigger, MODEL_PICKER },
+      );
       expect(colors.access).toBe(colors.soft);
       expect(colors.shield).toBe(colors.soft);
       await page.close();

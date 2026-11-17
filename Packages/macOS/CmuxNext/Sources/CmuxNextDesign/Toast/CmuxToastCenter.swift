@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 import CmuxNextWakeups
 
 /// The one toast presenter (R96). Toasts show on their window's overlay
@@ -10,7 +11,10 @@ import CmuxNextWakeups
 /// the keybindings lead) asks `takesUndoKey(in:)` and calls `runUndo(in:)`.
 @MainActor
 public final class CmuxToastCenter {
-    public static let shared = CmuxToastCenter()
+    /// The app's center: the kinds hidden with Don't Show Again persist in the app's defaults, and the look
+    /// and timing follow Debug Settings. Centers made in tests keep their choices in memory.
+    public static let shared = CmuxToastCenter(neverShow: CmuxToastNeverShowStore(defaults: .standard), tunables: .shared,
+                                               styles: CmuxToastStyleStore(defaults: .standard))
 
     private struct Entry {
         let handle: CmuxToastHandle
@@ -36,6 +40,19 @@ public final class CmuxToastCenter {
     /// (same id and detail, no action) asked for again in that time does not show.
     /// A toast with an action (Undo, Reopen, Retry) is never quieted.
     public var closedCooldown: Duration = .seconds(120)
+    /// The kinds the person hid with Don't Show Again (``CmuxToast/offersNeverShow``): a toast of one
+    /// never shows. The shared center's store persists in `UserDefaults.standard`.
+    public let neverShow: CmuxToastNeverShowStore
+    /// Where the toasts' look and timing are read (``CmuxToastTuning``): Debug Settings' store in the
+    /// app (inert in Release, so the code defaults), a test's own store in tests.
+    public let tunables: TunableStore
+    /// The toast look and timing now (Debug Settings > Toasts, else the defaults).
+    public var tuning: CmuxToastTuning { CmuxToastTuning(store: tunables) }
+    /// The style the person picked in the Toast Playground; the shared center's persists in
+    /// `UserDefaults.standard`. A pick restyles every toast showing (``pick(_:)``).
+    public let styles: CmuxToastStyleStore
+    /// The style every toast draws in now, unless it names its own (``CmuxToast/style``).
+    public var style: CmuxToastStyle { styles.style }
 
     /// A notice by what it says: its id, message and detail.
     private struct QuietKey: Hashable {
@@ -49,9 +66,31 @@ public final class CmuxToastCenter {
         }
     }
 
-    public init(clock: any Clock<Duration> = ContinuousClock(), host: any CmuxToastHosting = CmuxToastNoHost()) {
+    /// - Parameters:
+    ///   - neverShow: The hidden kinds; in memory by default (the app injects its persisted one).
+    ///   - tunables: Where the look and timing are read; a store of its own, inert, by default (the
+    ///     code defaults). The app passes Debug Settings' store.
+    public init(clock: any Clock<Duration> = ContinuousClock(), host: any CmuxToastHosting = CmuxToastNoHost(),
+                neverShow: CmuxToastNeverShowStore = CmuxToastNeverShowStore(defaults: nil), tunables: TunableStore = TunableStore(),
+                styles: CmuxToastStyleStore = CmuxToastStyleStore(defaults: nil)) {
         self.clock = clock
         self.host = host
+        self.neverShow = neverShow
+        self.tunables = tunables
+        self.styles = styles
+        styles.follow(self)
+    }
+
+    /// Makes `style` the style of every toast and prompt: it persists, and every toast showing, in every
+    /// window, is drawn in it at once (a toast that names its own style keeps it).
+    public func pick(_ style: CmuxToastStyle) {
+        // The store tells its followers, this center first among them (``toastStyleDidChange(_:)``).
+        styles.pick(style)
+    }
+
+    /// Gives the host every window's toasts again, so it draws them in the style picked now.
+    private func redrawEveryWindow() {
+        for key in Array(stacks.keys) { render(key) }
     }
 
     // MARK: Showing
@@ -67,8 +106,8 @@ public final class CmuxToastCenter {
             let quiet = isQuieted(toast)
             for (other, entry) in entries where entry.handle.toast.id == toast.id && (quiet || entry.window !== window) { end(other, .replaced) }
         }
-        // The person closed this notice a moment ago: it does not come back yet.
-        if isQuieted(toast) {
+        // The person closed this notice a moment ago, or hid its kind for good: it does not show.
+        if isQuieted(toast) || (toast.offersNeverShow && neverShow.isHidden(toast.kind)) {
             handle.finish(.closed)
             return handle
         }
@@ -196,6 +235,32 @@ public final class CmuxToastCenter {
         if action.revealsDetails { toggleDetails(serial) } else { entry.handle.runAction() }
     }
 
+    /// The person clicked the prompt's second action: it runs and ends the toast.
+    public func personRanSecondaryAction(serial: Int) {
+        entries[serial]?.handle.runSecondaryAction()
+    }
+
+    /// Runs the second action of the newest toast with `id` in `window`, as its button does; false when
+    /// none shows or it has none.
+    @discardableResult
+    public func runSecondaryAction(id: String, in window: NSWindow) -> Bool {
+        let serials = stacks[ObjectIdentifier(window)]?.serials ?? []
+        guard let serial = serials.reversed().first(where: { entries[$0]?.handle.toast.id == id }),
+              let entry = entries[serial], entry.handle.toast.secondaryAction != nil else { return false }
+        entry.handle.runSecondaryAction()
+        return true
+    }
+
+    /// The person clicked the toast's Don't Show Again: its kind is hidden for good, and every toast of
+    /// it ends in every window. A toast that does not offer it (an Undo, one that waits) is left alone.
+    public func personChoseNeverShow(serial: Int) {
+        guard let toast = entries[serial]?.handle.toast, toast.offersNeverShow else { return }
+        neverShow.hide(toast.kind)
+        for (other, entry) in entries where entry.handle.toast.kind == toast.kind && entry.handle.toast.offersNeverShow {
+            end(other, .closed)
+        }
+    }
+
     /// The person clicked the toast's close button.
     public func personClosed(serial: Int) {
         guard entries[serial] != nil else { return }
@@ -261,7 +326,7 @@ public final class CmuxToastCenter {
 
     private func startTimer(_ serial: Int) {
         guard let entry = entries[serial], entry.handle.toast.duration != CmuxToast.untilClosed else { return }
-        entry.timer.schedule(after: entry.handle.toast.duration) { @MainActor [weak self] in
+        entry.timer.schedule(after: tuning.shownDuration(of: entry.handle.toast)) { @MainActor [weak self] in
             self?.end(serial, .timeout)
         }
     }
@@ -273,6 +338,8 @@ public final class CmuxToastCenter {
 public final class CmuxToastHandle {
     public let toast: CmuxToast
     public var onAction: (() -> Void)?
+    /// Runs once when the prompt's second action runs (``CmuxToast/secondaryAction``).
+    public var onSecondaryAction: (() -> Void)?
     public var onDismiss: ((CmuxToastDismissReason) -> Void)?
     /// Whether this toast's step is the top of the given undo stack (an undo
     /// toast that also put its step on the window's undo stack): Cmd-Z then
@@ -299,6 +366,16 @@ public final class CmuxToastHandle {
         center?.end(serial, .action)
     }
 
+    /// Runs the prompt's second action and ends the toast.
+    public func runSecondaryAction() {
+        guard !isDismissed, toast.secondaryAction != nil else { return }
+        let action = onSecondaryAction
+        onSecondaryAction = nil
+        onAction = nil
+        action?()
+        center?.end(serial, .action)
+    }
+
     public func dismiss() {
         center?.end(serial, .closed)
     }
@@ -307,8 +384,16 @@ public final class CmuxToastHandle {
         guard !isDismissed else { return }
         isDismissed = true
         onAction = nil
+        onSecondaryAction = nil
         let callback = onDismiss
         onDismiss = nil
         callback?(reason)
+    }
+}
+
+extension CmuxToastCenter: CmuxToastStyleFollowing {
+    /// A pick made on the store directly (not through ``pick(_:)``) restyles the toasts showing too.
+    public func toastStyleDidChange(_ style: CmuxToastStyle) {
+        redrawEveryWindow()
     }
 }

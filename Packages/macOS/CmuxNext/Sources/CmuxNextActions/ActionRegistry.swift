@@ -75,6 +75,8 @@ public final class ActionRegistry {
     public var contextMenuLayouts: [ActionMenuContext: ContextMenuLayout] = [:]
     /// Whether a whole right-click menu ends with Customize Menu… (cmux.json `contextMenus.showCustomizeItem`).
     public var showsCustomizeMenuItem = true
+    /// Settings > Menus' menus as last built (``contextMenuEditorState()``).
+    @ObservationIgnored var editorMenus: ContextMenuEditorMenu.Built?
     /// Called when a bound toggle's `paletteState` changes after its run returned (a cmux.json write that
     /// lands later): the open palette reads its rows again. The palette installs it.
     @ObservationIgnored public var paletteStateDidChange: (@MainActor () -> Void)?
@@ -460,7 +462,7 @@ public final class ActionRegistry {
     /// while Merge Workspace Into… (which acts on a workspace) still asks
     /// for the other workspace, unless the argument names the target itself
     /// (`isSuppliedByTarget`: New Workspace in Space… on a right-clicked Space).
-    static func target(of invocation: ActionInvocation, supplies argument: ActionArgument, for descriptor: ActionDescriptor) -> Bool {
+    public static func target(of invocation: ActionInvocation, supplies argument: ActionArgument, for descriptor: ActionDescriptor) -> Bool {
         guard case .target(let kind) = argument.kind, let target = invocation.target else { return false }
         return target.kind == kind && (argument.isSuppliedByTarget || !descriptor.targets.contains(kind))
     }

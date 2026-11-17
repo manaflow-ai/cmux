@@ -113,3 +113,79 @@ fn the_check_sees_a_descriptor_that_stays_open_after_a_shutdown() {
     drop(dup);
     assert!(!other_end_open(&peer));
 }
+
+/// Open descriptors of this process: all of them, and the kqueues among them.
+fn open_descriptors() -> (usize, usize) {
+    const PROC_PIDLISTFDS: libc::c_int = 1;
+    const PROX_FDTYPE_KQUEUE: u32 = 5;
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct FdInfo {
+        fd: i32,
+        kind: u32,
+    }
+    let mut list = vec![FdInfo { fd: 0, kind: 0 }; 65_536];
+    let bytes = libc::c_int::try_from(list.len() * size_of::<FdInfo>()).unwrap();
+    // SAFETY: `list` is a live buffer of `bytes` bytes that proc_pidinfo
+    // fills with proc_fdinfo records of this process.
+    let used = unsafe {
+        libc::proc_pidinfo(
+            std::process::id() as libc::c_int,
+            PROC_PIDLISTFDS,
+            0,
+            list.as_mut_ptr().cast(),
+            bytes,
+        )
+    };
+    let count = usize::try_from(used).unwrap() / size_of::<FdInfo>();
+    let list = &list[..count];
+    (count, list.iter().filter(|info| info.kind == PROX_FDTYPE_KQUEUE).count())
+}
+
+/// Each line reader waits in a kqueue of its own (transport::ReadWaiter); it
+/// closes with the reader. 500 connections that each send a request, read the
+/// reply and close leave no descriptor behind. The bound of 100 allows for
+/// descriptors that tests running beside this one hold for a moment; a leaked
+/// kqueue (or socket) for each connection adds 500.
+#[test]
+fn line_connections_that_end_leave_no_descriptor_behind() {
+    const CYCLES: usize = 500;
+    let mux =
+        Mux::new_for_test("line-close-descriptors".to_string(), crate::SurfaceOptions::default());
+    let cycle = |round: usize| {
+        let (ours, peer) = UnixStream::pair().unwrap();
+        let server_mux = mux.clone();
+        let server = std::thread::spawn(move || {
+            serve_line_connection(
+                server_mux,
+                Box::new(ours),
+                Arc::new(RenderService::new()),
+                None,
+                ClientTransport::Unix,
+                &admission::LocalAdmission,
+            );
+        });
+        peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        (&peer).write_all(format!("{{\"id\":{round},\"cmd\":\"identify\"}}\n").as_bytes()).unwrap();
+        let mut reply = String::new();
+        BufReader::new(&peer).read_line(&mut reply).unwrap();
+        assert!(reply.contains("\"ok\":true"), "{reply}");
+        drop(peer);
+        server.join().unwrap();
+    };
+    // The first connection sets up what the mux keeps for its life.
+    cycle(0);
+    let (start_all, start_kqueues) = open_descriptors();
+    for round in 1..=CYCLES {
+        cycle(round);
+    }
+    let (end_all, end_kqueues) = open_descriptors();
+    assert!(
+        end_kqueues < start_kqueues + 100,
+        "kqueues {start_kqueues} -> {end_kqueues} after {CYCLES} line connections"
+    );
+    assert!(
+        end_all < start_all + 100,
+        "descriptors {start_all} -> {end_all} after {CYCLES} line connections"
+    );
+}

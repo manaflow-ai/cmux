@@ -39,7 +39,7 @@ public nonisolated struct AutomationRow: Equatable, Identifiable, Sendable {
     public var id: String
     public var name: String
     public var target: Target
-    /// The schedule in words, from the CLI (`cron 0 9 * * 1-5 (local)`, `every 30m`, `manual only`).
+    /// The trigger in words, from the CLI (`cron 0 9 * * 1-5 (local)`, `every 30m`, `When an agent goes idle`).
     public var schedule: String
     /// The prompt or command a run does.
     public var task: String
@@ -73,7 +73,10 @@ public nonisolated struct AutomationRow: Equatable, Identifiable, Sendable {
             let body = item["body"] as? [String: Any] ?? [:]
             let task = body["prompt"] as? String ?? body["command"] as? String ?? ""
             let last = item["last_run"] as? [String: Any]
-            return AutomationRow(id: id, name: name, target: .thisMac, schedule: describe(item["trigger"] as? [String: Any]),
+            // The CLI says the trigger in words (`trigger_label`: "When a pull request is opened");
+            // an older CLI without it falls back to the type.
+            let schedule = item["trigger_label"] as? String ?? describe(item["trigger"] as? [String: Any])
+            return AutomationRow(id: id, name: name, target: .thisMac, schedule: schedule,
                                  task: task, enabled: item["enabled"] as? Bool ?? true,
                                  nextRun: seconds(item["next_run_at"]), last: result(last?["state"] as? String))
         }

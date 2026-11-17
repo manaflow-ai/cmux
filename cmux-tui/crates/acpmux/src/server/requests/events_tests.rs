@@ -249,3 +249,87 @@ fn a_match_past_the_cap_is_refused() {
     let longest = "m".repeat(crate::hub::MAX_MATCH_BYTES);
     handle(&hub, method::MUX_EVENTS, &json!({"sessionId": "c", "match": longest}), None).unwrap();
 }
+
+/// The phone's older page of a chat with a 2 MB command log in it (cmux-next-ios
+/// `chat_older_page`): a page always carries its first record whole, so the page was the 256 KiB
+/// asked plus the whole log, on the wire and in the parse. With `toolOutputMaxBytes` the log goes
+/// cut to its head, marked with the record's size and seq, and a read of that one seq (the
+/// person opening the output) gets it whole. A reader that does not ask gets it whole as before.
+#[test]
+fn a_page_cuts_an_oversized_tool_output_and_the_record_reads_whole_on_its_own() {
+    let store = MemoryStore::default();
+    let meta: SessionMeta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": "c", "name": "chat", "harness": "fake",
+        "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
+        "lastSeq": 3, "eventCount": 3,
+    }))
+    .unwrap();
+    store.save(&meta).unwrap();
+    let log: String = (0..60_000).map(|i| format!("step {i} ok\n")).collect();
+    assert!(log.len() > 600 * 1024);
+    let update = |update: Value| {
+        json!({"jsonrpc": "2.0", "method": "session/update",
+        "params": {"sessionId": "c", "update": update}})
+    };
+    let records = [
+        (1, "mux", "user_message", json!({"turnId": "u1", "text": "build it"})),
+        (
+            2,
+            "in",
+            "tool_call",
+            update(
+                json!({"sessionUpdate": "tool_call", "toolCallId": "t", "title": "swift build"}),
+            ),
+        ),
+        (
+            3,
+            "in",
+            "tool_call_update",
+            update(json!({"sessionUpdate": "tool_call_update", "toolCallId": "t",
+            "status": "completed",
+            "content": [{"type": "content", "content": {"type": "text", "text": log}}]})),
+        ),
+    ];
+    for (seq, dir, kind, msg) in records {
+        let rec =
+            EventRecord { seq, at: seq, dir: dir.into(), kind: kind.into(), msg, host_seq: None };
+        store.append("c", &rec).unwrap();
+    }
+    let mut config = crate::config::Config::default();
+    config.store.mode = crate::config::StoreMode::Memory;
+    let hub = Hub::new(config, Box::new(store));
+    let older = |cut: Option<u64>| {
+        let mut ask = json!({"sessionId": "c", "beforeSeq": 4, "limit": 400,
+            "maxBytes": 256 * 1024, "kinds": ["transcript"]});
+        if let Some(cut) = cut {
+            ask["toolOutputMaxBytes"] = json!(cut);
+        }
+        handle(&hub, method::MUX_EVENTS, &ask, None).unwrap()
+    };
+
+    let whole = older(None);
+    assert!(whole.to_string().len() > log.len(), "a reader that does not ask reads the log whole");
+
+    let page = older(Some(64 * 1024));
+    assert_eq!(seqs(&page), [1, 2, 3]);
+    let wire = page.to_string().len();
+    assert!(wire < 96 * 1024, "the page is {wire} bytes");
+    let cut = &page["events"][2]["msg"]["params"]["update"];
+    assert_eq!(cut["_meta"]["acpmux"]["cut"]["seq"], 3);
+    assert!(cut["_meta"]["acpmux"]["cut"]["bytes"].as_u64().unwrap() > log.len() as u64);
+    let head = cut["content"][0]["content"]["text"].as_str().unwrap();
+    assert!(log.starts_with(head) && !head.is_empty());
+
+    // The person opens the output: that one record, whole.
+    let full = handle(
+        &hub,
+        method::MUX_EVENTS,
+        &json!({"sessionId": "c", "afterSeq": 2, "limit": 1}),
+        None,
+    )
+    .unwrap();
+    assert_eq!(seqs(&full), [3]);
+    let update = &full["events"][0]["msg"]["params"]["update"];
+    assert_eq!(update["content"][0]["content"]["text"].as_str(), Some(log.as_str()));
+    assert!(update.pointer("/_meta/acpmux/cut").is_none());
+}

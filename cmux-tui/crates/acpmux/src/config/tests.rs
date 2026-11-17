@@ -2,6 +2,36 @@ use super::*;
 use crate::test_exec::write_executable;
 
 #[test]
+fn v2_surfaces_are_opt_in_and_default_empty() {
+    let config = Config::default();
+    assert!(config.acpmux_v2.is_empty());
+    assert!(config.acpmux_v2.enabled().is_empty());
+
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "acpmux.v2": ["list", "chat", "unknown", "start"]
+    }))
+    .unwrap();
+    let enabled = config.acpmux_v2.enabled();
+    assert!(enabled.contains("list"));
+    assert!(enabled.contains("chat"));
+    assert!(enabled.contains("start"));
+    assert!(enabled.contains("books"), "chat/start imply the books surface");
+    assert!(!enabled.contains("unknown"));
+}
+
+#[test]
+fn v2_surfaces_round_trip_without_writing_the_empty_default() {
+    let empty = serde_json::to_value(Config::default()).unwrap();
+    assert!(empty.get("acpmux.v2").is_none());
+
+    let config = Config { acpmux_v2: V2Surfaces(vec!["peers".into()]), ..Config::default() };
+    let saved = serde_json::to_value(&config).unwrap();
+    assert_eq!(saved["acpmux.v2"], serde_json::json!(["peers"]));
+    let parsed: Config = serde_json::from_value(saved).unwrap();
+    assert_eq!(parsed.acpmux_v2, config.acpmux_v2);
+}
+
+#[test]
 fn cli_session_resource_settings_are_config_values() {
     let mut config = Config::default();
     config.set_session_resource("session.memory_mb", "6144").unwrap();
@@ -472,4 +502,172 @@ fn an_unsynced_atomic_write_keeps_the_old_copy_until_rename() {
     assert_ne!(std::fs::metadata(&path).unwrap().ino(), before);
     assert_eq!(std::fs::read(&path).unwrap(), b"new");
     assert_eq!(syncs.get(), 0);
+}
+
+/// fseventsd keeps every path it is told of until it restarts: a peer snapshot rewritten every
+/// few seconds through a `.tmp-<pid>-<n>` copy minted a new name each time, about 400 a minute on
+/// a Mac with a few dozen peer chats streaming. Every write of a file in one process uses one
+/// name, and writers of it on several threads still each put a whole copy in place.
+#[cfg(unix)]
+#[test]
+fn atomic_writes_of_a_file_reuse_one_temporary_name() {
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().join("copy.json");
+    let names = std::rc::Rc::new(std::cell::RefCell::new(std::collections::BTreeSet::new()));
+    let seen = names.clone();
+    let dir = home.path().to_path_buf();
+    let guard = seams::on_before_rename(move |_| {
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let name = entry.unwrap().file_name().to_string_lossy().into_owned();
+            if name.contains(".tmp-") {
+                seen.borrow_mut().insert(name);
+            }
+        }
+    });
+    for n in 0..5 {
+        write_atomic(&path, format!("{n}").as_bytes()).unwrap();
+        write_atomic_unsynced(&path, format!("u{n}").as_bytes()).unwrap();
+    }
+    drop(guard);
+    let want = format!("copy.tmp-{}", std::process::id());
+    assert_eq!(*names.borrow(), std::collections::BTreeSet::from([want]));
+
+    let whole: Vec<Vec<u8>> = (0..8u8).map(|n| vec![b'a' + n; 64 << 10]).collect();
+    std::thread::scope(|scope| {
+        for bytes in &whole {
+            let path = &path;
+            scope.spawn(move || {
+                for _ in 0..20 {
+                    write_atomic_unsynced(path, bytes).unwrap();
+                }
+            });
+        }
+    });
+    let left = std::fs::read(&path).unwrap();
+    assert!(whole.contains(&left), "a copy two writers filled together was put in place");
+    let temps = std::fs::read_dir(home.path())
+        .unwrap()
+        .filter(|e| e.as_ref().unwrap().file_name().to_string_lossy().contains(".tmp-"))
+        .count();
+    assert_eq!(temps, 0, "a temporary copy stayed");
+}
+
+/// A joined Mac's `machine-consent/` held `refusal.json` and 8 `refusal.tmp-<pid>-<n>` files: the
+/// daemon writing the refusal was stopped between the temporary copy's open and its rename, and
+/// nothing removed the copy after. The next write to the same file removes the copies of
+/// processes no longer running; a running process's copy, and a copy made in the last minute,
+/// stay.
+#[cfg(unix)]
+#[test]
+fn an_atomic_write_removes_the_temporary_copies_dead_processes_left() {
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().join("refusal.json");
+    let mut exited = std::process::Command::new("true").spawn().unwrap();
+    let dead = exited.id();
+    exited.wait().unwrap();
+    let mut running = std::process::Command::new("sleep").arg("60").spawn().unwrap();
+    let live = running.id();
+    let hour_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+    let left = |name: String, old: bool| {
+        let tmp = home.path().join(name);
+        let file = std::fs::File::create(&tmp).unwrap();
+        if old {
+            file.set_modified(hour_ago).unwrap();
+        }
+        tmp
+    };
+    let stale = left(format!("refusal.tmp-{dead}-3"), true);
+    let stale_bare = left(format!("refusal.tmp-{dead}"), true);
+    let fresh = left(format!("refusal.tmp-{dead}-4"), false);
+    let alive = left(format!("refusal.tmp-{live}-0"), true);
+    let other = left(format!("consent.tmp-{dead}-0"), true);
+    let not_a_pid = left("refusal.tmp-notes".to_owned(), true);
+
+    write_atomic(&path, b"{}").unwrap();
+
+    let _ = running.kill();
+    let _ = running.wait();
+    assert_eq!(std::fs::read(&path).unwrap(), b"{}");
+    assert!(!stale.exists(), "a dead process's copy stays: {}", stale.display());
+    assert!(!stale_bare.exists(), "a dead process's copy stays: {}", stale_bare.display());
+    assert!(fresh.exists(), "a copy made in the last minute was removed");
+    assert!(alive.exists(), "a running process's copy was removed");
+    assert!(other.exists(), "another file's copy was removed");
+    assert!(not_a_pid.exists(), "a name with no pid was removed");
+}
+
+/// `acpmux config --set transport.wireguard=true` with no `wireguardStatic` block (cmux#43305's
+/// carrier step, 2026-11-15): the daemon then refused to start. What the CLI does (load, set,
+/// save) either refuses and leaves config.json as it was, or writes a config the daemon's own
+/// startup accepts: `Config::load` and the WireGuard transport's start.
+#[tokio::test]
+async fn config_set_never_writes_a_config_the_daemon_refuses() {
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().join("config.json");
+    std::fs::write(&path, "{}\n").unwrap();
+    let before = std::fs::read(&path).unwrap();
+    let mut cfg = Config::load_from_with(&path, &ProfileSources::none()).unwrap();
+    match cfg.set("transport.wireguard", "true") {
+        Err(refused) => {
+            let refused = format!("{refused:#}");
+            for field in ["wireguardStatic.listen", "wireguardStatic.address"] {
+                assert!(refused.contains(field), "the refusal names {field}: {refused}");
+            }
+            assert!(!cfg.transport.wireguard, "a refused set left the value in place");
+            assert_eq!(std::fs::read(&path).unwrap(), before, "a refused set wrote config.json");
+        }
+        Ok(()) => {
+            cfg.save().unwrap();
+            let loaded = Config::load_from_with(&path, &ProfileSources::none()).unwrap();
+            let started = crate::wireguard::Transport::start_with_link(
+                &loaded,
+                home.path(),
+                None,
+                "127.0.0.1:1".parse().unwrap(),
+            )
+            .await;
+            if let Err(refused) = started {
+                panic!("the daemon refuses what config --set wrote: {refused:#}");
+            }
+        }
+    }
+}
+
+/// Every start-time check of config.json goes through `Config::start_refusal`, so `config --set`
+/// refuses what any of them refuses, not only the WireGuard settings: here a saved network
+/// `websocket.listen` without its opt-in, which the start refuses (`server::check_listen_address`).
+#[test]
+fn config_set_refuses_what_any_start_check_refuses() {
+    use base64::Engine as _;
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().join("config.json");
+    std::fs::write(&path, r#"{"websocket": {"listen": "0.0.0.0:47999"}}"#).unwrap();
+    let mut cfg = Config::load_from_with(&path, &ProfileSources::none()).unwrap();
+    let refused = format!("{:#}", cfg.set("session.memory_mb", "6144").unwrap_err());
+    assert!(refused.contains("refusing websocket.listen 0.0.0.0:47999"), "{refused}");
+    assert_eq!(cfg.session.memory_mb, None, "a refused set left the value in place");
+    // With the opt-in the start takes it, and so does config --set.
+    cfg.websocket.as_mut().unwrap().allow_insecure_network = true;
+    cfg.set("session.memory_mb", "6144").unwrap();
+    assert_eq!(cfg.session.memory_mb, Some(6144));
+    // WireGuard with its static settings and a well-formed peer passes; a malformed peer key,
+    // which the transport's start refuses, is refused here first, naming the peer.
+    cfg.transport.wireguard_static = Some(crate::wireguard::StaticConfig {
+        listen: "127.0.0.1:0".parse().unwrap(),
+        address: "10.77.0.1:4100".parse().unwrap(),
+    });
+    cfg.set("transport.wireguard", "true").unwrap();
+    let mut peer: PeerConfig = serde_json::from_value(serde_json::json!({
+        "url": "ssh://workstation",
+        "wireguard": {"publicKey": "not-a-key", "endpoint": "127.0.0.1:51820",
+                      "address": "10.77.0.2:4100"}
+    }))
+    .unwrap();
+    cfg.peers.insert("workstation".into(), peer.clone());
+    let refused = format!("{:#}", cfg.set("session.memory_mb", "8192").unwrap_err());
+    assert!(refused.contains("peers.workstation.wireguard"), "{refused}");
+    peer.wireguard.as_mut().unwrap().public_key =
+        base64::engine::general_purpose::STANDARD.encode([7u8; 32]);
+    cfg.peers.insert("workstation".into(), peer);
+    cfg.set("session.memory_mb", "8192").unwrap();
 }

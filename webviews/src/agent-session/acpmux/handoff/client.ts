@@ -1,6 +1,17 @@
 import { AcpmuxRpcError, HANDOFF_OPS, handoffRecord, type Handoff, type StartReceipt } from "./protocol";
 import { reviewedContinuation, type HandoffReviewInput } from "./review";
-import { translate } from "../i18n";
+import { translate, type StringKey } from "../i18n";
+
+/// A failure the pane worded itself (the continuation is too large), which the review says as it is.
+class HandoffNotice extends Error {}
+
+/// The review's error line for `error`: the pane's own words, else `fallback` ("Couldn't prepare
+/// this continuation."). acpmux's or the bridge's message goes to the log, never the line.
+function shownError(error: unknown, fallback: StringKey): string {
+  if (error instanceof HandoffNotice) return error.message;
+  console.warn("agent pane: a handoff request failed", error);
+  return translate(fallback);
+}
 
 type Request = (method: string, params: Record<string, unknown>) => Promise<any>;
 export type HandoffClientState = {
@@ -86,8 +97,7 @@ export class HandoffClient {
       this.adopt(result);
       return result;
     } catch (error) {
-      if (selection === this.selection)
-        this.state.error = error instanceof Error ? error.message : translate("handoff.error.prepare");
+      if (selection === this.selection) this.state.error = shownError(error, "handoff.error.prepare");
       throw error;
     } finally {
       if (selection === this.selection) {
@@ -113,7 +123,7 @@ export class HandoffClient {
       )
         return;
       if (new TextEncoder().encode(review.capsule).length > record.capsule.maxBytes)
-        throw new Error(translate("handoff.error.tooLarge"));
+        throw new HandoffNotice(translate("handoff.error.tooLarge"));
       this.state.busy = "saving";
       this.state.error = undefined;
       this.changed();
@@ -151,7 +161,7 @@ export class HandoffClient {
         return accepted;
       } catch (error) {
         if (selection === this.selection) {
-          this.state.error = error instanceof Error ? error.message : translate("handoff.error.save");
+          this.state.error = shownError(error, "handoff.error.save");
           this.state.conflict = error instanceof AcpmuxRpcError && error.reason === "stale_revision";
         }
         throw error;
@@ -241,7 +251,7 @@ export class HandoffClient {
       return receipt;
     } catch (error) {
       if (selection === this.selection) {
-        this.state.error = error instanceof Error ? error.message : translate("handoff.error.confirm");
+        this.state.error = shownError(error, "handoff.error.confirm");
         this.state.conflict = error instanceof AcpmuxRpcError && error.reason === "stale_revision";
       }
       throw error;
@@ -262,12 +272,11 @@ export class HandoffClient {
     this.changed();
     try {
       const result = await this.request(HANDOFF_OPS.discard, { handoffId: record.handoffId });
-      if (result?.discarded !== true) throw new Error(translate("handoff.error.discard"));
+      if (result?.discarded !== true) throw new HandoffNotice(translate("handoff.error.discard"));
       if (selection === this.selection) this.state = { ready: true };
       return record;
     } catch (error) {
-      if (selection === this.selection)
-        this.state.error = error instanceof Error ? error.message : translate("handoff.error.discard");
+      if (selection === this.selection) this.state.error = shownError(error, "handoff.error.discard");
       throw error;
     } finally {
       if (selection === this.selection) {

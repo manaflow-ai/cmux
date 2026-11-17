@@ -46,7 +46,8 @@ import Testing
     /// Chief, whose rows they are; the sidebar's Compact
     /// and Comfortable rows are the app density's "Density: Compact/Comfortable" rows; Mute Tab and
     /// Unmute Tab list in place of the right-click menu's Mute/Unmute Tab toggle; Open Feed Item and
-    /// Run a Feed Item's GitHub Action act on a row of the Feed page, which passes the item).
+    /// Run a Feed Item's GitHub Action act on a row of the Feed page, which passes the item; Run an
+    /// Extension's Menu Row runs the row an extension added to a right-click menu, which passes it, #43369).
     @Test func everyActionIsInThePaletteUnlessExempt() {
         for descriptor in catalog where !descriptor.isPaletteVisible {
             let reason = descriptor.surfacePlan.palette.exemption
@@ -54,12 +55,11 @@ import Testing
             #expect((reason == .paletteInternal) == descriptor.requires.contains(.paletteOpen), "\(descriptor.id)")
         }
         #expect(catalog.filter { !$0.isPaletteVisible }.map(\.id.rawValue).sorted()
-            == (["agent.openSessionTab", "agent.openSessionWorkspace", "agent.share.kick", "agent.share.list", "agent.share.revoke", "agent.share.uninvite", "browser.findPrevious", "browser.image.copy", "browser.image.copyAddress", "browser.image.saveAs", "browser.link.copy",
+            == (["agent.openSessionTab", "agent.openSessionWorkspace", "agent.share.kick", "agent.share.list", "agent.share.revoke", "agent.share.uninvite", "app.menu.run", "browser.findPrevious", "browser.image.copy", "browser.image.copyAddress", "browser.image.saveAs", "browser.link.copy",
                 "browser.link.copyText", "browser.link.saveAs", "browser.selection.copy", "browser.selection.lookUp",
                 "chief.openSubagent", "commandPaletteNext", "commandPalettePrevious", "feed.githubAction", "feed.openItem", "history.goTo", "home.messageAbout", "home.messageChiefFromAnyApp", "home.openConversation", "home.sendSelectionTo", "home.showHideChiefFromAnyApp",
                 "home.sendSelectionToChief", "list.next", "list.previous",
                 "import.card", "import.list", "import.suggest",
-                "machine.joined.check", "machine.joined.revoke", "machine.joined.rotate",
                 "omnibar.openInBackgroundTab", "omnibar.openInForegroundTab", "openBrowser.chromium", "palette.startAgentFromAnyApp",
                 "sidebar.chat.togglePin", "sidebar.density.comfortable", "sidebar.density.compact", "toggleTabAudioMute"]
             + ["paletteKey.firstItem", "paletteKey.lastItem", "paletteKey.pageUp", "paletteKey.pageDown", "paletteKey.submit",

@@ -34,7 +34,7 @@ fn hub() -> Arc<crate::hub::Hub> {
     crate::hub::Hub::new(config, store)
 }
 
-/// What the link published before the next `Connected`: a whole list, or a follow's rows and
+/// What the link published before its `Listed`: a whole list, or a follow's rows and
 /// gone ids.
 #[derive(Debug)]
 enum Listed {
@@ -43,8 +43,9 @@ enum Listed {
 }
 
 async fn linked(notices: &mut mpsc::Receiver<(String, u64, PeerNotice)>) -> Listed {
-    let mut listed = None;
-    loop {
+    // A link after a far restart reads its list after it is ready: both, in either order.
+    let (mut listed, mut connected, mut whole) = (None, false, false);
+    while !connected || !whole {
         let (_, _, notice) = tokio::time::timeout(Duration::from_secs(60), notices.recv())
             .await
             .expect("the link connects")
@@ -56,10 +57,12 @@ async fn linked(notices: &mut mpsc::Receiver<(String, u64, PeerNotice)>) -> List
             PeerNotice::SessionsPatch { rows, gone } => {
                 listed = Some(Listed::Patch(crate::peer::parse_rows(&rows), gone))
             }
-            PeerNotice::Connected => return listed.expect("a list before Connected"),
+            PeerNotice::Listed => whole = true,
+            PeerNotice::Connected => connected = true,
             _ => {}
         }
     }
+    listed.expect("a list before Listed")
 }
 
 fn whole(listed: Listed) -> Vec<serde_json::Value> {
@@ -102,12 +105,13 @@ async fn a_reconnecting_peer_link_follows_from_its_cursor_and_reads_only_what_ch
     assert_eq!(peer.served_as().as_deref(), Some("peer"));
     assert_eq!(once(&rows), ROWS);
     let (_, list) = peer.received().read();
-    // One chat changes and one goes while the link is down.
-    hub.row_changed_for_test("own-00007", "renamed");
 
     // The daemon's listener restarts (Close 1012): the link comes back at once, to a new one.
     first.restart();
     served.await.unwrap().unwrap();
+    // One chat changes while the link is down: after the first listener ended, so its notice
+    // cannot reach the link and move its cursor past the change before the drop (#42091 F3).
+    hub.row_changed_for_test("own-00007", "renamed");
     let second = serve(bind_ws(&address.to_string()).await.unwrap(), WsShutdown::default());
     let Listed::Patch(again, gone) = linked(&mut notices).await else {
         panic!("a follow, not the list")

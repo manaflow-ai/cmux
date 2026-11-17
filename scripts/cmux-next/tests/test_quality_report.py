@@ -4,6 +4,7 @@ hang-watch's issues as the fallback, the perf cron's interaction p95, the god-vs
 slots, and the sticky issue's history. No network: Sentry and gh are fakes.
 Run: python3 -I scripts/cmux-next/tests/test_quality_report.py (also runs in cmux-next-quality-report.yml)."""
 import base64, datetime, importlib.util, json, os, subprocess, tempfile, unittest, zlib
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location("quality_report", os.path.join(HERE, "..", "quality-report.py"))
@@ -312,6 +313,76 @@ class Inputs(unittest.TestCase):
         self.assertEqual(got["worst_ratio"], 1.25)
         self.assertEqual(qr.god_vs_small(None, "no input given")["why"], "no input given")
 
+    def test_god_vs_small_uses_home_status_for_v2_rows(self):
+        got = qr.god_vs_small({"rows": [
+            {"name": "bounded-ok", "small_p95": 10, "god_p95": 30, "status": "ok"},
+            {"name": "god-max-red", "small_p95": 10, "god_p95": 10, "status": "red",
+             "reason": "god p95 exceeds absolute maximum"},
+            {"name": "degenerate", "small_p95": 10, "god_p95": 13},
+        ]}, None)
+        self.assertEqual(got["failing"], ["god-max-red", "degenerate"])
+
+    def test_god_vs_small_keeps_skipped_rows_in_markdown(self):
+        r = qr.build_report(24, T, None, None, None, None, hang_watch=lambda since: [])
+        r["god_vs_small"] = qr.god_vs_small({"rows": [
+            {"name": "v2.pr01.measure", "status": "skipped", "reason": "PR 1 not landed"},
+            {"name": "v2.pr02.measure", "status": "ok", "small_p95": 10, "god_p95": 11},
+            {"name": "v2.pr03.measure", "status": "red", "small_p95": 10, "god_p95": 13},
+        ]}, None)
+        self.assertEqual([row["status"] for row in r["god_vs_small"]["rows"]], ["skipped", "ok", "red"])
+        encoded = json.dumps(r["god_vs_small"])
+        for name in ("v2.pr01.measure", "v2.pr02.measure", "v2.pr03.measure"):
+            self.assertIn(name, encoded)
+        md = qr.render_markdown(r, public=False)
+        self.assertIn("v2.pr01.measure", md)
+        self.assertIn("v2.pr03.measure", md)
+        self.assertIn("PR 1 not landed", md)
+
+    def test_god_vs_small_keeps_failed_rows_in_markdown(self):
+        r = qr.build_report(24, T, None, None, None, None, hang_watch=lambda since: [])
+        r["god_vs_small"] = qr.god_vs_small({"rows": [
+            {"name": "v2.pr01.measure", "status": "failed", "reason": "the gate did not report a measure"},
+        ]}, None)
+        md = qr.render_markdown(r, public=False)
+        self.assertIn("v2.pr01.measure", md)
+        self.assertIn("the gate did not report a measure", md)
+
+    def test_god_vs_small_lists_the_homes_errors(self):
+        r = qr.build_report(24, T, None, None, None, None, hang_watch=lambda since: [])
+        r["god_vs_small"] = qr.god_vs_small({"rows": [
+            {"name": "v2.pr01.measure", "small_p95": 100, "god_p95": 110},
+        ], "errors": ["unknown v2 gate row v2.pr99.renamed", 7]}, None)
+        self.assertEqual(r["god_vs_small"]["errors"], ["unknown v2 gate row v2.pr99.renamed"])
+        for public in (False, True):
+            self.assertIn("unknown v2 gate row v2.pr99.renamed", qr.render_markdown(r, public=public))
+        self.assertEqual(qr.god_vs_small(None, "no input given")["errors"], [])
+        no_rows = qr.god_vs_small({"errors": ["unknown v2 gate row v2.x"]}, None)
+        self.assertEqual(no_rows["errors"], ["unknown v2 gate row v2.x"])
+
+    def test_merge_god_small_keeps_rows_and_errors_of_every_input(self):
+        """The nightly workflow merges the v2 home's input and the degenerate lab's with merge-god-small; the home's
+        `errors` reached the report only through its last stderr line before."""
+        with tempfile.TemporaryDirectory() as d:
+            home, lab, out = (os.path.join(d, name) for name in ("v2.json", "lab.json", "god-small.json"))
+            with open(home, "w") as f:
+                json.dump({"rows": [{"name": "v2.a", "small_p95": 1, "god_p95": 1}],
+                           "errors": ["unknown v2 gate row v2.b"]}, f)
+            with open(lab, "w") as f:
+                json.dump([{"name": "lab.c", "small_p95": 2, "god_p95": 2}], f)
+            self.assertEqual(qr.main(["merge-god-small", "--out", out, home, lab]), 0)
+            with open(out) as f:
+                merged = json.load(f)
+        self.assertEqual([row["name"] for row in merged["rows"]], ["v2.a", "lab.c"])
+        self.assertEqual(merged["errors"], ["unknown v2 gate row v2.b"])
+        self.assertEqual(qr.god_vs_small(merged, None)["errors"], ["unknown v2 gate row v2.b"])
+
+    def test_the_workflow_merges_through_merge_god_small(self):
+        path = os.path.join(HERE, "..", "..", "..", ".github", "workflows", "cmux-next-quality-report.yml")
+        with open(path) as f:
+            workflow = f.read()
+        self.assertIn('quality-report.py merge-god-small --out "$out/god-small.json" "${god_inputs[@]}"', workflow)
+        self.assertNotIn('json.dump({"rows": rows}', workflow)
+
     def test_anim_coverage_shapes(self):
         self.assertEqual(qr.anim_coverage({"coverage": 0.875}, None)["value"], 0.875)
         self.assertEqual(qr.anim_coverage({"covered": 3, "total": 4}, None)["value"], 0.75)
@@ -361,6 +432,171 @@ class Sticky(unittest.TestCase):
         r = self.report(10, 1)
         self.assertNotIn("aaaaaaaaaa", qr.render_markdown(r, public=True))
         self.assertIn("aaaaaaaaaa", qr.render_markdown(r, public=False))
+
+    def test_done_today_requires_a_written_home_row(self):
+        missing = self.report(9, 1)
+        self.assertFalse(qr.sticky_done_today(qr.sticky_body(missing, "md", ""), "2026-11-10"))
+        good = self.report(10, 1)
+        good["v2_home"] = {"status": "wrote", "exit": 0, "error": None, "why": None}
+        self.assertTrue(qr.sticky_done_today(qr.sticky_body(good, "md", ""), "2026-11-10"))
+        bad = self.report(10, 1)
+        bad["v2_home"] = {"status": "no report", "exit": 124, "error": "ran past 17 minutes", "why": None}
+        self.assertFalse(qr.sticky_done_today(qr.sticky_body(bad, "md", ""), "2026-11-10"))
+
+    def test_write_sticky_keeps_good_day_against_bad_run(self):
+        good = self.report(10, 1)
+        good["v2_home"] = {"status": "wrote", "exit": 0, "error": None, "why": None}
+        old_body = qr.sticky_body(good, "good", "")
+        bad = self.report(10, 2)
+        bad["v2_home"] = {"status": "no report", "exit": 124, "error": "ran past 17 minutes", "why": None}
+        calls = []
+
+        def run(cmd, **kw):
+            calls.append((cmd, kw.get("input")))
+            if cmd[2] == "list":
+                return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps([{"number": 7, "title": qr.STICKY_TITLE,
+                                                                                "body": old_body}]), stderr="")
+            raise AssertionError("a good sticky row must not be edited by a bad run")
+
+        with mock.patch("sys.stdout", new_callable=__import__("io").StringIO) as output:
+            self.assertEqual(qr.write_sticky(bad, "bad", "o/r", run=run), "#7")
+        self.assertEqual(len(calls), 1)
+        self.assertIn("kept", output.getvalue())
+        self.assertTrue(qr.sticky_done_today(old_body, "2026-11-10"))
+
+    def test_write_sticky_replaces_bad_day_with_good_run(self):
+        bad = self.report(10, 1)
+        bad["v2_home"] = {"status": "no report", "exit": 124, "error": "ran past 17 minutes", "why": None}
+        old_body = qr.sticky_body(bad, "bad", "")
+        good = self.report(10, 2)
+        good["v2_home"] = {"status": "wrote", "exit": 0, "error": None, "why": None}
+        calls = []
+
+        def run(cmd, **kw):
+            calls.append((cmd, kw.get("input")))
+            if cmd[2] == "list":
+                return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps([{"number": 7, "title": qr.STICKY_TITLE,
+                                                                                "body": old_body}]), stderr="")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        self.assertEqual(qr.write_sticky(good, "good", "o/r", run=run), "#7")
+        self.assertEqual(calls[-1][0][2], "edit")
+        self.assertTrue(qr.sticky_done_today(calls[-1][1], "2026-11-10"))
+
+
+class V2Home(unittest.TestCase):
+    """hq#11702: a gate home that writes nothing is the report's first line and the night's history row."""
+    # Nightly quality report run 43783944322 (2026-11-16 01:03Z): the home exited 2 before it wrote anything.
+    STDERR = ("   Compiling acpmux v0.1.0\n"
+              'v2 bench: "/home/runner/_work/_temp/quality/v2-measures.ndjson": '
+              "v2.pr08.mirror_local_row_thirty has no numeric small_p95\n")
+
+    def report(self, state, day=10):
+        return qr.build_report(24, T.replace(day=day), None, None, None, None, hang_watch=lambda since: [],
+                               v2_home_state=state)
+
+    def test_a_home_that_writes_nothing_is_the_first_line(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = qr.v2_home(2, self.STDERR, os.path.join(d, "v2-god-small.json"))
+        self.assertEqual(state["status"], "no report")
+        self.assertIn("mirror_local_row_thirty has no numeric small_p95", state["error"])
+        self.assertTrue(state["error"].startswith("v2 bench:"), "the home's own line, not cargo's")
+        r = self.report(state)
+        for public in (False, True):
+            md = qr.render_markdown(r, public=public)
+            first = md.split("\n")[2]
+            self.assertTrue(first.startswith("**v2 gates: no report.**"), md)
+            self.assertIn("mirror_local_row_thirty has no numeric small_p95", first)
+            self.assertLess(md.index("v2 gates: no report"), md.index("| Metric |"))
+        self.assertIn("no report (exit 2", qr.headline(r)["v2 gate home"])
+        body = qr.sticky_body(r, qr.render_markdown(r, public=False), "")
+        history = json.loads(qr.HISTORY_RE.search(body).group(1))
+        self.assertEqual(history[-1]["v2_home"], "no report")
+        self.assertIn("(v2 home: no report)", body.split("## Over time")[1])
+
+    def test_a_home_that_writes_has_no_first_line(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "v2-god-small.json")
+            with open(out, "w") as f:
+                f.write('{"rows": []}')
+            state = qr.v2_home(0, "", out)
+            wrote_nonzero = qr.v2_home(1, "v2 bench: row x failed\n", out)
+        self.assertEqual(state["status"], "wrote")
+        r = self.report(state)
+        md = qr.render_markdown(r, public=False)
+        self.assertNotIn("v2 gates:", md)
+        self.assertEqual(qr.headline(r)["v2 gate home"], "wrote")
+        self.assertEqual(json.loads(qr.HISTORY_RE.search(qr.sticky_body(r, md, "")).group(1))[-1]["v2_home"], "wrote")
+        self.assertEqual(wrote_nonzero["status"], "exited 1")
+        self.assertIn("**v2 gates: the gate home exited 1**", qr.render_markdown(self.report(wrote_nonzero), public=False))
+
+    def test_exit_zero_with_no_output_is_still_no_report(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = qr.v2_home(0, "", os.path.join(d, "missing.json"))
+        self.assertEqual((state["status"], state["error"]), ("no report", "it printed no error"))
+
+    def test_a_home_killed_by_its_timeout_reads_unfinished(self):
+        state = qr.v2_home(qr.V2_HOME_UNFINISHED, "running 40 rows\n", None)
+        self.assertEqual(state["status"], "no report")
+        self.assertIn("did not finish", state["error"])
+        self.assertIn("running 40 rows", state["error"])
+
+    def test_a_home_cut_by_its_timeout_names_the_limit(self):
+        state = qr.v2_home(124, "Compiling acpmux v0.1.0\n", None, seconds=1020, limit=1020)
+        self.assertEqual(state["status"], "no report")
+        self.assertIn("ran past 17 minutes", state["error"])
+
+    def test_home_seconds_and_limit_are_in_metrics_and_first_lines(self):
+        with tempfile.TemporaryDirectory() as d:
+            output = os.path.join(d, "v2-god-small.json")
+            with open(output, "w") as f:
+                f.write('{"rows": []}')
+            state = qr.v2_home(0, "", output, seconds=800, limit=1020)
+        self.assertEqual((state["seconds"], state["limit"]), (800, 1020))
+        r = self.report(state)
+        self.assertEqual((r["v2_home"]["seconds"], r["v2_home"]["limit"]), (800, 1020))
+        self.assertIn("over 70% of the 17-minute limit", qr.render_markdown(r, public=False))
+
+    def test_a_long_error_is_cut_and_no_run_is_no_line(self):
+        state = qr.v2_home(2, "v2 bench: " + "x" * 1000, None)
+        self.assertEqual(len(state["error"]), qr.V2_HOME_ERROR_MAX)
+        r = self.report(None)
+        self.assertIsNone(r["v2_home"]["status"])
+        self.assertNotIn("v2 gates:", qr.render_markdown(r, public=False))
+        self.assertIsNone(qr.history_row(r)["v2_home"])
+
+    def test_main_reads_the_three_flags(self):
+        with tempfile.TemporaryDirectory() as d:
+            err = os.path.join(d, "v2-home.stderr")
+            with open(err, "w") as f:
+                f.write(self.STDERR)
+            out_json, out_md = os.path.join(d, "r.json"), os.path.join(d, "r.md")
+            # No gh on PATH: the hang-watch read fails as a source error, with no network.
+            with mock.patch.dict(os.environ, {"PATH": d, "SENTRY_AUTH_TOKEN": ""}):
+                code = qr.main(["report", "--json", out_json, "--md", out_md, "--v2-home-exit", "2",
+                                "--v2-home-stderr", err, "--v2-home-output", os.path.join(d, "v2-god-small.json"),
+                                "--v2-home-seconds", "800", "--v2-home-limit", "1020"])
+            self.assertEqual(code, 0)
+            with open(out_md) as f:
+                self.assertIn("**v2 gates: no report.**", f.read())
+            with open(out_json) as f:
+                report = json.load(f)
+                self.assertEqual(report["v2_home"]["exit"], 2)
+                self.assertEqual(report["v2_home"]["seconds"], 800)
+
+
+class WorkflowRepair(unittest.TestCase):
+    def test_home_uses_gate_timeout_and_sticky_done_check(self):
+        path = os.path.join(HERE, "..", "..", "..", ".github", "workflows", "cmux-next-quality-report.yml")
+        with open(path) as f:
+            workflow = f.read()
+        self.assertIn("cargo bench --profile gate -p acpmux --bench v2", workflow)
+        self.assertNotIn("cargo bench -q -p acpmux --bench v2", workflow)
+        self.assertIn("timeout --signal=TERM", workflow)
+        self.assertIn("v2-home.seconds", workflow)
+        self.assertIn("done-today", workflow)
+        self.assertNotIn("actions/cache/restore", workflow)
+        self.assertNotIn("actions/cache/save", workflow)
 
 
 def ci_commit(oid, at, suites):
@@ -492,6 +728,100 @@ class CIHealth(unittest.TestCase):
         self.assertIsNone(r["ci_health"]["green_share"])
         self.assertIn("n/a (no --ci-branches given)", qr.headline(r)["CI flake rate"])
         self.assertNotIn("### CI health", qr.render_markdown(r, public=False))
+
+
+def journey(surface, at, cells, missing=()):
+    return {"schema": 1, "surface": surface, "generated_at": at, "build": "abc", "run_url": f"https://ci/{surface}",
+            "cells": cells, "missing_accounts": list(missing)}
+
+
+class FirstUserJourney(unittest.TestCase):
+    WEB = journey("web", "2026-11-10T05:00:00Z", [
+        {"cell": "claude/working", "harness": "claude", "state": "working", "outcome": "pass", "steps": 40, "reds": []},
+        {"cell": "codex/expired", "harness": "codex", "state": "expired", "outcome": "red", "steps": 31, "reds": [
+            {"rule": "raw-error-code", "where": "chat", "step": "send", "detail": "HTTP 429 | usage_limit_reached"},
+            {"rule": "error-without-next-step", "where": "chat", "step": "send", "detail": "no button"}]},
+        {"cell": "cursor/expired", "harness": "cursor", "state": "expired", "outcome": "needs-account", "steps": 0}],
+        missing=["cursor"])
+
+    def write(self, d, name, doc):
+        path = os.path.join(d, name)
+        with open(path, "w") as f:
+            json.dump(doc, f)
+        return path
+
+    def test_counts_cells_and_groups_reds_by_rule(self):
+        with tempfile.TemporaryDirectory() as d:
+            got = qr.first_user_journey([self.write(d, "web.json", self.WEB)], T)
+        web = got["surfaces"]["web"]
+        self.assertEqual((web["cells"], web["pass"], web["red"], web["needs_account"], web["steps"]), (3, 1, 1, 1, 71))
+        self.assertEqual(web["reds_by_rule"], {"error-without-next-step": 1, "raw-error-code": 1})
+        self.assertEqual((got["cells"], got["red_cells"], got["reds"]), (3, 1, 2))
+        self.assertEqual(web["missing_accounts"], ["cursor"])
+
+    def test_stale_and_missing_surfaces_say_why_and_count_nothing(self):
+        old = journey("ios", "2026-11-07T00:00:00Z", [{"cell": "ios/onboarding", "outcome": "red", "reds": [{"rule": "dead-button"}]}])
+        with tempfile.TemporaryDirectory() as d:
+            got = qr.first_user_journey([self.write(d, "web.json", self.WEB), self.write(d, "ios.json", old),
+                                         os.path.join(d, "mac.json")], T)
+        self.assertIn("stale", got["surfaces"]["ios"]["why"])
+        self.assertIn("does not exist", got["surfaces"]["input3"]["why"])
+        self.assertEqual(got["red_cells"], 1, "only the fresh web surface counts")
+        self.assertEqual(qr.first_user_journey([], T)["why"], "no input given")
+
+    def test_report_markdown_history_and_public_detail(self):
+        with tempfile.TemporaryDirectory() as d:
+            r = qr.build_report(24, T, None, None, None, None, hang_watch=lambda since: [],
+                                journey_paths=[self.write(d, "web.json", self.WEB)])
+        self.assertEqual(qr.headline(r)["First-user journey"], "1 red of 3 cells, 2 reds (web 1/3)")
+        private, public = qr.render_markdown(r, public=False), qr.render_markdown(r, public=True)
+        self.assertIn("### First-user journey", public)
+        self.assertIn("`cursor`", public)
+        self.assertIn("HTTP 429 / usage_limit_reached", private, "a red's detail cannot break the table")
+        self.assertNotIn("HTTP 429", public, "red details stay in the private sticky")
+        row = qr.history_row(r)
+        self.assertEqual((row["journey_red"], row["journey_cells"]), (1, 3))
+        self.assertIn("| 1/3 |", qr.sticky_body(r, "md", ""))
+        pub = json.dumps(qr.public_report(r))
+        for private in ("HTTP 429", "codex/expired", "https://ci/web"):
+            self.assertNotIn(private, pub, "the public JSON carries counts only")
+        self.assertIn("https://ci/web", private)
+        self.assertNotIn("https://ci/web", public)
+
+    def test_odd_shapes_count_nothing_wrong_and_never_crash(self):
+        odd = journey(["web"], "2026-11-10T05:00:00Z", [
+            {"cell": "x", "outcome": "pass", "steps": True}, "not a cell"])
+        odd["missing_accounts"] = "cursor"
+        dup = journey("web", "2026-11-10T05:00:00Z", [{"cell": "y", "outcome": "red", "reds": [{"rule": "dead-button"}]}])
+        with tempfile.TemporaryDirectory() as d:
+            got = qr.first_user_journey([self.write(d, "a.json", self.WEB), self.write(d, "b.json", odd),
+                                         self.write(d, "c.json", dup)], T)
+        self.assertEqual(sorted(got["surfaces"]), ["input2", "input3", "web"], "a bad or repeated surface never overwrites")
+        self.assertEqual((got["surfaces"]["input2"]["steps"], got["surfaces"]["input2"]["missing_accounts"]), (0, []))
+
+    def test_a_non_text_stamp_or_reds_value_costs_that_surface_never_the_report(self):
+        stamp = journey("web", 1, [{"cell": "x", "outcome": "pass"}])
+        reds = journey("ios", "2026-11-10T05:00:00Z", [{"cell": "y", "outcome": "red", "reds": 1}])
+        with tempfile.TemporaryDirectory() as d:
+            got = qr.first_user_journey([self.write(d, "a.json", stamp), self.write(d, "b.json", reds)], T)
+            r = qr.build_report(24, T, None, None, None, None, hang_watch=lambda since: [],
+                                journey_paths=[self.write(d, "c.json", stamp)])
+        self.assertEqual(got["surfaces"]["web"]["why"], "the results have no generated_at")
+        self.assertEqual((got["surfaces"]["ios"]["red"], got["surfaces"]["ios"]["reds_by_rule"]), (1, {}))
+        self.assertIn("n/a", qr.headline(r)["First-user journey"])
+
+    def test_fetch_takes_the_newest_run_that_kept_the_artifact(self):
+        calls = []
+
+        def run(cmd, **kw):
+            calls.append(cmd)
+            if cmd[2] == "list":
+                return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps([{"databaseId": 9}, {"databaseId": 8}]), stderr="")
+            return subprocess.CompletedProcess(cmd, 0 if cmd[3] == "8" else 1, stdout="", stderr="no artifact")
+        self.assertEqual(qr.fetch_journey("o/r", "w.yml", "first-user-journey-web", "/tmp/x", run=run), "8")
+        with self.assertRaises(qr.SourceError):
+            qr.fetch_journey("o/r", "w.yml", "a", "/tmp/x", run=lambda cmd, **kw: subprocess.CompletedProcess(
+                cmd, 0, stdout="[]", stderr=""))
 
 
 class NightlySpeed(unittest.TestCase):

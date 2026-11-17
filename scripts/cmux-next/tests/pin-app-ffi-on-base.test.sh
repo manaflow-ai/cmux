@@ -218,6 +218,29 @@ for edit in 's/int x; int y;/int x; int y; int z;/:cmux_x.h' 's/int cmux_one(int
   git -C "$work" push -q origin HEAD:refs/heads/feat-cmux-next
 done
 
+# A catalog-only addition keeps every C header and still needs runtime handler
+# coverage. Test both the current release and one behind the tip. Neither may
+# push the pin directly, and deleting the catalog must not evade the check.
+catalog=cmux-tui/crates/cmux-action-catalog/src/lib.rs
+mkdir -p "$(dirname "$work/$catalog")"
+echo 'pub const ACTION: &str = "macScreen.stopViewing";' > "$work/$catalog"
+catalog_release="$(commit 'catalog: add action without a native handler')"
+before="$(remote_tip)"
+[[ "$(run_pin "$catalog_release")" == pr ]] || fail "catalog addition pinned directly: $(cat "$tmp/log")"
+grep -q 'runtime handler coverage' "$tmp/log" || fail "missing catalog diagnostic: $(cat "$tmp/log")"
+[[ "$(remote_tip)" == "$before" ]] || fail "catalog addition changed the pin"
+echo v5 > "$work/cmux-tui/crates/cmux-app-ffi/src/lib.rs"
+commit 'ffi: move the tip past the catalog release' >/dev/null
+before="$(remote_tip)"
+[[ "$(run_pin "$catalog_release")" == pr ]] || fail "lagging catalog release pinned directly: $(cat "$tmp/log")"
+[[ "$(remote_tip)" == "$before" ]] || fail "lagging catalog release changed the pin"
+git -C "$work" rm -q "$catalog"
+removed="$(commit 'catalog: remove action source')"
+if (cd "$work" && python3 -I scripts/cmux-next/app_ffi_additive.py "$catalog_release" "$removed" -- cmux-tui/crates/cmux-app-ffi) > "$tmp/catalog"; then
+  fail "catalog removal was read as safe for direct pinning"
+fi
+grep -q 'runtime handler coverage' "$tmp/catalog" || fail "missing catalog removal diagnostic"
+
 # app_ffi_additive.py alone: comments and whitespace are not declarations; a removed header is not additive.
 cd "$work"
 cp "$header" "$tmp/h"

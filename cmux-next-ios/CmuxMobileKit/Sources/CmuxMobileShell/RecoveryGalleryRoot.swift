@@ -2,6 +2,7 @@
 import CmuxMobileChief
 import CmuxMobileDesign
 import CmuxMobileTerminal
+import CmuxMobileWorkspaces
 import CmuxSpinner
 import SwiftUI
 
@@ -23,6 +24,7 @@ import SwiftUI
 ///   account's is): A, the one Home shows, in its four states (off, turning on, failed,
 ///   unavailable on this account), then the variants it was picked from, B and C;
 /// - `cloudmachines`: Settings → Cloud → Cloud Machines with fixed machines, plan and snapshots.
+/// - `theme-mocha`, `theme-solarized`, `theme-wallpaper`: the chrome under a Mac's theme (`MacThemeGallery`).
 public struct RecoveryGalleryRoot: View {
     public static var isRequested: Bool {
         ProcessInfo.processInfo.arguments.contains("-cmux-mobile-recovery-gallery")
@@ -57,6 +59,8 @@ public struct RecoveryGalleryRoot: View {
                 signedOut
             case "cloudmachines":
                 NavigationStack { CloudMachinesScreen(model: .gallery(), openChats: {}) }
+            case "theme-mocha", "theme-solarized", "theme-wallpaper":
+                MacThemeGallery(variant: scene)
             default:
                 states
             }

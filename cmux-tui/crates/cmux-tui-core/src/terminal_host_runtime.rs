@@ -533,10 +533,11 @@ mod unix {
     pub(crate) use adopt_launch::launch_terminal_host_adopting_with_program_status;
     pub use adopt_launch::{TerminalHostAdoption, launch_terminal_host_adopting};
     pub use host_session::enter_terminal_host_process;
-    pub(crate) use host_session::{OWNER_FLAG, host_owner_args, host_session_env};
+    pub(crate) use host_session::{OWNER_FLAG, host_malloc_env, host_owner_args, host_session_env};
     pub(crate) use host_start::HostChild;
     pub(crate) use pty_custody::serve as serve_pty_custody;
     pub use pty_custody::{PtyCustody, request_terminal_host_pty_custody};
+    pub use pty_lock::PtyFenceWait;
     pub(crate) use pty_lock::{remove_released, sweep_released_pty_locks};
     pub(crate) use standby::StandbyTerminalHost;
 
@@ -621,6 +622,7 @@ mod unix {
                 command.env(key, value);
             }
         }
+        command.terminal_identity();
         for key in crate::shell_integration::keys_to_unset_in_child(&launch.extra_env) {
             command.env_remove(key);
         }
@@ -635,7 +637,7 @@ mod unix {
     }
 
     #[cfg(test)]
-    pub(crate) use tests::input_ack_surface_fixture;
+    pub(crate) use tests::{input_ack_surface_fixture, record_fixture};
 
     #[cfg(test)]
     mod tests;
@@ -691,6 +693,11 @@ pub use shared::records::{
 };
 #[cfg(any(unix, windows))]
 pub use shared::unadoptable::*;
+// `sys::barrier_sync`, for a file of the crate outside this module that is
+// written before a rename. The name is a new one: the files of this module
+// name the function `sys::barrier_sync`, and they see each name of this file.
+#[cfg(unix)]
+pub(crate) use sys::barrier_sync as sync_before_rename;
 #[cfg(windows)]
 pub(crate) use sys::{HostProcessStartFailed, kill_process_group};
 #[cfg(any(unix, windows))]
@@ -699,18 +706,18 @@ pub(crate) use sys::{HostStream, StandbyTerminalHost, acquire_terminal_host_rese
 pub(crate) use sys::{
     acquire_terminal_host_publication_lock, prepare_terminal_host_publication_lock,
 };
-#[cfg(all(unix, test))]
-pub(crate) use unix::input_ack_surface_fixture;
 #[cfg(unix)]
 pub(crate) use unix::launch_terminal_host_adopting_with_program_status;
 #[cfg(unix)]
 pub(crate) use unix::sweep_released_pty_locks;
+#[cfg(all(unix, test))]
+pub(crate) use unix::{input_ack_surface_fixture, record_fixture};
 // The holder launch marks the holder with the same owner (holder_runtime).
 #[cfg(unix)]
 pub(crate) use unix::host_owner_args;
 #[cfg(unix)]
 pub use unix::{
-    PtyCustody, TerminalHostAdoption, enter_terminal_host_process,
+    PtyCustody, PtyFenceWait, TerminalHostAdoption, enter_terminal_host_process,
     isolate_terminal_host_process_fds, launch_terminal_host_adopting,
     request_terminal_host_pty_custody, terminal_host_root,
 };

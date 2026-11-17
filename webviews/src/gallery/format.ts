@@ -42,8 +42,11 @@ import type {
   HarnessesState,
   HostLists,
   IntegrationsState,
+  KeysState,
   SharesState,
   TailnetState,
+  ModelsState,
+  LibraryListing,
 } from "../pages/settings/ops";
 import type { MockData } from "../pages/passwords/mockProvider";
 
@@ -65,8 +68,16 @@ export type SettingsPageVariant = VariantBase & {
   environments?: CloudEnvironmentsState;
   /** Settings > Privacy and Security > Shared Links fixture state; default the mock's shares. */
   sharedLinks?: SharesState;
+  /** Personalization > Customization Library fixture state; default the mock's few entries. */
+  library?: LibraryListing;
+  /** The CLI refuses every library change with this text (a preview is open). */
+  libraryRefusal?: string;
+  /** Settings > Keys fixture state (requests and keys); default the mock's. */
+  keys?: KeysState;
   /** Settings > Server > This Mac on Your Tailnet fixture state (null: no tailnet); default signed out. */
   tailnet?: TailnetState | null;
+  /** Settings > Models fixture state (null: a host without the part); default the mock's Mac logins. */
+  models?: ModelsState | null;
   /** Settings > Agents over the mock's harness list (`manages: false`: an older acpmux). */
   agents?: Partial<AgentsState>;
   /** Settings > Agents > Add > Endpoint: what the endpoint lists for Fetch Models and the hello
@@ -393,6 +404,8 @@ export type IconPickerPageVariant = VariantBase & {
   /** Saved picker prefs (Frequently Used, skin tone, symbol rendering) the host loads. */
   prefs?: unknown;
   assetState?: "loading" | "error";
+  /** The host refuses the pick (`finish` rejects): the picker stays open and says so. */
+  finishState?: "refused";
   query?: string;
   active?: number;
   mode?: "normal" | "empty";

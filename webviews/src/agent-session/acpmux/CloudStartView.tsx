@@ -6,6 +6,7 @@ import { CloudStartAsk } from "./CloudStartAsk";
 import {
   CLOUD_START_STALL_MS,
   CLOUD_START_STEPS,
+  cloudStartWayOn,
   type CloudFolderTooBig,
   type CloudStartAsk as Ask,
   type CloudStartProgress,
@@ -13,6 +14,8 @@ import {
 import { AlertCircle, Check, ChevronDown, ChevronRight, Folder, Spinner } from "./conversation/icons";
 
 import { Thinking } from "./conversation/Thinking";
+import { CloudSetupCard } from "./conversation/CloudSetupCard";
+import type { CloudSetupAction } from "./cloudSetup";
 import { usePaneLanguage, useT, type Translate } from "./i18n";
 import { cloudPlanRecoveryLabels } from "./cloudPlanRecoveryLabels";
 import type { CloudPlanTeam, CloudPlanTeamRefusal } from "./cloudPlanTeams";
@@ -197,6 +200,7 @@ const POLICY_REFUSALS: ReadonlySet<string> = new Set([
   "cloud_spend_cap",
   "cloud_member_budget",
   "cloud_folder_too_big",
+  "cloud_setup_required",
 ]);
 
 /// A folder too big to copy (cloudStartProgress `tooBig`): each repository inside it starts the chat there, then
@@ -268,6 +272,64 @@ function TooBigActions({
   );
 }
 
+/// A failed start's way on when it has no recovery of its own (cloudStartProgress `cloudStartWayOn`): each button only
+/// where App passes its handler, the first filled. Never Retry for a refusal that fails the same way again.
+function WayOnActions({
+  start,
+  handlers,
+  runHereLabel,
+}: {
+  start: CloudStartProgress;
+  handlers: {
+    retry?: () => void;
+    "pick-folder"?: () => void;
+    "no-folder"?: () => void;
+    "new-cloud-chat"?: () => void;
+    "run-here"?: () => void;
+    dismiss?: () => void;
+  };
+  runHereLabel: string;
+}) {
+  const t = useT();
+  const shown = cloudStartWayOn(start).flatMap((id) => {
+    const run = handlers[id];
+    return run ? [{ id, run }] : [];
+  });
+  if (shown.length === 0) return null;
+  const label = (id: (typeof shown)[number]["id"]) => {
+    switch (id) {
+      case "retry":
+        return t("retry.action");
+      case "pick-folder":
+        return t("cloudStart.pickFolder");
+      case "no-folder":
+        return t("cloudStart.startWithoutFolder");
+      case "new-cloud-chat":
+        return t("cloudStart.openNewCloudChat");
+      case "run-here":
+        return runHereLabel;
+      case "dismiss":
+        return t("harness.notNow");
+    }
+  };
+  return (
+    <span className="acpmux-cloud-ask__actions acpmux-cloud-start__way-on">
+      {shown.map(({ id, run }, index) => (
+        <button
+          key={id}
+          type="button"
+          className={`acpmux-cloud-ask__button${id === "retry" ? " acpmux-cloud-start__retry" : ""}`}
+          data-action={id}
+          {...(index === 0 ? { "data-role": "default" } : {})}
+          onClick={() => run()}
+        >
+          {label(id)}
+        </button>
+      ))}
+    </span>
+  );
+}
+
 export function CloudStartView({
   start,
   bubble = true,
@@ -283,6 +345,9 @@ export function CloudStartView({
   onPickRepo,
   onPickFolder,
   onStartWithoutFolder,
+  onSetUp,
+  onSetUpDismiss,
+  onOpenNewCloudChat,
   planTeamLook = "notice",
 }: {
   start: CloudStartProgress;
@@ -308,6 +373,13 @@ export function CloudStartView({
   onPickRepo?: (path: string) => void;
   onPickFolder?: () => void;
   onStartWithoutFolder?: () => void;
+  /// Set up Cloud's buttons (`cloud_setup_required`, cloudSetup.ts): one of Settings > Models' ways in, then
+  /// the start goes again by itself once a connection serves the model; and its Not now.
+  onSetUp?: (action: CloudSetupAction) => void;
+  onSetUpDismiss?: () => void;
+  /// A start refused because a chat is already starting in this tab (`unavailable_now`): a new Cloud chat with the
+  /// same prompt and folder, as the held send's refusal offers.
+  onOpenNewCloudChat?: () => void;
   /// The plan-in-a-team look (galleries compare them); the pane draws `notice`.
   planTeamLook?: CloudPlanTeamLook;
 }) {
@@ -374,6 +446,26 @@ export function CloudStartView({
       {...(onDismiss ? { onDismiss } : {})}
     />
   );
+  // Nothing serves the picked model (checked before any machine): Set up Cloud in place of the start,
+  // also while a button's way in is out (`signingIn`), until the start goes again.
+  const setup = (failed && start.code === "cloud_setup_required") || start.signingIn ? start.cloudSetup : undefined;
+  if (setup) {
+    return (
+      <section className="acpmux-cloud-start" data-state={start.state} data-setup="true">
+        {bubble && (
+          <div className="cv-user">
+            <div className="ui-glass cv-user__bubble selectable">{start.task}</div>
+          </div>
+        )}
+        <CloudSetupCard
+          need={setup}
+          waiting={!failed}
+          {...(onSetUp ? { onSetUp } : {})}
+          {...(onSetUpDismiss ? { onDismiss: onSetUpDismiss } : {})}
+        />
+      </section>
+    );
+  }
   // Nothing started (the plan is checked before any machine), so the notice has no startup card.
   if (planTeamRefusal && planTeamLook !== "card") {
     return (
@@ -587,6 +679,20 @@ export function CloudStartView({
           {...(onPickRepo ? { onPickRepo } : {})}
           {...(onPickFolder ? { onPickFolder } : {})}
           {...(onStartWithoutFolder ? { onStartWithoutFolder } : {})}
+        />
+      )}
+      {failed && (
+        <WayOnActions
+          start={start}
+          runHereLabel={planLabels.runHere}
+          handlers={{
+            ...(onRetry ? { retry: onRetry } : {}),
+            ...(onPickFolder ? { "pick-folder": onPickFolder } : {}),
+            ...(onStartWithoutFolder ? { "no-folder": onStartWithoutFolder } : {}),
+            ...(onOpenNewCloudChat ? { "new-cloud-chat": onOpenNewCloudChat } : {}),
+            ...(onRunHere ? { "run-here": onRunHere } : {}),
+            ...(onDismiss ? { dismiss: onDismiss } : {}),
+          }}
         />
       )}
       {failed && start.retryable && onRetry && (

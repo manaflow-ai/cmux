@@ -99,6 +99,8 @@ final class WorkspaceHoverCardController: HoverCardSource {
     // MARK: HoverCardSource
 
     var hoverCardWindow: NSWindow? { list?.window }
+    /// The sidebar's rows and owner cards share one card that morphs between them.
+    var hoverCardGroup: HoverCardGroup? { .sidebar }
 
     func hoverCardHit(at screenPoint: CGPoint) -> HoverCardHit? {
         guard let list, let window = list.window else { return nil }
@@ -368,7 +370,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         guard isLive, let content else { return nil }
         let starts = ([content.activitySince] + content.facts.map(\.since)).compactMap { $0 }
         guard let newest = starts.max() else { return nil }
-        return Date().timeIntervalSince(newest) < 3600 ? .seconds(1) : .seconds(60)
+        return Date().timeIntervalSince(newest) < 3600 ? .seconds(1) : .seconds(60) // hover-timing: clock refresh, not a delay
     }
 
     private let titleLabel = ChromeLabel(labelWithString: "")
@@ -413,6 +415,10 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     private var width: CGFloat = WorkspaceHoverCardView.cardWidth
     /// The constraints the tokens size, and how (`applySizes`).
     private var sized: [(NSLayoutConstraint, (SidebarHoverCardMetrics) -> CGFloat)] = []
+    /// The rows, and their top and bottom insets from the card's edges (`applyEdgeInsets`).
+    private var rowsStack: NSStackView?
+    private var topInset: NSLayoutConstraint?
+    private var bottomInset: NSLayoutConstraint?
     private var activitySlot: HoverCardIconSlot?
     /// The user's card (`cmux.hovercard/1`) once its first scene arrives; the built-in rows hide.
     private let customSlot = NSView()
@@ -524,16 +530,19 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         content.addSubview(stack)
         let widthLimit = content.widthAnchor.constraint(lessThanOrEqualToConstant: Self.cardWidth)
         self.widthLimit = widthLimit
+        let topInset = stack.topAnchor.constraint(equalTo: content.topAnchor, constant: Self.padding)
+        let bottomInset = content.bottomAnchor.constraint(equalTo: stack.bottomAnchor, constant: Self.padding)
+        (rowsStack, self.topInset, self.bottomInset) = (stack, topInset, bottomInset)
         sized = [
             (content.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.minCardWidth), \.minWidth),
-            (stack.topAnchor.constraint(equalTo: content.topAnchor), \.padding),
-            (stack.bottomAnchor.constraint(equalTo: content.bottomAnchor), { -$0.padding }),
             (stack.leadingAnchor.constraint(equalTo: content.leadingAnchor), \.padding),
             (stack.trailingAnchor.constraint(equalTo: content.trailingAnchor), { -$0.padding }),
         ] + [kindIcon.widthAnchor, kindIcon.heightAnchor, activitySlot.widthAnchor, activitySlot.heightAnchor,
              activity.widthAnchor, activity.heightAnchor].map { ($0.constraint(equalToConstant: Self.iconSize), \.iconSide) }
         NSLayoutConstraint.activate(sized.map(\.0) + [
             widthLimit,
+            topInset,
+            bottomInset,
             timeline.widthAnchor.constraint(equalTo: stack.widthAnchor),
             tabList.widthAnchor.constraint(equalTo: stack.widthAnchor),
             detailsToggle.widthAnchor.constraint(equalTo: stack.widthAnchor),
@@ -565,6 +574,22 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         resourceRow.iconSide = tokens.iconSide
         factViews.forEach { $0.iconSide = tokens.iconSide }
         detailsToggle.applySizes()
+        applyEdgeInsets()
+    }
+
+    /// A tab row's fill and Show details' reach `WorkspaceTabHoverCardRow.fillOutset` past the rows' sides; where one
+    /// is the first or the last row shown, the rows come that much nearer the card's top or bottom too, so the fill
+    /// stands one gap from every edge it meets, the gap the card's corners are concentric around (Lawrence
+    /// 2026-11-16: "bottom padding must be same as left/right, same for top"). A row with no fill keeps the padding.
+    private func applyEdgeInsets() {
+        guard let rowsStack else { return }
+        let shown = rowsStack.arrangedSubviews.filter { !$0.isHidden }
+        func inset(_ edge: NSView?) -> CGFloat {
+            let fills = edge === tabList || edge === detailsToggle
+            return Self.padding - (fills ? WorkspaceTabHoverCardRow.fillOutset : 0)
+        }
+        topInset?.constant = inset(shown.first)
+        bottomInset?.constant = inset(shown.last)
     }
 
     @available(*, unavailable)
@@ -759,6 +784,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         let hasBuiltInDetails = activityWord != nil || content?.age != nil || content?.stats != nil
             || content?.facts.contains(where: { $0.kind != "machine" }) == true || content?.timeline.isEmpty == false || resourceShown
         detailsToggle.isHidden = !hasBuiltInDetails && customView == nil && customError.stringValue.isEmpty
+        applyEdgeInsets()
     }
 
     /// The name row shows unless the tab rows already say it (`sidebar.hoverCards.workspaceTitle`): a host shown
@@ -769,6 +795,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         titleRow.isHidden = !shows && hostLabel.isHidden
         titleLabel.isHidden = !shows
         kindIcon.isHidden = !shows || !hostLabel.isHidden
+        applyEdgeInsets()
     }
 
     /// Shows the user's card when it rendered, else the built-in card with the error (if any).

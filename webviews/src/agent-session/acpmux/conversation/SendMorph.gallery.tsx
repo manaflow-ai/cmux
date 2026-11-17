@@ -7,13 +7,18 @@
 // bubble while the screenshot moves from its chip to its slot. `lift` moves the words up into the
 // bubble, whose glass fills in behind them where it lands; `inplace` is the before (#38159): the
 // composer empties and the prompt fades in where it lands.
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, type CSSProperties } from "react";
 import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import { componentEntry } from "../../../gallery/format";
 import { VirtualTranscript } from "../App";
 import type { AcpmuxRow, PromptImage } from "../model";
 import { chipRef, noteSendOrigins, type SendMorphStyle } from "./sendMorph";
 import { THINKING } from "./turns";
+
+// The scale's send step is 0 (Leo 2026-11-11: "that slow settle animation is just so bad. Like, just
+// do it."), so the product's send is instant. This gallery compares the send's styles on their old
+// 180 ms clock, set on its shell (the send code reads the token from the rows' ancestors).
+const COMPARE_SEND_CLOCK = { "--agent-motion-send": "180ms", "--agent-motion-send-fade": "180ms" } as CSSProperties;
 
 const TYPED = "why does the sidebar jump when I open this?";
 const SHOT_ID = "send-morph-shot";
@@ -89,7 +94,7 @@ function SendMorphGallery({ variant }: { variant: SendMorphStyle }) {
       </header>
       <div className="message-entrance-gallery__transcript">
         {/* The shell lays its scroller and the composer's card out in a column, as the pane's dock does. */}
-        <div className="acpmux-shell" style={{ height: "100%", flexDirection: "column" }}>
+        <div className="acpmux-shell" style={{ ...COMPARE_SEND_CLOCK, height: "100%", flexDirection: "column" }}>
           <VirtualTranscript
             rows={rows}
             sessionId={`send-morph-${variant}`}

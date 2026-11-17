@@ -516,6 +516,14 @@ pub(super) fn ended_replies(events: &[AcpmuxEvent]) -> (Vec<String>, Option<u64>
         for output in folder.apply(event) {
             match output {
                 TurnOutput::Started { .. } => cuts.clear(),
+                // A `/goal` subagent's hold turn only says `ready` (goal.rs):
+                // its run goes on in the goal turn, so it neither reports nor
+                // ends. One that was stopped or failed gets no goal turn: it ends.
+                TurnOutput::Ended {
+                    turn, error: None, ..
+                } if !stopped && crate::goal::is_hold_prompt(turn.prompt_id.as_deref()) => {
+                    cuts.clear();
+                }
                 TurnOutput::Ended { turn, seq, error } => {
                     last_end = Some(seq);
                     cancelled = stopped || crate::fold::is_cancelled(error.as_deref());
@@ -729,6 +737,64 @@ mod tests {
         ];
         let (replies, _, _) = ended_replies(&events);
         assert_eq!(replies, vec!["Done: landed.".to_owned()]);
+    }
+
+    fn prompt(seq: u64, id: &str) -> AcpmuxEvent {
+        ev(seq, "mux", "user_message", json!({"promptId": id}))
+    }
+
+    /// User 2026-11-12 (msg 30563, "you're not sending these pills anymore"): a
+    /// subagent under `/goal` (goal.rs) first answers its task prompt with only
+    /// `ready`. Its session is idle between that turn and the `/goal` turn, and
+    /// that `ready` was read as its report: the Chief got "[a1145] ready", and
+    /// Home moved the agent's pill off the Chief's reply, marked done. The hold
+    /// turn is never a report.
+    #[test]
+    fn the_goal_hold_turn_is_never_a_report() {
+        // The ids subagents.rs gives the task prompt (hold) and the goal prompt.
+        let hold = "optchat-sub:a5:task:1794519309421";
+        let goal = "optchat-sub:a5:1794519309421";
+        let events = vec![prompt(1, hold), start(2), say(3, "ready"), end(4)];
+        let (replies, last_end, _) = ended_replies(&events);
+        assert_eq!(
+            replies,
+            Vec::<String>::new(),
+            "the hold turn's `ready` is no report"
+        );
+        assert_eq!(
+            last_end, None,
+            "the run has not ended: the goal turn comes next"
+        );
+
+        let events = vec![
+            prompt(1, hold),
+            start(2),
+            say(3, "ready"),
+            end(4),
+            prompt(5, goal),
+            start(6),
+            say(7, "Landed abc..def."),
+            end(8),
+        ];
+        let (replies, last_end, _) = ended_replies(&events);
+        assert_eq!(replies, vec!["Landed abc..def.".to_owned()]);
+        assert_eq!(last_end, Some(8));
+    }
+
+    /// A hold turn that was stopped gets no `/goal` after it (subagents.rs): it
+    /// ends the run as cancelled, as before.
+    #[test]
+    fn a_stopped_hold_turn_still_ends_the_run() {
+        let hold = "optchat-sub:a5:task:1794519309421";
+        let events = vec![
+            prompt(1, hold),
+            start(2),
+            say(3, "Reading"),
+            ev(4, "mux", "turn_end", json!({"stopReason": "cancelled"})),
+        ];
+        let (_, last_end, cancelled) = ended_replies(&events);
+        assert_eq!(last_end, Some(4));
+        assert!(cancelled);
     }
 
     /// One reply with no tool calls stays whole.

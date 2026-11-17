@@ -328,13 +328,14 @@ test("the compact chip names the model and its effort, and a click opens the sho
   expect(chipButton().getAttribute("aria-expanded")).toBe("true");
   expect(cols()!.querySelector(".ui-menu-group-label")).toBeNull();
   expect(doc().querySelector(".acpmux-mp")).toBeNull();
-  // The running model's levels, highest first, its own checked.
-  expect(levels().map(nameOf)).toEqual(["High", "Medium", "Low"]);
+  // The running model's levels, lowest first (Low upward, #41212), its own checked.
+  expect(levels().map(nameOf)).toEqual(["Low", "Medium", "High"]);
   expect(levels().find((level) => level.getAttribute("aria-checked") === "true")?.textContent).toContain("Medium");
   // The account is the avatar in the search row.
   expect(cols()!.querySelector("button.acpmux-cols-profile")?.getAttribute("aria-label")).toContain("Account");
-  // Claude Code's order: the tab's models, then its Legacy models in the same column.
-  expect(captions()).toEqual(["Claude Code", "Legacy models"]);
+  // One plain list: no caption names the tab or its Legacy models, which follow its models in the
+  // same column (#41212, standup 2026-11-12: "we don't need labels").
+  expect(captions()).toEqual([]);
 });
 
 test("a number key picks that model and closes the menu", async () => {
@@ -352,7 +353,7 @@ test("a number key picks that model and closes the menu", async () => {
 test("Effort lists the model's levels and a pick sends it", async () => {
   const { sent } = await mount({ routes: [] });
   await open();
-  expect(levels().map(nameOf)).toEqual(["High", "Medium", "Low"]);
+  expect(levels().map(nameOf)).toEqual(["Low", "Medium", "High"]);
   await click(levels().find((level) => nameOf(level) === "High")!);
   expect(sent).toEqual([{ method: "effort", value: "high" }]);
   // A click applies at once and the menu stays open on the new level.
@@ -581,26 +582,19 @@ test("the current machine profile keeps its compact model list without a rail", 
   expect(modelNames(menu()!)).toContain("Machine model");
 });
 
-// More models is no submenu now: the Legacy models follow the tab's own under their caption.
+// More models is no submenu now: the Legacy models follow the tab's own in one plain list, with no
+// caption between them (#41212, standup 2026-11-12: "we don't need labels").
 test("Add harness… is the last item in the harness strip, and Legacy models sit under the tab's own", async () => {
   const { added } = await mount({ routes: [] });
   await open();
   const listbox = cols()!.querySelector<HTMLElement>('[role="listbox"]')!;
   const children = [...listbox.children];
-  const legacy = children.findIndex((child) => child.textContent === "Legacy models");
-  expect(legacy).toBeGreaterThan(0);
-  const top = children
-    .slice(0, legacy)
-    .filter((child) => child.matches('[role="option"]'))
-    .map(nameOf);
-  const more = children
-    .slice(legacy)
-    .filter((child) => child.matches('[role="option"]'))
-    .map(nameOf);
-  expect(top.length).toBeGreaterThan(0);
-  expect(more.length).toBeGreaterThan(0);
-  // Only models the top list does not already show.
-  expect(more.some((name) => top.includes(name))).toBe(false);
+  expect(children.some((child) => child.textContent === "Legacy models")).toBe(false);
+  expect(listbox.querySelector(".acpmux-cols-caption, .acpmux-cols-group")).toBeNull();
+  const names = children.filter((child) => child.matches('[role="option"]')).map(nameOf);
+  // The tab's models and its Legacy ones, each once: a Legacy row never repeats a top model.
+  expect(names.length).toBeGreaterThan(1);
+  expect(new Set(names).size).toBe(names.length);
   expect(listbox.textContent).not.toContain("Add harness…");
   expect(doc().querySelector(".acpmux-mp")).toBeNull();
   const rail = cols()!.querySelector<HTMLElement>(".acpmux-cols-rail")!;
@@ -814,7 +808,7 @@ test("Fast mode is a switch after the effort levels, on from the session, and a 
   expect(host.querySelector(".acpmux-fast")).toBeNull();
   await open();
   const rows = [...tune().querySelectorAll<HTMLElement>('[role="radio"], [role="switch"]')];
-  expect(rows.map(nameOf)).toEqual(["High", "Medium", "Low", "Fast"]);
+  expect(rows.map(nameOf)).toEqual(["Low", "Medium", "High", "Fast"]);
   expect(fastSwitch()!.getAttribute("aria-checked")).toBe("false");
   expect(fastSwitch()!.querySelector(".acpmux-cols-switch")!.hasAttribute("data-on")).toBe(false);
   await click(fastSwitch()!);

@@ -345,7 +345,7 @@ jobs:
   perf-budgets:
     needs: plan
     if: needs.plan.outputs.go == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 600
     permissions: {}
     steps:
@@ -607,7 +607,7 @@ jobs:
   smoke-27:
     needs: [plan, sign]
     if: needs.plan.outputs.go == 'true' && needs.sign.result == 'success'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -661,7 +661,7 @@ jobs:
   smoke-26:
     needs: [plan, sign]
     if: needs.plan.outputs.go == 'true' && needs.sign.result == 'success'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.CI_BLACKSMITH_MACOS == 'on' && vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 30
     permissions:
       contents: read

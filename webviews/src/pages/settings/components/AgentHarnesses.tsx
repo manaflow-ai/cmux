@@ -15,6 +15,8 @@ import { useScrollEdges } from "../../../ui/scrollEdges";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
 import { parseHarnessIconSpec, rememberHarnessIcons } from "../../../agent-session/shared/harnessIcons";
 import { useStore } from "../context";
+import { SETTINGS_SENTENCES } from "../ops";
+import { userMessage } from "../../shared/userMessage";
 import { EndpointForm } from "./EndpointForm";
 import { Icon } from "../icons";
 import { AGENTS_KEY, agentsQuery } from "../sectionQueries";
@@ -71,7 +73,7 @@ export function AgentHarnesses({ focus }: { focus: string | null }) {
     async (gesture: AgentsRun): Promise<boolean> => {
       setError(null);
       const reply = await store.runAgents(gesture);
-      if (!reply.ok) setError(reply.error.message);
+      if (!reply.ok) setError(userMessage(reply.error, SETTINGS_SENTENCES));
       const next = await store.agentsState();
       if (next) setState(next);
       return reply.ok;

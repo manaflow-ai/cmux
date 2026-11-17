@@ -109,6 +109,9 @@ fn an_agent_alone_asks_previews_and_applies_under_what_was_asked() {
     assert!(text.contains("> make the sidebar compact and add a PR widget"));
     assert!(text.contains("customize status --json"));
     assert!(text.contains(&home.config("cmux-next.json").display().to_string()));
+    // A New Tab page in the views folder shows only once picked (ask-7fc19bd861: a Clock page
+    // was written there and reported as shown while Cmd-T drew cmux's own page).
+    assert!(text.contains("cmux settings set tabs.newTabApp local/customize"), "{text}");
 
     home.write("cmux-next.json", COMPACT);
     home.write("customize/main.js", "export function renderSection() {}\n");

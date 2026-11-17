@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
 
 use cmux_worktree_care::inventory::{self, Facts, FinishedMemo, Repo};
 use cmux_worktree_care::pass::{self, Options};
@@ -78,6 +78,20 @@ fn repository(name: &str) -> (PathBuf, PathBuf) {
 static FINISHED: LazyLock<Arc<FinishedMemo>> =
     LazyLock::new(|| Arc::new(FinishedMemo::load(scratch("finished").join("finished.json"))));
 
+/// The library runs one merge-tree at a time in a process and answers
+/// "busy, unknown" (never a remembered "no") when another is running. The
+/// tests of this file are threads of one process and most of them scan,
+/// archive or run a pass, each of which can run a merge-tree: a test that
+/// asserts a squash answer lost the slot to a sibling's merge-tree and read
+/// `None`. Every test holds this for its whole body, so no two of them
+/// scan at once. A test that failed while holding it poisons it; the next
+/// test takes it anyway, as nothing it guards can be left half done.
+static MERGE_TREE_SLOT: Mutex<()> = Mutex::new(());
+
+fn merge_tree_slot() -> MutexGuard<'static, ()> {
+    MERGE_TREE_SLOT.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 fn scan(main: &Path) -> Repo {
     let common =
         PathBuf::from(git(main, &["rev-parse", "--path-format=absolute", "--git-common-dir"]));
@@ -91,6 +105,7 @@ fn facts_of<'a>(repo: &'a Repo, path: &Path) -> (&'a inventory::Worktree, &'a Fa
 
 #[test]
 fn care_unpushed_and_uncommitted_work_survives_reclaim_and_restore() {
+    let _slot = merge_tree_slot();
     let (base, main) = repository("archive");
     let wt = base.join("wt-a");
     git(&main, &["worktree", "add", "-q", "-b", "feat/a", wt.to_str().unwrap()]);
@@ -148,6 +163,7 @@ fn care_unpushed_and_uncommitted_work_survives_reclaim_and_restore() {
 
 #[test]
 fn care_a_restore_takes_the_archive_from_its_bundle_when_the_ref_is_gone() {
+    let _slot = merge_tree_slot();
     let (base, main) = repository("bundle");
     let wt = base.join("wt-b");
     git(&main, &["worktree", "add", "-q", "-b", "feat/b", wt.to_str().unwrap()]);
@@ -177,6 +193,7 @@ fn care_a_restore_takes_the_archive_from_its_bundle_when_the_ref_is_gone() {
 
 #[test]
 fn care_a_pushed_clean_worktree_goes_without_an_archive() {
+    let _slot = merge_tree_slot();
     let (base, main) = repository("pushed");
     let wt = base.join("wt-c");
     git(&main, &["worktree", "add", "-q", "-b", "feat/c", wt.to_str().unwrap()]);
@@ -206,6 +223,7 @@ fn care_a_pushed_clean_worktree_goes_without_an_archive() {
 
 #[test]
 fn care_a_worktree_a_program_has_open_stays() {
+    let _slot = merge_tree_slot();
     let (base, main) = repository("held");
     let wt = base.join("wt-h");
     git(&main, &["worktree", "add", "-q", "-b", "feat/h", wt.to_str().unwrap()]);
@@ -248,25 +266,9 @@ fn care_a_worktree_a_program_has_open_stays() {
     assert_eq!(git(&main, &["for-each-ref", "refs/cmux/archive"]).trim(), "");
 }
 
-/// The host-wide merge-tree lock that scans with no state folder of their
-/// own share (`.merge-tree.lock` in `Store::default_dir()`), held until the
-/// file is dropped. Waits for a merge-tree another process is running.
-fn host_merge_tree_lock() -> std::fs::File {
-    let dir = Store::default_dir().expect("a home folder");
-    std::fs::create_dir_all(&dir).unwrap();
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(dir.join(".merge-tree.lock"))
-        .unwrap();
-    file.lock().unwrap();
-    file
-}
-
 #[test]
 fn care_a_squash_merged_branch_is_finished() {
+    let _slot = merge_tree_slot();
     let (base, main) = repository("squash");
     let wt = base.join("wt-d");
     git(&main, &["worktree", "add", "-q", "-b", "feat/d", wt.to_str().unwrap()]);
@@ -282,10 +284,6 @@ fn care_a_squash_merged_branch_is_finished() {
     git(&main, &["commit", "-qam", "later"]);
     git(&main, &["push", "-q", "origin", "HEAD:main"]);
     git(&main, &["fetch", "-q", "origin"]);
-    // A merge-tree elsewhere on this machine (another test process, the
-    // person's own cleanup daemon) holds the host-wide lock through the scan:
-    // what this test reads must not depend on what else runs on the host.
-    let _host_busy = host_merge_tree_lock();
     let repo = scan(&main);
     let (_, facts) = facts_of(&repo, &wt);
     assert_eq!(facts.unpushed, 2);
@@ -307,6 +305,7 @@ fn loose_objects(main: &Path) -> String {
 
 #[test]
 fn care_a_scan_writes_no_object_into_the_repository() {
+    let _slot = merge_tree_slot();
     let (base, main) = repository("no-objects");
     let wt = base.join("wt-e");
     git(&main, &["worktree", "add", "-q", "-b", "feat/e", wt.to_str().unwrap()]);
@@ -331,6 +330,7 @@ fn care_a_scan_writes_no_object_into_the_repository() {
 
 #[test]
 fn care_a_nested_repository_is_never_archived() {
+    let _slot = merge_tree_slot();
     let (base, main) = repository("nested");
     let wt = base.join("wt-e");
     git(&main, &["worktree", "add", "-q", "-b", "feat/e", wt.to_str().unwrap()]);
@@ -346,6 +346,7 @@ fn care_a_nested_repository_is_never_archived() {
 
 #[test]
 fn care_a_sparse_worktree_comes_back_sparse() {
+    let _slot = merge_tree_slot();
     let (base, main) = repository("sparse");
     let wt = base.join("wt-f");
     git(&main, &["worktree", "add", "-q", "-b", "feat/f", wt.to_str().unwrap()]);
@@ -373,6 +374,7 @@ fn care_a_sparse_worktree_comes_back_sparse() {
 
 #[test]
 fn care_a_pass_reclaims_idle_work_and_keeps_an_open_session_s() {
+    let _slot = merge_tree_slot();
     let (base, main) = repository("pass");
     let idle = base.join("wt-idle");
     let open = base.join("wt-open");
@@ -414,6 +416,7 @@ fn care_a_pass_reclaims_idle_work_and_keeps_an_open_session_s() {
 
 #[test]
 fn care_a_restore_over_a_branch_that_moved_on_detaches_at_the_archive() {
+    let _slot = merge_tree_slot();
     let (base, main) = repository("moved");
     let wt = base.join("wt-g");
     git(&main, &["worktree", "add", "-q", "-b", "feat/g", wt.to_str().unwrap()]);
@@ -452,6 +455,7 @@ fn care_a_restore_over_a_branch_that_moved_on_detaches_at_the_archive() {
 
 #[test]
 fn care_a_restore_that_cannot_find_its_archive_adds_nothing() {
+    let _slot = merge_tree_slot();
     let (base, main) = repository("lost");
     let wt = base.join("wt-h");
     git(&main, &["worktree", "add", "-q", "-b", "feat/h", wt.to_str().unwrap()]);
@@ -483,6 +487,7 @@ fn care_a_restore_that_cannot_find_its_archive_adds_nothing() {
 
 #[test]
 fn care_a_file_marked_assume_unchanged_keeps_its_worktree() {
+    let _slot = merge_tree_slot();
     let (base, main) = repository("assume");
     let wt = base.join("wt-i");
     git(&main, &["worktree", "add", "-q", "-b", "feat/i", wt.to_str().unwrap()]);
@@ -495,6 +500,7 @@ fn care_a_file_marked_assume_unchanged_keeps_its_worktree() {
 
 #[test]
 fn care_an_archive_goes_after_its_keep_time() {
+    let _slot = merge_tree_slot();
     let (base, main) = repository("expire");
     let wt = base.join("wt-j");
     git(&main, &["worktree", "add", "-q", "-b", "feat/j", wt.to_str().unwrap()]);
@@ -524,6 +530,7 @@ fn care_an_archive_goes_after_its_keep_time() {
 
 #[test]
 fn care_a_worktree_whose_folder_is_missing_keeps_its_git_state() {
+    let _slot = merge_tree_slot();
     // An unmounted volume, or a folder moved with mv: its HEAD, index and
     // reflog stay until git gc's own 3 months.
     let (base, main) = repository("missing");
@@ -552,6 +559,7 @@ fn care_a_worktree_whose_folder_is_missing_keeps_its_git_state() {
 
 #[test]
 fn care_a_claude_session_registered_in_a_worktree_keeps_it() {
+    let _slot = merge_tree_slot();
     let (base, main) = repository("claude");
     let wt = base.join("wt-l");
     git(&main, &["worktree", "add", "-q", "-b", "feat/l", wt.to_str().unwrap()]);

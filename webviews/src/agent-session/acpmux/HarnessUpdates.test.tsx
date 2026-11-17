@@ -198,7 +198,8 @@ test("Update all is one host call for every row, the chat's own too; each row ta
   const failed = view.rowOf("codex")!;
   expect(failed.getAttribute("data-phase")).toBe("failed");
   expect(failed.textContent).toContain("Try Again");
-  expect(failed.querySelector("[title]")?.getAttribute("title")).toBe("npm error code EACCES");
+  // The row says it plainly; the updater's words go to the log, not a hover title.
+  expect(failed.outerHTML).not.toContain("EACCES");
   expect(view.log.updated).toBe(1);
   await view.click(failed.querySelector(".acpmux-harness-update-run"));
   expect(view.calls.map((call) => call.id)).toEqual([undefined, "codex"]);

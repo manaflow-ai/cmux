@@ -1234,17 +1234,24 @@ fn wait_exited(pid: u32) -> bool {
 fn lock_held(lock: &Path) -> bool {
     #[cfg(unix)]
     {
-        use std::os::fd::AsRawFd;
         let Ok(file) = std::fs::OpenOptions::new().read(true).open(lock) else { return false };
-        // SAFETY: flock on a descriptor this function owns; it is released
-        // when `file` drops.
-        unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) != 0 }
+        lock_held_on(file)
     }
     #[cfg(not(unix))]
     {
         let _ = lock;
         false
     }
+}
+
+/// [`lock_held`] on the lock file opened as `file`.
+/// The look never leaves a lock behind (a brain that starts meanwhile must find its lock free,
+/// also while a child the server forked meanwhile has this descriptor). A look that fails reads
+/// as held, as before.
+#[cfg(unix)]
+fn lock_held_on(file: std::fs::File) -> bool {
+    use cmux_file_lock::{FileLock, Kind};
+    FileLock::held_elsewhere(&file, Kind::Exclusive).unwrap_or(true)
 }
 
 /// Removes deleted Chief `chief`'s brain folder: a real folder only (never a link out of the
@@ -1490,5 +1497,27 @@ mod host_log_tests {
         open_host_log(&log).unwrap().write_all(b" more").unwrap();
         assert_eq!(std::fs::read(&log).unwrap(), b"small more");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(all(test, unix))]
+mod lock_probe_tests {
+    use super::*;
+
+    /// A look at a free brain lock leaves it free, also while a child the server forked
+    /// meanwhile has the look's descriptor: else a brain that starts then exits as a second
+    /// brain, and the next look reports a brain that is not there.
+    #[test]
+    fn a_look_at_a_free_brain_lock_leaves_it_free_while_a_forked_child_keeps_its_descriptor() {
+        let dir = crate::fork_tests::Scratch::new("chief_brains");
+        let lock = dir.path().join("host.lock");
+        std::fs::write(&lock, b"").unwrap();
+        let look = std::fs::File::open(&lock).unwrap();
+        let keeper = crate::fork_tests::Keeper::fork();
+        let held = lock_held_on(look);
+        let free = crate::fork_tests::free(&lock);
+        drop(keeper);
+        assert!(!held, "a free brain lock read as held");
+        assert!(free, "the look left the brain lock held");
     }
 }

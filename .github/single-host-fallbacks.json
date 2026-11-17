@@ -18,6 +18,10 @@
       "fallback": "Blacksmith macOS after the owned-pool grace",
       "after_minutes": 5
     },
+    "glaeda-promote-trusted-light-xcode-26.6": {
+      "fallback": "Blacksmith macOS after the owned-pool grace",
+      "after_minutes": 5
+    },
     "glaeda-promote-trusted-std-xcode-26.6": {
       "fallback": "Blacksmith macOS after the owned-pool grace",
       "after_minutes": 5
@@ -70,6 +74,10 @@
     "glaeda-trusted-next-nightly"
   ],
   "variables": {
+    "CI_FFI_RELEASE_POOL": {
+      "fallback": "unset falls back to the build's earlier routes (the promote pool, vars.CI_SIDE_LANE_RUNNER, Blacksmith); set, a build no runner took in 20 minutes is re-dispatched to Blacksmith macOS by the workflow's rescue job",
+      "after_minutes": 20
+    },
     "CI_NEXT_PROMOTE_POOL": {
       "fallback": "Blacksmith macOS after the owned-pool grace",
       "after_minutes": 5
@@ -99,7 +107,7 @@
       "after_minutes": 5
     },
     "CI_EVAL_STEP_GATEWAY": {
-      "fallback": "opt-in and read only by three feat-cmux-next eval workflows (cmux-next-perf-bench.yml bench, cu-driver-eval.yml eval, screen-stream-eval.yml eval; cmux#36955, #37019), each of which skips its job when the variable is unset (if: vars.CI_EVAL_STEP_GATEWAY != ''), so no PR job and no nightly job waits on it. Set to glaeda-gateway-xcode-26.6 since 2026-11-05, the value the sibling gateway variables use: a pool, not one host, the two gateway runners on every dedicated untrusted ci-runner mini (build-fleet/mini-fleet.json, runner.gatewayRunners), so a busy or lost mini's job is taken by the next mini's gateway runner. The job there is a thin cmux-ci client that hands the eval to the controller, which picks the measure or bench worker. Clearing the variable skips the three evals again. Owner: Leo's eval lane that opened cmux#36955. after_minutes is the gateway-label window, as for CI_COMPILE_CHECK_GATEWAY",
+      "fallback": "opt-in and read only by three feat-cmux-next eval workflows (cmux-next-perf-bench.yml bench, cu-driver-eval.yml eval, screen-stream-eval.yml eval; cmux#36955, #37019) and the iPhone What's New clips (cmux-next-iphone-clips.yml record, nightly-next pushes only), each of which skips its job when the variable is unset (if: vars.CI_EVAL_STEP_GATEWAY != ''), so no PR job and no nightly build job waits on it. Set to glaeda-gateway-xcode-26.6 since 2026-11-05, the value the sibling gateway variables use: a pool, not one host, the two gateway runners on every dedicated untrusted ci-runner mini (build-fleet/mini-fleet.json, runner.gatewayRunners), so a busy or lost mini's job is taken by the next mini's gateway runner. The job there is a thin cmux-ci client that hands the eval to the controller, which picks the measure or bench worker. Clearing the variable skips the three evals again. Owner: Leo's eval lane that opened cmux#36955. after_minutes is the gateway-label window, as for CI_COMPILE_CHECK_GATEWAY",
       "after_minutes": 5
     },
     "CI_FAST_LANE_RUNNER": {
@@ -144,6 +152,10 @@
     },
     "CI_SESSION_LANE_RUNNER": {
       "fallback": "the route-defined owned-pool or Blacksmith fallback",
+      "after_minutes": 5
+    },
+    "CI_SIDE_LANE_LABELS": {
+      "fallback": "unset by default: every runs-on that reads it takes vars.CI_SIDE_LANE_RUNNER in its place, then that route's owned-pool or Blacksmith fallback. Set, it is a JSON label array, one side pool label (glaeda-side-<class>-xcode-<version> or glaeda-side-xcode-<version>) and capability tiers (glaeda-ram-N, glaeda-cores-N, glaeda-display), held to scripts/ci/runner_label_policy.py side_lane_labels_reason, so the job lands on any side runner carrying every label: a pool of many hosts, never one. Clearing it puts each route back on its single side label",
       "after_minutes": 5
     },
     "CI_SIDE_LANE_RUNNER": {
@@ -270,6 +282,10 @@
     "CI_NIGHTLY_MINI_BUILDER": {
       "fallback": "as vars.CI_NIGHTLY_MINI, for build-nightly-app only: glaeda-nightly-mini-builder, on the two warm builders (nightly-only-1/2) of cmux15 and of cmux7s-mac-mini. Unset, build-nightly-app keeps its picker route",
       "after_minutes": 25
+    },
+    "CI_BLACKSMITH_MACOS": {
+      "fallback": "an off switch, not a host: unset sends each cmux-next Mac job to vars.CI_SIDE_LANE_RUNNER, the owned side lane; pr-rescue moves only cmux-next pull-request jobs past a 45-min owned wait or on a re-run (docs/ci/cmux-next-workflow-notes.md#note-350)",
+      "after_minutes": 5
     },
     "CI_CLASSIC_NIGHTLY_MINI": {
       "fallback": "none automatic while it is set, by design: it is the classic one-mini switch and the rollback (Lawrence, 2026-11-04: \"we need to just make nightlies build on a single mac mini\"), separate from NEXT's CI_NIGHTLY_MINI so classic switches on its own. When set, every job of cmux main's nightly.yml on main (push, schedule or dispatch) takes it first, except the jobs that hold a key, run the signed bundle or build the macOS 15 helper, which keep their route (build-nightly-app included) (cmux tests/test_classic_nightly_one_mini.py). Its only allowed value, glaeda-nightly-mini, is on cmux15's nightly-only-3..7 and cmux7s-mac-mini's nightly-only-3..5. An rc/** push never reads it. Clearing it puts every job back on its earlier route in the same runs-on. after_minutes is the 25-minute nightly freshness budget an operator works to, as for CI_NIGHTLY_SIGN_RUNNER",

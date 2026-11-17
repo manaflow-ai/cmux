@@ -1,3 +1,4 @@
+import { CLOUD_SETUP_REQUIRED, readCloudSetupNeed, type CloudSetupNeed } from "./cloudSetup";
 import type { CloudStartAnswer } from "./cloudRun";
 import { cloudPlanTeamRefusal, type CloudPlanTeamRefusal } from "./cloudPlanTeams";
 import { translate } from "./i18n";
@@ -46,6 +47,9 @@ export type CloudStartProgress = {
   planTeam?: CloudPlanTeamRefusal;
   /// The start waits on the person's browser sign-in (`cloud.signIn`): the card says so, not "starting".
   signingIn?: true;
+  /// No connection serves the picker's model (`cloud_setup_required`): the chat shows Set up Cloud
+  /// (cloudSetup.ts), naming it; with `signingIn`, it waits for the connection a button began.
+  cloudSetup?: CloudSetupNeed;
   /// The agent the chat starts, by name ("Claude Code"), for the opening step.
   agent?: string;
   /// No project: nothing is copied, so the card shows no copy step.
@@ -232,6 +236,7 @@ export function cloudStartBegun(
   agent?: string,
   home?: boolean,
   signingIn?: boolean,
+  cloudSetup?: CloudSetupNeed,
 ): CloudStartProgress {
   const folder = cwd?.replace(/\/+$/, "").split("/").pop();
   return {
@@ -242,6 +247,7 @@ export function cloudStartBegun(
     ...(agent ? { agent } : {}),
     ...(home ? { home: true } : {}),
     ...(signingIn ? { signingIn: true } : {}),
+    ...(cloudSetup ? { cloudSetup } : {}),
   };
 }
 
@@ -252,7 +258,7 @@ export function cloudStartSignedIn(
   key: string,
 ): CloudStartProgress | undefined {
   if (current?.key !== key || !current.signingIn) return current;
-  const { signingIn: _signedIn, ...started } = current;
+  const { signingIn: _signedIn, cloudSetup: _cloudSetup, ...started } = current;
   return started;
 }
 
@@ -538,10 +544,20 @@ export function cloudStartEnded(
       refusedHere: true,
     };
   }
-  const message = refusedHere ? cloudRefusalText(answer.code, answer.message) : line(answer.message, 240);
+  const message = refusedHere
+    ? cloudRefusalText(answer.code, answer.message)
+    : (hostFailureText(answer.code, answer.message) ?? line(answer.message, 240));
   // A failed start waits on no sign-in (its card offers the sign in again instead) and asks nothing more.
-  const { signingIn: _signingIn, ask: _ask, planTeam: _planTeam, stalled: _stalled, ...ended } = current;
+  const {
+    signingIn: _signingIn,
+    ask: _ask,
+    planTeam: _planTeam,
+    stalled: _stalled,
+    cloudSetup: _cloudSetup,
+    ...ended
+  } = current;
   const planTeam = answer.code === "cloud_plan_required" ? cloudPlanTeamRefusal(answer.details) : undefined;
+  const cloudSetup = answer.code === CLOUD_SETUP_REQUIRED ? readCloudSetupNeed(answer.details) : undefined;
   return {
     ...ended,
     state: "failed",
@@ -550,6 +566,7 @@ export function cloudStartEnded(
     ...(refusedHere ? { refusedHere } : {}),
     ...(answer.retryable ? { retryable: true } : {}),
     ...(planTeam ? { planTeam } : {}),
+    ...(cloudSetup ? { cloudSetup } : {}),
   };
 }
 
@@ -572,6 +589,49 @@ export function cloudRefusalText(code: string, hostWords?: string): string {
   if (code === "cloud_attachments")
     return line(hostWords, 240) ?? translate("composer.offloadNotRun", { action: translate("composer.cloud") });
   return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
+}
+
+/// A host failure whose words are only its code (`cloud_disabled`: the app's Cloud services are off, or Cloud is not
+/// allowed here) or none at all, said as a sentence; undefined keeps the host's own words.
+function hostFailureText(code: string, hostWords?: string): string | undefined {
+  const words = line(hostWords, 240);
+  if (code === "cloud_disabled" && (!words || words === code)) return translate("cloudStart.cloudDisabled");
+  if (words === code) return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
+  return undefined;
+}
+
+/// The way on a failed start's card offers when no recovery of its own does (CloudStartView): a folder refusal picks
+/// another folder or none, a chat already starting in this tab opens a new Cloud chat with the same prompt, a refusal
+/// a click or a moment fixes retries, a start that failed on its way (`cloud_start_failed`, whose host words say to
+/// try again) retries or runs here, and anything else runs the prompt on this Mac. Empty for a start still on its way,
+/// one the host marked retryable (its own Retry), and the refusals whose card words their own way on (sign in, the
+/// plan, a cap, a folder too big).
+export type CloudStartWayOn = "retry" | "pick-folder" | "no-folder" | "new-cloud-chat" | "run-here" | "dismiss";
+const OWN_RECOVERY = new Set([
+  "not_signed_in",
+  "cloud_plan_required",
+  "cloud_spend_cap",
+  "cloud_member_budget",
+  "cloud_folder_too_big",
+]);
+const FOLDER_REFUSALS = new Set([
+  "cloud_folder_missing",
+  "cloud_folder_home",
+  "cloud_folder_secret",
+  "transport.path_outside_roots",
+]);
+/// Refused for want of a click (the gesture), a moment (a team switch under way) or the prompt as it now reads (edited
+/// while signing in): another try goes on.
+const RETRY_REFUSALS = new Set(["transport.gesture_required", "cloud_team_switching", "cloud_prompt_changed"]);
+
+export function cloudStartWayOn(start: CloudStartProgress): readonly CloudStartWayOn[] {
+  const code = start.code ?? "";
+  if (start.state !== "failed" || start.retryable || OWN_RECOVERY.has(code)) return [];
+  if (FOLDER_REFUSALS.has(code)) return ["pick-folder", "no-folder"];
+  if (code === "unavailable_now") return ["new-cloud-chat"];
+  if (RETRY_REFUSALS.has(code)) return ["retry"];
+  if (code === "cloud_start_failed") return ["retry", "run-here"];
+  return ["run-here", "dismiss"];
 }
 
 /// A Cloud start the team's spending cap (`cloud.spend_cap.reached`) or the member's monthly budget

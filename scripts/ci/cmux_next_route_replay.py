@@ -71,6 +71,10 @@ def compare(old: dict[str, str], new: dict[str, str], new_reasons: list[str]) ->
 # compiles: native and scheme, nothing else, and the same Swift test targets.
 NO_SWIFT_COMPILE_REASON = "(no Swift compile reads it)"
 SWIFT_COMPILE_TIERS = frozenset(("native", "scheme"))
+# A pull request a running app takes live (the router's hot_only) drops the app build and test tiers, never the
+# daemon tier or `full`.
+HOT_ONLY_REASON = "(hot-only: no app build)"
+HOT_ONLY_TIERS = frozenset(("native", "macos", "scheme", "generated", "swift", "fast_tier"))
 
 
 def explain(old: dict[str, str], new: dict[str, str], new_reasons: list[str]) -> Verdict:
@@ -84,6 +88,9 @@ def explain(old: dict[str, str], new: dict[str, str], new_reasons: list[str]) ->
     if (reason and dropped and dropped <= SWIFT_COMPILE_TIERS and not added
             and old.get("swift_targets", "") == new.get("swift_targets", "")):
         return Verdict("explained", f"dropped {', '.join(sorted(dropped))}: {reason}")
+    hot = next((r for r in new_reasons if HOT_ONLY_REASON in r), None)
+    if hot and dropped and dropped <= HOT_ONLY_TIERS and not added and new.get("hot_only") == "true":
+        return Verdict("explained", f"dropped {', '.join(sorted(dropped))}: {hot}")
     return verdict
 
 

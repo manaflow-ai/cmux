@@ -1,8 +1,9 @@
 //! Rules the schema cannot express.
 
+use crate::capabilities::scope_info;
 use crate::interfaces::{KNOWN_HOST_CAPABILITIES, KNOWN_INTERFACES, option_errors};
 use crate::issue::{Issue, escape};
-use crate::scopes::{ScopeClass, scope_info};
+use crate::scopes::ScopeClass;
 use serde_json::Value;
 
 /// Publishers reserved for first-party apps.
@@ -81,6 +82,20 @@ pub(crate) fn check(m: &Value) -> Vec<Issue> {
                     ));
                 }
             }
+            for (list, key) in [("commands", "name"), ("items", "id")] {
+                let mut seen = std::collections::HashSet::new();
+                let entries = imp.pointer(&format!("/options/{list}")).and_then(Value::as_array);
+                for (i, entry) in entries.into_iter().flatten().enumerate() {
+                    let Some(name) = entry.get(key).and_then(Value::as_str) else { continue };
+                    if !seen.insert(name) {
+                        out.push(Issue::error(
+                            format!("{at}/options/{list}/{i}/{key}"),
+                            "interface.options.duplicate",
+                            format!("{name} is listed twice"),
+                        ));
+                    }
+                }
+            }
             if imp.get("server").is_some() && m.get("server").is_none() {
                 out.push(Issue::error(
                     format!("{at}/server"),
@@ -143,6 +158,7 @@ pub(crate) fn check(m: &Value) -> Vec<Issue> {
     crate::presentation::check(m, first_party, &mut out);
     crate::deploy::check(m, first_party, &mut out);
     crate::toolbar::check(m, &mut out);
+    crate::web_pane::check(m, &mut out);
     if !m["icon"].is_string() {
         out.push(Issue::warning(
             "/icon",

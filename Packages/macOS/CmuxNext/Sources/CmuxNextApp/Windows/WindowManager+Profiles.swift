@@ -39,6 +39,9 @@ extension WindowManager {
                 visible = adoptable
             }
         }
+        // Workspaces of the space that another open window owns show here too, as the same workspaces (a shared space):
+        // the window never makes a new one beside them. They are listed once the window is in the space (`spaceDidChange`).
+        if visible.isEmpty { visible = sharedWorkspaces(in: profile, for: state.id, registry: registry.value) }
         guard !visible.isEmpty else {
             // Nothing to show there yet: the window enters the profile with
             // a new workspace (no empty window, REWRITE.md round 1). It is
@@ -233,7 +236,7 @@ enum WindowOwnSpace {
         guard shares(id, in: windows), let state = windows.states[id], let connection = windows.services.machines.local.connection else { return }
         let machines = windows.services.machines, store = machines.local.store, logger = windows.services.daemon.logger, connected = store.connectionState
         let ids = WindowProfiles.visible(windows.registry.members(of: id), profile: state.profileID, machines: machines)
-        let space = ProfileID.generate(), name = RoomStrings.defaultName(store.profileIDs.count + 1), browser = store.profile(state.profileID)?.browserProfileID, color = GroupColor.automatic(used: Set(store.profiles.compactMap(\.color))) ?? .grey
+        let space = ProfileID.generate(), name = RoomStrings.defaultName(store.profileIDs.count + 1), browser = store.profile(state.profileID)?.browserProfileID, color = GroupColor.automatic(after: store.profiles.compactMap(\.color))
         Task { do {
                 _ = try await connection.createProfile(name: name, id: space, color: color.rawValue, browserProfileID: browser)
                 let reported = { ids.compactMap { WindowProfiles.qualified($0, machines: machines) } } // one made for the move may not be yet

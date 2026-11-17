@@ -10,6 +10,8 @@ use std::sync::{Arc, PoisonError};
 use std::time::Duration;
 
 pub(crate) mod exe_path;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod exe_swap;
 mod lock;
 #[cfg(unix)]
 mod log_cap;
@@ -28,8 +30,6 @@ pub use running::connect_running;
 mod snapshot_clear;
 pub(crate) use snapshot_clear::clear_peer_snapshots;
 mod router_owner;
-#[cfg(unix)]
-pub(crate) use router_owner::open_router_owner;
 pub(crate) use router_owner::router_owner_path;
 use router_owner::{ensure_router, release_router};
 mod app_orphan;
@@ -52,15 +52,17 @@ mod home_watch;
 mod managed_unit;
 use managed_unit::managed_unit_connect_with;
 mod notify;
-pub(crate) mod owner_exit;
+pub(crate) use crate::daemon_parts::first_run_listen;
+pub use crate::daemon_parts::{daemon_prefix, set_daemon_prefix};
+pub(crate) use crate::owner_exit;
 /// A process's start time, which with its pid names it (the test owner, `owner_exit.rs`).
 pub use owner_exit::process_start;
 mod persist_retry;
 mod person_key;
 #[cfg(unix)]
-use person_key::KEY_READY;
+pub(crate) use crate::daemon_parts::not_dumpable;
 #[cfg(unix)]
-pub(crate) use person_key::not_dumpable;
+use person_key::KEY_READY;
 // Only the Linux provisioning exec (provision::enroll_running) reads a key line from here.
 #[cfg(target_os = "linux")]
 pub(crate) use person_key::read_key_line;
@@ -74,12 +76,13 @@ pub(crate) mod provision;
 #[cfg(unix)]
 mod socket_rebind;
 mod stop_causes;
+pub(crate) mod supervision;
+#[cfg(unix)]
+pub(crate) use crate::term_sender;
 #[cfg(unix)]
 use stop_causes::next_signal;
 use stop_causes::{AbortOnDrop, store_asks_to_stop};
 pub use stop_causes::{EXIT_REPAIR, exit_status};
-#[cfg(unix)]
-pub(crate) mod term_sender;
 pub(crate) mod unused_exit;
 #[cfg(windows)]
 mod windows;
@@ -106,13 +109,7 @@ pub struct DaemonOptions {
     pub take_over: bool,
 }
 
-/// The daemon's panic log, `$ACPMUX_HOME/panics.jsonl` (cmux-panic-log):
-/// a panic in a request task ends only that task and used to leave just
-/// two lines in `daemon.log` (the 2026-10-14 sort panic). The cmux-next
-/// app sends new lines to Sentry.
-pub fn panic_log_path() -> std::path::PathBuf {
-    home().join("panics.jsonl")
-}
+pub use crate::config::panic_log_path;
 
 /// Debug builds only: `thread` makes a worker thread panic once the hook
 /// is installed (tests/panic_log.rs). Its line carries `"test": true`.
@@ -177,12 +174,45 @@ fn is_test_panic_thread(thread: &str) -> bool {
     }
 }
 
+/// How often a WireGuard transport that holds the key lock asks whether the cmux link now
+/// serves the node key (`Transport::yield_to_link`): a few file reads.
+const LINK_HANDOFF_EVERY: Duration = Duration::from_secs(2);
+
 /// How long SIGTERM or `_acpmux/shutdown` may take before the daemon exits
 /// anyway.
-pub const SHUTDOWN_BUDGET: Duration = Duration::from_secs(5);
+/// The complete handoff budget after the daemon has announced shutdown. Remote links and
+/// cancellation-ignoring hub tasks are cut at this deadline so the next daemon can bind promptly.
+pub const SHUTDOWN_BUDGET: Duration = Duration::from_secs(1);
 
-pub async fn run(opts: DaemonOptions) -> Result<()> {
-    // The start every startup phase in `daemon status` is timed from (`gauges.rs`).
+/// The shutdown's budget once its plan is fixed: [`SHUTDOWN_BUDGET`] for a restart handoff,
+/// and the agents' ends on top when the shutdown ends them (Quit Everything): a cut there
+/// leaves an agent running with no daemon to end it (Codex review of #42296).
+pub(crate) fn shutdown_budget(ends_agents: bool) -> Duration {
+    if ends_agents {
+        SHUTDOWN_BUDGET.saturating_add(crate::hub::AGENT_END_BUDGET)
+    } else {
+        SHUTDOWN_BUDGET
+    }
+}
+
+/// Includes the CLI's final diagnostic-log flush, which used to add a fresh second after
+/// the daemon had consumed its entire shutdown budget.
+static SHUTDOWN_DEADLINE: std::sync::Mutex<Option<std::time::Instant>> =
+    std::sync::Mutex::new(None);
+
+pub(crate) fn shutdown_time_left() -> Option<Duration> {
+    SHUTDOWN_DEADLINE
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .as_ref()
+        .map(|deadline| deadline.saturating_duration_since(std::time::Instant::now()))
+}
+
+/// `exit_tasks` belongs to the CLI and stays alive until process exit. Shutdown persistence
+/// may use the end of that lifetime while retaining this daemon's exclusive home lock.
+pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<()> {
+    *SHUTDOWN_DEADLINE.lock().unwrap_or_else(PoisonError::into_inner) = None;
+    // The start of every startup phase in `daemon status` is timed from (`gauges.rs`).
     let gauges = crate::gauges::global();
     crate::cli::cloud_join::retain_own_machine_consent_requirement()?;
     // The CLI restores default SIGPIPE so `acpmux ls | head` ends quietly. A
@@ -319,6 +349,14 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if cfg!(unix) && owned_home.is_none() && home().is_absolute() {
         anyhow::bail!("the acpmux home {} went away as this daemon started", home().display());
     }
+    // The owner record right after the lock, before the socket: a client that dials while this
+    // start has not bound yet reads a live owner and waits for it (`connect_when_ready`), and the
+    // previous owner's end is settled (a death counted) once.
+    supervision::start(&home());
+    // The update watch's baseline (F9, `daemon/exe_swap.rs`), taken now: an update that lands
+    // between ready and the later startup is then a change it sees, never its baseline.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    let exe_watch = exe_swap::watch(std::env::args().skip(1).collect());
     // Deterministic startup replacement seam for the daemon lifecycle test. The held-home
     // identity fence rejects writes even before the asynchronous watcher receives its event.
     #[cfg(debug_assertions)]
@@ -327,9 +365,27 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
     crate::config::refuse_lost_home(&home())?;
+    // `machine-auth` reads the env its agents start with from this record, never from /proc.
+    if let Err(e) = crate::cli::machine_auth::record_daemon_env(&home()) {
+        tracing::warn!("could not record the daemon's agent env: {e}");
+    }
     // Bind before durable startup work, so clients can connect independently of journal replay.
     // Requests wait for the hub and launch tokens; agent spawns wait for `finish_startup`.
     let unix_listener = crate::server::bind_unix(&socket_path()).await?;
+    // The v2 handle is created only after the listener is ready. Its empty
+    // published index is filled by the list tee in the follow-up lane; startup
+    // never waits on this handle or on a chat book.
+    let mut v2_tasks = tokio::task::JoinSet::new();
+    let v2 = v2_handle(&config);
+    if let Some(v2) = v2.as_ref()
+        && let Some(writer) = v2.take_writer()
+    {
+        v2_tasks.spawn(async move {
+            if let Err(error) = writer.run().await {
+                tracing::warn!(%error, "v2 hub writer stopped");
+            }
+        });
+    }
     // The socket as bound, read at once: the home watch and the shutdown's removal use it.
     let bound_socket = home_watch::Owned::now(&[&socket_path()]);
     // Gone already: nothing can reach this daemon, so it stops before the startup.
@@ -401,6 +457,15 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         })
         .or_else(|| config.websocket.clone().map(|w| (w.listen, w.token)));
 
+    // The rest of config.json's start check (`config/start_check.rs`), the one `config --set` and
+    // `_acpmux/reload_config` run, so the CLI never writes what is refused here. The listener is
+    // checked just below, where `--listen` may stand in for config.json's.
+    if let Err(e) = config.settings_refusal() {
+        if let Some(fd) = opts.ready_fd {
+            write_ready(fd, &serde_json::json!({"ready": false, "refused": format!("{e:#}")}));
+        }
+        return Err(e);
+    }
     // Plain ws:// on a network address sends the token in clear: only with
     // the person's opt-in, on every path below (`server/ws_auth.rs`).
     let allow_network = opts.insecure_network_listen
@@ -514,6 +579,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         Err(e) => {
             // The copied node key could not be replaced: keep this box off WireGuard for this
             // run rather than answer with the original's identity.
+            // Includes a node key recorded as copied (a leave removed the record).
             let copied = crate::cli::cloud_join::copied_from_another_box();
             tracing::warn!(copied, "machine clone check failed: {e:#}");
             copied
@@ -523,6 +589,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         tracing::warn!(
             "WireGuard transport off for this run: this home was copied from another machine"
         );
+        tracing::warn!("hub carrier off for this run: this home was copied from another machine");
     }
     // Start one mesh before Hub starts its saved peers. It forwards only to
     // the WebSocket listener bound above, whose existing tokens remain mandatory.
@@ -533,8 +600,32 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     } else {
         None
     };
+    // Started before the cmux link was set up here, the transport holds this machine's key
+    // lock: it hands it to the link once one serves this home's node key (`cmux link ensure`
+    // waits for it, `key_lock.rs`).
+    if let Some(transport) = wireguard.clone() {
+        tokio::spawn(async move {
+            transport.yield_to_link(&home(), LINK_HANDOFF_EVERY, SHUTDOWN_BUDGET).await;
+        });
+    }
     // Serve before reading session metadata or logs. Exact-id chat reads load on demand.
     let hub = Hub::new_loading_with_wireguard(config, store, mailbox, wireguard.clone());
+    if let Some(v2) = v2.as_ref() {
+        let (tee, task) = crate::hub::list_tee::start_v2_tee(hub.clone(), v2.clone());
+        hub.install_v2_tee(tee);
+        // Links carry the list stream only with `list` and `peers` in the set (`link_v2.rs`).
+        hub.link_v2.install(v2.clone());
+        v2.hub.set_page_provider(std::sync::Arc::new(crate::hub::list_tee::V1PageProvider::new(
+            hub.clone(),
+        )));
+        v2_tasks.spawn(task);
+        // The book tee (`hub/book_tee.rs`): its drain and background pass, never awaited here.
+        if let Some(registry) = v2.registry() {
+            let (tee, task) = crate::hub::book_tee::start_book_tee(hub.clone(), registry.clone());
+            hub.install_book_tee(tee);
+            v2_tasks.spawn(task);
+        }
+    }
     // A copied machine's first start settles what the logs left open as stopped
     // (`hub/clone_boot.rs`); read before any log is.
     let cloned = hub.take_clone_marker(&home()).is_some();
@@ -572,26 +663,22 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         hub.watches.open(&home().join("watches.json"));
     }
     hub.start_watches();
-    // The team hub's relay, when config.json names one (`server/mesh_relay.rs`).
-    let mesh_relay = crate::server::mesh_relay::start_configured(&hub).await;
-    // The hub carrier on the same hub and credential (`hub_carrier.rs`): this machine serves its
-    // relay slot, and its peers dial over it. A copied home is off, as WireGuard is.
-    #[cfg(feature = "hub-carrier")]
-    let _hub_carrier = if clone_unsettled {
-        None
-    } else {
-        let websocket = ws_listener.as_ref().and_then(|(l, _)| l.local_addr().ok());
-        // The carrier runs only on the lock the WireGuard transport holds; it never takes its own.
-        let held = wireguard.as_ref().and_then(|transport| transport.key_holder());
-        let serving = crate::hub_carrier::start_configured(&hub, &home(), websocket, held).await;
-        // A rekey (`machine_tunnel.rs`) rotates the node key under the carrier: it takes the new
-        // key with the key file and registers again, rather than reading it as replaced.
-        if let (Some(transport), Some(carrier)) = (wireguard.as_ref(), hub.hub_carrier.get()) {
-            let carrier = carrier.clone();
-            transport.add_key_user(Arc::new(move |private, write| carrier.rekey(*private, write)));
-        }
-        serving
-    };
+    // What the join in config.json starts (`server/machine_enroll.rs`): the team hub's relay
+    // (`server/mesh_relay.rs`), kept on the hub so a sign-in enroll can start one live, and the
+    // hub carrier on the same hub and credential (`hub_carrier.rs`), through which this machine
+    // serves its relay slot and its peers dial it. A copied home runs no carrier, as WireGuard.
+    // A sign-out's leave the last run did not finish goes first: neither starts for a machine
+    // that left.
+    let carrier = (!clone_unsettled)
+        .then(|| ws_listener.as_ref().and_then(|(l, _)| l.local_addr().ok()))
+        .flatten();
+    crate::server::machine_enroll::start_joined_at_start(&hub, carrier).await;
+    // A machine joined before the hub recorded capabilities states them with its own credential,
+    // in the background (`cli/cloud_join/self_capabilities.rs`); the start never waits for it.
+    crate::cli::cloud_join::state_capabilities_at_start(&hub.scope);
+    // A joined Mac's daemon serves screen shares with no app running (`share_host/`).
+    #[cfg(target_os = "macos")]
+    crate::share_host::start(&hub.scope);
     // The Macs whose app may allow here over the peer link (`hub/mac_approvers.rs`).
     hub.person.macs.open(home().join(crate::hub::mac_approvers::FILE));
     if let Some(key) = person_key {
@@ -728,7 +815,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     #[cfg(unix)]
     let (rebound_tx, rebound_rx) = tokio::sync::mpsc::channel(1);
     #[cfg(unix)]
-    let unix = tokio::spawn(socket_rebind::serve(hub.clone(), unix_listener, rebound_rx));
+    let unix =
+        tokio::spawn(socket_rebind::serve(hub.clone(), unix_listener, rebound_rx, v2.clone()));
     #[cfg(not(unix))]
     let unix = tokio::spawn(crate::server::serve_unix(hub.clone(), unix_listener));
     let local_app_file = local_app.as_ref().map(|a| a.path().to_owned());
@@ -815,6 +903,20 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if let Some(fd) = opts.ready_fd {
         write_ready(fd, &ready);
     }
+    // Remote ssh handshakes are background work. Give the first local initialize and chat attach
+    // a turn before dialing them; otherwise a god-sized peer fan-out can starve the pane after
+    // the socket is already ready.
+    {
+        let peers = hub.clone();
+        hub.scope.spawn_until_cancelled("peer-start-gate", async move {
+            tokio::select! {
+                _ = peers.wait_local_ready() => {}
+                _ = tokio::time::sleep(Duration::from_secs(2)) => {}
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            peers.start_saved_peers().await;
+        });
+    }
     // Debug builds only: `ACPMUX_TEST_HOLD_AFTER_READY_MS` holds the daemon right after the ready
     // line, so integration tests can stop it in that window. Bounded; release builds have no seam.
     #[cfg(debug_assertions)]
@@ -844,6 +946,17 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 let _phase = gauges.phase("wait for store");
                 hub.wait_store().await;
             }
+            // The list's kept order first, before any log is read (`list_order.rs`): a list page
+            // or usage pass that comes before the logs are read waits for this sort alone, not
+            // for adoption and every log as well. After the ready line, so start stays instant.
+            {
+                let _phase = gauges.phase("list order");
+                let sorting = hub.clone();
+                if let Err(e) = tokio::task::spawn_blocking(move || sorting.sort_list_order()).await
+                {
+                    tracing::error!("sorting the list order failed: {e}");
+                }
+            }
             #[cfg(debug_assertions)]
             test_panic_in("startup");
             // Debug builds only: `ACPMUX_TEST_DELAY_LOAD_LOGS_MS` holds the chat-log
@@ -856,8 +969,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             {
                 tokio::time::sleep(Duration::from_millis(ms.min(10_000))).await;
             }
-            // Debug builds only: `ACPMUX_TEST_HOLD_STARTUP` holds the same step until the test
-            // removes its file (`hub/log_load.rs` `test_hold`). Release builds have no seam.
+            // Debug builds only: hold the live-log/adoption boundary for tests that prove a
+            // request does not wait on global startup. Release builds have no seam.
             #[cfg(debug_assertions)]
             if std::env::var_os("ACPMUX_TEST_HOLD_STARTUP").is_some() {
                 let held = tokio::task::spawn_blocking(|| {
@@ -865,47 +978,53 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 });
                 let _ = held.await;
             }
-            // Agents that outlived the previous daemon come back first: their chats' logs
-            // (tails, queues), then adoption. Every other chat's log is read in the background
-            // after it, or first by a request for that chat (`hub/log_load.rs`).
-            {
-                let _adopted = crate::hub::AdoptionReady(&hub.adoption_ready);
+            // What an agent start needs (login environment, catalog, launcher checks, vault)
+            // runs beside the chats: a new chat waits for it alone, and a chat's own start for it
+            // and its own adoption, never for every host's adoption (`hub/startup.rs`).
+            let chats = async {
+                // Agents that outlived the previous daemon come back first: their chats' logs
+                // (tails, queues), then adoption. Every other chat's log is read in the background
+                // after it, or first by a request for that chat (`hub/log_load.rs`).
                 {
+                    let _adopted = crate::hub::AdoptionReady(&hub.adoption_ready);
                     let _phase = gauges.phase("live chat logs");
                     hub.load_live_logs_async().await;
-                }
-                {
+                    drop(_phase);
                     let _phase = gauges.phase("adopt agent hosts");
                     hub.adopt_agent_hosts().await;
+                    drop(_phase);
+                    let _phase = gauges.phase("settle unadopted");
+                    hub.settle_unadopted().await;
                 }
-                let _phase = gauges.phase("settle unadopted");
-                hub.settle_unadopted().await;
-            }
-            {
-                let _phase = gauges.phase("recover workflows");
-                hub.recover_workflows().await;
-            }
-            {
-                let hub = hub.clone();
-                tokio::spawn(async move {
-                    {
-                        let _phase = gauges.phase("all chat logs");
-                        hub.load_logs_async().await;
-                    }
-                    hub.finish_clone_boot(&home());
-                    // Once every log is read: a pass reads only chats whose log is loaded.
-                    let _worker = hub.retention_worker();
-                });
-            }
-            // A chat a machine's Full-access setting moved out of its policy's mode goes back:
-            // a revoke the previous daemon saved may not have reached it (`crate::pairing`).
-            {
+                {
+                    let _phase = gauges.phase("recover workflows");
+                    hub.recover_workflows().await;
+                }
+                {
+                    let hub = hub.clone();
+                    hub.clone().scope.spawn_until_cancelled("restore-chat-logs", async move {
+                        {
+                            let _phase = gauges.phase("all chat logs");
+                            hub.load_logs_async().await;
+                        }
+                        if hub.shutting_down() {
+                            return;
+                        }
+                        hub.finish_clone_boot(&home());
+                        // Once every log is read: a pass reads only chats whose log is loaded.
+                        let _worker = hub.retention_worker();
+                    });
+                }
+                // A chat a machine's Full-access setting moved out of its policy's mode goes back:
+                // a revoke the previous daemon saved may not have reached it (`crate::pairing`).
+                // A chat started before this runs in its policy's mode already (`hold_policy_mode`).
                 let _phase = gauges.phase("hold policies");
                 hub.hold_policies_again().await;
-            }
+            };
+            let (reloaded, ()) = tokio::join!(hub.prepare_spawns(), chats);
             {
                 let _phase = gauges.phase("finish startup");
-                hub.finish_startup().await;
+                hub.finish_startup_after_prepare(reloaded).await;
             }
             // An agent the previous daemon left, started from a profile changed since or running
             // from a binary that an update moved, restarts on the profile and binary installed now,
@@ -936,6 +1055,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     tokio::spawn(cloud_handoff::handoff_loop(hub.clone()));
     #[cfg(target_os = "linux")]
     tokio::spawn(cloud_activity::activity_loop(hub.clone()));
+    // An update that moves this executable away swaps to the installed build, make-before-break
+    // (F9, `daemon/exe_swap.rs`). Ended with the runtime.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    let _exe_watch = hub.scope.spawn_until_cancelled("exe-swap-watch", exe_watch);
 
     #[cfg(all(unix, feature = "tailnet"))]
     let tailnet = crate::tailnet::embedded_service::Service::spawn(hub.clone());
@@ -953,16 +1076,21 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 // Supervisors use SIGTERM for updates and permanent stops alike. Advertise
                 // handoff: a stopped service causes one immediate retry, then normal backoff.
                 _ = next_signal(term.as_mut()) => {
-                    match term_sender::settled().await {
-                        Some(pid) => tracing::warn!(
-                            "stopping: SIGTERM from {} (a restart handoff)",
-                            term_sender::describe(pid)
-                        ),
+                    let from = term_sender::settled().await.map(term_sender::describe);
+                    match &from {
+                        Some(from) => tracing::warn!("stopping: SIGTERM from {from} (a restart handoff)"),
                         None => tracing::warn!("stopping: SIGTERM (a restart handoff)"),
                     }
+                    supervision::stopping(cmux_supervise_core::StopCause::Intentional(format!(
+                        "SIGTERM from {}",
+                        from.as_deref().unwrap_or("an unknown sender")
+                    )));
                     hub.restart_requested.store(true, std::sync::atomic::Ordering::SeqCst);
                 },
-                _ = next_signal(int.as_mut()) => tracing::warn!("stopping: SIGINT"),
+                _ = next_signal(int.as_mut()) => {
+                    tracing::warn!("stopping: SIGINT");
+                    supervision::stopping(cmux_supervise_core::StopCause::Intentional("SIGINT".into()));
+                },
                 _ = hub.shutdown.notified() => tracing::warn!("stopping: a client asked it to"),
                 // A restart handoff: the next start repairs what the store could not.
                 () = &mut store_stop => {},
@@ -1007,10 +1135,17 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                     home_watch::Lost::Socket(why) => {
                         crate::config::mark_socket_lost();
                         tracing::warn!("stopping: {why}, after {rebinds} re-binds");
+                        supervision::stopping(cmux_supervise_core::StopCause::SelfStop(why.to_string()));
                     }
-                    home_watch::Lost::Stop(why) => tracing::warn!("stopping: {why}"),
+                    home_watch::Lost::Stop(why) => {
+                        tracing::warn!("stopping: {why}");
+                        supervision::stopping(cmux_supervise_core::StopCause::SelfStop(why.to_string()));
+                    }
                 },
-                why = &mut unused => tracing::info!("stopping: {why}"),
+                why = &mut unused => {
+                    tracing::info!("stopping: {why}");
+                    supervision::stopping(cmux_supervise_core::StopCause::Intentional(why.to_string()));
+                },
                 // Nothing can use its agents now: they end with it, hosts and harnesses too.
                 pid = &mut test_owner => {
                     tracing::warn!("stopping: its test process {pid} exited");
@@ -1047,6 +1182,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         _ = shutdown => {}
     }
     tracing::info!("shutting down");
+    let shutdown_started = tokio::time::Instant::now();
     // First: the cmux link stops sending peers here before admission closes or the listener is
     // freed, so no process that binds the freed port can be taken for this daemon.
     drop(listener_record);
@@ -1059,20 +1195,30 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     // Fence automatic continuations before any transport or metadata drain can yield to them.
     hub.begin_shutdown();
+    // The plan is fixed now: a shutdown that ends its agents gets the time their ends take.
+    let shutdown_deadline = shutdown_started + shutdown_budget(hub.ends_agents_at_shutdown());
+    *SHUTDOWN_DEADLINE.lock().unwrap_or_else(PoisonError::into_inner) =
+        Some(shutdown_deadline.into_std());
+    let shutdown_left = || shutdown_deadline.saturating_duration_since(tokio::time::Instant::now());
+    // Session/transport cleanup cannot consume the writers' entire chance to drain.
+    let cleanup_deadline = shutdown_deadline - Duration::from_millis(250);
     // Fence tailnet supervision first: its ingress then ends through the
     // WebSocket shutdown below (1012 on restart), never as a listener failure.
     // A supervisor action under way finishes first, within its own bounds.
     #[cfg(all(unix, feature = "tailnet"))]
-    tailnet.fence().await;
+    let _ = tokio::time::timeout_at(cleanup_deadline, tailnet.fence()).await;
     // Its home is gone (`daemon/home_watch.rs`): no later daemon can adopt its agents from
     // there, so they end; and this shutdown removes nothing at the old paths, which may be
     // another daemon's now (`config::mark_home_lost` refuses its writes there).
     startup.abort();
-    let _ = startup.await;
-    // Its last heartbeat empties this daemon's rows in the hub's address book.
-    if let Some(relay) = mesh_relay {
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(6), relay.stop()).await;
-    }
+    let _ = tokio::time::timeout_at(cleanup_deadline, startup).await;
+    // Its last heartbeat empties this daemon's rows in the hub's address book. The start's
+    // join task ends first, so nothing starts a relay after this stops it.
+    let _ = tokio::time::timeout_at(
+        cleanup_deadline,
+        crate::server::machine_enroll::stop_at_shutdown(&hub),
+    )
+    .await;
     // SIGTERM handoff and explicit updates/restarts use 1012. Explicit ordinary RPC
     // shutdown and interactive interrupt use a normal WebSocket close.
     let restarting = hub.restart_requested.load(std::sync::atomic::Ordering::SeqCst);
@@ -1081,7 +1227,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     } else {
         ws_shutdown.normal_shutdown();
     }
-    let drain_deadline = tokio::time::Instant::now() + crate::server::WS_DRAIN_BUDGET;
+    let drain_deadline = std::cmp::min(
+        cleanup_deadline,
+        tokio::time::Instant::now() + crate::server::WS_DRAIN_BUDGET,
+    );
     if tokio::time::timeout_at(drain_deadline, ws_shutdown.drained()).await.is_err() {
         tracing::warn!("websocket listeners did not drain before the shutdown deadline");
     }
@@ -1089,22 +1238,22 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         && tokio::time::timeout_at(drain_deadline, &mut task).await.is_err()
     {
         task.abort();
-        let _ = task.await;
+        let _ = tokio::time::timeout_at(cleanup_deadline, task).await;
         tracing::warn!("websocket clients did not drain before the shutdown deadline");
     }
     // The ingress has had the WebSocket drain to close its clients; stop and
     // join whatever remains within the service's own bound.
     #[cfg(all(unix, feature = "tailnet"))]
-    tailnet.shutdown().await;
+    let _ = tokio::time::timeout_at(cleanup_deadline, tailnet.shutdown()).await;
     // Keep encrypted bridges alive until WebSocket close/restart frames have drained.
     if let Some(transport) = wireguard {
-        transport.shutdown(tokio::time::Instant::now() + SHUTDOWN_BUDGET).await;
+        transport.shutdown(cleanup_deadline).await;
     }
     // A node a person started closes with the daemon; its saved login stays.
     // The controller is made here if no request made it (it holds no node
     // until a start), so a start racing this shutdown is refused either way.
     #[cfg(all(unix, feature = "tailnet"))]
-    match tokio::time::timeout(SHUTDOWN_BUDGET, hub.tailnet_controller().shutdown()).await {
+    match tokio::time::timeout_at(cleanup_deadline, hub.tailnet_controller().shutdown()).await {
         Ok(Ok(())) => {}
         Ok(Err(error)) => tracing::warn!("embedded tailnet close: {error}"),
         Err(_) => tracing::warn!("embedded tailnet did not close within {SHUTDOWN_BUDGET:?}"),
@@ -1124,51 +1273,94 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     // How many hosted agents this shutdown kept running for the next
     // daemon; unknown (a timeout) counts as kept.
-    let kept = match tokio::time::timeout(SHUTDOWN_BUDGET, async {
-        // A signal can arrive while metadata loads. Snapshot every stored session before
-        // detaching or ending hosts. A timeout conservatively keeps their router below.
-        let _ = metadata.await;
-        if restarting {
-            hub.shutdown_all_with_auto_resume(true).await
-        } else {
-            hub.shutdown_all().await
-        }
-    })
-    .await
-    {
-        Ok(kept) => kept,
-        Err(_) => {
+    let mut sessions = {
+        let hub = hub.clone();
+        exit_tasks.spawn_named("shutdown-sessions", async move {
+            // A signal can arrive while metadata loads. Snapshot every stored session before
+            // detaching or ending hosts. A timeout conservatively keeps their router below.
+            let _ = metadata.await;
+            if restarting {
+                hub.shutdown_for_handoff(true).await
+            } else {
+                hub.shutdown_for_handoff(false).await
+            }
+        })
+    };
+    let mut unfinished_sessions = None;
+    let kept = match tokio::time::timeout_at(cleanup_deadline, &mut sessions).await {
+        Ok(Ok(kept)) => kept,
+        _ => {
+            sessions.abort();
+            unfinished_sessions = Some(sessions);
             tracing::warn!("agents did not stop within {SHUTDOWN_BUDGET:?}; exiting anyway");
-            hub.flush();
-            // As a shutdown that ends in time (`Hub::shutdown_all`): no write after this one.
-            hub.seal();
+            // Persistence still runs below, even when session cleanup used its whole grace.
             usize::MAX
         }
     };
     // The hub's own tasks after its agents: cancelled and joined, any left named (`hub/shutdown.rs`).
-    hub.close_owned_tasks().await;
+    hub.close_owned_tasks_until(cleanup_deadline).await;
+    let (cleanup_done, cleanup_finished) = tokio::sync::oneshot::channel::<()>();
+    let mut persistence = {
+        let hub = hub.clone();
+        exit_tasks.spawn_named("shutdown-persistence", async move {
+            // Abort is cooperative: a synchronous final session write may still be under way.
+            // Never seal ahead of it or release ownership while it can still mutate the home.
+            if let Some(sessions) = unfinished_sessions {
+                let _ = sessions.await;
+            }
+            hub.persist_for_handoff(shutdown_deadline).await;
+            // PID and token removal also belongs to this owner, before the next daemon may
+            // acquire the lock and write its own files with the same names.
+            let _ = cleanup_finished.await;
+            // A timeout must not unlock the home while a blocking store fence still writes.
+            // This task keeps both the lock and hub until persistence ends or the CLI exits.
+            drop(_lock_file);
+        })
+    };
     // After the agents: their model streams go through the router.
     // A lost home's router path may be another daemon's router now: let go of ours, never ask
     // that path to stop.
     // Read after the agents: the home may have been lost while they drained.
     recheck_home();
     let home_lost = crate::config::home_lost();
-    let _ = tokio::task::spawn_blocking(move || release_router(kept == 0 && !home_lost)).await;
+    let _ = tokio::time::timeout(
+        shutdown_left(),
+        tokio::task::spawn_blocking(move || release_router(kept == 0 && !home_lost)),
+    )
+    .await;
     // Cancelled and finished before the removal, so a late retry never puts it back.
     if let Some(retry) = pid_retry {
         retry.abort();
-        let _ = retry.await;
+        let _ = tokio::time::timeout_at(shutdown_deadline, retry).await;
     }
     recheck_home();
     if !crate::config::home_lost() {
+        supervision::finish(&home(), exit_status());
         let _ = crate::home_fs::remove_file(home().join("daemon.pid"));
         for file in [local_app_file, peer_file, carrier_file].into_iter().flatten() {
             let _ = crate::home_fs::remove_file(file);
         }
     }
+    // The carrier's registration last, as when the start held it to the end.
+    crate::server::machine_enroll::stop_carrier(&hub);
     // Usage counts are written some time after they are made, so an idle
     // daemon never wakes for them; the last ones are written here.
-    let _ = tokio::task::spawn_blocking(cmux_usage_patterns::flush).await;
+    let _ = tokio::time::timeout(
+        shutdown_left(),
+        tokio::task::spawn_blocking(cmux_usage_patterns::flush),
+    )
+    .await;
+    let _ = cleanup_done.send(());
+    // The CLI exits the process once this returns, which would end a writer mid-write and lose
+    // what it had yet to write (recent transcript, metadata, ledger and audit lines). So the
+    // writers finish first, past the deadline too, with the home still locked (Codex review of
+    // #42296). They hold no network or agent: on a healthy disk they end inside the deadline.
+    if tokio::time::timeout_at(shutdown_deadline, &mut persistence).await.is_err() {
+        tracing::warn!(
+            "persistence still draining at the shutdown deadline; waiting for it with the home locked"
+        );
+        let _ = persistence.await;
+    }
     tracing::info!("stopped");
     Ok(())
 }
@@ -1386,20 +1578,6 @@ fn random_token() -> Result<String> {
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 
-static DAEMON_PREFIX: std::sync::OnceLock<Vec<std::ffi::OsString>> = std::sync::OnceLock::new();
-
-/// Arguments placed before `daemon run` when a client starts the daemon, for
-/// a host binary that runs acpmux under a subcommand (`cmux acp daemon run`).
-/// Set once, before the first `connect`.
-pub fn set_daemon_prefix(prefix: Vec<std::ffi::OsString>) {
-    let _ = DAEMON_PREFIX.set(prefix);
-}
-
-/// The prefix set by [`set_daemon_prefix`]; agent hosts start with it too.
-pub fn daemon_prefix() -> Vec<std::ffi::OsString> {
-    DAEMON_PREFIX.get().cloned().unwrap_or_default()
-}
-
 /// A detached daemon that remains alive but never binds its socket is a hung start.
 /// This is the caller's fallback for that real hazard; lock-holder paths use
 /// process/socket liveness instead of this bound.
@@ -1414,7 +1592,9 @@ pub const HANDOVER_BUDGET: Duration = Duration::from_secs(20);
 
 /// How long a stopping daemon may take to exit: the agents' budget, the router's stop and kill
 /// waits, and a margin.
-pub const EXIT_BUDGET: Duration = SHUTDOWN_BUDGET.saturating_add(Duration::from_secs(8));
+pub const EXIT_BUDGET: Duration = SHUTDOWN_BUDGET
+    .saturating_add(crate::hub::AGENT_END_BUDGET)
+    .saturating_add(Duration::from_secs(8));
 
 /// Wait until no daemon holds this home's lock (the running one exited),
 /// at most [`EXIT_BUDGET`]. True when it was released.
@@ -1453,6 +1633,39 @@ pub async fn connect_stream() -> Result<crate::local_stream::Stream> {
     .await
 }
 
+/// While the owner record of `home` names a live daemon other than this process (it wrote the
+/// record right after taking the lock, before it binds: `supervision::start`), dial it again
+/// until it answers, at most [`START_BUDGET`]. `None` at once when no live owner is recorded (a
+/// crash left only its record: the caller starts the next one), when the owner dies meanwhile,
+/// or at the budget.
+async fn connect_when_ready<T, F, Fut>(home: &std::path::Path, connect: &F) -> Option<T>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = Result<T>>,
+{
+    let starting = || {
+        supervision::owner(home).is_some_and(|owner| {
+            !owner.is_current() && owner.liveness() == cmux_supervise_core::Liveness::Alive
+        })
+    };
+    if !starting() {
+        return None;
+    }
+    // timeout: a daemon that holds the home and never binds is a hung start; the caller's own
+    // start path follows, as before this wait.
+    let deadline = tokio::time::Instant::now() + START_BUDGET;
+    while tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        if let Ok(value) = connect().await {
+            return Some(value);
+        }
+        if !starting() {
+            return None;
+        }
+    }
+    None
+}
+
 async fn connect_with_systemctl<S, T, F, Fut>(
     systemctl: S,
     current_home: &std::path::Path,
@@ -1466,6 +1679,11 @@ where
     Fut: std::future::Future<Output = Result<T>>,
 {
     if let Ok(value) = connect().await {
+        return Ok(value);
+    }
+    // A daemon that holds the home and is not serving yet (a restart or an update mid-dial):
+    // wait for it to answer instead of failing or starting a second one (F10).
+    if let Some(value) = connect_when_ready(current_home, &connect).await {
         return Ok(value);
     }
     if !autostart {
@@ -1496,9 +1714,10 @@ where
         check_autostart(path)?;
     }
     exe_path::check_start()?;
-    // A saved network listen without its opt-in: the daemon would refuse it, and a daemon
-    // placed as a launchd job has no readiness line to say so. Say it here.
-    if let Some(why) = saved_listen_refusal().await {
+    // A config.json the daemon would refuse (a network listen without its opt-in, WireGuard
+    // without its settings): a daemon placed as a launchd job has no readiness line to say so.
+    // Say it here.
+    if let Some(why) = saved_start_refusal().await {
         return Err(anyhow!(why));
     }
     // The lock's holder serves this home at another socket: a start would wait out its own
@@ -1557,19 +1776,17 @@ fn check_autostart(path: &std::path::Path) -> Result<()> {
     }
 }
 
-/// Why a daemon started from this home's config.json would refuse its `websocket.listen` (a
-/// network address without `websocket.allowInsecureNetwork`), or None. `daemon status` shows it
-/// when no daemon runs, and a start refuses with it before it spawns one.
-pub async fn saved_listen_refusal() -> Option<String> {
+/// Why a daemon started from this home's config.json would refuse to start, or None: the whole
+/// start check (`Config::start_refusal`, `config/start_check.rs`), which `config --set` and
+/// `_acpmux/reload_config` run too: the WireGuard transport's settings and a `websocket.listen`
+/// on a network address without `websocket.allowInsecureNetwork`. `daemon status` shows it when
+/// no daemon runs, and a start refuses with it before it spawns one.
+pub async fn saved_start_refusal() -> Option<String> {
     let config = crate::config::Config::load().ok()?;
-    let w = config.websocket.as_ref()?;
-    // The address `run` would listen on: a home other than the shared one never keeps the
-    // fixed port and moves to a free loopback port instead (`first_run_listen`).
-    let listen = first_run_listen(uses_shared_home(), Some(&w.listen));
-    crate::server::check_listen_address(listen, w.allow_insecure_network)
+    tokio::task::spawn_blocking(move || config.start_refusal().err().map(|e| format!("{e:#}")))
         .await
-        .err()
-        .map(|e| format!("{:#}", e.context(format!("refusing websocket.listen {listen}"))))
+        .ok()
+        .flatten()
 }
 
 /// The refusal when this home's daemon serves `other`, not `path`.
@@ -1938,21 +2155,28 @@ fn hand_key(mut link: std::os::unix::net::UnixStream, key: &str) {
 
 /// Use the same home classification for initial launch and CLI restart.
 pub(crate) fn uses_shared_home() -> bool {
-    dirs::home_dir().map(|h| h.join(".acpmux")) == Some(home())
+    is_shared_home(&home())
 }
 
-/// The fixed dashboard port belongs to the shared daemon (`~/.acpmux`). Any other home (a
-/// tagged dev build's, `ACPMUX_HOME`) listens on a free port and never saves the fixed one,
-/// so it can never take the release daemon's port; a home that saved it before is moved off.
-/// Returns the address to save: the saved one when it is fine, else the default.
-pub(crate) fn first_run_listen(shared_home: bool, saved: Option<&str>) -> &str {
-    const SHARED: &str = "127.0.0.1:47811";
-    const ANY: &str = "127.0.0.1:0";
-    match saved {
-        Some(saved) if shared_home || !saved.ends_with(":47811") => saved,
-        _ if shared_home => SHARED,
-        _ => ANY,
+/// Whether `home` is the shared daemon's home (`~/.acpmux`).
+pub(crate) fn is_shared_home(home: &std::path::Path) -> bool {
+    dirs::home_dir().map(|h| h.join(".acpmux")).as_deref() == Some(home)
+}
+
+/// v2's handle for `config`: none while `acpmux.v2` is empty. It holds a chat registry only when
+/// the daemon writes books: `books` in the set and a store on disk (a store in memory makes no
+/// registry and no books).
+pub(crate) fn v2_handle(config: &Config) -> Option<std::sync::Arc<acpmux_core::life::V2>> {
+    if config.acpmux_v2.is_empty() {
+        return None;
     }
+    let (hub, writer) = acpmux_core::hub::Hub::new(acpmux_book::index::SummaryIndex::new());
+    let surfaces: std::collections::HashSet<String> =
+        config.acpmux_v2.enabled().into_iter().map(str::to_owned).collect();
+    let books = surfaces.contains("books") && config.store.mode != crate::config::StoreMode::Memory;
+    let v2 = acpmux_core::life::V2::with_surfaces(hub, writer, surfaces);
+    let v2 = if books { v2.with_registry(acpmux_core::registry::Registry::new()) } else { v2 };
+    Some(std::sync::Arc::new(v2))
 }
 
 /// Whether a stop keeps this daemon's chats: agents under agent hosts (as the hub runs them,

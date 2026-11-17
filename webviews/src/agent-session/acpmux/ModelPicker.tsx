@@ -1,3 +1,4 @@
+import { acpmuxPerf } from "./perf";
 import { authChipText, authLoginText, authText, canSessionLogin } from "./sessionAuth";
 import {
   useCallback,
@@ -56,6 +57,8 @@ import {
 import { ScrollArea } from "../../ui/ScrollArea";
 import { quantizePickerRail } from "./pickerRailGeometry";
 import { CLAUDE_STDIO_KIND, type HarnessChoice, uniqueHarnesses, withoutVendor } from "./modelPickerModel";
+import { ClaudeConnectRow } from "./ClaudeConnectRow";
+import type { ClaudeConnectRowProps } from "./claudeConnect";
 import { pickerHeightBounds } from "./modelPickerLayout";
 type ModelChoice = {
   id: string;
@@ -354,6 +357,9 @@ const modelRow =
 /// The active row (pointer or arrows) has the hover wash; any other row gets it on hover.
 const rowFill = (active: boolean) => (active ? "bg-hover" : "bg-transparent hover:bg-hover");
 const emptyNote = "px-2.5 py-2 text-body text-muted";
+/// Whether the Claude Connect row (ClaudeConnectRow.tsx) leads `entry`'s section: its mark is the row's brand.
+const claudeConnectHere = (connect: ClaudeConnectRowProps | undefined, entry: Pick<HarnessChoice, "id" | "mark">) =>
+  !!connect && agentBrand(entry.mark ?? entry.id) === connect.brand;
 /// The update row's Update and Skip This Version: row-height text buttons, as wide as their words.
 const updateButton =
   "flex h-[var(--ui-row-height,28px)] flex-none cursor-default items-center rounded-[var(--ui-row-radius,5px)] border-0 px-2 font-[inherit] text-control text-fg";
@@ -391,11 +397,13 @@ export function ModelPicker(props: ModelPickerProps) {
     catalogRefresh,
     signedOut,
     onLogIn,
+    claudeConnect,
     usage,
     quick,
     fork,
     onSetUpPick,
   } = props;
+  acpmuxPerf.render("composer:model");
   /// A signed-out harness's login command ("" when acpmux names none); undefined when it can start.
   const loginFor = useCallback((entry: HarnessChoice) => signedOut?.[entry.acpmuxHarness ?? entry.id], [signedOut]);
   /// A harness that cannot start a chat until it is set up: not installed here, or signed out.
@@ -735,7 +743,7 @@ export function ModelPicker(props: ModelPickerProps) {
   const showRef = useRef(show);
   showRef.current = show;
   const toggle = open ? (_next: boolean) => close() : setOpen;
-  const press = usePopoverTrigger(open, toggle, show);
+  const press = usePopoverTrigger(open, toggle, show, { popupId: menuId });
   const more = (typed?: string) => {
     setQuickOpen(false);
     show();
@@ -781,17 +789,6 @@ export function ModelPicker(props: ModelPickerProps) {
       ),
     [modelText, quick, open, close],
   );
-  // The footer's harness item opens this menu: its rail is the composer's harness switcher.
-  const opener = props.opener;
-  const compact = quick !== undefined;
-  useEffect(() => {
-    if (!opener) return;
-    const openMenu = () => (compact ? (open ? close() : setQuickOpen(true)) : showRef.current());
-    opener.current = openMenu;
-    return () => {
-      if (opener.current === openMenu) opener.current = undefined;
-    };
-  }, [opener, compact, open, close]);
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       // Cmd-Ctrl-M opens the picker (Lawrence 2026-10-08); typing then searches every harness.
@@ -957,6 +954,7 @@ export function ModelPicker(props: ModelPickerProps) {
         ...(signedOutHere && loginFor(entry) && onLogIn
           ? { logIn: () => onLogIn(entry.acpmuxHarness ?? entry.id, loginFor(entry)!) }
           : {}),
+        ...(claudeConnectHere(claudeConnect, entry) ? { connect: claudeConnect } : {}),
       });
     }
     // One tab per model family (QuickModelMenu's familyTabs): the entries that run one brand's
@@ -997,6 +995,7 @@ export function ModelPicker(props: ModelPickerProps) {
     onLogIn,
     props.profiles,
     signedOut,
+    claudeConnect,
   ]);
   /// A compact-menu pick: this harness's model lands in place; another harness's starts a chat there.
   /// A searched row with an effort or fast mode lands as one combo, as the full picker's does.
@@ -1470,9 +1469,6 @@ export function ModelPicker(props: ModelPickerProps) {
               title={[chipLabel, forkText, fastOn ? fastModeText : undefined, sessionAuthText, usage, updateText]
                 .filter(Boolean)
                 .join(" · ")}
-              aria-haspopup="dialog"
-              aria-expanded={open}
-              aria-controls={open ? menuId : undefined}
               keyboard={(event) => {
                 if (open && event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
                   event.preventDefault();
@@ -1657,7 +1653,7 @@ export function ModelPicker(props: ModelPickerProps) {
               {catalogRefresh && (
                 <button
                   type="button"
-                  className="grid size-7 flex-none cursor-default place-items-center rounded-md border-0 bg-transparent p-0 text-muted hover:bg-hover hover:text-fg"
+                  className="grid size-7 flex-none cursor-default place-items-center rounded-control border-0 bg-transparent p-0 text-muted hover:bg-hover hover:text-fg"
                   data-refresh-status={refreshStatus}
                   aria-label={t("picker.refreshCatalog")}
                   title={refreshTitle}
@@ -1698,6 +1694,21 @@ export function ModelPicker(props: ModelPickerProps) {
                     ))}
                   </div>
                 )}
+                {selected &&
+                  !searching &&
+                  !starredView &&
+                  claudeConnect &&
+                  claudeConnectHere(claudeConnect, selected) && (
+                    <ClaudeConnectRow
+                      name={selected.name}
+                      mark={selected.mark ?? selected.id}
+                      connected={claudeConnect.connected}
+                      onConnect={() => {
+                        claudeConnect.onConnect();
+                        close();
+                      }}
+                    />
+                  )}
                 {selected && !searching && !starredView && selected.notInstalled ? (
                   <>
                     <div className={emptyNote}>{t("harnesses.notInstalled")}</div>
@@ -1814,7 +1825,7 @@ export function ModelPicker(props: ModelPickerProps) {
                         <span className="pointer-events-none absolute right-1.5 flex items-center">
                           <button
                             type="button"
-                            className={`acpmux-mp-favorite pointer-events-auto grid size-6 cursor-default place-items-center rounded-md border-0 bg-transparent p-0 text-muted hover:text-fg ${favorites.has(model.id) ? "" : "invisible group-hover:visible focus-visible:visible"}`}
+                            className={`acpmux-mp-favorite pointer-events-auto grid size-6 cursor-default place-items-center rounded-control border-0 bg-transparent p-0 text-muted hover:text-fg ${favorites.has(model.id) ? "" : "invisible group-hover:visible focus-visible:visible"}`}
                             aria-label={`${starredText}: ${model.name}`}
                             aria-pressed={favorites.has(model.id)}
                             title={t(favorites.has(model.id) ? "picker.unstar" : "picker.star")}

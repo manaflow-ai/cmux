@@ -42,7 +42,7 @@ struct ScreenDividers {
     var mouseAreas: [LayoutMouseArea] {
         screen.dividerViews.compactMap { kind, view in
             guard !view.isHidden, view.alphaValue > 0.01 else { return nil }
-            let rect = uncovered(screen.convert(view.cursorRectInBounds, from: view).intersection(screen.bounds))
+            let rect = screen.convert(view.cursorRectInBounds, from: view).intersection(screen.bounds)
             guard !rect.isNull, !rect.isEmpty else { return nil }
             return LayoutMouseArea(id: kind.mouseAreaID, rect: rect, resizesColumns: view.axis == .horizontal)
         }.sorted { $0.id < $1.id }
@@ -52,23 +52,21 @@ struct ScreenDividers {
     /// native UI that Chromium pages leave uncovered (they sit in the gap
     /// between panes). A transparent edge handle at rest leaves no hole;
     /// hovering or dragging it makes the line part of the overlay again.
+    /// The lines are the ones the screen shows: a divider a layout change took out shows until that change shows
+    /// (`ScreenFrameInput.snapDepartedDividers`), so its line stays here until then, and a page beside it does not
+    /// cover the line a frame before the divider goes.
     var lineRects: [CGRect] {
-        screen.dividerViews.values.compactMap { view in
-            guard !view.isHidden, view.alphaValue > 0.01, view.isLineVisible else { return nil }
+        var rects: [CGRect] = []
+        func add(_ view: DividerHandleView) {
+            guard !view.isHidden, view.alphaValue > 0.01, view.isLineVisible else { return }
             // Cut where its cursor stops too (DividerHandleView `cursorClip`): no hole through a dock.
             let line = view.lineFrameInSuperview.intersection(screen.bounds)
-            let rect = uncovered(view.cursorClip.map { line.intersection($0) } ?? line)
-            return rect.isNull || rect.isEmpty ? nil : rect
-        }.sorted { ($0.minX, $0.minY) < ($1.minX, $1.minY) }
-    }
-
-    /// `rect` less what a zooming or unzooming pane shows over it: the dividers are under that pane
-    /// (`ScreenContentView.rank`), so its Chromium page gets no hole and no click catcher there.
-    private func uncovered(_ rect: CGRect) -> CGRect {
-        guard let pane = screen.zoomMotion.pane, let host = screen.context.hosts[pane], host.superview === screen, !rect.isNull else { return rect }
-        let cover = host.frame
-        if cover.insetBy(dx: -0.5, dy: -0.5).contains(rect) { return .null }
-        return rect.remainder(outside: cover)
+            let shown = view.cursorClip.map { line.intersection($0) } ?? line
+            if !shown.isNull, !shown.isEmpty { rects.append(shown) }
+        }
+        for view in screen.dividerViews.values { add(view) }
+        for view in screen.frameInput.snapDepartedDividers { add(view) }
+        return rects.sorted { ($0.minX, $0.minY) < ($1.minX, $1.minY) }
     }
 
     /// The strip column under a resize drag: the camera keeps it in place, so

@@ -291,6 +291,33 @@ def plan(repo: Path, base: str) -> list[dict]:
     return jobs
 
 
+# The words every spelling of cargo's stale-lock refusal ends with (scripts/cmux-next/cargo-locks.py knows them all).
+STALE_LOCK_HINT = "--locked was passed"
+
+
+def run_cargo(command: list[str], cwd: Path, env: dict[str, str]) -> tuple[int, list[str]]:
+    """Run COMMAND with its output passed on as it comes. Returns its exit code and the stderr lines that name a
+    lock cargo refused to update under --locked: the only lines a failed run's cause needs."""
+    refusals = []
+    with subprocess.Popen(command, cwd=cwd, env=env, stderr=subprocess.PIPE, text=True, errors="replace") as proc:
+        for line in proc.stderr:
+            sys.stderr.write(line)
+            sys.stderr.flush()
+            if STALE_LOCK_HINT in line:
+                refusals.append(line)
+        return proc.wait(), refusals
+
+
+def stale_lock_explained(repo: Path, refusals: list[str]) -> bool:
+    """True when REFUSALS hold cargo's stale-lock refusal: cargo-locks.py explain has then printed its cause and fix."""
+    if not refusals:
+        return False
+    explain = [sys.executable, str(Path(__file__).resolve().parents[2] / "scripts/cmux-next/cargo-locks.py"),
+               "explain", "-", "--repo", str(repo.resolve())]
+    sys.stdout.flush()
+    return subprocess.run(explain, input="".join(refusals), text=True).returncode == 0
+
+
 def run(repo: Path, root: str) -> int:
     entry = next((entry for entry in load_list(repo) if entry.get("root") == root and entry.get("run") is True), None)
     if entry is None:
@@ -309,11 +336,15 @@ def run(repo: Path, root: str) -> int:
         for name, command in commands:
             print(f"::group::{root}: {' '.join(command)}", flush=True)
             # From the workspace so rustup uses the nearest rust-toolchain.toml.
-            rc = subprocess.run(command, cwd=repo / root, env=env).returncode
+            rc, refusals = run_cargo(command, repo / root, env)
             print("::endgroup::", flush=True)
             if rc:
                 red.append(name)
-                print(f"::error title={root} {name}::`{' '.join(command)}` failed in {root}")
+                if stale_lock_explained(repo, refusals):
+                    print(f"::error title={root} {name}::a stale Cargo.lock in {root} (cargo --locked refused it; "
+                          "the fix is above)")
+                else:
+                    print(f"::error title={root} {name}::`{' '.join(command)}` failed in {root}")
     print(f"rust-workspaces: {root}: " + (f"red ({', '.join(red)})" if red else "clippy and tests green"))
     return 1 if red else 0
 

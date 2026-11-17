@@ -99,7 +99,7 @@
 }
 .cmux-app-scene-button {
   padding: var(--grid-base) var(--grid-gap);
-  border-radius: var(--acpmux-session-info-row-radius);
+  border-radius: var(--ds-radius-control);
 }
 .cmux-app-scene-divider {
   width: 100%;

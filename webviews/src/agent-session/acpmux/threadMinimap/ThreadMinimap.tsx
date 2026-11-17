@@ -82,6 +82,7 @@ import {
 import { type Anchor, type TickRef, tickIndex, prependedBy } from "./threadMinimapModel";
 import { railEdge } from "./railSide";
 import { focusCameFromKey } from "../../../ui/focusModality";
+import { focusRoute } from "../../../ui/focusRoute";
 
 /// The rail menu's filter items (model.ts `RailFilter`).
 const RAIL_FILTER_LABEL = {
@@ -408,8 +409,9 @@ export function ThreadMinimap({
   /// A fixed rail neither moves nor changes height when the stack grows (Leo, 2026-11-04: "the height
   /// of the left scroll rail should never be affected by anything"; 2026-11-03: "i just don't like it
   /// when the thing shifts"): a stack tall enough to reach it lays over its foot. The other arms keep
-  /// their top and shorten from the foot (railClearHeight). A `fit` rail sits at its slot's top, so the
-  /// rows a chat adds grow it down and never move it (railFitTop).
+  /// their top and shorten from the foot (railClearHeight). The shipped `fit-480-center` rail is centered on
+  /// the view, so a prompt a chat adds grows it half a row at each end and its middle never moves; a
+  /// `fit-480` one sits at its slot's top and only grows down (railFitTop).
   const boxTop = railFitTop(boxRail, boxHeight, boxFoot, heightConfig);
   const height = heightConfig.fixed
     ? boxRail
@@ -1084,7 +1086,11 @@ export function ThreadMinimap({
   useLayoutEffect(() => {
     if (reveal === undefined) return;
     setReveal(undefined);
-    list.current?.querySelector<HTMLButtonElement>(`[data-tick="${reveal}"]`)?.focus();
+    focusRoute(
+      list.current?.querySelector<HTMLButtonElement>(`[data-tick="${reveal}"]`),
+      "system",
+      "the minimap revealed a tick",
+    );
   }, [reveal]);
 
   // The previewed prompt stays lit while the pointer is on its card, as ChatGPT's rail does.
@@ -1139,7 +1145,7 @@ export function ThreadMinimap({
         const row = target instanceof Element ? target.closest<HTMLElement>("[data-tick]") : null;
         if (row && row.ownerDocument.activeElement !== row) {
           pressing.current = true;
-          row.focus({ preventScroll: true });
+          focusRoute(row, "system", "the minimap's row", { preventScroll: true });
           pressing.current = false;
         }
         // The bookmark dot's spot past the tick (the row's right end) toggles the mark.
@@ -1275,7 +1281,11 @@ export function ThreadMinimap({
       // The scroller's mask reads the side from here, its own child (conversation.css): a `:has()`
       // that looked deeper would be checked again for every node a streamed chunk inserts.
       data-side={side}
-      style={{ "--acpmux-rail-left": `${placement.left}px` } as React.CSSProperties}
+      style={
+        {
+          "--acpmux-rail-left": `${placement.left}px`,
+        } as React.CSSProperties
+      }
     >
       {/* Right-clicking the rail (or its narrow-pane strip) moves it to the other edge. */}
       <ContextMenu items={menu}>

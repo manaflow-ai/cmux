@@ -83,7 +83,7 @@ nonisolated extension AcpmuxEnvironment {
         for key in AcpmuxEnvironment.agentLaunchKeys {
             if let value = environment[key], !value.isEmpty { childEnvironment[key] = value }
         }
-        if let cli = bundledBinDirectory?.appendingPathComponent("cmux").path, isExecutable(cli) {
+        if let cli = bundledBinDirectory?.appending(path: "cmux", directoryHint: .notDirectory).path, isExecutable(cli) {
             childEnvironment["CMUX_BUNDLED_CLI_PATH"] = cli
         }
         return AcpmuxEnvironment(
@@ -104,10 +104,12 @@ nonisolated extension AcpmuxEnvironment {
         if let bundled = bundledBinDirectory { directories.append(bundled.path) }
         directories += (environment["PATH"] ?? "").split(separator: ":").map(String.init)
         directories += installDirectories.map { directory in
-            directory.hasPrefix("~/") ? userHome.appendingPathComponent(String(directory.dropFirst(2))).path : directory
+            directory.hasPrefix("~/")
+                ? userHome.appending(path: String(directory.dropFirst(2)), directoryHint: .isDirectory).path
+                : directory
         }
         var seen: Set<String> = []
         return directories.filter { !$0.isEmpty && seen.insert($0).inserted }
-            .map { URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("acpmux") }
+            .map { URL(fileURLWithPath: $0, isDirectory: true).appending(path: "acpmux", directoryHint: .notDirectory) }
     }
 }

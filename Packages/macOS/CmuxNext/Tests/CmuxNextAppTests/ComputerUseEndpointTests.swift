@@ -35,8 +35,13 @@ private final class RecordingHelperLauncher: ComputerUseHelperLaunching {
 struct ComputerUseEndpointTests {
     /// `upstreamInBuild`: whether the helper v2 is in this build. The SwiftPM test bundle embeds
     /// none, so without a fixture driver "upstream" falls back to the legacy helper.
-    private static func daemon(_ launcher: RecordingHelperLauncher, upstreamInBuild: Bool = false) -> ComputerUseHelperDaemon {
-        let root = FileManager.default.temporaryDirectory.appending(path: "cua-endpoint-\(UUID().uuidString.prefix(8))")
+    private static func newRoot() -> URL {
+        FileManager.default.temporaryDirectory.appending(path: "cua-endpoint-\(UUID().uuidString.prefix(8))")
+    }
+
+    /// `root`: the launch's folders; the same root twice is one install relaunched.
+    private static func daemon(_ launcher: RecordingHelperLauncher, upstreamInBuild: Bool = false,
+                               root: URL = newRoot()) -> ComputerUseHelperDaemon {
         let embedded: URL? = upstreamInBuild ? URL(fileURLWithPath: "/test/cmux Computer Use (dev).app") : nil
         let upstream = ComputerUseHelperV2(directory: root.appending(path: "v2").path, helperApp: { embedded },
                                            staging: .passing(root: root))
@@ -115,6 +120,54 @@ struct ComputerUseEndpointTests {
         #expect(launcher.started.first?["CMUX_CUA_SOCKET_AUTH_TOKEN"] == token)
         await daemon.apply(Self.settings(enabled: true, driver: .upstream), disabledByPolicy: true)
         #expect(daemon.childEnvironment.isEmpty, "policy still withdraws it")
+    }
+
+    /// 2026-11-14 (Leo: "it's just not doing things"): the NIGHTLY
+    /// relaunched for an update while a chat drove a browser. The new launch served a new agent
+    /// token, the chat's computer use server still held the old one, and its recovery could
+    /// not read the new one from acpmux, so every call failed until the chat restarted. A
+    /// relaunch now serves the token the chats already hold.
+    @Test func anAppRelaunchServesTheAgentTokenChatsAlreadyHold() async throws {
+        let root = Self.newRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let before = Self.daemon(RecordingHelperLauncher(), root: root)
+        let held = try #require(before.childEnvironment["CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN"])
+        before.applicationWillTerminate()
+
+        let launcher = RecordingHelperLauncher()
+        let after = Self.daemon(launcher, root: root)
+        #expect(after.childEnvironment["CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN"] == held)
+        await after.apply(Self.settings(enabled: true), disabledByPolicy: false)
+        #expect(launcher.started.first?["CMUX_CUA_SOCKET_AUTH_TOKEN"] == held,
+                "the relaunched app's helper serves the token a chat got before the relaunch")
+        let file = root.appending(path: "agent-token")
+        let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
+        #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+        #expect(Self.daemon(RecordingHelperLauncher()).childEnvironment["CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN"] != held,
+                "another install (another root) has its own token")
+    }
+
+    /// A kept token counts only from a private regular file of this user holding a token.
+    @Test func aKeptTokenOthersCouldReadOrSwapIsNotUsed() throws {
+        let root = Self.newRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let token = ComputerUseHelperDaemon.makeToken()
+        let file = root.appending(path: "agent-token")
+        #expect(ComputerUseHelperDaemon.writeAgentToken(token, to: file))
+        #expect(ComputerUseHelperDaemon.readAgentToken(file) == token)
+
+        chmod(file.path, 0o644)
+        #expect(ComputerUseHelperDaemon.readAgentToken(file) == nil, "readable by others")
+        chmod(file.path, 0o600)
+
+        let link = root.appending(path: "linked-token")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: file)
+        #expect(ComputerUseHelperDaemon.readAgentToken(link) == nil, "a symlink is never followed")
+
+        let bad = root.appending(path: "bad-token")
+        #expect(ComputerUseHelperDaemon.writeAgentToken("not-a-token", to: bad))
+        #expect(ComputerUseHelperDaemon.readAgentToken(bad) == nil, "only a token makeToken makes")
     }
 
     @Test func quittingWithdrawsTheEndpoint() async {

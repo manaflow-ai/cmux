@@ -4,6 +4,7 @@
 import { FindReveal, isRevealRow } from "./chatFind";
 import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AcpmuxRow } from "../model";
+import { RETRY_HOLD_MS, useAnswerHold } from "../answerHold";
 import { ErrorDetails } from "./ErrorDetails";
 import { MessageCard } from "./MessageCard";
 import { DispatchCard } from "./DispatchCard";
@@ -26,8 +27,17 @@ import { groupId, runStretches, stretchStart, toolGroups, type RunStretch, type 
 import type { RetryNote } from "../subagents/retryState";
 import { RowReplyButton } from "./SelectionReply";
 import { TurnActionsContext } from "./turnActions";
+import { FailedSendsContext } from "./promptDeliveryModel";
 import { errorRecovery, signInRetry, type ErrorRecovery } from "./errorRecovery";
-import { isEmptyFooter, isStopped, offersRetry, workedCallsText, workedLabel, workedMessagesText } from "./turns";
+import {
+  isEmptyFooter,
+  isStopped,
+  offersRetry,
+  turnTimeKey,
+  workedCallsText,
+  workedLabel,
+  workedMessagesText,
+} from "./turns";
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
 import { turnCopyText } from "./turnCopy";
 import { TimedLabel } from "./TurnTokens";
@@ -54,8 +64,6 @@ import { useCodeRouterChoice } from "./codeRouterOfferModel";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 import { PresentationContext } from "./presentationContextModel";
 import { useTurnWaterfall } from "./useTurnWaterfall";
-import { FinishCheck } from "../finish/FinishCheck";
-import { useFinishedTurn } from "../finish/finishMoments";
 import { groupDisclosureKey, runDisclosureKey, runShape, thoughtIds } from "./turnRowsModel";
 
 /// "Worked for 15s" with its time in the line's quieter color (workedLabel's words otherwise).
@@ -67,7 +75,7 @@ function WorkedLabel({ row }: { row: AcpmuxRow }) {
   let label: ReactNode;
   if (row.previous !== undefined || row.durationMs === undefined) label = workedLabel(t, row);
   else {
-    const key = row.status === "cancelled" || row.status === "interrupted" ? "turn.stopped" : "turn.worked";
+    const key = turnTimeKey(row);
     // A line that names its runs' work leaves their count to it.
     const after = (work ? "" : workedCallsText(t, row)) + workedMessagesText(t, row);
     label = <TimedLabel text={(time) => t(key, { time }) + after} time={row.durationMs} />;
@@ -81,11 +89,9 @@ function WorkedLabel({ row }: { row: AcpmuxRow }) {
   );
 }
 
-/// The turn ends that are no success: stopped (`turns.ts` isStopped) or failed.
-const UNFINISHED = new Set(["cancelled", "interrupted", "failed", "error"]);
-
 /// The "Worked for 15s" line; it opens the turn's commentary and tool calls. It says the time alone,
 /// as Codex does (Lucas, 2026-11-06): the turn's tokens stay on the running line (WorkingFor.tsx).
+/// A turn's end draws no done flash here: Codex has none (Lucas, 2026-11-14).
 export function WorkedFor({
   row,
   expanded,
@@ -97,15 +103,10 @@ export function WorkedFor({
   controls?: string;
   onToggle: () => void;
 }) {
-  // A long turn that just ended shows its short done state here (finish/finishMoments.ts); a turn
-  // that was stopped or failed did not succeed, so it gets none.
-  const ended = useFinishedTurn(row.at, row.durationMs === undefined ? undefined : row.at + row.durationMs);
-  const finished = ended && !UNFINISHED.has(row.status ?? "");
   return (
     <button
       type="button"
       className="cv-worked has-divider is-toggle"
-      data-finish={finished ? "turn" : undefined}
       aria-expanded={expanded}
       aria-controls={expanded ? controls : undefined}
       onClick={onToggle}
@@ -114,7 +115,6 @@ export function WorkedFor({
         <WorkedLabel row={row} />
       </span>
       <ChevronRight size={14} className={`cv-worked__chevron cv-rotor${expanded ? " is-open" : ""}`} />
-      {finished && <FinishCheck />}
     </button>
   );
 }
@@ -395,14 +395,17 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // did nothing. The button waits only while the request is in flight (acpmux's answer, or a fallback
   // send until acpmux took it): a second click is acpmux's to refuse (Busy, try again shortly), so a
   // row that never changes cannot leave it stuck. Its label is the click's: the attempt can reach the
-  // chat (and change what the row offers) before acpmux answers.
+  // chat (and change what the row offers) before acpmux answers. A retry acpmux took whose attempt
+  // never shows (the link dropped, the agent exited before it ran) says Retrying… for RETRY_HOLD_MS
+  // at most (answerHold.ts), then the card is the failed turn it is, with its Retry.
   const [retryAt, setRetryAt] = useState<number>();
-  const [retryWent, setRetryWent] = useState(false);
+  const [retryWentHeld, setRetryWent] = useAnswerHold<true>(RETRY_HOLD_MS);
+  const retryWent = retryWentHeld === true;
   const [retryLabel, setRetryLabel] = useState<ErrorRecovery["label"]>("retry");
   const retryProgress = retryAt !== undefined && retryAt === row.version && (retrying || retryWent);
   const runRetry = (run: () => Promise<RetryNote | undefined>, label: ErrorRecovery["label"]) => {
     setRetryAt(row.version);
-    setRetryWent(false);
+    setRetryWent(undefined);
     setRetryLabel(label);
     setRetrying(true);
     setRetryNote(undefined);
@@ -410,7 +413,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
       .then(
         (note) => {
           setRetryNote(note);
-          setRetryWent(note === undefined);
+          setRetryWent(note === undefined ? true : undefined);
         },
         () => setRetryNote("retry.failed"),
       )
@@ -474,6 +477,8 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
       if (retrying) return;
       runRetry(recovery.run, recovery.label);
     });
+  const promptOnly = row.toolCount === 0 && !text && !copy && !row.turnWork?.length && !row.changedFiles;
+  if (!failed && promptOnly && !stoppedWord) return null;
   // A failure reads as the turn's answer does: its own block above the footer row, never squeezed
   // into it (Codex, Claude desktop). The row is one quiet line under the answer's left edge; it
   // shows on hover or keyboard focus, and always for a failed turn (VirtualTranscript marks the
@@ -635,6 +640,7 @@ function TurnFailure({
   const t = useT();
   const actionsRef = useRef<HTMLSpanElement>(null);
   const { access } = useContext(TurnActionsContext);
+  const sends = useContext(FailedSendsContext);
   // One click sends one /compact: the button stays disabled until that send settles.
   const [compacting, setCompacting] = useState(false);
   const kind = failureKind(message, route, code);
@@ -681,6 +687,12 @@ function TurnFailure({
   // model they don't have api key, we offer them to add credits or add their own api key"): Use an API
   // key follows Sign in again, outlined; the key goes where the agent's own CLI reads it.
   const localKey = recovery === "sign-in" && cloudSignIn === undefined ? apiKeySignIn : undefined;
+  // The folder's trust holds this turn (its question open, or Not now): Trust folder answers it here, as a failed
+  // send's card does (PromptDelivery.tsx), where the folder is not trusted and this pane may answer for it.
+  const trustFix = kind === "trust-pending" || kind === "trust-untrusted" ? sends?.trustFolder : undefined;
+  // A team Cloud machine whose team has no account for the agent: the agent's own API key on the machine goes on
+  // now (CloudSignIn's Use an API key, as a team machine's sign-in offers); the team's account stays the card's words.
+  const teamAccountKey = kind === "no-team-account" && route?.hostKind === "cloud" ? cloudSignIn : undefined;
   // Continue or Retry is the way out, or the second one after Switch model for a key or proxy
   // failure, or after Sign in again; never for trust (errorRecovery.ts).
   const offersRetry = goOn !== undefined && (recovery !== "sign-in" || signInFirst);
@@ -734,7 +746,7 @@ function TurnFailure({
   );
   return (
     <div
-      className={`cv-turn-note cv-turn-error cv-turn-error--${arm}${arm === "card" ? " ui-glass" : ""}`}
+      className={`cv-turn-note cv-turn-error ui-transient-error cv-turn-error--${arm}${arm === "card" ? " ui-glass" : ""}`}
       data-failure-kind={kind}
     >
       <span className="cv-turn-error__cause">
@@ -750,6 +762,14 @@ function TurnFailure({
         </span>
       </span>
       <span className="cv-turn-error__actions" ref={actionsRef}>
+        {trustFix && (
+          <button type="button" className="cv-turn-auth-action cv-turn-error__primary" onClick={trustFix}>
+            {t("trust.trustFolder")}
+          </button>
+        )}
+        {teamAccountKey && (
+          <CloudSignIn signIn={teamAccountKey} rowId={retryRowId} prompt={prompt} keyOnly actionsRef={actionsRef} />
+        )}
         {accessButtons}
         {offerLeads && (
           <CodeRouterAction choice={codeRouter} retry={retry} className="cv-turn-auth-action cv-turn-error__primary" />

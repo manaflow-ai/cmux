@@ -344,7 +344,7 @@ jobs:
           name: ios-appstore-raw-captures
           path: ios/fastlane/raw-screenshot-captures
           if-no-files-found: warn
-          retention-days: 30
+          retention-days: 3
 
       - name: Upload screenshots artifact
         if: ${{ always() }}
@@ -353,7 +353,7 @@ jobs:
           name: ios-appstore-screenshots
           path: ios/fastlane/screenshots
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 3
 
       - name: Materialize App Store Connect API key
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.upload }}

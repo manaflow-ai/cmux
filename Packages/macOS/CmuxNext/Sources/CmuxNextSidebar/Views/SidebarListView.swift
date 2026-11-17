@@ -133,8 +133,8 @@ final class SidebarListView: NSView {
     var pointerIsOverList: @MainActor (SidebarListView) -> Bool = { $0.pointerIsOverVisibleRows }
     /// A model change held while the pointer was over the list; it shows when the pointer leaves (`releaseHeldModelChange`).
     var holdsModelChange = false
-    /// Row patches held while a drag, its settle or its card's landing runs (`SidebarRowHold`).
-    var rowHold = SidebarRowHold()
+    /// The sections the list lays out. The drag's hit geometry and the shown rows use the same ones.
+    var listSections: [SidebarSection] { model.sections }
     /// Workspaces a pin drop took to the band: out of the list until its card lands (cx-odqn).
     var leaving: Set<WorkspaceID> = []
     /// The "Done (N)" rows the person opened (`SidebarLayout+DoneFold`): kept on the model, which numbers what they show.
@@ -339,7 +339,6 @@ final class SidebarListView: NSView {
         super.viewWillMove(toWindow: newWindow)
         // Off screen a card's landing never completes: it ends now (its held rows show, the reloads stop adopting).
         if newWindow == nil, let landing { finishLand(landing, then: landing.landingThen) }
-        releaseRowHold() // a settle still running keeps the rows held until it ends (`reload`)
     }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -467,6 +466,8 @@ final class SidebarListView: NSView {
         if let hoveredKey, let view = rowViews[hoveredKey] { setHover(false, on: view) }
         hoveredKey = key
         if let key, let view = rowViews[key] { setHover(true, on: view) }
+        // A pointer over a group header may open its editor next: its page is made now, not at launch.
+        if case .group? = key { groupEditor.prepareSurface() }
         scrollHoverGeneration &+= 1
         guard hoverFollowsScroll else {
             scrollHoverForward.cancel()

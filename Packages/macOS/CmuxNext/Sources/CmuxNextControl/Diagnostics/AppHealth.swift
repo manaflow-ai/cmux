@@ -146,6 +146,11 @@ public final class AppHealth: Sendable {
     /// Whether the Rust model is linked (a pinned app FFI without `CCmuxHealthFFI` leaves this type inert).
     public var isModelLinked: Bool { box.withLock { $0.model.isLinked } }
 
+    /// Whether a page's `rest` beat (``beat(_:rest:)``) stops the timing of its silence: a model of
+    /// ABI 2 or later, or none linked (nothing is timed). An older pinned model would take a rest
+    /// beat for a plain one and reload the resting page, so its pages keep beating.
+    public var takesRestBeats: Bool { box.withLock { $0.model.takesRestBeats } }
+
     /// Whether the one timer is armed (tests: no deadline, no timer).
     public var isTimerArmed: Bool { timer.isScheduled }
 
@@ -160,9 +165,10 @@ public final class AppHealth: Sendable {
         run("unregister", ["id": .string(id)], timed: false)
     }
 
-    /// The part answered (a page's heartbeat, an answered liveness ask).
-    public func beat(_ id: String) {
-        run("beat", ["id": .string(id)])
+    /// The part answered (a page's heartbeat, an answered liveness ask). `rest`: a page's last beat
+    /// before it rests; its silence is not timed until it beats again, is shown or loads.
+    public func beat(_ id: String, rest: Bool = false) {
+        run("beat", rest ? ["id": .string(id), "rest": .bool(true)] : ["id": .string(id)])
     }
 
     /// Input counters (monotonic): sent to the part, and handled by it.
@@ -445,6 +451,9 @@ private final class Model {
 
     var isLinked: Bool { handle != nil }
 
+    /// ABI 2 added the page's rest beat (cmux-health-core `Health::rest`).
+    var takesRestBeats: Bool { handle == nil || cmux_health_abi_version() >= 2 }
+
     /// One op's reply (JSON), nil when the model refused it.
     func call(_ op: String, _ request: Data) -> Data? {
         guard let handle else { return nil }
@@ -461,6 +470,7 @@ private final class Model {
     }
     #else
     var isLinked: Bool { false }
+    var takesRestBeats: Bool { true }
 
     func call(_ op: String, _ request: Data) -> Data? { nil }
     #endif

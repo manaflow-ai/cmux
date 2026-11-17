@@ -169,6 +169,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let deleteCookies: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     /// A tab's favicon through its own request context (``CEFRuntime/favicon(_:url:maxPixels:)``).
     let downloadFavicon: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, Int32) -> Int32
+    /// An https GET with the tab's profile cookies (``CEFRuntime/profileFetch(_:url:maxBytes:)``); nil in older shims.
+    let profileFetch: (@convention(c) (Int32, Int32, UnsafePointer<CChar>?, Int32) -> Int32)?
     /// Browser import: cookies into a profile's request context.
     let importCookies: @convention(c) (UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?) -> Int32
     let clearCookies: @convention(c) (UnsafePointer<CChar>?, Int32, Int64) -> Int32
@@ -276,6 +278,11 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let installPromptReply: @convention(c) (Int32, Int32) -> Int32
     let omniboxKeywords: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>?
     let omniboxInput: @convention(c) (Int32, UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, Int32) -> Int32
+    /// Omnibox preloading (fork API 33; -1 on older forks): `cmux_shim_omnibox_preload_*`.
+    let omniboxPreloadTextChanged: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<UnsafePointer<CChar>?>?,
+                                                   UnsafePointer<Int32>?, Int32, UnsafeMutablePointer<Double>?) -> Int32
+    let omniboxPreloadOpened: @convention(c) (Int32, UnsafePointer<CChar>?, Int32) -> Int32
+    let setOmniboxPrerender: @convention(c) (Int32) -> Void
     // Popup windows (fork API 11): exposed for the popup panel; not enabled yet.
     let setPopupWindowsEnabled: @convention(c) (Int32) -> Void
     let popupWindowBounds: @convention(c) (Int32, UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?,
@@ -426,6 +433,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         visitCookies = try r("cmux_shim_visit_cookies")
         deleteCookies = try r("cmux_shim_delete_cookies")
         downloadFavicon = try r("cmux_shim_download_favicon")
+        profileFetch = r.optional("cmux_shim_profile_fetch")
         importCookies = try r("cmux_shim_import_cookies")
         clearCookies = try r("cmux_shim_clear_cookies")
         importPasswords = try r("cmux_shim_import_passwords")
@@ -479,6 +487,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         installPromptReply = try r("cmux_shim_install_prompt_reply")
         omniboxKeywords = try r("cmux_shim_omnibox_keywords")
         omniboxInput = try r("cmux_shim_omnibox_input")
+        omniboxPreloadTextChanged = try r("cmux_shim_omnibox_preload_text_changed")
+        omniboxPreloadOpened = try r("cmux_shim_omnibox_preload_opened")
+        setOmniboxPrerender = try r("cmux_shim_set_omnibox_prerender")
         setPopupWindowsEnabled = try r("cmux_shim_set_popup_windows_enabled")
         popupWindowBounds = try r("cmux_shim_popup_window_bounds")
         popupWindowAttach = try r("cmux_shim_popup_window_attach")

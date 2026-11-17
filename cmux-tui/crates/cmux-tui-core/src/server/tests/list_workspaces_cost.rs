@@ -67,7 +67,7 @@ unsafe impl GlobalAlloc for CountingAllocator {
 static ALLOCATOR: CountingAllocator = CountingAllocator;
 
 /// `run`'s result and the allocations it made on this thread.
-fn allocations_of<T>(run: impl FnOnce() -> T) -> (T, u64) {
+pub(super) fn allocations_of<T>(run: impl FnOnce() -> T) -> (T, u64) {
     let outer = COUNTED.with(|count| count.replace(Some(0)));
     let value = run();
     let made = COUNTED.with(|count| count.replace(outer)).unwrap_or(0);
