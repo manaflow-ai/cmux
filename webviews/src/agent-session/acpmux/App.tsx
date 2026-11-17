@@ -3094,6 +3094,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             messageBreaks,
             trayAgents,
             supersededReplyIds,
+            // What the chat let go of stays gone (turns.ts `retainVisibleReplies`).
+            heldFromAt: snapshot.heldFromAt,
           },
           last?.turns,
         );
@@ -3184,6 +3186,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     snapshot.summary?.family,
     snapshot.waitingSteers,
     supersededReplyIds,
+    snapshot.heldFromAt,
     messageBreaks,
     chatShellRuns,
     panelAsks,

@@ -438,10 +438,16 @@ const sameIds = (a: ReadonlySet<string>, b: ReadonlySet<string>) =>
 /// visible assistant rows of `previous` from the first changed row on, read from those rows: no set
 /// of every reply id in the chat is copied per update (a god chat's thousands of replies made each
 /// streamed token cost more the longer the chat, CMUX-571).
+///
+/// A reply older than `heldFromAt` (the oldest record the chat holds) is not in a gap: the chat let go of it with its
+/// records (direct.ts `shedOlderHeld`), and it stays gone. Kept, a running turn that never ends put back every reply
+/// it ever streamed: each snapshot's source held the last one's kept replies, so the turn's drawn rows grew with
+/// every record (chat-100k-flat running_x1: 34,000 drawn rows over a chat holding 1,300, and every row's caches).
 const retainVisibleReplies = (
   rows: readonly AcpmuxRow[],
   previous: readonly AcpmuxRow[] | undefined,
   supersededReplyIds: ReadonlySet<string> | undefined,
+  heldFromAt = Number.NEGATIVE_INFINITY,
 ): readonly AcpmuxRow[] => {
   if (!previous) return rows;
   const changedAt = Math.max(0, keptPrefix(previous, rows) - 1);
@@ -451,7 +457,12 @@ const retainVisibleReplies = (
   const missingReplyIds = new Set<string>();
   for (let index = changedAt; index < previous.length; index += 1) {
     const row = previous[index]!;
-    if (row.kind === "assistant" && !supersededReplyIds?.has(row.id) && !isVisiblyEmptyMessage(row))
+    if (
+      row.kind === "assistant" &&
+      row.at >= heldFromAt &&
+      !supersededReplyIds?.has(row.id) &&
+      !isVisiblyEmptyMessage(row)
+    )
       missingReplyIds.add(row.id);
   }
   for (const row of changedRows)
@@ -548,6 +559,7 @@ export function turnViewFrom(
     messageBreaks = NO_MESSAGE_BREAKS,
     trayAgents = 0,
     supersededReplyIds,
+    heldFromAt,
   }: {
     now?: number;
     working?: boolean;
@@ -565,6 +577,8 @@ export function turnViewFrom(
     trayAgents?: number;
     /// Reply row ids explicitly removed by a message_superseded event; refresh retention must not resurrect them.
     supersededReplyIds?: ReadonlySet<string>;
+    /// The time of the oldest record the chat holds (snapshot `heldFromAt`): refresh retention keeps no reply older.
+    heldFromAt?: number;
   } = {},
   previous?: TurnView,
 ): TurnView {
@@ -583,7 +597,7 @@ export function turnViewFrom(
     firstDateUnchanged(previous, now)
   )
     return previous;
-  const retainedRows = retainVisibleReplies(rows, previous?.source, supersededReplyIds);
+  const retainedRows = retainVisibleReplies(rows, previous?.source, supersededReplyIds, heldFromAt);
   if (retainedRows !== rows)
     return turnViewFrom(
       retainedRows,
@@ -599,6 +613,7 @@ export function turnViewFrom(
         messageBreaks,
         trayAgents,
         supersededReplyIds,
+        heldFromAt,
       },
       previous,
     );

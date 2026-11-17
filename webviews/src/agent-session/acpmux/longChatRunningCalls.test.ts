@@ -163,41 +163,41 @@ async function streamed(count: number, following: boolean, onFlush?: (snapshot: 
 /// The JS heap after a collection (bun's `Bun.gc`).
 const collect = () => (globalThis as { Bun?: { gc?: (sync: boolean) => void } }).Bun?.gc?.(true);
 
-/// Streams `count` records of the running turn while drawing it as the pane does: its turns shaped (turns.ts
-/// `turnView`, whose running turn keeps its rows' objects by id) and the thread rail's turns (threadMinimap/model.ts
-/// `minimapTurns`, whose cards keep a contribution per row). Returns how many of the rows drawn after the first
-/// `early` records are still alive once the turn went far past them, and the rail's card entries for the turn.
+/// Streams `count` records of the running turn while drawing it as the pane does (App.tsx): its turns shaped on the
+/// last snapshot's (turns.ts `turnViewFrom`, which keeps a reply a refresh left out, and whose running turn keeps its
+/// rows' objects by id) and the thread rail's turns (threadMinimap/model.ts `minimapTurns`, whose cards keep a
+/// contribution per row). Returns how many of the rows drawn for the first `early` records are still alive once the
+/// turn went far past them, the rows drawn against the rows the chat holds, and the rail's card entries for the turn.
 async function drawnWhileRunning(count: number, early: number) {
-  const { turnView } = await import("./conversation/turns");
+  const { turnViewFrom } = await import("./conversation/turns");
   const { minimapTurns, cardEntries } = await import("./threadMinimap/model");
   const earlyRows: WeakRef<AcpmuxRow>[] = [];
+  const folds = new Set<string>();
+  let view: ReturnType<typeof turnViewFrom> | undefined;
   let rail: ReturnType<typeof minimapTurns> | undefined;
   let prompt: AcpmuxRow | undefined;
   let records = 0;
-  let drawn = 0;
+  let held = 0;
   const chat = await streamed(count, true, (snapshot) => {
     records += 50;
-    const view = turnView(snapshot.rows, new Set(), { working: true, now: 1_700_000_000_000 + records * 10 });
-    rail = minimapTurns(view, "s", rail);
-    prompt = view.find((row) => row.kind === "user") ?? prompt;
-    drawn = view.length;
-    if (records <= early) for (const row of view) if (row.kind !== "user") earlyRows.push(new WeakRef(row));
+    const { rows, heldFromAt } = snapshot as { rows: AcpmuxRow[]; heldFromAt?: number };
+    view = turnViewFrom(rows, folds, { working: true, now: 1_700_000_000_000 + records * 10, heldFromAt }, view);
+    rail = minimapTurns(view.rows, "s", rail);
+    prompt = view.rows.find((row) => row.kind === "user") ?? prompt;
+    held = rows.length;
+    if (records <= early) for (const row of view.rows) if (row.kind !== "user") earlyRows.push(new WeakRef(row));
   });
   try {
-    const last = turnView(chat.snapshot().rows as unknown as AcpmuxRow[], new Set(), { working: true });
-    const shown = new Set(last.map((row) => row.id));
+    const shown = new Set(view!.rows.map((row) => row.id));
+    const drawn = view!.rows.length;
+    view = undefined;
+    rail = undefined;
     collect();
     const alive = earlyRows.filter((ref) => {
       const row = ref.deref();
       return row !== undefined && !shown.has(row.id);
     }).length;
-    return {
-      alive,
-      early: earlyRows.length,
-      drawn,
-      cards: prompt ? cardEntries(prompt) : 0,
-      events: chat.events().length,
-    };
+    return { alive, early: earlyRows.length, drawn, held, cards: prompt ? cardEntries(prompt) : 0 };
   } finally {
     chat.cleanup();
   }
@@ -227,9 +227,11 @@ test("a running turn's view lets go of the rows that left it", async () => {
   const result = await drawnWhileRunning(24_000, 3_000);
   console.log(
     `running-view streamed=24000 early_rows=${result.early} early_rows_alive=${result.alive} drawn=${result.drawn} ` +
-      `rail_cards=${result.cards} events=${result.events}`,
+      `held=${result.held} rail_cards=${result.cards}`,
   );
   expect(result.early).toBeGreaterThan(500);
+  // The view draws what the chat holds, not every reply the turn streamed.
+  expect(result.drawn).toBeLessThanOrEqual(2 * result.held + 16);
   expect(result.alive).toBe(0);
   expect(result.cards).toBeLessThanOrEqual(2 * result.drawn + 16);
 }, 600_000);

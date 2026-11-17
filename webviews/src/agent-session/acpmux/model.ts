@@ -1487,6 +1487,12 @@ export type AcpmuxSnapshot = {
   promptCount?: number;
   /** The oldest event seq the pane holds: it moves with each older read, even one that drew no row. */
   historyFrom?: number;
+  /**
+   * The time of the oldest event the pane holds. A row older than it left with the records a chat left open let go
+   * of (direct.ts `shedOlderHeld`), so the view does not keep it on screen (conversation/turns.ts
+   * `retainVisibleReplies`).
+   */
+  heldFromAt?: number;
   /** The agent's slash commands, for the composer's `/` menu. */
   commands?: SlashCommand[];
   /** A harness switch the pane draws ahead of acpmux (harnessSwitch.ts): starting, applying to
