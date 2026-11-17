@@ -39,7 +39,7 @@ import {
   type ProMetadataJson,
   type StripeBillingStatus,
 } from "../billing/pro";
-import { NEXT_MAX_PLAN_ID, NEXT_PRO_PLAN_ID } from "../billing/nextPlans";
+import { NEXT_MAX_PLAN_ID, NEXT_PRO_PLAN_ID, isNextPlanId } from "../billing/nextPlans";
 
 // `next_pro` / `next_max` grant a cmux NEXT Cloud plan (see
 // services/billing/nextPlans.ts); the classic app reads them as no plan.
@@ -162,6 +162,29 @@ export class AdminGrantConflictError extends Error {
     super("Another account mutation is in progress");
     this.name = "AdminGrantConflictError";
   }
+}
+
+/**
+ * A manual grant would replace a classic plan grant with a cmux NEXT one, or
+ * the reverse. Both live in the one `cmuxVmPlan` key, so the operator must
+ * remove the existing grant first instead of silently losing it.
+ */
+export class AdminGrantPlanFamilyConflictError extends Error {
+  constructor(readonly userId: string, readonly currentPlan: string, readonly requestedPlan: string) {
+    super("The account holds a manual grant of the other plan family");
+    this.name = "AdminGrantPlanFamilyConflictError";
+  }
+}
+
+const CLASSIC_GRANT_PLAN_IDS: readonly string[] = [PRO_PLAN_ID, MAX_PLAN_ID, FOUNDERS_PLAN_ID];
+
+/** Whether writing `requested` over `current` crosses between classic and NEXT grants. */
+export function crossesPlanFamily(current: string | null, requested: string | null): boolean {
+  if (current === null || requested === null) return false;
+  const currentNext = isNextPlanId(current);
+  const requestedNext = isNextPlanId(requested);
+  if (currentNext === requestedNext) return false;
+  return currentNext ? CLASSIC_GRANT_PLAN_IDS.includes(requested) : CLASSIC_GRANT_PLAN_IDS.includes(current);
 }
 
 export function isAdminGrantablePlanId(value: unknown): value is AdminGrantablePlanId {
@@ -312,6 +335,10 @@ export async function setManualPlanGrant(
         if (!Number.isNaN(auditAt) && auditAt > input.unlessAuditNewerThan.getTime()) {
           return user;
         }
+      }
+      const currentGrant = manualVmPlanOverride(user.clientReadOnlyMetadata);
+      if (crossesPlanFamily(currentGrant, input.plan)) {
+        throw new AdminGrantPlanFamilyConflictError(input.targetUserId, currentGrant!, input.plan!);
       }
       await lease.refresh();
       const client = metadataRecord(user.clientReadOnlyMetadata);
@@ -944,6 +971,9 @@ export async function applyPendingEmailGrants(
       });
     } catch (error) {
       await releaseClaims();
+      // The account holds a grant of the other plan family: the pending
+      // grant stays open for an operator to resolve instead of replacing it.
+      if (error instanceof AdminGrantPlanFamilyConflictError) return 0;
       throw error;
     }
   }

@@ -763,6 +763,30 @@ describe("pending email grants", () => {
     expect(rows[0]?.appliedUserId).toBe("u7");
   });
 
+  test("a pending grant of the other plan family stays open instead of replacing a classic grant", async () => {
+    const rows: GrantRow[] = [];
+    const db = fakeGrantsDb(rows);
+    await createPendingEmailGrant({ email: "pat@example.com", plan: "next_pro", admin, db });
+    const target = fakeUser({ id: "u9", primaryEmail: "pat@example.com", clientReadOnlyMetadata: { cmuxVmPlan: "founders" } });
+    const app = fakeApp([target]);
+    const applied = await applyPendingEmailGrants(
+      { id: "u9", primaryEmail: "pat@example.com" },
+      {
+        db,
+        grant: (input) => setManualPlanGrant({
+          ...input,
+          app,
+          withFreshUser: directMutation(app),
+          stripeBillingStatus: async () => noStripe,
+        }),
+      },
+    );
+    expect(applied).toBe(0);
+    expect(target.updates).toEqual([]);
+    expect(rows[0]?.appliedAt).toBeNull();
+    expect(rows[0]?.appliedUserId).toBeNull();
+  });
+
   test("applyPendingEmailGrants never applies a row revoked before the claim, and releases the claim on failure", async () => {
     const rows: GrantRow[] = [];
     const db = fakeGrantsDb(rows);

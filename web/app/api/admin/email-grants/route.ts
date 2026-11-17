@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 
 import {
   AdminGrantConflictError,
+  AdminGrantPlanFamilyConflictError,
   type AdminGrantablePlanId,
   AdminInvalidEmailError,
   createPendingEmailGrant,
@@ -85,6 +86,10 @@ async function createEmailGrant(
       // lease; the users route answers the same conflict with 409.
       if (error instanceof AdminGrantConflictError) {
         return adminJsonResponse({ error: "mutation_in_progress" }, 409);
+      }
+      if (error instanceof AdminGrantPlanFamilyConflictError) {
+        // Remove the existing classic or cmux NEXT grant first.
+        return adminJsonResponse({ error: "plan_family_conflict", currentPlan: error.currentPlan }, 409);
       }
       throw error;
     }

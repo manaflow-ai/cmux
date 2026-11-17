@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import {
   ADMIN_USER_SEARCH_MIN_QUERY_LENGTH,
   AdminGrantConflictError,
+  AdminGrantPlanFamilyConflictError,
   AdminUserNotFoundError,
   isAdminGrantablePlanId,
   isMissingGrantsTableError,
@@ -78,6 +79,10 @@ async function applyUserGrant(
     }
     if (error instanceof AdminGrantConflictError) {
       return adminJsonResponse({ error: "mutation_in_progress" }, 409);
+    }
+    if (error instanceof AdminGrantPlanFamilyConflictError) {
+      // Remove the existing classic or cmux NEXT grant first.
+      return adminJsonResponse({ error: "plan_family_conflict", currentPlan: error.currentPlan }, 409);
     }
     throw error;
   }

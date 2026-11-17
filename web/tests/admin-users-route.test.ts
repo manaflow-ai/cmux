@@ -396,6 +396,22 @@ describe("admin users route", () => {
     expect(directory[0]?.clientReadOnlyMetadata).toEqual({});
   });
 
+  test("POST refuses to replace a classic grant with a cmux NEXT one, or the reverse, with 409", async () => {
+    directory[0]!.clientReadOnlyMetadata = { cmuxVmPlan: "pro" };
+    const toNext = await POST(postRequest({ userId: "u1", plan: "next_pro" }));
+    expect(toNext.status).toBe(409);
+    expect(await toNext.json()).toEqual({ error: "plan_family_conflict", currentPlan: "pro" });
+    expect(directory[0]?.updates).toEqual([]);
+    // Same family and clearing stay allowed.
+    expect((await POST(postRequest({ userId: "u1", plan: "max" }))).status).toBe(200);
+    expect((await POST(postRequest({ userId: "u1", plan: null }))).status).toBe(200);
+    expect((await POST(postRequest({ userId: "u1", plan: "next_max" }))).status).toBe(200);
+    expect((await POST(postRequest({ userId: "u1", plan: "next_pro" }))).status).toBe(200);
+    const toClassic = await POST(postRequest({ userId: "u1", plan: "founders" }));
+    expect(toClassic.status).toBe(409);
+    expect(directory[0]?.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: "next_pro" });
+  });
+
   test("POST removes a grant", async () => {
     const response = await POST(postRequest({ userId: "u2", plan: null }));
     expect(response.status).toBe(200);
@@ -477,6 +493,16 @@ describe("admin email grants route", () => {
     expect(pending.status).toBe(200);
     expect(((await pending.json()) as { pendingGrant: Record<string, unknown> }).pendingGrant)
       .toMatchObject({ email: "later@example.com", plan: "next_pro" });
+  });
+
+  test("an email grant to an existing account refuses to cross plan families", async () => {
+    directory[0]!.clientReadOnlyMetadata = { cmuxVmPlan: "next_max" };
+    const response = await POST_EMAIL_GRANTS(
+      postRequest({ email: "pat@example.com", plan: "founders" }, {}, "/api/admin/email-grants"),
+    );
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "plan_family_conflict", currentPlan: "next_max" });
+    expect(directory[0]?.updates).toEqual([]);
   });
 
   test("keeps the grant pending when the only matching account is unverified", async () => {
