@@ -1198,6 +1198,26 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
             throw WorkspaceCreationError(message, isForPerson: failNextForPerson)
         }
     }
+
+    /// Toggle Terminal and Chat in Mock mode: the Mac's acpmux chats (`terminalChatListings`),
+    /// to which each View Only chat `openTerminalChat` makes is added.
+    public var terminalChats: [TerminalChatListing] = []
+}
+
+/// Mock mode's Mac pairs a Claude Code or Codex terminal with a View Only chat of its session,
+/// as the live Mac's Toggle Terminal and Chat does (acpmux adopt with `watch: true`).
+extension MockWorkspaceCreationBackend: TerminalChatBackend {
+    public func terminalChatListings(on macID: String) -> [TerminalChatListing] { terminalChats }
+
+    public func openTerminalChat(harness: String, session: String, terminalTabID: String, on macID: String) async throws -> TerminalChatOpen {
+        try await settle()
+        let chat = "mock-chat-\(session)"
+        if !terminalChats.contains(where: { $0.sessionID == chat }) {
+            terminalChats.append(TerminalChatListing(sessionID: chat, harness: harness, agentSessionID: session,
+                                                     watching: true, status: "idle"))
+        }
+        return .chat(chat)
+    }
 }
 #endif
 
