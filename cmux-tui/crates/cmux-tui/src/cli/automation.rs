@@ -587,9 +587,6 @@ fn create(args: &[String], out: &Out) -> Outcome {
                 .replace("{id}", &created.id)
                 .replace("{when}", &describe_trigger(&created.trigger))
         );
-        if let Some(next) = created.trigger.next_after(now).ok().flatten() {
-            println!("{}", messages().next_run.replace("{time}", &when(next)));
-        }
         triggers::print_event_source(&created.trigger);
         if !runner && !matches!(created.trigger, Trigger::Manual) {
             println!("{}", messages().runner_hint);
@@ -728,7 +725,6 @@ fn run_now(args: &[String], out: &Out) -> Outcome {
                 .replace("{run}", &run)
                 .replace("{state}", &state)
         );
-        println!("{}", messages().logs_hint.replace("{run}", &run));
     }
     let failed = record.is_some_and(|r| r.state == RunState::Failed);
     Ok(if failed { 1 } else { 0 })

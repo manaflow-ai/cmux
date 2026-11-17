@@ -999,11 +999,8 @@ fn add_machine(
     }
     if !add.wait {
         match output {
-            OutputMode::Human => {
-                writeln!(out, "It shows in `cmux machine list` once it joins.").map_err(io)?;
-            }
             OutputMode::Json => writeln!(out, "{summary}").map_err(io)?,
-            OutputMode::JsonLines | OutputMode::Quiet => {}
+            OutputMode::Human | OutputMode::JsonLines | OutputMode::Quiet => {}
         }
         return Ok(0);
     }
