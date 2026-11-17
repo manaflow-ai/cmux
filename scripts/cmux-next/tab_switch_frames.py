@@ -935,14 +935,15 @@ class Harness:
         return out
 
     def foreign_over(self, label):
-        """The foreign windows that were over the content or sidebar rect at any time from the ambient span before the
-        round's leave flip to just after its end flip ([] when no watch runs or the round has no wall times)."""
+        """Every foreign window seen over the round, from the ambient span before its leave flip to just after its end
+        flip, each with its verdict ("above", "overlay", "visible", "intersects", "covers"; [] when no watch runs or the
+        round has no wall times). The round is excluded when any of them "covers" the content or sidebar rect."""
         walls = getattr(self.rec, "walls", None) or {}
         if getattr(self, "watch", None) is None or f"{label}:leave" not in walls or f"{label}:end" not in walls:
             return []
         t0 = walls[f"{label}:leave"] - settle.AMBIENT_S - 0.05
         t1 = walls[f"{label}:end"] + 0.2
-        return self.watch.log.between(t0, t1, [self.content, self.sidebar])
+        return self.watch.log.seen(t0, t1, [self.content, self.sidebar])
 
     def settle_block(self, pending, frames, flips):
         """Each pending switch of a block, judged on the block's frames: the window from its leave flip to its end flip,
@@ -956,11 +957,13 @@ class Harness:
                 judged.append((item, {"error": item["error"]}))
                 continue
             leave, mark, end = (flips[f"{label}:{k}"] for k in ("leave", "mark", "end"))
-            covered = self.foreign_over(label)
+            seen = self.foreign_over(label)
+            covered = [w for w in seen if w.get("covers")]
             if covered:
-                # Another process's window was over the content or sidebar: these pixels measure it, not the app.
+                # Another process's window was over the content or sidebar: these pixels measure it, not the app. The
+                # record keeps every window seen in the round with its verdict, so an exclusion can be read later.
                 judged.append((item, {"label": label, "foreign_window": "+".join(foreign.owners(covered)),
-                                      "windows": covered}))
+                                      "windows": seen}))
                 say(f"  {label}: excluded, a window of {'+'.join(foreign.owners(covered))} covers the app")
                 continue
             window = self.between(frames, leave, end)
@@ -1187,7 +1190,8 @@ def main(argv=None):
                             "permissions": recorder.permissions, "recorder": "CuaDriver"}
         say(f"capture {json.dumps(extra['capture'])}")
         harness = Harness(args, app, recorder, root)
-        watch = foreign.Watch(args.tools, {app.process.pid, recorder.marker.process.pid}, recorder.window, recorder.scale)
+        watch = foreign.Watch(args.tools, {app.process.pid, recorder.marker.process.pid}, recorder.window, recorder.scale,
+                              display=recorder.display)
         if not watch.ready():
             raise Unmeasurable("the window list (tab-switch-tools windows) gave no sample: foreign windows cannot be ruled out")
         harness.watch = watch
