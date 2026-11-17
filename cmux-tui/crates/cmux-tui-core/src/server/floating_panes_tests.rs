@@ -323,9 +323,9 @@ fn floating_pane_frame_moves_and_raises() {
     wire.float(panes[1], "on");
     assert_eq!(wire.floating_panes(), vec![panes[0], panes[1]], "the last float is the front");
 
-    // A frame that reaches past the screen is moved into it; the pane comes to the front.
+    // A frame that reaches past the screen keeps its corner; the pane comes to the front.
     let data = wire.float_at(panes[0], [0.9, 0.9, 0.5, 0.5]);
-    assert_eq!(data["frame"], frame(0.5, 0.5, 0.5, 0.5), "{data}");
+    assert_eq!(data["frame"], frame(0.9, 0.9, 0.5, 0.5), "{data}");
     assert_eq!(wire.floating_panes(), vec![panes[1], panes[0]]);
 
     // A frame below the smallest size takes the smallest size.

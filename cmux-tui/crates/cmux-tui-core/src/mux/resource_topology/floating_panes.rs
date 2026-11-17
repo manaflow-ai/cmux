@@ -121,7 +121,7 @@ impl Mux {
             "operation": FLOAT_PANE_OPERATION,
             "pane": pane,
             "mode": mode.as_str(),
-            "frame": frame.map(|frame| [frame.x, frame.y, frame.w, frame.h]),
+            "frame": frame.map(|frame| (frame.x, frame.y, frame.w, frame.h)),
         });
         let mut committed = None;
         let commit = self

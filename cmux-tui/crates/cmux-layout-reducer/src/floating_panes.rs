@@ -11,13 +11,16 @@
 //! - **F2, ground.** A screen keeps at least one tiled pane: [`place`] refuses to float the last one
 //!   ([`FloatRefusal::LastTiledPane`]), and when the last tiled pane leaves the screen, the front floating pane becomes
 //!   tiled ([`normalized`]).
-//! - **F3, frame.** A frame is inside the screen and not smaller than [`MIN_EXTENT`] on either axis
-//!   ([`FloatFrame::clamped`]).
+//! - **F3, frame.** On either axis a frame is not smaller than [`MIN_EXTENT`], not larger than [`MAX_EXTENT`], and
+//!   its corner is not farther than [`MAX_OFFSET`] from the corner of the pane area ([`FloatFrame::clamped`]). A frame
+//!   may leave the pane area: a frontend can show a floating pane beside its window. A new floating pane that brings
+//!   no frame is inside the pane area ([`new_frame`]).
 //! - **F4, order.** Floating a pane, and giving a floating pane a frame, makes it the front pane. No other rule
 //!   changes the order of the entries that stay.
 //!
-//! A frame is four fractions of the screen's pane area in millionths. Integers make two equal frames compare equal in
-//! the daemon, in its store and in a frontend, and keep a frame the same when it comes back from the store.
+//! A frame is four fractions of the screen's pane area in millionths: the corner has a sign, the size has none.
+//! Integers make two equal frames compare equal in the daemon, in its store and in a frontend, and keep a frame the
+//! same when it comes back from the store.
 
 /// The whole extent of the screen's pane area on one axis, in the unit of a [`FloatFrame`].
 pub const UNIT: u32 = 1_000_000;
@@ -25,27 +28,51 @@ pub const UNIT: u32 = 1_000_000;
 /// The smallest width and the smallest height of a floating pane: 15 percent of the pane area.
 pub const MIN_EXTENT: u32 = 150_000;
 
+/// The largest width and the largest height of a floating pane: 8 times the pane area.
+pub const MAX_EXTENT: u32 = 8 * UNIT;
+
+/// How far the corner of a floating pane may be from the corner of the pane area on either axis, to either side: 16
+/// times the pane area.
+pub const MAX_OFFSET: i32 = 16_000_000;
+
 /// The width and the height of a new floating pane that brings no frame: 60 percent of the pane area.
 pub const NEW_EXTENT: u32 = 600_000;
 
 /// How far a new floating pane sits right of and below the one that holds the place it would take.
 pub const CASCADE_STEP: u32 = 30_000;
 
-/// Where a floating pane is: its top left corner and its size, in millionths of the screen's pane area.
+/// Where a floating pane is: its top left corner and its size, in millionths of the screen's pane area. A corner
+/// below 0 is left of or above the pane area.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct FloatFrame {
-    pub x: u32,
-    pub y: u32,
+    pub x: i32,
+    pub y: i32,
     pub w: u32,
     pub h: u32,
 }
 
 impl FloatFrame {
-    /// The frame moved and resized into the screen (F3): the size first, then the corner.
+    /// The frame with the limits of F3: each value outside goes to the nearer end. The corner is not moved into the
+    /// pane area.
     pub fn clamped(self) -> FloatFrame {
+        FloatFrame {
+            x: self.x.clamp(-MAX_OFFSET, MAX_OFFSET),
+            y: self.y.clamp(-MAX_OFFSET, MAX_OFFSET),
+            w: self.w.clamp(MIN_EXTENT, MAX_EXTENT),
+            h: self.h.clamp(MIN_EXTENT, MAX_EXTENT),
+        }
+    }
+
+    /// The frame moved and resized into the pane area: the size first, then the corner.
+    pub fn inside(self) -> FloatFrame {
         let w = self.w.clamp(MIN_EXTENT, UNIT);
         let h = self.h.clamp(MIN_EXTENT, UNIT);
-        FloatFrame { x: self.x.min(UNIT - w), y: self.y.min(UNIT - h), w, h }
+        FloatFrame {
+            x: self.x.clamp(0, corner(UNIT - w)),
+            y: self.y.clamp(0, corner(UNIT - h)),
+            w,
+            h,
+        }
     }
 
     /// Whether the frame obeys F3 as it is.
@@ -57,17 +84,18 @@ impl FloatFrame {
     pub fn centered(w: u32, h: u32) -> FloatFrame {
         let w = w.clamp(MIN_EXTENT, UNIT);
         let h = h.clamp(MIN_EXTENT, UNIT);
-        FloatFrame { x: (UNIT - w) / 2, y: (UNIT - h) / 2, w, h }
+        FloatFrame { x: corner((UNIT - w) / 2), y: corner((UNIT - h) / 2), w, h }
     }
 
-    /// The frame of four fractions of the pane area (`0.0..=1.0`), clamped. `None` when a value is not finite.
+    /// The frame of four fractions of the pane area, clamped: `x` and `y` of `-16.0..=16.0`, `w` and `h` of
+    /// `0.15..=8.0`. `None` when a value is not finite.
     pub fn from_fractions(x: f64, y: f64, w: f64, h: f64) -> Option<FloatFrame> {
         Some(
             FloatFrame {
-                x: millionths(x)?,
-                y: millionths(y)?,
-                w: millionths(w)?,
-                h: millionths(h)?,
+                x: corner_millionths(x)?,
+                y: corner_millionths(y)?,
+                w: size_millionths(w)?,
+                h: size_millionths(h)?,
             }
             .clamped(),
         )
@@ -75,17 +103,41 @@ impl FloatFrame {
 
     /// The frame as four fractions of the pane area: `[x, y, w, h]`.
     pub fn fractions(self) -> [f64; 4] {
-        [self.x, self.y, self.w, self.h].map(|value| f64::from(value) / f64::from(UNIT))
+        let unit = f64::from(UNIT);
+        [
+            f64::from(self.x) / unit,
+            f64::from(self.y) / unit,
+            f64::from(self.w) / unit,
+            f64::from(self.h) / unit,
+        ]
     }
 }
 
-/// `value` of `0.0..=1.0` in millionths; a value outside is taken to the nearer end. `None` when it is not finite.
-fn millionths(value: f64) -> Option<u32> {
+/// `value` as a corner value. Each caller passes a value of `0..=UNIT`, which an `i32` holds.
+fn corner(value: u32) -> i32 {
+    i32::try_from(value).unwrap_or(i32::MAX)
+}
+
+/// A corner fraction in millionths; a value outside `-16.0..=16.0` is taken to the nearer end. `None` when it is not
+/// finite.
+fn corner_millionths(value: f64) -> Option<i32> {
     if !value.is_finite() {
         return None;
     }
-    // In 0.0..=1_000_000.0 after the clamp, so the cast is exact.
-    Some((value.clamp(0.0, 1.0) * f64::from(UNIT)).round() as u32)
+    let end = f64::from(MAX_OFFSET) / f64::from(UNIT);
+    // In -16_000_000.0..=16_000_000.0 after the clamp, so the cast is exact.
+    Some((value.clamp(-end, end) * f64::from(UNIT)).round() as i32)
+}
+
+/// A size fraction in millionths; a value outside `0.0..=8.0` is taken to the nearer end. `None` when it is not
+/// finite.
+fn size_millionths(value: f64) -> Option<u32> {
+    if !value.is_finite() {
+        return None;
+    }
+    let end = f64::from(MAX_EXTENT) / f64::from(UNIT);
+    // In 0.0..=8_000_000.0 after the clamp, so the cast is exact.
+    Some((value.clamp(0.0, end) * f64::from(UNIT)).round() as u32)
 }
 
 /// One floating pane of a screen: the pane and its frame.
@@ -159,13 +211,14 @@ pub fn is_normal<P: Clone + PartialEq>(panes: &[P], list: &[Floating<P>]) -> boo
 }
 
 /// The frame of a new floating pane that brings none: [`NEW_EXTENT`] wide and high in the middle of the screen, moved
-/// right and down by [`CASCADE_STEP`] while a floating pane has its corner at that place.
+/// right and down by [`CASCADE_STEP`] while a floating pane has its corner at that place. It is inside the pane area
+/// ([`FloatFrame::inside`]).
 pub fn new_frame<P>(list: &[Floating<P>]) -> FloatFrame {
     let base = FloatFrame::centered(NEW_EXTENT, NEW_EXTENT);
     let steps = (UNIT - NEW_EXTENT) / 2 / CASCADE_STEP;
     for step in 0..=steps {
-        let offset = step * CASCADE_STEP;
-        let candidate = FloatFrame { x: base.x + offset, y: base.y + offset, ..base }.clamped();
+        let offset = corner(step * CASCADE_STEP);
+        let candidate = FloatFrame { x: base.x + offset, y: base.y + offset, ..base }.inside();
         let taken =
             list.iter().any(|entry| entry.frame.x == candidate.x && entry.frame.y == candidate.y);
         if !taken {

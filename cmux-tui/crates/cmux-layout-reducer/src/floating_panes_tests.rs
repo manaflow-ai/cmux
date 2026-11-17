@@ -6,7 +6,7 @@ use super::*;
 use proptest::prelude::*;
 use std::collections::BTreeMap;
 
-fn frame(x: u32, y: u32, w: u32, h: u32) -> FloatFrame {
+fn frame(x: i32, y: i32, w: u32, h: u32) -> FloatFrame {
     FloatFrame { x, y, w, h }
 }
 
@@ -19,20 +19,22 @@ fn panes_of(list: &[Floating<u8>]) -> Vec<u8> {
 }
 
 #[test]
-fn a_frame_is_clamped_into_the_screen_size_first() {
-    assert_eq!(frame(0, 0, 10, 2_000_000).clamped(), frame(0, 0, MIN_EXTENT, UNIT));
-    assert_eq!(
-        frame(900_000, 950_000, 300_000, 200_000).clamped(),
-        frame(700_000, 800_000, 300_000, 200_000)
-    );
-    assert_eq!(
-        frame(u32::MAX, u32::MAX, u32::MAX, 0).clamped(),
-        frame(0, UNIT - MIN_EXTENT, UNIT, MIN_EXTENT)
-    );
+fn a_frame_is_clamped_to_its_limits_and_keeps_its_corner() {
+    assert_eq!(frame(0, 0, 10, 20_000_000).clamped(), frame(0, 0, MIN_EXTENT, MAX_EXTENT));
+    // A frame that reaches past the pane area keeps its corner; `inside` moves it in, the size first.
+    let past = frame(900_000, 950_000, 300_000, 200_000);
+    assert_eq!(past.clamped(), past);
+    assert!(past.is_valid());
+    assert_eq!(past.inside(), frame(700_000, 800_000, 300_000, 200_000));
+    let far = frame(i32::MAX, i32::MIN, u32::MAX, 0);
+    assert_eq!(far.clamped(), frame(MAX_OFFSET, -MAX_OFFSET, MAX_EXTENT, MIN_EXTENT));
+    assert_eq!(far.inside(), frame(0, 0, UNIT, MIN_EXTENT));
     let inside = frame(100_000, 200_000, 300_000, 400_000);
     assert_eq!(inside.clamped(), inside);
+    assert_eq!(inside.inside(), inside);
     assert!(inside.is_valid());
-    assert!(!frame(900_000, 0, 300_000, 300_000).is_valid());
+    assert!(!frame(0, 0, 10, 300_000).is_valid());
+    assert!(!frame(MAX_OFFSET + 1, 0, 300_000, 300_000).is_valid());
 }
 
 #[test]
@@ -42,7 +44,7 @@ fn a_frame_keeps_its_fractions_and_refuses_a_value_that_is_not_a_number() {
     assert_eq!(made.fractions(), [0.25, 0.1, 0.5, 0.75]);
     assert_eq!(
         FloatFrame::from_fractions(-3.0, 7.0, 0.5, 0.5).unwrap(),
-        frame(0, 500_000, 500_000, 500_000)
+        frame(-3_000_000, 7_000_000, 500_000, 500_000)
     );
     assert_eq!(FloatFrame::from_fractions(f64::NAN, 0.0, 0.5, 0.5), None);
     assert_eq!(FloatFrame::from_fractions(0.0, 0.0, f64::INFINITY, 0.5), None);
@@ -98,8 +100,8 @@ fn a_frame_for_a_floating_pane_moves_it_and_brings_it_to_the_front() {
         place(&panes, &list, &1, FloatMode::On, Some(frame(950_000, 0, 500_000, 100_000))).unwrap();
     assert_eq!(
         moved,
-        vec![list[1], list[2], entry(1, frame(500_000, 0, 500_000, MIN_EXTENT))],
-        "the frame is clamped and the pane is the front pane; the other entries keep their order"
+        vec![list[1], list[2], entry(1, frame(950_000, 0, 500_000, MIN_EXTENT))],
+        "the frame keeps its corner and the pane is the front pane; the other entries keep their order"
     );
     let front = place(&panes, &moved, &2, FloatMode::On, None).unwrap();
     assert_eq!(panes_of(&front), vec![3, 1, 2]);
@@ -115,7 +117,7 @@ fn a_new_floating_pane_does_not_hide_the_one_before_it() {
     for pane in 1..=8u8 {
         list = place(&panes, &list, &pane, FloatMode::On, None).unwrap();
     }
-    let corners: Vec<u32> = list.iter().map(|entry| entry.frame.x).collect();
+    let corners: Vec<i32> = list.iter().map(|entry| entry.frame.x).collect();
     assert_eq!(
         corners,
         vec![200_000, 230_000, 260_000, 290_000, 320_000, 350_000, 380_000, 200_000],
@@ -125,6 +127,7 @@ fn a_new_floating_pane_does_not_hide_the_one_before_it() {
         assert_eq!(entry.frame.x, entry.frame.y);
         assert_eq!((entry.frame.w, entry.frame.h), (NEW_EXTENT, NEW_EXTENT));
         assert!(entry.frame.is_valid());
+        assert_eq!(entry.frame.inside(), entry.frame, "a new pane is inside the pane area");
     }
     let reused = place(&panes, &list[..2], &1, FloatMode::Off, None).unwrap();
     assert_eq!(new_frame(&reused).x, 200_000, "a place that is free again is taken first");
@@ -136,7 +139,8 @@ fn a_place_is_taken_by_a_corner_at_its_x_and_its_y_only() {
     // One pane at the same x with another y, and one at the same y with another x: the first place is free.
     let list = [entry(1, FloatFrame { y: 0, ..base }), entry(2, FloatFrame { x: 0, ..base })];
     assert_eq!(new_frame(&list), base);
-    let next = FloatFrame { x: base.x + CASCADE_STEP, y: base.y + CASCADE_STEP, ..base };
+    let step = i32::try_from(CASCADE_STEP).unwrap();
+    let next = FloatFrame { x: base.x + step, y: base.y + step, ..base };
     assert_eq!(new_frame(&[entry(1, base)]), next);
 }
 
@@ -144,12 +148,12 @@ fn a_place_is_taken_by_a_corner_at_its_x_and_its_y_only() {
 fn the_list_follows_the_panes_of_the_screen() {
     let a = frame(0, 0, 300_000, 300_000);
     let b = frame(100_000, 100_000, 300_000, 300_000);
-    let wide = frame(900_000, 900_000, 5_000_000, 1);
+    let wide = frame(900_000, 900_000, 9_000_000, 1);
     let list = [entry(1, a), entry(7, b), entry(2, wide), entry(1, b), entry(3, b)];
     assert_eq!(
         normalized(&[1u8, 2, 3, 4], &list),
-        vec![entry(1, a), entry(2, frame(0, 850_000, UNIT, MIN_EXTENT)), entry(3, b)],
-        "a pane that left, a second entry of one pane and a frame out of the screen"
+        vec![entry(1, a), entry(2, frame(900_000, 900_000, MAX_EXTENT, MIN_EXTENT)), entry(3, b)],
+        "a pane that left, a second entry of one pane and a frame past the limits of the size"
     );
     assert!(!is_normal(&[1u8, 2, 3, 4], &list));
     assert!(is_normal(&[1u8, 2, 3, 4], &normalized(&[1u8, 2, 3, 4], &list)));
@@ -253,7 +257,7 @@ enum Act {
 }
 
 fn any_frame() -> impl Strategy<Value = FloatFrame> {
-    (0u32..=1_300_000, 0u32..=1_300_000, 0u32..=1_300_000, 0u32..=1_300_000)
+    (-17_000_000i32..=17_000_000, -17_000_000i32..=17_000_000, 0u32..=9_000_000, 0u32..=9_000_000)
         .prop_map(|(x, y, w, h)| FloatFrame { x, y, w, h })
 }
 
@@ -282,38 +286,33 @@ impl Oracle {
         self.clock
     }
 
-    /// F3 in 64 bits, the size before the corner, with no `clamp` and no `min`.
+    /// F3 with plain comparisons: no `clamp`, and no constant of the rules.
     fn fit(frame: FloatFrame) -> FloatFrame {
         let size = |extent: u32| {
-            let extent = u64::from(extent);
-            if extent < u64::from(MIN_EXTENT) {
-                u64::from(MIN_EXTENT)
-            } else if extent > u64::from(UNIT) {
-                u64::from(UNIT)
+            if extent < 150_000 {
+                150_000
+            } else if extent > 8_000_000 {
+                8_000_000
             } else {
                 extent
             }
         };
-        let corner = |at: u32, extent: u64| {
-            if u64::from(at) + extent > u64::from(UNIT) {
-                u64::from(UNIT) - extent
+        let corner = |at: i32| {
+            if at < -16_000_000 {
+                -16_000_000
+            } else if at > 16_000_000 {
+                16_000_000
             } else {
-                u64::from(at)
+                at
             }
         };
-        let (w, h) = (size(frame.w), size(frame.h));
-        FloatFrame {
-            x: corner(frame.x, w) as u32,
-            y: corner(frame.y, h) as u32,
-            w: w as u32,
-            h: h as u32,
-        }
+        FloatFrame { x: corner(frame.x), y: corner(frame.y), w: size(frame.w), h: size(frame.h) }
     }
 
     fn fresh(&self) -> FloatFrame {
-        let corners: Vec<(u32, u32)> =
+        let corners: Vec<(i32, i32)> =
             self.floating.values().map(|(frame, _)| (frame.x, frame.y)).collect();
-        let at = (0..7u32)
+        let at = (0..7i32)
             .map(|step| 200_000 + 30_000 * step)
             .find(|at| !corners.contains(&(*at, *at)))
             .unwrap_or(200_000);
