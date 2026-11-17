@@ -29,7 +29,7 @@ enum CloudAppLinks {
         case .openDirectory(let path, let parent)?: CloudStrings.linkOpenDirectory(path, fix: CloudLinkError.chmodFix(path: path, parent: parent))
         case .unsafeSocket?, .invalidAnswer?: CloudStrings.linkCheckFailed
         case .notUp(let state)?: CloudStrings.linkNotReady(state)
-        case .failed(let code, let message)?: CloudStrings.linkFailed(message.isEmpty ? code : message)
+        case .failed(let code, let message)?, .helperRefused(let code, let message)?: CloudStrings.linkFailed(message.isEmpty ? code : message)
         case .unsupported?: CloudStrings.linkUnsupported
         }
     }

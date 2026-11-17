@@ -131,6 +131,12 @@ fn tabs_small_rules_answer_over_the_channel() {
         &json!({"chat": true, "agent": "claude", "session": "s"}),
     );
     assert_eq!(body, json!({"route": "resumeInTerminal", "harness": "claude", "session": "s"}));
+    // Where nothing can start a terminal, a chat no terminal runs offers no toggle.
+    let (_, body) = call_json(
+        c"window_tabs_terminal_chat_toggle",
+        &json!({"chat": true, "agent": "claude", "session": "s", "cannotStartTerminal": true}),
+    );
+    assert_eq!(body, json!({"route": "noTerminal"}));
     let (_, body) = call_json(
         c"window_tabs_terminal_chat_toggle",
         &json!({"chat": true, "agent": "codex", "session": "s", "now": 1.0,

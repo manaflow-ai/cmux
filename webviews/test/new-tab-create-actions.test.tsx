@@ -1,6 +1,3 @@
-// The New Tab page offers the three create actions (cx-ag5.7, dogfood call K2): New terminal,
-// New browser tab and New chat under the field, each one click. Before, the screen had only the
-// field: a blank terminal or browser tab took a shortcut, and a chat took a prompt.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -78,7 +75,23 @@ afterAll(async () => {
 
 const noop = () => {};
 
-test("Minimal's create buttons open a terminal, a browser tab and a chat", async () => {
+const createLabel = (kind: string) => (kind === "browser" ? "New browser tab" : `New ${kind}`);
+const choose = (row: HTMLElement) =>
+  act(async () => {
+    row.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+  });
+async function type(text: string) {
+  const field = host.querySelector<MarkdownFieldElement>(".nt-field")!;
+  for (let turn = 0; turn < 200 && !(field.acpmuxMarkdownField && field.querySelector("[contenteditable]")); turn++)
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  await act(async () => {
+    field.acpmuxMarkdownField!.focus();
+    field.acpmuxMarkdownField!.writeText(text, text.length, text.length);
+  });
+  expect(field.acpmuxMarkdownField!.value()).toBe(text);
+}
+
+test("Minimal's searchable create rows open a terminal, a browser tab and a chat", async () => {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
@@ -120,14 +133,13 @@ test("Minimal's create buttons open a terminal, a browser tab and a chat", async
         ),
       );
       expect(host.querySelector(".nt-screen[data-minimal]")).not.toBeNull();
-      const group = host.querySelector(".nt-create")!;
-      expect(group).not.toBeNull();
-      expect(group.previousElementSibling?.classList.contains("nt-composer")).toBe(true);
-      expect(group.closest(".nt-popover, .nt-suggest")).toBeNull();
-      labels = [...group.querySelectorAll("[data-create]")].map((button) => button.textContent?.trim());
-      const button = host.querySelector<HTMLButtonElement>(`.nt-create [data-create="${kind}"]`);
-      expect(button, `no ${kind} create action`).toBeTruthy();
-      await act(async () => button!.click());
+      expect(host.querySelector(".nt-create")).toBeNull();
+      await type("new");
+      const rows = [...window.document.querySelectorAll<HTMLElement>('.nt-row[data-type="create"]')];
+      labels = rows.map((row) => row.querySelector(".nt-row-title")?.textContent?.trim());
+      const row = rows.find((row) => row.querySelector(".nt-row-title")?.textContent === createLabel(kind));
+      expect(row, `no ${kind} create action`).toBeTruthy();
+      await choose(row!);
     } finally {
       act(() => root.unmount());
     }
@@ -151,7 +163,7 @@ test("Minimal's create buttons open a terminal, a browser tab and a chat", async
   }
 });
 
-test("New chat sends what the field holds, and a second click opens nothing more", async () => {
+test("New chat starts empty, and a second creation opens nothing more", async () => {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
@@ -183,24 +195,17 @@ test("New chat sends what the field holds, and a second click opens nothing more
         </QueryClientProvider>,
       ),
     );
-  const button = (kind: string) => host.querySelector<HTMLButtonElement>(`.nt-create [data-create="${kind}"]`)!;
+  const row = (kind: string) =>
+    [...window.document.querySelectorAll<HTMLElement>('.nt-row[data-type="create"]')].find(
+      (row) => row.querySelector(".nt-row-title")?.textContent === createLabel(kind),
+    )!;
   let root: Root = createRoot(host);
   try {
     await render(root);
-    // A prompt typed before the click goes with the chat, as Return would send it.
-    const field = host.querySelector<MarkdownFieldElement>(".nt-field")!;
-    for (let turn = 0; turn < 200 && !(field.acpmuxMarkdownField && field.querySelector("[contenteditable]")); turn++)
-      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-    const handle = field.acpmuxMarkdownField!;
-    await act(async () => {
-      handle.focus();
-      handle.type("fix the flaky upload test");
-    });
-    expect(handle.value()).toBe("fix the flaky upload test");
-    await act(async () => button("chat").click());
-    expect(calls.filter((call) => call.method === "chat.send")).toEqual([
-      { method: "chat.send", params: { text: "fix the flaky upload test" } },
-    ]);
+    await type("new chat");
+    await choose(row("chat"));
+    expect(calls.filter((call) => call.method === "chat.new")).toHaveLength(1);
+    expect(calls.filter((call) => call.method === "chat.send")).toEqual([]);
   } finally {
     act(() => root.unmount());
   }
@@ -208,11 +213,11 @@ test("New chat sends what the field holds, and a second click opens nothing more
   root = createRoot(host);
   try {
     await render(root);
+    await type("new");
     // A double click (or a click during the terminal's spawn) opens one tab.
     await act(async () => {
-      button("terminal").click();
-      button("terminal").click();
-      button("browser").click();
+      for (const kind of ["terminal", "terminal", "browser"])
+        row(kind).dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
     });
     expect(calls.filter((call) => call.method === "tab.open").length).toBe(1);
   } finally {
