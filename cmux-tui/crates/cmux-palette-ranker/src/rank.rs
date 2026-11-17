@@ -535,7 +535,7 @@ pub(crate) fn rank(
         let named_rows: HashSet<usize> = named.iter().copied().collect();
         let named_ids: HashSet<&str> = named
             .iter()
-            .filter_map(|&index| entries[index].action_id.as_deref())
+            .filter_map(|&index| entries.get(index)?.action_id.as_deref())
             .filter(|id| !id.is_empty())
             .collect();
         let mut present: HashSet<&str> = HashSet::new();
@@ -544,14 +544,14 @@ pub(crate) fn rank(
             if named_rows.contains(&item.index) {
                 present_rows.insert(item.index);
             }
-            if let Some(id) = entries[item.index].action_id.as_deref()
+            if let Some(id) = entries.get(item.index).and_then(|entry| entry.action_id.as_deref())
                 && let Some(&id) = named_ids.get(id)
             {
                 present.insert(id);
             }
         }
         for index in named {
-            let entry = &entries[index];
+            let Some(entry) = entries.get(index) else { continue };
             let id = entry.action_id.as_deref().filter(|id| !id.is_empty());
             if !names_alias(index, entry)
                 || present_rows.contains(&index)
@@ -676,7 +676,10 @@ pub(crate) fn rank(
         let entry = &entries[item.index];
         let section = entry.typing_section_index.or(entry.section_index).unwrap_or(0);
         // Highlights only for the rows that show them.
-        let highlights = match (&item.highlight, prepared.fields[item.index].first()) {
+        let highlights = match (
+            &item.highlight,
+            prepared.fields.get(item.index).and_then(|fields| fields.first()),
+        ) {
             (_, None) | (Highlight::None, _) => Vec::new(),
             _ if rank >= highlight_limit => Vec::new(),
             (Highlight::Original, Some(title)) => highlights_for(&query, &title.text),
