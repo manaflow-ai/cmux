@@ -18,9 +18,14 @@ import CmuxNextCompat
         subtitle = row.plan.map { "\(who) · \(CloudStrings.teamPlan(Self.planName($0)))" } ?? who
     }
 
-    /// A plan id as its product name ("pro" is "Pro"): the id the server wrote, capitalized.
+    /// A plan id as its product name ("pro" is "Pro"): the id the server wrote, capitalized; cmux NEXT's own plans by
+    /// their names ("next_pro" is "NEXT Pro").
     static func planName(_ id: String) -> String {
-        id.prefix(1).uppercased() + id.dropFirst()
+        switch id {
+        case "next_pro": "NEXT Pro"
+        case "next_max": "NEXT Max"
+        default: id.prefix(1).uppercased() + id.dropFirst()
+        }
     }
 
     /// The account's teams as the values of Switch Active Team's `team` argument.
