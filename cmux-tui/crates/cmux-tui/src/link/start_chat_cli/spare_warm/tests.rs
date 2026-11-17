@@ -220,11 +220,10 @@ fn no_spare_is_no_copy_and_a_refusal_keeps_its_code() {
 }
 
 #[test]
-fn no_spare_and_errors_are_attempts_the_gap_throttles() {
-    for answer in [
-        Ok(json!({"machine": null, "reason": "spare.none"})),
-        Err(PlatformCallError::Status { status: 503, code: "owner.unreachable", facts: None }),
-    ] {
+fn errors_are_attempts_the_gap_throttles() {
+    for answer in
+        [Err(PlatformCallError::Status { status: 503, code: "owner.unreachable", facts: None })]
+    {
         let dir = tempfile::tempdir().unwrap();
         let calls = Cell::new(0_usize);
         let transport = |_: &Request, _: &str, _: &str| {
@@ -841,4 +840,88 @@ fn a_scope_whose_install_token_names_another_team_mints_no_receipt() {
         receipt_scoped(dir.path(), "user_a", MACHINE, "claude", Some(&scope), 1_000_200)["installed"],
         false
     );
+}
+
+/// Burst 43951741299: a warm that found no spare replayed that answer for the whole 120 s gap, so a
+/// 290 s wait asked the platform about three times while the claim, asking fresh, took a ready spare
+/// in 7 of 9 claims. A "no spare" is replayed only for NONE_GAP_MS: a spare that turns ready after it
+/// is named by the next warm past that, never hidden for the error gap.
+#[test]
+fn no_spare_then_a_ready_spare_is_named_by_the_next_warm() {
+    let dir = tempfile::tempdir().unwrap();
+    let calls = Cell::new(0_usize);
+    let ready_at = 1_015_000;
+    let now_of = Cell::new(0_u64);
+    let transport = |_: &Request, _: &str, _: &str| {
+        calls.set(calls.get().saturating_add(1));
+        Ok(if now_of.get() >= ready_at {
+            json!({"machine": MACHINE, "warm_until": 1_600_000, "vm_kind": "owner"})
+        } else {
+            json!({"machine": null, "reason": "spare.none"})
+        })
+    };
+    let warm = |now: u64| {
+        now_of.set(now);
+        run(
+            &flags(r#"{"account":"user_a"}"#),
+            dir.path(),
+            now,
+            &mut stdin(Some(TEAM)).as_bytes(),
+            &transport,
+        )
+        .unwrap()
+    };
+    assert_eq!(warm(1_000_000)["machine"], json!(null));
+    // Within NONE_GAP_MS a burst of activations is one platform call.
+    let again = warm(1_000_000 + NONE_GAP_MS - 1);
+    assert_eq!((again["machine"].clone(), again["throttled"].clone()), (json!(null), json!(true)));
+    assert_eq!(calls.get(), 1);
+    // The spare turned ready at 1_015_000: the next warm (well inside the old 120 s gap) names it.
+    let named = warm(ready_at);
+    assert_eq!(named["machine"], json!(MACHINE));
+    assert!(named.get("throttled").is_none());
+    assert_eq!(calls.get(), 2);
+    assert!(NONE_GAP_MS < WARM_GAP_MS && NONE_GAP_MS <= 15_000);
+}
+
+/// A cloud.spare.ready for the pair ends the "no spare" replay at once: the next warm asks the
+/// platform even inside NONE_GAP_MS. A failure's replay is not a "no spare" and stays.
+#[test]
+fn a_ready_event_clears_the_no_spare_replay_but_not_an_errors() {
+    let dir = tempfile::tempdir().unwrap();
+    let calls = Cell::new(0_usize);
+    let spare = Cell::new(false);
+    let transport = |_: &Request, _: &str, _: &str| {
+        calls.set(calls.get().saturating_add(1));
+        Ok(if spare.get() {
+            json!({"machine": MACHINE, "warm_until": 1_600_000, "vm_kind": "owner"})
+        } else {
+            json!({"machine": null, "reason": "spare.none"})
+        })
+    };
+    let ask = |request: &str, now: u64| {
+        run(&flags(request), dir.path(), now, &mut stdin(Some(TEAM)).as_bytes(), &transport)
+            .unwrap()
+    };
+    assert_eq!(ask(r#"{"account":"user_a"}"#, 1_000_000)["machine"], json!(null));
+    spare.set(true);
+    ask(&format!(r#"{{"account":"user_a","ready":"{MACHINE}"}}"#), 1_001_000);
+    let named = ask(r#"{"account":"user_a"}"#, 1_002_000);
+    assert_eq!(named["machine"], json!(MACHINE));
+    assert_eq!(calls.get(), 2);
+
+    let dir = tempfile::tempdir().unwrap();
+    let calls = Cell::new(0_usize);
+    let down = |_: &Request, _: &str, _: &str| {
+        calls.set(calls.get().saturating_add(1));
+        Err(PlatformCallError::Status { status: 503, code: "owner.unreachable", facts: None })
+    };
+    let ask = |request: &str, now: u64| {
+        run(&flags(request), dir.path(), now, &mut stdin(Some(TEAM)).as_bytes(), &down).unwrap()
+    };
+    ask(r#"{"account":"user_a"}"#, 1_000_000);
+    ask(&format!(r#"{{"account":"user_a","ready":"{MACHINE}"}}"#), 1_001_000);
+    let replay = ask(r#"{"account":"user_a"}"#, 1_002_000);
+    assert_eq!((replay["ok"].clone(), replay["throttled"].clone()), (json!(false), json!(true)));
+    assert_eq!(calls.get(), 1);
 }
