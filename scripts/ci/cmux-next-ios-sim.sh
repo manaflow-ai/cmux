@@ -769,11 +769,6 @@ for root in json.load(sys.stdin).get("testNodes", []):
     walk(root, [root.get("name", "")])
 ' > "$out/test-failures.txt" 2>/dev/null || true
   cat "$out/test-failures.txt"
-  # A test target that does not compile runs no test and leaves no artifact (a failed step
-  # returns none): its compiler errors go in the step log, or the failure says nothing.
-  if [[ $test_status -ne 0 ]]; then
-    grep -E '(^|: )error: ' "$work/test.log" | sort -u | head -60 || true
-  fi
   keep_test_logs "$work/test.log" "$work/kit.xcresult" kit
   [[ ${#kit_only[@]} -eq 0 ]] || note "- kit filter: ${kit_only[*]}"
   note "- CmuxMobileKit tests (iOS simulator): exit $test_status, $counts, $((SECONDS - t0)) s"
