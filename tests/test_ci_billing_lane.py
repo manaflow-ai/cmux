@@ -176,6 +176,14 @@ class Routing(unittest.TestCase):
                 self.assertEqual(outputs["web"], "true")
                 self.assertEqual(outputs["ios"], "true")
 
+    def test_nightly_and_dispatch_run_everything(self) -> None:
+        # billing-nightly.yml calls this workflow on a schedule: the event is
+        # the caller's, and main's last commit must not narrow the suite.
+        for event in ("schedule", "workflow_dispatch"):
+            with self.subTest(event=event):
+                outputs = self.route_outputs(event, ["web/unrelated.ts"])
+                self.assertEqual((outputs["web"], outputs["ios"]), ("true", "true"))
+
     def test_route_narrows_a_billing_diff(self) -> None:
         outputs = self.route_outputs("pull_request", ["web/services/billing/stripe.ts"])
         self.assertEqual((outputs["web"], outputs["ios"]), ("true", "false"))
