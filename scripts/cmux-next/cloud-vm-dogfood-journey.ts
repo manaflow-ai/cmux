@@ -703,20 +703,33 @@ try {
     await timed("paused", () => waitForState(id, "paused", 3 * 60_000));
     result["statusAfterPauseSeries"] = await stateSeries(id, pausedAt, [1_000, 5_000, 15_000]);
     result["statusAfterPause"] = (result["statusAfterPauseSeries"] as Array<{ status: string }>).at(-1)?.status ?? "unknown";
-    // A paused VM refuses exec with 409 instead of waking for it.
-    const whilePaused = await call("POST", `${vmPath(id)}/exec`, { command: "true", timeoutMs: 10_000 }, {}, 40_000);
-    result["execWhilePausedStatus"] = whilePaused.status;
-    if (whilePaused.status !== 409) note(`exec on a paused VM answered ${whilePaused.status}, expected 409`);
-
+    // Resume first, while the VM is surely paused: anything that reaches the VM (exec included) wakes it, and
+    // resume on a VM that is no longer paused is 409 by design ("Only a paused VM can be resumed").
     await timed("resume", async () => {
       expectStatus(await call("POST", `${vmPath(id)}/resume`, undefined, {}, 5 * 60_000), [200], "POST resume");
     });
     await timed("runningAfterResume", () => waitForState(id, "running", 3 * 60_000));
-    result["memoryKept"] = await timed("memoryKept", async () => {
-      const out = await exec(id, `kill -0 ${pid} 2>/dev/null && echo alive || echo gone`);
-      return out.stdout.trim() === "alive";
-    });
+    const alive = `kill -0 ${pid} 2>/dev/null && echo alive || echo gone`;
+    result["memoryKept"] = await timed("memoryKept", async () => (await exec(id, alive)).stdout.trim() === "alive");
     if (result["memoryKept"] !== true) failed.push("memoryKept");
+
+    // Then pause again and exec with no resume: the exec wakes the VM where it was, memory kept.
+    await timed("pauseAgain", async () => {
+      expectStatus(await call("POST", `${vmPath(id)}/pause`, undefined, {}, 3 * 60_000), [200], "POST pause (again)");
+    });
+    await timed("pausedAgain", () => waitForState(id, "paused", 3 * 60_000));
+    const whilePaused = await timed("execWakes", () =>
+      call("POST", `${vmPath(id)}/exec`, { command: alive, timeoutMs: 60_000 }, {}, 5 * 60_000));
+    result["execWhilePausedStatus"] = whilePaused.status;
+    if (whilePaused.status === 200) {
+      result["memoryKeptOnExecWake"] = String(field(whilePaused.body, "stdout") ?? "").trim() === "alive";
+      if (result["memoryKeptOnExecWake"] !== true) failed.push("memoryKeptOnExecWake");
+    } else {
+      // A provider that refuses exec on a paused VM instead of waking it: note it, resume, go on.
+      note(`exec on a paused VM answered ${whilePaused.status}; it no longer wakes the VM`);
+      expectStatus(await call("POST", `${vmPath(id)}/resume`, undefined, {}, 5 * 60_000), [200], "POST resume (after exec)");
+    }
+    await timed("runningAfterExecWake", () => waitForState(id, "running", 3 * 60_000));
   }
 
   if (terminalLeg) {
