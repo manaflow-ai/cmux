@@ -63,12 +63,14 @@ public final class CloudMovedChats {
 
     private struct Request: Encodable {
         var moved: String?, starting: String?, action: String, host: String, session: String, remoteChat: String?, harness: String?, entry: Entry?
+        var hosts: [String]?
     }
 
     private struct Reply: Decodable {
         struct Stored: Decodable { var value: String? }
         struct Write: Decodable { var moved: Stored?, starting: Stored? }
-        var entry: Entry?, entries: [Entry]?, started: Bool?, write: Write?
+        struct Push: Decodable { var local: String, remote: String }
+        var entry: Entry?, entries: [Entry]?, started: Bool?, write: Write?, push: Push?
     }
 
     private func read(_ key: String) -> String? {
@@ -84,9 +86,9 @@ public final class CloudMovedChats {
 
     @discardableResult
     private func ask(_ action: String, host: String = "", session: String = "", remoteChat: String? = nil, harness: String? = nil,
-                     entry: Entry? = nil) -> Reply? {
+                     entry: Entry? = nil, hosts: [String]? = nil) -> Reply? {
         let request = Request(moved: read(Self.defaultsKey), starting: read(Self.startingKey), action: action, host: host, session: session,
-                              remoteChat: remoteChat, harness: harness, entry: entry)
+                              remoteChat: remoteChat, harness: harness, entry: entry, hosts: hosts)
         let reply = CloudMoveCore().call("moved_chats", request, as: Reply.self)
         // Recorded first: a crash between these writes can replay a start's completion harmlessly.
         write(Self.defaultsKey, reply?.write?.moved)
@@ -113,4 +115,18 @@ public final class CloudMovedChats {
     }
 
     public func forget(host: String, session: String) { ask("forget", host: host, session: session) }
+
+    /// Push on send (`cmux link sync on-send`, cmux-tui `link/sync_cli/changed.rs`): the hook a chat's wire runs
+    /// before each send (`RemoteAcpmuxWire.BeforeSend`), the hidden note for the agent while files are still
+    /// arriving, or nil. Rust picks the folder (`MovedChats::push_target` over `hosts`, the tab record's host then
+    /// the daemon's `registry:` host); `binary` and `socket` are read at the send (nil: the send goes as it is).
+    public func pushOnSend(hosts: [String], binary: @escaping @MainActor @Sendable () -> URL?,
+                           socket: @escaping @MainActor @Sendable () async -> String?)
+        -> @Sendable (_ session: String) async -> String? {
+        { [weak self] session in
+            guard let push = await self?.ask("push_target", session: session, hosts: hosts)?.push,
+                  let binary = await binary(), let socket = await socket() else { return nil }
+            return await CloudMoveCLI(binary: binary).syncOnSend(socket: socket, local: push.local, remote: push.remote)
+        }
+    }
 }

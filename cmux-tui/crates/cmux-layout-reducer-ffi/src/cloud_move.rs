@@ -212,6 +212,8 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 harness: Option<String>,
                 #[serde(default)]
                 entry: Option<ledger::Moved>,
+                #[serde(default)]
+                hosts: Vec<String>,
             }
             let request: Request = read(request)?;
             let ledgers = &request.ledgers;
@@ -220,6 +222,9 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                     json!({ "entry": to_value(ledgers.entry(&request.host, &request.session))? })
                 }
                 ("all", _) => json!({ "entries": to_value(ledgers.all())? }),
+                ("push_target", _) => json!({
+                    "push": to_value(ledgers.push_target(&request.hosts, &request.session))?
+                }),
                 ("record", Some(entry)) => json!({ "write": to_value(ledgers.record(entry))? }),
                 ("copied", Some(entry)) => json!({ "write": to_value(ledgers.copied(entry))? }),
                 ("started", _) => {

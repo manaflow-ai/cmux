@@ -225,6 +225,32 @@ impl MovedChats {
         let moved = all.remove(&key(host, session)).map(|_| Self::write_moved(&all));
         MovedWrite { moved, starting: None }
     }
+
+    /// Where a send to `session` pushes the files changed on this Mac (push on send, `cmux link
+    /// sync on-send`): the entry under the first of `hosts` (the tab record's own host, then the
+    /// daemon's `registry:` host) the ledger keys the chat by. None when the chat came from no
+    /// folder on this Mac, went back to it, or its entry names no folder on either side.
+    pub fn push_target(&self, hosts: &[String], session: &str) -> Option<PushTarget> {
+        if session.is_empty() {
+            return None;
+        }
+        let moved = self.moved();
+        let entry = hosts.iter().find_map(|host| moved.get(&key(host, session)))?;
+        (entry.brought_back.is_none()
+            && !entry.local_root.is_empty()
+            && !entry.remote_folder.is_empty())
+        .then(|| PushTarget {
+            local: entry.local_root.clone(),
+            remote: entry.remote_folder.clone(),
+        })
+    }
+}
+
+/// The push a send makes: the synced folder on this Mac and the machine's copy of it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct PushTarget {
+    pub local: String,
+    pub remote: String,
 }
 
 /// Who an "Always move to Cloud" grant belongs to: the signed-in user, selected team and Cloud
