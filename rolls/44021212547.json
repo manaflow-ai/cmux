@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44021212547",
+  "recorded_at": "2026-11-17T05:14:49Z",
+  "reason": "cmux-tui f40c3823fc2e changes the image's cmux-tui (pinned 7980e6ccda5f)",
+  "dry_run": false,
+  "cmux_tui": "f40c3823fc2e08d0ba94ae98b17a8d8acfff264f",
+  "fixes": [
+    {
+      "sha": "0a6cedd1cc1c72265d0c8ec7d9780866aba87825",
+      "mergedAt": "2026-11-16T20:42:01-08:00",
+      "subject": "cmux-rd: an outage is not congestion (controller freezes through a Wi-Fi hold) (#44817)"
+    },
+    {
+      "sha": "ded0bf1560c4cec07c3dc2d3b0405208843891d7",
+      "mergedAt": "2026-11-16T20:39:03-08:00",
+      "subject": "GitHub gateway: read paths for docs readers (#45053)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T05:14:49Z",
+    "snapshot_id": "sh-618527f0c0da4d7caff958452b24f74c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44021212547): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "2c2f7da5a8552205d5bf9544b27e40f5fb8969a3",
+    "image": "cloud-native-auto-f40c3823-44021212547-1",
+    "revision": "ci-44021212547-1",
+    "at": "2026-11-17T05:14:49Z"
+  },
+  "rolled_back": false
+}
