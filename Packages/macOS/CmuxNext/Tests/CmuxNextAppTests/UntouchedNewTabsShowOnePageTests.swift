@@ -542,4 +542,29 @@ struct UntouchedNewTabsShowOnePageTests {
             #expect(touched == 0, "\(touched) touched page views are left after the close of the tab of the text, want 0")
         }
     }
+
+    /// A text key for a New Tab page whose field reported ready, but whose document did not, waits in the router's
+    /// queue of typed text: the router takes it and gives it to the field at the document's report. It is one touch
+    /// in the key's turn, as a key that the page gets at once: the person typed it for this tab.
+    @Test func aTextKeyThatWaitsForThePagesDocumentIsOneTouchInTheKeysTurn() async throws {
+        try await Self.withAPaneWhosePageTakesKeys("cn-untouched-one-page-type-ahead", fieldReady: false) { keyed in
+            let router = keyed.services.keyRouter
+            // The field's report alone ends the hold of the setup's key; the document's report does not come in this row.
+            let token = try #require(keyed.page.model.newTab?.inputToken, "setup: the page has no token of its opening")
+            _ = await keyed.page.model.respond(to: AgentPaneRequest(body: ["method": "newTab.inputReady", "params": ["token": token]]))
+            try #require(!keyed.input.isHolding(in: keyed.window), "setup: the hold did not end at the field's report: \(keyed.input.log)")
+            try #require(!keyed.page.inputReadiness.isReady, "setup: the page's document is ready with no report of the test")
+            try #require(!keyed.page.model.userTouched, "setup: the field's report touched the page")
+            let key = try Self.keyDown("x", keyCode: 7, in: keyed.window)
+            let took = Self.send(key, keyed)
+            let waits = router.typeAheadFocus != nil
+            let has = String(describing: keyed.window.firstResponder)
+            try #require(took && waits, "setup: the queue of typed text did not take the key (the router took it: \(took); keyboard: \(has))")
+            let touched = Self.touched(keyed)
+            print("untouched new tabs, one text key that waits for the page's document: the router took it: \(took); "
+                + "\(touched) touched page views in the key's turn")
+            #expect(keyed.page.model.userTouched, "a text key that waits for an untouched New Tab page's document did not touch the page in its turn")
+            #expect(touched == 1, "one text key that waits for the page's document touched \(touched) page views, want 1")
+        }
+    }
 }
