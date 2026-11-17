@@ -8612,7 +8612,6 @@ export class AcpmuxDirectClient {
   /// Mux events that move the live summary, queue or permission.
   private reduceLiveState(event: EventRecord): void {
     const msg = event.msg ?? {};
-    const sessionId = event.sessionId ?? this.selectedSessionId;
     if ((event.kind === "user_message" || event.kind === "queued") && typeof msg.promptId === "string")
       this.unsentTaken(msg.promptId);
     if (event.kind === "queue_updated") {
@@ -9380,7 +9379,6 @@ export class AcpmuxDirectClient {
 
   private reduceEvent(event: EventRecord): void {
     const msg = event.msg ?? {};
-    const sessionId = event.sessionId ?? this.selectedSessionId;
     // acpmux recorded the prompt (ran it or queued it): the host stops keeping it as unsent.
     if (
       event.dir === "mux" &&
