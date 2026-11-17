@@ -42,9 +42,16 @@ fn scripted_app_host() {
     };
     let mut next_cb = 1;
     let mut cb_mount: Vec<(u64, String)> = Vec::new();
+    // `renderHang`: the host stops answering anything (a render that never
+    // returns, in a host that does not honor its deadline) until shut down.
+    let mut hung = false;
     for line in BufReader::new(stream).lines() {
         let Ok(line) = line else { break };
-        match serde_json::from_str::<ToHost>(&line).expect("protocol") {
+        let message = serde_json::from_str::<ToHost>(&line).expect("protocol");
+        if hung && !matches!(message, ToHost::Shutdown) {
+            continue;
+        }
+        match message {
             // A script that names THROW_AT_INIT fails to load, as a syntax error does.
             ToHost::Init { main, .. } if main.contains("THROW_AT_INIT") => {
                 send(FromHost::InitFailed {
@@ -74,6 +81,21 @@ fn scripted_app_host() {
                 }
                 if export == "renderFail" {
                     send(FromHost::Mounted { mount, error: Some("render failed".into()) });
+                    continue;
+                }
+                if export == "renderHang" {
+                    hung = true;
+                    continue;
+                }
+                if export == "renderHuge" {
+                    // A scene of 20,000 nodes with a 100-byte text each (~3 MB).
+                    let text = "x".repeat(100);
+                    let mut ops: Vec<Value> = (0..20_000)
+                        .map(|n| json!({ "op": "create", "id": format!("h{n}"), "type": "Text", "props": { "text": text } }))
+                        .collect();
+                    ops.push(json!({ "op": "root", "id": "h0" }));
+                    send(FromHost::Scene { mount: mount.clone(), ops: Value::Array(ops) });
+                    send(FromHost::Mounted { mount, error: None });
                     continue;
                 }
                 if export == "renderLive" {
@@ -1133,3 +1155,6 @@ mod activation;
 
 #[path = "supervisor_load_tests.rs"]
 mod under_load;
+
+#[path = "supervisor_scale_tests.rs"]
+mod at_scale;

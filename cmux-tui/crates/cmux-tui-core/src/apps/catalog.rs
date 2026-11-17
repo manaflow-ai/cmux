@@ -196,6 +196,8 @@ impl Package {
     /// A file of the package, refused when it (or a symlink on the way)
     /// leaves the package directory.
     pub(super) fn read(&self, relative: &str) -> Option<Vec<u8>> {
+        #[cfg(test)]
+        work::count(|w| w.package_file_reads += 1);
         let root = self.dir.canonicalize().ok()?;
         let path = self.dir.join(relative).canonicalize().ok()?;
         if !path.starts_with(&root) {
@@ -401,7 +403,48 @@ pub fn manifest_file(dir: &Path, first_party_dir: bool) -> &'static str {
     }
 }
 
+/// Work counters for the constant-cost tests (`supervisor_scale_tests.rs`):
+/// what a reload pass or an `apps-list` read, on the calling thread.
+#[cfg(test)]
+pub(super) mod work {
+    use std::cell::Cell;
+
+    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+    pub struct Work {
+        /// Packages read and validated (`catalog::package`).
+        pub packages_validated: usize,
+        /// Files read through `Package::read` (fragments, scripts, strings).
+        pub package_file_reads: usize,
+        /// Package folders fingerprinted by hashing their files.
+        pub folders_hashed: usize,
+        /// File bytes hashed for fingerprints.
+        pub bytes_hashed: u64,
+    }
+
+    thread_local! {
+        static WORK: Cell<Work> = Cell::new(Work::default());
+    }
+
+    pub fn count(f: impl FnOnce(&mut Work)) {
+        WORK.with(|cell| {
+            let mut work = cell.get();
+            f(&mut work);
+            cell.set(work);
+        });
+    }
+
+    /// The work `f` did on this thread.
+    pub fn of<T>(f: impl FnOnce() -> T) -> (T, Work) {
+        let before = WORK.with(Cell::take);
+        let out = f();
+        let done = WORK.with(|cell| cell.replace(before));
+        (out, done)
+    }
+}
+
 fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
+    #[cfg(test)]
+    work::count(|w| w.packages_validated += 1);
     let report = cmux_app_manifest::validate_package_file(
         dir,
         manifest_file(dir, kind == DirKind::FirstParty),

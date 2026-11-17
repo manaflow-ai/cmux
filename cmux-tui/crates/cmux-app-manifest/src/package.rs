@@ -152,3 +152,39 @@ fn catalog_file(dir: &Path, m: &Value) -> Vec<Issue> {
         Err(e) => vec![Issue::error("/catalog", "catalog.json", e)],
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dir() -> std::path::PathBuf {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or_default();
+        let dir = std::env::temp_dir()
+            .join(format!("cmux-manifest-limit-{}-{stamp}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// A manifest past 64 KiB is refused on its size alone: nothing past
+    /// the limit is parsed, so a broken far end reports no JSON error, and
+    /// no manifest comes back (base red: the whole file was read and parsed,
+    /// and a valid oversize manifest came back parsed).
+    #[test]
+    fn an_oversize_manifest_is_refused_without_parsing_it() {
+        let dir = dir();
+        let pad = "x".repeat(MANIFEST_LIMIT as usize);
+        std::fs::write(dir.join("cmux-app.json"), format!(r#"{{"name":"{pad}"}}"#)).unwrap();
+        let valid_json = validate_package(&dir);
+        std::fs::write(dir.join("cmux-app.json"), format!(r#"{{"name":"{pad}" BROKEN"#)).unwrap();
+        let broken_tail = validate_package(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        for report in [valid_json, broken_tail] {
+            assert!(report.manifest.is_none(), "an oversize manifest is not parsed");
+            let codes: Vec<&str> = report.issues.iter().map(|i| i.code).collect();
+            assert_eq!(codes, ["limit.manifest"], "{:?}", report.issues);
+        }
+    }
+}

@@ -538,6 +538,8 @@ pub(super) const UNREAD: u64 = 0;
 /// coarse file clock gives a same-size save the old time. Files past
 /// `MAX_HASHED_BYTES` in all count by their modification time.
 pub(super) fn fingerprint(dir: &Path) -> u64 {
+    #[cfg(test)]
+    super::catalog::work::count(|w| w.folders_hashed += 1);
     let mut files = Vec::new();
     collect(dir, &mut files);
     files.sort();
@@ -566,7 +568,11 @@ fn hash_contents(path: &Path, len: u64, hasher: &mut DefaultHasher) {
     loop {
         match file.read(&mut buffer) {
             Ok(0) | Err(_) => return,
-            Ok(n) => hasher.write(buffer.get(..n).unwrap_or(&buffer)),
+            Ok(n) => {
+                #[cfg(test)]
+                super::catalog::work::count(|w| w.bytes_hashed += n as u64);
+                hasher.write(buffer.get(..n).unwrap_or(&buffer));
+            }
         }
     }
 }
@@ -595,6 +601,28 @@ fn collect(dir: &Path, files: &mut Vec<(PathBuf, u64, u128)>) {
                 .map_or(0, |d| d.as_nanos());
             files.push((path, meta.len(), modified));
         }
+    }
+}
+
+/// How far ahead of the wall clock the passes on this thread run: a test
+/// that settles the files it just wrote, as if saved a while ago, without
+/// sleeping (`supervisor_scale_tests.rs`).
+#[cfg(test)]
+pub(super) mod test_clock {
+    use std::cell::Cell;
+    use std::time::Duration;
+
+    thread_local! {
+        static AHEAD: Cell<Duration> = const { Cell::new(Duration::ZERO) };
+    }
+
+    pub fn advance(by: Duration) {
+        AHEAD.with(|ahead| ahead.set(ahead.get() + by));
+    }
+
+    #[allow(dead_code)]
+    pub fn ahead() -> Duration {
+        AHEAD.with(Cell::get)
     }
 }
 
