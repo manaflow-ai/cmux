@@ -31,6 +31,25 @@ struct ComputerUseHelperStagingTests {
         #expect(try fixture.inode(second) == inode)
     }
 
+    /// The Computer Use daemon and the screen sharing host stage the same helper copy (its
+    /// `cmux-screen-sharing` ships inside it). Concurrent stages take turns: one copy is made,
+    /// and no stage swaps out (and deletes) a copy another stage already returned.
+    @Test func concurrentStagesOfOneCopyTakeTurns() async throws {
+        let fixture = try StagingFixture()
+        defer { fixture.remove() }
+        for _ in 0..<8 {
+            try? FileManager.default.removeItem(at: fixture.destination)
+            let before = fixture.recorder.copies
+            let staged = await withTaskGroup(of: URL?.self) { group in
+                for _ in 0..<4 { group.addTask { await fixture.staging.stage(fixture.source) } }
+                return await group.reduce(into: [URL?]()) { $0.append($1) }
+            }
+            #expect(staged.allSatisfy { $0 == fixture.destination })
+            #expect(fixture.recorder.copies == before + 1, "later stages reuse the first one's copy")
+            #expect(fixture.leftovers().isEmpty)
+        }
+    }
+
     @Test func aChangedSourceReplacesTheCopy() async throws {
         let fixture = try StagingFixture()
         defer { fixture.remove() }

@@ -102,7 +102,9 @@ nonisolated struct ComputerUseHelperStaging: Sendable {
         self.root = root ?? Self.root(home: home)
     }
 
-    /// The Screen Sharing helper's copy (plans/cmux-next/screen-sharing-helper.md):
+    /// The separate Screen Sharing helper's copy (plans/cmux-next/screen-sharing-helper.md), now
+    /// only the fallback for a DEV build and for builds made before `cmux-screen-sharing` moved into
+    /// the Computer Use helper (a release, NIGHTLY or RC build stages that one through ``legacy``):
     /// `~/Library/Application Support/cmux-next/screen-sharing/<scope>/<its name>` (NEXT's own
     /// folder, ``NextSupport``), checked against
     /// the source's own designated requirement, as the Computer Use helper v2's copy is.
@@ -117,7 +119,9 @@ nonisolated struct ComputerUseHelperStaging: Sendable {
     }
 
     /// The legacy helper's copy: `.../cmux-next/cmux-cua/helper/next-<scope>/cmux Computer Use.app`,
-    /// checked against the release helper's Developer ID requirement.
+    /// checked against the release helper's Developer ID requirement. Two roles stage this one
+    /// copy: the Computer Use daemon and the screen sharing host (its `cmux-screen-sharing` ships
+    /// inside the helper); ``stage(_:)`` takes them one at a time.
     static func legacy(bundleID: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
                        home: URL = FileManager.default.homeDirectoryForCurrentUser) -> ComputerUseHelperStaging {
         let operations = Operations.system(verify: { copy, _ in CuaHelperIdentity.satisfiesRequirement(copy) },
@@ -163,7 +167,54 @@ nonisolated struct ComputerUseHelperStaging: Sendable {
 
     /// The copy of `source` to launch: the existing one when it matches, else
     /// a fresh verified copy. Nil when the copy cannot be made or verified.
+    ///
+    /// Stages of one destination take turns in this process. Two roles stage the same Computer
+    /// Use helper copy (the daemon and the screen sharing host): without turns both could find it
+    /// stale and copy, and the second swap would move the first's copy, possibly already
+    /// launched, into its own staging folder and delete it. In turn, the second finds the first's
+    /// copy matching and reuses it. Another process has another scope, so another folder; the
+    /// EEXIST path below still covers a racing one.
     @concurrent func stage(_ source: URL) async -> URL? {
+        let key = destination(for: source).standardizedFileURL.path
+        await Self.takeTurn(key)
+        defer { Self.endTurn(key) }
+        return await stageInTurn(source)
+    }
+
+    /// The stages waiting for each destination path; a key is present while one runs.
+    private static let turns = Mutex<[String: [CheckedContinuation<Void, Never>]]>([:])
+
+    /// Returns once no other stage of `key` runs in this process.
+    private static func takeTurn(_ key: String) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let now = turns.withLock { waiting -> Bool in
+                guard var queue = waiting[key] else {
+                    waiting[key] = []
+                    return true
+                }
+                queue.append(continuation)
+                waiting[key] = queue
+                return false
+            }
+            if now { continuation.resume() }
+        }
+    }
+
+    /// Hands `key` to the next waiting stage, or frees it.
+    private static func endTurn(_ key: String) {
+        let next = turns.withLock { waiting -> CheckedContinuation<Void, Never>? in
+            guard var queue = waiting[key], !queue.isEmpty else {
+                waiting[key] = nil
+                return nil
+            }
+            let next = queue.removeFirst()
+            waiting[key] = queue
+            return next
+        }
+        next?.resume()
+    }
+
+    @concurrent private func stageInTurn(_ source: URL) async -> URL? {
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "computer-use")
         guard trustedFolder(create: true, logger: logger) else {
             logger.error("cmux Computer Use helper copy: \(folder.path, privacy: .public) is not a private directory of this user")

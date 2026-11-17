@@ -20,4 +20,8 @@ RUSTUP_TOOLCHAIN="$toolchain" ./scripts/build-cmux-cua.sh \
   --output "$app/Contents/Resources/bin/cmux-cua" --helper-app --archs "$archs"
 # The helper app is what ships; build-cmux-cua.sh's bin copy is scratch.
 rm -f "$app/Contents/Resources/bin/cmux-cua" "$app/Contents/Resources/bin/cmux-cua-LICENSE.md"
+# One permission identity for screen sharing and computer use: the Screen Sharing executable that
+# "Bundle the OptChat Chief and the iPhone host" bundled moves into this helper, so the app carries
+# no separate "<app> Screen Sharing.app" (bundle-screen-sharing-helper.sh). A track without it: a note.
+./scripts/cmux-next/bundle-screen-sharing-helper.sh --into-computer-use "$app"
 ./scripts/ci/verify-computer-use-helper.sh layout "$app"
