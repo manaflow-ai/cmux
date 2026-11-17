@@ -204,6 +204,18 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         if placement == .external { externalMetricsChanged() }
     }
 
+    /// The Mac's chat look (``CmuxMobileChatLook``), or nil for the stock chat: the transcript is
+    /// clear over the chat's backdrop (`CmuxMobileChatBackdrop`, which the host draws behind it),
+    /// its rows take the theme's light or dark style and the top fade its ground.
+    func applyChatLook(_ look: CmuxMobileChatLook?) {
+        loadViewIfNeeded()
+        let background: UIColor = look == nil ? .cmuxMobileBackground : .clear
+        if scrollView.backgroundColor != background { scrollView.backgroundColor = background }
+        let style = look?.interfaceStyle ?? .unspecified
+        if overrideUserInterfaceStyle != style { overrideUserInterfaceStyle = style }
+        topFade.ground = look?.groundColor
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
@@ -1079,6 +1091,8 @@ struct ChatTranscriptRepresentable: UIViewControllerRepresentable {
         configureRows(controller.rowContext)
         // Read here so SwiftUI calls update when the chat's Text and Width change.
         controller.applyDisplay(ChatDisplayPreferences.shared.settings(for: store.summary))
+        // Read here so SwiftUI calls update when the Mac's chat look changes.
+        controller.applyChatLook(CmuxMobileMacTheme.shared.chatLook)
     }
 }
 
@@ -1175,8 +1189,13 @@ private final class TopFadeView: UIView {
         gradient.locations = [0, NSNumber(value: Double(solid)), 1]
     }
 
+    /// The chat look's ground while the chat follows the Mac (``CmuxMobileChatLook/groundColor``).
+    var ground: UIColor? {
+        didSet { if ground != oldValue { updateColors() } }
+    }
+
     private func updateColors() {
-        let color = UIColor(Color.cmuxMobileBackground).resolvedColor(with: traitCollection)
+        let color = (ground ?? UIColor(Color.cmuxMobileBackground)).resolvedColor(with: traitCollection)
         gradient.colors = [color.cgColor, color.cgColor, color.withAlphaComponent(0).cgColor]
     }
 }
