@@ -17,7 +17,8 @@ This reads that log and gives:
 
 Prints one `BUILD-FLAGS {json}` line and writes the same JSON to --out. The exit is 0 also when the log is not
 there: `log_read` is then false with the cause, so the report says that the build's form was not read, and the
-measure goes on.
+measure goes on. The exit is 0 also when --out cannot be written: the line is printed first, and the cause goes to
+the error output.
 Test: python3 -I scripts/measure/tests/build-flags.test.py"""
 import argparse
 import json
@@ -29,7 +30,7 @@ BENCH = "==> bench configuration:"
 SETTING = re.compile(r"^\s+(SWIFT_OPTIMIZATION_LEVEL|OTHER_SWIFT_FLAGS|CMUX_SWIFT_OPT_(\w+)) = (.*)$")
 COMPILERS = ("swiftc", "swift-frontend")
 LEVELS = ("-Onone", "-O", "-Osize")
-LEVEL_WORD = re.compile(r"^-O[A-Za-z]*$")
+LEVEL_WORD = re.compile(r"^-O(none|size|unchecked|playground)?$")  # the Swift compiler's own: not -Os, not -ObjC
 LIMIT = ("the counts are of the Swift compiler's command lines in the reload's log, and Xcode writes more than one "
          "such line for a module; a build on a warm folder compiles only what changed, so a module with no line "
          "here was not compiled in this build and has the flags of the build that compiled it: `settings` says "
@@ -107,10 +108,13 @@ def main():
     parser.add_argument("--out", help="a file for the JSON")
     opts = parser.parse_args()
     record = read(opts.reload_output)
-    if opts.out:
-        with open(opts.out, "w") as f:
-            json.dump(record, f, indent=1)
     print("BUILD-FLAGS " + json.dumps(record), flush=True)
+    if opts.out:
+        try:
+            with open(opts.out, "w") as f:
+                json.dump(record, f, indent=1)
+        except OSError as error:
+            print(f"build-flags: no file {opts.out}: {error!r}", file=sys.stderr, flush=True)
     return 0
 
 

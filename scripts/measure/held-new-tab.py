@@ -829,9 +829,10 @@ def build_facts(path):
         return {"not_read": "no --build file: the entry script gives it"}
     try:
         with open(path) as f:
-            return json.load(f)
+            data = json.load(f)
     except (OSError, ValueError) as error:
         return {"not_read": f"{path}: {error!r}"}
+    return data if isinstance(data, dict) else {"not_read": f"{path}: not a JSON object"}
 
 
 def pack(out, film, target, build=None):
