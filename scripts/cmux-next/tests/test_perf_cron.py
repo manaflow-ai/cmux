@@ -2,7 +2,7 @@
 """The perf cron's decisions (scripts/cmux-next/perf-cron.py): what a tick runs, when it yields to the fleet,
 what counts as a regression, and when the one issue opens, comments and closes. Pure functions only (no
 network, no git). Run: python3 -I scripts/cmux-next/tests/test_perf_cron.py (not a CI job, Lawrence 2026-10-23)."""
-import argparse, contextlib, datetime, importlib.util, io, json, os, tempfile, unittest, urllib.error, urllib.request
+import argparse, contextlib, datetime, hashlib, importlib.util, io, json, os, tempfile, unittest, urllib.error, urllib.request
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -649,6 +649,25 @@ class WebUiTests(unittest.TestCase):
                          "no empty sample: no ratio either")
         self.assertTrue(cron.report_is_incomplete(part, {"rows": [], "incomplete": ["no empty-app sample"]}))
 
+    def test_the_memory_agents_part_measures_the_optimized_app(self):
+        """CMUX-571 ram-baseline compares the app with other apps' release builds and with the 2026-11-08 Release
+        baseline (app process 243-285 MB). The part measured the Debug build (app process 323.3 MB at 8c515cc5), so
+        the goal read a build difference as growth. It measures the bench configuration, the build throughput uses,
+        and the change rebases the stored Debug rows instead of comparing the two builds."""
+        args = cron.PART_BY_NAME["memory-agents"]["args"]
+        self.assertIn("--config=bench", args, "the memory rows come from the optimized (Release) app, not Debug")
+        self.assertIn("--app-cache", args, "it reuses the measurement's bench build (throughput's) when there is one")
+        self.assertEqual([a for a in args if a.startswith("--config=")],
+                         [a for a in cron.PART_BY_NAME["throughput"]["args"] if a.startswith("--config=")],
+                         "one bench build serves both parts")
+        name = "memory.app_agents.empty.total_footprint_mb@cmux20-bench"
+        debug_cfg = hashlib.sha256(json.dumps([*cron.MEASURE, "--suite=memory-agents", "--agents=10"],
+                                              sort_keys=True).encode()).hexdigest()[:12]
+        self.assertNotEqual(cron.part_config("memory-agents"), debug_cfg)
+        now = {name: {"p95": 930.0, "part_config": cron.part_config("memory-agents")}}
+        base = {name: {"p95": 980.6, "part_config": debug_cfg}}
+        self.assertEqual(cron.version_changed(now, base), [name], "a Debug reference is rebased, never compared")
+
     def test_the_update_one_rows_have_their_own_part(self):
         self.assertTrue(cron.is_linux_part("web-ui-scale"))
         self.assertEqual(cron.part_for_row("webui.update_one.home.status.n3000@linux"), "web-ui-scale")
@@ -806,6 +825,36 @@ class WebUiTests(unittest.TestCase):
         rows = cron.rows_of_part(cron.PART_BY_NAME["web-ui-god"], few, budgets_mod, {"rows": {}})
         self.assertEqual(rows["webui.god_ratio.transcript_replay.long.thought_ms"]["p95"], 1.356,
                          "under GOD_PAIRED_MIN_ROUNDS rounds the paired median is not published")
+
+    def test_one_fast_paired_round_keeps_the_paired_median(self):
+        # Perf cron run 43797713590 at 83b6f50f: five paired rounds, the fifth on a fast runner (small token 3.588 ms,
+        # thought 4.433 ms, under GOD_RATIO_MIN's 5 ms). Cut per round, token and thought had four rounds, no paired
+        # median, and the board read the one-run ratio 1.578 in place of the paired 1.384.
+        pairs = [((8.274, 5.978), (10.998, 6.427)), ((9.01, 5.843), (7.834, 7.512)), ((8.461, 5.99), (10.653, 7.696)),
+                 ((5.411, 5.61), (9.014, 6.459)), ((4.445, 3.588), (4.33, 4.433))]
+        rounds = []
+        for (god_token, small_token), (god_thought, small_thought) in pairs:
+            rows = [{"name": "transcript_replay.long.heap_mb", "p95": 30.0, "unit": "MB", "floor": 4},
+                    {"name": "transcript_replay.god.long.heap_mb", "p95": 36.0, "unit": "MB", "floor": 4}]
+            for kind, god, small in (("token_ms", god_token, small_token), ("thought_ms", god_thought, small_thought)):
+                rows.append({"name": f"transcript_replay.long.{kind}", "p95": small, "floor": 0.5, "target": 10})
+                rows.append({"name": f"transcript_replay.god.long.{kind}", "p95": god, "floor": 0.5, "target": 10})
+            rounds.append({"rows": rows, "seconds": 190, "exit": 0})
+        report = {"rows": [
+            {"name": "transcript_replay.long.token_ms", "p95": 5.506, "floor": 0.5, "target": 10},
+            {"name": "transcript_replay.god.long.token_ms", "p95": 8.689, "floor": 0.5, "target": 10},
+        ], "failed": [], "paired": {"rounds": rounds, "stopped": "settled"}}
+        rows = cron.rows_of_part(cron.PART_BY_NAME["web-ui-god"], report, budgets_mod, {"rows": {}})
+        token = rows["webui.god_ratio.transcript_replay.long.token_ms"]
+        self.assertEqual((token["p95"], token["rounds"], token.get("paired")), (1.384, 5, True),
+                         "the paired median over all five rounds, not the one-run 1.578")
+        self.assertNotIn("least", token)
+        self.assertEqual(rows["webui.god_ratio.transcript_replay.long.thought_ms"]["rounds"], 5)
+        self.assertFalse(cron.paired_settled(rounds),
+                         "token's interval is wider than 0.1, so the rounds go on, not stop at heap's narrow one")
+        tiny = [{"rows": [{"name": "transcript_replay.long.token_ms", "p95": 2.0, "floor": 0.5},
+                          {"name": "transcript_replay.god.long.token_ms", "p95": 4.0, "floor": 0.5}]}] * 5
+        self.assertEqual(cron.paired_ratio_rows(tiny), {}, "a small chat under 5 ms on the median still gets no ratio")
 
     def test_paired_rounds_run_until_the_board_interval_is_narrow_or_the_deadline(self):
         now = [0.0]
@@ -1077,6 +1126,21 @@ class FleetTests(unittest.TestCase):
 
     def test_idle_bench_host_runs(self):
         self.assertIsNone(cron.fleet_verdict({"queue": []}, self.workers(), [], cron.BENCH_WORKER, "queued"))
+
+    def test_disk_starved_host_is_unhealthy_so_the_tip_unpins(self):
+        """2026-11-16: cmux20-bench idle, 10.9 GB free, nothing evictable: the controller leased it nothing."""
+        b = cron.BENCH_WORKER
+        full = self.workers(free_bytes=10941784064, disk={"evictable_bytes": 0})
+        why = cron.fleet_verdict({"queue": []}, full, [], b, "queued")
+        self.assertIn(f"{b} is not healthy", why)
+        self.assertTrue(any(f"{b} {r}" in why for r in cron.OFFLINE_REASONS))
+        state = {}
+        cron.note_host_offline(state, b, why, cron.now_utc())
+        self.assertTrue(cron.host_unreachable(state, b, cron.now_utc()))
+        roomy = self.workers(free_bytes=110105374720, disk={"evictable_bytes": 0})
+        self.assertIsNone(cron.fleet_verdict({"queue": []}, roomy, [], b, "queued"))
+        evict = self.workers(free_bytes=10941784064, disk={"evictable_bytes": 30 * 10**9})
+        self.assertIsNone(cron.fleet_verdict({"queue": []}, evict, [], b, "queued"))
 
     def test_yields(self):
         b = cron.BENCH_WORKER

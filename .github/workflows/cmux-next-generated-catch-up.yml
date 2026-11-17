@@ -1,12 +1,12 @@
 name: cmux-next generated catch-up
 
-# The generated web bundles and strings tables (.gitattributes, merge driver
-# cmux-generated-v1) collide on nearly every feat-cmux-next move, and GitHub
-# ignores merge drivers, so every landed UI PR left the other open PRs
-# conflicting until each one merged the base and rebuilt the bundles by hand.
-# On each feat-cmux-next move this merges the base into every same-repository
-# PR whose only conflicts are those files, rebuilds them
-# (scripts/cmux-next/regenerate-web-bundles.sh) and pushes the merge. A PR with
+# Generated files (.gitattributes, merge driver cmux-generated-v1: every file
+# the generated-files check knows, tests/test_generated_merge.py) collide on
+# nearly every feat-cmux-next move, and GitHub ignores merge drivers, so every
+# landed PR left the other open PRs conflicting until each one merged the base
+# and rebuilt them by hand. On each feat-cmux-next move this merges the base
+# into every same-repository PR whose only conflicts are those files, rebuilds
+# them (scripts/cmux-next/generated_merge.py regenerate) and pushes the merge. A PR with
 # any authored conflict is left to its author. The merge uses the base's
 # key-wise drivers too (string catalogs, ratchet baselines, the Xcode project,
 # daemon capabilities), so entries both sides added are no conflict. It pushes only to Leo's agent
@@ -259,11 +259,14 @@ jobs:
         with:
           node-version-file: .build/node-pin/.node-version
 
-      # The PR's own code builds here, before any write token exists.
+      # The PR's own code builds here, before any write token exists. The web
+      # bundles always, then every other generated family the merge kept a copy
+      # of or both sides changed (scripts/cmux-next/generated_merge.py; the
+      # Swift exports only a Mac writes are left to the base autofix).
       - name: Rebuild the generated files
         if: steps.merge.outputs.skip != 'true'
         working-directory: pr
-        run: scripts/cmux-next/regenerate-web-bundles.sh
+        run: python3 scripts/cmux-next/generated_merge.py regenerate --merge --web --stage
 
       - name: Commit the merge
         if: steps.merge.outputs.skip != 'true'
@@ -277,7 +280,7 @@ jobs:
             echo "::error::paths are still unmerged after the rebuild"; git diff --name-only --diff-filter=U; exit 1
           fi
           git commit --quiet -m "Merge feat-cmux-next into $BRANCH" \
-            -m "Only generated files conflicted; CI kept this branch's copies and rebuilt them (scripts/cmux-next/regenerate-web-bundles.sh). The base's key-wise drivers merged catalogs, baselines and the Xcode project: $RUN_URL"
+            -m "Only generated files conflicted; CI kept this branch's copies and rebuilt them (scripts/cmux-next/generated_merge.py regenerate). The base's key-wise drivers merged catalogs, baselines and the Xcode project: $RUN_URL"
           git show --stat --oneline HEAD | sed -n '1,40p' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Mint the catch-up token
