@@ -92,7 +92,7 @@ const subprocessors: readonly Subprocessor[] = [
   {
     group: "content",
     category: "AI model providers",
-    name: "Anthropic, PBC; Google LLC; and other model providers reached through the routes above [LEGAL REVIEW: confirm the list, or say: the provider of the model that your team chooses]",
+    name: "Anthropic, PBC; Google LLC; and other model providers reached through the routes above [LEGAL REVIEW: list here only the providers with a data processing agreement in place]",
     purpose: "AI models.",
     location: "United States [LEGAL REVIEW: confirm]",
   },
@@ -100,7 +100,7 @@ const subprocessors: readonly Subprocessor[] = [
     group: "content",
     category: "Meeting recording service",
     name: "Recall.ai, Inc.",
-    purpose: "Joins meetings as the notetaker, records their audio, and makes the transcript.",
+    purpose: "Joins meetings as the notetaker, records their audio, makes the transcript, and sends the live transcript, chat messages, and join and leave events to cmux during the meeting.",
     location: "United States",
   },
   {
@@ -116,6 +116,13 @@ const subprocessors: readonly Subprocessor[] = [
     name: "Stripe, Inc.",
     purpose: "Payments, credits, and invoices.",
     location: "United States",
+  },
+  {
+    group: "controller",
+    category: "Product analytics",
+    name: "Capless [LEGAL REVIEW: confirm the legal entity]",
+    purpose: "Page and click analytics of the cmux.cloud web app, without page text.",
+    location: "[LEGAL REVIEW: confirm]",
   },
   {
     group: "controller",
@@ -165,9 +172,12 @@ export default function CmuxCloudSubprocessorsPage() {
         Manaflow, Inc. uses the service providers below to provide cmux Cloud:
         the hosted service at <a href="https://cmux.cloud">cmux.cloud</a> and
         the cloud machines that you create from the cmux app or the cmux.com
-        dashboard. Except for AI model providers and our payment processor, they
-        process personal data only for us, to provide their service, under
-        written contracts. [LEGAL REVIEW: confirm a data processing agreement
+        dashboard. Our subprocessors process personal data only for us, to
+        provide their service, under written contracts. Two groups are
+        different: our payment processor (see &ldquo;Other service
+        providers&rdquo;), and the providers of AI models that have no such
+        contract with us (see &ldquo;AI model providers that your team
+        directs&rdquo;). [LEGAL REVIEW: confirm a data processing agreement
         with each listed provider before publication.] Our{" "}
         <a href="https://cmux.com/privacy-policy#cmux-cloud">Privacy Policy</a>{" "}
         and our{" "}
@@ -221,6 +231,15 @@ export default function CmuxCloudSubprocessorsPage() {
             </li>
           ))}
       </ul>
+
+      <h2>AI model providers that your team directs</h2>
+      <p>
+        When your team chooses one of these models, your team instructs us to
+        send the data to its provider, and that provider&rsquo;s terms apply
+        (Data Processing Addendum, section 5). They are not our subprocessors.
+        [LEGAL REVIEW: list these models and providers after the owner
+        decision.]
+      </p>
 
       <h2>Changes to this list</h2>
       <p>

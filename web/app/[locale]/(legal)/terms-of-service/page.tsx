@@ -246,7 +246,11 @@ export default async function TermsOfServicePage() {
         You represent that you have the rights and permissions necessary to
         put Your Content into cmux Cloud and to connect each tool you connect.
         Company keeps Your Content confidential and discloses it only as these
-        Terms, the Data Processing Addendum, and the Privacy Policy say.
+        Terms, the Data Processing Addendum, and the Privacy Policy say. The
+        &ldquo;Feedback&rdquo; paragraph of Section 1 does not apply to Your
+        Content: where feedback that you or an agent send contains Your
+        Content, we use that part only to examine and fix what the feedback
+        reports.
         Company keeps usage and billing records as the Privacy Policy
         describes. Company can make and use statistics about the use of cmux Cloud (such
         as counts, sizes, durations, models, and costs) that contain none of
@@ -267,7 +271,12 @@ export default async function TermsOfServicePage() {
         without restriction, independently developed, or lawfully received from
         another source. A party that the law requires to disclose Confidential
         Information gives the other party notice before, where the law allows
-        it, and reasonable help.
+        it, and reasonable help. A party does not breach this paragraph when it
+        sends information where the other party directs it: for Your Content,
+        to the AI models and tools that you choose, to the people and
+        conversations that your settings allow, and to the public when you
+        publish. These duties continue for as long as the receiving party holds
+        the information.
       </p>
 
       <h3>Agents act on your behalf</h3>
@@ -300,7 +309,14 @@ export default async function TermsOfServicePage() {
       <h3>Meeting recording and consent</h3>
       <p>
         The cmux notetaker records the audio of, and transcribes, the meetings
-        that you send it to, or that match the calendar rules you turn on. Laws about recording
+        that you send it to, or that match the calendar rules you turn on.
+        While it is in a meeting, the notetaker also reads the live transcript
+        and the meeting chat, to obey &ldquo;cmux pause&rdquo; and &ldquo;cmux
+        leave&rdquo; from any participant and to answer questions typed to it.
+        If a participant paused the notetaker or made it leave, you must not
+        resume it or send it to that meeting again unless that participant
+        agrees or the law does not require that participant&rsquo;s consent.
+        Laws about recording
         conversations differ by place, and some require the consent of every
         participant. You are responsible for giving any notice and getting any
         consent that the law requires before the notetaker records a meeting,
@@ -368,7 +384,8 @@ export default async function TermsOfServicePage() {
         cmux Cloud infringes your copyright, send a notice with the information
         that 17 U.S.C. &sect; 512(c)(3) requires to our copyright agent:
         Manaflow, Inc., Attn: Copyright Agent, 18428 Vantage Pointe Dr, Rowland
-        Heights, CA 91748-5142, United States,{" "}
+        Heights, CA 91748-5142, United States, telephone [LEGAL REVIEW:
+        number],{" "}
         <a href="mailto:founders@cmux.com">founders@cmux.com</a>. [LEGAL
         REVIEW: register this agent with the US Copyright Office before
         publication.] We tell the team that published the content, and that
@@ -434,11 +451,11 @@ export default async function TermsOfServicePage() {
         after your written request to founders@cmux.com. [LEGAL REVIEW: owner
         decision on a fixed limit for these records.] Until we delete Your Content from our live systems, you can ask
         for a copy. We delete Your Content from our live systems 30 days after
-        the account ends, or sooner if you ask, and from backups within 35 days
-        after the account ends, as our{" "}
+        the account ends, or sooner if you ask; backups that still hold it
+        expire within 35 days after that deletion, as our{" "}
         <a href="https://cmux.com/privacy-policy#cmux-cloud">Privacy Policy</a>{" "}
-        describes, except data that the law requires us to keep. [LEGAL REVIEW:
-        effective when the deletion job ships; see the PR comments.]
+        describes. This does not apply to data that the law requires us to
+        keep. [LEGAL REVIEW: the deletion on an admin&rsquo;s request is on prime-interface main (PR 296); the automatic deletion after the account ends is off until the owner turns it on; until then it is on request.]
       </p>
 
       <h3>Ending the account</h3>
@@ -454,8 +471,9 @@ export default async function TermsOfServicePage() {
         say. When the account ends, your right to use cmux Cloud ends, you pay
         for usage up to that time, and &ldquo;Data export and deletion&rdquo;
         applies. Sections 3, 5, 6, 8, and 9, and in this Section 10 the
-        indemnity, &ldquo;Your content and connected tools&rdquo; (until
-        deletion), &ldquo;Data export and deletion&rdquo;, and &ldquo;Law,
+        indemnity, &ldquo;Confidential information&rdquo;, &ldquo;Agents act on
+        your behalf&rdquo;, &ldquo;AI output&rdquo;, &ldquo;Your content and
+        connected tools&rdquo; (until deletion), &ldquo;Data export and deletion&rdquo;, and &ldquo;Law,
         disputes, and changes for cmux Cloud&rdquo; continue. [LEGAL REVIEW: owner decision on unused credits when we
         end an account without cause.]
       </p>

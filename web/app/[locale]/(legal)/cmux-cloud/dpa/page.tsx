@@ -51,7 +51,8 @@ export default function CmuxCloudDpaPage() {
         security data; the content read from or sent through those accounts is
         Customer Personal Data. For account, billing, security, usage, support,
         and feedback data that Company needs to run
-        its business,
+        its business (where feedback contains Customer Personal Data, Company
+        uses that part only to examine and fix what the feedback reports),
         Company is the controller, as the{" "}
         <a href="https://cmux.com/privacy-policy#cmux-cloud">Privacy Policy</a>{" "}
         describes.
@@ -162,11 +163,10 @@ export default function CmuxCloudDpaPage() {
         Customer Personal Data when the account ends. Until Company deletes the
         data from its live systems, Customer can ask for a copy. Company deletes
         Customer Personal Data from its live systems 30 days after the account
-        ends, or sooner if Customer asks, and from backups within 35 days after
-        the account ends, except data that the law requires Company to keep.
-        Company keeps that data confidential and does not use it for another
-        purpose. [LEGAL REVIEW: effective when the deletion job ships; see the
-        PR comments.]
+        ends, or sooner if Customer asks; backups that still hold it expire
+        within 35 days after that deletion. This does not apply to data that
+        the law requires Company to keep. Company keeps that data confidential
+        and does not use it for another purpose. [LEGAL REVIEW: the deletion on an admin&rsquo;s request is on prime-interface main (PR 296); the automatic deletion after the account ends is off until the owner turns it on; until then it is on request.]
       </p>
 
       <h2>9. Audits</h2>
@@ -224,8 +224,10 @@ export default function CmuxCloudDpaPage() {
         </li>
         <li>
           Nature and purpose: hosting, storage, joining meetings, recording
-          audio, receiving and deleting meeting chat messages and participant
-          records, transcription, writing notes, AI model processing, running
+          audio, receiving, reading, keeping for the time of the meeting, and
+          deleting live transcript lines, meeting chat messages, and participant
+          records; answering questions and passing on requests that participants
+          type to the notetaker; transcription, writing notes, AI model processing, running
           agents and cloud machines, delivering results, and keeping or deleting
           archive copies, as Customer and its users ask.
         </li>
@@ -240,7 +242,8 @@ export default function CmuxCloudDpaPage() {
           Categories of data: names, email addresses, and profile details;
           messages and files; voices, words, and names in meeting audio
           recordings and transcripts; meeting participant join and leave times
-          and meeting chat messages; model call requests and answers; calendar
+          and meeting chat messages; questions and requests typed to the
+          notetaker; model call requests and answers; calendar
           event details; code and other
           content in connected tools and cloud machines; memory.
         </li>
