@@ -66,6 +66,14 @@ public nonisolated struct AgentPaneTransportEvent: Equatable, Sendable {
     /// (``AgentPaneTransport/acked(connection:seq:inputPending:)``). Nil: no ack wanted.
     public var seq: Int?
 
+    /// `seq` defaults to nil: a host-made push (a question key's announcement) wants no ack.
+    public init(connection: Int, frames: [String], closed: AgentPaneTransportClose?, seq: Int? = nil) {
+        self.connection = connection
+        self.frames = frames
+        self.closed = closed
+        self.seq = seq
+    }
+
     /// The push as the page host sends it, built without a Foundation round trip.
     var value: JSONValue {
         var object: [String: JSONValue] = ["connection": .number(Double(connection))]
