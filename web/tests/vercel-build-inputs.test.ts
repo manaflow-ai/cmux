@@ -38,6 +38,27 @@ test("includes every dynamically read Open Graph asset in traced route output", 
   expect(
     nextConfig.outputFileTracingIncludes?.["**/browser-opengraph-image"],
   ).toEqual(["./public/logo.png"]);
+  expect(nextConfig.outputFileTracingIncludes?.["/extensions/og.png"]).toEqual(["./public/logo.png"]);
+});
+
+test("every route that reads a public/ file with fs traces that file", async () => {
+  // A route reading join(process.cwd(), "public", NAME) at request time throws ENOENT on Vercel unless
+  // outputFileTracingIncludes names the file for a pattern matching that route.
+  const includes = Object.entries(nextConfig.outputFileTracingIncludes ?? {});
+  const missing: string[] = [];
+  for await (const file of new Bun.Glob("app/**/{route,opengraph-image,twitter-image}.{ts,tsx}").scan(".")) {
+    const source = await Bun.file(file).text();
+    const reads = [...source.matchAll(/join\(process\.cwd\(\),\s*"public",\s*"([^"]+)"\)/g)].map((m) => `./public/${m[1]}`);
+    if (reads.length === 0) continue;
+    const route = `/${file.replace(/^app\//, "").replace(/\/[^/]+$/, "")}`.replace(/\/\([^/]+\)/g, "");
+    const name = file.replace(/\.(ts|tsx)$/, "").split("/").pop()!;
+    const page = name === "route" ? route : `${route}/${name}`;
+    for (const asset of reads) {
+      const traced = includes.some(([pattern, files]) => (pattern === page || new Bun.Glob(pattern).match(page)) && files.includes(asset));
+      if (!traced) missing.push(`${page} reads ${asset}`);
+    }
+  }
+  expect(missing).toEqual([]);
 });
 
 test("includes Cloud VM prompt templates in traced server output", () => {
