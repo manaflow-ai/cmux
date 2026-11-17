@@ -4465,25 +4465,20 @@ jobs:
   # cmux-next-tree-notify-pending record; make that notify again here, on
   # every feat-cmux-next push, so no deferred same-tree run is lost to one
   # refused call. One artifacts read when nothing is pending; no wait.
-  # One group for every run: overlapping sweeps read the same record and
-  # marker before either deleted them, and each dispatched the same
-  # same-tree run (2026-11-17, b0549a37: three runs, three Debug scheme
-  # compiles on the owned Mac minis). cancel-in-progress false: a started
-  # sweep finishes; GitHub replaces only a pending one, and the records stay
-  # artifacts for the sweep that replaced it, so none is lost. The step ran on
-  # every branch's push before; it is a feat-cmux-next sweep, as its reason
-  # and the note above say, and a replaced sweep's cancelled job stays off
-  # pull request heads. A cancelled sweep holds back no artifact drop: it is
-  # not in drop-build-artifacts' needs.
+  # Overlapping sweeps read the same record and marker before either deleted
+  # them, and each dispatched the same same-tree run (2026-11-17, b0549a37:
+  # three runs, three Debug scheme compiles on the owned Mac minis). A sweep
+  # now claims a record by deleting it first, and records again what it
+  # claimed and could not finish (sweep_pending). No concurrency group: GitHub
+  # ends a pending job its group replaced as cancelled, and with it this run,
+  # which nightly_builder.py and pin-cmux-tui.sh read. The step ran on every
+  # branch's push before; it is a feat-cmux-next sweep, as its reason says.
   sweep-pending-tree-notify:
     name: start the cmux-next tree jobs a refused tree notify left
     needs: [tree-preflight, mark-tree-commits]
     if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.mark-tree-commits.result == 'success' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
-    concurrency:
-      group: cmux-tui-sweep-pending-tree-notify
-      cancel-in-progress: false
     # Secrets only: no deployment on the PR. The spare token (below) is the cmux-bot App's.
     environment:
       name: ci-routing-agent
@@ -4514,10 +4509,28 @@ jobs:
           permission-pull-requests: read
 
       - name: Start the cmux-next tree jobs a refused tree notify left
+        id: sweep
         env:
           GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token && github.token || '' }}
-        run: python3 scripts/ci/cmux_next_tree_notify.py --repo "$GITHUB_REPOSITORY" --sweep-pending
+        run: |
+          pending="$RUNNER_TEMP/tree-notify-pending/pending.json"
+          python3 scripts/ci/cmux_next_tree_notify.py --repo "$GITHUB_REPOSITORY" --sweep-pending --pending-file "$pending"
+          if [[ -f "$pending" ]]; then
+            echo "pending=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The records this sweep claimed (deleted) and could not finish, written
+      # again for the next sweep.
+      - name: Record again the tree notifies the sweep could not finish
+        if: always() && steps.sweep.outputs.pending == 'true'
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-next-tree-notify-pending
+          path: ${{ runner.temp }}/tree-notify-pending/pending.json
+          retention-days: 3
+          overwrite: true
 
   # Cloud machines keep their cmux-tui and cmux-tui-hook on the newest
   # feat-cmux-next build by themselves (the updater role of `cmux host run`,
@@ -4926,7 +4939,7 @@ jobs:
   # 300 an hour, must not spend the 1,000-an-hour budget every workflow shares.
   drop-build-artifacts:
     name: drop this run's build artifacts
-    needs: [reject-untrusted-pin-ref, tree-preflight, tree-owner-wait, build-linux, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, point-feat-channel, point-windows-channel, mark-tree-commits, sweep-commit-manifests, point-machine-channel-early, point-machine-channel, request-image-roll, request-nightly-next, request-team-signed-tree, notify-unpublished-tree]
+    needs: [reject-untrusted-pin-ref, tree-preflight, tree-owner-wait, build-linux, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, point-feat-channel, point-windows-channel, mark-tree-commits, sweep-commit-manifests, sweep-pending-tree-notify, point-machine-channel-early, point-machine-channel, request-image-roll, request-nightly-next, request-team-signed-tree, notify-unpublished-tree]
     # Not after notify-unpublished-tree ran: it must stay the run's last job so the
     # deferred run it re-runs finds this owner ended (cx-urd.26). Those runs keep
     # their artifacts to the 1-day retention.

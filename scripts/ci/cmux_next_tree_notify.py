@@ -709,70 +709,119 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
 
 # NOTIFY_NEVER_LOST (lw#5184): a ready notify that GitHub refused, whole or for one marker, leaves its key in an
 # artifact of this name (pending.json: {"key", "state"}); artifact uploads spend no REST quota. Every
-# feat-cmux-next push's sweep-pending-tree-notify job (one at a time: its concurrency group) reads the artifacts
+# feat-cmux-next push's sweep-pending-tree-notify job reads the artifacts
 # of this one name (sweep_pending), makes the notify again for each key whose tree is published, and deletes the
 # record once it went through. A miss is then at most one feat-cmux-next push late, never a same-tree run nothing will dispatch (cmux#43194 at 688722a2: the publish's notify
 # was refused with HTTP 403 and only warned; merge_hold held the pull request for hours).
 PENDING_ARTIFACT = "cmux-next-tree-notify-pending"
 
 
-def write_pending(path: str, key: str, state: str, why: str) -> None:
+def write_pending(path: str, keys: str | list[str], state: str, why: str) -> None:
+    """Writes the pending record of KEYS (one tree key or several: a sweep records again every key it claimed)."""
+    keys = [keys] if isinstance(keys, str) else list(keys)
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     with open(path, "w", encoding="utf-8") as handle:
-        json.dump({"key": key, "state": state, "why": why[:500]}, handle)
+        json.dump({"key": keys[0], "keys": keys, "state": state, "why": why[:500]}, handle)
 
 
 def read_pending(api: Api, artifact: dict) -> dict | None:
-    """The validated pending record of an artifact, or None."""
+    """The validated pending record of an artifact, its tree keys in "keys", or None."""
     try:
         with zipfile.ZipFile(io.BytesIO(api.download(artifact["archive_download_url"]))) as archive:
             record = json.loads(archive.read("pending.json"))
     except (KeyError, ValueError, zipfile.BadZipFile, RuntimeError, OSError):
         return None
-    if not isinstance(record, dict) or not SHA.match(str(record.get("key", ""))) or record.get("state") != "ready":
+    if not isinstance(record, dict) or record.get("state") != "ready":
         return None
-    return record
+    keys = record.get("keys", [record.get("key")])
+    if not isinstance(keys, list) or not keys or len(keys) > MAX_MARKERS or not all(SHA.match(str(key)) for key in keys):
+        return None
+    return dict(record, keys=list(dict.fromkeys(keys)))
 
 
 def sweep_pending(api: Api, repo: str, log: Callable[[str], None] = print,
                   fetch_completion: Callable[[str], object | None] = fetch_completion,
-                  make: Callable[..., int] | None = None) -> list[str]:
+                  make: Callable[..., int] | None = None,
+                  record: Callable[[list[str]], None] | None = None) -> list[str]:
     """Make again every ready notify a refused publish left (PENDING_ARTIFACT); returns the keys still pending.
     Only a same-repository run's record counts, and only for a tree whose completion.json is published: a record
-    starts nothing a publish would not."""
+    starts nothing a publish would not.
+
+    One sweep runs per feat-cmux-next push, and they overlap: on 2026-11-17 overlapping sweeps read one record
+    and its marker before either deleted them, and each dispatched the same same-tree run (b0549a37: three runs,
+    three Debug scheme compiles on the owned Mac minis). So a sweep claims a key before it notifies, by deleting
+    the key's records: GitHub answers the first DELETE of an artifact 204 and every later one 404, and a sweep
+    that deleted none of them leaves the key to the sweep that did. A key the sweep claimed and could not finish
+    (and any other key of a record it deleted) is handed to RECORD, which writes the record again (main(),
+    --pending-file), so a claim never loses a notify. A job concurrency group would serialize the sweeps too,
+    but GitHub ends a pending job its group replaced as cancelled, and with it the artifacts run, which
+    nightly_builder.py and pin-cmux-tui.sh read as a build that did not finish."""
     make = make or notify
     listing = api.get(f"repos/{repo}/actions/artifacts?name={PENDING_ARTIFACT}&per_page=100")
     records: dict[str, list[dict]] = {}
+    keys_of: dict[int, list[str]] = {}
     for artifact in listing.get("artifacts", []) if isinstance(listing, dict) else []:
         if not isinstance(artifact, dict) or artifact.get("expired") or not from_same_repository(artifact):
             continue
-        record = read_pending(api, artifact)
-        if record is None:
+        read = read_pending(api, artifact)
+        if read is None:
             log(f"pending record {artifact.get('id')} is not one a publish wrote; ignored")
             continue
-        records.setdefault(record["key"], []).append(artifact)
-    left = []
+        keys_of[id(artifact)] = read["keys"]
+        for key in read["keys"]:
+            records.setdefault(key, []).append(artifact)
+    left: list[str] = []
+    # Records this sweep deleted (claimed), and the keys it finished.
+    claimed: dict[int, dict] = {}
+    done: set[str] = set()
     for key, artifacts in records.items():
         if not completion_attests(fetch_completion(key), key):
             log(f"tree {key}: pending, but its completion.json does not attest it; left for a later sweep")
             left.append(key)
             continue
+        refused = False
+        for artifact in artifacts:
+            if id(artifact) in claimed:
+                continue
+            status = api.delete(f"repos/{repo}/actions/artifacts/{artifact['id']}")
+            if status in (200, 204):
+                claimed[id(artifact)] = artifact
+            elif status != 404:
+                refused = True
+                log(f"::warning::tree {key}: deleting pending record {artifact.get('id')} was refused "
+                    f"(HTTP {status}); left for a later sweep")
+        if not any(id(artifact) in claimed for artifact in artifacts):
+            if refused:
+                left.append(key)
+            else:
+                log(f"tree {key}: another sweep claimed its pending record first; nothing to make again")
+            continue
         unstarted: list = []
         try:
             started = make(api, repo=repo, key=key, state="ready", log=log, unstarted=unstarted,
-                             reason=f"tree {key} is published ({TREE_BASE}/{key}/completion.json); its publish's "
-                                    f"notify was refused, and the feat-cmux-next sweep made it again")
+                           reason=f"tree {key} is published ({TREE_BASE}/{key}/completion.json); its publish's "
+                                  f"notify was refused, and the feat-cmux-next sweep made it again")
         except (RuntimeError, OSError, ValueError) as error:
-            log(f"::warning::tree {key}: the pending notify was refused again ({error}); the next sweep retries")
+            log(f"::warning::tree {key}: the pending notify was refused again ({error}); recorded again")
             left.append(key)
             continue
         if unstarted:
-            log(f"::warning::tree {key}: runs {unstarted} are still not started; the next sweep retries")
+            log(f"::warning::tree {key}: runs {unstarted} are still not started; recorded again")
             left.append(key)
             continue
+        done.add(key)
         log(f"tree {key}: the pending notify went through ({started} same-tree run(s) started)")
-        for artifact in artifacts:
-            api.delete(f"repos/{repo}/actions/artifacts/{artifact['id']}")
+    # Every key of a deleted record that did not go through: a later sweep must still see it.
+    again = list(dict.fromkeys(key for artifact in claimed.values() for key in keys_of[id(artifact)]
+                               if key not in done))
+    if again:
+        if record is not None:
+            record(again)
+        else:
+            log(f"::warning::the pending notifies of {', '.join(again)} are not recorded again (no --pending-file)")
+    for key in again:
+        if key not in left:
+            left.append(key)
     return left
 
 
@@ -793,8 +842,11 @@ def main(argv: list[str]) -> int:
         return 1 if args.sweep_pending else 0
     api = GitHub(token, os.environ.get("GITHUB_API_URL", "https://api.github.com"), os.environ.get("GH_TOKEN_SPARE", ""))
     if args.sweep_pending:
+        def record(keys: list[str]) -> None:
+            if args.pending_file:
+                write_pending(args.pending_file, keys, "ready", "the sweep claimed it and could not finish")
         try:
-            left = sweep_pending(api, args.repo)
+            left = sweep_pending(api, args.repo, record=record)
         except (RuntimeError, OSError, ValueError) as error:
             print(f"::error title=tree notify sweep::could not read the pending notifies: {error}")
             return 1
