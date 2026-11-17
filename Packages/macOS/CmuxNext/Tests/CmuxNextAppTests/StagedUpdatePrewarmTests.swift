@@ -71,33 +71,9 @@ import Testing
         let prewarm = StagedUpdatePrewarm(installation: root, bundleIdentifier: Self.bundleID, build: "200")
         #expect(prewarm.runs(bundle: full).map { "\($0.executable.lastPathComponent) \($0.arguments.joined(separator: " "))" }
             == ["cmux \(StagedUpdatePrewarm.argument)", "cmux --version", "cmux-tui --version",
-                "cmux Helper (GPU) --version", "cmux Helper --version", "cmux \(StagedUpdatePrewarm.chromiumArgument)"])
+                "cmux Helper (GPU) --version", "cmux Helper --version"])
         let bare = try Self.stage(root, "u2", "x2", build: "201", bins: [], helpers: [])
-        #expect(prewarm.runs(bundle: bare).map(\.arguments) == [[StagedUpdatePrewarm.argument], [StagedUpdatePrewarm.chromiumArgument]])
-    }
-
-    /// Chromium's pre-warm runs the staged app itself, last, once the framework's first load is paid by the helpers'
-    /// `--version` runs; a bundle with no executable of its own gets no Chromium run either.
-    @Test func chromiumRunsLastAndOnlyWithTheAppsExecutable() throws {
-        let root = try Self.temporary()
-        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
-        let full = try Self.stage(root, "u1", "x1", build: "200")
-        let prewarm = StagedUpdatePrewarm(installation: root, bundleIdentifier: Self.bundleID, build: "200")
-        let runs = prewarm.runs(bundle: full)
-        #expect(runs.last?.arguments == [StagedUpdatePrewarm.chromiumArgument])
-        #expect(runs.last?.executable == runs.first?.executable, "Chromium's pre-warm ran something other than the staged app")
-        #expect(runs.filter { $0.arguments == [StagedUpdatePrewarm.chromiumArgument] }.count == 1)
-        try FileManager.default.removeItem(at: full.appending(path: "Contents/MacOS/cmux"))
-        #expect(!prewarm.runs(bundle: full).contains { $0.arguments == [StagedUpdatePrewarm.chromiumArgument] })
-    }
-
-    @Test func onlyTheChromiumArgumentStartsChromiumsPrewarm() {
-        #expect(StagedUpdatePrewarm.isChromiumPrewarm(["/A/cmux", StagedUpdatePrewarm.chromiumArgument]))
-        #expect(!StagedUpdatePrewarm.isChromiumPrewarm(["/A/cmux", StagedUpdatePrewarm.argument]))
-        #expect(!StagedUpdatePrewarm.isPrewarm(["/A/cmux", StagedUpdatePrewarm.chromiumArgument]), "the exec-only pre-warm would skip Chromium")
-        #expect(!StagedUpdatePrewarm.isChromiumPrewarm(["/A/cmux"]))
-        #expect(!StagedUpdatePrewarm.isChromiumPrewarm(["/A/cmux", "--other", StagedUpdatePrewarm.chromiumArgument]), "only as the first argument")
-        #expect(!StagedUpdatePrewarm.isChromiumPrewarm([StagedUpdatePrewarm.chromiumArgument]), "the executable itself is not an argument")
+        #expect(prewarm.runs(bundle: bare).map(\.arguments) == [[StagedUpdatePrewarm.argument]])
     }
 
     @Test func performRunsEachOnceWithItsArguments() async throws {
@@ -107,7 +83,7 @@ import Testing
         let line = await StagedUpdatePrewarm(installation: root, bundleIdentifier: Self.bundleID, build: "200").perform(work: BackgroundWork())
         let ran = try String(contentsOf: root.appending(path: "ran.txt"), encoding: .utf8).split(separator: "\n")
         #expect(ran == ["app \(StagedUpdatePrewarm.argument)", "cmux --version", "cmux-tui --version",
-                        "cmux Helper (GPU) --version", "cmux Helper --version", "app \(StagedUpdatePrewarm.chromiumArgument)"])
+                        "cmux Helper (GPU) --version", "cmux Helper --version"])
         #expect(line.hasPrefix("launch pre-warm of 200 (cmux.app): cmux exit 0"), "\(line)")
         #expect(line.contains("Frameworks read 2 files, 2 pages"), "the two helpers' executables, after they ran: \(line)")
         let none = await StagedUpdatePrewarm(installation: root, bundleIdentifier: Self.bundleID, build: "300").perform(work: BackgroundWork())

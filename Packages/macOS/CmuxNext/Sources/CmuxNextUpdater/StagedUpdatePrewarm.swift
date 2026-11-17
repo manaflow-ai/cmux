@@ -30,16 +30,6 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
         arguments.dropFirst().first == argument
     }
 
-    /// The argument the last run starts the staged app with: Chromium's first start in that copy, for real, in a
-    /// throwaway profile (`CmuxNextApp.main()` runs `CEFStagedPrewarm` on it and exits). Only a build that knows it
-    /// passes it, and only to a newer staged build, which knows it too.
-    public static let chromiumArgument = "--cmux-prewarm-chromium"
-
-    /// Whether `arguments` (the process's, executable first) start Chromium's pre-warm (``chromiumArgument``).
-    public static func isChromiumPrewarm(_ arguments: [String]) -> Bool {
-        arguments.dropFirst().first == chromiumArgument
-    }
-
     /// The bundled executables run once with `--version` (`Contents/Resources/bin`).
     public static let bundledExecutables = ["cmux", "cmux-tui"]
 
@@ -83,13 +73,10 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
     /// that is there. Blocking: reads the bundle.
     public func runs(bundle: URL) -> [Run] {
         let files = FileManager.checked
-        var runs: [Run] = [], app: URL?
+        var runs: [Run] = []
         if let name = Self.info(bundle)?["CFBundleExecutable"] as? String {
             let executable = bundle.appending(path: "Contents/MacOS").appending(path: name)
-            if files.isExecutableFile(atPath: executable.path) {
-                runs.append(Run(executable: executable, arguments: [Self.argument]))
-                app = executable
-            }
+            if files.isExecutableFile(atPath: executable.path) { runs.append(Run(executable: executable, arguments: [Self.argument])) }
         }
         for name in Self.bundledExecutables {
             let executable = bundle.appending(path: "Contents/Resources/bin").appending(path: name)
@@ -106,9 +93,6 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
             let executable = helper.appending(path: "Contents/MacOS").appending(path: name)
             if files.isExecutableFile(atPath: executable.path) { runs.append(Run(executable: executable, arguments: ["--version"])) }
         }
-        // Last, with the framework's first load paid: the app starts Chromium in a throwaway profile with one hidden
-        // page on about:blank, so the renderer, GPU and network helpers' first starts are paid here too.
-        if let app { runs.append(Run(executable: app, arguments: [Self.chromiumArgument])) }
         return runs
     }
 
