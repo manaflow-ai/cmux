@@ -41,7 +41,11 @@ def _check(cond, msg):
         print(f"ok: {msg}")
 
 
-def make_app(root, bundle_id="com.cmuxterm.cua", executable=True):
+# A thin arm64 Mach-O header: enough for the layout check to read cmux-remote's slices.
+ARM64_MACHO = b"\xcf\xfa\xed\xfe\x0c\x00\x00\x01" + bytes(24)
+
+
+def make_app(root, bundle_id="com.cmuxterm.cua", executable=True, remote=True):
     app = os.path.join(root, "cmux.app")
     helper = os.path.join(app, HELPER)
     os.makedirs(os.path.join(helper, "Contents", "MacOS"))
@@ -52,6 +56,17 @@ def make_app(root, bundle_id="com.cmuxterm.cua", executable=True):
         with open(path, "w") as handle:
             handle.write("#!/bin/sh\n")
         os.chmod(path, 0o755)
+    if remote:
+        # cmux-remote, what it loads and its resources (scripts/cmux-next/bundle-cmux-remote.sh).
+        path = os.path.join(helper, "Contents", "MacOS", "cmux-remote")
+        with open(path, "wb") as handle:
+            handle.write(ARM64_MACHO)
+        os.chmod(path, 0o755)
+        os.makedirs(os.path.join(helper, "Contents", "Frameworks"))
+        for dylib in ("libWebRTC.dylib", "libcua_driver_sdk.dylib"):
+            with open(os.path.join(helper, "Contents", "Frameworks", dylib), "wb") as handle:
+                handle.write(ARM64_MACHO)
+        os.makedirs(os.path.join(helper, "Contents", "Resources", "CmuxRemote_CmuxRemoteScreenSharing.bundle"))
     return app
 
 
@@ -78,6 +93,10 @@ def main():
     with tempfile.TemporaryDirectory() as tmp:
         result = verify(make_app(tmp, executable=False))
         _check(result.returncode != 0, f"a helper without its executable fails ({result.stderr.strip()})")
+    with tempfile.TemporaryDirectory() as tmp:
+        result = verify(make_app(tmp, remote=False))
+        _check(result.returncode != 0 and "cmux-remote" in result.stderr,
+               f"a helper without cmux-remote fails, naming it ({result.stderr.strip()})")
 
     # nightly.yml with its scripts/ci/nightly-steps/ step scripts inline (tests/nightly_workflow_text.py).
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

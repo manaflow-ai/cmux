@@ -4,18 +4,16 @@
 # builds only copy the pinned, team-signed (the pin's "signing" field)
 # "cmux Computer Use (dev).app" (cua-helper-dev.pin.json) to
 #   Contents/Library/cmux Computer Use (dev).app
-# where ComputerUseHelperV2 starts it for computerUse.driver = "upstream".
+# where ComputerUseHelperV2 starts it for computerUse.driver = "upstream", and
+# where the cmux-tui daemon finds cmux-remote (Contents/MacOS/cmux-remote,
+# docs/cmux-remote.md): the DEV build's one permission identity.
 # The bytes are never re-signed here (the helper's code identity, and so its
 # macOS grant, must stay the same across builds); Xcode signs the outer app
-# without --deep. The cmux Remote asset is also embedded for a Release build
-# that asks for it (embed-cmux-remote-dev.sh). An unavailable helper (no R2 read
+# without --deep. An unavailable helper (no R2 read
 # credentials) warns and embeds nothing unless CMUX_NEXT_REQUIRE_CUA_HELPER=1;
 # a sha256 mismatch fails the build. CMUX_NEXT_SKIP_CUA_HELPER=1 embeds nothing.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# cmux Remote (docs/cmux-remote.md) is embedded by the same phase, first: the
-# helper's own early exits below must not skip it.
-"$SCRIPT_DIR/embed-cmux-remote-dev.sh"
 app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
 name="cmux Computer Use (dev).app"
 dest="$app/Contents/Library/$name"

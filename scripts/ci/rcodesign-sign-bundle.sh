@@ -20,7 +20,7 @@
 #      the helper entitlements; libexec/cmux-server-helper: no entitlements,
 #      identifier cmux-server-helper. Symlinks and scripts are left to the seal.
 #   2. The nested cmux Computer Use app (helper entitlements; its
-#      cmux-screen-sharing with the helper's identifier), then a separate
+#      cmux-screen-sharing and cmux-remote with the helper's identifier), then a separate
 #      Screen Sharing helper app, if an older app has one (no entitlements).
 #   3. Each Contents/PlugIns/* (recursive, like codesign --deep).
 #   4. Contents/Frameworks/*: Sparkle's sandbox XPC services removed first,
@@ -84,11 +84,20 @@ computer_use="$APP/Contents/Library/cmux Computer Use.app"
 # Its screen sharing executable (one permission identity for screen sharing and computer use,
 # bundle-screen-sharing-helper.sh) takes the helper's identifier and the hardened runtime in the
 # same pass: rcodesign re-signs nested code, and unscoped options reach only the main executable.
+# cmux-remote (the supervisor and its workers, scripts/cmux-next/bundle-cmux-remote.sh) the same;
+# the dylibs it loads from the helper's Contents/Frameworks are nested code rcodesign signs in that
+# pass with the same certificate.
 nested_args=()
-if [[ -f "$computer_use/Contents/MacOS/cmux-screen-sharing" ]]; then
-  nested_args=(--binary-identifier "Contents/MacOS/cmux-screen-sharing:com.cmuxterm.cua"
-    --code-signature-flags "Contents/MacOS/cmux-screen-sharing:runtime")
-fi
+for nested_exe in cmux-screen-sharing cmux-remote; do
+  [[ -f "$computer_use/Contents/MacOS/$nested_exe" ]] || continue
+  nested_args+=(--binary-identifier "Contents/MacOS/$nested_exe:com.cmuxterm.cua"
+    --code-signature-flags "Contents/MacOS/$nested_exe:runtime")
+done
+# SwiftPM resource bundles (cmux-remote's) hold no code: sealed as resources, not signed as bundles.
+for resource_bundle in "$computer_use/Contents/Resources/"*.bundle; do
+  [[ -d "$resource_bundle" && ! -e "$resource_bundle/Contents/MacOS" ]] || continue
+  nested_args+=(--exclude "Contents/Resources/${resource_bundle##*/}")
+done
 if [[ -d "$computer_use" ]]; then
   sign --entitlements-xml-file "$HELPER_ENTITLEMENTS" ${nested_args[@]+"${nested_args[@]}"} "$computer_use"
 fi

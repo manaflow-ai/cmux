@@ -1137,7 +1137,7 @@ unchanged, for each rustc that built one of its binaries:
 - `Contents/Resources/toolchain-licenses/rust-1.98.1/COPYRIGHT-library.html`:
   `bin/cmux-diff-sidecar`
 - `Contents/Resources/toolchain-licenses/rust-1.97.1/COPYRIGHT-library.html`:
-  `Library/cmux Remote (dev).app/Contents/Frameworks/libcua_driver_sdk.dylib`
+  `Library/cmux Computer Use.app/Contents/Frameworks/libcua_driver_sdk.dylib`
   (the pinned upstream Cua Driver SDK)
 
 The app (GhosttyNextKit), `bin/cmux` and `bin/cmux-tui-ssh/*` (libghostty-vt)

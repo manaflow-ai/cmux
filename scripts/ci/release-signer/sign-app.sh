@@ -78,6 +78,9 @@ computer_use="$APP_PATH/Contents/Library/cmux Computer Use.app"
 # The screen sharing executable the Computer Use helper carries (one permission identity for
 # screen sharing and computer use, scripts/cmux-next/bundle-screen-sharing-helper.sh).
 SCREEN_SHARING_IN_HELPER="Contents/MacOS/cmux-screen-sharing"
+# And the supervisor the daemon spawns from it (cmux-remote: the host and its workers,
+# scripts/cmux-next/bundle-cmux-remote.sh), with the same identifier.
+REMOTE_IN_HELPER="Contents/MacOS/cmux-remote"
 # The Screen Sharing helper ("<app> Screen Sharing.app"), when the app carries
 # one: stamped for the app's final bundle id and name first (the nightly-next
 # identity went into Info.plist after the build), as sign-cmux-bundle.sh step 2b.
@@ -299,6 +302,12 @@ if [[ "$MODE" == helper-first ]]; then
     # the bundle's main executable, so its own identifier would be its file name.
     [[ -z "${is_macho[$hrel/$SCREEN_SHARING_IN_HELPER]:-}" ]] ||
       hargs+=(--binary-identifier "$SCREEN_SHARING_IN_HELPER:com.cmuxterm.cua")
+    [[ -z "${is_macho[$hrel/$REMOTE_IN_HELPER]:-}" ]] ||
+      hargs+=(--binary-identifier "$REMOTE_IN_HELPER:com.cmuxterm.cua")
+    # Its SwiftPM resource bundles (cmux-remote's) hold no code: sealed as resources, not signed.
+    for rel in "$hb/Contents/Resources/"*.bundle; do
+      [[ -d "$rel" && ! -e "$rel/Contents/MacOS" ]] && hargs+=(--exclude "Contents/Resources/${rel##*/}")
+    done
     for rel in ${hmachos[@]+"${hmachos[@]}"}; do hargs+=(--code-signature-flags "${rel#"$hrel/"}:runtime"); done
     echo "==> signing nested helper ${hb##*/}"
     run_signer "$R" sign "${identity_args[@]}" "${hargs[@]}" "$hb" > "$work/log" 2>&1 ||
@@ -420,8 +429,10 @@ else
   if [[ -d "$computer_use" ]]; then exe_of "$computer_use"; ent["$exe"]="$HELPER_ENTITLEMENTS"; fi
   # Its screen sharing executable: the helper's identifier, no entitlements (as
   # sign-cmux-bundle.sh step 2).
-  rel="${computer_use#"$APP_PATH/"}/$SCREEN_SHARING_IN_HELPER"
-  if [[ -n "${is_macho[$rel]:-}" ]]; then ident["$rel"]=com.cmuxterm.cua; clear["$rel"]=1; fi
+  # cmux-remote the same.
+  for rel in "${computer_use#"$APP_PATH/"}/$SCREEN_SHARING_IN_HELPER" "${computer_use#"$APP_PATH/"}/$REMOTE_IN_HELPER"; do
+    if [[ -n "${is_macho[$rel]:-}" ]]; then ident["$rel"]=com.cmuxterm.cua; clear["$rel"]=1; fi
+  done
 fi
 
 # 3. Plugins (--deep, no entitlements).
@@ -472,7 +483,7 @@ done
 
 # SwiftPM resource bundles hold no code: codesign seals them as resources,
 # the signer would sign them as nested bundles.
-for bundle in "$APP_PATH/Contents/Resources/"*.bundle; do
+for bundle in "$APP_PATH/Contents/Resources/"*.bundle "$computer_use/Contents/Resources/"*.bundle; do
   [[ -d "$bundle" && ! -e "$bundle/Contents/MacOS" ]] && excludes+=(--exclude "${bundle#"$APP_PATH/"}")
 done
 

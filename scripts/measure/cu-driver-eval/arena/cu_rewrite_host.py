@@ -15,7 +15,7 @@ team, so this script plays the daemon's and cmux Remote's two parts and nothing 
   `{"id","cmd":"computer-use-endpoint"}` line with the worker's socket and secret, the answer the
   real daemon gives once the worker is up (acpmux/src/computer_use/client.rs EndpointState).
 
-  cu_rewrite_host.py --remote "PATH/cmux Remote (dev).app" --socket DAEMON_SOCK --state DIR [--policy JSON]
+  cu_rewrite_host.py --remote "PATH/cmux Computer Use (dev).app" --socket DAEMON_SOCK --state DIR [--policy JSON]
 
 Python 3.9 standard library only.
 """

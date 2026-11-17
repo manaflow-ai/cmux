@@ -46,10 +46,19 @@ app="$work/cmux Computer Use (dev).app"
 [[ -d "$app" ]] || { echo "error: $zip has no cmux Computer Use (dev).app" >&2; exit 1; }
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" == com.cmuxterm.cua.dev ]] ||
   { echo "error: unexpected bundle id" >&2; exit 1; }
-# Hardened runtime; library validation holds because the dylib carries the same team signature.
+# Hardened runtime; library validation holds because the dylibs carry the same team signature.
 sign() { codesign --force --options runtime "$timestamp" ${keychain[@]+"${keychain[@]}"} --sign "$identity" "$@"; }
+# cmux-remote (bundle-cmux-remote.sh, docs/cmux-remote.md) ships in this helper: the DEV build's one
+# permission identity. Nested code first: the dylibs, then cmux-remote with the helper's identifier
+# (no entitlements), then the app that seals them.
+for nested in "$app/Contents/Frameworks/libWebRTC.dylib" "$app/Contents/MacOS/cmux-remote"; do
+  [[ -f "$nested" ]] || { echo "error: $zip has no ${nested#"$app/"} (build-cua-helper-dev.sh places cmux-remote)" >&2; exit 1; }
+done
 sign "$app/Contents/Frameworks/libcua_driver_sdk.dylib"
+sign "$app/Contents/Frameworks/libWebRTC.dylib"
+sign --identifier com.cmuxterm.cua.dev "$app/Contents/MacOS/cmux-remote"
 sign "$app"
+codesign --verify --strict -R="identifier \"com.cmuxterm.cua.dev\" and anchor apple generic" "$app/Contents/MacOS/cmux-remote"
 codesign --verify --strict --deep --verbose=2 "$app"
 team="$(codesign -dv "$app" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
 [[ "$team" == 7WLXT3NR37 ]] || { echo "error: signed by team $team, not cmux's" >&2; exit 1; }

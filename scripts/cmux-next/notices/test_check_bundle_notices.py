@@ -458,12 +458,13 @@ class CheckBundleNoticesTest(unittest.TestCase):
                 self.assertRegex(need, r"^(first-party|rust-std|zig-std|section:[A-Za-z0-9._-]+|(file|ghostty-license-tree):Contents/.+)$")
             self.assertFalse(re.search(r"/Versions/[A-Z]/", entry["path"]), "match Versions with *, not a fixed letter")
 
-    # cmux Remote --------------------------------------------------------------
+    # cmux-remote in the Computer Use helper -----------------------------------
 
-    # Release builds embed the pinned cmux Remote (embed-cmux-remote-dev.sh, build-cmux-remote-dev.sh).
-    # nightly-next run 43864670865 (97eacf0d, 2026-11-16) failed the signed-app checks: these three
-    # Mach-O files had no bundle-map entry.
-    REMOTE = "Contents/Library/cmux Remote (dev).app"
+    # Every Release, NIGHTLY and RC app carries cmux-remote inside the Computer Use helper, with its
+    # two dylibs (scripts/cmux-next/bundle-cmux-remote.sh). nightly-next run 43864670865 (97eacf0d,
+    # 2026-11-16) failed the signed-app checks when these three Mach-O files (then in a separate
+    # bundle) had no bundle-map entry.
+    REMOTE = "Contents/Library/cmux Computer Use.app"
     REMOTE_SDK = f"{REMOTE}/Contents/Frameworks/libcua_driver_sdk.dylib"
     # cua-driver-sdk.pin.json: upstream trycua/cua cua-driver-rs-v0.38.0, built with rustc 1.97.1.
     REMOTE_SDK_RUSTC = "8bab26f4f68e0e26f0bb7960be334d5b520ea452"

@@ -258,8 +258,9 @@ try:
     check("2 helper ready line logged", bool(ready), ready["message"] if ready else json.dumps(rows)[:600])
     helper = next((p for p in bundle_processes() if "cmux-cua-helper" in p["command"]), None)
     remote = None
-    if helper is None and os.path.isdir(os.path.join(APP, "Contents/Library/cmux Remote (dev).app")):
-        # cmux Remote (docs/cmux-remote.md): the worker is the host's child, the host the daemon's.
+    if helper is None and os.path.isfile(os.path.join(APP, "Contents/Library/cmux Computer Use (dev).app/Contents/MacOS/cmux-remote")):
+        # cmux-remote inside the Computer Use helper (docs/cmux-remote.md): the worker is the host's
+        # child, the host the daemon's.
         listing = subprocess.run(["ps", "-Aww", "-o", "pid=,ppid=,command="], capture_output=True, text=True).stdout.splitlines()
         procs = [r.strip().split(None, 2) for r in listing if "MacOS/cmux-remote " in r]
         hosts = [p for p in procs if len(p) == 3 and " host " in f" {p[2]} "]

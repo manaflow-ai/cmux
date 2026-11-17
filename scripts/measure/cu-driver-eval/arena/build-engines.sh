@@ -7,7 +7,7 @@
 #
 # OUT/<engine>/ gets what the guest needs, or OUT/<engine>/unavailable with the reason:
 #   cu-fast        cmux#36993: cmux-cu-service (the guest assembles and signs "cmux CU Engine.app")
-#   cu-rewrite     cmux#37003: "cmux Remote (dev).app" (its build script, unsigned), acpmux, SKILL.md
+#   cu-rewrite     cmux#37003: "cmux Computer Use (dev).app" with cmux-remote inside (build-cua-helper-dev.sh, unsigned), acpmux, SKILL.md
 #   chief-desktop  cmux#36515: SKILL.md, the "Drive the desktop" part of its chief-cloud-machines skill
 # An engine that does not build is reported, never fatal: the other arms still run.
 set -uo pipefail
@@ -62,10 +62,12 @@ for spec in "$@"; do
     cu-rewrite)
       remote_zip="$cache/cmux-remote-$sha.zip" acpmux="$cache/acpmux-$sha"
       if [[ ! -s "$remote_zip" ]]; then
-        # Its own build script; Icon Composer's ictool may be missing on a worker, and an icon
-        # changes nothing here, so a failed icon export is tolerated by running the steps it needs.
-        if (cd "$src" && bash scripts/cmux-next/build-cmux-remote-dev.sh --out "$cache/remote-$sha") >"$dest/build.log" 2>&1; then
-          cp "$cache/remote-$sha/cmux-remote-dev-unsigned-macos-arm64.zip" "$remote_zip"
+        # cmux-remote ships inside the DEV Computer Use helper (docs/cmux-remote.md): that helper's
+        # own build script, unsigned. A commit from before that has no bundle-cmux-remote.sh.
+        if [[ ! -f "$src/scripts/cmux-next/bundle-cmux-remote.sh" ]]; then
+          echo "this commit has no cmux-remote inside the Computer Use helper (scripts/cmux-next/bundle-cmux-remote.sh)" >"$dest/build.log"
+        elif (cd "$src" && bash scripts/cmux-next/build-cua-helper-dev.sh --out "$cache/remote-$sha") >"$dest/build.log" 2>&1; then
+          cp "$cache/remote-$sha/cmux-computer-use-dev-unsigned-macos-arm64.zip" "$remote_zip"
         fi
       fi
       if [[ ! -x "$acpmux" ]]; then

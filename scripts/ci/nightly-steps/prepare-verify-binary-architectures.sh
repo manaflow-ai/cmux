@@ -8,7 +8,9 @@ for binary in \
   "$APP/Contents/Resources/bin/cmux" \
   "$APP/Contents/Resources/bin/ghostty" \
   "$APP/Contents/Resources/bin/cmux-diff-sidecar" \
-  "$APP/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua"
+  "$APP/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua" \
+  "$APP/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-remote" \
+  "$APP/Contents/Library/cmux Computer Use.app/Contents/Frameworks/libWebRTC.dylib"
 do
   archs="$(lipo -archs "$binary")"
   echo "$binary: $archs"
@@ -18,6 +20,17 @@ do
     [ "$archs" = "$NIGHTLY_VARIANT" ]
   fi
 done
+# The pinned Cua Driver SDK that cmux-remote's Computer Use worker loads (bundle-cmux-remote.sh) has only an
+# arm64 slice: the arm64 and universal variants carry it as arm64; the x86_64 variant dropped it before
+# thinning (drop-cua-sdk-without-arch.sh), so its Computer Use worker reports the driver unavailable.
+sdk="$APP/Contents/Library/cmux Computer Use.app/Contents/Frameworks/libcua_driver_sdk.dylib"
+if [ "$NIGHTLY_VARIANT" = "x86_64" ]; then
+  [ ! -e "$sdk" ] || { echo "$sdk is in the x86_64 variant; drop-cua-sdk-without-arch.sh removes the arm64-only SDK" >&2; exit 1; }
+else
+  archs="$(lipo -archs "$sdk")"
+  echo "$sdk: $archs"
+  [[ " $archs " == *" arm64 "* ]]
+fi
 # The cmux-next nightly carries the OptChat Chief with the app's slices.
 if [[ "$CHANNEL_RELEASE_TAG" == "nightly-next" ]]; then
   for helper in optchat-chief cmux-mobile-host; do

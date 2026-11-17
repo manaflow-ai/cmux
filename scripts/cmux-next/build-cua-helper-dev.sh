@@ -2,7 +2,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Builds the UNSIGNED "cmux Computer Use (dev).app" (bundle id
 # com.cmuxterm.cua.dev): the Swift helper (Packages/macOS/CmuxComputerUseHelper)
-# plus the pinned upstream libcua_driver_sdk.dylib (cua-driver-sdk.pin.json).
+# plus the pinned upstream libcua_driver_sdk.dylib (cua-driver-sdk.pin.json),
+# and cmux-remote (the host, the Computer Use worker and the Screen Sharing
+# worker the cmux-tui daemon spawns from this helper, docs/cmux-remote.md) with
+# libWebRTC.dylib and its resource bundles, placed by bundle-cmux-remote.sh: the
+# DEV build's one permission identity, as "cmux Computer Use.app" is Release's.
 # Run on cmux-lawrence-2 (nx-remote) or a fleet Mac, never on a laptop.
 # sign-cua-helper-dev.sh signs and publishes it (in CI: the dev helper signing
 # workflow on main, with the Developer ID certificate).
@@ -44,9 +48,10 @@ cmp -s "$sdk/include/cua_driver_abi.h" "$package/Sources/CCuaDriverABI/include/c
 bin="$(cd "$package" && swift build -c release --arch arm64 --show-bin-path)/$EXECUTABLE"
 CMUX_SWIFT_BIN_PATH="${bin%/*}" "$SCRIPT_DIR/compile-string-catalogs.sh"
 
-# Content hash of the helper sources (path + bytes of every file except
-# .build), so the provenance holds for a synced tree with no commit too.
-source_tree="$(cd "$package" && find . -type f -not -path './.build/*' -not -path './.swiftpm/*' | LC_ALL=C sort |
+# Content hash of the helper sources and cmux-remote's (path + bytes of every
+# file except .build), so the provenance holds for a synced tree with no commit too.
+source_tree="$(cd "$repo_root" && find Packages/macOS/CmuxComputerUseHelper Packages/macOS/CmuxRemote Packages/Shared/CmuxDeviceHub \
+  Packages/Shared/CmuxVNCWebRTC Packages/Shared/CmuxVNC -type f -not -path '*/.build/*' -not -path '*/.swiftpm/*' | LC_ALL=C sort |
   while IFS= read -r f; do printf '%s\n' "$f"; shasum -a 256 "$f" | awk '{print $1}'; done | shasum -a 256 | awk '{print $1}')"
 sdk_sha="$(shasum -a 256 "$sdk_tar" | awk '{print $1}')"
 version="1.0.${source_tree:0:7}"
@@ -57,6 +62,10 @@ cp "$bin" "$app/Contents/MacOS/$EXECUTABLE"
 cp -R "${bin%/*}/CmuxComputerUseHelper_CmuxCuaHelperCore.bundle" "$app/Contents/Resources/"
 cp "$sdk/lib/libcua_driver_sdk.dylib" "$app/Contents/Frameworks/"
 cp "$sdk/licenses/"* "$app/Contents/Resources/Licenses/"
+# cmux-remote, libWebRTC.dylib and cmux-remote's resource bundles, from the same SDK tarball;
+# signed ad hoc with this helper's identifier. The app is sealed below.
+CMUX_CUA_SDK_TARBALL="$sdk_tar" CMUX_CUA_SDK_PIN="$sdk_pin" \
+  "$SCRIPT_DIR/bundle-cmux-remote.sh" --into "$app" --identifier "$BUNDLE_ID" --archs arm64 --no-seal
 [[ -f "$repo_root/Resources/ComputerUseHelperIcon.icns" ]] && cp "$repo_root/Resources/ComputerUseHelperIcon.icns" "$app/Contents/Resources/AppIcon.icns"
 cat > "$app/Contents/Resources/Licenses/README.txt" <<TXT
 cmux Computer Use (dev) is free software: the helper code (Swift, from
@@ -68,6 +77,11 @@ It loads Cua Driver (libcua_driver_sdk.dylib, https://github.com/trycua/cua,
 $(/usr/bin/python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); print("tag", d["upstream_tag"], "commit", d["upstream_commit"])' "$sdk/build-info.json")),
 MIT licensed: see LICENSE-cua* and THIRD_PARTY_NOTICES*. Its Rust dependencies
 are listed with their licenses in cargo-dependencies.txt.
+
+It also carries cmux-remote (Contents/MacOS/cmux-remote, GPL-3.0-or-later, from
+Packages/macOS/CmuxRemote), which loads WebRTC (libWebRTC.dylib,
+https://webrtc.org, BSD-3-Clause, built by github.com/stasel/WebRTC): see
+cmux-remote.txt.
 
 Source offer for MPL-2.0 components: the uniffi crates (uniffi 0.31.0 and
 its sub-crates, https://github.com/mozilla/uniffi-rs) are licensed under
@@ -100,6 +114,8 @@ PY
 # Ad-hoc signatures only so the bundle is valid; sign-cua-helper-dev.sh
 # replaces them.
 codesign --force --sign - "$app/Contents/Frameworks/libcua_driver_sdk.dylib"
+codesign --force --sign - "$app/Contents/Frameworks/libWebRTC.dylib"
+codesign --force --sign - --identifier "$BUNDLE_ID" "$app/Contents/MacOS/cmux-remote"
 codesign --force --sign - "$app"
 mkdir -p "$out"
 asset="cmux-computer-use-dev-unsigned-macos-arm64.zip"

@@ -27,6 +27,7 @@ scripts/cmux-next/release-notes.py
 scripts/cmux-next/fetch-release-notes-span.sh
 scripts/cmux-next/check-*.sh
 scripts/cmux-next/drop-cef-without-arch.sh
+scripts/cmux-next/drop-cua-sdk-without-arch.sh
 scripts/cmux-next/write-cmux-tui-version.sh
 scripts/cmux-next/write-daemon-capabilities.sh
 scripts/cmux-next/notices/**

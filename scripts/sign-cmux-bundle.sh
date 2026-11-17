@@ -42,7 +42,9 @@
 #      scripts/sign-cmux-bundle-helpers.sh; libexec/cmux-server-helper gets none.
 #      The macOS cmux-tui SSH payloads under Resources/bin/cmux-tui-ssh/ are
 #      signed the same way (scripts/sign-cmux-tui-ssh-payloads.sh).
-#   2. The nested cmux Computer Use app with the Developer ID identity.
+#   2. The nested cmux Computer Use app with the Developer ID identity, after
+#      its nested code: the dylibs in its Contents/Frameworks, then
+#      cmux-screen-sharing and cmux-remote with --identifier com.cmuxterm.cua.
 #   3. Each nested plugin under Contents/PlugIns/* with --deep.
 #   4. The embedded Chromium engine (CEF framework, its libraries, the shim
 #      and the five helper apps with their own entitlements) through
@@ -149,11 +151,20 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
     # computer use, bundle-screen-sharing-helper.sh) first: nested code is signed before the
     # bundle that seals it, with the helper's identifier, so a macOS that checks the process by
     # its own signature finds the same com.cmuxterm.cua row. No entitlements.
-    if [[ -f "$COMPUTER_USE_HELPER/Contents/MacOS/cmux-screen-sharing" ]]; then
-      echo "==> signing cmux-screen-sharing inside $(basename "$COMPUTER_USE_HELPER")"
+    # cmux-remote (the supervisor and its workers, scripts/cmux-next/bundle-cmux-remote.sh) the same
+    # way, after the dylibs it loads from the helper's Contents/Frameworks (library validation:
+    # the same team's signature).
+    for nested_dylib in "$COMPUTER_USE_HELPER/Contents/Frameworks/"*.dylib; do
+      [[ -f "$nested_dylib" ]] || continue
+      echo "==> signing $(basename "$nested_dylib") inside $(basename "$COMPUTER_USE_HELPER")"
+      "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" "$nested_dylib"
+    done
+    for nested_exe in cmux-screen-sharing cmux-remote; do
+      [[ -f "$COMPUTER_USE_HELPER/Contents/MacOS/$nested_exe" ]] || continue
+      echo "==> signing $nested_exe inside $(basename "$COMPUTER_USE_HELPER")"
       "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" --identifier com.cmuxterm.cua \
-        "$COMPUTER_USE_HELPER/Contents/MacOS/cmux-screen-sharing"
-    fi
+        "$COMPUTER_USE_HELPER/Contents/MacOS/$nested_exe"
+    done
     echo "==> signing nested helper $(basename "$COMPUTER_USE_HELPER")"
     "$SCRIPT_DIR/codesign-retry.sh" \
       "${COMMON[@]}" \

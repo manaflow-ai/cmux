@@ -1,57 +1,125 @@
-# cmux Remote: one host for Computer Use and Screen Sharing
+# cmux Remote: one app for Computer Use and Screen Sharing permissions
 
-cmux Remote supervises the workers that need macOS grants, while the NEXT app
-serves an attached Mac Screen session. Computer Use always runs in the cmux
-Remote worker. When the app is attached, its `MacScreenHubHost` serves the
-current `cmux.rd/1` and WebRTC sessions and macOS checks the app's own
-Accessibility and Screen Recording grants. When no app channel is attached,
-the Screen Sharing worker may serve its standalone legacy stream and macOS
-checks the worker's grants. A person may therefore see a grant for cmux Remote
-for worker use and a grant for cmux for the app's active capture.
+Computer Use and Screen Sharing ask macOS for Accessibility and Screen
+Recording as one app, **cmux Computer Use**. Lawrence: "ensure screen sharing +
+computer use uses same app for permissions, unless there's a good reason for
+having different apps for requesting screen sharing/accessibility". A process
+separate from the cmux app is a reason to stay out of the app (a grant never
+relaunches cmux); it is no reason for the two features to differ. So there is
+one signed helper app, and everything that needs a grant runs from it:
+
+- `cmux-cua`, the legacy Computer Use driver (the helper's main executable);
+- `cmux-screen-sharing`, the `cmux.rd/1` host (`cmux-tui/crates/cmux-rd-host`);
+- `cmux-remote`, the supervisor ("cmux Remote host") and its two workers
+  (`Packages/macOS/CmuxRemote`).
+
+There is no separate cmux Remote app any more, in Release or in DEV.
+
+## Identity and where it ships
+
+| Build | Helper | Bundle id | Signed by |
+| --- | --- | --- | --- |
+| Release, NIGHTLY, RC | `cmux.app/Contents/Library/cmux Computer Use.app` | `com.cmuxterm.cua` (every channel) | Developer ID, team 7WLXT3NR37 |
+| DEV | `Contents/Library/cmux Computer Use (dev).app` | `com.cmuxterm.cua.dev` | the team (pinned, `cua-helper-dev.pin.json`) |
+
+Its designated requirement (identifier + team) is the same across builds and
+channels, so a grant survives every update, and anyone who allowed Computer Use
+already has the grants Screen Sharing needs. Inside the helper:
+
+```
+cmux Computer Use.app/Contents/
+  MacOS/cmux-cua                        the bundle's executable (Release); DEV: cmux-cua-helper
+  MacOS/cmux-screen-sharing             signed --identifier <helper id>   (when the build has it)
+  MacOS/cmux-remote                     signed --identifier <helper id>   (always)
+  Frameworks/libWebRTC.dylib            WebRTC.framework as a plain dylib (cmux-remote links it)
+  Frameworks/libcua_driver_sdk.dylib    the pinned Cua Driver SDK, cua-driver-sdk.pin.json; the
+                                        Computer Use worker dlopens it from
+                                        Bundle.main.privateFrameworksPath (arm64 only)
+  Resources/CmuxRemote_*.bundle, ...    cmux-remote's SwiftPM resource bundles
+  Resources/Licenses/cmux-remote.txt    and the SDK's licenses
+```
+
+Each nested executable carries the helper's identifier, so macOS finds the same
+permission row whether it attributes the process to the outermost bundle
+(macOS 26) or to the code's own signature (older macOS).
+
+### Release, NIGHTLY and RC
+
+The nightly's "Assemble the Computer Use helper"
+(`scripts/ci/nightly-steps/app-assemble-computer-use-helper.sh`) builds and
+places everything, with no flag:
+
+1. `scripts/build-cmux-cua.sh --helper-app` assembles the helper around
+   `cmux-cua` (a rebuild keeps the nested code below);
+2. `scripts/cmux-next/bundle-screen-sharing-helper.sh --into-computer-use`
+   moves `cmux-screen-sharing` in;
+3. `scripts/cmux-next/bundle-cmux-remote.sh --into ... --identifier
+   com.cmuxterm.cua --archs "$HELPER_ARCHS"` runs `swift build -c release` for
+   each shipped slice, joins them with `lipo`, converts `WebRTC.framework` to
+   `libWebRTC.dylib` (install name rewritten, only the shipped slices), strips
+   toolchain rpaths, places the SDK dylib, the resource bundles and the
+   licenses, and signs the nested code ad hoc before re-sealing the helper;
+4. `scripts/ci/verify-computer-use-helper.sh layout` checks the result.
+
+The SDK tarball comes from the private R2 bucket. Only the nightly's
+background "Fetch the Chromium engine" step has the read key, so it fills the
+cache (`cef-cache-root.sh/cua-helper-v2`) that step 3 reads.
+
+Architectures: `cmux-remote` and `libWebRTC.dylib` carry every shipped slice
+(arm64, and x86_64 in a universal build). The pinned SDK has only an arm64
+slice: the universal app carries it arm64-only, and the thin x86_64 variant
+drops it before thinning (`drop-cua-sdk-without-arch.sh`), so on an Intel Mac
+the Computer Use worker reports the driver unavailable while Screen Sharing
+works. `prepare-verify-binary-architectures.sh` checks exactly that.
+
+Every signer signs the nested code before it seals the helper: the dylibs, then
+`cmux-screen-sharing` and `cmux-remote` with Developer ID, the hardened runtime,
+`--identifier com.cmuxterm.cua` and no entitlements (library validation holds:
+the dylibs carry the same team's signature). The four signers are
+`scripts/sign-cmux-bundle.sh`, `scripts/ci/notarize-computer-use-helper.sh`
+(the helper's own notarization), `scripts/ci/release-signer/sign-app.sh` and
+`scripts/ci/rcodesign-sign-bundle.sh`. `verify-computer-use-helper.sh signed`
+then requires `cmux-remote` to satisfy the `com.cmuxterm.cua` Developer ID
+requirement with the hardened runtime, the dylibs to carry the team's
+signature, and `Contents/Library` to hold exactly one app.
+
+### DEV
+
+`scripts/cmux-next/build-cua-helper-dev.sh` builds the unsigned
+`cmux Computer Use (dev).app` on a fleet Mac, with `bundle-cmux-remote.sh
+--identifier com.cmuxterm.cua.dev --archs arm64 --no-seal` for cmux-remote.
+`scripts/cmux-next/sign-cua-helper-dev.sh` signs the dylibs, then `cmux-remote`
+with `--identifier com.cmuxterm.cua.dev`, then the app, and publishes the zip
+and its pin (`cua-helper-dev.pin.json`). Every DEV build embeds those exact
+bytes (`embed-cua-helper-dev.sh`), so the DEV grant also survives every build
+until the pin changes.
 
 ## Process tree
 
 ```
-cmux.app (the person's app; serves attached cmux.rd/1 + WebRTC sessions,
-          using the app's own TCC grants)
-  └─ cmux-tui daemon          (started by the app, outlives it; setsid)
-       └─ cmux Remote host    (posix_spawn with responsibility disclaimed:
-          │                    macOS checks worker grants against cmux Remote)
+cmux.app (the person's app; holds no Accessibility or Screen Recording grant)
+  └─ cmux-tui daemon            (started by the app, outlives it; setsid)
+       └─ cmux-remote host      (from the staged Computer Use helper; posix_spawn
+          │                      with responsibility disclaimed: macOS checks the
+          │                      grants of cmux Computer Use)
           ├─ Computer Use worker   (`cmux-remote worker computer-use`)
-          └─ Screen Sharing worker (`cmux-remote worker screen-sharing`;
-                                     identity/push relay, or standalone stream)
+          └─ Screen Sharing worker (`cmux-remote worker screen-sharing`; this Mac's
+                                     device, its sessions, and `cmux-screen-sharing
+                                     serve` as its child for cmux.rd/1)
 ```
 
-- **Identity.** One signed bundle, `cmux Remote.app` (`com.cmuxterm.remote`;
-  DEV builds, and a NIGHTLY build that is asked to embed it, currently use the
-  pinned `cmux Remote (dev).app`, `com.cmuxterm.remote.dev`), with the cmux
-  icon on a remote-screen badge. Its designated requirement (bundle id + team)
-  stays the same across builds, so a grant survives every update. A Release
-  build embeds the pinned asset from
-  `scripts/cmux-next/cmux-remote-dev.pin.json` only with
-  `CMUX_NEXT_EMBED_CMUX_REMOTE_IN_RELEASE=1` (decision of 2026-11-16). No build
-  sets the variable, so a NIGHTLY build has no cmux Remote: the third-party
-  notices and the load-command check of a published build do not cover the
-  embedded bundle yet. Without the variable a Release build prints one note
-  line and embeds nothing; with `CMUX_NEXT_REQUIRE_CMUX_REMOTE=1` and not the
-  variable it fails. With the variable a Release build fails without the
-  asset, and a mismatched asset fails each build that embeds. Only with
-  `CMUX_NEXT_ALLOW_NO_CMUX_REMOTE=1` added, a Release build on a Mac with no
-  source for the asset prints one `NOT EMBEDDED` warning line and has no cmux
-  Remote. A DEV build warns in the build log and fails only when
-  `CMUX_NEXT_REQUIRE_CMUX_REMOTE=1`.
-- **Responsibility.** The daemon starts the Remote host with
+- **Staged, verified, outside the app.** macOS 26 checks Screen Recording for
+  a process that runs from inside an app bundle as the outermost app. The
+  daemon copies the embedded Computer Use helper to
+  `~/Library/Application Support/cmux/remote/<scope>/` (one per app build,
+  replaced atomically when the embedded copy changes; never followed through a
+  symlink), verifies the copy's designated requirement (identifier
+  `com.cmuxterm.cua`, DEV `com.cmuxterm.cua.dev`, and team 7WLXT3NR37), and runs
+  `Contents/MacOS/cmux-remote host` from it.
+- **Responsibility.** The daemon starts the host with
   `responsibility_spawnattrs_setdisclaim`, so the host is its own responsible
   process. Workers are the host's ordinary children: macOS attributes their
-  Accessibility and Screen Recording checks to the host. The app's attached
-  `MacScreenHubHost` is separate and uses the app's own TCC identity; shells
-  and agents never inherit either grant.
-- **Outside the app bundle.** macOS 26 checks Screen Recording for a process
-  that runs from inside an app bundle as the outermost app. The daemon runs a
-  verified Remote copy at `~/Library/Application Support/cmux/remote/<scope>/`
-  (one per app build, replaced atomically when the embedded copy changes; never
-  followed through a symlink). This rule applies to the worker grants; the
-  attached app capture is evaluated under the cmux app's own TCC identity.
+  checks to the helper. Shells and agents never inherit a grant.
 - **Two workers.** A crash, a hang or a grant restart of one feature never
   stops the other. Each worker is the same executable in another mode, so it
   carries the same code identity.
@@ -64,25 +132,25 @@ which `docs/cloud-guest-upgrades.md` requires of every long-lived child:
 
 | Event | What happens |
 | --- | --- |
-| Daemon start | Reads `remote-host/host.json`. A live host of this user that answers on its supervisor socket is **adopted** (hello with `min`/`max` protocol; the host answers with the version both speak, its build and whether it is busy). Otherwise the daemon starts one when Computer Use (Upstream driver) is on or the person is signed in for Mac Screen sharing. Every build that embeds cmux Remote uses it; there is no switch. |
+| Daemon start | Reads `remote-host/host.json`. A live host of this user that answers on its supervisor socket is **adopted** (hello with `min`/`max` protocol; the host answers with the version both speak, its build and whether it is busy). Otherwise the daemon starts one when Computer Use (Upstream driver) is on or the person is signed in for Mac Screen sharing. Every Release, NIGHTLY, RC and DEV build carries it; there is no switch. |
 | Host crash | The daemon restarts it with `Backoff` (200 ms to 30 s; reset after 30 s healthy). The host restarts a crashed worker the same way. |
 | Daemon handoff (`shutdown-daemon`, upgrade) | The host keeps running and keeps serving. The new daemon adopts it within the host's adoption grace (60 s), else the host exits, so no host outlives every daemon. |
-| New cmux build (another host build) | An idle host is replaced at once (`drain`, exit, start the new copy). A busy host (a Screen Sharing session) stays, with `upgrade: "pending"`; it reports `idle` when the session ends, and the daemon replaces it then. A session is never cut to upgrade. |
-| macOS "Quit & Reopen" after a grant | The host answers the quit with a worker restart and cancels it; the host and its supervisor link stay. The app rechecks its own TCC state when it becomes active. A copy that LaunchServices opens without the daemon exits at once. |
+| New cmux build (another helper build) | An idle host is replaced at once (`drain`, exit, stage and start the new helper copy). A busy host (a Screen Sharing session) stays, with `upgrade: "pending"`; it reports `idle` when the session ends, and the daemon replaces it then. A session is never cut to upgrade. The helper's identity does not change, so neither do the grants. |
+| A grant arrives (System Settings) | The host restarts the worker that started without it (an idle Screen Sharing worker at once, a busy one after its session), so the grant reaches the feature without restarting anything else. |
+| macOS "Quit & Reopen" after a grant | macOS asks the responsible process, the host, to quit: the host answers with a worker restart and cancels the quit; the host and its supervisor link stay. cmux is never relaunched: the app holds no grant and is not the responsible process. A copy that LaunchServices opens without the daemon exits at once. |
 | Feature off (both) | The daemon stops the host (EOF on its supervisor link). |
 
 The adoption record (`host.json`, 0600 in a 0700 directory) holds the host's
 pid and start time, build, protocol range and supervisor socket. The daemon
 accepts a peer only when its pid and start time match the record and its code
-satisfies cmux Remote's requirement.
+satisfies the Computer Use helper's requirement.
 
 ## IPC
 
 | Who | Path | What |
 | --- | --- | --- |
 | daemon ↔ host | supervisor socket (`remote-host/s.sock`), JSON lines | hello, status, permission requests, worker control, drain |
-| app ↔ host | app socket (`remote-host/a.sock`), JSON lines plus channels | credentials from `remote-host-app` (verified app only, as `browser-host-provider`): the Computer Use control channel, device signing, the device hub push relay |
-| app screen host | in-process `MacScreenHubHost` → `MacScreenRdHost` | attached `cmux.rd/1` and WebRTC capture, signaling and input; uses the app's TCC grants |
+| app ↔ host | app socket (`remote-host/a.sock`), JSON lines plus channels | credentials from `remote-host-app` (verified app only, as `browser-host-provider`): the Computer Use control channel, Mac Screen sessions, device signing, the device hub push relay |
 | CLI, MCP | daemon commands `remote-host-status`, `remote-host-call` | status, requests, restart, sharing switch, viewer permission |
 | agents (Computer Use) | the Computer Use worker's sockets (unchanged: `endpoint.json`, acpmux admission, app consent) | tools |
 
@@ -93,36 +161,27 @@ or logs.
 
 ## Permissions
 
-- **Status** for worker grants comes from a fresh `cmux-remote probe` process,
-  which reads `AXIsProcessTrusted()` and `CGPreflightScreenCaptureAccess()`
-  and exits. The attached app host reports its own TCC reads from
-  `MacScreenShareHost`; the two identities are shown separately.
+- **Status** comes from a fresh `cmux-remote probe` process (from the staged
+  helper), which reads `AXIsProcessTrusted()` and
+  `CGPreflightScreenCaptureAccess()` and exits.
 - **Refresh** is event driven: the app becoming active (after System
   Settings), macOS's Accessibility change notification
   (`com.apple.accessibility.api`), a Quit & Reopen, an explicit refresh
   (palette, CLI, MCP), and each feature start. Nothing polls.
-- **Grant reaches the feature.** When a worker refresh shows a grant it started
-  without, the Remote host restarts that worker (an idle standalone Screen
-  Sharing worker at once, a busy one after its session). The app host refreshes
-  and requests its own grants for attached capture; it is not repaired by
-  restarting the worker.
-- **Requests** (`accessibility`, `screenRecording`) made through
-  `cmux remote-host request …` run in the Remote host, so macOS names cmux
-  Remote. The app's Share action and `remote.confirm` guided sheet use the
-  app's own `MacScreenShareHost` permission flow and app hub session. Each
-  opens the matching System Settings pane when macOS will not prompt again. A
-  permission is requested at most once per 30 s.
+- **Requests** (`accessibility`, `screenRecording`) run in the host, so macOS
+  names cmux Computer Use; the app asks the host for them and never asks macOS
+  itself. Each opens the matching System Settings pane when macOS will not
+  prompt again. A permission is requested at most once per 30 s.
 
 ## Screen Sharing worker
 
 The Screen Sharing worker is this Mac's device on the device hub
 (`docs/device-hub/PROTOCOL.md`): it owns the Secure Enclave device keys, the
 one User DO socket of this device, the approval banner (top right, never
-activating), and the menu bar indicator. When the cmux app has an app channel
-open, the app owns the current `cmux.rd/1` host ticket and approval flow; the
-worker becomes identity and push relay only and never serves or ends that
-ticket. If no app channel is open, the worker may host its legacy
-`ScreenStreamHost` session so sharing can continue with the app quit:
+activating), and the menu bar indicator. It serves Mac Screen sessions: the
+app asks the host over its app socket channel, and the worker serves WebRTC
+(`ScreenStreamHost`) and `cmux.rd/1` (running `cmux-screen-sharing serve`, from
+the same helper, as its own child). Sharing continues with the app quit:
 
 - Its hub session comes from the app's sign-in while the app runs, and from
   **device-key renewal** when it does not: `POST /v1/auth/device`, signed by
@@ -137,14 +196,6 @@ ticket. If no app channel is open, the worker may host its legacy
 - The iOS and Mac viewers are unchanged: the same hub session flow, ticket
   signaling and ScreenStream wire (including the input `caps` message).
 
-The NEXT app keeps its app-owned `MacScreenHubHost` active for the current
-`cmux.rd/1` host protocol while attached. `MacScreenRdHost` also accepts a
-WebRTC offer and serves it in-process. The pinned worker supplies device
-identity, signing and push relay, and switches to relay-only while an app
-channel is open. This compatibility bridge is deliberate: switching
-`remoteHosted` to the worker's older `ScreenStreamHost` path would make a
-Release viewer connect to a host speaking a different protocol.
-
 ## Settings and controls
 
 Every control exists in the command palette, the CLI and MCP:
@@ -152,26 +203,20 @@ Every control exists in the command palette, the CLI and MCP:
 | Control | Palette | CLI | MCP |
 | --- | --- | --- | --- |
 | Status (host, workers, grants, upgrade) | cmux Remote: Show Status | `cmux remote-host status` | `remote_status` |
-| Request Accessibility / Screen Recording for workers | cmux Remote: Allow Accessibility / Allow Screen Recording | `cmux remote-host request accessibility\|screen-recording` | `remote_request_permission` |
+| Request Accessibility / Screen Recording | cmux Remote: Allow Accessibility / Allow Screen Recording | `cmux remote-host request accessibility\|screen-recording` | `remote_request_permission` |
 | Refresh permissions | cmux Remote: Refresh Permissions | `cmux remote-host refresh` | `remote_refresh` |
 | Restart a worker | cmux Remote: Restart Computer Use / Restart Screen Sharing | `cmux remote-host restart computer-use\|screen-sharing` | `remote_restart` |
-| Share This Mac | Mac Screen: Share This Mac / Stop Sharing This Mac | `cmux remote-host share on\|off` (on uses the app's `remote.confirm` sheet; off uses the app path first, with worker fallback when unattached) | `remote_share` |
+| Share This Mac | Mac Screen: Share This Mac / Stop Sharing This Mac | `cmux remote-host share on\|off` (on uses the app's `remote.confirm` sheet) | `remote_share` |
 | Share another Mac of yours, confirmed on the device you are at (the target admits it only from a same-account machine its owner granted; until the approval can be delivered there, the answer is `share.needs_same_account_control`) | | `cmux remote-host share on --device DEVICE` | `remote_share` with `device` |
 | Which grant a Mac lacks, its pane opened there, and whether Screen Sharing or Remote Management lets an agent click it | | `cmux remote-host grants [--device DEVICE] [--open]` | |
 | A viewer's access | Mac Screen: Set Device Access… | `cmux remote-host access <device> none\|ask\|view\|full` | `remote_set_access` |
-| Stop the current session | Mac Screen: Stop Current Session | `cmux remote-host stop` (app canonical action first; worker fallback only when app transport is absent) | `remote_stop_session` |
-| Stop the current session directly in the attached app | Mac Screen: Stop Sharing | `cmux action run macScreen.stopSharing` | app action (no worker round-trip) |
+| Stop the current session | Mac Screen: Stop Current Session | `cmux remote-host stop` | `remote_stop_session` |
 | End sharing when cmux quits (`remote.endSharingOnQuit`, default off) | Settings | `cmux settings set remote.endSharingOnQuit` | `settings_set` (refused: user-only) |
 | Ultra Connection Mode (`remote.ultra`: `off`, `auto` (the default) or `always`. Auto sends no repair data on a clean link and Reed-Solomon repair data from the first lost packet, within about one round trip, until the link is clean again; on a metered network the repair bytes stay within the data bytes. Always sends it on every datagram, about 2-3x the bytes. The peer agrees inside the tunnel to send it too, so both directions are protected; `CMUX_WG_ULTRA` overrides it) | Settings | `cmux settings set remote.ultra always` | `settings_set` (refused: user-only) |
-| Computer Use driver (`computerUse.driver`, default `upstream`: Computer Use runs in cmux Remote; `legacy` keeps the cmux-cua 0.8.12 helper) | Settings | `cmux settings set computerUse.driver` | `settings_set` (refused: user-only) |
+| Computer Use driver (`computerUse.driver`, default `upstream`: Computer Use runs in the cmux-remote worker; `legacy` keeps the cmux-cua 0.8.12 helper) | Settings | `cmux settings set computerUse.driver` | `settings_set` (refused: user-only) |
 
-The two stop paths are intentionally distinct. `cmux remote-host stop` routes
-through the app's canonical stop action when app transport is available, then
-falls back to the standalone worker only when the app is absent. A worker in
-relay-only mode refuses the stop instead of claiming success. `cmux action run
-macScreen.stopSharing` is the app's direct one-click stop for the session
-currently served by `MacScreenHubHost`.
-
-The architecture and routing above are documented from source and focused
-tests. End-to-end Mac-to-Mac operation on Leo's NIGHTLY has not been run or
-read back here.
+The packaging, signing and checks above are tested by
+`tests/test_one_permission_identity.py`,
+`tests/test_nightly_next_computer_use_helper.py` and the signer tests.
+End-to-end operation of the one app on a NIGHTLY has not been run or read back
+yet.

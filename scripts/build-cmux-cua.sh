@@ -612,12 +612,20 @@ if [ -n "$HELPER_APP" ]; then
   # socket, credential, and state directory.
   HELPER_DISPLAY="${CMUX_CUA_HELPER_DISPLAY_NAME:-cmux Computer Use}"
   validate_replaceable_helper_bundle "$HELPER_APP" "$HELPER_ID" "$HELPER_EXECUTABLE"
-  # The screen sharing executable this helper carries (scripts/cmux-next/bundle-screen-sharing-helper.sh:
-  # one TCC identity for screen sharing and computer use) survives a rebuild of the helper.
-  _screen_sharing_keep=""
-  if [ -f "$HELPER_APP/Contents/MacOS/cmux-screen-sharing" ]; then
-    _screen_sharing_keep="$(mktemp "${TMPDIR:-/tmp}/cmux-screen-sharing.XXXXXX")"
-    cp "$HELPER_APP/Contents/MacOS/cmux-screen-sharing" "$_screen_sharing_keep"
+  # The code bundled into this helper after it is built survives a rebuild of the helper, so it
+  # keeps one TCC identity for screen sharing and computer use: the screen sharing executable
+  # (scripts/cmux-next/bundle-screen-sharing-helper.sh), and cmux-remote with its dylibs
+  # (Contents/Frameworks), resource bundles and licenses (scripts/cmux-next/bundle-cmux-remote.sh).
+  _helper_keep=""
+  if [ -d "$HELPER_APP/Contents" ]; then
+    _helper_keep="$(mktemp -d "${TMPDIR:-/tmp}/cmux-cua-helper-keep.XXXXXX")"
+    for _kept in "$HELPER_APP/Contents/MacOS/cmux-screen-sharing" "$HELPER_APP/Contents/MacOS/cmux-remote" \
+      "$HELPER_APP/Contents/Frameworks" "$HELPER_APP/Contents/Resources/Licenses" "$HELPER_APP/Contents/Resources/"*.bundle; do
+      [ -e "$_kept" ] && [ ! -L "$_kept" ] || continue
+      _kept_rel="${_kept#"$HELPER_APP/"}"
+      mkdir -p "$_helper_keep/$(dirname "$_kept_rel")"
+      cp -R "$_kept" "$_helper_keep/$_kept_rel"
+    done
   fi
   /bin/rm -rf -- "$HELPER_APP"
   mkdir -p \
@@ -627,12 +635,23 @@ if [ -n "$HELPER_APP" ]; then
   printf '%s\n' "$CMUX_CUA_HELPER_OWNER_VALUE" > "$HELPER_APP/Contents/Resources/$CMUX_CUA_HELPER_OWNER_FILE"
   cp "$OUTPUT" "$HELPER_APP/Contents/MacOS/$HELPER_EXECUTABLE"
   chmod 0755 "$HELPER_APP/Contents/MacOS/$HELPER_EXECUTABLE"
-  if [ -n "$_screen_sharing_keep" ]; then
-    mv "$_screen_sharing_keep" "$HELPER_APP/Contents/MacOS/cmux-screen-sharing"
-    chmod 0755 "$HELPER_APP/Contents/MacOS/cmux-screen-sharing"
-    # Nested code is signed before the bundle that seals it.
-    /usr/bin/codesign --force --sign - --timestamp=none --identifier "$HELPER_ID" \
-      "$HELPER_APP/Contents/MacOS/cmux-screen-sharing"
+  if [ -n "$_helper_keep" ]; then
+    if [ -d "$_helper_keep/Contents" ]; then
+      /bin/cp -R "$_helper_keep/Contents/." "$HELPER_APP/Contents/"
+    fi
+    /bin/rm -rf -- "$_helper_keep"
+    # Nested code is signed before the bundle that seals it: the dylibs, then the executables with
+    # the helper's identifier.
+    for _kept in "$HELPER_APP/Contents/Frameworks/"*.dylib; do
+      [ -f "$_kept" ] || continue
+      /usr/bin/codesign --force --sign - --timestamp=none "$_kept"
+    done
+    for _kept in cmux-screen-sharing cmux-remote; do
+      [ -f "$HELPER_APP/Contents/MacOS/$_kept" ] || continue
+      chmod 0755 "$HELPER_APP/Contents/MacOS/$_kept"
+      /usr/bin/codesign --force --sign - --timestamp=none --identifier "$HELPER_ID" \
+        "$HELPER_APP/Contents/MacOS/$_kept"
+    done
   fi
   # The helper bundle is copied out of the host app before launch, so it must
   # carry its own copy of the upstream MIT notice.

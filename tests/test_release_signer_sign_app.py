@@ -296,6 +296,22 @@ class SignAppTest(unittest.TestCase):
         self.assertEqual(plistlib.loads(sign["entitlements"][nested].encode()), {})
         self.assertIn(f"{nested}:runtime", options(sign["argv"], "--code-signature-flags"))
 
+    def test_cmux_remote_takes_the_computer_use_identity_and_its_resources_are_sealed(self) -> None:
+        # The supervisor ships inside the Computer Use helper (bundle-cmux-remote.sh): the helper's
+        # identifier, the hardened runtime, no entitlements; its SwiftPM resource bundles are
+        # sealed as resources, not signed as nested bundles.
+        helper = "Contents/Library/cmux Computer Use.app"
+        nested = f"{helper}/Contents/MacOS/cmux-remote"
+        write(self.app / nested, b"\xcf\xfa\xed\xfe" + nested.encode())
+        resources = f"{helper}/Contents/Resources/CmuxRemote_CmuxRemoteScreenSharing.bundle"
+        write(self.app / resources / "Contents/Resources/strings.json", b"{}", 0o644)
+        self.run_script()
+        [sign] = self.signs(self.app)
+        self.assertIn(f"{nested}:com.cmuxterm.cua", options(sign["argv"], "--binary-identifier"))
+        self.assertIn(f"{nested}:runtime", options(sign["argv"], "--code-signature-flags"))
+        self.assertNotIn(nested, sign["entitlements"])
+        self.assertIn(resources, options(sign["argv"], "--exclude"))
+
     def test_bundle_is_prepared_before_it_is_signed(self) -> None:
         self.run_script()
         [sign] = self.signs(self.app)
@@ -451,6 +467,21 @@ class HelperFirstTest(SignAppTest):
         self.assertEqual(alone["entitlements"], {"": HELPER_TEXT})
 
     def test_the_screen_sharing_executable_takes_the_computer_use_identity(self) -> None:
+        pass  # helper-first signs it with the helper, above
+
+    def test_cmux_remote_is_notarized_inside_the_helper(self) -> None:
+        nested = "Contents/MacOS/cmux-remote"
+        write(self.app / CU / nested, b"\xcf\xfa\xed\xfe" + nested.encode())
+        resources = "Contents/Resources/CmuxRemote_CmuxRemoteScreenSharing.bundle"
+        write(self.app / CU / resources / "Contents/Resources/strings.json", b"{}", 0o644)
+        self.run_script()
+        [alone] = self.signs(self.app / CU)
+        self.assertEqual(options(alone["argv"], "--binary-identifier"), [f"{nested}:com.cmuxterm.cua"])
+        self.assertIn(f"{nested}:runtime", options(alone["argv"], "--code-signature-flags"))
+        self.assertIn(resources, options(alone["argv"], "--exclude"))
+        self.assertEqual(alone["entitlements"], {"": HELPER_TEXT})
+
+    def test_cmux_remote_takes_the_computer_use_identity_and_its_resources_are_sealed(self) -> None:
         pass  # helper-first signs it with the helper, above
 
     def test_a_ticket_that_misses_a_slice_stops_before_anything_else(self) -> None:

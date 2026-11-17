@@ -17,6 +17,12 @@ on:
       - "tests/test_cmux_cua_build_cache_safety.py"
       - "tests/test_cmux_cua_dev_helper_identity.py"
       - "scripts/cmux-next/bundle-screen-sharing-helper.sh"
+      - "scripts/cmux-next/bundle-cmux-remote.sh"
+      - "scripts/cmux-next/drop-cua-sdk-without-arch.sh"
+      - "scripts/cmux-next/build-cua-helper-dev.sh"
+      - "scripts/cmux-next/sign-cua-helper-dev.sh"
+      - "scripts/ci/nightly-steps/app-fetch-chromium-engine.sh"
+      - "scripts/ci/nightly-steps/prepare-thin-bundle.sh"
       - "scripts/ci/verify-computer-use-helper.sh"
       - "scripts/ci/nightly-steps/app-assemble-computer-use-helper.sh"
       - "scripts/ci/nightly-steps/prepare-verify-binary-architectures.sh"
@@ -38,6 +44,12 @@ on:
       - "tests/test_cmux_cua_build_cache_safety.py"
       - "tests/test_cmux_cua_dev_helper_identity.py"
       - "scripts/cmux-next/bundle-screen-sharing-helper.sh"
+      - "scripts/cmux-next/bundle-cmux-remote.sh"
+      - "scripts/cmux-next/drop-cua-sdk-without-arch.sh"
+      - "scripts/cmux-next/build-cua-helper-dev.sh"
+      - "scripts/cmux-next/sign-cua-helper-dev.sh"
+      - "scripts/ci/nightly-steps/app-fetch-chromium-engine.sh"
+      - "scripts/ci/nightly-steps/prepare-thin-bundle.sh"
       - "scripts/ci/verify-computer-use-helper.sh"
       - "scripts/ci/nightly-steps/app-assemble-computer-use-helper.sh"
       - "scripts/ci/nightly-steps/prepare-verify-binary-architectures.sh"
@@ -91,7 +103,7 @@ jobs:
         run: python3 tests/test_cmux_cua_build_cache_safety.py
 
       # Screen sharing and computer use ask for their permissions as one app, cmux Computer Use
-      # (com.cmuxterm.cua): the screen sharing executable ships inside it, signed with its
+      # (com.cmuxterm.cua): the screen sharing executable and cmux-remote ship inside it, signed with its
       # identifier, and a release app's Contents/Library holds no second helper identity.
       - name: Screen sharing and computer use share one permission identity
         run: python3 tests/test_one_permission_identity.py

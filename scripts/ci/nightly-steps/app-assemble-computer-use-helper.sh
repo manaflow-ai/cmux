@@ -24,4 +24,10 @@ rm -f "$app/Contents/Resources/bin/cmux-cua" "$app/Contents/Resources/bin/cmux-c
 # "Bundle the OptChat Chief and the iPhone host" bundled moves into this helper, so the app carries
 # no separate "<app> Screen Sharing.app" (bundle-screen-sharing-helper.sh). A track without it: a note.
 ./scripts/cmux-next/bundle-screen-sharing-helper.sh --into-computer-use "$app"
+# And the supervisor the daemon spawns from the staged helper (cmux-remote: the host, the Computer Use
+# worker and the Screen Sharing worker, docs/cmux-remote.md), with libWebRTC.dylib, the pinned Cua Driver
+# SDK (arm64 only; read from the cache "Fetch the Chromium engine" filled) and its resource bundles.
+# Every Release, NIGHTLY and RC app carries it: no flag.
+./scripts/cmux-next/bundle-cmux-remote.sh --into "$app/Contents/Library/cmux Computer Use.app" \
+  --identifier com.cmuxterm.cua --archs "$archs"
 ./scripts/ci/verify-computer-use-helper.sh layout "$app"

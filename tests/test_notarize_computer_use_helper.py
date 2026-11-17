@@ -181,6 +181,29 @@ class HelperNotarizationTests(unittest.TestCase):
         self.assertNotIn('--entitlements', nested_sign)
         self.assertNotIn('Screen Sharing.app', ''.join(targets))
 
+    def test_cmux_remote_and_its_dylibs_are_signed_inside_the_helper_before_the_helper(self):
+        # The supervisor ships inside the Computer Use helper (bundle-cmux-remote.sh): the dylibs it
+        # loads first (library validation: the same team), then cmux-remote with the helper's
+        # identifier, the hardened runtime and no entitlements, then the helper's seal.
+        remote = self.helper / 'Contents/MacOS/cmux-remote'
+        remote.write_bytes(b'fixture-remote')
+        dylibs = [self.helper / 'Contents/Frameworks' / name for name in ('libWebRTC.dylib', 'libcua_driver_sdk.dylib')]
+        for dylib in dylibs:
+            dylib.parent.mkdir(parents=True, exist_ok=True)
+            dylib.write_bytes(b'fixture-dylib')
+        self.run_helper('--start', self.state)
+        signs = [c for c in self.calls('codesign') if '--sign' in c]
+        targets = [c[-1] for c in signs]
+        for path in [*dylibs, remote]:
+            self.assertIn(str(path), targets)
+            self.assertLess(targets.index(str(path)), targets.index(str(self.helper)))
+            self.assertIn('runtime', signs[targets.index(str(path))])
+            self.assertNotIn('--entitlements', signs[targets.index(str(path))])
+        for dylib in dylibs:
+            self.assertLess(targets.index(str(dylib)), targets.index(str(remote)))
+        remote_sign = signs[targets.index(str(remote))]
+        self.assertEqual(remote_sign[remote_sign.index('--identifier') + 1], 'com.cmuxterm.cua')
+
     def finish_exit(self, **env):
         # Only the repository script and fixture arguments are executed, without a shell.
         return subprocess.run([str(SCRIPT), '--finish', str(self.state), str(self.app),  # noqa: S603
