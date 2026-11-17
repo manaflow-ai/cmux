@@ -223,6 +223,27 @@ case "$(git rev-parse --show-prefix)" in
     bun install --frozen-lockfile
     ;;
 esac
+# Style and structure rules only warn on feat-cmux-next (Leo, 2026-10-19: "these are style and structure
+# rules, and they no longer fail a run there"). ci-web.yml sets CMUX_NEXT_STYLE_GUARDS on every step that
+# runs this suite, by one rule: `(github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next')
+# && 'warn' || 'fail'`. A run outside that workflow (cmux-ci test, a fleet step, `bun run test`) had no
+# value, so test/support/prScope.ts failed every style-rule file a feat-cmux-next run only warns on: one
+# cmux-ci run of the suite reported 36 such reds. Unset, it is warn when the run is the workflow's
+# feat-cmux-next case (the same rule, read from GITHUB_BASE_REF / GITHUB_REF), or when this checkout is
+# feat-cmux-next's line (it holds Packages/macOS/CmuxNext, which main's tree does not); anything else
+# keeps it unset, so main and every explicit value are judged as before.
+if [ -z "${CMUX_NEXT_STYLE_GUARDS:-}" ]; then
+  style_guards_reason=""
+  if [ "${GITHUB_BASE_REF:-}" = feat-cmux-next ] || [ "${GITHUB_REF:-}" = refs/heads/feat-cmux-next ]; then
+    style_guards_reason="this run targets feat-cmux-next"
+  elif [ -d "$(git rev-parse --show-toplevel)/Packages/macOS/CmuxNext" ]; then
+    style_guards_reason="this checkout is feat-cmux-next's line"
+  fi
+  if [ -n "$style_guards_reason" ]; then
+    export CMUX_NEXT_STYLE_GUARDS=warn
+    echo "CMUX_NEXT_STYLE_GUARDS=warn ($style_guards_reason; ci-web.yml's rule for feat-cmux-next)"
+  fi
+fi
 # No Playwright on Macs (Lawrence, 2026-11-02): no Playwright, Puppeteer or downloaded Chromium on his
 # Mac or on a fleet Mac. The engines Playwright downloads are an old Chromium (the headless shell) and
 # Playwright turns the Chromium sandbox off, and this install had left about 4.6 GB of them on 10 fleet

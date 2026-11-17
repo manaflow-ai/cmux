@@ -41,6 +41,10 @@ printf '%s\\n' "$file" >> "$BUN_CALLS"
 if [ -n "${BUN_ENV_LOG:-}" ]; then
   printf '%s|%s|%s\\n' "$file" "${CMUX_BROWSER_TESTS-unset}" "${PLAYWRIGHT_BROWSERS_PATH-unset}" >> "$BUN_ENV_LOG"
 fi
+# How the style and structure rules judge this file (test/support/prScope.ts reads it).
+if [ -n "${BUN_STYLE_LOG:-}" ]; then
+  printf '%s\\n' "${CMUX_NEXT_STYLE_GUARDS-unset}" >> "$BUN_STYLE_LOG"
+fi
 # A file that starts a Vite dev server optimizes dependencies into its Vite cache while it runs: two
 # at once on one cache lose each other's files, and a cold cache is the slow first bundle.
 if grep -q -e '"dev",' -e 'createServer(' -e 'vite.config.gallery-dev.ts' -e 'vite.config.acpmux-pane.mjs' "$file"; then
@@ -182,7 +186,9 @@ class PerFileRunner(unittest.TestCase):
             self.web_hook(web)
         self.shared_cache = web / "node_modules" / ".vite"
         system_path = path_without_timeout(temp) if without_timeout else os.environ["PATH"]
-        base_env = {k: v for k, v in os.environ.items() if k not in ("CMUX_BROWSER_TESTS", "GITHUB_ACTIONS")}
+        base_env = {k: v for k, v in os.environ.items()
+                    if k not in ("CMUX_BROWSER_TESTS", "GITHUB_ACTIONS", "CMUX_NEXT_STYLE_GUARDS", "GITHUB_BASE_REF",
+                                 "GITHUB_REF")}
         env = {**base_env, "PATH": f"{bin_dir}:{system_path}", "BUN_CALLS": str(calls),
                "BUN_OVERLAPS": str(self.overlaps), "SHARED_VITE_CACHE": str(web / "node_modules" / ".vite"),
                "BUN_DEV": str(self.dev), "BUN_PEAK": str(self.peak), "DEV_RUNNING": str(running),
@@ -607,6 +613,39 @@ class PerFileRunner(unittest.TestCase):
         self.assertEqual(calls, ["./test/new.test.ts"])
         result, _, calls = self.run_runner(["test/a.test.ts"], extra_env={"GITHUB_ACTIONS": "true"})
         self.assertEqual(calls, ["./test/a.test.ts"])
+
+    def style_guards_seen(self, feat_cmux_next_tree, extra_env=None):
+        """The CMUX_NEXT_STYLE_GUARDS each test file ran with, and the runner's output."""
+        log = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory())) / "style"
+        def tree(web):
+            if feat_cmux_next_tree:
+                (web.parent / "Packages" / "macOS" / "CmuxNext").mkdir(parents=True)
+        self.web_hook = tree
+        result, _, _ = self.run_runner(["test/a.test.ts"], extra_env={"BUN_STYLE_LOG": str(log), **(extra_env or {})})
+        self.web_hook = None
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        return log.read_text(encoding="utf-8").split(), output
+
+    def test_a_feat_cmux_next_run_outside_ci_web_warns_on_style_rules_as_ci_web_does(self):
+        """A cmux-ci run of the suite on feat-cmux-next reported 36 style-rule files red that ci-web.yml's
+        CMUX_NEXT_STYLE_GUARDS=warn only warns on (Leo, 2026-10-19). Unset, the runner takes ci-web.yml's value."""
+        seen, output = self.style_guards_seen(True)
+        self.assertEqual(seen, ["warn"], output)
+        self.assertIn("CMUX_NEXT_STYLE_GUARDS=warn (this checkout is feat-cmux-next's line", output)
+        # ci-web.yml's own rule: a PR into feat-cmux-next, or a push to it.
+        seen, _ = self.style_guards_seen(False, {"GITHUB_BASE_REF": "feat-cmux-next"})
+        self.assertEqual(seen, ["warn"])
+        seen, _ = self.style_guards_seen(False, {"GITHUB_REF": "refs/heads/feat-cmux-next"})
+        self.assertEqual(seen, ["warn"])
+
+    def test_an_explicit_style_guard_value_and_a_main_checkout_are_judged_as_before(self):
+        seen, output = self.style_guards_seen(True, {"CMUX_NEXT_STYLE_GUARDS": "fail"})
+        self.assertEqual(seen, ["fail"], output)
+        self.assertNotIn("CMUX_NEXT_STYLE_GUARDS=warn", output)
+        seen, output = self.style_guards_seen(False, {"GITHUB_BASE_REF": "main", "GITHUB_REF": "refs/pull/1/merge"})
+        self.assertEqual(seen, ["unset"], output)
+        self.assertNotIn("CMUX_NEXT_STYLE_GUARDS=warn", output)
 
     def test_webviews_test_script_is_the_per_file_runner(self):
         """A single `bun test` over many files leaks globals between them: diff-viewer-git before
