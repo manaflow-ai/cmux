@@ -338,6 +338,12 @@ try {
     const root = server.process().pid!;
     const browser = await chromium.connect(server.wsEndpoint());
     const context = await browser.newContext({ viewport: { width: 1200, height: 800 } });
+    if (process.env.NO_LOAF === "1")
+      await context.addInitScript(() => {
+        const Observer = globalThis.PerformanceObserver;
+        const types = Observer.supportedEntryTypes.filter((type) => type !== "long-animation-frame");
+        Object.defineProperty(Observer, "supportedEntryTypes", { configurable: true, get: () => types });
+      });
     if (WAKES)
       await context.addInitScript(() => {
         const wakes = { timers: 0, raf: 0, posts: 0, mutations: 0 };
