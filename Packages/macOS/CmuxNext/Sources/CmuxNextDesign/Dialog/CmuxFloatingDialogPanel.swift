@@ -18,8 +18,21 @@ open class CmuxFloatingDialogPanel: NSPanel {
     /// How far the card sits from the screen's visible top and trailing edges.
     public static var screenMargin: CGFloat { Metrics.space5 }
 
+    /// The view shown now (the card, or a host's view that holds one); nil while none is.
+    public private(set) var hosted: NSView?
+
     /// The card shown now; nil while none is.
-    public private(set) var dialogView: CmuxDialogView?
+    public var dialogView: CmuxDialogView? {
+        guard let hosted else { return nil }
+        return hosted as? CmuxDialogView ?? Self.firstCard(under: hosted)
+    }
+
+    private static func firstCard(under view: NSView) -> CmuxDialogView? {
+        for sub in view.subviews {
+            if let card = sub as? CmuxDialogView ?? firstCard(under: sub) { return card }
+        }
+        return nil
+    }
 
     /// A panel with `identifier` (accessibility, automation).
     public init(identifier: String) {
@@ -47,7 +60,7 @@ open class CmuxFloatingDialogPanel: NSPanel {
     open override var canBecomeMain: Bool { false }
 
     /// The app's one active-look scope, from any of its windows (nil in tests with no app window).
-    static var appActiveLook: ActiveLookScope? {
+    public static var appActiveLook: ActiveLookScope? {
         NSApp.windows.lazy.compactMap(\.backdropActiveLook).first
     }
 
@@ -56,32 +69,41 @@ open class CmuxFloatingDialogPanel: NSPanel {
     /// ``CmuxDialogButton/personOnly`` button's press is its host's to ignore.
     @discardableResult
     public func show(_ spec: CmuxDialogSpec, onPress: @escaping (String) -> Void) -> CmuxDialogView {
+        let view = CmuxDialogView(dialog: .standalone(spec, activeLook: Self.appActiveLook, onPress: onPress))
+        present(view)
+        return view
+    }
+
+    /// Shows `content`, a view that holds one cmux dialog card (a consent's own view around its card), as ``show(_:onPress:)``
+    /// shows a spec. Showing the view already shown again re-sizes and re-places the panel to it.
+    public func present(_ content: NSView) {
         let wasVisible = isVisible
         let hadKeyboard = dialogView?.containsKeyboard == true
-        let dialog = CmuxDialogPresentation.standalone(spec, activeLook: Self.appActiveLook, onPress: onPress)
-        let view = CmuxDialogView(dialog: dialog)
-        dialogView?.removeFromSuperview()
-        dialogView = view
-        let root = contentView ?? NSView()
-        view.translatesAutoresizingMaskIntoConstraints = false
-        root.addSubview(view)
-        NSLayoutConstraint.activate([
-            view.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Self.shadowRoom),
-            view.topAnchor.constraint(equalTo: root.topAnchor, constant: Self.shadowRoom),
-        ])
-        root.layoutSubtreeIfNeeded()
-        place(view.fittingSize)
-        if hadKeyboard { FocusRoute(.system, "a floating dialog redrew its card: keep its keys").moveKeyboard(in: self, to: view) }
+        if hosted !== content {
+            hosted?.removeFromSuperview()
+            hosted = content
+            let root = contentView ?? NSView()
+            content.translatesAutoresizingMaskIntoConstraints = false
+            root.addSubview(content)
+            NSLayoutConstraint.activate([
+                content.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Self.shadowRoom),
+                content.topAnchor.constraint(equalTo: root.topAnchor, constant: Self.shadowRoom),
+            ])
+        }
+        contentView?.layoutSubtreeIfNeeded()
+        place(content.fittingSize)
+        if hadKeyboard, let card = dialogView {
+            FocusRoute(.system, "a floating dialog redrew its card: keep its keys").moveKeyboard(in: self, to: card)
+        }
         orderFrontRegardless()
         if !wasVisible { enter() }
-        return view
     }
 
     /// Takes the card away at once, with no fade: an answered prompt never lingers to take a second click.
     public func hide() {
         orderOut(nil)
-        dialogView?.removeFromSuperview()
-        dialogView = nil
+        hosted?.removeFromSuperview()
+        hosted = nil
     }
 
     /// The window is this much larger than the card on every side, so the card's shadow is not clipped.
@@ -98,7 +120,7 @@ open class CmuxFloatingDialogPanel: NSPanel {
 
     /// The card's frame on screen while it shows (tests, placement).
     public var cardFrame: CGRect? {
-        guard isVisible, dialogView != nil else { return nil }
+        guard isVisible, hosted != nil else { return nil }
         return frame.insetBy(dx: Self.shadowRoom, dy: Self.shadowRoom)
     }
 
@@ -134,4 +156,42 @@ private final class FloatingDialogRoot: NSView {
         let hit = super.hitTest(point)
         return hit === self ? nil : hit
     }
+}
+
+/// A view that holds one cmux dialog card and draws it again from a new spec (a consent whose state changed: a write
+/// in flight, an error): the floating consents' content (``CmuxFloatingDialogPanel/present(_:)``). It is the card's
+/// size; the card brings the glass, the corners, the buttons and their keys.
+@MainActor
+open class CmuxDialogHostView: NSView {
+    /// The card drawn now.
+    public private(set) var card: CmuxDialogView?
+
+    public override init(frame: NSRect) {
+        super.init(frame: frame)
+        translatesAutoresizingMaskIntoConstraints = false
+    }
+
+    @available(*, unavailable)
+    public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") } // crash-allow: never decoded from a nib
+
+    /// Draws `spec` in a new card, in place of the one drawn; `onPress` gets each press by click or key.
+    @discardableResult
+    public func draw(_ spec: CmuxDialogSpec, onPress: @escaping (String) -> Void) -> CmuxDialogView {
+        let hadKeyboard = card?.containsKeyboard == true
+        card?.removeFromSuperview()
+        let view = CmuxDialogView(dialog: .standalone(spec, activeLook: CmuxFloatingDialogPanel.appActiveLook, onPress: onPress))
+        addSubview(view)
+        NSLayoutConstraint.activate([
+            view.leadingAnchor.constraint(equalTo: leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: trailingAnchor),
+            view.topAnchor.constraint(equalTo: topAnchor),
+            view.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+        card = view
+        layoutSubtreeIfNeeded()
+        if hadKeyboard { FocusRoute(.system, "a dialog card redrew: keep its keys").moveKeyboard(in: window, to: view) }
+        return view
+    }
+
+    open override var fittingSize: NSSize { card?.fittingSize ?? .zero }
 }
