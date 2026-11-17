@@ -86,6 +86,8 @@ import Testing
         let cell = TabCell(item: item)
         cell.frame = CGRect(x: 0, y: 0, width: 180, height: 32)
         cell.layoutLayers()
-        #expect(Self.shows(cell.badgeLayer), "a needs-input dot gave way to the spinner")
+        // The status draws as the dot, or as a status icon set's glyph.
+        #expect(Self.shows(cell.badgeLayer) || Self.shows(cell.statusGlyphLayer?.layer), "a needs-input mark gave way to the spinner")
+        #expect(Self.shows(cell.spinnerLayer?.layer), "the spinner gave way to the needs-input mark")
     }
 }
