@@ -132,7 +132,7 @@ public struct ThemeTokens: Hashable, Sendable {
     /// Every chrome color for a terminal theme.
     ///
     /// ```swift
-    /// let tokens = ThemeTokens.derive(from: ThemeInput(terminalTheme: .monokai))
+    /// let tokens = ThemeTokens.derive(from: .ghosttyDefault)
     /// ```
     ///
     /// - Parameter input: The terminal theme.

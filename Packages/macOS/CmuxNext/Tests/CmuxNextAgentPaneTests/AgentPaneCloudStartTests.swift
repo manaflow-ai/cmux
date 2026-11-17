@@ -247,6 +247,28 @@ struct AgentPaneCloudStartTests {
         #expect(Self.code(await model.respond(to: Self.signIn(UUID().uuidString))) == "unsupported")
     }
 
+    /// A new chat whose empty local session opened before its first send (webviews `emptyLocalChat`):
+    /// a start that names that chat as the one it replaces goes, also past the chat it opened; one that
+    /// names another chat, or none, is refused.
+    @Test func aStartReplacingThePanesEmptyChatGoes() async {
+        let starts = Starts()
+        let model = Self.pane(starts, sessionId: "chat-1")
+        model.transport.replacements.set(waiting: 0, opened: true)
+        model.transport.gestures.record()
+        #expect(Self.code(await model.respond(to: Self.start(Self.good.merging(["home": true, "replacesChat": "chat-2"]) { $1 }.filter { $0.key != "cwd" }))) == "unsupported")
+        #expect(starts.seen.isEmpty)
+        model.transport.gestures.record()
+        let reply = await model.respond(to: Self.start(Self.good.merging(["home": true, "replacesChat": "chat-1"]) { $1 }.filter { $0.key != "cwd" }))
+        #expect(reply["ok"] as? Bool == true)
+        #expect(starts.seen.map(\.replacesChat) == ["chat-1"])
+        #expect(starts.heldDuringRun == true)
+        // Its sign-in is the start's too while the pane still shows that chat.
+        model.transport.replacements.endSandbox()
+        model.onCloudSignIn = { true }
+        model.transport.gestures.record()
+        #expect(await model.respond(to: Self.signIn(UUID().uuidString))["ok"] as? Bool == true)
+    }
+
     @Test func theMachinesChatStartsWithThePromptAgentAndModelThePagePicked() throws {
         let start = try #require(AgentPaneCloudStart(params: Self.good))
         let seed = start.seed(cwd: "/home/cmux/work/paint-1a2b3c")
