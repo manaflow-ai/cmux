@@ -932,6 +932,9 @@ fn a_release_returns_while_a_thread_of_its_owner_holds_the_registry_lock() {
     let _ = holder.join();
     let _ = releaser.join();
     drop(mux);
+    // The owner's value is gone and its process lives on: the session is
+    // kept until the exit, so the next owner's open is refused here too.
+    let refused_after = refusal(&root, session);
     crate::workspace_registry::owner_release::end_kept_owner_for_test(&folder);
     let _ = std::fs::remove_dir_all(&root);
     let Some(release) = release else {
@@ -960,6 +963,13 @@ fn a_release_returns_while_a_thread_of_its_owner_holds_the_registry_lock() {
         refused.contains("already owned by another daemon") && refused.contains(KEPT_REASON),
         "the next owner's open was not refused because the owner before it keeps the session: \
          its open: {refused}"
+    );
+    assert!(
+        refused_after.contains("already owned by another daemon")
+            && refused_after.contains(KEPT_REASON),
+        "an owner that kept its session because of the registry's lock gave the session up when \
+         its value was dropped, before its process ended: the next owner's open after that: \
+         {refused_after}"
     );
 }
 
@@ -1063,10 +1073,24 @@ fn a_shutdown_returns_while_a_pass_of_its_output_store_writer_does_not_end() {
     // here returned while the pass ran, and the release comes while it runs.
     let returned = shutdown_said.recv_timeout(OWNER_CALL_WAIT).is_ok();
     let stop_line = mux.output_store.stop_line().unwrap_or_default();
+    // A later stop of the store comes while the pass still runs, as the
+    // owner's own later stops of it do: it makes no last write either.
+    let (said_again, stopped_again) = mpsc::sync_channel(1);
+    let again = Arc::clone(&mux);
+    let second_stopper = returned.then(|| {
+        std::thread::spawn(move || {
+            again.output_store.shutdown(&again);
+            let _ = said_again.send(());
+        })
+    });
+    let returned_again = returned && stopped_again.recv_timeout(OWNER_CALL_WAIT).is_ok();
     let release = returned.then(|| mux.release_ownership(&root.join("control.sock")));
     let record = std::fs::read_to_string(folder.join(RELEASE_RECORD_FILE)).unwrap_or_default();
     drop(end_the_pass);
     let _ = stopper.join();
+    if let Some(second_stopper) = second_stopper {
+        let _ = second_stopper.join();
+    }
     // The writer's thread has a handle of the owner: it gives that handle up
     // before the test gives up its own.
     let _ = writer_ended.recv_timeout(OWNER_CALL_WAIT);
@@ -1085,6 +1109,13 @@ fn a_shutdown_returns_while_a_pass_of_its_output_store_writer_does_not_end() {
         stop_line.contains(OUTPUT_STORE_WRITER) && stop_line.contains(NO_LAST_WRITE),
         "a stop that went on without the writer of the output store did not say on stderr \
          that it made no last write of the store: its line: {stop_line:?}"
+    );
+    assert!(
+        returned_again,
+        "a later stop of the output store did not return while a pass of its writer ran: its \
+         last write of the store waits for the pass lock that the writer holds (the test waited \
+         {} s for that stop)",
+        OWNER_CALL_WAIT.as_secs()
     );
     assert!(
         kept_names(release.as_ref()) == [OUTPUT_STORE_WRITER],
