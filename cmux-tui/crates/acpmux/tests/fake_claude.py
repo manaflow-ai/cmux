@@ -74,6 +74,8 @@ FAKE_CLAUDE_SKILLS=1 has one skill installed and sends system/init every turn.
 FAKE_CLAUDE_INIT (a JSON object) adds its fields to system/init (`mcp_servers`,
 `skills`, ...); with FAKE_CLAUDE_CONTROL_LOG set, the subtype of every
 control request is appended to that file, one per line.
+FAKE_CLAUDE_STDIN_LOG=<path> appends each stdin line's kind as it arrives (`user`,
+`control_request:<subtype>`, ...): a `user` line is the one that makes Claude Code call the model.
 FAKE_CLAUDE_CONTEXT=1 answers get_context_usage with a /context breakdown
 (=error refuses it). FAKE_CLAUDE_LATE_CONTEXT=<path> makes a FAKE_CLAUDE_DIE_IF prompt a
 usage limit instead (the process lives on, and answers no more get_context_usage), and leaves a
@@ -310,7 +312,19 @@ AGAIN = []
 
 
 def _read_stdin():
+    log = os.environ.get("FAKE_CLAUDE_STDIN_LOG")
     for got in sys.stdin:
+        if log:
+            # Each line's kind as it arrives: a "user" line is what makes Claude Code call the model.
+            try:
+                msg = json.loads(got)
+                kind = str(msg.get("type", "?"))
+                if kind == "control_request":
+                    kind += ":" + str((msg.get("request") or {}).get("subtype"))
+            except Exception:
+                kind = "unparsed"
+            with open(log, "a") as f:
+                f.write(kind + "\n")
         LINES.put(got)
     LINES.put(None)
 

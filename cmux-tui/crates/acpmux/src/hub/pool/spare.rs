@@ -36,6 +36,15 @@ use super::*;
 const RECENT: Duration = Duration::from_secs(7 * 24 * 3600);
 const FILE: &str = "pool-spares.json";
 
+/// The model a spare starts on.
+pub(super) enum SpareModel {
+    /// The model request of the session whose shape it keeps (None: the harness's own).
+    Asked(Option<String>),
+    /// The model a plain new chat of the harness starts on (`start_defaults.rs`): the login spare
+    /// (`login_spare.rs`), which no session of the machine came before.
+    StartDefault,
+}
+
 /// One remembered harness in `pool-spares.json`.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -157,6 +166,7 @@ impl Hub {
     /// Want the spare for this shape (its start runs in the background).
     async fn spare_want(self: &Arc<Self>, r: Remembered) {
         let Remembered { harness, preset, cwd, model, .. } = r;
+        let model = SpareModel::Asked(model);
         match self.pool_spec_in(Some(harness.clone()), preset, cwd, Some(model)).await {
             Ok(spec) => self.pool_want(Role::Spare, spec).await,
             Err(e) => tracing::debug!(%harness, "no spare: {}", e.message),
@@ -174,6 +184,7 @@ impl Hub {
         if !self.spare_enabled().await {
             return;
         }
+        self.login_spare_start().await;
         let h = self.clone();
         let list =
             tokio::task::spawn_blocking(move || h.spares_with(|_| {})).await.unwrap_or_default();
