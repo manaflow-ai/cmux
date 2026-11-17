@@ -416,7 +416,7 @@ pub(crate) fn apply(
             set_row_heights(state, *column, heights, *fit, events)
         }
         LayoutOpKind::FlattenRows { column } => flatten_rows(state, *column, events),
-        // `apply_kind` routes only the four row ops here.
+        // `kinds::apply_checked` routes only the four row ops here.
         _ => {
             debug_assert!(false, "not a row op: {kind:?}");
             Ok(())
