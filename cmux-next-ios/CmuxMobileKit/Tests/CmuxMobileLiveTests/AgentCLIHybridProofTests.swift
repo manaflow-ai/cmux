@@ -81,22 +81,33 @@ import Testing
             let reference = Data(step.terminalBytes.dropFirst(syncBegin.count).dropLast(syncEnd.count))
             expect(bytes == reference, "\(label): not the bytes cmux-tui checked against ghostty-vt")
             expect(events.last == .hybridFrame(stream: fixture.stream, frame: step.frame,
-                                               resumed: firstOfConnection && step.base != nil), "\(label)")
-            guard let decoded = decoder.decode(step.lean), let v1 = AgentCLIHybridFrame.Delta(step.delta) else {
-                report.problems.append("\(label): the lean or v1 frame does not decode")
+                                               resumed: firstOfConnection && step.base != nil),
+                   "\(label): last event \(String(describing: events.last))")
+            guard let decoded = decoder.decode(step.lean) else {
+                report.problems.append("\(label): the lean frame does not decode")
+                return report
+            }
+            guard let v1 = AgentCLIHybridFrame.Delta(step.delta) else {
+                report.problems.append("\(label): the v1 delta does not decode")
                 return report
             }
             expect(decoded.delta?.shift == v1.shift && decoded.delta?.spans == v1.spans, "\(label): lean and v1 differ")
-            expect(decoded.base == step.base && decoded.columns == step.columns && decoded.rows == step.rows, "\(label)")
+            expect(decoded.base == step.base && decoded.columns == step.columns && decoded.rows == step.rows,
+                   "\(label): base \(String(describing: decoded.base)) \(decoded.columns)x\(decoded.rows), "
+                   + "recorded \(String(describing: step.base)) \(step.columns)x\(step.rows)")
             if step.base == nil || model == nil {
                 model = HybridScreenModel(columns: step.columns, rows: step.rows, widths: fixture.widths)
             }
             model?.write(bytes)
-            guard let screen = model else { return report }
+            guard let screen = model else {
+                report.problems.append("\(label): no screen model")
+                return report
+            }
             let differences = screen.differences(from: step.screen)
             if !differences.isEmpty { mismatched += 1 }
             expect(differences.isEmpty, "\(label): \(differences)")
-            expect(HybridParityFixture.Cursor(x: screen.x, y: screen.y, visible: screen.cursorVisible) == step.cursor, "\(label)")
+            let cursor = HybridParityFixture.Cursor(x: screen.x, y: screen.y, visible: screen.cursorVisible)
+            expect(cursor == step.cursor, "\(label): cursor \(cursor), recorded \(step.cursor)")
             cells += step.columns * step.rows
             shown = (fixture.stream, step.frame)
             firstOfConnection = false
