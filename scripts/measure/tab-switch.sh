@@ -42,6 +42,37 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
+# A build here (build=SHA, build=head, or the --flag mode) fetches pinned assets whose last source is the private
+# cmux-cef R2 bucket, read with the CMUX_CEF_R2_* read credentials (cmux-remote-dev.pin.json in a Release build that
+# embeds cmux Remote, the Chromium engine when the store has no copy). Without them the build ran 7 to 13 minutes under
+# the host lock and then failed (cmux19, 2026-11-16 22:28Z, 22:42Z and 00:04Z), so they are checked first: the
+# environment, else CMUX_CEF_R2_ENV_FILE, else ~/.secrets/cmux-cef.env of this HOME or of the account (a fleet step
+# has its own HOME). The file found is exported, so the build reads the same one. The controller sends these steps
+# only to workers that advertise cef-r2 (cmuxterm-hq build-fleet); build-fleet/mini-ops/cef-r2-key.sh installs the key.
+cef_read_file_ok() {
+  local file="$1" name
+  [[ -n "$file" && -r "$file" ]] || return 1
+  for name in CMUX_CEF_R2_ACCOUNT_ID CMUX_CEF_R2_ACCESS_KEY_ID CMUX_CEF_R2_SECRET_ACCESS_KEY; do
+    grep -Eq "^(export )?$name=[\"']?[^\"'[:space:]]" "$file" || return 1
+  done
+}
+require_cef_read_credentials() {
+  if [[ -n "${CMUX_CEF_R2_ACCESS_KEY_ID:-}" && -n "${CMUX_CEF_R2_SECRET_ACCESS_KEY:-}" &&
+    -n "${CMUX_CEF_R2_ACCOUNT_ID:-}${CMUX_CEF_R2_ENDPOINT:-}" ]]; then
+    return 0
+  fi
+  local account_home="${TSW_ACCOUNT_HOME-$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk '{print $2}')}"
+  local file
+  for file in "${CMUX_CEF_R2_ENV_FILE:-}" "$HOME/.secrets/cmux-cef.env" "${account_home:+$account_home/.secrets/cmux-cef.env}"; do
+    if cef_read_file_ok "$file"; then
+      export CMUX_CEF_R2_ENV_FILE="$file"
+      return 0
+    fi
+  done
+  echo "TSW no CMUX_CEF_R2_* read credentials on this Mac (none in the environment, ${CMUX_CEF_R2_ENV_FILE:+$CMUX_CEF_R2_ENV_FILE, }$HOME/.secrets/cmux-cef.env${account_home:+ or $account_home/.secrets/cmux-cef.env}): a build here would fail after minutes fetching its pinned assets. Not building. Measure build=nightly, or run on a worker labeled cef-r2 (cmuxterm-hq build-fleet/mini-ops/cef-r2-key.sh HOST installs the read key)."
+  exit 3
+}
+
 # Submodules, GhosttyKit and the pinned bun a tagged build needs (a fleet step checks out no submodules).
 prepare_build() {
   local tmp="$1"
@@ -93,6 +124,7 @@ frames_main() {
   [[ -z "$rows" || "$rows" =~ ^[0-9]+$ ]] || { echo "tab-switch: rows= takes a number" >&2; exit 2; }
   [[ "$load" =~ ^[A-Za-z0-9+,-]+$ && "$scenarios" =~ ^[a-z0-9,-]*$ ]] || { echo "tab-switch: load= and scenarios= take names" >&2; exit 2; }
   [[ "$build" == nightly || "$build" == head || "$build" =~ ^[0-9a-f]{40}$ ]] || { echo "tab-switch: build= is nightly, head or a 40-hex commit" >&2; exit 2; }
+  [[ "$build" == nightly ]] || require_cef_read_credentials
   local root="$PWD" out="$PWD/.build/tab-switch" tmp
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
   tmp="$(mktemp -d)"
@@ -173,6 +205,7 @@ if [[ "${1:-}" =~ ^(build|rounds|load|scenarios|gate|turns|agents|dmg|config|rec
   frames_main "$@"
 fi
 
+require_cef_read_credentials
 tag="tabswitch"
 out="$(mktemp -d)"
 # Remove the scratch folder on every exit (a failed build, a TERM), not only at the end: a leaked one holds a build.

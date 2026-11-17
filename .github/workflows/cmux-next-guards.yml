@@ -1026,6 +1026,12 @@ jobs:
         if: ${{ !cancelled() }}
         run: bash scripts/cmux-next/tests/origin-net.test.sh
 
+      # A tab switch build step on a Mac without the CEF R2 read key fails in seconds, not after a 7 to 13 minute
+      # build under the host lock (cmux19, 2026-11-16).
+      - name: tab-switch.sh checks the CEF read credentials before it builds
+        if: ${{ !cancelled() }}
+        run: bash scripts/measure/tests/tab-switch-cef-creds.test.sh
+
       - name: install-zig-ci.sh installs only a reviewed Zig
         if: ${{ !cancelled() }}
         run: python3 tests/test_install_zig_ci_reviewed_version.py
