@@ -76,7 +76,7 @@ pub(super) fn close_focus_successor(
     let shows = |pane: &PaneId| Some(*pane) != hidden;
     panes
         .iter()
-        .filter(|id| shows(*id))
+        .filter(|id| shows(id))
         .filter_map(|id| state.panes.get(id).map(|pane| (*id, pane.focused_at)))
         .filter(|(_, focused_at)| *focused_at > 0)
         .max_by_key(|(_, focused_at)| *focused_at)
