@@ -922,11 +922,14 @@ class Films:
     def layout(self, workspace):
         """(the pane count, the count of zoomed panes) of `workspace` now, by ONE read of the layout. NotKnown when the
         read gave no workspace: the session helper gives None for a read that failed and for a workspace that is gone,
-        and that is no count of 0."""
+        and that is no count of 0. NotKnown also for a workspace with no pane: a workspace has 1 pane or more."""
         found = self.st.workspace(workspace)
         if not isinstance(found, dict):
             raise NotKnown("the layout read gave no workspace")
-        return len(self.st.panes(found)), sum(1 for screen in found.get("screens") or [] if screen.get("zoomed_pane"))
+        panes = len(self.st.panes(found))
+        if not panes:
+            raise NotKnown("the layout read gave no pane of the workspace")
+        return panes, sum(1 for screen in found.get("screens") or [] if screen.get("zoomed_pane"))
 
     def counts(self, workspace):
         """As `layout`, with `not read` in the place of each count when the read gave no workspace."""
@@ -974,7 +977,10 @@ class Films:
                 _, chord, presses, gap, hold = act
                 # "tabs": the key-down and its repeats close all but 2 tabs of the pane, so the pane stays.
                 delay, every = self.opts.repeat_delay_ms, max(self.opts.repeat_ms, 1)
-                repeats = max(1, len(self.st.tabs(workspace, focus)) - 3) if hold == "tabs" else max(1, 1 + int((hold * 1000 - delay) / every)) if hold else 0
+                held = len(self.st.tabs(workspace, focus)) if hold == "tabs" else None
+                if held == 0:  # a pane has 1 tab or more: no tab = a read that failed, and 1 repeat would be a guess
+                    raise NotMade("the tab read gave no tab of the pane: no count for the held close")
+                repeats = max(1, held - 3) if hold == "tabs" else max(1, 1 + int((hold * 1000 - delay) / every)) if hold else 0
                 more = (presses, gap, repeats, delay, every)
                 if self.form == "activate":
                     # The window that has the keys now. A word that the app refuses gets ONE new read and ONE more
@@ -1196,7 +1202,7 @@ class Films:
             else:
                 row.update(status="made", file=spec["id"] + ".mov")
             self.play(spec.get("post", ()), workspace, panes, focus, key_window, time.monotonic())
-        except NotMade as error:  # the check before the take: no movie of this film
+        except NotMade as error:  # a check before the take (no movie), or a read for an act that gave no count
             row.update(status="not_made", reason=str(error)[:800])
             self.stop = str(error)[:800] if error.stop else self.stop
         except Exception as error:  # noqa: BLE001  one film's fault must not stop the other films
