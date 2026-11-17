@@ -53,7 +53,7 @@ struct AcpmuxPathPolicyWorkspaceTests {
         let text = try newSession(cwd: folder, acpmux: ["workspaceId": other])
         // The params rule (P1) refuses the key from the page before any other rule runs.
         let object = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]
-        #expect(AcpmuxPaneMethods.breaksParamsRule(object, modeFields: nil))
+        #expect(!AcpmuxPaneMethods.takesAsSent(object, modeFields: nil))
         // Past it, the host's value replaces the page's; with no workspace, the page's is dropped.
         let stamped = try checkedAcpmux(text, scope: AcpmuxPathPolicy.Scope(roots: [folder], workspaceID: Self.workspace))
         #expect(stamped?["workspaceId"] as? String == Self.workspace.lowercased())

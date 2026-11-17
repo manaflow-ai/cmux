@@ -20,7 +20,7 @@ struct AgentPaneNewChatModelRelayTests {
     }
 
     static func breaks(_ acpmux: String) -> Bool {
-        AcpmuxPaneMethods.breaksParamsRule(object(start(id: 1, acpmux: acpmux)), modeFields: [])
+        !AcpmuxPaneMethods.takesAsSent(object(start(id: 1, acpmux: acpmux)), modeFields: [])
     }
 
     @Test func theStartOnAnotherMachineMayNameItsModel() {
@@ -42,21 +42,27 @@ struct AgentPaneNewChatModelRelayTests {
         }
     }
 
-    @Test func everyOtherAcpmuxKeyIsStillRefused() {
-        // Control, trust-gate, policy and identity keys acpmux reads from a start's `_meta.acpmux`.
+    @Test func everyOtherAcpmuxKeyNeverReachesAcpmux() {
+        // Control, trust-gate, policy and identity keys acpmux reads from a start's `_meta.acpmux`:
+        // dropped, so the start goes on without them (never refused).
         for key in ["effort", "preset", "policy", "route", "name", "env", "workspaceId", "resend", "control",
                     "fullAccess", "parent", "toolCallId", "disallowedTools", "worktree", "ephemeral", "localAppToken",
                     "forwarded", "trust", "models", "modelId"] {
             #expect(Self.breaks(#""harness":"claude","peer":"devbox","model":"m","\#(key)":"x""#), "\(key)")
+            let frame = Self.object(Self.start(id: 1, acpmux: #""harness":"claude","peer":"devbox","model":"m","\#(key)":"x""#))!
+            let checked = AcpmuxPaneMethods.checkingParams(frame, modeFields: [])
+            #expect(checked?.dropped == ["_meta.acpmux.\(key)"], "\(key)")
+            let acpmux = ((checked?.object["params"] as? [String: Any])?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
+            #expect(acpmux?[key] == nil && acpmux?["model"] as? String == "m", "\(key)")
         }
         // `model` is a start's `_meta.acpmux` key only: never a top-level param, nor on another method.
         let top = #"{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/a","model":"m"}}"#
-        #expect(AcpmuxPaneMethods.breaksParamsRule(Self.object(top), modeFields: []))
+        #expect(!AcpmuxPaneMethods.takesAsSent(Self.object(top), modeFields: []))
         let prompt = #"{"jsonrpc":"2.0","id":1,"method":"session/prompt","params":{"sessionId":"s","prompt":[],"_meta":{"acpmux":{"promptId":"p","model":"m"}}}}"#
-        #expect(AcpmuxPaneMethods.breaksParamsRule(Self.object(prompt), modeFields: []))
+        #expect(!AcpmuxPaneMethods.takesAsSent(Self.object(prompt), modeFields: []))
         // `_meta` holds only `acpmux`.
         let other = #"{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"_meta":{"acpmux":{"model":"m"},"model":"m"}}}"#
-        #expect(AcpmuxPaneMethods.breaksParamsRule(Self.object(other), modeFields: []))
+        #expect(!AcpmuxPaneMethods.takesAsSent(Self.object(other), modeFields: []))
     }
 
     @Test(.timeLimit(.minutes(1))) func theStartReachesAcpmuxWithTheModel() async throws {
@@ -75,20 +81,20 @@ struct AgentPaneNewChatModelRelayTests {
         #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
         let starts = { server.peers.first?.frames.filter { $0.contains("session/new") } ?? [] }
 
-        #expect(await transport.send(connection: id, frames: [Self.start(id: 1, acpmux: #""harness":"claude","peer":"devbox","model":"m","policy":"bypass""#, cwd: folder)])
-                == .intentInvalid, "a key the pane never sends")
         #expect(await transport.send(connection: id, frames: [Self.start(id: 2, acpmux: #""harness":"claude","peer":"devbox","model":"-p""#, cwd: folder)])
                 == .intentInvalid, "a model that is a flag")
         #expect(starts().isEmpty, "a refused start reached acpmux: \(starts())")
 
-        // The person's send on the New Tab with another machine picked.
+        // The person's send on the New Tab with another machine picked. A key the pane never sends
+        // (`policy`) is dropped on the way: the start goes, without it.
         transport.gestures.record()
-        let sent = await transport.send(connection: id, frames: [Self.start(id: 3, acpmux: #""harness":"claude","peer":"devbox","model":"claude-opus-5-5""#, cwd: folder)])
+        let sent = await transport.send(connection: id, frames: [Self.start(id: 3, acpmux: #""harness":"claude","peer":"devbox","model":"claude-opus-5-5","policy":"bypass""#, cwd: folder)])
         #expect(sent == nil, "the relay refused the start on another machine with its model")
         guard sent == nil else { return }
         _ = await inbox.frame(containing: #""id":3"#)
         let acpmux = try #require(starts().first.flatMap(Self.object).flatMap { (($0["params"] as? [String: Any])?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any] })
         #expect(acpmux["model"] as? String == "claude-opus-5-5")
         #expect(acpmux["peer"] as? String == "devbox")
+        #expect(acpmux["policy"] == nil, "an unlisted key reached acpmux: \(acpmux)")
     }
 }

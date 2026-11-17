@@ -73,12 +73,17 @@ fn context_requires_the_panes_session() {
 }
 
 #[test]
-fn context_rejects_forged_params_and_metadata() {
+fn context_drops_forged_params_and_metadata() {
+    // Dropped before the wire, never refused: the request goes for the pane's own chat only.
     for method in ["_acpmux/context", "_acpmux/context_override"] {
         for key in ["cwd", "host", "unknown", "_meta"] {
             let mut params = json!({"sessionId":"own"});
             params[key] = json!("/other/project");
-            expect_refusal(method, params, false, Refusal::IntentInvalid);
+            let Checked::Frame { frame, facts } = check(method, params, false) else {
+                panic!("Context request with {key} was refused")
+            };
+            assert_eq!(frame["params"], json!({"sessionId":"own"}), "{key}");
+            assert_eq!(facts.dropped, vec![key.to_owned()], "{key}");
         }
     }
 }

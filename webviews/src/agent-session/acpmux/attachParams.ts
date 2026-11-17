@@ -73,8 +73,6 @@ export const SETTLED_ATTACH_CAPABILITY = "settled-attach-v1";
 /// closed) fails a plain attach too.
 export function settledAttachFailed(error: unknown): boolean {
   const failure = error as { message?: unknown; code?: unknown; reason?: unknown } | undefined;
-  // A host whose params rule does not take `settled` refuses the attach as malformed (#42185).
-  if (failure?.code === "transport.intent_invalid") return true;
   return [failure?.message, failure?.code, failure?.reason].some(
     (said) => typeof said === "string" && /settled/i.test(said),
   );

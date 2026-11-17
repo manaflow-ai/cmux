@@ -6,9 +6,9 @@
 // app every open chat showed empty history and "Something went wrong, so that didn't go through"
 // though the new daemon held every chat.
 //
-// The page's own fallback (direct.ts `settledAttachFailed`) now retries a refused settled attach
-// plain, so a chat opens even through a host that refuses it. What this test holds is the host's
-// side: the settled ask goes through to acpmux unrefused, and the chat draws its rows again.
+// The host now drops a key it does not list instead of refusing the frame. What this test holds is
+// the list itself: the settled ask is listed, so it goes through to acpmux whole, and the chat draws
+// its rows again.
 //
 // The socket here stands in for the app's bridge (AgentPaneTransport): it applies the host's pane
 // policy as data (cmux-agent-pane-policy policy.json, which tests/swift.rs keeps equal to

@@ -22,11 +22,11 @@ struct AgentPanePeerSnapshotRelayTests {
             return
         }
         let object = (try? JSONSerialization.jsonObject(with: Data(frame.utf8))) as? [String: Any]
-        #expect(!AcpmuxPaneMethods.breaksParamsRule(object, modeFields: []))
+        #expect(AcpmuxPaneMethods.takesAsSent(object, modeFields: []))
         for extra in [#""sessionId":"s""#, #""url":"ssh://host""#, #""token":"secret""#] {
             let invalid = #"{"jsonrpc":"2.0","id":1,"method":"_acpmux/peer_reconnect","params":{"name":"huge-blue","wait":true,\#(extra)}}"#
             let invalidObject = try #require((try? JSONSerialization.jsonObject(with: Data(invalid.utf8))) as? [String: Any], "\(extra)")
-            #expect(AcpmuxPaneMethods.breaksParamsRule(invalidObject, modeFields: []), "\(extra)")
+            #expect(!AcpmuxPaneMethods.takesAsSent(invalidObject, modeFields: []), "\(extra)")
         }
     }
 
@@ -39,12 +39,12 @@ struct AgentPanePeerSnapshotRelayTests {
         func object(_ params: String) -> [String: Any]? {
             (try? JSONSerialization.jsonObject(with: Data(Self.read(id: 1, params: params).utf8))) as? [String: Any]
         }
-        #expect(!AcpmuxPaneMethods.breaksParamsRule(object(#"{"sessionId":"huge-blue/lane"}"#), modeFields: []))
+        #expect(AcpmuxPaneMethods.takesAsSent(object(#"{"sessionId":"huge-blue/lane"}"#), modeFields: []))
         // acpmux takes `host`, `limit` and `maxBytes` too; the pane sends none of them.
         for extra in [#""host":"other""#, #""limit":1000"#, #""maxBytes":1"#, #""_meta":{"acpmux":{"peer":"x"}}"#] {
-            #expect(AcpmuxPaneMethods.breaksParamsRule(object(#"{"sessionId":"m1",\#(extra)}"#), modeFields: []), "\(extra)")
+            #expect(!AcpmuxPaneMethods.takesAsSent(object(#"{"sessionId":"m1",\#(extra)}"#), modeFields: []), "\(extra)")
         }
-        #expect(AcpmuxPaneMethods.breaksParamsRule(object(#"["m1"]"#), modeFields: []))
+        #expect(!AcpmuxPaneMethods.takesAsSent(object(#"["m1"]"#), modeFields: []))
     }
 
     @Test(.timeLimit(.minutes(1))) func aDownPeersChatIsReadFromTheMacsCopyBeforeItsAttach() async throws {
@@ -57,10 +57,6 @@ struct AgentPanePeerSnapshotRelayTests {
         let id = try await transport.open(AcpmuxConnection(url: server.url, dashboardToken: "t", localAppToken: nil))
         #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
         let reads = { server.peers.first?.frames.filter { $0.contains("_acpmux/peer_snapshot") } ?? [] }
-
-        #expect(await transport.send(connection: id, frames: [Self.read(id: 1, params: #"{"sessionId":"m1","host":"other"}"#)])
-                == .intentInvalid, "a param the pane never sends")
-        #expect(reads().isEmpty, "a refused read reached acpmux: \(reads())")
 
         // The chat is not in the pane's scope yet: the copy is drawn before its attach.
         #expect(await transport.send(connection: id, frames: [Self.read(id: 2, params: #"{"sessionId":"huge-blue/lane"}"#)]) == nil,

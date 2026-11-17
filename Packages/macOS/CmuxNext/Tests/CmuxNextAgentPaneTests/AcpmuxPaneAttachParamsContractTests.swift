@@ -34,7 +34,7 @@ struct AcpmuxPaneAttachParamsContractTests {
         for attach in attaches {
             let name = attach["name"] as? String ?? "?"
             let params = try #require(attach["params"] as? [String: Any], "\(name) has no params")
-            #expect(!AcpmuxPaneMethods.breaksParamsRule(Self.frame(params), modeFields: nil),
+            #expect(AcpmuxPaneMethods.takesAsSent(Self.frame(params), modeFields: nil),
                     "the relay refuses the page's \(name) attach: add its keys to knownParams[\"_acpmux/attach\"]")
         }
     }
@@ -42,12 +42,12 @@ struct AcpmuxPaneAttachParamsContractTests {
     @Test func theRowStoreHoldIsInTheContract() throws {
         let hold = try #require(try Self.contract().first { $0["name"] as? String == "hold" }?["params"] as? [String: Any])
         #expect(hold["hold"] as? Bool == true)
-        #expect(!AcpmuxPaneMethods.breaksParamsRule(Self.frame(hold), modeFields: nil))
+        #expect(AcpmuxPaneMethods.takesAsSent(Self.frame(hold), modeFields: nil))
     }
 
     @Test func aKeyThePageDoesNotSendIsStillRefused() throws {
         var hold = try #require(try Self.contract().first { $0["name"] as? String == "hold" }?["params"] as? [String: Any])
         hold["permissionMode"] = "bypassPermissions"
-        #expect(AcpmuxPaneMethods.breaksParamsRule(Self.frame(hold), modeFields: nil))
+        #expect(!AcpmuxPaneMethods.takesAsSent(Self.frame(hold), modeFields: nil))
     }
 }

@@ -1,9 +1,9 @@
 // Every `_acpmux/attach` the page sends, as `schemas/agent-pane/attach-params.json` lists them. The
 // app's relay checks each frame against its params rule (AcpmuxPaneMethods+Params.swift
 // `knownParams`), and `AcpmuxPaneAttachParamsContractTests` runs this same file through that rule.
-// A key the page adds here and the relay does not know is refused as `transport.intent_invalid`:
-// `settled` once (#42185), then the row store's `hold`, after which no chat typed on the New Tab
-// page started (#42460: "Couldn't start Claude Code (sr2 internal): Something went wrong").
+// A key the page adds here and the relay does not know is dropped before acpmux (it was refused
+// as `transport.intent_invalid` until the relay stopped refusing unlisted keys: `settled` once,
+// #42185, then the row store's `hold`, #42460), so the feature it carries silently does nothing.
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";

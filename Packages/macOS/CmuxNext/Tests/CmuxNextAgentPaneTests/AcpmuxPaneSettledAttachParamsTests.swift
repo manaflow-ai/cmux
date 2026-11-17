@@ -21,16 +21,16 @@ struct AcpmuxPaneSettledAttachParamsTests {
     @Test func aSettledColdOpenPassesTheParamsRule() {
         var params = Self.openParams
         params["settled"] = true
-        #expect(!AcpmuxPaneMethods.breaksParamsRule(Self.attach(params), modeFields: nil))
+        #expect(AcpmuxPaneMethods.takesAsSent(Self.attach(params), modeFields: nil))
     }
 
     @Test func thePlainRetryStillPasses() {
-        #expect(!AcpmuxPaneMethods.breaksParamsRule(Self.attach(Self.openParams), modeFields: nil))
+        #expect(AcpmuxPaneMethods.takesAsSent(Self.attach(Self.openParams), modeFields: nil))
     }
 
     @Test func anotherKeyOnAttachIsStillRefused() {
         var params = Self.openParams
         params["host"] = "peer"
-        #expect(AcpmuxPaneMethods.breaksParamsRule(Self.attach(params), modeFields: nil))
+        #expect(!AcpmuxPaneMethods.takesAsSent(Self.attach(params), modeFields: nil))
     }
 }

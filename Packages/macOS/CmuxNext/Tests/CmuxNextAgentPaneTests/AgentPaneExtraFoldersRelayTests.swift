@@ -32,7 +32,7 @@ struct AgentPaneExtraFoldersRelayTests {
     @Test func theParamsRuleTakesExtraFolders() {
         let object = Self.frame(["cwd": "/a", "mcpServers": [Any](), "additionalDirectories": ["/b"],
                                  "_meta": ["acpmux": ["harness": "claude"]]])
-        #expect(!AcpmuxPaneMethods.breaksParamsRule(object, modeFields: []))
+        #expect(AcpmuxPaneMethods.takesAsSent(object, modeFields: []))
     }
 
     @Test func thisMacsFoldersAreCheckedAsTheChatsFolder() throws {

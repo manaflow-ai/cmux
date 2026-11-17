@@ -216,7 +216,7 @@ struct AgentPanePeerStartFolderTests {
         for peer in [NSNull(), 3, true, ["devbox"], ["name": "devbox"], ""] as [Any] {
             for method in ["acp.trust.get", "acp.trust.set"] {
                 let object: [String: Any] = ["method": method, "params": ["cwd": Self.peerOnly, "peer": peer]]
-                #expect(AcpmuxPaneMethods.breaksParamsRule(object, modeFields: nil))
+                #expect(!AcpmuxPaneMethods.takesAsSent(object, modeFields: nil))
             }
         }
         // Local revocation keeps its existing no-gesture behavior.

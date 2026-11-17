@@ -8,8 +8,7 @@ use cmux_agent_pane_policy::check::{
 use cmux_agent_pane_policy::environment::{default_socket_path, resolve, socket_path, tag_slug};
 use cmux_agent_pane_policy::gesture::{Gesture, PermissionOptions, needs_gesture};
 use cmux_agent_pane_policy::params::{
-    breaks_params_rule, requested_setting, session_refusal, stripping_prompt_meta,
-    take_gesture_ticket,
+    checked_params, requested_setting, session_refusal, stripping_prompt_meta, take_gesture_ticket,
 };
 use cmux_agent_pane_policy::reply::filtered_reply;
 use cmux_agent_pane_policy::{
@@ -67,7 +66,9 @@ fn check_params(c: &Value) {
     let modes: Option<BTreeSet<String>> = c["mode_fields"]
         .as_array()
         .map(|a| a.iter().map(|v| v.as_str().unwrap().to_owned()).collect());
-    let got = breaks_params_rule(&object(&c["frame"]), modes.as_ref());
+    // `breaks`: not taken as the page wrote it (refused, or a key dropped).
+    let got =
+        checked_params(&object(&c["frame"]), modes.as_ref()).is_none_or(|c| !c.dropped.is_empty());
     assert_eq!(got, c["breaks"].as_bool().unwrap(), "{}", name(c));
 }
 
@@ -292,7 +293,10 @@ fn trust_peer_selector_requires_a_nonempty_string() {
                 "jsonrpc": "2.0", "id": 1, "method": method,
                 "params": {"cwd": "/x", "peer": peer}
             });
-            assert!(breaks_params_rule(&object(&frame), None), "{method} must refuse peer {peer}");
+            assert!(
+                checked_params(&object(&frame), None).is_none(),
+                "{method} must refuse peer {peer}"
+            );
         }
     }
 }

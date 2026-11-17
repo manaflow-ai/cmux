@@ -13,28 +13,28 @@ struct AcpmuxPaneForkCancelParamsTests {
 
     @Test func cancelOnAPendingForkPassesTheParamsRule() {
         let cancel = Self.kill(["sessionId": "fork-1", "purge": true, "cancelFork": true])
-        #expect(!AcpmuxPaneMethods.breaksParamsRule(cancel, modeFields: nil))
+        #expect(AcpmuxPaneMethods.takesAsSent(cancel, modeFields: nil))
     }
 
     @Test func cancelWhileTheForkIsMadePassesTheParamsRule() {
         let cancel = Self.kill(["sessionId": "chat-1", "cancelFork": true, "cancelToken": "t-1"])
-        #expect(!AcpmuxPaneMethods.breaksParamsRule(cancel, modeFields: nil))
+        #expect(AcpmuxPaneMethods.takesAsSent(cancel, modeFields: nil))
         let fork: [String: Any] = [
             "jsonrpc": "2.0", "id": 2, "method": "acp.session.fork",
             "params": ["sessionId": "chat-1", "live": true, "cancelToken": "t-1"],
         ]
-        #expect(!AcpmuxPaneMethods.breaksParamsRule(fork, modeFields: nil))
+        #expect(AcpmuxPaneMethods.takesAsSent(fork, modeFields: nil))
     }
 
     /// Move to Terminal (header/terminalMoveRow.ts) stops the chat's harness only while it is idle:
     /// `_acpmux/kill {sessionId, purge: false, ifIdle: true}` (acpmux hub/stop_if_idle.rs).
     @Test func anIdleOnlyStopPassesTheParamsRule() {
         let stop = Self.kill(["sessionId": "chat-1", "purge": false, "ifIdle": true])
-        #expect(!AcpmuxPaneMethods.breaksParamsRule(stop, modeFields: nil))
+        #expect(AcpmuxPaneMethods.takesAsSent(stop, modeFields: nil))
     }
 
     @Test func anotherKeyOnKillIsStillRefused() {
         let other = Self.kill(["sessionId": "fork-1", "purge": true, "expectRevision": 3])
-        #expect(AcpmuxPaneMethods.breaksParamsRule(other, modeFields: nil))
+        #expect(!AcpmuxPaneMethods.takesAsSent(other, modeFields: nil))
     }
 }

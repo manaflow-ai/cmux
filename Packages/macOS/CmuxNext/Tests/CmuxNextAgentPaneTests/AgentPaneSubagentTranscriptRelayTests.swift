@@ -25,7 +25,7 @@ struct AgentPaneSubagentTranscriptRelayTests {
                 Issue.record("the relay refused the transcript read: \(params)")
                 continue
             }
-            #expect(!AcpmuxPaneMethods.breaksParamsRule(object(params), modeFields: []), "\(params)")
+            #expect(AcpmuxPaneMethods.takesAsSent(object(params), modeFields: []), "\(params)")
         }
         // `_meta` is acpmux's control/provenance channel, never a transcript cursor field.
         for extra in [
@@ -34,9 +34,9 @@ struct AgentPaneSubagentTranscriptRelayTests {
             #""maxBytes":1"#,
         ] {
             let params = #"{"sessionId":"s","runId":"wf_run","agentId":"agent",\#(extra)}"#
-            #expect(AcpmuxPaneMethods.breaksParamsRule(object(params), modeFields: []), "\(extra)")
+            #expect(!AcpmuxPaneMethods.takesAsSent(object(params), modeFields: []), "\(extra)")
         }
-        #expect(AcpmuxPaneMethods.breaksParamsRule(object(#"["s"]"#), modeFields: []))
+        #expect(!AcpmuxPaneMethods.takesAsSent(object(#"["s"]"#), modeFields: []))
     }
 
     @Test(.timeLimit(.minutes(1))) func anAllowedTranscriptReadReachesAcpmuxOnlyForTheSelectedChat() async throws {
@@ -60,7 +60,11 @@ struct AgentPaneSubagentTranscriptRelayTests {
 
         #expect(await transport.send(connection: id, frames: [Self.frame(id: 2, params: #"{"sessionId":"other","runId":"wf_run","agentId":"agent"}"#)]) == .sessionNotInPane,
                 "a transcript read cannot escape the selected chat")
-        #expect(await transport.send(connection: id, frames: [Self.frame(id: 3, params: #"{"sessionId":"s","runId":"wf_run","agentId":"agent","_meta":{"acpmux":{}}}"#)]) == .intentInvalid)
         #expect(reads().count == 1, "a refused read reached acpmux: \(reads())")
+        // A key the relay does not list is dropped, never refused: the read goes without it.
+        #expect(await transport.send(connection: id, frames: [Self.frame(id: 3, params: #"{"sessionId":"s","runId":"wf_run","agentId":"agent","_meta":{"acpmux":{}}}"#)]) == nil)
+        _ = await inbox.frame(containing: #""id":3"#)
+        #expect(reads().count == 2)
+        #expect(reads().last?.contains("_meta") == false, "an unlisted key reached acpmux: \(reads())")
     }
 }

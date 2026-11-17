@@ -123,22 +123,28 @@ extension AgentPaneTransport {
 
     /// The off-main rules on one frame, in order (see ``Checked``).
     nonisolated static func checkOne(_ text: String, _ snapshot: Snapshot) -> Checked {
-        let object: [String: Any]
+        let decided: [String: Any]
         switch AcpmuxPaneMethods.decideFrame(text, isFirst: snapshot.isFirst) {
         case .failure(let refusal): return .refuse(refusal.decision, spend: nil)
-        case .success(let decided): object = decided
+        case .success(let frame): decided = frame
         }
-        let method = object["method"] as? String
-        let pageID = object["id"].flatMap(AcpmuxPaneMethods.rawID)
-        let params = object["params"] as? [String: Any] ?? [:]
-        let carried = (params["_meta"] as? [String: Any])?[AcpmuxPaneMethods.gestureTicketKey] as? String
-        if !snapshot.isFirst, let refusal = sessionRefusal(object, sessions: snapshot.sessions) {
+        let method = decided["method"] as? String
+        let pageID = decided["id"].flatMap(AcpmuxPaneMethods.rawID)
+        let carried = ((decided["params"] as? [String: Any])?["_meta"] as? [String: Any])?[AcpmuxPaneMethods.gestureTicketKey] as? String
+        if !snapshot.isFirst, let refusal = sessionRefusal(decided, sessions: snapshot.sessions) {
             return .refuse(refusal, spend: carried)
         }
-        // P1: the method's known params, and no daemon mode field outside set_mode and set_config_option.
-        if AcpmuxPaneMethods.breaksParamsRule(object, modeFields: snapshot.modeFields) {
+        // P1: what the method takes. A key it does not list (or a daemon mode field outside set_mode
+        // and set_config_option) is dropped and logged, never refused: the page and this list drift
+        // as the page grows, and a refusal there failed the person's open, start or send.
+        guard let checked = AcpmuxPaneMethods.checkingParams(decided, modeFields: snapshot.modeFields) else {
             return .refuse(.refuse(.intentInvalid, method: method, requestID: pageID), spend: carried)
         }
+        if !checked.dropped.isEmpty {
+            Self.logger.error("agent pane transport dropped params the relay does not list method=\(method ?? "-", privacy: .public) keys=\(checked.dropped.prefix(16).joined(separator: ","), privacy: .public)")
+        }
+        let object = checked.object
+        let params = object["params"] as? [String: Any] ?? [:]
         // Answers go only to a pending question, keyed by its items and bounded (the answers rule).
         if AcpmuxPaneMethods.breaksAnswersRule(object, options: snapshot.options) {
             return .refuse(.refuse(.intentInvalid, method: method, requestID: pageID), spend: carried)

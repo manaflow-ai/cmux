@@ -243,9 +243,10 @@ fn sent_acpmux_keys(dir: &Path, direct: &str, method: &str) -> BTreeSet<String> 
 
 /// The `_meta.acpmux` keys the page sends with `session/prompt` and
 /// `session/new` are ones the hosts let through (`known_params`): the hosts
-/// refuse a frame with any other as `transport.intent_invalid`. #22742's Retry
-/// sent `resend`, which only the host may set (#22881), and every Retry
-/// failed with "The pane sent a request the app does not accept".
+/// drop any other before acpmux, so the feature it carries silently does
+/// nothing (they refused the frame as `transport.intent_invalid` until then:
+/// #22742's Retry sent `resend`, which only the host may set, #22881, and
+/// every Retry failed with "The pane sent a request the app does not accept").
 #[test]
 fn the_page_sends_only_allowed_acpmux_meta() {
     let dir = pane();

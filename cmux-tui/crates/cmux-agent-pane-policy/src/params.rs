@@ -1,6 +1,6 @@
 //! The params rule (P1), the prompt `_meta` strip, the gesture ticket and the
 //! session scope (CmuxNextAgentPane AcpmuxPaneMethods.swift
-//! `breaksParamsRule`, `strippingPromptMeta`, `takeGestureTicket`,
+//! `checkingParams`, `strippingPromptMeta`, `takeGestureTicket`,
 //! `requestedSetting`; AgentPaneTransport+Check.swift `sessionRefusal`).
 
 use crate::data::policy;
@@ -9,64 +9,131 @@ use crate::frame::{Refused, contains, raw_id};
 use serde_json::{Map, Value};
 use std::collections::BTreeSet;
 
-/// P1: whether a page frame breaks the params rule. On every method: a
-/// top-level param outside the method's known params; a `_meta` that is not
-/// an object, or that holds a key other than `acpmux`; an `acpmux` key outside
-/// the method's list. On every method except set_mode and set_config_option,
-/// also a daemon `modeFields` name at the top of params or in `acpmux`. A
-/// set_mode or set_config_option with the gesture ticket in `_meta` redeems
-/// it: its `_meta` may hold nothing else (R1).
-pub fn breaks_params_rule(
+/// A page frame after the params rule (P1): the frame as it goes on, and the
+/// keys taken out of it (`_meta.x` and `_meta.acpmux.x` for the nested ones),
+/// for the host's log.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CheckedParams {
+    pub object: Map<String, Value>,
+    pub dropped: Vec<String>,
+}
+
+/// P1, the params rule: each method's known params (`policy.json`
+/// `known_params`). A key the method does not list (a top-level param, a
+/// `_meta` key other than `acpmux`, an `acpmux` key outside the method's
+/// list) never reaches acpmux: it is dropped and the frame goes on, so a page
+/// newer than the list (a key added on one side only, #42185, #42460) still
+/// opens, starts and sends. On every method except set_mode and
+/// set_config_option, a daemon `modeFields` name at the top of params or in
+/// `acpmux` is dropped the same way. None (refused as
+/// [`Refusal::IntentInvalid`]) only for a listed key of the wrong shape, which
+/// the page never sends: params, `_meta` or `acpmux` that is not an object, an
+/// empty or non-string trust `peer`, a start's model that is not one model id.
+/// A set_mode or set_config_option with the gesture ticket in `_meta` redeems
+/// it: its `_meta` may hold nothing else (R1), as a permission answer's and a
+/// plan build's hold only the ticket (Swift `checkingParams`).
+pub fn checked_params(
     object: &Map<String, Value>,
     mode_fields: Option<&BTreeSet<String>>,
-) -> bool {
+) -> Option<CheckedParams> {
     let p = policy();
+    let unchanged = || CheckedParams { object: object.clone(), dropped: Vec::new() };
     let (Some(method), Some(raw_params)) =
         (object.get("method").and_then(Value::as_str), object.get("params"))
     else {
-        return false;
+        return Some(unchanged());
     };
-    let Some(params) = raw_params.as_object() else { return true };
-    let Some(known) = p.known_params.get(method) else { return !params.is_empty() };
-    if params.keys().any(|k| !contains(&known.params, k)) {
-        return true;
+    let mut params = raw_params.as_object()?.clone();
+    let none = crate::data::KnownParams::default();
+    let known = p.known_params.get(method).unwrap_or(&none);
+    let setting = contains(&p.setting_methods, method);
+    let empty = BTreeSet::new();
+    let denied = if setting { &empty } else { mode_fields.unwrap_or(&empty) };
+    let unlisted =
+        |listed: &BTreeSet<String>, key: &str| !contains(listed, key) || contains(denied, key);
+    let mut dropped = Vec::new();
+    let top: Vec<String> = params.keys().filter(|k| unlisted(&known.params, k)).cloned().collect();
+    for key in top {
+        params.remove(&key);
+        dropped.push(key);
     }
     if matches!(method, "acp.trust.get" | "acp.trust.set")
         && params.get("peer").is_some_and(|peer| peer.as_str().is_none_or(str::is_empty))
     {
-        return true;
+        return None;
     }
-    let setting = contains(&p.setting_methods, method);
-    let empty = BTreeSet::new();
-    let denied = if setting { &empty } else { mode_fields.unwrap_or(&empty) };
-    if params.keys().any(|k| contains(denied, k)) {
-        return true;
+    if let Some(raw_meta) = params.get("_meta") {
+        let mut meta = raw_meta.as_object()?.clone();
+        let ticket = &p.gesture_ticket_key;
+        if setting && meta.contains_key(ticket) {
+            if meta.keys().any(|k| k != ticket) {
+                return None;
+            }
+        } else if matches!(
+            method,
+            "_acpmux/permission_respond" | "_acpmux/plan/build" | "chat.fix_from_link"
+        ) {
+            // A permission answer's `_meta` holds the pick's ticket and
+            // nothing else, as does a plan build's.
+            if meta.len() != 1 || !meta.contains_key(ticket) {
+                return None;
+            }
+        } else {
+            let before = dropped.len();
+            // A prompt held for the folder trust answer redeems its ticket
+            // beside its acpmux.promptId.
+            let prompt = method == "session/prompt";
+            let other: Vec<String> = meta
+                .keys()
+                .filter(|k| *k != "acpmux" && !(prompt && *k == ticket))
+                .cloned()
+                .collect();
+            for key in other {
+                meta.remove(&key);
+                dropped.push(format!("_meta.{key}"));
+            }
+            if let Some(raw_acpmux) = meta.get("acpmux") {
+                let mut acpmux = raw_acpmux.as_object()?.clone();
+                let keys: Vec<String> =
+                    acpmux.keys().filter(|k| unlisted(&known.acpmux, k)).cloned().collect();
+                for key in keys {
+                    acpmux.remove(&key);
+                    dropped.push(format!("_meta.acpmux.{key}"));
+                }
+                if method == "_acpmux/harnesses"
+                    && acpmux
+                        .get("peer")
+                        .is_some_and(|peer| peer.as_str().is_none_or(str::is_empty))
+                {
+                    return None;
+                }
+                // A start's model is a spawn parameter (Claude Code's
+                // `--model`, `${model}` in a harness's argv or env): one model
+                // id, never a flag or anything else.
+                if method == "session/new" && acpmux.get("model").is_some_and(|m| !is_model_id(m)) {
+                    return None;
+                }
+                if acpmux.is_empty() && dropped.len() > before {
+                    meta.remove("acpmux");
+                } else {
+                    meta.insert("acpmux".into(), Value::Object(acpmux));
+                }
+            }
+            if dropped.len() > before {
+                if meta.is_empty() {
+                    params.remove("_meta");
+                } else {
+                    params.insert("_meta".into(), Value::Object(meta));
+                }
+            }
+        }
     }
-    let Some(raw_meta) = params.get("_meta") else { return false };
-    let Some(meta) = raw_meta.as_object() else { return true };
-    if setting && meta.contains_key(&p.gesture_ticket_key) {
-        return meta.keys().any(|k| *k != p.gesture_ticket_key);
+    if dropped.is_empty() {
+        return Some(unchanged());
     }
-    // A permission answer's `_meta` holds the pick's ticket and nothing else, as
-    // does a plan build's (it answers the plan approval).
-    if matches!(method, "_acpmux/permission_respond" | "_acpmux/plan/build" | "chat.fix_from_link")
-    {
-        return meta.len() != 1 || !meta.contains_key(&p.gesture_ticket_key);
-    }
-    // A prompt held for the folder trust answer redeems its ticket beside its
-    // acpmux.promptId (AcpmuxPaneMethods.swift `breaksParamsRule`).
-    let prompt = method == "session/prompt";
-    if meta.keys().any(|k| k != "acpmux" && !(prompt && *k == p.gesture_ticket_key)) {
-        return true;
-    }
-    let Some(raw_acpmux) = meta.get("acpmux") else { return false };
-    let Some(acpmux) = raw_acpmux.as_object() else { return true };
-    if acpmux.keys().any(|k| !contains(&known.acpmux, k) || contains(denied, k)) {
-        return true;
-    }
-    // A start's model is a spawn parameter (Claude Code's `--model`, `${model}`
-    // in a harness's argv or env): one model id, never a flag or anything else.
-    method == "session/new" && acpmux.get("model").is_some_and(|m| !is_model_id(m))
+    let mut checked = object.clone();
+    checked.insert("params".into(), Value::Object(params));
+    Some(CheckedParams { object: checked, dropped })
 }
 
 /// The longest `_meta.acpmux.model` a start may carry, in bytes.

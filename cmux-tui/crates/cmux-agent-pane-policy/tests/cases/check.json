@@ -89,7 +89,7 @@
   }
  },
  {
-  "name": "first initialize with the page's own token and no host token is refused (P1), never forwarded",
+  "name": "first initialize with the page's own token and no host token goes without it (P1 drops it)",
   "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"_meta\":{\"acpmux\":{\"localAppToken\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}}}}",
   "state": {
    "first": true,
@@ -101,14 +101,38 @@
    "denies": []
   },
   "expect": {
-   "refuse": "transport.intent_invalid",
-   "method": "initialize",
-   "id": "1",
-   "spend": null
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {}
+   },
+   "facts": {
+    "is_first": true,
+    "method": "initialize",
+    "page_id": "1",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_click": false,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "starts_local_session": false,
+    "free": true,
+    "dropped": [
+     "_meta"
+    ]
+   }
   }
  },
  {
-  "name": "first initialize with the page's own token is refused even with a host token",
+  "name": "first initialize with the page's own token goes with the host's token instead (P1 drops the page's)",
   "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"_meta\":{\"acpmux\":{\"localAppToken\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}}}}",
   "state": {
    "first": true,
@@ -120,10 +144,40 @@
    "denies": []
   },
   "expect": {
-   "refuse": "transport.intent_invalid",
-   "method": "initialize",
-   "id": "1",
-   "spend": null
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+     "_meta": {
+      "acpmux": {
+       "localAppToken": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+     }
+    }
+   },
+   "facts": {
+    "is_first": true,
+    "method": "initialize",
+    "page_id": "1",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_click": false,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "starts_local_session": false,
+    "free": true,
+    "dropped": [
+     "_meta"
+    ]
+   }
   }
  },
  {
@@ -205,7 +259,7 @@
   }
  },
  {
-  "name": "P1 refuses a forward mark",
+  "name": "P1 drops a forward mark; the prompt goes without it",
   "text": "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"session/prompt\",\"params\":{\"sessionId\":\"s1\",\"prompt\":[],\"_meta\":{\"acpmux\":{\"via\":\"app\"}}}}",
   "state": {
    "first": false,
@@ -217,10 +271,37 @@
    "denies": []
   },
   "expect": {
-   "refuse": "transport.intent_invalid",
-   "method": "session/prompt",
-   "id": "4",
-   "spend": null
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 4,
+    "method": "session/prompt",
+    "params": {
+     "sessionId": "s1",
+     "prompt": []
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "session/prompt",
+    "page_id": "4",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": true,
+    "needs_click": false,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "starts_local_session": false,
+    "free": false,
+    "dropped": [
+     "_meta.acpmux.via"
+    ]
+   }
   }
  },
  {
@@ -2476,7 +2557,7 @@
   }
  },
  {
-  "name": "session/auth with a command param is refused (P1)",
+  "name": "session/auth drops a command param (P1)",
   "text": "{\"jsonrpc\":\"2.0\",\"id\":64,\"method\":\"_acpmux/session/auth\",\"params\":{\"sessionId\":\"s1\",\"command\":\"sh -c id\"}}",
   "state": {
    "first": false,
@@ -2488,14 +2569,40 @@
    "denies": []
   },
   "expect": {
-   "refuse": "transport.intent_invalid",
-   "method": "_acpmux/session/auth",
-   "id": "64",
-   "spend": null
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 64,
+    "method": "_acpmux/session/auth",
+    "params": {
+     "sessionId": "s1"
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "_acpmux/session/auth",
+    "page_id": "64",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_click": false,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "starts_local_session": false,
+    "free": true,
+    "dropped": [
+     "command"
+    ]
+   }
   }
  },
  {
-  "name": "session/auth with a target and a command param is refused (P1)",
+  "name": "session/auth with a target drops a command param (P1)",
   "text": "{\"jsonrpc\":\"2.0\",\"id\":65,\"method\":\"_acpmux/session/auth\",\"params\":{\"target\":{\"harness\":\"claude\"},\"initial_command\":\"sh -c id\"}}",
   "state": {
    "first": false,
@@ -2507,14 +2614,42 @@
    "denies": []
   },
   "expect": {
-   "refuse": "transport.intent_invalid",
-   "method": "_acpmux/session/auth",
-   "id": "65",
-   "spend": null
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 65,
+    "method": "_acpmux/session/auth",
+    "params": {
+     "target": {
+      "harness": "claude"
+     }
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "_acpmux/session/auth",
+    "page_id": "65",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_click": false,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "starts_local_session": false,
+    "free": true,
+    "dropped": [
+     "initial_command"
+    ]
+   }
   }
  },
  {
-  "name": "session/auth with _meta is refused (P1)",
+  "name": "session/auth drops _meta (P1)",
   "text": "{\"jsonrpc\":\"2.0\",\"id\":66,\"method\":\"_acpmux/session/auth\",\"params\":{\"sessionId\":\"s1\",\"_meta\":{\"acpmux\":{\"via\":\"app\"}}}}",
   "state": {
    "first": false,
@@ -2526,10 +2661,36 @@
    "denies": []
   },
   "expect": {
-   "refuse": "transport.intent_invalid",
-   "method": "_acpmux/session/auth",
-   "id": "66",
-   "spend": null
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 66,
+    "method": "_acpmux/session/auth",
+    "params": {
+     "sessionId": "s1"
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "_acpmux/session/auth",
+    "page_id": "66",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_click": false,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "starts_local_session": false,
+    "free": true,
+    "dropped": [
+     "_meta"
+    ]
+   }
   }
  },
  {

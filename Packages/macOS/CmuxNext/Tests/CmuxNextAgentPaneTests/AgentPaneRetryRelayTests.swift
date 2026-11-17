@@ -28,13 +28,13 @@ struct AgentPaneRetryRelayTests {
         }
         // A subagent of the chat, a sub-session by its own id, the chat's own turn (#25947).
         for params in [#"{"sessionId":"s","subagentId":"a"}"#, #"{"sessionId":"child"}"#] {
-            #expect(!AcpmuxPaneMethods.breaksParamsRule(object(params), modeFields: []), "\(params)")
+            #expect(AcpmuxPaneMethods.takesAsSent(object(params), modeFields: []), "\(params)")
         }
         // `_meta` would carry acpmux's control and trust-gate marks (server/agent_messages.rs).
         for extra in [#""promptId":"p""#, #""_meta":{"acpmux":{"control":"full"}}"#] {
-            #expect(AcpmuxPaneMethods.breaksParamsRule(object(#"{"sessionId":"s",\#(extra)}"#), modeFields: []), "\(extra)")
+            #expect(!AcpmuxPaneMethods.takesAsSent(object(#"{"sessionId":"s",\#(extra)}"#), modeFields: []), "\(extra)")
         }
-        #expect(AcpmuxPaneMethods.breaksParamsRule(object(#"["s"]"#), modeFields: []))
+        #expect(!AcpmuxPaneMethods.takesAsSent(object(#"["s"]"#), modeFields: []))
         // No grant: a fallback send after a daemon without the method still has the click's.
         #expect(!AcpmuxPaneMethods.needsGesture(Self.frame(id: 1, params: #"{"sessionId":"s"}"#), options: AcpmuxPermissionOptions()))
     }
@@ -56,8 +56,6 @@ struct AgentPaneRetryRelayTests {
             return try #require(object?["params"] as? [String: Any]) as NSDictionary
         }
 
-        #expect(await transport.send(connection: id, frames: [Self.frame(id: 1, params: #"{"sessionId":"s","promptId":"p"}"#)]) == .intentInvalid,
-                "a param the pane never sends")
         #expect(await transport.send(connection: id, frames: [Self.frame(id: 2, params: #"{"sessionId":"child"}"#)]) == .gestureRequired,
                 "a chat outside the pane's scope, with no click")
         #expect(sent().isEmpty, "a refused retry reached acpmux: \(sent())")

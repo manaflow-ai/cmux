@@ -15,12 +15,12 @@ struct AcpmuxPaneMachineHarnessesParamsTests {
 
     @Test func aPeerReadPassesTheParamsRule() {
         let read = Self.harnesses(["_meta": ["acpmux": ["peer": "studio"]]])
-        #expect(!AcpmuxPaneMethods.breaksParamsRule(read, modeFields: nil))
+        #expect(AcpmuxPaneMethods.takesAsSent(read, modeFields: nil))
     }
 
     @Test func thisMacsReadsStillPass() {
-        #expect(!AcpmuxPaneMethods.breaksParamsRule(Self.harnesses([:]), modeFields: nil))
-        #expect(!AcpmuxPaneMethods.breaksParamsRule(Self.harnesses(["cwd": "/Users/you/src/cmux"]), modeFields: nil))
+        #expect(AcpmuxPaneMethods.takesAsSent(Self.harnesses([:]), modeFields: nil))
+        #expect(AcpmuxPaneMethods.takesAsSent(Self.harnesses(["cwd": "/Users/you/src/cmux"]), modeFields: nil))
     }
 
     @Test func anythingElseUnderMetaIsRefused() {
@@ -31,14 +31,14 @@ struct AcpmuxPaneMachineHarnessesParamsTests {
             ["other": true],
             ["acpmux": "studio"],
         ] {
-            #expect(AcpmuxPaneMethods.breaksParamsRule(Self.harnesses(["_meta": meta]), modeFields: nil), "\(meta)")
+            #expect(!AcpmuxPaneMethods.takesAsSent(Self.harnesses(["_meta": meta]), modeFields: nil), "\(meta)")
         }
     }
 
     @Test func aPeerMustBeANonEmptyName() {
         for peer: Any in ["", 7, ["studio"], NSNull()] {
             let read = Self.harnesses(["_meta": ["acpmux": ["peer": peer]]])
-            #expect(AcpmuxPaneMethods.breaksParamsRule(read, modeFields: nil), "\(peer)")
+            #expect(!AcpmuxPaneMethods.takesAsSent(read, modeFields: nil), "\(peer)")
         }
     }
 
@@ -73,7 +73,14 @@ struct AgentPaneMachineHarnessesRelayTests {
         #expect(reached.count == 1)
         #expect(reached.first?.contains(#""peer":"studio""#) == true, "\(reached)")
 
+        // A key the relay does not list is dropped, never refused: the read still goes, without it.
         let extra = #"{"jsonrpc":"2.0","id":6,"method":"_acpmux/harnesses","params":{"_meta":{"acpmux":{"peer":"studio","harness":"x"}}}}"#
-        #expect(await transport.send(connection: id, frames: [extra]) == .intentInvalid)
+        let sentExtra = await transport.send(connection: id, frames: [extra])
+        #expect(sentExtra == nil, "the relay refused a read over a key it does not list")
+        if sentExtra == nil { _ = await inbox.frame(containing: #""id":6"#) }
+        let second = (server.peers.first?.frames ?? []).filter { $0.contains("_acpmux/harnesses") }
+        #expect(second.count == 2)
+        #expect(second.last?.contains(#""peer":"studio""#) == true, "\(second)")
+        #expect(second.last?.contains(#""harness""#) == false, "an unlisted key reached acpmux: \(second)")
     }
 }

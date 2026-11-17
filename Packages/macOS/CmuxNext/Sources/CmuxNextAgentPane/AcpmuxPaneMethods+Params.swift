@@ -200,44 +200,78 @@ nonisolated extension AcpmuxPaneMethods {
         "session/set_config_option": (["sessionId", "configId", "value", "_meta"], []),
     ]
 
-    /// P1: whether a page frame breaks the params rule. On every method: a top-level param outside
-    /// the method's ``knownParams``; a `_meta` that is not an object, or that holds a key other
-    /// than `acpmux`; an `acpmux` key outside the method's list. On every method except set_mode and
-    /// set_config_option, also a daemon `modeFields` name at the top of params or in `acpmux`.
-    /// A set_mode or set_config_option with `cmuxGesture` in `_meta` redeems a ticket: its `_meta`
-    /// is the gesture rule's (R1 refuses any other key there and spends the ticket).
-    static func breaksParamsRule(_ object: [String: Any]?, modeFields: Set<String>?) -> Bool {
-        guard let object, let method = object["method"] as? String, let rawParams = object["params"] else { return false }
-        guard let params = rawParams as? [String: Any] else { return true }
-        guard let known = knownParams[method] else { return !params.isEmpty }
-        if params.keys.contains(where: { !known.params.contains($0) }) { return true }
-        if (method == "acp.trust.get" || method == "acp.trust.set"), let peer = params["peer"] {
-            guard let name = peer as? String, !name.isEmpty else { return true }
+    /// A page frame after the params rule (P1): the frame as it goes on, and the keys taken out of it
+    /// (`_meta.x` and `_meta.acpmux.x` for the nested ones), for the log.
+    nonisolated struct CheckedParams {
+        var object: [String: Any]
+        var dropped: [String]
+    }
+
+    /// P1, the params rule: each method's own ``knownParams``. A key the method does not list (a
+    /// top-level param, a `_meta` key other than `acpmux`, an `acpmux` key outside the method's
+    /// list) never reaches acpmux: it is dropped and the frame goes on, so a page newer than this
+    /// list (a key added on one side only, #42185, #42460) still opens, starts and sends. On every
+    /// method except set_mode and set_config_option, a daemon `modeFields` name at the top of params
+    /// or in `acpmux` is dropped the same way. Nil (refused) only for a listed key of the wrong shape,
+    /// which the page never sends: params or `_meta` or `acpmux` that is not an object, an empty or
+    /// non-string `peer`, a start's model that is not one model id. A set_mode or set_config_option
+    /// with `cmuxGesture` in `_meta` redeems a ticket: its `_meta` is the gesture rule's (R1 refuses
+    /// any other key there and spends the ticket), as is a permission answer's and a plan build's.
+    static func checkingParams(_ object: [String: Any], modeFields: Set<String>?) -> CheckedParams? {
+        guard let method = object["method"] as? String, let rawParams = object["params"] else {
+            return CheckedParams(object: object, dropped: [])
         }
+        guard var params = rawParams as? [String: Any] else { return nil }
+        let known = knownParams[method] ?? (params: [], acpmux: [])
         let setting = settingMethods.contains(method)
         let denied = setting ? [] : modeFields ?? []
-        if params.keys.contains(where: denied.contains) { return true }
-        guard let rawMeta = params["_meta"] else { return false }
-        guard let meta = rawMeta as? [String: Any] else { return true }
-        // A redeeming frame: R1 first (nothing but the ticket in _meta), then the gesture rule.
-        if setting, meta["cmuxGesture"] != nil { return meta.keys.contains { $0 != "cmuxGesture" } }
-        // A permission answer's `_meta` holds the pick's ticket and nothing else, as does a plan
-        // build's (it answers the plan approval).
-        if method == "_acpmux/permission_respond" || method == "_acpmux/plan/build" || method == "chat.fix_from_link" {
-            return Set(meta.keys) != [gestureTicketKey]
+        var dropped: [String] = []
+        for key in params.keys.sorted() where !known.params.contains(key) || denied.contains(key) {
+            params[key] = nil
+            dropped.append(key)
         }
-        // A prompt held for the folder trust answer redeems its ticket beside its acpmux.promptId.
-        if meta.keys.contains(where: { $0 != "acpmux" && !(method == "session/prompt" && $0 == gestureTicketKey) }) { return true }
-        guard let rawAcpmux = meta["acpmux"] else { return false }
-        guard let acpmux = rawAcpmux as? [String: Any] else { return true }
-        if acpmux.keys.contains(where: { !known.acpmux.contains($0) || denied.contains($0) }) { return true }
-        if method == "_acpmux/harnesses", let peer = acpmux["peer"] {
-            guard let name = peer as? String, !name.isEmpty else { return true }
+        if (method == "acp.trust.get" || method == "acp.trust.set"), let peer = params["peer"] {
+            guard let name = peer as? String, !name.isEmpty else { return nil }
         }
-        // A start's model is a spawn parameter (Claude Code's `--model`, `${model}` in a harness's
-        // argv or env): one model id, never a flag or anything else.
-        if method == "session/new", let model = acpmux["model"] { return !isModelID(model) }
-        return false
+        if let rawMeta = params["_meta"] {
+            guard var meta = rawMeta as? [String: Any] else { return nil }
+            if setting, meta[gestureTicketKey] != nil {
+                // A redeeming frame: R1 first (nothing but the ticket in _meta), then the gesture rule.
+                if meta.keys.contains(where: { $0 != gestureTicketKey }) { return nil }
+            } else if method == "_acpmux/permission_respond" || method == "_acpmux/plan/build" || method == "chat.fix_from_link" {
+                // A permission answer's `_meta` holds the pick's ticket and nothing else, as does a
+                // plan build's (it answers the plan approval).
+                if Set(meta.keys) != [gestureTicketKey] { return nil }
+            } else {
+                let before = dropped.count
+                // A prompt held for the folder trust answer redeems its ticket beside its acpmux.promptId.
+                for key in meta.keys.sorted() where key != "acpmux" && !(method == "session/prompt" && key == gestureTicketKey) {
+                    meta[key] = nil
+                    dropped.append("_meta.\(key)")
+                }
+                if let rawAcpmux = meta["acpmux"] {
+                    guard var acpmux = rawAcpmux as? [String: Any] else { return nil }
+                    for key in acpmux.keys.sorted() where !known.acpmux.contains(key) || denied.contains(key) {
+                        acpmux[key] = nil
+                        dropped.append("_meta.acpmux.\(key)")
+                    }
+                    if method == "_acpmux/harnesses", let peer = acpmux["peer"] {
+                        guard let name = peer as? String, !name.isEmpty else { return nil }
+                    }
+                    // A start's model is a spawn parameter (Claude Code's `--model`, `${model}` in a
+                    // harness's argv or env): one model id, never a flag or anything else.
+                    if method == "session/new", let model = acpmux["model"], !isModelID(model) { return nil }
+                    if acpmux.isEmpty && dropped.count > before { meta["acpmux"] = nil } else { meta["acpmux"] = acpmux }
+                }
+                if dropped.count > before {
+                    if meta.isEmpty { params["_meta"] = nil } else { params["_meta"] = meta }
+                }
+            }
+        }
+        guard !dropped.isEmpty else { return CheckedParams(object: object, dropped: []) }
+        var checked = object
+        checked["params"] = params
+        return CheckedParams(object: checked, dropped: dropped)
     }
 
     /// The longest `_meta.acpmux.model` a start may carry, in bytes.

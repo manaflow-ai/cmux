@@ -18,8 +18,7 @@ use crate::error::Refusal;
 use crate::frame::{Refused, allowlist_check, contains, raw_id, with_local_app_token};
 use crate::gesture::{Gesture, PermissionOptions, is_click_only, needs_click, needs_gesture};
 use crate::params::{
-    breaks_params_rule, requested_setting, session_refusal, stripping_prompt_meta,
-    take_gesture_ticket,
+    checked_params, requested_setting, session_refusal, stripping_prompt_meta, take_gesture_ticket,
 };
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -225,6 +224,10 @@ pub struct Facts {
     /// A `session/new` on this Mac (not a remote wire's): a send's gesture
     /// goes on to its first prompt (Swift `startCredit`).
     pub starts_local_session: bool,
+    /// The keys P1 took out of the frame because its method does not list
+    /// them ([`crate::params::CheckedParams`]): the host logs them, the frame
+    /// goes on without them.
+    pub dropped: Vec<String>,
 }
 
 impl Facts {
@@ -255,7 +258,7 @@ impl Facts {
             })
         });
         let pick = self.pick.as_ref().map(GesturePick::to_json);
-        serde_json::json!({
+        let mut json = serde_json::json!({
             "is_first": self.is_first, "method": self.method, "page_id": self.page_id,
             "ticket": self.ticket, "other_meta": self.other_meta, "pick": pick,
             "session_id": self.session_id, "needs_gesture": self.needs_gesture,
@@ -264,7 +267,12 @@ impl Facts {
             "attach_session": self.attach_session, "foreign_source": self.foreign_source,
             "handoff_id": self.handoff_id, "harness_enable": self.harness_enable,
             "starts_local_session": self.starts_local_session, "free": self.free(),
-        })
+        });
+        // Only when P1 dropped a key, so a frame taken whole keeps its layout.
+        if !self.dropped.is_empty() {
+            json["dropped"] = serde_json::json!(self.dropped);
+        }
+        json
     }
 }
 
@@ -341,18 +349,27 @@ pub fn check_frame(text: &str, state: &FrameState<'_>) -> Checked {
     {
         return Checked::Refuse { refused, spend: carried };
     }
-    if breaks_params_rule(&object, state.mode_fields) {
+    // P1: a key the method does not list is dropped (the facts name it, for
+    // the host's log), never refused; only a listed key of the wrong shape is.
+    let Some(checked) = checked_params(&object, state.mode_fields) else {
         let refused = Refused { refusal: Refusal::IntentInvalid, method, request_id: page_id };
         return Checked::Refuse { refused, spend: carried };
-    }
+    };
+    let object = checked.object;
+    let params = object.get("params").and_then(Value::as_object).unwrap_or(&empty);
     // Answers go only to a pending question, keyed by its items and bounded.
     if crate::answers::breaks_answers_rule(&object, state.options) {
         let refused = Refused { refusal: Refusal::IntentInvalid, method, request_id: page_id };
         return Checked::Refuse { refused, spend: carried };
     }
     let mut frame = stripping_prompt_meta(&object).unwrap_or_else(|| object.clone());
-    let mut facts =
-        Facts { is_first: state.is_first, method: method.clone(), page_id, ..Facts::default() };
+    let mut facts = Facts {
+        is_first: state.is_first,
+        method: method.clone(),
+        page_id,
+        dropped: checked.dropped,
+        ..Facts::default()
+    };
     if !state.is_first {
         let taken = take_gesture_ticket(&frame);
         frame = taken.object;

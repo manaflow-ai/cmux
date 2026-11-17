@@ -19,7 +19,7 @@ struct AgentPaneForkRelayTests {
         #"{"sessionId":"s","throughSeq":12}"#,
     ])
     func thePagesForkFramesPassTheParamsRule(_ params: String) {
-        #expect(!AcpmuxPaneMethods.breaksParamsRule(Self.object(params), modeFields: []), "\(params)")
+        #expect(AcpmuxPaneMethods.takesAsSent(Self.object(params), modeFields: []), "\(params)")
     }
 
     @Test(arguments: [
@@ -27,7 +27,7 @@ struct AgentPaneForkRelayTests {
         #"{"sessionId":"s","live":true,"cwd":"/"}"#,
     ])
     func aForkCarriesNothingElse(_ params: String) {
-        #expect(AcpmuxPaneMethods.breaksParamsRule(Self.object(params), modeFields: []), "\(params)")
+        #expect(!AcpmuxPaneMethods.takesAsSent(Self.object(params), modeFields: []), "\(params)")
     }
 
     static func frame(id: Int, params: String) -> String {

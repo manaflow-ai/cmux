@@ -66,13 +66,16 @@ struct AgentPaneTransportContextTests {
     }
 
     @Test(arguments: ["_acpmux/context", "_acpmux/context_override"])
-    func forgedParamsAndMetadataAreRefused(method: String) throws {
+    func forgedParamsAndMetadataNeverReachAcpmux(method: String) throws {
+        // Dropped, never refused: the read goes for the pane's own chat, without the forged key.
         for key in ["cwd", "host", "unknown", "_meta"] {
             let frame = try Self.text(method, ["sessionId": "own", key: "/other/project"])
-            guard case .refuse(.refuse(.intentInvalid, _, _), _) = AgentPaneTransport.checkOne(frame, Self.snapshot()) else {
-                Issue.record("Context request accepted \(key)")
+            guard case .frame(_, let box) = AgentPaneTransport.checkOne(frame, Self.snapshot()),
+                  let sent = box.encoded(id: nil) else {
+                Issue.record("Context request with \(key) was refused")
                 continue
             }
+            #expect(!sent.contains(#""\#(key)""#) && sent.contains(#""own""#), "\(key) reached acpmux: \(sent)")
         }
     }
 

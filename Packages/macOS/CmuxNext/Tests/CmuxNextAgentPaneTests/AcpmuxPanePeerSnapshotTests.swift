@@ -5,9 +5,9 @@ import Testing
 @Suite struct AcpmuxPanePeerSnapshotTests {
     @Test func peerSnapshotAcceptsNoParameters() {
         #expect(AcpmuxPaneMethods.requests.contains("_acpmux/peers"))
-        #expect(!AcpmuxPaneMethods.breaksParamsRule(["method": "_acpmux/peers", "params": [:]], modeFields: nil))
+        #expect(AcpmuxPaneMethods.takesAsSent(["method": "_acpmux/peers", "params": [:]], modeFields: nil))
         for params in [["command": "pwd"], ["peer": "other"], ["url": "ssh://private"]] {
-            #expect(AcpmuxPaneMethods.breaksParamsRule(["method": "_acpmux/peers", "params": params], modeFields: nil))
+            #expect(!AcpmuxPaneMethods.takesAsSent(["method": "_acpmux/peers", "params": params], modeFields: nil))
         }
     }
 

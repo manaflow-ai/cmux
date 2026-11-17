@@ -168,7 +168,7 @@ test("a slow acknowledgement stays pending past the former failure deadline and 
     expect(client.swapHold()).toBe("composer.send-untaken");
     expect(prompts.length).toBe(1);
     const promptId = mine()!.delivery!.promptId;
-    // The host refuses a page prompt with a key outside its policy (transport.intent_invalid).
+    // The host drops a prompt key outside its policy before acpmux: every key the page sends is listed.
     for (const prompt of prompts) {
       const unknown = Object.keys(prompt._meta.acpmux).filter((key) => !allowedPromptMeta.includes(key));
       expect(unknown).toEqual([]);
