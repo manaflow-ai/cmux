@@ -817,9 +817,9 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
               return yield* Effect.fail(onVm("The VM did not accept the shutdown")(shut.left));
             }
             const after = yield* upstream.getVmForWrite(vm, proofs).pipe(Effect.mapError(onRead));
-            // The poweroff answered a failure (status null) and the VM still runs: it did not stop, so never say it did.
-            // A failure status from a guest already going down (it stopped or is stopping) is a stop.
-            if (Either.isLeft(shut) && after.state === "running") {
+            // The poweroff answered a failure (status null) and the VM is not stopped: never say it stopped.
+            // A failure status from a guest that did go down (it reads stopped) is a stop.
+            if (Either.isLeft(shut) && after.state !== "stopped") {
               return yield* Effect.fail(unavailable(shut.left));
             }
             return toVm(vm.value, proofs.owns, after);
