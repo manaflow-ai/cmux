@@ -6,12 +6,13 @@ import Testing
 
 /// A dev build takes the running NIGHTLY's session only when the dev sign-in inputs name no account, and then only
 /// reads it: NIGHTLY's own store never changes (``CloudAuth/adoptsNightlySession(configuration:devAccount:)``).
-@Suite struct CloudAuthNightlyAdoptionTests {
+@MainActor @Suite struct CloudAuthNightlyAdoptionTests {
     /// NIGHTLY's stored session, as the handoff hands it out; counts every read.
     actor Nightly {
         var refresh: String?
         var access: String?
         var reads = 0
+        var pair: [String?] { [refresh, access] }
         init(refresh: String?, access: String? = nil) { (self.refresh, self.access) = (refresh, access) }
         func handOff() -> (accessToken: String?, refreshToken: String)? {
             reads += 1
@@ -90,11 +91,11 @@ import Testing
         // A refresh rotates the pair: only the dev build's memory store changes.
         await store.setTokens(accessToken: "access-2", refreshToken: "refresh-2")
         #expect(await store.getStoredRefreshToken() == "refresh-2")
-        #expect(await nightly.refresh == "refresh-n" && nightly.access == "access-n")
+        #expect(await nightly.pair == ["refresh-n", "access-n"])
         // The refreshed session is still NIGHTLY's: a sign-out here keeps it alive on the server.
         #expect(await store.isShared(refreshToken: "refresh-2"))
         await store.clearTokens()
-        #expect(await nightly.refresh == "refresh-n" && nightly.access == "access-n")
+        #expect(await nightly.pair == ["refresh-n", "access-n"])
         #expect(await nightly.reads == 1)
     }
 
