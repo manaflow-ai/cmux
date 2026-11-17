@@ -263,9 +263,9 @@ class OpenedApp(frames.App):
             return None
 
         def wait(self, timeout=None):
-            deadline = time.monotonic() + (timeout or 0)
+            deadline = None if timeout is None else time.monotonic() + timeout
             while self.poll() is None:
-                if time.monotonic() > deadline:
+                if deadline is not None and time.monotonic() > deadline:
                     raise subprocess.TimeoutExpired("open -n app", timeout)
                 time.sleep(0.25)  # test script: waiting for the opened app to exit
             return self.returncode
@@ -280,10 +280,10 @@ class OpenedApp(frames.App):
         def popen(argv, env=None, **kwargs):
             if argv and argv[0] != binary:
                 return real_popen(argv, env=env, **kwargs)
-            command = ["/usr/bin/open", "-n", "-F", "-a", self.bundle]
+            log = os.path.join(self.root, "app.log")
+            command = ["/usr/bin/open", "-n", "-F", "--stdout", log, "--stderr", log, "-a", self.bundle]
+            # Every key: the app gets launchd's session environment, not this script's, so nothing is inherited.
             for key, value in sorted((env or {}).items()):
-                if key in os.environ and os.environ[key] == value:
-                    continue  # open passes only what differs; the app inherits launchd's session environment
                 command += ["--env", f"{key}={value}"]
             command += ["--args", *argv[1:]]
             before = set(pids_of(binary))
@@ -311,20 +311,26 @@ class OpenedApp(frames.App):
 
 
 def pids_of(binary):
-    """Pids whose command line starts with BINARY (the app's executable path), from ps."""
+    """Pids whose command line starts with BINARY (the app's executable path) or its real path, from ps: LaunchServices
+    starts a bundle under /var/folders from /private/var/folders."""
     listing = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True, timeout=10).stdout
+    paths = {binary, os.path.realpath(binary)}
     pids = []
     for line in listing.splitlines():
         pid, _, command = line.strip().partition(" ")
         command = command.strip()
-        if pid.isdigit() and (command == binary or command.startswith(binary + " ")):
+        if pid.isdigit() and any(command == path or command.startswith(path + " ") for path in paths):
             pids.append(int(pid))
     return pids
 
 
-def tcc_verdict(requests):
+def tcc_verdict(log):
     """`ok` when every kTCCServiceScreenCapture request by the app is a preflight answered unknown (authValue 1) or
-    there is none; else `STOP` with the requests that are not (a real request, a prompt, a grant or a denial)."""
+    there is none; `STOP` with the requests that are not (a real request, a prompt, a grant or a denial); `no-log`
+    when tccd's log stream gave no line (nothing was read, so nothing is known)."""
+    requests = log.get("app_screen_capture_requests") or []
+    if not log.get("lines"):
+        return {"verdict": "no-log", "requests": 0, "beyond_unknown_preflight": []}
     beyond = [r for r in requests
               if not (str(r.get("preflight")).lower() in ("yes", "true", "1") and "authValue=1" in (r.get("result") or ""))]
     return {"verdict": "STOP" if beyond else "ok", "requests": len(requests), "beyond_unknown_preflight": beyond}
@@ -672,7 +678,7 @@ def main(argv=None):
                 report["end_error"] = str(error)[:300]
             if tcc_log is not None:
                 report["tcc_log"] = tcc_log.stop(report.get("bundle_id", "?"), report.get("executable"))
-                report["tcc_verdict"] = tcc_verdict(report["tcc_log"]["app_screen_capture_requests"])
+                report["tcc_verdict"] = tcc_verdict(report["tcc_log"])
                 say("tcc verdict", json.dumps(report["tcc_verdict"])[:800])
         if watch is not None:
             report["prompt_watch"] = watch.stop()
