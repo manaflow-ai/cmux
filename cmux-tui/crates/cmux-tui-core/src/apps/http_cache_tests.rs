@@ -163,7 +163,7 @@ fn a_failed_revalidation_serves_the_kept_body_and_is_tried_once_per_floor() {
     assert_eq!((failed.response.body.as_str(), failed.stale), ("good", true));
     // The reader learns the body is there because the fetch failed.
     assert_eq!(failed.failed, Some(json!({ "code": "operation.failed", "message": "offline" })));
-    assert_eq!(failed.clone().json()["value"]["cache"]["failed"]["message"], "offline");
+    assert_eq!(failed.json()["value"]["cache"]["failed"]["message"], "offline");
     // Within the floor after the failure every reader gets the kept body, no request.
     let again = cache.get(&fetcher, request(), t0 + secs(100)).unwrap();
     assert!(again.stale && again.failed.is_some());
