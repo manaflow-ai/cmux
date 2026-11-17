@@ -707,6 +707,10 @@ path = "tests/test_ci_dispatch_targets_on_main.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_blacksmith_macos_switch.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_merge_queue_required_checks.py"
 lane = "linux-guard"
 

@@ -43,6 +43,9 @@ BARE_READ = re.compile(r"(?<![\w.(])(?<!!= )(?<!== )vars\.CI_SIDE_LANE_RUNNER(?!
 # which the job's scripts read as a runner label (an array would reach them as JSON text). Each leaves when
 # that copy reads the array too; an entry whose copy is gone fails, so the list only shrinks.
 ENV_COPY = {
+    "ci-macos.yml#macos-compile-admission": "CMUX_PRODUCT_RUNNER",
+    "ci-macos.yml#tests-build-and-lag": "REQUESTED_RUNNER",
+    "ci-macos.yml#release-build": "CMUX_PRODUCT_RUNNER",
     "iroh-v2.yml#client": "REQUESTED_RUNNER",
 }
 # Arrays the variable may hold: what a std side job needs today (any side runner with Xcode 26.6; every one
