@@ -495,7 +495,8 @@ impl TerminalPortWatch {
 /// one try for each of the 2 and the worker is no waiter of them, so a
 /// registry or a connection that stays busy holds the pass back with no
 /// bound. The other waits of a pass keep the mux: a terminal's privacy
-/// read that is not cached and the write of an entry wait for the registry.
+/// read that is not cached and the write of an entry wait for the registry
+/// and then, with its lock, for the connection.
 ///
 /// The watch it waits on is its own `Arc`. The strong mux is let go after
 /// the watch's lock, so a mux whose last reference ends here never drops

@@ -234,8 +234,13 @@ fn cmux_next_a_port_watch_worker_that_meets_a_busy_connection_holds_no_registry_
     mux.reconcile_terminal_ports();
     let pass_came = reached(&mux, &|state, _| state.last_pass != first_pass);
     let registry_free = pass_came && registry_stays_free(&mux);
-    let mux_free =
-        registry_free && reached(&mux, &|state, muxes| state.last_pass != first_pass && muxes == 1);
+    // The request is in the watch again and the worker has no mux, read
+    // under the watch's lock while the connection is still held: the pass
+    // gave its request back before it let its mux go.
+    let mux_free = registry_free
+        && reached(&mux, &|state, muxes| {
+            state.last_pass != first_pass && state.reconcile && muxes == 1
+        });
     drop(let_go);
     holder.join().unwrap();
     assert!(pass_came, "the pass after the hold of the connection never came");
@@ -243,7 +248,10 @@ fn cmux_next_a_port_watch_worker_that_meets_a_busy_connection_holds_no_registry_
         registry_free,
         "the port watch worker keeps the registry's lock while it waits for the store's connection"
     );
-    assert!(mux_free, "the port watch worker keeps the mux while it waits for the connection");
+    assert!(
+        mux_free,
+        "the port watch worker keeps the mux or loses its request while it waits for the connection"
+    );
     // The pass that met the busy connection runs now.
     assert!(
         reached(&mux, &|state, muxes| state.worker && !state.reconcile && muxes == 1),
