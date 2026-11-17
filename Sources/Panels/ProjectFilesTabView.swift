@@ -19,6 +19,7 @@ private struct FlattenedRow: Identifiable {
 struct ProjectFilesTabView: View {
     @ObservedObject var panel: ProjectPanel
     let model: ProjectModel
+    let isSelectedInPane: Bool
 
     var body: some View {
         let rows = flattenedRows
@@ -47,7 +48,7 @@ struct ProjectFilesTabView: View {
             TextField("Filter files (e.g. AppDelegate)", text: $panel.filesSearchText)
                 .textFieldStyle(.plain)
                 .cmuxFont(size: 12)
-                .projectPanelSearchField(panel: panel)
+                .projectPanelSearchField(panel: panel, isSelectedInPane: isSelectedInPane)
             if !panel.filesSearchText.isEmpty {
                 Button {
                     panel.filesSearchText = ""

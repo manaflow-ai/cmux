@@ -74,7 +74,8 @@ public final class ProjectPanel: NSObject, Panel, ObservableObject {
     @Published public var lastLoadError: String?
     private var reloadTask: Task<Void, Never>?
     /// The view behind the active tab's search field while that field is
-    /// mounted, so ``ownedFocusIntent(for:in:)`` can recognize its editor.
+    /// mounted and this panel is the selected tab of its pane, so
+    /// ``ownedFocusIntent(for:in:)`` can recognize its editor.
     weak var searchFieldAnchor: ProjectPanelSearchFieldAnchorView?
 
     public var displayTitle: String {
@@ -261,10 +262,15 @@ public final class ProjectPanel: NSObject, Panel, ObservableObject {
         return .project(.navigator)
     }
 
+    /// Gives up the search field's keyboard focus when the workspace hands
+    /// focus to another panel. A terminal leaves a focused text editor alone,
+    /// so without this the field would keep receiving what the user types.
     @discardableResult
     public func yieldFocusIntent(_ intent: PanelFocusIntent, in window: NSWindow) -> Bool {
-        _ = intent
-        _ = window
-        return false
+        guard let responder = window.firstResponder,
+              ownedFocusIntent(for: responder, in: window) == intent else {
+            return false
+        }
+        return window.makeFirstResponder(nil)
     }
 }

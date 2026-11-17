@@ -12,12 +12,13 @@ import SwiftUI
 /// editor to the panel when the window's focus coordinator asks.
 struct ProjectPanelSearchFieldModifier: ViewModifier {
     let panel: ProjectPanel
+    let isSelectedInPane: Bool
     @FocusState private var isFocused: Bool
 
     func body(content: Content) -> some View {
         content
             .focused($isFocused)
-            .background(ProjectPanelSearchFieldAnchor(panel: panel))
+            .background(ProjectPanelSearchFieldAnchor(panel: panel, isSelectedInPane: isSelectedInPane))
             .onReceive(NotificationCenter.default.publisher(for: .projectPanelSearchFocus)) { notification in
                 guard notification.object as? UUID == panel.id else { return }
                 isFocused = true
@@ -27,25 +28,41 @@ struct ProjectPanelSearchFieldModifier: ViewModifier {
 
 extension View {
     /// Makes this search field take focus when `panel` is asked to start find,
-    /// and makes `panel` the owner of the field's keyboard focus.
-    func projectPanelSearchField(panel: ProjectPanel) -> some View {
-        modifier(ProjectPanelSearchFieldModifier(panel: panel))
+    /// and makes `panel` the owner of the field's keyboard focus while the
+    /// panel is the selected tab of its pane.
+    func projectPanelSearchField(panel: ProjectPanel, isSelectedInPane: Bool) -> some View {
+        modifier(ProjectPanelSearchFieldModifier(panel: panel, isSelectedInPane: isSelectedInPane))
     }
 }
 
 /// Registers a ``ProjectPanelSearchFieldAnchorView`` behind a project panel's
-/// search field for as long as the field is mounted.
+/// search field for as long as the field is mounted and its panel is the
+/// selected tab of its pane.
+///
+/// A pane keeps its unselected tabs mounted and invisible, so two project
+/// tabs in one pane put their search fields at the same frame. The anchor
+/// identifies the field by frame, so an unselected tab's anchor must not stay
+/// registered: it would claim the selected tab's field.
 private struct ProjectPanelSearchFieldAnchor: NSViewRepresentable {
     let panel: ProjectPanel
+    let isSelectedInPane: Bool
 
     func makeNSView(context: Context) -> ProjectPanelSearchFieldAnchorView {
         let view = ProjectPanelSearchFieldAnchorView()
-        view.attach(to: panel)
+        register(view)
         return view
     }
 
     func updateNSView(_ view: ProjectPanelSearchFieldAnchorView, context: Context) {
-        view.attach(to: panel)
+        register(view)
+    }
+
+    private func register(_ view: ProjectPanelSearchFieldAnchorView) {
+        if isSelectedInPane {
+            view.attach(to: panel)
+        } else {
+            view.detach()
+        }
     }
 
     static func dismantleNSView(_ view: ProjectPanelSearchFieldAnchorView, coordinator: Void) {

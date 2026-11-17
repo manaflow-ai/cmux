@@ -13,6 +13,7 @@ struct ProjectBuildSettingsTabView: View {
     @Environment(\.cmuxAccentColor) private var cmuxAccent
     @ObservedObject var panel: ProjectPanel
     let model: ProjectModel
+    let isSelectedInPane: Bool
 
     var body: some View {
         let computedRows = rows
@@ -39,7 +40,7 @@ struct ProjectBuildSettingsTabView: View {
                 TextField("Filter settings", text: $panel.settingsSearchText)
                     .textFieldStyle(.plain)
                     .cmuxFont(size: 12)
-                    .projectPanelSearchField(panel: panel)
+                    .projectPanelSearchField(panel: panel, isSelectedInPane: isSelectedInPane)
                 Toggle("Customized only", isOn: $panel.settingsCustomizedOnly)
                     .toggleStyle(.checkbox)
                     .cmuxFont(size: 11)

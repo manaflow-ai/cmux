@@ -281,10 +281,11 @@ struct ProjectPanelFindFocusTests {
     /// second project tab's filter sits exactly where the selected tab's
     /// does. Only the selected tab may claim the focused filter: a hidden
     /// tab that claimed it would give that focus up whenever the workspace
-    /// asked it to yield to the selected tab.
-    @Test(.exclusiveAppContext)
-    func hiddenProjectTabDoesNotClaimOrYieldTheSelectedTabsFilter() async throws {
-        let scene = try await SplitPaneFilterScene.make(tab: .files, hiddenSibling: true)
+    /// asked it to yield to the selected tab. The claim follows the
+    /// selection when the other tab is selected.
+    @Test(.exclusiveAppContext, arguments: [ProjectPanelTab.files, ProjectPanelTab.buildSettings])
+    func hiddenProjectTabDoesNotClaimOrYieldTheSelectedTabsFilter(tab: ProjectPanelTab) async throws {
+        let scene = try await SplitPaneFilterScene.make(tab: tab, hiddenSibling: true)
         defer { scene.tearDown() }
         let window = scene.window
         let hidden = try #require(scene.hiddenSibling)
@@ -313,6 +314,24 @@ struct ProjectPanelFindFocusTests {
             "A hidden project tab has no keyboard focus to yield"
         )
         #expect(scene.filterOwnsFocus, "A hidden project tab must not take focus out of the selected tab's filter")
+
+        // Selecting the other tab hides the first one, so the claim moves.
+        scene.workspace.focusPanel(hidden.panel.id)
+        try #require(
+            scene.workspace.focusedPanelId == hidden.panel.id,
+            "The other project tab must become the focused panel"
+        )
+        try #require(window.makeFirstResponder(hidden.filterField), "The newly selected tab's filter must accept focus")
+        let otherFilterFocused = await Harness.settle(window) {
+            hidden.filterField.currentEditor().map { window.firstResponder === $0 } ?? false
+        }
+        try #require(otherFilterFocused, "The newly selected tab's filter must be editing")
+        let otherResponder = try #require(window.firstResponder)
+        let claimMoved = await Harness.settle(window) {
+            hidden.panel.ownedFocusIntent(for: otherResponder, in: window) == .project(.navigator)
+                && scene.panel.ownedFocusIntent(for: otherResponder, in: window) == nil
+        }
+        #expect(claimMoved, "After the other project tab is selected, it alone must claim its focused filter")
     }
 }
 
@@ -500,6 +519,14 @@ private final class SplitPaneFilterScene {
         panel.activeTab = tab
         let filterField = try await Harness.mountedFilterField(of: panel, tab: tab, in: window)
         try #require(workspace.focusedPanelId == panel.id, "The project panel must be the focused panel")
+        // Pane focus can only reach a terminal that is mounted in the window;
+        // without this, a slow mount would read as the filter keeping focus.
+        let terminalMounted = await Harness.settle(window) {
+            terminalPanel.hostedView.uiWindow === window
+                && terminalPanel.hostedView.bounds.width > 1
+                && terminalPanel.hostedView.bounds.height > 1
+        }
+        try #require(terminalMounted, "The left terminal must be mounted in the window before pane focus moves to it")
 
         succeeded = true
         return SplitPaneFilterScene(
@@ -631,6 +658,7 @@ private final class Harness {
             let hostingView = NSHostingView(rootView: ProjectPanelView(
                 panel: panel,
                 isFocused: index == focusedIndex,
+                isSelectedInPane: true,
                 onRequestPanelFocus: {}
             ))
             hostingView.frame = NSRect(
