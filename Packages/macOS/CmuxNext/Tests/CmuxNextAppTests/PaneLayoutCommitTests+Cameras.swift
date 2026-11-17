@@ -31,7 +31,11 @@ extension PaneLayoutCommitTests {
         harness.root.syncWithModelForNextFrame()
         #expect(!closed.isHidden && Self.same(Self.shown(screen), before),
                 "the key's turn changed what shows before the frame that places the panes: p2 hidden \(closed.isHidden), \(Self.shown(screen).panes)")
-        #expect(harness.provider.released.isEmpty, "the key's turn tore the closed pane down")
+        // What the key's turn put after its own commit runs now: a teardown queued there is the key's turn's too.
+        let queued = afterCommit
+        afterCommit = []
+        for item in queued { item() }
+        #expect(harness.provider.released.isEmpty, "the key's turn tore the closed pane down, or queued its teardown for after its own commit")
 
         _ = harness.root.advanceFrame(PaneMotionBench.frameBudget)
         #expect(closed.isHidden, "the frame tick that places the panes still shows the closed pane")
@@ -122,8 +126,12 @@ extension PaneLayoutCommitTests {
         }
         // At rest the camera shows the end of what the layout still has: all of it, when it fits.
         let after = Rest(harness.model.screens, in: screen, style: harness.root.context.style, camerasAtEnd: true)
-        harness.root.syncWithModel()
-        if !byKey {
+        if byKey {
+            // The app's key syncs for the next frame (`PaneController.showPaneClose`): its turn presents only what no
+            // frame tick will.
+            harness.root.syncWithModelForNextFrame()
+        } else {
+            harness.root.syncWithModel()
             harness.model.focus(change.focus, notify: false)
             harness.root.syncWithModel()
         }
