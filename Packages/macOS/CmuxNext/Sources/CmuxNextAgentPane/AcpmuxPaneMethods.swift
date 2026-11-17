@@ -407,7 +407,8 @@ nonisolated enum AcpmuxPaneMethods {
     }
 
     public static let gestureRules: [String: GestureRule] = [
-        "session/prompt": .always,
+        // `session/prompt` (Send, Retry) needs none: a person's own typed message came back "Not
+        // sent: it needs your own key press or click." (Leo, 2026-11-17: "go remove this").
         // Fixing a GitHub link creates a worktree and starts an agent turn; it is a person click,
         // never a scriptable background launch.
         "chat.fix_from_link": .always,

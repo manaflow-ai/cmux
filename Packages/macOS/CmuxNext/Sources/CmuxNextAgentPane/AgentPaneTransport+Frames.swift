@@ -421,8 +421,9 @@ extension AgentPaneTransport {
                     credit.target.permissionID == box.param("permissionId")
                 } ?? false
                 let redeemed = redeemedQuestion || gestures.redeem(ticket, connection: id, pick: facts.pick, sessionId: facts.sessionId)
-                granted = redeemed && AgentPaneGestureIntent.methods[facts.method ?? ""] != nil
-                    && (facts.method == "chat.fix_from_link" || facts.sessionId.map(sessions.contains) == true)
+                // A frame that needs no gesture (a Send) is never refused for a ticket that did not redeem.
+                granted = !facts.needsGesture || (redeemed && AgentPaneGestureIntent.methods[facts.method ?? ""] != nil
+                    && (facts.method == "chat.fix_from_link" || facts.sessionId.map(sessions.contains) == true))
                 ticketPick = granted
                 // A prompt that goes with its own ticket spends the start's credit too, as one
                 // without a ticket does: the credit never grants a later prompt (#23031).
