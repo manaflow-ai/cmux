@@ -116,6 +116,7 @@ done
 case "\$url" in
   https://files.cmux.com/cmux-tui/channels/*.json) src="\$JT_SERVE/channel.json" ;;
   https://files.cmux.com/cmux-tui/tree/*/cmux-tui-acpmux-*) src="\$JT_SERVE/acpmux" ;;
+  https://files.cmux.com/cmux-tui/tree/*/cmux-tui-rd-*) src="\$JT_SERVE/cmux-rd" ;;
   https://files.cmux.com/cmux-tui/latest/manifest.json) src="\$JT_SERVE/manifest.json" ;;
   https://files.cmux.com/cmux-tui/*/cmux-tui-*) src="\$JT_SERVE/cmux" ;;
   https://claude.ai/install.sh) src="\$JT_SERVE/claude-install.sh" ;;
@@ -234,15 +235,34 @@ esac
 EOF
 
 # Fixtures served by the fake curl.
-serve_dir() { # serve_dir DIR [WRONG_SHA]
+# serve_dir DIR [WRONG_SHA [RD_SHA]]: RD_SHA "none" leaves cmux-rd out of the
+# channel; another value is the channel's cmux-rd sha256 instead of the served one's.
+serve_dir() {
   mkdir -p "$1"
   cp "$root/acpmux.src" "$1/acpmux"
   s="$(sha "$1/acpmux")"
   [ -z "${2:-}" ] || s="$2"
+  # The fake cmux-rd, served at tree/<key>/cmux-tui-rd-<target>: it records its
+  # argv; `openh264-install` fails when ~/oh264-fail exists.
+  cat >"$1/cmux-rd" <<EOS
+#!/bin/sh
+. "$fakes/record.sh"
+# the channel's cmux-rd
+case "\$1" in openh264-install) [ ! -f "\$HOME/oh264-fail" ] ;; esac
+EOS
+  r="$(sha "$1/cmux-rd")"
+  [ -z "${3:-}" ] || r="$3"
+  rd_lines=""
+  if [ "$r" != none ]; then
+    rd_lines="
+    \"cmux-tui-rd-aarch64-unknown-linux-gnu\": \"$r\",
+    \"cmux-tui-rd-x86_64-unknown-linux-gnu\": \"$r\","
+  fi
   cat >"$1/channel.json" <<EOF
 {
   "binaries": {
     "cmux-tui-acpmux-aarch64-apple-darwin": "$s",
+    "cmux-tui-acpmux-aarch64-unknown-linux-musl": "$s",$rd_lines
     "cmux-tui-acpmux-x86_64-unknown-linux-musl": "$s"
   },
   "commit": "0bb2eda1a2029e41086d6ef6d2afadd85e99235f",
@@ -327,6 +347,21 @@ out_has() { grep -qF -- "$1" "$d/out"; }
 rc_is() { [ "$rc" = "$1" ]; }
 installed() { [ -x "$d/home/.local/bin/acpmux" ]; }
 fetched_binary() { grep -q 'tree/.*/cmux-tui-acpmux-' "$d/log/argv"; }
+fetched_rd() { grep -q '^curl .*tree/.*/cmux-tui-rd-' "$d/log/argv"; }
+rd_is_channels() {
+  f="$d/home/.local/bin/cmux-rd"
+  [ -f "$f" ] && [ ! -L "$f" ] && [ "$(sha "$f")" = "$(sha "$d/serve/cmux-rd")" ] &&
+    [ "$(stat -c %a "$f" 2>/dev/null || stat -f %Lp "$f")" = 755 ]
+}
+rd_state() { printf '%s' "$d/home/.acpmux/share-host/cmux-rd-install"; }
+rd_lines() { grep -c 'cmux-rd did not install' "$d/out"; }
+# An earlier cmux-rd in place, which a failure must leave as it is.
+old_rd() {
+  mkdir -p "$d/home/.local/bin"
+  printf '#!/bin/sh\n# the old cmux-rd\n' >"$d/home/.local/bin/cmux-rd"
+  chmod 755 "$d/home/.local/bin/cmux-rd"
+}
+old_rd_kept() { grep -q "the old cmux-rd" "$d/home/.local/bin/cmux-rd"; }
 
 n=0
 suite() {
@@ -340,7 +375,8 @@ suite() {
   check "acpmux installed" installed
   check "joins with --hub and --name" grep -q -- "--hub $origin --name" "$d/log/joins"
   check "the cmux CLI installed" test -x "$d/home/.cmux/bin/cmux"
-  check "linux without cmux-rd: says the screen is not shared and why" out_has "This machine's screen is not shared: cmux-rd is not installed at $d/home/.local/bin/cmux-rd."
+  check "linux: cmux-rd installed from the channel" rd_is_channels
+  check "linux: says the screen is shared with nothing to do" out_has "Your own account can view this machine's screen from your other devices, with nothing to do here."
   check "linux: no consent line (cmux-rd's host serves your own account)" eval '! out_has "Screen sharing and control are off"'
   check "no token in output" no_token_in_output
   check "no printf binary was exec'd (it is a builtin)" eval '! grep -q "^printf" "$d/log/argv"'
@@ -589,18 +625,131 @@ suite() {
   check "macos fetches the darwin build" grep -q "cmux-tui-acpmux-aarch64-apple-darwin" "$d/log/argv"
   check "macos: the consent line" out_has "Screen sharing and control are off on this machine."
 
-  # Linux with cmux-rd where the screen host unit runs it: the daemon shares the
-  # screen with the joining account by itself, after the join's restart.
+  # Linux: cmux-rd from the channel, where the screen host unit runs it; the
+  # daemon finds it and shares the screen with the joining account by itself.
   new_case linux-cmux-rd
-  mkdir -p "$d/home/.local/bin"
-  printf '#!/bin/sh\n. "%s/record.sh"\nexit 0\n' "$fakes" >"$d/home/.local/bin/cmux-rd"
-  chmod 755 "$d/home/.local/bin/cmux-rd"
   run_join env
   check "linux-cmux-rd exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "linux-cmux-rd: fetched from the channel's tree" grep -q "^curl .*tree/121e0512465089798aba4eea7eba48644ecac9a9/cmux-tui-rd-x86_64-unknown-linux-gnu" "$d/log/argv"
+  check "linux-cmux-rd: installed, mode 755, the channel's sha256" rd_is_channels
+  check "linux-cmux-rd: through a temp name, moved into place" grep -q "^mv -f $d/home/.local/bin/.cmux-rd.new $d/home/.local/bin/cmux-rd" "$d/log/argv"
+  check "linux-cmux-rd: says so" out_has "installed cmux-rd to $d/home/.local/bin/cmux-rd"
+  check "linux-cmux-rd: no failure state" test ! -e "$(rd_state)"
+  check "linux-cmux-rd: Cisco's OpenH264 fetched through cmux-rd" grep -q "^cmux-rd openh264-install" "$d/log/argv"
+  check "linux-cmux-rd: cmux-rd only for openh264-install" eval '[ "$(grep -c "^cmux-rd" "$d/log/argv")" = 1 ]'
+  check "linux-cmux-rd: before the vault and sign-in" eval '[ "$(grep -n "^cmux-rd openh264-install" "$d/log/argv" | cut -d: -f1)" -lt "$(grep -n "^acpmux host join --status$\|^acpmux host doctor" "$d/log/argv" | tail -n 1 | cut -d: -f1)" ]'
   check "linux-cmux-rd: your own account, nothing to do here" out_has "Your own account can view this machine's screen from your other devices, with nothing to do here. Other accounts can't reach it."
   check "linux-cmux-rd: no consent line" eval '! out_has "Screen sharing and control are off"'
   check "linux-cmux-rd: the daemon restarts onto the join" grep -q "^acpmux daemon restart" "$d/log/argv"
-  check "linux-cmux-rd: the script never runs cmux-rd itself" eval '! grep -q "^cmux-rd" "$d/log/argv"'
+  check "linux-cmux-rd: no env leak" no_env_leak
+  check "linux-cmux-rd: no cmj_ in any argv" no_token_in_argv
+  # Again: the installed one already has the channel's sha256, so nothing is fetched.
+  : >"$d/log/argv"
+  run_join env
+  check "linux-cmux-rd again: exit 0 (got $rc)" rc_is 0
+  check "linux-cmux-rd again: no cmux-rd download" eval '! fetched_rd'
+  check "linux-cmux-rd again: still the channel's" rd_is_channels
+
+  # An older cmux-rd is replaced by the channel's, on aarch64 too.
+  new_case linux-cmux-rd-update-arm64
+  JT_ARCH=aarch64
+  old_rd
+  # Joined before (a repair run, no token): the rerun brings cmux-rd too.
+  : >"$d/home/joined"
+  run_join none
+  check "rd update: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "rd update: the aarch64 gnu build" grep -q "^curl .*cmux-tui-rd-aarch64-unknown-linux-gnu" "$d/log/argv"
+  check "rd update: replaced" rd_is_channels
+
+  # A failed OpenH264 download is one warning; cmux-rd stays installed.
+  new_case linux-cmux-rd-openh264-fails
+  mkdir -p "$d/home"
+  : >"$d/home/oh264-fail"
+  run_join env
+  check "openh264 fails: exit 0 (got $rc)" rc_is 0
+  check "openh264 fails: installed anyway" rd_is_channels
+  check "openh264 fails: one warning" eval '[ "$(grep -c "OpenH264 did not download" "$d/out")" = 1 ]'
+
+  # The channel's sha256 is not the served file's: nothing replaced, the join goes on.
+  new_case linux-cmux-rd-mismatch
+  serve_dir "$d/serve" "" "1111111111111111111111111111111111111111111111111111111111111111"
+  old_rd
+  run_join env
+  check "rd mismatch: the join still exits 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "rd mismatch: joined" token_on_stdin_once
+  check "rd mismatch: one line" eval '[ "$(rd_lines)" = 1 ]'
+  check "rd mismatch: says checksum" out_has "cmux-rd did not install (checksum verification failed for cmux-rd"
+  check "rd mismatch: the old cmux-rd untouched" old_rd_kept
+  check "rd mismatch: no temp file left in bin" test ! -e "$d/home/.local/bin/.cmux-rd.new"
+  check "rd mismatch: the state file holds the reason" grep -q "^checksum verification failed for cmux-rd" "$(rd_state)"
+  check "rd mismatch: OpenH264 not fetched" eval '! grep -q "^cmux-rd openh264-install" "$d/log/argv"'
+  # Then a channel that matches: installed, the state file gone.
+  serve_dir "$d/serve"
+  run_join none
+  check "rd mismatch then ok: installed" rd_is_channels
+  check "rd mismatch then ok: state file removed" test ! -e "$(rd_state)"
+
+  # The download fails: the same.
+  new_case linux-cmux-rd-fetch-fails
+  rm "$d/serve/cmux-rd"
+  run_join env
+  check "rd fetch fails: the join still exits 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "rd fetch fails: one line" eval '[ "$(rd_lines)" = 1 ]'
+  check "rd fetch fails: says download" out_has "cmux-rd did not install (cannot download cmux-rd for x86_64-unknown-linux-gnu)"
+  check "rd fetch fails: nothing installed" test ! -e "$d/home/.local/bin/cmux-rd"
+  check "rd fetch fails: the state file holds the reason" grep -qx "cannot download cmux-rd for x86_64-unknown-linux-gnu" "$(rd_state)"
+  check "rd fetch fails: step 8 says why the screen is not shared" out_has "This machine's screen is not shared: cmux-rd is not installed at $d/home/.local/bin/cmux-rd (cannot download cmux-rd for x86_64-unknown-linux-gnu)."
+  # ACPMUX_HOME moves the state file with acpmux's home.
+  run_join none ACPMUX_HOME="$d/home/other-acpmux"
+  check "rd fetch fails, ACPMUX_HOME: state file there" test -f "$d/home/other-acpmux/share-host/cmux-rd-install"
+
+  # A channel with no cmux-rd yet.
+  new_case linux-cmux-rd-not-in-channel
+  serve_dir "$d/serve" "" none
+  old_rd
+  run_join env
+  check "rd not in channel: exit 0 (got $rc)" rc_is 0
+  check "rd not in channel: one line" eval '[ "$(rd_lines)" = 1 ]'
+  check "rd not in channel: says so" out_has "cmux-rd did not install (the feat-cmux-next channel has no cmux-rd build for x86_64-unknown-linux-gnu)"
+  check "rd not in channel: nothing fetched" eval '! fetched_rd'
+  check "rd not in channel: the old cmux-rd untouched" old_rd_kept
+  check "rd not in channel: the state file holds the reason" grep -q "has no cmux-rd build" "$(rd_state)"
+
+  # A symlinked cmux-rd (a test harness's own build) is kept.
+  new_case linux-cmux-rd-symlink
+  mkdir -p "$d/home/.local/bin" "$d/own"
+  printf '#!/bin/sh\n# my own build\n' >"$d/own/cmux-rd"
+  chmod 755 "$d/own/cmux-rd"
+  ln -s "$d/own/cmux-rd" "$d/home/.local/bin/cmux-rd"
+  run_join env
+  check "rd symlink: exit 0 (got $rc)" rc_is 0
+  check "rd symlink: kept" test -L "$d/home/.local/bin/cmux-rd"
+  check "rd symlink: nothing fetched" eval '! fetched_rd'
+
+  # No cmux-rd before the join finished, nor on a machine that is not joined.
+  new_case linux-cmux-rd-not-joined
+  JT_JOIN_EXIT=3
+  run_join env
+  check "rd, join refused: nothing fetched" eval '! fetched_rd'
+
+  # CMUX_JOIN_STEP=cmux-rd: only the install (a test of the install path runs it after its own join).
+  new_case cmux-rd-step
+  run_join none CMUX_JOIN_STEP=cmux-rd
+  check "rd step: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "rd step: installed" rd_is_channels
+  check "rd step: no acpmux, no service, no join" eval '! grep -q "^acpmux\|tree/.*/cmux-tui-acpmux-" "$d/log/argv"'
+  run_join env CMUX_JOIN_STEP=cmux-rd
+  check "rd step with a token: exit 2 (got $rc)" rc_is 2
+  check "rd step with a token: no token in output" no_token_in_output
+
+  # macOS: no cmux-rd at all.
+  new_case macos-no-cmux-rd
+  JT_OS=Darwin JT_ARCH=arm64
+  run_join env
+  check "macos rd: exit 0 (got $rc)" rc_is 0
+  check "macos rd: nothing fetched" eval '! fetched_rd'
+  check "macos rd: nothing installed" test ! -e "$d/home/.local/bin/cmux-rd"
+  check "macos rd: no state" test ! -e "$(rd_state)"
 
   # A join cut off after redeem (joinIncomplete) wins over a present
   # credential: the rerun resumes through acpmux, never "already joined".
