@@ -390,7 +390,7 @@ fn pr08_mirror_local_row_thirty() {
 }
 
 /// Decision 451 (b): a local row's submit-to-publish p95 while each of 30 origins, then each
-/// of 256, queues a unit of [`MAX_UNIT_CHANGES`] changes before one writer turn, with 11k
+/// of [`MAX_ORIGINS`], queues a unit of [`MAX_UNIT_CHANGES`] changes before one writer turn, with 11k
 /// chats and 16,000 rows held. The clock stops when the turn publishes the row, and the queued
 /// units are counted before it starts. At most 1 ms at both counts.
 #[test]
@@ -418,7 +418,7 @@ fn pr08_mirror_local_row_publish() {
         (rounds.into_iter().min().unwrap_or(1), p95(&mut pooled))
     };
     let (p95_30, all_30) = measure(30);
-    let (p95_256, all_256) = measure(256);
+    let (p95_256, all_256) = measure(MAX_ORIGINS);
     let line = format!(
         "{{\"name\":\"v2.pr08.mirror_local_row_publish\",\"small_p95\":0,\"god_p95\":{},\"god_p95_all\":{},\"p95_30\":{p95_30},\"p95_30_all\":{all_30},\"p95_256\":{p95_256},\"p95_256_all\":{all_256},\"unit_changes\":{MAX_UNIT_CHANGES},\"turn_changes\":{MAX_TURN_UNIT_CHANGES},\"unit\":\"ns\"}}",
         p95_30.max(p95_256),
@@ -435,28 +435,18 @@ fn pr08_mirror_local_row_publish() {
 }
 
 /// Decision 451 (c): the turn that publishes the local row, split into taking the batch,
-/// rows, origin slots (units) and the sync, with its index publishes, under both orders in
-/// one build: units first (the order before decision 300) and rows first. One line for
-/// each order and size, at 30 and at 256 origins.
+/// rows, origin slots (units) and the sync, with its index publishes. One line for each
+/// size, at 30 and at [`MAX_ORIGINS`] origins. Not a gate row: it attributes the turn.
 #[test]
 #[ignore = "release measurement; run with --ignored --release --nocapture"]
 fn pr08_mirror_turn_split() {
     const ROUNDS: usize = 3;
-    for origins in [30, 256] {
+    for origins in [30, MAX_ORIGINS] {
         let mut god = fixture(11_000, origins, 16_000);
         thirty_sample(&mut god, origins);
-        let mut sides: [Vec<ThirtySample>; 2] = [Vec::new(), Vec::new()];
-        for round in 0..ROUNDS {
-            // Alternate which order goes first each round.
-            for step in 0..2 {
-                let units_first = (round + step) % 2 == 0;
-                god.hub.updates.units_first.store(units_first, Ordering::Relaxed);
-                let side = &mut sides[usize::from(!units_first)];
-                side.extend((0..LOCAL_SAMPLES).map(|_| thirty_sample(&mut god, origins)));
-            }
-        }
-        god.hub.updates.units_first.store(false, Ordering::Relaxed);
-        for (order, samples) in ["units_first", "rows_first"].iter().zip(&sides) {
+        let samples: Vec<ThirtySample> =
+            (0..ROUNDS * LOCAL_SAMPLES).map(|_| thirty_sample(&mut god, origins)).collect();
+        {
             let pick = |f: &dyn Fn(&ThirtySample) -> u128| {
                 let mut values: Vec<u128> = samples.iter().map(f).collect();
                 p95(&mut values)
@@ -473,7 +463,7 @@ fn pr08_mirror_turn_split() {
             let (least, most) =
                 (publishes.first().copied().unwrap_or(0), publishes.last().copied().unwrap_or(0));
             let line = format!(
-                "{{\"name\":\"v2.pr08.mirror_turn_split\",\"order\":\"{order}\",\"origins\":{origins},\"publish_p95\":{publish},\"turn_end_p95\":{turn_end},\"take_p95\":{take},\"rows_p95\":{rows},\"units_p95\":{units},\"records_p95\":{records},\"sync_p95\":{sync},\"publishes_min\":{least},\"publishes_max\":{most},\"samples\":{},\"unit\":\"ns\"}}",
+                "{{\"name\":\"v2.pr08.mirror_turn_split\",\"origins\":{origins},\"publish_p95\":{publish},\"turn_end_p95\":{turn_end},\"take_p95\":{take},\"rows_p95\":{rows},\"units_p95\":{units},\"records_p95\":{records},\"sync_p95\":{sync},\"publishes_min\":{least},\"publishes_max\":{most},\"samples\":{},\"unit\":\"ns\"}}",
                 samples.len()
             );
             eprintln!("{line}");

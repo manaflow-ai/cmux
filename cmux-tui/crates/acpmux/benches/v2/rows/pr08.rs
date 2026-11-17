@@ -60,8 +60,8 @@ pub const ROWS: &[GateRow] = &[
     GateRow {
         pr: "8",
         name: "v2.pr08.mirror_local_row_publish",
-        done_when: "A local row's submit-to-publish p95, the clock stopping when the writer turn publishes it, while 30 origins and then 256 each queue a unit of 512 changes before that turn, 11k chats and 16,000 rows held, the queued units counted before the clock starts: at most 1 ms at both counts (decision 451). The line's god_p95 is the larger of the two, small_p95 0: the bound is god_max.",
-        measured: false,
+        done_when: "A local row's submit-to-publish p95, the clock stopping when the writer turn publishes it, while 30 origins and then MAX_ORIGINS (256) each queue a unit of 512 changes before that turn, 11k chats and 16,000 rows held, the queued units counted before the clock starts: at most 1 ms at both counts (decision 451). The line's god_p95 is the larger of the two, small_p95 0: the bound is god_max.",
+        measured: true,
         ratio: f64::INFINITY,
         ratio_all: None,
         god_max: Some(1_000_000.0),

@@ -126,9 +126,6 @@ struct UpdateQueue {
     pending: Mutex<Pending>,
     notify: Notify,
     closed: AtomicBool,
-    /// Test only: take a turn's units before its rows, the order before decision 300.
-    #[cfg(test)]
-    units_first: AtomicBool,
 }
 
 impl UpdateQueue {
@@ -137,8 +134,6 @@ impl UpdateQueue {
             pending: Mutex::new(Pending::default()),
             notify: Notify::new(),
             closed: AtomicBool::new(false),
-            #[cfg(test)]
-            units_first: AtomicBool::new(false),
         }
     }
 
@@ -308,16 +303,8 @@ impl UpdateQueue {
                 pending.rows.remove(&key).map(|value| (UpdateKey::Row(key.0), value))
             }));
         };
-        #[cfg(test)]
-        let units_first = self.units_first.load(Ordering::Relaxed);
-        #[cfg(not(test))]
-        let units_first = false;
-        if units_first {
-            take_controls(sources, &mut batch);
-        } else {
-            take_rows(false, &mut batch);
-            take_controls(sources, &mut batch);
-        }
+        take_rows(false, &mut batch);
+        take_controls(sources, &mut batch);
         take_rows(true, &mut batch);
         if last.is_some() {
             pending.turn_after = last;
