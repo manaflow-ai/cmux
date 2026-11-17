@@ -5847,6 +5847,12 @@ class Infra(Refused):
 
 
 def infra(name: str, job: dict, why: str) -> Infra:
+    # The merge gate needs to offer a runnable, scoped re-run when this is the
+    # hand-off job's quota-only failure.  Keep the run and job identifiers, but
+    # never carry GitHub's installation/request/token details into the marker.
+    if why.startswith("quota-only hand-off:"):
+        return Infra(f"'{name}' is infra, not a verdict (run {job.get('run_id')}, job {job.get('id')}: {why}); "
+                     "it is never this PR's own red and needs a re-run, like a cancelled job")
     return Infra(f"'{name}' is infra, not a verdict (job {job.get('id')}: {why}); it is never this PR's own red "
                  "and needs a re-run, like a cancelled job")
 
@@ -7714,7 +7720,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         # its comparison below, which may excuse it as the base's.
         quota = github_quota_only(view) if base_run is None or base_job.get("conclusion") != "failure" else None
         if quota is not None:
-            raise infra(name, job, f"its failed steps printed only GitHub's API rate-limit refusal {quota[:300]!r}")
+            raise infra(name, job, "quota-only hand-off: its failed steps printed only GitHub's API rate-limit refusal")
         if base_run is None:
             if (old_base := retargeted_red(repo, base, sha, name, job, workflow_info, github, run_reads)) is not None:
                 audit.append(old_base)  # a red from the pull request's old base (retargeted_red)

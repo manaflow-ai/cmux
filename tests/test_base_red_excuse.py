@@ -6631,7 +6631,7 @@ class GitHubQuotaRedIsInfra(unittest.TestCase):
     NAME = "re-run the runs that deferred to the published tree"
     STEP = "Re-run the runs that deferred to this tree"
     QUOTA = ("##[error]tree f416335316d9 is published, but gh api repos/manaflow-ai/cmux/actions/artifacts?name=x "
-             "failed: gh: API rate limit exceeded for installation ID 175618676. (HTTP 403). Those commits have no "
+             "failed: gh: API rate limit exceeded for the repo installation (HTTP 403). Those commits have no "
              "cmux-tui manifest until their runs are re-run (gh run rerun RUN).")
     EXIT = "##[error]Process completed with exit code 1."
 
@@ -6651,8 +6651,9 @@ class GitHubQuotaRedIsInfra(unittest.TestCase):
         return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
 
     def test_a_quota_only_red_is_infra_with_base_green(self):
-        with self.assertRaisesRegex(excuse.Infra, "is infra, not a verdict .*API rate limit exceeded.*needs a re-run"):
+        with self.assertRaisesRegex(excuse.Infra, r"is infra, not a verdict \(run 10, job 1: quota-only hand-off: .*API rate-limit refusal.*needs a re-run") as caught:
             self.judge(self.QUOTA, self.EXIT)
+        self.assertNotIn("installation ID", str(caught.exception))
 
     def test_a_red_with_another_error_beside_the_quota_is_not_infra(self):
         with self.assertRaises(excuse.Refused) as caught:
