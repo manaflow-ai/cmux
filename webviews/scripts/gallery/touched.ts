@@ -107,7 +107,7 @@ export function hostFrameModules(host: string, src: string, read: (file: string)
   // (pages.ts: every *-page host) loads its static imports for each, and each host's own page through a
   // dynamic import() inside that host's mount function, which is that host's alone.
   const shared = Object.values(STAGE_MODULES).filter((module) => module === frame).length > 1;
-  const roots = shared ? [full, ...staticImportsOf(full, read)] : [full];
+  const roots = shared ? [full, ...staticImportsOf(full, read), ...hostMountImports(host, src, full, read)] : [full];
   const reached = shared ? new Set([full, ...closure(roots.slice(1), read)]) : closure(roots, read);
   return new Set([...reached].filter((file) => !file.endsWith(".css")));
 }
@@ -135,6 +135,30 @@ const STAGE_MODULES: Record<string, string> = {
 };
 
 const STATIC_IMPORT = /(?:\bfrom\s*|\bimport\s+)["']([^"']+)["']/g;
+const DYNAMIC_IMPORT = /\bimport\(\s*["']([^"']+)["']\s*\)/g;
+
+/**
+ * The modules one host's own mount function in a shared stage module imports with import(): the diff-page
+ * host's mountDiffPage loads src/pages/diff/main, and through it the diff surface, for each diff-page entry.
+ * The function is the one src/gallery/frame/main.ts's `mount` calls for that host.
+ */
+function hostMountImports(host: string, src: string, frame: string, read: (file: string) => string | undefined) {
+  const main = read(path.join(src, "gallery/frame/main.ts")) ?? "";
+  const escaped = host.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const name = new RegExp(`case "${escaped}":\\s*return \\(await import\\("[^"]+"\\)\\)\\.(\\w+)`).exec(main)?.[1];
+  const text = read(frame) ?? "";
+  const start = name ? text.indexOf(`function ${name}(`) : -1;
+  if (start < 0) return [];
+  const end = text.indexOf("\nexport ", start + 1);
+  const out: string[] = [];
+  for (const match of text.slice(start, end < 0 ? undefined : end).matchAll(DYNAMIC_IMPORT)) {
+    const spec = match[1]!.replace(/\?.*$/, "");
+    if (!spec.startsWith(".") || spec.endsWith(".css")) continue;
+    const resolved = resolveImport(path.resolve(path.dirname(frame), spec), read);
+    if (resolved) out.push(resolved);
+  }
+  return out;
+}
 
 /** The relative static imports (`import ... from`, `import "x"`) of one file, resolved. */
 function staticImportsOf(file: string, read: (file: string) => string | undefined): string[] {
@@ -150,10 +174,18 @@ function staticImportsOf(file: string, read: (file: string) => string | undefine
 }
 
 /** The relative imports of one source file, resolved to files that exist. */
+/** Each file's resolved imports, per reader: a file is parsed once however many entries reach it. */
+const IMPORTS = new WeakMap<(file: string) => string | undefined, Map<string, string[]>>();
+
 export function importsOf(file: string, read: (file: string) => string | undefined = readSource): string[] {
+  let cache = IMPORTS.get(read);
+  if (!cache) IMPORTS.set(read, (cache = new Map()));
+  const known = cache.get(file);
+  if (known) return known;
   const text = read(file);
   if (text === undefined) return [];
   const out: string[] = [];
+  cache.set(file, out);
   for (const match of text.matchAll(IMPORT)) {
     const spec = match[1]!.replace(/\?.*$/, "");
     if (!spec.startsWith(".")) continue;

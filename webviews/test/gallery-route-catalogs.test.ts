@@ -172,6 +172,30 @@ test("a stage module many hosts share touches them through its static imports on
   expect(touchedEntries(settings, ["webviews/src/pages/settings/main.tsx"], opts).ranked[0]?.why).toBe("same-folder");
 });
 
+test("a host's own mount function in the shared stage touches its entries through what it imports", () => {
+  // The route check found it: diff-page entries render src/pages/diff/main and the diff surface it loads,
+  // through mountDiffPage's import(), which no entry imports.
+  const pageFiles: Record<string, string> = {
+    "gallery/frame/main.ts": `switch (host) {\n    case "diff-page":\n      return (await import("./pages")).mountDiffPage(v, c);\n    case "markdown-page":\n      return (await import("./pages")).mountMarkdownPage(v, c);\n}`,
+    "gallery/frame/pages.ts": `export async function mountDiffPage() {\n  await import("../../styles.css");\n  await import("../../pages/diff/main");\n}\nexport async function mountMarkdownPage() {\n  await import("../../pages/markdown/main");\n}`,
+    "pages/diff/main.tsx": `import("../../surfaces/diffSurface");`,
+    "surfaces/diffSurface.tsx": "export const surface = 1;",
+    "pages/markdown/main.tsx": "export const main = 1;",
+    "gallery/entries/diff.gallery.ts": "export default {};",
+    "gallery/entries/markdown.gallery.ts": "export default {};",
+  };
+  const pageRead = (file: string) => (file.startsWith(`${SRC}/`) ? pageFiles[file.slice(SRC.length + 1)] : undefined);
+  const hosts: EntryRoots[] = [
+    { id: "diff.page", host: "diff-page", file: `${SRC}/gallery/entries/diff.gallery.ts`, covers: [] },
+    { id: "markdown.page", host: "markdown-page", file: `${SRC}/gallery/entries/markdown.gallery.ts`, covers: [] },
+  ];
+  const opts = { src: SRC, repoRoot: ROOT, read: pageRead, paneStylesheets: () => [] };
+  const surface = touchedEntries(hosts, ["webviews/src/surfaces/diffSurface.tsx"], opts);
+  expect(surface.entries).toEqual(["diff.page"]);
+  expect(surface.ranked[0]).toMatchObject({ id: "diff.page", why: "host-frame" });
+  expect(touchedEntries(hosts, ["webviews/src/pages/markdown/main.tsx"], opts).entries).toEqual(["markdown.page"]);
+});
+
 test("the route check names a bundled file the paths or touched.ts miss", () => {
   const meta = {
     outputs: {

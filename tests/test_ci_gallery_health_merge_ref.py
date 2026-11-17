@@ -9,6 +9,7 @@ had already fixed (transcript-density: "Module not found health.ts" after #23333
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import re
 import subprocess
@@ -203,7 +204,7 @@ class GalleryHealthPlan(unittest.TestCase):
         self.assertIs(upload["with"].get("overwrite"), True)
         render = step("Render the gallery and judge it")["run"]
         # A shard builds only when the plan's build did not arrive (a full artifact store: slower, never red).
-        fallback = render[render.index('if [ ! -s "$RUNNER_TEMP/gallery-build/manifest.json" ]'):render.index("\n          fi\n")]
+        fallback = render[render.index('if [ ! -s "$RUNNER_TEMP/gallery-build/manifest.json" ]'):render.index("\nfi\n")]
         self.assertIn("gallery:build", fallback)
         self.assertNotIn("gallery:build", render.replace(fallback, ""), "a shard renders the plan's build")
         self.assertNotIn("manifest.ts", render.replace(fallback, ""), "a shard renders the plan's manifest")
