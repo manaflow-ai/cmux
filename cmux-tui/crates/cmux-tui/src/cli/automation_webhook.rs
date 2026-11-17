@@ -350,8 +350,8 @@ struct Stopped {
     why: Why,
 }
 
-fn stopped(step: Step, machine: Option<&str>, why: Why) -> Stopped {
-    Stopped { step, machine: machine.map(str::to_owned), why }
+fn stopped(step: Step, machine: Option<&str>, why: Why) -> Box<Stopped> {
+    Box::new(Stopped { step, machine: machine.map(str::to_owned), why })
 }
 
 fn text_at<'a>(v: &'a Value, path: &[&str]) -> Option<&'a str> {
@@ -359,7 +359,7 @@ fn text_at<'a>(v: &'a Value, path: &[&str]) -> Option<&'a str> {
 }
 
 /// The three calls, in order; each is safe to repeat (the fork and the import by their key).
-fn register(platform: &Platform, plan: &Plan) -> Result<Registered, Stopped> {
+fn register(platform: &Platform, plan: &Plan) -> Result<Registered, Box<Stopped>> {
     let unreadable =
         |step, machine: Option<&str>| stopped(step, machine, Why::Call(CallError::Unreadable(200)));
     let fork = platform
@@ -372,10 +372,10 @@ fn register(platform: &Platform, plan: &Plan) -> Result<Registered, Stopped> {
     let bound = platform
         .post(&bind_path(plan), bind_body(plan, &machine))
         .map_err(|e| stopped(Step::Bind, Some(&machine), Why::Call(e)))?;
-    if let Some(other) = text_at(&bound, &["machineId"]) {
-        if other != machine {
-            return Err(stopped(Step::Bind, Some(&machine), Why::Bound(other.to_owned())));
-        }
+    if let Some(other) = text_at(&bound, &["machineId"])
+        && other != machine
+    {
+        return Err(stopped(Step::Bind, Some(&machine), Why::Bound(other.to_owned())));
     }
     let answer = platform
         .post(TRIGGERS_PATH, trigger_body(plan, &machine))
@@ -509,14 +509,23 @@ fn stopped_error(plan: &Plan, stop: &Stopped) -> (Value, i32, bool) {
             false,
         ),
     };
-    if let Some(machine) = &stop.machine {
-        error["details"]["machine"] = json!(machine);
+    if let Some(machine) = &stop.machine
+        && let Some(object) = error.as_object_mut()
+    {
         let message = format!(
             "{}; {}",
-            error["message"].as_str().unwrap_or(""),
+            object.get("message").and_then(Value::as_str).unwrap_or(""),
             messages().webhook_rerun.replace("{machine}", machine)
         );
-        error["message"] = json!(message);
+        object.insert("message".into(), json!(message));
+        match object.get_mut("details").and_then(Value::as_object_mut) {
+            Some(details) => {
+                details.insert("machine".into(), json!(machine));
+            }
+            None => {
+                object.insert("details".into(), json!({ "machine": machine }));
+            }
+        }
     }
     (error, exit, unknown)
 }
