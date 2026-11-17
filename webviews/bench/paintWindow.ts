@@ -214,8 +214,8 @@ export async function paintWindow(
   const startedPerS = probed.started
     .map(([key, count]) => [key, count / seconds] as [string, number])
     .sort((a, b) => b[1] - a[1]);
-  const { frameId } = ((await cdp.send("Page.getFrameTree")) as { frameTree: { frame: { id: string } } }).frameTree
-    .frame;
+  const frameId = ((await cdp.send("Page.getFrameTree")) as { frameTree: { frame: { id: string } } }).frameTree.frame
+    .id;
   return {
     ...readPaintTrace(events, seconds, frameId),
     animations,
