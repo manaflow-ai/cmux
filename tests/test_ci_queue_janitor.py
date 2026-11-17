@@ -11,6 +11,7 @@ import http.client
 import importlib.util
 import io
 import json
+import os
 import re
 import sys
 import tempfile
@@ -3776,6 +3777,19 @@ class UnclaimedLegPlanTests(unittest.TestCase):
         decision = decision_for(unclaimed_plan([run], jobs, {DISPATCH_BRANCH: []}), run)
         self.assertEqual(decision.action, "skip")
         self.assertIn("owned", decision.note)
+
+    def test_cmux_next_s_last_owned_attempt_is_left_alone_while_the_blacksmith_switch_is_off(self):
+        # With vars.CI_BLACKSMITH_MACOS unset, cmux-next.yml's Mac fallbacks take CI_SIDE_LANE_RUNNER on every attempt,
+        # so a re-run of a leg queued there only rejoins its queue at the back (2026-11-17). Switch `on`: it leaves.
+        attempt = janitor.rescue.REFUSAL_RESCUE_ATTEMPT
+        for switch, action in (("", "skip"), ("on", "cancel")):
+            with self.subTest(switch=switch), mock.patch.dict(os.environ, {"STALL_BLACKSMITH_MACOS": switch,
+                                                                           "SIDE_LANE_RUNNER": SIDE}):
+                run, jobs = unclaimed_world(age=50, path=".github/workflows/cmux-next.yml", attempt=attempt)
+                decision = decision_for(unclaimed_plan([run], jobs, {DISPATCH_BRANCH: []}), run)
+                self.assertEqual(decision.action, action, decision.note)
+
+
 
     def test_bot_re_runs_failed_runs_and_newer_runs_are_never_re_run(self):
         run, jobs = unclaimed_world(age=50, attempt=2, actor="github-actions[bot]")

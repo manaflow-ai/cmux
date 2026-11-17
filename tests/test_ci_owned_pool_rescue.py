@@ -2519,6 +2519,64 @@ class DeeperDestination(unittest.TestCase):
         self.assertIn("re-ran the failed jobs", result)
 
 
+def side_daemon_tests(seconds):
+    return [job("cmux-next daemon tests", labels=[SIDE], created=0)]
+
+
+class SameLabelQueuedRerun(unittest.TestCase):
+    """A queue rescue never cancels and re-runs a job that is only queued when the re-run takes the label it waits on.
+    With vars.CI_BLACKSMITH_MACOS unset (05:40Z, 2026-11-17), cmux-next.yml's Mac fallbacks take CI_SIDE_LANE_RUNNER
+    on every attempt, so a bot re-run of a job queued on glaeda-side-std-xcode-26.6 lands there again with a new
+    created_at: the move only sends it to the back of the queue it waited in. On 2026-11-17 at 12:29Z, 54 of the 159
+    jobs queued there were bot re-runs (attempt 2 and 3). A refused (failed) job's re-run stays as it was."""
+
+    PAYLOAD = side_event(path=".github/workflows/cmux-next.yml", event="workflow_dispatch", pull_requests=[])
+
+    def test_a_job_queued_on_the_side_label_is_never_moved_onto_it(self):
+        # The side label is shallow, so the depth rule alone lets it through: the move would gain nothing.
+        clock = Clock()
+        api = FakeAPI(clock, side_daemon_tests, snapshot=depth_snapshot(destination=1, destination_oldest=2))
+        code, summary = run_main(api, clock, payload=self.PAYLOAD,
+                                 env_extra={"SIDE_RESCUE_SECONDS": "30", "SIDE_LANE_RUNNER": SIDE})
+        self.assertEqual(code, 0, summary)
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+
+    def test_a_job_queued_on_another_owned_label_still_moves_to_a_shallower_side_label(self):
+        clock = Clock()
+        api = FakeAPI(clock, gui_daemon_tests, snapshot=depth_snapshot(destination=0, destination_oldest=0))
+        run_main(api, clock, payload=self.PAYLOAD, env_extra={"SIDE_RESCUE_SECONDS": "30", "SIDE_LANE_RUNNER": SIDE})
+        self.assertIn("cancel", api.calls)
+        self.assertIn("rerun-failed", api.calls)
+
+    def test_the_bot_s_last_owned_attempt_stays_on_the_side_label_while_the_switch_is_off(self):
+        # cmux-next.yml's `vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER` fallback reads no attempt.
+        path, last = rescue.CMUX_NEXT_WORKFLOW_PATH, rescue.REFUSAL_RESCUE_ATTEMPT
+        self.assertFalse(rescue.bot_rerun_leaves_owned(path, last, side_label=SIDE))
+        self.assertTrue(rescue.bot_rerun_leaves_owned(path, last, side_label=""))
+        self.assertEqual(rescue.rerun_side_label({}), SIDE)
+        self.assertEqual(rescue.rerun_side_label({"STALL_BLACKSMITH_MACOS": "on"}), "")
+
+    def test_a_queued_job_past_the_wait_bound_is_not_moved_onto_its_own_label(self):
+        # The bound moves a job whatever the soft holds say, but only off the owned labels: with the switch off the
+        # bot's attempt 4 takes the side label again.
+        target = rescue.Target(RUN_ID, rescue.REFUSAL_RESCUE_ATTEMPT, HEAD, 42, path=rescue.CMUX_NEXT_WORKFLOW_PATH)
+        waited = [job("cmux-next daemon tests", labels=[SIDE], created=0)]
+        at = START + dt.timedelta(seconds=rescue.OWNED_WAIT_BOUND_SECONDS + 60)
+        self.assertEqual(rescue.past_wait_bound(target, waited, at, side_label=SIDE), "")
+        self.assertIn("waited", rescue.past_wait_bound(target, waited, at, side_label=""))
+
+    def test_a_refused_side_job_is_still_re_run(self):
+        clock = Clock()
+        api = FakeAPI(clock, lambda seconds: [refused_job("cmux-next daemon tests", labels=(SIDE,))],
+                      finished=lambda seconds: seconds >= 45, conclusion="failure",
+                      snapshot=depth_snapshot(destination=1, destination_oldest=2))
+        code, summary = run_main(api, clock, payload=self.PAYLOAD,
+                                 env_extra={"SIDE_RESCUE_SECONDS": "30", "SIDE_LANE_RUNNER": SIDE})
+        self.assertEqual(code, 0, summary)
+        self.assertIn("rerun-failed", api.calls, summary)
+
+
 PLACEMENT_ID = 700001
 WAITING_ID = 700002
 
