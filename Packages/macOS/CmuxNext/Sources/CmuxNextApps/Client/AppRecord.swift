@@ -1,5 +1,5 @@
 public import Foundation
-import CmuxNextActions
+public import CmuxNextActions
 
 /// Where an app came from (`apps-list` `source`).
 public nonisolated enum AppSource: String, Sendable, Hashable, CaseIterable {
