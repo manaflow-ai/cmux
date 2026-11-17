@@ -114,33 +114,56 @@ unsafe fn input<'a>(ptr: *const u8, len: usize) -> Result<&'a [u8], i32> {
     Ok(unsafe { std::slice::from_raw_parts(ptr, len) })
 }
 
-fn output(out: *mut Bytes, bytes: Vec<u8>) -> i32 {
+/// Writes `bytes` to `*out` as a buffer the C caller frees with
+/// [`acpmux_client_bytes_free`]; a NULL `out` is refused.
+///
+/// # Safety
+/// `out` is NULL or aligned and valid for a write of one `Bytes`. The value
+/// already there is overwritten, not freed.
+unsafe fn output(out: *mut Bytes, bytes: Vec<u8>) -> i32 {
     if out.is_null() {
         return ACPMUX_CLIENT_ERR_NULL;
     }
-    // SAFETY: every caller checks `out`; the C caller owns the written value.
+    // SAFETY: checked non-NULL; aligned and writable by this function's contract.
     unsafe { *out = Bytes::from_vec(bytes) };
     ACPMUX_CLIENT_OK
 }
 
-fn handle_mut<'a>(handle: *mut c_void) -> Result<&'a mut Client<Value>, i32> {
+/// The client behind `handle`; `ACPMUX_CLIENT_ERR_NULL` for NULL.
+///
+/// # Safety
+/// `handle` is NULL or came from [`acpmux_client_new`] or
+/// [`acpmux_client_new_with_surfaces`] and has not been freed, so it is aligned and
+/// points to a live client. Nothing else reads or writes that client while the
+/// returned `&mut` lives, and `'a` ends before the handle is freed.
+unsafe fn handle_mut<'a>(handle: *mut c_void) -> Result<&'a mut Client<Value>, i32> {
     if handle.is_null() {
         return Err(ACPMUX_CLIENT_ERR_NULL);
     }
-    // SAFETY: the caller owns the handle and serializes calls.
+    // SAFETY: checked non-NULL; live, aligned and unaliased for `'a` by this function's contract.
     Ok(unsafe { &mut *handle.cast::<Client<Value>>() })
 }
 
-fn page_driver_mut<'a>(handle: *mut c_void) -> Result<&'a mut ListDriver, i32> {
+/// The page driver behind `handle`; `ACPMUX_CLIENT_ERR_NULL` for NULL.
+///
+/// # Safety
+/// `handle` is NULL or came from [`acpmux_page_driver_new`] and has not been freed,
+/// so it is aligned and points to a live driver. Nothing else reads or writes that
+/// driver while the returned `&mut` lives, and `'a` ends before the handle is freed.
+unsafe fn page_driver_mut<'a>(handle: *mut c_void) -> Result<&'a mut ListDriver, i32> {
     if handle.is_null() {
         return Err(ACPMUX_CLIENT_ERR_NULL);
     }
-    // SAFETY: the page host owns the handle and serializes calls.
+    // SAFETY: checked non-NULL; live, aligned and unaliased for `'a` by this function's contract.
     Ok(unsafe { &mut *handle.cast::<ListDriver>() })
 }
 
-fn request_bytes<'a>(ptr: *const u8, len: usize) -> Result<&'a [u8], i32> {
-    // SAFETY: forwarded pointer/length contract.
+/// Borrows the `len` request bytes at `ptr`; NULL is refused unless `len` is 0.
+///
+/// # Safety
+/// `len` is 0, or `ptr..ptr+len` is readable and not written for `'a`.
+unsafe fn request_bytes<'a>(ptr: *const u8, len: usize) -> Result<&'a [u8], i32> {
+    // SAFETY: this function's contract is `input`'s, passed on.
     unsafe { input(ptr, len) }
 }
 
@@ -246,7 +269,8 @@ pub unsafe extern "C" fn acpmux_client_new_with_surfaces(
     len: usize,
 ) -> *mut c_void {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let surfaces = request_bytes(ptr, len)
+        // SAFETY: `ptr` holds `len` readable bytes, by this function's contract.
+        let surfaces = unsafe { request_bytes(ptr, len) }
             .ok()
             .and_then(|bytes| serde_json::from_slice::<Vec<String>>(bytes).ok());
         surfaces.map_or(std::ptr::null_mut(), |surfaces| {
@@ -275,7 +299,9 @@ pub unsafe extern "C" fn acpmux_client_free(handle: *mut c_void) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn acpmux_client_connected(handle: *mut c_void) -> i32 {
     guarded(|| {
-        handle_mut(handle).map_or_else(
+        // SAFETY: `handle` is NULL or a live client the caller owns and calls from one thread,
+        // by this function's contract, so this is the only reference to it.
+        unsafe { handle_mut(handle) }.map_or_else(
             |e| e,
             |client| {
                 client.connected();
@@ -292,7 +318,9 @@ pub unsafe extern "C" fn acpmux_client_connected(handle: *mut c_void) -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn acpmux_client_disconnected(handle: *mut c_void) -> i32 {
     guarded(|| {
-        handle_mut(handle).map_or_else(
+        // SAFETY: `handle` is NULL or a live client the caller owns and calls from one thread,
+        // by this function's contract, so this is the only reference to it.
+        unsafe { handle_mut(handle) }.map_or_else(
             |e| e,
             |client| {
                 client.disconnected();
@@ -318,11 +346,14 @@ pub unsafe extern "C" fn acpmux_client_received(
         if consumed.is_null() {
             return ACPMUX_CLIENT_ERR_NULL;
         }
-        let bytes = match request_bytes(ptr, len) {
+        // SAFETY: `ptr` holds `len` readable bytes, by this function's contract.
+        let bytes = match unsafe { request_bytes(ptr, len) } {
             Ok(bytes) => bytes,
             Err(error) => return error,
         };
-        let client = match handle_mut(handle) {
+        // SAFETY: `handle` is NULL or a live client the caller owns and calls from one thread,
+        // by this function's contract, so this is the only reference to it.
+        let client = match unsafe { handle_mut(handle) } {
             Ok(client) => client,
             Err(error) => return error,
         };
@@ -340,11 +371,14 @@ pub unsafe extern "C" fn acpmux_client_received(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn acpmux_client_take_send(handle: *mut c_void, out: *mut Bytes) -> i32 {
     guarded(|| {
-        let client = match handle_mut(handle) {
+        // SAFETY: `handle` is NULL or a live client the caller owns and calls from one thread,
+        // by this function's contract, so this is the only reference to it.
+        let client = match unsafe { handle_mut(handle) } {
             Ok(client) => client,
             Err(error) => return error,
         };
-        output(out, client.take_send().unwrap_or_default())
+        // SAFETY: `out` is NULL or a writable `Bytes` slot, by this function's contract.
+        unsafe { output(out, client.take_send().unwrap_or_default()) }
     })
 }
 
@@ -355,13 +389,17 @@ pub unsafe extern "C" fn acpmux_client_take_send(handle: *mut c_void, out: *mut 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn acpmux_client_next_change(handle: *mut c_void, out: *mut Bytes) -> i32 {
     guarded(|| {
-        let client = match handle_mut(handle) {
+        // SAFETY: `handle` is NULL or a live client the caller owns and calls from one thread,
+        // by this function's contract, so this is the only reference to it.
+        let client = match unsafe { handle_mut(handle) } {
             Ok(client) => client,
             Err(error) => return error,
         };
-        let Some(change) = client.next_change() else { return output(out, Vec::new()) };
+        // SAFETY: `out` is NULL or a writable `Bytes` slot, by this function's contract.
+        let Some(change) = client.next_change() else { return unsafe { output(out, Vec::new()) } };
         match change_bytes(change) {
-            Ok(bytes) => output(out, bytes),
+            // SAFETY: `out` is NULL or a writable `Bytes` slot, by this function's contract.
+            Ok(bytes) => unsafe { output(out, bytes) },
             Err(_) => ACPMUX_CLIENT_ERR_INVALID,
         }
     })
@@ -379,7 +417,8 @@ pub unsafe extern "C" fn acpmux_client_subscribe(
     out: *mut Bytes,
 ) -> i32 {
     guarded(|| {
-        let bytes = match request_bytes(request, request_len) {
+        // SAFETY: `request` holds `request_len` readable bytes, by this function's contract.
+        let bytes = match unsafe { request_bytes(request, request_len) } {
             Ok(bytes) => bytes,
             Err(error) => return error,
         };
@@ -387,12 +426,17 @@ pub unsafe extern "C" fn acpmux_client_subscribe(
             Ok(sub) => sub,
             Err(_) => return ACPMUX_CLIENT_ERR_INVALID,
         };
-        let client = match handle_mut(handle) {
+        // SAFETY: `handle` is NULL or a live client the caller owns and calls from one thread,
+        // by this function's contract, so this is the only reference to it.
+        let client = match unsafe { handle_mut(handle) } {
             Ok(client) => client,
             Err(error) => return error,
         };
         match client.subscribe(sub) {
-            Ok(sid) => output(out, serde_json::to_vec(&json!({"sid":sid})).unwrap_or_default()),
+            // SAFETY: `out` is NULL or a writable `Bytes` slot, by this function's contract.
+            Ok(sid) => unsafe {
+                output(out, serde_json::to_vec(&json!({"sid":sid})).unwrap_or_default())
+            },
             Err(_) => ACPMUX_CLIENT_ERR_INVALID,
         }
     })
@@ -413,7 +457,8 @@ pub unsafe extern "C" fn acpmux_client_subscribe_mirror(
     out: *mut Bytes,
 ) -> i32 {
     guarded(|| {
-        let bytes = match request_bytes(request, request_len) {
+        // SAFETY: `request` holds `request_len` readable bytes, by this function's contract.
+        let bytes = match unsafe { request_bytes(request, request_len) } {
             Ok(bytes) => bytes,
             Err(error) => return error,
         };
@@ -421,12 +466,17 @@ pub unsafe extern "C" fn acpmux_client_subscribe_mirror(
             Ok(request) => request,
             Err(_) => return ACPMUX_CLIENT_ERR_INVALID,
         };
-        let client = match handle_mut(handle) {
+        // SAFETY: `handle` is NULL or a live client the caller owns and calls from one thread,
+        // by this function's contract, so this is the only reference to it.
+        let client = match unsafe { handle_mut(handle) } {
             Ok(client) => client,
             Err(error) => return error,
         };
         match client.subscribe_mirror(request.sub, request.held, request.whole) {
-            Ok(sid) => output(out, serde_json::to_vec(&json!({"sid": sid})).unwrap_or_default()),
+            // SAFETY: `out` is NULL or a writable `Bytes` slot, by this function's contract.
+            Ok(sid) => unsafe {
+                output(out, serde_json::to_vec(&json!({"sid": sid})).unwrap_or_default())
+            },
             Err(_) => ACPMUX_CLIENT_ERR_INVALID,
         }
     })
@@ -444,7 +494,8 @@ pub unsafe extern "C" fn acpmux_client_want(
     request_len: usize,
 ) -> i32 {
     guarded(|| {
-        let bytes = match request_bytes(request, request_len) {
+        // SAFETY: `request` holds `request_len` readable bytes, by this function's contract.
+        let bytes = match unsafe { request_bytes(request, request_len) } {
             Ok(bytes) => bytes,
             Err(error) => return error,
         };
@@ -452,7 +503,9 @@ pub unsafe extern "C" fn acpmux_client_want(
             Ok(request) => request,
             Err(_) => return ACPMUX_CLIENT_ERR_INVALID,
         };
-        let client = match handle_mut(handle) {
+        // SAFETY: `handle` is NULL or a live client the caller owns and calls from one thread,
+        // by this function's contract, so this is the only reference to it.
+        let client = match unsafe { handle_mut(handle) } {
             Ok(client) => client,
             Err(error) => return error,
         };
@@ -474,7 +527,8 @@ pub unsafe extern "C" fn acpmux_client_unwant(
     request_len: usize,
 ) -> i32 {
     guarded(|| {
-        let bytes = match request_bytes(request, request_len) {
+        // SAFETY: `request` holds `request_len` readable bytes, by this function's contract.
+        let bytes = match unsafe { request_bytes(request, request_len) } {
             Ok(bytes) => bytes,
             Err(error) => return error,
         };
@@ -482,7 +536,9 @@ pub unsafe extern "C" fn acpmux_client_unwant(
             Ok(request) => request,
             Err(_) => return ACPMUX_CLIENT_ERR_INVALID,
         };
-        let client = match handle_mut(handle) {
+        // SAFETY: `handle` is NULL or a live client the caller owns and calls from one thread,
+        // by this function's contract, so this is the only reference to it.
+        let client = match unsafe { handle_mut(handle) } {
             Ok(client) => client,
             Err(error) => return error,
         };
@@ -503,7 +559,8 @@ pub unsafe extern "C" fn acpmux_client_unsubscribe(
     request_len: usize,
 ) -> i32 {
     guarded(|| {
-        let bytes = match request_bytes(request, request_len) {
+        // SAFETY: `request` holds `request_len` readable bytes, by this function's contract.
+        let bytes = match unsafe { request_bytes(request, request_len) } {
             Ok(bytes) => bytes,
             Err(error) => return error,
         };
@@ -513,7 +570,9 @@ pub unsafe extern "C" fn acpmux_client_unsubscribe(
         };
         let sid = value.as_str().or_else(|| value.get("sid").and_then(Value::as_str));
         let Some(sid) = sid else { return ACPMUX_CLIENT_ERR_INVALID };
-        let client = match handle_mut(handle) {
+        // SAFETY: `handle` is NULL or a live client the caller owns and calls from one thread,
+        // by this function's contract, so this is the only reference to it.
+        let client = match unsafe { handle_mut(handle) } {
             Ok(client) => client,
             Err(error) => return error,
         };
@@ -532,7 +591,8 @@ pub unsafe extern "C" fn acpmux_client_page(
     request_len: usize,
 ) -> i32 {
     guarded(|| {
-        let bytes = match request_bytes(request, request_len) {
+        // SAFETY: `request` holds `request_len` readable bytes, by this function's contract.
+        let bytes = match unsafe { request_bytes(request, request_len) } {
             Ok(bytes) => bytes,
             Err(error) => return error,
         };
@@ -540,7 +600,9 @@ pub unsafe extern "C" fn acpmux_client_page(
             Ok(page) => page,
             Err(_) => return ACPMUX_CLIENT_ERR_INVALID,
         };
-        let client = match handle_mut(handle) {
+        // SAFETY: `handle` is NULL or a live client the caller owns and calls from one thread,
+        // by this function's contract, so this is the only reference to it.
+        let client = match unsafe { handle_mut(handle) } {
             Ok(client) => client,
             Err(error) => return error,
         };
@@ -562,19 +624,25 @@ pub unsafe extern "C" fn acpmux_client_subscribe_chat(
     out: *mut Bytes,
 ) -> i32 {
     guarded(|| {
-        let bytes = match request_bytes(request, request_len) {
+        // SAFETY: `request` holds `request_len` readable bytes, by this function's contract.
+        let bytes = match unsafe { request_bytes(request, request_len) } {
             Ok(bytes) => bytes,
             Err(error) => return error,
         };
         let Ok(request) = serde_json::from_slice::<ChatSubRequest>(bytes) else {
             return ACPMUX_CLIENT_ERR_INVALID;
         };
-        let client = match handle_mut(handle) {
+        // SAFETY: `handle` is NULL or a live client the caller owns and calls from one thread,
+        // by this function's contract, so this is the only reference to it.
+        let client = match unsafe { handle_mut(handle) } {
             Ok(client) => client,
             Err(error) => return error,
         };
         match client.subscribe_chat(request) {
-            Ok(sid) => output(out, serde_json::to_vec(&json!({"sid": sid})).unwrap_or_default()),
+            // SAFETY: `out` is NULL or a writable `Bytes` slot, by this function's contract.
+            Ok(sid) => unsafe {
+                output(out, serde_json::to_vec(&json!({"sid": sid})).unwrap_or_default())
+            },
             Err(_) => ACPMUX_CLIENT_ERR_INVALID,
         }
     })
@@ -592,14 +660,17 @@ pub unsafe extern "C" fn acpmux_client_chat_page(
     request_len: usize,
 ) -> i32 {
     guarded(|| {
-        let bytes = match request_bytes(request, request_len) {
+        // SAFETY: `request` holds `request_len` readable bytes, by this function's contract.
+        let bytes = match unsafe { request_bytes(request, request_len) } {
             Ok(bytes) => bytes,
             Err(error) => return error,
         };
         let Ok(request) = serde_json::from_slice::<ChatPageRequest>(bytes) else {
             return ACPMUX_CLIENT_ERR_INVALID;
         };
-        let client = match handle_mut(handle) {
+        // SAFETY: `handle` is NULL or a live client the caller owns and calls from one thread,
+        // by this function's contract, so this is the only reference to it.
+        let client = match unsafe { handle_mut(handle) } {
             Ok(client) => client,
             Err(error) => return error,
         };
@@ -621,19 +692,25 @@ pub unsafe extern "C" fn acpmux_client_chat_blob(
     out: *mut Bytes,
 ) -> i32 {
     guarded(|| {
-        let bytes = match request_bytes(request, request_len) {
+        // SAFETY: `request` holds `request_len` readable bytes, by this function's contract.
+        let bytes = match unsafe { request_bytes(request, request_len) } {
             Ok(bytes) => bytes,
             Err(error) => return error,
         };
         let Ok(request) = serde_json::from_slice::<ChatBlobRequest>(bytes) else {
             return ACPMUX_CLIENT_ERR_INVALID;
         };
-        let client = match handle_mut(handle) {
+        // SAFETY: `handle` is NULL or a live client the caller owns and calls from one thread,
+        // by this function's contract, so this is the only reference to it.
+        let client = match unsafe { handle_mut(handle) } {
             Ok(client) => client,
             Err(error) => return error,
         };
         match client.chat_blob(request) {
-            Ok(id) => output(out, serde_json::to_vec(&json!({"id": id})).unwrap_or_default()),
+            // SAFETY: `out` is NULL or a writable `Bytes` slot, by this function's contract.
+            Ok(id) => unsafe {
+                output(out, serde_json::to_vec(&json!({"id": id})).unwrap_or_default())
+            },
             Err(_) => ACPMUX_CLIENT_ERR_INVALID,
         }
     })
@@ -677,7 +754,9 @@ pub unsafe extern "C" fn acpmux_page_driver_free(handle: *mut c_void) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn acpmux_page_driver_connected(handle: *mut c_void) -> i32 {
     guarded(|| {
-        page_driver_mut(handle).map_or_else(
+        // SAFETY: `handle` is NULL or a live page driver the caller owns and calls from one
+        // thread, by this function's contract, so this is the only reference to it.
+        unsafe { page_driver_mut(handle) }.map_or_else(
             |error| error,
             |driver| {
                 driver.connected();
@@ -694,7 +773,9 @@ pub unsafe extern "C" fn acpmux_page_driver_connected(handle: *mut c_void) -> i3
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn acpmux_page_driver_disconnected(handle: *mut c_void) -> i32 {
     guarded(|| {
-        page_driver_mut(handle).map_or_else(
+        // SAFETY: `handle` is NULL or a live page driver the caller owns and calls from one
+        // thread, by this function's contract, so this is the only reference to it.
+        unsafe { page_driver_mut(handle) }.map_or_else(
             |error| error,
             |driver| {
                 driver.disconnected();
@@ -711,7 +792,9 @@ pub unsafe extern "C" fn acpmux_page_driver_disconnected(handle: *mut c_void) ->
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn acpmux_page_driver_visible(handle: *mut c_void, shown: bool) -> i32 {
     guarded(|| {
-        page_driver_mut(handle).map_or_else(
+        // SAFETY: `handle` is NULL or a live page driver the caller owns and calls from one
+        // thread, by this function's contract, so this is the only reference to it.
+        unsafe { page_driver_mut(handle) }.map_or_else(
             |error| error,
             |driver| {
                 driver.set_visible(shown);
@@ -736,11 +819,14 @@ pub unsafe extern "C" fn acpmux_page_driver_received(
         if consumed.is_null() {
             return ACPMUX_CLIENT_ERR_NULL;
         }
-        let bytes = match request_bytes(ptr, len) {
+        // SAFETY: `ptr` holds `len` readable bytes, by this function's contract.
+        let bytes = match unsafe { request_bytes(ptr, len) } {
             Ok(bytes) => bytes,
             Err(error) => return error,
         };
-        let driver = match page_driver_mut(handle) {
+        // SAFETY: `handle` is NULL or a live page driver the caller owns and calls from one
+        // thread, by this function's contract, so this is the only reference to it.
+        let driver = match unsafe { page_driver_mut(handle) } {
             Ok(driver) => driver,
             Err(error) => return error,
         };
@@ -757,11 +843,14 @@ pub unsafe extern "C" fn acpmux_page_driver_received(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn acpmux_page_driver_take_send(handle: *mut c_void, out: *mut Bytes) -> i32 {
     guarded(|| {
-        let driver = match page_driver_mut(handle) {
+        // SAFETY: `handle` is NULL or a live page driver the caller owns and calls from one
+        // thread, by this function's contract, so this is the only reference to it.
+        let driver = match unsafe { page_driver_mut(handle) } {
             Ok(driver) => driver,
             Err(error) => return error,
         };
-        output(out, driver.take_send().unwrap_or_default())
+        // SAFETY: `out` is NULL or a writable `Bytes` slot, by this function's contract.
+        unsafe { output(out, driver.take_send().unwrap_or_default()) }
     })
 }
 
@@ -775,17 +864,21 @@ pub unsafe extern "C" fn acpmux_page_driver_next_event(
     out: *mut Bytes,
 ) -> i32 {
     guarded(|| {
-        let driver = match page_driver_mut(handle) {
+        // SAFETY: `handle` is NULL or a live page driver the caller owns and calls from one
+        // thread, by this function's contract, so this is the only reference to it.
+        let driver = match unsafe { page_driver_mut(handle) } {
             Ok(driver) => driver,
             Err(error) => return error,
         };
         let batch = match driver.next_batch() {
             Ok(Some(batch)) => batch,
-            Ok(None) => return output(out, Vec::new()),
+            // SAFETY: `out` is NULL or a writable `Bytes` slot, by this function's contract.
+            Ok(None) => return unsafe { output(out, Vec::new()) },
             Err(error) => return page_error(error),
         };
         match batch.json() {
-            Ok(bytes) => output(out, bytes),
+            // SAFETY: `out` is NULL or a writable `Bytes` slot, by this function's contract.
+            Ok(bytes) => unsafe { output(out, bytes) },
             Err(_) => ACPMUX_CLIENT_ERR_INVALID,
         }
     })
@@ -798,7 +891,9 @@ pub unsafe extern "C" fn acpmux_page_driver_next_event(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn acpmux_page_driver_taken(handle: *mut c_void, number: u64) -> i32 {
     guarded(|| {
-        page_driver_mut(handle).map_or_else(
+        // SAFETY: `handle` is NULL or a live page driver the caller owns and calls from one
+        // thread, by this function's contract, so this is the only reference to it.
+        unsafe { page_driver_mut(handle) }.map_or_else(
             |error| error,
             |driver| driver.taken(number).map_or_else(page_error, |_| ACPMUX_CLIENT_OK),
         )
@@ -817,7 +912,8 @@ pub unsafe extern "C" fn acpmux_page_driver_open(
     out: *mut Bytes,
 ) -> i32 {
     guarded(|| {
-        let bytes = match request_bytes(request, request_len) {
+        // SAFETY: `request` holds `request_len` readable bytes, by this function's contract.
+        let bytes = match unsafe { request_bytes(request, request_len) } {
             Ok(bytes) => bytes,
             Err(error) => return error,
         };
@@ -825,12 +921,17 @@ pub unsafe extern "C" fn acpmux_page_driver_open(
             Ok(request) => request,
             Err(_) => return ACPMUX_CLIENT_ERR_INVALID,
         };
-        let driver = match page_driver_mut(handle) {
+        // SAFETY: `handle` is NULL or a live page driver the caller owns and calls from one
+        // thread, by this function's contract, so this is the only reference to it.
+        let driver = match unsafe { page_driver_mut(handle) } {
             Ok(driver) => driver,
             Err(error) => return error,
         };
         match driver.open(request) {
-            Ok(sid) => output(out, serde_json::to_vec(&json!({"sid": sid})).unwrap_or_default()),
+            // SAFETY: `out` is NULL or a writable `Bytes` slot, by this function's contract.
+            Ok(sid) => unsafe {
+                output(out, serde_json::to_vec(&json!({"sid": sid})).unwrap_or_default())
+            },
             Err(error) => page_error(error),
         }
     })
@@ -847,7 +948,8 @@ pub unsafe extern "C" fn acpmux_page_driver_close(
     request_len: usize,
 ) -> i32 {
     guarded(|| {
-        let bytes = match request_bytes(request, request_len) {
+        // SAFETY: `request` holds `request_len` readable bytes, by this function's contract.
+        let bytes = match unsafe { request_bytes(request, request_len) } {
             Ok(bytes) => bytes,
             Err(error) => return error,
         };
@@ -855,7 +957,9 @@ pub unsafe extern "C" fn acpmux_page_driver_close(
             Ok(request) => request,
             Err(_) => return ACPMUX_CLIENT_ERR_INVALID,
         };
-        let driver = match page_driver_mut(handle) {
+        // SAFETY: `handle` is NULL or a live page driver the caller owns and calls from one
+        // thread, by this function's contract, so this is the only reference to it.
+        let driver = match unsafe { page_driver_mut(handle) } {
             Ok(driver) => driver,
             Err(error) => return error,
         };
@@ -882,7 +986,8 @@ pub unsafe extern "C" fn acpmux_page_driver_want(
         if request_len > MAX_REQUEST_BYTES {
             return ACPMUX_PAGE_ERR_LIMIT;
         }
-        let bytes = match request_bytes(request, request_len) {
+        // SAFETY: `request` holds `request_len` readable bytes, by this function's contract.
+        let bytes = match unsafe { request_bytes(request, request_len) } {
             Ok(bytes) => bytes,
             Err(error) => return error,
         };
@@ -890,7 +995,9 @@ pub unsafe extern "C" fn acpmux_page_driver_want(
             Ok(request) => request,
             Err(_) => return ACPMUX_CLIENT_ERR_INVALID,
         };
-        let driver = match page_driver_mut(handle) {
+        // SAFETY: `handle` is NULL or a live page driver the caller owns and calls from one
+        // thread, by this function's contract, so this is the only reference to it.
+        let driver = match unsafe { page_driver_mut(handle) } {
             Ok(driver) => driver,
             Err(error) => return error,
         };
@@ -912,7 +1019,8 @@ pub unsafe extern "C" fn acpmux_page_driver_unwant(
         if request_len > MAX_REQUEST_BYTES {
             return ACPMUX_PAGE_ERR_LIMIT;
         }
-        let bytes = match request_bytes(request, request_len) {
+        // SAFETY: `request` holds `request_len` readable bytes, by this function's contract.
+        let bytes = match unsafe { request_bytes(request, request_len) } {
             Ok(bytes) => bytes,
             Err(error) => return error,
         };
@@ -920,7 +1028,9 @@ pub unsafe extern "C" fn acpmux_page_driver_unwant(
             Ok(request) => request,
             Err(_) => return ACPMUX_CLIENT_ERR_INVALID,
         };
-        let driver = match page_driver_mut(handle) {
+        // SAFETY: `handle` is NULL or a live page driver the caller owns and calls from one
+        // thread, by this function's contract, so this is the only reference to it.
+        let driver = match unsafe { page_driver_mut(handle) } {
             Ok(driver) => driver,
             Err(error) => return error,
         };
@@ -943,7 +1053,8 @@ pub unsafe extern "C" fn acpmux_page_driver_page(
         if request_len > MAX_REQUEST_BYTES {
             return ACPMUX_PAGE_ERR_LIMIT;
         }
-        let bytes = match request_bytes(request, request_len) {
+        // SAFETY: `request` holds `request_len` readable bytes, by this function's contract.
+        let bytes = match unsafe { request_bytes(request, request_len) } {
             Ok(bytes) => bytes,
             Err(error) => return error,
         };
@@ -951,12 +1062,17 @@ pub unsafe extern "C" fn acpmux_page_driver_page(
             Ok(request) => request,
             Err(_) => return ACPMUX_CLIENT_ERR_INVALID,
         };
-        let driver = match page_driver_mut(handle) {
+        // SAFETY: `handle` is NULL or a live page driver the caller owns and calls from one
+        // thread, by this function's contract, so this is the only reference to it.
+        let driver = match unsafe { page_driver_mut(handle) } {
             Ok(driver) => driver,
             Err(error) => return error,
         };
         match driver.page(request) {
-            Ok(id) => output(out, serde_json::to_vec(&json!({"id": id})).unwrap_or_default()),
+            // SAFETY: `out` is NULL or a writable `Bytes` slot, by this function's contract.
+            Ok(id) => unsafe {
+                output(out, serde_json::to_vec(&json!({"id": id})).unwrap_or_default())
+            },
             Err(error) => page_error(error),
         }
     })
@@ -973,7 +1089,8 @@ pub unsafe extern "C" fn acpmux_page_driver_next(
     request_len: usize,
 ) -> i32 {
     guarded(|| {
-        let bytes = match request_bytes(request, request_len) {
+        // SAFETY: `request` holds `request_len` readable bytes, by this function's contract.
+        let bytes = match unsafe { request_bytes(request, request_len) } {
             Ok(bytes) => bytes,
             Err(error) => return error,
         };
@@ -981,7 +1098,9 @@ pub unsafe extern "C" fn acpmux_page_driver_next(
             Ok(request) => request,
             Err(_) => return ACPMUX_CLIENT_ERR_INVALID,
         };
-        let driver = match page_driver_mut(handle) {
+        // SAFETY: `handle` is NULL or a live page driver the caller owns and calls from one
+        // thread, by this function's contract, so this is the only reference to it.
+        let driver = match unsafe { page_driver_mut(handle) } {
             Ok(driver) => driver,
             Err(error) => return error,
         };
@@ -999,5 +1118,6 @@ pub unsafe extern "C" fn acpmux_page_driver_error_code(status: i32, out: *mut By
     let Some(code) = page_error_text(status) else {
         return ACPMUX_CLIENT_ERR_INVALID;
     };
-    output(out, code.as_bytes().to_vec())
+    // SAFETY: `out` is NULL or a writable `Bytes` slot, by this function's contract.
+    unsafe { output(out, code.as_bytes().to_vec()) }
 }
