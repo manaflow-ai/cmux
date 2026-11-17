@@ -51,8 +51,6 @@ parser.add_argument("--shots", help="a folder: light and dark screen captures of
 opts = parser.parse_args()
 if opts.activate:
     require_no_person_mac("agent-engine-bench")  # --open --activate takes focus without BenchApp's check
-if opts.typing_loads and not opts.activate:
-    parser.error("--typing-loads requires --activate on an isolated fleet Mac (foreground input/QoS)")
 if (opts.rows < 1 or opts.flings < 1 or not math.isfinite(opts.fling_seconds) or opts.fling_seconds <= 0
         or opts.target_hz is not None and (not math.isfinite(opts.target_hz) or opts.target_hz <= 0)):
     parser.error("--rows, --flings, --fling-seconds and --target-hz must be positive and finite")
