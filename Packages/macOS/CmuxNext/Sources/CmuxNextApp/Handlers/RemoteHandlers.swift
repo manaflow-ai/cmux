@@ -22,7 +22,7 @@ enum RemoteHandlers {
         // known. Explicit callers still get machine()'s missing-target refusal.
         let hasMachine = available
         ssh.offerInstall = { [weak registry] session in
-            // Asks through the registry's confirmation sheet (remote.install is destructive).
+            // The person's connect found cmux-tui missing or too old: install it now, no question.
             _ = registry?.perform("remote.install", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: session.machineID)))
         }
         CloudHandlers.bind("remote.connect", registry, reason: available) { invocation in
@@ -90,7 +90,7 @@ enum RemoteHandlers {
         CloudHandlers.bind("remote.disconnect", registry, reason: hasMachine) { invocation in
             ssh.disconnect(try machine(invocation, context))
         }
-        // Destructive: the registry confirmed it (sheet, or `confirm: true`).
+        // Install or Update runs on the click: it loses nothing (terminals keep running).
         CloudHandlers.bind("remote.install", registry, reason: hasMachine) { invocation in
             let session = try machine(invocation, context)
             let interactive = !registry.isCapturingRefusal

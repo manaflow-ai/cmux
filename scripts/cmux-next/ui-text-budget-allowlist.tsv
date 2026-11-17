@@ -69,13 +69,11 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/MobilePairing.xcstrings	mo
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/MobilePairing.xcstrings	mobilePairing.page.ready.scan	13	12
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Passwords.xcstrings	passwords.csv.guide.name.other	10	6
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Remote.xcstrings	remote.browser.notConnected	14	12
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Remote.xcstrings	remote.install.body	36	25
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Remote.xcstrings	remote.status.authFailed.plain	21	20
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Remote.xcstrings	remote.status.hostKey.plain	29	12
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Remote.xcstrings	remote.status.reconnecting	14	12
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Remote.xcstrings	remote.status.staticInstallStaged	28	12
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Remote.xcstrings	remote.status.unreachable.plain	17	12
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Remote.xcstrings	remote.update.body	32	25
 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Resources/DevTools.xcstrings	devtools.limit.useHeapSnapshotButton	8	6
 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Resources/DevTools.xcstrings	devtools.limit.useRecordButton	7	6
 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Resources/Localizable.xcstrings	browser.certificate.details	26	25

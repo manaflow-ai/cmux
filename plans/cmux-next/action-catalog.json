@@ -84935,7 +84935,7 @@
       "hint" : null,
       "id" : "remote.install",
       "isDebugOnly" : false,
-      "isDestructive" : true,
+      "isDestructive" : false,
       "isGlobalHotKey" : false,
       "isPersonOnly" : false,
       "keywords" : [
