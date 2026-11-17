@@ -10,8 +10,15 @@ settled_ms, prior_chat_front_ms, prior_chat_live_ms, warm_switch_ms; t0 = the pr
                  does), the app is copied out (ditto keeps the quarantine the image gives its files) and the image
                  detached; the disk cache is purged when `sudo -n purge` is allowed; then `open -n` the copy with a
                  new HOME (CFFIXED_USER_HOME, a login keychain, the bundle's defaults set aside), as a double-click.
-                 The first-launch "downloaded from the Internet" prompt is answered Open (cua-driver, else System
-                 Events) and the time it waited for a person is kept apart (prompt_wait_ms). Also from the `open`:
+                 The first-launch "downloaded from the Internet" prompt is answered Open through the input route the
+                 fleet already has: the computer-use driver (cua-driver: ~/.local/bin, else the fleet's
+                 /Applications/CuaDriver.app, whose daemon holds the Accessibility grant), else System Events while
+                 it works (its first failure ends it for the run: each try waits 20 s and raises an Accessibility
+                 warning). Gatekeeper stays real: no quarantine is removed and no assessment is turned off. The row
+                 keeps the route that answered (prompt_route), when the prompt showed (prompt_shown_ms) and the
+                 time it waited for a person (prompt_wait_ms). When no route can press it, the round fails with
+                 "prompt could not be answered: <each route's error>" as a harness failure (harness_failure), not
+                 the app's, and ends once no route is left (NO_ROUTE_S) instead of waiting out STARTUP_S. Also from the `open`:
                  open_to_spawn_ms, open_to_first_window_ms, open_to_settled_ms; Home or the first-run page in a
                  visible window (home_ms); and from the unified log, syspolicyd's and XProtect's first and last event
                  after the `open` (gate.syspolicyd_span_ms, gate.xprotect_span_ms) with the lines naming an
@@ -47,8 +54,10 @@ GATE_LOG = ('process == "syspolicyd" OR process BEGINSWITH[c] "xprotect" OR proc
 GATE_WORDS = ("assess", "xprotect", "scan", "ticket", "notar", "prompt", "quarantine", "translocat", "gatekeeper",
               "malware", "yara", "evaluat")
 SETTLE_MARKS = ("first_window_frame_committed", "reveal.sidebar", "reveal.tabs")
-CUA = Path("~/.local/bin/cua-driver").expanduser()
+# The computer-use driver: a lane's own install, else the fleet's (its daemon is the responsible process TCC reads).
+CUA_PATHS = (Path("~/.local/bin/cua-driver").expanduser(), Path("/Applications/CuaDriver.app/Contents/MacOS/cua-driver"))
 STARTUP_S = 150.0
+NO_ROUTE_S = 60.0  # with no route left to press Open, the quarantined app cannot start: the round ends here
 SETTLE_GRACE_S = 10.0
 
 
@@ -102,8 +111,20 @@ def app_pid(executable: str, known: set[int]) -> tuple[int, str] | None:
     return max(fresh) if fresh else None
 
 
-def cua(tool: str, args: dict) -> dict:
-    code, out = run_text([str(CUA), "call", tool, json.dumps(args)], timeout=60)
+def cua_driver() -> Path | None:
+    """The computer-use driver this host has: CUA_PATHS in order, else `cua-driver` on PATH."""
+    for path in CUA_PATHS:
+        if path.is_file() and os.access(path, os.X_OK):
+            return path
+    found = shutil.which("cua-driver")
+    return Path(found) if found else None
+
+
+def cua(tool: str, args: dict, driver: Path | None = None) -> dict:
+    driver = driver or cua_driver()
+    if driver is None:
+        return {"error": "no cua-driver"}
+    code, out = run_text([str(driver), "call", tool, json.dumps(args)], timeout=60)
     try:
         return json.loads(out) if code == 0 else {"error": out[-300:]}
     except ValueError:
@@ -119,37 +140,124 @@ def walk(obj, pred, out=None) -> list:
     return out
 
 
-def answer_prompt() -> dict | None:
-    """When the first-launch prompt is on screen, press its Open button; None while there is none. cua-driver holds
-    the Accessibility grant a measure step lacks; System Events only without it (a first System Events call may ask
-    for the Automation grant in a dialog of its own)."""
-    code, out = run_text(["pgrep", "-x", "-U", str(os.getuid()), "CoreServicesUIAgent"], timeout=10)
-    agents = [int(p) for p in out.split() if p.isdigit()] if code == 0 else []
-    if not agents:
+def is_open_button(node) -> bool:
+    if not isinstance(node, dict) or "button" not in str(node.get("role", "")).lower():
+        return False
+    return any(str(node.get(k) or "").strip() == "Open" for k in ("label", "title", "name", "description"))
+
+
+def answer_by_cua(driver: Path, agent: int) -> dict | None:
+    """Press Open in CoreServicesUIAgent's on-screen window through cua-driver: an accessibility press on the
+    button's element_token, else a desktop click at its frame's middle. None while the agent shows no window."""
+    listed = cua("list_windows", {"pid": agent}, driver)
+    if listed.get("error"):
+        return {"shown": False, "error": f"list_windows: {listed['error']}"}
+    wins = [w for w in walk(listed, lambda o: isinstance(o, dict) and "window_id" in o) if w.get("is_on_screen", True)]
+    if not wins:
         return None
-    if CUA.exists():
-        wins = [w for w in walk(cua("list_windows", {"pid": agents[0]}), lambda o: isinstance(o, dict) and "window_id" in o)
-                if w.get("is_on_screen")]
-        for win in wins:
-            state = cua("get_window_state", {"pid": agents[0], "window_id": win["window_id"],
-                                             "include_screenshot": False, "max_depth": 30, "max_elements": 400})
-            buttons = [e for e in walk(state, lambda o: isinstance(o, dict) and "frame" in o and "role" in o)
-                       if "button" in str(e.get("role", "")).lower()
-                       and str(e.get("label") or e.get("title") or "").strip() == "Open"]
-            if buttons:
-                f = buttons[0]["frame"]
-                click = cua("click", {"x": f["x"] + f["w"] / 2, "y": f["y"] + f["h"] / 2, "scope": "desktop"})
-                return {"by": "cua-driver", "click": None if click.get("error") else click}
-        return {"by": "cua-driver", "click": None, "windows": len(wins)} if wins else None
-    script = ('tell application "System Events" to tell process "CoreServicesUIAgent"\n'
-              'if (count of windows) is 0 then return "none"\n'
-              'click button "Open" of window 1\nreturn "clicked"\nend tell')
-    code, out = run_text(["osascript", "-e", script], timeout=20)
+    errors = []
+    for win in wins:
+        state = cua("get_window_state", {"pid": agent, "window_id": win["window_id"],
+                                         "include_screenshot": False, "max_depth": 30, "max_elements": 400}, driver)
+        if state.get("error"):
+            errors.append(f"get_window_state {win['window_id']}: {state['error']}")
+            continue
+        buttons = walk(state, is_open_button)
+        if not buttons:
+            continue
+        button = buttons[0]
+        if button.get("element_token"):
+            args = {"pid": agent, "window_id": win["window_id"], "element_token": button["element_token"]}
+        elif isinstance(button.get("frame"), dict):
+            f = button["frame"]
+            w, h = f.get("w", f.get("width", 0)), f.get("h", f.get("height", 0))
+            args = {"x": f["x"] + w / 2, "y": f["y"] + h / 2, "scope": "desktop"}
+        else:
+            errors.append(f"window {win['window_id']}: an Open button with no element_token or frame")
+            continue
+        click = cua("click", args, driver)
+        if click.get("error"):
+            return {"shown": True, "error": f"click: {click['error']}"}
+        return {"shown": True, "click": click}
+    return {"shown": True, "error": "; ".join(errors) or f"no Open button in {len(wins)} window(s)"}
+
+
+SYSTEM_EVENTS_SCRIPT = ('tell application "System Events" to tell process "CoreServicesUIAgent"\n'
+                        'if (count of windows) is 0 then return "none"\n'
+                        'click button "Open" of window 1\nreturn "clicked"\nend tell')
+
+
+def answer_by_system_events() -> dict | None:
+    code, out = run_text(["osascript", "-e", SYSTEM_EVENTS_SCRIPT], timeout=20)
     if code == 0 and out == "none":
         return None
-    if code != 0:  # no grant: it cannot see a prompt, so none is counted
-        return {"by": "system-events", "shown": False, "error": out[-200:]}
-    return {"by": "system-events", "click": out}
+    if code != 0:  # no Accessibility or Automation grant (or it timed out): it cannot see a prompt
+        return {"shown": False, "error": out[-200:]}
+    return {"shown": True, "click": out}
+
+
+class PromptRoutes:
+    """The routes that can press the first-launch prompt's Open, in order: cua-driver (whose daemon holds the
+    Accessibility grant a step's shell lacks), then System Events. System Events is used only while it works: its
+    first failure ends it for the run, since each try waits 20 s and puts up an Accessibility warning of its own.
+    `errors` keeps each route's last error; `looked` is true once a route could see CoreServicesUIAgent's windows
+    (a prompt or none)."""
+
+    def __init__(self, driver: Path | None = None, system_events: bool = True):
+        self.driver = driver
+        self.system_events = system_events
+        self.errors: dict[str, str] = {}
+        self.looked = False
+        if driver is None:
+            self.errors["cua-driver"] = f"no cua-driver ({', '.join(str(p) for p in CUA_PATHS)} or PATH)"
+
+    @classmethod
+    def for_host(cls) -> "PromptRoutes":
+        return cls(cua_driver(), system_events=not PromptRoutes.system_events_broken)
+
+    system_events_broken = False  # for the process: a failed System Events is not tried again in a later round
+
+    def left(self) -> bool:
+        return self.driver is not None or self.system_events
+
+    def answer(self) -> dict | None:
+        """None while no route sees a prompt; else {route, shown, click | error}."""
+        code, out = run_text(["pgrep", "-x", "-U", str(os.getuid()), "CoreServicesUIAgent"], timeout=10)
+        agents = [int(p) for p in out.split() if p.isdigit()] if code == 0 else []
+        if not agents:
+            return None
+        seen = None
+        if self.driver is not None:
+            got = answer_by_cua(self.driver, agents[0])
+            self.looked = self.looked or got is None or bool(got.get("shown"))
+            if got is not None and got.get("click"):
+                return {"route": "cua-driver", **got}
+            if got is not None:
+                self.errors["cua-driver"] = got["error"]
+                seen = {"route": "cua-driver", **got}
+            else:
+                return None  # it can see, and there is no prompt window
+        if self.system_events:
+            got = answer_by_system_events()
+            self.looked = self.looked or got is None or bool(got.get("shown"))
+            if got is not None and got.get("click"):
+                return {"route": "system-events", **got}
+            if got is not None:
+                self.errors["system-events"] = got["error"]
+                self.system_events = False
+                PromptRoutes.system_events_broken = True
+                seen = seen if seen and seen.get("shown") else {"route": "system-events", **got}
+            elif seen is None:
+                return None
+        return seen or {"route": None, "shown": False, "error": "no route left"}
+
+    def summary(self) -> str:
+        return "; ".join(f"{route}: {error}" for route, error in self.errors.items()) or "no route saw it"
+
+
+def answer_prompt() -> dict | None:
+    """One look with this host's routes (PromptRoutes.for_host); kept for callers that look once."""
+    return PromptRoutes.for_host().answer()
 
 
 def parse_log_time(stamp: str) -> float | None:
@@ -250,19 +358,43 @@ def fresh_install_round(smoke, dmg: Path, index: int, prepare_env=None, seconds:
         row["failures"].append(f"could not install: {error}")
     finally:
         shutil.rmtree(root, ignore_errors=True)
-    if not row["failures"]:
-        if row.get("first_window_ms") is None:
-            row["failures"].append("no first window frame")
-        if row.get("home_ms") is None:
-            row["failures"].append(f"Home or the first-run page never showed within {STARTUP_S:.0f} s")
-        if row.get("settled_ms") is None:
-            row["failures"].append(f"not settled (marks {sorted(row.get('marks') or {})[:40]})")
+    row["failures"] += launch_failures(row)
     return row
 
 
-def open_launch(smoke, root: Path, app: Path, executable: str, bundle_id: str, seconds: float, prepare_env) -> dict:
+def launch_failures(row: dict) -> list[str]:
+    """What a fresh-install row that installed failed on. A prompt nothing could press is the harness's failure
+    (row["harness_failure"]), not the app's: the app never got to run, so no app failure is claimed beside it."""
+    if row["failures"]:
+        return []
+    if row.get("prompt_unanswered"):
+        row["harness_failure"] = row["prompt_unanswered"]
+        return [row["prompt_unanswered"]]
+    failures = []
+    if row.get("first_window_ms") is None:
+        failures.append("no first window frame")
+    if row.get("home_ms") is None:
+        failures.append(f"Home or the first-run page never showed within {STARTUP_S:.0f} s")
+    if row.get("settled_ms") is None:
+        failures.append(f"not settled (marks {sorted(row.get('marks') or {})[:40]})")
+    return failures
+
+
+def prompt_unanswered(marks: dict, prompt: dict, looked: bool, errors: str) -> str | None:
+    """The harness failure of a launch whose prompt nothing pressed: the app never started, Open was never
+    clicked, and either a route saw the prompt and could not press it, or no route could look at all."""
+    if "main_start" in marks or prompt.get("clicked_ms") is not None:
+        return None
+    if prompt.get("shown_ms") is None and looked:
+        return None  # the routes looked and saw no prompt: whatever kept the app from starting is the app's
+    return f"prompt could not be answered: {errors}"
+
+
+def open_launch(smoke, root: Path, app: Path, executable: str, bundle_id: str, seconds: float, prepare_env,
+                routes: PromptRoutes | None = None) -> dict:
     """`open -n` APP with a new HOME under ROOT, as a double-click; its marks arrive on a FIFO
     (CMUX_NEXT_LAUNCH_MARKS_PATH), each with its arrival time, so the process's start is known on this clock."""
+    routes = routes or PromptRoutes.for_host()
     env = smoke.fresh_env(root, root / "s.sock", 0)
     env.pop("CMUX_NEXT_LAUNCH_MARKS_FD", None)
     env.pop("CMUX_NEXT_NO_ACTIVATE", None)  # a double-click activates the app
@@ -304,15 +436,21 @@ def open_launch(smoke, root: Path, app: Path, executable: str, bundle_id: str, s
                 exited = True
                 break
             if "main_start" not in marks and not prompt.get("clicked_ms") and elapsed >= next_look:
-                answer = answer_prompt()
-                next_look = elapsed + 0.5
+                answer = routes.answer()
+                next_look = (time.monotonic() - opened) + 0.5
                 if answer is not None and answer.get("shown", True):
                     prompt.setdefault("shown_ms", round(elapsed * 1000))
                     prompt["answer"] = answer
                     if answer.get("click"):
                         prompt["clicked_ms"] = round((time.monotonic() - opened) * 1000)
+                        prompt["route"] = answer["route"]
                 elif answer is not None:
                     prompt.setdefault("look_error", answer.get("error"))
+                if routes.errors:
+                    prompt["route_errors"] = dict(routes.errors)
+            if ("main_start" not in marks and not prompt.get("clicked_ms") and not routes.left()
+                    and elapsed >= NO_ROUTE_S):
+                break  # nothing can press Open, so the quarantined app cannot start
             if home_at is None and "first_window_frame_committed" in marks:
                 snap = smoke.snapshot(root / "s.sock", timeout=2.0) or snap
                 if smoke.home_rendered(snap, marks):
@@ -346,6 +484,7 @@ def open_launch(smoke, root: Path, app: Path, executable: str, bundle_id: str, s
                translocated=bool(found and "/AppTranslocation/" in found[1]), prompt=prompt, marks=marks,
                first_run=smoke.FIRST_RUN_MARK in marks, launch_times=launch_times,
                open_stderr=opener.stderr.read().decode(errors="replace")[-400:] if opener.stderr else "")
+    out["prompt_unanswered"] = prompt_unanswered(marks, prompt, routes.looked, routes.summary())
     out["gate"] = gate_log(opened_wall, until_wall)
     return out
 
@@ -361,7 +500,7 @@ def timings(marks: dict, arrivals: dict, home_at: float | None, prompt: dict) ->
     return {"pre_main_ms": marks.get("main_start"), "first_window_ms": first, "settled_ms": settle, "home_ms": home,
             "open_to_spawn_ms": spawn, "open_to_first_window_ms": from_open(first),
             "open_to_settled_ms": from_open(settle), "open_to_home_ms": round(home_at * 1000) if home_at is not None else None,
-            "prompt_shown_ms": prompt.get("shown_ms"), "prompt_wait_ms": wait}
+            "prompt_shown_ms": prompt.get("shown_ms"), "prompt_wait_ms": wait, "prompt_route": prompt.get("route")}
 
 
 # ---- cold-cache and loaded -------------------------------------------------------------------
