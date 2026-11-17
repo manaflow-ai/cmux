@@ -176,6 +176,39 @@ fn ok(global: &GlobalArgs, value: &Value, human: &str) -> i32 {
     }
 }
 
+/// `cmux theme check DIR` on a theme or snippet repository folder: the
+/// marker, every theme file, and the art (type, size and count).
+pub(super) fn check_dir(global: &GlobalArgs, dir: &Path) -> i32 {
+    match community::read_package(dir) {
+        Ok(package) => {
+            let mut human = format!(
+                "{}: {} {} is fine; theme files: {}; {} images",
+                dir.display(),
+                package.tier.name(),
+                package.id,
+                package.themes.join(", "),
+                package.art.images.len()
+            );
+            if !package.art.pending.is_empty() {
+                human.push_str(&format!(
+                    "\n  not applied yet (no cmux setting): {}",
+                    package.art.pending.join(", ")
+                ));
+            }
+            let value = json!({
+                "ok": true,
+                "tier": package.tier.name(),
+                "id": package.id,
+                "themes": package.themes,
+                "images": package.art.images,
+                "pending": package.art.pending,
+            });
+            ok(global, &value, &human)
+        }
+        Err(error) => fail(global, "community.invalid", error.to_string(), None),
+    }
+}
+
 pub(super) fn run(
     global: &GlobalArgs,
     customize: &Customize,
@@ -372,6 +405,15 @@ fn install(
     );
     if tier == Tier::Theme {
         human.push_str(&format!("; theme files: {}", package.themes.join(", ")));
+        if !package.art.images.is_empty() {
+            human.push_str(&format!("; {} images", package.art.images.len()));
+        }
+        if !package.art.pending.is_empty() {
+            human.push_str(&format!(
+                "\n  not applied yet (no cmux setting): {}",
+                package.art.pending.join(", ")
+            ));
+        }
     }
     human.push_str(&format!(
         "\n  undo: cmux {} remove {}   (or cmux customize library off {})",
@@ -385,6 +427,8 @@ fn install(
         "changed": true,
         "receipt": receipt,
         "themes": package.themes,
+        "images": package.art.images.len(),
+        "pending": package.art.pending,
         "change": change,
     });
     Ok((value, human))
@@ -663,24 +707,37 @@ impl Git {
                 || SNIPPET_FILES.contains(&relative)
                 || relative
                     .strip_prefix("themes/")
-                    .is_some_and(|name| !name.contains('/') && name.ends_with(".json"));
+                    .is_some_and(|name| !name.contains('/') && name.ends_with(".json"))
+                || community::art::is_art_path(relative);
             if installs {
                 wanted.push((relative.to_owned(), size.parse().unwrap_or(u64::MAX)));
             }
         }
-        if wanted.len() > community::MAX_THEMES + SNIPPET_FILES.len() + 2 {
+        let most = community::MAX_THEMES + SNIPPET_FILES.len() + 2 + community::art::MAX_IMAGES;
+        if wanted.len() > most {
             return Err(format!(
                 "{}: too many files to be a theme or snippet",
                 reference.canonical()
             ));
         }
         let mut digest = Vec::new();
+        let mut art_bytes: u64 = 0;
         for (relative, size) in wanted {
-            if size > community::MAX_MARKER_BYTES {
-                return Err(format!(
-                    "{relative}: larger than {} KiB",
-                    community::MAX_MARKER_BYTES / 1024
-                ));
+            let cap = if community::art::is_art_path(&relative) {
+                art_bytes = art_bytes.saturating_add(size);
+                if art_bytes > community::art::MAX_ART_BYTES {
+                    return Err(format!(
+                        "{}: images larger than {} MiB together",
+                        reference.canonical(),
+                        community::art::MAX_ART_BYTES / (1024 * 1024)
+                    ));
+                }
+                community::art::MAX_IMAGE_BYTES
+            } else {
+                community::MAX_MARKER_BYTES
+            };
+            if size > cap {
+                return Err(format!("{relative}: larger than {} KiB", cap / 1024));
             }
             let bytes = self
                 .run(Some(repo), &["cat-file", "blob", &format!("{commit}:{prefix}{relative}")])?;
