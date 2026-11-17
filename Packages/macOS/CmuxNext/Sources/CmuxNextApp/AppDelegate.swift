@@ -48,21 +48,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// A second quit signal's exit (`QuitSignal`): the Home cache's and the state files' last writes, bounded, then the end.
     private lazy var forcedQuitExit = Self.secondSignalExit { [weak self] in self?.services }
 
-    /// The exit's steps: `prepare` waits on no disk, so the deadline is armed at once; the state files' queued
-    /// saves are awaited beside the Home cache's write, after it (tests inject the deadline and the end).
-    static func secondSignalExit(_ services: @escaping @MainActor () -> AppServices?, armDeadline: ((Duration) -> Void)? = nil,
-                                end: (@MainActor () -> Void)? = nil) -> ForcedQuitExit {
-        ForcedQuitExit(prepare: {
-            services()?.crashRecovery.applicationWillTerminate()
-            AppProcessRoot.shared.hangReports?.applicationWillTerminate()
-            services()?.home.applicationWillTerminate()
-        }, save: {
-            guard let services = services() else { return }
-            async let files: Void = services.stateFilesDrained()
-            await services.home.flushCacheForQuit()
-            await files
-        }, armDeadline: armDeadline, deadlineEnd: services()?.quitDeadlineEnd(), end: end)
-    }
     private var settings: SettingsController?
     /// The app's one main-thread scheduler for budgeted work: its per-frame budget, with the
     /// person's pending-input check and task signposts. Built here, the composition root, and
@@ -298,6 +283,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         DebugTimings.markLaunch("dfl.home_history")
         services.windows.restoreWhenLoaded()
+        firstFrame.whenOpen { [weak services] in services?.windows.recordSaver.launchRecord.schedule() }
         DebugTimings.markLaunch("dfl.windows")
         // After two quick unexpected ends in a row, Chromium starts only
         // when the user reloads a browser tab.
@@ -599,5 +585,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.input.noteReopenRequested()
         services?.windows.reopenOrCreateWindow()
         return false
+    }
+}
+
+extension AppDelegate {
+    /// The exit's steps: `prepare` waits on no disk, so the deadline is armed at once; the state files' queued
+    /// saves are awaited beside the Home cache's write, after it (tests inject the deadline and the end).
+    static func secondSignalExit(_ services: @escaping @MainActor () -> AppServices?, armDeadline: ((Duration) -> Void)? = nil,
+                                end: (@MainActor () -> Void)? = nil) -> ForcedQuitExit {
+        ForcedQuitExit(prepare: {
+            services()?.crashRecovery.applicationWillTerminate()
+            AppProcessRoot.shared.hangReports?.applicationWillTerminate()
+            services()?.home.applicationWillTerminate()
+        }, save: {
+            guard let services = services() else { return }
+            async let files: Void = services.stateFilesDrained()
+            await services.home.flushCacheForQuit()
+            await services.windows.recordSaver.launchRecord.flush()
+            await files
+        }, armDeadline: armDeadline, deadlineEnd: services()?.quitDeadlineEnd(), end: end)
     }
 }

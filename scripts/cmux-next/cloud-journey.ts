@@ -116,7 +116,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { appStartDetail } from "./cloud-chat-matrix.ts";
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
-import { answeredPath, DAEMON_CHECK, MachineFailed, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart } from "./cloud-start-bench.ts";
+import { answeredPath, answerTimings, DAEMON_CHECK, MachineFailed, pickVmApiTenant, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart, traceFacts } from "./cloud-start-bench.ts";
 
 export const STACK_API = "https://api.stack-auth.com";
 export const STACK = {
@@ -1066,6 +1066,20 @@ export function vmApiOrigin(backend: string): string | null {
   return backend === "staging" ? "https://vm-staging.cmux.dev" : backend === "prod" ? "https://vm.cmux.dev" : null;
 }
 
+/** The VM API tenant for a Stack session: the user's Stack teams and selected team, as a Stack client reads them. */
+async function stackVmTenant(stack: { project: string; clientKey: string }, accessToken: string): Promise<ReturnType<typeof pickVmApiTenant>> {
+  const headers = {
+    "x-stack-access-type": "client",
+    "x-stack-project-id": stack.project,
+    ...(stack.clientKey ? { "x-stack-publishable-client-key": stack.clientKey } : {}),
+    "x-stack-access-token": accessToken,
+  };
+  const teams = await http("GET", `${STACK_API}/api/v1/teams?user_id=me`, undefined, headers, 15_000);
+  if (teams.status !== 200) return { team: null, why: `Stack GET /api/v1/teams?user_id=me: HTTP ${teams.status} ${String(teams.body?.code ?? "")}` };
+  const me = await http("GET", `${STACK_API}/api/v1/users/me`, undefined, headers, 15_000).catch(() => null);
+  return pickVmApiTenant(teams.body, me?.status === 200 ? me.body?.selected_team_id ?? me.body?.selected_team?.id : null);
+}
+
 /**
  * --start-bench N (with --preclaim): create-to-first-command, phase by phase, N samples on each start path
  * (cloud-start-bench.ts says which paths and phases). Every machine, VM and snapshot it makes is deleted by exact id.
@@ -1080,6 +1094,8 @@ export async function runStartBench(args: {
   install: { id: string; token: string; team?: string };
   account: string;
   accountTeam: string;
+  /** The Stack project the session belongs to: the VM API's tenant is one of the user's Stack teams there. */
+  stack: { project: string; clientKey: string };
   login: string;
   outDir: string | null;
   privateRowsPath?: string;
@@ -1112,6 +1128,12 @@ export async function runStartBench(args: {
   const platform = clientPlatformOrigin((await args.api.raw("GET", "/v1/client-config", undefined, 30_000)).body);
   const scope = { platform, team: args.accountTeam, install: args.install.id, credential: createHash("sha256").update(args.login).digest("hex") };
   const request = { platform, account: args.account, scope, currentScope: scope };
+  // The platform's kept create trace, read after the timed phases (cmux-platform GET /v1/machines/{id}?include=trace).
+  const platformTrace = async (machine: string) => {
+    const r = await http("GET", `${platform}/v1/machines/${encodeURIComponent(machine)}?include=trace`, undefined, { authorization: `Bearer ${args.api.bearer}`, ...(args.api.team ? { "x-cmux-team": args.api.team } : {}) }, 15_000);
+    if (r.status !== 200) return `HTTP ${r.status}`;
+    return traceFacts(r.body) ?? "no createTrace";
+  };
   const readySpare = async (): Promise<Record<string, unknown>> => {
     const { prepared, wait } = await waitForReadySpare(async () => {
       const warm = await runWarmSpare(args.cmux, args.api, stateDir, args.install.token, request);
@@ -1126,12 +1148,26 @@ export async function runStartBench(args: {
   };
   const platformCreate = (asked: "spare" | "cold") => async (run: number) => {
     const answer = await args.api.op("cloud.machine.create", { name: `cloud start bench ${args.tag} ${asked} ${run}`, size }, `${args.tag}-start-${asked}-${run}`);
-    return { machine: machineOf(answer), path: answeredPath(answer) ?? asked, facts: spareFields(answer) };
+    const timings = answerTimings(answer);
+    return { machine: machineOf(answer), path: answeredPath(answer) ?? asked, facts: { ...spareFields(answer), ...(timings ? { timings } : {}) } };
   };
 
-  // The VM API, as an agent spawning VMs calls it: the account's session and its team.
-  const vmOrigin = vmApiOrigin(args.backend);
-  const vmHeaders = { authorization: `Bearer ${args.api.bearer}`, "x-cmux-team-id": args.accountTeam };
+  // The VM API, as an agent spawning VMs calls it: the account's session and one of its Stack teams. The VM API takes a
+  // session only with X-Cmux-Team-Id naming a Stack team the user is in (workers/cmux-vm/src/auth/middleware.ts
+  // fromSession); the platform's personal_team (accountTeam, team_<hex>) is none, so it answered 403 to every create.
+  let vmOrigin = vmApiOrigin(args.backend);
+  let vmTeam = "";
+  if (vmOrigin) {
+    const tenant = await stackVmTenant(args.stack, args.api.bearer).catch((e: unknown) => ({ team: null, why: `Stack team list failed: ${String((e as Error)?.message ?? e).slice(0, 200)}` }));
+    if (tenant.team === null) {
+      notes.push(`VM API paths skipped: ${tenant.why}`);
+      vmOrigin = null;
+    } else {
+      vmTeam = tenant.team;
+      notes.push(`VM API team: ${tenant.via}`);
+    }
+  }
+  const vmHeaders = { authorization: `Bearer ${args.api.bearer}`, "x-cmux-team-id": vmTeam };
   const vm = (method: string, route: string, body?: unknown, timeoutMs = 130_000) => http(method, `${vmOrigin}${route}`, body, vmHeaders, timeoutMs, method !== "POST");
   const vmCreate = (snapshotId: string | null, asked: StartPath) => async (run: number) => {
     const r = await vm("POST", "/v1/vms", { displayName: `start bench ${args.tag} ${asked} ${run}`, idleTimeoutSeconds: 300, autoDeleteSeconds: 3600, ...(snapshotId ? { snapshotId } : {}) });
@@ -1203,13 +1239,14 @@ export async function runStartBench(args: {
       }
     }
     const targets: StartTarget[] = [
-      { path: "spare", prepare: () => readySpare(), create: platformCreate("spare"), running: platformRunning, exec: platformExec, daemon: true, remove: platformRemove },
+      { path: "spare", prepare: () => readySpare(), create: platformCreate("spare"), running: platformRunning, exec: platformExec, daemon: true, trace: platformTrace, remove: platformRemove },
       // Right after the claim the one-spare pool is empty, so this create takes none (its answer says so).
-      { path: "cold", create: platformCreate("cold"), running: platformRunning, exec: platformExec, daemon: true, remove: platformRemove },
+      { path: "cold", create: platformCreate("cold"), running: platformRunning, exec: platformExec, daemon: true, trace: platformTrace, remove: platformRemove },
       ...(platformSnapshot ? [{ path: "snapshot" as const, create: async (run: number) => {
         const answer = await args.api.op("cloud.snapshot.restore", { snapshot: platformSnapshot, name: `cloud start bench ${args.tag} snapshot ${run}` }, `${args.tag}-start-restore-${run}`);
-        return { machine: machineOf(answer) };
-      }, running: platformRunning, exec: platformExec, daemon: true, remove: platformRemove }] : []),
+        const timings = answerTimings(answer);
+        return { machine: machineOf(answer), ...(timings ? { facts: { timings } } : {}) };
+      }, running: platformRunning, exec: platformExec, daemon: true, trace: platformTrace, remove: platformRemove }] : []),
       ...(vmOrigin ? [{ path: "vm-api-cold" as const, create: vmCreate(null, "vm-api-cold"), running: vmRunning, exec: vmExec, remove: vmRemove }] : []),
       ...(vmSnapshot ? [{ path: "vm-api-snapshot" as const, create: vmCreate(vmSnapshot, "vm-api-snapshot"), running: vmRunning, exec: vmExec, remove: vmRemove }] : []),
     ];
@@ -3661,7 +3698,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         if (!Number.isInteger(n) || n < 1 || n > 10) throw new Error("--start-bench must be 1..10");
         if (!cmux) throw new Error("--start-bench needs --cmux PATH for the warm the app sends (the spare path)");
         return await J.step("start bench", async () => {
-          const samples = await runStartBench({ api, journey: J, backend: backend.name, tag, n, cmux, install, account, accountTeam, login: claudeLogin, outDir, privateRowsPath: process.env.PRECLAIM_PRIVATE_ROWS });
+          const samples = await runStartBench({ api, journey: J, backend: backend.name, tag, n, cmux, install, account, accountTeam, stack, login: claudeLogin, outDir, privateRowsPath: process.env.PRECLAIM_PRIVATE_ROWS });
           const failed = samples.filter((s) => !s.ok).length;
           return { value: 0, detail: `${samples.length} starts, ${failed} failed; table in start-bench.md` };
         });

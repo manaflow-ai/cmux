@@ -128,8 +128,9 @@ await requireBrowserLane("agent-pane-adopted-edited-files.test.ts", async () => 
     await expect(card.locator(".acpmux-edited-title").innerText()).resolves.toMatch(/^Edited 2 files\s*\+4\s*-1/);
     const files = await card.locator(".acpmux-edited-file").allInnerTexts();
     expect(files.map((row) => row.replace(/\s+/g, " ").trim())).toEqual([
-      "/ home/dev/demo/ CHANGELOG.md +3 -0",
-      "/ home/dev/demo/ Cargo.toml +1 -1",
+      // Each path from the session's folder (EditedFilesCard.tsx `shownPath`).
+      "CHANGELOG.md +3 -0",
+      "Cargo.toml +1 -1",
     ]);
     // A reopened Codex edit is replayed as hunks, parts of each file (`_meta.acpmux.fragment`): no
     // whole-file text to put back, so the card offers no Undo the host would refuse.
