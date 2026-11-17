@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44029539269",
+  "recorded_at": "2026-11-17T06:27:05Z",
+  "reason": "cmux-tui 4be2ffe85177 changes the image's cmux-tui (pinned 86f26dbda5fd)",
+  "dry_run": false,
+  "cmux_tui": "4be2ffe851774d6060879fd3f5d3c6c02af56d0e",
+  "fixes": [
+    {
+      "sha": "4be2ffe851774d6060879fd3f5d3c6c02af56d0e",
+      "mergedAt": "2026-11-16T21:54:39-08:00",
+      "subject": "cmux-mobile-host: bytes in and out per service (cmux device traffic) (#44651)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T06:27:05Z",
+    "snapshot_id": "sh-f139694c53e14c9ab92617a3cb7a413c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44029539269): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "619d6ae2cdc0a843761feac13d4121cf610c26d5",
+    "image": "cloud-native-auto-4be2ffe8-44029539269-1",
+    "revision": "ci-44029539269-1",
+    "at": "2026-11-17T06:27:05Z"
+  },
+  "rolled_back": false
+}
