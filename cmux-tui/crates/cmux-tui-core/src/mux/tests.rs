@@ -62,6 +62,7 @@ mod layout_undo_commit;
 mod lone_dock;
 mod matrix;
 mod new_terminal_folder_delta;
+mod notification_write_pages;
 mod notifications;
 mod pane_close;
 mod project_observe_at_rest;
