@@ -20,7 +20,8 @@ const TILE = {
 };
 
 const TILE_CSS = `.weather-gallery-tile > .cmux-app-scene-root { flex: 1 1 auto; display: flex; width: 100%; min-height: 0 }
-.weather-gallery-tile > .cmux-app-scene-root > * { flex: 1 1 auto; width: 100% }`;
+.weather-gallery-tile > .cmux-app-scene-root > [data-app-node],
+.weather-gallery-tile > .cmux-app-scene-root > .cmux-app-scene-context > [data-app-node] { flex: 1 1 auto; width: 100% }`;
 
 function WeatherWidget({ state = "small-clear-day" }: Props) {
   const scene = scenes[state];
