@@ -336,6 +336,12 @@ const openEditedDiff = async (ctx: PlayContext) => {
     show: "never",
   });
   await openEndedStretch(ctx);
+  // Worked for's fold lands before the edit is clicked: a click while it still plays measures the
+  // fold's last half pixel as the edit's own move (a -0.5 px shift on the summary row, 1 run in 12).
+  const finite = ctx.document
+    .getAnimations()
+    .filter((animation) => Number.isFinite(animation.effect?.getComputedTiming().endTime ?? Number.POSITIVE_INFINITY));
+  await Promise.all(finite.map((animation) => animation.finished.catch(() => undefined)));
   const toggle = "button.cv-tool.is-toggle[data-tool-id], button.cv-tool.is-toggle[data-tool-group]";
   await ctx.waitFor(() => ctx.document.querySelector(toggle));
   if (ctx.find({ selector: toggle }).getAttribute("aria-expanded") !== "true") await ctx.click({ selector: toggle });
