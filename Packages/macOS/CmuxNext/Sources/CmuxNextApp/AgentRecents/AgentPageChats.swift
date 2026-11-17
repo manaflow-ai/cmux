@@ -155,7 +155,7 @@ final class AgentPageChats {
         CloudStartChat.wireSetup(services)
         tabs.pageChats.cloudSetUp = { [weak services] action, family in await services?.cloud.setup.setUp(action, family: family) ?? false }
         tabs.pageChats.cloudRepick = CloudStartChat.repickRunner(tabs, services: services)
-        tabs.pageChats.gitHub = .live(CloudGitHubPicker(auth: services.cloud.auth)) { [weak services] in AgentPaneGitHubConnect(await services?.accounts.github.connectResult() ?? .failure(ActionWorkFailure(""))) }
+        tabs.pageChats.gitHub = .live(CloudGitHubPicker(auth: services.cloud.auth, identity: services.cloud.installIdentity)) { LinkRouter.shared.open($0) }
         tabs.pageChats.cloudReservation = { [weak services] request in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
             if !request.release, services.cloud.mayCallCloud { CloudStartChat.warmSpare(services); Task { await services.cloud.capability.prefetch(services.cloud.installIdentity) } } // never awaited (task-owner: fire and forget): Send's gesture ticket waits only on the reserve; the pre-approval while they type

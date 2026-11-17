@@ -17,6 +17,8 @@ extension CmuxRemoteService {
     /// session can be served then, since this app never captures the screen itself.
     public func start(bundleID: String, loginKeychain: LoginKeychain, deviceHub: DeviceHubService, pages: MacScreenPages, computerUse: ComputerUseHelperV2,
                       tokens: @escaping @Sendable () async throws -> String) -> CmuxRemoteDevices? {
+        // In every build: without cmux Remote (Release, NIGHTLY) the app's own grants are the ones that count.
+        followAppPermissions(activation: pages.systemShortcuts)
         guard !started, let executable = ComputerUseRemoteSource.executable() else { return nil }
         markStarted()
         let devices = CmuxRemoteDevices(open: { [weak self] in
