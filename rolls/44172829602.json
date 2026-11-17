@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44172829602",
+  "recorded_at": "2026-11-17T23:06:36Z",
+  "reason": "image inputs changed in c0f823b8086460b59dacbb6700dfefa1fd420cbf..ea3b2c948816a34ff0f3e1852ef35147309a43d7",
+  "dry_run": false,
+  "cmux_tui": "9d5f6bd60c1719d7feff4198a486c2d2c441895f",
+  "fixes": [
+    {
+      "sha": "ea3b2c948816a34ff0f3e1852ef35147309a43d7",
+      "mergedAt": "2026-11-17T12:46:21-08:00",
+      "subject": "cmux-vm auto-roll: every roll keeps cmux-platform's fallback image listed (#45630)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-17T23:06:36Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
