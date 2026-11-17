@@ -100,8 +100,7 @@ impl LeftOnMac {
             let what = if *history { ", repository history" } else { "" };
             let _ = writeln!(out, "- `{key}`: {}, {}{what}", plural(*files, "file"), human(*bytes));
         }
-        if groups.len() > FOLDERS {
-            let rest = &groups[FOLDERS..];
+        if let Some(rest) = groups.get(FOLDERS..).filter(|rest| !rest.is_empty()) {
             let files: u64 = rest.iter().map(|(_, (files, _, _))| files).sum();
             let bytes: u64 = rest.iter().map(|(_, (_, bytes, _))| bytes).sum();
             let _ = writeln!(
@@ -129,8 +128,9 @@ impl LeftOnMac {
 /// to and with that `.git/`, else its top folder (`NAME/`), else the file itself.
 fn group(relative: &str) -> (String, bool) {
     let parts: Vec<&str> = relative.split('/').collect();
-    if let Some(at) = parts.iter().position(|part| *part == ".git") {
-        return (format!("{}/", parts[..=at].join("/")), true);
+    let history = parts.iter().position(|part| *part == ".git").and_then(|at| parts.get(..=at));
+    if let Some(history) = history {
+        return (format!("{}/", history.join("/")), true);
     }
     match relative.split_once('/') {
         Some((top, _)) => (format!("{top}/"), false),
@@ -154,7 +154,7 @@ fn human(bytes: u64) -> String {
         value /= 1000.0;
         unit += 1;
     }
-    format!("{value:.1} {}", UNITS[unit])
+    format!("{value:.1} {}", UNITS.get(unit).copied().unwrap_or("PB"))
 }
 
 #[cfg(test)]
