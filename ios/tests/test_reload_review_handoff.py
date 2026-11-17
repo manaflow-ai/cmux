@@ -41,7 +41,8 @@ exit "${FAKE_RC:-0}"
 FAKE_CMUX_CI = r'''#!/bin/bash
 printf '%s\n' "$*" >> "$FAKE_LOG/cmux-ci.calls"
 case "$1" in
-  status) cat "$FAKE_LOG/status.json" ;;
+  status) [[ "${FAKE_STATUS_FAIL:-0}" == 1 ]] && { echo 'cmux-ci: controller unreachable' >&2; exit 69; }
+          cat "$FAKE_LOG/status.json" ;;
   publish-hq) exit 0 ;;
   *) exit 9 ;;
 esac
@@ -91,7 +92,7 @@ class HandoffHarness(unittest.TestCase):
         return text[start:end]
 
     def handoff(self, phones=1, wait='', **env):
-        targets = ' '.join(f'"0000814{i}-001E3C840E8B001C\tPhone{i} (iPhone17,4, 0000814{i}-001E3C840E8B001C)"'
+        targets = ' '.join(f'"0000814{i}-0000FA4E0000D0E0\tPhone{i} (iPhone17,4, 0000814{i}-0000FA4E0000D0E0)"'
                            for i in range(phones))
         script = ('set -uo pipefail\n'
                   f'TAG=handoff-1\nIOS_DIR="{self.repo}/ios"\nREQUESTED_DEVICE_ID=""\nREVIEW_WORKSPACE=""\n'
@@ -131,9 +132,9 @@ class ReviewReadyReportsRealJobStates(HandoffHarness):
         result = self.handoff(phones=2, FAKE_RC='75')
         self.assertEqual(result.returncode, 75, result.stdout + result.stderr)
         self.assertEqual(len(self.calls('ios-reload')), 1)
-        self.assertIn('Phone0 (iPhone17,4, 00008140-001E3C840E8B001C): waiting, not failed: the fleet jobs are still '
+        self.assertIn('Phone0 (iPhone17,4, 00008140-0000FA4E0000D0E0): waiting, not failed: the fleet jobs are still '
                       'queued or running after 1800s', result.stdout)
-        self.assertIn('Phone1 (iPhone17,4, 00008141-001E3C840E8B001C): not started: waiting on the same fleet jobs',
+        self.assertIn('Phone1 (iPhone17,4, 00008141-0000FA4E0000D0E0): not started: waiting on the same fleet jobs',
                       result.stdout)
         self.assertNotIn('BLOCKED', result.stdout)
 
@@ -166,6 +167,32 @@ class ReviewReadyReportsRealJobStates(HandoffHarness):
         self.assertIn('installed, signed in (verify-iphone-auth PASS)', result.stdout)
         self.assertIn('fleet simulator, signed in (agent account)', result.stdout)
         self.assertNotIn('Resume', result.stdout)
+
+    def test_a_status_read_that_fails_is_resumable_not_blocked(self):
+        # cmux-ci status failed (controller restart) and neither job has a terminal receipt: nothing is known to
+        # have failed, so the hand-off is resumable (75), not BLOCKED (1).
+        result = self.handoff(FAKE_RC='75', FAKE_STATUS_FAIL='1')
+        self.assertEqual(result.returncode, 75, result.stdout + result.stderr)
+        self.assertNotIn('BLOCKED', result.stdout)
+        self.assertIn(f'state not read: cmux-ci status did not answer for fleet job {MAC_JOB}', result.stdout)
+        self.assertIn(f'Mac build: job {MAC_JOB}: unread: cmux-ci status did not answer', result.stdout)
+        self.assertIn('Resume (waits on the same jobs, never resubmits)', result.stdout)
+
+    def test_a_status_read_that_fails_after_a_ready_phone_is_resumable(self):
+        result = self.handoff(FAKE_RC='0', FAKE_STATUS_FAIL='1')
+        self.assertEqual(result.returncode, 75, result.stdout + result.stderr)
+        self.assertNotIn('BLOCKED', result.stdout)
+        self.assertIn(f'cmux-ci status did not answer for the iOS fleet build (job {IOS_JOB}); it runs on resume',
+                      result.stdout)
+
+    def test_a_failed_status_read_still_reports_a_terminal_receipt(self):
+        self.state.mkdir(parents=True)
+        (self.state / 'cmux-terminal.json').write_text(json.dumps(DONE_MAC))
+        (self.state / 'ios-terminal.json').write_text(json.dumps({'id': IOS_JOB, 'state': 'failed'}))
+        result = self.handoff(FAKE_RC='1', FAKE_STATUS_FAIL='1')
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(f'BLOCKED: the iOS fleet build (job {IOS_JOB}) failed', result.stdout)
+        self.assertIn(f'(fleet job {MAC_JOB}, head {self.sha[:12]}, published to HQ)', result.stdout)
 
     def test_a_branch_without_a_pull_request_builds_under_the_task_workspace(self):
         result = self.handoff(FAKE_RC='75')

@@ -31,8 +31,9 @@ installs it but fails the auth gate; the app itself does not need Tailscale.
 --review waits at most --wait seconds (default 1800) for the fleet jobs. Past
 that it prints each job's state, its place in the queue and why it waits, and
 the command that resumes it, then exits 75: the jobs keep their place, and the
-rerun waits on the same jobs (it never resubmits). Another run already waiting
-on the tag's jobs exits 76. A branch with no pull request yet builds under the
+rerun waits on the same jobs (it never resubmits). It also exits 75 when
+cmux-ci status did not answer and a job has no terminal receipt (unread, not
+failed). Another run already waiting on the tag's jobs exits 76. A branch with no pull request yet builds under the
 task workspace ios-review/<tag>. --review refuses to run until this clone has
 cmux's git hooks (scripts/install-git-hooks.sh), so its pushes run the checks.
 
@@ -794,7 +795,8 @@ review_state_dir() {
 
 # The real state of both fleet jobs: a live one from one `cmux-ci status --ids` read, else its terminal receipt.
 # Sets REVIEW_<KIND>_JOB, _STATE (none, queued, leased, running, artifact_pending, done, failed, cancelled,
-# unknown) and _LINE ("job <id>: <state>[ on <worker>]; place in queue: N ...; waiting because: ...").
+# unread: `cmux-ci status` failed and the job has no terminal receipt, unknown: status answered without the job)
+# and _LINE ("job <id>: <state>[ on <worker>]; place in queue: N ...; waiting because: ...").
 REVIEW_CMUX_JOB="" REVIEW_CMUX_STATE="none" REVIEW_CMUX_LINE="not submitted"
 REVIEW_IOS_JOB="" REVIEW_IOS_STATE="none" REVIEW_IOS_LINE="not submitted"
 REVIEW_JOBS_PY='
@@ -807,13 +809,17 @@ for kind in ("cmux", "ios"):
     except (OSError, ValueError, KeyError):
         pass
 live = {}
+read = False
 if ci and jobs:
     try:
-        out = subprocess.run([ci, "status", "--ids", ",".join(jobs.values())], capture_output=True, text=True,
-                             timeout=60, stdin=subprocess.DEVNULL).stdout
-        listed = json.loads(out or "[]")
-        live = {j.get("id"): j for j in (listed if isinstance(listed, list) else listed.get("jobs", []))}
-    except (OSError, ValueError, subprocess.SubprocessError):
+        result = subprocess.run([ci, "status", "--ids", ",".join(jobs.values())], capture_output=True, text=True,
+                                timeout=60, stdin=subprocess.DEVNULL)
+        listed = json.loads(result.stdout or "[]") if result.returncode == 0 else None
+        if isinstance(listed, (list, dict)):
+            live = {j.get("id"): j for j in (listed if isinstance(listed, list) else listed.get("jobs", []))
+                    if isinstance(j, dict)}
+            read = True
+    except (OSError, ValueError, AttributeError, subprocess.SubprocessError):
         live = {}
 for kind in ("cmux", "ios"):
     job_id = jobs.get(kind)
@@ -825,7 +831,8 @@ for kind in ("cmux", "ios"):
         try:
             job = json.load(open(os.path.join(state, kind + "-terminal.json")))
         except (OSError, ValueError):
-            job = {"state": "unknown"}
+            # No answer from cmux-ci status (a transient failure) is not a state: resume and ask again.
+            job = {"state": "unknown" if read else "unread"}
     status = job.get("state") or "unknown"
     line = "job " + job_id + ": " + status
     if job.get("worker"):
@@ -840,6 +847,8 @@ for kind in ("cmux", "ios"):
         line += "; see cmux-ci log " + job_id
     elif status == "unknown":
         line += " (cmux-ci status " + job_id + ")"
+    elif status == "unread":
+        line += ": cmux-ci status did not answer; not failed, resume to read it again"
     print(kind + "\t" + job_id + "\t" + status + "\t" + line.replace("\t", " ").replace("\n", " "))
 '
 review_read_jobs() {
@@ -883,6 +892,12 @@ review_mac_status() {
     none)
       REVIEW_MAC_STATUS="not submitted: the hand-off stopped before it submitted the fleet jobs (see the error above)"
       return 1
+      ;;
+    unread)
+      # cmux-ci status failed (a controller restart, a network blip) and the job left no terminal receipt: its
+      # state is unread, not failed. Resumable (75), like a deadline.
+      REVIEW_WAITING=1
+      REVIEW_MAC_STATUS="state not read: cmux-ci status did not answer for fleet job $REVIEW_CMUX_JOB; not failed, resume to read it again"
       ;;
     *)
       REVIEW_MAC_STATUS="state unknown: fleet job $REVIEW_CMUX_JOB (cmux-ci status $REVIEW_CMUX_JOB)"
@@ -967,6 +982,9 @@ review_finish() {
   elif [[ "$REVIEW_IOS_STATE" == failed || "$REVIEW_IOS_STATE" == cancelled ]]; then
     REVIEW_SIM_STATUS="BLOCKED: the iOS fleet build (job $REVIEW_IOS_JOB) $REVIEW_IOS_STATE; see cmux-ci log $REVIEW_IOS_JOB"
     REVIEW_FAILED=1
+  elif [[ "$REVIEW_IOS_STATE" == unread ]]; then
+    REVIEW_WAITING=1
+    REVIEW_SIM_STATUS="not run yet: cmux-ci status did not answer for the iOS fleet build (job $REVIEW_IOS_JOB); it runs on resume"
   else
     REVIEW_SIM_STATUS="not run yet: the iOS fleet build (job $REVIEW_IOS_JOB) is $REVIEW_IOS_STATE; it runs on resume"
   fi

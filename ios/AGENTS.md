@@ -46,8 +46,9 @@ It does, in order, and fails (non-zero) if any step fails:
 
 It waits at most `--wait` seconds (default 1800) for the fleet jobs. Past that it prints the block with the
 resume command and exits 75; the jobs keep their place in the queue and the rerun waits on the same jobs (it
-never resubmits). Exit 76 means another run is already waiting on the tag's jobs: nothing failed, resume after
-it exits. Report either as "waiting", with the job ids and the resume command, not as a failure.
+never resubmits). It also exits 75 when `cmux-ci status` did not answer and a job left no terminal receipt:
+its state is unread, not failed. Exit 76 means another run is already waiting on the tag's jobs: nothing failed,
+resume after it exits. Report either as "waiting", with the job ids and the resume command, not as a failure.
 
 ### New phones
 
