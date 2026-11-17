@@ -24,7 +24,7 @@ export function WatchBanner({
   return (
     <div className="acpmux-link-missing acpmux-watch-banner" data-enter="top">
       <p>{t("watch.banner", { app: watchedApp(family) })}</p>
-      <p className="acpmux-watch-hint">{t(bridged ? "watch.composerBridged" : "watch.composer")}</p>
+      {!bridged && <p className="acpmux-watch-hint">{t("watch.composer")}</p>}
       <p className="acpmux-live-chat-actions">
         <button type="button" className="acpmux-folder-choice-button" onClick={onTakeOver}>
           {t("watch.takeOver")}

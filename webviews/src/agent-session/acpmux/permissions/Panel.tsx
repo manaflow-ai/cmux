@@ -174,7 +174,6 @@ function AskRow({
               ))}
             </ul>
           )}
-          <p>{t("permission.reach")}</p>
         </div>
       )}
       <ProposedEdits permissionId={item.permissionId} diffs={diffs} />

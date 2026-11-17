@@ -472,14 +472,14 @@ test("in the chat's highest mode an ask that still comes says the mode doesn't c
   expect(bypass.answers).toEqual(["allow_once"]);
   await bypass.unmount();
 
-  // No one-time allow offered: the line says only that the ask needs an answer.
+  // No one-time allow offered: the same one line.
   const denyOnly = await mount(
     { ...stillAsks, permissionId: "deny-only", options: [stillAsks.options[1]!] },
     "codex",
     "Full access",
   );
   expect(line(denyOnly.host)[0]!.textContent).toBe(
-    translate("permission.fullAccessStillAsksNoOnce", { mode: "Full access" }),
+    translate("permission.fullAccessStillAsks", { mode: "Full access" }),
   );
   await denyOnly.unmount();
 
