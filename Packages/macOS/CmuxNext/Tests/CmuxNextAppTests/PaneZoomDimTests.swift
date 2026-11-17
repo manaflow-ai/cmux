@@ -86,7 +86,7 @@ import Testing
         Commit.rest(harness)
         let screen = try #require(harness.screen)
         let style = harness.root.context.style
-        let duration = try Self.fade()
+        let fade = try Self.fade()
         let grid = Commit.Rest(harness.model.screens, in: screen, style: style)
         #expect(Self.dim(harness) == nil, "a dim shows at rest")
         // The grid's places, read while each pane has its host: the zoom's own turn must leave every pane there.
@@ -101,8 +101,9 @@ import Testing
         #expect(dim.layer.opacity > 0.05 && dim.layer.opacity < 0.9, "the dim's strength is \(dim.layer.opacity)")
         // The dim comes on a fade from nothing: with no fade on its layer a person sees it jump to its full strength.
         let coming = try #require(dim.layer.animation(forKey: "opacity") as? CABasicAnimation, "the dim comes with no fade on its layer")
-        #expect((coming.fromValue as? Float) == 0 && abs(coming.duration - duration) < 1e-6,
-                "the dim's fade is not from nothing over \(duration) s: from \(String(describing: coming.fromValue)) over \(coming.duration) s")
+        #expect((coming.fromValue as? Float) == 0, "the dim's fade is not from nothing: from \(String(describing: coming.fromValue))")
+        // The layer's fade takes the pane veil's time itself: the same value, so the two are equal with no tolerance.
+        #expect(coming.duration == fade, "the dim's fade on its layer is over \(coming.duration) s, not the pane veil's \(fade) s")
         let off = Self.misses(dim, places)
         #expect(off.isEmpty, "\(off)")
 
@@ -124,8 +125,8 @@ import Testing
         }
         let at = try #require(shownAt, "the zoom never showed")
         // The frame after the one where the dim's fade is spent, and inside 300 ms.
-        #expect(at == Self.ticks(of: duration) + 1 && Double(at) * Self.dt <= 0.3,
-                "the zoom showed at tick \(at) (\(Double(at) * Self.dt) s); the dim's fade is \(duration) s, \(Self.ticks(of: duration)) ticks")
+        #expect(at == Self.ticks(of: fade) + 1 && Double(at) * Self.dt <= 0.3,
+                "the zoom showed at tick \(at) (\(Double(at) * Self.dt) s); the dim's fade is \(fade) s, \(Self.ticks(of: fade)) ticks")
         #expect(harness.provider.released.isEmpty, "the zoom released a pane: \(harness.provider.released)")
     }
 
@@ -135,7 +136,7 @@ import Testing
         Commit.rest(harness)
         let screen = try #require(harness.screen)
         let style = harness.root.context.style
-        let duration = try Self.fade()
+        let fade = try Self.fade()
         let grid = Commit.Rest(harness.model.screens, in: screen, style: style)
         harness.model.apply(screens: Zoom.screens(zoomedOn: "p4"))
         let zoomed = Commit.Rest(harness.model.screens, in: screen, style: style)
@@ -153,8 +154,8 @@ import Testing
         #expect(dim.layer.opacity == 0, "the dim does not fade out: it goes to \(dim.layer.opacity)")
         // It goes on a fade from its full strength: with no fade on its layer a person sees no dim at all.
         let going = try #require(dim.layer.animation(forKey: "opacity") as? CABasicAnimation, "the dim goes with no fade on its layer")
-        #expect(((going.fromValue as? Float) ?? 0) > 0.05 && abs(going.duration - duration) < 1e-6,
-                "the dim's fade is not from its strength over \(duration) s: from \(String(describing: going.fromValue)) over \(going.duration) s")
+        #expect(((going.fromValue as? Float) ?? 0) > 0.05, "the dim's fade is not from its strength: from \(String(describing: going.fromValue))")
+        #expect(going.duration == fade, "the dim's fade on its layer is over \(going.duration) s, not the pane veil's \(fade) s")
         let places = try Self.places(clear: "p4", over: ["p1", "p2", "p3"], in: harness)
         let off = Self.misses(dim, places)
         #expect(off.isEmpty, "\(off)")
@@ -174,8 +175,8 @@ import Testing
             }
         }
         let gone = try #require(goneAt, "the dim never went")
-        #expect(Double(gone) * Self.dt <= 0.3 && abs(Double(gone - 1) * Self.dt - duration) <= Self.dt + 1e-6,
-                "the dim went at tick \(gone) (\(Double(gone - 1) * Self.dt) s after the unzoom showed); its fade is \(duration) s")
+        #expect(Double(gone) * Self.dt <= 0.3 && abs(Double(gone - 1) * Self.dt - fade) <= Self.dt + 1e-6,
+                "the dim went at tick \(gone) (\(Double(gone - 1) * Self.dt) s after the unzoom showed); its fade is \(fade) s")
         #expect(harness.provider.released.isEmpty, "the unzoom released a pane: \(harness.provider.released)")
     }
 
