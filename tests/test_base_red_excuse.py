@@ -10830,6 +10830,7 @@ RAW_LOG_READERS = {
     "generated_no_verdict": "a gate: only refuses",
     "agent_api_unavailable": "a gate: the agent pass's one marker line, read for its zero-usage evidence; compares "
                              "nothing",
+    "artifact_drop_quota_only": "a gate: parses the artifact drop's one traceback quota refusal; only refuses",
     "tree_handoff_quota_only": "a gate: parses the published-tree hand-off's one quota annotation; only refuses",
     "guard_red_steps": "a parser of the guard group's own verdict lines (guard_group: the head's from its failed_view)",
     "gallery_replay_crash": "the gallery health gate; the verdict compares gallery artifacts (gallery_classify)",
@@ -14457,6 +14458,7 @@ SCANNERS = {
     "base_red_excuse.github_quota_only": lambda f: (excuse.github_quota_only(f.view),
                                                    excuse.github_quota_only(f.base_view)),
     "base_red_excuse.tree_handoff_quota_only": lambda f: excuse.tree_handoff_quota_only(f.job, f.log),
+    "base_red_excuse.artifact_drop_quota_only": lambda f: excuse.artifact_drop_quota_only(f.job, f.log),
     "base_red_excuse.ws_check_step": lambda f: excuse.ws_check_step(
         [*f.lines[:-1], "##[group]Tests", *f.lines[-1:]], len(f.lines), "Tests"),
     "base_red_excuse.gallery_replay_crash": lambda f: excuse.gallery_replay_crash(f.job, f.log),
