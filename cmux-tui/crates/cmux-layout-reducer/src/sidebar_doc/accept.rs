@@ -16,7 +16,7 @@
 //! the user only meant to reorder. It goes into a group through that group's
 //! header (`into`), the one drop that highlights the group taking it.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -81,23 +81,36 @@ fn dragged(doc: &Doc, rows: &[Row], items: &[String]) -> Dragged {
     result
 }
 
+/// The machine of each group tree one drag has asked about, by root id.
+type TreeMachines<'a> = HashMap<&'a str, Option<&'a str>>;
+
 /// The machine of a group's tree, from its first workspace that is not
-/// dragged.
-fn group_machine<'a>(doc: &'a Doc, dragged: &Dragged, group: &str) -> Option<&'a str> {
+/// dragged. Every row of a tree asks the same question, so the answer is
+/// kept per root (`trees`): one walk per tree, not one per row (base: a drag
+/// start walked a 100-member group once for each of its rows).
+fn group_machine<'a>(
+    doc: &'a Doc,
+    dragged: &Dragged,
+    group: &str,
+    trees: &mut TreeMachines<'a>,
+) -> Option<&'a str> {
     let root = doc.root(doc.item(group)?);
-    doc.descendants(root)
-        .into_iter()
-        .filter(|child| !dragged.keys.contains(&child.id))
-        .find_map(|child| child.body.workspace().map(|r| r.session_id.as_str()))
+    *trees.entry(root.id.as_str()).or_insert_with(|| {
+        doc.descendants(root)
+            .into_iter()
+            .filter(|child| !dragged.keys.contains(&child.id))
+            .find_map(|child| child.body.workspace().map(|r| r.session_id.as_str()))
+    })
 }
 
 /// Whether the dragged items may land among the children of `parent` (or at
 /// the top level) of `section`.
-fn can_place(
-    doc: &Doc,
+fn can_place<'a>(
+    doc: &'a Doc,
     dragged: &Dragged,
     section: &str,
     parent: Option<&str>,
+    trees: &mut TreeMachines<'a>,
 ) -> Result<(), Refusal> {
     let Some(target) = doc.section(section) else {
         // A stand-in machine section (no stored section yet).
@@ -125,7 +138,7 @@ fn can_place(
         if dragged.machines.len() > 1 {
             return Err(Refusal::CrossMachine);
         }
-        if let Some(group_machine) = group_machine(doc, dragged, parent)
+        if let Some(group_machine) = group_machine(doc, dragged, parent, trees)
             && dragged.machines.iter().any(|m| m != group_machine)
         {
             return Err(Refusal::CrossMachine);
@@ -147,6 +160,7 @@ fn beside(dragged: &Dragged, parent: Option<&str>) -> Result<(), Refusal> {
 /// keys of unplaced live workspaces).
 pub fn drag_begin(doc: &Doc, rows: &[Row], items: &[String]) -> BTreeMap<String, Acceptance> {
     let dragged = dragged(doc, rows, items);
+    let mut trees = TreeMachines::new();
     let mut table = BTreeMap::new();
     for row in rows {
         if dragged.keys.contains(&row.key)
@@ -164,12 +178,13 @@ pub fn drag_begin(doc: &Doc, rows: &[Row], items: &[String]) -> BTreeMap<String,
             continue;
         }
         let (sides, into) = if row.kind == "section" {
-            (Err(Refusal::InvalidTarget), can_place(doc, &dragged, &row.section, None))
+            (Err(Refusal::InvalidTarget), can_place(doc, &dragged, &row.section, None, &mut trees))
         } else {
-            let sides = beside(&dragged, row.parent.as_deref())
-                .and_then(|()| can_place(doc, &dragged, &row.section, row.parent.as_deref()));
+            let sides = beside(&dragged, row.parent.as_deref()).and_then(|()| {
+                can_place(doc, &dragged, &row.section, row.parent.as_deref(), &mut trees)
+            });
             let into = if row.kind == "group" && row.item.is_some() {
-                can_place(doc, &dragged, &row.section, Some(&row.key))
+                can_place(doc, &dragged, &row.section, Some(&row.key), &mut trees)
             } else {
                 Err(Refusal::InvalidTarget)
             };

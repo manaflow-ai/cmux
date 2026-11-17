@@ -297,8 +297,8 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&new_placement::plan(&request)).map_err(|_| ERR_INVALID)?
             }
             b"optimistic" => {
-                let request: cmux_layout_reducer::optimistic::Request =
-                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                let request = cmux_layout_reducer::optimistic::parse_request(request)
+                    .map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&cmux_layout_reducer::optimistic::respond(&request))
                     .map_err(|_| ERR_INVALID)?
             }
