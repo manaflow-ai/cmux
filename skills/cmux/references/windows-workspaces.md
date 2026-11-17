@@ -22,7 +22,7 @@ Windows exist only in the app; their ids are the lowercase UUIDs `cmux window li
 
 ## Context-menu actions
 
-Workspace right-click actions are app actions. List them with `cmux action list --noun workspace` and check arguments with `cmux action describe "workspace set-color"`. Each verb also takes its object first (`cmux workspace ws_… set-color --color blue` is `--target ws_…`), and `cmux workspace ws_… pin` / `unpin` set the pin.
+Workspace right-click actions are app actions. List them with `cmux action list --noun workspace` and check arguments with `cmux action describe "workspace set-color"`. A verb whose target is an id also takes it first (`cmux workspace ws_… set-color --color blue` is `--target ws_…`), and `cmux workspace ws_… pin` / `unpin` set the pin.
 
 ```bash
 cmux workspace set-color --target ws_… --color blue

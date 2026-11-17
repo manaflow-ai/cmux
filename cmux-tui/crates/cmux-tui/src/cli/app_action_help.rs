@@ -78,7 +78,8 @@ pub(super) fn section(scope: &str) -> Option<String> {
     let mut text = format!(
         "APP ACTIONS\n  The cmux app runs these: cmux {scope} <verb> [--<argument> <value>]...\n  \
          `cmux action describe \"{scope} <verb>\"` lists a verb's arguments.\n  \
-         Object first works too: cmux {scope} <id> <verb> is --target <id>.\n"
+         A verb whose target is an id also takes it first: cmux {scope} <id> <verb>\n  \
+         is cmux {scope} <verb> --target <id>.\n"
     );
     for (verb, title) in verbs {
         if title.is_empty() {

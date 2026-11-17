@@ -9,9 +9,10 @@
 //! - A state, not a toggle: `<noun> X` and `<noun> unX` run the toggle `<noun> X-unX` or
 //!   `<noun> toggle-X` with its bool argument named for X (`pinned`) set to true or false, so
 //!   `cmux workspace pin` and `cmux workspace unpin` set the pin instead of flipping it.
-//! - `cmux action run <verb>` for a verb that is no action's id or CLI name: the one action whose
-//!   CLI name ends in that verb, or a usage error that names each one (`pin-unpin` is a
-//!   workspace's, a tab's and a home conversation's).
+//! - `cmux action run <verb>` for a verb that is no action's id or CLI name: a usage error that
+//!   names each action whose CLI name ends in that verb (`pin-unpin` is a workspace's, a tab's
+//!   and a home conversation's). It never runs one by itself: one match among the offered names
+//!   is no proof that it is the one meant (`pin` is also a tab's mux verb).
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -54,14 +55,14 @@ fn catalog() -> &'static Catalog {
     })
 }
 
-/// A public object id (`ws_…`, `tab_…`, `pane_…`, `term_…`): lowercase letters, `_`, then
-/// letters and digits.
+/// A public object id (`ws_…`, `tab_…`, `pane_…`, `term_…`): lowercase letters, `_`, then at
+/// least 16 lowercase hex digits, so a snake_case name (`my_proj`) is not taken for one.
 fn is_object_id(word: &str) -> bool {
     let Some((kind, rest)) = word.split_once('_') else { return false };
     !kind.is_empty()
         && kind.chars().all(|character| character.is_ascii_lowercase())
-        && !rest.is_empty()
-        && rest.chars().all(|character| character.is_ascii_alphanumeric())
+        && rest.len() >= 16
+        && rest.chars().all(|character| matches!(character, '0'..='9' | 'a'..='f'))
 }
 
 /// `<noun> X` or `<noun> unX` as the toggle that takes X's state: its CLI name and the bool
@@ -74,8 +75,10 @@ fn state_spelling(noun: &str, verb: &str) -> Option<(String, [String; 2])> {
     let offered = &catalog().offered;
     [format!("{noun} {base}-un{base}"), format!("{noun} toggle-{base}")].into_iter().find_map(
         |name| {
-            let argument =
-                offered.get(&name)?.iter().find(|argument| argument.starts_with(base))?;
+            // The state's own name only (`pin`: `pin`, `pinned`, `pined`), not any argument
+            // that merely starts with the word.
+            let states = [base.to_owned(), format!("{base}ned"), format!("{base}ed")];
+            let argument = offered.get(&name)?.iter().find(|argument| states.contains(argument))?;
             Some((name, [format!("--{}", kebab(argument)), on.to_string()]))
         },
     )
@@ -131,13 +134,13 @@ pub(super) fn action(command_args: &[String]) -> Option<(String, Vec<String>)> {
     Some((name, args))
 }
 
-/// `cmux action run <verb>`: the action name to run for a verb that is no action's id or CLI name,
-/// `Ok(None)` to send `name` as it is, or `Err` with the CLI names a shared verb could mean.
-pub(super) fn action_run_name(name: &str) -> Result<Option<String>, Vec<String>> {
+/// `cmux action run <verb>`: `Ok` to send `name` as it is, or `Err` with the CLI names a bare
+/// verb that is no action's id or CLI name could mean.
+pub(super) fn action_run_name(name: &str) -> Result<(), Vec<String>> {
     let catalog = catalog();
     let spaced = name.split_whitespace().collect::<Vec<_>>().join(" ");
     if spaced.contains(' ') || catalog.names.contains(&spaced) {
-        return Ok(None);
+        return Ok(());
     }
     let suffix = format!(" {spaced}");
     let mut matches = catalog
@@ -147,9 +150,5 @@ pub(super) fn action_run_name(name: &str) -> Result<Option<String>, Vec<String>>
         .cloned()
         .collect::<Vec<_>>();
     matches.sort();
-    match matches.len() {
-        0 => Ok(None),
-        1 => Ok(matches.pop()),
-        _ => Err(matches),
-    }
+    if matches.is_empty() { Ok(()) } else { Err(matches) }
 }

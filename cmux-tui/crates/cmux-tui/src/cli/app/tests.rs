@@ -2341,8 +2341,10 @@ fn state_words_name_their_toggle_and_other_words_keep_their_path() {
         &["workspace", "archive"][..],
         &["workspace", "current", "pin"][..],
         &["workspace", "my-work", "pin"][..],
-        &["workspace", "ws_1", "pin", "--target", "ws_2"][..],
-        &["workspace", "ws_1", "frobnicate"][..],
+        &["workspace", "my_proj", "pin"][..],
+        &["workspace", "in_progress", "pin"][..],
+        &["workspace", "ws_0123456789abcdef", "pin", "--target", "ws_fedcba9876543210"][..],
+        &["workspace", "ws_0123456789abcdef", "frobnicate"][..],
         &["workspace", "pin-unpin", "--target", "ws_1"][..],
     ] {
         assert_eq!(super::super::verb_spelling::action(&args(words)), None, "{words:?}");
@@ -2357,8 +2359,28 @@ fn action_run_with_a_shared_verb_names_its_actions() {
     for name in ["workspace pin-unpin", "tab pin-unpin"] {
         assert!(error.contains(name), "{error}");
     }
+    // One offered name with that verb is still only a guess (`pin` is also a tab's mux verb):
+    // it is named, not run.
+    let error = parse(&args(&["action", "run", "pin", "--target", "ws_1"])).unwrap_err().0;
+    assert!(error.contains("extension pin"), "{error}");
     for action in ["palette.toggleWorkspacePin", "workspace pin-unpin"] {
         let (_, params) = call(parse(&args(&["action", "run", action])).unwrap().unwrap());
         assert_eq!(params["action"], action);
     }
+}
+
+/// Object first keeps `move-to-window --new` as the new-window verb, as the verb-first form does.
+#[test]
+fn object_first_move_to_window_new_moves_to_a_new_window() {
+    const WS: &str = "ws_0123456789abcdef0123456789abcdef";
+    let ok = json!({ "id": 1, "ok": true, "result": { "ran": true } });
+    let (socket, app) = fake_app(vec![ok]);
+    let mut cli = args(&["--app-socket", socket.to_str().unwrap()]);
+    cli.extend(args(&["workspace", WS, "move-to-window", "--new"]));
+    assert_eq!(super::super::run_app_action_fallback(&cli), Some(0));
+    let connections = app.join().unwrap();
+    let [request] = connections[0].as_slice() else { panic!("{connections:?}") };
+    assert_eq!(request["params"]["action"], "workspace move-to-new-window");
+    assert_eq!(request["params"]["target"], WS);
+    assert!(request["params"]["args"].get("new").is_none(), "{request}");
 }
