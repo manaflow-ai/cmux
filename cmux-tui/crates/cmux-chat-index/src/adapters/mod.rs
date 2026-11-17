@@ -32,7 +32,7 @@ use std::path::{Path, PathBuf};
 
 use crate::entry::{AdapterKind, ChatEntry};
 use crate::scan::FileRead;
-use crate::stamp::{FileStamp, FileState};
+use crate::stamp::{FileStamp, FileState, KeptRead};
 
 /// Crush project data dirs listed in a global `projects.json`.
 pub(crate) fn crush_project_dirs(index: &Path) -> Vec<PathBuf> {
@@ -74,12 +74,62 @@ pub(crate) fn list_files(kind: AdapterKind, root: &Path) -> io::Result<Vec<PathB
     }
 }
 
+/// The inputs of a `kind` read of `path` beside the file itself, when they are all known.
+enum ReadInputs {
+    /// The read takes from other files too (a session folder, a workspace file): always read.
+    Unknown,
+    /// The read takes from the file alone.
+    File,
+    /// The file and this one other file.
+    FileAnd(PathBuf),
+}
+
+fn read_inputs(kind: AdapterKind, path: &Path) -> ReadInputs {
+    match kind {
+        AdapterKind::ClaudeCode => {
+            claude::sidecar_path(path).map_or(ReadInputs::File, ReadInputs::FileAnd)
+        }
+        AdapterKind::Codex | AdapterKind::Pi => ReadInputs::File,
+        _ => ReadInputs::Unknown,
+    }
+}
+
+/// Reads one session file. A file whose stamp (device, inode, size, mtime) and other input are
+/// as `prev` recorded them is not opened: its kept read is the answer. A rescan of an unchanged
+/// store (the daemon's start after its cache, a watcher's lost-events rescan) is then a stat per
+/// file, where it read every transcript's head and tail windows again (64 KiB each).
 pub(crate) fn read_file(
     kind: AdapterKind,
     path: &Path,
     prev: Option<&FileState>,
 ) -> io::Result<FileRead> {
     let stamp = FileStamp::of(&fs::metadata(path)?);
+    let side = match read_inputs(kind, path) {
+        ReadInputs::Unknown => None,
+        ReadInputs::File => Some(None),
+        ReadInputs::FileAnd(other) => {
+            Some(fs::metadata(other).ok().map(|meta| FileStamp::of(&meta)))
+        }
+    };
+    if let (Some(side), Some(prev)) = (side, prev)
+        && prev.stamp == stamp
+        && let Some(kept) = prev.kept.as_ref().filter(|kept| kept.side == side)
+    {
+        return Ok(FileRead { entry: kept.entry.clone(), state: prev.clone() });
+    }
+    let mut read = read_uncached(kind, path, stamp, prev)?;
+    if let Some(side) = side {
+        read.state.kept = Some(KeptRead { entry: read.entry.clone(), side });
+    }
+    Ok(read)
+}
+
+fn read_uncached(
+    kind: AdapterKind,
+    path: &Path,
+    stamp: FileStamp,
+    prev: Option<&FileState>,
+) -> io::Result<FileRead> {
     match kind {
         AdapterKind::ClaudeCode => claude::read(path, stamp, prev),
         AdapterKind::Codex => codex::read(path, stamp, prev),

@@ -15,22 +15,36 @@
 #                them (a terminal each), shows Home in the front window and quits with Keep Sessions (LR-SEED). The
 #                default, session=small, measures the priming launch's session (one window on Home).
 #   profile=1    also record the first measured launch of each side with Instruments' Time Profiler (all processes)
-#                and print its main thread from process start to the window on screen (launch-ready-profile.py)
+#                and print its main thread from process start to the window on screen (launch-ready-profile.py); its
+#                SIDE-run1.samples.json.gz in report.tgz names a nightly's stripped frames offline with --dsym
 #   prerun=S     before each measured launch, one full run of the same copy and home that stays up S seconds after its
 #                window shows (1 to 600; 60 for "a launch after a 60 s full run"), then quits as the measured ones do.
 #                The time before main differs by case: 30 to 80 ms when launches follow each other closely, 600 to 1170
 #                ms when about 60 s have passed since a full run began. Default prerun=0: launches back to back.
+#   copy=fresh   each measured launch is the first exec of a new copy: just before it, the side's copy is deleted and
+#                copied again from the DMG's (new files at the same path, the same code signature), as an update in
+#                place leaves it. The home stays. Default copy=same: every launch runs the one copy.
 # Each side gets one copy of the app and one home. The priming launch makes the home's state (a person's second
 # launch on), then every measured launch is a relaunch through LaunchServices, activated, as a Dock click is.
 # scripts/measure/launch-ready.swift times each one: finished_launching (the Dock's bounce ends), the first
 # on-screen window, and the app's own marks. Prints LR-RUN per launch, LR-MEDIAN per side, LR-PROFILE with profile=1.
 # Each launch's row carries load_1m, the Mac's 1-minute load average just before it (LR-MEDIAN: the side's highest).
+# Each side has its own app defaults (side_defaults, through launch-ready-defaults.py); the account's are set aside for
+# the run and put back at its end. A launch that left a launch snapshot path outside its own side's home read the
+# other side's state: LR-CROSS-ARM, and the step fails. Each row's front is what the launch had in front just before
+# its quit; a measured launch whose front is not its side's previous launch's front did not reopen what was open last
+# (Leo, 2026-11-17: "my recently opened thing"): an LR-FAIL row, counted in LR-REOPENED SIDE N/M.
 set -uo pipefail
 
 main() {
   cd "$(dirname "$0")/../.." || exit 3
-  local out="$PWD/.build/launch-ready" dmg=nightly base="" headsha="" runs=5 profile=0 session=small prerun=0 arg rc=0 i side
+  local out="$PWD/.build/launch-ready" dmg=nightly base="" headsha="" runs=5 profile=0 session=small prerun=0 copy=same arg rc=0 i side
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
+  # Each side's control socket (SIDE.sock). A socket path must fit sun_path (104 bytes with its NUL), and on a fleet
+  # worker "$out/home-SIDE/app.sock" is 112: the app bound no socket there and stress3's seed never got an answer.
+  LR_SOCKETS="$(mktemp -d /tmp/lr.XXXXXX)" && chmod 0777 "$LR_SOCKETS" || exit 3
+  LR_ASIDE=""
+  trap 'rm -rf "$LR_SOCKETS"; defaults_restore "$out" || exit 4' EXIT
   for arg in "$@"; do
     case "$arg" in
       dmg=nightly|dmg=build|dmg=https://*) dmg="${arg#dmg=}" ;;
@@ -40,6 +54,7 @@ main() {
       profile=0|profile=1) profile="${arg#profile=}" ;;
       session=small|session=stress3) session="${arg#session=}" ;;
       prerun=*) prerun="${arg#prerun=}" ;;
+      copy=same|copy=fresh) copy="${arg#copy=}" ;;
       *) echo "unknown argument: $arg" >&2; exit 2 ;;
     esac
   done
@@ -53,7 +68,9 @@ main() {
     || { echo "LR probe build failed"; cat "$out/swiftc.log"; exit 3; }
   cp scripts/measure/launch-ready-profile.py "$out/profile.py"
   cp scripts/measure/launch-ready-seed.py "$out/seed.py"
-  echo "LR session $session prerun $prerun"
+  cp scripts/measure/launch-ready-defaults.py "$out/defaults.py"
+  cp scripts/ci/fresh_home_launch_smoke.py "$out/fresh_home_launch_smoke.py"
+  echo "LR session $session prerun $prerun copy $copy"
   local sides=(head)
   if [[ "$dmg" == build ]]; then
     # nightly-fresh-launch.sh's build_dmg, without running its main. From a file: macOS's bash 3.2 sources nothing
@@ -96,14 +113,17 @@ main() {
     hdiutil attach "$out/$side.dmg" -nobrowse -readonly -mountpoint "$mount" >/dev/null || { echo "LR attach $side failed"; exit 3; }
     local found; found="$(find "$mount" -maxdepth 1 -name '*.app' | head -1)"
     ditto "$found" "$out/$side/$(basename "$found")" || exit 3
+    if [[ "$copy" == fresh ]]; then mkdir -p "$out/$side-dmg" && ditto "$found" "$out/$side-dmg/$(basename "$found")" || exit 3; fi
     hdiutil detach "$mount" >/dev/null || hdiutil detach -force "$mount" >/dev/null
     echo "LR app $side $(basename "$found") $(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$out/$side/$(basename "$found")/Contents/Info.plist" 2>/dev/null)"
+    defaults_aside "$out" "$out/$side/$(basename "$found")" || { echo "LR-FAIL $side defaults not set aside"; exit 3; }
     probe "$out" "$side" prime 10 0 || rc=1
     if [[ "$session" == stress3 ]]; then seed "$out" "$side" || rc=1; fi
   done
   for ((i = 1; i <= runs; i++)); do
     for side in "${sides[@]}"; do
       if [[ "$prerun" != 0 ]]; then probe "$out" "$side" "full$i" "$prerun" 0 || rc=1; fi
+      if [[ "$copy" == fresh ]]; then fresh_copy "$out" "$side" "$i" || rc=1; fi
       probe "$out" "$side" "run$i" 6 "$([[ $profile == 1 && $i == 1 ]] && echo 1 || echo 0)" || rc=1
     done
   done
@@ -127,7 +147,31 @@ for side in dict.fromkeys(r["side"] for r in rows):
     for key in sorted(names, key=lambda n: statistics.median([r["marks"][n] for r in done if n in r["marks"]])):
         vals = [r["marks"][key] for r in done if key in r["marks"]]
         med[key] = round(statistics.median(vals), 1)
+    # Reopened last open: each measured launch's front against its side's previous launch's (Leo, 2026-11-17: "well
+    # for one, at least on my end, it indeed would need to be like... my recently opened thing"). The workspace (its
+    # model key) and the top page are compared; the tab id is kept in the row only.
+    prev, measured, reopened = None, 0, 0
+    for r in (r for r in rows if r["side"] == side):
+        front = r.get("front")
+        if r["label"].startswith("run"):
+            measured += 1
+            if r.get("cross_arm"):
+                reason = "cross-arm " + json.dumps(r["cross_arm"])
+            elif not front or "error" in front:
+                reason = "no front: " + str((front or {}).get("error") or r.get("error") or "none read")
+            elif not prev or "error" in prev:
+                reason = "no front for the launch before"
+            elif (front.get("workspace"), front.get("top_page")) != (prev.get("workspace"), prev.get("top_page")):
+                reason = "opened " + json.dumps(front, sort_keys=True) + " after " + json.dumps(prev, sort_keys=True)
+            else:
+                reopened += 1
+                reason = None
+            if reason:
+                print("LR-FAIL", side, r["label"], reason, flush=True)
+        prev = front
+    med["reopened"] = f"{reopened}/{measured}"
     print("LR-MEDIAN", side, json.dumps(med), flush=True)
+    print("LR-REOPENED", side, med["reopened"], flush=True)
 PY
   tar -czf "$out.tgz" -C "$out" --exclude '*.dmg' --exclude '*.app' --exclude '*.trace' . 2>/dev/null && mv "$out.tgz" "$out/report.tgz"
   exit "$rc"
@@ -136,11 +180,13 @@ PY
 # probe OUT SIDE LABEL SETTLE_S PROFILE: one launch of SIDE's copy with SIDE's home, in the console session; with
 # PROFILE 1 under an all-processes Time Profiler recording.
 probe() {
-  local out="$1" side="$2" label="$3" settle="$4" profile="$5" app line load recorder="" trace
+  local out="$1" side="$2" label="$3" settle="$4" profile="$5" app line load recorder="" trace cross
   trace="$out/$side-$label.trace" # its own line: bash 3.2 expands a `local` line's words before it assigns any
   app="$(find "$out/$side" -maxdepth 1 -name '*.app' | head -1)"
   mkdir -p "$out/home-$side" && chmod 0777 "$out/home-$side"
   quiesce "$app" "$side" "$label"
+  side_defaults "$out" load "$app" "$out/home-$side/defaults.plist" \
+    || { echo "LR-FAIL $side $label defaults not loaded"; return 1; }
   load="$(load_1m)"
   if [[ "$profile" == 1 ]]; then
     xcrun xctrace record --template 'Time Profiler' --all-processes --time-limit 15s --output "$trace" --no-prompt \
@@ -148,17 +194,26 @@ probe() {
     recorder=$!
     sleep 5 # the recorder's own start (a measurement script, not runtime code)
   fi
-  line="$(GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh "$out/launch-ready" "$app" "$out/home-$side" "$label" "$settle" 2>>"$out/probe.log" | grep '^LR-RUN ')"
+  line="$(GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh "$out/launch-ready" "$app" "$out/home-$side" "$label" "$settle" "$LR_SOCKETS/$side.sock" 2>>"$out/probe.log" | grep '^LR-RUN ')"
+  # Every launch snapshot path the launch left must be in its own home: one in the other side's means it read that.
+  # Unsaved defaults fail the same way, and the stale copy goes: the side's next launch starts empty, not from it.
+  if side_defaults "$out" save "$app" "$out/home-$side/defaults.plist"; then
+    cross="$(python3 -I "$out/defaults.py" check "$out/home-$side/defaults.plist" "$out/home-$side/")"
+  else
+    rm -f "$out/home-$side/defaults.plist"
+    cross='{"defaults_not_saved": true}'
+  fi
   if [[ -n "$recorder" ]]; then
     kill -INT "$recorder" 2>/dev/null; wait "$recorder" 2>/dev/null
   fi
   [[ -n "$line" ]] || { echo "LR-RUN $side $label no result"; return 1; }
   echo "$line" | sed "s/^LR-RUN /LR-RUN $side /"
   echo "LR-LOAD $side $label load_1m=$load"
-  echo "${line#LR-RUN }" | python3 -I -c 'import json,sys; r=json.load(sys.stdin); r["side"]=sys.argv[1]; r["load_1m"]=float(sys.argv[2]) if sys.argv[2] else None; print(json.dumps(r))' "$side" "$load" >>"$out/runs.jsonl"
+  echo "${line#LR-RUN }" | python3 -I -c 'import json,sys; r=json.load(sys.stdin); r["side"]=sys.argv[1]; r["load_1m"]=float(sys.argv[2]) if sys.argv[2] else None; r.update({"cross_arm": json.loads(sys.argv[3])} if sys.argv[3] else {}); print(json.dumps(r))' "$side" "$load" "$cross" >>"$out/runs.jsonl"
   if [[ -n "$recorder" && -d "$trace" ]]; then
     python3 -I "$out/profile.py" "$trace" "${line#LR-RUN }" "$side" 2>>"$out/xctrace.log" || echo "LR-PROFILE $side no profile (xctrace.log)"
   fi
+  [[ -z "$cross" ]] || { echo "LR-CROSS-ARM $side $label $cross"; return 1; }
   [[ "$line" != *'"error"'* ]]
 }
 
@@ -166,10 +221,10 @@ probe() {
 # session and quits with Keep Sessions. The probe ends when the app does; its 600 s settle is only a backstop.
 seed() {
   local out="$1" side="$2" launch status probed
-  rm -f "$out/home-$side/app.sock" # the priming launch's: the seed waits for this launch's own socket
+  rm -f "$LR_SOCKETS/$side.sock" # the priming launch's: the seed waits for this launch's own socket
   probe "$out" "$side" seed 600 0 >"$out/seed-$side.probe" &
   launch=$!
-  GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh python3 -I "$out/seed.py" "$out/home-$side/app.sock" \
+  GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh python3 -I "$out/seed.py" "$LR_SOCKETS/$side.sock" \
     2>>"$out/seed.log" | sed "s/^LR-SEED /LR-SEED $side /"
   status=${PIPESTATUS[0]}
   wait "$launch"; probed=$?
@@ -196,6 +251,48 @@ quiesce() {
   echo "LR-SETTLE $side $label waited_ms=$waited left=$left settle_s=2"
 }
 
+# side_defaults load|save APP PLIST: each side keeps its own app defaults. Both sides share one bundle id, and
+# cfprefsd keeps an app's defaults in the console user's real ~/Library/Preferences whatever HOME and
+# CFFIXED_USER_HOME say, so cmuxNext.launchSnapshotPath.<session> pointed each launch at the launch snapshot the
+# other side wrote last: head's first launch adopted base's Home, then made a workspace of its own, and every
+# prerun=60 relaunch of either side opened what the other side had left (cmux#44204's A/B). load clears the
+# bundle's defaults (failing unless they read back empty) and imports PLIST when the side has one; save exports them
+# to PLIST. Through OUT/defaults.py (launch-ready-defaults.py, on DefaultsAside), as the app's user.
+side_defaults() {
+  local out="$1" verb="$2" app="$3" plist="$4" bundle
+  bundle="$(plutil -extract CFBundleIdentifier raw -o - "$app/Contents/Info.plist")" || return 1
+  GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh python3 -I "$out/defaults.py" "$verb" "$bundle" "$plist"
+}
+
+# defaults_aside OUT APP: the first time a run meets APP's bundle id, the account's defaults for it are set aside (a
+# copy a killed run left is put back first). defaults_restore OUT, at exit, puts each one back.
+defaults_aside() {
+  local out="$1" bundle
+  bundle="$(plutil -extract CFBundleIdentifier raw -o - "$2/Contents/Info.plist")" || return 1
+  case " $LR_ASIDE " in *" $bundle "*) return 0 ;; esac
+  GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh python3 -I "$out/defaults.py" aside "$bundle" || return 1
+  LR_ASIDE="$LR_ASIDE $bundle"
+}
+
+# Any domain not put back fails the step (the trap exits 4); its copy stays beside the lock for the next run.
+defaults_restore() {
+  local out="$1" bundle failed=0
+  for bundle in $LR_ASIDE; do
+    GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh python3 -I "$out/defaults.py" restore "$bundle" \
+      || { echo "LR-FAIL $bundle defaults not put back: they stay set aside for the next run to put back"; failed=1; }
+  done
+  return "$failed"
+}
+
+# fresh_copy OUT SIDE N: SIDE's copy deleted, once its processes are gone, and copied again from the DMG's.
+fresh_copy() {
+  local out="$1" side="$2" app name
+  app="$(find "$out/$side" -maxdepth 1 -name '*.app' | head -1)"
+  name="$(basename "$app")"
+  quiesce "$app" "$side" "copy$3" >/dev/null
+  rm -rf "$app" && ditto "$out/$side-dmg/$name" "$out/$side/$name"
+}
+
 # quiesce_left APP: how many processes run from APP/Contents/MacOS or APP/Contents/Frameworks. The paths reach awk
 # through its environment (in its arguments, awk would match its own command line), so the prefix goes on awk: on
 # ps, awk read empty strings, macOS awk's index($0, "") matched every line, and each launch waited the full 60 s.
@@ -209,5 +306,5 @@ load_1m() {
   sysctl -n vm.loadavg 2>/dev/null | awk '{ print $2 }'
 }
 
-# Sourced (tests/launch-ready-quiesce.test.sh), it only defines its functions.
+# Sourced (tests/launch-ready-quiesce.test.sh, tests/launch-ready-defaults.test.sh), it only defines its functions.
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then main "$@"; exit $?; fi

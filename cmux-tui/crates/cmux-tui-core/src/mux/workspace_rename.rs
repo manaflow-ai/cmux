@@ -168,7 +168,8 @@ impl Mux {
         if let Some(name_fingerprint) = name_authority.fingerprint() {
             fingerprint.set("name_authority", name_fingerprint);
         }
-        let notifications = self.tree_decorations();
+        // The delta serializes the renamed workspace only.
+        let notifications = self.tree_decorations_of_target(target, requested_key);
         let mut registry = self.workspace_registry.lock().unwrap();
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {
             return workspace_mutation_result(&commit);

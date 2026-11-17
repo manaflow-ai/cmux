@@ -256,6 +256,7 @@ class Capture:
         self.names = []
         self.blocks = 0
         self.video_fps = None
+        self.walls = {}  # flip name -> time.monotonic() when it was sent (the foreign-window watch's clock)
 
     def begin(self):
         self.names = []
@@ -266,6 +267,7 @@ class Capture:
 
     def flip(self, name):
         self.names.append(name)
+        self.walls[name] = time.monotonic()
         self.marker.flip(name)
 
     def end(self):
