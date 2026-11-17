@@ -21,7 +21,7 @@ public final class MacAppearanceFeed {
     public static let service = "appearance"
     public static let wallpaperService = "appearance-wallpaper"
     /// The largest picture taken (hostd serves at most this).
-    public static let maxWallpaperBytes = 8 << 20
+    public nonisolated static let maxWallpaperBytes = 8 << 20
 
     /// Brings a picture's bytes from one Mac.
     typealias Fetch = @MainActor (CmuxMobileMacAppearance.Wallpaper) async -> Data?
