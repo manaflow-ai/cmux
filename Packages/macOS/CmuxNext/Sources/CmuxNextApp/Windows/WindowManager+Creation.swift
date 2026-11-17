@@ -64,11 +64,11 @@ extension WindowManager {
         reopenCreating = true; Task { _ = await createWorkspace(into: UUID().uuidString.lowercased(), newTabPage: true); reopenCreating = false }
     }
 
-    /// `preferred` when that window is open (the launch window is, before the restore: `awaitsRestore`),
-    /// else a new window id. A second window left the launch window on Home (dogfood gate v2.2.3, `type`).
+    /// `preferred` when open (the launch window is, before the restore: `awaitsRestore`; dogfood gate v2.2.3), else the active window: a closed or
+    /// unknown id never opens a second window (Leo 2026-11-16: "Why that open up a new space actually?"). Only nil asks for a new window id.
     func targetWindow(preferring preferred: String?) -> String {
-        if let preferred, registry.value.window(preferred)?.isOpen == true || awaitsRestore(preferred) { return preferred }
-        return UUID().uuidString.lowercased()
+        let opens = { (id: String) in self.registry.value.window(id)?.isOpen == true || self.awaitsRestore(id) }
+        return preferred.flatMap { opens($0) ? $0 : active.map(\.state.id).flatMap { opens($0) ? $0 : nil } } ?? UUID().uuidString.lowercased()
     }
 
     /// The launch window before the restore applied the saved registry (`restored`, set in that turn) or gave

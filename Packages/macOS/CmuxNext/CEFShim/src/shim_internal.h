@@ -67,6 +67,8 @@ struct ForkApi {
   int (*tab_set_transparent_background)(int, int) = nullptr;
   uint32_t (*browser_set_layer_hosting)(int, int) = nullptr;
   int (*browser_set_resize_sync)(int, int) = nullptr;
+  // API 32 (version >= 34 on the Chromium 157 line): window frame sync.
+  int (*browser_resize_fence)(int, uint32_t, int, int, int, void (*)(void*, int), void*) = nullptr;
   void (*set_new_tab_page_url)(const char*) = nullptr;
   void (*set_install_prompt_handler)(void (*)(void*, int, int, const char*), void*) = nullptr;
   int (*install_prompt_reply)(int, int) = nullptr;
@@ -288,7 +290,7 @@ std::string DisplayAddress(CefRefPtr<CefBrowser> browser, const std::string& url
 std::string DisplayTitle(CefRefPtr<CefBrowser> browser, const std::string& title);
 // The request handler that adds the store's browser headers to requests to
 // the Chrome Web Store's origin, or null for any other URL (shim_webstore.mm).
-CefRefPtr<CefResourceRequestHandler> WebStoreRequestHandler(const std::string& url);
+CefRefPtr<CefResourceRequestHandler> WebStoreRequestHandler(const std::string& url, const std::string& page_url);
 bool IsWebStoreURL(const std::string& url);
 // The Web Store's CRX download URL (https://clients2.google.com/service/
 // update2/crx, any query): the URL Chromium's WebstoreInstaller downloads an
@@ -308,6 +310,10 @@ void ForgetDownloads();
 CefRefPtr<CefPermissionHandler> PermissionHandler();
 // Releases every waiting prompt callback (before CefShutdown).
 void ForgetPermissionPrompts();
+
+// Before CefShutdown: page requests waiting for their frame's URL (DeferredPageResource) stop
+// polling and are judged at once.
+void StopDeferredPageRequests();
 
 // A Proceed the host asked for on a certificate warning
 // (cmux_shim_certificate_proceed, shim_site.mm, UI thread): taken by the

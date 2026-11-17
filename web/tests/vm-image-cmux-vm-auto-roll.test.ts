@@ -33,6 +33,9 @@ const wrangler = handOnly(handOnly(checkedIn, "staging"), "production");
 const candidate = { snapshot_id: `sh-${"a".repeat(32)}`, lock_sha256: "0".repeat(64), run: 1 };
 const tui = "1234567890abcdef1234567890abcdef12345678";
 const entry = (run: string, attempt = "1"): BootImage => rolledImage(candidate, `ci-${run}-${attempt}`, tui, run, attempt);
+const KEY = "c".repeat(64);
+/** A roll whose candidate records the image's inputs key (bake.ts bakeInputsSha256). */
+const keyed = (run: string): BootImage => rolledImage({ ...candidate, inputs_sha256: KEY }, `ci-${run}-1`, tui, run, "1");
 
 /** The file with every VM_BOOT_IMAGES value cut out, to show nothing else moved. */
 const skeleton = (text: string) => text.replace(/"VM_BOOT_IMAGES": "(?:[^"\\\n]|\\.)*"/gu, '"VM_BOOT_IMAGES": ""');
@@ -104,6 +107,26 @@ describe("auto-roll approve", () => {
     const { text } = approve(checkedIn, entry("9000"));
     for (const env of ["staging", "production"] as const)
       expect(Buffer.byteLength(JSON.stringify(locate(text, env).images))).toBeLessThanOrEqual(MAX_BYTES);
+  });
+
+  test("the hand-approved lists with every kept roll carrying inputs_sha256 stay under the text binding limit", () => {
+    let text = checkedIn;
+    for (let run = 1; run <= KEEP_AUTO; run++) text = approve(text, keyed(String(9100 + run))).text;
+    for (const env of ["staging", "production"] as const) {
+      const images = locate(text, env).images;
+      expect(images.filter((i) => i.id.startsWith(AUTO_PREFIX)).every((i) => i.inputs_sha256 === KEY)).toBe(true);
+      expect(Buffer.byteLength(JSON.stringify(images))).toBeLessThanOrEqual(MAX_BYTES);
+    }
+  });
+
+  test("entries with and without inputs_sha256 share a list; a malformed one is refused", () => {
+    const { text } = approve(approve(wrangler, entry("10")).text, keyed("11"));
+    const prod = locate(text, "production").images;
+    expect(prod[0]).toEqual({ ...keyed("11"), services: ["cloud-platform-production", "ci-product-smoke"] });
+    expect(prod[1]).not.toHaveProperty("inputs_sha256");
+    const bad = { ...keyed("12"), inputs_sha256: "A".repeat(64) };
+    expect(() => replaceList(text, "production", [bad, ...prod])).toThrow(/bad inputs_sha256/);
+    expect(() => replaceList(text, "production", [{ ...entry("12"), extra: "x" } as BootImage, ...prod])).toThrow(/fields/);
   });
 });
 
@@ -218,6 +241,13 @@ describe("auto-roll inputs", () => {
   test("the checked-in switch is a known mode", () => {
     expect(["off", "dry-run", "live"]).toContain(modeOf(readFileSync(new URL("../../images/cmux-vm/auto-roll.json", import.meta.url), "utf8")));
     expect(() => modeOf('{"mode":"on"}')).toThrow();
+  });
+
+  test("the entry carries the candidate's inputs_sha256 only when it is 64 lowercase hex", () => {
+    expect(keyed("1").inputs_sha256).toBe(KEY);
+    expect(entry("1")).not.toHaveProperty("inputs_sha256");
+    for (const bad of ["", "f".repeat(63), "F".repeat(64), 42])
+      expect(rolledImage({ ...candidate, inputs_sha256: bad as string }, "ci-1-1", tui, "1", "1")).not.toHaveProperty("inputs_sha256");
   });
 
   test("a candidate without a snapshot id or a cmux-tui commit makes no entry", () => {

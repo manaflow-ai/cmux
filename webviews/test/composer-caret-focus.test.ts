@@ -26,6 +26,7 @@ import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { focusByKey } from "./support/focusByKey";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { COMPOSER_MD, MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("composer-caret-focus.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -88,7 +89,7 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
       name: "chat composer",
       entry: "agent-pane.composer",
       variant: "quiet-chips",
-      field: ".acpmux-composer-box .acpmux-md",
+      field: COMPOSER_MD,
       box: ".acpmux-composer-box",
       row: ".acpmux-composer-bar",
       foot: ".acpmux-composer .acpmux-composer-foot",
@@ -273,10 +274,10 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
       test(`${engine}: ${stage.name}: the button row is the plain footer, its model chip a muted label`, async () => {
         const page = await open(engine, stage);
         const row = await page.evaluate(
-          ({ foot }) => {
+          ({ foot, MODEL_PICKER }) => {
             const bar = document.querySelector<HTMLElement>(foot)!;
             const mark = bar.querySelector<HTMLElement>(".acpmux-model .acpmux-picker-button .agent-mark");
-            const model = bar.querySelector<HTMLElement>(".acpmux-model .acpmux-picker-button")!;
+            const model = bar.querySelector<HTMLElement>(MODEL_PICKER)!;
             // The model button names its effort after the model (Leo 2026-10-20): the name is as
             // muted as that effort label, except in the quiet row under the box, where the name is in
             // the button's muted ink and the effort one step back of it (#24151: secondary ink).
@@ -300,7 +301,7 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
                   : nameColor === getComputedStyle(effort).color,
             };
           },
-          { foot: stage.foot },
+          { foot: stage.foot, MODEL_PICKER },
         );
         await page.close();
         expect(row).toEqual({ look: "plain", mark: "brand", muted: true });

@@ -39,6 +39,7 @@ enum AgentPaneHandshakeReply {
                 }
                 handshake.harness = seed.harness
                 handshake.model = seed.model
+                handshake.effort = seed.effort
                 handshake.peer = seed.host
                 if let peer = seed.host { handshake.machineName = peer }
                 if seed.showsHarnesses { handshake.harnesses = true }
@@ -98,6 +99,7 @@ enum AgentPaneHandshakeReply {
                 model.wakeSource = nil
                 handshake.wake = model.pendingWake
                 (model.handedWake, model.pendingWake) = (model.pendingWake, nil)
+                model.openWaits.ran(.handshake)
             }
             model.hasHandshake = true
             // A handshake starts a connection: the page says when its client is ready (`pane.clientReady`).

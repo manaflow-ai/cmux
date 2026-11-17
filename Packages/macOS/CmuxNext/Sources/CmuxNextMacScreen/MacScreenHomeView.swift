@@ -11,6 +11,8 @@ public struct MacScreenHomeActions {
     public var openDeviceInNewTab: (String, SessionScope?) -> Void = { _, _ in }
     /// Sign In under Your Devices while this Mac is signed out of cmux.
     public var signIn: () -> Void = {}
+    /// Start the same guided Share This Mac action used by the sidebar and Devices.
+    public var shareThisMac: () -> Void = {}
 
     public init() {}
 }
@@ -40,6 +42,10 @@ final class MacScreenHomeView: MacScreenThemedView {
     private var permissionsRead: Task<Void, Never>?
     private var readFor: [String] = []
     private var builtWithBorders = true
+    /// Your Devices' Offline group is open (the quiet look folds offline Macs under one row).
+    var offlineExpanded = false
+    /// The snapshot the rows were last built from (the page's own or a test's), for a rebuild after a local toggle.
+    private(set) var built: MacScreenHomeSnapshot?
     /// `.frame(maxWidth: 620).padding(.horizontal, 32)`: the column's width for the page's.
     private lazy var columnWidth = column.widthAnchor.constraint(equalToConstant: 620)
 
@@ -164,6 +170,7 @@ final class MacScreenHomeView: MacScreenThemedView {
 
     /// Builds the rows of `snapshot` (the page's own draw; tests and galleries pass a made-up one).
     func build(_ snapshot: MacScreenHomeSnapshot) {
+        built = snapshot
         column.arrangedSubviews.forEach { $0.removeFromSuperview() }
         builtWithBorders = colors.borders
         needsLayout = true
@@ -172,7 +179,7 @@ final class MacScreenHomeView: MacScreenThemedView {
         if snapshot.sharing?.showFirstUse == true {
             MacScreenStack.addFullWidth(firstUseGuide(), to: column)
         }
-        if let list = snapshot.devices { MacScreenStack.addFullWidth(yourDevices(list), to: column) }
+        if let list = snapshot.devices { MacScreenStack.addFullWidth(yourDevices(list, look: snapshot.devicesLook), to: column) }
         if let sharing = snapshot.sharing { MacScreenStack.addFullWidth(sharingSection(sharing, look: snapshot.sharingLook), to: column) }
         if let keyboard = snapshot.keyboard { MacScreenStack.addFullWidth(keyboardSection(keyboard), to: column) }
         paint(column)

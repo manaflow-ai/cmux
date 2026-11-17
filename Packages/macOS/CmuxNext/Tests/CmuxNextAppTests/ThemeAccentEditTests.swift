@@ -21,7 +21,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appending(path: "cmux.json")
         try Data(##"{"appearance": {"theme": "Nord", "themeEdits": {"Nord/accent": "#BF616A", "Nord/4": "#88c0d0"}}}"##.utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         #expect(!settings.snapshot.diagnostics.contains { $0.path.hasPrefix("appearance.themeEdits.") })

@@ -2053,6 +2053,7 @@ class SurfaceResult:
     tab_id: Union[str, None, MissingType] = field(default=MISSING)
     terminal_incarnation: Union[str, None, MissingType] = field(default=MISSING)
     terminal_resource_id: Union[str, MissingType] = field(default=MISSING)
+    transaction: Union[str, MissingType] = field(default=MISSING)
     workspace_id: Union[str, MissingType] = field(default=MISSING)
 
 
@@ -2123,6 +2124,16 @@ class TabGroupRun:
     surfaces: List[Id]
     pane: Union[Id, MissingType] = field(default=MISSING)
     extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
+class TabPlace:
+    __cmux_schema_path__: ClassVar[str] = 'types/TabPlace'
+    after: Union[Id, None, MissingType] = field(default=MISSING)
+    after_creation: Union[str, None, MissingType] = field(default=MISSING)
+    before: Union[Id, None, MissingType] = field(default=MISSING)
+    joins: Union[bool, None, MissingType] = field(default=MISSING)
+    start: Union[bool, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2563,6 +2574,8 @@ class AttachSurfaceRequest:
     cols: Union[int, None, MissingType] = field(default=MISSING)
     expected_generation: Union[str, None, MissingType] = field(default=MISSING)
     expected_terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    hybrid_frame: Union[int, None, MissingType] = field(default=MISSING)
+    hybrid_stream: Union[str, None, MissingType] = field(default=MISSING)
     mode: Union[Literal['bytes', 'render'], None, MissingType] = field(default=MISSING)
     output_coalesce_ms: Union[int, None, MissingType] = field(default=MISSING)
     replay_history_rows: Union[int, None, MissingType] = field(default=MISSING)
@@ -3767,6 +3780,15 @@ class DetachClientRequest:
 
 
 @dataclass(frozen=True)
+class DeviceSetupRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/device-setup/request'
+    device: str
+    verb: str
+    allow_agents: Union[bool, MissingType] = field(default=MISSING)
+    dry_run: Union[bool, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class ExportLayoutRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/export-layout/request'
     screen: Union[Id, None, MissingType] = field(default=MISSING)
@@ -3803,6 +3825,18 @@ class FeedLocalListRequest:
 class FeedLocalReadRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/feed-local-read/request'
     items: List[str]
+
+
+@dataclass(frozen=True)
+class FloatPaneRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/float-pane/request'
+    pane: Id
+    h: Union[float, None, MissingType] = field(default=MISSING)
+    mode: Union[str, None, MissingType] = field(default=MISSING)
+    transaction: Union[int, None, MissingType] = field(default=MISSING)
+    w: Union[float, None, MissingType] = field(default=MISSING)
+    x: Union[float, None, MissingType] = field(default=MISSING)
+    y: Union[float, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -4297,6 +4331,7 @@ class NewConversationTabRequest:
     origin: Union[str, None, MissingType] = field(default=MISSING)
     owner: Union[str, None, MissingType] = field(default=MISSING)
     page: Union[str, None, MissingType] = field(default=MISSING)
+    place: Union[TabPlace, None, MissingType] = field(default=MISSING)
     route: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     transaction: Union[str, None, MissingType] = field(default=MISSING)
@@ -4327,9 +4362,11 @@ class NewFrontendBrowserTabRequest:
     favicon_url: Union[str, None, MissingType] = field(default=MISSING)
     idempotency_key: Union[str, None, MissingType] = field(default=MISSING)
     owner: Union[str, None, MissingType] = field(default=MISSING)
+    place: Union[TabPlace, None, MissingType] = field(default=MISSING)
     profile_id: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     title: Union[str, None, MissingType] = field(default=MISSING)
+    transaction: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -4422,8 +4459,10 @@ class NewTabRequest:
     rows: Union[int, None, MissingType] = field(default=MISSING)
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     keep: Union[bool, MissingType] = field(default=MISSING)
+    place: Union[TabPlace, None, MissingType] = field(default=MISSING)
     shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
     terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    transaction: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -5531,6 +5570,32 @@ class AgentChangedEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class AgentCliFrameEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/agent-cli-frame/payload'
+    surface: Id
+    base: Union[int, None]
+    cols: int
+    cursor_visible: bool
+    cursor_x: int
+    cursor_y: int
+    data: Base64
+    event: Literal['agent-cli-frame']
+    frame: int
+    rows: int
+    stream: str
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class AgentCliLeanEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/agent-cli-lean/payload'
+    surface: Id
+    event: Literal['agent-cli-lean']
+    f: Base64
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class AgentInventoryChangedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/agent-inventory-changed/payload'
     event: Literal['agent-inventory-changed']
@@ -5884,6 +5949,18 @@ class DetachedEvent(EventBase):
     reason: Union[DetachReason, MissingType] = field(default=MISSING)
     scope: Union[str, MissingType] = field(default=MISSING)
     view: Union[str, MissingType] = field(default=MISSING)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class DeviceSetupStepEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/device-setup-step/payload'
+    detail: str
+    device: str
+    event: Literal['device-setup-step']
+    fix: str
+    state: str
+    step: str
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -6301,6 +6378,7 @@ class TabAddedEvent(EventBase):
     entity: Tab
     event: Literal['tab-added']
     index: int
+    transaction: Union[str, None, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -6545,7 +6623,7 @@ TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 WorkspaceFirstTab = Union[WorkspaceFirstTabBrowser]
 
-KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentInventoryChangedEvent, AgentInventoryWatchEndedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ChiefChangedEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationLiveEvent, CloudConversationPresenceEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudConversationTypingEvent, CloudHostReplicaNeededEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationLiveEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FeedReportsChangedEvent, FeedViewChangedEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenDeviceChangedEvent, ScreenRenamedEvent, ScrollChangedEvent, SelectionChangedEvent, SettingsChangedEvent, SizeStateEvent, StashChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspacePresentationChangedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentCliFrameEvent, AgentCliLeanEvent, AgentInventoryChangedEvent, AgentInventoryWatchEndedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ChiefChangedEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationLiveEvent, CloudConversationPresenceEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudConversationTypingEvent, CloudHostReplicaNeededEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationLiveEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, DeviceSetupStepEvent, EmptyEvent, FeedReportsChangedEvent, FeedViewChangedEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenDeviceChangedEvent, ScreenRenamedEvent, ScrollChangedEvent, SelectionChangedEvent, SettingsChangedEvent, SizeStateEvent, StashChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspacePresentationChangedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -6765,6 +6843,7 @@ __all__ = [
     'TabGroupOutcome',
     'TabGroupRecord',
     'TabGroupRun',
+    'TabPlace',
     'TerminalClipboardHost',
     'TerminalClipboardReplyResult',
     'TerminalClipboardSubscribeResult',
@@ -6952,12 +7031,14 @@ __all__ = [
     'DeleteWorkspaceGroupRequest',
     'DetachAttachedViewRequest',
     'DetachClientRequest',
+    'DeviceSetupRequest',
     'ExportLayoutRequest',
     'FeedLocalHandoffAbortRequest',
     'FeedLocalHandoffBeginRequest',
     'FeedLocalHandoffDoneRequest',
     'FeedLocalListRequest',
     'FeedLocalReadRequest',
+    'FloatPaneRequest',
     'FocusDirectionRequest',
     'FocusPaneRequest',
     'ForgetSessionRequest',
@@ -7163,6 +7244,8 @@ __all__ = [
     'ZoomPaneRequest',
     'ActivityChangedEvent',
     'AgentChangedEvent',
+    'AgentCliFrameEvent',
+    'AgentCliLeanEvent',
     'AgentInventoryChangedEvent',
     'AgentInventoryWatchEndedEvent',
     'AgentPresenceChangedEvent',
@@ -7197,6 +7280,7 @@ __all__ = [
     'ConversationTypingEvent',
     'DaemonShutdownEvent',
     'DetachedEvent',
+    'DeviceSetupStepEvent',
     'EmptyEvent',
     'FeedReportsChangedEvent',
     'FeedViewChangedEvent',

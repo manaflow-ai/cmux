@@ -193,12 +193,15 @@ extension SidebarViewComponents {
     /// Lays out the bands between `top` and the bottom: the pinned footer
     /// section at the bottom, `footerHeight` (dots, cards) above the band
     /// below the list; returns the list's frame between the bands. Call
-    /// `updateBands()` first.
-    func layoutBands(top y: CGFloat, footerHeight: CGFloat) -> NSRect {
+    /// `updateBands()` first. `collapse` of the footer section's height goes to the list and the band
+    /// below it: the footer faded out in Minimal Mode (``SidebarFooterCollapseMotion``); the section keeps its frame.
+    func layoutBands(top y: CGFloat, footerHeight: CGFloat, collapse: CGFloat = 0) -> NSRect {
         let b = bounds
         // The footer section takes its full height, never capped or scrolled, over the bottom margin.
-        let pinned = footerRegion.layoutResult.height, inset = SidebarStyle.bottomInset
-        footerRegion.frame = NSRect(x: 0, y: b.height - inset - pinned, width: b.width, height: pinned)
+        let footerPinned = footerRegion.layoutResult.height, inset = SidebarStyle.bottomInset
+        footerRegion.frame = NSRect(x: 0, y: b.height - inset - footerPinned, width: b.width, height: footerPinned)
+        // What the bands and the list stand on: the footer section, less what Minimal Mode hands them.
+        let pinned = footerPinned - min(max(0, collapse), footerPinned)
         // Pinned item sections above and below the list, each capped at
         // its share of the height (then it scrolls inside).
         let available = max(0, b.height - y - footerHeight - pinned - inset)
@@ -210,7 +213,7 @@ extension SidebarViewComponents {
         aboveFade.frame = NSRect(x: 0, y: y, width: b.width, height: aboveHeight)
         size(aboveRegion, in: aboveScroll, width: b.width)
         // The band below sits on the footer section; the dots and cards go above it.
-        belowFade.frame = NSRect(x: 0, y: footerRegion.frame.minY - belowHeight, width: b.width, height: belowHeight)
+        belowFade.frame = NSRect(x: 0, y: b.height - inset - pinned - belowHeight, width: b.width, height: belowHeight)
         size(belowRegion, in: belowScroll, width: b.width)
         let listY = y + aboveHeight
         layoutBandLine(aboveY: listY, look: look, showsAbove: aboveHeight > 0)

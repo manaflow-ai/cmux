@@ -115,6 +115,16 @@ public final class CmuxRemoteService {
         return available && (config.computerUse || config.screenSharing)
     }
 
+    /// The worker as Stop Sharing This Mac sees it (``MacScreenActions``): running once started, and its
+    /// `screen.stop_session` ends the session it hosts.
+    public var screenSessionWorker: MacScreenWorkerSession {
+        MacScreenWorkerSession(running: { [weak self] in self?.started == true },
+                               stop: { [weak self] in
+                                   guard let self else { throw CmuxRemoteError.unavailable }
+                                   _ = try await self.call("screen.stop_session")
+                               })
+    }
+
     /// One host request over the daemon (status, refresh, request, restart, screen.*).
     public func call(_ method: String, _ params: CmuxNextDaemon.JSONValue = .object([:]),
                      timeout: Duration = .seconds(25)) async throws -> CmuxNextDaemon.JSONValue {

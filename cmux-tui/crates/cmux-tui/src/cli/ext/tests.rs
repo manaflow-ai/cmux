@@ -42,11 +42,16 @@ fn parses_new_dev_list_remove_and_help() {
     assert_eq!(parse(&words("dev --help")), Ok(Request::Help));
     assert_eq!(
         parse(&words("new my-prs")),
-        Ok(Request::New { name: "my-prs".into(), kind: "section".into(), dir: None })
+        Ok(Request::New { name: "my-prs".into(), kind: "section".into(), dir: None, repo: None })
     );
     assert_eq!(
         parse(&words("new w --kind section --dir /tmp/w")),
-        Ok(Request::New { name: "w".into(), kind: "section".into(), dir: Some("/tmp/w".into()) })
+        Ok(Request::New {
+            name: "w".into(),
+            kind: "section".into(),
+            dir: Some("/tmp/w".into()),
+            repo: None
+        })
     );
     let Ok(Request::Dev(options)) = parse(&words("dev")) else { panic!("dev") };
     assert_eq!(options.dir, PathBuf::from("."));
@@ -69,6 +74,12 @@ fn parses_new_dev_list_remove_and_help() {
     };
     assert_eq!(options.build_timeout, std::time::Duration::from_secs(5));
     assert_eq!(parse(&words("list")), Ok(Request::List));
+    assert_eq!(parse(&words("reload")), Ok(Request::Reload { app: None }));
+    assert_eq!(
+        parse(&words("reload hello")),
+        Ok(Request::Reload { app: Some("local/hello".into()) })
+    );
+    assert_eq!(parse(&words("reload acme/x")), Ok(Request::Reload { app: Some("acme/x".into()) }));
     assert_eq!(parse(&words("remove local/x")), Ok(Request::Remove { app: "local/x".into() }));
     for bad in [
         "new",
@@ -92,6 +103,10 @@ fn parses_new_dev_list_remove_and_help() {
         "remove local/",
         "remove local/customize",
         "list extra",
+        "reload a b",
+        "reload --all",
+        "reload local/../x",
+        "reload a/b/c",
         "frobnicate",
     ] {
         assert!(parse(&words(bad)).is_err(), "{bad}");
@@ -280,14 +295,77 @@ fn an_invalid_manifest_names_its_file_and_field_and_exits_4() {
     assert_eq!(json["phase"], "manifest");
     assert_eq!(json["exitCode"], 4);
 
-    // A third-party id is refused: the local folder holds local/ apps only.
+    // A published id (with its repository) loads as local/NAME, the only publisher the local
+    // folder holds (publish_tests); a store id with no repository is refused by the validator.
     manifest["implements"]["cmux.section/1"]["options"]["defaultRegion"] = json!("bottom");
     manifest["id"] = json!("acme/broken");
     manifest["repository"] = json!("https://github.com/acme/broken");
     std::fs::write(&path, manifest.to_string()).unwrap();
+    assert_eq!(dev::load_package(&dir).unwrap().id, "local/broken");
+    manifest.as_object_mut().unwrap().remove("repository");
+    std::fs::write(&path, manifest.to_string()).unwrap();
     let errors = dev::load_package(&dir).unwrap_err();
-    assert_eq!(errors[0].field.as_deref(), Some("/id"));
-    assert!(errors[0].message.contains("local/broken"), "{errors:?}");
+    assert_eq!(errors[0].field.as_deref(), Some("/repository"), "{errors:?}");
+}
+
+/// A fresh clone: `src/main.ts` and no `dist/` (every example gitignores it). The build makes
+/// `dist/main.js`, so the manifest check before the build does not ask for it; with nothing to
+/// build, a missing main script is still a manifest error (exit 4).
+#[test]
+fn ext_dev_builds_a_fresh_folder_before_checking_its_main() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = new_extension(root.path(), "fresh");
+    let built = root.path().join("built-main.js");
+    std::fs::copy(dir.join("dist/main.js"), &built).unwrap();
+    std::fs::remove_dir_all(dir.join("dist")).unwrap();
+    let local = root.path().join("state/apps/local");
+    let fake = FakeDaemon::start(&local, "local/fresh", false);
+
+    // `--build CMD` writes the main script.
+    let mut options = dev_options(&dir);
+    options.build = Some(format!("mkdir -p dist && cp '{}' dist/main.js", built.display()));
+    let outcome = dev::once(&global(&fake.socket), &options, false);
+    assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+    assert_eq!(outcome.build, Some("command"));
+    assert!(local.join("fresh/dist/main.js").is_file(), "the built script is copied");
+
+    // The packer writes it from `src/main.ts` when bun is on PATH.
+    if let Some(bun) = dev::find_bun() {
+        std::fs::remove_dir_all(dir.join("dist")).unwrap();
+        let mut options = dev_options(&dir);
+        options.bun = Some(bun);
+        let outcome = dev::once(&global(&fake.socket), &options, false);
+        assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+        assert_eq!(outcome.build, Some("pack"));
+        assert!(dir.join("dist/main.js").is_file(), "the packer wrote the main script");
+    } else {
+        eprintln!("bun is not on PATH: the packer half of this test needs it");
+    }
+
+    // Nothing to build (no `--build`, and no bun for `src/main.ts`): still exit 4 at manifest,
+    // with or without a daemon.
+    std::fs::remove_dir_all(dir.join("dist")).ok();
+    for socket in [fake.socket.clone(), PathBuf::from("/nonexistent/cmux.sock")] {
+        let outcome = dev::once(&global(&socket), &dev_options(&dir), false);
+        assert_eq!(outcome.phase, Phase::Manifest, "{:?}", outcome.errors);
+        assert_eq!(outcome.exit_code(), exit::MANIFEST_INVALID);
+        assert_eq!(outcome.build, None);
+        let error = &outcome.errors[0];
+        assert_eq!(error.field.as_deref(), Some("/runtime/main"), "{error:?}");
+        assert!(error.message.contains("path.missing"), "{error:?}");
+    }
+    std::fs::remove_file(dir.join("src/main.ts")).unwrap();
+    let outcome = dev::once(&global(&fake.socket), &dev_options(&dir), false);
+    assert_eq!(outcome.phase, Phase::Manifest, "{:?}", outcome.errors);
+    assert_eq!(outcome.exit_code(), exit::MANIFEST_INVALID);
+
+    // A build that does not write the main script fails the check after it.
+    std::fs::write(dir.join("src/main.ts"), "").unwrap();
+    let mut options = dev_options(&dir);
+    options.build = Some("true".into());
+    let outcome = dev::once(&global(&fake.socket), &options, false);
+    assert_eq!(outcome.phase, Phase::Manifest, "{:?}", outcome.errors);
+    assert_eq!(outcome.errors[0].field.as_deref(), Some("/runtime/main"));
 }
 
 #[test]
@@ -490,7 +568,8 @@ fn serve(
                 let apps = if local.join(name).is_dir() {
                     vec![
                         json!({"id": app, "version": "0.1.0", "installed": installed, "enabled": true,
-                        "hidden": false, "available": true, "bundle_dir": local.join(name)}),
+                        "hidden": false, "available": true, "bundle_dir": local.join(name),
+                        "web_pages": served_web_pages(&local.join(name))}),
                     ]
                 } else {
                     vec![]
@@ -543,6 +622,26 @@ fn serve(
                         out.push(reply(data));
                     }
                     None => out.push(reply(json!({}))),
+                }
+            }
+            // As the supervisor's `reload_local_now`: an unknown name is refused,
+            // a script that does not load is named with its init error.
+            "apps-reload" => {
+                let asked = request["app"].as_str();
+                let script = std::fs::read_to_string(local.join(name).join("dist/main.js"))
+                    .unwrap_or_default();
+                if asked == Some("local/older-daemon") {
+                    // What a daemon from before `apps-reload` answers.
+                    out.push(json!({"id": id, "ok": false, "error_code": "bad-request",
+                        "error": "unknown variant `apps-reload`, expected one of `apps-list`, `apps-set`"}));
+                } else if asked.is_some_and(|asked| asked != app) {
+                    out.push(json!({"id": id, "ok": false, "error_code": "apps.local.unknown",
+                        "error": format!("{} is not an extension in a local folder (local: {app})", asked.unwrap_or(""))}));
+                } else if script.contains("THROW_AT_INIT") {
+                    out.push(reply(json!({"reloaded": [], "removed": [], "refused": [{"app": app,
+                        "reason": "init: dist/main.js:2:12 SyntaxError: unexpected token"}]})));
+                } else {
+                    out.push(reply(json!({"reloaded": [app], "refused": [], "removed": []})));
                 }
             }
             // The daemon's pass: its events, then the reply (`Supervisor::reload_local_apps_now`).
@@ -929,6 +1028,82 @@ fn shot_outlines_what_rendered_and_takes_no_picture_of_a_preview() {
     assert_eq!(code, exit::LOAD_FAILED);
 }
 
+/// `ext dev` reports the web panes (`render: web`) the daemon hosts, and
+/// fails the load when the daemon does not host one the manifest declares.
+#[test]
+fn ext_dev_reports_web_panes_and_fails_when_the_daemon_hosts_none() {
+    let manifest = json!({
+        "id": "local/web-pane", "runtime": { "web": { "root": "web" } },
+        "implements": { "cmux.pane/1": { "web": "web/index.html" } }
+    });
+    let page = json!({ "interface": "cmux.pane/1", "root": "web", "entry": "index.html" });
+    let served = json!({ "id": "local/web-pane", "web_pages": [page] });
+    assert_eq!(dev::web_check(&manifest, Some(&served)).unwrap(), vec![page]);
+    // A daemon older than web panes lists no `web_pages`.
+    let old = json!({ "id": "local/web-pane" });
+    let problem = dev::web_check(&manifest, Some(&old)).unwrap_err();
+    assert_eq!(problem.field.as_deref(), Some("/implements/cmux.pane~11/web"));
+    // A scene app has nothing to check.
+    let scene =
+        json!({ "id": "local/s", "implements": { "cmux.pane/1": { "export": "renderPane" } } });
+    assert!(dev::web_check(&scene, Some(&old)).unwrap().is_empty());
+}
+
+/// The sample web pane in examples/extensions passes the manifest and file
+/// checks `ext dev` runs first, and its page is one the daemon hosts.
+#[test]
+fn the_web_pane_example_is_a_valid_package() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../examples/extensions/web-pane");
+    let pkg = dev::load_package(&dir).expect("valid package");
+    assert_eq!(pkg.id, "local/web-pane");
+    let pages = cmux_app_manifest::web_pages(&pkg.manifest);
+    assert_eq!(pages.len(), 1);
+    assert_eq!(
+        (pages[0].interface.as_str(), pages[0].root.as_str(), pages[0].entry.as_str()),
+        ("cmux.pane/1", "web", "index.html")
+    );
+}
+
+/// The `web_pages` the real daemon lists for the copied package (supervisor
+/// `entry`: cmux_app_manifest::web_pages of its manifest).
+fn served_web_pages(package: &Path) -> Vec<Value> {
+    let Ok(text) = std::fs::read_to_string(package.join("cmux-app.json")) else { return vec![] };
+    let Ok(manifest) = serde_json::from_str::<Value>(&text) else { return vec![] };
+    cmux_app_manifest::web_pages(&manifest)
+        .into_iter()
+        .map(|p| json!({ "interface": p.interface, "root": p.root, "entry": p.entry, "symbol": p.symbol }))
+        .collect()
+}
+
+/// `cmux ext dev --once --json` on the sample web pane: the files are copied
+/// to the daemon's local folder, the reload is picked up, no scene probe
+/// runs (a web pane has no export), and the result names the hosted page.
+#[test]
+fn once_loads_the_web_pane_example() {
+    let sample =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../examples/extensions/web-pane");
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("web-pane");
+    for file in ["cmux-app.json", "web/index.html", "web/page.js", "web/page.css"] {
+        let to = dir.join(file);
+        std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+        std::fs::copy(sample.join(file), &to).unwrap();
+    }
+    let local = root.path().join("state/apps/local");
+    let fake = FakeDaemon::start(&local, "local/web-pane", true);
+    let outcome = dev::once(&global(&fake.socket), &dev_options(&dir), false);
+    assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+    assert!(outcome.changed);
+    assert_eq!(outcome.probe, None, "a web pane has no scene to probe");
+    assert!(local.join("web-pane/web/index.html").is_file());
+    let json = outcome.to_json(&dir);
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["web"][0]["interface"], "cmux.pane/1");
+    assert_eq!(json["web"][0]["entry"], "index.html");
+    assert!(outcome.line().contains("1 web pane reloads in place"), "{}", outcome.line());
+    assert!(!fake.cmds().contains(&"apps-mount".to_string()));
+}
+
 /// A copied change reloads as soon as the daemon's pass answers, with no
 /// file event at all: on a loaded Mac the watch's events came 3.6 s to past
 /// 30 s late, and `ext dev` waited for them (base red: this run waits out
@@ -976,6 +1151,51 @@ fn a_new_tab_page_is_placed_where_the_person_picks_it() {
         placed[0]["where"].as_str().is_some_and(|w| w.contains("tabs.newTabApp")),
         "{placed:?}"
     );
+}
+
+/// `ext reload NAME`: one `apps-reload` naming the app; a script that does
+/// not load exits 1 and names file and line, an unknown name is refused.
+#[test]
+fn reload_asks_the_daemon_and_names_a_script_that_does_not_load() {
+    let root = tempfile::tempdir().unwrap();
+    let local = root.path().join("state/apps/local");
+    let fake = FakeDaemon::start(&local, "local/hello", true);
+    std::fs::create_dir_all(local.join("hello/dist")).unwrap();
+    std::fs::write(local.join("hello/dist/main.js"), "var __cmuxAppExports = {};").unwrap();
+
+    let data = super::reload_call(&global(&fake.socket), Some("local/hello")).unwrap();
+    assert_eq!(super::reload_exit(&data), exit::OK);
+    assert_eq!(super::reload_text(&data), "reloaded local/hello\n");
+    let asked = fake.requests.lock().unwrap().last().cloned().unwrap();
+    assert_eq!(asked, json!({"id": asked["id"], "cmd": "apps-reload", "app": "local/hello"}));
+
+    std::fs::write(local.join("hello/dist/main.js"), "const a b // THROW_AT_INIT").unwrap();
+    let data = super::reload_call(&global(&fake.socket), None).unwrap();
+    assert_eq!(super::reload_exit(&data), exit::LOAD_FAILED);
+    let text = super::reload_text(&data);
+    assert!(text.contains("local/hello did not load (the last good version stays)"), "{text}");
+    assert!(text.contains("dist/main.js:2:12"), "{text}");
+    assert!(fake.requests.lock().unwrap().last().unwrap().get("app").is_none(), "every app");
+
+    let (code, message) =
+        super::reload_call(&global(&fake.socket), Some("local/nope")).unwrap_err();
+    assert_eq!(code, 1);
+    assert!(message.contains("local/nope is not an extension"), "{message}");
+    let (code, message) =
+        super::reload_call(&global(&fake.socket), Some("local/older-daemon")).unwrap_err();
+    assert_eq!(code, 1);
+    assert!(message.contains("older than cmux ext reload"), "{message}");
+    let gone = super::reload_call(&global(&root.path().join("missing.sock")), None).unwrap_err();
+    assert_eq!(gone.0, exit::NO_DAEMON);
+}
+
+#[test]
+fn reload_says_when_there_is_nothing_to_reload() {
+    let none = json!({"reloaded": [], "refused": [], "removed": []});
+    assert!(super::reload_text(&none).starts_with("no extensions in a local folder"));
+    assert_eq!(super::reload_exit(&none), exit::OK);
+    let removed = json!({"reloaded": [], "refused": [], "removed": ["local/old"]});
+    assert_eq!(super::reload_text(&removed), "removed local/old (its folder is gone)\n");
 }
 
 /// An installed New Tab page the person has not picked is not reported as

@@ -67,8 +67,7 @@ enum DebugExtensionToolbar {
         let items: [JSONValue] = entries.map { entry in
             if entry.title == "-" && entry.identifier == nil { return .string("-") }
             var object: [String: JSONValue] = ["title": .string(entry.title), "enabled": .bool(entry.enabled)]
-            if let id = entry.identifier { object["identifier"] = .string(id) }
-            if let extensionID = entry.extensionID { object["extension"] = .string(extensionID) }
+            for (key, value) in ["identifier": entry.identifier, "extension": entry.extensionID, "tooltip": entry.tooltip] { object[key] = value.map(JSONValue.string) }
             return .object(object)
         }
         if params["dismiss"]?.boolValue == true {

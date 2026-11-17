@@ -9,6 +9,7 @@
 import { describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
+import { MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 const page = path.resolve(
   import.meta.dir,
@@ -55,7 +56,7 @@ const SHAPES = new Set([
   ":is(.acpmux-composer-bar,.nt-pickers) .acpmux-model .acpmux-picker-button",
   ":is(.acpmux-composer-bar,.nt-pickers) .acpmux-effort .acpmux-picker-button",
   ":is(.acpmux-composer-bar,.nt-pickers) .acpmux-access .acpmux-picker-button",
-  ".acpmux-model .acpmux-picker-button",
+  MODEL_PICKER,
   ".acpmux-effort .acpmux-picker-button",
   ".acpmux-access .acpmux-picker-button",
   '.nt-screen[data-template="cards"][data-pill] .nt-box',

@@ -105,7 +105,8 @@ struct CmuxToastOverlayHostTests {
         #expect(surface.tone == SurfaceRole.toast.tone)
         // The veil-tinted Liquid Glass (gallery 3) keeps the neutral rim, as the blur does.
         #expect(surface.rimView != nil)
-        #expect(surface.cornerRadius == SurfaceRole.toast.cornerRadius)
+        // Concentric with its buttons: the button corner plus the padding (Lawrence 2026-11-15).
+        #expect(surface.cornerRadius == view.geometry.outerRadius)
         handle.dismiss()
     }
 
@@ -156,7 +157,7 @@ struct CmuxToastOverlayHostTests {
         let view = try #require(Self.toastViews(in: window).first)
         view.layoutSubtreeIfNeeded()
         let close = view.closeButton
-        #expect(close.frame.width >= CmuxToastButton.closeSide - 0.5 && close.frame.height >= CmuxToastButton.closeSide - 0.5)
+        #expect(close.frame.width >= CmuxToastButton.height - 0.5 && close.frame.height >= CmuxToastButton.height - 0.5)
         let holder = try #require(view.superview)
         let point = close.convert(NSPoint(x: close.bounds.midX, y: close.bounds.midY), to: holder)
         let hit = try #require(view.hitTest(point), "a click on the close button reaches nothing")

@@ -142,9 +142,10 @@ pub(crate) use agent_session_attach::agent_session_link::chat_marks::ChatMarkErr
 pub use agent_session_attach::{
     AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_FOLDERS_CAPABILITY,
     AGENT_SESSION_FORK_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
-    AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_MODE_CAPABILITY,
-    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_NO_CWD_CAPABILITY,
-    AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY,
+    AGENT_SESSION_START_CREDENTIALS_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
+    AGENT_SESSION_START_MODE_CAPABILITY, AGENT_SESSION_START_MODEL_CAPABILITY,
+    AGENT_SESSION_START_NO_CWD_CAPABILITY, AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY,
+    AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY,
     AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter,
     AgentStartHost, AgentStartHostSource, set_link_share_app_scheme, start_link_share_bridge,
 };
@@ -198,6 +199,7 @@ mod conversation_attachments;
 mod conversation_live;
 mod conversation_resource;
 mod conversation_runs;
+mod device_setup_command;
 mod remote_host_command;
 mod resource_trust;
 use resource_trust::{
@@ -254,6 +256,7 @@ use cmd_terminals::placed_terminal_result;
 mod cmd_workspaces;
 mod column_move;
 mod command_history;
+mod floating_panes;
 mod page_credential;
 mod page_files;
 mod page_listener;
@@ -267,6 +270,7 @@ mod session_stream;
 mod split_kind;
 mod split_respawn;
 mod tab_column;
+mod tab_create_wire;
 mod tab_park;
 mod tab_restart;
 mod websocket_listener;
@@ -301,12 +305,16 @@ use group_outcome_json::{
 use split_respawn::{
     SplitRespawnRequest, frontend_shell, placement_spawn_options, shell_argv, split_tab,
 };
+mod agent_cli_hybrid;
 mod attach_output_coalesce;
 mod connection_wait;
 mod terminal_create;
 mod terminal_history;
 mod terminal_ports;
 mod terminal_resources;
+pub use agent_cli_hybrid::{
+    AGENT_CLI_HYBRID_CAPABILITY, AGENT_CLI_HYBRID_LEAN_CAPABILITY, TERMINAL_SHELL_LINES_CAPABILITY,
+};
 pub use attach_output_coalesce::ATTACH_OUTPUT_COALESCE_CAPABILITY;
 mod terminal_snapshot;
 use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_attach_overflow};
@@ -882,6 +890,15 @@ enum Command {
         headless: Option<bool>,
     },
     RemoteHostApp,
+    /// `cmux device setup|start` for the app (server/device_setup_command.rs).
+    DeviceSetup {
+        device: String,
+        verb: String,
+        #[serde(default)]
+        allow_agents: bool,
+        #[serde(default)]
+        dry_run: bool,
+    },
     SubscribeActivity,
     /// Private, connection-scoped guest-to-frontend OS browser opening.
     UrlOpenSubscribe {
@@ -1340,30 +1357,7 @@ enum Command {
         intent: crate::command_context::Intent,
     },
     /// New tab in a pane (default: the active pane).
-    NewTab {
-        #[serde(default)]
-        pane: Option<PaneId>,
-        #[serde(default)]
-        cwd: Option<String>,
-        /// Extra environment for the new terminal's child only.
-        #[serde(default)]
-        env: Option<BTreeMap<String, String>>,
-        /// Expected content size in cells (spawn-at-size avoids shell redraw artifacts).
-        #[serde(default)]
-        cols: Option<u16>,
-        #[serde(default)]
-        rows: Option<u16>,
-        /// Mark the new terminal `keep` so it survives with no tab.
-        #[serde(default)]
-        keep: bool,
-        /// Caller-chosen terminal host id (`terminal-placement-env-v1`).
-        #[serde(default)]
-        terminal_id: Option<String>,
-        /// `terminal-shell-args-v1`: arguments for the terminal's shell (its
-        /// `SHELL` in `env`, else the daemon's default shell).
-        #[serde(default)]
-        shell_args: Option<Vec<String>>,
-    },
+    NewTab(tab_create_wire::NewTabParams),
     NewConversationTab(conversation_tabs_wire::NewConversationTabParams),
     BindConversationTabSession(conversation_tabs_wire::BindSessionParams),
     /// New browser tab whose page the frontend renders (WebKit or CEF).
@@ -1931,6 +1925,8 @@ enum Command {
     SetRowHeights(rows::SetRowHeightsParams),
     /// Move a whole viewport column one place (`column-move-v1`).
     MoveColumn(column_move::MoveColumnParams),
+    /// `floating-panes-v1`: float a pane above the tiled layout, put it back, or move it.
+    FloatPane(floating_panes::FloatPaneParams),
     /// Drop a tab on the sidebar: a new workspace holding the tab.
     MoveTabToNewWorkspace {
         surface: SurfaceId,
@@ -2489,6 +2485,13 @@ enum Command {
         /// (`attach-replay-history-window-v1`); omitted, the newest rows.
         #[serde(default)]
         replay_history_start: Option<u64>,
+        /// Bytes mode, `agent-cli-hybrid-v1`: the hybrid stream (`agent-cli-frame`
+        /// `stream`) and its last frame this viewer applied, to resume from it
+        /// instead of a keyframe. Both or neither; ignored without the capability.
+        #[serde(default)]
+        hybrid_stream: Option<String>,
+        #[serde(default)]
+        hybrid_frame: Option<u64>,
         #[serde(flatten)]
         snapshot: terminal_snapshot::SnapshotAttachParams,
     },
@@ -3162,6 +3165,10 @@ mod agent_session_attach_tests;
 mod agent_session_start_phone_tests;
 
 #[cfg(all(test, unix))]
+#[path = "server/agent_session_credentials_tests.rs"]
+mod agent_session_credentials_tests;
+
+#[cfg(all(test, unix))]
 #[path = "server/cloud_mobile_capability_tests.rs"]
 mod cloud_mobile_capability_tests;
 
@@ -3190,6 +3197,10 @@ mod personal_tests;
 #[cfg(test)]
 #[path = "server/attach_output_coalesce_tests.rs"]
 mod attach_output_coalesce_tests;
+
+#[cfg(test)]
+#[path = "server/agent_cli_hybrid_tests.rs"]
+mod agent_cli_hybrid_tests;
 
 #[cfg(test)]
 #[path = "server/group_icon_raw_tests.rs"]

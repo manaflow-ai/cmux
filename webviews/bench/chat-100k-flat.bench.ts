@@ -19,7 +19,10 @@
 // row chat_100k_flat_ratio_max, target 1.2, the worse of ratio_max and grown_many.ratio_max). A CPU ratio is
 // taken over a floor of CPU_FLOOR_PCT (default 1 % of a core) on both sides, so two near-idle readings are not a ratio
 // of noise.
-// HIDDEN=0 keeps every chat shown. PROFILE=DIR writes CDP CPU profiles of the long x1 and grown x1 idle and streaming
+// HIDDEN=0 keeps every chat shown.
+// CASES=long-many runs only empty xN and long xN; with PROFILE it profiles every page of long xN. WAKES=1 also splits
+// each idle window's renderer CPU by thread, so a burst on V8's worker threads reads apart from steady idle, and
+// traces one hidden and the shown page of an xN launch. PROFILE=DIR writes CDP CPU profiles of the long x1 and grown x1 idle and streaming
 // windows.
 // WAKES=1 counts what wakes the renderers in each idle window, per second: the renderer threads' context switches
 // (/proc/PID/task/*/status), and on every page the timer and interval callbacks, animation frames, MessagePort posts
@@ -44,7 +47,7 @@ import type { CDPSession, Page } from "playwright";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 import { chromium } from "./browsers";
 import { newestPage } from "./daemonPage";
-import { describePaintWindow, paintWindow } from "./paintWindow";
+import { describePaintWindow, paintWindow, runningAnimations } from "./paintWindow";
 import { sourceMapper } from "./sourceMapper";
 import { perfRow } from "./perfRow";
 import { settledAt } from "./stability";
@@ -79,8 +82,8 @@ const SETTLE_PCT = Number(process.env.SETTLE_PCT ?? 2);
 const SETTLE_MAX_S = Number(process.env.SETTLE_MAX_S ?? 60);
 // A grown-many run's rows carry their own prefix: the perf cron stores them from a part of their own.
 const ROW = CASES === "grown-many" ? "chat_100k_flat.grown_many" : "chat_100k_flat";
-if (!["all", "main", "grown-many", "running"].includes(CASES)) {
-  console.error("chat-100k-flat: CASES is all, main, grown-many or running");
+if (!["all", "main", "grown-many", "running", "long-many"].includes(CASES)) {
+  console.error("chat-100k-flat: CASES is all, main, grown-many, running or long-many");
   process.exit(2);
 }
 const GROW_OPEN = process.env.GROW_OPEN === "1";
@@ -157,6 +160,29 @@ const median = (values: number[]) => {
 };
 const pssMB = (pid: number) =>
   Number(/^Pss:\s+(\d+) kB/m.exec(fs.readFileSync(`/proc/${pid}/smaps_rollup`, "utf8"))?.[1] ?? 0) / 1024;
+
+type CpuProfile = {
+  nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number; columnNumber: number } }[];
+  samples?: number[];
+  timeDeltas?: number[];
+};
+/// A CDP CPU profile's self time per site (function and source line, through the build's maps when there are any).
+function selfTimes(cpu: CpuProfile, sources?: (file: string, line: number, column: number) => string) {
+  const byId = new Map(cpu.nodes.map((node) => [node.id, node]));
+  const out = new Map<string, number>();
+  const samples = cpu.samples ?? [];
+  const deltas = cpu.timeDeltas ?? [];
+  for (let i = 0; i < samples.length; i++) {
+    const frame = byId.get(samples[i]!)?.callFrame;
+    if (!frame) continue;
+    const file = frame.url.split("/").pop() ?? "";
+    const where =
+      frame.url && sources ? sources(file, frame.lineNumber, frame.columnNumber) : `${file}:${frame.lineNumber + 1}`;
+    const site = `${frame.functionName || "(anonymous)"} ${frame.url ? where : ""}`.trim();
+    out.set(site, (out.get(site) ?? 0) + (deltas[i + 1] ?? 0) / 1000);
+  }
+  return out;
+}
 
 type Launch = { name: string; idlePct: number; streamPct: number; mb: number; renderers: number; settleS: number };
 
@@ -522,7 +548,10 @@ try {
       );
       for (const { page } of pages) await settledAt(page).catch(() => undefined);
       if (HIDDEN) {
-        // A chat tab that is not shown: its document turns hidden, as CEF's WasHidden makes it in the app.
+        // A chat tab that is not shown: its document turns hidden, as CEF's WasHidden makes it in the app. Only the
+        // document's state is faked: Chromium still draws these pages (40 main frames a second each, in the trace
+        // WAKES=1 takes), which the app's hidden pages do not. Minimizing each page's window does not hide it in
+        // headless Chromium (tried: 0 of 19 turned hidden), so the hidden pages' frame cost is still unmeasured here.
         for (const { page } of pages.slice(0, -1))
           await page.evaluate(() => {
             Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
@@ -568,12 +597,48 @@ try {
       };
       const idleWakes: (Wakes & { switches: number })[] = [];
       for (let round = 0; round < REPEAT; round++) {
-        if (profile && round === 0) {
-          await shownProfiler.send("Profiler.enable");
-          await shownProfiler.send("Profiler.start");
+        // A launch of many chats profiles every page (the hidden ones too), and names the sites that ran by their
+        // source, summed over the pages.
+        const profiled = profile && round === 0 ? (count > 1 ? pages.map((p) => p.cdp) : [shownProfiler]) : [];
+        for (const cdp of profiled) {
+          await cdp.send("Profiler.enable");
+          await cdp.send("Profiler.start");
         }
         const wakesFrom = WAKES ? { ...(await pageWakes()), switches: switches() } : undefined;
+        // WAKES=1: the renderers' CPU in the window by thread name (main, compositor, V8 workers, ...), so a cost that
+        // is not JavaScript (GC helpers, raster, IPC) is named too.
+        const threadTicks = () => {
+          const out = new Map<string, number>();
+          for (const pid of renderers(root)) {
+            let tasks: string[] = [];
+            try {
+              tasks = fs.readdirSync(`/proc/${pid}/task`);
+            } catch {
+              continue;
+            }
+            for (const task of tasks) {
+              try {
+                const comm = fs.readFileSync(`/proc/${pid}/task/${task}/comm`, "utf8").trim().replace(/\d+$/, "");
+                const stat = fs.readFileSync(`/proc/${pid}/task/${task}/stat`, "utf8");
+                const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+                out.set(comm, (out.get(comm) ?? 0) + Number(fields[11]) + Number(fields[12]));
+              } catch {
+                // Gone.
+              }
+            }
+          }
+          return out;
+        };
+        const threadsFrom = WAKES ? threadTicks() : undefined;
         idleWindows.push(await window(IDLE_S));
+        if (threadsFrom) {
+          const to = threadTicks();
+          const by = [...to]
+            .map(([comm, ticks]) => [comm, ((ticks - (threadsFrom.get(comm) ?? 0)) / TICK_HZ / IDLE_S) * 100] as const)
+            .filter(([, pct]) => pct > 0)
+            .sort((a, b) => b[1] - a[1]);
+          console.log(`  ${name}: idle cpu % by thread: ${by.map(([c, p]) => `${c} ${p.toFixed(1)}`).join(", ")}`);
+        }
         if (wakesFrom) {
           const switchesTo = switches();
           const to = await pageWakes();
@@ -585,10 +650,38 @@ try {
             mutations: (to.mutations - wakesFrom.mutations) / IDLE_S,
           });
         }
-        if (profile && round === 0) {
-          const { profile: cpu } = (await shownProfiler.send("Profiler.stop")) as { profile: unknown };
-          fs.mkdirSync(profile, { recursive: true });
-          fs.writeFileSync(path.join(profile, `${name}-idle.cpuprofile`), JSON.stringify(cpu));
+        if (profiled.length) {
+          fs.mkdirSync(profile!, { recursive: true });
+          const self = new Map<string, number>();
+          for (const [index, cdp] of profiled.entries()) {
+            const { profile: cpu } = (await cdp.send("Profiler.stop")) as { profile: CpuProfile };
+            const file = profiled.length > 1 ? `${name}-idle-${index}.cpuprofile` : `${name}-idle.cpuprofile`;
+            fs.writeFileSync(path.join(profile!, file), JSON.stringify(cpu));
+            for (const [site, ms] of selfTimes(cpu, sources)) self.set(site, (self.get(site) ?? 0) + ms);
+          }
+          const top = [...self].sort((a, b) => b[1] - a[1]).slice(0, 25);
+          console.log(`  ${name}: idle profile, self ms over ${profiled.length} page(s) in ${IDLE_S}s:`);
+          for (const [site, ms] of top) console.log(`    ${ms.toFixed(1).padStart(8)} ms  ${site}`);
+        }
+      }
+      // WAKES=1 in a launch of many chats: what each page draws while idle (a hidden one and the shown one traced),
+      // and every page's running animations, so work a hidden or off-screen page still does is named.
+      if (WAKES && count > 1) {
+        for (const [index, { page }] of pages.entries()) {
+          const running = await runningAnimations(page);
+          if (running.length)
+            console.log(
+              `  ${name}: page ${index}${index === count - 1 ? " (shown)" : " (hidden)"} runs ${running.length} animation(s): ` +
+                running
+                  .slice(0, 6)
+                  .map((a) => `${a.name} on ${a.target} [${a.properties.join(",")}]${a.onScreen ? "" : " off-screen"}`)
+                  .join("; "),
+            );
+        }
+        for (const index of [0, count - 1]) {
+          const { page, cdp } = pages[index]!;
+          const traced = await paintWindow(page, cdp, IDLE_S, sources);
+          console.log(describePaintWindow(`${name} page ${index} idle`, traced));
         }
       }
       const idlePct = median(idleWindows);
@@ -783,7 +876,7 @@ try {
   // each live takes about 28 minutes on a 4-vCPU runner, so the perf cron runs it as a part of its own); CASES=all
   // runs every case. The grown-many max is chat_100k_flat.grown_many.ratio_max, and the goal reads the worse of the two.
   const pairs: [string, Launch, Launch][] = [];
-  if (CASES !== "grown-many") {
+  if (CASES !== "grown-many" && CASES !== "long-many") {
     const emptyOne = await runLaunch("empty_x1", small, 1);
     if (CASES !== "running") {
       const longOne = await runLaunch("long_x1", long, 1, { profile: PROFILE });
@@ -797,8 +890,8 @@ try {
   }
   const emptyMany = CASES === "running" ? undefined : await runLaunch(`empty_x${CHATS}`, small, CHATS);
   if (emptyMany && CASES !== "grown-many")
-    pairs.push([`long_x${CHATS}`, await runLaunch(`long_x${CHATS}`, long, CHATS), emptyMany]);
-  if (emptyMany && CASES !== "main")
+    pairs.push([`long_x${CHATS}`, await runLaunch(`long_x${CHATS}`, long, CHATS, { profile: PROFILE }), emptyMany]);
+  if (emptyMany && CASES !== "main" && CASES !== "long-many")
     pairs.push([`grown_x${CHATS}`, await runLaunch(`grown_x${CHATS}`, small, CHATS, { grow: long.turns }), emptyMany]);
   const cpuRatio = (a: number, b: number) => Math.max(a, CPU_FLOOR_PCT) / Math.max(b, CPU_FLOOR_PCT);
   const ratios: [string, number][] = [];

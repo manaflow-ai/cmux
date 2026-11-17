@@ -16,6 +16,7 @@ import { onDisconnect, onGmailPush, runWatchWork, startWatchSafely, stopWatchWit
 import { createRevocationTable, drainRevocations, nextRevocationAt, takeCredentialForRevocation } from "./integrations/revocations.ts"
 import * as ghTokens from "./integrations/github-tokens.ts"
 import { githubConnectTarget, type GithubConnectTarget } from "./integrations/github-connect.ts"
+import { addListener, createListenerTable, githubChangeOf, GithubPushCoalescer, listeners, removeListener, type IntegrationChangedFrame } from "./integrations/github-push.ts"
 import { ProviderError, providerForOp, providers, scopesToRequest, type Credential, type Http } from "./integrations/providers.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
@@ -66,6 +67,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     createFallbackTable(sql)
     createApprovalTable(sql)
     ghTokens.createGithubTokenTable(sql)
+    createListenerTable(sql)
   }
 
   protected read(state: ConnectionsState, op: string, _params: unknown, principal: Principal): ReadResult {
@@ -584,11 +586,50 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     if (event.provider === "github" && event.event === "installation.deleted") {
       this.submitSystem("connection.status", { connection: c.id, status: "needs_reauth", detail: "the GitHub App was uninstalled" }, `status:${c.id}:uninstalled:${event.delivery_id}`)
     }
+    this.pushGithubChange(c, event)
     const scheduler = this.env.SCHEDULER_DO.get(this.env.SCHEDULER_DO.idFromName(entity))
     const ev = { connection: c.id, sharing: c.sharing, created_by: c.created_by, ...event }
     const r = (await scheduler.deliverEvent(entity, ev)) as { runs: number }
     // Chief jobs take the same events; a store failure propagates so the provider can retry the delivery.
     const chief = await chiefJobsEvent(this.env, entity, ev)
     return { status: "forwarded", runs: r.runs + chief }
+  }
+
+  /** GitHub changes for watching feed sockets (integrations/github-push.ts): coalesced per listener. */
+  private readonly githubPush = new GithubPushCoalescer({ send: (user, frame) => void this.sendGithubChange(user, frame) })
+
+  /** A pull request, review, check or status delivery tells each listener who may use `c` that its repo changed. */
+  private pushGithubChange(c: Connection, event: ProviderEvent): void {
+    const change = githubChangeOf(event)
+    if (!change) return
+    for (const user of listeners(this.ctx.storage.sql, Date.now())) if (mayUse(c, { identity: `user:${user}`, user })) this.githubPush.add(user, change)
+  }
+
+  private async sendGithubChange(user: string, frame: IntegrationChangedFrame): Promise<void> {
+    try {
+      const r = await this.env.FEED_DO.get(this.env.FEED_DO.idFromName(user)).integrationChanged(user, frame)
+      // No watching socket is left: forget the listener (its next connect registers it again).
+      if (r.delivered === 0) removeListener(this.ctx.storage.sql, user)
+    } catch (e) {
+      console.error(JSON.stringify({ msg: "github push failed", error: String(e).slice(0, 200) }))
+    }
+  }
+
+  /**
+   * RPC from FeedDO: `user`'s feed socket asked for GitHub changes (`integration.watch`). `live` says
+   * whether an active GitHub connection here that this user may use can push any: without one the
+   * client keeps its slow re-read.
+   */
+  async watchChanges(entity: string, user: string): Promise<{ live: boolean }> {
+    if (!this.isBound(entity)) return { live: false }
+    const state = this.bind(entity).currentState
+    addListener(this.ctx.storage.sql, user, Date.now())
+    const live = providerAllowed(policyOf(state), "github") && Object.values(state.connections).some((c) => c.provider === "github" && c.status === "active" && mayUse(c, { identity: `user:${user}`, user }))
+    return { live }
+  }
+
+  /** RPC from FeedDO: `user`'s last watching socket closed. */
+  async unwatchChanges(entity: string, user: string): Promise<void> {
+    if (this.isBound(entity)) removeListener(this.ctx.storage.sql, user)
   }
 }

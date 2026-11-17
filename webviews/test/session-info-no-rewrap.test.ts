@@ -17,6 +17,11 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane } from "./support/papercutChat";
+import {
+  SESSION_INFO,
+  SESSION_INFO_SHOWN,
+  SESSION_INFO_TOGGLE,
+} from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 await requireBrowserLane("session-info-no-rewrap.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -146,9 +151,9 @@ await requireBrowserLane("session-info-no-rewrap.test.ts", async () => {
               window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
             ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }),
           );
-          const toggle = page.locator("button.acpmux-session-info-toggle");
+          const toggle = page.locator(SESSION_INFO_TOGGLE);
           await toggle.waitFor({ timeout: 10_000 });
-          const panel = page.locator("aside.acpmux-session-info");
+          const panel = page.locator(SESSION_INFO);
           if ((await toggle.getAttribute("aria-pressed")) === "true") {
             await toggle.click();
             await panel.waitFor({ state: "detached", timeout: 10_000 });
@@ -156,7 +161,7 @@ await requireBrowserLane("session-info-no-rewrap.test.ts", async () => {
           await settle(page);
           await startSampling(page);
           await toggle.click();
-          await page.locator('aside.acpmux-session-info[data-presence="shown"]').waitFor({ timeout: 10_000 });
+          await page.locator(SESSION_INFO_SHOWN).waitFor({ timeout: 10_000 });
           await settle(page);
           const placement = await panel.getAttribute("data-placement");
           await toggle.click();

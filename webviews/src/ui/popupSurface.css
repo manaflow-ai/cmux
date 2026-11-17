@@ -165,12 +165,17 @@
    glass.css), as the native dialog card has (CmuxDialogCardSurface). A dialog's own class sets only its
    size and layout; its controls are the shared Button, Input and Select (ui/controls.css). Reduce
    Transparency: the opaque popup surface (glass.css applies --glass-opaque). */
+/* Concentric with its buttons (Lawrence 2026-11-15: "all dialogs needs concentric padding with buttons
+   inside"): a dialog's corner is the button corner plus the padding between its edge and its buttons, the
+   same padding on every side. A dialog whose padding is not the default sets --ui-dialog-padding on its
+   popup and pads with it (scripts/cmux-next/check-concentric-containers.py). */
 .ui-dialog.ui-glass {
+  --ui-dialog-padding: var(--ds-space-5);
   --glass-tint: var(--surface-sheet-veil);
   --glass-elevation: var(--elevation-2);
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
   --glass-opaque: var(--surface-popup);
-  border-radius: var(--surface-sheet-radius);
+  border-radius: calc(var(--ds-radius-control) + var(--ui-dialog-padding));
   background: var(--glass-tint);
 }
 

@@ -4,7 +4,7 @@ import Foundation
 import CmuxNextCompat
 import VideoToolbox
 
-/// One decoded picture: an IOSurface-backed NV12 pixel buffer (full range,
+/// One decoded picture: an IOSurface-backed NV12 pixel buffer (in the stream's range,
 /// Metal compatible) and the timing the presenter and stats need.
 public nonisolated struct RemoteDecodedFrame: @unchecked Sendable {
     // @unchecked: the pixel buffer is never written after the decoder
@@ -91,9 +91,9 @@ nonisolated final class RemoteVideoDecoder {
         isHardware = hardware
     }
 
-    private static func makeSession(format: CMVideoFormatDescription) throws(Failure) -> (VTDecompressionSession, Bool) {
+    static func makeSession(format: CMVideoFormatDescription) throws(Failure) -> (VTDecompressionSession, Bool) {
         let attributes: [CFString: Any] = [
-            kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+            kCVPixelBufferPixelFormatTypeKey: outputPixelFormat(for: format),
             kCVPixelBufferIOSurfacePropertiesKey: [:] as [String: Any],
             kCVPixelBufferMetalCompatibilityKey: true,
         ]
@@ -120,6 +120,45 @@ nonisolated final class RemoteVideoDecoder {
             return (created, query == noErr && (usingHardware as? Bool ?? false))
         }
         throw .sessionCreate(lastStatus)
+    }
+
+    /// NV12 in the stream's own range, so VideoToolbox hands back the decoded
+    /// buffer without a conversion pass. The Mac host encodes video range
+    /// (`420v`); asking for full range converted every frame. The renderer
+    /// reads either range.
+    static func outputPixelFormat(for format: CMVideoFormatDescription) -> OSType {
+        let fullRange = CMFormatDescriptionGetExtension(format, extensionKey: kCMFormatDescriptionExtension_FullRangeVideo)
+        return (fullRange as? Bool) == true
+            ? kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+            : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+    }
+}
+
+/// The first VTDecompressionSessionCreate in a process costs ~75 ms (later
+/// ones ~6 ms), and the first keyframe used to pay it. `start()` creates and
+/// drops one throwaway hardware session from built-in parameter sets while
+/// the stream connects, so the first frame's session create is the cheap one.
+public nonisolated struct RemoteDecoderPrewarm {
+    public nonisolated init() {}
+    /// A 128x128 constrained-baseline H.264 SPS and PPS (Annex-B payloads).
+    static let parameterSets: [[UInt8]] = [
+        [0x67, 0x42, 0xC0, 0x1E, 0xDA, 0x08, 0x11, 0x90],
+        [0x68, 0xCE, 0x3C, 0x80],
+    ]
+
+    /// Starts `run()` off the main thread; the caller never waits for it.
+    public static func start() {
+        // task-owner: one throwaway decoder create; it ends by itself and holds nothing
+        Task.detached(priority: .userInitiated) { _ = run() }
+    }
+
+    /// Creates and invalidates one decoder session; false when none could be made.
+    @discardableResult
+    static func run() -> Bool {
+        guard let format = RemoteVideoFormat.formatDescription(codec: .h264, parameterSets: parameterSets),
+              let made = try? RemoteVideoDecoder.makeSession(format: format) else { return false }
+        VTDecompressionSessionInvalidate(made.0)
+        return true
     }
 }
 

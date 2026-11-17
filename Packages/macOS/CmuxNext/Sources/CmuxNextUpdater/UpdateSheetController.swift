@@ -39,7 +39,8 @@ public final class UpdateSheetController {
         hosting.translatesAutoresizingMaskIntoConstraints = false
         // The solid popup surface, never glass: the update notes are text. The hosting view keeps
         // its constraints, so its fitting size still sizes the sheet.
-        let glass = Glass.makeOverlayPanel()
+        // Concentric with its buttons (UpdateSheetView pads them `Metrics.space6` in; Lawrence 2026-11-15).
+        let glass = Glass.makeOverlayPanel(cornerRadius: Metrics.buttonContainer(padding: Metrics.space6).outerRadius)
         glass.contentView.addSubview(hosting)
         NSLayoutConstraint.activate([
             hosting.leadingAnchor.constraint(equalTo: glass.contentView.leadingAnchor),
