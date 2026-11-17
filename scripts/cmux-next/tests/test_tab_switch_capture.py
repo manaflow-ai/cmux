@@ -73,6 +73,29 @@ class Preflight(unittest.TestCase):
         finally:
             cap.preflight.__defaults__ = (saved,)
 
+    def test_the_driver_gets_the_accounts_home_not_the_steps(self):
+        # A fleet step's HOME is <job>/home: cua-driver looks for its daemon's socket under HOME and exits without it.
+        import pwd
+        real = pwd.getpwuid(os.getuid()).pw_dir
+        env = cap.driver_env({"HOME": "/tmp/job/home", "CFFIXED_USER_HOME": "/tmp/job/home", "PATH": "/usr/bin"})
+        self.assertEqual(env["HOME"], real)
+        self.assertNotIn("CFFIXED_USER_HOME", env)
+        self.assertEqual(env["PATH"], "/usr/bin")
+        driver = fake_driver("answer")
+        with open(driver) as f:
+            body = f.read()
+        with open(driver, "w") as f:  # this fake dies the way cua-driver does under a step's HOME
+            f.write(body.replace("import json, sys\n", "import json, os, pwd, sys\n"
+                                 "if os.environ.get('HOME') != pwd.getpwuid(os.getuid()).pw_dir:\n"
+                                 "    sys.stderr.write('daemon did not appear on cua-driver.sock within 10s\\n')\n"
+                                 "    sys.exit(1)\n", 1))
+        saved = os.environ.get("HOME")
+        os.environ["HOME"] = tempfile.mkdtemp(prefix="tsw-step-home-")
+        try:
+            self.assertEqual(cap.preflight(driver)["screen_recording"], True)
+        finally:
+            os.environ["HOME"] = saved if saved is not None else real
+
     def test_no_driver_at_all(self):
         with self.assertRaisesRegex(cap.CaptureError, "no CuaDriver"):
             cap.preflight("/nonexistent/cua-driver")

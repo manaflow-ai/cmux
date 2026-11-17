@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import pwd
 import select
 import shutil
 import signal
@@ -33,6 +34,22 @@ import tab_switch_judge as judge  # noqa: E402
 
 CUA_DRIVER = "/Applications/CuaDriver.app/Contents/MacOS/cua-driver"
 ANSWER_SECONDS = 30.0
+
+
+def driver_env(environ=None):
+    """cua-driver's environment: the account's real HOME, never the step's.
+
+    A fleet step runs with HOME=<job>/home. Where `cua-driver mcp` holds no grant of its own (a step that hops in with
+    `launchctl asuser`), it proxies to the granted daemon at $HOME/Library/Caches/cua-driver/cua-driver.sock, which
+    under the step's HOME does not exist: it waits 10 s and exits ("closed during initialize" on every lent Mac,
+    2026-11-16; pr-capture's driver_env fixed the same failure on 11-04)."""
+    env = dict(os.environ if environ is None else environ)
+    try:
+        env["HOME"] = pwd.getpwuid(os.getuid()).pw_dir
+    except KeyError:
+        pass
+    env.pop("CFFIXED_USER_HOME", None)
+    return env
 
 
 class CaptureError(Exception):
@@ -111,7 +128,8 @@ class CuaSession:
         # must say why (2026-11-16: "closed during initialize" and nothing else).
         self.stderr = tempfile.TemporaryFile()
         self.process = subprocess.Popen([self.driver, "mcp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                        stderr=self.stderr, text=True, bufsize=1, start_new_session=True)
+                                        stderr=self.stderr, text=True, bufsize=1, start_new_session=True,
+                                        env=driver_env())
         self._send("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
                                   "clientInfo": {"name": "tab-switch", "version": "1"}})
         self._send("notifications/initialized", notify=True)
