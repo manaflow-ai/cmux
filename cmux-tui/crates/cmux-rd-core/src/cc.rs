@@ -110,8 +110,9 @@ pub fn outage_threshold_us(rtt_us: Option<u64>) -> u64 {
 }
 
 /// An outage's freeze ends at the first arrival of a datagram sent after it, or
-/// after this long at most.
-const OUTAGE_FREEZE_MAX_US: u64 = 1_000_000;
+/// after this long at most. The viewer's loss timers stand still for an
+/// outage for at most this long too ([`crate::link::ViewerLinkState`]).
+pub const OUTAGE_FREEZE_MAX_US: u64 = 1_000_000;
 /// One response window never cuts the target below this share of where it began.
 const CUT_FLOOR: f64 = 0.5;
 

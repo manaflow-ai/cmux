@@ -33,25 +33,17 @@ const ACK_RTT_WINDOW_US: u64 = 1_000_000;
 const ACK_RTT_SAMPLES: usize = 64;
 /// Datagrams resent per feedback, so a hostile feedback cannot amplify.
 pub const MAX_RESENDS_PER_FEEDBACK: usize = 64;
-/// The longest time between two forced recovery frames. The interval itself is
-/// sized from the round trip ([`MediaEngine::recovery_interval_us`]): a
-/// recovery frame answers every request sent before it arrived, which is one
-/// round trip of requests, so a second one sooner is wasted.
+/// Shortest time between two forced keyframes.
 pub const MIN_FORCED_IDR_INTERVAL_US: u64 = 250_000;
 /// How long a stream's newest frame may go unacknowledged before the host
 /// resends it (a tail-loss probe). On a datagram path a frame whose every
 /// datagram was lost leaves the viewer nothing to NACK and the gate nothing
 /// to open on; the probe recovers it. A received frame's resend is dropped by
-/// the viewer's reassembler. Not sized from the round trip
-/// ([`MediaEngine::tail_probe_us`]).
+/// the viewer's reassembler.
 pub const TAIL_PROBE_US: u64 = 250_000;
-/// What the round-trip-sized intervals add for turnaround and jitter (design
-/// D6: RTT + 10 ms).
-pub const RTT_MARGIN_US: u64 = 10_000;
-/// Frame intervals the round-trip-sized intervals never go under.
-pub const MIN_RTT_INTERVAL_FRAMES: u64 = 2;
 
-/// Frame acks needed before their smoothed round trip sizes the recovery timers.
+/// Frame acks needed before their smoothed round trip sizes the upstream
+/// (viewer input) NACK wait.
 pub const MIN_ACK_RTT_SAMPLES: u32 = 3;
 /// Probes before the host stops resending and starts over from a keyframe.
 pub const TAIL_PROBES: u32 = 3;
@@ -582,7 +574,7 @@ impl MediaEngine {
             .chain(self.streams.values().filter_map(|s| {
                 s.probe_from_us
                     .filter(|_| s.gate.in_flight() > 0)
-                    .map(|t| t.saturating_add(self.tail_probe_us()))
+                    .map(|t| t.saturating_add(TAIL_PROBE_US))
             }))
             .min()
     }
@@ -711,7 +703,6 @@ impl MediaEngine {
     /// Feedback of one stream: arrivals and loss feed the shared controller;
     /// NACKs, acks and recovery requests apply to that stream.
     fn on_feedback(&mut self, stream: u16, fb: &Feedback, now_us: u64, out: &mut Output) {
-        let recovery_interval_us = self.recovery_interval_us();
         let settled =
             self.loss_meter.on_arrivals(fb.arrivals.iter().map(|a| a.transport_seq), now_us);
         if let Some(lost) = settled {
@@ -762,7 +753,7 @@ impl MediaEngine {
         let mut action = state.gate.ack(fb.acked_frame, now_us);
         let idr_allowed = state
             .last_forced_idr_us
-            .is_none_or(|t| now_us.saturating_sub(t) >= recovery_interval_us);
+            .is_none_or(|t| now_us.saturating_sub(t) >= MIN_FORCED_IDR_INTERVAL_US);
         if fb.need_recovery && idr_allowed {
             state.last_forced_idr_us = Some(now_us);
             state.force_idr = Some(IdrReason::Recovery);
@@ -774,11 +765,10 @@ impl MediaEngine {
     }
 
     /// Tail-loss recovery: a stream whose newest frame has gone unacknowledged
-    /// for [`Self::tail_probe_us`] gets that frame resent, up to [`TAIL_PROBES`]
-    /// times; then the gate opens for a keyframe. An ack ends it (the gate has
-    /// nothing in flight), so a stream that is acknowledged never probes.
+    /// for [`TAIL_PROBE_US`] gets that frame resent, up to [`TAIL_PROBES`] times;
+    /// then the gate opens for a keyframe. An ack ends it (the gate has nothing
+    /// in flight), so a stream that is acknowledged never probes.
     fn probe_tails(&mut self, now_us: u64, out: &mut Output) {
-        let probe_us = self.tail_probe_us();
         let ids: Vec<u16> = self.streams.keys().copied().collect();
         for stream in ids {
             let Some(state) = self.streams.get_mut(&stream) else { continue };
@@ -787,7 +777,7 @@ impl MediaEngine {
                 continue;
             }
             let Some(from) = state.probe_from_us else { continue };
-            if now_us < from.saturating_add(probe_us) {
+            if now_us < from.saturating_add(TAIL_PROBE_US) {
                 continue;
             }
             if state.probes < TAIL_PROBES {
@@ -878,39 +868,18 @@ impl MediaEngine {
         self.ack_rtts.iter().map(|(_, rtt)| *rtt).min()
     }
 
-    /// The round trip the recovery intervals are sized from: the larger of
-    /// the carrier's path round trip and the smoothed frame-ack round trip
-    /// plus four times its variation (which also holds a frame's send and
-    /// the viewer's turnaround), once [`MIN_ACK_RTT_SAMPLES`] acks arrived.
+    /// The round trip the viewer-input (upstream) NACK wait is sized from: the
+    /// larger of the carrier's path round trip and the smoothed frame-ack
+    /// round trip plus four times its variation, once [`MIN_ACK_RTT_SAMPLES`]
+    /// acks arrived. The host's own recovery timers ([`TAIL_PROBE_US`],
+    /// [`MIN_FORCED_IDR_INTERVAL_US`]) stay fixed: sized from the round trip,
+    /// the tail probe fired inside 50-100 ms Wi-Fi holds and its resends and
+    /// keyframes burst out when the hold lifted (about +50 ms on slow presses).
     pub fn rtt_us(&self) -> Option<u64> {
         match (self.path_rtt_us, self.ack_rtt_smoothed.estimate_us(MIN_ACK_RTT_SAMPLES)) {
             (Some(a), Some(b)) => Some(a.max(b)),
             (a, b) => a.or(b),
         }
-    }
-
-    /// The shortest time between two forced recovery frames of one stream:
-    /// RTT + 10 ms (the requests one round trip sends before the recovery
-    /// frame lands are all answered by it), at least two frame intervals, at
-    /// most [`MIN_FORCED_IDR_INTERVAL_US`]; that ceiling until a round trip is known.
-    pub fn recovery_interval_us(&self) -> u64 {
-        self.rtt_sized(self.rtt_us(), MIN_FORCED_IDR_INTERVAL_US)
-    }
-
-    /// How long a stream's newest frame may go unacknowledged before it is
-    /// resent: [`TAIL_PROBE_US`], whatever the round trip. A round-trip-sized
-    /// probe fires inside every 50-100 ms Wi-Fi hold (the acks stop with the
-    /// data), so its resends, and the keyframe after [`TAIL_PROBES`] of them,
-    /// queue behind the hold and leave in one burst when it lifts; on the
-    /// wifi-away netem profile that added about 50 ms to slow presses.
-    pub fn tail_probe_us(&self) -> u64 {
-        TAIL_PROBE_US
-    }
-
-    fn rtt_sized(&self, wait_us: Option<u64>, ceiling_us: u64) -> u64 {
-        let interval_us = 1_000_000 / u64::from(self.cfg.max_fps.max(1));
-        let floor = interval_us.saturating_mul(MIN_RTT_INTERVAL_FRAMES).min(ceiling_us);
-        wait_us.map_or(ceiling_us, |w| w.saturating_add(RTT_MARGIN_US).clamp(floor, ceiling_us))
     }
 
     /// Answers a clock ping at once (receive and send time are the same call).

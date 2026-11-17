@@ -1,25 +1,13 @@
-//! What counts as a link outage (design D12, piece 0), for both ends.
+//! The viewer half of the link outage state (design D12, piece 0).
 //!
 //! A path that holds every datagram for a while and then delivers them in
 //! one burst (Wi-Fi away from the access point) is not losing them. The host
-//! sees the outage as silent feedback and must not cut its rate for it; the
-//! viewer sees it as a silent link and must not give frames up or ask for
-//! keyframes for it. Both ends use [`outage_threshold_us`], so they agree on
-//! when a silence is an outage.
+//! sees the outage as silent feedback and must not cut its rate for it
+//! ([`crate::cc`]); the viewer sees it as a silent link and must not give
+//! frames up or ask for keyframes for it. Both ends use
+//! [`outage_threshold_us`], so they agree on when a silence is an outage.
 
-/// The shortest silence that counts as an outage.
-pub const OUTAGE_MIN_US: u64 = 100_000;
-
-/// The longest an outage holds anything back: past this the link is treated
-/// as gone, not away.
-pub const OUTAGE_FREEZE_MAX_US: u64 = 1_000_000;
-
-/// How long a link may be silent before the silence is an outage:
-/// max([`OUTAGE_MIN_US`], 4 round trips); [`OUTAGE_MIN_US`] while no round
-/// trip is known.
-pub fn outage_threshold_us(rtt_us: Option<u64>) -> u64 {
-    rtt_us.map_or(OUTAGE_MIN_US, |rtt| rtt.saturating_mul(4).max(OUTAGE_MIN_US))
-}
+use crate::cc::outage_threshold_us;
 
 /// The viewer's half of the outage state: whether its link is up or away,
 /// from the arrivals of datagrams of any kind, and how long it has been

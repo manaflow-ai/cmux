@@ -553,7 +553,7 @@ fn a_hold_then_a_burst_completes_the_frame_in_flight_without_recovery() {
 /// A link that stays silent past the pause gives the frame up after all.
 #[test]
 fn a_silence_longer_than_the_pause_still_gives_the_frame_up() {
-    use cmux_rd_core::link::OUTAGE_FREEZE_MAX_US;
+    use cmux_rd_core::cc::OUTAGE_FREEZE_MAX_US;
     let mut p = Packetizer::new(0, 256);
     let mut r = Reassembler::new(200_000);
     r.set_path_rtt_us(Some(8_000));

@@ -18,8 +18,9 @@ use cmux_rd_proto::{
     flags,
 };
 
+use crate::cc::OUTAGE_FREEZE_MAX_US;
 use crate::fec;
-use crate::link::{OUTAGE_FREEZE_MAX_US, ViewerLinkState};
+use crate::link::ViewerLinkState;
 
 /// A frame ready to decode.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -250,7 +251,7 @@ impl Reassembler {
     }
 
     /// True while the link is away (silent past
-    /// [`crate::link::outage_threshold_us`]).
+    /// [`crate::cc::outage_threshold_us`]).
     pub fn link_away(&self, now_us: u64) -> bool {
         self.link.is_away(now_us, self.rtt_us())
     }
@@ -584,7 +585,7 @@ impl Reassembler {
 
     /// A give-up time `at` that fell inside the link's current silence waits
     /// until the silence is known to be an outage or not: an arrival before
-    /// the outage threshold ([`crate::link::outage_threshold_us`]) gives the
+    /// the outage threshold ([`crate::cc::outage_threshold_us`]) gives the
     /// frame up then, and past it the outage's time away holds its clock.
     fn silence_may_be_outage(&self, at: u64, now_us: u64) -> bool {
         let rtt = self.rtt_us();
