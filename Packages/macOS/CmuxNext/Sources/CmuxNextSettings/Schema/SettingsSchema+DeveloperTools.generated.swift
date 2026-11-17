@@ -24,7 +24,7 @@ nonisolated enum DeveloperToolsSettingsSchema {
                 section: .advanced,
                 group: group,
                 title: SettingsText.keyed("settings.developerTools.appPages", "Developer Tools for cmux Pages"),
-                help: SettingsText.keyed("settings.developerTools.appPages.help", "Inspect Element in the right-click menu and Toggle Developer Tools (⌥⌘I) work in agent chats, Home, Markdown and Settings. Browser tabs always have them."),
+                help: SettingsText.keyed("settings.developerTools.appPages.help", "Inspect Element and ⌥⌘I in chats, Home, Markdown and Settings."),
                 kind: .toggle,
                 default: .bool(AppPageDevToolsSetting.fallback),
                 keywords: ["developer", "devtools", "inspector", "web inspector", "inspect element", "chrome", "debug"]
@@ -41,7 +41,7 @@ nonisolated enum DeveloperToolsSettingsSchema {
                 section: .development,
                 group: group,
                 title: SettingsText.keyed("settings.internalDeveloperMode", "Internal Developer Mode"),
-                help: SettingsText.keyed("settings.internalDeveloperMode.help", "Shows the debug commands (playgrounds, Debug Settings, diagnostics) in the Command Palette as \"Debug: …\" rows. There is no Debug menu."),
+                help: SettingsText.keyed("settings.internalDeveloperMode.help", "Shows \"Debug: …\" commands in the Command Palette."),
                 kind: .toggle,
                 default: .bool(InternalDeveloperModeSetting.fallback),
                 keywords: ["developer", "internal", "debug", "developer mode", "playground", "command palette", "diagnostics"]

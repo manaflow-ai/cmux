@@ -253,6 +253,10 @@ impl Child {
     /// Wait at most `limit` for the child to end: its status, or `None` when
     /// it still runs. The wait is an event (macOS: kqueue `EVFILT_PROC`
     /// `NOTE_EXIT`; Linux: a pidfd), not a poll; `limit` only bounds it.
+    #[cfg_attr(
+        windows,
+        allow(unreachable_code, reason = "Windows' one arm returns wait-timeout's own answer")
+    )]
     pub fn wait_timeout(&mut self, limit: Duration) -> io::Result<Option<ExitStatus>> {
         drop(self.stdin.take());
         if let Some(status) = self.try_wait()? {
