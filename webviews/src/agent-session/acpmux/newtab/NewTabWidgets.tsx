@@ -56,16 +56,10 @@ export function useNewTabWidgets(injected?: PageClient | null) {
     if (!owner) return;
     owner.start();
     const stop = () => owner.stop();
-    // A page restored from the back/forward cache lists and mounts again.
-    const show = (event: Event) => {
-      if ((event as PageTransitionEvent).persisted) owner.start();
-    };
     // Native pane retirement can discard the document without unmounting React first.
     globalThis.addEventListener?.("pagehide", stop);
-    globalThis.addEventListener?.("pageshow", show);
     return () => {
       globalThis.removeEventListener?.("pagehide", stop);
-      globalThis.removeEventListener?.("pageshow", show);
       owner.stop();
     };
   }, [owner]);
