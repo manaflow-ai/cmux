@@ -19,14 +19,10 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
   const RUNNING: State[] = STATES.filter((state) => state !== "ended");
   const WIDTHS = [640, 420] as const;
   const HEIGHT = 420;
-  const ROW_IDS = [
-    "steady-prompt",
-    "working-steady-prompt",
-    "worked-steady-prompt",
-    "messageRun-steady-send",
-    "thinking-live",
-  ];
-  const headerId = (state: State) => (state === "ended" ? "worked-steady-prompt" : "working-steady-prompt");
+  const ROW_IDS = ["steady-prompt", "worked-steady-prompt", "messageRun-steady-send", "thinking-live"];
+  // One row from the turn's start to its end: the running "Working for" and the ended "Worked for"
+  // are the same row (one id, kind and element) in two phases.
+  const headerId = (_state: State) => "worked-steady-prompt";
 
   type Box = { top: number; height: number };
   type Measured = {
@@ -38,6 +34,11 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
     baseline: { label: number; preview: number; chipMid: number; lineMid: number } | null;
     /** `.cv-worked__label-time` widths: as rendered, then with each substituted text. */
     timer: { text: string; width: number }[] | null;
+    /** The header row's kind class and its chevron's slot (there, hidden or not, in every state). */
+    headerKind: string | null;
+    chevron: { left: number; width: number } | null;
+    /** The prompt's sender mark: one fixed box, whatever picture comes. */
+    mark: { width: number; height: number } | null;
   };
 
   let server: Awaited<ReturnType<typeof import("vite").createServer>>;
@@ -123,7 +124,15 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
                 lineMid: line.top + line.height / 2,
               }
             : null;
-        return { rows, worked, baseline };
+        const headerRow = document.querySelector<HTMLElement>(`[data-row-id="${header}"]`);
+        const headerKind = headerRow
+          ? ([...headerRow.classList].find((name) => /^acpmux-(worked|working)$/.test(name)) ?? null)
+          : null;
+        const chevronBox = headerRow?.querySelector(".cv-worked__chevron")?.getBoundingClientRect();
+        const chevron = chevronBox ? { left: chevronBox.left, width: chevronBox.width } : null;
+        const markBox = prompt?.querySelector(".cv-received__mark")?.getBoundingClientRect();
+        const mark = markBox ? { width: markBox.width, height: markBox.height } : null;
+        return { rows, worked, baseline, headerKind, chevron, mark };
       },
       { header: headerId(state) },
     );
@@ -226,6 +235,21 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
         "header .cv-worked",
         STATES.map((state) => [state, all.get(state)!.worked]),
       );
+      // One kind in every state, and the chevron's slot held from the start, in one place.
+      for (const state of STATES) {
+        const m = all.get(state)!;
+        if (m.headerKind !== "acpmux-worked") failures.push(`header kind in ${state}: ${m.headerKind}`);
+        if (!m.chevron) failures.push(`header chevron slot: missing in ${state}`);
+      }
+      const chevrons = STATES.flatMap((state) => {
+        const c = all.get(state)!.chevron;
+        return c ? [[state, c] as const] : [];
+      });
+      for (const [state, c] of chevrons.slice(1))
+        if (Math.abs(c.left - chevrons[0]![1].left) > 0.5 || Math.abs(c.width - chevrons[0]![1].width) > 0.5)
+          failures.push(
+            `header chevron: left ${fmt(c.left)} in ${state} vs ${fmt(chevrons[0]![1].left)} in ${chevrons[0]![0]}`,
+          );
       settle(all, width, failures);
     });
 
@@ -276,6 +300,11 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
         if (Math.abs(b.chipMid - b.lineMid) > 1)
           failures.push(`chip centre in ${state}: ${fmt(b.chipMid)} vs line centre ${fmt(b.lineMid)}`);
       }
+      // The sender's mark is one fixed box in every state, so a picture that comes later swaps in place.
+      const marks = RUNNING.map((state) => [state, all.get(state)!.mark] as const);
+      for (const [state, m] of marks)
+        if (!m || Math.abs(m.width - marks[0]![1]!.width) > 0.5 || Math.abs(m.height - marks[0]![1]!.height) > 0.5)
+          failures.push(`sender mark in ${state}: ${m ? `${fmt(m.width)}x${fmt(m.height)}` : "missing"}`);
       settle(all, width, failures);
     });
 
