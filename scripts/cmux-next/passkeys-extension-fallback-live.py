@@ -7,8 +7,7 @@
 Launches the tagged DEV app (activated: page focus is part of the check) with the probe extension in
 tests/passkeys/extension-fallback/extension, which works the way Bitwarden does: it wraps
 navigator.credentials.get, opens a chrome.windows.create popout and falls back to the browser's own get
-when chrome.windows.onRemoved fires for that window; its content script holds a port to the service
-worker, and each worker start injects the scripts again. The page (tests/passkeys/extension-fallback/
+when chrome.windows.onRemoved fires for that window. The page (tests/passkeys/extension-fallback/
 page.html, served on localhost) registers a credential on a DevTools virtual authenticator first
 (`debug.cef.devtools`, Debug builds), so the get completes with no Touch ID.
 
@@ -47,6 +46,9 @@ parser.add_argument("--neighbors", type=int, default=None, help="browser.keepNei
 parser.add_argument("--in-home", action="store_true", help="open the page in Home, beside its agent page (a cmux page)")
 parser.add_argument("--cycles", type=int, default=1, help="sw-restart: hide and show the tab this many times")
 opts = parser.parse_args()
+if opts.scenario == "sw-restart" and not opts.extension:
+    parser.error("--scenario sw-restart needs --extension: the probe extension holds no port and injects nothing "
+                 "again, so it cannot show a lost disconnect")
 os.makedirs(opts.out, exist_ok=True)
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../tests/passkeys/extension-fallback"))
 APP = os.path.abspath(opts.app)
