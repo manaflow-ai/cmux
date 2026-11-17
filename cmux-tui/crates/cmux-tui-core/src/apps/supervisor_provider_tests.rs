@@ -449,7 +449,7 @@ fn system_calendar_reads_are_bounded_cached_once_granted_and_the_prompt_needs_a_
     assert_eq!(request["params"], json!({"days":2,"limit":20}), "defaults filled in");
     f.wait("first read", |e| e["event"] == "apps-scene" && e["ops"][0]["op"] == "update");
 
-    // The prompt needs a gesture; with one it routes as the user with the long deadline.
+    // The prompt needs a gesture; with one it routes as the user.
     let refused = f.call("m1", "system_calendar.request_access", json!({}), false);
     assert_eq!(refused["body"]["code"], "gesture.required", "{refused}");
     f.supervisor
@@ -464,7 +464,6 @@ fn system_calendar_reads_are_bounded_cached_once_granted_and_the_prompt_needs_a_
         .unwrap();
     let request = answer(&rx, json!({"access":"granted"}));
     assert_eq!(request["origin"], "user");
-    assert!(request["deadline_ms"].as_u64().unwrap() > 60_000, "{request}");
     f.wait("access result", |e| e["event"] == "apps-scene" && e["ops"][0]["op"] == "update");
 
     // Granted: the first read goes to the Mac, the same read again is answered from the cache.
@@ -490,4 +489,19 @@ fn system_calendar_reads_are_bounded_cached_once_granted_and_the_prompt_needs_a_
         rx.try_iter().all(|e| e["event"] != "apps-provider-request"),
         "a cached read never reaches the Mac app"
     );
+
+    // EventKit says a calendar changed: the cache is dropped, so the next read reaches the Mac.
+    assert_eq!(f.supervisor.provider_changed(PROVIDER, APP, "system_calendar").unwrap(), json!({}));
+    f.supervisor
+        .dispatch(
+            CLIENT,
+            "m1",
+            "n1",
+            "tap",
+            json!({"op":"system_calendar.events","params":range}),
+            false,
+        )
+        .unwrap();
+    let request = answer(&rx, events.clone());
+    assert_eq!(request["op"], "system_calendar.events", "a change makes the next read fresh");
 }

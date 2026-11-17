@@ -16,7 +16,9 @@
 //! Granted answers are cached for [`CACHE_TTL`] by their normalized params, so
 //! every calendar widget on New Tab and in the sidebar of every window, each
 //! on its own tick, costs one EventKit read per window of time. An access
-//! answer clears the cache. Not-granted answers are never cached: the first
+//! answer and a `system_calendar.changed` from the Mac app (EventKit's
+//! EKEventStoreChanged, `cmux.watch("system_calendar.events")`) clear the
+//! cache. Not-granted answers are never cached: the first
 //! read after the person allows access sees the events.
 
 use std::collections::VecDeque;
@@ -108,6 +110,11 @@ impl Cache {
     pub fn hit(&mut self, key: &str, now: Instant) -> Option<Value> {
         self.entries.retain(|(_, at, _)| now.duration_since(*at) < CACHE_TTL);
         self.entries.iter().find(|(k, _, _)| k == key).map(|(_, _, body)| body.clone())
+    }
+
+    /// Forgets every answer: the calendar changed (`system_calendar.changed`).
+    pub fn clear(&mut self) {
+        self.entries.clear();
     }
 
     /// Records a provider answer: a granted events answer is kept, an access
