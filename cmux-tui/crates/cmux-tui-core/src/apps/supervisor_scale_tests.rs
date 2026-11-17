@@ -7,9 +7,11 @@
 //!
 //! The timing sweep runs only when asked: `CMUX_APPS_SCALE_BENCH=1`, or a
 //! plain `cargo test` whose filter names `scale_bench`. It prints one
-//! `APPS-SCALE-BENCH` JSON line per scenario and size. The constant-cost
-//! tests below it count work (packages validated, folders and bytes hashed,
-//! package files read) rather than time, and always run.
+//! `APPS-SCALE-BENCH` JSON line per scenario and size. The save sweeps are a
+//! measurement here; the reload pass's own cost and its counted test belong
+//! to `supervisor_local_reload_tests.rs` (cmux#44991). The constant-cost
+//! tests below count work (package files read, refusals) rather than time,
+//! and always run.
 
 use super::super::catalog::work::{self, Work};
 use super::under_load::{ListProbe, Samples};
@@ -40,8 +42,6 @@ fn work_json(work: Work) -> Value {
     json!({
         "validated": work.packages_validated,
         "file_reads": work.package_file_reads,
-        "folders_hashed": work.folders_hashed,
-        "bytes_hashed": work.bytes_hashed,
     })
 }
 
@@ -403,68 +403,6 @@ fn scale_bench() {
 }
 
 // MARK: constant cost, counted
-
-/// Lets the passes on this thread treat every file written so far as
-/// settled (`local_reload::test_clock`): a fingerprint cache may then keep
-/// the prints of the folders that did not change, as it would for files
-/// saved a while ago.
-fn settle() {
-    super::super::local_reload::test_clock::advance(Duration::from_secs(3600));
-}
-
-/// One save's pass with `n` local extensions: its work.
-fn one_save_work(n: usize, asset: usize) -> Work {
-    let f = fixture();
-    add_extensions(&f, n, asset);
-    f.supervisor.reload_local_apps_now();
-    settle();
-    // Twice: the first pass after the clock moved may take new prints.
-    f.supervisor.reload_local_apps_now();
-    f.supervisor.reload_local_apps_now();
-    save(&local(&f).join("spy"), "1.0.1", "renderAgain");
-    let (answer, work) = work::of(|| f.supervisor.reload_local_apps_now());
-    assert_eq!(answer["safeMode"], false);
-    assert_eq!(app_entry(&f.supervisor.list(), "local/spy")["version"], "1.0.1", "n {n}");
-    work
-}
-
-/// A save of one extension reads and validates only that extension, and
-/// hashes only its files, however many others are installed (base red:
-/// every pass fingerprinted every local package, up to 4 MiB each, and
-/// read and validated every package in every source, so a save with 50
-/// others cost 50 times one).
-#[test]
-fn a_save_reads_only_the_saved_extension() {
-    let one = one_save_work(1, 64 << 10);
-    let fifty = one_save_work(50, 64 << 10);
-    assert!(
-        fifty.packages_validated <= one.packages_validated,
-        "packages validated per save: 1 extension {one:?}, 50 extensions {fifty:?}"
-    );
-    assert!(
-        fifty.bytes_hashed <= one.bytes_hashed,
-        "bytes hashed per save: 1 extension {one:?}, 50 extensions {fifty:?}"
-    );
-    assert!(
-        fifty.folders_hashed <= one.folders_hashed,
-        "folders hashed per save: 1 extension {one:?}, 50 extensions {fifty:?}"
-    );
-}
-
-/// A pass with nothing saved validates no local package again and hashes
-/// no settled file.
-#[test]
-fn a_pass_with_nothing_saved_reads_no_local_package() {
-    let f = fixture();
-    add_extensions(&f, 20, 0);
-    f.supervisor.reload_local_apps_now();
-    settle();
-    f.supervisor.reload_local_apps_now();
-    let (_, work) = work::of(|| f.supervisor.reload_local_apps_now());
-    assert_eq!(work.bytes_hashed, 0, "{work:?}");
-    // The bundled sample (`cmux/demo`) is shipped, not local: at most it.
-    assert!(work.packages_validated <= 1, "{work:?}");
-}
 
 /// `apps-list` reads no package file: its palette commands come from the
 /// catalog fragment read when the package loaded (base red: every list

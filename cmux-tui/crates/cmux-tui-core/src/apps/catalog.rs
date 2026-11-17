@@ -404,7 +404,8 @@ pub fn manifest_file(dir: &Path, first_party_dir: bool) -> &'static str {
 }
 
 /// Work counters for the constant-cost tests (`supervisor_scale_tests.rs`):
-/// what a reload pass or an `apps-list` read, on the calling thread.
+/// the packages a reload pass validated and the package files an
+/// `apps-list` read, on the calling thread.
 #[cfg(test)]
 pub(super) mod work {
     use std::cell::Cell;
@@ -415,10 +416,6 @@ pub(super) mod work {
         pub packages_validated: usize,
         /// Files read through `Package::read` (fragments, scripts, strings).
         pub package_file_reads: usize,
-        /// Package folders fingerprinted by hashing their files.
-        pub folders_hashed: usize,
-        /// File bytes hashed for fingerprints.
-        pub bytes_hashed: u64,
     }
 
     thread_local! {
