@@ -427,9 +427,25 @@ jobs:
             echo "::group::replay ${#names[@]} failing test(s) on the merge parent ${BASE_SHA:0:12}"
             # The scope step fetched the merge parent; its build shares this target dir.
             if git worktree add --detach "$RUNNER_TEMP/acpmux-base" "$BASE_SHA"; then
+              # A test target the change adds is not on the merge parent, and cargo refuses the
+              # whole run for one unknown `--test`: every red then read as the change's own
+              # (#45327, which adds tests/permission_matrix.rs). The replay names only targets
+              # the parent has.
+              base_suites=()
+              for ((i = 0; i < ${#suites[@]}; i++)); do
+                if [[ "${suites[i]}" != --test ]]; then
+                  base_suites+=("${suites[i]}")
+                  continue
+                fi
+                i=$((i + 1))
+                if compgen -G "$RUNNER_TEMP/acpmux-base/cmux-tui/crates/*/tests/${suites[i]}.rs" ||
+                  compgen -G "$RUNNER_TEMP/acpmux-base/cmux-tui/crates/*/tests/${suites[i]}/main.rs"; then
+                  base_suites+=(--test "${suites[i]}")
+                fi > /dev/null
+              done
               (cd "$RUNNER_TEMP/acpmux-base/cmux-tui" &&
                 CARGO_TARGET_DIR="$GITHUB_WORKSPACE/cmux-tui/target" \
-                  cargo test "${suites[@]}" -- --exact "${names[@]}") > "$base_log" 2>&1 || true
+                  cargo test "${base_suites[@]}" -- --exact "${names[@]}") > "$base_log" 2>&1 || true
             fi
             cat "$base_log" 2>/dev/null || true
             echo "::endgroup::"
