@@ -363,6 +363,22 @@ class RescueTests(unittest.TestCase):
         self.assertEqual(github.opened(), 1)
         self.assertTrue(any("could not start run 11's rescue" in line for line in lines), lines)
 
+    def test_a_run_with_its_own_requested_watch_or_a_later_attempt_gets_no_dispatch(self) -> None:
+        # A dispatch shares owned-pool-rescue-RUN-ATTEMPT with a nightly's own watch and would cancel it; the watch
+        # path watches attempt 1 only.
+        runs = [{"id": 11, "path": ".github/workflows/nightly.yml"}, {"id": 12, "path": ".github/workflows/ci.yml"},
+                {"id": 13, "path": ".github/workflows/test-ios.yml"}]
+        later = self.stuck_ios(12, 200)
+        later["run_attempt"] = 2
+        jobs = {11: [self.stuck_ios(11, 231)], 12: [later], 13: [self.stuck_ios(13, 100)]}
+        found = starved_labels.starved(runs, jobs, now=NOW)
+        self.assertEqual(found[0]["runs"], [[13, 1]])
+
+    def test_the_request_watched_paths_match_the_rescue_workflow(self) -> None:
+        workflow = yaml.safe_load((ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text(encoding="utf-8"))
+        sources = set(workflow["env"]["SOURCE_WORKFLOW_PATHS"].split())
+        self.assertEqual(starved_labels.REQUEST_WATCHED_PATHS, sources - {".github/workflows/cmux-next.yml"})
+
     def test_the_sweep_caps_its_dispatches(self) -> None:
         runs = [{"id": n} for n in range(20, 40)]
         jobs = {n: [self.stuck_ios(n, 100 + n)] for n in range(20, 40)}

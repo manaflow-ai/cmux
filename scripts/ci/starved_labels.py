@@ -71,9 +71,16 @@ ISSUE_PREFIX = "Runner label starved: "
 ISSUE_LABEL = "ci-runner-starved"
 # A run stuck this long on a starved label gets its rescue started (rescue_plan()).
 RESCUE_AFTER = dt.timedelta(minutes=30)
-# A run's watch lasts at most 150 minutes plus 40 to settle (ci-owned-pool-rescue.yml); a dispatch sooner would
-# cancel it, since one run's watches share a concurrency group with cancel-in-progress.
-RESCUE_REPEAT = dt.timedelta(minutes=200)
+# A run's watch job runs at most 195 minutes (owned_pool_rescue.JOB_TIMEOUT_SECONDS: 150 watching, 40 to settle, 5
+# margin), plus its own start; a dispatch sooner would cancel it, since one run's watches share a concurrency group
+# (owned-pool-rescue-RUN-ATTEMPT) with cancel-in-progress.
+RESCUE_REPEAT = dt.timedelta(minutes=210)
+# The sources ci-owned-pool-rescue.yml watches on their own `workflow_run: requested` event, in that same group: a
+# dispatch for one of their runs would cancel that watch (perhaps between its cancel and its re-run, leaving a nightly
+# cancelled), so the alert never starts one for them. cmux-next.yml is listed there for `completed` only, whose group
+# has its own suffix. A test keeps this equal to the workflow's SOURCE_WORKFLOW_PATHS less cmux-next.yml.
+REQUEST_WATCHED_PATHS = frozenset({".github/workflows/ios-screenshots.yml", ".github/workflows/nightly.yml",
+                                   ".github/workflows/cmux-next-dev-daily.yml"})
 RESCUE_RUNS_PER_SWEEP = 6
 RESCUE_WORKFLOW = "ci-owned-pool-rescue.yml"
 # The runs whose rescue this alert started, and when, in the issue body: <!-- starved-rescue: RUN@ISO ... -->.
@@ -195,6 +202,7 @@ def starved(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, Sequenc
             evidence: Mapping[int, Sequence[Mapping[str, Any]]] | None = None) -> list[dict[str, Any]]:
     """The fleet labels with a job queued past `after` and none running or started within it."""
     found = []
+    path_of = {run.get("id"): str(run.get("path") or "") for run in runs}
     for key, entries in _unserved_queues(runs, jobs_by_run, now=now, after=after, evidence=evidence).items():
         bound = {False: after, True: max(after, STARVED_GATED_AFTER)}
         ready = [(job, wait[0]) for job, wait in entries if wait is not None and now - wait[0] >= bound[wait[1]]]
@@ -202,15 +210,18 @@ def starved(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, Sequenc
             continue
         oldest, since = min(ready, key=lambda entry: entry[1])
         age = now - since
-        # The runs stuck past RESCUE_AFTER, oldest wait first: the ones rescue_plan() may start a rescue for.
-        runs: list[list[int]] = []
+        # The runs stuck past RESCUE_AFTER, oldest wait first, that rescue_plan() may start a rescue for: attempt 1
+        # (the watch reads the run's live attempt and watches attempt 1 only, owned_pool_rescue.target_from_event()),
+        # and no workflow whose own workflow_run watch holds that run's group (REQUEST_WATCHED_PATHS).
+        rescuable: list[list[int]] = []
         for job, at in sorted(ready, key=lambda entry: entry[1]):
             got = run_of(job)
-            if got and list(got) not in runs and now - at >= RESCUE_AFTER:
-                runs.append(list(got))
+            if (got and got[1] == 1 and list(got) not in rescuable and now - at >= RESCUE_AFTER
+                    and path_of.get(got[0]) not in REQUEST_WATCHED_PATHS):
+                rescuable.append(list(got))
         found.append({"label": key, "oldest_queued_minutes": int(age.total_seconds() // 60), "queued": len(entries),
                       "job": str(oldest.get("name") or ""), "job_url": str(oldest.get("html_url") or ""),
-                      "runs": runs})
+                      "runs": rescuable})
     return found
 
 
