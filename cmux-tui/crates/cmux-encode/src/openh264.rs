@@ -185,6 +185,8 @@ pub struct OpenH264 {
     /// The instance codes with screen usage now (else camera usage).
     screen: bool,
     motion: MotionGuard,
+    /// Frame dropping is paused until this picture time (µs) after a keyframe.
+    skip_paused_until: Option<i64>,
 }
 
 /// Screen usage turns OpenH264's scene-change detection on whatever the settings say
@@ -198,6 +200,18 @@ pub struct OpenH264 {
 /// that changed less than [`CALM_CHANGE`] move it back. A move rebuilds the encoder, so its
 /// next frame is an IDR. One page flip or a scroll stays in screen usage.
 pub const MOTION_CHANGE: f32 = 0.5;
+/// The QP range screen usage codes in when the options name none. OpenH264's own screen range is
+/// 26-35, and its screen rate control pins a P frame's base QP at the minimum
+/// (WelRcPictureInitScc, v2.6.0: `WELS_CLIP3 (iBaseQp, iMinQp, iMinQp)`), so dropping frames is
+/// its only way to hold the bitrate. A higher floor makes each frame cheaper.
+pub const SCREEN_MIN_QP: u8 = 34;
+pub const SCREEN_MAX_QP: u8 = 42;
+/// How long frame dropping pauses after a keyframe, in picture time (µs). The screen rate control
+/// lets an I frame spend two seconds of the bitrate (WelRcPictureInitScc), then drops every frame
+/// while its buffer holds over half a second: a share's first keyframe at the 8 Mbit/s start
+/// rate dropped the next ~260 ms of frames, so the first key presses of every share waited
+/// 55-290 ms for one. Paused, those frames code; after it, dropping holds the target again.
+pub const KEYFRAME_SKIP_PAUSE_US: i64 = 2_000_000;
 pub const CALM_CHANGE: f32 = 0.25;
 pub const CALM_FRAMES_TO_SCREEN: u32 = 30;
 /// Luma rows and columns between samples of the change check.
@@ -387,6 +401,7 @@ impl OpenH264 {
             opts: opts.clone(),
             screen: cfg.screen_content && opts.usage != Usage::Camera,
             motion: MotionGuard::default(),
+            skip_paused_until: None,
         };
         this.rebuild(this.screen)?;
         Ok(this)
@@ -419,6 +434,8 @@ impl OpenH264 {
         self.motion.self_idr = false;
         self.motion.fresh = true;
         self.motion.calm = 0;
+        // A new instance starts with the configured frame dropping.
+        self.skip_paused_until = None;
         // SAFETY: plain version query.
         let v = unsafe { self.api.0.WelsGetCodecVersion() };
         self.name = format!(
@@ -470,6 +487,16 @@ impl OpenH264 {
         self.motion.calm = if changed < CALM_CHANGE { self.motion.calm + 1 } else { 0 };
         if self.motion.calm >= CALM_FRAMES_TO_SCREEN {
             let _ = self.rebuild(true);
+        }
+    }
+
+    /// Turns OpenH264's frame dropping on or off on the live instance (see [`KEYFRAME_SKIP_PAUSE_US`]).
+    fn set_frame_skip(&mut self, on: bool) {
+        let Some(set) = self.vtbl().SetOption else { return };
+        let mut value = on;
+        // SAFETY: a live encoder; the option's payload is a bool.
+        unsafe {
+            set(self.enc, ENCODER_OPTION_RC_FRAME_SKIP, (&mut value as *mut bool).cast::<c_void>());
         }
     }
 
@@ -530,10 +557,15 @@ unsafe fn init(
     p.bEnableDenoise = false;
     p.bEnableBackgroundDetection = opts.background_detection;
     p.bEnableAdaptiveQuant = opts.adaptive_quant;
-    if let Some(q) = opts.min_qp {
+    let (min_qp, max_qp) = if screen {
+        (Some(opts.min_qp.unwrap_or(SCREEN_MIN_QP)), Some(opts.max_qp.unwrap_or(SCREEN_MAX_QP)))
+    } else {
+        (opts.min_qp, opts.max_qp)
+    };
+    if let Some(q) = min_qp {
         p.iMinQp = c_int::from(q);
     }
-    if let Some(q) = opts.max_qp {
+    if let Some(q) = max_qp {
         p.iMaxQp = c_int::from(q);
     }
     p.bEnableSceneChangeDetect = false;
@@ -636,7 +668,16 @@ impl OpenH264 {
 impl H264Encoder for OpenH264 {
     fn encode(&mut self, pic: &I420, force_idr: bool, pts: i64, out: &mut Vec<u8>) -> Res<bool> {
         self.pick_usage(pic);
-        self.encode_now(pic, force_idr, pts, out)
+        if self.skip_paused_until.is_some_and(|until| pts >= until) {
+            self.set_frame_skip(true);
+            self.skip_paused_until = None;
+        }
+        let idr = self.encode_now(pic, force_idr, pts, out)?;
+        if idr && self.opts.frame_skip {
+            self.set_frame_skip(false);
+            self.skip_paused_until = Some(pts.saturating_add(KEYFRAME_SKIP_PAUSE_US));
+        }
+        Ok(idr)
     }
 
     fn set_bitrate(&mut self, kbps: u32) {
