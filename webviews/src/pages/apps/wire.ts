@@ -7,6 +7,7 @@ import {
   type AppContribution,
   type AppDeploy,
   type AppDetail,
+  type AppGitSource,
   type AppInstance,
   type AppIconRef,
   type AppSource,
@@ -33,7 +34,16 @@ export interface WireInstallState {
 
 export type WireIcon = { asset: string } | { symbol: string } | null;
 
-export interface WireListing {
+/** Where an app installed from git came from; every field absent for any other app. */
+export interface WireGitSource {
+  repository?: string;
+  path?: string;
+  ref?: string;
+  commit?: string;
+  tag?: string;
+}
+
+export interface WireListing extends WireGitSource {
   app: string;
   name: string;
   summary: string;
@@ -65,7 +75,7 @@ export interface WireCatalogPage {
   revision: number;
 }
 
-export interface WireInstalledApp {
+export interface WireInstalledApp extends WireGitSource {
   app: string;
   name: string;
   tier: AppTier;
@@ -118,7 +128,18 @@ export function fromListing(listing: WireListing): CatalogApp {
     enabled: listing.install?.enabled,
     hidden: listing.install?.hidden,
     hide_only: listing.hide_only,
+    ...gitSourceFrom(listing),
   };
+}
+
+/** The git source fields that are non-empty strings; none for an app that did not come from git. */
+function gitSourceFrom(row: WireGitSource): AppGitSource {
+  const source: AppGitSource = {};
+  for (const key of ["repository", "path", "commit", "tag"] as const) {
+    const value = row[key];
+    if (typeof value === "string" && value !== "") source[key] = value;
+  }
+  return source;
 }
 
 function wireIcon(icon: WireIcon): AppIconRef | undefined {
@@ -182,6 +203,7 @@ export function fromInstalled(row: WireInstalledApp): InstalledApp {
     update: row.state.update ?? undefined,
     failure: row.state.failure ?? undefined,
     instance: instanceFrom(row.instance),
+    ...gitSourceFrom(row),
   };
 }
 

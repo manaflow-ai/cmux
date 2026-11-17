@@ -241,6 +241,9 @@ pub struct Catalog {
     pub defaults: Vec<String>,
     /// Packages that failed validation: (directory, first issue).
     pub rejected: Vec<(PathBuf, String)>,
+    /// Where each app installed from a git repository came from
+    /// (`git_source.rs`), by app id.
+    pub git: BTreeMap<String, super::git_source::GitSource>,
 }
 
 /// Where packages come from.
@@ -316,11 +319,13 @@ pub fn customize_dir() -> Option<PathBuf> {
 pub const CUSTOMIZE_APP: &str = "local/customize";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum DirKind {
+pub(super) enum DirKind {
     FirstParty,
     Bundled,
     Extra,
     Local,
+    /// A package fetched from a git repository (`<state>/apps/git`).
+    Git,
 }
 
 pub fn load(sources: &Sources) -> Catalog {
@@ -358,6 +363,7 @@ pub fn load(sources: &Sources) -> Catalog {
             }
         }
     }
+    super::git_source::load_into(&mut catalog, sources);
     if let Some(dir) = sources
         .customize
         .as_ref()
@@ -401,7 +407,7 @@ pub fn manifest_file(dir: &Path, first_party_dir: bool) -> &'static str {
     }
 }
 
-fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
+pub(super) fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
     let report = cmux_app_manifest::validate_package_file(
         dir,
         manifest_file(dir, kind == DirKind::FirstParty),
@@ -434,7 +440,9 @@ fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
     } else {
         Tier::Unverified
     };
-    let source = if kind == DirKind::Local || publisher == "local" {
+    let source = if kind == DirKind::Git {
+        Source::Git
+    } else if kind == DirKind::Local || publisher == "local" {
         Source::Local
     } else {
         Source::Bundled

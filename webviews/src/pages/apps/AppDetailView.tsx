@@ -8,6 +8,7 @@ import { GrantsPanel } from "./GrantsPanel";
 import { AddsList, DetailSection, ItemAction, ItemSettings, ScreenshotStrip, StateBadge } from "./items";
 import { orderScopes, RiskLabel, TierLabel } from "./model";
 import { AppIcon, Badge } from "./parts";
+import { SourceLink } from "./SourceLink";
 import type { AppsSnapshot, AppsStore } from "./store";
 
 /** The person's words for a manifest deploy target; an unknown kind shows as its name. */
@@ -153,11 +154,7 @@ export function AppDetailView({
             ))}
           </ul>
         </DetailSection>
-        {detail.repository?.startsWith("https://") && (
-          <a className="apps-link" href={detail.repository} target="_blank" rel="noreferrer">
-            {t("store.action.repository")} ↗
-          </a>
-        )}
+        <SourceLink source={detail} strings={strings} />
       </div>
     </div>
   );

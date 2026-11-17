@@ -43,6 +43,8 @@ pub enum Source {
     Bundled,
     /// A local development app (`local/…`).
     Local,
+    /// Installed from a git repository at a pinned commit (`git_source.rs`).
+    Git,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -344,6 +346,8 @@ impl Reject {
 
 fn fresh(facts: &Facts, source: Source) -> Record {
     let (grants, sandboxed) = facts.install_defaults();
+    // An app from a git repository keeps that source on its record.
+    let source = if facts.source == Source::Git { Source::Git } else { source };
     Record {
         installed: true,
         source,

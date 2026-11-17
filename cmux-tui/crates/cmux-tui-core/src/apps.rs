@@ -37,6 +37,10 @@ mod deploy;
 mod egress;
 pub(crate) mod envelope;
 #[cfg(unix)]
+mod git_install;
+#[cfg(unix)]
+mod git_source;
+#[cfg(unix)]
 mod github_gateway;
 #[cfg(unix)]
 mod grants;
@@ -110,6 +114,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::panic_free::RecoverPoison;
 
+#[cfg(unix)]
+pub(crate) use git_install::store_op_fetches;
 #[cfg(unix)]
 pub(crate) use mirror::{HiddenAccess, Origin, SetOp};
 #[cfg(unix)]

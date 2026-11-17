@@ -251,7 +251,7 @@ fn state(record: &Record, package: Option<&Package>) -> InstallState {
     }
 }
 
-fn listing(package: &Package, record: Option<&Record>) -> Listing {
+pub(super) fn listing(package: &Package, record: Option<&Record>) -> Listing {
     let m = &package.manifest;
     let icon = match &m["icon"] {
         Value::String(path) => Some(IconRef::Asset(path.clone())),
@@ -333,6 +333,7 @@ pub(crate) fn store_op_mutates(op: &str) -> bool {
         op.strip_prefix("cmux.").unwrap_or(op),
         "apps.set"
             | "apps.install"
+            | "apps.update"
             | "apps.uninstall"
             | "apps.hidden.set"
             | "apps.grant.set"
@@ -343,7 +344,7 @@ pub(crate) fn store_op_mutates(op: &str) -> bool {
 impl Supervisor {
     /// Runs one App Store op. `origin` is the request's, admitted by the A2
     /// gate on the wire.
-    pub fn store_call(
+    pub(super) fn store_call_base(
         &self,
         client: u64,
         op: &str,

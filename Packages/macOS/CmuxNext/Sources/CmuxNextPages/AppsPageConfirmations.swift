@@ -27,9 +27,9 @@ public nonisolated struct AppsPageConfirmations {
         case "cmux.apps.install":
             let optional = params["grant_optional"]?.boolValue ?? false
             return PageConfirmation(kind: .install, name: name, scopes: scopes.filter { optional || !$0.optional }.map(\.sheet),
-                                    deployTarget: params["deploy"]?["target"]?.stringValue)
+                                    detail: sourceLine(detail), deployTarget: params["deploy"]?["target"]?.stringValue)
         case "cmux.apps.update":
-            return PageConfirmation(kind: .update, name: name, scopes: scopes.filter { !$0.optional }.map(\.sheet))
+            return PageConfirmation(kind: .update, name: name, scopes: scopes.filter { !$0.optional }.map(\.sheet), detail: sourceLine(detail))
         case "cmux.apps.uninstall":
             return PageConfirmation(kind: .uninstall, name: name)
         case "cmux.apps.set":
