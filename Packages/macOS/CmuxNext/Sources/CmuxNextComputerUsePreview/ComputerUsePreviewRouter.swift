@@ -29,6 +29,9 @@ public final class ComputerUsePreviewRouter {
     /// The session each surface's card shows (`chat:<id>`, `terminal:<tab>`): a surface shows one
     /// card, so a line of another session that ended (its card done or gone) leaves it alone.
     private var shownSession: [String: String] = [:]
+    /// Each chat's newest card, for a chat whose page is made later (a chat started in the
+    /// background, a tab not shown yet): ``replayChats()`` gives it then.
+    private var chatCards: [String: [String: JSONValue]] = [:]
     /// What the last line of each session did, so the log says each change once.
     private var outcomes: [String: String] = [:]
 
@@ -55,10 +58,14 @@ public final class ComputerUsePreviewRouter {
         let state = card == nil ? "none" : (card?["done"] == .bool(true) ? "done" : "running")
         if case .string(let id)? = surface["chat"] {
             guard applies(session, running: state == "running", to: "chat:\(id)") else { return }
-            guard let view = chat(id) else { return note(session, "\(state), no chat view") }
-            AgentPaneComputerUsePreview.show(Self.chatCard(card), on: view) { [weak self] session, action in
-                if action == .close { self?.hide(session) }
+            if let card {
+                if chatCards.count >= 32, chatCards[id] == nil { chatCards.removeAll() }
+                chatCards[id] = card
+            } else {
+                chatCards[id] = nil
             }
+            guard let view = chat(id) else { return note(session, "\(state), no chat page yet") }
+            showInChat(card, on: view)
             note(session, "\(state) in its chat")
         } else if case .string(let id)? = surface["terminal"] {
             guard let (tab, host) = terminal(id) else { return note(session, "\(state), no terminal view") }
@@ -84,6 +91,21 @@ public final class ComputerUsePreviewRouter {
         if outcomes.count > 64 { outcomes.removeAll() }
         outcomes[session] = outcome
         logger.notice("preview \(session, privacy: .public): \(outcome, privacy: .public)")
+    }
+
+    /// A chat's page was made or now shows another chat (``AgentTabStore/onTabSession``): the chats
+    /// whose card came before their page get it now.
+    public func replayChats() {
+        for (id, card) in chatCards {
+            guard let view = chat(id), view.model.computerUsePreview == nil else { continue }
+            showInChat(card, on: view)
+        }
+    }
+
+    private func showInChat(_ card: [String: JSONValue]?, on view: AgentPaneView) {
+        AgentPaneComputerUsePreview.show(Self.chatCard(card), on: view) { [weak self] session, action in
+            if action == .close { self?.hide(session) }
+        }
     }
 
     private func show(_ card: TerminalComputerUsePreview.Card?, tab: String, host: TerminalHostView) {

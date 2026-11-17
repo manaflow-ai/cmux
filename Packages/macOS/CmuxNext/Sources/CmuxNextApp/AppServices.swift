@@ -302,14 +302,22 @@ final class AppServices {
     /// cmux Remote: the daemon's signed host for Computer Use and Screen Sharing (docs/cmux-remote.md).
     private(set) lazy var cmuxRemote = CmuxRemoteService(daemon: daemon)
     /// Computer Use's live preview in the agent's own chat or terminal pane.
-    private(set) lazy var computerUsePreviews = ComputerUsePreviewRouter(chat: { [weak self] chat in
-        guard let tabs = self?.agentTabs else { return nil }
-        return tabs.views.entries.first { tabs.session(of: $0.key.key, machine: $0.key.machine) == chat }?.value
-    }, terminal: { [weak self] id in
-        guard let self, let tab = daemon.store.tab(terminalResource: ResourceID(rawValue: id)) ?? daemon.store.tab(terminal: TerminalID(rawValue: id)),
-              let host = cache.existingTerminal(tab.id)?.session.view else { return nil }
-        return (tab.id, host)
-    })
+    private(set) lazy var computerUsePreviews: ComputerUsePreviewRouter = makeComputerUsePreviews()
+
+    private func makeComputerUsePreviews() -> ComputerUsePreviewRouter {
+        let router = ComputerUsePreviewRouter(chat: { [weak self] chat in
+            guard let tabs = self?.agentTabs else { return nil }
+            return tabs.views.entries.first { tabs.session(of: $0.key.key, machine: $0.key.machine) == chat }?.value
+        }, terminal: { [weak self] id in
+            guard let self, let tab = daemon.store.tab(terminalResource: ResourceID(rawValue: id)) ?? daemon.store.tab(terminal: TerminalID(rawValue: id)),
+                  let host = cache.existingTerminal(tab.id)?.session.view else { return nil }
+            return (tab.id, host)
+        })
+        // A chat's page made after its agent started using an app gets the card then.
+        agentTabs.onTabSession = { [weak router] in router?.replayChats() }
+        return router
+    }
+
     /// Bookmarks of every browser profile (plans/cmux-next/bookmarks.md).
     private(set) lazy var bookmarks = BookmarkService(services: self)
     /// The user's keybindings.json, owned by the home daemon, as the binding table's user layer.
