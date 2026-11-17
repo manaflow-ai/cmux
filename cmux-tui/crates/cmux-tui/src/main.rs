@@ -1090,6 +1090,41 @@ fn schema_socket_owner(
     SchemaSocketOwner::Matching { pid, generation: generation.to_string() }
 }
 
+/// A registry open failed. When the failure is damage only a fresh registry
+/// gets past (SQLite reports the file malformed, its structural check fails, or
+/// it holds interrupted creations no start can settle), the registry moves to
+/// `registry-recovery/<unix ms>/` in the session directory and the open runs
+/// once more. Any other failure, or a registry that cannot be moved, returns
+/// the original error.
+fn reopen_after_registry_damage(
+    error: anyhow::Error,
+    session: &str,
+    root: &Path,
+    reopen: impl FnOnce() -> anyhow::Result<std::sync::Arc<Mux>>,
+) -> anyhow::Result<std::sync::Arc<Mux>> {
+    match cmux_tui_core::recover_registry_after_failed_open(root, session, &error) {
+        None => Err(error),
+        Some(Ok((damage, recovery_dir))) => {
+            crate::client_log::stderr_log!(
+                "startup",
+                "cmux-tui: SELF-RECOVERY: workspace registry of session {session:?} could not be \
+                 opened ({}); moved it to {} and starting a new registry",
+                damage.reason(),
+                recovery_dir.display()
+            );
+            reopen()
+        }
+        Some(Err(quarantine)) => {
+            crate::client_log::stderr_log!(
+                "startup",
+                "cmux-tui: workspace registry of session {session:?} could not be opened and was \
+                 left in place: {quarantine:#}"
+            );
+            Err(error)
+        }
+    }
+}
+
 fn workspace_schema_startup_error(
     error: anyhow::Error,
     session: &str,
@@ -2222,6 +2257,10 @@ fn run_server(
         }
     }
     let provider_management_pending = provider_management_listener.is_some();
+    // A remote daemon (a Cloud machine's) has no person at a terminal to move
+    // a registry no start can open aside: it does that itself, once, below.
+    let registry_self_recovery = args.remote && provider_workspace_authority.is_none();
+    let retry_surface_options = registry_self_recovery.then(|| surface_options.clone());
     let mux =
         match (state_root.as_deref(), provider_workspace_authority, provider_management_pending) {
             (Some(root), Some(authority), false) => Mux::open_persistent_provider_managed(
@@ -2251,15 +2290,27 @@ fn run_server(
             (_, Some(_), true) => {
                 unreachable!("conflicting provider authority inputs rejected above")
             }
+        };
+    let mux = match (mux, state_root.as_deref(), retry_surface_options) {
+        (Err(error), Some(root), Some(surface_options)) => {
+            reopen_after_registry_damage(error, &args.session, root, || {
+                if provider_management_pending {
+                    Mux::open_persistent_provider_managed_pending(
+                        args.session.clone(),
+                        surface_options,
+                        root,
+                        new_mux_generation()?,
+                    )
+                } else {
+                    Mux::open_persistent(args.session.clone(), surface_options, root)
+                }
+            })
         }
-        .map_err(|error| {
-            workspace_schema_startup_error(
-                error,
-                &args.session,
-                &socket_path,
-                state_root.as_deref(),
-            )
-        })?;
+        (mux, _, _) => mux,
+    }
+    .map_err(|error| {
+        workspace_schema_startup_error(error, &args.session, &socket_path, state_root.as_deref())
+    })?;
     // Cloud's trusted-carrier daemon owns the initial session shape. It creates
     // workspace-1 with one terminal before accepting clients, and the
     // idempotent Session bootstrap preserves existing names and sessions.
@@ -2336,6 +2387,27 @@ fn run_server(
 
     #[cfg(unix)]
     let remote_runtime = if args.remote {
+        // This process owns the session (its registry lease and the socket
+        // bound above), so a predecessor's leftover lifecycle evidence is
+        // cleared here, as the operator acknowledgements would, when no
+        // predecessor socket answers. A refusal leaves it for the start below
+        // to report.
+        match remote_runtime::recover_inactive_daemon_state(
+            &args.session,
+            args.remote_state_dir.as_deref(),
+            args.remote_link_socket.as_deref(),
+            args.remote_admin_socket.as_deref(),
+        ) {
+            Ok(actions) => {
+                for action in actions {
+                    crate::client_log::stderr_log!("startup", "cmux-tui: SELF-RECOVERY: {action}");
+                }
+            }
+            Err(error) => crate::client_log::stderr_log!(
+                "startup",
+                "cmux-tui: remote daemon state left as found: {error:#}"
+            ),
+        }
         let runtime = match remote_runtime::start_daemon_runtime(
             socket_path.clone(),
             remote_runtime::DaemonRuntimeOptions {
