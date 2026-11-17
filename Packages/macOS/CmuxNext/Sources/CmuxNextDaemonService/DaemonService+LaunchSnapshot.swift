@@ -22,6 +22,7 @@ extension DaemonService {
         guard let snapshot, snapshot.session == session else { return }
         store.applyProvisional(snapshot: snapshot.tree)
         launchSnapshotWindows = snapshot.windows
+        launchSnapshotRegistryID = snapshot.tree.registryID
         receiveLaunchSnapshotSidebarDoc(snapshot.sidebarDoc)
         Self.launchMark("launch_snapshot_applied")
     }
