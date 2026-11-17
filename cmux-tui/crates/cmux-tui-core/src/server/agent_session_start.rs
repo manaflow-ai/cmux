@@ -38,7 +38,8 @@
 //! [`AgentStartHost::UnknownCloud`] with the caller's `vm_kind: "owner"`,
 //! the Cloud API's answer for it): that machine is a disposable sandbox the
 //! person owns, so any agent starts there, Codex and opencode included, in
-//! its own default mode (still with policy `ask`). A Mac, an SSH host and a
+//! the person's own start mode (`permission_mode`, [`start_policy`]: policy `ask` only when
+//! that is `ask`). A Mac, an SSH host and a
 //! team VM keep the rule above ([`AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY`]).
 //!
 //! There, and only there, the person's own mode pick (`mode`,
@@ -103,6 +104,61 @@ pub const AGENT_SESSION_START_MODE_CAPABILITY: &str = "agent-session-start-mode-
 /// the person's own disposable VM is the boundary (Leo, 2026-10-30, on
 /// ChatGPT's "Where should this chat run?": "we should just have it").
 pub const AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY: &str = "agent-session-start-owner-cloud-v1";
+/// `permission_mode` on `agent-session-start` (`fullAccess`, `standard` or `ask`): the person's
+/// `agents.defaultPermissionMode` on the caller's app, which a start on the caller's own Cloud VM
+/// takes as a new chat on that app takes it ([`start_policy`]). Advertised wherever the start is
+/// served; a start anywhere but the caller's own Cloud VM reads the field and keeps policy `ask`.
+pub const AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY: &str =
+    "agent-session-start-permission-mode-v1";
+
+/// `credentials: {env: {NAME: value}}` on `agent-session-start`, and the `agent-session-credentials
+/// {surface, env, vm_kind}` refresh: the owner's model credential for the chat's agent, from the
+/// owner's own app on the owner's own Cloud VM only ([`credentials_admitted`]), relayed to acpmux
+/// (`_meta.acpmux.credentials`, `agent/credentials.update`), which holds it in memory for that agent
+/// alone (acpmux `agent_credentials.rs`). Advertised only where the owner-Cloud start is.
+pub const AGENT_SESSION_START_CREDENTIALS_CAPABILITY: &str = "agent-session-start-credentials-v1";
+
+/// The names a credential may set (acpmux `agent_credentials::NAMES`).
+const CREDENTIAL_NAMES: [&str; 4] =
+    ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CMUX_CHATGPT_ACCESS_TOKEN"];
+const MAX_CREDENTIAL_BYTES: usize = 16 * 1024;
+
+/// A launch credential as the caller sends it. Never printed: no `Debug`.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct StartCredentials {
+    pub(super) env: std::collections::BTreeMap<String, String>,
+}
+
+impl StartCredentials {
+    /// One known name, a token-shaped value (acpmux checks the same again).
+    pub(super) fn valid(&self) -> bool {
+        self.env.len() == 1
+            && self.env.iter().all(|(name, value)| {
+                CREDENTIAL_NAMES.contains(&name.as_str())
+                    && (1..=MAX_CREDENTIAL_BYTES).contains(&value.len())
+                    && value.bytes().all(|b| b.is_ascii_alphanumeric() || b"-._~+/=:".contains(&b))
+            })
+    }
+
+    pub(super) fn wire(&self) -> Value {
+        json!({"env": self.env})
+    }
+}
+
+/// Whether a credential may be set by `client`: only on the caller's own Cloud VM (its `vm_kind:
+/// "owner"`, the Cloud API's answer for the machine's creator alone, on a VM that is not a team
+/// VM, where every member's agents run as one Unix user and could read it), never from a phone's
+/// channel, and never through a teammate's or guest's proxied link (the caller checks `author`).
+pub(super) fn credentials_admitted(
+    mux: &Mux,
+    client: u64,
+    vm_kind: &Option<Option<String>>,
+) -> bool {
+    mux.agent_host_gate(client, vm_word(vm_kind)).is_ok()
+        && mux.control_clients.agent_sessions.starts.owner_cloud(vm_word(vm_kind) == Some("owner"))
+        && !mux.control_clients.supports_capability(client, super::CLOUD_MOBILE_CHAT_CAPABILITY)
+}
 
 /// Starts the binary's acpmux daemon (blocking; acpmux bounds its own start).
 pub type AcpmuxStarter = Arc<dyn Fn() -> Result<(), String> + Send + Sync>;
@@ -338,6 +394,13 @@ pub(super) struct StartParams {
     /// outer `None` is an absent field (a caller from before the param).
     #[serde(default, deserialize_with = "crate::server::command_args::present_nullable")]
     vm_kind: Option<Option<String>>,
+    /// The caller's `agents.defaultPermissionMode` (`fullAccess`, `standard`, `ask`): read only on
+    /// the caller's own Cloud VM ([`start_policy`]).
+    #[serde(default)]
+    permission_mode: Option<String>,
+    /// The owner's model credential for the agent ([`AGENT_SESSION_START_CREDENTIALS_CAPABILITY`]).
+    #[serde(default)]
+    credentials: Option<StartCredentials>,
 }
 
 impl StartParams {
@@ -361,11 +424,15 @@ impl StartParams {
                 && !model.chars().any(|c| c.is_whitespace() || c.is_control())
                 && !model.contains(['{', '}', '$', '"', '\\', '\''])
         });
-        let mode_ok = self.mode.as_deref().is_none_or(|mode| {
-            (1..=64).contains(&mode.len())
-                && mode.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
-        });
-        harness_ok && cwd_ok && instance_ok && model_ok && mode_ok
+        let permission_mode_ok =
+            self.permission_mode.as_deref().is_none_or(|mode| PERMISSION_MODES.contains(&mode));
+        let mode_ok = permission_mode_ok
+            && self.mode.as_deref().is_none_or(|mode| {
+                (1..=64).contains(&mode.len())
+                    && mode.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
+            });
+        let credentials_ok = self.credentials.as_ref().is_none_or(StartCredentials::valid);
+        harness_ok && cwd_ok && instance_ok && model_ok && mode_ok && credentials_ok
     }
 }
 
@@ -392,6 +459,10 @@ pub(super) fn start(
     }
     if let Err(refusal) = startable(mux, params.surface) {
         return refuse(writer, id, refusal);
+    }
+    // A credential only from the owner's own app on the owner's own Cloud VM.
+    if params.credentials.is_some() && !credentials_admitted(mux, client, &params.vm_kind) {
+        return refuse(writer, id, Refusal::OwnerOnly);
     }
     // On the caller's own Cloud VM a new chat with no folder gets a fresh
     // per-chat folder. Non-Cloud hosts retain the required-folder behavior.
@@ -833,18 +904,27 @@ fn start_and_bind(
         return Err(Refusal::UntrustedFolder.into());
     }
     // The person's own pick on their own Cloud VM (module docs); never a phone's start, never
-    // another host's.
+    // another host's. With no pick, the person's `agents.defaultPermissionMode`
+    // (`permission_mode`, [`start_policy`]) decides the policy there.
+    let permission_mode = params.permission_mode.as_deref();
     let picked = params.mode.as_deref().filter(|_| owner_cloud && !phone);
     let mut meta = match picked {
         Some(mode) if !mode_asks(&table, &family, mode) => json!({"mode": mode}),
         Some(mode) => json!({"policy": "ask", "mode": mode}),
-        None => json!({"policy": "ask"}),
+        None => match start_policy(owner_cloud, phone, permission_mode) {
+            Some(policy) => json!({"policy": policy}),
+            None => json!({}),
+        },
     };
     if let Some(harness) = &params.harness {
         meta.insert("harness", json!(harness));
     }
     if let Some(model) = &params.model {
         meta.insert("model", json!(model));
+    }
+    // Admitted in `start` (the owner's own Cloud VM); acpmux keeps it for this agent in memory.
+    if let Some(credentials) = &params.credentials {
+        meta.insert("credentials", credentials.wire());
     }
     // The workspace of the tab, read here and never taken from the client:
     // acpmux gives the session that workspace's display (none without it).
@@ -891,6 +971,9 @@ fn start_and_bind(
     let family = if phone {
         settle_phone_mode(link, until, &session).map_err(end)?
     } else if owner_cloud {
+        if picked.is_none() && permission_mode == Some("standard") {
+            settle_standard_mode(link, &session);
+        }
         session_family(link, until, &session).map_err(end)?
     } else {
         settle_asking_mode(link, until, &session).map_err(end)?
@@ -919,6 +1002,51 @@ fn start_and_bind(
     timings.bind = Some(ms_since(bind));
     let (record, _) = bound?;
     Ok(json!({"surface": params.surface, "session": session, "conversation": record.wire()}))
+}
+
+/// The values `permission_mode` takes (acpmux `start_mode.rs` `DefaultMode`).
+const PERMISSION_MODES: [&str; 3] = ["fullAccess", "standard", "ask"];
+
+/// The policy a start gives its new session. Anywhere but the caller's own Cloud VM, and for a phone
+/// there, `ask`, whatever the caller says: the session then runs in a mode that asks. On the caller's
+/// own Cloud VM (a disposable machine the person owns, where they can already run any command in a
+/// terminal) the chat starts as a new chat on the caller's app starts, from the person's
+/// `agents.defaultPermissionMode` (`permission_mode`): `ask` keeps policy `ask`; `fullAccess` and
+/// `standard` give no policy, so acpmux's start level there applies (`hub/start_mode.rs`), and a mode
+/// the person picks later is not held to an asking one (`hub/policy_mode.rs`). An app that sends no
+/// `permission_mode` (before the param) keeps `ask`.
+fn start_policy(
+    owner_cloud: bool,
+    phone: bool,
+    permission_mode: Option<&str>,
+) -> Option<&'static str> {
+    match (owner_cloud && !phone, permission_mode) {
+        (true, Some("fullAccess" | "standard")) => None,
+        _ => Some("ask"),
+    }
+}
+
+/// `standard` on the caller's own Cloud VM: the harness's own start mode, which for a session that
+/// started in a mode that does not ask (the machine's start level) is its family's asking default.
+/// Soft, as acpmux's start level is: a refusal leaves the session as it started.
+fn settle_standard_mode(link: &AcpmuxLink, session: &str) {
+    let Ok(table) = link.call("_acpmux/web_modes", json!({"sessionId": session}), CALL_TIMEOUT)
+    else {
+        return;
+    };
+    let family = table.pointer("/session/family").and_then(Value::as_str).unwrap_or_default();
+    let modes: Vec<&str> = table
+        .pointer(&format!("/families/{}", family.replace('~', "~0").replace('/', "~1")))
+        .and_then(Value::as_array)
+        .map(|modes| modes.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    let current = table.pointer("/session/mode").and_then(Value::as_str);
+    if let (Some(current), Some(default)) = (current, modes.first())
+        && !modes.contains(&current)
+    {
+        let params = json!({"sessionId": session, "modeId": default});
+        let _ = link.call("session/set_mode", params, CALL_TIMEOUT);
+    }
 }
 
 /// acpmux `trust::session_level` is `trusted`: its own decision for the
@@ -1128,6 +1256,28 @@ impl Mux {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A Cloud chat on the caller's own VM starts as a new chat on the caller's app does: the
+    /// person's bypass (`fullAccess`) or `standard` gives no `ask` policy, so it neither starts in
+    /// Manual nor refuses a mode the person picks later. A phone, another host, an `ask` setting and
+    /// an app from before the param keep `ask`.
+    #[test]
+    fn an_owner_cloud_start_takes_the_persons_permission_mode() {
+        assert_eq!(start_policy(true, false, Some("fullAccess")), None);
+        assert_eq!(start_policy(true, false, Some("standard")), None);
+        assert_eq!(start_policy(true, false, Some("ask")), Some("ask"));
+        assert_eq!(start_policy(true, false, None), Some("ask"));
+        assert_eq!(start_policy(true, true, Some("fullAccess")), Some("ask"));
+        assert_eq!(start_policy(false, false, Some("fullAccess")), Some("ask"));
+        let parsed = |mode: &str| {
+            serde_json::from_value::<StartParams>(
+                json!({"surface": 1, "cwd": "/w", "permission_mode": mode}),
+            )
+            .map(|params| params.valid())
+        };
+        assert_eq!(parsed("fullAccess").ok(), Some(true));
+        assert_eq!(parsed("bypassPermissions").ok(), Some(false));
+    }
 
     /// A call on a Cloud VM (a start, a chat move in, folder trust) runs only
     /// on the caller's `vm_kind: "owner"`; the VM's own `owner` record never

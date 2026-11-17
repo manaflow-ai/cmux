@@ -10,7 +10,7 @@
     "product-reuse": {"what": "A green compile receipt or built product for the same tree, reused instead of compiled again (scripts/ci/reuse_app_host_products.py, nightly_release_product_reuse.py, dev_release_product_reuse.py, reuse_release_product.py, job_reuse.py)", "runbook": "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/WARM-RESOURCES.md#product-reuse"}
   },
   "jobs": {
-    "cmux-next-quality-report.yml:report": {"class": "linux-rust", "warm": ["actions-cache"]},
+    "cmux-next-quality-report.yml:report": {"class": "linux-rust", "warm": [], "exempt": "cold: the daily cargo bench of acpmux's v2 gate from an empty target directory; the actions/cache step this entry once named was only the daily marker (lookup-only, never a cargo target), and #44882 replaced it with the sticky issue's history"},
     "acpmux-sim-sweep.yml:sweep": {"class": "linux-rust", "warm": ["actions-cache"]},
     "agent-brands.yml:swift-test": {"class": "mac-test", "warm": [], "exempt": "cold: swift build or test into a fresh .build; no warm source wired yet"},
     "app-ffi-release.yml:build": {"class": "mac-build", "warm": [], "exempt": "cold: cargo from an empty target directory; a build script from a clean tree; no warm source wired yet"},
@@ -53,6 +53,7 @@
     "cloud-journey-prod.yml:journey": {"class": "linux-rust", "warm": ["actions-cache"]},
     "cloud-journey-prod.yml:preclaim": {"class": "linux-rust", "warm": [], "exempt": "cold: cargo build of cmux-tui from an empty target directory for the staging preclaim login burst (manual dispatch only); no warm source wired yet"},
     "cloud-rd-link-readback.yml:readback": {"class": "mac-build", "warm": [], "exempt": "cold: cargo build of cmux-tui from an empty target directory on an ephemeral Mac that holds the dev stack pair; manual dispatch only, and no shared cache is read in a secret-bearing job"},
+    "cloud-vm-dogfood.yml:journey": {"class": "linux-rust", "warm": [], "exempt": "cold: cargo build --release of the headless cmux-vm CLI (workers/cmux-vm/cli) from an empty target directory, only on a manual lifecycle dispatch; no warm source wired yet"},
     "cloud-vm-guest-install.yml:guest-install": {"class": "linux-js", "warm": [], "exempt": "cold: bun or npm install and TypeScript checks or tests with no dependency cache; no warm source wired yet"},
     "cloud-vm-image-bake.yml:bake": {"class": "linux-js", "warm": ["actions-cache"]},
     "cloud-vm-image-lock.yml:lock": {"class": "linux-js", "warm": [], "exempt": "cold: bun or npm install and TypeScript checks or tests with no dependency cache; no warm source wired yet"},
@@ -95,6 +96,7 @@
     "cmux-next-media.yml:tour": {"class": "mac-build", "warm": ["deriveddata-reuse", "product-reuse"]},
     "cmux-next-hot-verify.yml:look": {"class": "fleet-dispatch", "warm": ["deriveddata-reuse"]},
     "cmux-next-perf-bench.yml:bench": {"class": "fleet-dispatch", "warm": ["deriveddata-reuse"]},
+    "cmux-next-tab-switch.yml:frames": {"class": "fleet-dispatch", "warm": ["deriveddata-reuse"]},
     "mobile-worker-dev-deploy.yml:deploy-dev": {"class": "linux-js", "warm": [], "exempt": "cold: bun install, TypeScript check and vitest on workerd before a manual dev deploy, with no dependency cache; no warm source wired yet"},
     "device-hub.yml:test": {"class": "linux-js", "warm": [], "exempt": "cold: npm ci, TypeScript check, vitest on workerd and a wrangler dry-run for the device hub Worker, with no dependency cache; no warm source wired yet"},
     "screen-stream-eval.yml:eval": {"class": "fleet-dispatch", "warm": ["deriveddata-reuse"]},

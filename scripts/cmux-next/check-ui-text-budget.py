@@ -13,6 +13,8 @@ Strings over budget when the check landed are rows of `scripts/cmux-next/ui-text
   - a row whose string grew past its row's count fails;
   - a stale row (the string is gone, within budget or shorter than its row) fails; the fix is
     `--write-allowlist`, which only drops rows or lowers their counts;
+  - a row whose table git tracks but the checkout lacks (a sparse checkout) exits 2 before judging or writing:
+    read as gone, `--write-allowlist` would drop rows CI still needs;
   - with `--base REF` (CI passes the pull request's base) a row the base lacks, or a row whose count is higher
     than the base's, fails. A `--base` git cannot resolve exits 2.
 
@@ -227,6 +229,16 @@ def git(root: str, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run(["git", "-C", root, *args], capture_output=True, text=True)
 
 
+def not_checked_out(root: str, rows: dict[Row, tuple[int, int]]) -> list[str]:
+    """Row paths git tracks that are missing on disk (a sparse checkout). Their strings would read as gone, and
+    `--write-allowlist` would drop rows CI still needs, so the check refuses to judge them."""
+    paths = sorted({path for path, _ in rows if not os.path.exists(os.path.join(root, path))})
+    if not paths:
+        return []
+    listed = git(root, "ls-files", "--", *paths)
+    return [path for path in listed.stdout.splitlines() if path] if listed.returncode == 0 else []
+
+
 def base_rows(root: str, base: str) -> dict[Row, tuple[int, int]] | None:
     """The list at `base`; None when the base has no list (the change that adds it). Raises on a bad ref."""
     if git(root, "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}").returncode != 0:
@@ -325,8 +337,16 @@ def main(argv: list[str] | None = None) -> int:
     list_path = os.path.join(root, ALLOWLIST)
     text = open(list_path, encoding="utf-8").read() if os.path.exists(list_path) else ""
     rows, problems = parse_rows(text, ALLOWLIST)
+    missing = not_checked_out(root, rows)
+    if missing:
+        for path in missing:
+            print(f"check-ui-text-budget: {path} is tracked but not checked out (a sparse checkout); its rows "
+                  f"cannot be judged. next: git sparse-checkout add /{path}", file=sys.stderr)
+        return 2
     if args.seed_allowlist or args.write_allowlist:
         new = seeded(texts) if args.seed_allowlist else shrunk(texts, rows)
+        # A first seed may run in a tree with no scripts/cmux-next/ yet (a fresh fixture repo).
+        os.makedirs(os.path.dirname(list_path), exist_ok=True)
         with open(list_path, "w", encoding="utf-8") as handle:
             handle.write(render_rows(new))
         print(f"{ALLOWLIST}: {len(rows)} -> {len(new)} rows")
