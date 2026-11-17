@@ -39,6 +39,7 @@ use serde_json::{Value, json};
 
 use super::mirror::Origin;
 use super::supervisor::{ApiError, HostKey, Inner, Out, Supervisor};
+use super::system_calendar;
 use super::timer::TimerId;
 use cmux_json::JsonSet as _;
 
@@ -82,7 +83,8 @@ pub const FAMILIES: &[&str] = &[
 ];
 
 /// Ops that wait for the user (a file panel) get the long deadline.
-const WAITS_FOR_USER: &[&str] = &["fs.pick"];
+/// `system_calendar.request_access` waits on the system Calendars prompt.
+const WAITS_FOR_USER: &[&str] = &["fs.pick", super::system_calendar::REQUEST_ACCESS];
 /// Largest params a routed call may carry (the provider's control queue is
 /// bounded; an untrusted app must not be able to overflow it).
 pub(super) const MAX_PARAMS_BYTES: usize = 64 * 1024;
@@ -106,6 +108,8 @@ pub(super) struct ProviderCall {
     pub op: String,
     pub target: Target,
     pub timer: TimerId,
+    /// The answer's `system_calendar` cache key (`system_calendar.rs`).
+    pub cache_key: Option<String>,
 }
 
 /// How a provider call ended.
@@ -295,6 +299,18 @@ impl Supervisor {
         idempotency_key: Option<String>,
     ) -> Result<Vec<Out>, Value> {
         let generation = inner.hosts.get(key).map_or(0, |h| h.generation);
+        // A fresh granted calendar read answers at once (`system_calendar.rs`).
+        if family_of(op) == system_calendar::FAMILY {
+            let normalized = system_calendar::normalize(op, &params)?;
+            if let Some(body) = system_calendar::cache_key(op, &normalized)
+                .and_then(|k| inner.system_calendar.hit(&k, std::time::Instant::now()))
+            {
+                if let Some(process) = inner.hosts.get(key).and_then(|h| h.process.as_ref()) {
+                    process.send(&ToHost::Resolve { cb, ok: true, body });
+                }
+                return Ok(vec![]);
+            }
+        }
         let target = Target::Host { host: key.clone(), generation, cb };
         let outs = self.send_to_provider_locked(
             inner,
@@ -331,6 +347,14 @@ impl Supervisor {
                 json!({ "code": "operation.unsupported", "message": format!("{op} has no owner reachable from apps yet"), "details": { "op": op }, "retryable": false }),
             );
         }
+        // Calendar reads are bounded and normalized before the Mac app sees them.
+        let (params, cache_key) = if family_of(op) == system_calendar::FAMILY {
+            let normalized = system_calendar::normalize(op, &params)?;
+            let key = system_calendar::cache_key(op, &normalized);
+            (normalized, key)
+        } else {
+            (params, None)
+        };
         let Some(&client) = inner.providers.get(family_of(op)) else { return Err(unavailable(op)) };
         let version =
             inner.catalog.packages.get(app).map(|p| p.version.clone()).unwrap_or_default();
@@ -357,9 +381,10 @@ impl Supervisor {
                 me.provider_timeout(request_id);
             }
         });
-        inner
-            .provider_calls
-            .insert(request_id, ProviderCall { client, op: op.to_string(), target, timer });
+        inner.provider_calls.insert(
+            request_id,
+            ProviderCall { client, op: op.to_string(), target, timer, cache_key },
+        );
         let mut event = json!({
             "event": "apps-provider-request",
             "request_id": request_id,
@@ -490,6 +515,15 @@ impl Supervisor {
             (true, false) => json!({ "value": body }),
             (false, _) => error_body(body),
         };
+        if family_of(&call.op) == system_calendar::FAMILY {
+            inner.system_calendar.record(
+                &call.op,
+                call.cache_key.as_deref(),
+                ok,
+                &body,
+                std::time::Instant::now(),
+            );
+        }
         let outs = self.finish_locked(&mut inner, &call, Ending::Answer { ok, body });
         drop(inner);
         self.emit(outs);

@@ -39,10 +39,10 @@ nonisolated struct CalendarAppOpsTests {
     static let hour: TimeInterval = 3_600
 
     static func event(_ id: String, at offset: TimeInterval, hours: TimeInterval = 1, title: String? = nil,
-                      allDay: Bool = false, location: String? = nil, url: String? = nil) -> CalendarEventRecord {
+                      allDay: Bool = false, location: String? = nil, url: String? = nil, color: String? = nil) -> CalendarEventRecord {
         CalendarEventRecord(id: id, title: title ?? id, start: now.addingTimeInterval(offset),
                             end: now.addingTimeInterval(offset + hours * hour), allDay: allDay,
-                            calendar: "Work", location: location, url: url)
+                            calendar: "Work", location: location, url: url, color: color)
     }
 
     private func ops(_ calendar: FakeCalendar) -> CalendarAppOps {
@@ -91,8 +91,8 @@ nonisolated struct CalendarAppOpsTests {
     @Test func anEventIsSentInTheAppsShape() async throws {
         let long = String(repeating: "x", count: 500)
         let calendar = FakeCalendar(.granted, records: [
-            Self.event("a", at: Self.hour, title: long, allDay: true, location: "  Room 4  ", url: "https://meet.example.com/a"),
-            Self.event("b", at: 2 * Self.hour, location: "   ", url: "https://x.example/" + long + long + long + long + long),
+            Self.event("a", at: Self.hour, title: long, allDay: true, location: "  Room 4  ", url: "https://meet.example.com/a", color: "#1badf8"),
+            Self.event("b", at: 2 * Self.hour, location: "   ", url: "https://x.example/" + long + long + long + long + long, color: "blue"),
         ])
         let answer = try await ops(calendar).handle(request("system_calendar.events"))
         let events = try #require(answer["events"]?.arrayValue)
@@ -104,9 +104,11 @@ nonisolated struct CalendarAppOpsTests {
         #expect(first["calendar"]?.stringValue == "Work")
         #expect(first["location"]?.stringValue == "Room 4")
         #expect(first["url"]?.stringValue == "https://meet.example.com/a")
+        #expect(first["color"]?.stringValue == "#1badf8")
         let second = try #require(events.last?.objectValue)
         #expect(!second.keys.contains("location"), "a blank location is left out")
         #expect(!second.keys.contains("url"), "an over-long link is left out")
+        #expect(!second.keys.contains("color"), "a color not in #rrggbb form is left out")
         #expect(Set(second.keys) == ["id", "title", "start", "end", "allDay", "calendar"])
     }
 

@@ -1,4 +1,5 @@
 #if canImport(EventKit)
+import CoreGraphics
 import EventKit
 #endif
 public import Foundation
@@ -35,10 +36,12 @@ public nonisolated struct CalendarEventRecord: Sendable, Equatable {
     public var location: String?
     /// The event's link.
     public var url: String?
+    /// The calendar's color as `#rrggbb` in sRGB, when it has one.
+    public var color: String?
 
     /// Creates a record from an occurrence's fields, as EventKit gives them.
     public init(id: String, title: String, start: Date, end: Date, allDay: Bool, calendar: String,
-                location: String? = nil, url: String? = nil) {
+                location: String? = nil, url: String? = nil, color: String? = nil) {
         self.id = id
         self.title = title
         self.start = start
@@ -47,6 +50,7 @@ public nonisolated struct CalendarEventRecord: Sendable, Equatable {
         self.calendar = calendar
         self.location = location
         self.url = url
+        self.color = color
     }
 }
 
@@ -148,11 +152,17 @@ public nonisolated struct CalendarAppOps: AppHostCapabilityHandler {
             event["location"] = .string(String(location.prefix(maxText)))
         }
         if let url = record.url, !url.isEmpty, url.count <= maxURL { event["url"] = .string(url) }
+        if let color = record.color, isHexColor(color) { event["color"] = .string(color) }
         return .object(event)
     }
 
     static func milliseconds(_ date: Date) -> Double {
         (date.timeIntervalSince1970 * 1_000).rounded()
+    }
+
+    /// Whether `text` is a `#rrggbb` color, the only form an app gets.
+    static func isHexColor(_ text: String) -> Bool {
+        text.count == 7 && text.first == "#" && text.dropFirst().allSatisfy(\.isHexDigit)
     }
 
     /// The integer param `key`, `fallback` when absent or null; `invalid_params` outside `range`.
@@ -214,6 +224,15 @@ actor EventKitCalendarSource: CalendarEventSource {
         }
     }
 
+    /// The calendar's color as `#rrggbb` in sRGB, or nil when it has none or will not convert.
+    nonisolated static func hex(_ color: CGColor?) -> String? {
+        guard let color, let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let srgb = color.converted(to: space, intent: .defaultIntent, options: nil),
+              let parts = srgb.components, parts.count >= 3 else { return nil }
+        let channel = { (value: CGFloat) in Int((min(max(value, 0), 1) * 255).rounded()) }
+        return String(format: "#%02x%02x%02x", channel(parts[0]), channel(parts[1]), channel(parts[2]))
+    }
+
     private nonisolated static func record(_ event: EKEvent) -> CalendarEventRecord {
         let base = event.eventIdentifier ?? event.calendarItemIdentifier
         return CalendarEventRecord(
@@ -224,7 +243,8 @@ actor EventKitCalendarSource: CalendarEventSource {
             allDay: event.isAllDay,
             calendar: event.calendar?.title ?? "",
             location: event.location,
-            url: event.url?.absoluteString
+            url: event.url?.absoluteString,
+            color: hex(event.calendar?.cgColor)
         )
     }
 }

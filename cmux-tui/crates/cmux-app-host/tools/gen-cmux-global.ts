@@ -391,8 +391,8 @@ interface CmuxPageHint { label: string; text: string; href: string | null }
 
 /** Whether cmux may read the person's calendar: the system's answer, or \`unavailable\` where there is no system calendar (not macOS). */
 type CmuxCalendarAccess = "granted" | "denied" | "restricted" | "notDetermined" | "unavailable"
-/** One event of the person's calendar (\`system_calendar.events\`). Times are epoch ms; \`calendar\` is the calendar's title. */
-interface CmuxCalendarEvent { id: string; title: string; start: number; end: number; allDay: boolean; calendar: string; location?: string; url?: string }
+/** One event of the person's calendar (\`system_calendar.events\`). Times are epoch ms; \`calendar\` is the calendar's title, \`color\` its color as \`#rrggbb\` when it has one. */
+interface CmuxCalendarEvent { id: string; title: string; start: number; end: number; allDay: boolean; calendar: string; location?: string; url?: string; color?: string }
 /** \`system_calendar.events\`' answer: the access status, and the events (empty unless \`access\` is \`granted\`). */
 interface CmuxCalendarEvents { access: CmuxCalendarAccess; events: CmuxCalendarEvent[] }
 
