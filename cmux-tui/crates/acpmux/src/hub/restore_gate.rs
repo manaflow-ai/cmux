@@ -32,6 +32,9 @@ use std::time::Duration;
 // Tokio's clock, so a test's paused clock moves the stages too.
 use tokio::time::Instant;
 
+/// What the status says while the readiness command runs (`wait_ready_cmd`).
+const READY_HOLDING: &str = "restore waits for the host's network and services to be ready";
+
 /// How long the driver waits between stages, before jitter (x0.5 to x1.5).
 const STAGE_GAP: Duration = Duration::from_secs(5);
 /// Under pressure, one chat still starts this often.
@@ -526,9 +529,16 @@ impl Hub {
         else {
             return;
         };
+        self.wait_ready_cmd(cmd).await;
+    }
+
+    /// Runs the readiness command `cmd` until it passes or its wait runs out. The status names
+    /// the wait, never the command: every `_acpmux/status` caller reads it, and the command
+    /// may carry a credential.
+    pub(super) async fn wait_ready_cmd(&self, cmd: String) {
         let wait = env_secs("ACPMUX_RESTORE_READY_WAIT_SECS", READY_WAIT);
         let started = Instant::now();
-        self.set_holding(Some(format!("restore waits for the host to be ready: {cmd}")));
+        self.set_holding(Some(READY_HOLDING.to_owned()));
         let mut tries = 0u32;
         loop {
             tries += 1;

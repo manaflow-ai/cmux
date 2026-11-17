@@ -242,3 +242,18 @@ async fn a_cancelled_driver_lets_its_waiters_go() {
     assert_eq!(through.load(Ordering::SeqCst), 6, "unstaged, never stuck");
     assert_eq!(hub.restore_gate.status()["waiting"], 0);
 }
+
+/// The readiness command never shows in the status every client reads: it may hold a secret.
+#[tokio::test]
+async fn the_status_names_the_ready_wait_but_never_its_command() {
+    let (hub, _sessions) = hub_with(1);
+    let waiting = {
+        let hub = hub.clone();
+        tokio::spawn(async move { hub.wait_ready_cmd("exit 1 # token=s3cr3t".into()).await })
+    };
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let status = hub.restore_gate.status().to_string();
+    assert!(status.contains("ready"), "{status}");
+    assert!(!status.contains("s3cr3t") && !status.contains("exit 1"), "{status}");
+    waiting.abort();
+}
