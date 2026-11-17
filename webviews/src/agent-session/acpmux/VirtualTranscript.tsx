@@ -6664,13 +6664,9 @@ function TranscriptView({
     }
     // Measured from the loaded rows' top, under the room held for the history above them.
     const ahead = olderAhead.ahead(node.clientHeight * OLDER_AHEAD_VIEWPORTS, node.clientHeight, performance.now());
-    // A view that follows the latest row reads no older page while its rows fill it: the reader is not moving up.
-    // A chat streaming under load lets go of its oldest records (direct.ts `shedOlderHeld`), and what it keeps can
-    // be a few screens of one call's output; read back at once, the page brought the shed records back, the next
-    // streamed record shed them again, and every page refolded the held window (about 7 a second at 60 chunks and
-    // 2,000 lines a second, a third of the main thread). A scroll up stops following, and its scroll asks here.
-    const fills = node.scrollHeight - (layout.origin ?? 0) > node.clientHeight;
-    if (node.scrollTop - (layout.origin ?? 0) >= ahead || (followingRef.current && fills)) {
+    // A chat that shed older records while the view follows declines the read (direct.ts `loadOlder`); a chat opened
+    // at its latest row still reads ahead here until its history fills `OLDER_AHEAD_VIEWPORTS` above the view.
+    if (node.scrollTop - (layout.origin ?? 0) >= ahead) {
       // Allow the next visit to the threshold to request the next page, even when the first row
       // did not change while the reader was away from the top.
       olderLoadRequested.current = undefined;
