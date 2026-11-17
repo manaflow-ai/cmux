@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44117269997",
+  "recorded_at": "2026-11-17T15:53:28Z",
+  "reason": "cmux-tui aa5051e5a714 changes the image's cmux-tui (pinned 552378baa193)",
+  "dry_run": false,
+  "cmux_tui": "aa5051e5a71477ac2d682abcbbe037ea19b1d05a",
+  "fixes": [
+    {
+      "sha": "aa5051e5a71477ac2d682abcbbe037ea19b1d05a",
+      "mergedAt": "2026-11-17T07:19:14-08:00",
+      "subject": "cmux NEXT: a port watch pass at a busy registry keeps no mux (#45559)"
+    },
+    {
+      "sha": "1e6527f65d360bf16ccbc13500b53edd97b4792a",
+      "mergedAt": "2026-11-17T07:06:23-08:00",
+      "subject": "cmux-rd-core: a screen share on a LAN starts at the LAN rate (fast start) (#45150)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T15:53:28Z",
+    "snapshot_id": "sh-2deb278951844b41a3919a71cb178ce2",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44117269997): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "4a05c65077e9e49769c91704a7352a7f37a3af85",
+    "image": "cloud-native-auto-aa5051e5-44117269997-1",
+    "revision": "ci-44117269997-1",
+    "at": "2026-11-17T15:53:28Z"
+  },
+  "rolled_back": false
+}
