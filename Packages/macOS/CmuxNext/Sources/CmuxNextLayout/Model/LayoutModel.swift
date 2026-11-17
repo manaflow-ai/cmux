@@ -338,7 +338,11 @@ public final class LayoutModel {
     }
 
     /// Shows `screens` as `body` changes them, ahead of the daemon's next snapshot (a floating pane's released frame).
-    func showLocally(_ body: (inout [LayoutScreen]) -> Void) { var shown = screens; body(&shown); if shown != screens { screens = shown } }
+    func showLocally(_ body: (inout [LayoutScreen]) -> Void) {
+        var shown = screens
+        body(&shown)
+        if shown != screens { screens = shown }
+    }
 
     // MARK: Focus and screens
 
@@ -370,8 +374,10 @@ public final class LayoutModel {
         lastFocusSource = source
         if focusRingEarned != (source == .keyboard) { focusRingEarned = source == .keyboard }
         focusedPane = pane
-        if source != .pointer, source != .scroll { revealOnCanvas(pane, screen: screen.id) } // A keyboard or programmatic focus on a canvas pans to it; a click or a scroll never does.
-        if let raise = LayoutFloatingPane.raise(pane, in: screen.floating, source: source) { emit(raise) } // A floating pane that gets the focus comes to the front.
+        // A keyboard or programmatic focus on a canvas pans to it; a click or a scroll never does.
+        if source != .pointer, source != .scroll { revealOnCanvas(pane, screen: screen.id) }
+        // A floating pane that gets the focus comes to the front.
+        if let raise = LayoutFloatingPane.raise(pane, in: screen.floating, source: source) { emit(raise) }
         if notify { emit(.focus(pane)) }
     }
 
@@ -428,16 +434,6 @@ public final class LayoutModel {
         updateScreen(where: { $0.ratio(of: split) != nil }) { $0.settingRatio(ratio, for: split) }
         splitOverrides[split] = GestureOverride(value: ratio, transaction: transaction, ended: phase == .ended)
         if phase == .ended { expectReply(transaction); emit(.setSplitRatio(split, ratio: ratio, transaction: transaction, phase: phase)) }
-    }
-
-    /// Equalizes `split` so every cell in its same-axis chain gets equal size. An explicit
-    /// equalize springs (`explicitReflowUntil`); the sizing that follows a split or a close moves
-    /// with that gesture instead.
-    public func equalizeSplit(_ split: SplitID) {
-        guard let tree = screens.lazy.compactMap({ $0.layout.tree(containing: split) }).first,
-              let ratio = tree.equalizedRatio(for: split) else { return }
-        explicitReflowUntil = ProcessInfo.processInfo.systemUptime + Self.explicitReflowWindow
-        setSplitRatio(split, ratio: ratio, transaction: .make(), phase: .ended)
     }
 
     /// Drops the sent (ended) ratio overrides of `splits`: a newer change owns their ratios now. A

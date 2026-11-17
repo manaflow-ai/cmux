@@ -302,12 +302,6 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         return width > 0 ? width : nil
     }
 
-    /// Displayed frame of `pane` in this view's coordinates (active screen only).
-    public func frame(of pane: PaneID) -> CGRect? {
-        guard let active = model.activeScreenID, let view = screenViews[active], let rect = view.displayedFrame(of: pane) else { return nil }
-        return convert(rect, from: view)
-    }
-
     // MARK: Observation
 
     private func snapshot() -> Snapshot { Snapshot(model) }
@@ -456,7 +450,8 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
             // A waiting screen's first pass lands at once, as a screen made with the shown one did (no previous sync).
             let landsAtOnce = isNew && waited.contains(screen.id)
             let old = before[screen.id]
-            (view.hiddenDividers, view.floatState.list) = (screen.hiddenDividers, screen.floating)
+            view.hiddenDividers = screen.hiddenDividers
+            view.floatState.list = screen.floating
             // A zoomed pane shows full size over its canvas (canvas-layout.md).
             let canvas = screen.zoomed ? nil : snapshot.canvases[screen.id]
             let layoutChanged = isNew || old?.layout != screen.layout || old?.floating != screen.floating || old?.zoomed != screen.zoomed || sharedChanged

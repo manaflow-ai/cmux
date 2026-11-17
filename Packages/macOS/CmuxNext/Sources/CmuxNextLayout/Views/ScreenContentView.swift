@@ -207,7 +207,8 @@ final class ScreenContentView: NSView {
     func update(layout: ScreenLayout, zoomed: Bool = false, canvas: CanvasScreen? = nil, animated: Bool, snapWaitsForFrame: Bool = false) -> Bool {
         // Into or out of a canvas, frames change coordinate space (the camera is the bounds): they snap.
         // A floating pane that comes, goes, moves or changes its place in the order shows at once.
-        let floatChange = floatState.takeChange(), animated = updateCanvas(canvas, animated: animated) && animated && floatChange == .none
+        let floatChange = floatState.takeChange()
+        let animated = updateCanvas(canvas, animated: animated) && animated && floatChange == .none
         let structural = !self.layout.hasSameStructure(as: layout) || floatChange == .panes
         let unzooming = self.zoomed && !zoomed
         let zooming = !self.zoomed && zoomed
@@ -305,7 +306,10 @@ final class ScreenContentView: NSView {
                 // Opaque and in its place from the first frame that shows it.
                 paneFrames[pane] = AnimatedFrame(target)
             }
-            if baseGeometry.floatingCards[pane] == nil { context.hosts[pane]?.applyShape(padding: style.panePadding, cornerRadius: style.paneCornerRadius, wholeCard: style.floatingPanes) }
+            // A floating pane's shape is its card's (`FloatingPanesState.present`).
+            if baseGeometry.floatingCards[pane] == nil {
+                context.hosts[pane]?.applyShape(padding: style.panePadding, cornerRadius: style.paneCornerRadius, wholeCard: style.floatingPanes)
+            }
         }
         // Out of a zoom: the covered panes it kept that this layout did not take back (closed while zoomed) go now.
         if structural, !zoomed { context.releaseRetired(of: screenID, until: .zoom) }
@@ -410,25 +414,6 @@ final class ScreenContentView: NSView {
         let moving = animate && hasMotion
         if !(moving && holdsGrids) { holdsGrids = false }
         return moving
-    }
-
-    /// The panes and strip dividers an animated width or ratio change carried (a preset, an equalize) start where they
-    /// showed before it, now that the camera is where the new layout puts it. A structural change carries none: each
-    /// of its panes is at its place in the frame that shows it.
-    func settleCarried() {
-        guard !carriedShown.isEmpty || !carriedDividers.isEmpty else { return }
-        let shift = stripShift
-        for (pane, shown) in carriedShown {
-            guard var frame = paneFrames[pane] else { continue }
-            frame.x.value = shown - (geometry.scrolls(pane: pane) ? shift : 0)
-            paneFrames[pane] = frame
-        }
-        for (kind, shown) in carriedDividers {
-            guard var frame = dividerFrames[kind] else { continue }
-            frame.x.value = shown - shift
-            dividerFrames[kind] = frame
-        }
-        (carriedShown, carriedDividers) = ([:], [:])
     }
 
     fileprivate var firstDividerView: NSView? {

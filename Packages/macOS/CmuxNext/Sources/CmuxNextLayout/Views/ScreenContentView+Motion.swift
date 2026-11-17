@@ -318,4 +318,23 @@ extension ScreenContentView {
         guard case let .split(id) = kind, let area = baseGeometry.scrollAreaOfSplit[id] else { return nil }
         return displayedAreaWindow(area)
     }
+
+    /// The panes and strip dividers an animated width or ratio change carried (a preset, an equalize) start where they
+    /// showed before it, now that the camera is where the new layout puts it. A structural change carries none: each
+    /// of its panes is at its place in the frame that shows it.
+    func settleCarried() {
+        guard !carriedShown.isEmpty || !carriedDividers.isEmpty else { return }
+        let shift = stripShift
+        for (pane, shown) in carriedShown {
+            guard var frame = paneFrames[pane] else { continue }
+            frame.x.value = shown - (geometry.scrolls(pane: pane) ? shift : 0)
+            paneFrames[pane] = frame
+        }
+        for (kind, shown) in carriedDividers {
+            guard var frame = dividerFrames[kind] else { continue }
+            frame.x.value = shown - shift
+            dividerFrames[kind] = frame
+        }
+        (carriedShown, carriedDividers) = ([:], [:])
+    }
 }
