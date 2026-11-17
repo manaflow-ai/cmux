@@ -2277,8 +2277,14 @@ function TranscriptView({
   const [dockNotice, setDockNotice] = useState(0);
   /// The same, as the stack's observer last measured it (it writes both), for the handlers below.
   const dockNoticeRef = useRef(0);
-  /// The host line's height the room under the last row last took (`noticeHold` below).
-  const noticeBase = useRef(0);
+  /// The host line's height the room under the last row last took (`noticeHold` below). State, not a
+  /// ref read in render: the pass that changes it renders once more before the frame paints, with the
+  /// same hold (the base it writes is the one that hold was made against), so nothing moves. It changes
+  /// only when the line comes taller than the room lets it lie over, goes and the rows move, or Jump to
+  /// latest takes it.
+  const [noticeBase, setNoticeBase] = useState(0);
+  /// The same, for the handlers below (written where the state is).
+  const noticeBaseRef = useRef(0);
   /// The tray's height the room under the last row was last given (`trayHold` below), and the rows'
   /// own height as of the last pass, which tells a pass whose rows grew.
   const foldBase = useRef(0);
@@ -3568,14 +3574,17 @@ function TranscriptView({
     const held =
       Math.abs(foldBase.current - dockTrayRef.current) > 0.5 ||
       Math.abs(cardBase.current - dockCardRef.current) > 0.5 ||
-      Math.abs(noticeBase.current - dockNoticeRef.current) > 0.5;
+      Math.abs(noticeBaseRef.current - dockNoticeRef.current) > 0.5;
     foldBase.current = dockTrayRef.current;
     cardBase.current = dockCardRef.current;
-    noticeBase.current = dockNoticeRef.current;
+    noticeBaseRef.current = dockNoticeRef.current;
     trayToggled.current = false;
     if (!held && Math.abs(heldRoom.current - dockRoomRef.current) <= 0.5) return;
     heldRoom.current = dockRoomRef.current;
-    flushSync(roomTaken);
+    flushSync(() => {
+      setNoticeBase(dockNoticeRef.current);
+      roomTaken();
+    });
   }, []);
   const thread = useRef<HTMLDivElement>(null);
   /// A turn's end folds its work in one motion (turnEndFold.ts): the rows drawn when it ended are
@@ -4203,7 +4212,7 @@ function TranscriptView({
   // room a line leaves when it goes stays under the last row (a negative hold) until the rows move anyway
   // (they grew: a reply streaming on, a send) or Jump to latest gives it back (`takeRoom`).
   // Another chat starts from none taken: the last chat's base is not this one's.
-  const noticeHeldAt = sessionSwitched ? 0 : noticeBase.current;
+  const noticeHeldAt = sessionSwitched ? 0 : noticeBase;
   const noticeTaken = openedAtLatest && !sessionSwitched && rowsGrew > 0.5;
   // Scrolled up the room is held anyway (`heldRoom`), and the base waits for the view to follow again.
   const noticeHold =
@@ -5295,7 +5304,10 @@ function TranscriptView({
   useLayoutEffect(() => {
     foldBase.current = trayBase;
     cardBase.current = dockCard - cardHold;
-    if (following || dockSpace <= 0) noticeBase.current = dockNotice - noticeHold;
+    if (following || dockSpace <= 0) {
+      noticeBaseRef.current = dockNotice - noticeHold;
+      if (noticeBaseRef.current !== noticeBase) setNoticeBase(noticeBaseRef.current);
+    }
     rowsSeen.current = measured.layout.totalHeight - (measured.layout.origin ?? 0);
     if (Math.abs(trayHold) <= 0.5 && (rowsGrew > 0.5 || !following || sessionSwitched)) trayToggled.current = false;
   });
