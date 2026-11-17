@@ -192,15 +192,14 @@ export type GitHubPickerStore = ReturnType<typeof createGitHubPicker>;
 
 let pageStore: GitHubPickerStore | undefined;
 
-/// The page's one store, made on first use.
-function pageGitHubPicker(): GitHubPickerStore {
+function pagePicker(): GitHubPickerStore {
   if (!pageStore) pageStore = createGitHubPicker();
   return pageStore;
 }
 
 /// The page's one store and the folder menu's handle on it.
 export function useGitHubPicker(store?: GitHubPickerStore): GitHubPicker {
-  const picker = store ?? pageGitHubPicker();
+  const picker = store ?? pagePicker();
   const state = useSyncExternalStore(picker.subscribe, picker.snapshot, picker.snapshot);
   return {
     state,
