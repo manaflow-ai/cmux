@@ -289,6 +289,21 @@ def router_decision(key="x"):
     return rpc("debug.key", {"key": key, "dry_run": True}, timeout=10)
 
 
+def claimant_state():
+    """The `debug.focus` fields that name a key's holder: the creation and New Tab holds, and the window
+    the keys go to (`app_active`, `key_window`). Read before the probe key, so a held key says who held it."""
+    report = rpc("debug.focus") or {}
+    windows = [w for w in report.get("windows") or [] if isinstance(w, dict)]
+    return {"app_active": report.get("app_active"), "key_window": report.get("key_window"),
+            "new_tab_key_log": (report.get("new_tab_key_log") or [])[-4:],
+            "new_tab_key_holds": report.get("new_tab_key_holds"),
+            "creation_hold_tab_keys": report.get("creation_hold_tab_keys"),
+            "context": report.get("context"),
+            "holds": [{"is_key": w.get("is_key"), "creation_hold": w.get("creation_hold"),
+                       "creation_hold_end": w.get("creation_hold_end"),
+                       "resolved": (w.get("model") or {}).get("resolved")} for w in windows][:3]}
+
+
 def chat_key_route(pane):
     """The `debug.key` route whose key the chat's composer actually gets, proven before the measure.
 
@@ -302,6 +317,17 @@ def chat_key_route(pane):
     """
     focus_chat_composer(pane)
     note(f"chat: router dry_run {json.dumps(router_decision())[:300]}")
+    # Which claimant inside `interceptKeyDown` holds the key. `handled_by: "app"` with an empty trace and
+    # a nil `lastInterception` (no action in the reply) rules out every route that runs an action, so what
+    # is left is the capture coordinators and type-ahead -- and `debug.focus` reports all of them:
+    # `creation_hold` and `creation_hold_end` (CreationInputCoordinator holds a new tab's keys and replays
+    # them), `new_tab_key_holds` and `new_tab_key_log`, plus `app_active` and `key_window`, which say
+    # whether the keys even go to the window the probe addresses. Named in the log, before the key.
+    note(f"chat: claimants {json.dumps(claimant_state())[:600]}")
+    # A real click into the composer, not only `field.focus()`: a creation hold ends on the person's own
+    # click, and a page that never reported its field gets one this way.
+    clicked = rpc("debug.agent_pane", {"action": "click", "selector": ".acpmux-md-root", "pane": pane}, timeout=20)
+    note(f"chat: composer click {json.dumps(clicked)[:200]}")
     for params in ({"target": "page", "pane": pane}, {}):
         rpc("debug.agent_pane", {"action": "reset_typing", "pane": pane}, timeout=20)
         before = composer_drawn_text(pane)
