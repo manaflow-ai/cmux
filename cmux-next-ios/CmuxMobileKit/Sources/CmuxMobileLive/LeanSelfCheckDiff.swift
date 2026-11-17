@@ -53,7 +53,7 @@ struct LeanSelfCheckDiff {
                 let counted = inGrid && !inCursor
                 let delta = max(abs(Int(first[i]) - Int(second[i])), abs(Int(first[i + 1]) - Int(second[i + 1])),
                                 abs(Int(first[i + 2]) - Int(second[i + 2])))
-                let differs = counted && delta > Self.channelTolerance
+                let differs = counted && delta > 255  // RED: the diff sees no difference
                 if counted {
                     compared += 1
                     if differs { differing += 1 }
