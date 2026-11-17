@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44035371538",
+  "recorded_at": "2026-11-17T07:09:24Z",
+  "reason": "cmux-tui 80bc54c761e6 changes the image's cmux-tui (pinned fc0b5a42960b)",
+  "dry_run": false,
+  "cmux_tui": "80bc54c761e603c88dc9c736c971db6b6136c007",
+  "fixes": [
+    {
+      "sha": "80bc54c761e603c88dc9c736c971db6b6136c007",
+      "mergedAt": "2026-11-16T22:40:35-08:00",
+      "subject": "Screen Sharing: cmux-rd windows-host, a Windows PC on the device hub (registers, captures; design note for viewing) (#44042)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T07:09:24Z",
+    "snapshot_id": "sh-0c7de462be7a46b5953242e96c292981",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44035371538): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "3eb55d946b86ad933226e09157b686dca04855b8",
+    "image": "cloud-native-auto-80bc54c7-44035371538-1",
+    "revision": "ci-44035371538-1",
+    "at": "2026-11-17T07:09:24Z"
+  },
+  "rolled_back": false
+}
