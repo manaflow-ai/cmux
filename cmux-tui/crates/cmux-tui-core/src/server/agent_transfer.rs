@@ -549,6 +549,7 @@ fn ends_receive(outcome: &Result<Value, Failure>) -> bool {
         }
         Err(Failure::Acpmux(message)) => !message.starts_with("transfer.incomplete"),
         Err(Failure::Moving(..)) => true,
+        Err(Failure::StartFailed(_)) => false,
     }
 }
 
@@ -561,6 +562,9 @@ enum Failure {
     /// that move's id (`error_details.transfer_id`), so a pump that lost its
     /// begin answer can resolve the move it began.
     Moving(String, String),
+    /// A receive found acpmux down and its starter failed: the starter's own error, so a failed
+    /// Move to Cloud names its real cause.
+    StartFailed(String),
 }
 
 impl From<Refusal> for Failure {
@@ -893,17 +897,20 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
     // `agent-session-start` does: a Cloud machine that has run no chat yet has none up, and the
     // move would stop there. Every other verb belongs to a move already under way.
     let opened = if matches!(prepared, Prepared::Receive { .. }) {
-        agent_session_start::connect(mux, socket).map_err(drop)
+        agent_session_start::connect_with_cause(mux, socket)
     } else {
-        AcpmuxLink::connect(socket, |_| {}).map_err(drop)
+        AcpmuxLink::connect(socket, |_| {}).map_err(|_| None)
     };
     let link = match opened {
         Ok(link) => link,
-        Err(_) => {
+        Err(cause) => {
             if let Prepared::Forget { receive_id, live, .. } = prepared {
                 mux.agent_transfers.restore(receive_id, live);
             }
-            return Err(Refusal::Unavailable.into());
+            return Err(match cause {
+                Some(error) => Failure::StartFailed(error),
+                None => Refusal::Unavailable.into(),
+            });
         }
     };
     let call = |method: &str, params: Value, timeout: Duration| -> Result<Value, Failure> {
@@ -1068,6 +1075,11 @@ fn reply(writer: &MessageWriter, id: Option<Value>, result: Result<Value, Failur
             None,
             Some(format!("{}: {message}", Refusal::Refused.message())),
             Some(Refusal::Refused.code()),
+        ),
+        Err(Failure::StartFailed(error)) => (
+            None,
+            Some(format!("{}: acpmux did not start: {error}", Refusal::Unavailable.message())),
+            Some(Refusal::Unavailable.code()),
         ),
         Err(Failure::Moving(message, transfer_id)) => {
             details = Some(json!({"transfer_id": transfer_id}));

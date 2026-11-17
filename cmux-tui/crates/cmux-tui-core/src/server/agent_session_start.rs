@@ -712,19 +712,35 @@ pub(in crate::server) fn connect(
 
 /// [`connect`], and whether this call ran the starter (nothing listened).
 fn connect_noting(mux: &Mux, socket: &std::path::Path) -> Result<(Arc<AcpmuxLink>, bool), Refusal> {
+    connect_starting(mux, socket).map_err(|_| Refusal::AcpmuxUnavailable)
+}
+
+/// [`connect`] keeping why it failed: the starter's own error when the starter ran and failed,
+/// `None` when there is no starter or acpmux still did not answer.
+pub(in crate::server) fn connect_with_cause(
+    mux: &Mux,
+    socket: &std::path::Path,
+) -> Result<Arc<AcpmuxLink>, Option<String>> {
+    connect_starting(mux, socket).map(|(link, _)| link)
+}
+
+fn connect_starting(
+    mux: &Mux,
+    socket: &std::path::Path,
+) -> Result<(Arc<AcpmuxLink>, bool), Option<String>> {
     let open = || AcpmuxLink::connect(socket, |_| {});
     if let Ok(link) = open() {
         return Ok((link, false));
     }
     let starts = &mux.control_clients.agent_sessions.starts;
-    let starter = starts.starter().ok_or(Refusal::AcpmuxUnavailable)?;
+    let starter = starts.starter().ok_or(None)?;
     let _one_start = starts.start_lock.lock().unwrap_or_else(|e| e.into_inner());
     // Another start may have brought acpmux up while this one waited.
     if let Ok(link) = open() {
         return Ok((link, false));
     }
-    starter().map_err(|_| Refusal::AcpmuxUnavailable)?;
-    open().map(|link| (link, true)).map_err(|_| Refusal::AcpmuxUnavailable)
+    starter().map_err(Some)?;
+    open().map(|link| (link, true)).map_err(|_| None)
 }
 
 /// Runs `restart` (an acpmux handoff, `agent_update.rs`: the running acpmux
