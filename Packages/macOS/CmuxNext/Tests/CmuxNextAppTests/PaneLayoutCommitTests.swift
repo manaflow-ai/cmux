@@ -44,11 +44,18 @@ import Testing
         }
     }
 
+    /// Pane content that is no producer itself and names one inside it (`PaneCommitSurfaceHosting`), as a container of
+    /// tabs names its shown tab's.
+    final class Hosting: Content, PaneCommitSurfaceHosting {
+        let inner = Surface()
+        var commitSurfaces: [any PaneCommitSurface] { [inner] }
+    }
+
     final class Panes: LayoutPaneContentProvider {
         /// Every pane's content is of the kind that kept one size while its pane moved on a layout spring.
         let holds: Bool
-        /// Every pane's content is a ``Surface``.
-        let surfaces: Bool
+        /// Every pane's content is a ``Surface``; with `hosted`, a ``Hosting`` with one inside.
+        let surfaces: Bool, hosted: Bool
         private(set) var contents: [PaneID: Content] = [:]
         /// The panes whose content the layout released, in order.
         private(set) var released: [PaneID] = []
@@ -56,14 +63,19 @@ import Testing
         /// released, and again the ones a close gave back.
         private(set) var shown: Set<PaneID> = []
 
-        init(holds: Bool, surfaces: Bool) {
+        init(holds: Bool, surfaces: Bool, hosted: Bool) {
             self.holds = holds
             self.surfaces = surfaces
+            self.hosted = hosted
         }
 
         func makeContentView(for pane: PaneID) -> NSView {
-            let view = surfaces ? Surface() : Content()
+            let view: Content = hosted ? Hosting() : surfaces ? Surface() : Content()
             view.wantsLayer = true
+            if let hosting = view as? Hosting {
+                hosting.inner.autoresizingMask = [.width, .height]
+                hosting.addSubview(hosting.inner)
+            }
             contents[pane] = view
             shown.insert(pane)
             return view
@@ -80,7 +92,7 @@ import Testing
             if retired { shown.remove(pane) } else { shown.insert(pane) }
         }
 
-        func surface(_ pane: PaneID) -> Surface? { contents[pane] as? Surface }
+        func surface(_ pane: PaneID) -> Surface? { contents[pane] as? Surface ?? (contents[pane] as? Hosting)?.inner }
     }
 
     final class Harness {
@@ -90,8 +102,9 @@ import Testing
         let window: NSWindow
 
         /// `configure`: sets the model up before the view reads it.
-        init(_ screens: [LayoutScreen], focused: PaneID, holds: Bool, surfaces: Bool = false, configure: (LayoutModel) -> Void = { _ in }) {
-            provider = Panes(holds: holds, surfaces: surfaces)
+        init(_ screens: [LayoutScreen], focused: PaneID, holds: Bool, surfaces: Bool = false, hosted: Bool = false,
+             configure: (LayoutModel) -> Void = { _ in }) {
+            provider = Panes(holds: holds, surfaces: surfaces, hosted: hosted)
             model = LayoutModel(screens: screens, activeScreenID: "s", focusedPane: focused)
             configure(model)
             root = LayoutRootView(model: model, contentProvider: provider)

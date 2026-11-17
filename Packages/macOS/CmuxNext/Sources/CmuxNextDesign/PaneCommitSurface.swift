@@ -11,7 +11,12 @@ public import AppKit
 /// its pane shows its own ground over its content area, never the producer's old picture at the new size, until the
 /// producer reports.
 ///
-/// The pane's layout finds every conforming view in the pane's content, in the change's own turn.
+/// The pane's layout asks the pane's content for its surfaces in the change's own turn
+/// (`NSView.paneCommitSurfaces()`): the content's root view when it is one, else the surfaces the root names
+/// (``PaneCommitSurfaceHosting``). It walks no view tree, so a view the root does not name takes no part.
+///
+/// A surface that hides or leaves its pane while it still owes a report calls `ready` then: it will not draw, and its
+/// pane shows its ground until every report it is owed came, or until its next commit finds the surface gone.
 @MainActor
 public protocol PaneCommitSurface: NSView {
     /// The next commit of this view's pane changes this view's size by `change` (points; negative: smaller). The pane
@@ -29,13 +34,17 @@ public protocol PaneCommitSurface: NSView {
 }
 
 public extension NSView {
-    /// Every ``PaneCommitSurface`` in this subtree (this view included) that is not hidden: a hidden one (a parked
-    /// tab's page) draws nothing and takes its size when it shows.
+    /// The ``PaneCommitSurface``s of this view as the root of a pane's content: the view itself when it is one, else
+    /// the ones it names (``PaneCommitSurfaceHosting``), and none for any other view. A hidden view has none: it draws
+    /// nothing and takes its size when it shows.
+    ///
+    /// No walk of the subtree: a layout change asks each resized pane once, in its own turn, and a pane with no
+    /// surface costs two casts there.
+    ///
+    /// - Returns: The surfaces that take part in the pane's next commit.
     func paneCommitSurfaces() -> [any PaneCommitSurface] {
         guard !isHidden else { return [] }
-        var found: [any PaneCommitSurface] = []
-        if let surface = self as? any PaneCommitSurface { found.append(surface) }
-        for subview in subviews { found += subview.paneCommitSurfaces() }
-        return found
+        if let surface = self as? any PaneCommitSurface { return [surface] }
+        return (self as? any PaneCommitSurfaceHosting)?.commitSurfaces ?? []
     }
 }

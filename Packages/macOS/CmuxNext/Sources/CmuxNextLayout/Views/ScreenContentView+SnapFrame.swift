@@ -47,34 +47,48 @@ extension ScreenContentView {
             resized = true
             let change = CGSize(width: placed.width - host.frame.width, height: placed.height - host.frame.height)
             host.drawAhead(sizeChange: change, keyPress: keyPress)
-            // A newer change of the pane replaces the size an older one gave: the older reports are void.
+            // A newer change of the pane replaces the size an older one gave: the older reports are void. A pane with
+            // no surface now (its producer went) owes no report: a ground it shows for one goes when this change shows.
             let surfaces = host.content.paneCommitSurfaces()
             guard !surfaces.isEmpty else {
                 frameInput.commitSurfaces[pane] = nil
                 continue
             }
-            frameInput.commitGeneration &+= 1
-            let generation = frameInput.commitGeneration
-            frameInput.commitSurfaces[pane] = (generation, Array(repeating: false, count: surfaces.count))
+            askSurfaces(surfaces, of: pane, change: change)
             frameInput.commitAwaited.insert(pane)
-            for (index, surface) in surfaces.enumerated() {
-                surface.commitWillResize(by: change) { [weak self] in self?.commitSurfaceIsReady(pane, index, of: generation) }
-            }
         }
         // A pane the waiting change resized and this one does not (a change taken back in the same wait): its surfaces
-        // keep the size they show, and nothing waits for them.
+        // keep the size they show, and nothing waits for them. One that shows its ground for an older change keeps it
+        // until its surfaces report at that size.
         for pane in asked.subtracting(frameInput.commitAwaited) {
             frameInput.commitSurfaces[pane] = nil
             guard let host = context.hosts[pane], host.superview === self else { continue }
-            for surface in host.content.paneCommitSurfaces() { surface.commitWillResize(by: .zero) {} }
+            let surfaces = host.content.paneCommitSurfaces()
+            if host.showsLateGround, !surfaces.isEmpty {
+                askSurfaces(surfaces, of: pane, change: .zero)
+            } else {
+                for surface in surfaces { surface.commitWillResize(by: .zero) {} }
+            }
         }
         guard resized else { return false }
-        // A press while a press's snap waits keeps its count: the wait stays bounded under a held key.
+        // The bound is the screen's wait, not one change's: a change that comes while a snap waits keeps the count, so
+        // a burst of changes or a held key cannot push the frame out without end. It gets the ticks that are left.
         if !frameInput.snapWaitsForContent { frameInput.snapRefreshesWaited = 0 }
         frameInput.snapAwaitsPrograms = keyPress
         (frameInput.snapWaitsForContent, frameInput.presentationWaiting) = (true, true)
         context.requestFrames()
         return true
+    }
+
+    /// Tells `surfaces` of `pane` that the pane's next commit changes their size by `change`, and notes the reports
+    /// they owe: the pane's entry stays until each of them reported (``commitSurfaceIsReady(_:_:of:)``).
+    private func askSurfaces(_ surfaces: [any PaneCommitSurface], of pane: PaneID, change: CGSize) {
+        frameInput.commitGeneration &+= 1
+        let generation = frameInput.commitGeneration
+        frameInput.commitSurfaces[pane] = (generation, Array(repeating: false, count: surfaces.count))
+        for (index, surface) in surfaces.enumerated() {
+            surface.commitWillResize(by: change) { [weak self] in self?.commitSurfaceIsReady(pane, index, of: generation) }
+        }
     }
 
     /// A surface of `pane` reported that its picture at the change's size shows now. A report of an older change is void.
@@ -129,8 +143,9 @@ extension ScreenContentView {
         for pane in paneFrames.keys {
             guard let host = context.hosts[pane], host.superview === self else { continue }
             host.snapWillShow()
-            guard frameInput.commitAwaited.contains(pane) else { continue }
-            // A surface that did not report by the bound is late: its pane shows its own ground until it does.
+            // A surface that did not report by the bound is late: its pane shows its own ground until it does. Each
+            // pane this commit places shows its ground only for a report it is still owed: one whose producer went (an
+            // older change left it late, and this one found no surface in it) shows its content again here.
             let late = frameInput.commitSurfaces[pane] != nil
             if late, !host.showsLateGround { lateSurfaceCommits += 1 }
             host.showsLateGround = late
@@ -152,11 +167,24 @@ extension ScreenContentView {
         }
     }
 
-    /// In the turn that shows a change, before it places the panes: the panes and dividers the change took out go. A
-    /// pane a later change took back stays (it is in the layout again). The hosts hide here, and a close's hosts are
-    /// torn down after this turn's commit, so the frame that shows the change carries no teardown (RESIZE VIDEOS F1: a
-    /// teardown in a close's first frames missed refreshes). The turn is the change's own when it resizes no pane, and
-    /// the frame tick it waited for when it does.
+    /// The pass that shows a layout change begins, before it places the panes: what the change took out goes
+    /// (``hideSnapDeparted()``), and the docks' backdrops and the stacking order become the new layout's
+    /// (`reconcileDock`, then a canvas's own order). They are part of what a frame shows, so they change with the
+    /// panes: a dock a zoom takes out keeps its backdrop under its panes until the frame that shows the zoom, and one
+    /// an unzoom brings back gets its backdrop in the frame that shows its panes. The pass is the change's own turn
+    /// when nothing waits (it resizes no pane, and the turn does not hold its presentations), else the presentation the
+    /// change waited for. A pass with no layout change before it does nothing here.
+    func beginShowingChange() {
+        hideSnapDeparted()
+        guard frameInput.dockIsStale else { return }
+        frameInput.dockIsStale = false
+        reconcileDock()
+        reconcileCanvasStacking()
+    }
+
+    /// The panes and dividers a change took out go. A pane a later change took back stays (it is in the layout again).
+    /// The hosts hide here, and a close's hosts are torn down after this turn's commit, so the frame that shows the
+    /// change carries no teardown (RESIZE VIDEOS F1: a teardown in a close's first frames missed refreshes).
     func hideSnapDeparted() {
         if !frameInput.snapDepartedDividers.isEmpty {
             for view in frameInput.snapDepartedDividers { view.removeFromSuperview() }

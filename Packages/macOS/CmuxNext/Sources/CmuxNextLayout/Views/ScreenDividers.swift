@@ -52,14 +52,21 @@ struct ScreenDividers {
     /// native UI that Chromium pages leave uncovered (they sit in the gap
     /// between panes). A transparent edge handle at rest leaves no hole;
     /// hovering or dragging it makes the line part of the overlay again.
+    /// The lines are the ones the screen shows: a divider a layout change took out shows until that change shows
+    /// (`ScreenFrameInput.snapDepartedDividers`), so its line stays here until then, and a page beside it does not
+    /// cover the line a frame before the divider goes.
     var lineRects: [CGRect] {
-        screen.dividerViews.values.flatMap { view -> [CGRect] in
-            guard !view.isHidden, view.alphaValue > 0.01, view.isLineVisible else { return [] }
+        var rects: [CGRect] = []
+        func add(_ view: DividerHandleView) {
+            guard !view.isHidden, view.alphaValue > 0.01, view.isLineVisible else { return }
             // Cut where its cursor stops too (DividerHandleView `cursorClip`): no hole through a dock.
             let line = view.lineFrameInSuperview.intersection(screen.bounds)
             let shown = view.cursorClip.map { line.intersection($0) } ?? line
-            return shown.isNull || shown.isEmpty ? [] : [shown]
-        }.sorted { ($0.minX, $0.minY) < ($1.minX, $1.minY) }
+            if !shown.isNull, !shown.isEmpty { rects.append(shown) }
+        }
+        for view in screen.dividerViews.values { add(view) }
+        for view in screen.frameInput.snapDepartedDividers { add(view) }
+        return rects.sorted { ($0.minX, $0.minY) < ($1.minX, $1.minY) }
     }
 
     /// The strip column under a resize drag: the camera keeps it in place, so

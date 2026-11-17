@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextDesign
-/// Renders one screen: a split tree, or a horizontally scrolling strip of
-/// columns. Pane and divider frames are springs in content space; the
+/// Renders one screen: a split tree, or a horizontally scrolling strip of columns. Pane and divider frames are springs
+/// in content space (a ratio or width change moves them; a structural change puts each at its place in one frame); the
 /// displayed frame subtracts the scroll offset.
 final class ScreenContentView: NSView {
     let screenID: ScreenID
@@ -11,7 +11,7 @@ final class ScreenContentView: NSView {
     private(set) var layoutRevision: UInt64 = 0
     /// The layout is one zoomed pane (`LayoutScreen.zoomed`).
     private(set) var zoomed = false
-    /// Where the panes a structural change carries showed (view x), set again
+    /// Where the panes an animated width or ratio change carries showed (view x), set again
     /// once `syncScroll` has moved the camera for the new layout (`settleCarried`).
     var carriedShown: [PaneID: CGFloat] = [:]
     /// The same for the strip's dividers and column edges.
@@ -36,9 +36,9 @@ final class ScreenContentView: NSView {
     /// The layout change that `update` just applied is structural, and its scroll sync has not run yet (`syncScroll`
     /// follows every update): that sync puts each camera at its place with the change, in the same frame.
     var scrollSyncIsStructural = false
-    /// A split's or a close's panes spring to their new sizes: their terminals keep their grids
-    /// until every pane landed (`LayoutViewContext.gridHoldScreens`, the PTY resizes once at rest).
-    /// A press during the motion (rapid Cmd-D) keeps the hold, so the grids go once for the whole chain.
+    /// The terminals of this screen keep their grids until its panes land (`LayoutViewContext.gridHoldScreens`).
+    /// Nothing sets it now: a split or a close shows in one frame, and its terminals take their grids with that
+    /// frame. It stays, with its observers, until its own removal.
     var holdsGrids = false {
         didSet {
             guard holdsGrids != oldValue else { return }
@@ -74,8 +74,8 @@ final class ScreenContentView: NSView {
     var resizeGesture = PaneResizeGesturePhase.idle
     /// The pane contents that heard the drag start; the end goes to them.
     var resizeGestureListeners: [PaneResizeGestureListener] = []
-    /// The pane views a resize drag, a zoom's spring or a key resize's spring moves post no frame notice until it ends
-    /// (``FrameNoticeHold``): no titlebar drag-shape walk in each of its frames' commits, the zoom key's turn included.
+    /// The pane views a resize drag or a key resize's spring moves post no frame notice until it ends
+    /// (``FrameNoticeHold``): no titlebar drag-shape walk in each of its frames' commits.
     let paneFrameNotices = FrameNoticeHold()
     /// Overlay docked columns' glass rims, keyed by column.
     var backdrops: [ColumnID: DockBackdropView] = [:]
@@ -293,10 +293,10 @@ final class ScreenContentView: NSView {
                 // A pane the layout gets: a new one, a close taken back before its host went, or one a zoom covered. One
                 // that comes back hidden shows in the pass that places it (`showSnapReturning`), never a frame before
                 // it at the place it had.
-                let host = context.host(for: pane, showsWithChange: true)
+                let host = context.host(for: pane)
                 if host.isHidden { frameInput.snapReturning.append(pane) }
                 if host.superview !== self {
-                    // Under the zooming pane and the dividers: `reconcileDock` ranks it (`ensureStacking`).
+                    // Under the dividers: the pass that shows this change ranks it (`beginShowingChange`, `ensureStacking`).
                     addSubview(host, positioned: .below, relativeTo: firstDividerView)
                 }
                 // Opaque and in its place from the first frame that shows it.
@@ -390,26 +390,28 @@ final class ScreenContentView: NSView {
             }
         }
 
-        reconcileDock()
-        reconcileCanvasStacking()
+        // The docks' backdrops and the stacking order are part of what a frame shows: they change in the pass that shows
+        // this change, with its panes (`beginShowingChange`), not here.
+        frameInput.dockIsStale = true
         // The scroll follows in `syncScroll`, which the root calls with the focus after every update, and presents.
         // Only a structural change re-places everything: a ratio, width or row-height change (every divider
         // drag step, an equalize) moves only the panes whose frames changed, and every per-pane input (frame,
         // alpha, clip range, covers, divider clips) is compared in the pass (`applyPresentation`).
         if structural { forcesPresentation = true }
-        // A change that snaps shows at the next frame tick when it resizes a pane. Else it shows in this turn: what it
-        // took out goes now, with it.
+        // A change that snaps shows at the next frame tick when it resizes a pane. Else it shows in this turn, or, when
+        // the turn holds its presentations (a key's sync, a frame tick's input), in the pass that turn asked for. What
+        // the change took out goes in the pass that places the panes, never a turn before it.
         if holdsSnap { _ = holdsSnapForContent(keyPress: keySnap) }
-        if !frameInput.snapWaitsForContent { hideSnapDeparted() }
+        if !frameInput.snapWaitsForContent, !context.holdsPresentations { beginShowingChange() }
         if presents { applyPresentation() }
         let moving = animate && hasMotion
         if !(moving && holdsGrids) { holdsGrids = false }
         return moving
     }
 
-    /// The panes and strip dividers a structural change carried start where they showed before it, now that the
-    /// camera is where the new layout puts it: a zoom resets the scroll, an unzoom snaps it to
-    /// the focused column, and a close left of the focus moves the anchor along at once.
+    /// The panes and strip dividers an animated width or ratio change carried (a preset, an equalize) start where they
+    /// showed before it, now that the camera is where the new layout puts it. A structural change carries none: each
+    /// of its panes is at its place in the frame that shows it.
     func settleCarried() {
         guard !carriedShown.isEmpty || !carriedDividers.isEmpty else { return }
         let shift = stripShift

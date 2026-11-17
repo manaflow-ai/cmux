@@ -125,6 +125,28 @@ extension PaneLayoutCommitTests {
         #expect(!host.showsLateGround, "the ground stays after the surface reported")
     }
 
+    /// A pane's content that is no producer itself names the producers inside it (`PaneCommitSurfaceHosting`): a change
+    /// asks them and waits for them as it does for a content that is one.
+    @Test func aChangeAsksAndWaitsForTheSurfacesAPanesContentNames() throws {
+        let harness = Harness(Self.pair, focused: Self.left, holds: false, hosted: true)
+        defer { harness.window.closeAfterTest() }
+        Self.rest(harness)
+        let screen = try #require(harness.screen)
+        let style = harness.root.context.style
+        let old = Rest(harness.model.screens, in: screen, style: style)
+        let left = try #require(harness.provider.surface(Self.left))
+
+        harness.model.apply(screens: Self.pairSplit(.horizontal))
+        let new = Rest(harness.model.screens, in: screen, style: style)
+        harness.root.syncWithModel()
+        #expect(left.asks.count == 1, "the surface the content names heard \(left.asks.count) size changes")
+        #expect(harness.root.advanceFrame(PaneMotionBench.frameBudget), "the change does not wait for the surface the content names")
+        #expect(old.isShown(by: Self.shown(screen)), "a frame tick showed the new layout before the named surface reported")
+        left.report()
+        #expect(!harness.root.advanceFrame(PaneMotionBench.frameBudget), "frames run on after the change showed")
+        #expect(new.isShown(by: Self.shown(screen)), "the first frame tick after the report does not show the new layout")
+    }
+
     /// The layout asks a pane's content for its producers and walks no view tree for them: a view inside the content
     /// that the content does not name hears no size, and the change does not wait for it.
     @Test func aChangeAsksNoViewThatThePanesContentDoesNotName() throws {
