@@ -670,7 +670,7 @@ macro_rules! harness_host {
                 own_mode_policy_approve_all: $harness, $remote, Standard, ApproveAll;
                 ask_policy_ask: $harness, $remote, Ask, Ask;
                 ask_policy_approve_all: $harness, $remote, Ask, ApproveAll;
-                approve_all: $harness, $remote, ApproveAll, Ask;
+                approve_all: $harness, $remote, ApproveAll, ApproveAll;
             }
         }
     )*};
