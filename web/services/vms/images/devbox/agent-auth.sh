@@ -36,7 +36,10 @@ cmux_agent_auth_choice() {
   case "$cmux_aa_value" in team|own) printf '%s' "$cmux_aa_value" ;; esac
 }
 
-# 0 when <agent> has its own sign-in on this machine.
+# 0 when <agent> has its own sign-in on this machine. Text matching on purpose:
+# the python3 first on PATH can be a project's broken venv or toolchain shim,
+# and a json.py in the working directory shadows the module for `python3 -c`.
+# Either one would silently keep a signed-in user on CodeRouter.
 #   claude    a /login session in its credentials file, or a long-lived
 #             token from `claude setup-token`
 #   codex     `codex login` (ChatGPT tokens or an API key) in auth.json, or
@@ -52,27 +55,11 @@ cmux_agent_has_own_login() {
     codex)
       [ -n "${CODEX_API_KEY-}" ] && return 0
       cmux_aa_login="${CODEX_HOME:-${HOME:-/root}/.codex}/auth.json"
-      [ -f "$cmux_aa_login" ] && python3 -c '
-import json, sys
-try:
-    auth = json.load(open(sys.argv[1]))
-except Exception:
-    sys.exit(1)
-tokens = auth.get("tokens") if isinstance(auth, dict) else None
-key = auth.get("OPENAI_API_KEY") if isinstance(auth, dict) else None
-sys.exit(0 if (isinstance(tokens, dict) and tokens) or (isinstance(key, str) and key) else 1)
-' "$cmux_aa_login" 2>/dev/null
+      [ -f "$cmux_aa_login" ] && { tr -d '[:space:]' < "$cmux_aa_login"; } 2>/dev/null | grep -Eq '"tokens":\{"|"OPENAI_API_KEY":"[^"]' 2>/dev/null
       ;;
     opencode)
       cmux_aa_login="${XDG_DATA_HOME:-${HOME:-/root}/.local/share}/opencode/auth.json"
-      [ -f "$cmux_aa_login" ] && python3 -c '
-import json, sys
-try:
-    auth = json.load(open(sys.argv[1]))
-except Exception:
-    sys.exit(1)
-sys.exit(0 if isinstance(auth, dict) and auth else 1)
-' "$cmux_aa_login" 2>/dev/null
+      [ -f "$cmux_aa_login" ] && { tr -d '[:space:]' < "$cmux_aa_login"; } 2>/dev/null | grep -q '^{"' 2>/dev/null
       ;;
     *) return 1 ;;
   esac
@@ -126,19 +113,24 @@ cmux_agent_team_access_fetch() {
   if cmux_aa_body=$(curl "$@" "${cmux_aa_origin%/}/api/coderouter/agent-access" 2>/dev/null); then :; else
     # 6 the name does not resolve, 7 nothing accepts the connection: no
     # request through CodeRouter can succeed. Anything else may be passing.
-    case "$?" in 6|7) echo "3 3 3"; return 0 ;; esac
+    # A failed request's body, if any, may be cut off: no answer.
+    case "$?" in 6|7) echo "3 3 3" ;; *) echo "2 2 2" ;; esac
+    return 0
   fi
-  printf '%s' "$cmux_aa_body" | python3 -c '
-import json, sys
-try:
-    agents = json.load(sys.stdin)["agents"]
-except Exception:
-    agents = {}
-def code(name):
-    value = agents.get(name) if isinstance(agents, dict) else None
-    return "0" if value is True else "1" if value is False else "2"
-print(code("claude"), code("codex"), code("opencode"))
-' 2>/dev/null || echo "2 2 2"
+  cmux_aa_agents=$(printf '%s' "$cmux_aa_body" | tr -d '[:space:]')
+  case "$cmux_aa_agents" in
+    *'"agents":{'*) cmux_aa_agents=${cmux_aa_agents#*\"agents\":\{}; cmux_aa_agents=${cmux_aa_agents%%\}*} ;;
+    *) cmux_aa_agents="" ;;
+  esac
+  cmux_aa_codes=""
+  for cmux_aa_agent in claude codex opencode; do
+    case ",$cmux_aa_agents," in
+      *,\"$cmux_aa_agent\":true,*) cmux_aa_codes="$cmux_aa_codes 0" ;;
+      *,\"$cmux_aa_agent\":false,*) cmux_aa_codes="$cmux_aa_codes 1" ;;
+      *) cmux_aa_codes="$cmux_aa_codes 2" ;;
+    esac
+  done
+  echo "${cmux_aa_codes# }"
 }
 
 # Sets cmux_agent_auth_mode (team|own) and cmux_agent_auth_reason for <agent>:
@@ -218,12 +210,29 @@ cmux_claude_apply_auth_mode() {
 # -c model_provider="openai", the built-in provider that uses `codex login`.
 # Only a config cmux generated is overridden; a user's own provider choice is
 # left alone.
+cmux_codex_uses_generated_provider() {
+  cmux_codex_config="${CODEX_HOME:-${HOME:-/root}/.codex}/config.toml"
+  [ -f "$cmux_codex_config" ] || return 1
+  # Match the top-level key however it is spaced or quoted (whitespace, either
+  # quote style, a trailing comment, CRLF), not only the generator's exact
+  # line; keys after the first [table] header belong to that table. awk, not
+  # python3: the python3 first on PATH can be a project's venv or toolchain
+  # pin without tomllib, and a failed check here silently keeps a signed-in
+  # user on CodeRouter.
+  awk '
+    { sub(/\r$/, "") }
+    /^[ \t]*\[/ { exit }
+    /^[ \t]*(model_provider|"model_provider"|\047model_provider\047)[ \t]*=[ \t]*["\047]cmux["\047][ \t]*(#.*)?$/ { found = 1; exit }
+    END { exit !found }
+  ' "$cmux_codex_config" 2>/dev/null
+}
+
 cmux_codex_apply_auth_mode() {
   cmux_codex_own_provider=0
   cmux_agent_auth_resolve codex
   [ "$cmux_agent_auth_mode" = own ] || return 0
   cmux_agent_drop_model_plane_env
-  if grep -qx 'model_provider = "cmux"' "${CODEX_HOME:-${HOME:-/root}/.codex}/config.toml" 2>/dev/null; then
+  if cmux_codex_uses_generated_provider; then
     cmux_codex_own_provider=1
   fi
 }
