@@ -1,7 +1,8 @@
-# Builds the app's ONE Rust static library, CCmuxAppFFI.xcframework
+# Builds the app's ONE Rust library, CCmuxAppFFI.xcframework
 # (cmux-tui/crates/cmux-app-ffi: the remote desktop core, the sidebar layout
 # reducer and the cmux-motion C ABIs over one Rust runtime, universal macOS arm64 + x86_64; see
-# scripts/cmux-next/build-app-ffi.sh), and publishes it as a prerelease in this
+# scripts/cmux-next/build-app-ffi.sh), a dynamic library the app carries at
+# Contents/Frameworks/libcmux_app_ffi.dylib, and publishes it as a prerelease in this
 # repository, tagged cmux-app-ffi-<full commit sha>.
 # Packages/macOS/CmuxNext/app-ffi-pin.json pins one release by URL and SwiftPM
 # checksum (Package.swift reads it at manifest time), so every build (app,
@@ -43,6 +44,8 @@ on:
   push:
     branches: [feat-cmux-next]
     paths:
+      - "cmux-tui/crates/acpmux-client/**"
+      - "cmux-tui/crates/acpmux-list-types/**"
       - "cmux-tui/crates/cmux-app-ffi/**"
       - "cmux-tui/crates/cmux-action-catalog/**"
       - "cmux-tui/crates/cmux-agent-pane-policy/**"
@@ -51,6 +54,7 @@ on:
       - "cmux-tui/crates/cmux-cloud-handlers/**"
       - "cmux-tui/crates/cmux-cloud-machine/**"
       - "cmux-tui/crates/cmux-cloud-start-core/**"
+      - "cmux-tui/crates/cmux-tab-discard/**"
       - "cmux-tui/crates/cmux-cloud-tasks/**"
       - "cmux-tui/crates/cmux-cookie-sync/**"
       - "cmux-tui/crates/cmux-daemon-conn-core/**"
@@ -58,7 +62,9 @@ on:
       - "cmux-tui/crates/cmux-health-core/**"
       - "cmux-tui/crates/cmux-focus-core/**"
       - "cmux-tui/crates/cmux-imessage/**"
+      - "cmux-tui/crates/cmux-launch-record/**"
       - "cmux-tui/crates/cmux-layout-reducer/**"
+      - "cmux-tui/crates/cmux-launch-record/**"
       - "cmux-tui/crates/cmux-local-auth/**"
       - "cmux-tui/crates/cmux-layout-reducer-ffi/**"
       - "cmux-tui/crates/cmux-palette-ranker/**"
@@ -194,7 +200,7 @@ jobs:
     # on a Blacksmith label, the build holds it against pull request placements
     # as a nightly job does (the queue janitor's reserved_queued,
     # queue_janitor.RESERVED_POOL_WORKFLOW).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.placement.outputs.promote_runner != '' && needs.placement.outputs.promote_runner || vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_12_jobs, ' app-ffi-build ') && fromJSON(vars.RUNNER_POOLS).macos_26_large || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_6_jobs, ' app-ffi-build ') && fromJSON(vars.RUNNER_POOLS).macos_26 || vars.CI_NEXT_PROMOTE_POOL != '' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.placement.outputs.promote_runner != '' && needs.placement.outputs.promote_runner || vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_12_jobs, ' app-ffi-build ') && (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26_large) || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_6_jobs, ' app-ffi-build ') && (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) || vars.CI_NEXT_PROMOTE_POOL != '' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.MACOS_RUNNER_26 || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 45
     # A newer push or dispatch on the same ref waits for this build, never
     # cancels it; a still newer one replaces it while it waits.
@@ -212,6 +218,20 @@ jobs:
       # tags merged into HEAD), but trees and blobs only for HEAD; the few the
       # diffs below read are fetched on demand. The full clone of every ref took
       # 5 to 10 minutes of a 7 to 15 minute build; treeless takes about one.
+      # A reused work checkout an earlier job left shallow makes the treeless full-history
+      # checkout below run `git fetch --filter=tree:0 --unshallow` into it, and git 2.55/2.56
+      # aborts in pack-objects ("BUG: ... should_include_obj should only be called on
+      # existing objects") on all three tries: app FFI release run 43863985334, 2026-11-16.
+      # Dropping the shallow .git lets the checkout fetch fresh (treeless, about a minute).
+      - name: Drop a reused shallow checkout
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          if [[ -f "$GITHUB_WORKSPACE/.git/shallow" ]]; then
+            echo "reused shallow checkout: removing its .git so the checkout fetches fresh"
+            rm -rf "$GITHUB_WORKSPACE/.git"
+          fi
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -298,18 +318,22 @@ jobs:
         run: |
           set -euo pipefail
           xcf="$OUT/CCmuxAppFFI.xcframework"
-          lib="$(find "$xcf" -name 'libcmux_app_ffi.a' | head -n 1)"
-          test -f "$lib"
+          lib="$xcf/macos-arm64_x86_64/libcmux_app_ffi.dylib"
+          test -f "$lib" || { echo "::error::$lib is missing (build-app-ffi.sh builds the dynamic library)" >&2; exit 1; }
           archs="$(lipo -archs "$lib")"
           echo "architectures: $archs"
           for arch in arm64 x86_64; do
             [[ " $archs " == *" $arch "* ]] || { echo "::error::$lib has no $arch slice" >&2; exit 1; }
           done
+          # The app finds it at Contents/Frameworks through its @rpath, and a
+          # hot apply swaps that file: the install name must be the @rpath one.
+          install_name="$(otool -D "$lib" | sed -n '2p')"
+          [[ "$install_name" == "@rpath/libcmux_app_ffi.dylib" ]] || { echo "::error::$lib install name is '$install_name', not @rpath/libcmux_app_ffi.dylib" >&2; exit 1; }
+          test -d "$xcf/macos-arm64_x86_64/dSYMs/libcmux_app_ffi.dylib.dSYM" || { echo "::error::the xcframework carries no dSYM for libcmux_app_ffi.dylib" >&2; exit 1; }
           # Prove each slice links with Apple's toolchain and exports every C
           # entry point: a C program takes the address of each header function
-          # and links against the archive (Apple's nm cannot read objects that
-          # carry a newer rustc's embedded bitcode, so symbol listing is not
-          # the check; the link is what the app needs). The arm64 program runs.
+          # and links against the library (the link is what the app needs).
+          # The arm64 program runs, loading the library through its @rpath.
           headers="$xcf/macos-arm64_x86_64/Headers"
           smoke="$RUNNER_TEMP/smoke"
           mkdir -p "$smoke"
@@ -321,7 +345,8 @@ jobs:
             printf '%s\n' '  printf("abi %u\n", cmux_layout_reducer_ffi_abi_version());' '  return 0;' '}'
           } > "$smoke/smoke.c"
           for arch in arm64 x86_64; do
-            xcrun clang -target "$arch-apple-macos14.0" -I "$headers" "$smoke/smoke.c" "$lib" -o "$smoke/smoke-$arch"
+            xcrun clang -target "$arch-apple-macos14.0" -I "$headers" "$smoke/smoke.c" "$lib" \
+              -Wl,-rpath,"$(dirname "$lib")" -o "$smoke/smoke-$arch"
           done
           "$smoke/smoke-arm64"
           dist="$RUNNER_TEMP/dist"
@@ -338,6 +363,10 @@ jobs:
           printf '%s\n' "$checksum" > "$archive.sha256"
           printf '%s  %s\n' "$checksum" CCmuxAppFFI.xcframework.zip > "$dist/SHA256SUMS"
           printf '%s\n' "$GITHUB_SHA" > "$dist/SOURCE_SHA"
+          # The prelinked object the library is linked from, as an archive: the
+          # Linux cross-compile shadow builds the same one and compares them. Not
+          # a release asset (publish uploads the files it names).
+          cp "$OUT/macos/libcmux_app_ffi.a" "$dist/libcmux_app_ffi-prelinked.a"
           echo "tag=cmux-app-ffi-$GITHUB_SHA" >> "$GITHUB_OUTPUT"
           echo "checksum=$checksum" >> "$GITHUB_OUTPUT"
           echo "checksum: $checksum"
@@ -431,7 +460,7 @@ jobs:
           set -euo pipefail
           mac="$RUNNER_TEMP/macos-cross/mac"
           (cd "$mac" && sha256sum --check --strict SHA256SUMS && unzip -q CCmuxAppFFI.xcframework.zip)
-          lib="$mac/CCmuxAppFFI.xcframework/macos-arm64_x86_64/libcmux_app_ffi.a"
+          lib="$mac/libcmux_app_ffi-prelinked.a"
           ./scripts/ci/macos-cross.sh toolchain "$(./scripts/ci/macos-cross.sh ref-sdk "$lib")"
           start=$(date +%s)
           ./scripts/ci/macos-cross.sh ffi
@@ -443,7 +472,7 @@ jobs:
           status=0
           report="$RUNNER_TEMP/macos-cross-parity.txt"
           mac="$RUNNER_TEMP/macos-cross/mac/CCmuxAppFFI.xcframework/macos-arm64_x86_64"
-          ./scripts/ci/macos-cross.sh parity-ffi "$mac/libcmux_app_ffi.a" > "$report" 2>&1 || status=1
+          ./scripts/ci/macos-cross.sh parity-ffi "$RUNNER_TEMP/macos-cross/mac/libcmux_app_ffi-prelinked.a" > "$report" 2>&1 || status=1
           # The headers the app imports come straight from the crates.
           for h in cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h:CCmuxRdFFI cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h:CCmuxLayoutReducerFFI cmux-tui/crates/cmux-palette-ranker/include/cmux_palette_ranker.h:CCmuxPaletteRankerFFI; do
             if cmp -s "${h%%:*}" "$mac/Headers/${h##*:}/$(basename "${h%%:*}")"; then
@@ -546,7 +575,7 @@ jobs:
           set -euo pipefail
           (cd "$RUNNER_TEMP/assets" && sha256sum --check --strict SHA256SUMS)
           [[ "$(tr -d '[:space:]' < "$RUNNER_TEMP/assets/SOURCE_SHA")" == "$GITHUB_SHA" ]]
-          notes="The cmux app FFI (remote desktop core + sidebar layout reducer) as CCmuxAppFFI.xcframework (one static library, universal macOS arm64/x86_64). Source $GITHUB_SHA. SwiftPM binaryTarget checksum (SHA-256 of the zip): $CHECKSUM"
+          notes="The cmux app FFI (remote desktop core + sidebar layout reducer) as CCmuxAppFFI.xcframework (one dynamic library, libcmux_app_ffi.dylib, universal macOS arm64/x86_64). Source $GITHUB_SHA. SwiftPM binaryTarget checksum (SHA-256 of the zip): $CHECKSUM"
           # Only gh's "release not found" means absent; any other failed read
           # (a 502) is asked again, so a rerun never creates over its release.
           exists=""
@@ -724,6 +753,20 @@ jobs:
 
       # Treeless with full history: the re-pin walks feat-cmux-next's commits
       # back to the current pin to find the newest published release.
+      # A reused work checkout an earlier job left shallow makes the treeless full-history
+      # checkout below run `git fetch --filter=tree:0 --unshallow` into it, and git 2.55/2.56
+      # aborts in pack-objects ("BUG: ... should_include_obj should only be called on
+      # existing objects") on all three tries: app FFI release run 43863985334, 2026-11-16.
+      # Dropping the shallow .git lets the checkout fetch fresh (treeless, about a minute).
+      - name: Drop a reused shallow checkout
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          if [[ -f "$GITHUB_WORKSPACE/.git/shallow" ]]; then
+            echo "reused shallow checkout: removing its .git so the checkout fetches fresh"
+            rm -rf "$GITHUB_WORKSPACE/.git"
+          fi
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: feat-cmux-next

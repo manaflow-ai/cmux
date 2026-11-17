@@ -1,7 +1,10 @@
-/* A folded group's hover (MessageGroupHover.tsx), in the hover card's glass. The digest (the
-   default): the newest message whole under its sender, a hairline, then the other senders with
-   their counts. The gallery versions: the messages newest first, each its sender's mark and short
-   name, then the first line or two of what it said. */
+/* A folded group's hover (MessageGroupHover.tsx), in the one hover card material (desktop.css
+   .ui-card.ui-glass, ui/glass/hoverCardGlass.ts: never a fill of its own) and scrolling in itself
+   past the window's height (desktop.css .ui-tooltip.ui-card). The threads look (the default): each
+   sender once under a hairline, its count, then its newest message whole. The digest: the newest
+   message whole under its sender, a hairline, then the other senders with their counts. The gallery
+   versions: the messages newest first, each its sender's mark and short name, then the first line or
+   two of what it said. */
 .ui-card.cv-group-hover__popup {
   max-width: min(360px, calc(100vw - 24px));
   padding: var(--ds-space-2) var(--ds-space-3);
@@ -65,20 +68,25 @@
 .cv-group-hover__more {
   color: var(--cmux-text-secondary, var(--cv-text-muted));
 }
-/* The digest's newest message: its lines as lines, cut near twelve. */
-.cv-group-hover__newest {
+/* A message whole, its lines as lines: the card scrolls, so nothing is cut. */
+.cv-group-hover__newest,
+.cv-group-hover__thread {
   display: flex;
   flex-direction: column;
   gap: var(--grid-half-step);
   min-width: 0;
 }
 .cv-group-hover__body {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 12;
-  overflow: hidden;
   overflow-wrap: anywhere;
   white-space: pre-line;
+}
+/* Each sender after the first under a hairline, as the digest's senders sit. */
+.cv-group-hover__thread + .cv-group-hover__thread {
+  padding-top: var(--ds-space-2);
+  border-top: var(--cmux-hairline, 0.5px) solid var(--ds-color-separator);
+}
+.cv-group-hover__thread .cv-group-hover__count {
+  color: var(--cmux-text-secondary, var(--cv-text-muted));
 }
 /* The other senders, one wrapping line under a hairline: mark, name, count. */
 .cv-group-hover__senders {

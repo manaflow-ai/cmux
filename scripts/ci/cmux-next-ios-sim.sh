@@ -29,7 +29,10 @@
 #             ui=SUITE[,SUITE...]   also run those CmuxMobileAppUITests suites
 #               against a Debug app; with ui= and no only=, the kit run is skipped
 #             video   record the UI tests' iPhone screen (simctl recordVideo)
-#               to ui-video.mp4 in the artifact: before/after videos of a change
+#               to ui-video.mp4 in the artifact: before/after videos of a change;
+#               with ffmpeg on the host (Homebrew), also ui-video-small.mp4:
+#               540 wide, H.264 CRF 30, no audio, small enough for PR media
+#               (lane-gh media takes at most 25 MiB)
 #             profile record a CPU stack-sampling profile of the UI test run:
 #               `xctrace record --instrument 'Time Profiler' --all-processes`
 #               on the host (a simulator app is a host process, so every launch
@@ -136,11 +139,16 @@
 #                          (a chat with one running turn, its elapsed time live: on screen,
 #                          scrolled away, the app in the background; each counts the
 #                          time's redraws, `label ticks` in SUMMARY.md)
+#                          typical-hour-pty typical-hour-lean (10 minutes of a
+#                          visible Claude Code terminal replaying its recorded
+#                          session, as PTY bytes or as lean frames, the app's own
+#                          DaemonTerminalSession on a fake Mac; x6 for an hour)
 #           SUMMARY.md gets one row per run; the artifact keeps energy/.
 #
 # Isolation: the step makes its own simulator device set under its checkout
 # (`simctl --set`), so it never lists, boots or deletes another simulator, and
-# deletes the set when it ends. The artifact holds the screenshots, each
+# deletes the set when it ends. Every simulator comes from sim_create, which a
+# fleet worker may serve slim (see sim_create below). The artifact holds the screenshots, each
 # benchmark's flood-bench.json, the app log, the test summary, SUMMARY.md, the
 # built app (zipped) and the PTY recordings with their replay rates.
 set -euo pipefail
@@ -243,6 +251,8 @@ energy_table=(
   "idle-chat-400    chat    idle        -     LIST_COUNT=400 LIST_PASSES=0"
   "tabs-10          tabs    idle        -     LIST_COUNT=10 LIST_PASSES=0"
   "hidden-terminals-4 terminals stream -    LIST_COUNT=4 LIST_STREAM=1 LIST_PASSES=0"
+  "idle-terminal     terminals idle   -     LIST_COUNT=1 LIST_PASSES=0 LIST_TERMINAL_VISIBLE=1"
+  "visible-busy-terminal terminals stream - LIST_COUNT=1 LIST_STREAM=1 LIST_PASSES=0 LIST_TERMINAL_VISIBLE=1"
   "scroll-chat-200  chat    scroll      -     LIST_COUNT=200 LIST_PASSES=50 LIST_SETTLE=1"
   "stream-chat      chat    stream      -     LIST_COUNT=40 LIST_STREAM=1 LIST_PASSES=0"
   "background-home  home    background  -     LIST_COUNT=20 LIST_PASSES=0"
@@ -251,6 +261,8 @@ energy_table=(
   "working-chat      chat    idle        -     LIST_COUNT=40 LIST_PASSES=0 LIST_SEND=1 LIST_HOLD_TURN=1 LIST_LEAVE_NEWEST=0"
   "working-chat-away chat    idle        -     LIST_COUNT=40 LIST_PASSES=0 LIST_SEND=1 LIST_HOLD_TURN=1"
   "working-chat-bg   chat    background  -     LIST_COUNT=40 LIST_PASSES=0 LIST_SEND=1 LIST_HOLD_TURN=1 LIST_LEAVE_NEWEST=0"
+  "typical-hour-pty  hybrid  stream      600   HYBRID_BENCH_LOOP=1 HYBRID_BENCH_MODE=pty HYBRID_BENCH_FILE=@REPO@/cmux-next-ios/verify/agent-cli-hybrid/claude-code-2.1.310.json"
+  "typical-hour-lean hybrid  stream      600   HYBRID_BENCH_LOOP=1 HYBRID_BENCH_MODE=lean HYBRID_BENCH_FILE=@REPO@/cmux-next-ios/verify/agent-cli-hybrid/claude-code-2.1.310.json"
 )
 energy_reps=1 energy_seconds=30
 energy_cases=(idle-home idle-home-5000 idle-chat-400 tabs-10 scroll-chat-200 stream-chat background-home)
@@ -393,6 +405,27 @@ trap cleanup EXIT
 # A cancelled step gets SIGTERM: exit, so the EXIT trap cleans up.
 trap 'exit 143' TERM
 trap 'exit 130' INT
+
+# sim_create NAME DEVICE_TYPE RUNTIME [SET]: every simulator this step makes, printed as its UDID and
+# shut down. On a build fleet worker that offers it, $CMUX_CI_SIM_CREATE (hq
+# build-fleet/cmd/worker/sim_slim.go) makes it: slim (simslim, about a quarter of a stock
+# simulator's memory) when the step declared the simulator features it needs (cmux-ci run
+# --sim-features, or the controller's default for the mode) and the worker slims, checked by
+# `simslim doctor --requires` before the step gets it, else stock; a slim failure is the worker's and
+# gives a stock simulator, never a failed step. Without it (Blacksmith, an older worker, a local
+# run) it is the stock `simctl create` it always was. Mid-step, a test that finds it needs a feature
+# after all can turn it on with no reboot: "$CMUX_CI_SIMSLIM" [--set SET] enable UDID icloud,photos.
+sim_create() {
+  local name=$1 type=$2 rt=$3 set=${4:-}
+  if [[ -n "${CMUX_CI_SIM_CREATE:-}" && -x "${CMUX_CI_SIM_CREATE}" ]]; then
+    "${CMUX_CI_SIM_CREATE}" "$name" "$type" "$rt" ${set:+"$set"}
+  elif [[ -n "$set" ]]; then
+    xcrun simctl --set "$set" create "$name" "$type" "$rt"
+  else
+    xcrun simctl create "$name" "$type" "$rt"
+  fi
+}
+# --- end sim_create
 
 # xcodegen: a pinned release, checksum-verified, in a temp dir of this step's
 # own, never the host's (aws-m4pro-2 has none, and the fleet's AWS Macs are not
@@ -600,9 +633,16 @@ fi
 sims="$work/sims"
 mkdir -p "$sims"
 simctl() { xcrun simctl --set "$sims" "$@"; }
-udid="$(simctl create cmux-next-ios-sim "$device_type" "$runtime")"
+udid="$(sim_create cmux-next-ios-sim "$device_type" "$runtime" "$sims")"
 simctl boot "$udid"
 simctl bootstatus "$udid" -b >/dev/null
+if [[ "${CMUX_CI_SIM_SLIM:-0}" == 1 && -f "${CMUX_CI_SIM_STATE:-/nonexistent}/fallback" ]]; then
+  note "- simulators: stock (slimming fell back: $(head -c 300 "$CMUX_CI_SIM_STATE/fallback"))"
+elif [[ "${CMUX_CI_SIM_SLIM:-0}" == 1 ]]; then
+  note "- simulators: slim (features: ${CMUX_CI_SIM_FEATURES:-none})"
+else
+  note "- simulators: stock"
+fi
 simctl ui "$udid" appearance dark >/dev/null 2>&1 || true
 note "- simulator: ${device_type##*.} on ${runtime##*.}"
 simctl install "$udid" "$app"
@@ -612,6 +652,14 @@ sleep 8
 simctl io "$udid" screenshot "$out/screens/launch.png" >/dev/null
 simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
 note "- launch: ok, screens/launch.png"
+# The simulator's memory at launch (simslim measure: phys_footprint of its processes, slim or stock),
+# for the fleet's stock-versus-slim comparison. Read-only; never fails the step.
+if [[ -n "${CMUX_CI_SIMSLIM:-}" && -x "${CMUX_CI_SIMSLIM}" ]] &&
+  "${CMUX_CI_SIMSLIM}" --set "$sims" measure "$udid" --json >"$out/simulator-memory.json" 2>/dev/null; then
+  note "- simulator memory at launch: $(tr -d '\n' <"$out/simulator-memory.json" | head -c 300)"
+else
+  rm -f "$out/simulator-memory.json"
+fi
 
 # keep_test_logs LOG XCRESULT NAME: the run's log, console output (print
 # lines), per-test results, counts and failures into the artifact as NAME-*.
@@ -649,7 +697,7 @@ if [[ ( "$mode" == test || "$mode" == all ) && $run_kit -eq 1 ]]; then
   t0=$SECONDS
   # xcodebuild sees only the default device set: the tests get their own new
   # iPhone there, deleted by its UDID afterwards (never another step's device).
-  test_udid="$(xcrun simctl create "cmux-next-ios-sim-test-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
+  test_udid="$(sim_create "cmux-next-ios-sim-test-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
   set +e
   (cd cmux-next-ios/CmuxMobileKit && env ${kit_env[@]+"${kit_env[@]}"} xcodebuild test -scheme CmuxMobileKit-Package \
     -destination "id=$test_udid,arch=arm64" -enableCodeCoverage NO -derivedDataPath "$work/dd-test" \
@@ -820,7 +868,7 @@ if [[ ${#ui_suites[@]} -gt 0 ]]; then
   t0=$SECONDS
   # A Debug build of the app and its UI test bundle, on a new iPhone in the
   # default device set (xcodebuild sees no other), deleted by its UDID after.
-  ui_udid="$(xcrun simctl create "cmux-next-ios-sim-ui-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
+  ui_udid="$(sim_create "cmux-next-ios-sim-ui-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
   recorder=""
   if [[ $ui_video -eq 1 || $ui_profile -eq 1 ]]; then
     # Booted first so the recording covers the whole run; the test run uses the booted device.
@@ -866,6 +914,19 @@ if [[ ${#ui_suites[@]} -gt 0 ]]; then
     kill -INT "$recorder" 2>/dev/null
     wait "$recorder"
     note "- UI test video: ui-video.mp4 ($(du -h "$out/ui-video.mp4" 2>/dev/null | cut -f1 || echo missing))"
+    ffmpeg_bin="$(command -v ffmpeg || true)"
+    [[ -n "$ffmpeg_bin" || ! -x /opt/homebrew/bin/ffmpeg ]] || ffmpeg_bin=/opt/homebrew/bin/ffmpeg
+    if [[ -s "$out/ui-video.mp4" && -n "$ffmpeg_bin" ]]; then
+      if "$ffmpeg_bin" -v error -y -i "$out/ui-video.mp4" -vf "scale=540:-2" -c:v libx264 -preset veryfast \
+          -crf 30 -pix_fmt yuv420p -an -movflags +faststart "$out/ui-video-small.mp4" </dev/null; then
+        note "- UI test video, small copy: ui-video-small.mp4 ($(du -h "$out/ui-video-small.mp4" | cut -f1))"
+      else
+        rm -f "$out/ui-video-small.mp4"
+        note "- UI test video, small copy: ffmpeg failed, none"
+      fi
+    elif [[ -s "$out/ui-video.mp4" ]]; then
+      note "- UI test video, small copy: no ffmpeg on this host, none"
+    fi
   fi
   if [[ $ui_profile -eq 1 ]]; then
     ui_profile_finish
@@ -881,7 +942,7 @@ fi
 
 # --- Chief layout benchmark -------------------------------------------------
 if [[ "$mode" == chief-live-perf || "$mode" == chief-live-perf-baseline ]]; then
-  perf_udid="$(xcrun simctl create "cmux-chief-perf-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
+  perf_udid="$(sim_create "cmux-chief-perf-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
   perf_flags=('SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited)')
   if [[ "$mode" == chief-live-perf-baseline ]]; then
     perf_flags=('SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) CMUX_CHIEF_LIVE_BASELINE')
@@ -1128,49 +1189,6 @@ if [[ "$mode" == energy ]]; then
   label_ticks=()
   [[ -z "$base_app" ]] || sides=(base head)
   rusage=cmux-next-ios/verify/energy_rusage.py
-  # Every way this Mac has to read a process's wakeups and energy, over one window, side by side:
-  # ps, proc_pid_rusage (what the table uses), top, and an xctrace Activity Monitor recording.
-  # The head's first rep of each case runs it after its sampled window; energy/probe-RUN/ keeps it.
-  energy_probe() {
-    local run=$1 pid=$2 d="$en/probe-$1" rp tp schema
-    mkdir -p "$d"
-    {
-      echo "== probe $run (pid $pid)"
-      echo "-- ps"
-      ps -o pid,%cpu,rss,time,command -p "$pid" 2>&1 | cut -c1-160 || true
-      echo "-- proc_pid_rusage (one reading)"
-      python3 -I "$rusage" once "$pid" 2>&1 || true
-    } >"$d/probe.txt"
-    python3 -I "$rusage" sample "$pid" 12 "$d/rusage.jsonl" >/dev/null 2>&1 &
-    rp=$!
-    top -l 13 -s 1 -pid "$pid" -stats pid,cpu,idlew,power,mem >"$d/top.txt" 2>&1 &
-    tp=$!
-    perl -e 'alarm shift; exec @ARGV' 120 xcrun xctrace record --template 'Activity Monitor' --attach "$pid" \
-      --time-limit 10s --output "$d/am.trace" --no-prompt >"$d/xctrace-record.txt" 2>&1 ||
-      echo "-- xctrace record --attach exited $? ($(tail -n 1 "$d/xctrace-record.txt"))" >>"$d/probe.txt"
-    if [[ ! -d "$d/am.trace" ]]; then
-      perl -e 'alarm shift; exec @ARGV' 120 xcrun xctrace record --template 'Activity Monitor' --all-processes \
-        --time-limit 10s --output "$d/am.trace" --no-prompt >>"$d/xctrace-record.txt" 2>&1 ||
-        echo "-- xctrace record --all-processes exited $? ($(tail -n 1 "$d/xctrace-record.txt"))" >>"$d/probe.txt"
-    fi
-    wait "$rp" 2>/dev/null || true
-    wait "$tp" 2>/dev/null || true
-    {
-      echo "-- proc_pid_rusage over the window (energy_summary.py; top beside it)"
-      python3 -I cmux-next-ios/verify/energy_summary.py "$d/rusage.jsonl" "$d/top.txt" "$pid" "probe-$run" probe 2>&1 || true
-      if [[ -d "$d/am.trace" ]]; then
-        perl -e 'alarm shift; exec @ARGV' 120 xcrun xctrace export --input "$d/am.trace" --toc >"$d/toc.xml" 2>&1 || true
-        echo "-- xctrace tables: $(grep -o 'schema="[^"]*"' "$d/toc.xml" | sort -u | tr '\n' ' ')"
-        for schema in $(grep -o 'schema="[^"]*"' "$d/toc.xml" | sed 's/schema="//; s/"$//' | sort -u | grep -i -E 'activity-monitor|process|energy|wake'); do
-          perl -e 'alarm shift; exec @ARGV' 120 xcrun xctrace export --input "$d/am.trace" \
-            --xpath "/trace-toc/run[@number=\"1\"]/data/table[@schema=\"$schema\"]" >"$d/$schema.xml" 2>&1 || continue
-          python3 -I "$rusage" xctrace-rows "$d/$schema.xml" "$pid" 2>&1 | head -n 20 || true
-        done
-        rm -rf "$d/am.trace"
-      fi
-    } >>"$d/probe.txt" 2>&1
-    cut -c1-400 "$d/probe.txt"
-  }
   # Where a busy case's CPU goes: a 15 s CPU stack-sampling recording of the app right after its
   # sampled window (first rep, each side), summarized per main-thread symbol by
   # ios_sim_time_profile.py. The instrument, not the 'Time Profiler' template (its os_log source
@@ -1207,13 +1225,19 @@ if [[ "$mode" == energy ]]; then
     if [[ -f "$d/time.trace.zip" ]]; then bytes=$(wc -c < "$d/time.trace.zip"); fi
     if (( bytes > 536870912 )); then rm -f "$d/time.trace.zip"; echo "$run: trace over 512 MiB zipped, dropped (the summary stays)"; fi
   }
+  # The last `received-bytes total=N` the app logged (0 before the first).
+  energy_received_total() {
+    local n
+    n="$(grep -oE 'FRAMELOG list-stress received-bytes total=[0-9]+' "$1" | tail -n 1 | sed 's/.*total=//')"
+    echo "${n:-0}"
+  }
   note ""
   note "## Battery and memory (Demo build, mock mode, ${device_type##*.} on ${runtime##*.}; cmux-next-ios/verify/energy.md)"
   note ""
   note "Kernel counters for the app's process (proc_pid_rusage, no root): CPU time, interrupt wakeups, ri_energy_nj as mW, phys_footprint."
   note ""
-  note "| Run | Phase | s | CPU % | Wakeups/s | Energy mW | MEM start MB | MEM end MB | MEM max MB |"
-  note "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"
+  note "| Run | Phase | s | CPU % | Wakeups/s | Energy mW | Received B/s | MEM start MB | MEM end MB | MEM max MB |"
+  note "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
   for rep in $(seq 1 "$energy_reps"); do
     for case_name in "${energy_cases[@]}"; do
       line="$(printf '%s\n' "${energy_table[@]}" | awk -v c="$case_name" '$1 == c')"
@@ -1229,7 +1253,8 @@ if [[ "$mode" == energy ]]; then
         side_app="$app"
         [[ "$side" == head ]] || side_app="$base_app"
         envs=(SIMCTL_CHILD_CMUX_MOBILE_MOCK_AUTH=1 "SIMCTL_CHILD_CMUX_MOBILE_LIST_SCREEN=$screen")
-        for kv in $settings; do envs+=("SIMCTL_CHILD_CMUX_MOBILE_$kv"); done
+        # @REPO@ is this checkout: a simulator app reads the host's files (the typical-hour session).
+        for kv in $settings; do envs+=("SIMCTL_CHILD_CMUX_MOBILE_${kv//@REPO@/$PWD}"); done
         # A clean install of this side's app: no data container carried over from the other side.
         simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
         simctl uninstall "$udid" "$bundle_id" >/dev/null 2>&1 || true
@@ -1268,18 +1293,24 @@ if [[ "$mode" == energy ]]; then
         top_pid=$!
         # A running chat (LIST_HOLD_TURN=1) logs each redraw of its elapsed time: count those in the sample.
         ticks_before="$(grep -cF -- "FRAMELOG list-stress label-tick" "$logf" || true)"
+        # The bytes the app received (ReceivedByteCount.swift: the link's daemon channels, or the mock
+        # shells' output in mock mode): its last logged total before and after the window.
+        received_before="$(energy_received_total "$logf")"
         python3 -I "$rusage" sample "$pid" "$case_seconds" "$en/$run.rusage.jsonl" || echo "$run: rusage sampler exited $?"
         wait "$top_pid" 2>/dev/null || true
+        sleep 1  # the counter logs its total a second after bytes arrive
+        received_per_s=$(( ( $(energy_received_total "$logf") - received_before ) / case_seconds ))
+        # An app without the counter (an older base) logs no total: `-`, not 0.
+        grep -qF -- "FRAMELOG list-stress received-bytes" "$logf" || received_per_s=-
         if [[ " $settings " == *" LIST_HOLD_TURN=1 "* ]]; then
           ticks_after="$(grep -cF -- "FRAMELOG list-stress label-tick" "$logf" || true)"
           label_ticks+=("- $run: label ticks $(( ticks_after - ticks_before )) in $case_seconds s (elapsed-time redraws while sampled)")
         fi
         if [[ "$rep" == 1 && ( "$phase" == stream || "$phase" == scroll ) ]]; then energy_time_profile "$run" "$pid"; fi
-        [[ "$rep" != 1 || "$side" != head ]] || energy_probe "$run" "$pid"
         simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
         simctl terminate "$udid" com.apple.Preferences >/dev/null 2>&1 || true
         kill "$log_pid" 2>/dev/null || true; wait "$log_pid" 2>/dev/null || true
-        python3 -I cmux-next-ios/verify/energy_summary.py "$en/$run.rusage.jsonl" "$en/$run.top.txt" "$pid" "$run" "$phase" >"$en/$run.json" ||
+        python3 -I cmux-next-ios/verify/energy_summary.py "$en/$run.rusage.jsonl" "$en/$run.top.txt" "$pid" "$run" "$phase" "$received_per_s" >"$en/$run.json" ||
           { echo "$run: no samples"; energy_status=1; continue; }
         python3 -I cmux-next-ios/verify/energy_summary.py --row "$en/$run.json" | tee -a "$summary"
       done
@@ -1287,7 +1318,7 @@ if [[ "$mode" == energy ]]; then
   done
   simctl uninstall "$udid" "$bundle_id" >/dev/null 2>&1 || true
   for line in ${label_ticks[@]+"${label_ticks[@]}"}; do note "$line"; done
-  note "- energy: $((SECONDS - t0)) s; sides: ${sides[*]}; reps: $energy_reps; samples and probes: energy/"
+  note "- energy: $((SECONDS - t0)) s; sides: ${sides[*]}; reps: $energy_reps; samples: energy/"
   [[ "${energy_status:-0}" -eq 0 ]] || note "- energy: FAILED (a run had no PID, no ready line or no samples; see energy/)"
 fi
 

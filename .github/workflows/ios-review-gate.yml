@@ -17,7 +17,12 @@ run-name: >-
 # blocker not in cmux-next-ios/AppStoreReview/known-blockers.json: a change
 # that breaks the reviewer's path is red before it merges, not found by Apple.
 # A scheduled run would fire only from the default branch's copy of this file,
-# so there is none here.
+# so there is none here. Notes (*.md) and cmux-next-ios/verify/ evidence are
+# not the app: a change to only those walks no reviewer path (cmux#43251,
+# SECURITY.md and verify/parity-mac.md, took a Mac per device and the agent
+# pass's quota). AppStoreReview/ stays in: the agent pass follows
+# reviewer-setup.md. The last matching pattern wins, so the negations come
+# after the includes they narrow and before the one they re-include.
 # docs: cmux-next-ios/AppStoreReview/APP-REVIEW-GATE.md.
 on:
   push:
@@ -29,6 +34,11 @@ on:
       - "scripts/cmux-next/check-app-store-rules.py"
       - "tests/test_ios_app_review_gate.py"
       - ".github/workflows/ios-review-gate.yml"
+      - ".github/ios-review-gate-devices.json"
+      - ".github/scripts/ios_review_gate_devices.py"
+      - "!**/*.md"
+      - "!cmux-next-ios/verify/**"
+      - "cmux-next-ios/AppStoreReview/**"
   # Every app pull request walks the reviewer path (one macOS job per device,
   # side by side, about 30 minutes), so a change that breaks it is red before
   # it merges.
@@ -40,6 +50,11 @@ on:
       - "scripts/cmux-next/check-app-store-rules.py"
       - "tests/test_ios_app_review_gate.py"
       - ".github/workflows/ios-review-gate.yml"
+      - ".github/ios-review-gate-devices.json"
+      - ".github/scripts/ios_review_gate_devices.py"
+      - "!**/*.md"
+      - "!cmux-next-ios/verify/**"
+      - "cmux-next-ios/AppStoreReview/**"
   workflow_dispatch:
     inputs:
       ref:
@@ -108,6 +123,11 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     outputs:
+      # The device families the reviewer-path matrix walks, and the whole
+      # decision each leg checks against its image (see "Which device legs
+      # take a Mac" below).
+      families: ${{ steps.devices.outputs.families }}
+      devices: ${{ steps.devices.outputs.devices }}
       sha: ${{ steps.plan.outputs.sha }}
       lane: ${{ steps.plan.outputs.lane }}
       gate_sha: ${{ steps.plan.outputs.gate_sha }}
@@ -152,6 +172,47 @@ jobs:
             echo "lane=$lane"
           } >> "$GITHUB_OUTPUT"
           echo "App Review gate judges $sha ($lane)" | tee -a "$GITHUB_STEP_SUMMARY"
+      # Which device legs take a Mac, decided here on Linux: a family the
+      # macOS image has no simulator for (Duo today) used to wait a median
+      # 41 minutes in the macOS queue only to skip in one. Its skip marker
+      # now comes from this job, and every leg that does run checks the
+      # list against its image (.github/ios-review-gate-devices.json).
+      - name: Checkout the device list
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ steps.plan.outputs.gate_sha }}
+          path: gate
+          persist-credentials: false
+          sparse-checkout: |
+            .github/ios-review-gate-devices.json
+            .github/scripts/ios_review_gate_devices.py
+            scripts/ci/xcode-pins.txt
+          sparse-checkout-cone-mode: false
+      - name: Which device legs take a Mac
+        id: devices
+        env:
+          # The list describes manaflow-ai's macOS 26 pool; another
+          # repository's image walks every family, as before.
+          TRUST: ${{ github.repository_owner == 'manaflow-ai' }}
+        run: |
+          set -euo pipefail
+          code=0
+          python3 -I gate/.github/scripts/ios_review_gate_devices.py plan \
+            --devices gate/.github/ios-review-gate-devices.json --pins gate/scripts/ci/xcode-pins.txt \
+            --trust "$TRUST" --out-dir "$RUNNER_TEMP/planned" \
+            >> "$GITHUB_OUTPUT" 2> "$RUNNER_TEMP/devices.txt" || code=$?
+          tee -a "$GITHUB_STEP_SUMMARY" < "$RUNNER_TEMP/devices.txt"
+          exit "$code"
+      - name: Upload the planned skips
+        if: steps.devices.outputs.skipped != '[]'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          # The report downloads every review-gate-* and reads each
+          # <family>.skipped.json, wherever it came from.
+          name: review-gate-planned-skips-${{ steps.plan.outputs.lane }}
+          path: ${{ runner.temp }}/planned/*.skipped.json
+          if-no-files-found: error
+          retention-days: 3
 
   lint:
     needs: plan
@@ -246,7 +307,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        family: [iphone, ipad, duo]
+        # iphone and ipad always; duo only when the plan's device list says
+        # the image has it (it has not so far, so it takes no Mac).
+        family: ${{ fromJSON(needs.plan.outputs.families) }}
     # The 6 vCPU macOS 26 pool (ephemeral Blacksmith Macs): the job holds a
     # secret (the agent pass's Claude token), so it takes no owned Mac
     # (.github/runners.json picker_followup). A fork pull request takes the
@@ -287,6 +350,7 @@ jobs:
             cmux-next-ios/scripts
             cmux-next-ios/AppStoreReview
             cmux-next-ios/UITests
+            .github/scripts
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
       - name: The source is the NEXT app
@@ -313,22 +377,105 @@ jobs:
         # Before the build: only the picker's no-simulator exit skips the
         # leg (with a marker the report reads); any other failure fails it.
         run: bash .review-gate/cmux-next-ios/scripts/app_review_pick_step.sh "$FAMILY"
+      - name: Check the plan's device list on this image
+        # The same picker for every family the plan decided, creating
+        # nothing: a family the plan skipped that this image has, or one it
+        # walks that the image lacks, is named here and fails the report.
+        # The walk still runs.
+        if: fromJSON(needs.plan.outputs.devices).decided
+        continue-on-error: true
+        env:
+          DEVICE_PLAN: ${{ needs.plan.outputs.devices }}
+        run: |
+          python3 -I .review-gate/.github/scripts/ios_review_gate_devices.py check --plan "$DEVICE_PLAN" \
+            --picker .review-gate/cmux-next-ios/scripts/app_review_pick_simulator.py \
+            --out "$RESULTS/device-plan-mismatch.json"
+      # CmuxMobileLinkFFI.xcframework is built only when what it is built from changes
+      # (.github/scripts/ios_link_ffi_key.py): each job built it from scratch,
+      # about 3 minutes of a Mac (run 43652999096). It lives in cmux NEXT's
+      # R2 bucket: the Blacksmith Macs' GitHub store kept no save for a later
+      # run (runs 43708277177 to 43721191135). Every run reads it with no
+      # credential; seed-link-ffi below writes it on feat-cmux-next.
+      - name: The framework's inputs
+        id: ffi-key
+        if: env.UDID != ''
+        run: |
+          set -euo pipefail
+          # A ref from before the key script, or a key that fails, builds as before.
+          if [ -f .review-gate/.github/scripts/ios_link_ffi_key.py ]; then
+            python3 -I .review-gate/.github/scripts/ios_link_ffi_key.py --repo . --explain \
+              --extra "xcode=$(xcodebuild -version | tr '\n' ' ')" --extra "runner=$RUNNER_OS-$RUNNER_ARCH" >> "$GITHUB_OUTPUT" \
+              || echo "::warning::no cache key for CmuxMobileLinkFFI.xcframework; building it"
+          fi
+      - name: Restore the framework built from the same inputs
+        id: ffi
+        if: env.UDID != '' && steps.ffi-key.outputs.key != ''
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          # The key names the Xcode build and the runner; the Linux writer
+          # is not the Mac that built it.
+          CI_CACHE_R2_NAMESPACE: ios-link-ffi
+        with:
+          backend: r2
+          # One directory per entry: the framework and its generated Swift.
+          path: ${{ runner.temp }}/link-ffi
+          key: ios-link-ffi-xcframework-${{ steps.ffi-key.outputs.key }}
+      - name: Put the restored framework in place
+        id: ffi-place
+        if: env.UDID != '' && steps.ffi.outputs.cache-hit == 'true'
+        # An incomplete entry builds the framework instead of failing the leg.
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          test -d "$RUNNER_TEMP/link-ffi/CmuxMobileLinkFFI.xcframework"
+          test -f "$RUNNER_TEMP/link-ffi/CmuxMobileLinkFFI.swift"
+          kit=cmux-next-ios/CmuxMobileKit
+          rm -rf "$kit/Frameworks/CmuxMobileLinkFFI.xcframework"
+          mkdir -p "$kit/Frameworks" "$kit/Sources/CmuxMobileLinkFFI"
+          cp -R "$RUNNER_TEMP/link-ffi/CmuxMobileLinkFFI.xcframework" "$kit/Frameworks/"
+          cp "$RUNNER_TEMP/link-ffi/CmuxMobileLinkFFI.swift" "$kit/Sources/CmuxMobileLinkFFI/"
       # cmux-next-ios/rust pins the same toolchain as cmux-tui.
       - name: Set up pinned Rust
-        if: env.UDID != ''
+        if: env.UDID != '' && (steps.ffi.outputs.cache-hit != 'true' || steps.ffi-place.outcome != 'success')
         uses: ./.github/actions/setup-cmux-tui-rust
       - name: Cache cargo
-        if: env.UDID != ''
+        if: env.UDID != '' && (steps.ffi.outputs.cache-hit != 'true' || steps.ffi-place.outcome != 'success')
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: false
           workspaces: cmux-next-ios/rust
           key: ios-review-gate
       - name: Build CmuxMobileLinkFFI.xcframework
-        if: env.UDID != ''
+        if: env.UDID != '' && (steps.ffi.outputs.cache-hit != 'true' || steps.ffi-place.outcome != 'success')
         env:
           JOBS: "6"
         run: bash cmux-next-ios/rust/scripts/build-xcframework.sh
+      # This job holds the agent pass's token, never the bucket's write
+      # credentials: one leg hands what it built to seed-link-ffi.
+      - name: Stage the framework for the cache writer
+        id: ffi-out
+        if: env.UDID != '' && steps.ffi-key.outputs.key != '' && steps.ffi.outputs.cache-hit != 'true' && github.event_name == 'push' && matrix.family == 'iphone'
+        continue-on-error: true
+        env:
+          FFI_KEY: ${{ steps.ffi-key.outputs.key }}
+        run: |
+          set -euo pipefail
+          kit=cmux-next-ios/CmuxMobileKit
+          out="$RUNNER_TEMP/link-ffi-out"
+          mkdir -p "$out/framework"
+          cp -R "$kit/Frameworks/CmuxMobileLinkFFI.xcframework" "$out/framework/"
+          cp "$kit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift" "$out/framework/"
+          printf '%s\n' "$FFI_KEY" > "$out/key"
+      - name: Hand the framework to the cache writer
+        if: steps.ffi-out.outcome == 'success' && steps.ffi.outputs.cache-hit != 'true' && github.event_name == 'push'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-link-ffi-framework
+          path: ${{ runner.temp }}/link-ffi-out
+          retention-days: 1
+          if-no-files-found: ignore
       - name: Build the app and the gate for testing
         if: env.UDID != ''
         working-directory: cmux-next-ios
@@ -538,6 +685,66 @@ jobs:
           path: asc-*.json
           retention-days: 3
 
+  # Writes the framework a leg built into cmux NEXT's R2 bucket, which the
+  # legs read with no credential. The write credentials live in the
+  # next-cache-writer environment (feat-cmux-next only), held by this Linux
+  # job alone (tests/test_ci_pull_request_caches_are_read_only.py).
+  seed-link-ffi:
+    needs: reviewer-path
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'
+    # A seed that fails never turns the push run red; the report does not need it.
+    continue-on-error: true
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
+    env:
+      CI_CACHE_R2_BUCKET: cmux-ci-cache-next
+      # r2-cache.sh saves nothing without it.
+      CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+      CI_CACHE_R2_NAMESPACE: ios-link-ffi
+    steps:
+      - name: Fetch the framework a leg built
+        id: fetched
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ios-link-ffi-framework
+          path: ${{ runner.temp }}/link-ffi
+      - name: The framework's key
+        id: staged
+        if: steps.fetched.outcome == 'success'
+        run: |
+          set -euo pipefail
+          key="$(head -c 128 "$RUNNER_TEMP/link-ffi/key" | tr -d '[:space:]')"
+          if [[ "$key" =~ ^[0-9a-f]{64}$ ]] && [ -d "$RUNNER_TEMP/link-ffi/framework/CmuxMobileLinkFFI.xcframework" ] \
+              && [ -f "$RUNNER_TEMP/link-ffi/framework/CmuxMobileLinkFFI.swift" ]; then
+            echo "key=$key" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::the handed-off framework is incomplete; nothing saved"
+          fi
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: steps.staged.outputs.key != ''
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/cache-save
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
+          sparse-checkout-cone-mode: false
+      - name: Save the framework for later runs
+        if: steps.staged.outputs.key != ''
+        # Another run saving the same key first is not a failure.
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        with:
+          backend: r2
+          path: ${{ runner.temp }}/link-ffi/framework
+          key: ios-link-ffi-xcframework-${{ steps.staged.outputs.key }}
+
   report:
     needs: [plan, lint, reviewer-path, asc-validate]
     if: always() && needs.plan.result == 'success'
@@ -622,6 +829,14 @@ jobs:
           elif [ "$RATCHET" = true ] && grep -q '^\*\*NO\*\*' review-gate.md; then
             echo "::warning::App Review gate: no new blocker, but the app would still not pass App Review (known-blockers.json); a submission run refuses it"
           fi
+          # A leg whose image disagreed with the plan's device list: a
+          # family skipped that the image has, or walked that it lacks.
+          while IFS= read -r f; do
+            echo "::error::App Review gate: a device leg's image disagrees with the plan ($f); check .github/ios-review-gate-devices.json"
+            { echo; echo "**Device plan mismatch** ($f): this run fails until .github/ios-review-gate-devices.json is checked again."
+              echo '```json'; cat "$f"; echo '```'; } | tee -a review-gate.md >> "$GITHUB_STEP_SUMMARY"
+            code=1
+          done < <(find in -name 'device-plan-mismatch.json' -type f | sort)
           exit $code
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()

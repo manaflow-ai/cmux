@@ -1,4 +1,5 @@
 import { ToolVisualRow } from "./ToolVisualPreview";
+import { useToolRowCount } from "./toolRowCount";
 import { WrittenArtifactButtons } from "./writtenArtifacts";
 // One tool call drawn on its own row: its glyph, its title, and, when it has any, its
 // output (under its input's labeled fields, ToolDetail.tsx), Shell block, diff, or the card of what a
@@ -65,6 +66,7 @@ export const ToolRow = memo(function ToolRow({
   asRun?: boolean;
 }) {
   const t = useT();
+  useToolRowCount(item.tool?.id, item.tool?.kind);
   const step = useInStep();
   // Closed, or open in the Verbose transcript view.
   const [open, setOpen] = useRowDisclosure(item.tool?.id);

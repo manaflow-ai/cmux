@@ -151,11 +151,22 @@ pub struct CloudError {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<Value>,
     pub retryable: bool,
+    /// The step of a longer op that failed (`start`: a resume's provider
+    /// call, crate::ops::start_retry), so a caller can say where it stopped.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub step: Option<&'static str>,
 }
 
 impl CloudError {
     pub fn new(code: &'static str, message: impl Into<String>) -> Self {
-        Self { code, message: message.into(), upstream_code: None, details: None, retryable: false }
+        Self {
+            code,
+            message: message.into(),
+            upstream_code: None,
+            details: None,
+            retryable: false,
+            step: None,
+        }
     }
 
     pub fn invalid(message: impl Into<String>) -> Self {
@@ -204,6 +215,7 @@ impl CloudError {
             upstream_code: Some(error.code.clone()),
             details: error.details.clone(),
             retryable,
+            step: None,
         }
     }
 }

@@ -1,6 +1,570 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.choice.fontSmoothingAuto": {
+      "comment": "Text Smoothing choice: no override; the Mac's own smoothing and each page's own style.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تلقائي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatski"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisch"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automático"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatique"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatico"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្វ័យប្រវត្តិ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatyczne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automático"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Авто"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otomatik"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Авто"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tự động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        }
+      }
+    },
+    "settings.choice.backgroundFollowAppearance": {
+      "comment": "Settings choice: the background switches between a light and a dark picture with the appearance.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Light and Dark"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "فاتح وداكن"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Svijetlo i tamno"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Lys og mørk"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Hell und Dunkel"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Claro y oscuro"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Clair et sombre"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Chiaro e scuro"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ライトとダーク"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ភ្លឺ និងងងឹត"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "라이트 및 다크"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Lys og mørk"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Jasny i ciemny"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Claro e escuro"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Светлая и тёмная"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "สว่างและมืด"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Açık ve Koyu"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Світла й темна"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Sáng và tối"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "浅色和深色"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "淺色和深色"}}
+      }
+    },
+    "settings.choice.backgroundTimeOfDay": {
+      "comment": "Settings choice: the background changes with the time of day.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Time of Day"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "وقت اليوم"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Doba dana"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Tidspunkt på dagen"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Tageszeit"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Hora del día"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Moment de la journée"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Ora del giorno"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "時間帯"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ពេលវេលាក្នុងថ្ងៃ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "시간대"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Tid på døgnet"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Pora dnia"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Hora do dia"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Время суток"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ช่วงเวลาของวัน"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Günün Saati"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Час доби"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Thời điểm trong ngày"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "一天中的时间"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "一天中的時間"}}
+      }
+    },
+    "settings.appearance.backgroundLight": {
+      "comment": "Settings row title: the background picture in the light appearance.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Light Picture"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "صورة الوضع الفاتح"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Svijetla slika"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Lyst billede"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Helles Bild"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Imagen clara"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Image claire"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Immagine chiara"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ライト用の画像"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "រូបភាពភ្លឺ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "라이트 사진"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Lyst bilde"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Obraz jasny"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Imagem clara"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Светлое изображение"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ภาพโหมดสว่าง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Açık Resim"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Світле зображення"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Ảnh sáng"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "浅色图片"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "淺色圖片"}}
+      }
+    },
+    "settings.appearance.backgroundLight.help": {
+      "comment": "Settings row help for the light picture.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The picture Light and Dark shows in the light appearance. Unset, it shows the dark picture."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "الصورة التي يعرضها خيار فاتح وداكن في المظهر الفاتح. إذا لم تُحدَّد، تظهر الصورة الداكنة."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Slika koju Svijetlo i tamno prikazuje u svijetlom izgledu. Ako nije postavljena, prikazuje se tamna slika."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Billedet, Lys og mørk viser i det lyse udseende. Uden valg vises det mørke billede."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Das Bild, das Hell und Dunkel im hellen Erscheinungsbild zeigt. Ohne Auswahl wird das dunkle Bild gezeigt."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "La imagen que Claro y oscuro muestra en el aspecto claro. Sin elegir, muestra la imagen oscura."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "L’image que Clair et sombre affiche en apparence claire. Sans choix, l’image sombre s’affiche."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "L’immagine che Chiaro e scuro mostra nell’aspetto chiaro. Se non impostata, mostra l’immagine scura."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ライトとダークがライトモードで表示する画像。未設定の場合はダーク用の画像を表示します。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "រូបភាពដែល ភ្លឺ និងងងឹត បង្ហាញក្នុងរូបរាងភ្លឺ។ បើមិនកំណត់ វាបង្ហាញរូបភាពងងឹត។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "라이트 및 다크가 라이트 모드에서 보여 주는 사진입니다. 설정하지 않으면 다크 사진을 보여 줍니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Bildet Lys og mørk viser i lyst utseende. Uten valg vises det mørke bildet."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Obraz, który Jasny i ciemny pokazuje w jasnym wyglądzie. Bez ustawienia pokazuje obraz ciemny."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "A imagem que Claro e escuro mostra na aparência clara. Sem definir, mostra a imagem escura."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Изображение, которое «Светлая и тёмная» показывает в светлом оформлении. Если не задано, показывается тёмное."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ภาพที่ สว่างและมืด แสดงในลักษณะสว่าง หากไม่ได้ตั้งค่า จะแสดงภาพโหมดมืด"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Açık ve Koyu’nun açık görünümde gösterdiği resim. Ayarlanmazsa koyu resim gösterilir."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Зображення, яке «Світла й темна» показує у світлому вигляді. Якщо не задано, показується темне."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Ảnh mà Sáng và tối hiển thị ở giao diện sáng. Nếu không đặt, ảnh tối sẽ hiển thị."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "“浅色和深色”在浅色外观下显示的图片。未设置时显示深色图片。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "「淺色和深色」在淺色外觀下顯示的圖片。未設定時顯示深色圖片。"}}
+      }
+    },
+    "settings.default.sameAsDark": {
+      "comment": "Settings default label: the light picture is unset and shows the dark one.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Same as Dark"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "مثل الداكن"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Isto kao tamna"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Samme som mørk"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Wie Dunkel"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Igual que oscuro"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Comme sombre"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Come scuro"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ダークと同じ"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ដូចងងឹត"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "다크와 동일"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Samme som mørk"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Jak ciemny"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Igual ao escuro"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Как тёмное"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เหมือนโหมดมืด"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Koyu ile aynı"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Як темне"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Giống ảnh tối"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "与深色相同"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "與深色相同"}}
+      }
+    },
+    "settings.appearance.backgroundDark": {
+      "comment": "Settings row title: the background picture in the dark appearance.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Dark Picture"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "صورة الوضع الداكن"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Tamna slika"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Mørkt billede"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Dunkles Bild"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Imagen oscura"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Image sombre"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Immagine scura"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ダーク用の画像"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "រូបភាពងងឹត"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "다크 사진"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Mørkt bilde"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Obraz ciemny"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Imagem escura"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Тёмное изображение"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ภาพโหมดมืด"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Koyu Resim"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Темне зображення"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Ảnh tối"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "深色图片"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "深色圖片"}}
+      }
+    },
+    "settings.appearance.backgroundDark.help": {
+      "comment": "Settings row help for the dark picture.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The picture Light and Dark shows in the dark appearance. Unset, it shows the light picture."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "الصورة التي يعرضها خيار فاتح وداكن في المظهر الداكن. إذا لم تُحدَّد، تظهر الصورة الفاتحة."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Slika koju Svijetlo i tamno prikazuje u tamnom izgledu. Ako nije postavljena, prikazuje se svijetla slika."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Billedet, Lys og mørk viser i det mørke udseende. Uden valg vises det lyse billede."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Das Bild, das Hell und Dunkel im dunklen Erscheinungsbild zeigt. Ohne Auswahl wird das helle Bild gezeigt."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "La imagen que Claro y oscuro muestra en el aspecto oscuro. Sin elegir, muestra la imagen clara."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "L’image que Clair et sombre affiche en apparence sombre. Sans choix, l’image claire s’affiche."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "L’immagine che Chiaro e scuro mostra nell’aspetto scuro. Se non impostata, mostra l’immagine chiara."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ライトとダークがダークモードで表示する画像。未設定の場合はライト用の画像を表示します。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "រូបភាពដែល ភ្លឺ និងងងឹត បង្ហាញក្នុងរូបរាងងងឹត។ បើមិនកំណត់ វាបង្ហាញរូបភាពភ្លឺ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "라이트 및 다크가 다크 모드에서 보여 주는 사진입니다. 설정하지 않으면 라이트 사진을 보여 줍니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Bildet Lys og mørk viser i mørkt utseende. Uten valg vises det lyse bildet."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Obraz, który Jasny i ciemny pokazuje w ciemnym wyglądzie. Bez ustawienia pokazuje obraz jasny."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "A imagem que Claro e escuro mostra na aparência escura. Sem definir, mostra a imagem clara."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Изображение, которое «Светлая и тёмная» показывает в тёмном оформлении. Если не задано, показывается светлое."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ภาพที่ สว่างและมืด แสดงในลักษณะมืด หากไม่ได้ตั้งค่า จะแสดงภาพโหมดสว่าง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Açık ve Koyu’nun koyu görünümde gösterdiği resim. Ayarlanmazsa açık resim gösterilir."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Зображення, яке «Світла й темна» показує у темному вигляді. Якщо не задано, показується світле."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Ảnh mà Sáng và tối hiển thị ở giao diện tối. Nếu không đặt, ảnh sáng sẽ hiển thị."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "“浅色和深色”在深色外观下显示的图片。未设置时显示浅色图片。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "「淺色和深色」在深色外觀下顯示的圖片。未設定時顯示淺色圖片。"}}
+      }
+    },
+    "settings.default.sameAsLight": {
+      "comment": "Settings default label: the dark picture is unset and shows the light one.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Same as Light"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "مثل الفاتح"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Isto kao svijetla"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Samme som lys"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Wie Hell"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Igual que claro"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Comme clair"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Come chiaro"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ライトと同じ"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ដូចភ្លឺ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "라이트와 동일"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Samme som lys"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Jak jasny"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Igual ao claro"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Как светлое"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เหมือนโหมดสว่าง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Açık ile aynı"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Як світле"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Giống ảnh sáng"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "与浅色相同"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "與淺色相同"}}
+      }
+    },
+    "settings.appearance.backgroundSchedule": {
+      "comment": "Settings row title: background pictures by time of day.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Time of Day Pictures"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "صور حسب وقت اليوم"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Slike po dobu dana"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Billeder efter tidspunkt"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Bilder nach Tageszeit"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Imágenes según la hora"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Images selon l’heure"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Immagini per ora del giorno"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "時間帯ごとの画像"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "រូបភាពតាមពេលវេលា"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "시간대별 사진"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Bilder etter tid på døgnet"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Obrazy według pory dnia"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Imagens por hora do dia"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Изображения по времени суток"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ภาพตามช่วงเวลา"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Günün Saatine Göre Resimler"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Зображення за часом доби"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Ảnh theo thời điểm"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "按时间显示的图片"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "依時間顯示的圖片"}}
+      }
+    },
+    "settings.appearance.backgroundSchedule.help": {
+      "comment": "Settings row help for the time-of-day schedule. Keep 07:00, sunrise, sunset, dawn, dusk, noon and sunset-30m as written: they are the values.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Map a time (07:00) or a sun event (sunrise, sunset, dawn, dusk, noon, with an offset such as sunset-30m) to a picture. Each shows from its time until the next."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "اربط وقتًا (07:00) أو حدثًا شمسيًا (sunrise وsunset وdawn وdusk وnoon، مع إزاحة مثل sunset-30m) بصورة. تظهر كل صورة من وقتها حتى التالية."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Povežite vrijeme (07:00) ili događaj sunca (sunrise, sunset, dawn, dusk, noon, uz pomak kao sunset-30m) sa slikom. Svaka se prikazuje od svog vremena do sljedećeg."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Knyt et klokkeslæt (07:00) eller en solbegivenhed (sunrise, sunset, dawn, dusk, noon, med en forskydning som sunset-30m) til et billede. Hvert vises fra sit tidspunkt til det næste."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ordne einer Uhrzeit (07:00) oder einem Sonnenereignis (sunrise, sunset, dawn, dusk, noon, mit Versatz wie sunset-30m) ein Bild zu. Jedes zeigt sich ab seiner Zeit bis zur nächsten."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Asocia una hora (07:00) o un evento solar (sunrise, sunset, dawn, dusk, noon, con un desfase como sunset-30m) a una imagen. Cada una se muestra desde su hora hasta la siguiente."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Associez une heure (07:00) ou un événement solaire (sunrise, sunset, dawn, dusk, noon, avec un décalage comme sunset-30m) à une image. Chacune s’affiche de son heure à la suivante."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Associa un orario (07:00) o un evento solare (sunrise, sunset, dawn, dusk, noon, con uno scarto come sunset-30m) a un’immagine. Ognuna appare dal suo orario fino al successivo."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "時刻（07:00）または太陽のイベント（sunrise、sunset、dawn、dusk、noon、sunset-30m のようなずれ付き）に画像を割り当てます。各画像はその時刻から次の時刻まで表示されます。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ភ្ជាប់ម៉ោង (07:00) ឬព្រឹត្តិការណ៍ព្រះអាទិត្យ (sunrise, sunset, dawn, dusk, noon ជាមួយគម្លាតដូចជា sunset-30m) ទៅរូបភាព។ រូបនីមួយៗបង្ហាញពីម៉ោងរបស់វាដល់ម៉ោងបន្ទាប់។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "시각(07:00)이나 해의 움직임(sunrise, sunset, dawn, dusk, noon, sunset-30m처럼 간격 포함)에 사진을 연결합니다. 각 사진은 그 시각부터 다음 시각까지 보입니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Knytt et klokkeslett (07:00) eller en solhendelse (sunrise, sunset, dawn, dusk, noon, med forskyvning som sunset-30m) til et bilde. Hvert vises fra sitt tidspunkt til det neste."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Przypisz godzinę (07:00) lub zdarzenie słoneczne (sunrise, sunset, dawn, dusk, noon, z przesunięciem jak sunset-30m) do obrazu. Każdy jest widoczny od swojej pory do następnej."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Associe um horário (07:00) ou um evento solar (sunrise, sunset, dawn, dusk, noon, com deslocamento como sunset-30m) a uma imagem. Cada uma aparece do seu horário até o próximo."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Сопоставьте время (07:00) или событие солнца (sunrise, sunset, dawn, dusk, noon, со сдвигом вроде sunset-30m) с изображением. Каждое показывается со своего времени до следующего."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "จับคู่เวลา (07:00) หรือเหตุการณ์ดวงอาทิตย์ (sunrise, sunset, dawn, dusk, noon พร้อมค่าเลื่อนเช่น sunset-30m) กับภาพ แต่ละภาพแสดงตั้งแต่เวลาของตนจนถึงเวลาถัดไป"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bir saati (07:00) veya güneş olayını (sunrise, sunset, dawn, dusk, noon, sunset-30m gibi kaydırmayla) bir resimle eşleyin. Her biri kendi saatinden bir sonrakine kadar gösterilir."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Зіставте час (07:00) або подію сонця (sunrise, sunset, dawn, dusk, noon, зі зсувом на кшталт sunset-30m) із зображенням. Кожне показується від свого часу до наступного."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Gán một giờ (07:00) hoặc sự kiện mặt trời (sunrise, sunset, dawn, dusk, noon, với độ lệch như sunset-30m) cho một ảnh. Mỗi ảnh hiển thị từ giờ của nó đến giờ kế tiếp."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "将时间（07:00）或太阳事件（sunrise、sunset、dawn、dusk、noon，可带偏移如 sunset-30m）对应到一张图片。每张图片从其时间显示到下一个时间。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "將時間（07:00）或太陽事件（sunrise、sunset、dawn、dusk、noon，可帶偏移如 sunset-30m）對應到一張圖片。每張圖片從其時間顯示到下一個時間。"}}
+      }
+    },
+    "settings.appearance.backgroundDynamic": {
+      "comment": "Settings row title: how a dynamic macOS wallpaper changes.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Dynamic Wallpaper"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "خلفية ديناميكية"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Dinamička pozadina"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Dynamisk baggrund"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Dynamischer Hintergrund"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Fondo dinámico"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Fond d’écran dynamique"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Sfondo dinamico"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ダイナミック壁紙"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ផ្ទាំងរូបភាពថាមវន្ត"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "다이내믹 배경화면"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Dynamisk bakgrunn"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Tapeta dynamiczna"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Papel de parede dinâmico"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Динамические обои"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ภาพพื้นหลังไดนามิก"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Dinamik Duvar Kâğıdı"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Динамічні шпалери"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Hình nền động"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "动态墙纸"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "動態背景圖片"}}
+      }
+    },
+    "settings.appearance.backgroundDynamic.help": {
+      "comment": "Settings row help: a dynamic macOS wallpaper follows light and dark or the sun.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "A dynamic macOS wallpaper can follow light and dark, or change through the day with the sun like the macOS Dynamic setting."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يمكن لخلفية macOS الديناميكية أن تتبع الوضعين الفاتح والداكن، أو تتغير خلال اليوم مع الشمس مثل إعداد Dynamic في macOS."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Dinamička macOS pozadina može pratiti svijetlo i tamno ili se mijenjati tokom dana sa suncem, kao postavka Dynamic u macOS-u."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "En dynamisk macOS-baggrund kan følge lys og mørk eller skifte gennem dagen med solen som macOS-indstillingen Dynamic."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ein dynamischer macOS-Hintergrund folgt Hell und Dunkel oder ändert sich über den Tag mit der Sonne wie die macOS-Einstellung „Dynamisch“."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Un fondo dinámico de macOS puede seguir el modo claro y oscuro, o cambiar a lo largo del día con el sol, como el ajuste Dinámico de macOS."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Un fond d’écran dynamique macOS peut suivre le mode clair et sombre, ou changer au fil de la journée avec le soleil, comme le réglage Dynamique de macOS."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Uno sfondo dinamico di macOS può seguire chiaro e scuro, oppure cambiare durante il giorno con il sole come l’impostazione Dinamico di macOS."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "macOS のダイナミック壁紙は、ライトとダークに合わせることも、macOS の「ダイナミック」設定のように太陽に合わせて一日を通して変化させることもできます。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ផ្ទាំងរូបភាពថាមវន្តរបស់ macOS អាចតាមភ្លឺ និងងងឹត ឬប្ដូរពេញមួយថ្ងៃតាមព្រះអាទិត្យ ដូចការកំណត់ Dynamic របស់ macOS។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "macOS 다이내믹 배경화면은 라이트와 다크를 따르거나, macOS의 다이내믹 설정처럼 해에 따라 하루 동안 바뀔 수 있습니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "En dynamisk macOS-bakgrunn kan følge lys og mørk, eller endre seg gjennom dagen med solen som macOS-innstillingen Dynamisk."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Dynamiczna tapeta macOS może podążać za trybem jasnym i ciemnym albo zmieniać się w ciągu dnia razem ze słońcem, jak ustawienie Dynamiczny w macOS."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Um papel de parede dinâmico do macOS pode seguir claro e escuro, ou mudar ao longo do dia com o sol, como o ajuste Dinâmico do macOS."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Динамические обои macOS могут следовать светлому и тёмному оформлению или меняться в течение дня вместе с солнцем, как настройка «Динамические» в macOS."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ภาพพื้นหลังไดนามิกของ macOS สามารถตามโหมดสว่างและมืด หรือเปลี่ยนตลอดวันตามดวงอาทิตย์เหมือนการตั้งค่าไดนามิกของ macOS"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Dinamik bir macOS duvar kâğıdı açık ve koyuyu izleyebilir ya da macOS’in Dinamik ayarı gibi gün boyunca güneşle değişebilir."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Динамічні шпалери macOS можуть стежити за світлим і темним виглядом або змінюватися протягом дня разом із сонцем, як налаштування «Динамічні» в macOS."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Hình nền động của macOS có thể theo sáng và tối, hoặc thay đổi trong ngày theo mặt trời như cài đặt Động của macOS."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "macOS 动态墙纸可以跟随浅色和深色，或像 macOS 的“动态”设置那样随太阳在一天中变化。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "macOS 動態背景圖片可以跟隨淺色和深色，或像 macOS 的「動態」設定那樣隨太陽在一天中變化。"}}
+      }
+    },
+    "settings.appearance.backgroundDynamic.summary": {
+      "comment": "Settings row summary for the dynamic wallpaper choice.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Follow light and dark, or the sun"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "اتباع الفاتح والداكن أو الشمس"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Prati svijetlo i tamno ili sunce"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Følg lys og mørk eller solen"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Hell und Dunkel oder der Sonne folgen"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Seguir claro y oscuro, o el sol"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Suivre clair et sombre, ou le soleil"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Segui chiaro e scuro, o il sole"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ライトとダーク、または太陽に合わせる"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "តាមភ្លឺ និងងងឹត ឬព្រះអាទិត្យ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "라이트와 다크 또는 해를 따르기"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Følg lys og mørk, eller solen"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Podążaj za jasnym i ciemnym lub słońcem"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Seguir claro e escuro, ou o sol"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Следовать светлому и тёмному или солнцу"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ตามสว่างและมืด หรือดวงอาทิตย์"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Açık ve koyuyu ya da güneşi izle"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Стежити за світлим і темним або сонцем"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Theo sáng và tối, hoặc mặt trời"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "跟随浅色和深色，或太阳"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "跟隨淺色和深色，或太陽"}}
+      }
+    },
+    "settings.appearance.backgroundLocation": {
+      "comment": "Settings row title: where sunrise and sunset are computed for.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Sun Location"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "موقع الشمس"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Lokacija za sunce"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Sted for solen"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ort für die Sonne"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Ubicación para el sol"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Lieu pour le soleil"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Posizione per il sole"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "太陽の位置の基準地"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ទីតាំងសម្រាប់ព្រះអាទិត្យ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "해 위치 기준"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Sted for solen"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Lokalizacja dla słońca"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Local para o sol"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Местоположение для солнца"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ตำแหน่งสำหรับดวงอาทิตย์"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Güneş Konumu"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Розташування для сонця"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Vị trí tính mặt trời"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "太阳位置"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "太陽位置"}}
+      }
+    },
+    "settings.appearance.backgroundLocation.help": {
+      "comment": "Settings row help for the sun location. Keep 37.77,-122.42 as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Latitude and longitude for sunrise and sunset, such as 37.77,-122.42. Unset, cmux uses your time zone's city; it never asks for your location."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "خط العرض وخط الطول لشروق الشمس وغروبها، مثل 37.77,-122.42. إذا لم يُحدَّد، يستخدم cmux مدينة منطقتك الزمنية ولا يطلب موقعك أبدًا."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Geografska širina i dužina za izlazak i zalazak sunca, npr. 37.77,-122.42. Ako nije postavljeno, cmux koristi grad vaše vremenske zone; nikad ne traži vašu lokaciju."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Bredde- og længdegrad for solopgang og solnedgang, fx 37.77,-122.42. Uden valg bruger cmux byen for din tidszone; den spørger aldrig om din placering."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Breiten- und Längengrad für Sonnenauf- und -untergang, etwa 37.77,-122.42. Ohne Angabe nutzt cmux die Stadt deiner Zeitzone und fragt nie nach deinem Standort."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Latitud y longitud para el amanecer y el atardecer, como 37.77,-122.42. Sin definir, cmux usa la ciudad de tu zona horaria; nunca pide tu ubicación."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Latitude et longitude pour le lever et le coucher du soleil, par exemple 37.77,-122.42. Sans valeur, cmux utilise la ville de votre fuseau horaire et ne demande jamais votre position."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Latitudine e longitudine per alba e tramonto, ad esempio 37.77,-122.42. Se non impostate, cmux usa la città del tuo fuso orario e non chiede mai la tua posizione."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "日の出と日の入りに使う緯度と経度（例: 37.77,-122.42）。未設定の場合はタイムゾーンの都市を使い、位置情報を求めることはありません。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "រយៈទទឹង និងរយៈបណ្ដោយសម្រាប់ថ្ងៃរះ និងថ្ងៃលិច ដូចជា 37.77,-122.42។ បើមិនកំណត់ cmux ប្រើទីក្រុងនៃល្វែងម៉ោងរបស់អ្នក ហើយមិនដែលសុំទីតាំងរបស់អ្នកទេ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "일출과 일몰에 쓸 위도와 경도입니다(예: 37.77,-122.42). 설정하지 않으면 cmux는 시간대의 도시를 사용하며 위치를 묻지 않습니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Bredde- og lengdegrad for soloppgang og solnedgang, for eksempel 37.77,-122.42. Uten verdi bruker cmux byen for tidssonen din og spør aldri om posisjonen din."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Szerokość i długość geograficzna dla wschodu i zachodu słońca, np. 37.77,-122.42. Bez ustawienia cmux używa miasta Twojej strefy czasowej i nigdy nie pyta o lokalizację."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Latitude e longitude para o nascer e o pôr do sol, como 37.77,-122.42. Sem definir, o cmux usa a cidade do seu fuso horário e nunca pede sua localização."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Широта и долгота для восхода и заката, например 37.77,-122.42. Если не задано, cmux берёт город вашего часового пояса и никогда не запрашивает местоположение."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ละติจูดและลองจิจูดสำหรับเวลาพระอาทิตย์ขึ้นและตก เช่น 37.77,-122.42 หากไม่ได้ตั้งค่า cmux จะใช้เมืองของเขตเวลาของคุณ และจะไม่ขอตำแหน่งของคุณ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Gün doğumu ve batımı için enlem ve boylam, örneğin 37.77,-122.42. Ayarlanmazsa cmux saat diliminizin şehrini kullanır; konumunuzu asla sormaz."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Широта й довгота для сходу та заходу сонця, наприклад 37.77,-122.42. Якщо не задано, cmux бере місто вашого часового поясу й ніколи не запитує розташування."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Vĩ độ và kinh độ cho giờ mặt trời mọc và lặn, ví dụ 37.77,-122.42. Nếu không đặt, cmux dùng thành phố của múi giờ bạn và không bao giờ hỏi vị trí của bạn."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "用于日出和日落的纬度和经度，例如 37.77,-122.42。未设置时，cmux 使用你所在时区的城市，从不请求你的位置。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "用於日出和日落的緯度和經度，例如 37.77,-122.42。未設定時，cmux 使用你所在時區的城市，從不要求你的位置。"}}
+      }
+    },
+    "settings.default.fromTimeZone": {
+      "comment": "Settings default label: the sun location comes from the time zone.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "From Time Zone"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "من المنطقة الزمنية"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Iz vremenske zone"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Fra tidszone"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Aus der Zeitzone"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Según la zona horaria"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Selon le fuseau horaire"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Dal fuso orario"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "タイムゾーンから"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ពីល្វែងម៉ោង"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "시간대 기준"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Fra tidssone"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Ze strefy czasowej"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Pelo fuso horário"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "По часовому поясу"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "จากเขตเวลา"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Saat diliminden"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "За часовим поясом"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Theo múi giờ"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "来自时区"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "來自時區"}}
+      }
+    },
     "settings.placeholder.wordOrPhrase": {
       "comment": "Placeholder of a free-text list of words (Settings > Chief > Subagents show and hide words).",
       "extractionState": "manual",
@@ -57718,126 +58282,126 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "How often a shuffled background turns to its next picture."
+            "value": "How often a shuffled background turns to its next picture: every 15 minutes, hour or day, or a number of minutes."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Wie oft ein gemischter Hintergrund zum nächsten Bild wechselt."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "La fréquence à laquelle un fond aléatoire passe à l’image suivante."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "عدد مرات انتقال الخلفية المخلوطة إلى صورتها التالية."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Con qué frecuencia un fondo aleatorio pasa a la siguiente imagen."
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "隨機背景多久換到下一張圖片。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "随机背景多久换到下一张图片。"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "섞인 배경이 다음 그림으로 바뀌는 간격입니다."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "シャッフルした背景が次の画像に切り替わる間隔。"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Koliko često nasumična pozadina prelazi na sljedeću sliku."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Hvor ofte en blandet baggrund skifter til næste billede."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Ogni quanto uno sfondo casuale passa all’immagine successiva."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "ញឹកញាប់ប៉ុណ្ណាដែលផ្ទៃខាងក្រោយចៃដន្យប្ដូរទៅរូបភាពបន្ទាប់។"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Hvor ofte en blandet bakgrunn bytter til neste bilde."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Jak często losowe tło przechodzi do następnego obrazu."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Com que frequência um fundo aleatório passa para a próxima imagem."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Как часто случайный фон переходит к следующему изображению."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "ความถี่ที่พื้นหลังแบบสุ่มเปลี่ยนไปรูปถัดไป"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Karıştırılan arka planın bir sonraki resme ne sıklıkla geçtiği."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Як часто випадковий фон переходить до наступного зображення."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Tần suất hình nền xáo trộn chuyển sang ảnh tiếp theo."
           }
         }
@@ -58766,54 +59330,54 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material."
+            "value": "Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material. It can switch with light and dark, the time of day, or the sun."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Wähle ein gemeinfreies Gemälde, dein Schreibtischbild oder ein macOS-Systembild hinter dem Fenstermaterial."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Choisissez une peinture libre de droits, votre fond d’écran de bureau ou un fond d’écran macOS derrière le matériau de la fenêtre."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "اختر لوحة متاحة للملكية العامة، أو خلفية سطح مكتبك، أو خلفية نظام macOS خلف مادة النافذة."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Elige una pintura de dominio público, tu fondo de escritorio o un fondo de macOS detrás del material de la ventana."
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "選擇公版畫作、你的桌面背景，或 macOS 系統桌布顯示在視窗材質後方。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "选择公版画作、你的桌面墙纸，或 macOS 系统墙纸显示在窗口材质后方。"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "창 재질 뒤에 퍼블릭 도메인 그림, 데스크탑 배경화면 또는 macOS 시스템 배경화면을 선택합니다."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "ウィンドウ素材の背後に、パブリックドメインの絵画、デスクトップ壁紙、または macOS システム壁紙を選びます。"
           }
         },
@@ -68198,127 +68762,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "On Hover shows each tab bar's + only while the pointer is over that tab bar."
+            "value": "In Minimal Mode, On Hover shows each tab bar's + only while the pointer is over that tab bar. Outside Minimal Mode the + always shows."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "「ポインタを置いたとき」では、各タブバーの + はそのタブバーにポインタがある間だけ表示されます。"
+            "value": "ミニマルモードでは、「ポインタを置いたとき」で各タブバーの + はそのタブバーにポインタがある間だけ表示されます。ミニマルモード以外では + は常に表示されます。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "«عند التمرير» يُظهر زر + في كل شريط علامات تبويب فقط أثناء وجود المؤشر فوقه."
+            "value": "في الوضع البسيط، «عند التمرير» يُظهر زر + في كل شريط علامات تبويب فقط أثناء وجود المؤشر فوقه. خارج الوضع البسيط يظهر + دائمًا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pri prelasku prikazuje + svake trake kartica samo dok je pokazivač iznad nje."
+            "value": "U Minimalnom načinu, Pri prelasku prikazuje + svake trake kartica samo dok je pokazivač iznad nje. Izvan Minimalnog načina + se uvijek prikazuje."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ved markør viser hver fanelinjes + kun, mens markøren er over den fanelinje."
+            "value": "I Minimal tilstand viser Ved markør hver fanelinjes + kun, mens markøren er over den fanelinje. Uden for Minimal tilstand vises + altid."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "„Beim Darüberfahren“ zeigt das + jeder Tableiste nur, solange der Zeiger darüber ist."
+            "value": "Im Minimalen Modus zeigt „Beim Darüberfahren“ das + jeder Tableiste nur, solange der Zeiger darüber ist. Außerhalb des Minimalen Modus wird das + immer angezeigt."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Al pasar el puntero muestra el + de cada barra de pestañas solo mientras el puntero está sobre ella."
+            "value": "En el Modo mínimo, Al pasar el puntero muestra el + de cada barra de pestañas solo mientras el puntero está sobre ella. Fuera del Modo mínimo, el + se muestra siempre."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Au survol n'affiche le + de chaque barre d'onglets que lorsque le pointeur la survole."
+            "value": "En Mode minimal, Au survol n'affiche le + de chaque barre d'onglets que lorsque le pointeur la survole. Hors du Mode minimal, le + s'affiche toujours."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Al passaggio mostra il + di ogni barra delle schede solo mentre il puntatore è sopra di essa."
+            "value": "In Modalità minimale, Al passaggio mostra il + di ogni barra delle schede solo mentre il puntatore è sopra di essa. Fuori dalla Modalità minimale il + è sempre visibile."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ពេលដាក់ទស្សន៍ទ្រនិច បង្ហាញ + នៃរបារផ្ទាំងនីមួយៗ តែពេលទស្សន៍ទ្រនិចនៅលើរបារនោះប៉ុណ្ណោះ។"
+            "value": "ក្នុងរបៀបអប្បបរមា ពេលដាក់ទស្សន៍ទ្រនិច បង្ហាញ + នៃរបារផ្ទាំងនីមួយៗ តែពេលទស្សន៍ទ្រនិចនៅលើរបារនោះប៉ុណ្ណោះ។ ក្រៅរបៀបអប្បបរមា + តែងតែបង្ហាញ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "마우스를 올릴 때는 포인터가 해당 탭 막대 위에 있을 때만 그 막대의 +를 표시합니다."
+            "value": "미니멀 모드에서 마우스를 올릴 때는 포인터가 해당 탭 막대 위에 있을 때만 그 막대의 +를 표시합니다. 미니멀 모드가 아니면 +는 항상 표시됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ved peker viser hver fanelinjes + bare mens pekeren er over den fanelinjen."
+            "value": "I Minimal modus viser Ved peker hver fanelinjes + bare mens pekeren er over den fanelinjen. Utenfor Minimal modus vises + alltid."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Po najechaniu pokazuje + każdego paska kart tylko wtedy, gdy wskaźnik jest nad nim."
+            "value": "W Trybie minimalnym opcja Po najechaniu pokazuje + każdego paska kart tylko wtedy, gdy wskaźnik jest nad nim. Poza Trybem minimalnym + jest zawsze widoczny."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ao passar o ponteiro mostra o + de cada barra de abas só enquanto o ponteiro está sobre ela."
+            "value": "No Modo Mínimo, Ao passar o ponteiro mostra o + de cada barra de abas só enquanto o ponteiro está sobre ela. Fora do Modo Mínimo, o + sempre aparece."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "«При наведении» показывает + каждой панели вкладок, только пока указатель над ней."
+            "value": "В Минимальном режиме «При наведении» показывает + каждой панели вкладок, только пока указатель над ней. Вне Минимального режима + виден всегда."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เมื่อวางเมาส์ จะแสดง + ของแถบแท็บแต่ละแถบเฉพาะตอนที่ตัวชี้อยู่เหนือแถบนั้น"
+            "value": "ในโหมดมินิมอล เมื่อวางเมาส์ จะแสดง + ของแถบแท็บแต่ละแถบเฉพาะตอนที่ตัวชี้อยู่เหนือแถบนั้น นอกโหมดมินิมอล + จะแสดงเสมอ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Üzerine gelince, her sekme çubuğunun + düğmesini yalnızca işaretçi o çubuğun üzerindeyken gösterir."
+            "value": "Minimal Modda, Üzerine gelince her sekme çubuğunun + düğmesini yalnızca işaretçi o çubuğun üzerindeyken gösterir. Minimal Mod dışında + her zaman görünür."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "«При наведенні» показує + кожної панелі вкладок, лише поки вказівник над нею."
+            "value": "У Мінімальному режимі «При наведенні» показує + кожної панелі вкладок, лише поки вказівник над нею. Поза Мінімальним режимом + видно завжди."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Khi di chuột chỉ hiện nút + của mỗi thanh thẻ khi con trỏ ở trên thanh đó."
+            "value": "Trong Chế độ tối giản, Khi di chuột chỉ hiện nút + của mỗi thanh thẻ khi con trỏ ở trên thanh đó. Ngoài Chế độ tối giản, nút + luôn hiển thị."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "“悬停时”仅在指针位于某个标签栏上时显示该标签栏的 +。"
+            "value": "在极简模式下，“悬停时”仅在指针位于某个标签栏上时显示该标签栏的 +。不在极简模式时，+ 始终显示。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "「懸停時」僅在指標位於某個分頁列上時顯示該分頁列的 +。"
+            "value": "在極簡模式下，「懸停時」僅在指標位於某個分頁列上時顯示該分頁列的 +。不在極簡模式時，+ 一律顯示。"
           }
         }
       }
@@ -102348,127 +102912,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تعرض صفوف مساحات العمل أيقونتها واسمها وعلامة غير المقروء فقط، وتصبح عناوين الأقسام خطوطًا رفيعة."
+            "value": "تظهر أزرار الشريط الجانبي وأشرطة علامات التبويب والمساحات وزر الملف الشخصي فقط أثناء وجود المؤشر فوقها. لا تتغير الصفوف والمسافات."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Redovi radnih prostora prikazuju samo ikonu, naziv i oznaku nepročitanog, a naslovi odjeljaka postaju tanke linije."
+            "value": "Dugmad bočne trake i traka kartica, prostori i dugme profila prikazuju se samo dok je pokazivač iznad njih. Redovi i razmaci se ne mijenjaju."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Arbejdsområderækker viser kun ikon, navn og ulæst-mærke, og sektionstitler bliver til tynde streger."
+            "value": "Sidepanelets og fanelinjernes knapper, rum og profilknap vises kun, mens markøren er over dem. Rækker og afstande ændres ikke."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Arbeitsbereichszeilen zeigen nur Symbol, Namen und Ungelesen-Markierung, und Abschnittstitel werden zu dünnen Linien."
+            "value": "Die Tasten, Bereiche und die Profiltaste der Seitenleiste und der Tableisten erscheinen nur, solange der Zeiger darüber ist. Zeilen und Abstände ändern sich nicht."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Workspace rows show only their icon, name and unread mark, and section titles become thin lines."
+            "value": "The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Rows and spacing do not change."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Las filas de los espacios de trabajo solo muestran su icono, nombre y marca de no leído, y los títulos de sección se vuelven líneas finas."
+            "value": "Los botones, los espacios y el botón de perfil de la barra lateral y de las barras de pestañas solo se muestran mientras el puntero está sobre ellos. Las filas y el espaciado no cambian."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Les lignes des espaces de travail n’affichent que leur icône, leur nom et la marque non lu, et les titres de section deviennent de fines lignes."
+            "value": "Les boutons, les espaces et le bouton de profil de la barre latérale et des barres d’onglets ne s’affichent que lorsque le pointeur les survole. Les lignes et l’espacement ne changent pas."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le righe degli spazi di lavoro mostrano solo icona, nome e indicatore di non letto, e i titoli delle sezioni diventano linee sottili."
+            "value": "I pulsanti, gli spazi e il pulsante del profilo della barra laterale e delle barre delle schede si vedono solo mentre il puntatore è sopra di essi. Righe e spaziatura non cambiano."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースの行にはアイコン、名前、未読マークだけを表示し、セクションのタイトルは細い線になります。"
+            "value": "サイドバーとタブバーのボタン、スペース、プロフィールボタンは、ポインタを置いている間だけ表示されます。行と間隔は変わりません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ជួរកន្លែងធ្វើការបង្ហាញតែរូបតំណាង ឈ្មោះ និងសញ្ញាមិនទាន់អាន ហើយចំណងជើងផ្នែកក្លាយជាបន្ទាត់ស្តើង។"
+            "value": "ប៊ូតុង ចន្លោះ និងប៊ូតុងប្រវត្តិរូបនៃរបារចំហៀង និងរបារផ្ទាំង បង្ហាញតែពេលទស្សន៍ទ្រនិចនៅលើពួកវាប៉ុណ្ណោះ។ ជួរ និងគម្លាតមិនផ្លាស់ប្ដូរទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "작업 공간 행에는 아이콘, 이름, 읽지 않음 표시만 나타나고 섹션 제목은 얇은 선이 됩니다."
+            "value": "사이드바와 탭 막대의 버튼, 스페이스, 프로필 버튼은 포인터가 그 위에 있을 때만 표시됩니다. 행과 간격은 바뀌지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Arbeidsområderader viser bare ikon, navn og ulest-merke, og seksjonstitler blir tynne streker."
+            "value": "Knappene, rommene og profilknappen i sidefeltet og fanelinjene vises bare mens pekeren er over dem. Rader og avstander endres ikke."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wiersze obszarów roboczych pokazują tylko ikonę, nazwę i znacznik nieprzeczytanych, a tytuły sekcji stają się cienkimi liniami."
+            "value": "Przyciski, przestrzenie i przycisk profilu paska bocznego oraz pasków kart są widoczne tylko, gdy wskaźnik jest nad nimi. Wiersze i odstępy się nie zmieniają."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "As linhas dos espaços de trabalho mostram só o ícone, o nome e a marca de não lido, e os títulos das seções viram linhas finas."
+            "value": "Os botões, os espaços e o botão de perfil da barra lateral e das barras de abas aparecem só enquanto o ponteiro está sobre eles. As linhas e o espaçamento não mudam."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Строки рабочих пространств показывают только значок, имя и отметку непрочитанного, а заголовки разделов становятся тонкими линиями."
+            "value": "Кнопки, пространства и кнопка профиля боковой панели и панелей вкладок видны, только пока указатель над ними. Строки и отступы не меняются."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แถวพื้นที่ทำงานแสดงเฉพาะไอคอน ชื่อ และเครื่องหมายยังไม่อ่าน และชื่อส่วนจะกลายเป็นเส้นบาง"
+            "value": "ปุ่ม สเปซ และปุ่มโปรไฟล์ของแถบด้านข้างและแถบแท็บจะแสดงเฉพาะเมื่อตัวชี้อยู่เหนือสิ่งเหล่านั้น แถวและระยะห่างไม่เปลี่ยนแปลง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Çalışma alanı satırları yalnızca simgeyi, adı ve okunmamış işaretini gösterir; bölüm başlıkları ince çizgilere dönüşür."
+            "value": "Kenar çubuğunun ve sekme çubuklarının düğmeleri, alanları ve profil düğmesi yalnızca işaretçi üzerlerindeyken görünür. Satırlar ve aralıklar değişmez."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Рядки робочих просторів показують лише значок, назву й позначку непрочитаного, а назви розділів стають тонкими лініями."
+            "value": "Кнопки, простори та кнопка профілю бічної панелі й панелей вкладок видні, лише поки вказівник над ними. Рядки та відступи не змінюються."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Các hàng không gian làm việc chỉ hiện biểu tượng, tên và dấu chưa đọc, còn tiêu đề mục trở thành đường mảnh."
+            "value": "Các nút, không gian và nút hồ sơ của thanh bên và thanh thẻ chỉ hiện khi con trỏ ở trên chúng. Các hàng và khoảng cách không thay đổi."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "工作区行只显示图标、名称和未读标记，分区标题变为细线。"
+            "value": "边栏和标签栏的按钮、空间和个人资料按钮仅在指针位于其上方时显示。行和间距不会改变。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "工作區列只顯示圖示、名稱與未讀標記，區段標題變成細線。"
+            "value": "側邊欄和分頁列的按鈕、空間和個人檔案按鈕僅在指標位於其上方時顯示。列和間距不會改變。"
           }
         }
       }
@@ -109314,127 +109878,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rows show only icon, name and unread mark"
+            "value": "Buttons show only on hover"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعرض الصفوف الأيقونة والاسم وعلامة غير المقروء فقط"
+            "value": "تظهر الأزرار عند التمرير فقط"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Redovi prikazuju samo ikonu, ime i oznaku nepročitanog"
+            "value": "Dugmad se prikazuju samo pri prelasku"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rækker viser kun ikon, navn og ulæst-mærke"
+            "value": "Knapper vises kun ved markør"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zeilen zeigen nur Symbol, Name und Ungelesen-Markierung"
+            "value": "Tasten erscheinen nur beim Darüberfahren"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las filas muestran solo icono, nombre y marca de no leído"
+            "value": "Los botones solo aparecen al pasar el puntero"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les lignes n’affichent que l’icône, le nom et le non-lu"
+            "value": "Boutons au survol uniquement"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le righe mostrano solo icona, nome e segno di non letto"
+            "value": "Pulsanti solo al passaggio"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "行にはアイコン、名前、未読マークだけを表示"
+            "value": "ボタンはポインタを置いたときだけ表示"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ជួរដេកបង្ហាញតែរូបតំណាង ឈ្មោះ និងសញ្ញាមិនទាន់អាន"
+            "value": "ប៊ូតុងបង្ហាញតែពេលដាក់ទស្សន៍ទ្រនិច"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "행에 아이콘, 이름, 읽지 않음 표시만 보임"
+            "value": "버튼은 마우스를 올릴 때만 표시"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rader viser bare ikon, navn og ulest-merke"
+            "value": "Knapper vises bare ved peker"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wiersze pokazują tylko ikonę, nazwę i znak nieprzeczytanych"
+            "value": "Przyciski tylko po najechaniu"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "As linhas mostram só ícone, nome e marca de não lido"
+            "value": "Botões aparecem só ao passar o ponteiro"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "В строках только значок, имя и отметка непрочитанного"
+            "value": "Кнопки только при наведении"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "แถวแสดงเพียงไอคอน ชื่อ และเครื่องหมายยังไม่อ่าน"
+            "value": "ปุ่มแสดงเฉพาะเมื่อวางเมาส์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Satırlar yalnızca simge, ad ve okunmadı işaretini gösterir"
+            "value": "Düğmeler yalnızca üzerine gelince görünür"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "У рядках лише значок, назва й позначка непрочитаного"
+            "value": "Кнопки лише при наведенні"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hàng chỉ hiện biểu tượng, tên và dấu chưa đọc"
+            "value": "Nút chỉ hiện khi di chuột"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "行只显示图标、名称和未读标记"
+            "value": "按钮仅在悬停时显示"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "列只顯示圖示、名稱和未讀標記"
+            "value": "按鈕僅在懸停時顯示"
           }
         }
       }
@@ -115348,7 +115912,7 @@
     }
   },
     "settings.tabs.toolbarButtons.splitRight": {
-      "comment": "Settings: an action tabs.toolbarButtons can pin at the tab bar's trailing end.",
+      "comment": "Settings: an action tabs.toolbarButtons can pin next to the tab bar's More button.",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -115480,7 +116044,7 @@
       }
     },
     "settings.tabs.toolbarButtons.splitDown": {
-      "comment": "Settings: an action tabs.toolbarButtons can pin at the tab bar's trailing end.",
+      "comment": "Settings: an action tabs.toolbarButtons can pin next to the tab bar's More button.",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -115612,7 +116176,7 @@
       }
     },
     "settings.tabs.toolbarButtons.diffViewer": {
-      "comment": "Settings: an action tabs.toolbarButtons can pin at the tab bar's trailing end.",
+      "comment": "Settings: an action tabs.toolbarButtons can pin next to the tab bar's More button.",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -115744,7 +116308,7 @@
       }
     },
     "settings.tabs.toolbarButtons.openFile": {
-      "comment": "Settings: an action tabs.toolbarButtons can pin at the tab bar's trailing end.",
+      "comment": "Settings: an action tabs.toolbarButtons can pin next to the tab bar's More button.",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -115876,7 +116440,7 @@
       }
     },
     "settings.tabs.toolbarButtons.searchChats": {
-      "comment": "Settings: an action tabs.toolbarButtons can pin at the tab bar's trailing end.",
+      "comment": "Settings: an action tabs.toolbarButtons can pin next to the tab bar's More button.",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -116008,7 +116572,7 @@
       }
     },
     "settings.tabs.toolbarButtons.paneZoom": {
-      "comment": "Settings: an action tabs.toolbarButtons can pin at the tab bar's trailing end.",
+      "comment": "Settings: an action tabs.toolbarButtons can pin next to the tab bar's More button.",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -116272,133 +116836,133 @@
       }
     },
     "settings.tabs.toolbarButtons.help": {
-      "comment": "Settings: tabs.toolbarButtons, the actions pinned as buttons at a pane's tab bar trailing end.",
+      "comment": "Settings: tabs.toolbarButtons, the actions pinned as buttons next to a pane's tab bar More button.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Actions shown as buttons at the tab bar's trailing end. Pin or unpin one from Show in Tab Bar in the tab bar's right-click menu."
+            "value": "Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الإجراءات المعروضة كأزرار في نهاية شريط علامات التبويب. ثبّت أيًّا منها أو ألغِ تثبيته من «إظهار في شريط علامات التبويب» في قائمة النقر بزر الماوس الأيمن على شريط علامات التبويب."
+            "value": "الإجراءات المعروضة كأزرار بجوار زر «المزيد» في شريط علامات التبويب. البقية في قائمة «المزيد»، حيث يثبّتها «إظهار في شريط علامات التبويب» مجددًا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Akcije prikazane kao dugmad na kraju trake kartica. Prikačite ili otkačite neku iz stavke Prikaži na traci kartica u meniju desnog klika na traci kartica."
+            "value": "Akcije prikazane kao dugmad pored dugmeta Više na traci kartica. Ostale su u meniju Više, gdje ih Prikaži na traci kartica ponovo prikačuje."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Handlinger vist som knapper i slutningen af fanelinjen. Fastgør eller frigør en fra Vis på fanelinjen i fanelinjens højreklikmenu."
+            "value": "Handlinger vist som knapper ved siden af fanelinjens Mere-knap. Resten er i menuen Mere, hvor Vis på fanelinjen fastgør dem igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aktionen, die als Tasten am Ende der Tableiste erscheinen. Über „In der Tableiste anzeigen“ im Kontextmenü der Tableiste heftest du eine an oder löst sie."
+            "value": "Aktionen, die als Tasten neben der Mehr-Taste der Tableiste erscheinen. Die übrigen stehen im Menü „Mehr“, wo „In der Tableiste anzeigen“ sie wieder anheftet."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Acciones que se muestran como botones al final de la barra de pestañas. Fija o quita una desde Mostrar en la barra de pestañas, en el menú contextual de la barra de pestañas."
+            "value": "Acciones que se muestran como botones junto al botón Más de la barra de pestañas. El resto está en el menú Más, donde Mostrar en la barra de pestañas vuelve a fijarlas."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Actions affichées comme boutons au bout de la barre d’onglets. Épinglez-en une ou retirez-la depuis Afficher dans la barre d’onglets, dans le menu contextuel de la barre d’onglets."
+            "value": "Actions affichées comme boutons à côté du bouton Plus de la barre d’onglets. Les autres sont dans le menu Plus, où Afficher dans la barre d’onglets les épingle à nouveau."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Azioni mostrate come pulsanti alla fine della barra dei pannelli. Fissane o rimuovine una da Mostra nella barra dei pannelli, nel menu contestuale della barra dei pannelli."
+            "value": "Azioni mostrate come pulsanti accanto al pulsante Altro della barra dei pannelli. Le altre sono nel menu Altro, dove Mostra nella barra dei pannelli le fissa di nuovo."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "タブバーの末尾にボタンとして表示するアクション。タブバーの右クリックメニューの「タブバーに表示」で固定または固定解除できます。"
+            "value": "タブバーの「その他」ボタンの横にボタンとして表示するアクション。それ以外は「その他」メニューにあり、「タブバーに表示」で再び固定できます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "សកម្មភាពដែលបង្ហាញជាប៊ូតុងនៅចុងរបារផ្ទាំង។ ខ្ទាស់ ឬដោះខ្ទាស់មួយពី បង្ហាញក្នុងរបារផ្ទាំង ក្នុងម៉ឺនុយចុចខាងស្ដាំរបស់របារផ្ទាំង។"
+            "value": "សកម្មភាពដែលបង្ហាញជាប៊ូតុងនៅជាប់ប៊ូតុង ច្រើនទៀត របស់របារផ្ទាំង។ សកម្មភាពផ្សេងទៀតនៅក្នុងម៉ឺនុយ ច្រើនទៀត ដែល បង្ហាញក្នុងរបារផ្ទាំង ខ្ទាស់វាវិញ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "탭 막대 끝에 버튼으로 표시할 동작입니다. 탭 막대의 오른쪽 클릭 메뉴에 있는 탭 막대에 표시에서 고정하거나 고정 해제할 수 있습니다."
+            "value": "탭 막대의 더 보기 버튼 옆에 버튼으로 표시할 동작입니다. 나머지는 더 보기 메뉴에 있으며, 탭 막대에 표시로 다시 고정할 수 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Handlinger som vises som knapper på slutten av fanelinjen. Fest eller løsne en fra Vis i fanelinjen i fanelinjens høyreklikkmeny."
+            "value": "Handlinger som vises som knapper ved siden av fanelinjens Mer-knapp. Resten er i Mer-menyen, der Vis i fanelinjen fester dem igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Akcje wyświetlane jako przyciski na końcu paska kart. Przypnij lub odepnij akcję w pozycji Pokaż na pasku kart w menu kontekstowym paska kart."
+            "value": "Akcje wyświetlane jako przyciski obok przycisku Więcej na pasku kart. Pozostałe są w menu Więcej, gdzie Pokaż na pasku kart przypina je z powrotem."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ações mostradas como botões no fim da barra de abas. Fixe ou desafixe uma em Mostrar na barra de abas, no menu de clique direito da barra de abas."
+            "value": "Ações mostradas como botões ao lado do botão Mais da barra de abas. As demais ficam no menu Mais, onde Mostrar na barra de abas as fixa de novo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Действия, показанные кнопками в конце панели вкладок. Закрепите или открепите действие пунктом «Показывать на панели вкладок» в контекстном меню панели вкладок."
+            "value": "Действия, показанные кнопками рядом с кнопкой «Ещё» на панели вкладок. Остальные — в меню «Ещё», где пункт «Показывать на панели вкладок» снова закрепляет их."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "การทำงานที่แสดงเป็นปุ่มที่ท้ายแถบแท็บ ปักหมุดหรือเลิกปักหมุดได้จาก แสดงในแถบแท็บ ในเมนูคลิกขวาของแถบแท็บ"
+            "value": "การทำงานที่แสดงเป็นปุ่มข้างปุ่ม เพิ่มเติม ของแถบแท็บ ส่วนที่เหลืออยู่ในเมนู เพิ่มเติม ซึ่ง แสดงในแถบแท็บ จะปักหมุดกลับมา"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sekme çubuğunun sonunda düğme olarak gösterilen eylemler. Sekme çubuğunun sağ tık menüsündeki Sekme Çubuğunda Göster ile birini sabitleyin veya sabitlemesini kaldırın."
+            "value": "Sekme çubuğunun Daha Fazla düğmesinin yanında düğme olarak gösterilen eylemler. Diğerleri Daha Fazla menüsündedir; Sekme Çubuğunda Göster onları yeniden sabitler."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Дії, показані кнопками в кінці панелі вкладок. Закріпіть або відкріпіть дію пунктом «Показувати на панелі вкладок» у контекстному меню панелі вкладок."
+            "value": "Дії, показані кнопками поруч із кнопкою «Більше» на панелі вкладок. Решта — в меню «Більше», де пункт «Показувати на панелі вкладок» знову закріплює їх."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Các hành động hiển thị thành nút ở cuối thanh tab. Ghim hoặc bỏ ghim từ Hiển thị trên thanh tab trong menu chuột phải của thanh tab."
+            "value": "Các hành động hiển thị thành nút cạnh nút Thêm của thanh tab. Phần còn lại nằm trong menu Thêm, nơi Hiển thị trên thanh tab ghim lại chúng."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在标签栏末尾显示为按钮的操作。可在标签栏右键菜单的“在标签栏中显示”中固定或取消固定。"
+            "value": "在标签栏“更多”按钮旁显示为按钮的操作。其余操作位于“更多”菜单中，可通过“在标签栏中显示”重新固定。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在標籤列末端顯示為按鈕的動作。可在標籤列右鍵選單的「在標籤列中顯示」中固定或取消固定。"
+            "value": "在標籤列「更多」按鈕旁顯示為按鈕的動作。其餘動作位於「更多」選單中，可透過「在標籤列中顯示」重新固定。"
           }
         }
       }
@@ -179290,6 +179854,138 @@
         }
       }
     },
+    "settings.category.keys": {
+      "comment": "Settings sidebar category: the keys agents keep on this Mac.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keys"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المفاتيح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ključevi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nøgler"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schlüssel"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claves"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Clés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiavi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "キー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កូនសោ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "키"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nøkler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klucze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chaves"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ключи"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คีย์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anahtarlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ключі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khóa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "密钥"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "金鑰"
+          }
+        }
+      }
+    },
     "settings.category.import": {
       "extractionState": "manual",
       "localizations": {
@@ -197179,27 +197875,27 @@
     "settings.sidebar.controlsOnHover.help": {
       "extractionState": "manual",
       "localizations": {
-        "ar": {"stringUnit": {"state": "needs_review", "value": "يظهر زر مساحة عمل جديدة والمساحات وزر الملف الشخصي وزر البحث في الشريط الجانبي، وزر الشريط الجانبي وزرّا الرجوع والتقدم فوقه، فقط عندما يكون المؤشر فوق الشريط الجانبي. عند الإيقاف، تظهر دائمًا."}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "Dugme Novi radni prostor, prostori, dugme profila i dugme Pretraga na bočnoj traci, te dugme bočne trake, Nazad i Naprijed iznad nje, prikazuju se samo dok je pokazivač iznad bočne trake. Isključeno: uvijek se prikazuju."}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "Sidepanelets knap Nyt arbejdsområde, rum, profilknap og søgeknap samt sidepanelknappen, Tilbage og Frem over det vises kun, mens markøren er over sidepanelet. Slået fra vises de altid."}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Die Taste „Neuer Arbeitsbereich“, die Bereiche, die Profiltaste und die Suchtaste der Seitenleiste sowie die Seitenleistentaste, Zurück und Vorwärts darüber erscheinen nur, solange der Zeiger über der Seitenleiste ist. Aus: Sie werden immer angezeigt."}},
-        "en": {"stringUnit": {"state": "translated", "value": "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show."}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "El botón Nuevo espacio de trabajo, los espacios, el botón de perfil y el botón Buscar de la barra lateral, y el botón de la barra lateral, Atrás y Adelante encima, solo se muestran mientras el puntero está sobre la barra lateral. Desactivado, se muestran siempre."}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Le bouton Nouvel espace de travail, les espaces, le bouton de profil et le bouton Rechercher de la barre latérale, ainsi que le bouton de la barre latérale, Précédent et Suivant au-dessus, ne s’affichent que lorsque le pointeur est sur la barre latérale. Désactivé, ils s’affichent toujours."}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Il pulsante Nuovo workspace, gli spazi, il pulsante del profilo e il pulsante Cerca della barra laterale, e il pulsante della barra laterale, Indietro e Avanti sopra di essa, si vedono solo mentre il puntatore è sulla barra laterale. Disattivato, sono sempre visibili."}},
-        "ja": {"stringUnit": {"state": "needs_review", "value": "サイドバーの新規ワークスペースボタン、スペース、プロフィールボタン、検索ボタン、およびその上のサイドバーボタン、「戻る」と「進む」は、ポインタがサイドバー上にあるときだけ表示されます。オフのときは常に表示されます。"}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "ប៊ូតុងកន្លែងធ្វើការថ្មី ចន្លោះ ប៊ូតុងប្រវត្តិរូប និងប៊ូតុងស្វែងរកនៃរបារចំហៀង ព្រមទាំងប៊ូតុងរបារចំហៀង ថយក្រោយ និងទៅមុខខាងលើវា បង្ហាញតែនៅពេលព្រួញនៅលើរបារចំហៀងប៉ុណ្ណោះ។ បិទ៖ ពួកវាតែងតែបង្ហាញ។"}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바의 새 워크스페이스 버튼, 스페이스, 프로필 버튼, 검색 버튼과 그 위의 사이드바 버튼, 뒤로, 앞으로는 포인터가 사이드바 위에 있을 때만 표시됩니다. 끄면 항상 표시됩니다."}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "Sidefeltets knapp Nytt arbeidsområde, rom, profilknappen og søkeknappen, og sidefeltknappen, Tilbake og Frem over det, vises bare mens pekeren er over sidefeltet. Av: de vises alltid."}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Przycisk Nowa przestrzeń robocza, przestrzenie, przycisk profilu i przycisk Szukaj paska bocznego oraz przycisk paska bocznego, Wstecz i Dalej nad nim są widoczne tylko, gdy wskaźnik jest nad paskiem bocznym. Wyłączone: są zawsze widoczne."}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "O botão Novo espaço de trabalho, os espaços, o botão de perfil e o botão Buscar da barra lateral, e o botão da barra lateral, Voltar e Avançar acima dela, aparecem só enquanto o ponteiro está sobre a barra lateral. Desativado, eles sempre aparecem."}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "Кнопка «Новое рабочее пространство», пространства, кнопка профиля и кнопка поиска боковой панели, а также кнопка боковой панели, «Назад» и «Вперёд» над ней видны, только пока указатель над боковой панелью. Выключено: видны всегда."}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "ปุ่มพื้นที่ทำงานใหม่ สเปซ ปุ่มโปรไฟล์ และปุ่มค้นหาของแถบด้านข้าง รวมถึงปุ่มแถบด้านข้าง ย้อนกลับ และไปข้างหน้าด้านบน จะแสดงเฉพาะเมื่อตัวชี้อยู่เหนือแถบด้านข้าง เมื่อปิด จะแสดงเสมอ"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğunun Yeni Çalışma Alanı düğmesi, alanları, profil düğmesi ve Ara düğmesi ile üstündeki kenar çubuğu düğmesi, Geri ve İleri yalnızca işaretçi kenar çubuğunun üzerindeyken görünür. Kapalıyken her zaman görünürler."}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Кнопка «Новий робочий простір», простори, кнопка профілю та кнопка пошуку бічної панелі, а також кнопка бічної панелі, «Назад» і «Вперед» над нею видні, лише поки вказівник над бічною панеллю. Вимкнено: видні завжди."}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Nút Không gian làm việc mới, các không gian, nút hồ sơ và nút Tìm kiếm của thanh bên, cùng nút thanh bên, Quay lại và Tiếp tới phía trên, chỉ hiện khi con trỏ ở trên thanh bên. Khi tắt, chúng luôn hiển thị."}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "边栏的“新建工作区”按钮、空间、个人资料按钮和“搜索”按钮，以及其上方的边栏按钮、“后退”和“前进”，仅在指针位于边栏上方时显示。关闭时始终显示。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄的「新增工作區」按鈕、空間、個人檔案按鈕和「搜尋」按鈕，以及其上方的側邊欄按鈕、「上一頁」和「下一頁」，僅在指標位於側邊欄上方時顯示。關閉時一律顯示。"}}
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يظهر زر مساحة عمل جديدة والمساحات وزر الملف الشخصي وزر البحث في الشريط الجانبي، وزر الشريط الجانبي وزرّا الرجوع والتقدم فوقه، فقط عندما يكون المؤشر فوق الشريط الجانبي. عند الإيقاف، تظهر دائمًا ما لم يكن الوضع البسيط مفعّلًا."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Dugme Novi radni prostor, prostori, dugme profila i dugme Pretraga na bočnoj traci, te dugme bočne trake, Nazad i Naprijed iznad nje, prikazuju se samo dok je pokazivač iznad bočne trake. Isključeno: uvijek se prikazuju, osim ako je uključen Minimalni način."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Sidepanelets knap Nyt arbejdsområde, rum, profilknap og søgeknap samt sidepanelknappen, Tilbage og Frem over det vises kun, mens markøren er over sidepanelet. Slået fra vises de altid, medmindre Minimal tilstand er slået til."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Die Taste „Neuer Arbeitsbereich“, die Bereiche, die Profiltaste und die Suchtaste der Seitenleiste sowie die Seitenleistentaste, Zurück und Vorwärts darüber erscheinen nur, solange der Zeiger über der Seitenleiste ist. Aus: Sie werden immer angezeigt, außer im Minimalen Modus."}},
+        "en": {"stringUnit": {"state": "translated", "value": "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show unless Minimal Mode is on."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "El botón Nuevo espacio de trabajo, los espacios, el botón de perfil y el botón Buscar de la barra lateral, y el botón de la barra lateral, Atrás y Adelante encima, solo se muestran mientras el puntero está sobre la barra lateral. Desactivado, se muestran siempre salvo con el Modo mínimo activado."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Le bouton Nouvel espace de travail, les espaces, le bouton de profil et le bouton Rechercher de la barre latérale, ainsi que le bouton de la barre latérale, Précédent et Suivant au-dessus, ne s’affichent que lorsque le pointeur est sur la barre latérale. Désactivé, ils s’affichent toujours, sauf si le Mode minimal est activé."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Il pulsante Nuovo workspace, gli spazi, il pulsante del profilo e il pulsante Cerca della barra laterale, e il pulsante della barra laterale, Indietro e Avanti sopra di essa, si vedono solo mentre il puntatore è sulla barra laterale. Disattivato, sono sempre visibili, tranne con la Modalità minimale attiva."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "サイドバーの新規ワークスペースボタン、スペース、プロフィールボタン、検索ボタン、およびその上のサイドバーボタン、「戻る」と「進む」は、ポインタがサイドバー上にあるときだけ表示されます。オフのときは、ミニマルモードがオンでない限り常に表示されます。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ប៊ូតុងកន្លែងធ្វើការថ្មី ចន្លោះ ប៊ូតុងប្រវត្តិរូប និងប៊ូតុងស្វែងរកនៃរបារចំហៀង ព្រមទាំងប៊ូតុងរបារចំហៀង ថយក្រោយ និងទៅមុខខាងលើវា បង្ហាញតែនៅពេលព្រួញនៅលើរបារចំហៀងប៉ុណ្ណោះ។ បិទ៖ ពួកវាតែងតែបង្ហាញ លុះត្រាតែរបៀបអប្បបរមាបើក។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바의 새 워크스페이스 버튼, 스페이스, 프로필 버튼, 검색 버튼과 그 위의 사이드바 버튼, 뒤로, 앞으로는 포인터가 사이드바 위에 있을 때만 표시됩니다. 끄면 미니멀 모드가 켜져 있지 않은 한 항상 표시됩니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Sidefeltets knapp Nytt arbeidsområde, rom, profilknappen og søkeknappen, og sidefeltknappen, Tilbake og Frem over det, vises bare mens pekeren er over sidefeltet. Av: de vises alltid, med mindre Minimal modus er på."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Przycisk Nowa przestrzeń robocza, przestrzenie, przycisk profilu i przycisk Szukaj paska bocznego oraz przycisk paska bocznego, Wstecz i Dalej nad nim są widoczne tylko, gdy wskaźnik jest nad paskiem bocznym. Wyłączone: są zawsze widoczne, chyba że włączony jest Tryb minimalny."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "O botão Novo espaço de trabalho, os espaços, o botão de perfil e o botão Buscar da barra lateral, e o botão da barra lateral, Voltar e Avançar acima dela, aparecem só enquanto o ponteiro está sobre a barra lateral. Desativado, eles sempre aparecem, a menos que o Modo Mínimo esteja ativado."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Кнопка «Новое рабочее пространство», пространства, кнопка профиля и кнопка поиска боковой панели, а также кнопка боковой панели, «Назад» и «Вперёд» над ней видны, только пока указатель над боковой панелью. Выключено: видны всегда, если не включён Минимальный режим."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ปุ่มพื้นที่ทำงานใหม่ สเปซ ปุ่มโปรไฟล์ และปุ่มค้นหาของแถบด้านข้าง รวมถึงปุ่มแถบด้านข้าง ย้อนกลับ และไปข้างหน้าด้านบน จะแสดงเฉพาะเมื่อตัวชี้อยู่เหนือแถบด้านข้าง เมื่อปิด จะแสดงเสมอ เว้นแต่เปิดโหมดมินิมอลอยู่"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğunun Yeni Çalışma Alanı düğmesi, alanları, profil düğmesi ve Ara düğmesi ile üstündeki kenar çubuğu düğmesi, Geri ve İleri yalnızca işaretçi kenar çubuğunun üzerindeyken görünür. Kapalıyken, Minimal Mod açık değilse her zaman görünürler."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Кнопка «Новий робочий простір», простори, кнопка профілю та кнопка пошуку бічної панелі, а також кнопка бічної панелі, «Назад» і «Вперед» над нею видні, лише поки вказівник над бічною панеллю. Вимкнено: видні завжди, якщо не ввімкнено Мінімальний режим."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Nút Không gian làm việc mới, các không gian, nút hồ sơ và nút Tìm kiếm của thanh bên, cùng nút thanh bên, Quay lại và Tiếp tới phía trên, chỉ hiện khi con trỏ ở trên thanh bên. Khi tắt, chúng luôn hiển thị, trừ khi Chế độ tối giản đang bật."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "边栏的“新建工作区”按钮、空间、个人资料按钮和“搜索”按钮，以及其上方的边栏按钮、“后退”和“前进”，仅在指针位于边栏上方时显示。关闭时始终显示，除非开启了极简模式。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄的「新增工作區」按鈕、空間、個人檔案按鈕和「搜尋」按鈕，以及其上方的側邊欄按鈕、「上一頁」和「下一頁」，僅在指標位於側邊欄上方時顯示。關閉時一律顯示，除非開啟了極簡模式。"}}
       }
     },
     "settings.sidebar.workspacesAsTabs": {
@@ -210561,6 +211257,33 @@
         }
       }
     },
+    "settings.choice.neko": {
+      "comment": "Choice title of the reserved Icon Theme setting: the optional cat-themed icon family. Neko is Japanese for cat; write it the way your language would name a cat-themed theme.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Neko"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "نيكو"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Neko"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Neko"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Neko"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Neko"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Neko"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Neko"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ネコ"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "នេកូ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "네코"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Neko"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Neko"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Neko"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Неко"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เนโกะ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Neko"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Неко"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Neko"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "猫咪"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "貓咪"}}
+      }
+    },
     "settings.appearance.iconTheme": {
       "extractionState": "manual",
       "localizations": {
@@ -217448,6 +218171,927 @@
         }
       }
     },
+    "settings.browser.verificationAutofill.accounts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Email Accounts for Codes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حسابات البريد للرموز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "E-mail računi za kodove"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "E-mailkonti til koder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "E-Mail-Konten für Codes"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuentas de correo para códigos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comptes e-mail pour les codes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Account email per i codici"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "コードを読むメールアカウント"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គណនីអ៊ីមែលសម្រាប់លេខកូដ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "코드용 이메일 계정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "E-postkontoer for koder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konta e-mail dla kodów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Contas de e-mail para códigos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Почтовые ящики для кодов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บัญชีอีเมลสำหรับรหัส"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kodlar için e-posta hesapları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поштові скриньки для кодів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tài khoản email cho mã"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "用于验证码的邮箱账户"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "用於驗證碼的郵件帳號"
+          }
+        }
+      }
+    },
+    "settings.browser.verificationAutofill.accounts.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codes come only from these addresses: Gmail accounts you are signed in to in this browser, and accounts in the Mail app. Mail is read on this Mac and never stored or sent."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تأتي الرموز من هذه العناوين فقط: حسابات Gmail التي سجّلت الدخول إليها في هذا المتصفح، والحسابات في تطبيق البريد. تُقرأ الرسائل على هذا الـ Mac ولا تُخزَّن ولا تُرسَل أبدًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kodovi dolaze samo s ovih adresa: Gmail računi na koje ste prijavljeni u ovom pregledniku i računi u aplikaciji Mail. Pošta se čita na ovom Macu i nikad se ne pohranjuje niti šalje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koder kommer kun fra disse adresser: Gmail-konti, du er logget ind på i denne browser, og konti i Mail-appen. Mail læses på denne Mac og bliver aldrig gemt eller sendt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codes kommen nur von diesen Adressen: Gmail-Konten, bei denen du in diesem Browser angemeldet bist, und Konten in der Mail-App. Mails werden auf diesem Mac gelesen und nie gespeichert oder gesendet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los códigos solo provienen de estas direcciones: cuentas de Gmail con sesión iniciada en este navegador y cuentas de la app Mail. El correo se lee en este Mac y nunca se guarda ni se envía."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les codes viennent uniquement de ces adresses : les comptes Gmail connectés dans ce navigateur et les comptes de l'app Mail. Les e-mails sont lus sur ce Mac, jamais enregistrés ni envoyés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I codici arrivano solo da questi indirizzi: account Gmail con cui hai effettuato l'accesso in questo browser e account nell'app Mail. La posta viene letta su questo Mac e non viene mai salvata né inviata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "コードはこれらのアドレスからのみ読み取ります: このブラウザでサインインしている Gmail アカウントと、メールアプリのアカウントです。メールはこの Mac 上で読み取り、保存も送信もしません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លេខកូដមកពីអាសយដ្ឋានទាំងនេះតែប៉ុណ្ណោះ៖ គណនី Gmail ដែលអ្នកបានចូលក្នុងកម្មវិធីរុករកនេះ និងគណនីក្នុងកម្មវិធី Mail។ អ៊ីមែលត្រូវបានអាននៅលើ Mac នេះ ហើយមិនដែលរក្សាទុក ឬផ្ញើទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "코드는 이 주소에서만 가져옵니다: 이 브라우저에 로그인한 Gmail 계정과 Mail 앱의 계정. 메일은 이 Mac에서 읽으며 저장하거나 전송하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koder kommer bare fra disse adressene: Gmail-kontoer du er logget på i denne nettleseren, og kontoer i Mail-appen. E-post leses på denne Macen og blir aldri lagret eller sendt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kody pochodzą tylko z tych adresów: kont Gmail, na które logujesz się w tej przeglądarce, i kont w aplikacji Mail. Poczta jest czytana na tym Macu i nigdy nie jest zapisywana ani wysyłana."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Os códigos vêm apenas destes endereços: contas do Gmail em que você está conectado neste navegador e contas do app Mail. Os e-mails são lidos neste Mac e nunca são guardados nem enviados."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Коды берутся только с этих адресов: аккаунты Gmail, в которые вы вошли в этом браузере, и ящики в приложении «Почта». Почта читается на этом Mac и никогда не сохраняется и не отправляется."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รหัสมาจากที่อยู่เหล่านี้เท่านั้น: บัญชี Gmail ที่คุณลงชื่อเข้าใช้ในเบราว์เซอร์นี้ และบัญชีในแอป Mail อีเมลถูกอ่านบน Mac เครื่องนี้ และไม่ถูกเก็บหรือส่งไปที่ใด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kodlar yalnızca bu adreslerden gelir: bu tarayıcıda oturum açtığınız Gmail hesapları ve Mail uygulamasındaki hesaplar. E-postalar bu Mac'te okunur, asla saklanmaz veya gönderilmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Коди беруться лише з цих адрес: облікові записи Gmail, у які ви ввійшли в цьому браузері, і скриньки в програмі «Пошта». Пошта читається на цьому Mac і ніколи не зберігається й не надсилається."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mã chỉ lấy từ các địa chỉ này: tài khoản Gmail bạn đã đăng nhập trong trình duyệt này và tài khoản trong ứng dụng Mail. Thư được đọc trên máy Mac này, không bao giờ được lưu hay gửi đi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "验证码只来自这些地址：在此浏览器中登录的 Gmail 账户，以及“邮件”App 中的账户。邮件只在这台 Mac 上读取，从不保存或发送。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "驗證碼只來自這些地址：在此瀏覽器中登入的 Gmail 帳號，以及「郵件」App 中的帳號。郵件只在這台 Mac 上讀取，從不儲存或傳送。"
+          }
+        }
+      }
+    },
+    "settings.browser.verificationAutofill.accounts.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Addresses cmux may read codes from"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "العناوين التي يمكن لـ cmux قراءة الرموز منها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adrese s kojih cmux smije čitati kodove"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresser, cmux må læse koder fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adressen, aus denen cmux Codes lesen darf"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Direcciones de las que cmux puede leer códigos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresses où cmux peut lire les codes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indirizzi da cui cmux può leggere i codici"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux がコードを読み取れるアドレス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អាសយដ្ឋានដែល cmux អាចអានលេខកូដបាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 코드를 읽을 수 있는 주소"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresser cmux kan lese koder fra"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresy, z których cmux może czytać kody"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Endereços dos quais o cmux pode ler códigos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Адреса, из которых cmux может читать коды"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ที่อยู่ที่ cmux อ่านรหัสได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux'un kod okuyabileceği adresler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Адреси, з яких cmux може читати коди"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các địa chỉ cmux được đọc mã"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 可读取验证码的地址"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 可讀取驗證碼的地址"
+          }
+        }
+      }
+    },
+    "settings.appearance.fontSmoothing": {
+      "comment": "Settings row title: how heavy cmux's own text draws (font smoothing).",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تنعيم النص"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaglađivanje teksta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tekstudglatning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Textglättung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text Smoothing"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suavizado de texto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lissage du texte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Smussatura del testo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストのスムージング"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការធ្វើឲ្យអក្សររលោង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "텍스트 다듬기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tekstutjevning"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wygładzanie tekstu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suavização de texto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сглаживание текста"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การปรับข้อความให้เรียบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metin Yumuşatma"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Згладжування тексту"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Làm mượt chữ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文本平滑"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字平滑"
+          }
+        }
+      }
+    },
+    "settings.appearance.fontSmoothing.help": {
+      "comment": "Help under Text Smoothing. Auto, Thin and Smooth are the choice names; translate them as in settings.choice.fontSmoothingAuto, settings.choice.fontSmoothingThin and settings.choice.fontSmoothingSmooth.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كيفية رسم النص. يحتفظ الخيار تلقائي بتنعيم Mac الخاص لعلامات التبويب والشريط الجانبي وعناصر التحكم الأخرى، وبنمط كل صفحة. يرسم الخيار رفيع خطوطًا أخف في كل مكان. يرسم الخيار ناعم تنعيم macOS الأثقل في كل مكان. تتغير الصفحات فورًا؛ ويتغير النص الآخر بعد إعادة تشغيل cmux. يحتفظ نص الطرفية بإعداده الخاص."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kako se tekst crta. Automatski zadržava vlastito zaglađivanje Maca za kartice, bočnu traku i druge kontrole, te vlastiti stil svake stranice. Tanko svuda crta lakše poteze. Glatko svuda crta teže macOS zaglađivanje. Stranice se mijenjaju odmah; ostali tekst nakon ponovnog pokretanja cmuxa. Tekst terminala zadržava vlastitu postavku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvordan tekst tegnes. Automatisk beholder Mac'ens egen udglatning for faner, sidepanelet og andre kontroller og hver sides egen stil. Tynd tegner lettere streger overalt. Udglattet tegner den kraftigere macOS-udglatning overalt. Sider skifter med det samme; anden tekst skifter, når cmux genstartes. Terminaltekst beholder sin egen indstilling."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie Text gezeichnet wird. Automatisch behält die Glättung des Mac für Tabs, Seitenleiste und andere Bedienelemente und den eigenen Stil jeder Seite. Dünn zeichnet überall leichtere Striche. Geglättet zeichnet überall die kräftigere macOS-Glättung. Seiten ändern sich sofort, anderer Text nach einem Neustart von cmux. Terminaltext behält seine eigene Einstellung."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How text draws. Auto keeps the Mac's own smoothing for tabs, the sidebar and other controls, and each page's own style. Thin draws lighter strokes everywhere. Smooth draws the heavier macOS smoothing everywhere. Pages change at once; other text changes after cmux restarts. Terminal text keeps its own setting."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cómo se dibuja el texto. Automático mantiene el suavizado propio del Mac en pestañas, barra lateral y otros controles, y el estilo propio de cada página. Fino dibuja trazos más ligeros en todas partes. Suavizado dibuja el suavizado de macOS, más grueso, en todas partes. Las páginas cambian al instante; el resto del texto, al reiniciar cmux. El texto de la terminal conserva su propio ajuste."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comment le texte est dessiné. Automatique garde le lissage du Mac pour les onglets, la barre latérale et les autres contrôles, et le style propre à chaque page. Fin dessine des traits plus légers partout. Lissé dessine partout le lissage macOS, plus épais. Les pages changent aussitôt ; le reste du texte au redémarrage de cmux. Le texte du terminal garde son propre réglage."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Come viene disegnato il testo. Automatico mantiene la smussatura del Mac per schede, barra laterale e altri controlli, e lo stile proprio di ogni pagina. Sottile disegna tratti più leggeri ovunque. Smussato disegna ovunque la smussatura di macOS, più marcata. Le pagine cambiano subito; il resto del testo dopo il riavvio di cmux. Il testo del terminale mantiene la propria impostazione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字の描画方法です。「自動」は、タブ、サイドバー、その他のコントロールで Mac 自体のスムージングを使い、各ページは独自のスタイルのままにします。「細い」はすべてを細い線で描きます。「滑らか」はすべてを macOS の太めのスムージングで描きます。ページはすぐに変わり、その他の文字は cmux の再起動後に変わります。ターミナルの文字は独自の設定のままです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របៀបគូរអក្សរ។ ស្វ័យប្រវត្តិ រក្សាការធ្វើឲ្យរលោងផ្ទាល់របស់ Mac សម្រាប់ផ្ទាំង របារចំហៀង និងការគ្រប់គ្រងផ្សេងទៀត ព្រមទាំងរចនាប័ទ្មផ្ទាល់របស់ទំព័រនីមួយៗ។ ស្តើង គូរខ្សែស្រាលជាងនៅគ្រប់ទីកន្លែង។ រលោង គូរការធ្វើឲ្យរលោងរបស់ macOS ដែលធ្ងន់ជាងនៅគ្រប់ទីកន្លែង។ ទំព័រផ្លាស់ប្តូរភ្លាមៗ អត្ថបទផ្សេងទៀតផ្លាស់ប្តូរបន្ទាប់ពីចាប់ផ្តើម cmux ឡើងវិញ។ អត្ថបទទែមីណាល់រក្សាការកំណត់ផ្ទាល់ខ្លួន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "텍스트를 그리는 방식입니다. 자동은 탭, 사이드바 및 기타 컨트롤에 Mac 자체의 다듬기를, 각 페이지에는 페이지 고유의 스타일을 유지합니다. 얇게는 모든 곳을 가는 획으로 그립니다. 부드럽게는 모든 곳을 더 굵은 macOS 다듬기로 그립니다. 페이지는 즉시 바뀌고, 그 밖의 텍스트는 cmux를 다시 시작하면 바뀝니다. 터미널 텍스트는 자체 설정을 유지합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvordan tekst tegnes. Automatisk beholder Macens egen utjevning for faner, sidepanelet og andre kontroller, og hver sides egen stil. Tynn tegner lettere streker overalt. Utjevnet tegner den tyngre macOS-utjevningen overalt. Sider endres med en gang; annen tekst når cmux startes på nytt. Terminaltekst beholder sin egen innstilling."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sposób rysowania tekstu. Automatyczne zachowuje własne wygładzanie Maca dla kart, paska bocznego i innych kontrolek oraz własny styl każdej strony. Cienkie rysuje wszędzie lżejsze pociągnięcia. Wygładzone rysuje wszędzie grubsze wygładzanie macOS. Strony zmieniają się od razu; pozostały tekst po ponownym uruchomieniu cmux. Tekst terminala zachowuje własne ustawienie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Como o texto é desenhado. Automático mantém a suavização do próprio Mac em abas, barra lateral e outros controles, e o estilo próprio de cada página. Fino desenha traços mais leves em todo lugar. Suavizado desenha a suavização do macOS, mais grossa, em todo lugar. As páginas mudam na hora; o restante do texto, após reiniciar o cmux. O texto do terminal mantém sua própria configuração."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Как рисуется текст. «Авто» оставляет собственное сглаживание Mac для вкладок, боковой панели и других элементов и собственный стиль каждой страницы. «Тонкое» везде рисует более тонкие штрихи. «Сглаженное» везде рисует более плотное сглаживание macOS. Страницы меняются сразу, остальной текст — после перезапуска cmux. Текст терминала сохраняет собственную настройку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วิธีวาดข้อความ อัตโนมัติ ใช้การปรับให้เรียบของ Mac เองกับแท็บ แถบด้านข้าง และตัวควบคุมอื่นๆ และใช้สไตล์ของแต่ละหน้าเอง บาง วาดเส้นที่บางลงทุกที่ เรียบ วาดการปรับให้เรียบของ macOS ที่หนากว่าทุกที่ หน้าเว็บเปลี่ยนทันที ข้อความอื่นเปลี่ยนหลังจากเริ่ม cmux ใหม่ ข้อความในเทอร์มินัลใช้การตั้งค่าของตัวเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metnin nasıl çizileceği. Otomatik; sekmeler, kenar çubuğu ve diğer denetimler için Mac'in kendi yumuşatmasını ve her sayfanın kendi stilini korur. İnce her yerde daha hafif çizgiler çizer. Yumuşak her yerde daha kalın macOS yumuşatmasını çizer. Sayfalar hemen değişir; diğer metin cmux yeniden başlatıldıktan sonra değişir. Terminal metni kendi ayarını korur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Як малюється текст. «Авто» залишає власне згладжування Mac для вкладок, бічної панелі та інших елементів і власний стиль кожної сторінки. «Тонке» всюди малює тонші штрихи. «Згладжене» всюди малює щільніше згладжування macOS. Сторінки змінюються одразу, інший текст — після перезапуску cmux. Текст термінала зберігає власне налаштування."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cách vẽ chữ. Tự động giữ cách làm mượt riêng của Mac cho thẻ, thanh bên và các điều khiển khác, cùng kiểu riêng của từng trang. Mảnh vẽ nét nhẹ hơn ở mọi nơi. Mượt vẽ kiểu làm mượt đậm hơn của macOS ở mọi nơi. Trang thay đổi ngay; chữ khác thay đổi sau khi khởi động lại cmux. Chữ trong terminal giữ cài đặt riêng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字的绘制方式。“自动”在标签页、边栏和其他控件上沿用 Mac 自身的平滑效果，并保留各页面自身的样式。“细”在所有地方以更细的笔画绘制。“平滑”在所有地方使用较粗的 macOS 平滑效果。页面会立即变化；其他文字在重新启动 cmux 后变化。终端文字保留其自身设置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字的繪製方式。「自動」在分頁、側邊欄和其他控制項上沿用 Mac 本身的平滑效果，並保留各頁面本身的樣式。「細」在所有地方以更細的筆畫繪製。「平滑」在所有地方使用較粗的 macOS 平滑效果。頁面會立即變更；其他文字在重新啟動 cmux 後變更。終端機文字保留其本身設定。"
+          }
+        }
+      }
+    },
+    "settings.choice.fontSmoothingThin": {
+      "comment": "Text Smoothing choice: thin strokes, no font smoothing (antialiased), like web pages.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رفيع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tanko"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tynd"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dünn"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thin"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fino"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fin"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sottile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "細い"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្តើង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "얇게"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tynn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cienkie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fino"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тонкое"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บาง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İnce"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тонке"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mảnh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "细"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "細"
+          }
+        }
+      }
+    },
+    "settings.choice.fontSmoothingSmooth": {
+      "comment": "Text Smoothing choice: the macOS font smoothing turned on everywhere (CSS subpixel-antialiased).",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ناعم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glatko"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udglattet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geglättet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Smooth"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suavizado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lissé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Smussato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "滑らか"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រលោង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "부드럽게"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utjevnet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wygładzone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suavizado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сглаженное"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เรียบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yumuşak"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Згладжене"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mượt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "平滑"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "平滑"
+          }
+        }
+      }
+    },
     "settings.internalDeveloperMode.help": {
       "comment": "Help text under the Internal Developer Mode toggle. \"Debug: …\" is the title prefix of the palette rows; translate it the same way as the action.debug.titleFormat string.",
       "extractionState": "manual",
@@ -221628,6 +223272,399 @@
           "stringUnit": {
             "state": "translated",
             "value": "標題列和標籤列的突出程度"
+          }
+        }
+      }
+    },
+    "settings.tabs.newTabApp": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تطبيق علامة التبويب الجديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aplikacija nove kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App til ny fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App für neuen Tab"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Tab App"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App de nueva pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App du nouvel onglet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App della nuova scheda"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規タブのアプリ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធីផ្ទាំងថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 탭 앱"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App for ny fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aplikacja nowej karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App da nova aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приложение новой вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แอปแท็บใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni Sekme Uygulaması"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Застосунок нової вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ứng dụng Tab mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新标签页 App"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新分頁 App"
+          }
+        }
+      }
+    },
+    "settings.tabs.newTabApp.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إضافة ترسم صفحة علامة التبويب الجديدة كاملة، بمعرّفها، مثل \"local/showcase-newtab\". إذا لم يُضبط، يرسم cmux صفحته الخاصة. إذا كانت الإضافة مفقودة أو مخفية أو فشلت، يرسم cmux صفحته الخاصة. لا تستخدمها صفحة علامة التبويب الجديدة الأصلية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proširenje koje crta cijelu stranicu nove kartice, po svom ID-u, npr. \"local/showcase-newtab\". Bez vrijednosti cmux crta svoju stranicu. Ako proširenje nedostaje, skriveno je ili ne uspije, cmux crta svoju stranicu. Izvorna stranica nove kartice ga ne koristi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En udvidelse, der tegner hele siden Ny fane, angivet med sit id, fx \"local/showcase-newtab\". Uden værdi tegner cmux sin egen side. Mangler udvidelsen, er den skjult, eller fejler den, tegner cmux sin egen side. Den indbyggede side Ny fane bruger den ikke."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Erweiterung, die die ganze Seite „Neuer Tab“ zeichnet, angegeben mit ihrer ID, etwa \"local/showcase-newtab\". Ohne Wert zeichnet cmux seine eigene Seite. Fehlt die Erweiterung, ist sie ausgeblendet oder schlägt sie fehl, zeichnet cmux seine eigene Seite. Die native Seite „Neuer Tab“ verwendet sie nicht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An extension that draws the whole New Tab page, by its id, such as \"local/showcase-newtab\". Unset, cmux draws its own page. If the extension is missing, hidden or fails, cmux draws its own page. Not used by the native New Tab page."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una extensión que dibuja toda la página Nueva pestaña, indicada por su id, como \"local/showcase-newtab\". Sin valor, cmux dibuja su propia página. Si la extensión falta, está oculta o falla, cmux dibuja su propia página. La página Nueva pestaña nativa no la usa."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une extension qui dessine toute la page Nouvel onglet, désignée par son identifiant, par exemple \"local/showcase-newtab\". Sans valeur, cmux dessine sa propre page. Si l’extension est absente, masquée ou échoue, cmux dessine sa propre page. La page Nouvel onglet native ne l’utilise pas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un'estensione che disegna l'intera pagina Nuova scheda, indicata dal suo id, ad esempio \"local/showcase-newtab\". Se non è impostata, cmux disegna la propria pagina. Se l'estensione manca, è nascosta o non funziona, cmux disegna la propria pagina. La pagina Nuova scheda nativa non la usa."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規タブのページ全体を描く拡張機能を ID で指定します（例: \"local/showcase-newtab\"）。未設定のときは cmux 自身のページを描きます。拡張機能がない、非表示、または失敗したときも cmux 自身のページを描きます。ネイティブの新規タブページでは使われません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្នែកបន្ថែមដែលគូរទំព័រផ្ទាំងថ្មីទាំងមូល តាម ID របស់វា ដូចជា \"local/showcase-newtab\"។ ពេលមិនកំណត់ cmux គូរទំព័ររបស់ខ្លួន។ ប្រសិនបើផ្នែកបន្ថែមបាត់ ត្រូវបានលាក់ ឬបរាជ័យ cmux គូរទំព័ររបស់ខ្លួន។ ទំព័រផ្ទាំងថ្មីដើមមិនប្រើវាទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 탭 페이지 전체를 그리는 확장 프로그램을 ID로 지정합니다(예: \"local/showcase-newtab\"). 설정하지 않으면 cmux가 자체 페이지를 그립니다. 확장 프로그램이 없거나 숨겨져 있거나 실패하면 cmux가 자체 페이지를 그립니다. 기본 새 탭 페이지에서는 사용하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En utvidelse som tegner hele siden Ny fane, angitt med ID-en sin, for eksempel \"local/showcase-newtab\". Uten verdi tegner cmux sin egen side. Mangler utvidelsen, er den skjult eller feiler den, tegner cmux sin egen side. Den innebygde siden Ny fane bruker den ikke."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rozszerzenie, które rysuje całą stronę nowej karty, wskazane przez swój identyfikator, np. \"local/showcase-newtab\". Bez wartości cmux rysuje własną stronę. Gdy rozszerzenia brakuje, jest ukryte lub zawodzi, cmux rysuje własną stronę. Natywna strona nowej karty go nie używa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma extensão que desenha toda a página Nova aba, indicada pelo seu id, como \"local/showcase-newtab\". Sem valor, o cmux desenha a própria página. Se a extensão estiver ausente, oculta ou falhar, o cmux desenha a própria página. A página Nova aba nativa não a usa."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Расширение, которое рисует всю страницу новой вкладки, по его ID, например \"local/showcase-newtab\". Если не задано, cmux рисует свою страницу. Если расширения нет, оно скрыто или завершается с ошибкой, cmux рисует свою страницу. Встроенная страница новой вкладки его не использует."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่วนขยายที่วาดหน้าแท็บใหม่ทั้งหน้า ระบุด้วย ID เช่น \"local/showcase-newtab\" หากไม่ได้ตั้งค่า cmux จะวาดหน้าของตัวเอง หากส่วนขยายหายไป ถูกซ่อน หรือทำงานล้มเหลว cmux จะวาดหน้าของตัวเอง หน้าแท็บใหม่แบบเนทีฟไม่ใช้ค่านี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni Sekme sayfasının tamamını çizen uzantı, kimliğiyle, örneğin \"local/showcase-newtab\". Ayarlanmazsa cmux kendi sayfasını çizer. Uzantı yoksa, gizliyse veya başarısız olursa cmux kendi sayfasını çizer. Yerel Yeni Sekme sayfası bunu kullanmaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розширення, яке малює всю сторінку нової вкладки, за його ID, наприклад \"local/showcase-newtab\". Якщо не задано, cmux малює власну сторінку. Якщо розширення немає, воно приховане або дає збій, cmux малює власну сторінку. Вбудована сторінка нової вкладки його не використовує."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một tiện ích mở rộng vẽ toàn bộ trang Tab mới, theo id của nó, ví dụ \"local/showcase-newtab\". Khi chưa đặt, cmux vẽ trang của chính nó. Nếu tiện ích bị thiếu, bị ẩn hoặc lỗi, cmux vẽ trang của chính nó. Trang Tab mới gốc không dùng nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按 ID 指定一个扩展来绘制整个新标签页页面，例如 \"local/showcase-newtab\"。未设置时，cmux 绘制自己的页面。扩展缺失、已隐藏或失败时，cmux 绘制自己的页面。原生新标签页页面不使用它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以 ID 指定一個擴充功能來繪製整個新分頁頁面，例如 \"local/showcase-newtab\"。未設定時，cmux 會繪製自己的頁面。擴充功能不存在、已隱藏或失敗時，cmux 會繪製自己的頁面。原生新分頁頁面不會使用它。"
+          }
+        }
+      }
+    },
+    "settings.tabs.newTabApp.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "صفحة علامة تبويب جديدة من إضافة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stranica nove kartice iz proširenja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En udvidelses side Ny fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Seite „Neuer Tab“ einer Erweiterung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An extension's New Tab page"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La página Nueva pestaña de una extensión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La page Nouvel onglet d’une extension"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La pagina Nuova scheda di un'estensione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拡張機能の新規タブページ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំព័រផ្ទាំងថ្មីរបស់ផ្នែកបន្ថែម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확장 프로그램의 새 탭 페이지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En utvidelses side for ny fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strona nowej karty z rozszerzenia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A página Nova aba de uma extensão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Страница новой вкладки из расширения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน้าแท็บใหม่จากส่วนขยาย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir uzantının Yeni Sekme sayfası"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сторінка нової вкладки з розширення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trang Tab mới của một tiện ích mở rộng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "扩展的新标签页页面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "擴充功能的新分頁頁面"
           }
         }
       }

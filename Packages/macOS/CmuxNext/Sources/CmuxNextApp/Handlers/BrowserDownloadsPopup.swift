@@ -326,7 +326,7 @@ private struct BrowserDownloadPopupRow: View {
                             .frame(width: 24, height: 24)
                             .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cmuxPressFill)
                     .themedHelp(BrowserHitStrings.downloadShowInFinder)
                     .accessibilityLabel(BrowserHitStrings.downloadShowInFinder)
                 }
@@ -376,7 +376,7 @@ private struct BrowserDownloadsFooterRow: View {
             .contentShape(Rectangle())
             .background(RoundedRectangle(cornerRadius: Metrics.insetCornerRadius).fill(hovered ? colors.hover : Color.clear))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .padding(.horizontal, 4)
         .onHover { hovered = $0 }
     }

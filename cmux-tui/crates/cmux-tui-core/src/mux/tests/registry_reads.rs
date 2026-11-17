@@ -90,6 +90,7 @@ fn a_progress_report_reads_only_its_own_terminals_tabs() {
         "resource_column_docks",
         "resource_lone_docks",
         "resource_parked_splits",
+        "resource_floating_panes",
     ] {
         assert!(
             !read.contains(table),

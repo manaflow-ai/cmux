@@ -261,7 +261,7 @@ jobs:
           name: web-test-junit-shard${{ steps.shard.outputs.index }}-attempt${{ github.run_attempt }}
           path: ${{ runner.temp }}/web-test-junit/junit.xml
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 7
 
   web-instant-navigation:
     needs: web-subarea-scope
@@ -494,7 +494,7 @@ jobs:
             exit "$status"
           fi
           python3 ../scripts/ci/fast_gate_webviews_checks.py --no-install --repo .. --base "$BASE_REF" || status=1
-          for check in check:design-tokens check:menu-gutters check:transcript-icons check:icon-scale check:layers check:type-scale check:motion-scale check:theme-slots check:surface-roles check:layout-grid check:design-scale check:status-glyphs check:system-blue check:text-focus check:toast-targets check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps; do
+          for check in check:design-tokens check:menu-gutters check:transcript-icons check:icon-scale check:layers check:type-scale check:motion-scale check:theme-slots check:surface-roles check:layout-grid check:design-scale check:status-glyphs check:system-blue check:text-focus check:toast-targets check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps check:pane-selectors; do
             bun run "$check" || echo "::warning title=webviews $check (warn-only)::see the step log"
           done
           # Format and lint apart: `vp check` stops at its first red, so a format red hid every lint finding.
@@ -609,7 +609,7 @@ jobs:
           overwrite: true
           path: ${{ runner.temp }}/webviews-head-results/
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
 
       # A push's verdicts feed the base's flake history (the webviews-test-history job), which a
       # pull request's base replay reads so a test that flips by itself on the base only warns.

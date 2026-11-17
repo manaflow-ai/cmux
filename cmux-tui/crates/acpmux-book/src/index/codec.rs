@@ -1,6 +1,7 @@
 //! Raw length-prefixed keys and bounded, extensible text JSON. No opaque parse.
 use super::{
-    ForkOf, IndexRecord, MAX_INDEX_RECORD_BYTES, OriginRecord, OriginState, RowKey, Summary,
+    ForkOf, IndexRecord, MAX_INDEX_RECORD_BYTES, MarkRecord, MirrorMark, OriginRecord, OriginState,
+    RowKey, Summary,
 };
 use serde_json::value::RawValue;
 use std::io::{self, Read};
@@ -77,6 +78,7 @@ fn take_key(input: &mut &[u8]) -> io::Result<RowKey> {
 pub(super) enum LogRecord {
     Row(Box<IndexRecord>),
     Origin(OriginRecord),
+    Mark(MarkRecord),
 }
 
 pub(super) fn decode(mut input: &[u8]) -> io::Result<LogRecord> {
@@ -85,6 +87,9 @@ pub(super) fn decode(mut input: &[u8]) -> io::Result<LogRecord> {
     let seq = u64::from_le_bytes(seq);
     let mut tag = [0];
     input.read_exact(&mut tag)?;
+    if tag == [3] {
+        return decode_mark(seq, input).map(LogRecord::Mark);
+    }
     if tag == [2] {
         let id = take_string(&mut input, 256)?;
         let mut state = [0];
@@ -214,8 +219,71 @@ pub(super) fn read(reader: &mut impl Read) -> io::Result<Option<(IndexRecord, us
     match read_any(reader)? {
         Some((LogRecord::Row(record), len)) => Ok(Some((*record, len))),
         Some((LogRecord::Origin(_), _)) => Err(invalid("origin record in snapshot")),
+        Some((LogRecord::Mark(_), _)) => Err(invalid("mark record in snapshot")),
         None => Ok(None),
     }
+}
+
+/// `seq u64 | 3 | origin (u16 length) | on u8`, then for an on mark
+/// `cursor u64 | edition u32 | whole u8`. With the 8-byte frame an on mark is
+/// 33 bytes plus the origin's length, an off mark 20 plus the origin's.
+pub(super) fn encode_mark(record: &MarkRecord) -> io::Result<Vec<u8>> {
+    if record.origin.is_empty() || record.origin.len() > 256 {
+        return Err(invalid("mark origin"));
+    }
+    let mut body = Vec::with_capacity(32 + record.origin.len());
+    body.extend_from_slice(&record.seq.to_le_bytes());
+    body.push(3);
+    string(&mut body, &record.origin)?;
+    match record.mark {
+        Some(mark) => {
+            body.push(1);
+            body.extend_from_slice(&mark.cursor.to_le_bytes());
+            body.extend_from_slice(&mark.edition.to_le_bytes());
+            body.push(u8::from(mark.whole));
+        }
+        None => body.push(0),
+    }
+    let mut bytes = Vec::with_capacity(body.len() + 8);
+    bytes.extend_from_slice(&(body.len() as u32).to_le_bytes());
+    bytes.extend_from_slice(&crc32fast::hash(&body).to_le_bytes());
+    bytes.extend(body);
+    Ok(bytes)
+}
+
+fn decode_mark(seq: u64, mut input: &[u8]) -> io::Result<MarkRecord> {
+    let origin = take_string(&mut input, 256)?;
+    if origin.is_empty() {
+        return Err(invalid("mark origin"));
+    }
+    let mut on = [0];
+    input.read_exact(&mut on)?;
+    let mark = match on {
+        [0] => None,
+        [1] => {
+            let mut cursor = [0; 8];
+            input.read_exact(&mut cursor)?;
+            let mut edition = [0; 4];
+            input.read_exact(&mut edition)?;
+            let mut whole = [0];
+            input.read_exact(&mut whole)?;
+            let whole = match whole {
+                [0] => false,
+                [1] => true,
+                _ => return Err(invalid("mark whole flag")),
+            };
+            Some(MirrorMark {
+                cursor: u64::from_le_bytes(cursor),
+                edition: u32::from_le_bytes(edition),
+                whole,
+            })
+        }
+        _ => return Err(invalid("mark flag")),
+    };
+    if !input.is_empty() {
+        return Err(invalid("mark trailing bytes"));
+    }
+    Ok(MarkRecord { seq, origin, mark })
 }
 
 pub(super) fn encode_origin(seq: u64, record: &OriginRecord) -> io::Result<Vec<u8>> {
@@ -272,7 +340,7 @@ mod tests {
         bytes.extend_from_slice(br#"{"title":"old","harness":"claude","state":"closed","lastActivity":42,"unread":0,"workspace":null,"pinned":false,"extra":{"name":"old"}}"#);
         let row = match decode(&bytes).unwrap() {
             LogRecord::Row(row) => row,
-            LogRecord::Origin(_) => panic!("expected a row record"),
+            LogRecord::Origin(_) | LogRecord::Mark(_) => panic!("expected a row record"),
         };
         assert_eq!(row.seq, 7);
         assert_eq!(row.summary.chat_id, "old");

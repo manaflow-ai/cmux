@@ -35,7 +35,7 @@ pub(crate) use listener::HostListener;
 pub(crate) use process::{
     kill_process_group, process_definitely_absent as process_definitely_gone,
 };
-pub(crate) use pty_readiness::wait_for_pty_readable_or_forced_drain;
+pub(crate) use pty_readiness::{pty_readable_now, wait_for_pty_readable_or_forced_drain};
 #[cfg(any(target_vendor = "apple", target_os = "linux"))]
 pub(crate) use record_root_watch::follow_record_root_removal;
 

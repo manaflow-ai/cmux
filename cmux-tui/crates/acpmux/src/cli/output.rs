@@ -832,7 +832,9 @@ async fn stream_prompt_once(
 pub(crate) async fn plain_attach(client: Arc<Client>, id: &str) -> Result<()> {
     let mut notes =
         client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
-    let v = client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 200})).await?;
+    // Shown in the person's terminal: an open (`server/requests.rs` `attach_shows`).
+    let page = json!({"sessionId": id, "limit": 200, "visible": true});
+    let v = client.request(method::MUX_ATTACH, page).await?;
     let mut t = Transcript::default();
     for e in v.get("events").and_then(Value::as_array).cloned().unwrap_or_default() {
         t.apply_event(&e);

@@ -355,8 +355,12 @@ async fn run_connection<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
                                 Some(Control::Credit(sid, state.credit(credit)?))
                             }
                             Request::Unsub(unsub) => {
-                                state.unsubscribe(&unsub.sid);
-                                Some(Control::End(unsub.sid))
+                                if state.unsubscribe(&unsub.sid) {
+                                    Some(Control::End(unsub.sid))
+                                } else {
+                                    state.unsubscribe_ended(&unsub.sid);
+                                    Some(Control::EndedHere)
+                                }
                             }
                             _ => return Err(poisoned()),
                         }
@@ -368,6 +372,7 @@ async fn run_connection<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
                         Control::Credit(sid, Some(cursor)) => source.resume(&sid, cursor),
                         Control::Credit(_, None) => {},
                         Control::End(sid) => source.end(&sid),
+                        Control::EndedHere => {}
                     }
                     continue;
                 }
@@ -406,13 +411,15 @@ fn poisoned() -> ConnError {
 enum Control {
     Credit(String, Option<Cursor>),
     End(String),
+    /// An unsub of a sid the connection ended itself: its source was ended then.
+    EndedHere,
 }
 
 /// What a frame is, read once off the socket.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Class {
-    /// A chat stream's `page` or `blob`: its source may answer it later, and it holds its
-    /// reply's room until then.
+    /// A chat stream's `page` or `blob`, or a list `page` that names another origin (row 8b):
+    /// its source may answer it later, and it holds its reply's room until then.
     Later,
     Other,
 }
@@ -430,14 +437,35 @@ fn classify(frame: &Frame) -> Class {
     struct Params<'a> {
         #[serde(borrow, default)]
         stream: Option<std::borrow::Cow<'a, str>>,
+        // Read only for a list page, so a chat request's params never fail to parse here.
+        #[serde(borrow, default)]
+        filter: Option<&'a serde_json::value::RawValue>,
+        #[serde(borrow, default)]
+        keys: Option<&'a serde_json::value::RawValue>,
     }
+    // A filter or a row key, by the origin it names.
+    #[derive(serde::Deserialize)]
+    struct Named<'a> {
+        #[serde(borrow, default)]
+        origin: Option<std::borrow::Cow<'a, str>>,
+    }
+    let other = |named: &Named<'_>| named.origin.as_deref().is_some_and(|origin| origin != "local");
     let later = frame.kind == FrameKind::Request
         && serde_json::from_slice::<Head<'_>>(frame.payload()).is_ok_and(|head| {
-            matches!(head.method.as_ref(), "page" | "blob")
-                && head
-                    .params
-                    .and_then(|params| params.stream)
-                    .is_some_and(|stream| stream.starts_with("chat:"))
+            let Some(params) = head.params else { return false };
+            match (head.method.as_ref(), params.stream.as_deref()) {
+                ("page" | "blob", Some(stream)) if stream.starts_with("chat:") => true,
+                ("page", Some("list")) => {
+                    params.filter.is_some_and(|filter| {
+                        serde_json::from_str::<Named<'_>>(filter.get())
+                            .is_ok_and(|named| other(&named))
+                    }) || params.keys.is_some_and(|keys| {
+                        serde_json::from_str::<Vec<Named<'_>>>(keys.get())
+                            .is_ok_and(|keys| keys.iter().any(other))
+                    })
+                }
+                _ => false,
+            }
         });
     if later { Class::Later } else { Class::Other }
 }
@@ -452,9 +480,12 @@ fn known_control(frame: &Frame, state: &ConnectionState) -> bool {
     {
         return false;
     }
+    // A sid the connection ended itself is known too: its late credit or unsub is answered with
+    // nothing, so it needs no reply room either.
+    let known = |sid: &str| state.subscriptions.contains_key(sid) || state.ended_here(sid);
     match frame.decode_json::<Request>() {
-        Ok(Request::Credit(credit)) => state.subscriptions.contains_key(&credit.sid),
-        Ok(Request::Unsub(unsub)) => state.subscriptions.contains_key(&unsub.sid),
+        Ok(Request::Credit(credit)) => known(&credit.sid),
+        Ok(Request::Unsub(unsub)) => known(&unsub.sid),
         _ => false,
     }
 }
@@ -473,6 +504,9 @@ fn process_frame(
     let value: serde_json::Value = frame.decode_json()?;
     validate_identifiers(&value)?;
     let request: Request = frame.decode_json()?;
+    if let Request::Act(act) = &request {
+        act.validate().map_err(|message| ConnError::InvalidRequest(message.into()))?;
+    }
     if role == Role::Peer {
         validate_peer_request(&request)?;
     }
@@ -483,6 +517,7 @@ fn process_frame(
         Request::Sub(sub) => require_surface(&sub.stream, surfaces)?,
         Request::Page(page) => require_surface(&page.stream, surfaces)?,
         Request::Blob(blob) => require_surface(&blob.stream, surfaces)?,
+        Request::Act(act) => require_surface(&act.chat, surfaces)?,
         _ => {}
     }
     match request {
@@ -531,13 +566,24 @@ fn process_frame(
             }
         }
         Request::Unsub(unsub) => {
-            if !state.lock().map_err(|_| poisoned())?.unsubscribe(&unsub.sid) {
+            let mut held = state.lock().map_err(|_| poisoned())?;
+            if held.unsubscribe(&unsub.sid) {
+                drop(held);
+                source.end(&unsub.sid);
+            } else if !held.unsubscribe_ended(&unsub.sid) {
+                // A sid this connection ended itself was ended at its source then: only a sid
+                // it never had is unknown.
                 return Err(ConnError::UnknownSubscription(unsub.sid));
             }
-            source.end(&unsub.sid);
         }
         Request::Page(page) => {
             require_surface(&page.stream, surfaces)?;
+            if page.turns && class != Class::Later {
+                return Err(ConnError::InvalidRequest("a page of turns is a chat's".into()));
+            }
+            if page.turns && page.fold.is_some() {
+                return Err(ConnError::coded("bad_request", "a page of turns names no fold"));
+            }
             if class == Class::Later {
                 let identity = hold_reply(state)?;
                 let reply = Reply::new(state.clone(), "page", Some(page.sid.clone()), None);
@@ -569,6 +615,11 @@ fn process_frame(
                 ));
             }
         }
+        // The wire shape is additive, but execution remains explicitly
+        // default-off until the action surface is wired to a daemon writer.
+        Request::Act(_) => {
+            return Err(ConnError::InvalidRequest("act is disabled".into()));
+        }
     }
     Ok(())
 }
@@ -589,7 +640,7 @@ pub fn validate_peer_request(request: &Request) -> Result<(), ConnError> {
             if sub.stream.as_str() != "list"
                 || sub.view != Some(crate::wire::ListView::Live)
                 || sub.filter.is_some()
-                || sub.anchor.is_some()
+                || sub.anchor.as_ref().is_some_and(|anchor| *anchor != crate::wire::Anchor::End)
             {
                 return Err(ConnError::InvalidRequest(
                     "request is not allowed on a peer link".into(),
@@ -600,12 +651,12 @@ pub fn validate_peer_request(request: &Request) -> Result<(), ConnError> {
         Request::Blob(_) => {
             Err(ConnError::InvalidRequest("request is not allowed on a peer link".into()))
         }
+        Request::Act(_) => {
+            Err(ConnError::InvalidRequest("request is not allowed on a peer link".into()))
+        }
+        // Decision 266: the mirror's `live` walk, or this machine's rows by `all` or `keys`.
         Request::Page(page) => {
-            if page.stream.as_str() != "list"
-                || page.view != Some(crate::wire::ListView::Live)
-                || page.filter.is_some()
-                || page.keys.is_some()
-            {
+            if crate::hub::peer_page_shape(page).is_none() {
                 return Err(ConnError::InvalidRequest(
                     "request is not allowed on a peer link".into(),
                 ));

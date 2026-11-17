@@ -15,30 +15,25 @@
 use super::tests::{Home, home};
 use super::*;
 use crate::god_fixture::{Shape, chat_id};
+use acpmux_book::gate_rounds::{self, all_p95, best_p95};
 use serde_json::json;
 use std::time::{Duration, Instant};
 
 const ROUNDS: usize = 5;
 const APPENDS: usize = 2_000;
 
-fn p95(values: &[u64]) -> u64 {
-    let mut values = values.to_vec();
-    values.sort_unstable();
-    values.get((values.len() * 95).div_ceil(100).saturating_sub(1)).copied().unwrap_or(0)
-}
-
-/// The best p95 of the rounds, and the p95 of every sample of them.
-fn measures(rounds: &[Vec<u64>]) -> (u64, u64) {
-    let best = rounds.iter().map(|round| p95(round)).min().unwrap_or(0);
-    let all: Vec<u64> = rounds.iter().flatten().copied().collect();
-    (best, p95(&all))
+/// The rounds' samples as [`gate_rounds`] takes them.
+fn measures(rounds: &[Vec<u64>]) -> Vec<Vec<u128>> {
+    rounds.iter().map(|round| round.iter().copied().map(u128::from).collect()).collect()
 }
 
 /// Prints the row's line (so a red run still has its numbers) and writes it to `V2_GATE_OUT`,
 /// then holds the best p95 to 1.2x and, when the row has one, every sample's to `all_limit`.
 fn emit(name: &str, small: &[Vec<u64>], god: &[Vec<u64>], all_limit: Option<f64>) {
-    let (small_p95, small_all) = measures(small);
-    let (god_p95, god_all) = measures(god);
+    let (small, god) = (measures(small), measures(god));
+    gate_rounds::report(name, &[("small", &small), ("god", &god)]);
+    let (small_p95, small_all) = (best_p95(&small), all_p95(&small));
+    let (god_p95, god_all) = (best_p95(&god), all_p95(&god));
     let line = json!({
         "name": name,
         "small_p95": small_p95,

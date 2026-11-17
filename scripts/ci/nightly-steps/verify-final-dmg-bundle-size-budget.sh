@@ -38,9 +38,25 @@ if python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["over
 else
   echo "::notice title=Bundle size::$headline"
 fi
+# What the installed app is made of (CMUX-570). The annotation is one line of JSON that cmuxterm-hq's NOW
+# reads from the check run, so the breakdown needs no artifact; a failure here never hides the summary.
+python3 -I "$tool" breakdown "$app" --dmg "$release" --json "$RUNNER_TEMP/bundle-size-breakdown.json" \
+  > "$RUNNER_TEMP/bundle-size-breakdown.md" || true
+if [ -s "$RUNNER_TEMP/bundle-size-breakdown.json" ]; then
+  python3 -I -c '
+import json, sys
+b = json.load(open(sys.argv[1]))
+keep = {k: b.get(k) for k in ("schema", "version", "app_bytes", "dmg_bytes", "symbols_bytes", "debug_files_bytes",
+                              "unwind_bytes", "duplicate_extra_bytes")}
+keep["categories"] = {c["key"]: c["bytes"] for c in b["categories"]}
+print("::notice title=Bundle size breakdown::" + json.dumps(keep, separators=(",", ":")).replace("%", "%25"))
+' "$RUNNER_TEMP/bundle-size-breakdown.json" || true
+fi
 {
   echo '### Bundle size'
   cat "$RUNNER_TEMP/bundle-size-summary.md"
+  echo
+  cat "$RUNNER_TEMP/bundle-size-breakdown.md" 2>/dev/null || true
   echo
   echo '```'
   python3 -I "$tool" report "$app" --dmg "$release"

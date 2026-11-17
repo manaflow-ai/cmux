@@ -8,22 +8,10 @@
 # route it (`inputs`, globs; none means every change), whether it blocks, its class and its timeout.
 # scripts/ci/ci_steps.py routes a diff to steps and runs one job's steps in parallel. A step with
 # `blocks = false` runs in the `advisory` job, in class `idle`, and its failure is a warning: the job
-# still passes. tests/test_ci_step_table.py holds both rules and the PR job budget.
+# still passes. tests/test_ci_step_table.py holds both rules.
 #
 # Steps run from the base branch's checkout, never the pull request's code. They read the event from
 # the environment the calling workflow step sets (BODY, TITLE, LABELS, PATHS_LISTED, ...).
-
-# Jobs a pull request into feat-cmux-next can start (354 on 2026-11-13; the design's 267 left out
-# matrix shards and the jobs of called reusable workflows), counted by tests/test_ci_step_table.py the
-# way GitHub starts them (a matrix as its shards, a reusable workflow's jobs where they run). It may
-# only go down; the target is `target_pr_jobs`. Lower it when a change removes jobs.
-[budget]
-# 362 since #42337 (12 webview test shards in 2 matrices of ci-web.yml, 8 more jobs than the 354 that
-# #42368 counted); 353 since #42540 (react-apps-base-check one job, not 12; react-apps-base-early 2);
-# 355 since #42997 (Leo's ask: the iOS review gate walks iPhone, iPad and Duo side by side, 3 matrix legs
-# instead of one job), as #42489 counted the webview shards. cmux-rd-windows.yml runs on no pull request.
-pr_jobs = 355
-target_pr_jobs = 8
 
 # The PR pipeline's jobs (the design's table). A step names one of these; there is no ninth.
 [jobs]

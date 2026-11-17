@@ -13,7 +13,7 @@ nonisolated extension SidebarLayout {
     ///   - group: The group as the model holds it (its members; `isCollapsed` is ignored).
     ///   - collapsed: The fold to show.
     ///   - section: The section that lists the group (its machine names the rows of another computer).
-    ///   - base: The list's metrics (`options.minimal` makes them minimal, as in `make`).
+    ///   - base: The list's metrics (`options` resolves them, as in `make`).
     ///   - o: The options the list lays out with.
     func folding(_ group: SidebarGroup, collapsed: Bool, in section: SidebarSection, metrics base: SidebarLayoutMetrics,
                  options o: SidebarLayoutOptions) -> SidebarLayout? {

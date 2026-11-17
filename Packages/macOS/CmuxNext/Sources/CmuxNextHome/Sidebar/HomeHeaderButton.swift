@@ -4,14 +4,11 @@ import QuartzCore
 
 /// A quiet icon button of the Home list's header (compose, the Unread toggle, the collapsed
 /// search), the composer chips' rule: no pill at rest, the theme's soft hover pill under the
-/// pointer, the pressed fill and a tiny shrink while held. The glyph is the theme's secondary
+/// pointer, the pressed fill while held and nothing else (design/pressed-state.md). The glyph is the theme's secondary
 /// text; a toggle that is on draws its filled glyph in the theme's accent, never the system blue.
 /// A `glass` button sits on a glass circle its host lays under it (Messages' filter): its glyph
 /// is the theme's primary text, as Messages' white glyph on its glass.
 final class HomeHeaderButton: ClickableButton {
-    /// The pressed scale (the composer chip presses to 0.975; a 28 pt button needs a little more to show).
-    static let pressScale: CGFloat = 0.94
-
     private let symbol: String
     /// The glyph while `isOn` (a toggle's filled glyph); nil for a plain button.
     private let onSymbol: String?
@@ -128,7 +125,7 @@ final class HomeHeaderButton: ClickableButton {
         didSet { if followsPointer, isEnabled != oldValue { hover.pointer?.refresh() } }
     }
 
-    /// The press: the pressed fill and the shrink at once, both gone on release.
+    /// The press: the pressed fill, gone on release. The glyph never moves or shrinks.
     override func mouseDown(with event: NSEvent) {
         guard isEnabled else { return }
         setPressed(true)
@@ -140,16 +137,6 @@ final class HomeHeaderButton: ClickableButton {
 
     private func setPressed(_ pressed: Bool) {
         hover.state.pressed = pressed
-        guard let layer else { return }
-        let w = bounds.width / 2, h = bounds.height / 2
-        let s = pressed ? Self.pressScale : 1
-        // The backing layer's anchor is its corner: scale about the centre.
-        let shrink = CATransform3DConcat(CATransform3DConcat(CATransform3DMakeTranslation(-w, -h, 0), CATransform3DMakeScale(s, s, 1)),
-                                         CATransform3DMakeTranslation(w, h, 0))
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        layer.transform = pressed ? shrink : CATransform3DIdentity
-        CATransaction.commit()
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS

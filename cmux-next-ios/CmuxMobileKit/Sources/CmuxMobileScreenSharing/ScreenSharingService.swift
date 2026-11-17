@@ -99,12 +99,16 @@ public final class ScreenSharingService {
         public var bundleIdentifier: String
         public var deviceName: String
         public var tokens: any DeviceHubAccountTokenProvider
+        /// The signed-in account: the Macs list it last read draws before the next read (nil: none).
+        public var accountID: String?
 
-        public init(baseURL: URL, bundleIdentifier: String, deviceName: String, tokens: any DeviceHubAccountTokenProvider) {
+        public init(baseURL: URL, bundleIdentifier: String, deviceName: String, tokens: any DeviceHubAccountTokenProvider,
+                    accountID: String? = nil) {
             self.baseURL = baseURL
             self.bundleIdentifier = bundleIdentifier
             self.deviceName = deviceName
             self.tokens = tokens
+            self.accountID = accountID
         }
     }
 
@@ -133,11 +137,14 @@ public final class ScreenSharingService {
         attach(hub)
     }
 
-    /// The account's Macs, those sharing their screen and online first, then by name.
+    /// The account's Macs, those sharing their screen and online first, then by name. Until the
+    /// hub's list is read, the Macs the last read list held, so the page draws them in its first
+    /// frame instead of "Finding your Macs…" (conn-quiet).
     public var macs: [HubDevice] {
         #if DEBUG
         if demoDiscovery != nil { return demoMacs }
         #endif
+        if discovery == .finding { return preferences.lastMacs(for: configuration.accountID).filter { $0.platform == .macos }.sorted(by: Self.listOrder) }
         guard let hub else { return [] }
         return hub.otherDevices.filter { $0.platform == .macos }.sorted(by: Self.listOrder)
     }
@@ -214,6 +221,9 @@ public final class ScreenSharingService {
         viewer?.close(reason: .signedOut)
         viewer = nil
         alert = nil
+        pendingSelection = nil
+        // The account's Macs are not the next account's to show.
+        preferences.forgetMacs()
         if let hub {
             hub.onSessionPush = nil
             let alreadySignedOut = signedOut
@@ -286,9 +296,46 @@ public final class ScreenSharingService {
         return viewer
     }
 
+    /// A tap on a Mac drawn from the last read list, before this showing's list was read: it
+    /// goes through (connects, or says why not) once the list is read.
+    public struct PendingSelection: Equatable, Sendable {
+        public var hostID: String
+        public var hostName: String
+        public var scope: SessionScope
+    }
+
+    /// The tap waiting for the list (nil: none). Its row shows it is connecting.
+    public private(set) var pendingSelection: PendingSelection?
+
+    /// The list changed or was read: keep it for the next showing and carry out a tap made on a
+    /// Mac from the last list. A Mac gone from the read list says so.
+    public func listChanged() {
+        guard discovery == .listed else {
+            // The list can't be read: the page says why, and a waiting tap does not go through later.
+            if case .failed = discovery { pendingSelection = nil }
+            return
+        }
+        let listed = macs
+        preferences.rememberMacs(listed, for: configuration.accountID)
+        guard let pending = pendingSelection else { return }
+        pendingSelection = nil
+        if let mac = listed.first(where: { $0.id == pending.hostID }) {
+            select(mac, scope: pending.scope)
+        } else {
+            alert = ScreenSharingMacAlert(hostID: pending.hostID, hostName: pending.hostName, refusal: .notFound,
+                                          requested: pending.scope)
+        }
+    }
+
     /// A tap on a Mac in the list: connect, or say in the alert why it can't be shared.
     public func select(_ mac: HubDevice, scope: SessionScope? = nil) {
         let scope = scope ?? preferences.defaultScope
+        if discovery == .finding, preferences.lastMacs(for: configuration.accountID).contains(where: { $0.id == mac.id }) {
+            // A Mac drawn from the last read list: its state may be old, so the tap waits for this list.
+            pendingSelection = PendingSelection(hostID: mac.id, hostName: mac.name, scope: scope)
+            return
+        }
+        pendingSelection = nil
         if let refusal = unavailability(of: mac) {
             // One thing at a time: a request still waiting for the hub ends, so it can't go full
             // screen under the alert.
@@ -317,6 +364,7 @@ public final class ScreenSharingService {
     /// The page went away while a request still waited for the hub's first answer: nothing
     /// would show it, so it ends here instead of going live off screen.
     public func leaveUnshownRequest() {
+        pendingSelection = nil
         guard let viewer, !viewer.shown else { return }
         dismissViewer()
     }

@@ -15,7 +15,13 @@ Release and RC always resolve production, including when a launch variable
 or an old state file names something else.
 
 `CMUX_NEXT_CLOUD_ENV` seeds a bundle's first launch. Once a selection exists,
-use `cloud env set` to change it. The state is stored atomically in
+use `cloud env set` to change it.
+A cmux app exports its own `CMUX_NEXT_CLOUD_RUNTIME`, `CMUX_NEXT_CLOUD_ENV` and
+`CMUX_NEXT_CLOUD_BACKEND` to its terminals. An app opened from another cmux's
+terminal ignores them, so a DEV build started from a NIGHTLY shell keeps its
+own selection. To pick a backend for a launch from inside a cmux terminal, pass
+`--cloud-backend NAME` (`open -g APP --args --cloud-backend staging`), or set
+`CMUX_BUNDLE_ID` to the launched app's bundle id beside the variable. The state is stored atomically in
 `~/Library/Application Support/cmux-next/<bundle-id>/cloud-environment.json`
 (builds before kept it in classic cmux's `cmux/<bundle-id>`; it moves once).
 The JSON result includes every selected origin, the bundle, and the state path.

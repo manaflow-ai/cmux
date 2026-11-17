@@ -2274,7 +2274,7 @@
     "agent-pane.subagent-retry#menu-open": [],
     "agent-pane.subagent-retry#retried-out": [],
     "agent-pane.subagent-retry#retrying": [],
-    "agent-pane.subagent-retry#task-ask-parent": [],
+    "agent-pane.subagent-retry#task-no-retry": [],
     "agent-pane.subagent-row-anatomy#done-one": [
       "center-line:row subagentDone:agent-land-the-fix-and-glyph-nits-follow-up"
     ],

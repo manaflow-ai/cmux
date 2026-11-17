@@ -7,6 +7,7 @@
 mod background_agent;
 pub mod detect;
 pub mod diagnostics;
+pub mod first_scan;
 pub mod host_watch;
 pub mod manifest;
 pub mod manifest_update;

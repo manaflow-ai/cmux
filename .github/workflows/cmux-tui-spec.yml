@@ -30,6 +30,7 @@ on:
       - "Resources/theme-files/*.json"
       - "docs/remote-agents-and-cloud.md"
       - "plans/cmux-next/spec-proposals/visuals/design-tokens.json"
+      - "schemas/build-identity/vectors.json"
       - "schemas/deeplinks/agent-link.json"
       - "schemas/link-token/keyset-vectors.json"
       - "schemas/link-token/native.json"
@@ -49,6 +50,9 @@ on:
       - "skills/cmux/SKILL.md"
       - "scripts/ci/webviews_test_results.py"
       - "scripts/cmux-next/run-v2-gates.sh"
+      - "scripts/cmux-next/tests/run-v2-gates.test.sh"
+      - "scripts/cmux-next/v2-gates.d/**"
+      - "webviews/src/agent-session/acpmux/rows/parity/*.changes.jsonl"
       - "webviews/src/pages/shared/generated/pageRouter.ts"
   # Every pull request (no paths): feat-cmux-next requires `clippy (changed cmux-tui
   # packages)`, and a required check must report. The `changes` job below says whether
@@ -395,7 +399,7 @@ jobs:
           head_log="$RUNNER_TEMP/acpmux-tests-head.log"
           suites=(--locked -p acpmux -p acpmux-book -p acpmux-build-id -p acpmux-client -p acpmux-core
             -p acpmux-list-types --lib --test hub_integration --test ffi --test v2_client
-            --test v2_gate_home --no-fail-fast)
+            --test v2_gate_home --test v2_chat_recorded_stream --no-fail-fast)
           started=$SECONDS
           if cargo test "${suites[@]}" 2>&1 | tee "$head_log"; then
             echo "acpmux tests: green in $((SECONDS - started)) s" >> "$GITHUB_STEP_SUMMARY"
