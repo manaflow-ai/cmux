@@ -58,22 +58,22 @@ final class AgentDisclosureUITests: XCTestCase {
         header.tap()
         let opening = sample(app, header, "open")
         let opened = header.frame
-        print("CMUX_DISCLOSURE opened: \(opened); sampled minY \(opening.map { Int($0) })")
+        print("CMUX_DISCLOSURE opened: \(opened); sampled midY \(opening.map { Int($0) })")
         attach(app, "2-opened")
         for (index, y) in opening.enumerated() {
-            XCTAssertEqual(y, before.minY, accuracy: 2, "frame \(index) of the open: '\(label)' moved from \(before.minY) to \(y)")
+            XCTAssertEqual(y, before.midY, accuracy: 2, "frame \(index) of the open: '\(label)' moved from \(before.midY) to \(y)")
         }
-        XCTAssertEqual(opened.minY, before.minY, accuracy: 2, "opened, '\(label)' moved from \(before.minY) to \(opened.minY)")
+        XCTAssertEqual(opened.midY, before.midY, accuracy: 2, "opened, '\(label)' moved from \(before.midY) to \(opened.midY)")
 
         header.tap()
         let closing = sample(app, header, "close")
         let closed = header.frame
-        print("CMUX_DISCLOSURE closed: \(closed); sampled minY \(closing.map { Int($0) })")
+        print("CMUX_DISCLOSURE closed: \(closed); sampled midY \(closing.map { Int($0) })")
         attach(app, "4-closed")
         for (index, y) in closing.enumerated() {
-            XCTAssertEqual(y, before.minY, accuracy: 2, "frame \(index) of the close: '\(label)' moved from \(before.minY) to \(y)")
+            XCTAssertEqual(y, before.midY, accuracy: 2, "frame \(index) of the close: '\(label)' moved from \(before.midY) to \(y)")
         }
-        XCTAssertEqual(closed.minY, before.minY, accuracy: 2, "closed, '\(label)' moved from \(before.minY) to \(closed.minY)")
+        XCTAssertEqual(closed.midY, before.midY, accuracy: 2, "closed, '\(label)' moved from \(before.midY) to \(closed.midY)")
     }
 
     /// Where disclosure lines are looked up: every element, not only buttons, since a "Worked for"
@@ -118,7 +118,7 @@ final class AgentDisclosureUITests: XCTestCase {
         let end = Date().addingTimeInterval(1.0)
         var frame = 0
         while Date() < end {
-            tops.append(header.frame.minY)
+            tops.append(header.frame.midY)
             if frame < 4 {
                 let screenshot = XCTAttachment(screenshot: app.screenshot())
                 screenshot.name = "1-\(name)-frame-\(frame)"
