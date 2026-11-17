@@ -32,9 +32,14 @@ extension TabCell {
         let before = Dictionary(uniqueKeysWithValues: statusMarkLayers.map { (ObjectIdentifier($0), $0.opacity) })
         var end = titleEnd
         var spinnerInSlot = false
+        // A busy tab with unread output draws one mark (`TabBusyUnreadMark`): the spinner takes the dot's place.
+        let combined = combinedBusyUnread
         if let statusSlot {
             end = min(end, statusSlot.minX - metrics.titleCloseSpacing)
-            if hasStateMark {
+            if combined != nil {
+                spinnerInSlot = true
+                _ = layoutTrailingSpinner(end: statusSlot.midX + spinnerSide / 2, midY: midY)
+            } else if hasStateMark {
                 _ = placeTrailingStateMark(center: CGPoint(x: statusSlot.midX, y: midY), onPath: onPath)
             } else if spinnerLayer != nil {
                 spinnerInSlot = true
@@ -43,7 +48,7 @@ extension TabCell {
         }
         for mark in TrailingMark.allCases {
             switch mark {
-            case .state: if statusSlot == nil { end = layoutTrailingStateMark(end: end, midY: midY, onPath: onPath) }
+            case .state: if statusSlot == nil, combined == nil { end = layoutTrailingStateMark(end: end, midY: midY, onPath: onPath) }
             case .audio: end = layoutAudioBadge(titleX: titleX, titleEnd: end, midY: midY)
             case .loading: if !spinnerInSlot { end = layoutTrailingSpinner(end: end, midY: midY) }
             case .theme: end = layoutThemeBadge(titleX: titleX, titleEnd: end, midY: midY)
@@ -52,6 +57,7 @@ extension TabCell {
             case .presence: end = layoutPresenceDot(titleX: titleX, titleEnd: end, midY: midY)
             }
         }
+        if let combined { placeCombinedDot(combined, onPath: onPath) }
         // A mark the layout just created (a status arriving under the pointer) has no earlier look to fade from.
         let shown = statusSlot == nil || !statusHidden
         for layer in statusMarkLayers {
@@ -102,6 +108,16 @@ extension TabCell {
         return placeStateMark(dot: dot, glyph: glyph, visible: true, onPath: onPath)
     }
 
+    /// The unread dot while the spinner holds its place: a small dot inside the ring (`dotInRing`), else none.
+    private func placeCombinedDot(_ look: TabBusyUnreadMark, onPath: Bool) {
+        guard look == .dotInRing, let spinner = spinnerLayer?.frame else { removeBadge(onPath: onPath); return }
+        let side = pixel(metrics.badgeSize * 0.6)
+        let badgeLayer = makeBadge()
+        badgeLayer.frame = CGRect(x: pixel(spinner.midX - side / 2), y: pixel(spinner.midY - side / 2), width: side, height: side)
+        badgeLayer.cornerRadius = side / 2
+        badgeLayer.opacity = 1
+    }
+
     /// The loading indicator's side in the cluster, the speaker's size class.
     private var spinnerSide: CGFloat { metrics.iconSize - 2 * Metrics.space1 }
 
@@ -128,10 +144,16 @@ extension TabCell {
     private func placeStateMark(dot: CGRect, glyph: CGRect, visible: Bool, onPath: Bool) -> CGFloat? {
         if layoutStatusGlyph(frame: glyph, visible: visible) { removeBadge(onPath: onPath); return glyph.width }
         guard visible, badgeColor != nil else { removeBadge(onPath: onPath); return nil }
+        let isNew = self.badgeLayer == nil
         let badgeLayer = makeBadge()
         badgeLayer.frame = dot
         badgeLayer.cornerRadius = dot.width / 2
         badgeLayer.opacity = 1
+        // The dot taking the spinner's place when the work ends fades in as the spinner fades out (`updateSpinner`).
+        if dotFadesIn, !onPath {
+            dotFadesIn = false
+            if isNew { Motion.indicators.set(badgeLayer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0)) }
+        }
         return dot.width
     }
 

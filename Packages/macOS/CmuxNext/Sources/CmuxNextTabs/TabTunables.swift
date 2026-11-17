@@ -229,7 +229,7 @@ public nonisolated enum TabTunables {
     public static let busyUnreadMark = Tunable<TabBusyUnreadMark>.choice(
         "tabs.busyUnreadMark", .tabs, "Busy and unread tab mark",
         help: "How a busy tab with unread output draws: one mark in the status slot, or the old dot and spinner side by side.",
-        default: .pair, code: "TabTunables.busyUnreadMark")
+        default: .spinner, code: "TabTunables.busyUnreadMark")
     public static var all: [TunableDescriptor] {
         [compactTabWidth, scrollTabMinWidth, pinnedGroupGap, contentTrailingInset, closeButtonSize, closeGlyphSize, iconTitleSpacing, titleCloseSpacing,
          titleFadeWidth, badgeSize, closeMinContentsWidth, titleMinVisibleWidth, scrollFadeWidth,
