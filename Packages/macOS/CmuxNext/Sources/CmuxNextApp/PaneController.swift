@@ -99,11 +99,11 @@ final class PaneController: SurfacePresenter, PresentablePane {
     struct Spare {
         let stripModel = TabStripModel()
         let view: PaneContentView
+        let toolbarView = PaneToolbarView() // its toolbar's buttons: 15 of 102 samples of Cmd-,'s key turn (2026-11-17)
         init(services: AppServices) {
             view = PaneContentView(stripModel: stripModel)
             (view.stripView.previewProvider, view.stripView.resourceSource) = (services.previews, services.resources)
-            // The + stays a plain default-tab action, with hold/right-click for the type menu; its chevron opens that menu.
-            (view.stripView.opensNewTabMenuOnPress, view.stripView.showsNewTabMenuButton) = (false, true)
+            (view.stripView.opensNewTabMenuOnPress, view.stripView.showsNewTabMenuButton) = (false, true) // the + stays a plain default-tab action (hold/right-click: the type menu); its chevron opens that menu
         }
     }
 
