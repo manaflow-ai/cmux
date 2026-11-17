@@ -1,0 +1,167 @@
+{
+  "version": 1,
+  "build": "4402638973401",
+  "notes": "notes/4402638973401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 44990,
+      "title": "quit gamut: a sparkle-update path, the update as a person gets it, with its first/second launch (CMUX-119)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45045,
+      "title": "cmux-next: baseline page driver FFI exports",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44891,
+      "title": "fix(daemon): a tab that launched late takes the active tab that a close gave to its slot",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44998,
+      "title": "cmux-tui: workspace registry stress harness; a rename, move or empty create no longer walks every surface",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45168,
+      "title": "acpmux: remove the 'Agent may be stuck' card and Nudge with hint",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45094,
+      "title": "acpmux: rows only the send relay lists say so, and info/send reach them through it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45172,
+      "title": "cmux-vm stop: power the guest off as root, and never answer a refused poweroff as a stop",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44843,
+      "title": "Apps: a confirmed store install grants every scope its consent card listed; app hosts get the full locale",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45165,
+      "title": "package-test-lane: read-only probe-host mode for simulator host readiness",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45039,
+      "title": "Community themes: wallpapers, header image and flourishes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44997,
+      "title": "Stress harness: the remote machine list at 10 to 1000 machines",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45152,
+      "title": "start bench: keep the create answer's value.timings per step, and say why a sample kept no create trace",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45167,
+      "title": "cmux-bench: a fleet step outside Actions passes a key",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44873,
+      "title": "CmuxNextMobile: delete the unwired phone compat adapter, PhoneAccessGate and the daemon-lane splice",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45074,
+      "title": "feat(CmuxNext actions): the floating pane rows are unavailable placeholders until their code lands",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45138,
+      "title": "base red: the base-merge carry's depth fetch is its own scratch repository's",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44819,
+      "title": "iOS: remove the floating Chat | Terminal switcher from agent sessions",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45033,
+      "title": "NEXT browser: DRM sites reached after a tab opens move to WebKit (Spotify)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44870,
+      "title": "cmux-next: sidebar and tab text follow Text Smoothing live (#44844)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44860,
+      "title": "ios reload --review: real fleet job states, a 30-minute deadline, no-PR workspace, hooks required",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45073,
+      "title": "feat(CmuxNext floating panes): the app's daemon module reads the floating panes of a screen",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45061,
+      "title": "cmux automation: --webhook --on cloud starts an agent on a forked Cloud VM per GitHub event",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45127,
+      "title": "cmux-tui panic ratchet: three indexing hits become lookups (cmux-tui 831 > 830, cmux-tui-core 854 > 852)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45117,
+      "title": "cloud-vm-dogfood journey: resume while paused, then prove exec wakes a paused VM",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45013,
+      "title": "Palette ranker: stress harness at 100 to 100,000 rows; a keystroke allocates per shown row, not per match",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45020,
+      "title": "cmux NEXT Rust: run the unsafe-holding crates' tests under Miri",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
