@@ -724,10 +724,16 @@ impl MediaEngine {
                 self.ack_rtts.pop_front();
             }
         }
-        // While the path is away (D12) a resend only joins the hold and lands in its
-        // burst; the viewer asks again once the path is back.
-        let mut budget = if self.cc.frozen() { 0 } else { MAX_RESENDS_PER_FEEDBACK };
+        // While the path is away (D12) only the newest frame is repaired, as an outage
+        // end sends only the newest frame: an older frame's resend lands in the hold's
+        // burst behind it, while the newest one is what the viewer waits on (a key press's
+        // echo lost in the hold would otherwise wait for the path to be proven back).
+        let away = self.cc.frozen();
+        let mut budget = MAX_RESENDS_PER_FEEDBACK;
         for nack in &fb.nacks {
+            if away && nack.frame != state.last_frame {
+                continue;
+            }
             let Some(datagrams) = state.history.get(&nack.frame) else { continue };
             for &i in &nack.indexes {
                 if budget == 0 {

@@ -504,10 +504,12 @@ fn an_outage_end_holds_the_rate_and_stops_waiting_for_stale_acks() {
     assert!(e.damage(0, small, 425_000).is_some(), "the gate no longer waits for the stale frame");
 }
 
-/// D12 + D6: while the path is away, a NACK gets no resend (it would only join the
-/// hold and land in its burst); once a datagram sent after the outage arrives, it does.
+/// D12 + D6: while the path is away (the window after a hold until a datagram sent
+/// after it arrives) only the newest frame is repaired: an older frame's resend would
+/// land in the hold's burst, but the newest frame (a key press's echo) is what the viewer
+/// waits on. Once the path is up, older frames are repaired too.
 #[test]
-fn no_repair_is_sent_while_the_path_is_away() {
+fn only_the_newest_frame_is_repaired_while_the_path_is_away() {
     use cmux_rd_proto::Arrival;
     let mut e = engine();
     let arrived = |sent: &[Vec<u8>], at: u32| -> Vec<Arrival> {
@@ -519,11 +521,11 @@ fn no_repair_is_sent_while_the_path_is_away() {
             .collect()
     };
     let first = e.start(0).expect("first");
-    let sent = send(&mut e, &first, true, 1_000, 0);
+    let sent_first = send(&mut e, &first, true, 6_000, 0);
     e.on_datagram(
         &feedback(&Feedback {
             acked_frame: first.frame,
-            arrivals: arrived(&sent, 5_000),
+            arrivals: arrived(&sent_first, 5_000),
             ..Feedback::default()
         }),
         false,
@@ -532,33 +534,36 @@ fn no_repair_is_sent_while_the_path_is_away() {
     let small = Rect { x: 1, y: 1, width: 10, height: 10 };
     let second = e.damage(0, small, 20_000).expect("second");
     let sent = send(&mut e, &second, false, 6_000, 20_000);
-    // The radio was away for 400 ms; the head of the frame arrives at once and the
-    // viewer asks for the rest.
-    let nack = Nack { frame: second.frame, indexes: vec![2, 3] };
+    // The radio was away for 400 ms; the head of the newest frame arrives at once and
+    // the viewer asks for its rest, and for a shard of the older frame.
+    let older = Nack { frame: first.frame, indexes: vec![1] };
+    let newest = Nack { frame: second.frame, indexes: vec![2, 3] };
     let out = e.on_datagram(
         &feedback(&Feedback {
             arrivals: arrived(&sent[..2], 420_000),
-            nacks: vec![nack.clone()],
+            nacks: vec![older.clone(), newest],
             ..Feedback::default()
         }),
         false,
         424_000,
     );
     assert!(out.outage_ended.is_some());
-    assert!(out.datagrams.is_empty(), "resent into the hold: {}", out.datagrams.len());
-    // A datagram sent after the outage arrives: the path is up, the NACK is answered.
+    let resent: Vec<u32> =
+        out.datagrams.iter().map(|d| DatagramHeader::decode(d).expect("header").0.frame).collect();
+    assert_eq!(resent, vec![second.frame, second.frame], "only the newest frame, at once");
+    // A datagram sent after the outage arrives: the path is up, older frames are repaired.
     let third = e.damage(0, small, 430_000).expect("third");
     let fresh = send(&mut e, &third, false, 500, 430_000);
     let out = e.on_datagram(
         &feedback(&Feedback {
             arrivals: arrived(&fresh, 435_000),
-            nacks: vec![nack],
+            nacks: vec![older],
             ..Feedback::default()
         }),
         false,
         440_000,
     );
-    assert_eq!(out.datagrams.len(), 2, "the NACK is answered once the path is back");
+    assert_eq!(out.datagrams.len(), 1, "the older frame is repaired once the path is back");
 }
 
 /// D12: a recovery ask during the hold's first feedback waits for the path (the viewer
