@@ -82,4 +82,16 @@ import Testing
         #expect(TeamCreationRoute(productionAccount: false, teamAPIBase: localhost, mobileServiceBase: devMobile).billingOrigin == nil)
         #expect(TeamCreationRoute(productionAccount: false, teamAPIBase: nil, mobileServiceBase: nil).billingOrigin == nil)
     }
+
+    @Test func aDebugLaunchOverrideNamesTheBillingOrigin() {
+        let staging = URL(string: "https://cmux-staging.vercel.app")!
+        let dev = TeamCreationRoute(productionAccount: false, teamAPIBase: URL(string: "http://localhost:3000")!, mobileServiceBase: devMobile)
+        #expect(dev.billingOrigin(launchOverride: "https://cmux-staging.vercel.app") == staging)
+        #expect(dev.billingOrigin(launchOverride: nil) == nil)
+        #expect(dev.billingOrigin(launchOverride: "") == nil)
+        #expect(dev.billingOrigin(launchOverride: "cmux-staging.vercel.app") == nil)
+        #expect(dev.billingOrigin(launchOverride: "file:///tmp") == nil)
+        let production = TeamCreationRoute(productionAccount: true, teamAPIBase: web, mobileServiceBase: nil)
+        #expect(production.billingOrigin(launchOverride: nil) == web)
+    }
 }
