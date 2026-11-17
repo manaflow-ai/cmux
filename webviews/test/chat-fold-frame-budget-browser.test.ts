@@ -339,9 +339,10 @@ await requireBrowserLane("chat-fold-frame-budget-browser.test.ts", async () => {
     for (const [index, cost] of long.entries()) {
       const base = short[index]!;
       const at = `${name} ${cost.step}`;
-      // Rows drawn again stay within the mounted rows, which stay as many as at 100 (below).
-      if (cost.rowsRendered > cost.mounted)
-        out.push(`${at}: drew ${cost.rowsRendered} rows at 500 rows, ${cost.mounted} mounted`);
+      // Rows drawn again stay within the mounted rows, which stay as many as at 100 (below). A row
+      // at the window's edge that the fold drew and then pushed out was mounted when it was drawn.
+      if (cost.rowsRendered > cost.held)
+        out.push(`${at}: drew ${cost.rowsRendered} rows at 500 rows, ${cost.held} mounted during the step`);
       if (cost.mounts > base.mounts + ROW_SLACK)
         out.push(`${at}: mounted ${cost.mounts} rows at 500 rows, ${base.mounts} at 100`);
       if (cost.mounted > base.mounted + ROW_SLACK)
