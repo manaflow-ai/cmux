@@ -105,6 +105,8 @@ class World:
         # `layout-dead-from-the-take`: each layout read fails from the end of the check before a take (its last read
         # is `debug.toast`).
         self.layout_dead = False
+        self.cleared = False  # True from the last read of the check before a take (`debug.toast`) to the recorder's start
+        self.no_panes = False  # `layout-has-no-pane-from-the-take`: as `layout_dead`, with a reply that has the workspace
 
     def film(self, state):
         """If the recorder of a FILM (not of the preflight) is in `state` now: `capturing` or `written`."""
@@ -257,7 +259,10 @@ class FakeApp:
         if method == "debug.toast":
             if "message-read-fails-in-the-wait" in world.faults and WAITING:
                 return {"error": "a fake fault of the message read"}
-            world.layout_dead = "layout-dead-from-the-take" in world.faults
+            if "message-read-raises-in-the-wait" in world.faults and WAITING:
+                raise RuntimeError("a fake fault of the socket")  # a fault that is no reply: the call itself raises
+            world.layout_dead, world.cleared = "layout-dead-from-the-take" in world.faults, True
+            world.no_panes = "layout-has-no-pane-from-the-take" in world.faults
             shown = [{"id": toast["id"], "message": toast["message"]} for toast in world.toasts]
             for toast in world.toasts:
                 toast["replies_left"] -= "message-stays" not in world.faults
@@ -293,7 +298,7 @@ class FakeApp:
             return said
         if method == "debug.motion":
             if params.get("action") == "record_start":
-                path = params.get("path") or ""
+                path, world.cleared = params.get("path") or "", False
                 world.record = {"capturing": True, "written": False, "complete": 0, "frames": 0, "path": path,
                                 "film": not path.endswith("preflight.mov")}
                 return {"width": 1880, "height": 1135}
@@ -372,6 +377,8 @@ class FakeStress:
         if (world.layout_dead or ("layout-read-fails-in-the-take" in world.faults and world.film("capturing"))
                 or ("layout-read-fails-after-the-acts" in world.faults and world.film("written"))):
             return None  # as the helper gives a layout read that failed
+        if world.no_panes or ("layout-has-no-pane-after-the-acts" in world.faults and world.film("written")):
+            return {"id": ident, "screens": []}  # the workspace with no pane: a reply shape that the tool does not know
         space = self.world.spaces.get(ident)
         return space and {"id": ident, "screens": [{"zoomed_pane": space["zoomed"], "panes": space["panes"]}]}
 
@@ -395,6 +402,10 @@ class FakeStress:
     def tabs(self, workspace, pane):
         if "tab-read-fails-after-the-acts" in self.world.faults and self.world.film("written"):
             return []  # as the helper gives a tab read that failed
+        if "tab-read-fails-before-the-take" in self.world.faults and self.world.cleared:
+            return []
+        if "tab-read-fails-in-the-take" in self.world.faults and self.world.film("capturing"):
+            return []
         return next(p["tabs"] for p in self.world.spaces[workspace]["panes"] if p["id"] == pane)
 
     settled_tabs = tabs
@@ -1155,6 +1166,33 @@ class FilmsCase(unittest.TestCase):
         self.assertEqual((code, row["status"], row.get("tabs_before"), row.get("tabs_after")), (1, "not_made", 4, "not read"))
         self.assertEqual(row.get("reason"), "the tab count of the pane after the acts was not read")
 
+    def test_a_tab_read_that_gives_no_tab_before_a_take_is_not_made_and_is_no_tab_count(self):
+        # 0 tabs before the take and 3 after would say `from 0 to 3`: a count that no pane has.
+        code, report, lines, launches = self.run_films({"launch-activates", "tab-read-fails-before-the-take"}, "--films", "P04")
+        row = report["films"][0]
+        self.assertEqual((code, row["status"], row.get("reason")), (1, "not_made", "before the take: the tab read gave no tab of the pane"))
+        self.assertNotIn("tabs_before", row)  # a read that failed is no count
+        self.assertNotIn("take_file", row)  # the recorder did not start: no movie
+
+    def test_a_tab_read_that_gives_no_tab_before_a_held_close_is_not_made_and_is_no_count_of_repeats(self):
+        # `P08` holds the Close Tab key for as many repeats as the pane has tabs to close. A tab read with no tab made
+        # 1 repeat of it: 2 tabs closed and not 10, the pane count was equal, and the row said `made`.
+        code, report, lines, launches = self.run_films({"launch-activates", "tab-read-fails-in-the-take"}, "--films", "P08")
+        row = report["films"][0]
+        self.assertEqual((code, row["status"], row.get("reason")),
+                         (1, "not_made", "the tab read gave no tab of the pane: no count for the held close"))
+        self.assertEqual((row.get("take_file"), "file" in row), ("P08.not-made.mov", False))
+
+    def test_a_layout_read_that_gives_a_workspace_with_no_pane_is_not_read_and_is_no_pane_count(self):
+        # A workspace has 1 pane or more. 0 panes before a take and 0 after would fit a film whose acts change no count.
+        code, report, lines, launches = self.run_films({"launch-activates", "layout-has-no-pane-from-the-take"}, "--films", "P06")
+        row = report["films"][0]
+        self.assertEqual((code, row["status"], row.get("reason")), (1, "not_made", "before the take: the layout read gave no pane of the workspace"))
+        self.assertNotIn("panes_before", row)
+        code, report, lines, launches = self.run_films({"launch-activates", "layout-has-no-pane-after-the-acts"}, "--films", "T-Z")
+        row = report["films"][0]
+        self.assertEqual((code, row["status"], row.get("panes_after"), row.get("zoomed_end")), (1, "not_made", "not read", "not read"))
+
     def test_a_span_record_with_no_list_is_not_made(self):
         code, report, lines, launches = self.run_films({"launch-activates", "no-span-list"}, "--films", "T-Z.2")
         row = report["films"][0]
@@ -1224,6 +1262,22 @@ class FilmsCase(unittest.TestCase):
         row = report["films"][0]
         self.assertEqual((row["status"], row.get("take_file"), "file" in row), ("not_run", "T-Z.N.not-made.mov", False))
         self.assertEqual(sorted(name for name in os.listdir(self.out) if name.startswith("T-Z.N")), ["T-Z.N.not-made.mov", "T-Z.N.not-made.mov.frames.json"])
+
+    def test_a_movie_whose_name_does_not_change_keeps_its_name_in_the_row(self):
+        with mock.patch.object(M.os, "replace", side_effect=OSError("a fake fault of the rename")):
+            code, report, lines, launches = self.run_films({"launch-activates", "room-for-3"}, "--films", "P13")
+        row = report["films"][0]
+        self.assertEqual((row["status"], row.get("take_file"), "file" in row), ("not_made", "P13.mov", False))
+        self.assertEqual(row.get("take_file_fault"), "the name of the movie or of its frame file was not changed: a fake fault of the rename")
+        self.assertEqual(sorted(name for name in os.listdir(self.out) if name.startswith("P13")), ["P13.mov", "P13.mov.frames.json"])
+
+    def test_a_message_read_that_raises_in_the_wait_is_not_known_and_is_no_message_that_stayed(self):
+        # The call itself raises (no reply): the helper's `wait` takes that as `no value` too.
+        code, report, lines, launches = self.run_films({"launch-activates", "room-for-3", "message-read-raises-in-the-wait"}, "--films", "P13,T-D")
+        rows = {row["id"]: row for row in report["films"]}
+        self.assertEqual((code, rows["P13"]["status"], rows["T-D"]["status"]), (1, "not_made", "not_made"))
+        self.assertEqual(rows["T-D"].get("reason"), "before the take: the tool does not know what is over the window (a read failed in the wait "
+                                                    "for a message): a fake fault of the socket")
 
     def test_a_film_that_fails_after_its_speed_is_set_stops_the_span_record_and_gives_the_speed_back(self):
         code, report, lines, launches = self.run_films({"launch-activates", "film-key-refused"}, "--films", "T-Z.N")
