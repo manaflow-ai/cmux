@@ -256,12 +256,69 @@ fn a_keyframe_drops_no_frame_after_it_and_presses_show_within_two_frames() {
     println!("start: {s:?}");
     assert_eq!(s.skipped_after_idr, 0, "frames dropped after the start keyframe: {s:?}");
     assert!(s.worst_press_ms <= PRESS_BOUND_MS, "a press after the start keyframe: {s:?}");
-    // A keyframe forced on a running instance (the viewer's recovery after loss) keeps frame
-    // skipping, as before: on a lossy link the frames it skips are bits the link can't carry
-    // (controller wifi-away runs on #45102: skipping them off raised key p95).
-    assert!(s.skipped_after_forced > 0, "a forced keyframe coded with skipping off: {s:?}");
     // The rate still holds: the keyframes' bits are repaid within the run.
     assert!(s.mbps * 1000.0 <= f64::from(START_KBPS) / 2.0, "the run's rate: {s:?}");
+}
+
+/// Frames coded and bits sent in the half second before and after a keyframe the viewer asks
+/// for (its recovery after loss) in the middle of a full-screen scroll the link's rate can't
+/// carry at full frame rate.
+#[derive(Debug)]
+#[expect(dead_code, reason = "the fields no assertion reads are printed in its message")]
+struct Recovery {
+    frames_before: usize,
+    frames_after: usize,
+    kbit_before: usize,
+    kbit_after: usize,
+}
+
+fn recovery_under_load(enc: &mut OpenH264, kbps: u32) -> Recovery {
+    let base = desktop(11);
+    let mut au = Vec::new();
+    for n in 0..FPS as i64 {
+        enc.encode(&base, n == 0, n * FRAME_US, &mut au).expect("encode");
+    }
+    enc.set_bitrate(kbps);
+    let forced = 3 * FPS as i64;
+    let half = FPS as i64 / 2;
+    let mut pic = base.clone();
+    let (mut frames, mut bits) = ([0usize; 2], [0usize; 2]);
+    for n in 1..=forced + half {
+        let shift = (n as usize * 4) % H;
+        for y in 0..H {
+            let src = (y + shift) % H;
+            pic.y[y * W..(y + 1) * W].copy_from_slice(&base.y[src * W..(src + 1) * W]);
+        }
+        enc.encode(&pic, n == forced, (FPS as i64 + n) * FRAME_US, &mut au).expect("encode");
+        let slot = if n >= forced {
+            1
+        } else if n >= forced - half {
+            0
+        } else {
+            continue;
+        };
+        if !au.is_empty() {
+            frames[slot] += 1;
+            bits[slot] += au.len() * 8;
+        }
+    }
+    Recovery {
+        frames_before: frames[0],
+        frames_after: frames[1],
+        kbit_before: bits[0] / 1000,
+        kbit_after: bits[1] / 1000,
+    }
+}
+
+/// A keyframe forced on a running instance (the viewer's recovery after loss) keeps frame
+/// skipping, so the share sends no more after it than the link carried before. Coded with
+/// skipping off it sent 16 frames and 12.5 Mbit in the next half second against 6 and 4.1
+/// before (3x the rate, on a link that had just lost packets); with skipping, 6 and 8.1.
+#[test]
+fn a_recovery_keyframe_under_load_keeps_frame_skipping() {
+    let r = recovery_under_load(&mut encoder(START_KBPS), START_KBPS);
+    println!("recovery: {r:?}");
+    assert!(r.frames_after <= r.frames_before, "frames after a recovery keyframe: {r:?}");
 }
 
 /// Steady motion's frame rate and bitrate, for the before/after table (no bound: the

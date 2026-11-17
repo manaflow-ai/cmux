@@ -595,9 +595,8 @@ unsafe fn init(
 /// quality. The keyframe's bits still count against the rate controller's eight-frame budget,
 /// which carries the overshoot, so it repays them by coding every other frame for a while
 /// instead of none, and the rate holds as before (tests/start_keyframe.rs). A keyframe forced
-/// on a running instance (the viewer's recovery after loss) keeps skipping: on a lossy link
-/// the frames skipped after it are bits the link can't carry, and coding them raised key p95
-/// on the wifi-away profile.
+/// on a running instance (the viewer's recovery after loss) keeps skipping as before: it
+/// comes on a lossy link, where frames skipped after it are bits the link can't carry.
 fn keyframe_codes_with_skip_off(opts: &OpenH264Options, fresh: bool) -> bool {
     opts.frame_skip && fresh
 }
