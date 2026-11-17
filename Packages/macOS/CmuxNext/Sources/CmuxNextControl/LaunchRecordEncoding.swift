@@ -16,7 +16,7 @@ public nonisolated struct LaunchRecordEncoding {
             input.display_id = window.displayID
             input.background_rgba = window.backgroundRGBA; input.bar_rgba = window.barRGBA
             input.image_pixel_width = window.imagePixelSize.width; input.image_pixel_height = window.imagePixelSize.height
-            input.window_id = arena.put(window.id); input.image_path = arena.put(window.imagePath)
+            input.window_id = arena.put(window.id); input.image_key = arena.put(window.imagePath) // record v2: the image-store key; the v2 display fields stay 0 (stale: the plain shell) until capture fills them
             input.visible_workspace_id = arena.put(window.workspaceID)
             input.visible_tab_ids = arena.put(window.tabIDs); input.visible_tab_count = tabCount
             return input
