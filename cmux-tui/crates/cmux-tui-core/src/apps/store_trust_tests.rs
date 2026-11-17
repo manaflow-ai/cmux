@@ -206,6 +206,6 @@ fn the_shipped_store_keys_hold_the_store_signing_key() {
     TEST_KEYS.with(|cell| *cell.borrow_mut() = None);
     let shipped = super::trusted_keys();
     let ids: Vec<&str> = shipped.iter().map(|(id, _)| id.as_str()).collect();
-    assert_eq!(ids, ["4d2c4b445e2193fb"], "{shipped:?}");
+    assert_eq!(ids, ["6c9ede9a09079fd3"], "{shipped:?}");
     assert_ne!(ids[0], "e5d7bbcacc70703d", "the store key is not the web update key");
 }
