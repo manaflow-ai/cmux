@@ -95,7 +95,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: billing-${{ github.ref }}
+  # github.workflow is the caller's name when billing-nightly.yml calls this,
+  # so a push or dispatch here never queues against (and cancels) the nightly.
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
