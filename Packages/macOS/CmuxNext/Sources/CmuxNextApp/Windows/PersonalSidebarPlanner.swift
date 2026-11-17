@@ -62,12 +62,12 @@ struct PersonalSidebarPlanner {
         let moved = Set(moving)
         let shown = scoped.flatMap(\.workspaces).compactMap { key($0.id) }.filter { !moved.contains($0) }
         let rowed = order.filter { !moved.contains($0) }
-        var plan = SidebarMembership.personalPlacements(moving: moving, localIndex: local, shown: shown, rowed: rowed)
+        var plan = SidebarRowSection.personalPlacements(moving: moving, localIndex: local, shown: shown, rowed: rowed)
         // Mixed order: right before a group the moved rows take its row;
         // groups right before the slot then move to the first moved row.
         let mixed = drop(position, moving: ids, in: scoped.first, keys: moved)
         if let index = mixed?.index {
-            plan = moving.enumerated().map { SidebarMembership.PersonalPlacement(key: $1, index: index + $0) }
+            plan = moving.enumerated().map { SidebarRowSection.PersonalPlacement(key: $1, index: index + $0) }
         }
         return DropPlan(steps: plan.compactMap { step in
             byKey[step.key].map { DropPlan.Step(workspace: $0, index: step.index, moves: moved.contains(step.key)) }

@@ -2232,7 +2232,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "62efac0e0a7f8b991a41e6c1931b5ce3f2326eb4fafe146f3cafcfb6e4334321",
+      "sha256": "068522eafafe58f5b6978f9b6b6fad1981c19736344bf70028c1bb7e2f186cfb",
       "size": 8310
     },
     {
@@ -2321,6 +2321,11 @@
       "size": 2136
     },
     {
+      "path": "RemoteHostAppPermissions.java",
+      "sha256": "5fbf41c5c3fe0e156c819b28a2fdda4cdbcc8b832c39e227fd1468e59af65cbc",
+      "size": 2914
+    },
+    {
       "path": "RemoteHostAppRequest.java",
       "sha256": "1ba67d6e2f00ecad3bdf63540d79d44df0da5480c31708bc3b6fae2ea51bde68",
       "size": 1373
@@ -2337,8 +2342,8 @@
     },
     {
       "path": "RemoteHostConfigRequest.java",
-      "sha256": "34f9c60ca5e5ab27d94885dae0780d5070b8c8fd241c9ec6a862caef3beef765",
-      "size": 3587
+      "sha256": "5eac6a86904840b3de2a1919b26a780d6fa5af1f57bc9e6a36a98904cc5b0ce3",
+      "size": 4436
     },
     {
       "path": "RemoteHostStatusRequest.java",
@@ -3762,7 +3767,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "79bcfc4e75695f64971f2921ecfa0cf4a5bdf9af0d0e4a3438cb3cb37f757362",
+  "ir_sha256": "e36fafb2ce1a616e5734761cd2e6761fc809fb67e42d9cd6d9f8ee0829e4a6a7",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2
