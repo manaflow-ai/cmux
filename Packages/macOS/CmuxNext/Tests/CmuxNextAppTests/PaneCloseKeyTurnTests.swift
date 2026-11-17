@@ -53,7 +53,7 @@ import Testing
         let moving = root.advanceFrame(1.0 / 120)
         #expect(screen.presentationPasses == passes + 1, "the first frame presented \(screen.presentationPasses - passes) times, not once")
         #expect(survivor.frame.width > frame.width, "the first frame after the key did not show the close: \(survivor.frame) from \(frame)")
-        let shown = survivor.frame
-        #expect(!moving && !root.advanceFrame(1.0 / 120) && survivor.frame == shown, "the close moves on after the frame that showed it")
+        let landed = survivor.frame
+        #expect(!moving && !root.advanceFrame(1.0 / 120) && survivor.frame == landed, "the close moves on after the frame that showed it")
     }
 }
