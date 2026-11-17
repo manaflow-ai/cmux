@@ -139,7 +139,11 @@ jobs:
     concurrency:
       group: cmux-next-remote-browser-host-publish-build-${{ inputs.branch }}
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS || '{}').macos_26 || 'blacksmith-6vcpu-macos-26' }}
+    # An owned mini first: attempt 1 of the dispatch takes the side label, and main's
+    # rescue (owned_pool_rescue.py SIDE_WORKFLOW_PATHS) moves a stuck or refused job to
+    # Blacksmith macOS, the last resort a re-run takes directly. RUNNER_POOLS.macos_26 is a
+    # Blacksmith label, so reading it first queued run 43645667029 on Blacksmith.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && github.event_name == 'workflow_dispatch' && github.run_attempt == 1 && (vars.CI_LIGHT_LANE_RUNNER || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 60
     permissions:
       contents: read
@@ -234,7 +238,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
-      contents: write # the source tag only
+      contents: read # the source tag is pushed with the app token below
     steps:
       # Only whether the token is set reaches this step, never its value.
       - name: Require the cmux-cef-write token
@@ -328,10 +332,27 @@ jobs:
           done
           echo "Published cmux-cef/$KEY" >> "$GITHUB_STEP_SUMMARY"
 
+      # github.token cannot create a ref to a commit that changes a workflow file (HTTP 403 "Resource not
+      # accessible by integration"), and a CEF pin branch's merges of feat-cmux-next do: runs 42541124658,
+      # 43590942942 and 43683204232 all failed here. The manaflow-glaeda-route App is not granted
+      # workflows write either (run 43773051580: HTTP 422 "The permissions requested are not granted to
+      # this installation"), so the tag is pushed with the cmux-bot App, whose installation has contents
+      # and workflows write here (cmuxterm-hq fleet-reconciler-glaeda-signing-hooks.yml mints both).
+      - name: Mint the source tag token
+        id: tag-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-workflows: write
+
       # generate-third-party-notices.sh names the host's source by this tag.
       - name: Push the source tag
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.tag-token.outputs.token }}
           GH_REPO: ${{ github.repository }}
           SHA: ${{ needs.resolve.outputs.sha }}
         run: |

@@ -146,6 +146,12 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_test_integrity.py
 
+      # A fix-cause:* label on a closed pull request starts no job in a
+      # labeled pull_request_target workflow (the fix-cause backfill).
+      - name: Validate fix-cause labels start no jobs
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fix_cause_labels_start_no_jobs.py
+
       - name: Validate machine-failure detection for focused reruns
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_machine_failure.py
@@ -211,6 +217,10 @@ jobs:
       - name: Validate fast checks prefetch SwiftPM binary artifacts
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fast_checks_swiftpm_artifacts.py
+
+      - name: Validate fast checks refuse cargo -p of a crate outside its workspace
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fast_checks_cargo_workspace.py
 
       - name: Validate guard failure attribution
         if: ${{ matrix.group == 'ci' }}
@@ -766,6 +776,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_main_full_suite.py
 
+      - name: Validate the nightly run of every iOS UI test
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_ios_ui_nightly.py
+
       - name: Validate main full-suite failure attribution
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_main_regression_attribution.py
@@ -907,6 +921,11 @@ jobs:
       - name: Validate that the persistent-pool rescue watches every owned-pool workflow
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_pool_sources.py
+
+      # A same-repository macOS job offers an owned Mac before Blacksmith ("job pinned to a paid queue").
+      - name: Validate that no same-repository macOS job is pinned to a paid queue
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_paid_queue_pin.py
 
       - name: Validate that every script a workflow runs by path is executable in git
         if: ${{ matrix.group == 'ci' }}
@@ -1057,6 +1076,14 @@ jobs:
       - name: Validate the Actions artifact pruner
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_actions_artifact_prune.py
+
+      - name: Validate every upload-artifact step sets retention-days
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_upload_artifact_requires_retention.py
+
+      - name: Validate the DEV daily deletes its signed handoff only after its readers
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_dev_daily_drops_signed_handoff.py
 
       - name: Validate the PR media pruner
         if: ${{ matrix.group == 'ci' }}

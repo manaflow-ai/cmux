@@ -45,7 +45,7 @@ PINNED: dict[str, tuple[str, set[str]]] = {
     'auto-resume-nightly-notarization.yml': ('nightly signing and notarization: an ephemeral label the signing rule checks literally',
      {'preflight', 'poll', 'wait-and-staple', 'poll-outer', 'staple-outer', 'poll-stapled', 'staple-stapled', 'verify-stapled', 'publish', 'generate-deltas', 'republish-deltas'}),
     'cloud-journey-prod.yml': ('holds the production journey environment secrets: the fork-routing secret rule forbids a variable-movable runner',
-     {'journey'}),
+     {'journey', 'preclaim'}),
     'cloud-claude-matrix.yml': ('holds the production journey environment secrets: the fork-routing secret rule forbids a variable-movable runner',
      {'matrix'}),
     'build-ghosttykit.yml': ('not yet on a pool; moves in its own PR',
@@ -113,7 +113,7 @@ PINNED: dict[str, tuple[str, set[str]]] = {
     'signing-keychain-macos.yml': ('signing keychain import: an ephemeral label the signing rule checks literally',
      {'real-import'}),
     'test-feed-reply-providers.yml': ('not yet on a pool; moves in its own PR',
-     {'full-text', 'verify'}),
+     {'verify'}),
     'tui-publish-npm.yml': ('GitHub OIDC provenance: moves to fromJSON(vars.RUNNER_POOLS).provenance',
      {'publish'}),
 }

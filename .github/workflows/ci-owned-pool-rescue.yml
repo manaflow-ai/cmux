@@ -98,6 +98,11 @@ on:
         required: false
         default: "0"
         type: string
+      rerun:
+        description: 1 to re-run run_id's failed and cancelled jobs as cmux-bot (cancelling it first if it still waits), so its Mac jobs are placed again
+        required: false
+        default: "0"
+        type: string
 
 permissions: {}
 
@@ -133,6 +138,8 @@ jobs:
     permissions:
       actions: write
       contents: read
+      # The tailnet OIDC join (the owned stall move's build controller holds) mints a GitHub OIDC token.
+      id-token: write
       pull-requests: read
     steps:
       - name: Checkout trusted rescue
@@ -178,6 +185,20 @@ jobs:
           "$RUNNER_TEMP/rescue-venv/bin/python" -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3
           echo "$RUNNER_TEMP/rescue-venv/bin" >> "$GITHUB_PATH"
 
+      # The owned stall move (owned_pool_rescue.OWNED_STALL_MOVE) reads the build controller's holds
+      # (GET /v1/workers) at move time, which only a tailnet node can reach. Until vars.TS_RESCUE_OIDC_CLIENT_ID
+      # names a tailnet OIDC client for this job, the step is skipped, the holds are unreadable, and the owned move
+      # moves nothing (it fails closed). Best effort: the rest of the rescue never needs the tailnet.
+      - name: Join tailnet for the build controller's holds
+        if: vars.TS_RESCUE_OIDC_CLIENT_ID != ''
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
+        with:
+          oauth-client-id: ${{ vars.TS_RESCUE_OIDC_CLIENT_ID }}
+          audience: ${{ vars.TS_RESCUE_OIDC_AUDIENCE }}
+          tags: tag:ci-rescue
+
       - name: Watch runs on persistent pools
         env:
           # The minute light-job pass reads as cmux-bot (its own installation pool) and falls back to the
@@ -209,8 +230,23 @@ jobs:
           # room, and moves nothing while one names an owned pool (owned_pool_rescue.stall_destinations()).
           STALL_RUNNER: ${{ vars.MACOS_RUNNER_26 }}
           STALL_POOLS: ${{ vars.RUNNER_POOLS }}
+          # Not `on` (unset): cmux-next.yml's Mac fallbacks take CI_SIDE_LANE_RUNNER, so the stall move would only
+          # re-queue a job at the back of the owned side lane; it moves nothing (owned_pool_rescue.STALL_SWITCH_OFF).
+          # `pr-rescue`: a pull request run's re-run takes Blacksmith, so the move acts on pull request runs only.
+          STALL_BLACKSMITH_MACOS: ${{ vars.CI_BLACKSMITH_MACOS }}
+          # The side label a cmux-next bot re-run takes while that switch is off: a rescue never sends a job there
+          # while its queue is deeper than the one the job leaves (owned_pool_rescue.rerun_side_label()).
+          SIDE_LANE_RUNNER: ${{ vars.CI_SIDE_LANE_RUNNER }}
+          # While that switch is off, the owned stall move re-routes a stalled run to another owned mini: the runner
+          # registrations tell which runners sit on held hosts, and the build controller (default: the one
+          # cmuxterm-hq's next-dogfood runner gate reads) names the holds (owned_pool_rescue.owned_route_from_env()).
+          STALL_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          STALL_FLEET_CONTROLLER: ${{ vars.CI_FLEET_CONTROLLER }}
           WATCH_RUN_ID: ${{ inputs.run_id }}
           SWEEP: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && '1' || '' }}
           # 1: wait for ci-macos.yml's late-placement before calling the run ephemeral.
           LATE_PLACEMENT: ${{ inputs.late }}
+          # 1 with run_id: re-run that run's failed and cancelled jobs as cmux-bot, cancelling it first if it still
+          # waits, so its Mac jobs are placed again (owned_pool_rescue.rerun_named()).
+          RERUN: ${{ inputs.rerun }}
         run: python3 scripts/ci/owned_pool_rescue.py

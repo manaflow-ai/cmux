@@ -703,6 +703,10 @@ path = "tests/test_ci_linux_guard_routing.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_dispatch_targets_on_main.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_merge_queue_required_checks.py"
 lane = "linux-guard"
 
@@ -941,6 +945,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_nightly_next_rolling.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_push_slot_holder.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that the tick counts a nightly-next loop run as holding the push slot only until its nightly-next-one ends (queued or pending always holds; the post-feed tail holds nothing; a skipped nightly-next-one keeps the old rule); run python3 tests/test_nightly_next_push_slot_holder.py yourself after changing run_holds_group or nightly_next_rolling.py (under 1 s, no Mac)."
 
 [[test]]
 path = "tests/test_nightly_next_unsigned_resume.py"
@@ -1664,6 +1673,10 @@ path = "tests/test_ci_main_full_suite.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_ios_ui_nightly.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_update_release_tag.py"
 lane = "linux-guard"
 
@@ -2217,6 +2230,10 @@ path = "tests/test_ci_warm_sources.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_fix_cause_labels_start_no_jobs.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_fleet_rule_lints.py"
 lane = "linux-guard"
 
@@ -2231,6 +2248,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_fast_checks_swiftpm_artifacts.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_fast_checks_cargo_workspace.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2296,4 +2317,16 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_resource_lifetimes.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_paid_queue_pin.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_upload_artifact_requires_retention.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_dev_daily_drops_signed_handoff.py"
 lane = "linux-guard"

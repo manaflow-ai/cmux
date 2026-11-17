@@ -1253,6 +1253,47 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(params?["storage_mb"] as? Int, 128 * 1024)
     }
 
+    func testVMResizeTeamCustomMemoryCeilingMatchesCreate() throws {
+        // A team deal lets create use 24 GiB; resize must allow the same
+        // size and name 24 GiB, not the 16 GiB tier, as the maximum (#41335).
+        let teamLimits: [String: Any] = [
+            "planId": "team",
+            "maxDiskMb": 128 * 1024,
+            "maxMemoryMb": 24 * 1024,
+            "maxVcpus": 12,
+            "memoryOptionsMb": [4096, 8192, 16384, 24576],
+            "lockedMemoryOptionsMb": [32768, 65536],
+            "memoryUpgradePlanId": NSNull(),
+        ]
+        let (allowed, allowedLog) = try runVMCommandAgainstMock(
+            "vm-resize-team-custom-memory",
+            arguments: ["vm", "resize", "brave-otter", "--memory", "24"]
+        ) { method, _ in
+            switch method {
+            case "vm.list":
+                return ["vms": [], "limits": teamLimits]
+            case "vm.resize":
+                return ["memory_total_mb": 24 * 1024]
+            default:
+                return nil
+            }
+        }
+        XCTAssertEqual(allowed.status, 0, "stdout=\(allowed.stdout) stderr=\(allowed.stderr)")
+        XCTAssertEqual(allowedLog.methods, ["vm.list", "vm.resize"], allowedLog.methods.description)
+        XCTAssertEqual(allowedLog.params(ofFirst: "vm.resize")?["memory_mb"] as? Int, 24 * 1024)
+
+        let (refused, refusedLog) = try runVMCommandAgainstMock(
+            "vm-resize-team-custom-memory-over",
+            arguments: ["vm", "resize", "brave-otter", "--cpu", "8", "--memory", "32", "--disk", "128"]
+        ) { method, _ in
+            method == "vm.list" ? ["vms": [], "limits": teamLimits] : nil
+        }
+        XCTAssertNotEqual(refused.status, 0, refused.stdout)
+        XCTAssertTrue(refused.stderr.contains("24 GiB"), refused.stderr)
+        XCTAssertFalse(refused.stderr.contains("16 GiB"), refused.stderr)
+        XCTAssertEqual(refusedLog.methods, ["vm.list"], refusedLog.methods.description)
+    }
+
     func testVMResizeResolvesSlugToCanonicalMachineID() throws {
         let (result, log) = try runVMCommandAgainstMock(
             "vm-resize-slug",
