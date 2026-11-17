@@ -275,7 +275,8 @@ struct MacScreenAppKitViewTests {
 
     /// The device-control prompt is the cmux dialog card on its glass (Lawrence 2026-11-17, "think liquid glass"):
     /// the request, the fingerprint in two lines of four groups on a well, and the four answers stacked the card's
-    /// width with Allow Once first (Return) and Deny last as quiet red text (Escape).
+    /// width with Allow Once first (the one fill; no key: only the person's click allows) and Deny last as quiet red
+    /// text (Escape).
     @Test func approvalShowsTheRequestAndItsFourAnswers() throws {
         let prompt = MacScreenApprovalPrompt()
         defer { prompt.update([]) }
@@ -295,7 +296,7 @@ struct MacScreenAppKitViewTests {
             #expect(lower.maxY <= upper.minY)
             #expect(lower.width == upper.width && lower.minX == upper.minX)
         }
-        #expect(buttons[0].keyHint == .return && buttons[3].keyHint == .escape && buttons[3].isQuiet)
+        #expect(buttons[0].keyHint == nil && buttons[3].keyHint == .escape && buttons[3].isQuiet)
         #expect(MacScreenApprovalChoice.allCases.allSatisfy { ids.contains($0.rawValue) })
         let card = try #require(prompt.panelFrame)
         #expect(abs(card.width - view.fittingSize.width) < 1 && card.height > 100)
