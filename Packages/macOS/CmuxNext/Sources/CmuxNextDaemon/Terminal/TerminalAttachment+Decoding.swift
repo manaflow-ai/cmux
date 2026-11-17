@@ -120,8 +120,9 @@ extension TerminalAttachment {
 
     /// ``decodeAttachEvent(name:line:surface:)`` plus the generation an
     /// `output` carries, for ``TerminalSnapshotSequencer``.
-    static func decodeAttachLine(name: String, line: Data, surface: SurfaceID) -> DecodedAttachLine? {
-        let decoder = WireCoding.decoder()
+    /// `decoder` is the JSON parser the line goes through (a test passes one that counts what it reads).
+    static func decodeAttachLine(name: String, line: Data, surface: SurfaceID,
+                                 decoder: JSONDecoder = WireCoding.decoder()) -> DecodedAttachLine? {
         func scoped(_ id: SurfaceID?) -> Bool { id == nil || id == surface }
         do {
             switch name {
