@@ -1505,6 +1505,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: node --test tests/nightly_failure_issue.test.mjs
 
+      - name: Validate the Cloud chat proof dispatcher outwaits a slow proof and retries a transient error
+        if: ${{ matrix.group == 'release-notary' }}
+        run: node --test tests/cloud_chat_proof_dispatch.test.mjs
+
       - name: Validate newest-wins classic publication
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_classic_publish_lease.py
