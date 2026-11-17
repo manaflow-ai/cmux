@@ -52,15 +52,14 @@ import Testing
         return (sidebar, window)
     }
 
-    /// Leo's numbers: a 2 pt line, a 6 pt cut; `inside` sets it 2 pt in from the header's left edge, the 4 pt item
-    /// corner (99d72e1: the default corner is the omnibar's 8 pt, items nest two levels inside it) less the line.
+    /// Compact scales Default's spacing and corners: a 2 pt line, a 5.5 pt cut and a 2 pt item corner.
     @Test func theShapeIsChromesMeasuredOne() {
         #expect(SidebarGroupLineLayout.tunable.defaultValue == .edge, "the line at the header bar's left edge is the default")
         #expect(SidebarStyle.groupBarWidth == 2)
-        #expect(SidebarStyle.groupLineCut == 6)
+        #expect(SidebarStyle.groupLineCut == 5.5)
         let inset = SidebarStyle.groupLineCornerInset
-        #expect(Metrics.itemCornerRadius == 4, "the default item corner, two levels inside the 8 pt pane corner")
-        #expect(inset == 2, "2 pt inside the header: \(inset)")
+        #expect(Metrics.itemCornerRadius == 2, "the Compact item corner, two levels inside the 7 pt pane corner")
+        #expect(inset == 0, "the line meets the header's edge: \(inset)")
         #expect(inset + SidebarStyle.groupBarWidth == Metrics.itemCornerRadius, "the line's right edge is off the item corner arc's end")
     }
 

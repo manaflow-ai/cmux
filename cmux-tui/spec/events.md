@@ -919,10 +919,14 @@ object{event:"pane-closed",workspace:Id,screen:Id,pane:Id,index:usize,entity:Pan
 Payload:
 
 ```text
-object{event:"tab-added",workspace:Id,screen:Id,pane:Id,surface:Id,index:usize,entity:Tab}
+object{event:"tab-added",workspace:Id,screen:Id,pane:Id,surface:Id,index:usize,entity:Tab,transaction?:string}
 ```
 
 The tab's subject id is its `surface`, matching `Tab.surface`; the protocol has no separate tab id.
+`transaction` is the `transaction` of the create request that made the tab,
+when it sent one: `new-conversation-tab` with
+`conversation-tab-transaction-v1`, and `new-tab` and
+`new-frontend-browser-tab` with `tab-create-place-v1`.
 
 ### tab-closed
 
