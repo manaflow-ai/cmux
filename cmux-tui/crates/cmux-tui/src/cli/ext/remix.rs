@@ -300,7 +300,7 @@ fn fetch(work: &Path, source: &SourceRef, base: Option<&Path>) -> Result<String,
 }
 
 /// Copies `from` into the new folder `to`, leaving out `.git`.
-fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
+fn copy_tree(root: &Path, from: &Path, to: &Path) -> Result<(), String> {
     std::fs::create_dir_all(to).map_err(|e| format!("{}: {e}", to.display()))?;
     let entries = std::fs::read_dir(from).map_err(|e| format!("{}: {e}", from.display()))?;
     for entry in entries {
@@ -312,11 +312,14 @@ fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
         let kind = entry.file_type().map_err(|e| e.to_string())?;
         let target = to.join(&name);
         if kind.is_dir() {
-            copy_tree(&entry.path(), &target)?;
+            copy_tree(root, &entry.path(), &target)?;
         } else if kind.is_symlink() {
-            let link = std::fs::read_link(entry.path()).map_err(|e| e.to_string())?;
-            std::os::unix::fs::symlink(link, &target)
-                .map_err(|e| format!("{}: {e}", target.display()))?;
+            // A link could point the edits that follow (README, manifest, sources) at any file of
+            // the person's; a remix copies only plain files and folders.
+            return Err(format!(
+                "{} is a symbolic link; cmux ext remix copies only plain files and folders",
+                entry.path().strip_prefix(root).unwrap_or(&entry.path()).display()
+            ));
         } else {
             std::fs::copy(entry.path(), &target)
                 .map_err(|e| format!("{}: {e}", target.display()))?;
@@ -326,16 +329,18 @@ fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
 }
 
 /// The text files an id's name is written in: the manifest, catalogs and sources.
-fn source_files(dir: &Path, out: &mut Vec<PathBuf>) {
+/// Symbolic links are left out: an edit never goes through one.
+pub(super) fn source_files(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
         let path = entry.path();
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        if name.starts_with('.') || name == "node_modules" || name == "dist" {
+        let Ok(kind) = entry.file_type() else { continue };
+        if name.starts_with('.') || name == "node_modules" || name == "dist" || kind.is_symlink() {
             continue;
         }
-        if path.is_dir() {
+        if kind.is_dir() {
             source_files(&path, out);
         } else if [".json", ".ts", ".tsx", ".js", ".mjs"].iter().any(|ext| name.ends_with(ext)) {
             out.push(path);
@@ -532,7 +537,11 @@ pub(super) fn remix(
         }
         None => free_folder(&projects_root(home), &name),
     };
-    copy_tree(&root, &dir)?;
+    if let Err(error) = copy_tree(&root, &root, &dir) {
+        // Nothing half-made is left.
+        let _ = std::fs::remove_dir_all(&dir);
+        return Err(error);
+    }
     let app = format!("local/{name}");
     if !old_id.is_empty() {
         rename_id(&dir, &old_id, &app)?;

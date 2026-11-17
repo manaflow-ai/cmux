@@ -55,12 +55,16 @@ pub(super) fn with_badge(readme: &str, owner: &str, repo: &str, title: &str) -> 
     let mut lines: Vec<String> =
         readme.lines().filter(|line| !line.contains(BADGE_SVG)).map(str::to_string).collect();
     if !lines.iter().any(|line| line.starts_with("# ")) {
-        lines.splice(0..0, [format!("# {title}"), String::new()]);
+        lines.insert(0, format!("# {title}"));
     }
     let at = lines.iter().position(|line| line.starts_with("# ")).map_or(0, |i| i + 1);
+    // The blank lines under the heading (the old badge's too) go; one goes on each side of it.
+    while lines.get(at).is_some_and(|line| line.trim().is_empty()) {
+        lines.remove(at);
+    }
+    let rest = at < lines.len();
     lines.splice(at..at, [String::new(), badge]);
-    // One blank line after the badge, not two.
-    if lines.get(at + 2).is_some_and(|line| !line.trim().is_empty()) {
+    if rest {
         lines.insert(at + 2, String::new());
     }
     let mut out = lines.join("\n");
@@ -214,7 +218,32 @@ pub(super) fn share(options: &ShareOptions) -> Result<Shared, String> {
     }
     let url = format!("https://github.com/{login}/{repo}");
 
-    // The manifest and README, the owner's.
+    // The manifest and README, the owner's. What they held is kept until the manifest validates,
+    // and put back when it does not, so a refused publish leaves the folder as it was.
+    let readme_path = dir.join("README.md");
+    if std::fs::symlink_metadata(&readme_path).is_ok_and(|meta| meta.file_type().is_symlink()) {
+        return Err(
+            "README.md is a symbolic link; publish a folder whose README.md is a file".into()
+        );
+    }
+    let mut touched = Vec::new();
+    remix::source_files(dir, &mut touched);
+    touched.push(readme_path.clone());
+    let saved: Vec<(PathBuf, Option<Vec<u8>>)> = touched
+        .into_iter()
+        .map(|file| {
+            let bytes = std::fs::read(&file).ok();
+            (file, bytes)
+        })
+        .collect();
+    let restore = || {
+        for (file, bytes) in &saved {
+            let _ = match bytes {
+                Some(bytes) => std::fs::write(file, bytes),
+                None => std::fs::remove_file(file),
+            };
+        }
+    };
     let new_id = format!("{publisher}/{name}");
     if !old_id.is_empty() {
         remix::rename_id(dir, &old_id, &new_id)?;
@@ -224,7 +253,6 @@ pub(super) fn share(options: &ShareOptions) -> Result<Shared, String> {
         .ok_or_else(|| format!("{manifest} is not a JSON object"))?;
     std::fs::write(&path, text).map_err(|e| e.to_string())?;
     let title = parsed.field("name").as_str().unwrap_or(&name).to_string();
-    let readme_path = dir.join("README.md");
     let readme = std::fs::read_to_string(&readme_path).unwrap_or_default();
     std::fs::write(&readme_path, with_badge(&readme, &login, &repo, &title))
         .map_err(|e| e.to_string())?;
@@ -243,8 +271,9 @@ pub(super) fn share(options: &ShareOptions) -> Result<Shared, String> {
         })
         .collect();
     if !errors.is_empty() {
+        restore();
         return Err(format!(
-            "{manifest} does not validate, nothing was published: {}",
+            "{manifest} does not validate, nothing was published or changed: {}",
             errors.join("; ")
         ));
     }

@@ -40,10 +40,10 @@ extension DeepLink {
         "Fork and customize \(ref): run `cmux ext remix \(ref)` and do what it prints. What I want changed: "
     }
 
-    /// `HOST/OWNER/REPO[/PATH][@REF]`, optionally after `https://`: letters, digits, `.`, `_`, `-`
+    /// `HOST/OWNER/REPO[/PATH]@REF` (the button pins the listing's commit), optionally after `https://`: letters, digits, `.`, `_`, `-`
     /// in each part, no `..`, at most 300 characters.
     public static func isRemixReference(_ text: String) -> Bool {
-        let pattern = "^(https?://)?[a-z0-9-]+(\\.[a-z0-9-]+)+(/[A-Za-z0-9._-]+){2,}(@[A-Za-z0-9._/-]+)?$"
+        let pattern = "^(https?://)?[a-z0-9-]+(\\.[a-z0-9-]+)+(/[A-Za-z0-9._-]+){2,}@[A-Za-z0-9._/-]+$"
         // No line break: `$` also matches before a final newline a decoded `%0A` could leave.
         return text.utf8.count <= 300 && !text.contains("..") && !text.contains(where: \.isNewline)
             && text.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil

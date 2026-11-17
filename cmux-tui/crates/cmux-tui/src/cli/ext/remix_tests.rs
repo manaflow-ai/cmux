@@ -396,3 +396,46 @@ fn share_without_github_keeps_the_folder_and_names_the_step() {
     let Shared::NotConnected { step, .. } = missing else { panic!("installed?") };
     assert!(step.contains("brew install gh"), "{step}");
 }
+
+#[test]
+fn remix_refuses_a_source_with_a_symbolic_link() {
+    // A link named README.md would point the README edit at a file of the person's.
+    let base = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let victim = home.path().join("victim.txt");
+    std::fs::write(&victim, "mine\n").unwrap();
+    let dir = base.path().join("github.com/acme/evil");
+    std::fs::create_dir_all(&dir).unwrap();
+    git(&dir, &["init", "-q", "-b", "main"]);
+    write(&dir, &[("cmux-app.json", &manifest("acme/evil", None)), ("main.js", MAIN_JS)]);
+    std::os::unix::fs::symlink(&victim, dir.join("README.md")).unwrap();
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-q", "-m", "one"]);
+    let target = home.path().join("evil");
+    let options = RemixOptions {
+        source: "github.com/acme/evil@main".into(),
+        dir: Some(target.clone()),
+        name: None,
+    };
+    let error = remix::remix(&options, home.path(), Some(base.path())).unwrap_err();
+    assert!(error.contains("README.md is a symbolic link"), "{error}");
+    assert_eq!(std::fs::read_to_string(&victim).unwrap(), "mine\n");
+    assert!(!target.exists());
+}
+
+#[test]
+fn share_that_does_not_validate_leaves_the_folder_as_it_was() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = extension_folder(root.path());
+    // A manifest the validator refuses (no runtime main file).
+    std::fs::remove_file(dir.join("main.js")).unwrap();
+    let manifest_before = std::fs::read_to_string(dir.join("cmux-app.json")).unwrap();
+    let readme_before = std::fs::read_to_string(dir.join("README.md")).unwrap();
+    let (gh, log) = fake_gh(root.path(), Some("octo"), &[]);
+    let error = share::share(&ShareOptions { dir: dir.clone(), name: None, private: false, gh })
+        .unwrap_err();
+    assert!(error.contains("nothing was published or changed"), "{error}");
+    assert_eq!(std::fs::read_to_string(dir.join("cmux-app.json")).unwrap(), manifest_before);
+    assert_eq!(std::fs::read_to_string(dir.join("README.md")).unwrap(), readme_before);
+    assert!(!std::fs::read_to_string(&log).unwrap().contains("repo create"));
+}
