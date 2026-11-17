@@ -278,7 +278,8 @@ pub(crate) fn handle_push(shared: &Arc<Shared>, text: &str, consent: impl FnOnce
                     tracing::info!("{LOG}: {why}; ended");
                     // The app's sheet asks the person for what is missing (acpmux's record).
                     let _ = crate::cli::cloud_join::record_consent_refusal(surface);
-                    end_later(shared.hub(), &session_id, "failed");
+                    // Says why, so the viewer reads it rather than a failed stream (the app's host does too).
+                    end_later(shared.hub(), &session_id, "consent_required");
                 }
                 Decided::End(reason, why) => {
                     tracing::info!("{LOG}: {why}; ended");
@@ -330,7 +331,9 @@ fn decide(shared: &Shared, push: &Value, consent: impl FnOnce() -> Consent) -> D
         refresh_devices(shared);
         platform = shared.platform_of(&ticket.peer_id);
     }
-    let consent = consent();
+    // The person's own device, as the hub authenticated it, needs no consent on this Mac (the
+    // default consent is the Labs switch off: everything is allowed); others read it now.
+    let consent = if route::own_account(push) { Consent::default() } else { consent() };
     match route::route(&ticket, platform.as_deref(), shared.app_attached(), consent) {
         Route::Daemon { view_only } => Decided::Serve(view_only),
         Route::App => Decided::App,
