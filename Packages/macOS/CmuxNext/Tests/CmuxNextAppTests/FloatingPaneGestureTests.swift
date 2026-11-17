@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 @testable import CmuxNextLayout
 import CmuxNextTestSupport
 import Testing
