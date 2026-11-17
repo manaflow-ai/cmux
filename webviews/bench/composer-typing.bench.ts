@@ -26,8 +26,11 @@
 // Every length and mode is a fresh browser process and page. With `--arms A=DIR,B=DIR` it measures two webviews
 // trees in one run, interleaved A B B A for `--rounds` rounds (default 6) with a base-against-base noise floor, and
 // prints each arm's median and spread (composer-arms.ts).
+// With --wrap the keys are words and spaces typed past the field's width, so the draft wraps line after line
+// (no paste); each key's own key-to-frame is read, and `wrap_*` columns give it for the keys that started a new
+// line (the text grew taller), `flat_*` for the others.
 //   bun bench/composer-typing.bench.ts [--lengths 60,1500,6000] [--keys 60] [--gap 80] [--modes idle,stream] [--dev] [--profile]
-//     [--arms A=.,B=../webviews-b] [--rounds 6] [--no-floor]
+//     [--arms A=.,B=../webviews-b] [--rounds 6] [--no-floor] [--wrap]
 /// <reference types="bun" />
 import path from "node:path";
 import { chromium } from "./browsers";
@@ -58,11 +61,14 @@ const webviews = path.resolve(import.meta.dir, "..");
 const ARMS = parseArms(flag("--arms"), webviews);
 const ROUNDS = Number(flag("--rounds") ?? 6);
 const FLOOR = !argv.includes("--no-floor");
+const WRAP = argv.includes("--wrap");
+const WRAP_TEXT = "the quick brown fox jumps over the lazy dog ";
 /// What an A/B of arms summarizes: key to frame, key to listener and the long tasks.
 const ARM_METRICS = [
   "to_frame_p50",
   "to_frame_p95",
   "to_frame_max",
+  ...(WRAP ? (["wrap_to_frame_p50", "wrap_to_frame_p95", "flat_to_frame_p95"] as const) : []),
   "to_listener_p95",
   "longest_task_ms",
   "long_tasks",
@@ -217,11 +223,27 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
     }
     const before = await metrics();
     const since = await page.evaluate(() => performance.now());
-    const letters = "abcdefghijklmnopqrstuvwxyz";
+    const letters = WRAP ? WRAP_TEXT : "abcdefghijklmnopqrstuvwxyz";
+    // --wrap: each key's own key-to-frame, and whether it started a line (the prompt's text grew taller).
+    const wrapKeys: number[] = [];
+    const flatKeys: number[] = [];
+    const textHeight = () =>
+      page.evaluate((selector) => document.querySelector(selector)?.getBoundingClientRect().height ?? 0, PROMPT);
     const typeKeys = async () => {
+      let height = WRAP ? await textHeight() : 0;
       for (let i = 0; i < KEYS; i += 1) {
-        await page.keyboard.press(letters[i % letters.length]!);
+        const letter = letters[i % letters.length]!;
+        if (WRAP) await page.evaluate(() => (window as any).cmuxAcpmuxDebug.resetTyping());
+        await page.keyboard.press(letter === " " ? "Space" : letter);
         await page.waitForTimeout(GAP_MS);
+        if (!WRAP) continue;
+        const [stats, next] = await Promise.all([
+          page.evaluate(() => (window as any).cmuxAcpmuxDebug.typingStats()) as Promise<Record<string, any>>,
+          textHeight(),
+        ]);
+        const frame = stats.to_frame?.p50_ms;
+        if (typeof frame === "number") (next > height + 4 ? wrapKeys : flatKeys).push(frame);
+        height = next;
       }
     };
     const typedAt = performance.now();
@@ -239,6 +261,11 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
       const { profile } = (await cdp.send("Profiler.stop")) as { profile: CpuProfile };
       printProfile(length, profile);
     }
+    const percentile = (values: number[], p: number) => {
+      if (values.length === 0) return undefined;
+      const sorted = [...values].sort((a, b) => a - b);
+      return Math.round(sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))]! * 10) / 10;
+    };
     const { renders, typing } = (await page.evaluate(() => {
       const debug = (window as any).cmuxAcpmuxDebug;
       return { renders: debug.renders(), typing: debug.typingStats() };
@@ -311,7 +338,8 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
     return {
       mode,
       rows,
-      keys: typing.keys,
+      // --wrap resets the page's samples before each key: the columns read every key's own.
+      keys: WRAP ? wrapKeys.length + flatKeys.length : typing.keys,
       pane: per(renders.pane ?? 0),
       transcript: per(renders.transcript ?? 0),
       composer: per(renders.composer ?? 0),
@@ -325,9 +353,19 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
       task_ms: per(delta("TaskDuration") * 1000),
       to_listener_p95: typing.to_listener?.p95_ms,
       to_work_p95: typing.to_work?.p95_ms,
-      to_frame_p50: typing.to_frame?.p50_ms,
-      to_frame_p95: typing.to_frame?.p95_ms,
-      to_frame_max: typing.to_frame?.max_ms,
+      to_frame_p50: WRAP ? percentile([...wrapKeys, ...flatKeys], 50) : typing.to_frame?.p50_ms,
+      to_frame_p95: WRAP ? percentile([...wrapKeys, ...flatKeys], 95) : typing.to_frame?.p95_ms,
+      to_frame_max: WRAP ? percentile([...wrapKeys, ...flatKeys], 100) : typing.to_frame?.max_ms,
+      ...(WRAP
+        ? {
+            wrap_keys: wrapKeys.length,
+            wrap_to_frame_p50: percentile(wrapKeys, 50),
+            wrap_to_frame_p95: percentile(wrapKeys, 95),
+            wrap_to_frame_max: percentile(wrapKeys, 100),
+            flat_to_frame_p50: percentile(flatKeys, 50),
+            flat_to_frame_p95: percentile(flatKeys, 95),
+          }
+        : {}),
       longest_task_ms: Math.round(Math.max(0, ...long.map((task) => task.ms)) * 10) / 10,
       long_tasks: long.length,
       composer_per_stream_event: composerPerEvent,
