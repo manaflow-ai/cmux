@@ -22,7 +22,6 @@ import stat
 import subprocess
 import sys
 import tempfile
-import time
 import unittest
 
 import yaml
@@ -181,10 +180,8 @@ class CommandTests(unittest.TestCase):
                    "TREE_HANDOFF_RATE_LIMIT_WAIT_S": wait_s}
             if not token:
                 env.pop("GH_TOKEN")
-            started = time.monotonic()
             result = subprocess.run([sys.executable, str(SCRIPT), "--repo", "o/r", "--run-id", "99", "--key", KEY, *extra],
                                     capture_output=True, text=True, env=env)
-            self.elapsed = time.monotonic() - started
             log_path, tokens_path = Path(tmp, "log"), Path(tmp, "log.tokens")
             calls = [json.loads(line) for line in log_path.read_text().splitlines()] if log_path.exists() else []
             # The token of each answered call, in order (the refused calls are in neither list).
@@ -302,32 +299,6 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("could not re-run run 13", result.stdout)
 
-    def test_a_short_rate_limit_is_waited_out_within_the_budget(self):
-        # The first call is refused; the wait (no reset known: a short backoff) fits the budget, and the retry
-        # answers.
-        state = {"artifacts": [marker(31, 12)], "runs": {"12": {"status": "completed", "run_attempt": 1}},
-                 "rate_limited_calls": 1}
-        result, calls = self.run_handoff(state, extra=("--published",), wait_s="5")
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("Re-ran run 12", result.stdout)
-        self.assertIn(["run", "rerun", "12", "--repo", "o/r"], calls)
-
-    def test_a_reset_past_the_budget_is_not_waited_for(self):
-        # The core quota is spent until an hour from now: waiting would only burn the step's minutes.
-        state = {"artifacts": [marker(31, 12)], "runs": {"12": {"status": "completed", "run_attempt": 1}},
-                 "rate_limited": ["t"], "core": {"remaining": 0, "reset": int(time.time()) + 3600}}
-        result, _ = self.run_handoff(state, extra=("--published",), wait_s="30")
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertLess(self.elapsed, 10, "no wait for a reset beyond the budget")
-        self.assertIn("::warning", result.stdout)
-
-    def test_a_reset_within_the_budget_is_waited_for(self):
-        state = {"artifacts": [marker(31, 12)], "runs": {"12": {"status": "completed", "run_attempt": 1}},
-                 "rate_limited_calls": 1, "core": {"remaining": 0, "reset": int(time.time()) + 1}}
-        result, _ = self.run_handoff(state, extra=("--published",), wait_s="20")
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("Re-ran run 12", result.stdout)
-
     def test_published_cap_is_a_backstop(self):
         self.assertTrue(handoff.may_rerun({"status": "completed", "run_attempt": 3}, handoff.PUBLISHED_MAX_ATTEMPT)[0])
         self.assertFalse(handoff.may_rerun({"status": "completed", "run_attempt": 5}, handoff.PUBLISHED_MAX_ATTEMPT)[0])
@@ -416,6 +387,83 @@ class CommandTests(unittest.TestCase):
         result, _ = self.run_handoff({"jobs_pages": []}, token="")
         self.assertEqual(result.returncode, 2)
         self.assertIn("::warning::", result.stderr)
+
+
+class RateLimitWaitTests(unittest.TestCase):
+    """_gh's wait for a rate limit, on a fake clock: the waits it asks for are recorded, never slept."""
+
+    LIMITED = subprocess.CompletedProcess(["gh"], 1, "", "gh: API rate limit exceeded for installation ID 1. (HTTP 403)")
+    OK = subprocess.CompletedProcess(["gh"], 0, "{}", "")
+    EPOCH = 1_800_000_000.0
+
+    def run_gh(self, answers, budget, core=None):
+        """_gh("api", "x") with `answers` for the call's tries and `core` for /rate_limit.
+        Returns (result, the waits asked for, the tries made)."""
+        from unittest import mock
+        clock = [0.0]
+        waits: list[float] = []
+        tries: list[list[str]] = []
+        answers = list(answers)
+
+        def run(cmd, **kwargs):
+            if cmd[1:3] == ["api", "rate_limit"]:
+                body = {"resources": {"core": core or {"remaining": 5000, "reset": 0}}}
+                return subprocess.CompletedProcess(cmd, 0, json.dumps(body), "")
+            tries.append(cmd)
+            return answers.pop(0)
+
+        def sleep(seconds):
+            waits.append(seconds)
+            clock[0] += seconds
+
+        with mock.patch.object(handoff.subprocess, "run", run), \
+                mock.patch.object(handoff.time, "sleep", sleep), \
+                mock.patch.object(handoff.time, "monotonic", lambda: clock[0]), \
+                mock.patch.object(handoff.time, "time", lambda: self.EPOCH + clock[0]), \
+                mock.patch.object(handoff, "RATE_LIMIT_WAIT_S", budget), \
+                mock.patch.object(handoff, "_wait_started", None), \
+                mock.patch.dict(os.environ, {"GH_TOKEN": "t"}, clear=False):
+            os.environ.pop("GH_TOKEN_SPARE", None)
+            result = handoff._gh("api", "x")
+        return result, waits, tries
+
+    def test_a_short_rate_limit_is_waited_out_with_a_doubling_backoff(self):
+        result, waits, tries = self.run_gh([self.LIMITED, self.LIMITED, self.OK], budget=90)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(waits, [2.0, 4.0])
+        self.assertEqual(len(tries), 3)
+
+    def test_the_backoff_stops_at_the_budget(self):
+        # 2 + 4 + 8 = 14 s fit a 20 s budget; the next 16 s would pass it, so the fourth refusal is the answer.
+        result, waits, tries = self.run_gh([self.LIMITED] * 5, budget=20)
+        self.assertEqual(waits, [2.0, 4.0, 8.0])
+        self.assertEqual(sum(waits), 14.0)
+        self.assertTrue(handoff.rate_limited(result))
+        self.assertEqual(len(tries), 4)
+
+    def test_a_reset_past_the_budget_is_not_waited_for(self):
+        # The core quota is spent for an hour: waiting would only burn the step's minutes.
+        result, waits, tries = self.run_gh([self.LIMITED, self.OK], budget=30,
+                                           core={"remaining": 0, "reset": self.EPOCH + 3600})
+        self.assertEqual(waits, [])
+        self.assertEqual(len(tries), 1)
+        self.assertTrue(handoff.rate_limited(result))
+
+    def test_a_reset_within_the_budget_is_waited_for_to_the_second_after(self):
+        result, waits, _ = self.run_gh([self.LIMITED, self.OK], budget=30,
+                                       core={"remaining": 0, "reset": self.EPOCH + 10})
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(waits, [11.0])
+
+    def test_no_budget_no_wait(self):
+        result, waits, tries = self.run_gh([self.LIMITED, self.OK], budget=0)
+        self.assertEqual((waits, len(tries)), ([], 1))
+        self.assertTrue(handoff.rate_limited(result))
+
+    def test_a_refusal_that_is_not_the_rate_limit_is_not_retried(self):
+        refused = subprocess.CompletedProcess(["gh"], 1, "", "HTTP 422: run cannot be rerun")
+        result, waits, tries = self.run_gh([refused, self.OK], budget=90)
+        self.assertEqual((waits, len(tries), result.returncode), ([], 1, 1))
 
 
 class WorkflowTests(unittest.TestCase):
