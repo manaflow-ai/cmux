@@ -27,7 +27,7 @@ fn shared() -> &'static Place {
         let state = tempfile::tempdir().unwrap();
         let place = Place::in_dir(state.path().join("link-sync-watch"), false);
         let serving = place.clone();
-        std::thread::spawn(move || super::super::watch::serve(&serving, None).unwrap());
+        std::thread::spawn(move || super::super::watch::serve(&serving).unwrap());
         for _ in 0..200 {
             if std::os::unix::net::UnixStream::connect(&place.socket).is_ok() {
                 break;
@@ -219,7 +219,7 @@ fn nothing_changed_is_no_request() {
     let root = machine.root("work");
     full_push(&machine, &local, &root);
     let before = machine.asked.load(Ordering::SeqCst);
-    let never = || -> anyhow::Result<std::sync::mpsc::Receiver<Value>> {
+    let never = |_: Duration| -> anyhow::Result<Option<Value>> {
         panic!("nothing changed: no push may start")
     };
     let answer = on_send_with(Some(shared()), &local, &root, Duration::from_secs(3), &never);
@@ -329,10 +329,8 @@ fn a_mark_of_another_watcher_session_rescans() {
     let stale = Kept { mark: Some(Mark { session: "gone".into(), seq: 1 }), ..Kept::default() };
     keep(shared(), &local, &root, &stale);
     write(&local, "a.txt", "b\n");
-    let answer = on_send_with(Some(shared()), &local, &root, Duration::from_secs(10), &|| {
-        let (send, answers) = std::sync::mpsc::channel();
-        send.send(on_send(&machine, &local, &root)).unwrap();
-        Ok(answers)
+    let answer = on_send_with(Some(shared()), &local, &root, Duration::from_secs(10), &|_| {
+        Ok(Some(on_send(&machine, &local, &root)))
     });
     assert_eq!(answer["rescan"], true, "{answer}");
     assert_eq!(std::fs::read_to_string(Path::new(&root).join("a.txt")).unwrap(), "b\n");
@@ -340,20 +338,27 @@ fn a_mark_of_another_watcher_session_rescans() {
 }
 
 /// A push still under way past the bound answers `arriving`, with a note for the agent; it
-/// goes on behind.
+/// goes on behind. The worker is given the send's bound to wait at most.
 #[test]
 fn a_slow_push_answers_arriving() {
     let (_dir, local) = folder(&[("a.txt", "a\n")]);
-    let answer = on_send_with(None, &local, "/r", Duration::from_millis(50), &|| {
-        let (send, answers) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(500));
-            let _ = send.send(json!({"ok": true, "state": "sent"}));
-        });
-        Ok(answers)
+    let answer = on_send_with(None, &local, "/r", Duration::from_millis(50), &|within| {
+        assert_eq!(within, Duration::from_millis(50));
+        Ok(None)
     });
     assert_eq!(answer["state"], "arriving", "{answer}");
     assert!(answer["notice"].as_str().unwrap().contains("still"), "{answer}");
+}
+
+/// A push that fails before it answers is a failed send-time sync, never "unchanged".
+#[test]
+fn a_push_that_fails_answers_sync_failed() {
+    let (_dir, local) = folder(&[("a.txt", "a\n")]);
+    let answer = on_send_with(None, &local, "/r", Duration::from_secs(1), &|_| {
+        anyhow::bail!("it ended without an answer")
+    });
+    assert_eq!(answer["ok"], false, "{answer}");
+    assert_eq!(answer["error_code"], "sync_failed", "{answer}");
 }
 
 /// A git working copy: an edit, a staged change and a commit go with a push of what

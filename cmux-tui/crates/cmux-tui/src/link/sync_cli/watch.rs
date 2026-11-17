@@ -221,7 +221,7 @@ fn start_watcher() -> bool {
 /// also when another one already runs.
 pub(super) fn run() -> i32 {
     let Some(place) = Place::here() else { return 0 };
-    match serve(&place, None) {
+    match serve(&place) {
         Ok(()) => 0,
         Err(error) => {
             eprintln!("cmux link sync watch: {error:#}");
@@ -230,12 +230,11 @@ pub(super) fn run() -> i32 {
     }
 }
 
-/// Serves the watcher at `place` (none when another holds its lock). With
-/// `stop`, it ends once that is set (tests).
-pub(super) fn serve(
-    place: &Place,
-    stop: Option<Arc<std::sync::atomic::AtomicBool>>,
-) -> anyhow::Result<()> {
+/// Serves the watcher at `place` (none when another holds its lock) until it
+/// ends itself: it watches nothing for [`PROCESS_IDLE`], its state folder is
+/// gone, or a watcher of another build asked. Every thread it starts is joined
+/// before it returns. A test's watcher never ends itself.
+pub(super) fn serve(place: &Place) -> anyhow::Result<()> {
     use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&place.dir)?;
     let lock = std::fs::OpenOptions::new()
@@ -262,39 +261,71 @@ pub(super) fn serve(
         watches: Mutex::new(HashMap::new()),
         last_question: Mutex::new(Instant::now()),
         next_nonce: std::sync::atomic::AtomicU64::new(0),
+        ending: Ending {
+            ended: Mutex::new(false),
+            woken: Condvar::new(),
+            socket: place.socket.clone(),
+        },
     });
-    let sweeping = watcher.clone();
-    let (place_dir, stopped) = (place.dir.clone(), stop.clone());
-    std::thread::spawn(move || {
-        loop {
-            std::thread::sleep(SWEEP_EVERY);
-            if stopped.as_ref().is_some_and(|stop| stop.load(std::sync::atomic::Ordering::SeqCst)) {
-                return;
+    let served = std::thread::scope(|threads| {
+        threads.spawn(|| {
+            while !watcher.ending.wait(SWEEP_EVERY) {
+                // Only `cmux link sync watch`'s own process ends itself; a test's never does.
+                if (watcher.sweep() || !place.dir.is_dir()) && !cfg!(test) {
+                    watcher.ending.end();
+                }
             }
-            // Only `cmux link sync watch`'s own process ends itself; a test's never does.
-            if (sweeping.sweep() || !place_dir.is_dir()) && stopped.is_none() && !cfg!(test) {
-                std::process::exit(0);
+        });
+        let served = loop {
+            match listener.accept() {
+                Ok(_) if watcher.ending.ended() => break Ok(()),
+                Ok((stream, _)) => {
+                    let watcher = &watcher;
+                    threads.spawn(move || watcher.answer(stream));
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(error) => break Err(error.into()),
             }
-        }
+        };
+        // The sweep ends with the server, whatever ended it.
+        watcher.ending.end();
+        served
     });
-    if stop.is_some() {
-        listener.set_nonblocking(true)?;
+    drop(lock);
+    served
+}
+
+/// How the server and its sweep end: the flag, a condition the sweep waits
+/// on between rounds, and the server's socket, which a connection wakes.
+struct Ending {
+    ended: Mutex<bool>,
+    woken: Condvar,
+    socket: PathBuf,
+}
+
+impl Ending {
+    fn ended(&self) -> bool {
+        self.ended.lock().map_or(true, |ended| *ended)
     }
-    loop {
-        if stop.as_ref().is_some_and(|stop| stop.load(std::sync::atomic::Ordering::SeqCst)) {
-            drop(lock);
-            return Ok(());
+
+    /// Ends the server: the sweep stops waiting and `accept` returns.
+    fn end(&self) {
+        let Ok(mut ended) = self.ended.lock() else { return };
+        if *ended {
+            return;
         }
-        match listener.accept() {
-            Ok((stream, _)) => {
-                let _ = stream.set_nonblocking(false);
-                let watcher = watcher.clone();
-                std::thread::spawn(move || watcher.answer(stream));
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                std::thread::sleep(Duration::from_millis(5));
-            }
-            Err(error) => return Err(error.into()),
+        *ended = true;
+        drop(ended);
+        self.woken.notify_all();
+        let _ = UnixStream::connect(&self.socket);
+    }
+
+    /// Waits up to `limit` for the end; true once ended.
+    fn wait(&self, limit: Duration) -> bool {
+        let Ok(ended) = self.ended.lock() else { return true };
+        match self.woken.wait_timeout_while(ended, limit, |ended| !*ended) {
+            Ok((ended, _)) => *ended,
+            Err(_) => true,
         }
     }
 }
@@ -306,6 +337,7 @@ struct Watcher {
     watches: Mutex<HashMap<PathBuf, Arc<Watch>>>,
     last_question: Mutex<Instant>,
     next_nonce: std::sync::atomic::AtomicU64,
+    ending: Ending,
 }
 
 /// One watched folder.
@@ -370,7 +402,7 @@ impl Watcher {
                 let _ = writer.write_all(format!("{}\n", json!(answer)).as_bytes());
                 // A watcher of another build gives way to the one that asked.
                 if !cfg!(test) {
-                    std::process::exit(0);
+                    self.ending.end();
                 }
                 return;
             }

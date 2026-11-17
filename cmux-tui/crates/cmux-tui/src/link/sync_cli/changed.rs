@@ -35,6 +35,7 @@ use std::io::{BufRead as _, BufReader};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use anyhow::Context as _;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -230,7 +231,7 @@ pub(super) fn on_send_with(
     local: &Path,
     remote_root: &str,
     within: Duration,
-    worker: &dyn Fn() -> anyhow::Result<std::sync::mpsc::Receiver<Value>>,
+    worker: &dyn Fn(Duration) -> anyhow::Result<Option<Value>>,
 ) -> Value {
     if let Some(place) = place {
         let kept = load(place, local, remote_root);
@@ -241,22 +242,11 @@ pub(super) fn on_send_with(
             return json!({"ok": true, "state": "unchanged"});
         }
     }
-    let answers = match worker() {
-        Ok(answers) => answers,
-        Err(error) => {
-            return json!({"ok": false, "error": format!("cannot start the push: {error:#}"),
-                          "error_code": "sync_failed"});
-        }
-    };
-    match answers.recv_timeout(within) {
-        Ok(answer) => answer,
-        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-            json!({"ok": true, "state": "arriving", "notice": notice(local, remote_root)})
-        }
-        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-            json!({"ok": false, "error": "the push ended without an answer",
-                   "error_code": "sync_failed"})
-        }
+    match worker(within) {
+        Ok(Some(answer)) => answer,
+        Ok(None) => json!({"ok": true, "state": "arriving", "notice": notice(local, remote_root)}),
+        Err(error) => json!({"ok": false, "error": format!("the push: {error:#}"),
+                             "error_code": "sync_failed"}),
     }
 }
 
@@ -399,7 +389,10 @@ pub(crate) fn on_send(
 ) -> anyhow::Result<Value> {
     let local = std::fs::canonicalize(local)?;
     let place = Place::here();
-    let worker = || -> anyhow::Result<std::sync::mpsc::Receiver<Value>> {
+    // The push runs in its own process and session, so it finishes behind a send that stopped
+    // waiting. It writes one short line and ends; a pipe holds that line, so the answer is
+    // read once the process has ended within the bound, and no thread waits on it.
+    let worker = |within: Duration| -> anyhow::Result<Option<Value>> {
         let program = std::env::current_exe()?;
         let mut child = cmux_process::Command::new(program);
         child
@@ -414,20 +407,14 @@ pub(crate) fn on_send(
         let mut child = child.spawn()?;
         child.detach("a push-on-send finishes behind the message it was for (its own session)");
         let stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("no answer pipe"))?;
-        let (send, answers) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let mut line = String::new();
-            let answer = match BufReader::new(stdout).read_line(&mut line) {
-                Ok(read) if read > 0 => serde_json::from_str(&line).unwrap_or_else(|_| {
-                    json!({"ok": false, "error": "the push answered no line", "error_code": "sync_failed"})
-                }),
-                _ => json!({"ok": false, "error": "the push ended without an answer",
-                            "error_code": "sync_failed"}),
-            };
-            let _ = send.send(answer);
-            let _ = child.wait();
-        });
-        Ok(answers)
+        if child.wait_timeout(within)?.is_none() {
+            // Still pushing: its answer has no reader now (it ignores the closed pipe).
+            return Ok(None);
+        }
+        let mut line = String::new();
+        let read = BufReader::new(stdout).read_line(&mut line)?;
+        anyhow::ensure!(read > 0, "it ended without an answer");
+        Ok(Some(serde_json::from_str(&line).context("it answered no JSON line")?))
     };
     Ok(on_send_with(place.as_ref(), &local, remote_root, within, &worker))
 }
