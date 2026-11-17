@@ -460,7 +460,9 @@ extension AgentPaneTransport {
                 // The start's credit is spent by the first prompt, whatever grants it.
                 let credit = facts.method == "session/prompt"
                     && startCredit.take(connection: id, now: gestures.uptime, lifetime: Self.startCreditLifetime) == true
-                // A prompt spends the person's gesture however old it is (``AgentPaneUserGestures/consumeForSend()``).
+                // A prompt spends the person's gesture however old it is (``AgentPaneUserGestures/consumeForSend()``),
+                // though it needs none: the Send's key press must not pay for the agent's next gated frame.
+                if facts.method == "session/prompt" { _ = gestures.consumeForSend() }
                 // Computer use acting as the person (``AgentPaneActAsMe``, on only by the person's own grant)
                 // backs Send, Retry and Approve, nothing else (``AgentPaneUserGestures/consumePosted(for:)``).
                 granted = redeemedQuestion || !facts.needsGesture || (AcpmuxPaneMethods.answerAllowed(facts.method, gestures)
