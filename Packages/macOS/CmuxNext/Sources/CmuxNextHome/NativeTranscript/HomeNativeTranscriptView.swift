@@ -441,9 +441,8 @@ public final class HomeNativeTranscriptView: NSView {
     /// The zoom steps from here, and Cmd-0 comes back to it.
     static let defaultChatScale: CGFloat = 1
 
-    /// The Chief chat's scale: its default size times Agent Chat Zoom, times a custom density's Home chat text scale
-    /// (``Typography/homeChatDensityScale``, 1 at every built-in).
-    static var chatScale: CGFloat { defaultChatScale * DesignSettings.shared.agentPaneZoom * Typography.homeChatDensityScale }
+    /// The Chief chat's scale: its default size times Agent Chat Zoom.
+    static var chatScale: CGFloat { defaultChatScale * DesignSettings.shared.agentPaneZoom }
 
     /// The person's text scale (Text Size, never the density: ``Typography/chatUserScale``) applies to the native
     /// first-run chrome, times the Chief chat's scale

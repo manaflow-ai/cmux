@@ -35,9 +35,7 @@ public extension Typography {
     static var pageChatTextScale: CGFloat {
         let interfaceScale = DesignSettings.shared.interfaceScaleEnabled ? DesignSettings.shared.interfaceScale : 1
         let drawn = DensityPreset.cozy.tokens.bodySize
-        // A density's own chat text scale (the Density Playground's `chatTextScale`) sets the density's part exactly.
-        let densityBody = Metrics.tokens.tokens["chatTextScale"].map { drawn * CGFloat($0) } ?? max(Metrics.tokens.bodySize, drawn)
-        let body = DesignSettings.shared.overrides[.chromeFontSize] ?? densityBody
+        let body = DesignSettings.shared.overrides[.chromeFontSize] ?? max(Metrics.tokens.bodySize, drawn)
         return body / drawn * interfaceScale
     }
     /// The person's own text scale for the chats, over Default's: Text Size and a chrome font size set in Settings,
