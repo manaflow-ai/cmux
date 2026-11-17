@@ -13,6 +13,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane } from "./support/papercutChat";
+import { TRANSCRIPT_ROW } from "../src/agent-session/acpmux/transcriptSelectors";
 
 await requireBrowserLane("agent-pane-host-line-still.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -30,49 +31,52 @@ await requireBrowserLane("agent-pane-host-line-still.test.ts", async () => {
   /// Puts the host's line in the stack (or takes it out) and returns, for each frame painted after,
   /// how far each row in view before it moved, at most.
   const change = (page: Page, add: boolean) =>
-    page.evaluate(async (add) => {
-      const tops = () =>
-        new Map(
-          [...document.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")].map((row) => [
-            row.dataset.rowId!,
-            row.getBoundingClientRect().top,
-          ]),
-        );
-      const view = document.querySelector<HTMLElement>(".acpmux-scroll")!.getBoundingClientRect();
-      const before = new Map([...tops()].filter(([, top]) => top > view.top && top < view.bottom));
-      // After the frame paints: a task queued from its animation frame callback.
-      const painted = () =>
-        new Promise<void>((resolve) =>
-          requestAnimationFrame(() => {
-            const channel = new MessageChannel();
-            channel.port1.onmessage = () => resolve();
-            channel.port2.postMessage(0);
-          }),
-        );
-      const dock = document.querySelector<HTMLElement>(".acpmux-dock")!;
-      if (add) {
-        // HostUnavailableLine's markup: the group, its line, the message and Retry.
-        const group = document.createElement("div");
-        group.className = "acpmux-host-line-group";
-        group.dataset.testHostLine = "";
-        group.innerHTML =
-          '<div class="acpmux-host-line"><p class="acpmux-host-line-message">Can\'t reach the agent service.</p><button type="button">Retry</button></div>';
-        dock.insertBefore(group, dock.querySelector(":scope > .acpmux-composer"));
-      } else dock.querySelector("[data-test-host-line]")!.remove();
-      const moved: number[] = [];
-      for (let frame = 0; frame < 12; frame++) {
-        await painted();
-        const now = tops();
-        let most = 0;
-        for (const [id, top] of before) most = Math.max(most, Math.abs((now.get(id) ?? Infinity) - top));
-        moved.push(most);
-      }
-      return {
-        moved,
-        rows: before.size,
-        line: dock.querySelector("[data-test-host-line]")?.getBoundingClientRect().height ?? 0,
-      };
-    }, add);
+    page.evaluate(
+      async ({ add, rowSelector }) => {
+        const tops = () =>
+          new Map(
+            [...document.querySelectorAll<HTMLElement>(rowSelector)].map((row) => [
+              row.dataset.rowId!,
+              row.getBoundingClientRect().top,
+            ]),
+          );
+        const view = document.querySelector<HTMLElement>(".acpmux-scroll")!.getBoundingClientRect();
+        const before = new Map([...tops()].filter(([, top]) => top > view.top && top < view.bottom));
+        // After the frame paints: a task queued from its animation frame callback.
+        const painted = () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => {
+              const channel = new MessageChannel();
+              channel.port1.onmessage = () => resolve();
+              channel.port2.postMessage(0);
+            }),
+          );
+        const dock = document.querySelector<HTMLElement>(".acpmux-dock")!;
+        if (add) {
+          // HostUnavailableLine's markup: the group, its line, the message and Retry.
+          const group = document.createElement("div");
+          group.className = "acpmux-host-line-group";
+          group.dataset.testHostLine = "";
+          group.innerHTML =
+            '<div class="acpmux-host-line"><p class="acpmux-host-line-message">Can\'t reach the agent service.</p><button type="button">Retry</button></div>';
+          dock.insertBefore(group, dock.querySelector(":scope > .acpmux-composer"));
+        } else dock.querySelector("[data-test-host-line]")!.remove();
+        const moved: number[] = [];
+        for (let frame = 0; frame < 12; frame++) {
+          await painted();
+          const now = tops();
+          let most = 0;
+          for (const [id, top] of before) most = Math.max(most, Math.abs((now.get(id) ?? Infinity) - top));
+          moved.push(most);
+        }
+        return {
+          moved,
+          rows: before.size,
+          line: dock.querySelector("[data-test-host-line]")?.getBoundingClientRect().height ?? 0,
+        };
+      },
+      { add, rowSelector: TRANSCRIPT_ROW },
+    );
 
   test("the host line coming and going above the composer moves no row in view", async () => {
     const page = await pane.open({ width: 900, height: 700 });
