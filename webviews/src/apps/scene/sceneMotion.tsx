@@ -5,7 +5,7 @@
 // last props, until it has left. CSS draws every movement (scene.css) behind the motion gate:
 // WebTheme's `data-cmux-motion` off draws the end state at once; reduced (Reduce Motion, calm
 // motion) turns each movement into a crossfade.
-import { createContext, useContext, useEffect, useReducer, useRef, useState, type ReactNode } from "react";
+import { createContext, useEffect, useState, type ReactNode } from "react";
 import { MOTION_MS } from "../../motion/scale.generated";
 import type { SceneNode, SceneStore } from "./store";
 
@@ -40,94 +40,95 @@ export function sceneMotion(): SceneMotion {
   return "full";
 }
 
-/** True once the scene's first frame is drawn: nodes added after it animate in. */
-export const SceneAppearedContext = createContext<{ current: boolean }>({ current: true });
 /** True inside a node that is leaving: its subtree keeps drawing from its last props. */
 export const SceneLeavingContext = createContext(false);
 
-export function SceneAppeared({ children }: { children: ReactNode }) {
-  const appeared = useRef(false);
-  useEffect(() => {
-    appeared.current = true;
-  }, []);
-  return <SceneAppearedContext.Provider value={appeared}>{children}</SceneAppearedContext.Provider>;
+/**
+ * Marks the scene's first frame drawn once it commits (per reset generation, which keys it):
+ * nodes added after it animate in. The store holds the mark, so no node rerenders for it.
+ */
+export function SceneAppeared({
+  store,
+  generation,
+  children,
+}: {
+  store: SceneStore;
+  generation: number;
+  children: ReactNode;
+}) {
+  useEffect(() => store.markDrawn(generation), [store, generation]);
+  return <>{children}</>;
 }
 
 /** Whether the node animates in: it has a transition and came after the first frame. */
-export function useSceneEntering(node: SceneNode | undefined): boolean {
-  const appeared = useContext(SceneAppearedContext);
-  const [entering] = useState(() => appeared.current && typeof node?.props.transition === "string");
+export function useSceneEntering(store: SceneStore, node: SceneNode | undefined): boolean {
+  const [entering] = useState(() => store.hasDrawn() && typeof node?.props.transition === "string");
   return entering;
 }
 
 export type SceneChild = { id: string; leaving: boolean };
 
+type Seen = { ids: readonly string[]; leaving: ReadonlyMap<string, number> };
+const NONE_LEAVING: ReadonlyMap<string, number> = new Map();
+
 /**
  * The children to draw: the node's own, plus each child a render just removed that has a
- * `transition`, kept at its old place for SCENE_LEAVE_MS (none while motion is off).
+ * `transition` (the store keeps its last props as departed), kept at its old place for the
+ * motion scale's quick step (none while motion is off).
  */
 export function useSceneChildren(store: SceneStore, ids: readonly string[]): SceneChild[] {
-  // Worked out in render, not in an effect: a removed child keeps its component (same key, same
-  // render), so it can still draw its last props while it leaves.
-  const state = useRef({
-    previous: ids,
-    transitions: new Map<string, boolean>(),
-    leaving: new Map<string, number>(),
-    // One leave timer per leaving id: a child that comes back has its timer cleared, so leaving
-    // again starts a fresh one.
-    timers: new Map<string, ReturnType<typeof setTimeout>>(),
-  });
-  const [, redraw] = useReducer((n: number) => n + 1, 0);
-  const s = state.current;
-  if (s.previous !== ids) {
-    const before = s.previous;
-    s.previous = ids;
+  // Worked out in render from the previous render's state (React's "storing information from
+  // previous renders"), so a removed child keeps its component and draws its last props.
+  const [seen, setSeen] = useState<Seen>(() => ({ ids, leaving: NONE_LEAVING }));
+  let current = seen;
+  if (seen.ids !== ids) {
     const live = new Set(ids);
-    const motion = sceneMotion();
-    before.forEach((id, index) => {
-      if (live.has(id)) return;
-      if (motion !== "off" && s.transitions.get(id) === true) s.leaving.set(id, index);
-      else s.transitions.delete(id);
-    });
-    for (const id of ids) {
-      s.leaving.delete(id);
-      const timer = s.timers.get(id);
-      if (timer !== undefined) {
-        clearTimeout(timer);
-        s.timers.delete(id);
-      }
+    const leaving = new Map([...seen.leaving].filter(([id]) => !live.has(id)));
+    if (sceneMotion() !== "off") {
+      seen.ids.forEach((id, index) => {
+        if (!live.has(id) && store.getDeparted(id)) leaving.set(id, index);
+      });
     }
+    current = { ids, leaving: leaving.size ? leaving : NONE_LEAVING };
+    setSeen(current);
   }
-  // Each live child's transition, noted while it is still in the store.
-  for (const id of ids) s.transitions.set(id, typeof store.getNode(id)?.props.transition === "string");
 
+  // The leaving set's timers: a set that changes (one more leaves, or one comes back) replaces
+  // them, so a child that comes back never has a timer, and leaving again starts a fresh one.
+  const leavingNow = current.leaving;
   useEffect(() => {
-    for (const id of s.leaving.keys()) {
-      if (s.timers.has(id)) continue;
-      const timer = setTimeout(() => {
-        if (s.timers.get(id) !== timer) return;
-        s.timers.delete(id);
-        s.leaving.delete(id);
-        s.transitions.delete(id);
-        redraw();
-      }, leaveMs());
-      s.timers.set(id, timer);
-    }
-  });
-  useEffect(() => {
-    const pending = s.timers;
+    if (!leavingNow.size) return undefined;
+    const timers = [...leavingNow.keys()].map((id) =>
+      setTimeout(() => {
+        store.forgetDeparted(id);
+        setSeen((previous) => {
+          if (!previous.leaving.has(id)) return previous;
+          const leaving = new Map(previous.leaving);
+          leaving.delete(id);
+          return { ...previous, leaving: leaving.size ? leaving : NONE_LEAVING };
+        });
+      }, leaveMs()),
+    );
     return () => {
-      for (const timer of pending.values()) clearTimeout(timer);
-      pending.clear();
+      for (const timer of timers) clearTimeout(timer);
     };
-  }, [s]);
+  }, [leavingNow, store]);
 
-  if (!s.leaving.size) return ids.map((id) => ({ id, leaving: false }));
   const out: SceneChild[] = ids.map((id) => ({ id, leaving: false }));
-  for (const [id, at] of [...s.leaving].sort((a, b) => a[1] - b[1])) {
+  if (!leavingNow.size) return out;
+  for (const [id, at] of [...leavingNow].sort((a, b) => a[1] - b[1])) {
     out.splice(Math.min(at, out.length), 0, { id, leaving: true });
   }
   return out;
+}
+
+/** `text`'s user-perceived characters (an emoji or accented letter stays whole). */
+function graphemes(text: string): string[] {
+  const Segmenter = (globalThis as { Intl?: typeof Intl }).Intl?.Segmenter;
+  if (typeof Segmenter === "function") {
+    return Array.from(new Segmenter(undefined, { granularity: "grapheme" }).segment(text), (part) => part.segment);
+  }
+  return Array.from(text);
 }
 
 /**
@@ -136,11 +137,14 @@ export function useSceneChildren(store: SceneStore, ids: readonly string[]): Sce
  * `opacity` crossfades the whole text. Nothing rolls on the first draw.
  */
 export function SceneTextContent({ text, transition }: { text: string; transition: unknown }) {
-  const previous = useRef<string | undefined>(undefined);
-  const before = previous.current;
-  useEffect(() => {
-    previous.current = text;
-  }, [text]);
+  // The text before the last change, kept in state so a rerender with the same text keeps its roll.
+  const [shown, setShown] = useState<{ text: string; before: string | undefined }>(() => ({ text, before: undefined }));
+  let current = shown;
+  if (shown.text !== text) {
+    current = { text, before: shown.text };
+    setShown(current);
+  }
+  const before = current.before;
   if (transition !== "numericText" && transition !== "opacity") return <>{text}</>;
   const changed = before !== undefined && before !== text;
   if (transition === "opacity") {
@@ -151,8 +155,8 @@ export function SceneTextContent({ text, transition }: { text: string; transitio
     );
   }
   const direction = changed && numberOf(text) < numberOf(before ?? "") ? "down" : "up";
-  const chars = [...text];
-  const old = [...(before ?? "")];
+  const chars = graphemes(text);
+  const old = graphemes(before ?? "");
   return (
     <>
       {chars.map((char, index) => {

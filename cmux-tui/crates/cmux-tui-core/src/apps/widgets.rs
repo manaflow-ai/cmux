@@ -97,15 +97,6 @@ impl Size {
     pub(super) fn parse(name: &str) -> Option<Size> {
         Size::ALL.into_iter().find(|size| size.as_str() == name)
     }
-
-    /// Its tiles on the grid, (columns, rows).
-    pub(super) fn tiles(self) -> (u8, u8) {
-        match self {
-            Size::Small => (1, 1),
-            Size::Medium => (2, 1),
-            Size::Large => (2, 2),
-        }
-    }
 }
 
 /// Where a widget is placed.
