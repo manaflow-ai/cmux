@@ -208,13 +208,13 @@ def trusted(call):
     held = isinstance(reply, dict) and reply.get("pending") and not reply.get("sessionId")
     if held:
         clicked = wait(lambda: (lambda r: r if not r.get("error") else None)(
-            agent("click", text="Trust", timeout=10) or {"error": "none"}), 30)
+            agent("click", text="Trust folder", timeout=10) or {"error": "none"}), 30)
         note(f"trust (held start): {short(clicked, 160)}")
         return reply
     if "trust.pending" not in json.dumps(reply):
         return reply
     clicked = wait(lambda: (lambda r: r if not r.get("error") else None)(
-        agent("click", text="Trust", timeout=10) or {"error": "none"}), 30)
+        agent("click", text="Trust folder", timeout=10) or {"error": "none"}), 30)
     note(f"trust: {short(clicked, 160)}")
     return wait(lambda: (lambda r: r if "trust.pending" not in json.dumps(r) else None)(call()), 30) or reply
 
@@ -243,7 +243,11 @@ def show(chat):
 
 def send(text):
     reply = trusted(lambda: agent("send_prompt", text=text, timeout=60))
-    note(f"send {text[:60]!r}: {short(reply, 200)}")
+    # acpmux holds the first prompt in an untrusted folder behind a "Trust folder" card (the chat
+    # has no session until then); the person clicks it, so the probe does.
+    card = wait(lambda: (lambda r: r if not r.get("error") else None)(
+        agent("click", text="Trust folder", timeout=10) or {"error": "none"}), 8)
+    note(f"send {text[:60]!r}: {short(reply, 200)} trust card: {short(card, 120)}")
     return reply
 
 
@@ -446,6 +450,9 @@ def main():
             ended = wait(lambda: state().get("isWorking") is False and (state().get("rows") or 0) > 10, 90, 0.5)
             note(f"{chat['name']} history in: {bool(ended)} {short(state(), 300)}")
             if not ended:
+                # Why no session: the page's own ACP log and what it shows, kept in the report.
+                R["acp_log_on_failure"] = short(agent("acp_log", limit=200, timeout=60), 20000)
+                R["query_on_failure"] = short(agent("query", selector="button, [role=button], [role=alert]", timeout=20), 8000)
                 raise RuntimeError(f"chat {chat['name']} never streamed its history: {short(state(), 300)}")
 
         done_up, done_follow = os.path.join(WORK, "done-up.json"), os.path.join(WORK, "done-follow.json")
