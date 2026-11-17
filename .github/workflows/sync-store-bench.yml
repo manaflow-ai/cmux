@@ -5,7 +5,10 @@ name: Sync store bench (staging)
 # (`cmux link sync push --store`: the push uploads the blobs the store lacks to the platform's /v1/sync and the
 # machine daemon fetches them from there), each into an empty machine folder, at the given round trip. The cmux-tui
 # is a release build of the `commit` input (default: cmux#45321's head, the store client that falls back to a
-# direct copy on 507 and registers GC roots), built here. The scripts come from this workflow's own ref.
+# direct copy on 507 and registers GC roots), built by the build job on a large Blacksmith runner. The bench job
+# runs on `bench_runner` (default ubuntu-24.04): sync_bench's round trip is tc netem on a veth pair, and the Blacksmith
+# Linux kernel has no netem ("Specified qdisc kind is unknown", run 44121595015). A runner without netem benches at
+# rtt 0 and says so. The scripts come from this workflow's own ref.
 #
 # Secrets: the staging agent test account, CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD in cmux-next-vm-image-dev (the pair
 # cloud-journey-pr.yml reads for a same-repo pull request). scripts/cmux-next/sync-store-bench.ts signs in, mints an
@@ -29,6 +32,11 @@ on:
         required: false
         default: "50"
         type: string
+      bench_runner:
+        description: The runner label the bench job runs on (its kernel needs netem for an rtt above 0)
+        required: false
+        default: ubuntu-24.04
+        type: string
   pull_request:
     branches: [feat-cmux-next]
     paths:
@@ -43,13 +51,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  bench:
+  build:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_16 }}
-    environment:
-      name: cmux-next-vm-image-dev
-      deployment: false
-    timeout-minutes: 180
+    timeout-minutes: 60
     env:
       COMMIT: ${{ inputs.commit || '9c178a6947f72dc984b6ac251348e3a98bb9f32c' }}
       RTT_MS: ${{ inputs.rtt_ms || '50' }}
@@ -60,11 +65,6 @@ jobs:
           printf '%s' "$COMMIT" | grep -Eqx '[0-9a-f]{40}' || { echo "::error::commit must be a full 40-character sha"; exit 1; }
           printf '%s' "$RTT_MS" | grep -Eqx '[0-9]{1,4}(,[0-9]{1,4})*' || { echo "::error::rtt_ms must be numbers, comma-separated"; exit 1; }
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          submodules: false
-
       - name: Check out the benched commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -73,33 +73,12 @@ jobs:
           persist-credentials: false
           submodules: false
 
-      - name: Install bench and build dependencies
+      - name: Install build dependencies
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config socat iproute2 openssl
+          sudo apt-get install -y clang libclang-dev pkg-config
           git -C benched submodule update --init --depth 1 ghostty-next
-
-      - name: Pick the bench root (the mount with the most free space)
-        run: |
-          set -euo pipefail
-          df -h / "$GITHUB_WORKSPACE" "$RUNNER_TEMP" /var/tmp /mnt 2>/dev/null || true
-          best=/var/tmp; most=0
-          for dir in /var/tmp "$RUNNER_TEMP" /mnt; do
-            [ -d "$dir" ] && [ -w "$dir" ] || continue
-            free="$(df -Pk "$dir" | awk 'NR==2 {print $4}')"
-            if [ "$free" -gt "$most" ]; then most="$free"; best="$dir"; fi
-          done
-          echo "SYNC_BENCH_ROOT=$best/sync-bench" >> "$GITHUB_ENV"
-          echo "bench root $best/sync-bench ($((most / 1048576)) GiB free)"
-
-      # The tree is network and disk; the build is CPU. The generation runs beside the build and is waited for after.
-      - name: Start generating the projects tree
-        run: |
-          set -euo pipefail
-          mkdir -p "$SYNC_BENCH_ROOT"
-          nohup python3 cmux-tui/scripts/sync_bench.py gen --layout projects > "$RUNNER_TEMP/sync-bench-gen.log" 2>&1 &
-          echo "GEN_PID=$!" >> "$GITHUB_ENV"
 
       - name: Set up cmux-tui Rust (the benched commit's toolchain)
         uses: ./benched/.github/actions/setup-cmux-tui-rust
@@ -121,7 +100,6 @@ jobs:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
 
       - name: Build the benched commit's Linux cmux-tui (release)
-        id: build
         working-directory: benched/cmux-tui
         env:
           CARGO_NET_RETRY: "10"
@@ -136,18 +114,78 @@ jobs:
           test -x "$binary"
           file "$binary" | grep -q 'ELF 64-bit'
           sha256sum "$binary"
-          echo "path=$binary" >> "$GITHUB_OUTPUT"
+          mkdir -p "$RUNNER_TEMP/cmux-tui-release"
+          cp "$binary" "$RUNNER_TEMP/cmux-tui-release/cmux-tui"
 
-      - name: Wait for the projects tree
+      - name: Hand the binary to the bench job
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sync-store-bench-cmux-tui
+          path: ${{ runner.temp }}/cmux-tui-release/cmux-tui
+          retention-days: 1
+          if-no-files-found: error
+
+  bench:
+    needs: build
+    runs-on: ${{ inputs.bench_runner || 'ubuntu-24.04' }}
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
+    timeout-minutes: 180
+    env:
+      COMMIT: ${{ inputs.commit || '9c178a6947f72dc984b6ac251348e3a98bb9f32c' }}
+      RTT_MS: ${{ inputs.rtt_ms || '50' }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Install bench dependencies
         run: |
           set -euo pipefail
-          tail --pid="$GEN_PID" -f /dev/null
-          tail -n 40 "$RUNNER_TEMP/sync-bench-gen.log"
-          python3 cmux-tui/scripts/sync_bench.py gen --layout projects
+          sudo apt-get update
+          sudo apt-get install -y socat iproute2 openssl
+
+      - name: Pick the bench root (the mount with the most free space)
+        run: |
+          set -euo pipefail
+          df -h / "$GITHUB_WORKSPACE" "$RUNNER_TEMP" /var/tmp /mnt 2>/dev/null || true
+          best=/var/tmp; most=0
+          for dir in /var/tmp "$RUNNER_TEMP" /mnt; do
+            [ -d "$dir" ] || continue
+            if [ ! -w "$dir" ]; then sudo chown "$(id -u):$(id -g)" "$dir" 2>/dev/null || continue; fi
+            free="$(df -Pk "$dir" | awk 'NR==2 {print $4}')"
+            if [ "$free" -gt "$most" ]; then most="$free"; best="$dir"; fi
+          done
+          echo "SYNC_BENCH_ROOT=$best/sync-bench" >> "$GITHUB_ENV"
+          echo "bench root $best/sync-bench ($((most / 1048576)) GiB free)"
+
+      - name: Generate the projects tree
+        run: |
+          set -euo pipefail
+          mkdir -p "$SYNC_BENCH_ROOT"
+          python3 cmux-tui/scripts/sync_bench.py gen --layout projects 2> "$RUNNER_TEMP/sync-bench-gen.log" || { tail -n 40 "$RUNNER_TEMP/sync-bench-gen.log"; exit 1; }
+          tail -n 3 "$RUNNER_TEMP/sync-bench-gen.log"
           top="$SYNC_BENCH_ROOT/trees/projects"
           echo "TREE_BYTES=$(du -sb "$top" | cut -f1)" >> "$GITHUB_ENV"
           echo "TREE_FILES=$(find "$top" -type f | wc -l)" >> "$GITHUB_ENV"
           du -sh "$top"; df -h "$SYNC_BENCH_ROOT"
+
+      - name: Fetch the build job's cmux-tui
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: sync-store-bench-cmux-tui
+          path: ${{ runner.temp }}/cmux-tui-release
+
+      - name: Make it runnable
+        id: build
+        run: |
+          set -euo pipefail
+          binary="$RUNNER_TEMP/cmux-tui-release/cmux-tui"
+          chmod 755 "$binary"
+          sha256sum "$binary"
+          echo "path=$binary" >> "$GITHUB_OUTPUT"
 
       - name: Check that this runner's kernel has netem
         run: |

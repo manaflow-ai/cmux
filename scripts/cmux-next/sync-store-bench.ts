@@ -61,8 +61,8 @@ async function main(): Promise<number> {
     api.bearer = s.access;
   };
   await signIn();
-  const user = await api.op("user.ensure", {}, undefined);
   const tag = `jr-${Date.now().toString(36)}`;
+  const user = await api.op("user.ensure", {}, `${tag}-ensure`);
   const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
   const jwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
   const inst = await api.op("install.register", { public_jwk: { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y }, kind: "cli", name: `cloud journey ${tag}`, device_name: "sync store bench", platform: "linux" }, `${tag}-install`);
