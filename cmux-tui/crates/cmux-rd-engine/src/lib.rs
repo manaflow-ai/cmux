@@ -689,6 +689,12 @@ impl MediaEngine {
         out
     }
 
+    fn diag(now_us: u64, what: std::fmt::Arguments) {
+        if std::env::var_os("CMUX_RD_TRACE").is_some_and(|v| v == "1") {
+            eprintln!("{now_us} {what}");
+        }
+    }
+
     /// Feedback of one stream: arrivals and loss feed the shared controller;
     /// NACKs, acks and recovery requests apply to that stream.
     fn on_feedback(&mut self, stream: u16, fb: &Feedback, now_us: u64, out: &mut Output) {
@@ -730,7 +736,23 @@ impl MediaEngine {
                 }
             }
         }
+        let in_flight_before = state.gate.in_flight();
         let mut action = state.gate.ack(fb.acked_frame, now_us);
+        Self::diag(
+            now_us,
+            format_args!(
+                "fb ack={} last_frame={} nacks={} nack_idx={} recov={} arrivals={} inflight_before={} inflight={} action={:?}",
+                fb.acked_frame,
+                state.last_frame,
+                fb.nacks.len(),
+                fb.nacks.iter().map(|n| n.indexes.len()).sum::<usize>(),
+                fb.need_recovery,
+                fb.arrivals.len(),
+                in_flight_before,
+                state.gate.in_flight(),
+                action
+            ),
+        );
         let idr_allowed = state
             .last_forced_idr_us
             .is_none_or(|t| now_us.saturating_sub(t) >= MIN_FORCED_IDR_INTERVAL_US);
@@ -760,6 +782,15 @@ impl MediaEngine {
             if now_us < from.saturating_add(TAIL_PROBE_US) {
                 continue;
             }
+            Self::diag(
+                now_us,
+                format_args!(
+                    "probe stream={stream} probes={} last_frame={} inflight={}",
+                    state.probes,
+                    state.last_frame,
+                    state.gate.in_flight()
+                ),
+            );
             if state.probes < TAIL_PROBES {
                 state.probes = state.probes.saturating_add(1);
                 state.probe_from_us = Some(now_us);

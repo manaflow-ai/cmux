@@ -295,6 +295,7 @@ impl MediaSession {
         let mut had_control = table.may_inject_input(session, viewer);
         // The first frame covers the whole screen (an IDR).
         if let Some(req) = self.engine.start(now_us()) {
+            trace(&format!("submit start {req:?}"));
             self.encoder.submit(req);
         }
         loop {
@@ -308,6 +309,7 @@ impl MediaSession {
             }
             let now = now_us();
             if let Some(req) = self.engine.poll(now) {
+                trace(&format!("submit poll {req:?}"));
                 self.encoder.submit(req);
             }
             if let Err(e) = self.send_paced(carrier) {
@@ -571,6 +573,7 @@ impl MediaSession {
             self.inject(event, table, session, viewer);
         }
         if let Some(req) = out.encode {
+            trace(&format!("submit apply {req:?} idle={}", self.encoder.is_idle()));
             self.encoder.submit(req);
         }
     }
