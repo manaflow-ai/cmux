@@ -103,10 +103,15 @@ fn a_cold_connect_dials_the_remembered_path_first() {
     // A remembered path that is not one of these is ignored.
     paths.remember(Some(Via::Wireguard));
     assert_eq!(paths.dial_order(0), then_hub(vec![Via::Link, Via::Ssh]));
-    // Measured beats remembered.
+    // Measured beats remembered; a direct path that carries the session leads alone, the
+    // relay after the rest.
     paths.remember(Some(Via::Ssh));
     paths.pong(Via::Link, 3 * MS, 0);
-    assert_eq!(paths.dial_order(0), then_hub(vec![Via::Link, Via::Ssh]));
+    let mut measured = vec![Via::Link, Via::Ssh];
+    if Via::Hub.streams() {
+        measured.push(Via::Hub);
+    }
+    assert_eq!(paths.dial_order(0), measured);
 }
 
 #[test]
