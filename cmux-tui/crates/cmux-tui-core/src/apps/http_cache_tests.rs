@@ -64,7 +64,7 @@ fn secs(n: u64) -> Duration {
 
 /// A test clock ahead of the real one: a read lands at max(its `now`, the
 /// real clock), so a fetch's own few microseconds do not move the boundaries.
-fn start() -> Instant {
+fn test_clock() -> Instant {
     Instant::now() + secs(10)
 }
 
@@ -76,7 +76,7 @@ fn many_readers_at_once_make_one_request_and_share_its_body() {
     });
     let cache = Arc::new(HttpCache::default());
     let start = Arc::new(Barrier::new(8));
-    let t0 = start();
+    let t0 = test_clock();
     let readers: Vec<_> = (0..8)
         .map(|_| {
             let (fetcher, cache, start) = (fetcher.clone(), cache.clone(), start.clone());
@@ -101,7 +101,7 @@ fn many_readers_at_once_make_one_request_and_share_its_body() {
 fn the_floor_holds_a_short_max_age_and_a_longer_one_is_honored() {
     let fetcher = Scripted::new(vec![ok("1", &[("Cache-Control", "public, max-age=10")])]);
     let cache = HttpCache::default();
-    let t0 = start();
+    let t0 = test_clock();
     let first = cache.get(&fetcher, request(), t0).unwrap();
     assert_eq!((first.hit, first.fresh_for), (false, FLOOR));
     assert!(cache.get(&fetcher, request(), t0 + secs(59)).unwrap().hit);
@@ -135,7 +135,7 @@ fn freshness_prefers_s_maxage_takes_off_age_and_is_bounded() {
 fn readers_get_the_kept_body_while_it_is_revalidated() {
     let fetcher = Scripted::new(vec![ok("old", &[]), ok("new", &[])]);
     let cache = HttpCache::default();
-    let t0 = start();
+    let t0 = test_clock();
     cache.get(&fetcher, request(), t0).unwrap();
     // Another reader's revalidation is in flight: this one is answered at once with the old body.
     cache.entries.lock().unwrap().get_mut(URL).unwrap().inflight = true;
@@ -157,7 +157,7 @@ fn a_failed_revalidation_serves_the_kept_body_and_is_tried_once_per_floor() {
         ok("back", &[]),
     ]);
     let cache = HttpCache::default();
-    let t0 = start();
+    let t0 = test_clock();
     cache.get(&fetcher, request(), t0).unwrap();
     let failed = cache.get(&fetcher, request(), t0 + secs(61)).unwrap();
     assert_eq!((failed.response.body.as_str(), failed.stale), ("good", true));
@@ -201,7 +201,7 @@ fn the_failure_floor_counts_from_when_a_slow_fetch_ended() {
 fn a_cold_failure_is_the_answer_and_is_remembered_for_the_floor() {
     let fetcher = Scripted::new(vec![status(404)]);
     let cache = HttpCache::default();
-    let t0 = start();
+    let t0 = test_clock();
     assert_eq!(cache.get(&fetcher, request(), t0).unwrap().response.status, 404);
     assert_eq!(cache.get(&fetcher, request(), t0 + secs(30)).unwrap().response.status, 404);
     assert_eq!(fetcher.count(), 1);
@@ -214,7 +214,7 @@ fn bodies_over_the_cap_are_refused_and_not_kept() {
     let big = "x".repeat(MAX_BODY + 1);
     let fetcher = Scripted::new(vec![ok(&big, &[])]);
     let cache = HttpCache::default();
-    let t0 = start();
+    let t0 = test_clock();
     assert_eq!(cache.get(&fetcher, request(), t0).unwrap_err().code, "app.limit");
     assert_eq!(cache.get(&fetcher, request(), t0 + secs(10)).unwrap_err().code, "app.limit");
     assert_eq!(fetcher.count(), 1);
@@ -239,7 +239,7 @@ fn revalidation_is_conditional_and_a_304_keeps_the_body() {
         }),
     ]);
     let cache = HttpCache::default();
-    let t0 = start();
+    let t0 = test_clock();
     let first = cache.get(&fetcher, request(), t0).unwrap();
     assert!(first.response.headers.iter().all(|(k, _)| k != "Set-Cookie"));
     let again = cache.get(&fetcher, request(), t0 + secs(61)).unwrap();
@@ -257,7 +257,7 @@ fn revalidation_is_conditional_and_a_304_keeps_the_body() {
 fn nothing_is_fetched_without_a_reader_and_unread_urls_are_dropped() {
     let fetcher = Scripted::new(vec![ok("1", &[])]);
     let cache = HttpCache::default();
-    let t0 = start();
+    let t0 = test_clock();
     cache.get(&fetcher, request(), t0).unwrap();
     // No timer, no thread: with nobody reading, the cache sends nothing however long it waits.
     thread::sleep(Duration::from_millis(50));
@@ -272,7 +272,7 @@ fn nothing_is_fetched_without_a_reader_and_unread_urls_are_dropped() {
 fn the_cache_is_bounded_by_url_count() {
     let fetcher = Scripted::new(vec![ok("1", &[])]);
     let cache = HttpCache::default();
-    let t0 = start();
+    let t0 = test_clock();
     for i in 0..(MAX_ENTRIES + 10) {
         let url = format!("https://api.example.com/{i}");
         cache
@@ -316,7 +316,7 @@ fn a_fetcher_that_panics_does_not_leave_the_url_in_flight() {
         }
     }
     let cache = HttpCache::default();
-    let t0 = start();
+    let t0 = test_clock();
     assert_eq!(cache.get(&Panics, request(), t0).unwrap_err().code, "operation.failed");
     assert!(!cache.entries.lock().unwrap()[URL].inflight);
     // After the failure's floor a working fetcher answers at once.
@@ -336,7 +336,7 @@ fn a_remembered_failure_keeps_only_a_short_body_and_its_time() {
         body: page,
     })]);
     let cache = HttpCache::default();
-    let t0 = start();
+    let t0 = test_clock();
     cache.get(&fetcher, request(), t0).unwrap();
     let again = cache.get(&fetcher, request(), t0 + secs(5)).unwrap();
     assert_eq!(again.response.status, 404);
