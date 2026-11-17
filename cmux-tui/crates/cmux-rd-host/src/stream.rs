@@ -19,7 +19,6 @@ use cmux_rd_core::pacer::Pacer;
 use cmux_rd_core::policy::Principal;
 use cmux_rd_core::session::{SessionId, SessionTable};
 use cmux_rd_engine::{Encoded, EngineConfig, MediaEngine, Output};
-use cmux_rd_proto::{flags, DatagramHeader, DatagramKind};
 use cmux_rd_proto::{flags, DatagramHeader};
 use std::collections::VecDeque;
 
@@ -106,6 +105,15 @@ fn carrier_send_queue_busy(carrier: &dyn Carrier) -> bool {
     carrier
         .media_queue_stats()
         .is_some_and(|stats| stats.queue_frames != 0 || stats.queue_datagrams != 0)
+}
+
+fn encoded_frame_waits_for_queues(
+    carrier: &dyn Carrier,
+    pacer: Option<&Pacer>,
+    send_newest_after_outage: bool,
+) -> bool {
+    !send_newest_after_outage
+        && (pacer.is_some_and(|pacer| !pacer.is_empty()) || carrier_send_queue_busy(carrier))
 }
 
 fn frame_is_droppable(datagrams: &[Vec<u8>]) -> bool {
@@ -514,9 +522,11 @@ impl MediaSession {
         // equivalent queue for paced carriers.  Leave the encoder result in
         // its one-slot completion channel until that queue drains instead of
         // turning queue pressure into an acknowledgement-shaped backlog.
-        if self.pacer.as_ref().is_some_and(|pacer| !pacer.is_empty())
-            || (carrier_send_queue_busy(carrier) && !self.send_newest_after_outage)
-        {
+        if encoded_frame_waits_for_queues(
+            carrier,
+            self.pacer.as_ref(),
+            self.send_newest_after_outage,
+        ) {
             return Ok(());
         }
         let Some(Done { req, result }) = self.encoder.take_done()? else { return Ok(()) };
@@ -610,13 +620,8 @@ impl MediaSession {
             self.engine.datagram_sent(datagram, departed_us);
         });
         if out.outage_ended.is_some() {
-            // Datagrams released after a radio hold belong to frames that are already stale.
-            // Drop the paced backlog and let the next encoded frame replace the link's waiting
-            // frame once, even when the bounded queue still reports one frame in flight.
-            if let Some(pacer) = self.pacer.as_mut() {
-                pacer.clear();
-            }
-            self.paced_logs.clear();
+            // The outage owner retires stale paced datagrams. Let one freshly encoded frame
+            // replace a waiting link frame instead of holding it behind queue depth.
             self.send_newest_after_outage = true;
         }
         self.upstreams.deliver(&out.upstream);
@@ -722,20 +727,6 @@ impl MediaSession {
                 .map(|s| s.dropped_rejected_protected_frames),
             queue_dropped_rejected_protected_datagrams: queue
                 .map(|s| s.dropped_rejected_protected_datagrams),
-            queue_frames: queue.map(|stats| stats.queue_frames),
-            queue_datagrams: queue.map(|stats| stats.queue_datagrams),
-            queue_dropped_frames: queue.map(|stats| stats.dropped_frames),
-            queue_dropped_datagrams: queue.map(|stats| stats.dropped_datagrams),
-            queue_dropped_replaced_frames: queue.map(|stats| stats.dropped_replaced_frames),
-            queue_dropped_replaced_datagrams: queue.map(|stats| stats.dropped_replaced_datagrams),
-            queue_dropped_evicted_for_protected_frames: queue
-                .map(|stats| stats.dropped_evicted_for_protected_frames),
-            queue_dropped_evicted_for_protected_datagrams: queue
-                .map(|stats| stats.dropped_evicted_for_protected_datagrams),
-            queue_dropped_rejected_protected_frames: queue
-                .map(|stats| stats.dropped_rejected_protected_frames),
-            queue_dropped_rejected_protected_datagrams: queue
-                .map(|stats| stats.dropped_rejected_protected_datagrams),
         };
         let _ = carrier.send_control(&stats);
     }
@@ -997,7 +988,8 @@ mod encode_off_loop_tests {
             }),
             ready,
         };
-        assert!(carrier_send_queue_busy(&carrier));
+        assert!(encoded_frame_waits_for_queues(&carrier, None, false));
+        assert!(!encoded_frame_waits_for_queues(&carrier, None, true));
     }
 
     #[test]
