@@ -43,11 +43,23 @@ export function besideMask(surfaces: readonly StackSurface[], width: number): Be
     // A surface's gutters run down to the next surface's top: the next one (the card under the
     // tray) covers its own sides from there.
     const end = next ? Math.min(next.top, surface.bottom) : surface.bottom;
-    add(solid, 0, surface.top, surface.left, end - surface.top);
-    add(solid, surface.right, surface.top, width - surface.right, end - surface.top);
     // A surface tucked under the one above it (the tray's foot under the card's top edge) keeps
-    // that one's sides: its corner room reaches only to where the surface above begins.
+    // that one's sides: until its foot, the gutters stay outside it too, and the corner room reaches
+    // only to where it begins. A tray wider than the card hides the rows under its foot as well.
     const tucked = previous && previous.bottom > surface.top ? previous : undefined;
+    const foot = tucked ? Math.min(tucked.bottom, end) : surface.top;
+    if (tucked) {
+      add(solid, 0, surface.top, Math.min(surface.left, tucked.left), foot - surface.top);
+      add(
+        solid,
+        Math.max(surface.right, tucked.right),
+        surface.top,
+        width - Math.max(surface.right, tucked.right),
+        foot - surface.top,
+      );
+    }
+    add(solid, 0, foot, surface.left, end - foot);
+    add(solid, surface.right, foot, width - surface.right, end - foot);
     const leftRoom = tucked ? Math.max(0, tucked.left - surface.left) : Infinity;
     const rightRoom = tucked ? Math.max(0, surface.right - tucked.right) : Infinity;
     const r = surface.radiusLeft;

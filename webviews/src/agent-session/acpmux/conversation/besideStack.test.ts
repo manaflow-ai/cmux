@@ -33,3 +33,16 @@ test("no surface, or one with no box, keeps nothing beside it", () => {
   expect(besideMask([], 700)).toBeUndefined();
   expect(besideMask([{ ...card, bottom: card.top }], 700)).toBeUndefined();
 });
+
+test("a tray wider than the card keeps the rows under its foot hidden: the card's gutters start outside it", () => {
+  const tray = { left: 8, top: 420, right: 692, bottom: 472, radiusLeft: 12, radiusRight: 12 };
+  const mask = besideMask([tray, card], 700)!;
+  const pieces = mask.sizes.split(", ").map((size, at) => `${mask.positions.split(", ")[at]} ${size}`);
+  // Beside the tray's foot (460 to 472), only the room outside the tray; under it, the card's gutters.
+  expect(pieces).toContain("0px 460px 8px 12px");
+  expect(pieces).toContain("692px 460px 8px 12px");
+  expect(pieces).toContain("0px 472px 16px 84px");
+  expect(pieces).toContain("684px 472px 16px 84px");
+  // No piece reaches into the tray's foot.
+  expect(pieces).not.toContain("0px 460px 16px 96px");
+});

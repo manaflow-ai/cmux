@@ -4258,8 +4258,12 @@ button.cv-video-frames__frame:focus-visible {
    2026-11-14: "the commands from a terminal command 'Ran' should be the same font"). The opened Shell
    block keeps the code font. */
 .cv-command__line {
-  font: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
   font-style: normal;
+  /* The row's own line box, so a large text size never lets the line out of its row. */
+  line-height: calc(var(--cv-font-size) * 20 / 14);
 }
 .cv-command__meta {
   display: flex;
