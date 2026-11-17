@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """The Actions artifact pruner deletes only expired-by-rule build artifacts, never a release run's."""
 import datetime as dt
+import io
 import re
 from pathlib import Path
 import sys
@@ -140,7 +141,9 @@ class Prune(unittest.TestCase):
 
     def test_the_rules_cover_every_build_package_upload(self):
         names = prune.rules()
-        self.assertEqual(len([n for n in names if n.startswith("cmux-tui-")]), 5)
+        self.assertEqual(len([n for n in names if n.startswith("cmux-tui-")]), 8)
+        self.assertTrue(set(prune.run_drop_names()) <= set(names))
+        self.assertEqual({names[name] for name in prune.run_drop_names()}, {prune.BUILD_DAYS})
         self.assertEqual(len([n for n in names if n.startswith("gallery-stage-")]), 0)
         workflow = (ROOT / ".github/workflows/cmux-tui-build-package.yml")
         if workflow.exists():
@@ -160,6 +163,41 @@ class RunAPI:
 
     def delete(self, artifact_id):
         self.deleted.append(artifact_id)
+
+
+class RateLimitedRunAPI(RunAPI):
+    """Fail one API call with SlowDown and record calls made after the refusal."""
+
+    def __init__(self, artifacts, fail_at):
+        super().__init__(artifacts)
+        self.calls = 0
+        self.fail_at = fail_at
+        self.refused = False
+        self.operations = []
+
+    def _call(self, operation):
+        self.calls += 1
+        if self.calls == self.fail_at:
+            self.refused = True
+            self.operations.append((operation, "refused"))
+            raise prune.SlowDown(f"{operation}: HTTP 403")
+        if self.refused:
+            self.operations.append((operation, "after-refusal"))
+        else:
+            self.operations.append((operation, "ok"))
+
+    def run_artifacts(self, run_id):
+        self._call("GET /actions/runs/9/artifacts")
+        return super().run_artifacts(run_id)
+
+    def delete(self, artifact_id):
+        self._call(f"DELETE /actions/artifacts/{artifact_id}")
+        super().delete(artifact_id)
+
+
+class NonLimitRunAPI(RunAPI):
+    def run_artifacts(self, run_id):
+        raise urllib.error.HTTPError("u", 500, "Server Error", {}, None)
 
 
 class DropRun(unittest.TestCase):
@@ -190,6 +228,31 @@ class DropRun(unittest.TestCase):
         summary = prune.drop_run(api, 9, delete=True)
         self.assertTrue(summary["capped"])
         self.assertEqual(summary["deleted"], 0)
+
+    def test_every_rate_limited_run_call_stops_cleanly_without_later_deletes(self):
+        artifacts = [
+            art(1, "cmux-tui-aarch64-apple-darwin", 0, run=9, size=3),
+            art(2, "cmux-tui-aarch64-unknown-linux-musl", 0, run=9, size=2),
+            art(3, "cmux-tui-x86_64-apple-darwin", 0, run=9, size=1),
+        ]
+        for fail_at in range(1, len(artifacts) + 2):
+            with self.subTest(fail_at=fail_at):
+                api = RateLimitedRunAPI(artifacts, fail_at)
+                with mock.patch.object(prune, "GitHub", return_value=api), \
+                     mock.patch.dict("os.environ", {"GITHUB_TOKEN": "test"}, clear=False), \
+                     mock.patch.object(prune.time, "sleep"), \
+                     mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                    self.assertEqual(prune.main(["--repo", "o/r", "--run-id", "9", "--delete"]), 0)
+                self.assertIn("stopped on the API limit", stdout.getvalue())
+                self.assertEqual([op for op, result in api.operations if result == "after-refusal"], [])
+                self.assertEqual(api.deleted, [a["id"] for a in artifacts][:max(0, fail_at - 2)])
+
+    def test_a_non_limit_http_error_from_the_run_read_is_not_quiet(self):
+        api = NonLimitRunAPI([])
+        with mock.patch.object(prune, "GitHub", return_value=api), \
+             mock.patch.dict("os.environ", {"GITHUB_TOKEN": "test"}, clear=False):
+            with self.assertRaises(urllib.error.HTTPError):
+                prune.main(["--repo", "o/r", "--run-id", "9", "--delete"])
 
     def test_the_dropped_names_are_what_the_build_package_uploads(self):
         text = (ROOT / ".github/workflows/cmux-tui-build-package.yml").read_text()
