@@ -331,6 +331,12 @@ a {
 :where(.selectable) {
   cursor: auto;
 }
+/* Its descendants take that by inheritance, except a label: the user agent sheet gives every label
+   the arrow (`label { cursor: default }`), so a field's label in selectable text inherits instead
+   (a choice's label keeps the arrow from the clickable rule below, which comes later). */
+:where(.selectable label) {
+  cursor: inherit;
+}
 
 /* Fields always select and show the text cursor. Two rules, not one list: jsdom scores a rule by
    its most specific selector, which would let `[contenteditable]:not(…)` beat the clickable inputs
