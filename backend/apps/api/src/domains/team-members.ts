@@ -19,7 +19,7 @@ export const TABLE_HOST_BY_INSTALL = "host_by_install"
  */
 export const TABLE_HOST_SPACE = "host_space"
 /** Rows subscribers never get in event effects: clients page members, hosts and audit records (team-audit-rows.ts) with reads. */
-export const TEAM_PRIVATE_TABLES: ReadonlyArray<string> = [TABLE_MEMBER, TABLE_HOST, TABLE_HOST_BY_INSTALL, TABLE_HOST_SPACE, "audit", "group", "group_member", "group_item", "group_ws", "member_authority"]
+export const TEAM_PRIVATE_TABLES: ReadonlyArray<string> = [TABLE_MEMBER, TABLE_HOST, TABLE_HOST_BY_INSTALL, TABLE_HOST_SPACE, "audit", "group", "group_member", "group_item", "group_ws", "member_authority", "cloud_session", "cloud_recent", "cloud_follow", "cloud_follower", "cloud_viewer"]
 
 export type Member = typeof TeamMember.Type
 export type HostRecord = typeof Host.Type

@@ -12,7 +12,7 @@ extension CloudService {
     /// device flow.
     func gitHubApp() async -> CloudGitHubApp {
         let auth = auth, identity = installIdentity
-        let signedInTeam = auth.teamID
+        let signedInTeam = try? auth.accessTokenTeam(requested: nil) // the backend `team_…` id the route takes, never the Stack team id
         let baseURL = FeedService.apiBaseURL(auth: auth), buildSpace = auth.configuration.buildSpace
         let accessToken: @Sendable () async throws -> String = { try await auth.tokens().access }
         return await Self.firstAnswer(within: Self.gitHubAppDeadline, otherwise: .unknown) {

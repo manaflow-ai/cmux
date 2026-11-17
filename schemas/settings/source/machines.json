@@ -263,56 +263,6 @@
           }
         },
         {
-          "key": "cloud.useMyClaudeLoginOnMyCloudMachines",
-          "title": {
-            "key": "settings.cloud.useMyClaudeLogin",
-            "text": "Use My Claude Login on My Own Cloud Machines"
-          },
-          "help": {
-            "key": "settings.cloud.useMyClaudeLogin.help",
-            "text": "Copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. Never to team or shared machines, and cmux never stores it. Off: each machine offers Sign in to Claude instead."
-          },
-          "kind": "toggle",
-          "default": false,
-          "keywords": [
-            "cloud",
-            "claude",
-            "login",
-            "sign in",
-            "token",
-            "credential",
-            "machine",
-            "consent",
-            "copy"
-          ],
-          "swift_owner": "CloudLoginCopyConsentSetting"
-        },
-        {
-          "key": "cloud.useMyCodexLoginOnMyCloudMachines",
-          "title": {
-            "key": "settings.cloud.useMyCodexLogin",
-            "text": "Use My Codex Login on My Own Cloud Machines"
-          },
-          "help": {
-            "key": "settings.cloud.useMyCodexLogin.help",
-            "text": "Gives Cloud machines you own short-lived access from the Codex sign-in on this Mac, so their chats start signed in. The machine never gets your refresh token, and cmux never stores it. Off: a machine asks for a Codex sign-in instead."
-          },
-          "kind": "toggle",
-          "default": false,
-          "keywords": [
-            "cloud",
-            "codex",
-            "chatgpt",
-            "login",
-            "sign in",
-            "token",
-            "credential",
-            "machine",
-            "consent"
-          ],
-          "swift_owner": "CloudCodexSignInConsentSetting"
-        },
-        {
           "key": "cloud.agentsStartWithoutAsking",
           "title": {
             "key": "settings.cloud.agentsStartWithoutAsking",

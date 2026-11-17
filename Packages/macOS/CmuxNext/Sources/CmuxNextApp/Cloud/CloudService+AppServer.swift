@@ -112,16 +112,6 @@ extension CloudService {
         }
     }
 
-    /// Saves a new environment (`cloud.environment.set`) for the New Cloud Workspace dialog; its id.
-    func appServerSaveEnvironment(_ new: CloudWorkspaceSetupWizard.NewEnvironment) async throws -> String {
-        let args: JSONValue = .object(["name": .string(new.name), "repo": .string(new.repo.spec), "setup_script": .string(new.setupScript)])
-        let answer = try await appOps("cloud.environment.set", args, UUID().uuidString, .user)
-        guard let id = answer["environment"]?["id"]?.stringValue else {
-            throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "cloud.environment.set answered no environment")
-        }
-        return id
-    }
-
     /// The approval-aware flow every person-confirmed app-server op runs through; `run` sends each
     /// call, and `team` is the team its approvals are answered for. A create's `creation` shown on its
     /// window's progress page asks there; anything else asks in a sheet or the sidebar's card.
