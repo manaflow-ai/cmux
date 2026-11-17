@@ -12,12 +12,18 @@ below `<Chromium profile>/Service Worker/CacheStorage`, closes the workspace and
 Run 2: start the app again. Before a tab of that profile opens, it runs `browserProfile.clearBrowsingData` with
 only the cache option, first for the last hour (Cache Storage must stay), then for all time (Cache Storage must
 go, and no moved-aside `.cleared-` directory may stay). The clear is not part of the action's answer, so the
-script waits for the sign of the first clear: the profile's HTTP cache directories go for each range. Then it
-opens the page again and records the page's report, the requests the server saw, and that the directory is back.
+script waits for the sign of the first clear: the cache directories of the profile (`Cache`, `GPUCache` and
+three more) go for each range. If none of them is there at the second start, the script makes an empty
+`GPUCache` there first, and the JSON says so. Then it opens the page again and records the page's report, the
+requests the server saw, and that the directory is back.
+
+The script takes a Cache Storage directory only below the tagged app's own directory in Application Support
+(its name ends with the tag). Of each other app it lists only the names of the profile directories.
 
 What stays on the Mac: the profile's record in the tagged app's state (the action that deletes a profile is for
-a person only, so no script can run it) and the first workspace of the tag's layout. The script removes the
-profile's directory after the quit.
+a person only, so no script can run it) and the first workspace of the tag's layout. After the quit the script
+removes the profile's directory, but only a `Profile-*` directory of the tagged app that was not there before
+run 1; if that test does not hold, the directory stays and the JSON says so.
 
 Usage: clear-cache-look.py --tag TAG --app PATH/TO/App.app [--out DIR] [--json FILE]
 Exit 0 when every check holds, 1 when one does not, 2 when the app, the page or the script itself failed,
@@ -30,6 +36,7 @@ import http.server
 import json
 import os
 import pwd
+import re
 import shutil
 import signal
 import socket
@@ -49,17 +56,19 @@ TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
+# The last part of a tagged build's bundle id, as scripts/reload.sh makes it from the tag.
+TAG_PART = re.sub(r"[^a-z0-9]+", ".", TAG.lower()).strip(".") or "agent"
 PROFILE = f"clear-cache-look-{os.getpid()}"
 CACHE_STORAGE = os.path.join("Service Worker", "CacheStorage")
 # The directories that the cache option removes for each range.
-HTTP_CACHES = ["Cache", "Code Cache", "GPUCache", "DawnGraphiteCache", "DawnWebGPUCache"]
+CACHE_DIRECTORIES = ["Cache", "Code Cache", "GPUCache", "DawnGraphiteCache", "DawnWebGPUCache"]
 MOVED_ASIDE = ".cleared-"
 # The write of a new profile's record to the daemon runs in the background, after `browserProfile.new` answers.
 # So an action that names the profile is tried again for this many seconds before its error stops the look
 # (also after a start: when the records are there is not known).
 RECORD_PATIENCE = 20
 LAUNCHED = []
-STATE = {"scratch": None, "profile_dir": None, "page_open": False, "stopping": False}
+STATE = {"scratch": None, "profile_dir": None, "profiles_before": None, "page_open": False, "stopping": False}
 app = None
 
 WORKER = """
@@ -232,19 +241,30 @@ def support_roots():
     return [os.path.join(home, "Library", "Application Support") for home in sorted(homes)]
 
 
+def of_tagged_app(profile_dir):
+    """True for `<Application Support>/<a name that ends with the tag>/Chromium/<profile_dir's name>`."""
+    chromium = os.path.dirname(profile_dir)
+    app_directory = os.path.basename(os.path.dirname(chromium))
+    return os.path.basename(chromium) == "Chromium" and app_directory.lower().endswith("." + TAG_PART)
+
+
+def profiles():
+    """The path of each Chromium profile directory of each app, in each Application Support (names only)."""
+    return {p for root in support_roots() for p in glob.glob(os.path.join(root, "*", "Chromium", "Profile-*"))}
+
+
 def stores():
-    """Each Cache Storage directory of a Chromium profile of this tag's app (of any app, if none names the tag)."""
-    found = [p for root in support_roots() for p in glob.glob(os.path.join(root, "*", "Chromium", "Profile-*", CACHE_STORAGE))]
-    tagged = [p for p in found if TAG.lower() in p.split(os.sep + "Chromium" + os.sep)[0].lower()]
-    return set(tagged or found)
+    """Each Cache Storage directory of a Chromium profile of the tagged app. That of another app is never taken."""
+    found = {os.path.join(p, CACHE_STORAGE) for p in profiles() if of_tagged_app(p)}
+    return {p for p in found if os.path.isdir(p)}
 
 
 def file_count(directory):
     return sum(len(files) for _, _, files in os.walk(directory))
 
 
-def http_caches(profile_dir):
-    return [name for name in HTTP_CACHES if os.path.isdir(os.path.join(profile_dir, name))]
+def cache_directories(profile_dir):
+    return [name for name in CACHE_DIRECTORIES if os.path.isdir(os.path.join(profile_dir, name))]
 
 
 def moved_aside(profile_dir):
@@ -300,6 +320,9 @@ def cleanup():
     try:
         subprocess.run([CLI, "server", "stop", "--session", f"cmux-app-{TAG}", "--end-terminals"],
                        env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    try:
         ps = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout
     except (OSError, subprocess.SubprocessError):
         ps = ""
@@ -312,12 +335,18 @@ def cleanup():
                 pass
     if os.path.exists(SOCKET):
         os.remove(SOCKET)
-    # The profile's record stays in the app's state: no script can delete a profile. Its directory is this run's.
+    # The profile's record stays in the app's state: no script can delete a profile. Its directory goes only
+    # when it is a `Profile-*` directory of the tagged app that was not there before run 1.
     profile_dir = STATE["profile_dir"]
-    if profile_dir and os.path.basename(profile_dir).startswith("Profile-") \
-            and os.path.basename(os.path.dirname(profile_dir)) == "Chromium":
-        shutil.rmtree(profile_dir, ignore_errors=True)
-        RESULT["profile_directory_removed"] = not os.path.exists(profile_dir)
+    if profile_dir:
+        own = (os.path.basename(profile_dir).startswith("Profile-") and of_tagged_app(profile_dir)
+               and STATE["profiles_before"] is not None and profile_dir not in STATE["profiles_before"])
+        if own:
+            shutil.rmtree(profile_dir, ignore_errors=True)
+            RESULT["profile_directory_removed"] = not os.path.exists(profile_dir)
+        else:
+            RESULT["profile_directory_removed"] = False
+            RESULT["profile_directory_kept"] = os.sep.join(profile_dir.split(os.sep)[-3:])
 
 
 RESULT = {"tag": TAG, "host": os.uname().nodename, "checks": {}, "pass": False}
@@ -375,6 +404,7 @@ def main():
     checks = RESULT["checks"]
 
     # Run 1: fill the profile's Cache Storage.
+    STATE["profiles_before"] = profiles()
     before = stores()
     launch()
     action("browserProfile.new", {"name": PROFILE})
@@ -402,15 +432,22 @@ def main():
     # A browser pane here can be a tab of the profile: then Chromium has the profile open and the clear
     # takes another path. The JSON says how many there are.
     kinds = [p.get("kind") for p in panes()]
-    caches = http_caches(profile_dir)
     RESULT["run2"] = {"files_at_start": survived, "pane_kinds_at_start": kinds,
-                      "browser_panes_at_start": kinds.count("browser"), "http_caches_at_start": caches}
+                      "browser_panes_at_start": kinds.count("browser"),
+                      "profile_entries_at_start": sorted(os.listdir(profile_dir)),
+                      "cache_directories_at_start": cache_directories(profile_dir)}
     if not survived:
         stop(1, "the Cache Storage directory has no files after the quit")
+    # The sign of the first clear needs one cache directory. If the engine made none here, the driver makes an
+    # empty one: the profile is not open now, and the clear moves each of the 5 names that is there.
+    planted = not cache_directories(profile_dir)
+    if planted:
+        os.makedirs(os.path.join(profile_dir, "GPUCache"))
+    RESULT["run2"]["cache_directory_planted"] = planted
     clear("hour")
-    # The clear runs after the action's answer. Its sign: the HTTP caches that were there are gone, and then
-    # no moved-aside directory stays (the delete starts after the last move). Only then is Cache Storage read.
-    ran = bool(caches) and wait(lambda: not http_caches(profile_dir), 20) and wait(lambda: not moved_aside(profile_dir), 30)
+    # The clear runs after the action's answer. Its sign: the cache directories are gone, and then no
+    # moved-aside directory stays (the delete starts after the last move). Only then is Cache Storage read.
+    ran = wait(lambda: not cache_directories(profile_dir), 20) and wait(lambda: not moved_aside(profile_dir), 30)
     checks["the_last_hour_clear_ran"] = bool(ran)
     checks["the_last_hour_keeps_cache_storage"] = os.path.isdir(store) and file_count(store) > 0
     clear("all")
@@ -443,7 +480,7 @@ def main():
 
 
 if __name__ == "__main__":
-    signal.signal(signal.SIGTERM, lambda *_: stop(143, "terminated"))
+    signal.signal(signal.SIGTERM, lambda *_: None if STATE["stopping"] else stop(143, "terminated"))
     try:
         main()
     except KeyboardInterrupt:
