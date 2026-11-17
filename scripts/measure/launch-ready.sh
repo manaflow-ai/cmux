@@ -21,6 +21,9 @@
 #                window shows (1 to 600; 60 for "a launch after a 60 s full run"), then quits as the measured ones do.
 #                The time before main differs by case: 30 to 80 ms when launches follow each other closely, 600 to 1170
 #                ms when about 60 s have passed since a full run began. Default prerun=0: launches back to back.
+#   machines=N   before every launch after the priming one, each side's sidebar snapshot gets N Cloud machine sections
+#                with no workspaces (0 to 200; default 0), as a person signed in to Cloud with N machines quits with
+#                (launch-ready-machines.py, LR-MACHINES). A fleet Mac has no Cloud sign-in, so its own quits save none.
 #   copy=fresh   each measured launch is the first exec of a new copy: just before it, the side's copy is deleted and
 #                copied again from the DMG's (new files at the same path, the same code signature), as an update in
 #                place leaves it. The home stays. Default copy=same: every launch runs the one copy.
@@ -38,7 +41,7 @@ set -uo pipefail
 
 main() {
   cd "$(dirname "$0")/../.." || exit 3
-  local out="$PWD/.build/launch-ready" dmg=nightly base="" headsha="" runs=5 profile=0 session=small prerun=0 copy=same arg rc=0 i side
+  local out="$PWD/.build/launch-ready" dmg=nightly base="" headsha="" runs=5 profile=0 session=small prerun=0 copy=same machines=0 arg rc=0 i side
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
   # Each side's control socket (SIDE.sock). A socket path must fit sun_path (104 bytes with its NUL), and on a fleet
   # worker "$out/home-SIDE/app.sock" is 112: the app bound no socket there and stress3's seed never got an answer.
@@ -55,10 +58,12 @@ main() {
       session=small|session=stress3) session="${arg#session=}" ;;
       prerun=*) prerun="${arg#prerun=}" ;;
       copy=same|copy=fresh) copy="${arg#copy=}" ;;
+      machines=*) machines="${arg#machines=}" ;;
       *) echo "unknown argument: $arg" >&2; exit 2 ;;
     esac
   done
   [[ "$runs" =~ ^([1-9]|10)$ ]] || { echo "runs= must be 1 to 10" >&2; exit 2; }
+  [[ "$machines" =~ ^[0-9]+$ && "$machines" -le 200 ]] || { echo "machines= takes 0 to 200" >&2; exit 2; }
   [[ "$prerun" =~ ^[0-9]+$ && "$prerun" -le 600 ]] || { echo "prerun= takes 0 to 600 seconds" >&2; exit 2; }
   [[ -z "$base" || ( "$dmg" == build && "$base" =~ ^[0-9a-f]{40}$ ) ]] || { echo "base= takes a 40-hex commit, with dmg=build" >&2; exit 2; }
   [[ -z "$headsha" || ( "$dmg" == build && "$headsha" =~ ^[0-9a-f]{40}$ ) ]] || { echo "head= takes a 40-hex commit, with dmg=build" >&2; exit 2; }
@@ -68,9 +73,10 @@ main() {
     || { echo "LR probe build failed"; cat "$out/swiftc.log"; exit 3; }
   cp scripts/measure/launch-ready-profile.py "$out/profile.py"
   cp scripts/measure/launch-ready-seed.py "$out/seed.py"
+  cp scripts/measure/launch-ready-machines.py "$out/machines.py"
   cp scripts/measure/launch-ready-defaults.py "$out/defaults.py"
   cp scripts/ci/fresh_home_launch_smoke.py "$out/fresh_home_launch_smoke.py"
-  echo "LR session $session prerun $prerun copy $copy"
+  echo "LR session $session prerun $prerun copy $copy machines $machines"
   local sides=(head)
   if [[ "$dmg" == build ]]; then
     # nightly-fresh-launch.sh's build_dmg, without running its main. From a file: macOS's bash 3.2 sources nothing
@@ -184,6 +190,10 @@ probe() {
   trace="$out/$side-$label.trace" # its own line: bash 3.2 expands a `local` line's words before it assigns any
   app="$(find "$out/$side" -maxdepth 1 -name '*.app' | head -1)"
   mkdir -p "$out/home-$side" && chmod 0777 "$out/home-$side"
+  if [[ "${machines:-0}" != 0 && "$label" != prime ]]; then
+    python3 -I "$out/machines.py" "$out/home-$side" "$machines" | sed "s/^LR-MACHINES /LR-MACHINES $side $label /"
+    [[ "${PIPESTATUS[0]}" == 0 ]] || { echo "LR-FAIL $side $label no sidebar snapshot to seed machines into"; return 1; }
+  fi
   quiesce "$app" "$side" "$label"
   side_defaults "$out" load "$app" "$out/home-$side/defaults.plist" \
     || { echo "LR-FAIL $side $label defaults not loaded"; return 1; }
