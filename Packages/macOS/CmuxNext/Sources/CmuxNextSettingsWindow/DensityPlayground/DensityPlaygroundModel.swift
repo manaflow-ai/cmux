@@ -97,7 +97,7 @@ public final class DensityPlaygroundModel {
     public func rename(_ name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         // The field shows ``name(_:)`` (a built-in's display name): leaving it as shown changes nothing.
-        guard !trimmed.isEmpty, trimmed != draft.name, trimmed != name(draft) else { return }
+        guard !trimmed.isEmpty, trimmed != draft.name, trimmed != self.name(draft) else { return }
         if draft.isBuiltIn {
             duplicate(name: trimmed)
             return
