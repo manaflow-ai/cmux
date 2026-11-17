@@ -450,6 +450,7 @@ pub(super) fn layout_undo_confirmation_details(
         )
         .into());
     }
+    super::layout_undo::keep_hidden_quick_terminal(screen, entry)?;
     anyhow::ensure!(!entry.created_panes.is_empty(), "layout undo does not require confirmation");
 
     let mut hasher = Sha256::new();

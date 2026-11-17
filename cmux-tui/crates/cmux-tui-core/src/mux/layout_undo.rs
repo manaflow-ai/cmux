@@ -1,6 +1,27 @@
 //! Layout undo: undo with confirmation tokens, including the resource-effect path.
 
 use super::*;
+use crate::model::LayoutUndoEntry;
+
+/// An undo that closes the panes of `entry` does not close a hidden quick
+/// terminal (`quick-terminal-v1`): the user does not see that pane, so a
+/// confirmation of its close is no decision about it. The undo is stale
+/// while the quick terminal is hidden. After a show it asks for its
+/// confirmation as before. Each read of an entry that closes panes checks
+/// this: the previews, and the commit under the state lock.
+pub(super) fn keep_hidden_quick_terminal(
+    screen: &Screen,
+    entry: &LayoutUndoEntry,
+) -> Result<(), LayoutUndoError> {
+    match screen.quick_terminal() {
+        Some((pane, mark)) if mark.hidden && entry.created_panes.contains(&pane) => {
+            Err(LayoutUndoError::Stale(format!(
+                "layout undo would close the quick terminal {pane}, which is hidden"
+            )))
+        }
+        _ => Ok(()),
+    }
+}
 
 impl Mux {
     /// Forget the layout-undo history of `pane`'s screen: its layout was
@@ -53,6 +74,7 @@ impl Mux {
                 ))
                 .into());
             }
+            keep_hidden_quick_terminal(screen, entry)?;
             for created in &entry.created_panes {
                 if !state.panes.contains_key(created) {
                     return Err(LayoutUndoError::Stale(format!(
@@ -159,6 +181,7 @@ impl Mux {
                     )
                     .into());
                 }
+                keep_hidden_quick_terminal(screen, &entry)?;
                 entry
             };
             if let Some(expected) = expected_revision
@@ -288,6 +311,7 @@ impl Mux {
                     )
                     .into());
                 }
+                keep_hidden_quick_terminal(screen, &entry)?;
                 entry
             };
             let mut remaining_history =
