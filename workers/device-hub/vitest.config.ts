@@ -10,11 +10,26 @@ async function testKey(): Promise<string> {
 export const TEST_STACK_PROJECT = "test-project";
 export const TEST_STACK_DEV_PROJECT = "test-dev-project";
 
+// cmux-platform's TurnMinter entrypoint (wrangler.toml's TURN_MINTER binding names
+// cmux-platform-production), as the platform answers while it has no TURN key: [].
+// Every paid-session test therefore gets the hub's own mint through the fallback;
+// test/turn.test.ts covers a platform that answers.
+const TURN_MINTER_KEYLESS = `
+import { WorkerEntrypoint } from "cloudflare:workers";
+export class TurnMinter extends WorkerEntrypoint {
+  ice() {
+    return [];
+  }
+}
+export default { fetch: () => new Response(null, { status: 404 }) };
+`;
+
 export default defineConfig({
   plugins: [
     cloudflareTest({
       wrangler: { configPath: "./wrangler.toml" },
       miniflare: {
+        workers: [{ name: "cmux-platform-production", modules: true, script: TURN_MINTER_KEYLESS, compatibilityDate: "2026-09-01" }],
         bindings: {
           SESSION_KEY: await testKey(),
           TICKET_KEY: await testKey(),
