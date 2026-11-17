@@ -203,15 +203,20 @@ public struct CloudGitHubPicker {
     public let identity: MacInstallIdentity
     let connects: CloudGitHubConnects
 
+    /// How long the picker waits for this launch's first install bind (a bound install answers at once).
+    static let bindWait: Duration = .seconds(8)
+
     public init(auth: CloudAuth, identity: MacInstallIdentity, connects: CloudGitHubConnects = CloudGitHubConnects()) {
         (self.auth, self.identity, self.connects) = (auth, identity, connects)
     }
 
     /// The client and the team of the install token's `team` claim: the team `CloudService.appServerCreate` makes a
     /// Cloud start's machine in, the active team or not (the active team can be another one, and with none the
-    /// picker still has this team). Nil signed out, or when the token names no team.
+    /// picker still has this team). Nil signed out, or when the token names no team. Right after launch the restored
+    /// sign-in may not have bound the install yet: the token waits up to ``bindWait`` for it, as the credential relay's.
     func owner() async -> (client: CloudOwnerAPIClient, team: String)? {
-        guard auth.isSignedIn, let token = try? await identity.installToken(), let team = MacInstallIdentity.team(ofToken: token) else { return nil }
+        guard auth.isSignedIn, let token = try? await identity.installToken(awaitingBind: Self.bindWait),
+              let team = MacInstallIdentity.team(ofToken: token) else { return nil }
         let auth = auth
         let access: CloudOwnerAPIClient.AccessToken = { try await auth.tokens().access }
         return (CloudOwnerAPIClient(baseURL: auth.configuration.ownerAPIBaseURL(), accessToken: access, teamID: { team }), team)
