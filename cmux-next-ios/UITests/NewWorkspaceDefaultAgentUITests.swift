@@ -12,60 +12,81 @@ final class NewWorkspaceDefaultAgentUITests: XCTestCase {
 
     @MainActor
     func testPlainTapOpensAnAgentChat() {
-        let app = launch()
-        tapNewWorkspace(app)
-        expectPage(app, chat: true, "a plain tap opens the new workspace on an agent chat")
-        attach(app, "1-plain-tap-agent-chat")
+        for look in Self.looks {
+            let app = launch(look: look)
+            tapNewWorkspace(app)
+            expectPage(app, chat: true, "\(look): a plain tap opens the new workspace on an agent chat")
+            attach(app, "1-plain-tap-agent-chat-\(look)")
+            app.terminate()
+        }
     }
 
     @MainActor
     func testMenuStillMakesATerminalWorkspace() {
-        let app = launch()
+        for look in Self.looks { menuTerminal(look) }
+    }
+
+    @MainActor
+    private func menuTerminal(_ look: String) {
+        let app = launch(look: look)
         let new = app.descendants(matching: .any)["workspaces.new"].firstMatch
         XCTAssertTrue(new.waitForExistence(timeout: 30), "New Workspace button\n\(app.debugDescription)")
         new.press(forDuration: 1.0)
         let terminal = app.descendants(matching: .any)["workspaces.newTerminal"].firstMatch
         XCTAssertTrue(terminal.waitForExistence(timeout: 5), "New Terminal Workspace in the menu\n\(app.debugDescription)")
-        attach(app, "2-menu-terminal-item")
+        attach(app, "2-menu-terminal-item-\(look)")
         terminal.tap()
-        expectPage(app, chat: false, "New Terminal Workspace opens the new workspace on a terminal")
-        attach(app, "3-menu-terminal-workspace")
+        expectPage(app, chat: false, "\(look): New Terminal Workspace opens the new workspace on a terminal")
+        attach(app, "3-menu-terminal-workspace-\(look)")
+        app.terminate()
     }
 
     @MainActor
     func testPlainTapIsATerminalWhenTheMacStartsNoAgents() {
-        let app = launch(["-cmux-mobile-no-agents"])
-        tapNewWorkspace(app)
-        expectPage(app, chat: false, "with no agents a plain tap still opens a terminal")
-        attach(app, "4-no-agents-terminal")
+        for look in Self.looks {
+            let app = launch(["-cmux-mobile-no-agents"], look: look)
+            tapNewWorkspace(app)
+            expectPage(app, chat: false, "\(look): with no agents a plain tap still opens a terminal")
+            attach(app, "4-no-agents-terminal-\(look)")
+            app.terminate()
+        }
     }
 
     /// The Mac refuses the chat (here: its folder is no longer open there): the refusal shows
     /// in its words and the placeholder row goes, so the list is back as it was.
     @MainActor
     func testRefusedChatSaysWhyAndLeavesNoRow() {
-        let app = launch(["-cmux-mobile-refuse-next-create"])
-        tapNewWorkspace(app)
-        let why = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Agent chats start in a folder")).firstMatch
-        XCTAssertTrue(why.waitForExistence(timeout: 20), "the refusal is shown\n\(app.debugDescription)")
-        attach(app, "5-refused-toast")
-        let placeholder = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'workspace.row.new-'")).firstMatch
-        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: placeholder)
-        XCTAssertEqual(XCTWaiter().wait(for: [gone], timeout: 15), .completed, "the refused placeholder row is removed\n\(app.debugDescription)")
-        attach(app, "6-refused-list")
+        for look in Self.looks { refused(look) }
     }
 
     @MainActor
-    private func launch(_ extra: [String] = []) -> XCUIApplication {
+    private func refused(_ look: String) {
+        let app = launch(["-cmux-mobile-refuse-next-create"], look: look)
+        tapNewWorkspace(app)
+        let why = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Agent chats start in a folder")).firstMatch
+        XCTAssertTrue(why.waitForExistence(timeout: 20), "the refusal is shown\n\(app.debugDescription)")
+        attach(app, "5-refused-toast-\(look)")
+        let placeholder = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'workspace.row.new-'")).firstMatch
+        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: placeholder)
+        XCTAssertEqual(XCTWaiter().wait(for: [gone], timeout: 15), .completed, "the refused placeholder row is removed\n\(app.debugDescription)")
+        attach(app, "6-refused-list-\(look)")
+        app.terminate()
+    }
+
+    /// Every case in both looks (the app's own Appearance setting, as a launch default).
+    private static let looks = ["light", "dark"]
+
+    @MainActor
+    private func launch(_ extra: [String] = [], look: String) -> XCUIApplication {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
-        app.launchArguments += ["-cmux-mobile-tab", "workspaces", "-cmux-mobile-no-restore"] + extra
+        app.launchArguments += ["-cmux-mobile-tab", "workspaces", "-cmux-mobile-no-restore", "-cmuxMobile.settings.appearance", look] + extra
         app.launch()
         let choose = app.scrollViews["setup.teams.choose"]
         if choose.waitForExistence(timeout: 10) { app.buttons["Manaflow"].tap() }
         XCTAssertTrue(app.buttons["workspace.row.ws-cmux"].waitForExistence(timeout: 30), "workspace list\n\(app.debugDescription)")
-        attach(app, "0-list")
+        attach(app, "0-list-\(look)")
         return app
     }
 
