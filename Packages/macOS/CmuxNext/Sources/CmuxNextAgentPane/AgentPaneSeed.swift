@@ -32,6 +32,8 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
     /// The permission mode a new Cloud chat starts in (the person's pick in the composer before its
     /// first send); nil: the machine's own start mode. Only the caller's own Cloud VM applies it.
     public var mode: String?
+    /// The effort a new chat starts on with ``model`` (a Cloud start's picker); nil keeps the default.
+    public var effort: String?
     /// The requested destination for a new chat. The native handler consumes this before the
     /// page opens; retaining it in the seed keeps a destination-bearing seed from being treated
     /// as a folder-only New Tab replacement.
@@ -157,7 +159,7 @@ public final class AgentPaneSeedSource {
         guard let value else { return true }
         return value.draft == nil && value.prompt == nil && (value.promptAttachments?.isEmpty ?? true)
             && value.adopt == nil && value.surface == nil
-            && value.harness == nil && value.model == nil && value.mode == nil && value.host == nil && value.folderNeeded == nil && value.pastChat == nil && !value.showsHarnesses
+            && value.harness == nil && value.model == nil && value.mode == nil && value.effort == nil && value.host == nil && value.folderNeeded == nil && value.pastChat == nil && !value.showsHarnesses
             && !value.picksCloud && value.cloudStartHandoff == nil
     }
 
