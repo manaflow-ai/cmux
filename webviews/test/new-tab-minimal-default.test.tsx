@@ -112,14 +112,14 @@ test("Minimal is the default layout and the first dot; no other layout is gone",
   expect(PAGE_STYLES).toEqual(["minimal", "cards", "default", "threads", "console", "classic"]);
 });
 
-test("by default Minimal shows the composer and create buttons", async () => {
+test("by default Minimal shows the composer without fixed create buttons", async () => {
   const root = await render("minimal");
   try {
     expect(parts()).toEqual({
       minimal: true,
       stage: 0,
       projects: 0,
-      actions: 1,
+      actions: 0,
       chats: 0,
       strip: 1,
     });
@@ -138,7 +138,7 @@ test("an unset NewTabScreen template uses Minimal instead of the old Default sta
       minimal: true,
       stage: 0,
       projects: 0,
-      actions: 1,
+      actions: 0,
       chats: 0,
       strip: 1,
     });

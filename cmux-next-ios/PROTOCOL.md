@@ -787,8 +787,8 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   its own channel's tag, strips the SEI before decoding, and starts at its
   first keyframe; it never learns when the lane switched tabs otherwise.
 - `appearance` (`appearance-v1`, 2026-11-12): the Mac's theme and wallpaper. Since
-  2026-11-13 the phone takes only the accent and the terminal theme from it: its own
-  backgrounds stay the stock ones and it never fetches the picture. One JSON frame now and on every change, nothing before the
+  2026-11-13 the phone's chrome takes only the accent and the terminal theme from it: its
+  own backgrounds stay the stock ones. Since 2026-11-17 its agent chat takes `chat` (below). One JSON frame now and on every change, nothing before the
   Mac app sent its first one: `{"theme": {"background", "foreground", "palette": [8 or
   16 "#rrggbb"], "selection_background"?, "selection_foreground"?, "cursor"?, "accent",
   "accent_color"?, "background_opacity"}, "wallpaper": {"id", "bytes", "tint_opacity"} |
@@ -821,11 +821,20 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   number out of range, not `#rrggbb`, a family with a control character, `#`, `=` or `"`, or
   over 120 characters) while the rest and the theme still serve; a nested object with
   nothing valid is left out, and with nothing valid at all the frame has no `look`, the same
-  bytes an older Mac sends. The phone does not draw these yet.
+  bytes an older Mac sends. The phone does not draw these yet. Since 2026-11-17 a frame
+  may also carry `"chat"`, what the phone's agent chat shows, resolved by hostd
+  (`appearance.rs` `chat_look`): `{"background", "foreground", "background_opacity",
+  "wallpaper"?: the `wallpaper` id, "bubbles"?: look's `chat` colors}`. `background_opacity`
+  is how much of `background` covers the picture: the window's tint with a picture (the
+  Mac's `ThemeScope.shownWindowOpacity`), 1 without. A Mac at its defaults (Ghostty's
+  colors `#282c34`/`#ffffff`, no picture, no bubble colors) sends no `chat`, and the phone
+  keeps its stock chat. The phone draws it in the agent chat only while Match Mac theme is
+  on; the rest of its chrome stays stock.
 - `appearance-wallpaper` (`appearance-v1`): `{"id"}` streams that picture's bytes (a JPEG
   or PNG, at most 8 MB), then `eof`; `stale` when the Mac shows another one now,
   `not_found` when it shows none. Machines need the View grant for both. The phone
-  stopped reading this service on 2026-11-13.
+  stopped reading this service on 2026-11-13 and reads it again since 2026-11-17, only for
+  the picture a frame's `chat` names, once per id (size and SHA-256 checked, one kept).
 - `echo`: test service.
 - `version` (link protocol 2, added 2026-10-14): one data frame
   `{"hostd": "<version>", "link": 2}`, then `eof`. A host that refuses it

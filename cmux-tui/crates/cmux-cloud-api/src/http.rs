@@ -169,6 +169,8 @@ impl Http {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
+            // A black-holed SYN costs 1 s per address, then a new socket (`connect_retry`).
+            .connect_timeout(cmux_cloud_client::connect_retry::CONNECT_TIMEOUT)
             .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|e| Failure::Transport(e.to_string()))?;
@@ -240,7 +242,9 @@ impl Http {
                 .body(bytes::Bytes::from_owner(bytes)),
             None => builder,
         };
-        let response = match tokio::time::timeout(timeout, builder.send()).await {
+        // Sent again only when it did not connect: no byte of it reached the server.
+        let send = cmux_cloud_client::connect_retry::send(builder);
+        let response = match tokio::time::timeout(timeout, send).await {
             Err(_) => return Err(Failure::TimedOut(path.to_owned())),
             Ok(Err(e)) if e.is_timeout() => return Err(Failure::TimedOut(path.to_owned())),
             Ok(Err(e)) if self.local_only && e.is_connect() => return Err(Failure::NoBackend),
