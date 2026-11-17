@@ -14,7 +14,8 @@ LEDGER = {'schema': 'cmux.rd-stage-ledger/1', 'stages': []}
 class ParseTests(unittest.TestCase):
     def test_profiles(self):
         self.assertEqual(list(rdnl.PROFILES), ['clean', 'jitter-5', 'jitter-15-burst', 'jitter-30-loss2', 'stall',
-                                               'wifi-away', 'wifi-away-short', 'wifi-away-long', 'wifi-away-loss', 'wifi-gate'])
+                                               'wifi-away', 'wifi-away-short', 'wifi-away-long', 'wifi-away-loss', 'wifi-gate',
+                                               'wifi-short'])
         self.assertEqual(set(rdnl.PROFILES), set(rdnl.PROFILE_LABELS))
         self.assertEqual(rdnl.netem_args('jitter-5'), ['netem', 'delay', '5ms', '5ms', 'limit', '100000'])
         self.assertIn('gemodel', rdnl.netem_args('jitter-15-burst'))
@@ -118,6 +119,14 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(rdnl.profile_holds('wifi-away-long', sched)[2], 0.0)
         self.assertEqual(rdnl.profile_holds('wifi-away-loss', sched), ([], 10.0, 2.0))
         self.assertEqual(rdnl.profile_holds('stall'), ([(5.0, 5.6)], 5.0, 0.0))
+        # wifi-short: wifi-gate's short holds and loss, each hold capped at 60 ms.
+        self.assertEqual(rdnl.profile_holds('wifi-gate', sched), ([(0.5, 0.75), (1.5, 1.625)], 10.0, 2.0))
+        holds, period, loss = rdnl.profile_holds('wifi-short', sched)
+        self.assertEqual((period, loss), (10.0, 2.0))
+        self.assertEqual([(a, round(b - a, 6)) for a, b in holds], [(0.5, 0.06), (1.5, 0.06)])
+        on_disk = rdnl.profile_holds('wifi-short')[0]
+        self.assertEqual(len(on_disk), len(rdnl.profile_holds('wifi-gate')[0]))
+        self.assertTrue(all(b - a <= 0.060 + 1e-9 for a, b in on_disk))
 
     def test_target_drawdown(self):
         d = rdnl.target_drawdown([8000, 20000, 40000, 30000, 10000, 20000, 40000, 50000])

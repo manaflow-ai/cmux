@@ -34,7 +34,9 @@ see it; jitter is netem's default distribution, which reorders packets):
                    every 0.53 s and long 300-580 ms holds at irregular gaps, from the seeded
                    wifi-away-holds.json (`rd-netem-linux.py holds [SEED [SECONDS]]` prints it).
                    Ablations: wifi-away-short, wifi-away-long, wifi-away-loss; wifi-gate (the gate profile,
-                   p50 <= 60 ms and p95 <= 100 ms) is the short holds plus the 2 % loss. Same `lo` topology;
+                   p50 <= 60 ms and p95 <= 100 ms) is the short holds plus the 2 % loss; wifi-short is
+                   wifi-gate with every hold capped at 60 ms (its holds alone floor wifi-gate's p95 at
+                   ~95 ms, so a 100 ms p95 is reported on wifi-short beside it). Same `lo` topology;
                    passive then key session; reports the target's largest fall and its recovery,
                    gate wait, and the share of key samples over 50 ms. Opt-in (--profile).
 
@@ -94,11 +96,16 @@ PROFILES = {
     "wifi-away-loss": "delay 4ms loss random 2%",
     # The screen-share gate profile (p50 <= 60 ms, p95 <= 100 ms): wifi-away-short plus wifi-away-loss.
     "wifi-gate": "delay 4ms loss random 2%",
+    # wifi-gate with every hold capped at WIFI_SHORT_CAP_S: holds over ~60 ms alone push a press past
+    # 100 ms on a ~33 ms pipeline, so a p95 <= 100 ms target is reported here beside wifi-gate.
+    "wifi-short": "delay 4ms loss random 2%",
 }
+WIFI_SHORT_CAP_S = 0.060
 STALL_PERIOD_S, STALL_HOLD_S = 5.0, 0.6
 # Profiles that run host and viewer in the host namespace over its own `lo` (one qdisc, each
 # direction crosses it once), with HoldDriver applying their holds.
-LO_PROFILES = ("stall", "wifi-away", "wifi-away-short", "wifi-away-long", "wifi-away-loss", "wifi-gate")
+LO_PROFILES = ("stall", "wifi-away", "wifi-away-short", "wifi-away-long", "wifi-away-loss", "wifi-gate",
+               "wifi-short")
 WIFI_AWAY_SEED, WIFI_AWAY_SECONDS = 7, 120.0
 HOLDS_FILE = Path(__file__).with_name("wifi-away-holds.json")
 # Extra `cmux-rd host` flags for every host this run starts (--host-arg, e.g. an encode profile).
@@ -123,6 +130,7 @@ PROFILE_LABELS = {
     "wifi-away-long": "Wi-Fi away: long holds only",
     "wifi-away-loss": "Wi-Fi away: 2% loss only",
     "wifi-gate": "Wi-Fi gate: short holds + 2% loss",
+    "wifi-short": "Wi-Fi gate, holds capped at 60 ms",
 }
 
 
@@ -366,9 +374,11 @@ def profile_holds(profile: str, schedule: dict | None = None) -> tuple[list[tupl
         return [(k * STALL_PERIOD_S, k * STALL_PERIOD_S + STALL_HOLD_S) for k in range(1, 2)], STALL_PERIOD_S, 0.0
     schedule = schedule or json.loads(HOLDS_FILE.read_text())
     pick = {"wifi-away": ("short", "long"), "wifi-away-short": ("short",), "wifi-away-long": ("long",),
-            "wifi-away-loss": (), "wifi-gate": ("short",)}[profile]
-    loss = schedule["loss_pct"] if profile in ("wifi-away", "wifi-away-loss", "wifi-gate") else 0.0
-    return merge_holds([h for kind in pick for h in schedule[kind]]), schedule["seconds"], loss
+            "wifi-away-loss": (), "wifi-gate": ("short",), "wifi-short": ("short",)}[profile]
+    loss = schedule["loss_pct"] if profile in ("wifi-away", "wifi-away-loss", "wifi-gate", "wifi-short") else 0.0
+    cap = WIFI_SHORT_CAP_S if profile == "wifi-short" else math.inf
+    pairs = [(a, min(length, cap)) for kind in pick for a, length in schedule[kind]]
+    return merge_holds(pairs), schedule["seconds"], loss
 
 
 def target_drawdown(target: list) -> dict:
@@ -734,9 +744,16 @@ def ensure_deps():
     missing = missing_deps()
     if not missing:
         return
+    install = ["apt-get", "install", "-y", "-qq", "--no-install-recommends"]
     run(priv(["apt-get", "update", "-qq"]), check=False)
-    done = run(priv(["apt-get", "install", "-y", "-qq", "--no-install-recommends", *missing]), check=False)
+    done = run(priv([*install, *missing]), check=False)
     still = missing_deps()
+    if still:
+        # A stale mirror index 404s on a package file: refresh once more and skip what still 404s
+        # (--fix-missing), so one bad mirror on a fleet worker does not kill the run.
+        run(priv(["apt-get", "update", "-qq"]), check=False)
+        done = run(priv([*install, "--fix-missing", *still]), check=False)
+        still = missing_deps()
     if still:
         raise SystemExit(f"rd-netem-linux: apt-get could not install {' '.join(still)} "
                          f"(exit {done.returncode}): {done.stderr.strip()[-600:]}")
