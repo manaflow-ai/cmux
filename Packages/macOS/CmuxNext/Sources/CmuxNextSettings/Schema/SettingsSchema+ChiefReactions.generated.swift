@@ -27,7 +27,7 @@ nonisolated enum ChiefReactionSettingsSchema {
                 section: .home,
                 group: group,
                 title: SettingsText.keyed("settings.chief.reactionsCanWake", "Reactions Can Wake the Chief"),
-                help: SettingsText.keyed("settings.chief.reactionsCanWake.help", "A reaction you put on a Chief message can start a turn when it asks for one, such as a question mark on a question or a thumbs down on a plan. A cheap model decides first, so a reaction that needs no answer never shows the typing dots. Off, reactions are only noted."),
+                help: SettingsText.keyed("settings.chief.reactionsCanWake.help", "A reaction on a Chief message can start a turn, such as ? on a question."),
                 kind: .toggle,
                 default: .bool(ChiefReactionSettings.canWakeDefault),
                 keywords: ["chief", "reaction", "tapback", "wake", "classifier", "turn", "typing"]
@@ -37,7 +37,7 @@ nonisolated enum ChiefReactionSettingsSchema {
                 section: .home,
                 group: group,
                 title: SettingsText.keyed("settings.chief.reactionClassifier.harness", "Reaction Classifier Harness"),
-                help: SettingsText.keyed("settings.chief.reactionClassifier.harness.help", "The agent harness the reaction classifier runs on, for example claude or codex. Empty uses the Chief's Claude route."),
+                help: SettingsText.keyed("settings.chief.reactionClassifier.harness.help", "The agent that reads reactions, such as claude or codex. Empty uses the Chief's."),
                 kind: .text,
                 default: .string(ChiefReactionSettings.harnessDefault),
                 keywords: ["chief", "reaction", "tapback", "wake", "classifier", "turn", "typing", "harness"]
@@ -47,7 +47,7 @@ nonisolated enum ChiefReactionSettingsSchema {
                 section: .home,
                 group: group,
                 title: SettingsText.keyed("settings.chief.reactionClassifier.model", "Reaction Classifier Model"),
-                help: SettingsText.keyed("settings.chief.reactionClassifier.model.help", "The model that decides whether a reaction starts a turn. Claude Haiku by default: it is fast and cheap."),
+                help: SettingsText.keyed("settings.chief.reactionClassifier.model.help", "The model that decides whether a reaction starts a turn."),
                 kind: .text,
                 default: .string(ChiefReactionSettings.modelDefault),
                 keywords: ["chief", "reaction", "tapback", "wake", "classifier", "turn", "typing", "model", "haiku"]
