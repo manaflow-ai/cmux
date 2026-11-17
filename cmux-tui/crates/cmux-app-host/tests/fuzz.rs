@@ -890,7 +890,7 @@ mod apps {
             ("deep nesting", format!("{{\"t\":\"settings\",\"values\":{deep}}}\n").into_bytes()),
             ("before init", b"{\"t\":\"mount\",\"mount\":\"m\",\"export\":\"render\"}\n".to_vec()),
             ("init twice", format!("{ok}\n{ok}\n").into_bytes()),
-            ("no newline at the end", ok.clone().into_bytes()),
+            ("no newline at the end", ok.into_bytes()),
             ("nul bytes", b"\0\0\0\n".to_vec()),
             ("oversized", {
                 let mut v = b"{\"t\":\"log\",\"x\":\"".to_vec();
