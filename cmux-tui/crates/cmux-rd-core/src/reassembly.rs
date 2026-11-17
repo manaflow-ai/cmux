@@ -69,6 +69,10 @@ struct Pending {
     /// a retry sent before the first repair could arrive does not make the
     /// round trip look shorter (and the next retry earlier, and so on).
     first_requested_us: Vec<Option<u64>>,
+    /// When each missing data shard was first seen missing (a higher index
+    /// of this frame arrived): its reorder grace counts from then, so a shard
+    /// overtaken in a burst is not requested the moment the gap shows.
+    gap_seen_us: Vec<Option<u64>>,
     flags: u8,
     count: u16,
     shard_len: Option<usize>,
@@ -353,6 +357,7 @@ impl Reassembler {
             last_nack_us: None,
             requested: vec![0; usize::from(header.count)],
             first_requested_us: vec![None; usize::from(header.count)],
+            gap_seen_us: vec![None; usize::from(header.count)],
             flags: header.flags,
             count: header.count,
             shard_len: None,
@@ -377,6 +382,17 @@ impl Reassembler {
                 self.repair_rtt.sample(now_us.saturating_sub(nacked_at));
             }
             entry.last_seen_us = now_us;
+            // Data shards this arrival skipped over are gaps from now on. Those
+            // under the previous highest index were marked when it arrived.
+            let index = usize::from(header.index);
+            let from = if entry.held == 0 { 0 } else { usize::from(entry.highest_index) + 1 };
+            for j in from..index.min(usize::from(entry.count)) {
+                if entry.shards.get(j).is_some_and(Option::is_none)
+                    && let Some(seen) = entry.gap_seen_us.get_mut(j)
+                {
+                    seen.get_or_insert(now_us);
+                }
+            }
             entry.highest_index = entry.highest_index.max(header.index);
             self.pending_bytes += payload.len();
             entry.held += payload.len();
@@ -446,13 +462,21 @@ impl Reassembler {
     fn first_request_at(p: &Pending, after_us: u64) -> Option<u64> {
         let observed = Self::observed_data(p);
         let unrequested = |i: usize| Self::missing_requests(p, i) == Some(0);
-        if (0..observed).any(unrequested) {
-            Some(p.first_seen_us.saturating_add(after_us))
-        } else if (observed..usize::from(p.count)).any(unrequested) {
-            Some(p.last_seen_us.saturating_add(after_us))
-        } else {
-            None
-        }
+        (0..observed)
+            .filter(|&i| unrequested(i))
+            .map(|i| Self::gap_due_at(p, i, after_us))
+            .min()
+            .or_else(|| {
+                (observed..usize::from(p.count))
+                    .any(unrequested)
+                    .then(|| p.last_seen_us.saturating_add(after_us))
+            })
+    }
+
+    /// When an observed gap at data shard `i` may first be requested: the
+    /// reorder grace after the gap was first seen.
+    fn gap_due_at(p: &Pending, i: usize, after_us: u64) -> u64 {
+        p.gap_seen_us.get(i).copied().flatten().unwrap_or(p.first_seen_us).saturating_add(after_us)
     }
 
     /// When a request is retried: one retry interval after the last NACK,
@@ -498,15 +522,17 @@ impl Reassembler {
             })
             .take(MAX_NACK_FRAMES)
             .filter_map(|(&frame, p)| {
-                let end = if now_us >= p.last_seen_us.saturating_add(t.nack_after_us) {
-                    usize::from(p.count)
-                } else {
-                    Self::observed_data(p)
-                };
+                let observed = Self::observed_data(p);
+                let tail_due = now_us >= p.last_seen_us.saturating_add(t.nack_after_us);
                 let retry_due = Self::retry_at(p, &t).is_some_and(|at| now_us >= at);
                 let indexes: Vec<u16> = (0..usize::from(p.count))
                     .filter(|&i| match Self::missing_requests(p, i) {
-                        Some(0) => i < end,
+                        // An observed gap once its own grace passed; the unseen
+                        // tail once arrivals stopped for the grace.
+                        Some(0) if i < observed => {
+                            now_us >= Self::gap_due_at(p, i, t.nack_after_us)
+                        }
+                        Some(0) => tail_due,
                         Some(_) => retry_due,
                         None => false,
                     })
