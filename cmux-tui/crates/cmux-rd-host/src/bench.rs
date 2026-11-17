@@ -158,7 +158,97 @@ impl ViewerIo {
     }
 }
 
+/// Diagnostics (not for merge): the viewer's NACKs and the repairs that came back,
+/// split by whether the frame started before the last long silence (an arrival
+/// gap of at least [`Diag::LONG_SILENCE_NS`], a long Wi-Fi hold) and the request
+/// or repair came within [`Diag::AFTER_NS`] after it ended.
+#[derive(Default)]
+struct Diag {
+    last_arrival_ns: u64,
+    silence_start_ns: u64,
+    silence_end_ns: u64,
+    long_silences: u64,
+    frame_first_ns: std::collections::BTreeMap<u32, u64>,
+    nacked: std::collections::HashSet<(u32, u16)>,
+    nack_shards: u64,
+    nack_shards_unique: u64,
+    nack_shards_stale: u64,
+    repairs_rx: u64,
+    repairs_rx_bytes: u64,
+    repairs_rx_stale: u64,
+}
+
+impl Diag {
+    const LONG_SILENCE_NS: u64 = 200_000_000;
+    const AFTER_NS: u64 = 1_000_000_000;
+
+    fn stale(&self, frame: u32, now: u64) -> bool {
+        self.silence_end_ns != 0
+            && now.saturating_sub(self.silence_end_ns) <= Self::AFTER_NS
+            && self.frame_first_ns.get(&frame).is_some_and(|&at| at <= self.silence_start_ns)
+    }
+
+    fn on_media(&mut self, frame: u32, index: u16, len: usize, now: u64) {
+        if self.last_arrival_ns != 0
+            && now.saturating_sub(self.last_arrival_ns) >= Self::LONG_SILENCE_NS
+        {
+            self.silence_start_ns = self.last_arrival_ns;
+            self.silence_end_ns = now;
+            self.long_silences += 1;
+        }
+        self.last_arrival_ns = now;
+        self.frame_first_ns.entry(frame).or_insert(now);
+        while self.frame_first_ns.len() > 2048 {
+            self.frame_first_ns.pop_first();
+        }
+        if self.nacked.remove(&(frame, index)) {
+            self.repairs_rx += 1;
+            self.repairs_rx_bytes += len as u64;
+            if self.stale(frame, now) {
+                self.repairs_rx_stale += 1;
+            }
+        }
+    }
+
+    fn on_nacks(&mut self, nacks: &[cmux_rd_proto::Nack], now: u64) {
+        for n in nacks {
+            let stale = self.stale(n.frame, now);
+            for &i in &n.indexes {
+                self.nack_shards += 1;
+                if self.nacked.insert((n.frame, i)) {
+                    self.nack_shards_unique += 1;
+                }
+                if stale {
+                    self.nack_shards_stale += 1;
+                }
+            }
+        }
+        if self.nacked.len() > 8192 {
+            let oldest = self.frame_first_ns.keys().next().copied().unwrap_or(0);
+            self.nacked.retain(|(f, _)| *f >= oldest);
+        }
+    }
+
+    fn json(&self, losses: &[cmux_rd_core::reassembly::FrameLoss]) -> serde_json::Value {
+        use cmux_rd_core::reassembly::FrameLoss;
+        let incomplete =
+            losses.iter().filter(|l| matches!(l, FrameLoss::Incomplete { .. })).count();
+        json!({
+            "long_silences": self.long_silences,
+            "nack_shards": self.nack_shards,
+            "nack_shards_unique": self.nack_shards_unique,
+            "nack_shards_stale": self.nack_shards_stale,
+            "repairs_rx": self.repairs_rx,
+            "repairs_rx_bytes": self.repairs_rx_bytes,
+            "repairs_rx_stale": self.repairs_rx_stale,
+            "give_ups": incomplete,
+            "broken_references": losses.len() - incomplete,
+        })
+    }
+}
+
 struct Viewer {
+    diag: Diag,
     io: ViewerIo,
     reassembler: Reassembler,
     decoder: Decoder,
@@ -264,6 +354,7 @@ impl Viewer {
         let Ok((h, payload)) = DatagramHeader::decode(d) else { return };
         match h.kind {
             DatagramKind::Video | DatagramKind::Fec => {
+                self.diag.on_media(h.frame, h.index, d.len(), now);
                 self.bytes += d.len() as u64;
                 self.arrivals.push(Arrival {
                     transport_seq: h.transport_seq,
@@ -519,6 +610,7 @@ impl Viewer {
             return Ok(());
         }
         let nacks = self.reassembler.take_nacks(now / 1000, 5_000, 50_000);
+        self.diag.on_nacks(&nacks, now);
         let mut sorted = self.decode_ms.iter().rev().take(30).copied().collect::<Vec<_>>();
         sorted.sort_by(f64::total_cmp);
         // Arrivals beyond one message go in extra feedback messages first.
@@ -733,6 +825,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         (ViewerIo::Socket { tcp, reader: FrameReader::default(), udp }, udp_port)
     };
     let mut v = Viewer {
+        diag: Diag::default(),
         io,
         reassembler: Reassembler::new(opts.num_or("deadline-ms", 200u64)? * 1000),
         decoder: Decoder::new()?,
@@ -971,6 +1064,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         "host_stats_last": v.stats.last(),
         "upstream": upstream_report,
         "ended": v.ended,
+        "diag": v.diag.json(&v.reassembler.take_losses()),
     });
     println!("{report}");
     write_snapshot(opts, &v)?;
