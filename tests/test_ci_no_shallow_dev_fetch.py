@@ -85,6 +85,8 @@ OWN_REPOSITORY = {
     "scripts/measure/tab-switch.sh":
         "require_submodule_refs fetches only into its own `git init --bare` probe under the step's temp directory",
     "scripts/measure/screen-stream-eval/rd-netem-linux.py": "build fetches each commit into a fresh `git init` temp directory",
+    "cmux-tui/scripts/sync_bench.py":
+        "fetch_repo and build_here fetch only into repositories they `git init` under the bench root",
     "webviews/src/agent-session/acpmux/session-info/commandRules.ts":
         "runs no git: it names a shown command line in words, and lists `git clone`'s --depth as a flag to skip",
 }

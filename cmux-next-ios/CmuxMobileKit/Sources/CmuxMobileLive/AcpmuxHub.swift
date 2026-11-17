@@ -140,7 +140,12 @@ public final class AcpmuxHub {
     public init() {}
 
     /// Binds a new `acpmux` channel (nil unbinds after a link drop).
-    public func bind(_ channel: (any LinkChannel)?, requestTimeout: Duration = .seconds(20)) async {
+    /// `gate`: a channel opened behind `auth` before its pairing finished. `initialize` and the first
+    /// page go out at once (the Mac holds them until pairing passes, so they ride beside its last
+    /// round trip), but nothing the Mac sends is applied, and no reply's timeout starts, until
+    /// `gate` says this phone's own check of the Mac passed; when it fails the channel just closes.
+    public func bind(_ channel: (any LinkChannel)?, requestTimeout: Duration = .seconds(20),
+                     until gate: (@Sendable () async -> Bool)? = nil) async {
         pumpTask?.cancel()
         restOfList?.cancel()
         restOfList = nil
@@ -155,11 +160,13 @@ public final class AcpmuxHub {
         fullAccess = false
         for source in liveSources { source.linkDown() }
         guard let channel else { return }
-        let connection = AcpmuxConnection(channel: channel)
+        let connection = AcpmuxConnection(channel: channel, held: gate != nil)
         self.connection = connection
         await connection.start()
         let notifications = connection.notifications
         pumpTask = Task { [weak self] in
+            // Notifications wait, bounded, in the connection until the pairing passed (`admit`).
+            if let gate, !(await gate()) { return }
             for await notification in notifications {
                 guard self?.connection === connection else { return }
                 self?.handle(notification)
@@ -174,17 +181,31 @@ public final class AcpmuxHub {
             for source in self.liveSources { source.linkDown() }
         }
         do {
-            let initialized = try await connection.request("initialize", .object([
+            // `initialize` and the first page go out together: acpmux answers a connection's
+            // requests in order and the page needs nothing from `initialize`, so the chat list is
+            // one round trip away, not two (ask-48f698fc26). The newest page only (CMUX-563): a
+            // Mac with hundreds of chats sent its whole list (megabytes) before the phone was
+            // ready. The rest is read after ready, below.
+            let initializeID = try await connection.submit("initialize", .object([
                 "protocolVersion": .number(1),
                 "clientInfo": .object(["name": .string("cmux-ios"), "version": .string("1")]),
                 "clientCapabilities": .object([:]),
             ]), timeout: requestTimeout)
+            let pageID = try await connection.submit("_acpmux/watch", Self.firstPageParams, timeout: requestTimeout)
+            if let gate, !(await gate()) {
+                // The pairing failed: nothing this Mac sent is applied, and nothing is said here
+                // (the pairing says why).
+                if self.connection === connection { self.connection = nil }
+                await connection.close()
+                return
+            }
+            await connection.admit()
+            let initialized = try await Self.reply(connection, initializeID, "initialize", timeout: requestTimeout)
             personInstance = initialized["_meta"]?["acpmux"]?["personInstance"]?.stringValue
             fullAccess = initialized["_meta"]?["acpmux"]?["fullAccess"] == .bool(true)
             capabilities = Set((initialized["_meta"]?["acpmux"]?["capabilities"]?.arrayValue ?? []).compactMap(\.stringValue))
-            // The newest page only (CMUX-563): a Mac with hundreds of chats sent its whole list
-            // (megabytes) before the phone was ready. The rest is read after ready, below.
-            let first = try await Self.firstPage(connection, timeout: requestTimeout)
+            let page = try await Self.reply(connection, pageID, "_acpmux/watch", timeout: requestTimeout)
+            let first = (rows: try AcpmuxConnection.pageRows(page), cursor: try AcpmuxConnection.nextCursor(page))
             guard !(await connection.isClosed), self.connection === connection else { return }
             let firstIDs = applyFirstPage(first.rows, whole: first.cursor == nil)
             let next = sessions

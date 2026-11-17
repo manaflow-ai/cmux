@@ -76,6 +76,7 @@ pub(super) use seed_pull::{
     Exported, SeedBase, SeedPulled, export_move_to, export_to,
     failure_code as seed_pull_failure_code, is_sha, seed_pull, still_as_recorded,
 };
+pub(crate) mod estimate;
 pub(crate) mod size_cap;
 pub(crate) mod skips;
 mod store;
@@ -1114,6 +1115,15 @@ fn push_inner(
     // A chat's copy stops at its limits before it sends anything, unless `--allow-large` said so.
     let cap = (rules == local::Rules::Copy && !size_cap::allowed(&local)).then(size_cap::Cap::new);
     let mut set = local::collect(&local, rules, cap)?;
+    // A fresh chat copy that would take longer than the start's budget on this link goes as a
+    // first pass too, as its start said before any machine (estimate.rs). A re-push (a base is
+    // kept for the machine folder) never does: it would delete what a whole copy left there.
+    if head_links.is_none()
+        && !base::kept(&local, remote_root)
+        && let Some(estimate) = estimate::for_copy(&local, &mut set)
+    {
+        eprintln!("{}", json!({ "estimate": estimate.json() }));
+    }
     let before = set.files.len();
     let in_git = set.git;
     // A head link's file goes with it: the machine makes no link to nothing (`CLAUDE.md` to
@@ -1153,6 +1163,8 @@ fn push_inner(
     }
     set.skips.unnamed(set.skipped);
     stages.mark("list");
+    // The send's own time, for the link's rate (estimate.rs): everything after the listing.
+    let sending = std::time::Instant::now();
     let (skipped_files, skipped_counts) = set.skips.json();
     let mut summary =
         Summary { skipped: set.skips.total(), skipped_files, skipped_counts, ..Summary::default() };
@@ -1384,6 +1396,11 @@ fn push_inner(
     };
     let Tally { mut summary, mut next, .. } = tally;
     summary.store = store_part;
+    // A copy into a folder the machine had nothing of sent every byte it counted: its rate is the
+    // link's (a re-push spends most of its time on files it finds unchanged).
+    if previous.files.is_empty() {
+        estimate::record_rate(summary.bytes, sending.elapsed());
+    }
     // A link whose target is a link not made yet waits for the next pass;
     // passes go on while one makes something.
     let mut waiting: Vec<(&String, &Linked)> = set.links.iter().collect();
