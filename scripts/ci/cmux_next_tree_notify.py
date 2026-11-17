@@ -787,36 +787,38 @@ def sweep_pending(api: Api, repo: str, log: Callable[[str], None] = print,
     claimed: dict[int, dict] = {}
     deleted: dict[int, dict] = {}
     lost: set[int] = set()  # a 404: another sweep deleted it
-    for key in [key for key in records if key in attested]:
-        for artifact in records[key]:
-            if id(artifact) in claimed or id(artifact) in lost or id(artifact) in deleted:
-                continue
-            try:
-                status = api.delete(f"repos/{repo}/actions/artifacts/{artifact['id']}")
-            except (RuntimeError, OSError, ValueError) as error:
-                log(f"::warning::deleting pending record {artifact.get('id')} failed ({error}); its keys are "
-                    f"recorded again")
-                deleted[id(artifact)] = artifact
-                continue
-            if status in (200, 204):
-                claimed[id(artifact)] = artifact
-                deleted[id(artifact)] = artifact
-            elif status == 404:
-                lost.add(id(artifact))
-            else:
-                log(f"::warning::deleting pending record {artifact.get('id')} was refused (HTTP {status}); "
-                    f"it stays for a later sweep")
-    mine = [key for key in records if key in attested and all(id(a) in claimed for a in records[key])]
     done: set[str] = set()
 
     def unfinished() -> list[str]:
         return list(dict.fromkeys(key for artifact in deleted.values() for key in keys_of[id(artifact)]
                                   if key not in done))
-    if deleted and record is not None:
-        record(unfinished())
-    elif deleted:
-        log(f"::warning::no --pending-file: the claimed notifies {', '.join(unfinished())} are not recorded again")
+    # Inside the try: an error of any kind partway through the claim (a later DELETE's
+    # http.client.IncompleteRead, say) still records every record already deleted (finally).
     try:
+        for key in [key for key in records if key in attested]:
+            for artifact in records[key]:
+                if id(artifact) in claimed or id(artifact) in lost or id(artifact) in deleted:
+                    continue
+                try:
+                    status = api.delete(f"repos/{repo}/actions/artifacts/{artifact['id']}")
+                except (RuntimeError, OSError, ValueError) as error:
+                    log(f"::warning::deleting pending record {artifact.get('id')} failed ({error}); its keys are "
+                        f"recorded again")
+                    deleted[id(artifact)] = artifact
+                    continue
+                if status in (200, 204):
+                    claimed[id(artifact)] = artifact
+                    deleted[id(artifact)] = artifact
+                elif status == 404:
+                    lost.add(id(artifact))
+                else:
+                    log(f"::warning::deleting pending record {artifact.get('id')} was refused (HTTP {status}); "
+                        f"it stays for a later sweep")
+        mine = [key for key in records if key in attested and all(id(a) in claimed for a in records[key])]
+        if deleted and record is not None:
+            record(unfinished())
+        elif deleted:
+            log(f"::warning::no --pending-file: the claimed notifies {', '.join(unfinished())} are not recorded again")
         for key in records:
             if key not in attested:
                 continue
