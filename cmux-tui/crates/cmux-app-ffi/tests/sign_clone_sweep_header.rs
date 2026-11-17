@@ -13,13 +13,14 @@ fn sign_clone_sweep_header_compiles_and_is_exported() {
         &source,
         "#include <stddef.h>\n#include \"cmux_sign_clone_sweep.h\"\n\
          bool (*sweep)(uint64_t, uint32_t, CmuxSignCloneSweepReport *) = cmux_sign_clone_sweep;\n\
-         _Static_assert(sizeof(CmuxSignCloneSweepReport) == 32, \"size\");\n\
+         _Static_assert(sizeof(CmuxSignCloneSweepReport) == 40, \"size\");\n\
          _Static_assert(offsetof(CmuxSignCloneSweepReport, reclaimed_bytes) == 0, \"reclaimed\");\n\
          _Static_assert(offsetof(CmuxSignCloneSweepReport, free_space_delta_bytes) == 8, \"free\");\n\
          _Static_assert(offsetof(CmuxSignCloneSweepReport, removed) == 16, \"removed\");\n\
-         _Static_assert(offsetof(CmuxSignCloneSweepReport, kept_in_use) == 20, \"in use\");\n\
-         _Static_assert(offsetof(CmuxSignCloneSweepReport, kept_foreign) == 24, \"foreign\");\n\
-         _Static_assert(offsetof(CmuxSignCloneSweepReport, more) == 28, \"more\");\n",
+         _Static_assert(offsetof(CmuxSignCloneSweepReport, removed_superseded) == 20, \"superseded\");\n\
+         _Static_assert(offsetof(CmuxSignCloneSweepReport, kept_in_use) == 24, \"in use\");\n\
+         _Static_assert(offsetof(CmuxSignCloneSweepReport, kept_foreign) == 28, \"foreign\");\n\
+         _Static_assert(offsetof(CmuxSignCloneSweepReport, more) == 32, \"more\");\n",
     )
     .unwrap();
     let output = Command::new("cc")

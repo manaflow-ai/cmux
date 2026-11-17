@@ -1,0 +1,15 @@
+[package]
+name = "cmux-sign-clone-sweep"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Removes the Chromium code-sign clones that cmux apps left in the per-user temp folder: the app's idle pass (cmux-app-ffi) and `cmux sign-clones sweep` share it"
+
+[lints]
+workspace = true
+
+# confstr, statvfs, ffsctl's EBUSY and proc_pidinfo for this process (src/host.rs).
+[target.'cfg(target_os = "macos")'.dependencies]
+libc.workspace = true

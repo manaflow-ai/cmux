@@ -137,8 +137,8 @@ dependencies = [
  "cmux-palette-ranker",
  "cmux-rd-ffi",
  "cmux-sdk-ffi",
+ "cmux-sign-clone-sweep",
  "cmux-terminal-prediction",
- "libc",
 ]
 
 [[package]]
@@ -360,6 +360,13 @@ dependencies = [
  "cbindgen",
  "cmux-sdk",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-sign-clone-sweep"
+version = "0.1.0"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

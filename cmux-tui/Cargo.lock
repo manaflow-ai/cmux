@@ -2157,6 +2157,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-sign-clone-sweep"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "cmux-signed-bundle"
 version = "0.1.0"
 dependencies = [
@@ -2336,6 +2343,7 @@ dependencies = [
  "cmux-sdk",
  "cmux-server",
  "cmux-server-core",
+ "cmux-sign-clone-sweep",
  "cmux-terminal-client",
  "cmux-theme-tokens",
  "cmux-tui-cdp",
