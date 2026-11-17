@@ -489,7 +489,7 @@ final class TabCell {
         var closeRect: CGRect?
         if let x = visibility.closeButtonOriginX(pillWidth: bounds.width, metrics: m) {
             let side = m.closeButtonSize
-            closeRect = CGRect(x: pixel(x), y: pixel(midY - side / 2), width: side, height: side)
+            closeRect = placedCloseRect(CGRect(x: pixel(x), y: pixel(midY - side / 2), width: side, height: side), pillWidth: bounds.width)
         }
         var iconX = Self.iconX(form: visibility, pillWidth: bounds.width, metrics: m)
         // Lawrence 2026-10-20: "i should not see layout shift here at all". Hover shows or hides the
@@ -592,9 +592,7 @@ final class TabCell {
             // status holds the x's slot at rest, so the hovered x takes it with nothing else moving; an x shown at
             // rest (a narrow selected tab) keeps the status beside it.
             let statusSlot = hasStatusMark && item.isClosable && (closeRect == nil || visibility.closeReplacesStatus)
-                ? CGRect(x: pixel(bounds.width - m.contentTrailingInset - m.closeButtonSize), y: pixel(midY - m.closeButtonSize / 2),
-                         width: m.closeButtonSize, height: m.closeButtonSize)
-                : nil
+                ? statusSlotRect(pillWidth: bounds.width, midY: midY) : nil
             let visibleEnd = layoutTrailingMarks(titleX: titleX, titleEnd: titleEnd, midY: midY, onPath: onPath, statusSlot: statusSlot,
                                                  statusHidden: visibility.closeReplacesStatus,
                                                  animated: animatesCloseChange && !onPath && m.hoverCloseSwap != .instant)

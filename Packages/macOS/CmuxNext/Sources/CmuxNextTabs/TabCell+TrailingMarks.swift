@@ -113,6 +113,33 @@ extension TabCell {
         return placeStateMark(dot: dot, glyph: glyph, visible: true, onPath: onPath)
     }
 
+    /// Where the trailing status mark sits (`TabStripMetrics.statusMarkPlacement`, else the Debug tunable).
+    var statusMarkPlacement: TabStatusMarkPlacement { metrics.statusMarkPlacement ?? TabTunables.statusMarkPlacement.value }
+
+    /// The status slot's center in a pill `pillWidth` wide (ask-a8b97f1201, "the spacing is off"): the x's own
+    /// center, or the icon's center mirrored at the trailing end, never nearer the end than the x's.
+    func statusSlotMidX(pillWidth: CGFloat, placement: TabStatusMarkPlacement) -> CGFloat {
+        let m = metrics
+        let closeMidX = pillWidth - m.contentTrailingInset - m.closeButtonSize / 2
+        guard placement != .closeSlot else { return closeMidX }
+        return min(closeMidX, pillWidth - m.contentLeadingInset - m.iconSize / 2)
+    }
+
+    /// The status slot (the x's size) centered at ``statusSlotMidX(pillWidth:placement:)``.
+    func statusSlotRect(pillWidth: CGFloat, midY: CGFloat) -> CGRect {
+        let side = metrics.closeButtonSize
+        return CGRect(x: pixel(statusSlotMidX(pillWidth: pillWidth, placement: statusMarkPlacement) - side / 2),
+                      y: pixel(midY - side / 2), width: side, height: side)
+    }
+
+    /// The hovered x's rect: under `mirrorAll` it moves with the mark into the mirrored slot.
+    func placedCloseRect(_ rect: CGRect, pillWidth: CGFloat) -> CGRect {
+        guard statusMarkPlacement == .mirrorAll, visibility.showsTitle else { return rect }
+        var moved = rect
+        moved.origin.x = pixel(statusSlotMidX(pillWidth: pillWidth, placement: .mirrorAll) - rect.width / 2)
+        return moved
+    }
+
     /// The unread dot while the spinner holds its place: a small dot inside the ring (`dotInRing`), else none.
     private func placeCombinedDot(_ look: TabBusyUnreadMark, onPath: Bool) {
         guard look == .dotInRing, let spinner = spinnerLayer?.frame else { removeBadge(onPath: onPath); return }
