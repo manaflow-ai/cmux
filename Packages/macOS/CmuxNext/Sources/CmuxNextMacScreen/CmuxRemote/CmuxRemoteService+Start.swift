@@ -35,10 +35,7 @@ extension CmuxRemoteService {
             guard try await configuredAvailability() else { return nil }
             do {
                 let identity = try await devices.identity()
-                let client = DeviceHubClient(baseURL: url, identity: identity, tokens: DeviceHubAccountToken(tokens))
-                let hub = DeviceHub(client: client, socket: DeviceHubSocket(connector: RemotePushConnector(devices: devices)),
-                                    secrets: KeychainRelaySecretStore(bundleIdentifier: bundleID, loginKeychain: loginKeychain), deviceName: MacScreenShareHost.computerName,
-                                    renewIdentity: { try devices.blockingIdentity(renew: true) })
+                let hub = devices.makeHub(url: url, identity: identity, bundleID: bundleID, loginKeychain: loginKeychain, tokens: tokens)
                 remoteHub = hub
                 return hub
             } catch {
