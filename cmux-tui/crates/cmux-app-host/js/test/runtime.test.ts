@@ -200,6 +200,39 @@ describe("TextField text", () => {
     expect(textUpdates(host, field, before)).toEqual([""])
   })
 
+  test("a field bound to a computed is not sent a stale value on edit", () => {
+    const host = new FakeHost(
+      app(`
+      const [draft, setDraft] = signal("")
+      const shown = computed(() => draft())
+      return { render: () => TextField(shown, { onEdit: setDraft }) }`),
+    )
+    host.mount("m1", "render")
+    const field = host.findNode("m1", (n) => n.type === "TextField")!
+    const before = host.batches("m1").length
+    for (const text of ["a", "ab", "abc"]) host.dispatch("m1", field, "edit", { text })
+    expect(textUpdates(host, field, before)).toEqual([])
+  })
+
+  test("an async submit keeps the typed text until it settles, then the app's value shows", async () => {
+    const host = new FakeHost(
+      app(`
+      const [name, setName] = signal("old")
+      let finish
+      globalThis.finish = () => finish()
+      return { render: () => TextField(name, { onSubmit: () => new Promise((r) => { finish = () => { setName(""); r() } }) }) }`),
+    )
+    host.mount("m1", "render")
+    const field = host.findNode("m1", (n) => n.type === "TextField")!
+    const before = host.batches("m1").length
+    host.dispatch("m1", field, "submit", { text: "new" })
+    await host.settle()
+    expect(textUpdates(host, field, before)).toEqual([])
+    host.eval("finish()")
+    await host.settle()
+    expect(textUpdates(host, field, before)).toEqual([""])
+  })
+
   test("an app that changes the typed text sends its value back", () => {
     const host = new FakeHost(
       app(`
