@@ -9,7 +9,8 @@ replaced by the next one: nothing built or published, and feat-cmux-next stayed 
 
 The placement job of each new push or dispatch on the branch runs this. It cancels each older, unfinished run
 of the workflow on the same branch whose build job has not started on a runner (queued or pending), so the
-group keeps the newest run. A build that is running is never cancelled: an older build mid-compile finishes
+group keeps the newest run. A build already on a runner when its jobs are read is never cancelled (a runner
+taking it in the instant between that read and the cancel is the one gap): an older build mid-compile finishes
 and publishes its own tag, as before. Skipping an older release loses nothing, since the re-pin pins the
 newest published release.
 
@@ -36,11 +37,15 @@ Request = Callable[[str, str], Any]
 
 
 def waiting_build(jobs: Iterable[Mapping[str, Any]]) -> bool:
-    """Whether the run's build job exists and has not started on a runner."""
+    """Whether the run's build has not started on a runner.
+
+    An unfinished run with no build job yet is still in its own placement: GitHub creates the build only once
+    its `needs` end, and that build would then enter the group ahead of this run's and queue there.
+    """
     for job in jobs:
         if job.get("name") == BUILD_JOB_NAME:
             return job.get("status") in WAITING_STATUSES and not job.get("runner_name")
-    return False
+    return True
 
 
 def older_unfinished(runs: Iterable[Mapping[str, Any]], own_id: int, branch: str) -> list[int]:

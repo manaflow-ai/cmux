@@ -10,7 +10,7 @@
     "app-ffi-release.yml: The release exists with this run's archive": "baseline 2026-11-04",
     "app-ffi-release.yml: Pin the new release and open or update the pull request": "re-pin hold (publish-app-ffi-repin.sh): one release-runs list, one jobs read per pending newer run, and the held PR's commit, check runs and status: about 3 to 8 calls per run, on a feat-cmux-next FFI push",
     "app-ffi-release.yml: Replace an older build still waiting for a runner": "ffi_build_supersede.py: one runs list, one jobs read per older unfinished FFI run on the branch, one cancel per build not yet on a runner: about 1 to 3 calls per FFI push or dispatch",
-    "app-ffi-release.yml: Start the re-pin workflow when this re-pin failed":"one workflow dispatch, only when the re-pin job failed or timed out",
+    "app-ffi-release.yml: Start the re-pin workflow when this re-pin failed": "one workflow dispatch, only when the re-pin job failed or timed out",
     "app-ffi-repin.yml: Pin the newest published release and open or update the pull request": "re-pin hold (publish-app-ffi-repin.sh): one release-runs list, one jobs read per pending newer run, and the held PR's commit, check runs and status: about 3 to 8 calls per run, on a pin merge",
     "app-ffi-repin.yml: Start the re-pin workflow when this re-pin failed": "one workflow dispatch, only when a pushed re-pin failed or timed out (a dispatched run starts none)",
     "auto-resume-nightly-notarization.yml: Close deferred nightly failure incident": "baseline 2026-11-04",

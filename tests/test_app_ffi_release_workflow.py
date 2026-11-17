@@ -1382,6 +1382,12 @@ class WaitingBuildIsReplacedByTheNewestRun(unittest.TestCase):
         self.assertEqual(cancelled, [43978720557])
         self.assertIn(("POST", f"/repos/{REPO}/actions/runs/43978720557/cancel"), calls)
 
+    def test_an_older_run_still_placing_is_cancelled_before_its_build_takes_the_group(self):
+        # Two close pushes: the older run's build is not created until its placement ends.
+        placing = [{"name": "place the build", "status": "in_progress", "runner_name": "blacksmith-linux"}]
+        cancelled, _calls = self.play([self.run_(43979315440, "in_progress")], {43979315440: placing})
+        self.assertEqual(cancelled, [43979315440])
+
     def test_a_running_or_finished_build_is_never_cancelled(self):
         cancelled, calls = self.play(
             [self.run_(43978720557, "in_progress"), self.run_(43979315440, "in_progress")],
