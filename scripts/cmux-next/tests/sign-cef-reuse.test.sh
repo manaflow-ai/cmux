@@ -7,6 +7,9 @@
 # codesign, lipo and ditto are stubs (a signature is a sidecar holding the
 # signer, the code's hash and a time stamp that differs per signing), so this
 # runs on Linux too; the real codesign output fields are what the stub prints.
+# As on a real Mac (two nightly-next builds with one engine pin, 2026-11-17),
+# the framework seals its libraries' signed bytes, so a library's fresh time
+# stamp alone changes the framework's CDHash: the libraries are reused first.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 sign_cef="$here/../sign-cef.sh"
@@ -31,30 +34,38 @@ while (($#)); do
   esac
   shift
 done
-sig() { if [[ -d "$1" ]]; then echo "$1/_CodeSignature/sig"; else echo "$1.sig"; fi; }
+# A file's signature sits inside it (lines starting "#SIG "), as in a Mach-O; a
+# bundle's in _CodeSignature/sig.
+sig() { if [[ -d "$1" ]]; then cat "$1/_CodeSignature/sig" 2>/dev/null || true; else grep '^#SIG ' "$1" | cut -c6- || true; fi; }
+code() { grep -v '^#SIG ' "$1" || true; }
 content() {
   if [[ -d "$1" ]]; then
-    (cd "$1" && find . -type f ! -path './_CodeSignature/*' ! -name '*.sig' | LC_ALL=C sort | while read -r f; do
+    # Like CodeResources, a framework seals each library's whole file, its signature included.
+    (cd "$1" && find . -type f ! -path './_CodeSignature/*' | LC_ALL=C sort | while read -r f; do
       printf '%s %s\n' "$f" "$(sha256sum < "$f")"; done) | sha256sum | cut -c1-40
   else
-    sha256sum < "$1" | cut -c1-40
+    code "$1" | sha256sum | cut -c1-40
   fi
 }
 s="$(sig "$path")"
 case "$mode" in
   sign)
-    mkdir -p "$(dirname "$s")"
-    { echo "content=$(content "$path")"; echo "Authority=$identity"
-      if ((ts)); then echo "Timestamp=$RANDOM$RANDOM$RANDOM"; fi; } > "$s" ;;
+    new="$(echo "content=$(content "$path")"; echo "Authority=$identity"
+      if ((ts)); then echo "Timestamp=$RANDOM$RANDOM$RANDOM"; fi)"
+    if [[ -d "$path" ]]; then
+      mkdir -p "$path/_CodeSignature" && printf '%s\n' "$new" > "$path/_CodeSignature/sig"
+    else
+      { code "$path"; printf '%s\n' "$new" | sed 's/^/#SIG /'; } > "$path.tmp" && mv "$path.tmp" "$path"
+    fi ;;
   display)
-    [[ -f "$s" ]] || { echo "$path: code object is not signed at all" >&2; exit 1; }
+    [[ -n "$s" ]] || { echo "$path: code object is not signed at all" >&2; exit 1; }
     echo "Executable=$path" >&2
     echo "Identifier=${path##*/}" >&2
-    echo "CDHash=$(printf '%s %s' "$(grep '^content=' "$s")" "$(grep '^Authority=' "$s")" | sha256sum | cut -c1-40)" >&2
-    grep -E '^(Authority|Timestamp)=' "$s" >&2 || true
+    echo "CDHash=$(printf '%s %s' "$(grep '^content=' <<<"$s")" "$(grep '^Authority=' <<<"$s")" | sha256sum | cut -c1-40)" >&2
+    grep -E '^(Authority|Timestamp)=' <<<"$s" >&2 || true
     echo "Signature size=$RANDOM" >&2 ;;
   verify)
-    [[ -f "$s" && "$(grep '^content=' "$s")" == "content=$(content "$path")" ]] ||
+    [[ -n "$s" && "$(grep '^content=' <<<"$s")" == "content=$(content "$path")" ]] ||
       { echo "$path: invalid signature" >&2; exit 1; } ;;
 esac
 STUB
@@ -96,7 +107,7 @@ out="$(CMUX_CEF_REUSE_FRAMEWORK="$reuse" bash "$sign_cef" "$next" "$id")"
 [[ "$out" == *"sign-cef: reused the signed Chromium framework"* ]] || fail "same code and signer was not reused: $out"
 diff -r "$reuse" "$(fw_of "$next")" || fail "the reused framework is not the published one byte for byte"
 [[ ! -e "$next/Contents/Frameworks/.cef-reuse" ]] || fail "the staging folder was left in the app"
-[[ -f "$next/Contents/Frameworks/libcmux_cef_shim.dylib.sig" ]] || fail "the shim was not signed after the reuse"
+grep -q "^#SIG " "$next/Contents/Frameworks/libcmux_cef_shim.dylib" || fail "the shim was not signed after the reuse"
 
 expect_fresh() { # <name> <why> <app> <identity> [env...]
   local name="$1" why="$2" app="$3" ident="$4" out
@@ -115,10 +126,11 @@ expect_fresh "extra file" "other code" "$(make_app "$work/extra-app")" "$id"
 rm -rf "$reuse" && mv "$work/saved/$fw_name" "$reuse"
 # Another signer: signed fresh.
 expect_fresh "other signer" "other code" "$(make_app "$work/signer")" "Developer ID Application: Other (OTHER)"
-# A published copy with no time stamp, for a build that wants one: signed fresh.
+# A published copy with no time stamp, for a build that wants one: signed fresh (its libraries are not
+# reused, so the framework signed here seals other library bytes).
 nots="$(make_app "$work/nots")"
 CMUX_TIMESTAMP=none bash "$sign_cef" "$nots" "$id" >/dev/null
 rm -rf "$reuse" && cp -pR "$(fw_of "$nots")" "$reuse"
-expect_fresh "no time stamp" "no secure time stamp" "$(make_app "$work/wants-ts")" "$id"
+expect_fresh "no time stamp" "other code" "$(make_app "$work/wants-ts")" "$id"
 
 echo "PASS: sign-cef.sh reuses only the same code signed by the same signer with a time stamp"

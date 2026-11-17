@@ -62,11 +62,6 @@ cat > "$jit" <<'ENT'
 </plist>
 ENT
 
-for lib in "$framework/Versions/A/Libraries/"*.dylib; do
-  [[ -f "$lib" ]] && "$sign_tool" "${flags[@]}" "$lib"
-done
-"$sign_tool" "${flags[@]}" "$framework"
-
 # fingerprint <code>: what `codesign -d` shows of each architecture's signature
 # but the signing time, time stamp and CMS size. The CodeDirectory hashes cover
 # the code, Info.plist, sealed resources, requirements and flags, so two equal
@@ -90,20 +85,42 @@ framework_fingerprint() {
     if [[ -f "$lib" ]]; then echo "library ${lib##*/}"; fingerprint "$lib"; fi
   done
 }
-reuse="${CMUX_CEF_REUSE_FRAMEWORK:-}"
-if [[ -n "$reuse" && -d "$reuse" ]]; then
-  mine="$(framework_fingerprint "$framework")"
-  why=""
-  if [[ "$mine" != *CDHash=* ]]; then
-    why="the framework signed here shows no CDHash"
-  elif [[ "$mine" != "$(framework_fingerprint "$reuse")" ]]; then
-    why="it holds other code or another signature"
+# not_reusable <signed here> <earlier copy> <its fingerprint here>: prints why
+# the earlier copy may not take the place of the signature made here, or nothing.
+not_reusable() {
+  if [[ ! -e "$2" ]]; then
+    echo "it is missing"
+  elif [[ "$3" != *CDHash=* ]]; then
+    echo "the copy signed here shows no CDHash"
+  elif [[ "$3" != "$4" ]]; then
+    echo "it holds other code or another signature"
   elif [[ "$identity" != "-" && "${CMUX_TIMESTAMP:-}" != "none" ]] &&
-    ! { codesign -d -vvv "$reuse" 2>&1 || true; } | grep -q '^Timestamp='; then
-    why="it has no secure time stamp"
-  elif ! codesign --verify --strict "$reuse"; then
-    why="its signature does not verify"
+    ! { codesign -d -vvv "$2" 2>&1 || true; } | grep -q '^Timestamp='; then
+    echo "it has no secure time stamp"
+  elif ! codesign --verify --strict "$2" >/dev/null 2>&1; then
+    echo "its signature does not verify"
   fi
+}
+reuse="${CMUX_CEF_REUSE_FRAMEWORK:-}"
+[[ -n "$reuse" && -d "$reuse" ]] || reuse=""
+
+for lib in "$framework/Versions/A/Libraries/"*.dylib; do
+  [[ -f "$lib" ]] || continue
+  "$sign_tool" "${flags[@]}" "$lib"
+  # The framework seals each library's whole file, signature included, so a
+  # library's fresh time stamp alone would change the framework's CDHash (two
+  # nightly-next builds with one engine pin, 2026-11-17). Same code, same
+  # signer: the earlier build's signed library, byte for byte.
+  if [[ -n "$reuse" ]]; then
+    earlier="$reuse/Versions/A/Libraries/${lib##*/}"
+    why="$(not_reusable "$lib" "$earlier" "$(fingerprint "$lib")" "$(fingerprint "$earlier" 2>/dev/null || true)")"
+    if [[ -z "$why" ]]; then cp -p "$earlier" "$lib"; fi
+  fi
+done
+"$sign_tool" "${flags[@]}" "$framework"
+
+if [[ -n "$reuse" ]]; then
+  why="$(not_reusable "$framework" "$reuse" "$(framework_fingerprint "$framework")" "$(framework_fingerprint "$reuse")")"
   if [[ -z "$why" ]]; then
     staged="$frameworks/.cef-reuse"
     rm -rf "$staged"
