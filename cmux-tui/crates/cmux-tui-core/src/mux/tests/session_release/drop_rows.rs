@@ -10,9 +10,6 @@ use super::*;
 
 const DROP_TERMINAL: &str = "0000000000004000800000000000007b";
 const DROP_INCARNATION: &str = "1000000000004000800000000000007b";
-/// The name that a release gives when the last write of the owner's output
-/// store is missing.
-const LAST_PASS: &str = "output store: the last pass";
 /// The last line that the terminal of a row prints. It has no space: a
 /// stored screen can hold a space as a cursor move.
 const LAST_LINE: &str = "the-last-line-of-the-terminal";

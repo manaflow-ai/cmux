@@ -876,6 +876,8 @@ const OUTPUT_STORE_WRITER: &str = "output store writer";
 /// What the stop of an output store says, in its stderr line, when it went
 /// on without the store's writer.
 const NO_LAST_WRITE: &str = "no last write";
+/// What an owner names when the last write of its output store is missing.
+const LAST_PASS: &str = "output store: the last pass";
 
 /// The names that a release gave for what still lived. None for a release
 /// that gave the session up, and none for a release that did not come.
@@ -1041,7 +1043,10 @@ fn a_shutdown_returns_while_a_maintenance_tick_of_its_owner_does_not_end() {
 /// returns while the pass still runs. The writer writes files of the store
 /// that no later check refuses, so the release that comes after that stop
 /// keeps the session until the owner's exit and names the writer, in what it
-/// returns and in its record.
+/// returns and in its record. It names a second thing too, and no third: the
+/// last write of the store, which that stop did not make. That write is
+/// missing while the writer lives and also after the writer's end, until the
+/// owner's drop makes it, so it keeps the session by its own name.
 #[test]
 fn a_shutdown_returns_while_a_pass_of_its_output_store_writer_does_not_end() {
     let root = std::env::temp_dir()
@@ -1118,14 +1123,18 @@ fn a_shutdown_returns_while_a_pass_of_its_output_store_writer_does_not_end() {
         OWNER_CALL_WAIT.as_secs()
     );
     assert!(
-        kept_names(release.as_ref()) == [OUTPUT_STORE_WRITER],
+        kept_names(release.as_ref()) == [OUTPUT_STORE_WRITER, LAST_PASS],
         "an owner whose stop went on without the writer of its output store did not keep the \
-         session with that writer's name while the pass ran: its release: {release:?}"
+         session with exactly 2 names while the pass ran, the writer's and the name of the \
+         store's missing last write: its release: {release:?}"
     );
     assert!(
-        record.contains(KEPT_RELEASE) && record.contains(OUTPUT_STORE_WRITER),
-        "an owner that keeps its session because of the writer of its output store did not \
-         write that in its record: the record file: {record:?}"
+        record.contains(KEPT_RELEASE)
+            && record.contains(OUTPUT_STORE_WRITER)
+            && record.contains(LAST_PASS),
+        "an owner that keeps its session because of the writer of its output store and of \
+         the store's missing last write did not write both in its record: the record file: \
+         {record:?}"
     );
 }
 
