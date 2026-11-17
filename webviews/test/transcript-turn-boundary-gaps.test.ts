@@ -237,11 +237,19 @@ await requireBrowserLane("transcript-turn-boundary-gaps.test.ts", async () => {
     expect(heights.at(-1), trace).toBe(0);
     // Frames in the middle of the shrink: the row did not go from its height to 0 in one step.
     expect(heights.filter((height) => height > 2 && height < heights[0]! - 2).length, trace).toBeGreaterThanOrEqual(3);
-    // No layout jump: the row under it moves with it, its gaps closing as it shrinks, so no frame
-    // moves it by more than a few pixels (the gaps once dropped all at once when it reached 0: 24 px).
-    const steps = tops.slice(1).map((top, at) => Math.abs(top - tops[at]!));
-    expect(Math.max(...steps), trace).toBeLessThanOrEqual(4);
-    // And it did move up by the line and its gaps (to the gap the footer has with no line at all).
-    expect(tops[0]! - tops.at(-1)!, trace).toBeGreaterThan(20);
+    // Tied to the shrink's own rate: no frame moves the next row by more than twice what the line
+    // shrank (its gaps close with it, about 24 px over its 28) plus 1 px. The rows are placed from
+    // the height measured on the frame before, so a frame's move is held to that frame's shrink or
+    // the one before it, whichever is larger.
+    const shrink = heights.map((height, at) => (at === 0 ? 0 : Math.max(0, heights[at - 1]! - height)));
+    const travel = tops[0]! - tops.at(-1)!;
+    for (let at = 1; at < tops.length; at += 1) {
+      const step = Math.abs(tops[at]! - tops[at - 1]!);
+      expect(step, `frame ${at}\n${trace}`).toBeLessThanOrEqual(2 * Math.max(shrink[at]!, shrink[at - 1]!) + 1);
+      // And no single frame pops a large part of the move (the gaps once dropped at 0: 24 px of 52).
+      expect(step, `frame ${at}\n${trace}`).toBeLessThanOrEqual(0.25 * travel);
+    }
+    // It did move up by the line and its gaps (to the gap the footer has with no line at all).
+    expect(travel, trace).toBeGreaterThan(20);
   });
 });
