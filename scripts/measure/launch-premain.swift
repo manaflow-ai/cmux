@@ -325,13 +325,20 @@ case "first":
     }
     var start: Double?, window: Double?, prompt: Double?, promptGone: Double?
     var pressing: Process?
-    func agentWindow() -> (pid: Int32, id: Int)? {
-        let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
-        for info in list where (info[kCGWindowOwnerName as String] as? String) == "CoreServicesUIAgent" {
+    func onScreen() -> [[String: Any]] {
+        CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+    }
+    func owner(_ info: [String: Any]) -> String { info[kCGWindowOwnerName as String] as? String ?? "?" }
+    func agentWindow(_ list: [[String: Any]]) -> (pid: Int32, id: Int)? {
+        for info in list where owner(info) == "CoreServicesUIAgent" {
             if let pid = info[kCGWindowOwnerPID as String] as? Int32, let id = info[kCGWindowNumber as String] as? Int { return (pid, id) }
         }
         return nil
     }
+    // Every window owner that came on screen after the request, with when: the prompt, if the system shows it under
+    // another owner than CoreServicesUIAgent, is among them.
+    let ownersBefore = Set(onScreen().map(owner))
+    var newOwners: [String: Double] = [:]
     // Presses the prompt's Open with CuaDriver (it holds the console's Accessibility grant; this probe, built per run,
     // has none): its window state, the AXButton titled Open, a press. The status goes to `press`.
     func pressOpen(pid: Int32, id: Int) {
@@ -360,7 +367,9 @@ case "first":
     spin {
         if running == nil { running = runningCopy(app) ?? NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier == Bundle(url: app)?.bundleIdentifier && $0.processIdentifier > 0 && $0.launchDate.map { $0.timeIntervalSince1970 * 1000 >= requested - 1000 } == true } }
         if start == nil, let pid = running?.processIdentifier, pid > 0 { start = processStart(pid) }
-        if let found = agentWindow() {
+        let list = onScreen()
+        for info in list where !ownersBefore.contains(owner(info)) && newOwners[owner(info)] == nil { newOwners[owner(info)] = round1(now() - requested) }
+        if let found = agentWindow(list) {
             if prompt == nil { prompt = now(); pressOpen(pid: found.pid, id: found.id) }
         } else if prompt != nil, promptGone == nil { promptGone = now() }
         if window == nil, let pid = running?.processIdentifier, pid > 0, ownWindowOnScreen(pid) { window = now() }
@@ -384,7 +393,7 @@ case "first":
         "prompt": since(prompt), "prompt_gone": since(promptGone), "pressed": since(pressed), "press": press,
         "start": since(start), "main": fromRequest("main_start"), "window": since(window), "usable": fromRequest("window_usable"),
         "main_start": json(mainAt), "translocated": path.contains("/AppTranslocation/"), "ran_from": path,
-        "marks": marks.mapValues(round1),
+        "marks": marks.mapValues(round1), "new_window_owners": newOwners,
     ]
     row.merge(fields) { $1 }
     if let failure { row["error"] = failure } else if window == nil { row["error"] = "no window in 60 s" }
