@@ -509,7 +509,7 @@ function world(k: Knobs = {}) {
       }
     },
     start: (argv, o) => {
-      runs.push({ argv, env: o.env })
+      runs.push({ argv, env: o.env, ...(o.stdin === undefined ? {} : { stdin: o.stdin }) })
       if (argv.includes("Xvfb")) {
         xvfb = true
         return {
@@ -689,6 +689,21 @@ describe("the full run", () => {
     })
     expect(e.status.heartbeatAgeSeconds).toBeLessThan(90)
     assertNoSecretEscaped(w)
+  })
+
+  test("web device: the Claude login reaches the daemon on stdin only, never an argv, and the chat asks for Haiku", async () => {
+    const LOGIN = "sk-ant-oat01-fake-login-value-for-tests"
+    const w = world()
+    await runE2E({ ...opts, webDevice: { pane: "/tmp/pane", out: "/tmp/out", env: {} } }, { ...env, CLAUDE_CODE_OAUTH_TOKEN: LOGIN }, w.deps)
+    const daemon = w.runs.find((r) => r.argv.includes("/bin/sh") && r.argv.some((a) => a.includes("daemon run")))
+    expect(daemon?.stdin).toBe(`${LOGIN}\n`)
+    expect(w.runs.some((r) => r.argv.some((a) => a.includes(LOGIN)))).toBe(false)
+    expect(w.runs.some((r) => r.argv.includes("new") && r.argv.includes("claude/haiku"))).toBe(true)
+    // Without a login: no shell wrapper, and the stand-in agent.
+    const plain = world()
+    await runE2E({ ...opts, webDevice: { pane: "/tmp/pane", out: "/tmp/out", env: {} } }, env, plain.deps)
+    expect(plain.runs.some((r) => r.argv.includes("/bin/sh"))).toBe(false)
+    expect(plain.runs.some((r) => r.argv.includes("new") && r.argv.includes("fake"))).toBe(true)
   })
 
   test("the join token reaches acpmux only on stdin, as the disposable user", async () => {

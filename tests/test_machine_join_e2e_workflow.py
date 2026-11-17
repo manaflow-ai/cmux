@@ -85,7 +85,9 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
     def test_stack_secrets_reach_one_step_through_env(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertEqual(len(re.findall(r"\$\{\{\s*secrets\.", text)), 2)
-        self.assertEqual(workflow_jobs.secret_names(load()), {"CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"})
+        # The third: the team's Claude login, in the same step, only with web_device.
+        self.assertEqual(text.count("secrets.CLAUDE_CODE_OAUTH_TOKEN"), 1)
+        self.assertEqual(workflow_jobs.secret_names(load()), {"CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD", "CLAUDE_CODE_OAUTH_TOKEN"})
         for name, job in load()["jobs"].items():
             outside_steps = workflow_jobs.copy_job(job, {"steps": workflow_jobs.DROP}) if name == "e2e" else job
             self.assertEqual(workflow_jobs.secret_names(outside_steps), set(), name)
@@ -94,6 +96,7 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
         mint = holders[0]
         self.assertEqual(mint["env"]["CMUX_UITEST_STACK_EMAIL"], "${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}")
         self.assertEqual(mint["env"]["CMUX_UITEST_STACK_PASSWORD"], "${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}")
+        self.assertEqual(mint["env"]["CLAUDE_CODE_OAUTH_TOKEN"], "${{ inputs.web_device && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}")
         self.assertNotIn("secrets", mint["run"])
         self.assertNotIn("CMUX_UITEST_STACK", mint["run"])
 

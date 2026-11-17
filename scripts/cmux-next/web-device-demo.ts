@@ -6,16 +6,19 @@
  *   bun scripts/cmux-next/web-device-demo.ts --origin https://cmux-platform-development.debussy.workers.dev \
  *     --acpmux PATH --pane DIR --target HOST/SESSION --name NAME --label LABEL --out DIR   < access token on stdin
  *
- * The hub machine is machine-join-e2e's joined machine (HOST), whose chat (SESSION) runs the stand-in ACP agent
- * (cmux-tui/crates/acpmux/tests/fake_agent.py), which answers a prompt with its text: the model is the only stand-in.
+ * The hub machine is machine-join-e2e's joined machine (HOST). Its chat (SESSION) runs Claude Code on Haiku with the
+ * team's Claude login (`--agent claude`), or, with no login, the stand-in ACP agent (`--agent stub`:
+ * cmux-tui/crates/acpmux/tests/fake_agent.py, which answers a prompt with its text); result.json names which.
  * This script, as the runner user, in a home of its own:
  *  1. joins a second machine for the same account (the browser's daemon: a join token minted with the access token,
  *     written to `acpmux host join` on stdin), runs its daemon with a loopback WebSocket listener;
  *  2. opens the NEXT agent pane (the shipped bundle, scripts/cmux-next/build-agent-pane-web.sh) in headless Chrome,
  *     served under that listener's origin (Playwright routing), at `#endpoint=…&token=…&session=HOST/SESSION&must`;
  *  3. on the pane's own socket, after its `initialize`, sends `_acpmux/attach` (the control: refused before any
- *     device), then `_acpmux/device_enroll {accessToken, publicKey}` (once; the key pair is made in the page) and
- *     `_acpmux/device_hello {credential}` (on every connection), and only then lets the pane's queued frames through.
+ *     device), then `_acpmux/device_enroll {accessToken, publicKey}` (once; publicKey is the device's WireGuard key,
+ *     a raw X25519 public key in standard base64, from a non-extractable key pair made in the page with WebCrypto)
+ *     and `_acpmux/device_hello {credential}` (once per connection, as acpmux takes it: server/web_device.rs), and
+ *     only then lets the pane's queued frames through.
  *     The pane does not send these itself yet: this harness does, and says so in its result (`helloBy: harness`);
  *  4. types one prompt with a nonce into the composer and waits for the hub machine's agent to answer with it;
  *  5. writes demo.webm (video), final.png and result.json to --out, then revokes the web device and its own machine.
@@ -80,9 +83,15 @@ const parse = (text: string): any => {
 
 /** A JSON-RPC error from the daemon: its code, and a message made plain. */
 export class RpcError extends Error {
-  constructor(readonly code: number | null, message: string) {
+  constructor(readonly code: number | null, message: string, readonly reason: string | null = null) {
     super(message)
   }
+}
+
+/** The daemon's error as an RpcError: its code, its `data.reason` when plain, and its message made plain. */
+export function rpcError(error: any): RpcError {
+  const reason = typeof error?.data?.reason === "string" && /^[A-Za-z0-9._-]{1,64}$/.test(error.data.reason) ? error.data.reason : null
+  return new RpcError(typeof error?.code === "number" ? error.code : null, String(error?.message ?? "error").replace(/[^A-Za-z0-9 ._:;,()/"'-]/g, " ").slice(0, 200), reason)
 }
 
 /**
@@ -131,7 +140,7 @@ export class SocketGate {
     if (msg && typeof msg.id === "string" && msg.method === undefined && this.pending.has(msg.id)) {
       const waiter = this.pending.get(msg.id)!
       this.pending.delete(msg.id)
-      if (msg.error) waiter.reject(new RpcError(typeof msg.error.code === "number" ? msg.error.code : null, String(msg.error.message ?? "error").replace(/[^A-Za-z0-9 ._:;,()/"'-]/g, " ").slice(0, 200)))
+      if (msg.error) waiter.reject(rpcError(msg.error))
       else waiter.resolve(msg.result)
       return
     }
@@ -171,19 +180,24 @@ export class SocketGate {
   }
 }
 
-/** True when a daemon frame is the agent's reply text carrying `nonce` (not the echo of the person's own prompt). */
-export function replyCarries(msg: any, nonce: string): boolean {
+/** The agent's reply text in a daemon frame (an `agent_message_chunk`), or "": never the echo of the person's own prompt. */
+export function agentText(msg: any): string {
   const update = msg?.method === "session/update" ? msg.params?.update : undefined
-  if (!update || update.sessionUpdate !== "agent_message_chunk") return false
+  if (!update || update.sessionUpdate !== "agent_message_chunk") return ""
   const content = update.content
-  const text = typeof content?.text === "string" ? content.text : Array.isArray(content) ? content.map((c: any) => c?.text ?? "").join("") : ""
-  return text.includes(nonce)
+  return typeof content?.text === "string" ? content.text : Array.isArray(content) ? content.map((c: any) => c?.text ?? "").join("") : ""
 }
 
-/** The page's public key as `device_enroll` takes it: the P-256 JWK's public members only. */
-export function publicKeyParam(jwk: { kty?: string; crv?: string; x?: string; y?: string }): { kty: "EC"; crv: "P-256"; x: string; y: string } {
-  if (jwk.kty !== "EC" || jwk.crv !== "P-256" || typeof jwk.x !== "string" || typeof jwk.y !== "string") throw new Error("not a P-256 public key")
-  return { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y }
+/** True when the reply text so far carries `nonce`; a real model may split it over chunks. */
+export const replyCarries = (text: string, nonce: string) => text.includes(nonce)
+
+/** The one-line prompt: the agent must repeat the nonce, which the stand-in does by echoing it. */
+export const promptText = (nonce: string) => `Hello from a browser tab. Reply with one short line that includes the code ${nonce}.`
+
+/** The page's public key as `device_enroll` takes it (server/web_device.rs): 32 raw X25519 bytes in standard base64. */
+export function publicKeyParam(raw: ArrayLike<number>): string {
+  if (raw.length !== 32) throw new Error("not a 32-byte X25519 public key")
+  return Buffer.from(Uint8Array.from(raw)).toString("base64")
 }
 
 /** The result line: only numbers, booleans and plain strings (machine-join-e2e.ts's benchResult keeps no other). */
@@ -191,12 +205,17 @@ export interface DemoResult {
   result: "pass" | "fail"
   reason: string
   helloBy: "harness"
+  /** claude: Claude Code on Haiku answered; stub: the stand-in agent echoed the prompt (not a model). */
+  agent: "claude" | "stub"
   webMachineJoined: boolean
   controlAttachRefused: boolean | null
   controlAttachCode: number | null
+  controlAttachReason: string | null
+  enrollReason: string | null
   enrolled: boolean
   webDeviceId: string | null
   helloOk: boolean
+  helloAuth: string | null
   helloCount: number
   attachOk: boolean
   promptSent: boolean
@@ -220,6 +239,7 @@ export interface Options {
   name: string
   label: string
   out: string
+  agent: string
 }
 
 export function parseArgs(argv: string[]): Options {
@@ -227,7 +247,7 @@ export function parseArgs(argv: string[]): Options {
     const i = argv.indexOf(flag)
     return i >= 0 && i + 1 < argv.length ? argv[i + 1]! : ""
   }
-  return { origin: value("--origin"), acpmux: value("--acpmux"), pane: value("--pane"), target: value("--target"), name: value("--name"), label: value("--label"), out: value("--out") }
+  return { origin: value("--origin"), acpmux: value("--acpmux"), pane: value("--pane"), target: value("--target"), name: value("--name"), label: value("--label"), out: value("--out"), agent: value("--agent") || "stub" }
 }
 
 export function refusal(o: Options): string | undefined {
@@ -237,6 +257,7 @@ export function refusal(o: Options): string | undefined {
   if (extra !== undefined || !plainId(host) || !plainId(session)) return "target must be HOST/SESSION"
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/.test(o.name)) return "name must be 1-63 letters, digits, dot, underscore or dash"
   if (!/^ci-join-\d+-\d+$/.test(o.label)) return "label must be ci-join-RUN-N (an interrupted run's machine is then swept)"
+  if (o.agent !== "claude" && o.agent !== "stub") return "agent must be claude or stub"
   return undefined
 }
 
@@ -287,8 +308,9 @@ const lastJson = (text: string): any => {
 
 export async function runDemo(o: Options, accessToken: string, log: (line: string) => void): Promise<DemoResult> {
   const r: DemoResult = {
-    result: "fail", reason: "", helloBy: "harness", webMachineJoined: false, controlAttachRefused: null, controlAttachCode: null,
-    enrolled: false, webDeviceId: null, helloOk: false, helloCount: 0, attachOk: false, promptSent: false, replySeen: false,
+    result: "fail", reason: "", helloBy: "harness", agent: o.agent === "claude" ? "claude" : "stub", webMachineJoined: false,
+    controlAttachRefused: null, controlAttachCode: null, controlAttachReason: null, enrollReason: null,
+    enrolled: false, webDeviceId: null, helloOk: false, helloAuth: null, helloCount: 0, attachOk: false, promptSent: false, replySeen: false,
     stopReason: null, firstPaintMs: null, attachedMs: null, replyMs: null, webDeviceRevoked: null, webMachineRevoked: null
   }
   const problems: string[] = []
@@ -365,6 +387,7 @@ export async function runDemo(o: Options, accessToken: string, log: (line: strin
     let enrolling: Promise<void> | undefined
     let promptId: unknown
     let attachIds = new Set<unknown>()
+    let replyText = ""
     let replied: () => void = () => undefined
     const reply = new Promise<void>((resolve) => (replied = resolve))
     const observe = (dir: "page" | "daemon", msg: any) => {
@@ -380,7 +403,11 @@ export async function runDemo(o: Options, accessToken: string, log: (line: strin
         }
       }
       if (dir === "daemon" && msg.method === undefined && promptId !== undefined && msg.id === promptId && typeof msg.result?.stopReason === "string") r.stopReason = plainId(msg.result.stopReason)
-      if (dir === "daemon" && replyCarries(msg, nonce)) replied()
+      const chunk = dir === "daemon" ? agentText(msg) : ""
+      if (chunk) {
+        replyText = (replyText + chunk).slice(-4_096)
+        if (replyCarries(replyText, nonce)) replied()
+      }
     }
     const ready = async (gate: SocketGate) => {
       enrolling ??= (async () => {
@@ -390,15 +417,23 @@ export async function runDemo(o: Options, accessToken: string, log: (line: strin
         } catch (e) {
           r.controlAttachRefused = true
           r.controlAttachCode = e instanceof RpcError ? e.code : null
+          r.controlAttachReason = e instanceof RpcError ? e.reason : null
         }
         log(`control: attach before any device was ${r.controlAttachRefused ? `refused (${r.controlAttachCode})` : "accepted"}`)
-        // The key pair is the page's own; only its public half leaves the page.
-        const jwk = await page.evaluate(async () => {
-          const keys = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, ["sign", "verify"])) as CryptoKeyPair
+        // The device's WireGuard key pair is the page's own (X25519, private half not extractable); only the raw public
+        // key leaves the page.
+        const raw = await page.evaluate(async () => {
+          const keys = (await crypto.subtle.generateKey({ name: "X25519" }, false, ["deriveBits"])) as CryptoKeyPair
           ;(globalThis as any).__webDeviceKeys = keys
-          return crypto.subtle.exportKey("jwk", keys.publicKey)
+          return Array.from(new Uint8Array(await crypto.subtle.exportKey("raw", keys.publicKey)))
         })
-        const enrolled = await gate.request("_acpmux/device_enroll", { accessToken, publicKey: publicKeyParam(jwk) })
+        let enrolled: any
+        try {
+          enrolled = await gate.request("_acpmux/device_enroll", { accessToken, publicKey: publicKeyParam(raw) })
+        } catch (e) {
+          r.enrollReason = e instanceof RpcError ? e.reason : null
+          throw new Error(`enroll refused${r.enrollReason ? ` (${r.enrollReason})` : ""}`)
+        }
         if (typeof enrolled?.credential !== "string" || !enrolled.credential) throw new Error("enroll: no credential")
         credential = enrolled.credential as string
         r.webDeviceId = plainId(enrolled.machineId)
@@ -406,7 +441,8 @@ export async function runDemo(o: Options, accessToken: string, log: (line: strin
         log(`enrolled web device ${r.webDeviceId} for user ${plainId(enrolled.userId)}`)
       })()
       await enrolling
-      await gate.request("_acpmux/device_hello", { credential })
+      const hello = await gate.request("_acpmux/device_hello", { credential })
+      r.helloAuth = plainId(hello?.auth)
       r.helloOk = true
       r.helloCount += 1
     }
@@ -435,7 +471,7 @@ export async function runDemo(o: Options, accessToken: string, log: (line: strin
     await composer.waitFor({ timeout: 30_000 })
     await page.waitForTimeout(1_000)
     await composer.click()
-    await page.keyboard.type(`Hello from a browser tab ${nonce}`, { delay: 20 })
+    await page.keyboard.type(promptText(nonce), { delay: 20 })
     const sentAt = Date.now()
     await page.keyboard.press("Enter")
     r.promptSent = true
@@ -478,7 +514,7 @@ export async function runDemo(o: Options, accessToken: string, log: (line: strin
   if (r.controlAttachRefused === false) problems.push(`control attach to ${host}'s chat was accepted before any device hello`)
   if (!r.helloOk) problems.push("no device hello")
   r.result = problems.length === 0 ? "pass" : "fail"
-  r.reason = plainReason(problems.length === 0 ? "enrolled a web device, hello, attached, prompt answered" : problems.join("; "))
+  r.reason = plainReason(problems.length === 0 ? `enrolled a web device, hello, attached, answered by ${r.agent === "claude" ? "Claude Haiku" : "the stand-in agent (an echo, not a model)"}` : problems.join("; "))
   writeFileSync(join(o.out, "result.json"), `${JSON.stringify(r, null, 2)}\n`, { mode: 0o600 })
   return r
 }

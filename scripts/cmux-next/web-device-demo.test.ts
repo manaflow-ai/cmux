@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { DEV_PLATFORM, SocketGate, RpcError, paneFile, paneUrl, parseArgs, plainId, plainReason, publicKeyParam, refusal, replyCarries } from "./web-device-demo.ts"
+import { DEV_PLATFORM, SocketGate, RpcError, agentText, paneFile, paneUrl, parseArgs, plainId, plainReason, promptText, publicKeyParam, refusal, replyCarries, rpcError } from "./web-device-demo.ts"
 
 const tick = () => new Promise((r) => setTimeout(r, 0))
 
@@ -80,20 +80,35 @@ describe("SocketGate", () => {
   })
 })
 
-describe("replyCarries", () => {
+describe("the reply", () => {
   const update = (kind: string, text: string) => ({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "s", update: { sessionUpdate: kind, content: { type: "text", text } } } })
-  test("only the agent's chunk with the nonce counts, never the person's own prompt", () => {
-    expect(replyCarries(update("agent_message_chunk", "Hello wd-1"), "wd-1")).toBe(true)
-    expect(replyCarries(update("user_message_chunk", "Hello wd-1"), "wd-1")).toBe(false)
-    expect(replyCarries(update("agent_message_chunk", "Hello"), "wd-1")).toBe(false)
-    expect(replyCarries({ id: 3, result: { stopReason: "end_turn" } }, "wd-1")).toBe(false)
+  test("only the agent's chunks count, never the person's own prompt, and the nonce may span chunks", () => {
+    expect(agentText(update("agent_message_chunk", "Hello wd-1"))).toBe("Hello wd-1")
+    expect(agentText(update("user_message_chunk", "Hello wd-1"))).toBe("")
+    expect(agentText({ id: 3, result: { stopReason: "end_turn" } })).toBe("")
+    const text = ["Sure: wd-", "1a2b"].map((t) => agentText(update("agent_message_chunk", t))).join("")
+    expect(replyCarries(text, "wd-1a2b")).toBe(true)
+    expect(replyCarries("Sure", "wd-1a2b")).toBe(false)
+    expect(promptText("wd-1a2b")).toContain("wd-1a2b")
+  })
+})
+
+describe("errors", () => {
+  test("the daemon's data.reason is kept when plain", () => {
+    const e = rpcError({ code: -32003, message: "this device was revoked", data: { reason: "device.revoked" } })
+    expect([e.code, e.reason]).toEqual([-32003, "device.revoked"])
+    expect(rpcError({ code: -32000, message: "x", data: { reason: "cmm_secret value" } }).reason).toBeNull()
+    expect(rpcError({ message: "x" }).code).toBeNull()
   })
 })
 
 describe("inputs", () => {
-  const ok = { origin: DEV_PLATFORM, acpmux: "/b/acpmux", pane: "/p", target: "ci-join-9/01a1e78d-8278", name: "ci-join-9-web", label: "ci-join-9-2", out: "/o" }
+  const ok = { origin: DEV_PLATFORM, acpmux: "/b/acpmux", pane: "/p", target: "ci-join-9/01a1e78d-8278", name: "ci-join-9-web", label: "ci-join-9-2", out: "/o", agent: "claude" }
   test("parseArgs and refusal", () => {
     expect(parseArgs(["--origin", DEV_PLATFORM, "--target", "h/s"]).target).toBe("h/s")
+    expect(parseArgs([]).agent).toBe("stub")
+    expect(refusal({ ...ok, agent: "stub" })).toBeUndefined()
+    expect(refusal({ ...ok, agent: "opus" })).toContain("agent")
     expect(refusal(ok)).toBeUndefined()
     expect(refusal({ ...ok, origin: "https://example.invalid" })).toContain("origin")
     expect(refusal({ ...ok, target: "h/s/x" })).toContain("target")
@@ -106,7 +121,10 @@ describe("inputs", () => {
     expect(plainId("eyJhbGc")).toBeNull()
     expect(plainId("01a1e78d-8278")).toBe("01a1e78d-8278")
     expect(plainReason("a\n::error::b <x>")).toBe("a : :error: :b x")
-    expect(publicKeyParam({ kty: "EC", crv: "P-256", x: "x", y: "y", d: "secret" } as any)).toEqual({ kty: "EC", crv: "P-256", x: "x", y: "y" })
-    expect(() => publicKeyParam({ kty: "RSA" })).toThrow()
+    // A raw X25519 key, 32 bytes, in standard base64 (the WireGuard encoding acpmux checks).
+    const key = publicKeyParam(Array.from({ length: 32 }, (_, i) => 250 + (i % 6)))
+    expect(Buffer.from(key, "base64")).toHaveLength(32)
+    expect(key).toMatch(/^[A-Za-z0-9+/]{43}=$/)
+    expect(() => publicKeyParam(new Uint8Array(31))).toThrow()
   })
 })

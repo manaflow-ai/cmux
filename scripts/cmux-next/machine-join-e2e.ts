@@ -62,6 +62,8 @@ export const BENCH_LIMIT_MS = 40 * 60_000
 export const WEB_DEVICE_LIMIT_MS = 9 * 60_000
 /** The demo's chat on the joined machine (its harness is the stand-in agent the workflow configures). */
 export const WEB_DEVICE_CHAT = "web-device-demo"
+/** The demo chat's agent with the team's Claude login: a cheap model for a one-line answer. */
+export const WEB_DEVICE_MODEL = "claude/haiku"
 
 /** The last line of `stdout` that is a JSON object, keeping only numbers, booleans and plain strings. */
 export function benchResult(stdout: string): Record<string, unknown> | null {
@@ -154,7 +156,7 @@ export interface Deps {
   /** Runs argv with exactly `env`, writing `stdin` (then closing it) when given. */
   run(argv: string[], options: { env: Record<string, string>; stdin?: string; timeoutMs: number; signal?: AbortSignal; binary?: boolean }): Promise<ChildResult>
   /** Starts a long-running argv with exactly `env`; stdin is closed. */
-  start(argv: string[], options: { env: Record<string, string> }): Daemon
+  start(argv: string[], options: { env: Record<string, string>; stdin?: string }): Daemon
   /** Starts argv with exactly `env`, writes `stdin` and closes it; its output is readable while it runs. */
   spawn(argv: string[], options: { env: Record<string, string>; stdin?: string }): Live
   /** One line of this step's output (the job log). */
@@ -465,6 +467,9 @@ export async function runE2E(
   }
 
   const childEnv = { PATH: CHILD_PATH }
+  // The team's Claude login, for the web device demo's chat only (masked now; the daemon gets it on stdin).
+  const claudeLogin = opts.webDevice ? (env.CLAUDE_CODE_OAUTH_TOKEN ?? "").trim() : ""
+  if (claudeLogin) hold(claudeLogin)
   // Everything runs as the disposable user, reads included: a path that user controls (a symlink, say)
   // reaches nothing beyond what that user could read anyway. Nothing here runs as root.
   const asUserTool = (args: string[]) => [
@@ -1069,7 +1074,11 @@ export async function runE2E(
     // 4. Daemon in the foreground until a heartbeat under the limit.
     live()
     const daemonStartedAt = deps.now()
-    daemon = deps.start(asUser(["daemon", "run"]), { env: childEnv })
+    // With the web device demo and the team's Claude login: the login reaches the daemon (whose Claude agents take
+    // it from their spawn environment, login_env.rs) on stdin only, never on an argv or in the home.
+    daemon = claudeLogin
+      ? deps.start(asUserTool(["/bin/sh", "-c", 'IFS= read -r CLAUDE_CODE_OAUTH_TOKEN && export CLAUDE_CODE_OAUTH_TOKEN && exec "$0" daemon run', opts.acpmux]), { env: childEnv, stdin: `${claudeLogin}\n` })
+      : deps.start(asUser(["daemon", "run"]), { env: childEnv })
     const deadline = deps.now() + HEARTBEAT_LIMIT_S * 1000
     let s: any = pre
     let strangeBeat = false
@@ -1150,7 +1159,9 @@ export async function runE2E(
     // the access token on stdin only). Its failure is the run's; the revoke checks still run after it.
     if (opts.webDevice) {
       live()
-      const made = await acpmux(["--json", "new", "-d", "-n", WEB_DEVICE_CHAT])
+      // Claude Code on Haiku with the team's login; with none, the stand-in agent (an echo, not a model), and the
+      // demo's result says which.
+      const made = await acpmux(["--json", "new", "-d", "-n", WEB_DEVICE_CHAT, "-m", claudeLogin ? WEB_DEVICE_MODEL : "fake"])
       const session = safeId(lastJson(made.stdout)?.sessionId)
       if (made.code !== 0 || !session) {
         problems.push(`web device: the chat on the joined machine: exit ${made.code}`)
@@ -1160,7 +1171,7 @@ export async function runE2E(
         const script = new URL("./web-device-demo.ts", import.meta.url).pathname
         const r = await deps.run(
           [process.execPath, script, "--origin", opts.origin, "--acpmux", opts.acpmux, "--pane", wd.pane, "--out", wd.out,
-            "--target", `${opts.name}/${session}`, "--name", `${opts.name}-web`.slice(0, 63), "--label", `ci-join-${opts.runId}-2`],
+            "--target", `${opts.name}/${session}`, "--name", `${opts.name}-web`.slice(0, 63), "--label", `ci-join-${opts.runId}-2`, "--agent", claudeLogin ? "claude" : "stub"],
           { env: { ...wd.env, PATH: CHILD_PATH }, stdin: `${await accessToken()}\n`, timeoutMs: WEB_DEVICE_LIMIT_MS, signal: inFlight.signal }
         )
         childText.push(r.stdout, r.stderr)
@@ -1354,8 +1365,8 @@ export function realDeps(): Deps {
         signal?.removeEventListener("abort", stop)
       }
     },
-    start: (argv, { env }) => {
-      const { child, done, kill } = collect(argv, env, undefined)
+    start: (argv, { env, stdin }) => {
+      const { child, done, kill } = collect(argv, env, stdin)
       return {
         stop: async () => {
           // sudo relays SIGTERM to acpmux; the job's cleanup step kills the user's leftovers.
@@ -1389,10 +1400,11 @@ export function realDeps(): Deps {
 }
 
 if (import.meta.main) {
-  const env = { CMUX_UITEST_STACK_EMAIL: process.env.CMUX_UITEST_STACK_EMAIL, CMUX_UITEST_STACK_PASSWORD: process.env.CMUX_UITEST_STACK_PASSWORD }
+  const env = { CMUX_UITEST_STACK_EMAIL: process.env.CMUX_UITEST_STACK_EMAIL, CMUX_UITEST_STACK_PASSWORD: process.env.CMUX_UITEST_STACK_PASSWORD, CLAUDE_CODE_OAUTH_TOKEN: process.env.CLAUDE_CODE_OAUTH_TOKEN }
   // Gone from this process's environment before anything starts; children get a fixed env anyway.
   delete process.env.CMUX_UITEST_STACK_EMAIL
   delete process.env.CMUX_UITEST_STACK_PASSWORD
+  delete process.env.CLAUDE_CODE_OAUTH_TOKEN
   const opts = parseArgs(process.argv.slice(2))
   const why = refusal(opts)
   if (why) {

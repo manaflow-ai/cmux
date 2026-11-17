@@ -29,8 +29,10 @@ name: Machine join E2E (development)
 #
 # web_device: true adds, while joined, the recorded web client demo (Leo,
 # 2026-11-17: "if we literally had it... on the web... wouldn't that be
-# interesting!?"): a chat on the joined machine whose agent is the stand-in ACP
-# agent (acpmux's tests/fake_agent.py, which answers with the prompt's text), and
+# interesting!?"): a chat on the joined machine running Claude Code on Haiku with
+# the repository's CLAUDE_CODE_OAUTH_TOKEN (the third secret, in the same one step,
+# only with web_device; the daemon gets it on stdin), or with no login the stand-in
+# ACP agent (acpmux's tests/fake_agent.py, an echo; the result says which), and
 # scripts/cmux-next/web-device-demo.ts as the runner: a second machine of the same
 # account (the browser's daemon), the NEXT agent pane's shipped bundle in headless
 # Chrome on that daemon's socket, `_acpmux/device_enroll` and `_acpmux/device_hello`
@@ -346,8 +348,9 @@ jobs:
           scripts/cmux-next/build-agent-pane-web.sh --out "$RUNNER_TEMP/agent-pane"
           install -d -m 0700 "$RUNNER_TEMP/web-device-demo"
 
-      # web_device: the joined machine's agent is the stand-in ACP agent, root-owned beside acpmux; the chat's
-      # model is the only stand-in. Written into the disposable user's state directory (made by the smoke test).
+      # web_device: the joined machine's agents, root-owned: Claude Code (pinned, as ci-compile-attribution.yml pins it)
+      # in /usr/local/bin, and the stand-in ACP agent beside acpmux for a run with no Claude login. The stand-in's
+      # profile goes into the disposable user's state directory (made by the smoke test). No secret here.
       - name: Prepare the web device demo's chat
         if: inputs.web_device
         env:
@@ -356,8 +359,10 @@ jobs:
           JOIN_HOME: ${{ steps.user.outputs.home }}
         run: |
           set -euo pipefail
+          sudo npm install --global --prefix /usr/local --no-fund --no-audit @anthropic-ai/claude-code@2.1.284 >/dev/null
+          test -x /usr/local/bin/claude
           sudo install -o root -g root -m 0755 cmux-tui/crates/acpmux/tests/fake_agent.py "$JOIN_BASE/bin/fake_agent.py"
-          printf '{"harnesses":{"fake":{"argv":["/usr/bin/python3","%s"]}},"defaultHarness":"fake"}\n' "$JOIN_BASE/bin/fake_agent.py" \
+          printf '{"harnesses":{"fake":{"argv":["/usr/bin/python3","%s"]}}}\n' "$JOIN_BASE/bin/fake_agent.py" \
             | sudo -n -u "$JOIN_USER" -- tee "$JOIN_HOME/.acpmux/config.json" >/dev/null
 
       # The only step that sees the stack secrets, through env. No `set -x`: the script prints its own lines.
@@ -366,6 +371,8 @@ jobs:
         env:
           CMUX_UITEST_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_UITEST_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          # web_device only: the team's Claude login for the demo chat's Haiku agent.
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.web_device && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
           JOIN_NAME: ${{ steps.inputs.outputs.name }}
           JOIN_USER: ${{ steps.user.outputs.user }}
           JOIN_BASE: ${{ steps.user.outputs.base }}
