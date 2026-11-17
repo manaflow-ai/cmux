@@ -41,6 +41,7 @@ export const APPLE_RECHECK_INTERVAL_MS = 25 * MINUTE;
 export const APPLE_MAX_LAPSE_DEFER_MS = 24 * HOUR;
 const RENEWAL_CHECK_LIMIT = 100;
 const LAPSE_SWEEP_LIMIT = 200;
+const ENDED_CARRY_LIMIT = 200;
 
 /** Status lookups left in this cron run, shared by the re-check and the sweep. */
 export type AppleRecheckBudget = { remaining: number };
@@ -86,7 +87,9 @@ async function askApple(target: RecheckTarget, deps: AppleIapDependencies): Prom
     const renewal = snapshot.signedRenewalInfo
       ? await deps.verifier.verifyRenewalInfo(snapshot.signedRenewalInfo, { environment, bundleId: target.bundleId })
       : null;
-    const state = appleSubscriptionStateFrom({ transaction, renewal, appleStatus: snapshot.status, now: deps.now() });
+    const state = appleSubscriptionStateFrom({
+      transaction, renewal, appleStatus: snapshot.status, now: deps.now(), fromAppleStatus: true,
+    });
     return { kind: "state", state, transaction };
   } catch (error) {
     // An unknown product can never grant here; Apple's answer is final.
@@ -265,6 +268,8 @@ export type AppleLapseSweepResult = {
   readonly failures: number;
   readonly deferredUsers: number;
   readonly recovered: number;
+  /** Users whose carried higher plan ended this run and whose plan was re-derived. */
+  readonly carriesEnded: number;
 };
 
 /**
@@ -295,6 +300,8 @@ export async function sweepLapsedSubscriptions(
   let lapsedUsers = 0;
   let failures = 0;
   let deferredUsers = 0;
+  const carries = await reapplyEndedCarries(deps, now);
+  failures += carries.failures;
   for (const [userId, entry] of users) {
     if (entry.deferred) {
       deferredUsers += 1;
@@ -309,5 +316,32 @@ export async function sweepLapsedSubscriptions(
       failures += 1;
     }
   }
-  return { lapsedUsers, failures, deferredUsers, recovered };
+  return { lapsedUsers, failures, deferredUsers, recovered, carriesEnded: carries.users };
+}
+
+/**
+ * Re-derives the plan of users whose carried higher plan (an early renewal
+ * into a lower plan) has ended, then clears the carry. Plan reads already
+ * stop granting it at `carried_until`; this moves the `cmuxPlan` mirror,
+ * within one cron interval. A failed re-derive leaves the carry for the
+ * next run.
+ */
+async function reapplyEndedCarries(
+  deps: AppleIapDependencies,
+  now: Date,
+): Promise<{ readonly users: number; readonly failures: number }> {
+  const byUser = new Map<string, string[]>();
+  for (const row of await deps.store.endedCarries(now, ENDED_CARRY_LIMIT)) {
+    byUser.set(row.userId, [...(byUser.get(row.userId) ?? []), row.originalTransactionId]);
+  }
+  let failures = 0;
+  for (const [userId, ids] of byUser) {
+    try {
+      await deps.applyEntitlement(userId);
+      await deps.store.clearEndedCarries(ids, now);
+    } catch {
+      failures += 1;
+    }
+  }
+  return { users: byUser.size, failures };
 }

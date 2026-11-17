@@ -32,6 +32,14 @@ export type AppleSubscriptionState = {
   readonly revocationReason: number | null;
   /** Apple `signedDate` of the newest data this state was built from. */
   readonly stateSignedAt: Date;
+  /**
+   * Built from Apple's current status (App Store Server API
+   * `lastTransactions`), so it describes the subscription's current
+   * transaction even when that transaction's `purchaseDate` is earlier than
+   * the stored one's: an upgrade bought after Apple already charged the next
+   * period (dated from that period's start). Not persisted.
+   */
+  readonly fromAppleStatus?: boolean;
 };
 
 export type AppleStateInput = {
@@ -44,6 +52,8 @@ export type AppleStateInput = {
   /** Signed date of the envelope (notification) when newer than the parts. */
   readonly signedAt?: Date | null;
   readonly now?: Date;
+  /** The transaction and renewal came from Apple's current status (see AppleSubscriptionState). */
+  readonly fromAppleStatus?: boolean;
 };
 
 export class AppleStateError extends Error {
@@ -157,6 +167,7 @@ export function appleSubscriptionStateFrom(input: AppleStateInput): AppleSubscri
     revokedAt: date(transaction.revocationDate),
     revocationReason: typeof transaction.revocationReason === "number" ? transaction.revocationReason : null,
     stateSignedAt: stateSignedAt(input, now),
+    ...(input.fromAppleStatus ? { fromAppleStatus: true } : {}),
   };
 }
 

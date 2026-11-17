@@ -10,6 +10,7 @@ import {
   APPLE_GRANTING_STATUSES,
   appleAccessEndsAt,
   appleSweptStatus,
+  carriedPlanFor,
   isAppleTransactionCopyCurrent,
   planAppleSubscriptionWrite,
   type AppleIapStore,
@@ -17,7 +18,7 @@ import {
   type AppleNotificationRow,
   type AppleSubscriptionRow,
 } from "../../services/billing/apple/store";
-import type { AppleTransactionRow } from "../../services/billing/apple/state";
+import type { AppleSubscriptionState, AppleTransactionRow } from "../../services/billing/apple/state";
 
 export type MemoryAppleStore = AppleIapStore & {
   readonly tokens: Map<string, string>;
@@ -78,8 +79,12 @@ export function memoryAppleStore(): MemoryAppleStore {
       const plan = planAppleSubscriptionWrite(previous, state, claim);
       if (plan.kind === "stale") return { applied: false, previous: previous!, current: previous!, transferredFrom: null };
       const now = new Date();
+      // `fromAppleStatus` describes where the state came from; it is not a column.
+      const values: AppleSubscriptionState = { ...state };
+      delete (values as { fromAppleStatus?: boolean }).fromAppleStatus;
       const current: AppleSubscriptionRow = {
-        ...state,
+        ...values,
+        ...carriedPlanFor(previous, state, now),
         userId: plan.userId,
         appleCheckedAt: previous?.appleCheckedAt ?? null,
         createdAt: previous?.createdAt ?? now,
@@ -176,6 +181,21 @@ export function memoryAppleStore(): MemoryAppleStore {
     },
     async saveNotificationHistoryCursor(cursor) {
       historyCursors.set(cursorKey(cursor.bundleId, cursor.environment), { ...cursor });
+    },
+
+    async endedCarries(endedBy, limit) {
+      return [...subscriptions.values()]
+        .filter((row) => row.carriedUntil !== null && row.carriedUntil.getTime() <= endedBy.getTime())
+        .sort((a, b) => a.carriedUntil!.getTime() - b.carriedUntil!.getTime())
+        .slice(0, limit)
+        .map((row) => ({ originalTransactionId: row.originalTransactionId, userId: row.userId }));
+    },
+    async clearEndedCarries(ids, endedBy) {
+      for (const id of ids) {
+        const row = subscriptions.get(id);
+        if (!row?.carriedUntil || row.carriedUntil.getTime() > endedBy.getTime()) continue;
+        subscriptions.set(id, { ...row, carriedPlanId: null, carriedUntil: null, carriedTransactionId: null });
+      }
     },
 
     async markLapseSwept(ids, now) {

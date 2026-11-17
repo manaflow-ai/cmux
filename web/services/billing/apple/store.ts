@@ -15,6 +15,8 @@ import {
   appleSubscriptions,
   appleTransactions,
 } from "../../../db/schema";
+import { planTierRank } from "../planTier";
+import { appleStatusGrantsAt } from "./entitlement";
 import type { AppleSubscriptionState, AppleTransactionRow } from "./state";
 
 type Db = ReturnType<typeof cloudDb>;
@@ -62,9 +64,15 @@ export type AppleSubscriptionWritePlan =
   | { readonly kind: "write"; readonly userId: string; readonly transferredFrom: string | null }
   | { readonly kind: "stale" };
 
-/** A different transaction purchased after the stored one: an upgrade, resubscribe, or renewal. */
+/**
+ * A different transaction that replaces the stored one: an upgrade,
+ * resubscribe, or renewal. Apple's current status names the current
+ * transaction outright; otherwise the later `purchaseDate` decides.
+ */
 function isNewerTransaction(state: AppleSubscriptionState, previous: OwnedSubscription): boolean {
-  if (state.lastTransactionId === previous.lastTransactionId || !state.purchaseDate) return false;
+  if (state.lastTransactionId === previous.lastTransactionId) return false;
+  if (state.fromAppleStatus) return true;
+  if (!state.purchaseDate) return false;
   return !previous.purchaseDate || state.purchaseDate.getTime() > previous.purchaseDate.getTime();
 }
 
@@ -91,6 +99,11 @@ export function isOlderAppleTransaction(
  * same Apple ID buys again (upgrade or resubscribe) from another cmux
  * account, the subscription moves to that account. A token-less transaction,
  * an unknown token, or an older transaction never moves it.
+ *
+ * A state from Apple's current status is never "older": a renewal is dated
+ * from the start of its period, so an upgrade bought after Apple charged
+ * the next period early has the earlier `purchaseDate` and is still the
+ * current transaction. The signed-date check still applies to it.
  */
 export function planAppleSubscriptionWrite(
   previous: OwnedSubscription | null,
@@ -107,7 +120,7 @@ export function planAppleSubscriptionWrite(
   // The row describes the latest transaction: an older signed date or an
   // older transaction (a refund of a past period) leaves it alone.
   const fresh = previous.stateSignedAt.getTime() <= state.stateSignedAt.getTime() &&
-    !isOlderAppleTransaction(state, previous);
+    (state.fromAppleStatus === true || !isOlderAppleTransaction(state, previous));
   const moves = fresh &&
     claim.tokenOwner !== null &&
     claim.tokenOwner !== previous.userId &&
@@ -119,6 +132,55 @@ export function planAppleSubscriptionWrite(
   if (!fresh) return { kind: "stale" };
   return { kind: "write", userId: owner, transferredFrom: moves ? previous.userId : null };
 }
+
+/** The paid higher plan a row keeps after an early renewal into a lower one (schema: `carried_*`). */
+export type AppleCarriedPlan = Pick<AppleSubscriptionRow, "carriedPlanId" | "carriedUntil" | "carriedTransactionId">;
+
+const NO_CARRIED_PLAN: AppleCarriedPlan = { carriedPlanId: null, carriedUntil: null, carriedTransactionId: null };
+
+type CarrySource = Pick<
+  AppleSubscriptionRow,
+  | "planId"
+  | "status"
+  | "expiresAt"
+  | "gracePeriodExpiresAt"
+  | "lastTransactionId"
+  | "revokedAt"
+  | "carriedPlanId"
+  | "carriedUntil"
+  | "carriedTransactionId"
+>;
+
+/**
+ * Apple charges a renewal up to a day before the period ends and dates it
+ * from the next period's start. When that renewal is into a lower plan (a
+ * downgrade), writing it would end the paid higher plan early, so the row
+ * keeps the previous period's plan until the earlier of its expiry and the
+ * renewal's start. Only while the new period has not started; a later
+ * transaction (an upgrade, a refund write of another period) ends it.
+ */
+export function carriedPlanFor(
+  previous: CarrySource | null,
+  state: Pick<AppleSubscriptionState, "planId" | "status" | "purchaseDate" | "lastTransactionId">,
+  now: Date,
+): AppleCarriedPlan {
+  if (!previous || !state.purchaseDate || state.purchaseDate.getTime() <= now.getTime()) return NO_CARRIED_PLAN;
+  if (state.status !== "active") return NO_CARRIED_PLAN;
+  if (previous.lastTransactionId === state.lastTransactionId) {
+    // The same renewal again (a re-check, a duplicate): keep a carry still running.
+    return previous.carriedPlanId && previous.carriedUntil && previous.carriedUntil.getTime() > now.getTime()
+      ? { carriedPlanId: previous.carriedPlanId, carriedUntil: previous.carriedUntil, carriedTransactionId: previous.carriedTransactionId }
+      : NO_CARRIED_PLAN;
+  }
+  if (planTierRank(previous.planId) <= planTierRank(state.planId)) return NO_CARRIED_PLAN;
+  if (previous.revokedAt || !previous.expiresAt || !appleStatusGrantsAt(previous, now)) return NO_CARRIED_PLAN;
+  const until = Math.min(previous.expiresAt.getTime(), state.purchaseDate.getTime());
+  if (until <= now.getTime()) return NO_CARRIED_PLAN;
+  return { carriedPlanId: previous.planId, carriedUntil: new Date(until), carriedTransactionId: previous.lastTransactionId };
+}
+
+/** A row whose carried plan has ended, for the cron to re-derive its owner's plan. */
+export type AppleEndedCarry = Pick<AppleSubscriptionRow, "originalTransactionId" | "userId">;
 
 export type AppleLapsedSubscription = Pick<
   AppleSubscriptionRow,
@@ -239,6 +301,10 @@ export type AppleIapStore = {
    * written since it was listed is left alone.
    */
   markLapseSwept(originalTransactionIds: readonly string[], now: Date): Promise<void>;
+  /** Rows whose carried plan ended at or before `endedBy`, earliest first. */
+  endedCarries(endedBy: Date, limit: number): Promise<AppleEndedCarry[]>;
+  /** Clears carried plans that ended at or before `endedBy`. Leaves `updated_at` alone. */
+  clearEndedCarries(originalTransactionIds: readonly string[], endedBy: Date): Promise<void>;
 };
 
 /** `greatest` skips nulls, so a row with neither date never lapses. */
@@ -329,7 +395,8 @@ async function writeSubscriptionState(
       .limit(1);
     const plan = planAppleSubscriptionWrite(previous ?? null, state, claim);
     if (plan.kind === "stale") return { applied: false, previous: previous!, current: previous!, transferredFrom: null };
-    const values = subscriptionValues(state, plan.userId, new Date());
+    const now = new Date();
+    const values = { ...subscriptionValues(state, plan.userId, now), ...carriedPlanFor(previous ?? null, state, now) };
     const [current] = previous
       ? await tx.update(appleSubscriptions)
         .set(values)
@@ -525,6 +592,24 @@ export function databaseAppleIapStore(db: () => Db = cloudDb): AppleIapStore {
             updatedAt: values.updatedAt,
           },
         });
+    },
+
+    async endedCarries(endedBy, limit) {
+      return await db()
+        .select({ originalTransactionId: appleSubscriptions.originalTransactionId, userId: appleSubscriptions.userId })
+        .from(appleSubscriptions)
+        .where(sql`${appleSubscriptions.carriedUntil} <= ${endedBy.toISOString()}::timestamptz`)
+        .orderBy(asc(appleSubscriptions.carriedUntil), asc(appleSubscriptions.originalTransactionId))
+        .limit(limit);
+    },
+    async clearEndedCarries(originalTransactionIds, endedBy) {
+      if (originalTransactionIds.length === 0) return;
+      await db().update(appleSubscriptions)
+        .set({ carriedPlanId: null, carriedUntil: null, carriedTransactionId: null })
+        .where(and(
+          inArray(appleSubscriptions.originalTransactionId, [...originalTransactionIds]),
+          sql`${appleSubscriptions.carriedUntil} <= ${endedBy.toISOString()}::timestamptz`,
+        ));
     },
 
     async markLapseSwept(originalTransactionIds, now) {

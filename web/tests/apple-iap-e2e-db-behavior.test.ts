@@ -36,7 +36,7 @@ import * as realStack from "../app/lib/stack";
 import { FakeAppStore, SUBSCRIPTION_PERIOD_MS, type FakeNotification } from "./helpers/apple-fake-app-store";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
-const dbTest = test.if(runDbTests);
+const dbTest = runDbTests ? test : test.skip;
 
 const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
@@ -221,6 +221,7 @@ type CronBody = {
   lapsedUsers: number;
   lapsedDeferred: number;
   lapsesRecovered: number;
+  carriesEnded: number;
   notifications: Record<string, number>;
   history: { failures: number; sources: { bundleId: string; environment: string; notifications: Record<string, number> }[] };
 };
@@ -691,18 +692,41 @@ describe("Apple in-app purchase scenarios, end to end", () => {
     clock.set(maxEnds - 20 * HOUR);
     const renewal = apple.renew(purchase.originalTransactionId);
     expect(await deliver(renewal.notification)).toBe("processed");
-    expect(await subscriptionRow(purchase.originalTransactionId)).toMatchObject({ plan_id: "pro", product_id: "com.cmux.app.pro.monthly" });
+    const [carried] = await sql!<{ plan_id: string; carried_plan_id: string; carried_until: Date; carried_transaction_id: string }[]>`
+      select plan_id, carried_plan_id, carried_until, carried_transaction_id from apple_subscriptions`;
+    expect(carried).toEqual({
+      plan_id: "pro", carried_plan_id: "max", carried_until: new Date(maxEnds), carried_transaction_id: upgrade.transactionId,
+    });
     await expectPlan("user-a", "max");
     const runs = await cronEveryHalfHour(maxEnds - 6 * HOUR, maxEnds - 30 * MINUTE, "user-a", "max");
-    expect(runs.every((run) => run.ok)).toBe(true);
+    expect(runs.map((run) => run.carriesEnded)).toEqual(runs.map(() => 0));
 
     // The first cron after the Max period ends re-derives the mirror to Pro.
     clock.set(maxEnds + 20 * MINUTE);
-    await runCron();
+    expect((await runCron()).carriesEnded).toBe(1);
+    expect((await subscriptionRow(purchase.originalTransactionId) as unknown as { carried_plan_id: string | null }).carried_plan_id).toBeNull();
     await expectPlan("user-a", "pro");
     clock.set(maxEnds + DAY);
     await expectPlan("user-a", "pro");
     expect(accounts.get("user-a")!.writes).toEqual([{ cmuxPlan: "pro" }, { cmuxPlan: "max" }, { cmuxPlan: "pro" }]);
+  });
+
+  dbTest("9c. a refund of the Max period while the downgrade's renewal waits ends Max at once", async () => {
+    const { purchase } = await buyProAndPost();
+    clock.set(T0 + 3 * DAY);
+    const upgrade = apple.upgrade(purchase.originalTransactionId, "max");
+    expect(await deliver(upgrade.notification)).toBe("processed");
+    clock.set(T0 + 10 * DAY);
+    expect(await deliver(apple.downgrade(purchase.originalTransactionId, "pro"))).toBe("processed");
+    const maxEnds = T0 + 3 * DAY + SUBSCRIPTION_PERIOD_MS;
+    clock.set(maxEnds - 20 * HOUR);
+    expect(await deliver(apple.renew(purchase.originalTransactionId).notification)).toBe("processed");
+    await expectPlan("user-a", "max");
+
+    clock.set(maxEnds - 10 * HOUR);
+    expect(await deliver(apple.refund(purchase.originalTransactionId, upgrade.transactionId))).toBe("processed");
+    await expectPlan("user-a", "pro");
+    expect(await subscriptionRow(purchase.originalTransactionId)).toMatchObject({ plan_id: "pro", status: "active" });
   });
 
   dbTest("9b. an upgrade to Max after Apple already charged the next Pro period grants Max at once", async () => {
