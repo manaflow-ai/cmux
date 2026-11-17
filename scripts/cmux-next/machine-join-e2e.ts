@@ -58,6 +58,10 @@ export const VIEWER_DISPLAY = ":42"
 export const NO_REQUESTS = "No viewer is waiting."
 /** The bench's whole run: a cold and two warm installs of each project. */
 export const BENCH_LIMIT_MS = 40 * 60_000
+/** The web device demo's whole run (web-device-demo.ts DEMO_LIMIT_MS, plus its start and cleanup). */
+export const WEB_DEVICE_LIMIT_MS = 9 * 60_000
+/** The demo's chat on the joined machine (its harness is the stand-in agent the workflow configures). */
+export const WEB_DEVICE_CHAT = "web-device-demo"
 
 /** The last line of `stdout` that is a JSON object, keeping only numbers, booleans and plain strings. */
 export function benchResult(stdout: string): Record<string, unknown> | null {
@@ -112,6 +116,9 @@ export interface Options {
   /** Share mode: the run's root-owned cmux-rd (the joined home's ~/.local/bin/cmux-rd links to it), the
    * viewer's disposable user and home, and the device hub. */
   share?: { cmuxRd: string; viewerUser: string; viewerHome: string; hub: string }
+  /** Web device demo: the agent pane's built bundle and the demo's output directory (web-device-demo.ts), and the
+   * runner's environment the browser needs (HOME, for Playwright's FFmpeg; the patched headless Chrome's path). */
+  webDevice?: { pane: string; out: string; env: Record<string, string> }
 }
 
 export interface ChildResult {
@@ -187,6 +194,8 @@ export interface Evidence {
   bench?: { code: number | null; result: Record<string, unknown> | null }
   /** With --share-cmux-rd: the zero-touch share. */
   share?: ShareEvidence
+  /** The web device demo's result line (web-device-demo.ts), and its exit. */
+  webDevice?: { code: number | null; result: Record<string, unknown> | null }
   result: "pass" | "fail"
   reason: string
 }
@@ -303,6 +312,9 @@ export function refusal(opts: Options): string | undefined {
   if (!opts.acpmux.startsWith("/")) return "acpmux must be an absolute path"
   if (!opts.evidence.startsWith("/")) return "evidence must be an absolute path"
   if (opts.bench && (!opts.bench.startsWith("/") || opts.bench.includes(".."))) return "bench must be an absolute path"
+  if (opts.webDevice) {
+    for (const p of [opts.webDevice.pane, opts.webDevice.out]) if (!p.startsWith("/") || p.includes("..")) return "web device pane and out must be absolute paths"
+  }
   if (opts.share) {
     const sh = opts.share
     if (sh.hub !== DEV_DEVICE_HUB) return `device hub must be ${DEV_DEVICE_HUB}`
@@ -1133,6 +1145,32 @@ export async function runE2E(
       expect(r.code === 0 && evidence.bench.result !== null, `bench: exit ${r.code}`)
     }
 
+    // 6c. The web device demo, while the machine is joined: a chat on it (the stand-in agent), then a browser tab
+    // that enrolls its own web device and chats with it through the hub (web-device-demo.ts, as the runner, with
+    // the access token on stdin only). Its failure is the run's; the revoke checks still run after it.
+    if (opts.webDevice) {
+      live()
+      const made = await acpmux(["--json", "new", "-d", "-n", WEB_DEVICE_CHAT])
+      const session = safeId(lastJson(made.stdout)?.sessionId)
+      if (made.code !== 0 || !session) {
+        problems.push(`web device: the chat on the joined machine: exit ${made.code}`)
+      } else {
+        say(`web device: chat ${session} on ${opts.name}`)
+        const wd = opts.webDevice
+        const script = new URL("./web-device-demo.ts", import.meta.url).pathname
+        const r = await deps.run(
+          [process.execPath, script, "--origin", opts.origin, "--acpmux", opts.acpmux, "--pane", wd.pane, "--out", wd.out,
+            "--target", `${opts.name}/${session}`, "--name", `${opts.name}-web`.slice(0, 63), "--label", `ci-join-${opts.runId}-2`],
+          { env: { ...wd.env, PATH: CHILD_PATH }, stdin: `${await accessToken()}\n`, timeoutMs: WEB_DEVICE_LIMIT_MS, signal: inFlight.signal }
+        )
+        childText.push(r.stdout, r.stderr)
+        for (const line of `${r.stdout}\n${r.stderr}`.split("\n").filter((l) => l.trim() && !l.startsWith("::add-mask::")).slice(-40)) say(`  web device: ${redact(plainLine(line), secrets).slice(0, 400)}`)
+        evidence.webDevice = { code: r.code, result: benchResult(r.stdout) }
+        const why = evidence.webDevice.result?.reason
+        expect(r.code === 0 && evidence.webDevice.result?.result === "pass", `web device: exit ${r.code}${typeof why === "string" ? ` (${why})` : ""}`)
+      }
+    }
+
     // 7. Revoke, then status and list say revoked.
     await revokeMachine()
     const after = await status()
@@ -1249,6 +1287,7 @@ export function parseArgs(argv: string[]): Options {
     runId: value("--run"),
     sha: value("--sha"),
     bench: value("--bench"),
+    ...(argv.includes("--web-device-pane") ? { webDevice: { pane: value("--web-device-pane"), out: value("--web-device-out"), env: {} } } : {}),
     ...(argv.includes("--share-cmux-rd")
       ? { share: { cmuxRd: value("--share-cmux-rd"), viewerUser: value("--viewer-user"), viewerHome: value("--viewer-home"), hub: value("--device-hub") } }
       : {})
@@ -1373,7 +1412,14 @@ if (import.meta.main) {
     setTimeout(() => process.exit(130), 9_000).unref()
   }
   for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, stop)
-  setTimeout(() => cancelNow?.(), 12 * 60_000 + (opts.bench ? BENCH_LIMIT_MS : 0) + (opts.share ? SHARE_LIMIT_MS : 0)).unref()
+  // The browser's environment, from the runner's: never a secret (the stack pair is already gone from process.env).
+  if (opts.webDevice) {
+    for (const key of ["HOME", "CMUX_CHROME_HEADLESS_SHELL", "PLAYWRIGHT_BROWSERS_PATH"]) {
+      const v = process.env[key]
+      if (v) opts.webDevice.env[key] = v
+    }
+  }
+  setTimeout(() => cancelNow?.(), 12 * 60_000 + (opts.bench ? BENCH_LIMIT_MS : 0) + (opts.share ? SHARE_LIMIT_MS : 0) + (opts.webDevice ? WEB_DEVICE_LIMIT_MS : 0)).unref()
   runE2E(opts, env, realDeps(), (cancel) => (cancelNow = cancel)).then(
     (e) => process.exit(e.result === "pass" ? 0 : 1),
     (e) => {

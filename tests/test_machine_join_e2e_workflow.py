@@ -8,7 +8,8 @@ secrets reach exactly one step, through `env`; no `set -x`; the platform origin
 is development's; the runner is an ephemeral Blacksmith label (never a runner
 variable that can name a persistent host); the evidence check, the upload and
 the disposable user's removal run under `always()`, the upload only when the
-check found the evidence clean; nothing else is uploaded. The disposable
+check found the evidence clean; nothing else is uploaded but, with
+web_device, the demo's recording, screenshot and result, after a scan of its own. The disposable
 user's base is root:root 0755 before the user exists (acpmux refuses a state
 directory with another user's ancestor), and the real binary joins with
 malformed stdin as that user before any secret is in reach.
@@ -53,7 +54,7 @@ def step(name: str) -> dict:
 class MachineJoinE2EWorkflow(unittest.TestCase):
     def test_manual_dispatch_only(self) -> None:
         self.assertEqual(list(load()["on"].keys()), ["workflow_dispatch"])
-        self.assertEqual(sorted(load()["on"]["workflow_dispatch"]["inputs"]), ["acpmux_ref", "bench", "name", "share"])
+        self.assertEqual(sorted(load()["on"]["workflow_dispatch"]["inputs"]), ["acpmux_ref", "bench", "name", "share", "web_device"])
         bench = load()["on"]["workflow_dispatch"]["inputs"]["bench"]
         self.assertEqual(bench["default"], "none")
         self.assertEqual(bench["options"], ["none", "deps", "deps-slow"])
@@ -236,10 +237,34 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
         remove = step("Remove the disposable user")["run"]
         self.assertLess(remove.index('sudo loginctl disable-linger "$JOIN_USER"'), remove.index("/bin/kill -KILL -1"))
 
+    def test_web_device_is_opt_in_secret_free_and_scanned_before_upload(self) -> None:
+        web = load()["on"]["workflow_dispatch"]["inputs"]["web_device"]
+        self.assertEqual((web["type"], web["default"]), ("boolean", "false"))
+        names = [s.get("name") for s in steps()]
+        for name in ("Set up the web device demo's browser and pane", "Prepare the web device demo's chat"):
+            s = step(name)
+            self.assertEqual(s["if"], "inputs.web_device", name)
+            self.assertNotIn("secrets", str(s), name)
+            self.assertNotIn("CMUX_UITEST_STACK", str(s), name)
+            self.assertLess(names.index(name), names.index("Mint, join, verify and revoke"), name)
+        # The chat's config is written after the smoke test made the state directory, and the agent is root-owned.
+        self.assertLess(names.index("Smoke-test acpmux as the disposable user"), names.index("Prepare the web device demo's chat"))
+        self.assertIn('sudo install -o root -g root -m 0755 cmux-tui/crates/acpmux/tests/fake_agent.py "$JOIN_BASE/bin/fake_agent.py"', step("Prepare the web device demo's chat")["run"])
+        mint = step("Mint, join, verify and revoke")
+        self.assertEqual(mint["env"]["WEB_DEVICE"], "${{ inputs.web_device }}")
+        self.assertIn('if [ "$WEB_DEVICE" = true ]; then', mint["run"])
+        # The demo's files: only after a clean evidence check, and only when they hold nothing secret-shaped.
+        check = step("Check the web device demo's files")
+        self.assertEqual(check["if"], "always() && inputs.web_device && steps.evidence.outputs.clean == 'true'")
+        self.assertIn("cmj_|cmm_|eyJ", check["run"])
+        self.assertIn("bearer|authorization", check["run"])
+        self.assertEqual(step("Upload the web device demo")["if"], "always() && steps.webdemo.outputs.clean == 'true'")
+
     def test_only_the_evidence_is_uploaded(self) -> None:
         uploads = [s for s in steps() if "upload-artifact" in s.get("uses", "")]
-        self.assertEqual(len(uploads), 1)
+        self.assertEqual(len(uploads), 2)
         self.assertEqual(uploads[0]["with"]["path"], "${{ runner.temp }}/machine-join-e2e/evidence.json")
+        self.assertEqual(uploads[1]["with"]["path"], "${{ runner.temp }}/web-device-demo")
         # No restored build cache in a job that later holds secrets.
         self.assertFalse([s for s in steps() if re.search(r"actions/cache|rust-cache", s.get("uses", ""))])
 

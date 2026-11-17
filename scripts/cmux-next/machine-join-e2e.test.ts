@@ -1583,6 +1583,16 @@ describe("the zero-touch share", () => {
     expect(parseArgs([...base, "--share-cmux-rd", CMUX_RD, "--viewer-user", VIEWER_USER, "--viewer-home", VIEWER_HOME, "--device-hub", DEV_DEVICE_HUB]).share).toEqual(shareOpts.share)
   })
 
+  test("web device flags parse; their paths must be absolute; without them there is no demo", () => {
+    const base = ["--origin", DEV_PLATFORM, "--acpmux", opts.acpmux, "--user", opts.user, "--home", HOME, "--name", "ci-join-1", "--evidence", opts.evidence, "--run", "1", "--sha", opts.sha]
+    expect(parseArgs(base).webDevice).toBeUndefined()
+    const wd = parseArgs([...base, "--web-device-pane", "/tmp/pane", "--web-device-out", "/tmp/out"])
+    expect(wd.webDevice).toEqual({ pane: "/tmp/pane", out: "/tmp/out", env: {} })
+    expect(refusal(wd)).toBeUndefined()
+    expect(refusal({ ...wd, webDevice: { pane: "pane", out: "/tmp/out", env: {} } })).toContain("web device")
+    expect(refusal({ ...wd, webDevice: { pane: "/tmp/pane", out: "/tmp/../out", env: {} } })).toContain("web device")
+  })
+
   test("the list, the device and the report parsers", () => {
     const listed = listedDevices("dev_mac1  macos  Old Mac  (offline)\ndev_host1  linux  ci-join-1\nNo other device of this account shares its screen.\n")
     expect(listed).toEqual([
