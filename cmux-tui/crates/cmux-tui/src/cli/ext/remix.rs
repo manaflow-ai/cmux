@@ -60,8 +60,14 @@ impl SourceRef {
     /// on REPO or a trailing `/`. `None` for anything else.
     pub(super) fn parse(text: &str) -> Option<SourceRef> {
         let text = text.trim();
-        let text =
-            text.strip_prefix("https://").or_else(|| text.strip_prefix("http://")).unwrap_or(text);
+        let text = ["https://", "http://"]
+            .iter()
+            .find_map(|scheme| {
+                text.get(..scheme.len())
+                    .filter(|head| head.eq_ignore_ascii_case(scheme))
+                    .and_then(|_| text.get(scheme.len()..))
+            })
+            .unwrap_or(text);
         let (location, rev) = match text.rsplit_once('@') {
             Some((location, rev)) => (location, Some(rev)),
             None => (text, None),
@@ -234,9 +240,12 @@ fn short(commit: &str) -> &str {
     commit.get(..12).unwrap_or(commit)
 }
 
-/// The manifest file in `dir`, if it holds one.
+/// The manifest file in `dir`, if it holds one. A link is never one: edits to it would go to
+/// whatever file it points at.
 pub(super) fn manifest_file(dir: &Path) -> Option<&'static str> {
-    MANIFESTS.into_iter().find(|file| dir.join(file).is_file())
+    MANIFESTS.into_iter().find(|file| {
+        std::fs::symlink_metadata(dir.join(file)).is_ok_and(|meta| meta.file_type().is_file())
+    })
 }
 
 /// The first projects folder under `home` that exists, else `home/Projects`.
@@ -516,6 +525,19 @@ pub(super) fn remix(
     } else {
         work.path().join(&source.path)
     };
+    // No folder on the way to the source may be a link: one could point the copy at a folder of
+    // the person's, which the remix would then commit.
+    let mut at = work.path().to_path_buf();
+    for part in source.path.split('/').filter(|part| !part.is_empty()) {
+        at.push(part);
+        if std::fs::symlink_metadata(&at).is_ok_and(|meta| meta.file_type().is_symlink()) {
+            return Err(format!(
+                "{} is a symbolic link in {}; cmux ext remix copies only plain files and folders",
+                source.path,
+                source.repository()
+            ));
+        }
+    }
     if !root.is_dir() {
         return Err(format!(
             "{} has no folder {} at {}",

@@ -503,10 +503,6 @@ fn run(global: &GlobalArgs, request: Request, json_out: bool, globals: Vec<Strin
                             println!("made it a git repository (branch main)");
                         }
                         println!("next: cd {} && cmux ext dev", dir.display());
-                        println!(
-                            "when it works: cmux ext share {} publishes it to a new GitHub repository of yours",
-                            dir.display()
-                        );
                         match &repo {
                             Some(repo) => println!(
                                 "share: push it to {}, then cmux ext publish says what is left",
@@ -516,6 +512,11 @@ fn run(global: &GlobalArgs, request: Request, json_out: bool, globals: Vec<Strin
                                 "share: cmux ext publish --repo OWNER/REPO --write-badge, once it has a GitHub repository"
                             ),
                         }
+                        // The last step, on by default: a new GitHub repository of the person's.
+                        println!(
+                            "when it works, publish it: cmux ext share {} makes a new GitHub repository of yours and prints its cmux.com page",
+                            dir.display()
+                        );
                     }
                     exit::OK
                 }

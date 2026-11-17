@@ -176,6 +176,14 @@ fn exists(gh: &Path, slug: &str) -> bool {
 /// `gh` / `git` step after the login was found.
 pub(super) fn share(options: &ShareOptions) -> Result<Shared, String> {
     let dir = &options.dir;
+    for file in remix::MANIFESTS {
+        if std::fs::symlink_metadata(dir.join(file)).is_ok_and(|meta| meta.file_type().is_symlink())
+        {
+            return Err(format!(
+                "{file} is a symbolic link; publish a folder whose manifest is a file"
+            ));
+        }
+    }
     let manifest = remix::manifest_file(dir).ok_or_else(|| {
         format!("{} has no cmux-app.json: it is not an extension folder", dir.display())
     })?;

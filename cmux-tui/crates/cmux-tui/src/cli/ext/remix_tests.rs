@@ -439,3 +439,55 @@ fn share_that_does_not_validate_leaves_the_folder_as_it_was() {
     assert_eq!(std::fs::read_to_string(dir.join("README.md")).unwrap(), readme_before);
     assert!(!std::fs::read_to_string(&log).unwrap().contains("repo create"));
 }
+
+#[test]
+fn remix_refuses_a_source_folder_that_is_a_link() {
+    // widgets/clock points at a folder of the person's: the remix would copy and commit it.
+    let base = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let private = home.path().join("private");
+    write(
+        &private,
+        &[
+            ("cmux-app.json", &manifest("acme/clock", None)),
+            ("main.js", MAIN_JS),
+            ("secret.txt", "s"),
+        ],
+    );
+    let dir = base.path().join("github.com/acme/pack");
+    std::fs::create_dir_all(dir.join("widgets")).unwrap();
+    git(&dir, &["init", "-q", "-b", "main"]);
+    write(&dir, &[("README.md", "# A pack\n")]);
+    std::os::unix::fs::symlink(&private, dir.join("widgets/clock")).unwrap();
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-q", "-m", "one"]);
+    let target = home.path().join("out");
+    let options = RemixOptions {
+        source: "github.com/acme/pack/widgets/clock@main".into(),
+        dir: Some(target.clone()),
+        name: None,
+    };
+    let error = remix::remix(&options, home.path(), Some(base.path())).unwrap_err();
+    assert!(error.contains("symbolic link"), "{error}");
+    assert!(!target.exists());
+}
+
+#[test]
+fn share_refuses_a_manifest_that_is_a_link() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = extension_folder(root.path());
+    let elsewhere = root.path().join("other.json");
+    std::fs::write(&elsewhere, manifest("local/other", None)).unwrap();
+    std::fs::remove_file(dir.join("cmux-app.json")).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, dir.join("cmux-app.json")).unwrap();
+    let (gh, _log) = fake_gh(root.path(), Some("octo"), &[]);
+    let error = share::share(&ShareOptions { dir, name: None, private: false, gh }).unwrap_err();
+    assert!(error.contains("symbolic link"), "{error}");
+    assert_eq!(std::fs::read_to_string(&elsewhere).unwrap(), manifest("local/other", None));
+}
+
+#[test]
+fn a_scheme_in_capitals_parses_as_the_link_accepts_it() {
+    let parsed = SourceRef::parse("HTTPS://github.com/acme/todo@main").unwrap();
+    assert_eq!(parsed.repository(), "github.com/acme/todo");
+}

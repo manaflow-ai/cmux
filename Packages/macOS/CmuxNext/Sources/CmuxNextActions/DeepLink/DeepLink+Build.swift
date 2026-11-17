@@ -19,8 +19,9 @@ extension DeepLink {
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               components.host?.lowercased() == buildHost, components.path.isEmpty || components.path == "/",
               components.user == nil, components.port == nil, components.fragment == nil else { return nil }
-        let refs = (components.queryItems ?? []).filter { $0.name == "remix" }
-        guard refs.count == 1, let ref = refs[0].value, isRemixReference(ref) else { return nil }
+        // Only `remix`, once: a link with anything else is outside the grammar.
+        let refs = components.queryItems ?? []
+        guard refs.count == 1, let item = refs.first, item.name == "remix", let ref = item.value, isRemixReference(ref) else { return nil }
         return remixDraft(ref)
     }
 

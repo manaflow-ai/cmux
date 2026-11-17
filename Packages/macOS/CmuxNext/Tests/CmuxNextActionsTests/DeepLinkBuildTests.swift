@@ -32,6 +32,7 @@ struct DeepLinkBuildTests {
         "cmux://build?remix=github.com/acme/todo@main%0A",
         "cmux://build?remix=github.com/acme/todo@main&remix=github.com/acme/other",
         "cmux://build?remix=github.com/acme/todo@main#x",
+        "cmux://build?remix=github.com/acme/todo@main&utm_source=x",
         "cmux://build/other?remix=github.com/acme/todo@main",
         "cmux://agent?remix=github.com/acme/todo@main",
         "other://build?remix=github.com/acme/todo@main",
