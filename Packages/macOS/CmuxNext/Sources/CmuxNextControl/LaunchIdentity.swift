@@ -233,7 +233,7 @@ public struct LaunchIdentity: Sendable, Equatable {
             // Then this build's own values: its space, and for a DEV build its own settings file and the
             // files beside it (``BuildStatePaths``; nothing for NIGHTLY or stable), read over what is left, so an
             // explicit override the launch passed (a harness's CMUX_NEXT_CONFIG_FILE) still wins.
-            var values = statePaths.launchEnvironment(over: ProcessInfo.processInfo.environment)
+            var values: [String: String] = statePaths.launchEnvironment(over: ProcessInfo.processInfo.environment)
             if let space { values[buildSpaceKey] = space }
             if let defaults { values[BuildStatePaths.settingsBuildDefaultsKey] = defaults }
             for (key, value) in values { setenv(key, value, 1) }
