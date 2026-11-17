@@ -1,6 +1,7 @@
 //! The C ABI of cmux-wallpaper for the macOS app (`include/cmux_wallpaper_ffi.h`):
-//! live wallpapers (plans/cmux-next/live-wallpapers.md). The first-party set,
-//! the program check and its translation to Metal, the manifest check, the
+//! live wallpapers (plans/cmux-next/live-wallpapers.md). The first-party set
+//! with its Metal translated at build time (the library links no shader
+//! compiler), the manifest check, the
 //! draw scheduler, the `Frame` uniform packer and the pointer's smoothing.
 //! The app's `BackdropLiveView` keeps only the Metal layer, the display link
 //! and the events; every rule and every number lives once, in cmux-wallpaper.
@@ -11,38 +12,12 @@
 
 use cmux_wallpaper::frame::{FrameInput, PointerState};
 use cmux_wallpaper::schedule::{Decision, ScheduleInput};
-use cmux_wallpaper::{FRAME_FLOATS, Manifest, ProgramErrorKind};
+use cmux_wallpaper::{FRAME_FLOATS, Manifest};
 use std::ffi::{CString, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// Bumped on any change to a type or function in the header.
-const ABI_VERSION: u32 = 1;
-
-/// The result of `cmux_wallpaper_compile`; free it with
-/// `cmux_wallpaper_compiled_free`. Strings are UTF-8, NUL-terminated, owned
-/// by the result, and null when absent.
-///
-/// `error_kind`: 0 none, 1 too large, 2 parse, 3 binding, 4 entry point,
-/// 5 var<workgroup>, 6 var<private>, 7 texture, 8 sampler, 9 storage,
-/// 10 other global, 11 override, 12 reserved name, 13 no `fn wallpaper`,
-/// 14 wrong `wallpaper` signature, 15 validation, 16 translation, 17 internal.
-/// `error_line`/`error_column` are 1-based in the program's source, 0 when
-/// the error has no place there.
-#[repr(C)]
-#[derive(Debug)]
-pub struct CmuxWallpaperCompiled {
-    pub ok: bool,
-    /// Metal Shading Language 2.1: `vertex vs_main`, `fragment fs_main`,
-    /// the Frame uniform at buffer index 0 in both.
-    pub msl: *mut c_char,
-    /// GLSL ES 3.00 fragment shader (`fs_main` as `main`).
-    pub glsl: *mut c_char,
-    /// `line:column: message`, or the message alone.
-    pub error: *mut c_char,
-    pub error_kind: u32,
-    pub error_line: u32,
-    pub error_column: u32,
-}
+const ABI_VERSION: u32 = 2;
 
 /// The result of `cmux_wallpaper_validate_manifest`; free it with
 /// `cmux_wallpaper_manifest_result_free`. On success `json` is the manifest
@@ -280,28 +255,6 @@ unsafe fn bytes<'a>(ptr: *const u8, len: usize) -> &'a [u8] {
     }
 }
 
-fn kind_code(kind: ProgramErrorKind) -> u32 {
-    match kind {
-        ProgramErrorKind::TooLarge => 1,
-        ProgramErrorKind::Parse => 2,
-        ProgramErrorKind::Binding => 3,
-        ProgramErrorKind::EntryPoint => 4,
-        ProgramErrorKind::Workgroup => 5,
-        ProgramErrorKind::Private => 6,
-        ProgramErrorKind::Texture => 7,
-        ProgramErrorKind::Sampler => 8,
-        ProgramErrorKind::Storage => 9,
-        ProgramErrorKind::OtherGlobal => 10,
-        ProgramErrorKind::Override => 11,
-        ProgramErrorKind::ReservedName => 12,
-        ProgramErrorKind::MissingWallpaper => 13,
-        ProgramErrorKind::WallpaperSignature => 14,
-        ProgramErrorKind::Validation => 15,
-        ProgramErrorKind::Translation => 16,
-        ProgramErrorKind::Internal => 17,
-    }
-}
-
 /// The ABI version this library implements.
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_wallpaper_abi_version() -> u32 {
@@ -338,8 +291,8 @@ pub unsafe extern "C" fn cmux_wallpaper_first_party_manifest_json(
     static_text(cmux_wallpaper::first_party_at(index).map(|w| w.manifest_json), len)
 }
 
-/// First-party wallpaper `index`'s program (`wallpaper.wgsl`), for
-/// `cmux_wallpaper_compile`: static UTF-8 bytes as above.
+/// First-party wallpaper `index`'s program (`wallpaper.wgsl`): static UTF-8
+/// bytes as above.
 ///
 /// # Safety
 /// `len` is null or points to a writable `size_t`.
@@ -351,74 +304,20 @@ pub unsafe extern "C" fn cmux_wallpaper_first_party_source(
     static_text(cmux_wallpaper::first_party_at(index).map(|w| w.source), len)
 }
 
-fn compiled(source: &[u8]) -> CmuxWallpaperCompiled {
-    match cmux_wallpaper::compile_bytes(source) {
-        Ok(c) => CmuxWallpaperCompiled {
-            ok: true,
-            msl: owned(&c.msl),
-            glsl: owned(&c.glsl),
-            error: std::ptr::null_mut(),
-            error_kind: 0,
-            error_line: 0,
-            error_column: 0,
-        },
-        Err(e) => {
-            let (line, column) = e.location.unwrap_or((0, 0));
-            CmuxWallpaperCompiled {
-                ok: false,
-                msl: std::ptr::null_mut(),
-                glsl: std::ptr::null_mut(),
-                error: owned(&e.to_string()),
-                error_kind: kind_code(e.kind),
-                error_line: line,
-                error_column: column,
-            }
-        }
-    }
-}
-
-/// Checks a wallpaper program (`len` bytes of UTF-8 WGSL, at most 64 KiB)
-/// against the sandbox and translates it. Never null; free the result with
-/// `cmux_wallpaper_compiled_free`. The app never loads a program whose
-/// result is not `ok`.
+/// First-party wallpaper `index`'s program in Metal Shading Language 2.1,
+/// translated when the library was built (the library has no shader
+/// compiler): `vertex vs_main` (a full-screen triangle, 3 vertices) and
+/// `fragment fs_main`, the 144-byte Frame uniform at buffer index 0 in both.
+/// Static UTF-8 bytes as above.
 ///
 /// # Safety
-/// `source` is null or points to `len` readable bytes.
+/// `len` is null or points to a writable `size_t`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn cmux_wallpaper_compile(
-    source: *const u8,
-    len: usize,
-) -> *mut CmuxWallpaperCompiled {
-    // SAFETY: per this function's contract.
-    let source = unsafe { bytes(source, len) };
-    let result = catch_unwind(AssertUnwindSafe(|| compiled(source))).unwrap_or_else(|_| {
-        CmuxWallpaperCompiled {
-            ok: false,
-            msl: std::ptr::null_mut(),
-            glsl: std::ptr::null_mut(),
-            error: owned("the WGSL translator failed on this program"),
-            error_kind: kind_code(ProgramErrorKind::Internal),
-            error_line: 0,
-            error_column: 0,
-        }
-    });
-    Box::into_raw(Box::new(result))
-}
-
-/// Frees a `cmux_wallpaper_compile` result and its strings. Null is a no-op.
-///
-/// # Safety
-/// `result` is null or a pointer `cmux_wallpaper_compile` returned, not yet freed.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn cmux_wallpaper_compiled_free(result: *mut CmuxWallpaperCompiled) {
-    if result.is_null() {
-        return;
-    }
-    // SAFETY: `result` came from Box::into_raw in cmux_wallpaper_compile and is freed once.
-    let r = unsafe { Box::from_raw(result) };
-    release(r.msl);
-    release(r.glsl);
-    release(r.error);
+pub unsafe extern "C" fn cmux_wallpaper_first_party_msl(
+    index: usize,
+    len: *mut usize,
+) -> *const u8 {
+    static_text(cmux_wallpaper::first_party_at(index).map(|w| w.msl), len)
 }
 
 fn manifest_result(json: &[u8]) -> CmuxWallpaperManifestResult {
@@ -661,37 +560,8 @@ mod tests {
     }
 
     #[test]
-    fn abi_version_is_one() {
-        assert_eq!(cmux_wallpaper_abi_version(), 1);
-    }
-
-    #[test]
-    fn compile_round_trips_the_smoke_sample_and_a_refusal() {
-        let smoke = cmux_wallpaper::smoke().unwrap().source;
-        // SAFETY: valid bytes; the result is freed once.
-        unsafe {
-            let r = cmux_wallpaper_compile(smoke.as_ptr(), smoke.len());
-            assert!((*r).ok);
-            assert!(text((*r).msl).unwrap().contains("fs_main"));
-            assert!(text((*r).glsl).unwrap().starts_with("#version 300 es"));
-            assert!((*r).error.is_null());
-            cmux_wallpaper_compiled_free(r);
-
-            let bad = "var<private> n: f32;\nfn wallpaper(px: vec2<f32>) -> vec4<f32> { return frame.paper; }";
-            let r = cmux_wallpaper_compile(bad.as_ptr(), bad.len());
-            assert!(!(*r).ok);
-            assert!((*r).msl.is_null());
-            assert_eq!((*r).error_kind, 6);
-            assert_eq!((*r).error_line, 1);
-            assert!(text((*r).error).unwrap().contains("var<private>"));
-            cmux_wallpaper_compiled_free(r);
-
-            let r = cmux_wallpaper_compile(std::ptr::null(), 0);
-            assert!(!(*r).ok);
-            assert_eq!((*r).error_kind, 13);
-            cmux_wallpaper_compiled_free(r);
-            cmux_wallpaper_compiled_free(std::ptr::null_mut());
-        }
+    fn abi_version_is_two() {
+        assert_eq!(cmux_wallpaper_abi_version(), 2);
     }
 
     #[test]
@@ -723,8 +593,13 @@ mod tests {
             let json = static_bytes(cmux_wallpaper_first_party_manifest_json, i).unwrap();
             assert!(!json.contains("\"smoke\""));
             assert!(static_bytes(cmux_wallpaper_first_party_source, i).is_some());
+            let msl = static_bytes(cmux_wallpaper_first_party_msl, i).unwrap();
+            assert!(
+                msl.contains("vs_main") && msl.contains("fs_main") && msl.contains("[[buffer(0)]]")
+            );
         }
         assert_eq!(static_bytes(cmux_wallpaper_first_party_manifest_json, n), None);
+        assert_eq!(static_bytes(cmux_wallpaper_first_party_msl, n), None);
     }
 
     #[test]

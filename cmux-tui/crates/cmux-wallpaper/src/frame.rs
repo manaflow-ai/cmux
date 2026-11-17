@@ -252,6 +252,7 @@ mod tests {
         assert_eq!(FRAME_BYTES, 144);
     }
 
+    #[cfg(feature = "compile")]
     #[test]
     fn layout_by_naga_is_144_bytes() {
         let module = naga::front::wgsl::parse_str(PRELUDE).unwrap();

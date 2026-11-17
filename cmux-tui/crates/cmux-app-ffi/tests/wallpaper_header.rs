@@ -22,7 +22,7 @@ fn committed_wallpaper_header_is_cbindgen_output() {
     let text = std::str::from_utf8(&generated).expect("utf-8 header");
     for name in [
         "cmux_wallpaper_abi_version",
-        "cmux_wallpaper_compile",
+        "cmux_wallpaper_first_party_msl",
         "cmux_wallpaper_schedule",
         "cmux_wallpaper_frame_pack",
         "cmux_wallpaper_pointer_update",

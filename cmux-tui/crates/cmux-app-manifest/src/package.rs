@@ -155,10 +155,13 @@ fn referenced_files(dir: &Path, m: &Value) -> Vec<Issue> {
 }
 
 /// `contributes.wallpapers` (plans/cmux-next/live-wallpapers.md): each listed
-/// folder's `wallpaper.json` and program pass cmux-wallpaper's checks, the
-/// same the app runs before it loads one, and no two share an id. The paths
-/// themselves (inside the package, present, listed in `files`) were checked
-/// by `referenced_files`.
+/// folder's `wallpaper.json` passes cmux-wallpaper's manifest check, its program
+/// exists and is at most 64 KiB, and no two share an id. The program itself
+/// (sandbox and translation, naga) is checked only with the feature
+/// `wallpaper-programs`; without it the report carries a
+/// `wallpaper.programNotChecked` warning, never a pass. The paths themselves
+/// (inside the package, present, listed in `files`) were checked by
+/// `referenced_files`.
 fn wallpaper_folders(dir: &Path, m: &Value) -> Vec<Issue> {
     let mut out = Vec::new();
     let mut ids: Vec<String> = Vec::new();
@@ -216,19 +219,28 @@ fn wallpaper_folders(dir: &Path, m: &Value) -> Vec<Issue> {
                 "wallpaper.program",
                 format!("{rel}/{} not found", manifest.shader),
             )),
-            Ok(source) => {
-                if let Err(e) = cmux_wallpaper::compile_bytes(&source) {
+            Ok(source) => match cmux_wallpaper::check_program(&source) {
+                cmux_wallpaper::ProgramCheck::Passed => {}
+                cmux_wallpaper::ProgramCheck::Refused { message, location } => {
+                    let place = location.map(|(l, c)| format!(":{l}:{c}")).unwrap_or_default();
                     out.push(Issue::error(
                         at,
                         "wallpaper.program",
-                        format!(
-                            "{rel}/{}{}{e}",
-                            manifest.shader,
-                            if e.location.is_some() { ":" } else { ": " }
-                        ),
+                        format!("{rel}/{}{place}: {message}", manifest.shader),
                     ));
                 }
-            }
+                // This build has no shader compiler (feature `wallpaper-programs` off,
+                // as in the app, the daemon and the CLI): say so, never imply a pass.
+                cmux_wallpaper::ProgramCheck::NotChecked => out.push(Issue::warning(
+                    at,
+                    "wallpaper.programNotChecked",
+                    format!(
+                        "{rel}/{} was not checked: this build has no wallpaper program check \
+                         (cmux-app-manifest feature wallpaper-programs)",
+                        manifest.shader
+                    ),
+                )),
+            },
         }
     }
     out

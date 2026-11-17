@@ -39,6 +39,10 @@ mod apps {
     // The only test in this binary, so no other test allocates meanwhile.
     #[test]
     fn checking_wallpapers_retains_nothing() {
+        // naga runs here: the dev-dependency turns on cmux-wallpaper/compile.
+        const {
+            assert!(cmux_wallpaper::CHECKS_PROGRAMS);
+        }
         let dir = std::env::temp_dir()
             .join(format!("cmux-app-manifest-wallpaper-memory-{}", std::process::id()));
         let folder = dir.join("wallpapers/glow");

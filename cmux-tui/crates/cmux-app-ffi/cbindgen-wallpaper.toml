@@ -7,8 +7,8 @@ language = "C"
 include_guard = "CMUX_WALLPAPER_FFI_H"
 header = """
 /* cmux-wallpaper's C ABI (cmux-tui/crates/cmux-app-ffi/src/wallpaper.rs): live
- * wallpapers (plans/cmux-next/live-wallpapers.md). The first-party set, the
- * program's sandbox and its translation to Metal, the manifest check, the
+ * wallpapers (plans/cmux-next/live-wallpapers.md). The first-party set with
+ * its Metal translated at build time (no shader compiler), the manifest check, the
  * draw scheduler, the 144-byte Frame uniform packer and the pointer's
  * smoothing. No globals; results that own strings have their own free
  * function. cmux_wallpaper_abi_version() returns ABI_VERSION (src/wallpaper.rs). */"""

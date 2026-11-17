@@ -1,6 +1,8 @@
 //! The first-party wallpapers, embedded in the binary from `wallpapers/<id>/`
-//! (build.rs), so the app gets the set without reading files. `smoke` is a
-//! test sample: it is embedded but not shipped.
+//! (build.rs), so the app gets the set without reading files: each one's
+//! manifest, its WGSL and its Metal Shading Language, translated at build
+//! time (a program the sandbox refuses fails the build). `smoke` is a test
+//! sample: it is embedded but not shipped.
 
 /// The test sample's folder; never shipped.
 pub const SMOKE_ID: &str = "smoke";
@@ -12,8 +14,11 @@ pub struct FirstParty {
     pub folder: &'static str,
     /// `wallpaper.json`.
     pub manifest_json: &'static str,
-    /// `wallpaper.wgsl` (empty when the folder has none: a test refuses it).
+    /// `wallpaper.wgsl`.
     pub source: &'static str,
+    /// The program translated to Metal Shading Language 2.1 at build time:
+    /// `vertex vs_main`, `fragment fs_main`, the Frame uniform at buffer 0.
+    pub msl: &'static str,
 }
 
 // `EMBEDDED` (every folder) and `SHIPPED` (without smoke), sorted by folder name.
@@ -42,7 +47,7 @@ pub fn first_party_by_id(id: &str) -> Option<&'static FirstParty> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Manifest, compile};
+    use crate::Manifest;
 
     #[test]
     fn smoke_is_embedded_but_not_shipped() {
@@ -53,11 +58,11 @@ mod tests {
     }
 
     /// Every folder under wallpapers/ (smoke too): the manifest is valid, its
-    /// id is the folder's name, its shader is wallpaper.wgsl, and the program
-    /// compiles to Metal and GLSL. A wallpaper added later is checked here
-    /// without a test of its own.
+    /// id is the folder's name, its shader is wallpaper.wgsl, and build.rs
+    /// translated the program to Metal. A wallpaper added later is checked
+    /// here without a test of its own.
     #[test]
-    fn every_first_party_wallpaper_compiles() {
+    fn every_first_party_wallpaper_is_valid_and_translated() {
         let mut failures = Vec::new();
         for w in EMBEDDED {
             let m = match Manifest::parse(w.manifest_json.as_bytes()) {
@@ -76,15 +81,25 @@ mod tests {
                     w.folder, m.shader
                 ));
             }
-            if w.source.is_empty() {
-                failures.push(format!("{}: no wallpaper.wgsl", w.folder));
-                continue;
-            }
-            if let Err(e) = compile(w.source) {
-                failures.push(format!("{}/wallpaper.wgsl:{e}", w.folder));
+            if !(w.msl.contains("vs_main") && w.msl.contains("fs_main")) {
+                failures.push(format!("{}: no Metal entry points", w.folder));
             }
         }
         assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    /// The embedded Metal is what the run-time translator writes today.
+    #[cfg(feature = "compile")]
+    #[test]
+    fn embedded_metal_matches_the_translator() {
+        for w in EMBEDDED {
+            assert_eq!(
+                crate::compile(w.source).map(|c| c.msl).as_deref(),
+                Ok(w.msl),
+                "{}",
+                w.folder
+            );
+        }
     }
 
     #[test]

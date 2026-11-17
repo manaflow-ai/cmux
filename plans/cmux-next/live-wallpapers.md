@@ -61,9 +61,19 @@ Every field is a `vec4<f32>`, so the layout is the same in Metal, WGSL and GLSL 
 ### Translation
 
 cmux-wallpaper (Rust) parses the program with naga, checks it against the rules above, and writes
-Metal Shading Language for the Mac and GLSL ES 3.00 for the gallery and the cover renderer. The app never
-compiles WGSL itself and never loads a program the validator refused. One source makes the live
-wallpaper, the gallery and the still.
+Metal Shading Language for the Mac and GLSL ES 3.00 for the gallery and the cover renderer. One source
+makes the live wallpaper, the gallery and the still.
+
+First-party programs are translated at build time: cmux-wallpaper's build script runs the check and
+the translation on every `wallpapers/<id>/` program (a refused program fails the build) and embeds the
+Metal next to the source. The app links no shader compiler: it reads the embedded Metal
+(`cmux_wallpaper_first_party_msl`) and never compiles WGSL itself. The run-time check and translation
+are cmux-wallpaper's `compile` feature (naga is about 1.8 MB of machine code), which no shipped binary
+turns on.
+
+Community wallpapers: a package's program is checked by author tooling built with cmux-app-manifest's
+`wallpaper-programs` feature. Loading community wallpapers in the app is a later step: it needs a
+decided place to translate them that keeps the compiler out of the app and daemon.
 
 ## The manifest
 
@@ -94,8 +104,9 @@ wallpaper, the gallery and the still.
   misses it at another.
 
 A community wallpaper is an extension: its `cmux-app.json` lists it under `contributes.wallpapers`
-(`{ "path": "wallpapers/grain-silk" }`), and cmux-app-manifest checks the folder with the same validator
-the app uses. It needs no capability: a wallpaper cannot read files, the network, the screen or the
+(`{ "path": "wallpapers/grain-silk" }`), and cmux-app-manifest checks the folder: always its
+`wallpaper.json` and the program's presence and size, and the program itself only when built with
+`wallpaper-programs` (otherwise the report says `wallpaper.programNotChecked`). It needs no capability: a wallpaper cannot read files, the network, the screen or the
 clipboard, and it gets only the `Frame` above.
 
 ## When it draws (cost)

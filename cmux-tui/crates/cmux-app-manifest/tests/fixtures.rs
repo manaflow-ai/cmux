@@ -139,9 +139,16 @@ fn package_paths_are_checked() {
 }
 
 /// `contributes.wallpapers` (live-wallpapers.md): each listed folder passes
-/// cmux-wallpaper's manifest and program checks, the ones the app runs.
+/// cmux-wallpaper's manifest and program checks. The program check needs
+/// cmux-wallpaper/compile, which the dev-dependency turns on for tests.
 #[test]
 fn contributed_wallpapers_are_checked_with_the_app_validator() {
+    const {
+        assert!(
+            cmux_wallpaper::CHECKS_PROGRAMS,
+            "the dev-dependency turns on cmux-wallpaper/compile"
+        );
+    };
     let dir =
         std::env::temp_dir().join(format!("cmux-app-manifest-wallpapers-{}", std::process::id()));
     let ok_json = r#"{"id":"glow","name":"Glow","description":"A glow.","shader":"wallpaper.wgsl","fps":30,"scale":0.5,"interactive":true,"still":{"time":1,"pointer":[0.5,0.5]}}"#;

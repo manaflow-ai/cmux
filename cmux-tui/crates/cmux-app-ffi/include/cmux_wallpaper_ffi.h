@@ -1,6 +1,6 @@
 /* cmux-wallpaper's C ABI (cmux-tui/crates/cmux-app-ffi/src/wallpaper.rs): live
- * wallpapers (plans/cmux-next/live-wallpapers.md). The first-party set, the
- * program's sandbox and its translation to Metal, the manifest check, the
+ * wallpapers (plans/cmux-next/live-wallpapers.md). The first-party set with
+ * its Metal translated at build time (no shader compiler), the manifest check, the
  * draw scheduler, the 144-byte Frame uniform packer and the pointer's
  * smoothing. No globals; results that own strings have their own free
  * function. cmux_wallpaper_abi_version() returns ABI_VERSION (src/wallpaper.rs). */
@@ -14,38 +14,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-
-/*
- The result of `cmux_wallpaper_compile`; free it with
- `cmux_wallpaper_compiled_free`. Strings are UTF-8, NUL-terminated, owned
- by the result, and null when absent.
-
- `error_kind`: 0 none, 1 too large, 2 parse, 3 binding, 4 entry point,
- 5 var<workgroup>, 6 var<private>, 7 texture, 8 sampler, 9 storage,
- 10 other global, 11 override, 12 reserved name, 13 no `fn wallpaper`,
- 14 wrong `wallpaper` signature, 15 validation, 16 translation, 17 internal.
- `error_line`/`error_column` are 1-based in the program's source, 0 when
- the error has no place there.
- */
-typedef struct {
-    bool ok;
-    /*
-     Metal Shading Language 2.1: `vertex vs_main`, `fragment fs_main`,
-     the Frame uniform at buffer index 0 in both.
-     */
-    char *msl;
-    /*
-     GLSL ES 3.00 fragment shader (`fs_main` as `main`).
-     */
-    char *glsl;
-    /*
-     `line:column: message`, or the message alone.
-     */
-    char *error;
-    uint32_t error_kind;
-    uint32_t error_line;
-    uint32_t error_column;
-} CmuxWallpaperCompiled;
 
 /*
  The result of `cmux_wallpaper_validate_manifest`; free it with
@@ -239,8 +207,8 @@ size_t cmux_wallpaper_first_party_count(void);
 const uint8_t *cmux_wallpaper_first_party_manifest_json(size_t index, size_t *len);
 
 /*
- First-party wallpaper `index`'s program (`wallpaper.wgsl`), for
- `cmux_wallpaper_compile`: static UTF-8 bytes as above.
+ First-party wallpaper `index`'s program (`wallpaper.wgsl`): static UTF-8
+ bytes as above.
 
  # Safety
  `len` is null or points to a writable `size_t`.
@@ -248,23 +216,16 @@ const uint8_t *cmux_wallpaper_first_party_manifest_json(size_t index, size_t *le
 const uint8_t *cmux_wallpaper_first_party_source(size_t index, size_t *len);
 
 /*
- Checks a wallpaper program (`len` bytes of UTF-8 WGSL, at most 64 KiB)
- against the sandbox and translates it. Never null; free the result with
- `cmux_wallpaper_compiled_free`. The app never loads a program whose
- result is not `ok`.
+ First-party wallpaper `index`'s program in Metal Shading Language 2.1,
+ translated when the library was built (the library has no shader
+ compiler): `vertex vs_main` (a full-screen triangle, 3 vertices) and
+ `fragment fs_main`, the 144-byte Frame uniform at buffer index 0 in both.
+ Static UTF-8 bytes as above.
 
  # Safety
- `source` is null or points to `len` readable bytes.
+ `len` is null or points to a writable `size_t`.
  */
-CmuxWallpaperCompiled *cmux_wallpaper_compile(const uint8_t *source, size_t len);
-
-/*
- Frees a `cmux_wallpaper_compile` result and its strings. Null is a no-op.
-
- # Safety
- `result` is null or a pointer `cmux_wallpaper_compile` returned, not yet freed.
- */
-void cmux_wallpaper_compiled_free(CmuxWallpaperCompiled *result);
+const uint8_t *cmux_wallpaper_first_party_msl(size_t index, size_t *len);
 
 /*
  Checks `len` bytes of `wallpaper.json`. Never null; free the result with
