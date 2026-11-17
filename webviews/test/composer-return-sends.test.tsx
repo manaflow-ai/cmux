@@ -466,7 +466,7 @@ test("/btw keeps a file still being read for the main turn", async () => {
 });
 
 for (const outcome of ["resolve", "reject", "edited"] as const) {
-  test(`an asynchronous owned command consumes files but preserves its draft until ${outcome}`, async () => {
+  test(`an asynchronous owned command leaves the composer at once and comes back only when refused (${outcome})`, async () => {
     let settle!: () => void;
     const accepted = new Promise<void>((resolve, reject) => {
       settle = outcome === "reject" ? () => reject(new Error("refused")) : resolve;
@@ -479,7 +479,7 @@ for (const outcome of ["resolve", "reject", "edited"] as const) {
     await act(async () => page.field.dispatchEvent(paste));
     expect(host.querySelector(".acpmux-attachment-image")).not.toBeNull();
     await dispatch(page.field, key({ key: "Enter", keyCode: 13 }));
-    expect(page.field.textContent).toBe("/continue codex");
+    expect(page.field.textContent).toBe("");
     expect(host.querySelector(".acpmux-attachment-image")).toBeNull();
     if (outcome === "edited") {
       await act(async () => {
