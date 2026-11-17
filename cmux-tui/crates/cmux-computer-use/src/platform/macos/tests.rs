@@ -3268,3 +3268,51 @@ fn after_keys_in_a_webkit_field_the_caret_leaves_the_typed_word_and_comes_back()
         "nothing typed: the caret is not moved"
     );
 }
+
+#[test]
+fn safaris_autocorrection_bubble_is_watched_dismissed_or_reported() {
+    use crate::desktop::Rect;
+    use roles::{Autocorrection, autocorrection, is_correction_bubble, may_be_autocorrected};
+    // Text whose last word ends it can be corrected later; text ending in a
+    // space or punctuation was never corrected (live, 26.6).
+    assert!(may_be_autocorrected("Hello from wierd"));
+    assert!(may_be_autocorrected("wierd"));
+    assert!(may_be_autocorrected("café"));
+    assert!(!may_be_autocorrected("Hello from wierd "));
+    assert!(!may_be_autocorrected("Hello from wierd."));
+    assert!(!may_be_autocorrected("Zq9 9"));
+    assert!(!may_be_autocorrected(""));
+    // The bubble: two untitled windows, about 97x49 and 81x22, at the field.
+    let field = Rect { x: 640.0, y: 130.0, width: 250.0, height: 22.0 };
+    let r = |x: f64, y: f64, w: f64, h: f64| Rect { x, y, width: w, height: h };
+    assert!(is_correction_bubble("", 0, true, true, &r(700.0, 150.0, 97.0, 49.0), &field));
+    assert!(is_correction_bubble("", 0, true, true, &r(705.0, 156.0, 81.0, 22.0), &field));
+    assert!(
+        !is_correction_bubble("", 0, true, false, &r(700.0, 150.0, 97.0, 49.0), &field),
+        "there before the keys"
+    );
+    assert!(
+        !is_correction_bubble("webtype", 0, true, true, &r(700.0, 150.0, 97.0, 49.0), &field),
+        "titled"
+    );
+    assert!(
+        !is_correction_bubble("", 0, false, true, &r(700.0, 150.0, 97.0, 49.0), &field),
+        "off screen"
+    );
+    assert!(
+        !is_correction_bubble("", 3, true, true, &r(700.0, 150.0, 97.0, 49.0), &field),
+        "another layer"
+    );
+    assert!(
+        !is_correction_bubble("", 0, true, true, &r(660.0, 60.0, 760.0, 800.0), &field),
+        "a page-sized window"
+    );
+    assert!(
+        !is_correction_bubble("", 0, true, true, &r(100.0, 600.0, 97.0, 49.0), &field),
+        "far from the field"
+    );
+    // What the watch found.
+    assert_eq!(autocorrection(false, false), Autocorrection::NoneOffered);
+    assert_eq!(autocorrection(true, false), Autocorrection::Dismissed);
+    assert_eq!(autocorrection(true, true), Autocorrection::StillOffered);
+}

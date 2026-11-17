@@ -269,6 +269,56 @@ pub fn settle_caret_writes(at: (isize, isize), typed: isize) -> Vec<(isize, isiz
     vec![(began, 0), at]
 }
 
+/// Whether WebKit may offer to autocorrect text typed with keys: its last
+/// word must end the text (live, Safari on macOS 26.6: text ending in a
+/// space or punctuation was never corrected later).
+pub fn may_be_autocorrected(text: &str) -> bool {
+    // Stub (red): never, as before.
+    let _ = text;
+    false
+}
+
+/// Whether a window of the app is WebKit's autocorrection bubble for the
+/// field at `field` (global points): untitled, small, on screen, layer 0,
+/// new since the keys (`new`), and near the field. Live, Safari on macOS
+/// 26.6: two untitled windows, about 97x49 and 81x22 points, appeared at
+/// the field 0.3 s after the call while a correction was pending, and went
+/// away when it was accepted or dismissed.
+pub fn is_correction_bubble(
+    title: &str,
+    layer: i64,
+    on_screen: bool,
+    new: bool,
+    frame: &Rect,
+    field: &Rect,
+) -> bool {
+    // Stub (red): never, as before.
+    let _ = (title, layer, on_screen, new, frame, field);
+    false
+}
+
+/// What the settle found about WebKit's autocorrection of the typed text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Autocorrection {
+    /// No correction was offered while it was watched (or none can be).
+    NoneOffered,
+    /// One was offered and dismissed: the text stays as typed.
+    Dismissed,
+    /// One is still offered: the text may change at the next focus move.
+    StillOffered,
+}
+
+/// [`Autocorrection`] from whether a bubble was seen and whether it was
+/// still there after the dismissal.
+pub fn autocorrection(seen: bool, still_there: bool) -> Autocorrection {
+    // Stub (red): never offered, as before.
+    let _ = (seen, still_there);
+    Autocorrection::NoneOffered
+}
+
+/// The note when WebKit still offers to correct the typed text.
+pub const AUTOCORRECTION_PENDING: &str = "the browser is offering to autocorrect the last word typed and the offer could not be dismissed; the text reads back as typed now, but the browser may replace that word when focus moves to another field";
+
 /// Where a background app's focused element (`AXFocusedUIElement`) is,
 /// relative to the field keys are meant for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
