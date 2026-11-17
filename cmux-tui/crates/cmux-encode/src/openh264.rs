@@ -198,6 +198,16 @@ pub struct OpenH264 {
 /// that changed less than [`CALM_CHANGE`] move it back. A move rebuilds the encoder, so its
 /// next frame is an IDR. One page flip or a scroll stays in screen usage.
 pub const MOTION_CHANGE: f32 = 0.5;
+/// The QP range screen usage codes in when the options name none. OpenH264's own screen range is
+/// 26-35, and its screen rate control pins a P frame's base QP at the minimum
+/// (WelRcPictureInitScc, v2.6.0: `WELS_CLIP3 (iBaseQp, iMinQp, iMinQp)`), so frame skipping was
+/// its only way to hold the bitrate: after a share's first keyframe it dropped ~260 ms of frames
+/// (the first key presses of every share waited 55-290 ms for a frame), and on full-screen
+/// motion it settled near half the frame rate. A higher floor makes each frame cheaper, so the
+/// buffer drains in a few frames and drops stay rare; the ceiling leaves the keyframe and scene
+/// changes room to shrink further.
+pub const SCREEN_MIN_QP: u8 = 30;
+pub const SCREEN_MAX_QP: u8 = 42;
 pub const CALM_CHANGE: f32 = 0.25;
 pub const CALM_FRAMES_TO_SCREEN: u32 = 30;
 /// Luma rows and columns between samples of the change check.
@@ -530,10 +540,15 @@ unsafe fn init(
     p.bEnableDenoise = false;
     p.bEnableBackgroundDetection = opts.background_detection;
     p.bEnableAdaptiveQuant = opts.adaptive_quant;
-    if let Some(q) = opts.min_qp {
+    let (min_qp, max_qp) = if screen {
+        (Some(opts.min_qp.unwrap_or(SCREEN_MIN_QP)), Some(opts.max_qp.unwrap_or(SCREEN_MAX_QP)))
+    } else {
+        (opts.min_qp, opts.max_qp)
+    };
+    if let Some(q) = min_qp {
         p.iMinQp = c_int::from(q);
     }
-    if let Some(q) = opts.max_qp {
+    if let Some(q) = max_qp {
         p.iMaxQp = c_int::from(q);
     }
     p.bEnableSceneChangeDetect = false;
