@@ -14,7 +14,12 @@
 #                The controller runs this script only at a feat-cmux-next commit, so a PR's head is named here.
 #   rounds=N     with head=: gamut runs per side (1 to 10, default 3), interleaved base, head, base, ...
 #                Each run's update path reports not run (no older build). Prints QG-AB <side> <path>-<state> {medians}.
-#   paths=, states=, many=, long_turns=, video=   passed to the check (--paths, --states, --many, --long-turns, --video)
+#   paths=, states=, many=, long_turns=, video=, fresh_rounds=   passed to the check (--paths, --states, --many,
+#                --long-turns, --video, --fresh-rounds); the startup paths: paths=fresh-install,cold-cache,loaded,after-run
+#   paths=sparkle-update   the update as a person gets it (CMUX-119): the feed's previous build stages the update with
+#                its own Sparkle and pre-warm, installs it on quit, and is reopened; then a second launch of the same
+#                build. Sparkle installs the feed's newest, so leave build= unset. Prints GAMUT-RATIO lines
+#                (first/second for first window, settled, prior chat front and prior chat live)
 # Prints GAMUT-ROUND lines, one GAMUT {json} and the table; keeps gamut.json, gamut.md, app.log and videos in report.tgz.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 3
@@ -32,6 +37,7 @@ for arg in "$@"; do
     many=*) extra+=(--many "${arg#many=}") ;;
     long_turns=*) extra+=(--long-turns "${arg#long_turns=}") ;;
     video=*) extra+=(--video "${arg#video=}") ;;
+    fresh_rounds=*) extra+=(--fresh-rounds "${arg#fresh_rounds=}") ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done

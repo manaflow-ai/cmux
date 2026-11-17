@@ -2278,6 +2278,21 @@ Sidebar-Look: no visual change. Tests: `SidebarSwitchPressKeepsPageKeyTests`, `S
 - Test: `SidebarGroupFlickerTests` event i (no top group piece below opacity 1 in any frame; the moving row above the
   group and opaque), red commit first.
 
+## A hover card's fill stands one gap from every card edge (2026-11-16)
+
+- Lawrence 2026-11-16, on the workspace hover card of one tab ("manaflow-ai/trellis: Trellis: a programming l…") over
+  Show details: "bottom padding must be same as left/right, same for top".
+- Cause: a tab row's fill and Show details' fill reach `WorkspaceTabHoverCardRow.fillOutset` (4 pt) past the rows'
+  sides, but not past their top or bottom, so the hovered Show details stood the full padding from the card's bottom
+  and the first tab row (the name hidden: the one tab says it) the full padding from its top, 4 pt more than from the
+  sides.
+- Now, where a fill row (the tab list or Show details) is the first or last row shown, the rows come `fillOutset`
+  nearer that card edge (`WorkspaceHoverCardView.applyEdgeInsets`): the fill stands padding - fillOutset from all four
+  edges, the gap the card's corners are concentric around. A first or last row with no fill (the name) keeps the
+  padding.
+- Test: `WorkspaceHoverCardEvenInsetTests.aFillAtTheTopOrBottomIsAsFarFromThatEdgeAsFromTheSides`, every density, red
+  commit first.
+
 ## Reviewed behavior-only commits
 
 The following Priority pointer behavior commits were reviewed as Sidebar-Look: no visual change:
