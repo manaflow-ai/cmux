@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44008733304",
+  "recorded_at": "2026-11-17T03:24:57Z",
+  "reason": "cmux-tui 3b37e19afb63 changes the image's cmux-tui (pinned 7aaaf036694a)",
+  "dry_run": false,
+  "cmux_tui": "3b37e19afb634017b39c9c91a75c4fd8ea4c33d9",
+  "fixes": [
+    {
+      "sha": "3b37e19afb634017b39c9c91a75c4fd8ea4c33d9",
+      "mergedAt": "2026-11-16T18:53:57-08:00",
+      "subject": "cmux ext new makes a publishable git repo with a Get it on cmux badge; cmux ext publish checks it (#44877)"
+    },
+    {
+      "sha": "1767d62bdf272a3eef66c2ee346de3699db6d31b",
+      "mergedAt": "2026-11-16T18:49:21-08:00",
+      "subject": "cmux-weft: delete the coordinator and relay (#44847)"
+    },
+    {
+      "sha": "664d5781740002a2c1620fd9472709a6bf8ff796",
+      "mergedAt": "2026-11-16T18:49:04-08:00",
+      "subject": "Community themes and snippets install from git repositories (#44900)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T03:24:57Z",
+    "snapshot_id": "sh-0bc82e5bbeff4ccbb208d93ad945c8b3",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44008733304): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "e24723f90b094704bf916fc612311c878b3da30f",
+    "image": "cloud-native-auto-3b37e19a-44008733304-1",
+    "revision": "ci-44008733304-1",
+    "at": "2026-11-17T03:24:57Z"
+  },
+  "rolled_back": false
+}
