@@ -16,6 +16,14 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
     func prompt(id: String, text: String) async throws -> Data
     /// Sends ordered ACP content, including images and file links, to the owning session.
     func prompt(id: String, content: Data) async throws -> Data
+    /// A prompt that steers into the running turn (`agent-session-steer-v1`): the owner's or a
+    /// Cloud team member's. A client without the verb queues it as a plain prompt.
+    func prompt(id: String, text: String, steer: Bool) async throws -> Data
+    func prompt(id: String, content: Data, steer: Bool) async throws -> Data
+    /// The owner runs (`approve`) or drops a prompt held for them, a link guest's
+    /// (`agent-session-queue-decision-v1`).
+    func queueApprove(promptID: String, turnID: String, revision: UInt64) async throws -> Data
+    func queueDecline(promptID: String) async throws -> Data
     func cancel() async throws
     /// Answers a permission request the daemon announced on this attachment, with a question's
     /// `answers` and `annotations` (JSON) and the person's decision proof of a relayed allow when
@@ -73,6 +81,15 @@ extension AgentSessionRemoteClient {
             throw AgentSessionRemoteError(code: "agent_session.content_unsupported", message: "Update cmux on that machine to send attachments.")
         }
         return try await prompt(id: id, text: text)
+    }
+    /// A client without `agent-session-steer-v1` queues a steer as a plain prompt.
+    public func prompt(id: String, text: String, steer: Bool) async throws -> Data { try await prompt(id: id, text: text) }
+    public func prompt(id: String, content: Data, steer: Bool) async throws -> Data { try await prompt(id: id, content: content) }
+    /// A client without `agent-session-queue-decision-v1` cannot decide a held prompt.
+    public func queueApprove(promptID: String, turnID: String, revision: UInt64) async throws -> Data { throw Self.queueDecisionUnsupported }
+    public func queueDecline(promptID: String) async throws -> Data { throw Self.queueDecisionUnsupported }
+    nonisolated static var queueDecisionUnsupported: AgentSessionRemoteError {
+        AgentSessionRemoteError(code: "agent_session.queue_decision_unsupported", message: "Update cmux on that machine to approve held messages.")
     }
     /// A daemon without `agent-session-children-v1` lists none.
     public func children() async throws -> Data { Data(#"{"sessions":[]}"#.utf8) }

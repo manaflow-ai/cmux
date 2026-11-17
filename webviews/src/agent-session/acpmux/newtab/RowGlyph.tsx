@@ -17,6 +17,7 @@ const NAMES: Record<GlyphKind, string> = {
   search: "search",
   ask: "agent.chat",
   action: "composer.command",
+  create: "action.add",
   inProfile: "browser.toolbar.profile",
   profile: "browserprofile.badge",
   newProfile: "action.add",
@@ -39,6 +40,7 @@ export function RowGlyph({ kind }: { kind: GlyphKind }) {
 }
 
 export function SuggestionGlyph({ row }: { row: ScreenRow }) {
+  if (row.type === "create") return <RowGlyph kind={row.kind === "chat" ? "agent" : row.kind} />;
   if (row.type === "ask")
     return (
       <span className="nt-row-glyph nt-row-icon" aria-hidden="true">

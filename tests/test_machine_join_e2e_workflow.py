@@ -53,7 +53,7 @@ def step(name: str) -> dict:
 class MachineJoinE2EWorkflow(unittest.TestCase):
     def test_manual_dispatch_only(self) -> None:
         self.assertEqual(list(load()["on"].keys()), ["workflow_dispatch"])
-        self.assertEqual(sorted(load()["on"]["workflow_dispatch"]["inputs"]), ["acpmux_ref", "bench", "name"])
+        self.assertEqual(sorted(load()["on"]["workflow_dispatch"]["inputs"]), ["acpmux_ref", "bench", "name", "share"])
         bench = load()["on"]["workflow_dispatch"]["inputs"]["bench"]
         self.assertEqual(bench["default"], "none")
         self.assertEqual(bench["options"], ["none", "deps", "deps-slow"])
@@ -195,6 +195,51 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
         for var in ("CARGO_HOME", "BUN_INSTALL", "BUN_INSTALL_CACHE_DIR", "XDG_CACHE_HOME", "TMPDIR"):
             self.assertRegex(script, rf'export {var}="\$bench/')
         self.assertNotIn("$HOME", script)
+
+    def test_share_is_opt_in_secret_free_and_development_only(self) -> None:
+        # Off by default; every share step is gated on it, holds no secret, and runs before the mint step.
+        share = load()["on"]["workflow_dispatch"]["inputs"]["share"]
+        self.assertEqual((share["type"], share["default"]), ("boolean", "false"))
+        names = [s.get("name") for s in steps()]
+        for name in ("Install the share's display server", "Build cmux-rd", "Prepare the share"):
+            s = step(name)
+            self.assertEqual(s["if"], "inputs.share", name)
+            self.assertNotIn("secrets", str(s), name)
+            self.assertNotIn("CMUX_UITEST_STACK", str(s), name)
+            self.assertLess(names.index(name), names.index("Mint, join, verify and revoke"), name)
+        # cmux-rd from the run's commit only (the one checkout), with the release features.
+        build = step("Build cmux-rd")["run"]
+        self.assertIn("--manifest-path \"$manifest\" --no-default-features --features openh264,link --bin cmux-rd", build)
+        self.assertIn("--locked", build)
+        # Root-owned beside acpmux; the joined home only links to it, where the host's user unit runs it.
+        prep = step("Prepare the share")["run"]
+        self.assertIn('sudo install -o root -g root -m 0755 "$CMUX_RD_BIN" "$JOIN_BASE/bin/cmux-rd"', prep)
+        self.assertIn('ln -s "$1" "$HOME/.local/bin/cmux-rd"', prep)
+        # The viewer is a disposable user of its own, recorded before it exists so its removal always runs.
+        self.assertLess(prep.index('echo "viewer=$viewer"'), prep.index("sudo useradd"))
+        self.assertIn('sudo loginctl enable-linger "$JOIN_USER"', prep)
+        # The user manager is started explicitly and its own socket waited for (not the optional session bus);
+        # nothing of the host is run directly.
+        self.assertLess(prep.index('sudo loginctl enable-linger "$JOIN_USER"'), prep.index('systemctl start "$manager"'))
+        self.assertIn('private="/run/user/$JOIN_UID/systemd/private"', prep)
+        self.assertNotIn("linux-host", prep)
+        # The development device hub only, in the workflow and the script.
+        document = load()
+        self.assertEqual(workflow_jobs.effective_env(document, document["jobs"]["e2e"])["DEVICE_HUB"], "https://cmux-device-hub-dev.debussy.workers.dev")
+        script = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('export const DEV_DEVICE_HUB = "https://cmux-device-hub-dev.debussy.workers.dev"', script)
+        self.assertIn("if (sh.hub !== DEV_DEVICE_HUB)", script)
+        mint = step("Mint, join, verify and revoke")
+        self.assertEqual(mint["env"]["SHARE"], "${{ inputs.share }}")
+        self.assertIn('if [ "$SHARE" = true ]; then', mint["run"])
+        self.assertIn('--device-hub "$DEVICE_HUB"', mint["run"])
+        # The viewer and the joined user's lingering user manager are removed always, the viewer before the base.
+        viewer = step("Remove the viewer user")
+        self.assertEqual(viewer["if"], "always() && steps.share.outputs.viewer != ''")
+        self.assertIn('sudo userdel --remove "$VIEWER_USER"', viewer["run"])
+        self.assertLess(names.index("Remove the viewer user"), names.index("Remove the disposable user"))
+        remove = step("Remove the disposable user")["run"]
+        self.assertLess(remove.index('sudo loginctl disable-linger "$JOIN_USER"'), remove.index("/bin/kill -KILL -1"))
 
     def test_only_the_evidence_is_uploaded(self) -> None:
         uploads = [s for s in steps() if "upload-artifact" in s.get("uses", "")]

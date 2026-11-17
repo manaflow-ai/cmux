@@ -49,6 +49,7 @@ use crate::{Customize, Error, validate};
 pub mod code;
 pub mod keys;
 pub mod overlay;
+mod put;
 pub mod recover;
 mod text;
 
@@ -121,8 +122,7 @@ impl Entry {
             }
     }
 
-    /// The layer folder this entry serves while it is on and on top, when it
-    /// has a web part.
+    /// The layer folder this entry serves while it is on and on top, when it has a web part.
     fn web_layer(&self) -> Option<&CodeLayer> {
         self.code.as_ref().filter(|code| code.has_web())
     }
@@ -832,6 +832,18 @@ impl Customize {
     ) -> Result<Changed, Error> {
         self.ensure_baseline(now_ms)?;
         let _lock = self.store().lock()?;
+        self.library_change_locked(label, origin, now_ms, edit)
+    }
+
+    /// [`Customize::library_change`] for a caller that holds the store lock
+    /// (and made the baseline): one step of a longer change.
+    fn library_change_locked(
+        &self,
+        label: &str,
+        origin: &str,
+        now_ms: u64,
+        edit: impl FnOnce(&mut LibraryFile) -> Result<(), Error>,
+    ) -> Result<Changed, Error> {
         let mut library = self.read_library()?;
         let before = library.entries.clone();
         edit(&mut library)?;
@@ -961,9 +973,10 @@ impl Customize {
         }
         let scan = tree::scan(self.roots())?;
         let mut in_the_way: Vec<_> = writes
-            .iter()
-            .filter(|(_, bytes)| bytes.is_some())
-            .filter_map(|(path, _)| tree::in_the_way(self.roots(), path, &scan.tree))
+            .keys()
+            // A removal too: a file on disk the scan kept no copy of (one
+            // edited past the size limit) is yours, never deleted unseen.
+            .filter_map(|path| tree::in_the_way(self.roots(), path, &scan.tree))
             .collect();
         let written: BTreeMap<String, Vec<u8>> = writes
             .iter()
