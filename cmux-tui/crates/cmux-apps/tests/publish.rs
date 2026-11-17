@@ -240,6 +240,8 @@ fn rollback_restarts_the_retired_version_on_its_port_and_moves_live() {
     assert_eq!(spawned.len(), 3);
     assert_eq!((spawned[2].version, spawned[2].port), (1, 41000));
     assert_eq!(spawned[2].setup, None);
+    // Only the rollback's start asks to keep the unpacked tree; the publishes replace it.
+    assert_eq!(spawned.iter().map(|s| s.restart).collect::<Vec<_>>(), [false, false, true]);
     let sent = world.agent.sent.borrow();
     let last = sent.last().unwrap();
     assert_eq!(last.path, "/v1/cloud/apps/web/rollback");

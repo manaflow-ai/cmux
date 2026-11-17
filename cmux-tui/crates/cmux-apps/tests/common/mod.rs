@@ -128,6 +128,7 @@ pub struct Spawned {
     pub setup: Option<String>,
     pub port: u16,
     pub env: Vec<(String, String)>,
+    pub restart: bool,
 }
 
 /// This machine's agent's `apps.spawn`, `apps.status` and `apps.stop`, by pid.
@@ -173,6 +174,7 @@ impl Procs for FakeProcs {
             setup: start.setup.map(str::to_owned),
             port: start.port,
             env: start.env.to_vec(),
+            restart: start.restart,
         });
         let pid = self.next_pid.get();
         self.next_pid.set(pid + 1);

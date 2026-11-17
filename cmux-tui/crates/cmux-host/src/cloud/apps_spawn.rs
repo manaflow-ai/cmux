@@ -68,6 +68,9 @@ pub struct SpawnAsk {
     pub setup: Option<String>,
     pub port: u16,
     pub env: Vec<(String, String)>,
+    /// A restart (rollback) runs the tree this version first started from; a fresh start
+    /// unpacks the staged archive over any old tree.
+    pub restart: bool,
 }
 
 /// One checked `apps.status` or `apps.stop`.
@@ -127,12 +130,25 @@ fn plain_relative(path: &str) -> bool {
     path.len() <= 1024 && Path::new(path).components().all(|c| matches!(c, Component::Normal(_)))
 }
 
-/// A variable name an app may get: `[A-Za-z_][A-Za-z0-9_]*`, not `HOME` or `PORT`.
+/// Variables the dynamic loader or libc reads to load code or data from a path: an app may
+/// set none of them (glibc's unsecure list, and every `LD_*`).
+const LOADER: [&str; 10] = [
+    "GCONV_PATH",
+    "GETCONF_DIR",
+    "GLIBC_TUNABLES",
+    "HOSTALIASES",
+    "LOCALDOMAIN",
+    "LOCPATH",
+    "NIS_PATH",
+    "NLSPATH",
+    "RESOLV_HOST_CONF",
+    "RES_OPTIONS",
+];
+
+/// A variable name an app may get: `[A-Za-z_][A-Za-z0-9_]*`, not `HOME` or `PORT`, and no
+/// loader variable (`LD_*`, `MALLOC_*`, [`LOADER`]).
 pub fn env_key_allowed(key: &str) -> bool {
-    let mut bytes = key.bytes();
-    bytes.next().is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
-        && bytes.all(|b| b.is_ascii_alphanumeric() || b == b'_')
-        && !RESERVED.contains(&key)
+    unimplemented!("red: env_key_allowed")
 }
 
 /// The `apps.spawn` object of a socket line, checked.
@@ -171,13 +187,14 @@ pub fn check_spawn(value: &Value) -> Result<SpawnAsk, String> {
             };
             if !env_key_allowed(key) || value.contains('\0') || value.len() > MAX_TEXT {
                 return Err(format!(
-                    "apps.spawn: {key} can't be set (HOME and PORT are the agent's)"
+                    "apps.spawn: {key} can't be set (HOME and PORT are the agent's; loader variables are refused)"
                 ));
             }
             env.push((key.clone(), value.to_owned()));
         }
     }
-    Ok(SpawnAsk { slug, version, version_dir, subdir, cmd, setup, port, env })
+    let restart = value.get("restart").and_then(Value::as_bool).unwrap_or(false);
+    Ok(SpawnAsk { slug, version, version_dir, subdir, cmd, setup, port, env, restart })
 }
 
 /// The ask of an `apps.spawn`, `apps.status` or `apps.stop` line.
@@ -207,56 +224,25 @@ pub fn isolated(user: &AppUser, groups: &[u32], agent_gid: Option<u32>, asker: u
 /// The staged directory of the asker's version: `.../apps/<slug>/v<n>`, not a symlink, and the
 /// asker's own; then its `src.tar`, opened without following a link, a regular file of theirs.
 pub fn staged_archive(ask: &SpawnAsk, asker: u32) -> Result<File, String> {
-    let dir = &ask.version_dir;
-    let tail = [format!("v{}", ask.version), ask.slug.clone(), "apps".to_owned()];
-    let mut names = dir.components().rev().filter_map(|c| match c {
-        Component::Normal(name) => Some(name.to_string_lossy().into_owned()),
-        _ => None,
-    });
-    if !tail.iter().all(|want| names.next().as_deref() == Some(want.as_str())) {
-        return Err(format!(
-            "{} is not a version directory (.../apps/{}/v{})",
-            dir.display(),
-            ask.slug,
-            ask.version
-        ));
+    unimplemented!("red: staged_archive")
+}
+
+/// Clears `O_NONBLOCK` on a regular file opened with it.
+fn blocking(file: &File) -> io::Result<()> {
+    use std::os::fd::AsRawFd as _;
+    let fd = file.as_raw_fd();
+    // SAFETY: fcntl on an open descriptor this function borrows.
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    // SAFETY: as above, setting flags read from the same descriptor.
+    if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags & !libc::O_NONBLOCK) } < 0 {
+        return Err(io::Error::last_os_error());
     }
-    let meta = fs::symlink_metadata(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    if !meta.is_dir() || meta.uid() != asker {
-        return Err(format!("{} is not a directory of the asking user", dir.display()));
-    }
-    let archive = dir.join("src.tar");
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-        .open(&archive)
-        .map_err(|e| format!("{}: {e}", archive.display()))?;
-    let meta = file.metadata().map_err(|e| format!("{}: {e}", archive.display()))?;
-    if !meta.is_file() || meta.uid() != asker {
-        return Err(format!("{} is not a file of the asking user", archive.display()));
-    }
-    Ok(file)
+    Ok(())
 }
 
 /// `path` for appending, refusing a symbolic link or a second hard link, then owned by `uid`.
 pub fn open_log(path: &Path, uid: u32, gid: u32) -> Result<File, String> {
-    let file = OpenOptions::new()
-        .append(true)
-        .create(true)
-        .mode(0o644)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-        .open(path)
-        .map_err(|e| match e.raw_os_error() {
-            Some(libc::ELOOP) => format!("{} is a symbolic link; refused", path.display()),
-            _ => format!("{}: {e}", path.display()),
-        })?;
-    let meta = file.metadata().map_err(|e| format!("{}: {e}", path.display()))?;
-    if !meta.is_file() || meta.nlink() != 1 {
-        return Err(format!("{} is not a plain file; refused", path.display()));
-    }
-    std::os::unix::fs::fchown(&file, Some(uid), Some(gid))
-        .map_err(|e| format!("{}: {e}", path.display()))?;
-    Ok(file)
+    unimplemented!("red: open_log")
 }
 
 /// `/proc/<pid>/stat`: its state letter and start time (field 22, clock ticks after boot).
@@ -310,19 +296,45 @@ fn record_file(paths: &RunPaths, asker: u32, ask: &VersionAsk) -> PathBuf {
         .join(format!("v{}.run.json", ask.version))
 }
 
-/// `setpriv` to `user`: its uid and gid, no other group, no new privileges.
+/// The only variable root's exec of `setpriv` gets.
+const ROOT_PATH: &str = "/usr/bin:/bin";
+
+/// `setpriv`'s arguments up to its `--`: `user`'s uid and gid, no other group, no new privileges.
+fn drop_args(user: &AppUser) -> Vec<String> {
+    vec![
+        format!("--reuid={}", user.uid),
+        format!("--regid={}", user.gid),
+        "--clear-groups".to_owned(),
+        "--no-new-privs".to_owned(),
+        "--".to_owned(),
+    ]
+}
+
+/// `setpriv` to `user`, then `program`, run by root with only [`ROOT_PATH`] from `/`.
 fn as_user(user: &AppUser, program: &str) -> Command {
     let mut command = Command::new(SETPRIV);
+    command.args(drop_args(user)).arg(program).env_clear().env("PATH", ROOT_PATH).current_dir("/");
     command
-        .arg(format!("--reuid={}", user.uid))
-        .arg(format!("--regid={}", user.gid))
-        .arg("--clear-groups")
-        .arg("--no-new-privs")
-        .arg("--")
-        .arg(program)
-        .env_clear()
-        .env("PATH", "/usr/local/bin:/usr/bin:/bin");
-    command
+}
+
+/// What root executes to start a version: `setpriv` with an empty environment (only
+/// [`ROOT_PATH`]) from `/`; after the drop, `env -i` sets exactly the app's variables, and the
+/// shell changes into `src/<subdir>` as the app user before the setup and the command.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StartPlan {
+    pub program: String,
+    pub args: Vec<String>,
+    pub root_env: Vec<(String, String)>,
+    pub root_dir: PathBuf,
+}
+
+pub fn start_plan(user: &AppUser, ask: &SpawnAsk, run: &Path) -> StartPlan {
+    unimplemented!("red: start_plan")
+}
+
+/// Whether a start runs the tree already unpacked: only a restart, and only when one exists.
+pub fn keeps_tree(restart: bool, exists: bool) -> bool {
+    unimplemented!("red: keeps_tree")
 }
 
 fn wait_bounded(mut child: Child, limit: Duration, what: &str) -> Result<(), String> {
@@ -353,18 +365,24 @@ fn run_dir(
             .map_err(|e| format!("{}: {e}", run.display()))?;
     }
     let src = run.join("src");
-    if fs::symlink_metadata(&src).is_ok_and(|m| m.is_dir()) {
-        // A restart (rollback) runs the source this version was first started from.
+    if keeps_tree(ask.restart, fs::symlink_metadata(&src).is_ok_and(|m| m.is_dir())) {
         return Ok(run);
     }
     let archive = staged_archive(ask, asker)?;
+    // As the app user, in its run directory: unpack beside the tree, and only a whole unpack
+    // replaces it; a failed one is removed and leaves the old tree as it was.
     let mut extract = as_user(user, "/bin/sh");
     extract
         .arg("-c")
-        .arg("mkdir -p -- \"$1\" && exec tar -x -f - -C \"$1\" --no-same-owner")
+        .arg(
+            "cd -- \"$1\" || exit 1; rm -rf -- src.new src.old; mkdir -- src.new || exit 1; \
+             if tar -x -f - -C src.new --no-same-owner; then \
+               if [ -e src ]; then mv -- src src.old || exit 1; fi; \
+               mv -- src.new src && rm -rf -- src.old; \
+             else rm -rf -- src.new; exit 1; fi",
+        )
         .arg("cmux-app-extract")
-        .arg(&src)
-        .current_dir(&run)
+        .arg(&run)
         .stdin(Stdio::from(archive))
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -376,23 +394,6 @@ fn run_dir(
 fn reap() {
     if let Ok(mut children) = CHILDREN.lock() {
         children.retain_mut(|child| matches!(child.try_wait(), Ok(None)));
-    }
-}
-
-/// The start script: `setup` bounded first when there is one, then `exec` of the command.
-fn start_args(ask: &SpawnAsk) -> Vec<String> {
-    match &ask.setup {
-        None => vec!["-c".to_owned(), ask.cmd.clone()],
-        Some(setup) => vec![
-            "-c".to_owned(),
-            format!(
-                "echo 'cmux: setup'; timeout \"$1\" /bin/sh -c \"$2\" || {{ echo \"cmux: setup failed ($?)\"; exit {SETUP_FAILED}; }}; echo 'cmux: start'; exec /bin/sh -c \"$3\""
-            ),
-            "cmux-app-start".to_owned(),
-            SETUP_LIMIT.as_secs().to_string(),
-            setup.clone(),
-            ask.cmd.clone(),
-        ],
     }
 }
 
@@ -416,14 +417,13 @@ fn spawn(
     let log_path = run.join("app.log");
     let log = open_log(&log_path, user.uid, user.gid)?;
     let err = log.try_clone().map_err(|e| format!("{}: {e}", log_path.display()))?;
-    let workdir =
-        if ask.subdir.is_empty() { run.join("src") } else { run.join("src").join(&ask.subdir) };
-    let mut command = as_user(&user, "/bin/sh");
+    let plan = start_plan(&user, ask, &run);
+    let mut command = Command::new(&plan.program);
     command
-        .args(start_args(ask))
+        .args(&plan.args)
         .env_clear()
-        .envs(spawn_env(&ask.env, &run, ask.port))
-        .current_dir(&workdir)
+        .envs(plan.root_env.iter().map(|(k, v)| (k, v)))
+        .current_dir(&plan.root_dir)
         .new_session()
         .stdin(Stdio::null())
         .stdout(Stdio::from(log))

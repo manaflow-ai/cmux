@@ -275,6 +275,7 @@ pub fn publish(host: &Host<'_>, req: &PublishRequest) -> Result<Published, Failu
         setup: service.setup.as_deref(),
         port,
         env: &env,
+        restart: false,
     };
     let started = match host.procs.start(&start) {
         Ok(started) => started,
@@ -435,6 +436,7 @@ pub fn rollback(
             setup: None,
             port: target.port,
             env: &env,
+            restart: false,
         };
         let started = host.procs.start(&start).map_err(|e| Failure::new("app.start", e))?;
         if let Err(e) = probe(host, slug, target.n, target.port, timeout) {

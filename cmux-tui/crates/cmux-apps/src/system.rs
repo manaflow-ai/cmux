@@ -150,6 +150,7 @@ impl Procs for RealProcs {
             "setup": start.setup,
             "port": start.port,
             "env": env,
+            "restart": start.restart,
         }});
         let reply = self.agent.ask(&line, SPAWN_BOUND).map_err(|e| e.message)?;
         let text =

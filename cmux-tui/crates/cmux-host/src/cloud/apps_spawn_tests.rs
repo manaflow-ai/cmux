@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 
 use super::apps_spawn::{
     AppUser, AppUsers, AppsRun, RunPaths, SpawnAsk, VersionAsk, answer, check_run, check_spawn,
-    isolated, open_log, spawn_env, staged_archive, stat_of, still_running,
+    isolated, keeps_tree, open_log, spawn_env, staged_archive, start_plan, stat_of, still_running,
 };
 
 fn me() -> u32 {
@@ -276,4 +276,172 @@ fn nobody() -> Option<AppUser> {
     (!entry.is_null()).then(|| unsafe {
         AppUser { name: "nobody".into(), uid: (*entry).pw_uid, gid: (*entry).pw_gid }
     })
+}
+
+#[test]
+fn loader_variables_are_refused_outright() {
+    for key in [
+        "LD_PRELOAD",
+        "LD_LIBRARY_PATH",
+        "LD_AUDIT",
+        "GCONV_PATH",
+        "GLIBC_TUNABLES",
+        "MALLOC_CHECK_",
+        "LOCPATH",
+        "NLSPATH",
+        "HOSTALIASES",
+        "RESOLV_HOST_CONF",
+    ] {
+        let mut line = spawn_line(Path::new("/s/apps/web/v1"));
+        line["env"] = json!({ key: "/tmp/evil.so" });
+        let refused = check_spawn(&line);
+        assert!(refused.is_err(), "{key} was accepted");
+    }
+}
+
+#[test]
+fn the_root_side_exec_gets_no_asked_variable_and_no_app_directory() {
+    let mut ask = check_spawn(&spawn_line(Path::new("/s/apps/web/v1"))).unwrap();
+    // Even an ask that slipped a loader variable past the check never reaches root's exec.
+    ask.env.push(("LD_PRELOAD".to_owned(), "/tmp/evil.so".to_owned()));
+    let user = AppUser { name: "cmux-app".into(), uid: 990, gid: 990 };
+    let run = Path::new("/var/lib/cmux-apps/1000/web/v1");
+    let plan = start_plan(&user, &ask, run);
+    // Root runs setpriv with only a fixed PATH, from `/`.
+    assert_eq!(plan.root_env, [("PATH".to_owned(), "/usr/bin:/bin".to_owned())]);
+    assert_eq!(plan.root_dir, PathBuf::from("/"));
+    assert_eq!(plan.program, "/usr/bin/setpriv");
+    let dash = plan.args.iter().position(|a| a == "--").unwrap();
+    assert!(plan.args.iter().take(dash).all(|a| !a.contains("LD_PRELOAD")));
+    // After the drop: env -i with exactly the app's variables, then the shell.
+    assert_eq!(plan.args[dash + 1..dash + 3], ["/usr/bin/env".to_owned(), "-i".to_owned()]);
+    let vars: Vec<&String> =
+        plan.args[dash + 3..].iter().take_while(|a| a.as_str() != "/bin/sh").collect();
+    assert!(vars.iter().all(|v| !v.starts_with("LD_")), "{vars:?}");
+    assert!(vars.contains(&&"PORT=41000".to_owned()));
+    assert!(vars.contains(&&format!("HOME={}", run.display())));
+    // The chdir into src/<subdir> happens in the shell, as the app user.
+    let script = plan.args.iter().skip_while(|a| a.as_str() != "-c").nth(1).unwrap();
+    assert!(script.starts_with("cd -- \"$1\" ||"), "{script}");
+    assert!(plan.args.contains(&run.join("src/site").display().to_string()));
+}
+
+#[test]
+fn only_a_restart_reuses_an_unpacked_tree() {
+    assert!(keeps_tree(true, true), "a restart runs the tree it first started from");
+    assert!(!keeps_tree(true, false), "a restart with no tree unpacks one");
+    assert!(!keeps_tree(false, true), "a fresh start replaces an old tree");
+    assert!(!keeps_tree(false, false));
+    let mut line = spawn_line(Path::new("/s/apps/web/v1"));
+    assert!(!check_spawn(&line).unwrap().restart);
+    line["restart"] = json!(true);
+    assert!(check_spawn(&line).unwrap().restart);
+}
+
+/// Runs `f` on a thread; `None` when it didn't return within 5 s (it blocked).
+fn within<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Option<T> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(f());
+    });
+    rx.recv_timeout(Duration::from_secs(5)).ok()
+}
+
+fn mkfifo(path: &Path) {
+    let c = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
+    // SAFETY: mkfifo takes a NUL-terminated path.
+    assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+}
+
+#[test]
+fn a_fifo_app_log_is_refused_without_blocking() {
+    let dir = tempfile::tempdir().unwrap();
+    let log = dir.path().join("app.log");
+    mkfifo(&log);
+    // SAFETY: getegid has no preconditions.
+    let gid = unsafe { libc::getegid() };
+    let opened = within(move || open_log(&log, me(), gid).map(|_| ()));
+    let refused = opened.expect("opening a FIFO app.log blocked");
+    assert!(refused.is_err());
+}
+
+#[test]
+fn a_fifo_src_tar_is_refused_without_blocking() {
+    let dir = tempfile::tempdir().unwrap();
+    let version = dir.path().join("apps/web/v1");
+    std::fs::create_dir_all(&version).unwrap();
+    mkfifo(&version.join("src.tar"));
+    let ask = SpawnAsk {
+        version_dir: version,
+        ..check_spawn(&spawn_line(Path::new("/s/apps/web/v1"))).unwrap()
+    };
+    let opened = within(move || staged_archive(&ask, me()).map(|_| ()));
+    let refused = opened.expect("opening a FIFO src.tar blocked");
+    assert!(refused.is_err());
+}
+
+/// As root: a fresh start over an existing tree replaces it, and a failed unpack leaves the
+/// tree that was there, never a partial one.
+#[test]
+fn a_fresh_start_replaces_the_tree_and_a_failed_unpack_leaves_none_half_done() {
+    if me() != 0 {
+        eprintln!(
+            "skipped: unpacking as another user needs root (run under the fleet's root lane)"
+        );
+        return;
+    }
+    let Some(nobody) = nobody() else {
+        eprintln!("skipped: no `nobody` account");
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+    let paths = RunPaths { proc_root: PathBuf::from("/proc"), run_root: dir.path().join("run") };
+    let users = Fixed(nobody);
+    let ask = |version: &Path, restart: bool| {
+        let mut line = spawn_line(version);
+        line["setup"] = Value::Null;
+        line["cmd"] = json!("cat hello.txt; exec sleep 30");
+        line["restart"] = json!(restart);
+        check_run("apps.spawn", &line)
+    };
+    let stop = |paths: &RunPaths| {
+        answer(
+            paths,
+            check_run("apps.stop", &json!({"slug": "web", "version": 1})),
+            Some(0),
+            &users,
+        )
+    };
+
+    let first = staged(&dir.path().join("a"), &[("site/hello.txt", "one")]);
+    let started = answer(&paths, ask(&first, false), Some(0), &users);
+    assert_eq!(started["ok"], true, "{started}");
+    let run = PathBuf::from(started["runDir"].as_str().unwrap());
+    stop(&paths);
+
+    let second = staged(&dir.path().join("b"), &[("site/hello.txt", "two")]);
+    let again = answer(&paths, ask(&second, false), Some(0), &users);
+    assert_eq!(again["ok"], true, "{again}");
+    assert_eq!(std::fs::read_to_string(run.join("src/site/hello.txt")).unwrap(), "two");
+    stop(&paths);
+
+    // A restart keeps the tree even with another archive staged.
+    let third = staged(&dir.path().join("c"), &[("site/hello.txt", "three")]);
+    let restarted = answer(&paths, ask(&third, true), Some(0), &users);
+    assert_eq!(restarted["ok"], true, "{restarted}");
+    assert_eq!(std::fs::read_to_string(run.join("src/site/hello.txt")).unwrap(), "two");
+    stop(&paths);
+
+    // A broken archive: the start is refused and the old tree is whole.
+    std::fs::write(third.join("src.tar"), b"not a tar archive").unwrap();
+    let broken = answer(&paths, ask(&third, false), Some(0), &users);
+    assert_eq!(broken["ok"], false, "{broken}");
+    assert_eq!(std::fs::read_to_string(run.join("src/site/hello.txt")).unwrap(), "two");
+    let leftovers: Vec<String> = std::fs::read_dir(&run)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with("src."))
+        .collect();
+    assert!(leftovers.is_empty(), "partial trees left: {leftovers:?}");
 }

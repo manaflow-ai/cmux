@@ -50,6 +50,9 @@ pub struct Start<'a> {
     /// `PATH`, `LANG`, `TZ` and the `service.env` literals; the agent adds `HOME` and `PORT`
     /// and nothing else.
     pub env: &'a [(String, String)],
+    /// A restart (rollback) runs the tree the version first started from; a fresh start
+    /// replaces it with the staged archive.
+    pub restart: bool,
 }
 
 /// A started version.
