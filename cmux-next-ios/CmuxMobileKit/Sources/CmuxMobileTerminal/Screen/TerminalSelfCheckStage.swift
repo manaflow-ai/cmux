@@ -1,5 +1,4 @@
-#if os(iOS)
-import UIKit
+import CoreGraphics
 
 /// Where the Mac's grid is drawn, in window points: the pixel matrix (`TerminalBenchProbe`,
 /// DEBUG) and the lean terminal self-check (``TerminalSelfCheckStage``) compare exactly those
@@ -27,6 +26,9 @@ public struct TerminalGridGeometry: Sendable, Equatable {
         self.scale = scale
     }
 }
+
+#if os(iOS)
+import UIKit
 
 /// The lean terminal self-check's stage (`cmux device self-check`, a hidden debug action the
 /// Mac starts): the app's own terminal screens, each drawing one model, stacked on one frame in

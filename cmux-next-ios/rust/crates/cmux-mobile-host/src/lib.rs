@@ -45,6 +45,7 @@ pub mod policy;
 pub mod push_keys;
 pub mod seal;
 pub mod sealed_notify;
+pub mod self_check;
 pub mod services;
 pub mod size_release;
 pub mod surface;

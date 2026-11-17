@@ -1822,3 +1822,209 @@ async fn device_traffic_reads_back_a_phones_bytes_over_the_link_socket() {
     }
     server.abort();
 }
+
+/// One `{"op":"self-check",...}` request on the link socket: its progress lines, then the last line.
+async fn self_check_over(
+    path: &std::path::Path,
+    request: serde_json::Value,
+) -> (Vec<serde_json::Value>, serde_json::Value) {
+    let stream = tokio::net::UnixStream::connect(path).await.expect("link socket");
+    let (read, mut write) = stream.into_split();
+    write.write_all(format!("{request}\n").as_bytes()).await.unwrap();
+    let mut read = BufReader::new(read);
+    let mut progress = Vec::new();
+    loop {
+        let mut line = String::new();
+        let n = tokio::time::timeout(Duration::from_secs(30), read.read_line(&mut line))
+            .await
+            .expect("in time")
+            .unwrap();
+        assert!(n > 0, "the link socket closed before the last line");
+        let value: serde_json::Value = serde_json::from_str(&line).unwrap();
+        if value.get("progress").is_some() {
+            progress.push(value);
+        } else {
+            return (progress, value);
+        }
+    }
+}
+
+/// A case as the phone measures it: `differing` of a million grid pixels and of the
+/// 20 000 pixels of the first column band.
+fn phone_case(row: u64, id: &str, differing: u64, first_column: u64) -> serde_json::Value {
+    let png = "iVBORw0KGgo="; // the PNG signature: enough for the files
+    let side = serde_json::json!({
+        "grid": [0.0, 44.0, 390.0, 700.0], "cursor": [8.0, 60.0, 8.0, 16.0], "full_screen": false, "alternate": false,
+    });
+    serde_json::json!({
+        "row": row, "id": id, "session": "claude-code-2.1.310", "label": "", "at_ms": 1234,
+        "pan_end": false, "same_layout": true,
+        "pixels": {"differing": differing, "compared": 1_000_000},
+        "bands": [
+            {"name": "header", "differing": 0, "compared": 40_000},
+            {"name": "firstColumn", "differing": first_column, "compared": 20_000},
+            {"name": "lastColumn", "differing": 0, "compared": 20_000},
+        ],
+        "pty": side, "lean": side,
+        "images": {"pty": png, "lean": png, "diff": png},
+    })
+}
+
+/// `cmux device self-check` end to end: a phone dials this host over WireGuard through
+/// the fake signaling server, opens `self-check` and says hello; the link socket's
+/// `{"op":"self-check"}` relays a run to it, and the phone answers two cases (one exact,
+/// one shifted by a cell) in chunks that split and join lines anywhere. The socket
+/// answers a progress line per case and the judged rows. With CMUX_SELF_CHECK_CLI naming
+/// a cmux-tui binary, `cmux device self-check --json --out DIR --rows 1,2` writes the
+/// images and report.json there and exits 1 (a row failed).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn device_self_check_relays_a_run_to_the_phone_and_judges_its_cases() {
+    use cmux_mobile_host::auth::{TokenSource, Tokens};
+    use cmux_mobile_host::link_socket::{Dialer, serve, socket_path};
+    let fixture = fixture(FakeOptions::default()).await;
+    let dir = tempfile::tempdir().unwrap();
+    let daemon_socket = dir.path().join("selfcheck.sock");
+    let path = socket_path(&daemon_socket);
+    let dialer = Arc::new(Dialer {
+        device_id: "this-mac".into(),
+        device_name: "This Mac".into(),
+        base_url: "http://127.0.0.1:9".into(),
+        tokens: Arc::new(Tokens::new(TokenSource::Access("unused".into()))),
+        ice: IceSource::Fixed(Vec::new()),
+        signaling: tokio::sync::watch::channel(None).1,
+        identity: tokio::sync::watch::channel(None).1,
+        activity: Arc::new(cmux_mobile_host::activity::Activity::memory()),
+        links: Default::default(),
+    });
+    let server = tokio::spawn(serve(path.clone(), dialer));
+    for _ in 0..200 {
+        if path.exists() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    // No phone has the channel open yet.
+    let (progress, answer) = self_check_over(&path, serde_json::json!({"op": "self-check"})).await;
+    assert!(progress.is_empty());
+    assert_eq!(answer["error"], "no_phone", "{answer}");
+
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let mut channel = connected.link.open("self-check", serde_json::json!({})).await.unwrap();
+    let hello =
+        serde_json::json!({"hello": {"version": 1, "device": {"model": "iPhone17,1", "system": "iOS 26.1"}}});
+    channel.send(Bytes::from(format!("{hello}\n"))).await.unwrap();
+    for _ in 0..500 {
+        let phones = cmux_mobile_host::self_check::registry().phones();
+        if phones.iter().any(|p| p["device_id"].as_str() == Some(fixture.phone_id.as_str())) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    // The phone: answers every run with an exact case for row 1 and a shifted one for row 2.
+    let phone = tokio::spawn(async move {
+        let mut buffer = Vec::new();
+        let mut asks = Vec::new();
+        loop {
+            let ask = loop {
+                if let Some(newline) = buffer.iter().position(|&b| b == b'\n') {
+                    let line: Vec<u8> = buffer.drain(..=newline).collect();
+                    break serde_json::from_slice::<serde_json::Value>(&line).unwrap();
+                }
+                match channel.recv().await {
+                    Some(ChannelEvent::Data(data)) => buffer.extend_from_slice(&data),
+                    _ => return asks,
+                }
+            };
+            let run = ask["run"].clone();
+            asks.push(ask);
+            let mut bytes = Vec::new();
+            for line in [
+                // A line of an older run: the host ignores it.
+                serde_json::json!({"run": "sc-old", "case": phone_case(1, "row1-stale", 900_000, 0)}),
+                serde_json::json!({"run": run, "case": phone_case(1, "row1-claude-code-2.1.310-1234ms", 0, 0)}),
+                serde_json::json!({"run": run, "case": phone_case(2, "row2-claude/code shifted", 40_000, 12_000)}),
+                serde_json::json!({"run": run, "done": true}),
+            ] {
+                bytes.extend_from_slice(line.to_string().as_bytes());
+                bytes.push(b'\n');
+            }
+            let sizes = [1usize, 7, 300, 2, 4096, 13, 999];
+            let (mut at, mut turn) = (0, 0);
+            while at < bytes.len() {
+                let n = sizes[turn % sizes.len()].min(bytes.len() - at);
+                channel.send(Bytes::copy_from_slice(&bytes[at..at + n])).await.unwrap();
+                at += n;
+                turn += 1;
+            }
+        }
+    });
+
+    let request =
+        serde_json::json!({"op": "self-check", "phone": fixture.phone_id.to_uppercase(), "rows": [1, 2]});
+    let (progress, answer) = self_check_over(&path, request).await;
+    eprintln!("link socket {{\"op\":\"self-check\"}}: {progress:?}");
+    assert_eq!(progress.len(), 2, "{progress:?}");
+    assert_eq!(
+        progress[0]["progress"],
+        serde_json::json!({"row": 1, "id": "row1-claude-code-2.1.310-1234ms", "pass": true})
+    );
+    assert_eq!(
+        progress[1]["progress"],
+        serde_json::json!({"row": 2, "id": "row2-claude/code shifted", "pass": false})
+    );
+    assert_eq!(answer["ok"], true, "{answer}");
+    assert_eq!(answer["phone"], fixture.phone_id.as_str());
+    assert_eq!(answer["device"]["model"], "iPhone17,1");
+    assert_eq!(answer["pass"], false);
+    assert_eq!(answer["thresholds"], serde_json::json!({"grid": 0.0005, "band": 0.001}));
+    let rows = answer["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 2, "{answer}");
+    assert_eq!(
+        (rows[0]["row"].as_u64(), rows[0]["name"].as_str(), rows[0]["pass"].as_bool()),
+        (Some(1), Some("headers"), Some(true))
+    );
+    assert_eq!(
+        (rows[1]["row"].as_u64(), rows[1]["name"].as_str(), rows[1]["pass"].as_bool()),
+        (Some(2), Some("first-and-last-columns"), Some(false))
+    );
+    let why: Vec<&str> = rows[1]["why"].as_array().unwrap().iter().filter_map(|w| w.as_str()).collect();
+    assert!(why.iter().any(|w| w.contains("grid pixels: 4.0000%")), "{why:?}");
+    assert!(why.iter().any(|w| w.contains("band firstColumn: 60.0000%")), "{why:?}");
+    let shifted = &rows[1]["cases"][0];
+    assert_eq!(shifted["images"]["diff"], "iVBORw0KGgo=");
+    assert_eq!(shifted["grid_share"], serde_json::json!(0.04));
+    assert_eq!(shifted["band_shares"]["firstColumn"], serde_json::json!(0.6));
+
+    if let Some(cli) = std::env::var_os("CMUX_SELF_CHECK_CLI") {
+        let out = dir.path().join("report");
+        let run = tokio::process::Command::new(&cli)
+            .args(["device", "self-check", "--json", "--rows", "1,2", "--out"])
+            .arg(&out)
+            .env("CMUX_TUI_SOCKET", &daemon_socket)
+            .output()
+            .await
+            .expect("cmux device self-check --json");
+        let stdout = String::from_utf8_lossy(&run.stdout);
+        eprintln!("cmux device self-check --json (rc {:?}): {stdout}", run.status.code());
+        eprintln!("stderr: {}", String::from_utf8_lossy(&run.stderr));
+        assert_eq!(run.status.code(), Some(1), "a failing row exits 1");
+        let report: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+        assert_eq!(report["pass"], false);
+        let on_disk: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(out.join("report.json")).unwrap()).unwrap();
+        assert_eq!(on_disk, report);
+        for name in [
+            "row1-claude-code-2.1.310-1234ms-pty.png",
+            "row1-claude-code-2.1.310-1234ms-lean.png",
+            "row2-claude_code_shifted-diff.png",
+        ] {
+            let bytes = std::fs::read(out.join(name)).unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert_eq!(bytes, b"\x89PNG\r\n\x1a\n", "{name}");
+        }
+        let diff = report["rows"][1]["cases"][0]["images"]["diff"].as_str().unwrap();
+        assert_eq!(std::path::Path::new(diff), out.join("row2-claude_code_shifted-diff.png"));
+    }
+    server.abort();
+    phone.abort();
+}

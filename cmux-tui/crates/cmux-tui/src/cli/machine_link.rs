@@ -31,9 +31,30 @@ const TRAFFIC_USAGE: &str = "usage: cmux device traffic [--json]
   this Mac's bytes in and out per service through its iPhone and machine link host (cmux-mobile-host):
   totals since it started, and per second over the last 10 s and 60 s";
 
-/// `Some(exit code)` when `args` is `machine NAME doctor` or `device traffic`.
+const SELF_CHECK_USAGE: &str =
+    "usage: cmux device self-check [--phone ID] [--rows 1,...,9] [--out DIR] [--json]
+  hidden debug: the iPhone draws each lean terminal case beside its PTY one and pixel-diffs them;
+  the images and report.json go to DIR (default ./cmux-self-check-<UTC YYYYMMDD-HHMMSS>).
+  Exits 0 when every row passes, 1 otherwise";
+
+/// `Some(exit code)` when `args` is `machine NAME doctor`, `device traffic` or
+/// `device self-check`.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (global, words) = super::parse_globals(args).ok()?;
+    if let [noun, verb, rest @ ..] = words.as_slice()
+        && noun == "device"
+        && verb == "self-check"
+    {
+        return Some(match SelfCheckArgs::parse(rest) {
+            Ok(parsed) => self_check(&global, &parsed),
+            Err(message) => super::app::failure(
+                "usage.invalid",
+                &format!("cmux: {message}\n{SELF_CHECK_USAGE}"),
+                global.output,
+                2,
+            ),
+        });
+    }
     if let [noun, verb, rest @ ..] = words.as_slice()
         && matches!(noun.as_str(), "device" | "machine")
         && verb == "traffic"
@@ -252,6 +273,251 @@ fn traffic_table(answer: &Value) -> String {
     text
 }
 
+/// `cmux device self-check`'s options.
+#[derive(Debug, Default, PartialEq)]
+struct SelfCheckArgs {
+    phone: Option<String>,
+    /// Empty: every row.
+    rows: Vec<u64>,
+    out: Option<PathBuf>,
+}
+
+impl SelfCheckArgs {
+    fn parse(words: &[String]) -> Result<Self, String> {
+        let mut parsed = Self::default();
+        let mut words = words.iter();
+        while let Some(word) = words.next() {
+            let (key, inline) = match word.split_once('=') {
+                Some((key, value)) if key.starts_with("--") => (key, Some(value.to_owned())),
+                _ => (word.as_str(), None),
+            };
+            let mut value = || {
+                inline
+                    .clone()
+                    .or_else(|| words.next().cloned())
+                    .ok_or(format!("{key} needs a value"))
+            };
+            match key {
+                "--phone" => parsed.phone = Some(value()?),
+                "--rows" => parsed.rows = self_check_rows(&value()?)?,
+                "--out" => parsed.out = Some(PathBuf::from(value()?)),
+                other => return Err(format!("unknown argument {other}")),
+            }
+        }
+        Ok(parsed)
+    }
+}
+
+/// `1,2,9` as rows 1 to 9, each once, in order.
+fn self_check_rows(text: &str) -> Result<Vec<u64>, String> {
+    let mut rows = Vec::new();
+    for part in text.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+        match part.parse::<u64>() {
+            Ok(row) if (1..=9).contains(&row) => rows.push(row),
+            _ => return Err(format!("rows are numbers 1 to 9, not {part}")),
+        }
+    }
+    rows.sort_unstable();
+    rows.dedup();
+    Ok(rows)
+}
+
+/// `cmux device self-check`: the link host relays the ask to the iPhone, which draws
+/// each lean terminal case beside its PTY one and pixel-diffs them; the host judges
+/// the counts. Progress per case on stderr, then one line per row; the images and
+/// `report.json` go to the out folder.
+fn self_check(global: &GlobalArgs, args: &SelfCheckArgs) -> i32 {
+    let output = global.output;
+    let fail = |(code, message): (String, String)| {
+        super::app::failure(&code, &format!("cmux: {message}"), output, 1)
+    };
+    let daemon = match super::wire::resolve_socket_or_report(global) {
+        Ok((socket, _)) => socket,
+        Err(code) => return code,
+    };
+    let dir = args.out.clone().unwrap_or_else(|| {
+        PathBuf::from(format!("cmux-self-check-{}", utc_stamp(std::time::SystemTime::now())))
+    });
+    let dir = std::path::absolute(&dir).unwrap_or(dir);
+    if let Err(error) = std::fs::create_dir_all(&dir) {
+        let message = format!("cannot create {}: {error}", dir.display());
+        return fail(("self_check.out".to_owned(), message));
+    }
+    let mut request = json!({"op": "self-check"});
+    if let Some(fields) = request.as_object_mut() {
+        if let Some(phone) = &args.phone {
+            fields.insert("phone".into(), json!(phone));
+        }
+        if !args.rows.is_empty() {
+            fields.insert("rows".into(), json!(args.rows));
+        }
+    }
+    let mut conversation = match Conversation::start(&link_socket(&daemon), &request) {
+        Ok(conversation) => conversation,
+        Err(error) => return fail(error),
+    };
+    let answer = loop {
+        match conversation.next() {
+            Ok(line) => match line.get("progress") {
+                Some(progress) => {
+                    if output == OutputMode::Human {
+                        eprintln!("{}", self_check_progress(progress));
+                    }
+                }
+                None => break line,
+            },
+            Err(error) => return fail(error),
+        }
+    };
+    if let Some(error) = self_check_refused(&answer) {
+        return fail(error);
+    }
+    let report = match save_self_check(&answer, &dir) {
+        Ok(report) => report,
+        Err(error) => {
+            let message = format!("cannot write to {}: {error}", dir.display());
+            return fail(("self_check.out".to_owned(), message));
+        }
+    };
+    match output {
+        OutputMode::Human => print!("{}", self_check_summary(&report, &dir)),
+        OutputMode::Json | OutputMode::JsonLines => println!("{report}"),
+        OutputMode::Quiet => {}
+    }
+    if report.get("pass").and_then(Value::as_bool) == Some(true) { 0 } else { 1 }
+}
+
+/// The host's error answer, if it is one (`no_phone`, `several_phones`, `busy`,
+/// `timeout`, `closed`, `phone_error`, ...).
+fn self_check_refused(answer: &Value) -> Option<(String, String)> {
+    let code = answer.get("error").and_then(Value::as_str)?;
+    let mut message = answer.get("message").and_then(Value::as_str).unwrap_or(code).to_owned();
+    let phones: Vec<String> = answer
+        .get("phones")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|phone| {
+            let id = phone.get("device_id").and_then(Value::as_str).unwrap_or("?");
+            match phone.get("device").and_then(|d| d.get("model")).and_then(Value::as_str) {
+                Some(model) => format!("{id} ({model})"),
+                None => id.to_owned(),
+            }
+        })
+        .collect();
+    if !phones.is_empty() {
+        message.push_str(&format!(": {}", phones.join(", ")));
+    }
+    Some((format!("self_check.{code}"), message))
+}
+
+/// `row 1 row1-claude-code-2.1.310-1234ms pass` for one progress line.
+fn self_check_progress(progress: &Value) -> String {
+    let row = progress.get("row").and_then(Value::as_u64).unwrap_or(0);
+    let id = progress.get("id").and_then(Value::as_str).unwrap_or("?");
+    let pass = progress.get("pass").and_then(Value::as_bool) == Some(true);
+    format!("row {row} {id} {}", if pass { "pass" } else { "FAIL" })
+}
+
+/// A case id as a file name: `[A-Za-z0-9._-]` kept, anything else `_`.
+fn sanitize_case_id(id: &str) -> String {
+    let name: String = id
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') { c } else { '_' })
+        .collect();
+    if name.is_empty() || name.chars().all(|c| c == '.') { "case".to_owned() } else { name }
+}
+
+/// Writes every case image to `dir/<case id>-<kind>.png` and `dir/report.json`: the
+/// answer with each case's `images` as the files' absolute paths. Returns that report.
+fn save_self_check(answer: &Value, dir: &Path) -> std::io::Result<Value> {
+    use base64::Engine as _;
+    let mut report = answer.clone();
+    for row in report.get_mut("rows").and_then(Value::as_array_mut).into_iter().flatten() {
+        let number = row.get("row").and_then(Value::as_u64).unwrap_or(0);
+        let cases = row.get_mut("cases").and_then(Value::as_array_mut);
+        for (index, case) in cases.into_iter().flatten().enumerate() {
+            let id = case
+                .get("id")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .unwrap_or_else(|| format!("row{number}-case{index}"));
+            let Some(images) = case.get_mut("images").and_then(Value::as_object_mut) else {
+                continue;
+            };
+            let mut paths = serde_json::Map::new();
+            for (kind, data) in images.iter() {
+                let Some(bytes) = data
+                    .as_str()
+                    .and_then(|data| base64::engine::general_purpose::STANDARD.decode(data).ok())
+                else {
+                    continue;
+                };
+                let path =
+                    dir.join(format!("{}-{}.png", sanitize_case_id(&id), sanitize_case_id(kind)));
+                std::fs::write(&path, bytes)?;
+                paths.insert(kind.clone(), json!(path.to_string_lossy()));
+            }
+            *images = paths;
+        }
+    }
+    let mut text = serde_json::to_vec_pretty(&report).map_err(std::io::Error::other)?;
+    text.push(b'\n');
+    std::fs::write(dir.join("report.json"), text)?;
+    Ok(report)
+}
+
+/// One line per row (`row 1 headers PASS (2/2)`), a failing row's first reason
+/// under it, then where the files are.
+fn self_check_summary(report: &Value, dir: &Path) -> String {
+    let mut text = String::new();
+    for row in report.get("rows").and_then(Value::as_array).into_iter().flatten() {
+        let cases = row.get("cases").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+        let passed =
+            cases.iter().filter(|c| c.get("pass").and_then(Value::as_bool) == Some(true)).count();
+        let pass = row.get("pass").and_then(Value::as_bool) == Some(true);
+        text.push_str(&format!(
+            "row {} {} {} ({passed}/{})\n",
+            row.get("row").and_then(Value::as_u64).unwrap_or(0),
+            row.get("name").and_then(Value::as_str).unwrap_or("?"),
+            if pass { "PASS" } else { "FAIL" },
+            cases.len(),
+        ));
+        let first_why = row
+            .get("why")
+            .and_then(Value::as_array)
+            .and_then(|why| why.first())
+            .and_then(Value::as_str);
+        if let (false, Some(why)) = (pass, first_why) {
+            text.push_str(&format!("  {why}\n"));
+        }
+    }
+    text.push_str(&format!("images and report in {}\n", dir.display()));
+    text
+}
+
+/// `YYYYMMDD-HHMMSS` in UTC.
+fn utc_stamp(at: std::time::SystemTime) -> String {
+    let secs = at.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let (days, of_day) = (secs / 86_400, secs % 86_400);
+    // Days since 1970-01-01 as a proleptic Gregorian date (H. Hinnant's algorithm).
+    let z = i64::try_from(days).unwrap_or(0) + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}{month:02}{day:02}-{:02}{:02}{:02}",
+        of_day / 3600,
+        (of_day / 60) % 60,
+        of_day % 60
+    )
+}
+
 fn doctor(global: &GlobalArgs, name: &str) -> i32 {
     let output = global.output;
     let fail = |(code, message): (String, String)| {
@@ -349,6 +615,115 @@ mod tests {
 
     fn mac(name: &str, id: &str, machine: &str, online: bool, this: bool) -> Value {
         json!({"name": name, "device_id": id, "machine_id": machine, "online": online, "this": this})
+    }
+
+    /// A host answer as `{"op":"self-check","rows":[1,2,3]}` gives it: row 1 passes,
+    /// row 2 has a shifted case, row 3 ran nothing.
+    fn self_check_answer() -> Value {
+        // "\x89PNG" in base64, and one that is not base64 at all.
+        let png = "iVBORw==";
+        json!({
+            "ok": true, "phone": "PHONE-1", "device": {"model": "iPhone17,1"}, "pass": false,
+            "thresholds": {"grid": 0.0005, "band": 0.001},
+            "rows": [
+                {"row": 1, "name": "headers", "pass": true, "why": [], "cases": [
+                    {"row": 1, "id": "row1-claude-code-2.1.310-1234ms", "pass": true, "why": [],
+                     "images": {"pty": png, "lean": png, "diff": png}},
+                ]},
+                {"row": 2, "name": "first-and-last-columns", "pass": false,
+                 "why": ["row2/a b: grid pixels: 4.0000% differ", "row2/a b: band firstColumn: 60.0000% differ"],
+                 "cases": [
+                    {"row": 2, "id": "row2/a b", "pass": false, "why": ["grid pixels: 4.0000% differ"],
+                     "images": {"pty": png, "lean": "not base64!"}},
+                    {"row": 2, "id": "row2-ok", "pass": true, "why": [], "images": {}},
+                ]},
+                {"row": 3, "name": "wrapped-lines", "pass": false, "why": ["no case ran"], "cases": []},
+            ],
+        })
+    }
+
+    #[test]
+    fn self_check_saves_each_image_under_its_sanitized_case_id() {
+        assert_eq!(
+            sanitize_case_id("row1-claude-code-2.1.310-1234ms"),
+            "row1-claude-code-2.1.310-1234ms"
+        );
+        assert_eq!(sanitize_case_id("row2/a b"), "row2_a_b");
+        assert_eq!(sanitize_case_id("../../etc"), ".._.._etc");
+        assert_eq!(sanitize_case_id(".."), "case");
+        assert_eq!(sanitize_case_id(""), "case");
+        assert_eq!(sanitize_case_id("中文"), "__");
+
+        let dir = tempfile::tempdir().unwrap();
+        let report = save_self_check(&self_check_answer(), dir.path()).unwrap();
+        let pty = dir.path().join("row1-claude-code-2.1.310-1234ms-pty.png");
+        assert_eq!(std::fs::read(&pty).unwrap(), b"\x89PNG");
+        assert!(dir.path().join("row1-claude-code-2.1.310-1234ms-diff.png").exists());
+        assert!(dir.path().join("row2_a_b-pty.png").exists());
+        assert!(!dir.path().join("row2_a_b-lean.png").exists(), "not base64: no file");
+        let images = &report["rows"][0]["cases"][0]["images"];
+        assert_eq!(images["pty"], json!(pty.to_string_lossy()));
+        assert_eq!(
+            report["rows"][1]["cases"][0]["images"],
+            json!({"pty": dir.path().join("row2_a_b-pty.png").to_string_lossy()})
+        );
+        // Everything else as the host answered it.
+        assert_eq!(report["device"], json!({"model": "iPhone17,1"}));
+        assert_eq!(report["rows"][1]["why"], self_check_answer()["rows"][1]["why"]);
+        let on_disk: Value =
+            serde_json::from_slice(&std::fs::read(dir.path().join("report.json")).unwrap())
+                .unwrap();
+        assert_eq!(on_disk, report);
+    }
+
+    #[test]
+    fn self_check_prints_one_line_per_row_and_a_failing_rows_first_reason() {
+        let text = self_check_summary(&self_check_answer(), Path::new("/tmp/sc"));
+        assert_eq!(
+            text,
+            "row 1 headers PASS (1/1)\n\
+             row 2 first-and-last-columns FAIL (1/2)\n  \
+             row2/a b: grid pixels: 4.0000% differ\n\
+             row 3 wrapped-lines FAIL (0/0)\n  \
+             no case ran\n\
+             images and report in /tmp/sc\n"
+        );
+        assert_eq!(
+            self_check_progress(&json!({"row": 2, "id": "row2/a b", "pass": false})),
+            "row 2 row2/a b FAIL"
+        );
+        assert_eq!(
+            self_check_progress(&json!({"row": 1, "id": "x", "pass": true})),
+            "row 1 x pass"
+        );
+    }
+
+    #[test]
+    fn self_check_reads_its_options_and_the_hosts_errors() {
+        let words = |w: &[&str]| w.iter().map(|s| (*s).to_owned()).collect::<Vec<String>>();
+        assert_eq!(SelfCheckArgs::parse(&[]).unwrap(), SelfCheckArgs::default());
+        let parsed =
+            SelfCheckArgs::parse(&words(&["--phone", "ABC", "--rows=3,1,3", "--out", "x"]))
+                .unwrap();
+        assert_eq!(
+            parsed,
+            SelfCheckArgs { phone: Some("ABC".into()), rows: vec![1, 3], out: Some("x".into()) }
+        );
+        assert!(SelfCheckArgs::parse(&words(&["--rows", "0"])).is_err());
+        assert!(SelfCheckArgs::parse(&words(&["--rows", "10"])).is_err());
+        assert!(SelfCheckArgs::parse(&words(&["--phone"])).is_err());
+        assert!(SelfCheckArgs::parse(&words(&["--bogus"])).is_err());
+
+        let several = json!({"error": "several_phones", "message": "several iPhones",
+            "phones": [{"device_id": "A", "device": {"model": "iPhone17,1"}}, {"device_id": "B", "device": {}}]});
+        assert_eq!(
+            self_check_refused(&several),
+            Some(("self_check.several_phones".into(), "several iPhones: A (iPhone17,1), B".into()))
+        );
+        assert_eq!(self_check_refused(&self_check_answer()), None);
+        // 2026-11-17 09:05:03 UTC.
+        let at = std::time::UNIX_EPOCH + Duration::from_secs(1_794_906_303);
+        assert_eq!(utc_stamp(at), "20261117-090503");
     }
 
     #[test]
