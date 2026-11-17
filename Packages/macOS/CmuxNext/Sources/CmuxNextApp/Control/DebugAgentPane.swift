@@ -50,7 +50,7 @@ import WebKit
 /// omitted toggles it and returns `inspector_open`). Every action first stops WebKit from
 /// pausing the page while another window covers it, so a tagged build can
 /// be measured behind the user's windows.
-/// `query` (`selector`): the pane's elements as `debug.page` reads them (PageDebugQuery), acting on nothing.
+/// `query` (`selector`): the pane's elements as `debug.page` reads them (PageDebugQuery), acting on nothing; `resize_probe` (AgentPaneView+ResizeProbe).
 /// `session_info_action` (`id`) sends a page-owned native Session Info action through the same
 /// bridge as a native row click (DEBUG capture tours only).
 @MainActor
@@ -65,7 +65,7 @@ enum DebugAgentPane {
         "chat_state": "chatState", "send_prompt": "sendPrompt", "new_chat": "newChat",
         "select_session": "selectSession", "answer_permission": "answerPermission", "open_changes": "openChanges",
         "set_model": "setModel", "models": "models", "stream": "stream", "pick_folder": "pickFolder",
-        "compose_send": "composeSend", "run_mode": "runMode", "toast": "toast",
+        "compose_send": "composeSend", "run_mode": "runMode", "toast": "toast", "select_text": "selectText",
         "load_seed": "loadSeed", "load_run": "loadRun", "layout_watch": "layoutWatch", "idle_probe": "idleProbe", "paste_probe": "pasteProbe",
     ]
 
@@ -222,14 +222,14 @@ enum DebugAgentPane {
         if action == "hover" { return await DebugAgentPaneClick.hover(params, pane: pane, view: view) }
         if action == "pacer" { return .object(["pane": .string(pane), "pacer": JSONValue(foundation: view.debugPacerState) ?? .null]) }
         if action == "inspector" || action == "menu_item" { return action == "inspector" ? await view.debugToggleInspector(open: params["open"]?.boolValue, pane: pane) : view.debugRunMenuItem(title: params["title"]?.stringValue ?? "", pane: pane) }
-        if action == "session_info_action" { return view.debugSessionInfoAction(params, pane: pane) }
+        if action == "session_info_action" || action == "resize_probe" { return action == "resize_probe" ? await view.debugResizeProbe(step: params["step"]?.stringValue ?? "read", pane: pane) : view.debugSessionInfoAction(params, pane: pane) }
         if action == "open_subagent" {
             return await DebugAgentPaneSubagent.open(params, pane: pane, model: view.model) {
                 (try? await view.callPageScript(DebugAgentPaneSubagent.pageSessionScript)) as? String
             }
         }
         guard let function = functions[action] else {
-            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, tick_watch, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, compose_send, run_mode, toast, answer_permission, open_changes, set_model, models, stream, layout_watch, idle_probe, readiness, cloud_auth, engine, focus_composer, composer_focused, click, query, open_subagent, pid, full_rate, gesture_state, session_info_action or inspector")])
+            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, tick_watch, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, compose_send, run_mode, toast, answer_permission, open_changes, set_model, models, stream, layout_watch, idle_probe, readiness, cloud_auth, engine, focus_composer, composer_focused, click, query, open_subagent, resize_probe, pid, full_rate, gesture_state, session_info_action or inspector")])
         }
         do {
             let result = try await view.callPageScript(script, arguments: ["fn": function, "args": AgentPaneDebugAutomationArguments(action: action, parameters: params).values])

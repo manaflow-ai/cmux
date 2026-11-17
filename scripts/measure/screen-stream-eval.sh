@@ -114,8 +114,10 @@ done
 [[ "$scene_marker" =~ ^[01]$ ]] || { echo "screen-stream-eval.sh: scene-marker= is 0 or 1" >&2; exit 2; }
 [[ "$presented_observer" =~ ^[01]$ ]] || { echo "screen-stream-eval.sh: presented-observer= is 0 or 1" >&2; exit 2; }
 if [[ "$presented_observer" == 1 ]]; then
-  [[ "$presented_pid" =~ ^[1-9][0-9]*$ && "$presented_window" =~ ^[1-9][0-9]*$ ]] || {
-    echo "screen-stream-eval.sh: presented observer needs numeric presented-pid= and presented-window=" >&2
+  # The Apple targets launch their own viewer and bind its pid and window, so both are optional;
+  # given, they must match what the target launched.
+  [[ "$presented_pid" =~ ^([1-9][0-9]*)?$ && "$presented_window" =~ ^([1-9][0-9]*)?$ ]] || {
+    echo "screen-stream-eval.sh: presented-pid= and presented-window= are numeric when given" >&2
     exit 2
   }
   [[ "$presented_marker_origin" =~ ^[0-9]+,[0-9]+$ && "$presented_cell_size" =~ ^([2-9]|[1-9][0-9]+)$ && "$presented_input_point" =~ ^[0-9]+,[0-9]+$ ]] || {
@@ -161,7 +163,10 @@ esac
 # A viewer that opens windows or posts input fights the person at a Mac they use (person_guard.py):
 # refuse before anything is removed or started. A tools-only build opens nothing.
 if [[ "$tools_only" != 1 ]]; then
-  python3 -I "$here/person_guard.py" check "$targets" || exit 2
+  # viewer-of= makes this Mac the viewer only, where apple-rfb is headless.
+  guard_role=()
+  [[ -n "$viewer_of" ]] && guard_role=(viewer)
+  python3 -I "$here/person_guard.py" check "$targets" ${guard_role[@]+"${guard_role[@]}"} || exit 2
 fi
 rm -rf "$out" "$work"
 mkdir -p "$out" "$work/bin"

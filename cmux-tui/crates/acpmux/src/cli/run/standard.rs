@@ -35,6 +35,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Process(..)
             | Command::Worktree(..)
             | Command::Group(..)
+            | Command::ShareHost(..)
             | Command::Attach { .. }
             | Command::ResumeHere { .. }
             | Command::Tail { .. }
@@ -1073,6 +1074,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         Command::Process(cmd) => crate::cli::process::run(cmd, json_out).await,
         Command::Worktree(cmd) => crate::cli::worktree::run(cmd, json_out),
         Command::Group(cmd) => crate::cli::group::run(cmd, json_out).await,
+        Command::ShareHost(cmd) => crate::share_host::cli::run(cmd, json_out).await,
         Command::Attach { session, plain } => {
             let client = connect(true).await?;
             let id = match &session {
@@ -1094,12 +1096,20 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         Command::Info { session, fields } => {
             let client = connect(true).await?;
-            let id = resolve_id(&client, &session).await?;
-            let v = crate::cli::slow_notice::noted(
-                "the session's details",
-                client.request(method::MUX_INFO, json!({"sessionId": id})),
-            )
-            .await?;
+            let v = match resolve_id(&client, &session).await {
+                Ok(id) => {
+                    crate::cli::slow_notice::noted(
+                        "the session's details",
+                        client.request(method::MUX_INFO, json!({"sessionId": id})),
+                    )
+                    .await?
+                }
+                // A row only the send relay lists: its details are the relay's row, `via: relay`.
+                Err(e) => match crate::cli::send_relay::relayed_row(&e) {
+                    Some(row) => row.clone(),
+                    None => return Err(e),
+                },
+            };
             if let Some(fields) = fields {
                 return super::fanout::print_info_fields(&v, &fields, json_out);
             }

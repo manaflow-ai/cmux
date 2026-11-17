@@ -771,19 +771,26 @@ pub(super) async fn settle_web_session_mode(
         let asks = |m: &crate::store::SessionMeta| {
             crate::web_modes::mode_of(m).is_some_and(|mode| settled.contains(&mode))
         };
+        // Already in the start mode: nothing to move. A chat at its owner's VM boundary is
+        // offered full access first and an asking mode after it, tried in that order, so a
+        // refused full access (`sessions.allowFullAccess` off meanwhile) still settles it.
+        let first = settled.first().cloned();
+        if first.is_some() && crate::web_modes::mode_of(&s.meta()) == first {
+            return Ok(());
+        }
+        for start in &settled {
+            if hub.set_mode(s, start).await.is_ok()
+                && crate::web_modes::mode_of(&s.meta()).as_deref() == Some(start.as_str())
+            {
+                hub.restore_web_control(s);
+                return Ok(());
+            }
+        }
         if asks(&s.meta()) {
             return Ok(());
         }
-        let Some(start) = settled.first() else {
-            let _ = hub.kill(s, true).await;
-            return Err(no_reviewed_asking_mode());
-        };
-        if hub.set_mode(s, start).await.is_err() || !asks(&s.meta()) {
-            let _ = hub.kill(s, true).await;
-            return Err(no_reviewed_asking_mode());
-        }
-        hub.restore_web_control(s);
-        return Ok(());
+        let _ = hub.kill(s, true).await;
+        return Err(no_reviewed_asking_mode());
     }
     if mode_asks(hub, &s.meta(), cloud_mobile).await {
         return Ok(());

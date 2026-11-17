@@ -108,3 +108,60 @@ by itself while the person typed in a terminal. Before G1 it got them (cause 1);
 - a1185 owns "Markdown tab beside Home shows focus but keys go elsewhere".
 - a1170 landed the Cmd+F fixes (d461abcc..5fb8acb1).
 - The web follow-ups above need a repro from the focus log first.
+
+## Focus route (the central choke point)
+
+Every keyboard move goes through one route that names who started it, its caller and its reason:
+
+- Swift: `FocusRoute(.person or .system, "reason").moveKeyboard(in:to:)`, `.makeKey(_:front:)`,
+  `.activateApp()` (CmuxNextDesign/FocusRoute/FocusRoute.swift). The main window takes the route
+  with the call (`FocusRouting`, CmuxNextDesign), so its gate and its key-change
+  hooks see who asked and why; another window gets a plain AppKit call.
+- Web: `focusRoute(element or handle, "person" | "system", "reason", options?)` and
+  `blurRoute(...)` (webviews/src/ui/focusRoute.ts). The page's focus-loss records carry the route.
+
+What it does:
+
+- **Names the cause.** Each focus log line has `route`: `system CmuxNextApp/Focus/FocusEffectApplier.swift:110 focus model: pane content`,
+  or `unrouted` for a direct call.
+- **Refuses a steal.** A `.system` move outside a key or click and outside the focus model's own
+  apply is refused when it would take the keys from the responder the person typed into (a key with
+  no Command or Control) in the last second (`ResponderMoveGate.takesFromTyping`). The web route
+  refuses a `system` move away from the input typed into in the last second the same way.
+- **Lists recent changes.** `cmux app call debug.focus_log '{"limit": 50}'` (DEV and tagged builds)
+  returns the newest 200 changes with their route, kept in memory while the file log is off.
+- **Guardrail.** `scripts/cmux-next/check-focus-routes.py` (pre-push gate) refuses a new direct
+  `makeFirstResponder` / `makeKey` / `makeKeyAndOrderFront` / `NSApp.activate` in product Swift and
+  a new `.focus()` / `.blur()` / `autoFocus` in page code. The 515 calls from before the route are
+  in `scripts/cmux-next/focus-routes-baseline.tsv`, which only goes down.
+
+### Call sites moved onto the route (72)
+
+All have no user gesture behind them (daemon delta, mount, layout, timer, page request):
+
+- Swift (46): FocusEffectApplier (8), KeyRouter+NewTabInput (5), AgentPaneSessionInfoContent (2),
+  NativeNewTabHostingView, AppServices+AgentShareHost, SleepyOverlayWindows (2), TopHomePageView
+  (2), TopPageHost, WindowRootView, PageInfoController, ExtensionsMenuHoverButton (3),
+  PromptBarView (2), WebKitTab (2), DeclarativePopupHost (2),
+  NativePopupContent, OverlaySurface, ThemedField+SwiftUI (3), WebKitRenderRate+Reshow,
+  FilesPaneView, HomeFirstRunView, HomeStarterChips, MacScreenTab, RemoteDesktopPaneView,
+  SidebarNeedsYouTrayView, TerminalSession.
+- Web (26): App.tsx (4: focusComposer, panel and dialog openers), Composer (2), ComposerQueue (3),
+  MarkdownField, PermissionCard (2), VirtualTranscript (3), dictation (3), useNeedsYou,
+  HatQuestions, QuestionCard (2), SubagentTray, ThreadMinimap (2),
+  CustomizeLibraryCard (the Remove confirmation's Cancel, `person`).
+
+### Left direct, and why
+
+- The 511 baselined calls: almost all run inside a key or click handler of the person (menus,
+  fields, lists, rename, palettes) or a debug/playground window. The window's gate still logs every
+  one of them (`unrouted`), and G1 still refuses an unseen target. They move as their files change.
+- `ShellWindow.makeFirstResponder` and the route itself: the choke point.
+- CEF and `AppKitKeyWindows` / `CEFKeyWindows` adapters (`KeyWindowSwitching`): they already are
+  the one key-window seam of Chromium pages; their callers name the reason.
+- WebKit's own focus requests (IPC from the web process): they never pass through cmux code before
+  `makeFirstResponder`; the gate sees them as `unrouted` and G1 refuses an unseen page.
+- `AgentRenderWindows` (CmuxNextBrowserHost): an agent's offscreen render window, never a window
+  the person types in; BrowserHost is a service and may not depend on CmuxNextDesign.
+- JS `focus()` strings that Swift injects into web pages (BrowserPageScripts, LinkHintScript):
+  page automation of a site's DOM, not cmux's keyboard.

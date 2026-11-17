@@ -100,12 +100,13 @@ public nonisolated enum MotionTunables {
         .lift: (MotionScale.micro, "Sidebar drag lift shadow."),
         .theme: (MotionScale.micro, "Room, workspace or terminal theme switch."),
         .highlight: (1.2, "Settings row highlight after a search jump or deep link fades out."),
-        .launch: (MotionScale.large, "Launch mark resolving on the glass (scaled by the animation speed; stays under 400 ms)."),
+        .launch: (MotionScale.large, "Launch mark resolving on the glass (scaled by the animation speed; 300 ms at most)."),
         .clickPulse: (MotionScale.large, "Agent cursor click ripple grows and fades (cmux-cua timing, 250 ms there)."),
         .cursorHide: (MotionScale.large, "Agent cursor fades out once its agent goes idle."),
         .hibernateIcon: (MotionScale.large, "Hibernated tab favicon shrinks into its ring, and grows back on wake (Chrome: 250 ms)."),
         .hibernateRing: (1.0, "Hibernated tab dotted ring fades in (Chrome: 1 s)."),
         .settle: (MotionScale.standard, "A finished mark settles in once: a sidebar row's spinner turning into its done mark grows from 60% and an accent tint."),
+        .omniboxPopup: (MotionScale.quick, "The omnibox suggestion card fading in and out with its bar's card top (Helium: 82 ms)."),
     ]
 
     package static let fades: [MotionFade: Tunable<Double>] = Dictionary(uniqueKeysWithValues: MotionFade.allCases.map { token in

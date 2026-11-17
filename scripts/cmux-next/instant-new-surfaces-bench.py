@@ -42,6 +42,21 @@ The bench's HEADLINE per command is the WORST arm (a missed run first, else the 
 printed as `HEADLINE instant-new-surfaces/<command> visible_ms = <arm> arm ...`; the warm arm alone never stands for
 the bench.
 
+The engine (bench_page_engine.py): each `new_tab` and `new_workspace` row has `page_engine`, the engine of the
+page that the key opened, read from the app after the timed press (`cef`, `webkit:<reason>`, `native` with
+`--native-new-tab`, `unknown: <why>` when the focused pane shows no page). A row of a command with a page time
+(`link_right`, `split_browser`, `browser_workspace`, the diff commands, `github_right` and the others) names the
+engine of the focused pane's browser tab itself, and that word is its `page_engine`: `cef`, `webkit`, or `none`
+when that pane shows no browser tab (a diff's page and the GitHub page always: they are a viewer's page view, in
+Chromium or in WebKit, and the row does not say which; also a browser in a pane with no focus).
+`--page-engine cef|webkit` takes a row of another engine as an error of the row: its times and its frames move to
+`other_engine` and the row counts as a missed run; a Cmd-T row whose engine was not read and a page row that says
+`none` are refused too. The default `any` judges no row: a measure of a diff's page or the GitHub page asks for it
+(with cmux-ci: `--arg=--page-engine=any`). Each launch prints the app's own word on Chromium (`CHROMIUM ...`), and the
+run's end prints the rows of each engine (`PAGE-ENGINE ...`); the JSON has both (`chromium`, `page_engines`).
+The read comes after the row's times. As each `debug.agent_pane` action, it stops WebKit from pausing that page's
+web view while another window covers it; a debug build's bench launch has done that for each page already.
+
 Usage: instant-new-surfaces-bench.py --tag TAG --app PATH [--runs 12] [--commands new_terminal]
        [--workspaces 10,100] [--arms warm,quick,cold] [--quick-runs 6] [--cold-launches 2] [--out DIR] [--json FILE]
 Fleet: cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/instant-new-surfaces.sh
@@ -58,6 +73,7 @@ if "--bench=new-pane-start-state" in sys.argv:
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, bundle_id, close_all_workspaces, wait_for_count  # noqa: E402
 import bench_arms  # noqa: E402
+import bench_page_engine  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -78,6 +94,10 @@ parser.add_argument("--hang-stacks", action="store_true",
                          "and each run's longest main-thread stall with its whole stack (64 frames) in the row and the log")
 parser.add_argument("--slow-wait", type=float, default=40, help="slow phase: seconds between marking WebKit slow and the first run")
 parser.add_argument("--native-new-tab", action="store_true", help="run with tabs.nativeNewTabPage on (Cmd-T opens the native New Tab page)")
+parser.add_argument("--page-engine", default="any", choices=bench_page_engine.WANTED,
+                    help="the engine that a New Tab page and a browser page must show in (bench_page_engine.py): a row of "
+                         "another engine, and a page row that names no engine (a diff's page, the GitHub page), is an "
+                         "error of the row, not a number; any (the default) judges no row")
 parser.add_argument("--arms", default=None,
                     help="the arms to time (bench_arms.py; default warm,quick,cold, or warm alone with --budget-frames: a "
                          "budget run judges the warm rows only, so its time and its pass or fail do not change)")
@@ -115,11 +135,14 @@ DIFF_COMMANDS = {"diff_small": (1, 20), "diff_5k": (10, 500), "diff_200": (200, 
 READY_COMMANDS = ("new_workspace", "new_tab")  # the app reports ready_ms (the New Tab page painted and taking keys) for these
 NEWTAB_URL_COMMANDS = ("newtab_url", "newtab_url_beside")  # Return / Option-Return on an address in a New Tab page
 PAGE_COMMANDS = ("link_right", "link_home", "split_browser", "github_right", *NEWTAB_URL_COMMANDS, *DIFF_COMMANDS)  # the app reports page_ms (the new pane's page painted) for these
+# What a command's row opens, for the engine rule (bench_page_engine.judge_created); a command not here opens no page.
+OPENS = {"new_tab": "tab", "new_workspace": "workspace", "browser_workspace": "page", **dict.fromkeys(PAGE_COMMANDS, "page")}
 open(CONFIG, "w").write(json.dumps({"tabs": {"nativeNewTabPage": True}} if opts.native_new_tab else {}) + "\n")
 CLI_ENV = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1", "CMUX_TAG": TAG,
            "CMUX_BUNDLE_ID": BUNDLE_ID, "CMUX_BUNDLED_CLI_PATH": CLI}
 LAUNCHED, LOAD = [], []
+CHROMIUM = []  # the app's own word on Chromium at each launch (bench_page_engine.chromium_word)
 
 
 def diff_repository(name, files, lines):
@@ -368,9 +391,16 @@ def timed(command, phase, index, arm=None):
     result.update({"phase": phase, "run": index, "command": command})
     if arm:
         result["arm"] = arm
+    # After the row's times: the engine of the page that the key opened. Cmd-T and Cmd-N: the focused pane's shown
+    # page, read here (20 s, as the timed call: a slow answer under load is not an engine that was not read). A
+    # page command: the row's own `engine`.
+    bench_page_engine.judge_created(
+        result, opts.page_engine, OPENS.get(command),
+        lambda: "native" if opts.native_new_tab else bench_page_engine.page_engine(rpc("debug.agent_pane", {"action": "engine"}, timeout=20)))
     marks = {s["name"]: round(s["at"], 1) for s in result.get("spans") or [] if s.get("ms", 0) == 0}
     print(f"{phase} {command} #{index}: key={result.get('key_ms')} visible={result.get('visible_ms')} "
-          f"frame={frame_of(result)} confirmed={result.get('confirmed_ms')} page={result.get('page_ms')} ready={result.get('ready_ms')} marks={marks} "
+          f"frame={frame_of(result)} confirmed={result.get('confirmed_ms')} page={result.get('page_ms')} ready={result.get('ready_ms')} "
+          f"engine={result.get('page_engine')} marks={marks} "
           f"err={result.get('error')}" + (f" github={result['github']}" if 'github' in result else "")
           + (f" diff={json.dumps(result.get('diff'))}" if command in DIFF_COMMANDS else ""), flush=True)
     return result
@@ -635,13 +665,15 @@ def launch_pairs(relaunch):
             if arm == "first":
                 row["spares_before"] = len(spares_before)
             print(f"LAUNCHPAIR {arm} #{index}: ready_ms={row.get('ready_ms')} visible_ms={row.get('visible_ms')} "
-                  f"opening={row['opening']}" + (f" spares_before={len(spares_before)}" if arm == "first" else ""), flush=True)
+                  f"opening={row['opening']}" + (f" spares_before={len(spares_before)}" if arm == "first" else "")
+                  + f" page_engine={row.get('page_engine')}", flush=True)
             rows.append(row)
         wait(spare_ready, 20, step=0.25)
         time.sleep(1)  # test harness: input quiet before the warm reference
         row = timed("new_tab", "launch", index, arm="warm_ref")
         row["opening"] = last_opening()
-        print(f"LAUNCHPAIR warm_ref #{index}: ready_ms={row.get('ready_ms')} visible_ms={row.get('visible_ms')} opening={row['opening']}", flush=True)
+        print(f"LAUNCHPAIR warm_ref #{index}: ready_ms={row.get('ready_ms')} visible_ms={row.get('visible_ms')} opening={row['opening']} "
+              f"page_engine={row.get('page_engine')}", flush=True)
         rows.append(row)
     out = {}
     for arm in ("first", "second", "warm_ref"):
@@ -652,8 +684,10 @@ def launch_pairs(relaunch):
                     "ready_missed": sum(r is None for r in ready_ms),
                     "spare_adopted": sum(bool((r.get("opening") or {}).get("spare")) for r in sel)}
     print("LAUNCHPAIR-SUMMARY", json.dumps(out), flush=True)
+    print(bench_page_engine.counts_line("instant-new-surfaces", rows, opts.page_engine), flush=True)
     return {"tag": TAG, "host": os.uname().nodename, "cpus": os.cpu_count(), "launch_settle_s": opts.launch_settle,
-            "launch_pairs": out, "runs": rows}
+            "launch_pairs": out, "chromium": CHROMIUM[0] if CHROMIUM else None, "page_engine_asked": opts.page_engine,
+            "page_engines": bench_page_engine.counts(rows), "runs": rows}
 
 
 def main():
@@ -680,6 +714,9 @@ def main():
             app = launcher.process
         SOCKET = launcher.socket
         CLI_ENV["CMUX_SOCKET_PATH"] = SOCKET
+        # The step's log and the report say what this app says of Chromium (a build with no engine shows WebKit pages).
+        CHROMIUM.append(bench_page_engine.chromium_word(rpc("debug.cef", timeout=10)))
+        print(bench_page_engine.chromium_line("instant-new-surfaces", CHROMIUM[-1]), flush=True)
 
     def relaunch():
         """The cold arm's launch: the running app quits (cleanup), then a new launch; returns its window."""
@@ -729,7 +766,9 @@ def main():
                 launch()  # a failed last relaunch: the report below reads nothing from the app, cleanup needs none
             except SystemExit as error:
                 print(f"cold: no app after the cold arm ({error}); the report is written from the rows", flush=True)
-    result = {"tag": TAG, "host": os.uname().nodename, "cpus": os.cpu_count(), "summary": summary(rows), "runs": rows}
+    result = {"tag": TAG, "host": os.uname().nodename, "cpus": os.cpu_count(), "summary": summary(rows), "runs": rows,
+              "chromium": CHROMIUM[0] if CHROMIUM else None, "page_engine_asked": opts.page_engine,
+              "page_engines": bench_page_engine.counts(rows)}
     if opts.switch_keys:
         result["switch_keys"] = {"runs": switched}
         for case in ("plain", "driven"):
@@ -743,6 +782,7 @@ def main():
         print("SWITCH-KEYS", json.dumps({k: v for k, v in result["switch_keys"].items() if k != "runs"}), flush=True)
         print("FOCUS-WAITS", json.dumps(result["focus_waits"]), flush=True)
     print("\nSUMMARY", json.dumps(result["summary"], indent=1), flush=True)
+    print(bench_page_engine.counts_line("instant-new-surfaces", rows, opts.page_engine), flush=True)
     print("", flush=True)
     result["arms"] = {command: {metric: bench_arms.report(f"instant-new-surfaces/{command}", metric, "ms",
                                                           arm_samples(rows, command, metric),

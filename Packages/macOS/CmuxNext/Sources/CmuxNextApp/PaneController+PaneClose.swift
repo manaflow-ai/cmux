@@ -2,10 +2,9 @@ import CmuxNextBridge
 import CmuxNextFocus
 import CmuxNextLayout
 
-/// A pane that closes as a whole (its last tab, or Close Pane) leaves its window in the key's
-/// turn: the layout hides it with the even sizes the close leaves, so its neighbours spring into
-/// its space on one motion from the key's frame, not after the daemon's echo
-/// (plans/cmux-next/close-animation/DESIGN.md). The daemon still decides: a refused close brings
+/// A pane that closes as a whole (its last tab, or Close Pane) leaves its layout in the key's
+/// turn, with the even sizes the close leaves: the next frame shows its neighbours in its space,
+/// not the frame after the daemon's echo. The daemon still decides: a refused close brings
 /// the pane back.
 extension PaneController {
     /// Shows this pane's close now; nil when the layout leaves it to the daemon's tree (the

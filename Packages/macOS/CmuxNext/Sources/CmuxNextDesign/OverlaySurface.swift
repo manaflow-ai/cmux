@@ -225,7 +225,7 @@ public final class OverlaySurfaceView: NSView {
         addSubview(view, positioned: .below, relativeTo: nil)
         materialView = view
         installRim()
-        if let focused, let window = focused.window { window.makeFirstResponder(focused) }
+        if let focused, let window = focused.window { FocusRoute(.system, "an overlay rebuilt: keep its focused view").moveKeyboard(in: window, to: focused) }
         applyShape()
         applyTheme()
         // Content colors may depend on the material (a veil that only

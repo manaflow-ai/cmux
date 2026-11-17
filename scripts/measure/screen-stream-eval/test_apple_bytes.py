@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -14,7 +15,7 @@ report = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(report)
 
 NONCE = "00112233445566778899aabbccddeeff"
-PID, WINDOW = str(os.getpid()), "77"  # a live pid: the target samples its CPU
+PID, WINDOW = "4242", "77"  # PID only labels nettop's rows; the target reads bytes from column 3
 
 
 def stub(folder: Path, name: str, body: str) -> None:
@@ -23,35 +24,55 @@ def stub(folder: Path, name: str, body: str) -> None:
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 
+def apple_fixture(root: Path) -> tuple[dict, Path, Path]:
+    """Stubs for apple.sh off a Mac. Returns (env, tools, bin). The stand-in app's executable is `sleep`
+    under Screen Sharing's executable path, so its processes look like Screen Sharing to `ps`; the
+    `open` stub starts one detached instance and appends its pid to tools/open.launched."""
+    bin_, tools, state = root / "bin", root / "tools", root / "state"
+    for folder in (bin_, tools, state):
+        folder.mkdir()
+    app = root / "Screen Sharing.app"
+    (app / "Contents/MacOS").mkdir(parents=True)
+    (app / "Contents/MacOS/Screen Sharing").symlink_to(shutil.which("sleep"))
+    stub(tools, "open", 'while (($#)); do [[ $1 == -a ]] && { app=$2; shift; }; shift; done\n'
+                        '"$app/Contents/MacOS/Screen Sharing" 1000 </dev/null >/dev/null 2>&1 &\n'
+                        'echo $! >>"$0.launched"\n')
+    stub(tools, "osascript", "cat >/dev/null; exit 0\n")
+    # Each capture differs from the last, so every sample is a change.
+    stub(tools, "screencapture", 'for a; do out=$a; done; date +%s%N >"$out"\n')
+    stub(bin_, "screen-eval-window-id", 'echo "$3"\n')
+    # The readiness receipt names the instance this run launched, as cmux-rd would observe it.
+    stub(bin_, "cmux-rd", 'printf \'{"schema":"cmux.presented-marker-series/2","complete":true,'
+                          '"host_identity_verified":true,"nonce_observed":true,"expected_nonce":"%s",'
+                          '"pid":%s,"window":%s,"first_changed_marker_ms":5}\\n\' '
+                          f'"$EVAL_SCENE_NONCE" "$(cat "$EVAL_STATE/viewer.pid")" {WINDOW}\n')
+    env = {**os.environ, "PATH": f"{tools}:{os.environ['PATH']}", "EVAL_ROOT": str(HERE.parents[2]),
+           "EVAL_BIN": str(bin_), "EVAL_STATE": str(state), "EVAL_PEER": "100.64.0.2",
+           "EVAL_APPLE_MODE": "high", "EVAL_SCREEN_SHARING_APP": str(app), "EVAL_SCENE_NONCE": NONCE,
+           "EVAL_PRESENTED_OBSERVER_BIN": str(bin_ / "cmux-rd"),
+           "EVAL_PRESENTED_OBSERVER_WINDOW": WINDOW, "EVAL_PRESENTED_MARKER_ORIGIN": "10,10",
+           "EVAL_PRESENTED_CELL_SIZE": "8"}
+    env.pop("EVAL_PRESENTED_OBSERVER_PID", None)
+    env.pop("EVAL_APPLE_VIEW_DEADLINE_S", None)
+    return env, tools, bin_
+
+
+def window_view(root: Path, env: dict, seconds: int, timeout: float = 60) -> subprocess.CompletedProcess:
+    return subprocess.run(["bash", str(HERE / "targets/apple.sh"), "window-view", str(seconds),
+                           str(root / "frame.png"), str(root / "go"), str(root / "window.raw")],
+                          env=env, capture_output=True, text=True, timeout=timeout)
+
+
 class AppleBytesTests(unittest.TestCase):
     def view(self, nettop: str | None, seconds: int = 3) -> dict:
         """Runs apple.sh window-view for SECONDS against stubs; NETTOP is the stub's body (None: no nettop)."""
         with tempfile.TemporaryDirectory() as name:
             root = Path(name)
-            bin_, tools, state = root / "bin", root / "tools", root / "state"
-            for folder in (bin_, tools, state):
-                folder.mkdir()
-            stub(tools, "open", "exit 0\n")
-            stub(tools, "osascript", "cat >/dev/null; exit 0\n")
-            # Each capture differs from the last, so every sample is a change.
-            stub(tools, "screencapture", 'for a; do out=$a; done; date +%s%N >"$out"\n')
+            env, tools, _ = apple_fixture(root)
             if nettop is not None:
                 stub(tools, "nettop", nettop)
-            stub(bin_, "screen-eval-window-id", 'echo "$3"\n')
-            receipt = {"schema": "cmux.presented-marker-series/2", "complete": True, "host_identity_verified": True,
-                       "nonce_observed": True, "expected_nonce": NONCE, "pid": int(PID), "window": int(WINDOW),
-                       "first_changed_marker_ms": 5}
-            stub(bin_, "cmux-rd", f"echo '{json.dumps(receipt)}'\n")
-            env = {**os.environ, "PATH": f"{tools}:{os.environ['PATH']}", "EVAL_ROOT": str(HERE.parents[2]),
-                   "EVAL_BIN": str(bin_), "EVAL_STATE": str(state), "EVAL_PEER": "100.64.0.2",
-                   "EVAL_APPLE_MODE": "high", "EVAL_SCREEN_SHARING_APP": str(root / "Screen Sharing.app"), "EVAL_SCENE_NONCE": NONCE,
-                   "EVAL_PRESENTED_OBSERVER_BIN": str(bin_ / "cmux-rd"), "EVAL_PRESENTED_OBSERVER_PID": PID,
-                   "EVAL_PRESENTED_OBSERVER_WINDOW": WINDOW, "EVAL_PRESENTED_MARKER_ORIGIN": "10,10",
-                   "EVAL_PRESENTED_CELL_SIZE": "8"}
             raw = root / "window.raw"
-            run = subprocess.run(["bash", str(HERE / "targets/apple.sh"), "window-view", str(seconds),
-                                  str(root / "frame.png"), str(root / "go"), str(raw)],
-                                 env=env, capture_output=True, text=True)
+            run = window_view(root, env, seconds)
             self.assertEqual(run.returncode, 0, run.stderr)
             self.assertTrue((root / "go").exists())
             return json.loads(raw.read_text())

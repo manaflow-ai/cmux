@@ -48,10 +48,20 @@ impl CaptureBackend {
     }
 
     /// Whether a viewer's input reaches this desktop with the backend: XTest on X11; the
-    /// portal backend drops every input event (`portal.rs`), so its sessions are view only.
+    /// portal through its RemoteDesktop session, once that grant is saved (`portal.rs`) in a
+    /// build with portal capture. Without it a portal session is view only.
     #[cfg(feature = "link")]
     pub fn applies_input(self) -> bool {
-        matches!(self, CaptureBackend::X11)
+        self.applies_input_with(portal_control_granted())
+    }
+
+    /// [`CaptureBackend::applies_input`] with the RemoteDesktop grant given.
+    #[cfg(feature = "link")]
+    pub fn applies_input_with(self, remote_desktop_granted: bool) -> bool {
+        match self {
+            CaptureBackend::X11 => true,
+            CaptureBackend::Portal => remote_desktop_granted,
+        }
     }
 
     /// The `--capture` word for the backend.
@@ -75,6 +85,17 @@ impl CaptureBackend {
             CaptureBackend::Portal => Err(PORTAL_NOT_BUILT_IN.to_owned()),
         }
     }
+}
+
+/// Whether this desktop's portal sessions can apply input: a build with portal capture and a
+/// saved RemoteDesktop grant (`linux-host enable --allow-control` or `linux-host grant
+/// --control` made it).
+#[cfg(feature = "link")]
+pub fn portal_control_granted() -> bool {
+    #[cfg(all(feature = "portal", target_os = "linux"))]
+    return crate::portal::remote_desktop_granted();
+    #[cfg(not(all(feature = "portal", target_os = "linux")))]
+    false
 }
 
 /// The reason a Wayland session cannot be shared by this build (shown to the viewer; the
@@ -125,10 +146,11 @@ mod tests {
 
     #[test]
     #[cfg(feature = "link")]
-    fn only_x11_applies_input() {
-        // XTest injects input; the portal backend drops it (portal.rs).
-        assert!(CaptureBackend::X11.applies_input());
-        assert!(!CaptureBackend::Portal.applies_input());
+    fn the_portal_applies_input_only_with_a_remote_desktop_grant() {
+        // XTest injects input; the portal only through a granted RemoteDesktop session.
+        assert!(CaptureBackend::X11.applies_input_with(false));
+        assert!(!CaptureBackend::Portal.applies_input_with(false));
+        assert!(CaptureBackend::Portal.applies_input_with(true));
         for backend in [CaptureBackend::X11, CaptureBackend::Portal] {
             assert_eq!(CaptureBackend::parse(backend.name()), Ok(backend));
         }

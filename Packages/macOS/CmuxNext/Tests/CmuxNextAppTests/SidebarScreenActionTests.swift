@@ -15,6 +15,11 @@ import Testing
         return CmuxNextSidebar.SidebarSection(kind: .machine(machine), nodes: [.workspace(SidebarWorkspace(id: WorkspaceID("ws-" + id), title: "A project with a long descriptive title", directory: "~/Projects"))])
     }
 
+    /// Every view in the row's whole subtree whose identifier ends in `.screen`.
+    static func screenControls(in view: NSView) -> [NSView] {
+        view.subviews.flatMap { sub in (sub.accessibilityIdentifier().hasSuffix(".screen") ? [sub] : []) + screenControls(in: sub) }
+    }
+
     static var examples: [CmuxNextSidebar.SidebarSection] {
         [section("local", name: "This Mac", kind: SidebarMachine.Kind.local),
          section("mac", name: "A very long Mac Studio device name", kind: SidebarMachine.Kind.server, device: "device-mac"),
@@ -34,99 +39,39 @@ import Testing
         list.reload(animated: false)
         list.layoutSubtreeIfNeeded()
         let row = try #require(list.rowViews[.workspace(WorkspaceID("ws-local"))] as? WorkspaceRowView)
-        let button = try #require(row.screenSlot.made)
-        #expect(!button.isHidden)
-        #expect(button.label == Strings.shareScreen)
-        #expect(button.accessibilityPerformPress())
+        #expect(Self.screenControls(in: row).isEmpty)
         #expect(!list.rowViews.values.contains { $0 is ListHeaderRowView })
-        #expect(intents == [.shareScreen(.local)])
+        #expect(intents.isEmpty)
         #expect(!list.rowViews.values.contains { $0 is SectionHeaderRowView })
     }
 
-    @Test(arguments: [240.0, 300.0, 360.0])
-    func flatWorkspaceActionsKeepTitlesAndHoverControlsClear(width: Double) throws {
+    /// Leo, 2026-11-16, on the screen button every workspace row drew: "WHY CANT IT JUST BE REVERTED".
+    /// No workspace row draws a screen button, on any machine kind, flat or grouped; machine headers keep theirs.
+    @Test func noWorkspaceRowDrawsAScreenButton() throws {
         _ = NSApplication.shared
-        let model = SidebarModel(sections: Self.examples)
-        model.groupsByComputer = false
-        var intents: [SidebarIntent] = []
-        model.onIntent = { intents.append($0) }
-        let list = SidebarListView(model: model)
-        list.contextMenuProvider = { _ in NSMenu() }
-        list.frame = NSRect(x: 0, y: 0, width: width, height: 1000)
-        list.reload(animated: false)
-        list.layoutSubtreeIfNeeded()
-        let headers = list.rowViews.values.compactMap { $0 as? SectionHeaderRowView }
-        #expect(!headers.isEmpty, "flat layouts retain machine headers so Add remains reachable")
-        #expect(headers.allSatisfy { !$0.addButton.isHidden }, "Add stays visible in the flat layout")
-        for id in ["local", "mac", "cloud", "offline"] {
-            let row = try #require(list.rowViews[.workspace(WorkspaceID("ws-" + id))] as? WorkspaceRowView)
-            let button = try #require(row.screenSlot.made)
-            #expect(!button.isHidden)
-            #expect(button.accessibilityPerformPress() == (id != "offline"))
-            if id != "offline" { #expect(intents.last == (id == "local" ? .shareScreen(.local) : .viewScreen(MachineID(id)))) }
-            let titleAtRest = row.title.frame
-            #expect(titleAtRest.width >= 2 * SidebarStyle.controlSize, "the project title retains usable text space")
-            #expect(titleAtRest.maxX <= button.frame.minX)
-            #expect(row.subtitle.frame.maxX <= button.frame.minX)
-            row.isHovered = true
-            row.needsLayout = true
-            row.layoutSubtreeIfNeeded()
-            #expect(row.title.frame == titleAtRest, "hover reveals controls without moving the title")
-            for control in ([row.closeSlot.made, row.moreSlot.made] as [NSView?]) {
-                let control = try #require(control)
-                #expect(!control.isHidden)
-                #expect(!control.frame.intersects(button.frame))
+        for grouped in [false, true] {
+            let model = SidebarModel(sections: Self.examples)
+            model.groupsByComputer = grouped
+            var intents: [SidebarIntent] = []
+            model.onIntent = { intents.append($0) }
+            let list = SidebarListView(model: model)
+            list.contextMenuProvider = { _ in NSMenu() }
+            list.frame = NSRect(x: 0, y: 0, width: 300, height: 1000)
+            list.reload(animated: false)
+            list.layoutSubtreeIfNeeded()
+            let rows = list.rowViews.values.compactMap { $0 as? WorkspaceRowView }
+            #expect(rows.count == Self.examples.count)
+            for row in rows {
+                for hovered in [false, true] {
+                    row.isHovered = hovered
+                    row.needsLayout = true
+                    row.layoutSubtreeIfNeeded()
+                    let screen = Self.screenControls(in: row)
+                    #expect(screen.isEmpty, "a workspace row has no screen button")
+                }
             }
-            #expect(!row.closeSlot.frame.intersects(row.moreSlot.frame))
+            #expect(intents.isEmpty)
         }
-        for id in ["linux"] {
-            let row = try #require(list.rowViews[.workspace(WorkspaceID("ws-" + id))] as? WorkspaceRowView)
-            #expect(row.screenAction == nil)
-            #expect(row.screenSlot.made == nil)
-        }
-        model.sections = [Self.section("mac", name: "Now Linux", kind: SidebarMachine.Kind.ssh)]
-        list.reload(animated: false)
-        list.layoutSubtreeIfNeeded()
-        let reused = try #require(list.rowViews[.workspace(WorkspaceID("ws-mac"))] as? WorkspaceRowView)
-        #expect(reused.screenAction == nil)
-        if let button = reused.screenSlot.made {
-            #expect(button.isHidden)
-            #expect(!button.accessibilityPerformPress())
-        }
-        model.sections = Self.examples
-        model.groupsByComputer = true
-        list.reload(animated: false)
-        list.layoutSubtreeIfNeeded()
-        for row in list.rowViews.values.compactMap({ $0 as? WorkspaceRowView }) {
-            #expect(row.screenAction == nil, "grouped rows use their machine header action")
-        }
-    }
-
-    @Test func aReusedFlatScreenButtonChangesItsTargetAndLabel() throws {
-        _ = NSApplication.shared
-        let model = SidebarModel(sections: Self.examples)
-        model.groupsByComputer = false
-        var intents: [SidebarIntent] = []
-        model.onIntent = { intents.append($0) }
-        let list = SidebarListView(model: model)
-        list.frame = NSRect(x: 0, y: 0, width: 300, height: 1000)
-        list.reload(animated: false)
-        let row = try #require(list.rowViews[.workspace(WorkspaceID("ws-mac"))] as? WorkspaceRowView)
-        let button = try #require(row.screenSlot.made)
-        row.configureScreen(Self.examples[0].machine)
-        #expect(button.label == Strings.shareScreen)
-        #expect(button.icon == .actionShare)
-        #expect(button.accessibilityPerformPress())
-        #expect(intents.last == .shareScreen(.local))
-        row.configureScreen(Self.examples[1].machine)
-        #expect(button.label == Strings.viewScreen)
-        #expect(button.icon == .remoteDisplay)
-        #expect(button.accessibilityPerformPress())
-        #expect(intents.last == .viewScreen(MachineID("mac")))
-        row.configureScreen(nil)
-        #expect(button.isHidden)
-        #expect(!button.accessibilityPerformPress())
-        #expect(intents.count == 2)
     }
 
     @Test(arguments: [240.0, 300.0, 360.0])

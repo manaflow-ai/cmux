@@ -1619,7 +1619,7 @@ pub struct Config {
     /// target names no session here and no peer lists it (`cli/send_relay.rs`). Unset (the
     /// default): such a send is refused as before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub send_relay: Option<crate::cli::send_relay::SendRelay>,
+    pub send_relay: Option<SendRelay>,
     /// `meshRelay`: `{"url", "tokenCommand", "controlFrom", "teamMessaging"}`, the team hub this
     /// daemon heartbeats its sessions to, takes messages for them from, and sends a message to a
     /// name nobody here resolves through (`mesh_http.rs`, `server/mesh_relay.rs`). Unset (the
@@ -1721,6 +1721,17 @@ impl WriteJournalConfig {
     }
 }
 
+/// `sendRelay`: the relay command's argv; the CLI appends the session and `-`. `lsArgv`, when
+/// set, prints the other machines' live sessions as `{"sessions": [...]}` (see the module doc of
+/// `cli/send_relay.rs`, which re-exports it).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SendRelay {
+    pub argv: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ls_argv: Option<Vec<String>>,
+}
+
 mod config_impl;
 
 fn is_default_kind(k: &HarnessKind) -> bool {
@@ -1764,15 +1775,19 @@ fn write_atomic_with(
     bytes: &[u8],
     sync: impl FnOnce(&std::fs::File, &Path) -> Result<()>,
 ) -> Result<()> {
-    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let tmp = path.with_extension(format!("tmp-{}-{n}", std::process::id()));
-    let written = write_then_rename(&tmp, path, bytes, sync);
-    // A failed write (a full disk) leaves no partial temporary file to hold
-    // the space it ran out of; every retry uses a new name.
-    if written.is_err() {
-        let _ = crate::home_fs::remove_file(&tmp);
-    }
+    // One name per file and process, every write (`dead_temps`: each new name is one more
+    // path fseventsd keeps); this process's writers of it take turns.
+    let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
+    let written = {
+        let _turn = crate::dead_temps::hold(&tmp);
+        let written = write_then_rename(&tmp, path, bytes, sync);
+        // A failed write (a full disk) leaves no partial temporary file to hold
+        // the space it ran out of.
+        if written.is_err() {
+            let _ = crate::home_fs::remove_file(&tmp);
+        }
+        written
+    };
     // A writer stopped between its copy's open and its rename (a daemon stopped mid-write)
     // never removed its copy: the next write of the file does.
     crate::dead_temps::remove_beside(path);
@@ -1843,7 +1858,7 @@ pub use discover::{
     CHIEF_FAMILY, CHIEF_PROFILE, CMUX_ROUTER_MODEL_SETTING, CMUX_ROUTER_PROFILE,
     CODEROUTER_CLAUDE_PROFILE, CODEROUTER_CLAUDE_ROUTE_ENV, UNIICHAT_PROFILE, add_chief,
     add_cmux_router, add_cmux_router_with, add_coderouter_route, cmux_router_model_setting,
-    coderouter_claude_route, discover_harnesses, discover_harnesses_from,
+    coderouter_claude_route, discover_harnesses, discover_harnesses_from, discoverable,
 };
 mod peer;
 pub use peer::PeerConfig;
@@ -1883,6 +1898,23 @@ pub fn normalize_permission_mode(value: &str) -> Option<&'static str> {
     }
 }
 
+/// `${cwd}`, `${home}`, `${model}` and a leading `~/` in a profile env value or argv word.
+pub fn expand_env_value(
+    value: &str,
+    cwd: &std::path::Path,
+    home: &std::path::Path,
+    model: &str,
+) -> String {
+    let mut out = value
+        .replace("${cwd}", &cwd.to_string_lossy())
+        .replace("${home}", &home.to_string_lossy())
+        .replace("${model}", model);
+    if let Some(rest) = out.strip_prefix("~/") {
+        out = format!("{}/{rest}", home.to_string_lossy());
+    }
+    out
+}
+
 #[cfg(test)]
 mod save_merge_tests;
 #[cfg(test)]
@@ -1902,4 +1934,30 @@ pub fn loopback_daemon_address(value: &str) -> Result<std::net::SocketAddr> {
         "remote_daemon must be a loopback host:port with a port (127.0.0.1:PORT or [::1]:PORT)"
     );
     Ok(address)
+}
+
+/// `web_url` opening one session: `?session=<id>` before the fragment.
+pub fn web_url_for_session(url: &str, session: &str) -> String {
+    let (base, fragment) = url.split_once('#').map_or((url, None), |(b, f)| (b, Some(f)));
+    let joiner = if base.contains('?') { '&' } else { '?' };
+    match fragment {
+        Some(f) => format!("{base}{joiner}session={session}#{f}"),
+        None => format!("{base}{joiner}session={session}"),
+    }
+}
+
+#[cfg(test)]
+mod web_url_tests {
+    use super::web_url_for_session;
+
+    #[test]
+    fn a_session_link_puts_the_session_in_the_query_and_keeps_the_fragment() {
+        let url = web_url_for_session("http://127.0.0.1:1/#token=t", "s1");
+        assert_eq!(url, "http://127.0.0.1:1/?session=s1#token=t");
+        assert_eq!(web_url_for_session("http://h/", "s1"), "http://h/?session=s1");
+        assert_eq!(
+            web_url_for_session("http://h/?a=1#token=t", "s"),
+            "http://h/?a=1&session=s#token=t"
+        );
+    }
 }

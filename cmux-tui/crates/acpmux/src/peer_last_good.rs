@@ -5,7 +5,9 @@
 //!
 //! Format (mode 0600, replaced through a temp file and a rename):
 //! `{"version":1,"peers":{"<name>":{"via":"link","carrier":"direct","at":<ms>,
-//!   "rttMs":{"link":3.1,"ssh":41.0},"endpoints":{"url":"ssh://...","link":"inst_..."}}}}`.
+//!   "rttMs":{"link":3.1,"ssh":41.0},"endpoints":{"url":"ssh://...","link":"inst_..."},
+//!   "firstByteMs":120,"rttP95Ms":{"link":4.0}}}}` (the last two since path counters; absent
+//!   in older files).
 //! A memory store keeps none.
 
 use crate::peer_paths::{Paths, Via};
@@ -51,6 +53,12 @@ pub struct Entry {
     pub rtt_ms: BTreeMap<String, f64>,
     #[serde(default)]
     pub endpoints: Endpoints,
+    /// The cold connect's time to its first byte, ms (`peer_path_stats.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_byte_ms: Option<u64>,
+    /// Each path's round-trip p95 over its last samples, in ms.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub rtt_p95_ms: BTreeMap<String, f64>,
 }
 
 impl Entry {
@@ -68,6 +76,8 @@ impl Entry {
             at,
             rtt_ms,
             endpoints,
+            first_byte_ms: paths.stats().first_byte_ms(),
+            rtt_p95_ms: paths.stats().rtt_p95_ms(),
         }
     }
 }

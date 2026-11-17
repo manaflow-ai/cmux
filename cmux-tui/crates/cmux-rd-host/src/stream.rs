@@ -15,6 +15,7 @@ use crate::wire::Control;
 use crate::Res;
 use cmux_rd_core::cc::PathKind;
 use cmux_rd_core::flow::Rect;
+use cmux_rd_core::pacer::Pacer;
 use cmux_rd_core::policy::Principal;
 use cmux_rd_core::session::{SessionId, SessionTable};
 use cmux_rd_engine::{Encoded, EngineConfig, MediaEngine, Output};
@@ -83,6 +84,18 @@ pub struct MediaSession {
     /// The cursor as metadata, when the viewer draws it (cap `cursor`) and the desktop
     /// reports it: the pictures leave it out.
     cursor: Option<CursorChannel>,
+    /// Spreads each frame's datagrams over part of its frame interval (`None` with
+    /// `CMUX_RD_PACE=0`, for comparison): a keyframe written as one burst of hundreds of
+    /// datagrams is queued or dropped by a Wi-Fi radio or the kernel.
+    pacer: Option<Pacer>,
+    frame_interval_us: u64,
+    /// Timing lines of frames still in the pacer: datagrams left, the line without `sent_us`.
+    paced_logs: VecDeque<(usize, serde_json::Value)>,
+}
+
+/// Whether frames are paced (`CMUX_RD_PACE=0` turns it off, for A/B measurement).
+fn pacing_enabled() -> bool {
+    std::env::var_os("CMUX_RD_PACE").is_none_or(|v| v != "0")
 }
 
 /// Where each encoded frame's time went, one JSON line a frame (measurement only; the eval's
@@ -114,27 +127,32 @@ impl Timing {
         }
     }
 
+    /// One frame's line, without `sent_us` (added when its last datagram leaves).
     fn frame(
         &mut self,
         shown: Option<(u64, u64)>,
         release_us: u64,
         encoded_us: u64,
-        sent_us: u64,
         encoded_bytes: usize,
-        idr: bool,
-    ) {
-        use std::io::Write;
-        let line = serde_json::json!({
+        idr_reason: Option<&'static str>,
+    ) -> serde_json::Value {
+        serde_json::json!({
             "input_us": self.input_us.take(),
             "shown_us": shown.map(|t| t.0),
             "arrived_us": shown.map(|t| t.1),
             "damage_us": self.damage_us.take(),
             "release_us": release_us,
             "encoded_us": encoded_us,
-            "sent_us": sent_us,
             "encoded_bytes": encoded_bytes,
-            "idr": idr,
-        });
+            "idr": idr_reason.is_some(),
+            "idr_reason": idr_reason,
+        })
+    }
+
+    /// Writes a frame's line once its last datagram was handed to the carrier at `sent_us`.
+    fn frame_sent(&mut self, mut line: serde_json::Value, sent_us: u64) {
+        use std::io::Write;
+        line["sent_us"] = serde_json::json!(sent_us);
         let _ = writeln!(self.out, "{line}");
     }
 
@@ -249,6 +267,9 @@ impl MediaSession {
             settle_ns: cfg.settle_us * 1000,
             timing: Timing::from_env(),
             cursor: wants_cursor(negotiated_caps).then(CursorChannel::new),
+            pacer: pacing_enabled().then(Pacer::new),
+            frame_interval_us: 1_000_000 / u64::from(cfg.max_fps.max(1)),
+            paced_logs: VecDeque::new(),
         })
     }
 
@@ -289,7 +310,18 @@ impl MediaSession {
             if let Some(req) = self.engine.poll(now) {
                 self.encoder.submit(req);
             }
-            let timeout = self.engine.next_deadline_us().map(|t| t.saturating_sub(now_us()) * 1000);
+            if let Err(e) = self.send_paced(carrier) {
+                return format!("send failed: {e}");
+            }
+            // The engine's deadlines and the pacer's next datagram.
+            let deadline = [
+                self.engine.next_deadline_us(),
+                self.pacer.as_ref().and_then(Pacer::next_deadline_us),
+            ]
+            .into_iter()
+            .flatten()
+            .min();
+            let timeout = deadline.map(|t| t.saturating_sub(now_us()) * 1000);
             let stats_in = self.next_stats_ns.saturating_sub(now_ns());
             // The engine's deadline covers held frames and input held behind a gap.
             let timeout = timeout.map_or(stats_in, |t| t.min(stats_in)).min(REATTACH_GRACE_NS);
@@ -448,7 +480,9 @@ impl MediaSession {
         // Logged after the send, with the send time (`sent_us`).
         let logged = self.timing.is_some().then(|| {
             let len = frame.access_unit.len();
-            (frame.picked_times, frame.t_capture_us, frame.encoded_us, len, frame.idr)
+            // An IDR the engine did not ask for is the encoder's own choice.
+            let idr = frame.idr.then(|| req.idr_reason.map_or("encoder", |r| r.as_str()));
+            (frame.picked_times, frame.t_capture_us, frame.encoded_us, len, idr)
         });
         self.encode_ms.push_back(frame.encode_ms);
         if self.encode_ms.len() > 120 {
@@ -465,13 +499,53 @@ impl MediaSession {
             // Too large to send (about 4.6 MB): the engine dropped it and asks for a keyframe.
             self.encoder.halve_bitrate();
         }
-        for datagram in &out.datagrams {
-            carrier.send_datagram(datagram)?;
+        let line = match (self.timing.as_mut(), logged) {
+            (Some(timing), Some((shown, t_capture_us, encoded_us, len, idr))) => {
+                Some(timing.frame(shown, t_capture_us, encoded_us, len, idr))
+            }
+            _ => None,
+        };
+        let Some(pacer) = self.pacer.as_mut() else {
+            for datagram in &out.datagrams {
+                carrier.send_datagram(datagram)?;
+            }
+            if let (Some(timing), Some(line)) = (self.timing.as_mut(), line) {
+                timing.frame_sent(line, now_us());
+            }
+            return Ok(());
+        };
+        if out.datagrams.is_empty() {
+            return Ok(());
         }
-        if let (Some(timing), Some((shown, t_capture_us, encoded_us, len, idr))) =
-            (self.timing.as_mut(), logged)
-        {
-            timing.frame(shown, t_capture_us, encoded_us, now_us(), len, idr);
+        if let Some(line) = line {
+            self.paced_logs.push_back((out.datagrams.len(), line));
+        }
+        pacer.push_frame(out.datagrams, self.engine.target_bps(), self.frame_interval_us, now_us());
+        Ok(self.send_paced(carrier)?)
+    }
+
+    /// Sends the paced datagrams that are due, telling the engine when each left.
+    fn send_paced(&mut self, carrier: &mut dyn Carrier) -> std::io::Result<()> {
+        let Some(pacer) = self.pacer.as_mut() else { return Ok(()) };
+        let now = now_us();
+        let due = pacer.due(now);
+        for datagram in &due {
+            carrier.send_datagram(datagram)?;
+            self.engine.datagram_sent(datagram, now);
+        }
+        let mut left = due.len();
+        while left > 0 {
+            let Some((remaining, _)) = self.paced_logs.front_mut() else { break };
+            let take = left.min(*remaining);
+            *remaining -= take;
+            left -= take;
+            if *remaining == 0 {
+                if let (Some((_, line)), Some(timing)) =
+                    (self.paced_logs.pop_front(), self.timing.as_mut())
+                {
+                    timing.frame_sent(line, now_us());
+                }
+            }
         }
         Ok(())
     }

@@ -1,5 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextTestSupport
+import CmuxNextDesign
 import Testing
 
 /// Select Next Window and Select Previous Window reach each cmux window: with three windows, three presses make
@@ -8,9 +10,11 @@ import Testing
 /// The test keeps its own window list (`Desk`): a press asks `WindowTargeting` for the window and then makes that
 /// window key and frontmost, which is what the action does with it (`WindowActivation.show(_, .focus)`). The
 /// windows are never ordered in. The list is a model of AppKit's order, not AppKit's order itself.
-@MainActor @Suite(.serialized) struct WindowCycleReachesEachWindowTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct WindowCycleReachesEachWindowTests {
     static func window() -> NSWindow {
-        NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 80), styleMask: [.titled], backing: .buffered, defer: true)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 80), styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        return window
     }
 
     @MainActor struct Desk {
@@ -57,6 +61,7 @@ import Testing
 
     @Test func threePressesOfNextMakeThreeDifferentWindowsKey() {
         let a = Self.window(), b = Self.window(), c = Self.window()
+        defer { for window in [a, b, c] { window.close() } }
         for ordered in Self.starts(a, b, c) {
             var desk = Desk(shells: [a, b, c], ordered: ordered, key: ordered[0])
             let keys = desk.presses(1, count: 3)
@@ -69,6 +74,7 @@ import Testing
 
     @Test func threePressesOfPreviousMakeThreeDifferentWindowsKey() {
         let a = Self.window(), b = Self.window(), c = Self.window()
+        defer { for window in [a, b, c] { window.close() } }
         for ordered in Self.starts(a, b, c) {
             var desk = Desk(shells: [a, b, c], ordered: ordered, key: ordered[0])
             let keys = desk.presses(-1, count: 3)
@@ -81,6 +87,7 @@ import Testing
 
     @Test func previousUndoesNext() {
         let a = Self.window(), b = Self.window(), c = Self.window()
+        defer { for window in [a, b, c] { window.close() } }
         for ordered in Self.starts(a, b, c) {
             var desk = Desk(shells: [a, b, c], ordered: ordered, key: ordered[0])
             _ = desk.press(1)
@@ -94,6 +101,7 @@ import Testing
 
     @Test func oneWindowHasNothingToSelectAndTwoWindowsTrade() {
         let a = Self.window(), b = Self.window()
+        defer { for window in [a, b] { window.close() } }
         var one = Desk(shells: [a], ordered: [a], key: a)
         let none = one.press(1)
         #expect(none == nil)

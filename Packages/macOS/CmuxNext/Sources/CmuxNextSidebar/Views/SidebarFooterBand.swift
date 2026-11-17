@@ -126,9 +126,9 @@ final class SidebarFooterBand {
 
     // MARK: Search button
 
-    /// The Search button's side: the footer row's height (one slim row, no extra padding; it was a
-    /// 28 pt HIG minimum that added 2 pt under the line). Lawrence 2026-10-27: footer too tall.
-    static var searchButtonSide: CGFloat { Metrics.sidebarRowHeight }
+    /// The Search button's side: the visible footer row's height, including the density's fill gain,
+    /// so its hit target matches the avatar row without adding footer padding.
+    static var searchButtonSide: CGFloat { SidebarStyle.searchHeight }
 
     /// Resolves Search's horizontal placement. An empty or fitting pinned row stays on the shared
     /// trailing column; an overfull row keeps the column on a dedicated footer line.
