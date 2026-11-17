@@ -45,6 +45,7 @@ use std::process::Stdio;
 const KEPT: &[&str] = &["send", "send_status", "ls", "last", "info", "search"];
 pub(super) const NEW: &str = "new";
 pub(super) const MACHINES: &str = "machines";
+pub(super) const HANDOFF: &str = "handoff";
 /// How long a CLI call may take: under Codex's 60 s MCP tool timeout.
 const CLI_WAIT: Duration = Duration::from_secs(50);
 // timeout: a read-only `machines` listing for the agent's tool call; past it the tool says so and nothing is lost
@@ -55,7 +56,7 @@ pub(super) const STEER: &str = "These tools are cmux's transport: they reach the
 (Claude, Codex and others) on this machine, on the person's paired machines and on their cmux \
 Cloud machines. machines lists the machines; new starts a session on one with a task and returns \
 at once (it keeps working after this chat ends, and asks the person in cmux NEXT or on their \
-phone before anything risky); ls, info and last read sessions; send messages one; search finds \
+phone before anything risky); handoff continues this chat in such a session; ls, info and last read sessions; send messages one; search finds \
 words in one. Give the person the session's link so they can follow it in cmux. If a tool says \
 there is no acpmux daemon, cmux NEXT is not running on this machine: ask the person to open it.";
 
@@ -74,6 +75,7 @@ pub(super) fn tools(all: &Value) -> Value {
         .collect();
     out.push(machines_tool());
     out.push(new_tool());
+    out.push(handoff_tool());
     Value::Array(out)
 }
 
@@ -290,6 +292,90 @@ pub(super) fn machines_text(rows: &[Value]) -> String {
     lines.join("\n")
 }
 
+/// `handoff`: continue this chat in cmux. The guest's chat is no acpmux session, so the hub
+/// cannot read its transcript (`hub/handoff/capsule.rs`); the chat sends its own summary, the
+/// next step and its recent turns, and [`handoff_prompt`] lays them out the way the hub's
+/// capsule does, within the same [`crate::hub::handoff::MAX_CAPSULE_BYTES`]. The session then
+/// starts exactly as `new` starts one.
+fn handoff_tool() -> Value {
+    json!({
+        "name": HANDOFF,
+        "description": "Continue this chat in cmux: start an agent session that picks up where this chat is, with its summary, next step and recent turns, and return at once with its name and link. Use it when the person says to continue, move or hand this off to cmux, another machine or a Cloud machine. The session asks the person before risky actions, in cmux NEXT or on their phone.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "summary": {"type": "string", "description": "What this chat is about and what is done so far, self-contained: the session has none of this chat's context."},
+                "next": {"type": "string", "description": "What the session should do next."},
+                "recent": {"type": "string", "description": "The last few turns, verbatim, oldest first (the start is cut if it is too long)."},
+                "harness": {"type": "string", "description": "claude or codex, optionally with a model. Default: claude."},
+                "machine": {"type": "string", "description": "A machine from machines, or auto. Default: as acpmux new places it."},
+                "folder": {"type": "string", "description": "The folder to work in, on that machine."},
+                "name": {"type": "string", "description": "A short readable name, 2 to 5 words."},
+                "showInCmux": {"type": "boolean", "description": "Also open it in cmux NEXT's sidebar on this Mac now (default false)."}
+            },
+            "required": ["summary", "next"]
+        }
+    })
+}
+
+const TRANSCRIPT_OPEN: &str = "<transcript>\n";
+const TRANSCRIPT_CLOSE: &str = "\n</transcript>\n";
+
+/// The first message of a `handoff` from guest `app`: a lead naming the app, the chat's summary,
+/// the next step, then as much of `recent` as fits, newest kept. The summary and next step are
+/// never cut; a pair over the budget is refused so the chat can shorten it.
+pub(super) fn handoff_prompt(app: &str, args: &Value) -> Result<String, String> {
+    let max = crate::hub::handoff::MAX_CAPSULE_BYTES;
+    let summary = arg(args, "summary").ok_or("summary is required")?;
+    let next = arg(args, "next").ok_or("next is required")?;
+    let label = crate::desktop_link::App::parse(app).map_or(app, |a| a.label());
+    let mut text = format!(
+        "Continuing from a {label} chat the person handed to cmux.\n\n<summary>\n{}\n</summary>\n\nNext: {}\n",
+        summary.trim(),
+        next.trim()
+    );
+    if text.len() > max {
+        return Err(format!(
+            "summary and next are {} bytes; the limit is {max}: shorten the summary",
+            text.len()
+        ));
+    }
+    if let Some(recent) = arg(args, "recent").map(str::trim).filter(|r| !r.is_empty()) {
+        let room =
+            max.saturating_sub(text.len() + 1 + TRANSCRIPT_OPEN.len() + TRANSCRIPT_CLOSE.len());
+        if room > 0 {
+            let mut start = recent.len().saturating_sub(room);
+            while !recent.is_char_boundary(start) {
+                start += 1;
+            }
+            let kept = &recent[start..];
+            if start > 0 {
+                text.push_str(&format!(
+                    "\nThe chat's last {} of {} bytes, the start cut:\n",
+                    kept.len(),
+                    recent.len()
+                ));
+            } else {
+                text.push('\n');
+            }
+            text.push_str(TRANSCRIPT_OPEN);
+            text.push_str(kept);
+            text.push_str(TRANSCRIPT_CLOSE);
+        }
+    }
+    Ok(text)
+}
+
+pub(super) async fn handoff(app: &str, args: &Value) -> Value {
+    let prompt = match handoff_prompt(app, args) {
+        Ok(prompt) => prompt,
+        Err(e) => return error_result(e),
+    };
+    let mut args = args.clone();
+    args.set("prompt", json!(prompt));
+    new(app, &args).await
+}
+
 pub(super) enum CliError {
     /// Past the wait; the command goes on.
     Late,
@@ -378,6 +464,7 @@ pub(super) async fn run(app: String, artifacts: Option<Arc<artifacts::Artifacts>
             }
             match name {
                 NEW => return new(&app, &args).await,
+                HANDOFF => return handoff(&app, &args).await,
                 MACHINES => return machines(&app).await,
                 "search" | "send_status" => {}
                 n if KEPT.contains(&n) => {}

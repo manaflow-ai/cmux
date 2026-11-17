@@ -10,7 +10,7 @@ fn names(tools: &Value) -> Vec<String> {
 fn a_guest_gets_the_tools_that_need_no_session_and_new_and_machines() {
     assert_eq!(
         names(&tools(&tools_with_artifacts(false))),
-        ["send", "ls", "last", "info", "search", "send_status", "machines", "new"]
+        ["send", "ls", "last", "info", "search", "send_status", "machines", "new", "handoff"]
     );
     let signed_in = names(&tools(&tools_with_artifacts(true)));
     for artifact in artifacts::TOOLS {
@@ -208,4 +208,35 @@ fn machines_reads_one_line_each_this_machine_first() {
 
 fn text_of(result: &Value) -> String {
     result["content"][0]["text"].as_str().unwrap_or_default().to_owned()
+}
+
+#[test]
+fn handoff_lays_out_the_chats_summary_next_step_and_recent_turns() {
+    let text = handoff_prompt(
+        "claude-desktop",
+        &json!({"summary": "Fixing the login redirect.", "next": "Run the e2e suite", "recent": "User: try again\nAssistant: still red"}),
+    )
+    .unwrap();
+    assert!(text.starts_with("Continuing from a Claude desktop chat"), "{text}");
+    assert!(text.contains("<summary>\nFixing the login redirect.\n</summary>"), "{text}");
+    assert!(text.contains("Next: Run the e2e suite"), "{text}");
+    assert!(text.ends_with("<transcript>\nUser: try again\nAssistant: still red\n</transcript>\n"));
+    assert_eq!(handoff_prompt("codex", &json!({"next": "x"})).unwrap_err(), "summary is required");
+}
+
+#[test]
+fn handoff_keeps_the_newest_turns_within_the_capsule_budget() {
+    let max = crate::hub::handoff::MAX_CAPSULE_BYTES;
+    // A multi-byte character at every position, so the cut must find a boundary.
+    let recent = format!("OLDEST {} NEWEST", "é".repeat(max));
+    let text =
+        handoff_prompt("codex", &json!({"summary": "s", "next": "n", "recent": recent})).unwrap();
+    assert!(text.len() <= max, "{} > {max}", text.len());
+    assert!(text.contains("NEWEST\n</transcript>"));
+    assert!(!text.contains("OLDEST"));
+    assert!(text.contains("the start cut"));
+
+    let long = "x".repeat(max);
+    let refused = handoff_prompt("codex", &json!({"summary": long, "next": "n"})).unwrap_err();
+    assert!(refused.contains("shorten the summary"), "{refused}");
 }

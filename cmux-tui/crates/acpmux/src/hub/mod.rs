@@ -112,7 +112,7 @@ mod fork_transcript_auth;
 pub mod forum;
 pub(crate) mod full_access_bound;
 pub(crate) mod full_access_children;
-mod handoff;
+pub(crate) mod handoff;
 mod harness_view;
 mod harness_watch;
 mod health_view;
