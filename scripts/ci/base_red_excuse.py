@@ -5684,6 +5684,34 @@ def guard_red_steps(log: str) -> dict[str, set[str]] | None:
     return found if whole else None
 
 
+def guard_group_truncated(truncated: list[str], head: "FailedView | Unplaced") -> list[str]:
+    """TRUNCATED (test_reds.read's cut-short reasons for a guard group job's log) less each that is only the job's
+    `##[error]STEP` annotation of a step its own closing verdict (guard_red_steps of HEAD, its failed_view) names red:
+    test_reds.TRUNCATED reads any `##[error]` line with "timeout" in it as a cut-short run, and "Validate short timeout
+    ratchet" is a guard step's name (feat-cmux-next job 133860622386, 2026-11-17: every PR with the base's red guard
+    group was refused "a failure no parser names is never a base red" before guard_group compared its steps;
+    cmux#45075, cmux#44814). Any other reason stays, and an unplaced head or one with no closing verdict keeps every
+    one: guard_group refuses those itself."""
+    steps = None if head is UNPLACED else guard_red_steps(view_text(head))
+    if steps is None:
+        return truncated
+    named = {step[:200] for kind in steps.values() for step in kind}
+    return [why for why in truncated if why not in named]
+
+
+# A guard step finding that names a file: "STEP :: path:rule: ...", "STEP :: path: rule" or "STEP :: path::test".
+GUARD_FINDING_FILE = re.compile(r" :: ([^\s:]+\.[A-Za-z0-9]+)(?=:|$)")
+
+
+def guard_finding_files(steps: set[str]) -> dict[str, str]:
+    """{path: the first finding naming it} over STEPS (guard_red_steps' lines)."""
+    found: dict[str, str] = {}
+    for step in sorted(steps):
+        if match := GUARD_FINDING_FILE.search(step):
+            found.setdefault(match.group(1), step)
+    return found
+
+
 def guard_group_report(repo: str, base_job: dict, github) -> dict[str, set[str]] | None:
     """guard_red_steps of a base guard group job's whole log. The one base read that is not a failed_view, on
     purpose: the job reports each red step of its base on its own, `guard red step (base): STEP`, whatever its
@@ -5694,7 +5722,7 @@ def guard_group_report(repo: str, base_job: dict, github) -> dict[str, set[str]]
 
 
 def guard_group(repo: str, base: str, name: str, job: dict, head: "FailedView | Unplaced", base_run: dict,
-                base_job: dict, github) -> str:
+                base_job: dict, github, sha: str = "", seen: dict | None = None) -> str:
     """The audit line for a red guard group job whose every red step is red at the newest base verdict for the job
     (the rule above); raises Refused naming the first step that is not."""
     failed = {step["name"] for step in job.get("steps") or []  # step-name: classify
@@ -5722,6 +5750,13 @@ def guard_group(repo: str, base: str, name: str, job: dict, head: "FailedView | 
     if missing := sorted(charged - red_on_base):
         raise Refused(f"'{name}': guard steps red on this change and not on {base} run {base_run['id']} ({url}): "
                       f"{'; '.join(missing)[:600]}")
+    # A finding in a file the pull request changes is its own, even when the base prints the same line: the
+    # determinism gate's "path: rule" carries no count, so a second sleep-then-assert there reads the same.
+    if sha and (files := guard_finding_files(charged)):
+        number, paths = pr_paths_once(repo, base, sha, github, seen)
+        if mine := sorted(set(files) & set(paths)):
+            raise Refused(f"'{name}': #{number} changes {', '.join(mine)[:300]}, which its red guard steps name "
+                          f"({files[mine[0]][:300]}); a finding in a changed file is never a base red")
     at = f" at {tested_sha(base_run)[:10]}" if tested_sha(base_run) else ""
     return (f"excused '{name}': every red guard step is red on {base} run {base_run['id']}{at} "
             f"(the newest {base} verdict for it, {base_job.get('conclusion')}) ({url}): {'; '.join(sorted(charged))[:400]}")
@@ -7190,6 +7225,8 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
     own = test_reds.read(test_reds.web_head_part(head_log) if WEB_TEST_JOB.fullmatch(name) else head_log)
     if not WEB_TEST_JOB.fullmatch(name):
         own = owned_unnamed(own, view, test_reds.unjudged(head_log) if view is UNPLACED else None)
+    if name == GUARD_GROUP_JOB:
+        own.truncated = guard_group_truncated(own.truncated, view)
     if own.crashes or (own.truncated and not chromium_without_diagnostics):
         raise Refused(f"'{name}': " + "; ".join(own.crashes + own.truncated[:1])[:800]
                       + " (a crash, a cut-short run or a failure no parser names is never a base red)")
@@ -7765,7 +7802,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                           f"and its tip suite runs)" + (f": {dispatch}" if dispatch else "")
                           + f"; not a setup red other PRs share: {why_not}")
         if name == GUARD_GROUP_JOB:
-            audit.append(guard_group(repo, base, name, job, view, base_run, base_job, github))
+            audit.append(guard_group(repo, base, name, job, view, base_run, base_job, github, sha, run_reads))
             continue
 
         def by_step() -> str:
