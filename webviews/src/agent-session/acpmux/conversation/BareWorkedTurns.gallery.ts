@@ -59,7 +59,7 @@ const openWorked: Play = async (ctx) => {
   if (joined()?.getAttribute("aria-expanded") !== "false") return;
   await ctx.click({ text: /Worked for 3m 22s/ });
   // Opened, the line becomes its first turn's own; the last wake's own line opens with it.
-  await ctx.waitFor(() => !joined() && Boolean(ctx.document.body.textContent?.includes("gh pr checks 44890")), {
+  await ctx.waitFor(() => ctx.document.querySelectorAll('.cv-worked[aria-expanded="true"]').length >= 2, {
     capMs: 10_000,
   });
 };
