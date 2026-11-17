@@ -502,7 +502,10 @@
               "sidebar.workspaceRow.working",
               "sidebar.workspaceRow.log",
               "sidebar.workspaceRow.notification",
-              "sidebar.workspaceRow.secondLineOrder"
+              "sidebar.workspaceRow.secondLineOrder",
+              "sidebar.workspaceRow.lines",
+              "sidebar.workspaceRow.linesByKind",
+              "sidebar.workspaceRow.linesByAgent"
             ],
             "title" : {
               "key" : "settings.group.workspaceRows",
@@ -74360,6 +74363,612 @@
         "text" : "Second Line Order"
       },
       "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          [
+            "icon",
+            "name",
+            "branch"
+          ],
+          [
+            "agentStatus"
+          ]
+        ],
+        [
+          [
+            "name",
+            "directory"
+          ],
+          [
+            "process"
+          ],
+          [
+            "ports",
+            "lastActivity"
+          ]
+        ]
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.workspaceRow.lines.default",
+        "text" : "Item switches"
+      },
+      "group" : {
+        "key" : "settings.group.workspaceRows",
+        "text" : "Workspace Rows"
+      },
+      "help" : {
+        "key" : "settings.workspaceRow.lines.help",
+        "text" : "The lines each workspace row shows, as lists of items, such as [[\"icon\", \"name\", \"branch\"], [\"agentStatus\"]]. Up to 3 lines of 6 items; the name always leads the first line."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.workspaceRow.lines",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "row",
+        "layout",
+        "lines",
+        "customize",
+        "tokens"
+      ],
+      "kind" : "json",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "workspaceRow",
+        "lines"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "name",
+        1,
+        {
+
+        },
+        null
+      ],
+      "section" : "appearance",
+      "shape" : {
+        "items" : {
+          "items" : {
+            "enum" : [
+              "icon",
+              "name",
+              "working",
+              "progress",
+              "notification",
+              "directory",
+              "branch",
+              "process",
+              "agentStatus",
+              "tabCount",
+              "ports",
+              "lastActivity",
+              "pullRequest",
+              "log"
+            ]
+          },
+          "maxItems" : 10,
+          "minItems" : 1,
+          "type" : "array",
+          "uniqueItems" : true
+        },
+        "maxItems" : 3,
+        "type" : "array"
+      },
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:sidebar.workspaceRow.lines"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.workspaceRow.lines",
+        "text" : "Row Layout"
+      },
+      "validation" : "domain:sidebar_row_lines"
+    },
+    {
+      "accepts" : [
+        {
+
+        },
+        {
+          "agent" : [
+            [
+              "icon",
+              "name",
+              "working"
+            ],
+            [
+              "agentStatus"
+            ]
+          ],
+          "terminal" : [
+            [
+              "icon",
+              "name"
+            ],
+            [
+              "process",
+              "directory"
+            ]
+          ]
+        }
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.workspaceRow.lines.default",
+        "text" : "Item switches"
+      },
+      "group" : {
+        "key" : "settings.group.workspaceRows",
+        "text" : "Workspace Rows"
+      },
+      "help" : {
+        "key" : "settings.workspaceRow.linesByKind.help",
+        "text" : "A row layout for each kind of workspace: terminal, agent, browser or mixed. It wins over Row Layout."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.workspaceRow.linesByKind",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "row",
+        "layout",
+        "lines",
+        "customize",
+        "tokens",
+        "kind",
+        "terminal",
+        "agent",
+        "browser"
+      ],
+      "kind" : "json",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "workspaceRow",
+        "linesByKind"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        [
+
+        ],
+        "agent",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "shape" : {
+        "additionalProperties" : {
+          "items" : {
+            "items" : {
+              "enum" : [
+                "icon",
+                "name",
+                "working",
+                "progress",
+                "notification",
+                "directory",
+                "branch",
+                "process",
+                "agentStatus",
+                "tabCount",
+                "ports",
+                "lastActivity",
+                "pullRequest",
+                "log"
+              ]
+            },
+            "maxItems" : 10,
+            "minItems" : 1,
+            "type" : "array",
+            "uniqueItems" : true
+          },
+          "maxItems" : 3,
+          "type" : "array"
+        },
+        "propertyNames" : {
+          "enum" : [
+            "terminal",
+            "agent",
+            "browser",
+            "mixed"
+          ]
+        },
+        "type" : "object"
+      },
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:sidebar.workspaceRow.linesByKind"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.workspaceRow.linesByKind",
+        "text" : "Row Layout by Kind"
+      },
+      "validation" : "domain:sidebar_row_lines_by_kind"
+    },
+    {
+      "accepts" : [
+        {
+
+        },
+        {
+          "claude" : [
+            [
+              "icon",
+              "name",
+              "working"
+            ],
+            [
+              "lastActivity"
+            ]
+          ],
+          "codex" : [
+            [
+              "name",
+              "branch"
+            ]
+          ]
+        }
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.workspaceRow.lines.default",
+        "text" : "Item switches"
+      },
+      "group" : {
+        "key" : "settings.group.workspaceRows",
+        "text" : "Workspace Rows"
+      },
+      "help" : {
+        "key" : "settings.workspaceRow.linesByAgent.help",
+        "text" : "A row layout for each agent, by agent id such as claude or codex. It wins over the other row layouts."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.workspaceRow.linesByAgent",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "row",
+        "layout",
+        "lines",
+        "customize",
+        "tokens",
+        "agent",
+        "claude",
+        "codex"
+      ],
+      "kind" : "json",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "workspaceRow",
+        "linesByAgent"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        [
+
+        ],
+        "claude",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "shape" : {
+        "additionalProperties" : {
+          "items" : {
+            "items" : {
+              "enum" : [
+                "icon",
+                "name",
+                "working",
+                "progress",
+                "notification",
+                "directory",
+                "branch",
+                "process",
+                "agentStatus",
+                "tabCount",
+                "ports",
+                "lastActivity",
+                "pullRequest",
+                "log"
+              ]
+            },
+            "maxItems" : 10,
+            "minItems" : 1,
+            "type" : "array",
+            "uniqueItems" : true
+          },
+          "maxItems" : 3,
+          "type" : "array"
+        },
+        "maxProperties" : 32,
+        "propertyNames" : {
+          "maxLength" : 64,
+          "minLength" : 1,
+          "type" : "string"
+        },
+        "type" : "object"
+      },
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:sidebar.workspaceRow.linesByAgent"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.workspaceRow.linesByAgent",
+        "text" : "Row Layout by Agent"
+      },
+      "validation" : "domain:sidebar_row_lines_by_agent"
     },
     {
       "accepts" : [

@@ -5250,6 +5250,116 @@
       "title" : "Last Activity",
       "type" : "boolean"
     },
+    "sidebar.workspaceRow.lines" : {
+      "description" : "The lines each workspace row shows, as lists of items, such as [[\"icon\", \"name\", \"branch\"], [\"agentStatus\"]]. Up to 3 lines of 6 items; the name always leads the first line. Nested; see `cmux settings schema` for its shape.",
+      "items" : {
+        "items" : {
+          "enum" : [
+            "icon",
+            "name",
+            "working",
+            "progress",
+            "notification",
+            "directory",
+            "branch",
+            "process",
+            "agentStatus",
+            "tabCount",
+            "ports",
+            "lastActivity",
+            "pullRequest",
+            "log"
+          ]
+        },
+        "maxItems" : 10,
+        "minItems" : 1,
+        "type" : "array",
+        "uniqueItems" : true
+      },
+      "maxItems" : 3,
+      "title" : "Row Layout",
+      "type" : "array"
+    },
+    "sidebar.workspaceRow.linesByAgent" : {
+      "additionalProperties" : {
+        "items" : {
+          "items" : {
+            "enum" : [
+              "icon",
+              "name",
+              "working",
+              "progress",
+              "notification",
+              "directory",
+              "branch",
+              "process",
+              "agentStatus",
+              "tabCount",
+              "ports",
+              "lastActivity",
+              "pullRequest",
+              "log"
+            ]
+          },
+          "maxItems" : 10,
+          "minItems" : 1,
+          "type" : "array",
+          "uniqueItems" : true
+        },
+        "maxItems" : 3,
+        "type" : "array"
+      },
+      "description" : "A row layout for each agent, by agent id such as claude or codex. It wins over the other row layouts. Nested; see `cmux settings schema` for its shape.",
+      "maxProperties" : 32,
+      "propertyNames" : {
+        "maxLength" : 64,
+        "minLength" : 1,
+        "type" : "string"
+      },
+      "title" : "Row Layout by Agent",
+      "type" : "object"
+    },
+    "sidebar.workspaceRow.linesByKind" : {
+      "additionalProperties" : {
+        "items" : {
+          "items" : {
+            "enum" : [
+              "icon",
+              "name",
+              "working",
+              "progress",
+              "notification",
+              "directory",
+              "branch",
+              "process",
+              "agentStatus",
+              "tabCount",
+              "ports",
+              "lastActivity",
+              "pullRequest",
+              "log"
+            ]
+          },
+          "maxItems" : 10,
+          "minItems" : 1,
+          "type" : "array",
+          "uniqueItems" : true
+        },
+        "maxItems" : 3,
+        "type" : "array"
+      },
+      "description" : "A row layout for each kind of workspace: terminal, agent, browser or mixed. It wins over Row Layout. Nested; see `cmux settings schema` for its shape.",
+      "propertyNames" : {
+        "enum" : [
+          "terminal",
+          "agent",
+          "browser",
+          "mixed"
+        ]
+      },
+      "title" : "Row Layout by Kind",
+      "type" : "object"
+    },
     "sidebar.workspaceRow.log" : {
       "default" : false,
       "description" : "The newest line agents and scripts log: cmux workspace log append <text>.",
