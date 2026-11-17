@@ -1356,6 +1356,11 @@ impl Runner for Timed<'_> {
         );
         answer
     }
+
+    fn estimate(&mut self, folder: &str) -> Value {
+        // The runner's own: SelfRunner says it on stderr before the machine is asked for.
+        self.inner.estimate(folder)
+    }
 }
 
 /// The `stages_detail_ms` object a step's app answer carries: every clock's step, the machine's phases and the
