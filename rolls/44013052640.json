@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44013052640",
+  "recorded_at": "2026-11-17T04:00:06Z",
+  "reason": "cmux-tui e9eb50164043 changes the image's cmux-tui (pinned 9bdaedf80a82)",
+  "dry_run": false,
+  "cmux_tui": "e9eb501640433f1a6c5eb8f15c35187597b4e641",
+  "fixes": [
+    {
+      "sha": "e9eb501640433f1a6c5eb8f15c35187597b4e641",
+      "mergedAt": "2026-11-17T03:31:55Z",
+      "subject": "Sidebar settings: keep hide, order and group settings past 256 workspaces (#45003)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T04:00:06Z",
+    "snapshot_id": "sh-cbfe3dd0232b42fb99ed0203ed21bc7c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44013052640): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "b55d18c4e7bd2da61a45dc51de59a081c886bf7f",
+    "image": "cloud-native-auto-e9eb5016-44013052640-1",
+    "revision": "ci-44013052640-1",
+    "at": "2026-11-17T04:00:06Z"
+  },
+  "rolled_back": false
+}
