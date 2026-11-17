@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextQuit
 
 /// The text of "Some sessions did not end": one line per failed step of
 /// Quit's end choice, then what Quit Anyway leaves running.
