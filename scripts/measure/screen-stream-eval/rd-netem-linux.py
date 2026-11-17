@@ -200,6 +200,17 @@ def pct_over(sample_times, ms: float):
     return round(sum(v > ms for v in g2g) * 100 / len(g2g), 1) if g2g else None
 
 
+def first_seconds_max(sample_times, seconds: float = 2.0):
+    """The slowest key-to-decoded time, ms, among the presses sent in the session's first `seconds`
+    (from its first press): what a new session's start keyframe costs. None without samples."""
+    rows = [(t["sent_ns"], (t["decoded_ns"] - t["sent_ns"]) / 1e6) for t in sample_times or []
+            if _num(t.get("decoded_ns")) is not None and _num(t.get("sent_ns")) is not None]
+    if not rows:
+        return None
+    first = min(sent for sent, _ in rows)
+    return round(max(ms for sent, ms in rows if sent - first < seconds * 1e9), 1)
+
+
 def summarize_key(report: dict | None) -> dict:
     """Key press to decoded marker from a `--input key` bench line."""
     if not report:
@@ -216,6 +227,7 @@ def summarize_key(report: dict | None) -> dict:
         "mbit_per_s": _num(report.get("mbit_per_s")),
         "frames_per_s": _num(report.get("frames_per_s")),
         "pct_over_50ms": pct_over(report.get("sample_times"), 50),
+        "first_2s_max_ms": first_seconds_max(report.get("sample_times")),
         "target_kbps_last": _num(stats.get("kbps")),
         "host_loss_pct_last": _num(stats.get("loss_pct")),
         "ended": report.get("ended"),
