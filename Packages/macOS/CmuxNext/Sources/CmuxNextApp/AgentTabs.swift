@@ -4,6 +4,7 @@ import CmuxNextAgentActivity
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextChiefPetWiring
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDaemonService
@@ -225,6 +226,8 @@ final class AgentTabStore {
     var onTabSession: @MainActor () -> Void = {}
     /// The daemon created a remote chat, including its effective seed folder and harness.
     var onRemoteChatStarted: (@MainActor (String, String, String?, String?) -> Void)?
+    /// The owner's model credentials: a Cloud chat's start sends the one its Cloud start chose (``CloudAgentCredentials``).
+    var cloudCredentials: CloudAgentCredentials?
     /// A new chat's seed on another machine (its folder and harness start it there, its draft and
     /// prompt reach the page), by tab (``startRemoteChat(_:machine:endpoint:)``).
     var remoteSeeds: AgentTabMap<AgentPaneSeedSource> = .init()
@@ -251,6 +254,8 @@ final class AgentTabStore {
     var shareOp: (@MainActor (String, AgentPaneShareOp, String?) async -> AgentPaneShareReply?)?
     /// The display name of a remote daemon's machine, recorded on the tabs of its new chats.
     var remoteMachineName: @MainActor (DaemonService) -> String? = { _ in nil }
+    /// The person's `agents.defaultPermissionMode`, which a new chat on their own Cloud machine starts in as a local one does.
+    var startPermissionMode: @MainActor () -> String? = { nil }
     /// Shared conversion and project actions for a direct blank chat, without a chooser page.
     var blankChatHandler: ((AgentTabKey) -> NewTabPageHandler?)?
     /// Each agent session's own avatar (Set Avatar… in the chat's ⋯ menu).
@@ -344,7 +349,6 @@ final class AgentTabStore {
     var localPaths: (@MainActor (_ tab: String) -> Bool)?
     /// A background task's terminal beside chat tab `chat` (``AgentProcessTerminal``); false when none opened.
     var openProcess: (@MainActor (_ chat: String, _ viewer: AgentPaneProcessViewer) -> Bool)?
-    var cloudCredentialTransfer: (@MainActor (_ chat: String, _ request: AgentPaneCloudCredentialTransferRequest) async -> Bool)?
     /// Cloud's latest-turn machine + transcript fork. Tests inject a mocked platform here.
     var tryAnotherApproach: (@MainActor (_ chat: String, _ session: String, _ throughSeq: Int) async throws -> [String: Any])?
     /// A Cloud chat's turn checkpoints and rewinds (``AppServices/cloudTurnRewindHost``).
@@ -600,7 +604,7 @@ final class AgentTabStore {
                 guard let self else { return [] }
                 let listed = remoteFoldersScoped?(resolvedRemoteKey(tabKey)) ?? []
                 let machine = await remoteMachineFoldersScoped?(resolvedRemoteKey(tabKey)) ?? []
-                let folders = AgentTabRemoteStart.folders(listed: listed, machine: machine)
+                let folders = AgentRemoteStartFolders(listed: listed, machine: machine).merged
                 guard let query = query?.lowercased(), !query.isEmpty else { return folders }
                 return folders.filter { $0.lowercased().contains(query) }
             }
@@ -649,13 +653,6 @@ final class AgentTabStore {
             if bindsHere(key, machine: scoped.machine) { sendSession(session, for: key, machine: scoped.machine) }
         }
         model.onSessionHarness = { [weak self] session in self.map { $0.sendSession(session, for: $0.resolve(provisional, machine: scoped.machine), machine: scoped.machine) } }
-        model.onCloudCredentialTransfer = { [weak self, weak model] request in
-            guard let self, let model, model.sessionId == request.sessionID,
-                  let record = self.record(for: self.resolvedKey(scoped))?.record,
-                  AgentPaneCloudCredentialTransferRequest.Provider(harnessID: record.harness) == request.provider,
-                  let transfer = self.cloudCredentialTransfer else { return false }
-            return await transfer(self.resolve(provisional, machine: scoped.machine), request)
-        }
         model.onTryAnotherApproach = { [weak self] throughSeq, session in
             guard let self, let operation = self.tryAnotherApproach else { throw AgentPaneHostError.daemonStopped }
             return try await operation(self.resolve(provisional, machine: scoped.machine), session, throughSeq)
