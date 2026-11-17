@@ -57,6 +57,7 @@ pub use web_pane::{
     resolve_request, web_pages,
 };
 
+use jsonschema::error::ValidationErrorKind;
 use serde_json::Value;
 use std::sync::OnceLock;
 
@@ -123,8 +124,17 @@ pub fn validate_manifest(manifest: &Value) -> Vec<Issue> {
         .iter_errors(manifest)
         .map(|e| {
             let path = e.instance_path.to_string();
-            let text_miss =
-                matches!(e.kind, jsonschema::error::ValidationErrorKind::OneOfNotValid { .. });
+            // Only a `$defs/text` miss: a oneOf whose branches failed on the
+            // text cap itself (an icon path's oneOf has its own, smaller cap).
+            let text_miss = match &e.kind {
+                ValidationErrorKind::OneOfNotValid { context } => {
+                    context.iter().flatten().any(|branch| {
+                        matches!(branch.kind, ValidationErrorKind::MaxLength { limit }
+                            if limit == TEXT_MAX_CHARS as u64)
+                    })
+                }
+                _ => false,
+            };
             text_miss
                 .then(|| text_too_long(&path, &e.instance))
                 .flatten()

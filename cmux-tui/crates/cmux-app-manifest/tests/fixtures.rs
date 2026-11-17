@@ -201,6 +201,11 @@ fn a_text_field_over_its_cap_names_the_field_and_its_length() {
     }
     let at_cap = "x".repeat(cmux_app_manifest::TEXT_MAX_CHARS);
     assert!(!codes(&manifest(json!({ "description": at_cap }))).contains(&"text.too_long"));
+    // Another oneOf with a string past 300 (an icon path, capped lower) keeps its own error.
+    let icon = format!("assets/{}.png", "x".repeat(cmux_app_manifest::TEXT_MAX_CHARS));
+    let icon_codes = codes(&manifest(json!({ "icon": icon })));
+    assert!(!icon_codes.contains(&"text.too_long"), "{icon_codes:?}");
+    assert!(icon_codes.contains(&"schema"), "{icon_codes:?}");
 }
 
 /// The cap above is the schema's (`$defs/text`), not a second copy that can drift.
