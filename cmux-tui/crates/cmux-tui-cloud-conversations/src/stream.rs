@@ -212,10 +212,9 @@ impl CloudEvent {
                 "entries": entries,
             }),
             Self::InboxReset { seq, .. } => json!({"event": "cloud-inbox-reset", "seq": seq}),
-            // The daemon's own (apps/synced.rs): never sent to a client, so
-            // the line carries no values.
-            Self::AppKvReset { seq, .. } => json!({"event": "cloud-appkv-reset", "seq": seq}),
-            Self::AppKvChanged { seq, .. } => json!({"event": "cloud-appkv-changed", "seq": seq}),
+            // The daemon's own (apps/synced.rs): the mux hands these only to
+            // the apps supervisor, so no client event exists for them.
+            Self::AppKvReset { .. } | Self::AppKvChanged { .. } => return Value::Null,
             Self::MuxWake { seq, wakes, .. } => {
                 json!({"event": "cloud-mux-wake", "seq": seq, "wakes": wakes})
             }
