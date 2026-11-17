@@ -564,7 +564,7 @@
 			inputPaths = (
 				"$(SRCROOT)/scripts/cmux-next/bundle-screen-sharing-helper.sh",
 				"$(SRCROOT)/scripts/cmux-next/build-screen-sharing-helper.sh",
-				"$(SRCROOT)/cmux-tui/crates",
+				"$(SRCROOT)/cmux-tui/crates/cmux-rd-host",
 				"$(SRCROOT)/cmux-tui/vendor",
 				"$(SRCROOT)/cmux-tui/Cargo.toml",
 				"$(CMUX_NEXT_SCREEN_HELPER_BIN)",

@@ -629,6 +629,14 @@ def _app_ffi_inputs(root: Path) -> list[str]:
     reaches through Cargo path dependencies (its own or the workspace's), the toolchain and the build
     script, as scripts/cmux-next/check-app-ffi-pin.sh derives them, plus the swift test job's crates. A
     change to one also needs a new pin (app-ffi-pin.json, which runs every tier)."""
+    prefixes = {crate + "/" for crate in _cargo_path_closure(root, APP_FFI_CRATE)}
+    prefixes |= {p for p in SWIFT_JOB_INPUTS if p.startswith(CMUX_TUI)}
+    prefixes |= {"cmux-tui/rust-toolchain.toml", "scripts/cmux-next/build-app-ffi.sh"}
+    return sorted(prefixes)
+
+
+def _cargo_path_closure(root: Path, start: str) -> set[str]:
+    """START and every crate it reaches through Cargo path dependencies (its own or cmux-tui's workspace's)."""
     workspace: dict[str, str] = {}
     try:
         manifest = (root / "cmux-tui/Cargo.toml").read_text(encoding="utf-8")
@@ -639,7 +647,7 @@ def _app_ffi_inputs(root: Path) -> list[str]:
     except OSError:
         pass
     seen: set[str] = set()
-    pending = [APP_FFI_CRATE]
+    pending = [start]
     while pending:
         crate = pending.pop()
         if crate in seen or not (root / crate / "Cargo.toml").is_file():
@@ -656,16 +664,15 @@ def _app_ffi_inputs(root: Path) -> list[str]:
                 continue
             if (resolved / "Cargo.toml").is_file():
                 pending.append(relative)
-    prefixes = {crate + "/" for crate in seen}
-    prefixes |= {p for p in SWIFT_JOB_INPUTS if p.startswith(CMUX_TUI)}
-    prefixes |= {"cmux-tui/rust-toolchain.toml", "scripts/cmux-next/build-app-ffi.sh"}
-    return sorted(prefixes)
+    return seen
 
 
 def _scheme_phase_rust_inputs(root: Path) -> list[str]:
     """The cmux-tui files and directories the app scheme's build phases name as inputs (the diff sidecar,
-    the mobile host, the CLI resources). The Bundle cmux-tui phase names the whole tree: it bundles the
-    same-tree build the daemon tier makes, so that entry adds nothing here."""
+    the mobile host, the Screen Sharing helper, the CLI resources). The Bundle cmux-tui phase names the whole
+    tree: it bundles the same-tree build the daemon tier makes, so that entry adds nothing here. A phase names
+    the crate it builds, and the crates that one reaches through path dependencies are inputs too; a phase that
+    named all of cmux-tui/crates would send every daemon change to the app build (#44069)."""
     try:
         text = (root / APP_PROJECT).read_text(encoding="utf-8")
     except OSError:
@@ -673,6 +680,8 @@ def _scheme_phase_rust_inputs(root: Path) -> list[str]:
     found = set()
     for entry in PHASE_INPUT.findall(text):
         found.add(entry + "/" if (root / entry).is_dir() else entry)
+        if (root / entry / "Cargo.toml").is_file():
+            found |= {crate + "/" for crate in _cargo_path_closure(root, entry)}
     return sorted(found)
 
 
