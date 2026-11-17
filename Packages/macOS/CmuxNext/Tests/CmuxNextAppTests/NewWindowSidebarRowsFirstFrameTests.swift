@@ -226,20 +226,24 @@ import Testing
     }
 
     /// The workspace is an item of the band and the list has no row for it (the layout's projection, from the
-    /// test's own layout service: no daemon). By a read, not by a run at the time of this test's writing
-    /// (2026-11-17): the swap then runs ONE rows pass, the first run of the window's rows pass, and after it the
-    /// selection pass selects the band's item. This test is a print with a check of its fixture, and it gives the
-    /// swap's draws of the list no bound (decision of 2026-11-17): the two checks say that the window is in that
-    /// state and that the swap ran the rows pass one time; the line `NEW-WINDOW-WORK-IN-THE-SWAP hidden_by_the_band`
-    /// has the counts of that swap and says if the selection is the band's item. A `list_reloads` over 2 or a
-    /// `selection_patches` over 0 in that line is a draw of the list that the swap adds in this case.
-    @Test func theSwapOfANewWindowForAWorkspaceThatTheBandHidesPrintsItsDrawsOfTheList() throws {
+    /// test's own layout service: no daemon). By a run of 2026-11-17 (one run of the suite, on one Mac): the swap
+    /// then runs ONE rows pass, the first run of the window's rows pass, and after it the selection pass selects
+    /// the band's item. That run, made before this test had its two asserts of a count, printed `list_reloads=2
+    /// selection_patches=1` for this swap: one selection patch, a draw of the list for the selection after the
+    /// first run's show drew it without the selection. The swap must add no draw of the list in this case too
+    /// (decision of 2026-11-17): the three checks in front say that the window is in that state, that the swap ran
+    /// the rows pass one time and that the selection is the band's item; the line `NEW-WINDOW-WORK-IN-THE-SWAP
+    /// hidden_by_the_band` has the counts of that swap.
+    @Test func theSwapOfANewWindowForAWorkspaceThatTheBandHidesAddsNoDrawOfTheList() throws {
         let made = try Self.window("rows-first-frame-swap-hidden", unlisted: .hiddenByTheBand)
         defer { made.close() }
         let selectsTheBandsItem = made.model.selectedItem == SidebarItem.topItem(NewWindowSidebarFirstFrameTests.open.id)
         print("NEW-WINDOW-WORK-IN-THE-SWAP \(Unlisted.hiddenByTheBand.rawValue) \(made.work.textWithTheSelection) selects_the_bands_item=\(selectsTheBandsItem)")
         try #require(made.model.sections.flatMap(\.workspaces).isEmpty, "the fixture is wrong: the list keeps the row of the band's workspace")
         try #require(made.work.rebuilds == 1, "the fixture is wrong: the content swap of the window's making did not run one rows pass (\(made.work.textWithTheSelection))")
+        try #require(selectsTheBandsItem, "the fixture is wrong: the swap did not select the band's item of the workspace")
+        #expect(made.work.listReloads == 2, "the content swap of a new window's making did not reload the list two times (\(made.work.textWithTheSelection))")
+        #expect(made.work.selectionPatches == 0, "the content swap of a new window's making drew the list again for the selection (\(made.work.textWithTheSelection))")
     }
 
     /// The workspace is in another space than the window's first one. By the run of 2026-11-17 the swap runs ONE
