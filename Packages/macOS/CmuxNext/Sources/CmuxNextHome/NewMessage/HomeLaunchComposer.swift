@@ -31,11 +31,17 @@ public final class HomeLaunchComposer {
     ///     the real Chief (an empty disc: `HomeNativeTranscriptView.holdsChiefFace`).
     public init(home: HomeStore, me: Participant, title: String, in column: NSView? = nil,
                 makeView: (HomeLaunchComposer) -> NSView) {
-        let hold = LaunchChiefHold()
-        (self.home, self.hold) = (home, hold)
-        store = HomeStore(source: HomeLaunchChiefSource(me: home.me ?? me, title: title, hold: hold))
-        store.start()
-        store.setDraft(home.draft(for: Self.conversation) ?? "", for: Self.conversation)
+        // Stage 0's box (``HomeLaunchEarly``): its store and hold, with what was typed and sent there.
+        if let early = HomeLaunchEarly.adopt() {
+            (self.home, hold, store) = (home, early.hold, early.store)
+            Self.appendDraft(home.draft(for: Self.conversation) ?? "", to: Self.conversation, store: store)
+        } else {
+            let hold = LaunchChiefHold()
+            (self.home, self.hold) = (home, hold)
+            store = HomeStore(source: HomeLaunchChiefSource(me: home.me ?? me, title: title, hold: hold))
+            store.start()
+            store.setDraft(home.draft(for: Self.conversation) ?? "", for: Self.conversation)
+        }
         home.setDraft("", for: Self.conversation)
         view = makeView(self)
         HomeNativeTranscriptView.first(in: view)?.holdsChiefFace = true
@@ -124,6 +130,7 @@ public final class HomeLaunchComposer {
     /// What a page released or quit before its Chief answered kept in `home` goes after `chief`'s own
     /// draft (a launch that had its Chief at once mounts no page to take it).
     public static func claimParked(to chief: ConversationID, in home: HomeStore) {
+        HomeLaunchEarly.giveToChief(chief, in: home)  // stage 0's box, when no page took it
         if appendDraft(home.draft(for: conversation) ?? "", to: chief, store: home) { home.setDraft("", for: conversation) }
     }
 
