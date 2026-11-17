@@ -302,6 +302,11 @@ fn take_target(args: &[String]) -> Result<(bool, Vec<String>), Failure> {
 }
 
 fn dispatch(args: &[String], global: &super::GlobalArgs, out: &Out) -> Outcome {
+    // `create NAME --webhook --on cloud --from MACHINE …`: a GitHub webhook that starts an agent on
+    // a fork (automation_webhook.rs). `--target cloud --webhook`, a Chief job, is unchanged.
+    if automation_webhook::wants(args) {
+        return automation_webhook::create(&args[1..], global, out);
+    }
     let (cloud, args) = take_target(args)?;
     if cloud {
         return cloud_dispatch(&args, global, out);
@@ -327,6 +332,7 @@ fn dispatch(args: &[String], global: &super::GlobalArgs, out: &Out) -> Outcome {
         "events" | "event" => events::run(rest, global, out),
         "logs" | "log" => logs(rest, out),
         "delete" | "rm" => delete(rest, out),
+        "webhook" | "webhooks" => automation_webhook::webhook(rest, global, out),
         "teleport" | "move" => teleport::run(rest, global, out, false),
         "import" => teleport::import(rest, out),
         "runner" => runner(rest, out),
