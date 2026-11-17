@@ -242,6 +242,69 @@ fn a_dropped_viewer_resumes_from_its_last_frame_without_a_keyframe() {
     disconnect_client(&mux, back.client, false);
 }
 
+/// The events up to and with the next `agent-cli-frame`, in order, within 5 s.
+fn through_next_frame(viewer: &Viewer) -> Vec<Value> {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut events = Vec::new();
+    loop {
+        if let Some(message) = viewer.outbound.try_pop() {
+            let value: Value = serde_json::from_str(&message).expect("outbound JSON");
+            let frame = value["event"] == "agent-cli-frame";
+            events.push(value);
+            if frame {
+                return events;
+            }
+            continue;
+        }
+        assert!(Instant::now() < deadline, "no agent-cli-frame; got {events:?}");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+}
+
+fn output_data(event: &Value) -> Vec<u8> {
+    base64::engine::general_purpose::STANDARD.decode(event["data"].as_str().unwrap()).unwrap()
+}
+
+/// Codex and opencode run on the alternate screen with input modes set, and frames carry
+/// neither: an agent CLI's viewer gets them as `output` bytes, the screen before its keyframe
+/// (after it, the switch would blank the frame), the input modes after it, and each change
+/// later on, a switch of screens followed by a keyframe of the screen switched to (#44052 F1).
+#[test]
+fn an_agent_cli_viewer_follows_the_alternate_screen_and_input_modes() {
+    let (mux, surface) = terminal("hybrid-agent-screen", Some("codex"));
+    surface.inject_output_for_test(b"\x1b[?1049h\x1b[?2004h\x1b[?1hcodex> one");
+    let viewer = viewer(&mux, true);
+    viewer.attach(&mux, &surface, json!({}));
+    let events = through_next_frame(&viewer);
+    let outputs: Vec<Vec<u8>> =
+        events.iter().filter(|event| event["event"] == "output").map(output_data).collect();
+    assert_eq!(outputs, [b"\x1b[?1049h".to_vec()], "the screen before the keyframe: {events:?}");
+    let first = events.last().unwrap();
+    assert_eq!(first["base"], Value::Null, "a keyframe");
+    assert_eq!(output_bytes(&viewer), b"\x1b[?1h\x1b[?2004h", "the input modes after it");
+    let mut phone = Phone::new(first);
+    phone.term.vt_write(b"\x1b[?1049h");
+    phone.apply(first);
+    phone.term.vt_write(b"\x1b[?1h\x1b[?2004h");
+    assert_eq!(phone.term.active_screen(), ghostty_vt::Screen::Alternate);
+    assert_eq!(phone.text(), screen_text(&surface));
+
+    // The program ends: its modes go, and the shell's screen comes back as a keyframe.
+    surface.inject_output_for_test(b"\x1b[?2004l\x1b[?1l\x1b[?1049l$ ");
+    let events = through_next_frame(&viewer);
+    let outputs: Vec<u8> =
+        events.iter().filter(|event| event["event"] == "output").flat_map(output_data).collect();
+    assert_eq!(outputs, b"\x1b[?1l\x1b[?2004l\x1b[?1049l", "{events:?}");
+    let back = events.last().unwrap();
+    assert_eq!(back["base"], Value::Null, "the screen switched to, as a keyframe");
+    phone.term.vt_write(&outputs);
+    phone.apply(back);
+    assert_eq!(phone.term.active_screen(), ghostty_vt::Screen::Primary);
+    assert!(!phone.term.mode(2004, false) && !phone.term.mode(1, false));
+    assert_eq!(phone.text(), screen_text(&surface));
+    disconnect_client(&mux, viewer.client, false);
+}
+
 #[test]
 fn other_viewers_and_other_programs_keep_the_byte_stream() {
     for (agent, capability) in [(Some("claude"), false), (None, true), (Some("vim"), true)] {
@@ -256,6 +319,70 @@ fn other_viewers_and_other_programs_keep_the_byte_stream() {
         assert!(!skipped.iter().any(|event| event == "agent-cli-frame"), "{skipped:?}");
         disconnect_client(&mux, viewer.client, false);
     }
+}
+
+/// Old viewers on a new daemon (Leo, 2026-11-16: "prove it correct"). A viewer that declared
+/// neither capability gets an agent CLI's terminal exactly as before the hybrid stream: the same
+/// events, the same bytes, as a viewer of a terminal that runs no agent CLI. A viewer that
+/// declared only `agent-cli-hybrid-v1` (a phone from before the lean form) gets v1
+/// `agent-cli-frame` events with v1's fields, never `agent-cli-lean`.
+#[test]
+fn old_viewers_get_what_they_got_before() {
+    let bytes = b"\x1b[38;5;174m\xe2\x9c\xbb\x1b[0m Claude Code \xe6\x97\xa5\xf0\x9f\x9a\x80\r\n> ";
+    let more = b"\x1b[1mhello\x1b[0m world";
+    let mut seen = Vec::new();
+    for agent in [Some("claude"), None] {
+        let name = if agent.is_some() { "hybrid-old-agent" } else { "hybrid-old-shell" };
+        let (mux, surface) = terminal(name, agent);
+        surface.inject_output_for_test(bytes);
+        let viewer = viewer(&mux, false);
+        viewer.attach(&mux, &surface, json!({}));
+        let mut skipped = Vec::new();
+        let state = viewer.next("vt-state", &mut skipped);
+        surface.inject_output_for_test(more);
+        let output = viewer.next("output", &mut skipped);
+        skipped.retain(|event| event != "size-state");
+        seen.push((skipped, state["data"].clone(), state["cols"].clone(), output["data"].clone()));
+        disconnect_client(&mux, viewer.client, false);
+    }
+    assert_eq!(seen[0], seen[1], "a bytes viewer of Claude Code gets what a shell viewer gets");
+    assert!(!seen[0].0.iter().any(|event| event.starts_with("agent-cli")), "{:?}", seen[0].0);
+
+    let (mux, surface) = terminal("hybrid-old-v1", Some("claude"));
+    surface.inject_output_for_test(bytes);
+    let v1 = viewer(&mux, true);
+    v1.attach(&mux, &surface, json!({}));
+    let mut skipped = Vec::new();
+    let first = v1.next("agent-cli-frame", &mut skipped);
+    let mut phone = Phone::new(&first);
+    phone.apply(&first);
+    surface.inject_output_for_test(more);
+    let next = v1.next("agent-cli-frame", &mut skipped);
+    phone.apply(&next);
+    assert_eq!(phone.text(), screen_text(&surface));
+    let fields = [
+        "base",
+        "cols",
+        "cursor_visible",
+        "cursor_x",
+        "cursor_y",
+        "data",
+        "event",
+        "frame",
+        "rows",
+        "stream",
+        "surface",
+    ];
+    for event in [&first, &next] {
+        let mut keys: Vec<&str> = event.as_object().unwrap().keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, fields, "v1's fields: {event}");
+    }
+    assert!(
+        !skipped.iter().any(|event| event == "agent-cli-lean" || event == "output"),
+        "{skipped:?}"
+    );
+    disconnect_client(&mux, v1.client, false);
 }
 
 /// A terminal whose own program is a shell that prints nothing.

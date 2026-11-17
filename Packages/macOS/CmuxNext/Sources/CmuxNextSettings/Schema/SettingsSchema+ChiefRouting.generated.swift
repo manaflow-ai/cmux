@@ -17,7 +17,7 @@ nonisolated enum ChiefRoutingSettingsSchema {
                 section: .home,
                 group: group,
                 title: SettingsText.keyed("settings.chief.autoRouteSubagents", "Route Subagents to the Best Agent"),
-                help: SettingsText.keyed("settings.chief.autoRouteSubagents.help", "The Chief picks the agent each subagent runs on, such as Codex for long coding work and Claude for writing and UI, even when the Chief itself runs on another. Off, subagents run on the Chief's own agent."),
+                help: SettingsText.keyed("settings.chief.autoRouteSubagents.help", "The Chief picks each subagent's agent, such as Codex for code. Off: the Chief's own."),
                 kind: .toggle,
                 default: .bool(ChiefRoutingSettingsSchema.autoRouteDefault),
                 keywords: ["chief", "subagent", "route", "routing", "harness", "codex", "claude", "agent", "auto"]

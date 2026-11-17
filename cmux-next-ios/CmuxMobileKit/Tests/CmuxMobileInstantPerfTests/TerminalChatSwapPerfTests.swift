@@ -36,10 +36,7 @@ extension InstantPerfTests {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .background(Color.black)
             } chat: {
-                AgentChatTranscript(store: store, surface: surface, topInset: 60)
-            }
-            .overlay(alignment: .topTrailing) {
-                TerminalChatToggleControl(showsChat: showsChat) { _ in }
+                AgentChatTranscript(store: store, surface: surface, topInset: 16)
             }
         }
     }
