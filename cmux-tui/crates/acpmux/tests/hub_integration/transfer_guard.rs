@@ -390,6 +390,62 @@ async fn a_web_guarded_chat_asks_and_rules_or_policies_that_approve_are_refused(
     }
 }
 
+/// Bring Back Local (RFD 0006, Leo 2026-11-17: trust the owner's own machine): the owner's own
+/// Mac takes its chat back under `local` control as it is. A Bypass / Full-access chat (its
+/// owner's approve-all, a mode that never asks, rules that approve, or no policy of its own) is
+/// never refused and never narrowed to ask: policy, rules and mode come back unchanged, it is a
+/// local chat again (not a remote one), and its queued prompts run as this machine's own.
+#[tokio::test]
+async fn a_chat_comes_back_to_its_owners_own_machine_as_it_is() {
+    let root = Scratch::home("local-back");
+    let (hub, mut dst) = daemon(config("ask", json!({})), None).await;
+    let bypass = json!({"currentModeId": "strict", "availableModes": [
+        {"id": "normal", "name": "Normal"}, {"id": "strict", "name": "Strict"}]});
+    for extra in [
+        json!({"permissionPolicy": "approve-all", "policySource": "set", "modes": bypass}),
+        json!({"permissionPolicy": "approve-all", "policySource": "set"}),
+        json!({"modes": bypass}),
+        json!({"permissionRules": {"autoApprove": ["Bash"], "default": "approve"}}),
+        json!({"permissionPolicy": "approve-edits", "remoteOrigin": true}),
+    ] {
+        let m = meta(root.path(), extra.clone());
+        let id = m["id"].as_str().unwrap().to_owned();
+        let rid = receive(&mut dst, guard("local", &[root.path()]), &m, &[]).await.unwrap();
+        let s = finish(&mut dst, &rid, json!({})).await.expect("never refused");
+        let meta = hub.resolve(&id).unwrap().meta();
+        assert_eq!(
+            meta.permission_policy.as_deref(),
+            extra["permissionPolicy"].as_str(),
+            "its policy, unchanged (none stays none, never ask): {extra}: {s}"
+        );
+        assert_eq!(
+            meta.modes.as_ref().map(|m| m["currentModeId"].clone()),
+            extra.get("modes").map(|m| m["currentModeId"].clone()),
+            "its mode, unchanged: {extra}"
+        );
+        assert_eq!(
+            meta.permission_rules.is_some(),
+            extra.get("permissionRules").is_some(),
+            "its rules, unchanged: {extra}"
+        );
+        assert!(!meta.remote_origin, "a local chat again: {extra}");
+    }
+
+    // Its queued prompts run as this machine's own, never under the Web's trust gate.
+    let (_a, mut src) = daemon(config("ask", json!({})), None).await;
+    let id = held_chat_with(&mut src, root.path(), json!({"policy": "approve-all"})).await;
+    let moved = move_chat(&mut src, &mut dst, &id, Some(guard("local", &[root.path()])), json!({}))
+        .await
+        .unwrap();
+    assert_eq!(moved["policy"], "approve-all", "{moved}");
+    let queued = records(&mut dst, &id, "queued").await;
+    assert!(!queued.is_empty(), "no queued record");
+    for q in queued {
+        assert_eq!(q["control"], "local", "{q}");
+        assert_ne!(q["trustGate"], true, "{q}");
+    }
+}
+
 /// A chat moved in with an approve-all an older daemon saved with no source (the approve-all
 /// vmHost gave, or one that could be), or with vmHost's, asks (`hub/policy_source.rs`); one whose
 /// source says its owner set it keeps its approve-all.
@@ -741,7 +797,7 @@ async fn a_guard_is_checked_kept_by_the_receive_and_taken_only_on_the_local_sock
         json!({"control": "web", "roots": [root.path().join("missing")]}),
         json!({"control": "web", "roots": ["relative"]}),
         json!({"control": "web", "roots": []}),
-        json!({"control": "local", "roots": [root.path()]}),
+        json!({"control": "elsewhere", "roots": [root.path()]}),
         json!({"roots": [root.path()]}),
         json!({"control": "web", "roots": [root.path()], "env": {"A": "b"}}),
         json!("web"),

@@ -12,8 +12,8 @@ import Foundation
 /// the machine's folder back into the chat's folder here (`cmux link seed pull --or-copy`: a seeded
 /// git project as the seed's diff, a copied folder as `cmux link sync pull`'s three-way merge
 /// against what the move pushed; the CLI picks), moves the chat from the machine's tab to this Mac in that folder
-/// (`cmux link agent move`; this Mac's daemon takes it under its own guard, never with a VM's
-/// control), and opens it here: a workspace whose only tab is the chat, bound to the session on
+/// (`cmux link agent move`; this Mac, the owner's own machine, takes it back as it is, its policy and
+/// mode unchanged, Bypass and Full access included), and opens it here: a workspace whose only tab is the chat, bound to the session on
 /// this Mac, no terminal beside it. The machine's tab, whose chat closed, closes only then.
 ///
 /// It keeps the move's recovery model: it runs on the machine the chat moved to; a conflict stops
@@ -21,11 +21,7 @@ import Foundation
 /// unresolved move) retries on that machine (a second pull finds nothing new, a rerun of the move
 /// resolves an unresolved one first); after the move committed Retry only opens the local tab, and
 /// the ledger keeps that until the tab opened, so the row and a relaunch still only open it.
-/// When this Mac's guard refuses the chat for a policy or mode that doesn't ask, the stop's toast
-/// offers "Ask first, then bring back" (cx-rppd.10): only that button runs the move again with
-/// `--ask-first` (``askFirstInvocation(tab:)``), so the machine's daemon narrows the chat there to an
-/// asking policy and mode before it moves; a plain rerun never changes the chat. The guard here is
-/// never loosened. Progress and failures are toasts, never a sheet.
+/// Progress and failures are toasts, never a sheet.
 ///
 /// Move to Another Machine (``toMachine``) is the same run with another Cloud machine as the target
 /// in place of this Mac (a move to another Cloud machine, in the code since 2026-11-10): the named one, else another
@@ -37,8 +33,6 @@ import Foundation
 struct CloudBringBack {
     static let action: ActionID = "cloudBringBack"
     static let toMachine: ActionID = "cloudMoveToMachine"
-    /// The invocation argument the "Ask first, then bring back" button sets.
-    static let askFirstArgument = "askFirst"
     typealias Failure = CloudMove.Failure
     let services: AppServices
 
@@ -68,7 +62,7 @@ struct CloudBringBack {
             guard !asked else { throw ActionFailure(message: CloudBringBackStrings.notFromMove) }
             return perform(tab: tab, action: Self.action) { try await reshow(entry.shown(back), tab: tab) }
         }
-        // A move to another machine that may have landed there (its pin, ``run(tab:entry:cli:askFirst:update:toMachine:invocation:)``)
+        // A move to another machine that may have landed there (its pin, ``run(tab:entry:cli:update:toMachine:invocation:)``)
         // finishes first, whichever of the two ran: a bring back would drop the pin, and a later move would seed over what the
         // chat already did there. Once it lands, Bring Back Local runs from that machine's tab.
         // A pin to a machine gone from the loaded list could never finish: it goes, as Move to Cloud's own do.
@@ -84,14 +78,12 @@ struct CloudBringBack {
         guard !services.cloud.movingBack.contains(tab.id) else { throw ActionFailure(message: CloudMoveStrings.inProgress) }
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
-        // Only the refusal toast's "Ask first, then bring back" narrows the chat on the machine.
-        let askFirst = invocation[Self.askFirstArgument] == .bool(true)
         // Only the person's "Update Machine" updates the machine first (``CloudMachineUpdate``).
         let update = CloudMachineUpdate.requested(invocation)
         // The person's Bring Back updates a machine too old for it first (``CloudMove/updatingFirst(_:_:)``).
         perform(tab: tab, action: action) {
             try await CloudMove.updatingFirst(invocation) { invocation in
-                try await run(tab: tab, entry: entry, cli: cli, askFirst: askFirst, update: update || CloudMachineUpdate.requested(invocation),
+                try await run(tab: tab, entry: entry, cli: cli, update: update || CloudMachineUpdate.requested(invocation),
                               toMachine: toMachine, invocation: invocation)
             }
         }
@@ -131,13 +123,11 @@ struct CloudBringBack {
         if failure.retry != nil || (!(error is Failure) && !(error is ActionFailure)) { // an unexpected error (no network) retries too
             let registry = services.registry
             var again = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tabID), arguments: [:], origin: .user)
-            if case .askFirst = failure.retry { again = Self.askFirstInvocation(tab: tabID) }
             if case .update = failure.retry { again.arguments[CloudMachineUpdate.argument] = .bool(true) }
             retry = { _ = registry.perform(action, invocation: again) }
         }
         let title: String
         switch failure.retry {
-        case .askFirst: title = CloudBringBackStrings.askFirst
         case .update: title = CloudMachineUpdateStrings.button
         default: title = CloudMoveStrings.retry
         }
@@ -149,14 +139,9 @@ struct CloudBringBack {
     /// each other there. Whole ids: time-ordered ids share their first characters for hours.
     static func targetSuffix(machineID: String, session: String) -> String { "-" + machineID + "-" + session }
 
-    /// What the refusal toast's "Ask first, then bring back" runs on machine tab `tab`.
-    static func askFirstInvocation(tab: String) -> ActionInvocation {
-        ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab), arguments: [askFirstArgument: .bool(true)], origin: .user)
-    }
-
     /// The bring back, after the synchronous checks. Returns the machine's name (with `toMachine`, the one the
-    /// chat went to). `askFirst` narrows the machine's chat to an asking policy and mode before it moves.
-    private func run(tab: TabModel, entry: CloudMovedChats.Entry, cli: CloudMoveCLI, askFirst: Bool, update: Bool, toMachine: Bool,
+    /// chat went to).
+    private func run(tab: TabModel, entry: CloudMovedChats.Entry, cli: CloudMoveCLI, update: Bool, toMachine: Bool,
                      invocation: ActionInvocation) async throws -> String {
         // A move to another machine that reached the transfer is pinned to that machine (its retry names it, kept across
         // launches): the rerun goes straight to the transfer, which settles a recorded one first. A pull and a full seed
@@ -239,7 +224,7 @@ struct CloudBringBack {
                                                               fromSocket: machineSocket, seedLocal: entry.localRoot) }
                     ?? CloudMoveCLI.FrozenSync(pull: true, socket: machineSocket, local: entry.localRoot, remote: entry.remoteFolder)
                 moved = try await cli.agentMove(from: machineSocket, surface: tab.surface.rawValue, to: onto?.socket ?? localSocket,
-                                                cwd: remote?.chat ?? entry.localChat, sync: sync, askFirst: askFirst, vmKind: onto?.vmKind)
+                                                cwd: remote?.chat ?? entry.localChat, sync: sync, vmKind: onto?.vmKind)
                 if moved.ok || moved.errorCode != "fs.permission_denied" { break }
             }
         } catch {
@@ -247,7 +232,7 @@ struct CloudBringBack {
             throw Failure(message: CloudBringBackStrings.unresolved, retry: again)
         }
         guard moved.ok, let session = moved.sessionID else {
-            var failure = CloudMoveFailure.bringingBack(moved, machine: name, retry: again, askedFirst: askFirst)
+            var failure = CloudMoveFailure.bringingBack(moved, machine: name, retry: again)
             // A move to another machine keeps its pin through any stop of the transfer.
             if target != nil, failure.retry == nil { failure.retry = again }
             throw failure

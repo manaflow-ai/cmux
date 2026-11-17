@@ -404,8 +404,6 @@ pub enum Call {
         #[serde(default)]
         then_sync: Option<FrozenSync>,
         #[serde(default)]
-        ask_first: bool,
-        #[serde(default)]
         vm_kind: Option<String>,
         #[serde(default)]
         to_pid: Option<i32>,
@@ -545,7 +543,6 @@ fn words(parts: &[&str]) -> Vec<String> {
 /// `link agent move`'s flags after `--cwd`: one `--sync` group per copy, run in order.
 pub fn agent_move_flags(
     syncs: &[&FrozenSync],
-    ask_first: bool,
     vm_kind: Option<&str>,
     to_pid: Option<i32>,
 ) -> Vec<String> {
@@ -568,9 +565,6 @@ pub fn agent_move_flags(
         if let (Some(_), Some(seed_local)) = (&sync.from_socket, &sync.seed_local) {
             flags.extend(words(&["--sync-seed-local", seed_local]));
         }
-    }
-    if ask_first {
-        flags.push("--ask-first".to_owned());
     }
     if let Some(vm_kind) = vm_kind {
         flags.extend(words(&["--vm-kind", vm_kind]));
@@ -605,7 +599,7 @@ pub fn invocation(call: &Call) -> Invocation {
         Call::BringBackPull { socket, local, remote } => {
             plain(words(&["link", "seed", "pull", "--socket", socket, local, remote, "--or-copy"]))
         }
-        Call::AgentMove { from, surface, to, cwd, sync, then_sync, ask_first, vm_kind, to_pid } => {
+        Call::AgentMove { from, surface, to, cwd, sync, then_sync, vm_kind, to_pid } => {
             let surface = surface.to_string();
             let mut args = words(&[
                 "link",
@@ -621,7 +615,7 @@ pub fn invocation(call: &Call) -> Invocation {
                 cwd,
             ]);
             let syncs: Vec<&FrozenSync> = sync.iter().chain(then_sync).collect();
-            args.extend(agent_move_flags(&syncs, *ask_first, vm_kind.as_deref(), *to_pid));
+            args.extend(agent_move_flags(&syncs, vm_kind.as_deref(), *to_pid));
             plain(args)
         }
         Call::MachineUpdate { socket, to_bundled, if_older } => {

@@ -9,9 +9,12 @@
 //! - `agent-transfer-receive {manifest, cwd}`: `_acpmux/transfer_receive
 //!   {manifest, guard}`, answers `{receive_id, session_id}`. The guard:
 //!   on a cmux Cloud host `{control:"peer", roots:[canonical $HOME/work]}`;
-//!   on any other host (a Mac taking a chat back) `{control:"web",
-//!   roots:[cwd]}`, where `cwd` must be an existing folder strictly under
-//!   `$HOME` that is not under a dot folder of `$HOME`. Either way `cwd` must
+//!   on any other host (the owner's own Mac taking a chat back)
+//!   `{control:"local", roots:[cwd]}`, where `cwd` must be an existing folder
+//!   strictly under `$HOME` that is not under a dot folder of `$HOME`: the
+//!   owner's own machine takes its chat back as it is, its policy, rules and
+//!   mode (Bypass and Full access included) unchanged, never refused or
+//!   narrowed for them (RFD 0006). Either way `cwd` must
 //!   canonicalize under the roots. acpmux must answer `guarded: true` (an
 //!   acpmux that ignores the guard is refused). The guard and the canonical
 //!   folder are kept per receive in memory.
@@ -50,9 +53,7 @@
 //!   `source` paths, and its `session.json` without the source machine's
 //!   launch settings (env, argv, harness roots, preset, tags; its `cwd`
 //!   stays, the target's finish replaces it); the manifest lists their
-//!   scrubbed sizes. With `ask_first: true` the chat is first narrowed here
-//!   to an asking policy, rules and mode (`ask_first.rs`), so a Mac's guard
-//!   that refused it takes it.
+//!   scrubbed sizes.
 //! - `agent-transfer-read {transfer_id, path, offset, limit?}` pages a bundle
 //!   file the begin manifest of a move begun through this daemon lists.
 //! - `agent-transfer-commit {surface, transfer_id, to}` and
@@ -93,7 +94,6 @@ use bundle::{is_bundle_path, page_data_len, page_of, scrub_bundle};
 pub mod access_requests;
 /// `agent-update-v1`, the same kind of trusted local acpmux client.
 pub mod agent_update;
-mod ask_first;
 mod askable;
 mod landed;
 pub(super) mod state_file;
@@ -402,8 +402,6 @@ struct BeginParams {
     surface: SurfaceId,
     #[serde(default)]
     interrupt: bool,
-    #[serde(default)]
-    ask_first: bool,
 }
 
 #[derive(Deserialize)]
@@ -690,7 +688,6 @@ enum Prepared {
     Begin {
         session: String,
         interrupt: bool,
-        ask_first: bool,
     },
     Read {
         transfer_id: String,
@@ -776,12 +773,12 @@ fn prepare(mux: &Mux, client: u64, verb: Verb) -> Result<Prepared, Failure> {
                 }
             }
         }
-        Verb::Begin(BeginParams { surface, interrupt, ask_first }) => {
+        Verb::Begin(BeginParams { surface, interrupt }) => {
             let session = tab_session(mux, surface).ok_or(Refusal::UnknownTab)?;
             if AgentTransfers::full(&mut lock(&transfers.moves), MAX_MOVES, |m| m.touched) {
                 return Err(Refusal::Limit.into());
             }
-            Prepared::Begin { session, interrupt, ask_first }
+            Prepared::Begin { session, interrupt }
         }
         Verb::Read(ReadParams { transfer_id, path, offset, limit }) => {
             let limit = limit.unwrap_or(DEFAULT_READ);
@@ -853,7 +850,8 @@ fn guard_for(host: &AgentTransferHost, cwd: &str) -> Result<(Value, String), Fai
             .ok_or(Refusal::OutsideRoots)?;
         ("peer", root)
     } else {
-        // Strictly under home, and not in a dot folder of home.
+        // The owner's own Mac: strictly under home, and not in a dot folder
+        // of home. The chat is the owner's, so it comes back as it is.
         let rel = folder.strip_prefix(&home).map_err(|_| Refusal::OutsideRoots)?;
         let first = rel.components().next();
         let plain = matches!(first, Some(Component::Normal(name))
@@ -861,7 +859,7 @@ fn guard_for(host: &AgentTransferHost, cwd: &str) -> Result<(Value, String), Fai
         if !plain {
             return Err(Refusal::OutsideRoots.into());
         }
-        ("web", folder.clone())
+        ("local", folder.clone())
     };
     if !folder.starts_with(&root) {
         return Err(Refusal::OutsideRoots.into());
@@ -975,10 +973,7 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             }
             Ok(json!({"session": session}))
         }
-        Prepared::Begin { session, interrupt, ask_first } => {
-            if ask_first {
-                ask_first::narrow(&call, &session)?;
-            }
+        Prepared::Begin { session, interrupt } => {
             let source_session = session.clone();
             let params = json!({"sessionId": session, "interrupt": interrupt});
             let mut manifest = call("_acpmux/transfer_begin", params, BEGIN_TIMEOUT)?;

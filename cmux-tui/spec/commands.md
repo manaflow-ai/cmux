@@ -11175,9 +11175,12 @@ most 4 MiB of data (base64).
 `manifest` is the source's `agent-transfer-begin` manifest, `cwd` the
 absolute folder the chat runs in here. The daemon builds the guard from its
 own host: on a cmux Cloud host (the `fs-v1` test) `{control:"peer",
-roots:[$HOME/work]}`; on any other host (a Mac taking a chat back)
-`{control:"web", roots:[cwd]}`, where `cwd` must be an existing folder
-strictly under `$HOME` and not in a dot folder of `$HOME`. Paths are
+roots:[$HOME/work]}`; on any other host (the owner's own Mac taking a chat
+back) `{control:"local", roots:[cwd]}`, where `cwd` must be an existing
+folder strictly under `$HOME` and not in a dot folder of `$HOME`. Under local
+control the owner's own machine takes its chat back as it is: its policy,
+rules and mode (Bypass and Full access included) are kept, never refused or
+narrowed, and its queued prompts run as this machine's own. Paths are
 canonical, and `cwd` must be under the roots on every host; otherwise
 `agent_transfer.outside_roots`. It sends `_acpmux/transfer_receive
 {manifest, guard}` and answers `{receive_id, session_id}`. An acpmux that
@@ -11271,7 +11274,7 @@ acpmux, or `transfer.incomplete`) also forgets the receive.
 
 ### agent-transfer-begin
 
-`{id, cmd:"agent-transfer-begin", surface, interrupt?, ask_first?}` freezes the chat of
+`{id, cmd:"agent-transfer-begin", surface, interrupt?}` freezes the chat of
 an agent tab of this store (the session comes from the tab's store record,
 as `agent-session-attach`; any other surface is `agent_transfer.unknown_tab`)
 and answers `{transfer_id, source_session, manifest}` (`source_session` as
@@ -11283,19 +11286,6 @@ target's import needs a folder and its finish replaces it. These names
 compare case-insensitively, and the manifest lists the scrubbed sizes. The
 event logs still carry the source machine's paths; the guarded finish never
 runs them.
-
-With `ask_first: true` (Bring Back Local's "Ask first, then bring back",
-after a Mac's guard refused the chat as `transfer.policy` or `transfer.mode`)
-the daemon first narrows the chat in its own acpmux, each step only when
-needed: a policy (the chat's own, else acpmux's default) other than `ask` or
-`deny-all` becomes `ask` (`_acpmux/set_policy`); permission rules keep only
-`autoDeny`, `ask` and a `default` of `ask` or `deny` (`_acpmux/set_rules`); a
-mode, or `mode` config option, that this acpmux's asking table
-(`_acpmux/web_modes`) does not list for the chat's family becomes the first
-mode of the table's list that the chat offers. A chat already in a move is
-not narrowed, so its begin is refused as without `ask_first`. The receiving
-daemon's guard is unchanged. A step acpmux refuses fails the begin with that
-refusal, and the chat stays, unmoved, keeping what was narrowed so far.
 
 A begin of a chat that is already in a move is `agent_transfer.refused`
 (acpmux's `transfer.moving`) with `error_details: {transfer_id}`, the id of

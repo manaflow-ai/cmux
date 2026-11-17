@@ -240,7 +240,7 @@ fn each_verb_carries_its_arguments() {
     let call = |value: Value| invocation(&serde_json::from_value(value).unwrap());
     let moved = call(
         json!({"verb": "agent-move", "from": "/a.sock", "surface": 7, "to": "/b.sock", "cwd": "/w",
-        "sync": {"pull": false, "socket": "/s", "local": "/l", "remote": "/r"}, "askFirst": true, "vmKind": "owner", "toPid": 42}),
+        "sync": {"pull": false, "socket": "/s", "local": "/l", "remote": "/r"}, "vmKind": "owner", "toPid": 42}),
     );
     assert_eq!(
         moved.args,
@@ -265,14 +265,13 @@ fn each_verb_carries_its_arguments() {
             "/l",
             "--sync-remote",
             "/r",
-            "--ask-first",
             "--vm-kind",
             "owner",
             "--to-pid",
             "42"
         ]
     );
-    assert_eq!(agent_move_flags(&[], false, None, None), ["--interrupt"]);
+    assert_eq!(agent_move_flags(&[], None, None), ["--interrupt"]);
     // Move to Another Machine: a pull from the old machine, then a seed of the new one, in that order.
     let relay =
         call(json!({"verb": "agent-move", "from": "/a", "surface": 3, "to": "/b", "cwd": "/w",

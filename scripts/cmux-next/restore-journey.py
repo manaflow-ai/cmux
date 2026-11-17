@@ -2122,7 +2122,7 @@ def seeded(before):
         "cloud": [("two moved chats", len(before.get("cloud.moved_chats") or []) == 2),
                   ("three move Retries (move, show, update)",
                    sorted(r.get("kind") for r in before.get("cloud.move_retries") or []) == ["move", "show", "update"]),
-                  ("a Bring Back Local Retry (ask first)", [r.get("kind") for r in before.get("cloud.bring_back_retries") or []] == ["ask_first"]),
+                  ("a Bring Back Local Retry (move)", [r.get("kind") for r in before.get("cloud.bring_back_retries") or []] == ["move"]),
                   ("an Always folder grant", any(g.get("scope") == "account_team_origin_folder" for g in before.get("cloud.grants") or [])),
                   ("a dismissed offer matching its Retry", [d.get("matches_retry") for d in before.get("cloud.dismissed") or []] == [True])],
         "split": [("rj-split workspace", has(lambda k, v: k.startswith("ws[rj-split]."))),

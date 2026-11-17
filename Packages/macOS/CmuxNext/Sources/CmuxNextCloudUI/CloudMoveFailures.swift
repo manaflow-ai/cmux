@@ -32,27 +32,9 @@ extension CloudMoveFailure {
         }
     }
 
-    /// The failure of a `cmux link agent move` answer, in plain words. This Mac's guard refuses a
-    /// chat that approves on its own (`transfer.policy`), runs in a mode that doesn't ask
-    /// (`transfer.mode`), or runs an agent it can't guard (`transfer.family`); the chat stays on
-    /// the machine, unchanged, and the first two offer "Ask first, then bring back", which narrows
-    /// the chat on the machine and moves it again. When that run (`askedFirst`) is refused too, the
-    /// chat can't be narrowed there (no asking mode it offers, say): the person changes it in the
-    /// chat, then Retry.
-    public static func bringingBack(_ answer: CloudMoveCLI.Answer, machine: String, retry: CloudMoveRetries.Retry,
-                                    askedFirst: Bool = false) -> Self {
-        let detail = answer.error ?? ""
-        var askFirst = retry
-        if case .move(let machineID) = retry { askFirst = .askFirst(machineID: machineID) }
-        if detail.contains("transfer.policy") {
-            if askedFirst { return Self(message: CloudBringBackStrings.policyStillBlocks, retry: retry) }
-            return Self(message: CloudBringBackStrings.policyBlocks, retry: askFirst)
-        }
-        if detail.contains("transfer.mode") {
-            if askedFirst { return Self(message: CloudBringBackStrings.modeStillBlocks, retry: retry) }
-            return Self(message: CloudBringBackStrings.modeBlocks, retry: askFirst)
-        }
-        if detail.contains("transfer.family") { return Self(message: CloudBringBackStrings.familyBlocks) }
+    /// The failure of a `cmux link agent move` answer, in plain words. This Mac, the owner's own
+    /// machine, takes its chat back as it is: never refused for its policy, mode or agent (RFD 0006).
+    public static func bringingBack(_ answer: CloudMoveCLI.Answer, machine: String, retry: CloudMoveRetries.Retry) -> Self {
         switch answer.errorCode {
         // The turn's last changes conflicted: the chat went back to the machine and goes on there.
         case "sync_conflict": return Self(message: CloudBringBackStrings.conflict(answer.conflicts), retry: retry)

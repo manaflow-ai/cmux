@@ -1,5 +1,5 @@
 //! `cmux link agent move --from-socket LOCAL --surface ID --to-socket MACHINE
-//! --cwd FOLDER [--interrupt] [--ask-first] [--vm-kind KIND]`: moves the agent chat of tab `ID` of the
+//! --cwd FOLDER [--interrupt] [--vm-kind KIND]`: moves the agent chat of tab `ID` of the
 //! daemon at `LOCAL` to the machine daemon at `MACHINE` (Move to Cloud,
 //! cmuxterm-hq#1874 slice 1c), over `agent-transfer-v1` (spec/commands.md,
 //! "Agent chat transfer"). `FOLDER` is where the chat runs there. Neither
@@ -13,10 +13,7 @@
 //! socket that `cmux link sync push` uses: the link's remote entry admits
 //! only the `fs-v1` ops.
 //!
-//! 1. begin on the source (the chat freezes there); with `--ask-first` the
-//!    source first narrows the chat to an asking policy, rules and mode
-//!    (Bring Back Local's "Ask first, then bring back" after a Mac's guard
-//!    refused it, cx-rppd.10);
+//! 1. begin on the source (the chat freezes there);
 //! 2. receive on the target with the begin manifest;
 //! 3. every bundle file, page by page, read from the source and written to
 //!    the target;
@@ -119,7 +116,7 @@ use record::{Record, Records};
 
 const USAGE: &str = "usage: cmux link agent move --from-socket LOCAL_DAEMON_SOCKET \
 --surface SURFACE_ID --to-socket REMOTE_CONNECT_SOCKET --cwd REMOTE_FOLDER [--interrupt] \
-[--ask-first] [--vm-kind KIND [--to-pid PID]] [--state-dir DIR] \
+[--vm-kind KIND [--to-pid PID]] [--state-dir DIR] \
 [--sync push|pull|seed --sync-socket LINK_SOCKET --sync-local LOCAL --sync-remote REMOTE]... \
 [--sync relay --sync-from-socket SOURCE_LINK --sync-socket TARGET_LINK --sync-local SOURCE_FOLDER --sync-remote TARGET_FOLDER [--sync-seed-local LOCAL]]
   --to-socket: the local_socket of `cmux-tui remote connect --headless --json` for the \
@@ -136,8 +133,6 @@ struct Args {
     to: PathBuf,
     cwd: String,
     interrupt: bool,
-    /// Narrow the chat on the source to an asking policy and mode first.
-    ask_first: bool,
     /// `--vm-kind`: the Cloud API's answer for the caller (module docs).
     vm_kind: Option<String>,
     /// `--to-pid`: the process that answer belongs to (module docs).
@@ -280,7 +275,7 @@ fn parse(args: &[String]) -> Option<Args> {
     let (mut vm_kind, mut to_pid) = (None, None);
     // Each `--sync` group's flags, in any order: a flag its group has already starts the next group.
     let mut groups: Vec<SyncFlags> = Vec::new();
-    let (mut interrupt, mut ask_first) = (false, false);
+    let mut interrupt = false;
     let mut rest = rest.iter();
     while let Some(arg) = rest.next() {
         match arg.as_str() {
@@ -292,7 +287,6 @@ fn parse(args: &[String]) -> Option<Args> {
             "--vm-kind" => vm_kind = Some(rest.next()?.clone()),
             "--to-pid" => to_pid = Some(rest.next()?.parse::<u32>().ok()?),
             "--interrupt" => interrupt = true,
-            "--ask-first" => ask_first = true,
             "--sync" => {
                 let way = match rest.next()?.as_str() {
                     "push" => Way::Push,
@@ -332,18 +326,7 @@ fn parse(args: &[String]) -> Option<Args> {
     let (from, surface) = (from?, surface?);
     let owner = format!("{}#{surface}", from.display());
     let syncs = groups.into_iter().map(|g| g.sync(&owner)).collect::<Option<Vec<_>>>()?;
-    Some(Args {
-        from,
-        surface,
-        to: to?,
-        cwd,
-        interrupt,
-        ask_first,
-        vm_kind,
-        to_pid,
-        state_dir,
-        syncs,
-    })
+    Some(Args { from, surface, to: to?, cwd, interrupt, vm_kind, to_pid, state_dir, syncs })
 }
 
 /// One `--sync` group's flags as `parse` reads them.
@@ -469,10 +452,7 @@ fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
     // A running turn stops for the move only where it goes on afterwards: an older source would
     // stop it for good, so there the move is refused while it runs, as before `--interrupt`.
     let interrupt = args.interrupt && source_continues(&args.from);
-    let mut params = json!({"surface": args.surface, "interrupt": interrupt});
-    if args.ask_first {
-        params.set("ask_first", json!(true));
-    }
+    let params = json!({"surface": args.surface, "interrupt": interrupt});
     let begun = match source.call("agent-transfer-begin", params, BEGIN_TIMEOUT) {
         Ok(begun) => begun,
         Err(CallError::Refused { code, message, details }) => {
