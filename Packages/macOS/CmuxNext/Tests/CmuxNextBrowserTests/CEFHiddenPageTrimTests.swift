@@ -13,10 +13,10 @@ import Testing
         #expect(CEFHiddenPageTrim.nextDelay(since: start, now: start + .seconds(600)) == CEFHiddenPageTrim.delay)
     }
 
-    @Test func theNoticeIsCriticalAndNoTrimRunsWithoutAFrozenPage() async {
+    @Test func theNoticeIsCriticalAndNoTrimRunsWithoutAHiddenPage() async {
         #expect(CEFHiddenPageTrim.level == "critical")
         var sent = 0
-        let trim = CEFHiddenPageTrim { _ in sent += 1 }
+        let trim = CEFHiddenPageTrim(hiddenPages: { [] }) { _ in sent += 1 }
         await trim.trim()
         #expect(trim.notices == 0)
         #expect(sent == 0)
