@@ -138,7 +138,9 @@ export default async function TermsOfServicePage() {
       </p>
       <p>
         TO THE MAXIMUM EXTENT PERMITTED BY LAW, OUR LIABILITY TO YOU FOR ANY
-        DAMAGES WILL AT ALL TIMES BE LIMITED TO FIFTY US DOLLARS ($50).
+        DAMAGES WILL AT ALL TIMES BE LIMITED TO THE GREATER OF FIFTY US DOLLARS
+        ($50) OR THE AMOUNTS YOU PAID TO COMPANY IN THE 12 MONTHS BEFORE THE
+        CLAIM.
       </p>
 
       <h2>7. Term and Termination</h2>
@@ -186,10 +188,12 @@ export default async function TermsOfServicePage() {
 
       <h2 id="cmux-cloud">10. cmux Cloud</h2>
       <p>
-        This Section 10 applies to cmux Cloud, the hosted cmux service at{" "}
-        <a href="https://cmux.cloud">cmux.cloud</a>, including its web app,
+        This Section 10 applies to cmux Cloud, our hosted services: the service
+        at <a href="https://cmux.cloud">cmux.cloud</a>, including its web app,
         command-line tools, Slack app, meeting notetaker, and the AI agents
-        that run in cloud machines (&ldquo;cmux Cloud&rdquo;). For cmux Cloud,
+        that run in cloud machines; and the cloud machines (cloud VMs) that you
+        create from the Application or the cmux.com dashboard (together,
+        &ldquo;cmux Cloud&rdquo;). For cmux Cloud,
         references in these Terms to the Application include cmux Cloud. If
         this Section 10 and another section of these Terms conflict, this
         Section 10 controls for cmux Cloud. If you or your organization signed
@@ -215,7 +219,13 @@ export default async function TermsOfServicePage() {
         transmit, and display Your Content only as necessary to provide,
         secure, and support cmux Cloud for you, as our{" "}
         <a href="https://cmux.com/privacy-policy#cmux-cloud">Privacy Policy</a>{" "}
-        describes. We do not use Your Content to train generalized AI models.
+        describes. For personal data in Your Content, our{" "}
+        <a href="https://cmux.com/cmux-cloud/dpa">Data Processing Addendum</a>{" "}
+        applies. We do not use Your Content to train generalized AI models.
+        The AI models in cmux Cloud are operated by AI model providers under
+        their own terms; the{" "}
+        <a href="https://cmux.com/cmux-cloud/subprocessors">subprocessor page</a>{" "}
+        lists them.
         You represent that you have the rights and permissions necessary to
         put Your Content into cmux Cloud and to connect each tool you connect.
         Your use of a connected tool, such as Slack, Google, GitHub, or Linear,
@@ -261,6 +271,14 @@ export default async function TermsOfServicePage() {
         must not hide, remove, or change the notice that the notetaker posts
         when it joins.
       </p>
+      <p>
+        You agree to indemnify and hold Company (and its officers, employees,
+        and agents) harmless, including costs and attorneys&rsquo; fees, from
+        any claim or demand made by any third party arising out of a meeting
+        recording, transcript, or notes made by a notetaker that you or your
+        team sent, including a claim that a notice or consent that the law
+        requires was not given.
+      </p>
 
       <h3>Acceptable use</h3>
       <p>You must not use cmux Cloud, including its agents and cloud machines, to:</p>
@@ -283,8 +301,7 @@ export default async function TermsOfServicePage() {
         pricing page when the usage occurs. Usage is paid from credits that
         your team buys through our payment processor. Prices do
         not include taxes, and you are responsible for applicable taxes.
-        Except where the law requires otherwise, purchased credits are not
-        refundable and have no cash value. We can change prices with notice;
+        [OWNER DECISION: refunds] We can change prices with notice;
         a change applies to usage after it takes effect.
       </p>
       <p>
@@ -313,7 +330,9 @@ export default async function TermsOfServicePage() {
         in cmux Cloud and ask us at{" "}
         <a href="mailto:founders@cmux.com">founders@cmux.com</a> for a copy of
         it. When your team&rsquo;s account ends, you can ask for a copy of Your
-        Content for 30 days. After that, we delete Your Content as our{" "}
+        Content within 30 days. We delete Your Content from our live systems
+        within 30 days after the account ends and from backups within 35 days,
+        as our{" "}
         <a href="https://cmux.com/privacy-policy#cmux-cloud">Privacy Policy</a>{" "}
         describes, except data that we must keep to comply with the law.
       </p>
