@@ -298,7 +298,7 @@ export const AGENT_SIGN_IN_FILES = [
  * session, and Codex's managed config overrides `~/.codex/config.toml`, so a login a user or an older copy
  * left in HOME is never used. Only a key the person exports themselves still wins, which is theirs to do.
  */
-export function agentModelRouteFiles(alias: string = vmEdgeAliasDomain()): Array<{ path: string; text: string; mode: number }> {
+export function agentModelRouteFiles(alias: string = vmEdgeAliasDomain()): Array<{ path: string; target: string; text: string; mode: number }> {
   const env = vmGuestModelPlaneEnv(alias);
   const claude = {
     // Kept from the devbox image's managed defaults.
@@ -335,21 +335,92 @@ export function agentModelRouteFiles(alias: string = vmEdgeAliasDomain()): Array
     "",
   ].join("\n");
   return [
-    { path: "/etc/claude-code/managed-settings.json", text: `${JSON.stringify(claude, null, 2)}\n`, mode: 0o644 },
-    { path: "/etc/codex/managed_config.toml", text: codex, mode: 0o644 },
+    { path: `${AGENT_MODEL_ROUTE_DIR}/claude-managed-settings.json`, target: "/etc/claude-code/managed-settings.json", text: `${JSON.stringify(claude, null, 2)}\n`, mode: 0o644 },
+    { path: `${AGENT_MODEL_ROUTE_DIR}/codex-managed_config.toml`, target: "/etc/codex/managed_config.toml", text: codex, mode: 0o644 },
   ];
 }
 
-/** Fails unless both route files exist, parse, point at the edge, and carry no credential. `root` prefixes every path (tests). */
+/**
+ * Where the image stages each agent's managed route (agentModelRouteFiles). The same snapshot boots in the dev
+ * pool, staging and production, and only the dev pool's machines get the coderouter edge rule
+ * (cmux-platform CloudCore, "development only"). Baked in place, the route sent every Claude chat on a staging
+ * or production machine to a name that does not resolve (ENOTFOUND after about 180 s, cmux-platform#1442).
+ * So the bake stages the files here, and agentModelRouteSyncScript installs them where the alias resolves.
+ */
+export const AGENT_MODEL_ROUTE_DIR = "/etc/cmux/agent-model-route";
+export const AGENT_MODEL_ROUTE_SYNC_PATH = "/usr/local/sbin/cmux-agent-model-route";
+export const AGENT_MODEL_ROUTE_UNIT = "cmux-agent-model-route";
+
+/** The file cmux-host writes when a clone binds (PER_MACHINE_FILES); its edge rule was made with it at create. */
+export const AGENT_MODEL_ROUTE_TRIGGER = "/var/lib/cmux/bound.json";
+
+/**
+ * One pass, once per machine (agentModelRouteUnitFiles): when the edge alias resolves, each staged route file is
+ * copied to its agent's managed path; when it does not, a managed file with the staged bytes is removed, and any
+ * other file there is left alone. Always exits 0. `CMUX_AGENT_MODEL_ROUTE_ROOT` prefixes every path (tests).
+ */
+export function agentModelRouteSyncScript(alias: string = vmEdgeAliasDomain()): string {
+  const pairs = agentModelRouteFiles(alias).map((f) => `${f.path} ${f.target}`).join("\n");
+  return [
+    "#!/bin/sh",
+    "# cmux: the agents' managed model route, only on a machine whose coderouter edge alias resolves.",
+    "# Managed by the image (web/scripts/cmux-vm-image/bake.ts agentModelRouteSyncScript); do not edit.",
+    'root="${CMUX_AGENT_MODEL_ROUTE_ROOT:-}"',
+    `if timeout 5 getent hosts ${sq(alias)} >/dev/null 2>&1; then up=1; else up=0; fi`,
+    "while read -r staged target; do",
+    '  s="$root$staged"; t="$root$target"',
+    '  [ -s "$s" ] || continue',
+    '  if [ "$up" = 1 ]; then',
+    '    cmp -s "$s" "$t" || { mkdir -p "$(dirname "$t")" && cp "$s" "$t.new" && chmod 644 "$t.new" && mv -f "$t.new" "$t"; }',
+    '  elif cmp -s "$s" "$t"; then',
+    '    rm -f "$t"',
+    "  fi",
+    "done <<EOF",
+    pairs,
+    "EOF",
+    "exit 0",
+    "",
+  ].join("\n");
+}
+
+/**
+ * A path unit (inotify, no wakeups) starts the pass when the clone binds, and the service stays active after it
+ * (RemainAfterExit), so the path unit does not start it again: one pass per machine, then nothing runs. A clone
+ * resumes the bake's running system with no boot, so the path unit is started at bake, before any bind.
+ */
+export function agentModelRouteUnitFiles(): Array<{ path: string; text: string; mode: number }> {
+  return [
+    {
+      path: `/etc/systemd/system/${AGENT_MODEL_ROUTE_UNIT}.service`,
+      text: `[Unit]\nDescription=cmux: the agents' managed model route where the coderouter edge resolves\n\n[Service]\nType=oneshot\nRemainAfterExit=yes\nTimeoutStartSec=30\nExecStart=${AGENT_MODEL_ROUTE_SYNC_PATH}\n`,
+      mode: 0o644,
+    },
+    {
+      path: `/etc/systemd/system/${AGENT_MODEL_ROUTE_UNIT}.path`,
+      text: `[Unit]\nDescription=cmux: the agents' managed model route, once the machine binds\n\n[Path]\nPathExists=${AGENT_MODEL_ROUTE_TRIGGER}\n\n[Install]\nWantedBy=paths.target\n`,
+      mode: 0o644,
+    },
+  ];
+}
+
+/**
+ * Fails unless both staged route files exist, parse, point at the edge, and carry no credential, and neither is
+ * in its agent's managed path (the sync script puts it there on a machine with the edge). `root` prefixes every
+ * path (tests).
+ */
 export function agentModelRouteCheckCommand(root = ""): string {
-  const claude = sq(`${root}/etc/claude-code/managed-settings.json`);
-  const codex = sq(`${root}/etc/codex/managed_config.toml`);
+  const [claudeFile, codexFile] = agentModelRouteFiles();
+  const claude = sq(`${root}${claudeFile!.path}`);
+  const codex = sq(`${root}${codexFile!.path}`);
   const files = `${claude} ${codex}`;
   return [
     `test -s ${claude}`,
     `test -s ${codex}`,
     `python3 -I -c 'import json, sys, tomllib; s = json.load(open(sys.argv[1])); c = tomllib.load(open(sys.argv[2], "rb")); sys.exit(0 if s["env"]["ANTHROPIC_BASE_URL"].startswith("https://") and s["apiKeyHelper"] and c["model_provider"] == "cmux" and c["model_providers"]["cmux"]["base_url"].startswith("https://") else 1)' ${files}`,
     `! grep -Eq 'CLAUDE_CODE_OAUTH_TOKEN|sk-ant-|sk-proj-|crt_|refresh_token|access_token' ${files}`,
+    `test ! -e ${sq(`${root}${claudeFile!.target}`)}`,
+    `test ! -e ${sq(`${root}${codexFile!.target}`)}`,
+    `sh -n ${sq(`${root}${AGENT_MODEL_ROUTE_SYNC_PATH}`)}`,
     "echo agent-model-route-baked",
   ].join(" && ");
 }
@@ -933,9 +1004,13 @@ async function writeModelPlane(ctx: Ctx): Promise<void> {
   await writeGuestFile(vm, VM_GUEST_MODEL_PLANE_ENV_PATH, renderVmGuestModelPlaneEnvFile(vmGuestModelPlaneEnv()), 0o644);
   for (const file of AGENT_SIGN_IN_FILES) await writeGuestFile(vm, file.path, devboxFileBytes(file.name), 0o644);
   await L.step(vm, "agent-sign-in", agentSignInCheckCommand());
-  await L.step(vm, "agent-model-route-dirs", "install -d -m 755 /etc/claude-code /etc/codex");
+  await L.step(vm, "agent-model-route-dirs", `install -d -m 755 /etc/claude-code /etc/codex ${AGENT_MODEL_ROUTE_DIR}`);
   for (const file of agentModelRouteFiles()) await writeGuestFile(vm, file.path, file.text, file.mode);
+  await writeGuestFile(vm, AGENT_MODEL_ROUTE_SYNC_PATH, agentModelRouteSyncScript(), 0o755);
+  for (const file of agentModelRouteUnitFiles()) await writeGuestFile(vm, file.path, file.text, file.mode);
   await L.step(vm, "agent-model-route", agentModelRouteCheckCommand());
+  // --now: a clone resumes this running system (no boot); the builder never binds, so no pass runs here.
+  await L.step(vm, "agent-model-route-path", `test ! -e ${AGENT_MODEL_ROUTE_TRIGGER} && systemd-analyze verify /etc/systemd/system/${AGENT_MODEL_ROUTE_UNIT}.service /etc/systemd/system/${AGENT_MODEL_ROUTE_UNIT}.path && systemctl daemon-reload && systemctl enable --now --quiet ${AGENT_MODEL_ROUTE_UNIT}.path && systemctl is-active ${AGENT_MODEL_ROUTE_UNIT}.path`);
   await L.step(vm, "model-plane-env", `sh -n ${VM_GUEST_MODEL_PLANE_ENV_PATH} && bash -n /etc/cmux/agent-config.sh && ! grep -q crt_ ${VM_GUEST_MODEL_PLANE_ENV_PATH} && grep -q "^export OPENAI_BASE_URL='https://" ${VM_GUEST_MODEL_PLANE_ENV_PATH} && echo model-plane-env-baked`);
   await L.step(vm, "acpmux-login-env", acpmuxLoginEnvRefreshCommand());
   await L.step(vm, "acpmux-harness-checks", acpmuxHarnessChecksDoneCommand());

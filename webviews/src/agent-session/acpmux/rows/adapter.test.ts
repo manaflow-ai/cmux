@@ -1,8 +1,9 @@
 // The adapter over one chat's snapshots in turn: a row is adapted again only when it changed, or a
 // turn's end when its group row did, and every other row keeps its view rows' objects.
 import { expect, test } from "bun:test";
+import { chatRowsFeed } from "../../../../test/support/chatRowsFeed";
 import { ChatAdapter } from "./adapter";
-import { ChatRowsHost } from "./host";
+import { ChatRowsHost, type ChatRowsPost } from "./host";
 import { ChatRowStore } from "./store";
 import type { ChatRow } from "./wire";
 
@@ -20,14 +21,11 @@ const row = (id: number, extra: Partial<ChatRow> = {}): ChatRow => ({
 /// A chat opened on `rows`, with a way to send it an op.
 async function chat(rows: ChatRow[]) {
   const store = new ChatRowStore();
-  const host = new ChatRowsHost(
-    async (method, params) => (method === "chat.rows.open" ? { sid: params.sid } : {}),
-    store,
-    () => "c",
-  );
+  const post: ChatRowsPost = async (method, params) => (method === "chat.rows.open" ? { sid: params.sid } : {});
+  const host = new ChatRowsHost(post, store, () => "c");
   await host.open("chat-1");
-  let batch = 0;
-  const send = (change: unknown) => host.receive({ batch: ++batch, changes: [JSON.stringify(change)] });
+  const feed = chatRowsFeed(host, post);
+  const send = (change: unknown) => feed([JSON.stringify(change)]);
   send({
     kind: "chatWindow",
     replaces: true,
@@ -68,4 +66,29 @@ test("a turn's end is adapted again when its group row changes", async () => {
   const [summary] = adapter.adapt(snapshot()).rows;
   expect(summary!.durationMs).toBe(2500);
   expect(summary!.toolCount).toBe(2);
+});
+
+test("a decided ask adapted before the chat's harness is known names its mode once the harness is", async () => {
+  const ask = row(1, {
+    kind: "ask",
+    body: {
+      ask: "permission",
+      permissionId: "perm1",
+      decision: { kind: "fullAccess", mode: "acceptEdits" },
+      request: { toolCall: { title: "Edit the plan", kind: "edit" }, options: [] },
+    },
+  });
+  const { snapshot } = await chat([ask]);
+  // The page's context reads the harness from the chat list as each row is adapted.
+  let harness: string | undefined;
+  const adapter = new ChatAdapter({
+    sessionId: "chat-1",
+    get harness() {
+      return harness;
+    },
+  });
+  const mode = () => (adapter.adapt(snapshot()).rows[0] as { decision?: { mode?: string } }).decision?.mode;
+  expect(mode()).toBe("Full access");
+  harness = "claude";
+  expect(mode()).toBe("Accept edits");
 });

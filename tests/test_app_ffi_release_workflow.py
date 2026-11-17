@@ -749,13 +749,19 @@ class RePinPublication(unittest.TestCase):
                 self.assertEqual(state["published"], [])
                 self.assertEqual(state["writes"], 0)
 
-    def test_a_head_whose_only_failures_fail_on_its_base_is_kept(self):
+    def test_a_head_whose_only_failures_fail_on_its_base_or_were_cancelled_is_kept(self):
         # 2026-11-16: #44074 had about 200 check runs and the cmux-next checks job red on base reds; one page and
         # any failure moved it at every publish (6f1d36c1, fe47e481, a30893db, c5a8aa57), and no head finished CI.
         cases = {
             "more check runs than one page": {"checks": ("success",) * 150},
             "a failure the base has too": {"checks": ("failure", "success"), "staged_on": "5" * 40,
                                            "base_checks": ("failure", "success")},
+            # 2026-11-17: the re-pin's own PR edit started a size budget run that cancelled the head's (group
+            # cmux-next-size-budget-<PR>, cancel-in-progress), and run 44042861860 moved #45149's head df6ee657 for
+            # "8 failed check(s) of its own" while its Mac jobs were still queued: a cancel is not a failure.
+            "a check run cancelled by a newer run of its workflow": {"checks": ("success", "cancelled"),
+                                                                     "staged_on": "5" * 40,
+                                                                     "base_checks": ("success",)},
         }
         for name, options in cases.items():
             with self.subTest(name):

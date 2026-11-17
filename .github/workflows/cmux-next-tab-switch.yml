@@ -124,11 +124,11 @@ jobs:
         run: |
           set -uo pipefail
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
-          mkdir -p "$RUNNER_TEMP/tab-switch"
           if ! [[ -x "$client" ]]; then
             echo "::error title=Tab switch::$client is not installed on runner $RUNNER_NAME; nothing was measured."
             exit 1
           fi
+          mkdir -p "$RUNNER_TEMP/tab-switch"
           # Would a background step start within QUEUE_WAIT_S? Exclusive steps run one per display Mac, and a
           # background one starts after every queued one, so it is submitted only while fewer are queued (the most
           # any online measure host could take, queued_eligible) than are running now: each running step frees its
