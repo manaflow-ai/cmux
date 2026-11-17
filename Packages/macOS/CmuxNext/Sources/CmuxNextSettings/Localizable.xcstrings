@@ -203299,6 +203299,268 @@
         }
       }
     },
+    "settings.labs.gcpMachineProvider": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أجهزة في مشروع GCP الخاص بك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mašine u vašem GCP projektu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maskiner i dit GCP-projekt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maschinen in deinem GCP-Projekt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machines in Your GCP Project"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máquinas en tu proyecto de GCP"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Machines dans votre projet GCP"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Macchine nel tuo progetto GCP"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自分の GCP プロジェクトのマシン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីននៅក្នុងគម្រោង GCP របស់អ្នក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "내 GCP 프로젝트의 머신"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maskiner i ditt GCP-prosjekt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maszyny w Twoim projekcie GCP"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máquinas no seu projeto do GCP"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Машины в вашем проекте GCP"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องในโปรเจกต์ GCP ของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GCP Projenizdeki Makineler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Машини у вашому проєкті GCP"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy trong dự án GCP của bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的 GCP 项目中的机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的 GCP 專案中的機器"
+          }
+        }
+      }
+    },
+    "settings.labs.gcpMachineProvider.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يتيح لـ cmux إنشاء أجهزة Linux في مشروع Google Cloud تملكه، وتُحتسب تكلفتها على ذلك المشروع. تبقى بيانات اعتمادك على هذا الـ Mac."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Omogućava cmuxu da kreira Linux mašine u Google Cloud projektu koji posjedujete, naplaćeno tom projektu. Vaši akreditivi ostaju na ovom Macu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lader cmux oprette Linux-maskiner i et Google Cloud-projekt, du ejer, faktureret til det projekt. Dine legitimationsoplysninger bliver på denne Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lässt cmux Linux-Maschinen in einem Google-Cloud-Projekt erstellen, das dir gehört, abgerechnet über dieses Projekt. Deine Zugangsdaten bleiben auf diesem Mac."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lets cmux create Linux machines in a Google Cloud project you own, billed to that project. Your credential stays on this Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permite que cmux cree máquinas Linux en un proyecto de Google Cloud que te pertenece, facturadas a ese proyecto. Tu credencial se queda en este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permet à cmux de créer des machines Linux dans un projet Google Cloud qui vous appartient, facturées à ce projet. Vos identifiants restent sur ce Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Consente a cmux di creare macchine Linux in un progetto Google Cloud di tua proprietà, addebitate a quel progetto. Le tue credenziali restano su questo Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自分が所有する Google Cloud プロジェクトに cmux が Linux マシンを作成できるようにします。料金はそのプロジェクトに請求されます。認証情報はこの Mac から出ません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុញ្ញាតឱ្យ cmux បង្កើតម៉ាស៊ីន Linux នៅក្នុងគម្រោង Google Cloud ដែលអ្នកជាម្ចាស់ ដោយគិតថ្លៃលើគម្រោងនោះ។ ព័ត៌មានសម្គាល់របស់អ្នកនៅលើ Mac នេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 내가 소유한 Google Cloud 프로젝트에 Linux 머신을 만들 수 있게 합니다. 비용은 그 프로젝트에 청구됩니다. 자격 증명은 이 Mac에만 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lar cmux opprette Linux-maskiner i et Google Cloud-prosjekt du eier, fakturert til det prosjektet. Påloggingsinformasjonen din blir på denne Macen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozwala cmux tworzyć maszyny z Linuksem w Twoim projekcie Google Cloud, rozliczane w tym projekcie. Twoje dane uwierzytelniające zostają na tym Macu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permite que o cmux crie máquinas Linux em um projeto do Google Cloud que é seu, cobradas nesse projeto. Sua credencial fica neste Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Позволяет cmux создавать машины Linux в вашем проекте Google Cloud, оплата идёт с этого проекта. Ваши учётные данные остаются на этом Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ให้ cmux สร้างเครื่อง Linux ในโปรเจกต์ Google Cloud ที่คุณเป็นเจ้าของ โดยเรียกเก็บค่าใช้จ่ายกับโปรเจกต์นั้น ข้อมูลรับรองของคุณอยู่บน Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux'un size ait bir Google Cloud projesinde Linux makineleri oluşturmasına izin verir; ücret o projeye yansır. Kimlik bilgileriniz bu Mac'te kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дозволяє cmux створювати машини Linux у вашому проєкті Google Cloud з оплатою з цього проєкту. Ваші облікові дані залишаються на цьому Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cho phép cmux tạo máy Linux trong dự án Google Cloud bạn sở hữu, tính phí vào dự án đó. Thông tin xác thực của bạn ở lại trên máy Mac này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "让 cmux 在你拥有的 Google Cloud 项目中创建 Linux 机器，费用记入该项目。你的凭据只保留在这台 Mac 上。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "讓 cmux 在你擁有的 Google Cloud 專案中建立 Linux 機器，費用記入該專案。你的憑證只保留在這台 Mac 上。"
+          }
+        }
+      }
+    },
     "settings.labs.liveCode": {
       "extractionState": "manual",
       "localizations": {

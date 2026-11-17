@@ -32,6 +32,7 @@ members = [
     "crates/cmux-chat-index",
     "crates/cmux-cloud-cli",
     "crates/cmux-cloud-environment",
+    "crates/cmux-machine-provider",
     "crates/cmux-conversation",
     "crates/cmux-chief",
     "bindings/rust",

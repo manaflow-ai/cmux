@@ -1,0 +1,23 @@
+[package]
+name = "cmux-machine-provider"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Labs prototype (off by default): the provider-neutral machine lifecycle contract, its idempotency ledger, a fake provider and a Compute Engine adapter that runs in the user's own GCP project"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "cmux-gcp-machine"
+path = "src/main.rs"
+
+[dependencies]
+cmux-config.workspace = true
+cmux-process.workspace = true
+hex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true

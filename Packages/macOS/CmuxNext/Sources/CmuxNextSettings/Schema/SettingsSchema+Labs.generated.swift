@@ -17,6 +17,9 @@ extension CmuxConfigSnapshot {
     /// `labs.liveCode`: Live code (docs/cmux-next/live-code.md): an opt-in, temporary switch. On, a live code build (CMUX_LIVE_CODE_BUILD=1 scripts/reload.sh: CmuxNextApp at -Onone, linked -interposable) watches ~/Library/Caches/cmux-next/live-code and applies Swift patches compiled from the person's checkout (scripts/live-code/patch.py) with no new build. Off, nothing is watched or loaded; Debug and bench builds only until a patch's signer is checked (cmux#13742). Read at launch. The person turns it on: agents may not (it loads code into the app).
     public nonisolated static let liveCodePath = ["labs", "liveCode"]
     public nonisolated static let liveCodeDefault = false
+    /// `labs.gcpMachineProvider`: GCP machine provider prototype (cmuxterm-hq plans/cloud-roadmap/gcp-self-hosting-design.md): creates, stops, starts, snapshots and deletes Linux cmux machines in the person's own GCP project with their own credential (crate cmux-machine-provider, CLI cmux-gcp-machine). Off by default; while off every provider call is refused. The person turns it on: agents may not (it spends the person's cloud bill).
+    public nonisolated static let gcpMachineProviderPath = ["labs", "gcpMachineProvider"]
+    public nonisolated static let gcpMachineProviderDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -74,6 +77,16 @@ nonisolated enum LabsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.liveCodeDefault),
                 keywords: ["labs", "live", "code", "hot", "reload", "patch", "inject", "swift", "develop"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.gcpMachineProviderPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.gcpMachineProvider", "Machines in Your GCP Project"),
+                help: SettingsText.keyed("settings.labs.gcpMachineProvider.help", "Lets cmux create Linux machines in a Google Cloud project you own, billed to that project. Your credential stays on this Mac."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.gcpMachineProviderDefault),
+                keywords: ["labs", "gcp", "google", "cloud", "machine", "vm", "self-host", "provider"]
             ),
         ]
     }

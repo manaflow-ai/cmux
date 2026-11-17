@@ -128,6 +128,30 @@
             "swift",
             "develop"
           ]
+        },
+        {
+          "key": "labs.gcpMachineProvider",
+          "note": "GCP machine provider prototype (cmuxterm-hq plans/cloud-roadmap/gcp-self-hosting-design.md): creates, stops, starts, snapshots and deletes Linux cmux machines in the person's own GCP project with their own credential (crate cmux-machine-provider, CLI cmux-gcp-machine). Off by default; while off every provider call is refused. The person turns it on: agents may not (it spends the person's cloud bill).",
+          "title": {
+            "key": "settings.labs.gcpMachineProvider",
+            "text": "Machines in Your GCP Project"
+          },
+          "help": {
+            "key": "settings.labs.gcpMachineProvider.help",
+            "text": "Lets cmux create Linux machines in a Google Cloud project you own, billed to that project. Your credential stays on this Mac."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "gcp",
+            "google",
+            "cloud",
+            "machine",
+            "vm",
+            "self-host",
+            "provider"
+          ]
         }
       ]
     }
