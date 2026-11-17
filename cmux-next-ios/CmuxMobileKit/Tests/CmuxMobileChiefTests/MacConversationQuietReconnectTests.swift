@@ -50,7 +50,7 @@ import Testing
     }
 
     /// Waits for `condition`, at most `limit` (a bounded test wait, not a sync).
-    private func eventually(_ limit: Duration = .seconds(10), _ condition: @MainActor () -> Bool) async -> Bool {
+    private func eventually(_ limit: Duration = .seconds(60), _ condition: @MainActor () -> Bool) async -> Bool {
         let clock = ContinuousClock()
         let end = clock.now + limit
         while clock.now < end {

@@ -40,11 +40,11 @@ final class DrivenLinkBackend: ConversationBackend, @unchecked Sendable {
 }
 
 @MainActor
-@Suite struct ConversationHeaderQuietTests {
+@Suite(.serialized) struct ConversationHeaderQuietTests {
     struct Offline: Error {}
 
     /// Waits for `condition`, at most `limit` (a bounded test wait, not a sync).
-    private func eventually(_ limit: Duration = .seconds(10), _ condition: @MainActor () -> Bool) async -> Bool {
+    private func eventually(_ limit: Duration = .seconds(60), _ condition: @MainActor () -> Bool) async -> Bool {
         let clock = ContinuousClock()
         let end = clock.now + limit
         while clock.now < end {
@@ -90,11 +90,8 @@ final class DrivenLinkBackend: ConversationBackend, @unchecked Sendable {
         #expect(await eventually { store.connectionNoticeDue })
 
         // The screen opens after the bound passed: no connection callback comes for it.
+        // No window: a key window in the scene-less test host stalls the main actor for seconds.
         let controller = ConversationViewController(store: store)
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
-        window.rootViewController = controller
-        window.makeKeyAndVisible()
-        defer { window.isHidden = true }
         controller.loadViewIfNeeded()
         #expect(Self.label("Connecting…", in: controller.view) != nil)
     }
@@ -106,22 +103,17 @@ final class DrivenLinkBackend: ConversationBackend, @unchecked Sendable {
         let backend = DrivenLinkBackend()
         let store = ConversationStore(backend: backend)
         let bounds = CGRect(x: 0, y: 0, width: 390, height: 844)
+        // Drawn off screen, no window: a key window in the scene-less test host stalls the main actor.
         let controller = ConversationViewController(store: store)
-        let window = UIWindow(frame: bounds)
-        window.rootViewController = controller
-        window.makeKeyAndVisible()
-        defer {
-            window.isHidden = true
-            store.stop()
-        }
+        controller.loadViewIfNeeded()
+        controller.view.frame = bounds
+        defer { store.stop() }
         var log: [String] = []
         let started = CACurrentMediaTime()
         func capture(_ name: String) {
             let shown = Self.label("Connecting…", in: controller.view).map { $0.alpha > 0 } ?? false
             log.append("\(name) t=\(Int((CACurrentMediaTime() - started) * 1000))ms connecting_line=\(shown)")
-            // The layer tree itself: a test host's window has no scene, so drawHierarchy waits for a
-            // screen commit that never comes (a blank image and a ~13 s stall on the main actor).
-            controller.view.frame = bounds
+            // The layer tree itself: drawHierarchy waits for a screen commit a scene-less host never makes.
             controller.view.layoutIfNeeded()
             let image = UIGraphicsImageRenderer(bounds: bounds).image { context in
                 UIColor.systemBackground.setFill()
