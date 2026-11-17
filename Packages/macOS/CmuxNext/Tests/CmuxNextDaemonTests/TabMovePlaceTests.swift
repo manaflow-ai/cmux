@@ -174,11 +174,15 @@ struct TabMovePlaceTests {
     /// swap of the 2 last tabs worse, for the time of one answer.
     ///
     /// Who reaches it:
-    /// - The daemon refuses no move of a tab that stays in its pane. `move-tab` refuses an unknown pane or tab
-    ///   (`cmux-tui/crates/cmux-tui-core/src/server/cmd_tabs.rs`), and so does the same-pane move of the reducer
-    ///   (`cmux-tui/crates/cmux-layout-reducer/src/tab_moves.rs`). A pinned column refuses a move that breaks it
-    ///   (`cmux-tui/crates/cmux-tui-core/src/mux/pinned_columns.rs`, `ensure_pinned_columns_kept`): that is a move
-    ///   to or from another pane.
+    /// - The daemon gives no error to a move of a tab that stays in its pane. `move-tab` gives an error for an
+    ///   unknown pane or tab (`cmux-tui/crates/cmux-tui-core/src/server/cmd_tabs.rs`), and so does the same-pane
+    ///   move of the reducer (`cmux-tui/crates/cmux-layout-reducer/src/tab_moves.rs`). A pinned column does not make
+    ///   a move that breaks it (`cmux-tui/crates/cmux-tui-core/src/mux/pinned_columns.rs`,
+    ///   `ensure_pinned_columns_kept`): a tab that comes in while the column takes none, its first tab that leaves,
+    ///   and its first tab that moves from the first place inside its pane. The daemon's answer is then
+    ///   `moved: false`, not an error. The app refuses its move for that answer only when the tab goes to another
+    ///   pane (`TabMoves.swift`, the send of `move-tab`); for a tab that stays in its pane the store's move settles
+    ///   and is not refused, so that answer does not make this row's case.
     /// - The app's store refuses a move for each error of its request (`DaemonService+Intents.swift`, the `catch` of
     ///   the send): a request that passed its deadline and a lost connection too. After a missed deadline the
     ///   daemon can make the move later; then this rule and the older one each show a wrong order until the
