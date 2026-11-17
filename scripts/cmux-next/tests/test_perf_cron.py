@@ -3232,7 +3232,7 @@ class PartRowsStoredAtOnceTests(unittest.TestCase):
                                                          self.STRESS)])
             self.assertIsNotNone(state["current"], "the measurement is still in flight")
             self.assertTrue(state.get("part_rows"))
-            self.assertEqual(state["row_history"], {}, "the baseline and comparison are untouched until the finish")
+            self.assertFalse(state.get("row_history"), "the baseline and comparison are untouched until the finish")
 
     def test_staleness_counts_per_part(self):
         with tempfile.TemporaryDirectory() as d:
