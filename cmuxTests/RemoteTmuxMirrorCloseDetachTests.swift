@@ -517,13 +517,24 @@ import Testing
         let windowId: UUID
         let manager: TabManager
         let workspace: Workspace
+        private let chief: ChiefEnabledTestOverride
         var controller: RemoteTmuxController { appDelegate.remoteTmuxController }
 
         init() throws {
-            appDelegate = try #require(AppDelegate.shared)
-            windowId = appDelegate.createMainWindow()
-            manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
-            workspace = try #require(manager.selectedWorkspace)
+            // Chief Home would pin a Home workspace in the new window, so the
+            // mirror could never be the window's last workspace. These cases
+            // need it to be, so the harness runs with Chief off.
+            let chief = ChiefEnabledTestOverride(false)
+            self.chief = chief
+            do {
+                appDelegate = try #require(AppDelegate.shared)
+                windowId = appDelegate.createMainWindow()
+                manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+                workspace = try #require(manager.selectedWorkspace)
+            } catch {
+                chief.restore()
+                throw error
+            }
         }
 
         func tearDown() {
@@ -531,6 +542,7 @@ import Testing
             // Clear any marker so it can't leak into another serialized test.
             controller.consumeKillSessionsOnWindowClose(windowId: windowId)
             closeWindow(windowId)
+            chief.restore()
         }
 
         func cacheConnection(host: RemoteTmuxHost, session: String) {

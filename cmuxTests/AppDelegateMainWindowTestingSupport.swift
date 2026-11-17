@@ -1,4 +1,5 @@
 import AppKit
+import struct CmuxSettings.ChiefCatalogSection
 import CmuxTerminal
 import Foundation
 import Testing
@@ -370,4 +371,37 @@ struct ExclusiveAppContextTrait: SuiteTrait, TestTrait, TestScoping {
 
 extension Trait where Self == ExclusiveAppContextTrait {
     static var exclusiveAppContext: Self { Self() }
+}
+
+/// Sets `chief.enabled` for a test and puts the stored value back.
+///
+/// Chief Home is on by default (#21287): every new main window gets a pinned
+/// Home workspace at index 0 that cannot be closed. A test that counts or
+/// indexes a new window's workspaces, or needs a workspace to become its
+/// window's last, turns Chief off for its body:
+///
+///     let chief = ChiefEnabledTestOverride(false)
+///     defer { chief.restore() }
+///
+/// `chief.enabled` is process-wide, so the test runs under
+/// `.exclusiveAppContext` (or inside `AppContextSerialGate`) and no suite in
+/// parallel sees it flip. Overrides nest: restore them in reverse order.
+struct ChiefEnabledTestOverride {
+    private let defaults: UserDefaults
+    private let key = ChiefCatalogSection().enabled.userDefaultsKey
+    private let original: Any?
+
+    init(_ enabled: Bool, in defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        original = defaults.object(forKey: key)
+        ChiefSettings.setEnabled(enabled, in: defaults)
+    }
+
+    func restore() {
+        if let original {
+            defaults.set(original, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
+    }
 }

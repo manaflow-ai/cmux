@@ -190,7 +190,11 @@ struct SidebarNewLocalWorkspaceTests {
         #expect(created.currentDirectory == fixture.root.path)
     }
 
-    @Test func commandNWithoutAWindowKeepsTheInitialWorkspace() throws {
+    @Test(.exclusiveAppContext) func commandNWithoutAWindowKeepsTheInitialWorkspace() throws {
+        // Chief Home would add a second, pinned workspace to the new window;
+        // this case counts only the window's initial workspace.
+        let chief = ChiefEnabledTestOverride(false)
+        defer { chief.restore() }
         let app = AppDelegate()
         #expect(app.mainWindowContexts.isEmpty)
         #expect(app.performNewLocalWorkspaceAction(debugSource: "test.local.noWindow"))
