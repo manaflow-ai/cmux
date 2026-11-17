@@ -186,7 +186,9 @@ fn a_fifo_is_refused_without_waiting() {
     let dir = scratch("fifo");
     let fifo = dir.join("shot.png");
     let name = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
-    assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+    // SAFETY: `name` is a NUL-terminated CString live for the call.
+    let made = unsafe { libc::mkfifo(name.as_ptr(), 0o600) };
+    assert_eq!(made, 0);
     let (done, wait) = std::sync::mpsc::channel();
     let path = fifo.to_str().unwrap().to_owned();
     let dir2 = dir.clone();

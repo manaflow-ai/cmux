@@ -904,6 +904,7 @@ fn shutdown_is_bounded_when_a_descendant_keeps_the_pty_open() {
     ))
     .unwrap();
     assert_eq!(
+        // SAFETY: `release_gate_path_c` is a NUL-terminated CString alive across the call.
         unsafe { libc::mkfifo(release_gate_path_c.as_ptr(), 0o600) },
         0,
         "failed to create descendant release gate: {}",
@@ -921,6 +922,7 @@ fn shutdown_is_bounded_when_a_descendant_keeps_the_pty_open() {
     )
     .unwrap();
     assert_eq!(
+        // SAFETY: `release_ready_signal_path_c` is a NUL-terminated CString alive across the call.
         unsafe { libc::mkfifo(release_ready_signal_path_c.as_ptr(), 0o600) },
         0,
         "failed to create descendant readiness signal: {}",

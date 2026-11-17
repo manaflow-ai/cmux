@@ -996,8 +996,8 @@ fn the_key_reaches_the_daemon_only_after_it_is_not_dumpable() {
     use std::os::unix::fs::MetadataExt;
     let home = start_home("nodump");
     let mut fds = [-1i32; 2];
-    // SAFETY: a fresh socket pair; both ends are owned here.
     let kind = libc::SOCK_STREAM | libc::SOCK_CLOEXEC;
+    // SAFETY: `fds` is two writable c_ints that socketpair fills; both ends are owned here.
     assert_eq!(unsafe { libc::socketpair(libc::AF_UNIX, kind, 0, fds.as_mut_ptr()) }, 0);
     let (ours, theirs) = (fds[0], fds[1]);
     let mut cmd = daemon_env::acpmux(&home);

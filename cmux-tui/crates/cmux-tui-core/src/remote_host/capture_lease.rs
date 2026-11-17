@@ -132,6 +132,7 @@ impl Admission {
             let meta = file.metadata()?;
             // SAFETY: geteuid has no preconditions.
             if !meta.is_file()
+                // SAFETY: as above: geteuid has no preconditions.
                 || meta.uid() != unsafe { libc::geteuid() }
                 || meta.mode() & 0o077 != 0
                 || meta.len() > 16_384

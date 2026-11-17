@@ -238,6 +238,7 @@ async fn daemon_restart_sends_close_1012_before_wireguard_shutdown() {
     request.headers_mut().insert("authorization", format!("Bearer {token}").parse().unwrap());
     let (mut websocket, _) = tokio_tungstenite::client_async(request, stream).await.unwrap();
     // Signal only the child this fixture owns. This follows the daemon update path.
+    // SAFETY: integer args only; the fixture's child is not yet reaped.
     assert_eq!(unsafe { libc::kill(remote_daemon.0.id() as libc::pid_t, libc::SIGTERM) }, 0);
     let close = tokio::time::timeout(Duration::from_secs(5), async {
         while let Some(message) = websocket.next().await {

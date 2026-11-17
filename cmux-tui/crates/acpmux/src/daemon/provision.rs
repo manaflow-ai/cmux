@@ -109,8 +109,8 @@ pub(crate) fn provisionable(own_uid: u32, signed: bool, cloud_machine: bool) -> 
 /// Never starts a daemon (as root it would make root-owned state in the user's home).
 #[cfg(target_os = "linux")]
 pub async fn enroll_running(fd: i32) -> Result<Value> {
-    // SAFETY: geteuid has no preconditions.
     anyhow::ensure!(
+        // SAFETY: geteuid has no preconditions.
         unsafe { libc::geteuid() } == 0,
         "`daemon enroll` is the VM provisioning exec's and runs as root; the app's own exec uses `daemon start --person-key-fd`"
     );
@@ -341,8 +341,8 @@ impl Conn {
         };
         let fd = stream.as_raw_fd();
         let on: libc::c_int = 1;
-        // SAFETY: a valid socket descriptor and a c_int option of its size. Before anything is sent:
-        // every reply then carries its writer's credentials.
+        // SAFETY: a valid socket descriptor and a c_int option of its size. Before anything is
+        // sent: every reply then carries its writer's credentials.
         let set = unsafe {
             libc::setsockopt(
                 fd,

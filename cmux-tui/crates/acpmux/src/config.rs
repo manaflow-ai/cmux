@@ -413,6 +413,7 @@ pub(crate) fn validate_private_state_ancestors(dir: &Path) -> Result<()> {
 
     #[cfg(test)]
     startup_seams::ancestor_check(dir);
+    // SAFETY: getuid has no preconditions.
     let uid = unsafe { libc::getuid() };
     let check = |path: &Path, metadata: &std::fs::Metadata| -> Result<()> {
         anyhow::ensure!(
@@ -586,18 +587,25 @@ fn refuse_writable_extended_acl(file: &std::fs::File, path: &Path) -> Result<()>
         fn acl_free(object: *mut core::ffi::c_void) -> libc::c_int;
     }
 
+    // SAFETY: the descriptor is live for the call; the returned ACL is freed exactly once below.
     let acl = unsafe { acl_get_fd_np(file.as_raw_fd(), ACL_TYPE_EXTENDED) };
     if acl.is_null() {
         let error = std::io::Error::last_os_error();
         return if error.raw_os_error() == Some(libc::ENOENT) { Ok(()) } else { Err(error.into()) };
     }
     let mut len = 0;
+    // SAFETY: `acl` is the live, non-null ACL above; `len` is a writable ssize_t.
     let text = unsafe { acl_to_text(acl, &mut len) };
     if text.is_null() {
+        // SAFETY: `acl` came from acl_get_fd_np and is freed only here on this path.
         unsafe { acl_free(acl) };
         return Err(std::io::Error::last_os_error().into());
     }
+    // SAFETY: acl_to_text returned a non-null NUL-terminated string, freed only after this
+    // borrow is copied into `rendered`.
     let rendered = unsafe { CStr::from_ptr(text) }.to_string_lossy().to_ascii_lowercase();
+    // SAFETY: both came from the ACL library (acl_to_text, acl_get_fd_np), are non-null and
+    // are freed exactly once here; nothing reads them afterwards.
     unsafe {
         acl_free(text.cast());
         acl_free(acl);

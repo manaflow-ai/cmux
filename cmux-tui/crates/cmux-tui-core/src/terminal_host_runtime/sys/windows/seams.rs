@@ -318,8 +318,11 @@ pub(crate) struct AcceptWaker {
     event: std::os::windows::io::OwnedHandle,
 }
 
-// SAFETY: an event handle; Set/Reset/Wait are thread-safe.
+// SAFETY: the only field is an OwnedHandle to an event (std already makes it
+// Send); closed once by its Drop.
 unsafe impl Send for AcceptWaker {}
+// SAFETY: `&self` methods only call SetEvent/ResetEvent/WaitForSingleObject,
+// which are thread-safe on one event; nothing is mutated through `&self`.
 unsafe impl Sync for AcceptWaker {}
 
 impl AcceptWaker {

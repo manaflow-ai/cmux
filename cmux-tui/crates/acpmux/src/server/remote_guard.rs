@@ -1256,6 +1256,7 @@ fn cloud_chat_folder_under(home: &std::path::Path, name: &str) -> Result<PathBuf
         {
             use std::os::unix::fs::MetadataExt as _;
             metadata.is_dir()
+                // SAFETY: geteuid has no preconditions.
                 && metadata.uid() == unsafe { libc::geteuid() }
                 && metadata.mode() & 0o022 == 0
         }

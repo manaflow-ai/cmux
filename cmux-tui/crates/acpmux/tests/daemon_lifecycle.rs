@@ -149,6 +149,7 @@ async fn daemon_binds_before_login_env_reports_ready_and_stops_on_sigterm() {
 
     // SIGTERM with a live agent: an orderly exit within the budget.
     let term = Instant::now();
+    // SAFETY: integer args only; `pid` is our unreaped child, so it cannot be a reused pid.
     unsafe {
         libc::kill(pid, libc::SIGTERM);
     }
@@ -244,6 +245,7 @@ async fn a_login_read_with_no_end_marker_takes_no_variable_and_the_daemon_still_
     assert_eq!(status["liveAgents"], 1);
 
     let term = Instant::now();
+    // SAFETY: integer args only; `pid` is our unreaped child, so it cannot be a reused pid.
     unsafe {
         libc::kill(pid, libc::SIGTERM);
     }
@@ -281,6 +283,7 @@ async fn sigterm_is_bounded_with_busy_agents_and_attached_clients() {
     .unwrap();
     let socket = dir.join("s.sock");
     let mut fds = [0i32; 2];
+    // SAFETY: `fds` is two writable c_ints, which pipe(2) fills; each end is closed once below.
     assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
     let (rfd, wfd) = (fds[0], fds[1]);
     let mut cmd = daemon_env::command(&dir, daemon_env::Agents::StandIn, &[]);
@@ -292,6 +295,9 @@ async fn sigterm_is_bounded_with_busy_agents_and_attached_clients() {
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
+    // SAFETY: the hook runs in the forked child and calls only async-signal-safe functions
+    // (setsid, dup2, signal, sigemptyset/sigaddset, pthread_sigmask) on a local sigset; it
+    // allocates nothing and takes no locks.
     unsafe {
         cmd.pre_exec(move || {
             libc::setsid();
@@ -307,10 +313,12 @@ async fn sigterm_is_bounded_with_busy_agents_and_attached_clients() {
         });
     }
     let mut child = cmd.spawn().unwrap();
+    // SAFETY: the parent's write end, closed once here; nothing else in this process owns it.
     unsafe { libc::close(wfd) };
     let pid = child.id() as i32;
     let ready = tokio::task::spawn_blocking(move || {
         let mut line = String::new();
+        // SAFETY: `rfd` is the open read end from pipe(2); this File becomes its only owner.
         let f = unsafe { std::fs::File::from_raw_fd(rfd) };
         BufReader::new(f).read_line(&mut line).unwrap();
         line
@@ -351,6 +359,7 @@ async fn sigterm_is_bounded_with_busy_agents_and_attached_clients() {
     }
 
     let term = Instant::now();
+    // SAFETY: integer args only; `pid` is our unreaped child, so it cannot be a reused pid.
     unsafe {
         libc::kill(pid, libc::SIGTERM);
     }
@@ -359,6 +368,7 @@ async fn sigterm_is_bounded_with_busy_agents_and_attached_clients() {
             break code;
         }
         if term.elapsed() > Duration::from_secs(12) {
+            // SAFETY: integer args only; `pid` is our unreaped child.
             unsafe {
                 libc::kill(pid, libc::SIGKILL);
             }
@@ -372,6 +382,7 @@ async fn sigterm_is_bounded_with_busy_agents_and_attached_clients() {
     assert!(took < Duration::from_secs(5), "stopped after {took:?}");
     // No agent survives the daemon.
     for k in kids.unwrap_or_default() {
+        // SAFETY: integer args only; signal 0 only probes whether `k` exists.
         let alive = unsafe { libc::kill(k, 0) } == 0
             && std::fs::read_to_string(format!("/proc/{k}/stat"))
                 .map(|s| !s.contains(") Z "))
@@ -481,6 +492,7 @@ async fn a_failed_state_write_while_loading_leaves_the_daemon_serving() {
     assert!(child.try_wait().unwrap().is_none(), "the daemon exited while retrying");
     let status = rpc.call("_acpmux/status", json!({})).await;
     assert_eq!(status["pid"], pid, "{status}");
+    // SAFETY: integer args only; `pid` is our unreaped child, so it cannot be a reused pid.
     unsafe {
         libc::kill(pid, libc::SIGTERM);
     }
@@ -1321,6 +1333,7 @@ async fn a_socket_the_homes_daemon_does_not_serve_fails_fast() {
         .output()
         .unwrap();
     let took = started.elapsed();
+    // SAFETY: integer args only; `child` is not yet reaped, so its pid is still ours.
     unsafe {
         libc::kill(child.id() as i32, libc::SIGTERM);
     }
@@ -1344,6 +1357,7 @@ async fn a_socket_the_homes_daemon_does_not_serve_fails_fast() {
         .output()
         .unwrap();
     let took = started.elapsed();
+    // SAFETY: integer args only; `child` is not yet reaped, so its pid is still ours.
     unsafe {
         libc::kill(child.id() as i32, libc::SIGTERM);
     }

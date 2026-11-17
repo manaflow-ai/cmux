@@ -219,6 +219,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // daemon must not die when its launcher or a client goes away mid-write:
     // a closed pipe is an ordinary write error here.
     #[cfg(unix)]
+    // SAFETY: signal takes integers only; SIGPIPE's disposition is process-wide and thread-safe.
     unsafe {
         libc::signal(libc::SIGPIPE, libc::SIG_IGN);
     }
@@ -226,6 +227,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // must not hold the readiness pipe open.
     #[cfg(unix)]
     if let Some(fd) = opts.ready_fd.filter(|fd| *fd > 2) {
+        // SAFETY: fcntl takes integers only; F_SETFD only marks the readiness descriptor
+        // close-on-exec (a bad fd fails with EBADF), it neither closes nor reuses it.
         unsafe {
             libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
         }
@@ -2093,6 +2096,9 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<(std::fs::F
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
+        // SAFETY: the closure runs in the forked child before exec and calls only setsid and fcntl,
+        // both async-signal-safe; it captures plain integers (`write_fd`, `key_fd`) and allocates
+        // nothing.
         unsafe {
             cmd.pre_exec(move || {
                 // New session so the daemon outlives the terminal; keep the

@@ -9,6 +9,7 @@ impl Children {
     }
     fn end(&self, name: &str) {
         // These pids were started by this test's fake harness and are still its children.
+        // SAFETY: integer args only; no memory is passed.
         unsafe { libc::kill(self.pids()[name], libc::SIGKILL) };
     }
 }
@@ -16,6 +17,7 @@ impl Drop for Children {
     fn drop(&mut self) {
         if let Ok(text) = std::fs::read_to_string(&self.0) {
             for pid in serde_json::from_str::<BTreeMap<String, i32>>(&text).unwrap().values() {
+                // SAFETY: integer args only; the pids are the fake harness's recorded children.
                 unsafe { libc::kill(*pid, libc::SIGKILL) };
             }
         }

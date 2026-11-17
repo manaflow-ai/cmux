@@ -155,6 +155,7 @@ pub(super) fn spawn_host(
 
 /// A live process's start time (seconds, microseconds), or None.
 pub(super) fn process_start(pid: u32) -> Option<(u64, u64)> {
+    // SAFETY: proc_bsdinfo is plain integer data, valid when all zero.
     let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
     let size = size_of::<libc::proc_bsdinfo>() as libc::c_int;
     // SAFETY: proc_pidinfo into a correctly sized buffer.

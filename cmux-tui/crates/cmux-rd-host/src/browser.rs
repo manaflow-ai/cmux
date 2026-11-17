@@ -196,6 +196,9 @@ fn supervise(cmd: BrowserCommand, backoff: Backoff, first: Child, shared: &Share
 fn terminate(pid: u32) {
     if pid != 0 {
         // SIGTERM lets Chrome flush its profile; the wait in `supervise` reaps it.
+        // SAFETY: integer args only; a signal touches no memory of ours. `pid` is our browser
+        // child; in the window between `supervise`'s wait and its store of 0 it can be a just-
+        // reaped pid (a wrong-process signal, never UB).
         unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
     }
 }
@@ -232,6 +235,7 @@ mod tests {
     }
 
     fn alive(pid: u32) -> bool {
+        // SAFETY: integer args only; signal 0 only checks that the pid exists.
         unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
     }
 
@@ -248,6 +252,7 @@ mod tests {
         let first = sup.pid();
         assert_eq!(sup.starts(), 1);
         // The browser crashes (or a person quits it): the supervisor starts a new one.
+        // SAFETY: integer args only; `first` is the supervisor's live child, not yet reaped.
         unsafe { libc::kill(first as libc::pid_t, libc::SIGKILL) };
         wait_until("restart", || sup.starts() == 2 && sup.pid() != 0 && sup.pid() != first);
         let second = sup.pid();

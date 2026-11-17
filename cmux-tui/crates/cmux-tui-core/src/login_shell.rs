@@ -134,6 +134,7 @@ fn account() -> Option<(String, String)> {
     let text = |pointer: *const libc::c_char| {
         // SAFETY: a non-null passwd field is a NUL-terminated string in `buffer`.
         (!pointer.is_null())
+            // SAFETY: as above: non-null, NUL-terminated, in `buffer`, which outlives this read.
             .then(|| unsafe { std::ffi::CStr::from_ptr(pointer) }.to_str().ok().map(str::to_owned))
             .flatten()
             .filter(|value| !value.is_empty())

@@ -27,6 +27,8 @@ pub fn check_api(api: &str) -> Result<String> {
 pub fn hostname() -> String {
     let mut buf = [0u8; 256];
     #[cfg(unix)]
+    // SAFETY: `buf` is a live 256-byte buffer and gethostname is passed its length, so it writes
+    // within it; a missing NUL is handled (the whole buffer is used).
     unsafe {
         if libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) == 0 {
             let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());

@@ -251,3 +251,9 @@ required-features = ["sim"]
 name = "hub_carrier"
 path = "tests/hub_carrier.rs"
 required-features = ["hub-carrier"]
+
+# Every `unsafe` block, impl and `pub unsafe fn` here states why it is sound: a `// SAFETY:`
+# comment above it, or a `# Safety` doc section on the fn.
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+missing_safety_doc = "deny"

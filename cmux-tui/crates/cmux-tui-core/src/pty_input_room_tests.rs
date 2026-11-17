@@ -48,6 +48,8 @@ mod queue {
 
     fn raw_pty() -> (File, File) {
         let (mut master, mut slave) = (0, 0);
+        // SAFETY: the two out pointers are live c_int locals; the null name, termios and winsize
+        // pointers are allowed.
         let opened = unsafe {
             libc::openpty(
                 &mut master,
@@ -58,17 +60,22 @@ mod queue {
             )
         };
         assert_eq!(opened, 0, "openpty: {}", io::Error::last_os_error());
+        // SAFETY: termios is plain integer data, valid when all zero.
         let mut termios: libc::termios = unsafe { std::mem::zeroed() };
+        // SAFETY: `slave` is the open descriptor from openpty; `termios` is a live local.
         unsafe {
             assert_eq!(libc::tcgetattr(slave, &mut termios), 0);
             libc::cfmakeraw(&mut termios);
             assert_eq!(libc::tcsetattr(slave, libc::TCSANOW, &termios), 0);
         }
+        // SAFETY: openpty returned two fresh descriptors that nothing else owns; each File closes
+        // one.
         unsafe { (File::from_raw_fd(master), File::from_raw_fd(slave)) }
     }
 
     fn pending(fd: RawFd) -> usize {
         let mut count: libc::c_int = 0;
+        // SAFETY: FIONREAD writes one c_int into the live local `count`.
         assert_eq!(unsafe { libc::ioctl(fd, libc::FIONREAD, &mut count) }, 0);
         count as usize
     }
@@ -105,6 +112,7 @@ mod queue {
         let read = slave.read(&mut chunk).unwrap();
         let chunk = &chunk[..read];
         // Unblock a writer stuck on the full queue before asserting.
+        // SAFETY: integer args only on the slave descriptor the test owns.
         unsafe {
             let flags = libc::fcntl(slave.as_raw_fd(), libc::F_GETFL);
             libc::fcntl(slave.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK);

@@ -266,6 +266,8 @@ fn output_by(
     drop(tx);
     let stop = |child: &mut std::process::Child| {
         #[cfg(unix)]
+        // SAFETY: killpg takes integers only; this runs only while `child` is unreaped (before its
+        // wait below), so its pid is still its group's id.
         unsafe {
             libc::killpg(child.id() as i32, libc::SIGKILL);
         }
@@ -622,6 +624,7 @@ fn held_gitdir(dir: &std::fs::File) -> Option<PathBuf> {
         return None;
     }
     let mut text = String::new();
+    // SAFETY: openat just returned `fd` (checked >= 0), owned by nothing else.
     std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) }).read_to_string(&mut text).ok()?;
     text.trim().strip_prefix("gitdir: ").map(PathBuf::from)
 }
@@ -684,13 +687,17 @@ fn held_registration(
     if fd < 0 {
         return None;
     }
+    // SAFETY: openat just returned `fd` (checked >= 0), owned by nothing else.
     let dir = std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) });
     let flags = libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+    // SAFETY: `dir` is open for the call and the name a NUL-terminated literal; the descriptor
+    // opened is owned at once below.
     let fd = unsafe { libc::openat(dir.as_raw_fd(), c"gitdir".as_ptr(), flags) };
     if fd < 0 {
         return None;
     }
     let mut gitdir = String::new();
+    // SAFETY: openat just returned `fd` (checked >= 0), owned by nothing else.
     std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) }).read_to_string(&mut gitdir).ok()?;
     // Compared by its folder (resolved, as git may have spelled it through a link) and name.
     let spelled = |p: &Path| {
@@ -718,9 +725,12 @@ fn empty_held(dir: &std::fs::File) -> std::io::Result<()> {
         }
         #[cfg(test)]
         after_dup(fd);
+        // SAFETY: `fd` is the fresh duplicate above; on success the stream owns it (closedir closes
+        // it).
         let stream = unsafe { libc::fdopendir(fd) };
         if stream.is_null() {
             let e = std::io::Error::last_os_error();
+            // SAFETY: fdopendir failed, so `fd` is still ours and closed here exactly once.
             unsafe { libc::close(fd) };
             return Err(e);
         }
@@ -748,10 +758,13 @@ fn empty_held(dir: &std::fs::File) -> std::io::Result<()> {
         // SAFETY: `at` is open for the call; a descriptor opened here is owned at once.
         let child = unsafe { libc::openat(at, name.as_ptr(), flags) };
         let removed = if child >= 0 {
+            // SAFETY: openat just returned `child` (checked >= 0), owned by nothing else.
             let child = std::fs::File::from(unsafe { OwnedFd::from_raw_fd(child) });
             empty_held(&child)?;
+            // SAFETY: `at` is open for the call and `name` a NUL-terminated CString.
             unsafe { libc::unlinkat(at, name.as_ptr(), libc::AT_REMOVEDIR) }
         } else {
+            // SAFETY: `at` is open for the call and `name` a NUL-terminated CString.
             unsafe { libc::unlinkat(at, name.as_ptr(), 0) }
         };
         if removed != 0 {
@@ -1672,6 +1685,8 @@ mod tests {
         let seen = flags.clone();
         AFTER_DUP.with(|h| {
             *h.borrow_mut() = Some(Box::new(move |fd| {
+                // SAFETY: fcntl takes integers only; F_GETFD only reads the flags of the fresh
+                // descriptor.
                 *seen.lock().unwrap() = Some(unsafe { libc::fcntl(fd, libc::F_GETFD) });
             }))
         });

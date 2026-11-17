@@ -97,3 +97,9 @@ av1 = ["bench", "dep:cmux-codecs", "cmux-codecs/av1"]
 opt-level = 3
 debug = 1
 lto = "thin"
+
+# Every `unsafe` block, impl and `pub unsafe fn` here states why it is sound: a `// SAFETY:`
+# comment above it, or a `# Safety` doc section on the fn.
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+missing_safety_doc = "deny"

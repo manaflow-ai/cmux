@@ -44,6 +44,7 @@ struct SupervisorHandle {
 }
 impl SupervisorHandle {
     fn start(notify: OwnedFd, policy: rules::WritePolicy) -> Result<Self> {
+        // SAFETY: integer args only; returns a new fd or -1.
         let raw = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC | libc::EFD_NONBLOCK) };
         if raw < 0 {
             return Err(format!("create supervisor stop eventfd: {}", io::Error::last_os_error()));
@@ -322,8 +323,9 @@ fn validate_handoff_for_test(
 }
 const SIOCGSKNS: libc::c_ulong = 0x894c;
 fn stat_fd(fd: RawFd) -> Result<(u64, u64)> {
-    // SAFETY: `stat` is an initialized output buffer and fd is owned by caller.
+    // SAFETY: libc::stat is plain integers, for which all-zero bytes are valid.
     let mut stat = unsafe { std::mem::zeroed::<libc::stat>() };
+    // SAFETY: stat is a live, writable libc::stat; a bad fd fails with EBADF.
     if unsafe { libc::fstat(fd, &mut stat) } != 0 {
         return Err(io::Error::last_os_error().to_string());
     }
@@ -478,6 +480,7 @@ fn executable(denies: &[PathBuf], writable: &[PathBuf]) -> Result<(OwnedFd, Path
 }
 // Pin before any wait/reap; the descriptor cannot target a recycled PID.
 fn open_pidfd(pid: u32) -> io::Result<OwnedFd> {
+    // SAFETY: integer args only; returns a new fd or -1.
     let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid as libc::pid_t, 0 as libc::c_uint) };
     if fd < 0 {
         return Err(io::Error::last_os_error());
@@ -1081,8 +1084,10 @@ mod tests {
     fn notify_fd_must_be_a_seccomp_listener() {
         let null: OwnedFd = std::fs::File::open("/dev/null").unwrap().into();
         assert!(validate_notify_fd(null.as_raw_fd()).is_err());
+        // SAFETY: integer args only; returns a new fd or -1.
         let event = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC) };
         assert!(event >= 0);
+        // SAFETY: event is a fresh fd from eventfd that nothing else owns.
         let event = unsafe { OwnedFd::from_raw_fd(event) };
         assert!(validate_notify_fd(event.as_raw_fd()).is_err());
         let socket: OwnedFd = TcpListener::bind("127.0.0.1:0").unwrap().into();

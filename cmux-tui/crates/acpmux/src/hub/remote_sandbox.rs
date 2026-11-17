@@ -921,8 +921,11 @@ struct PersistenceProbe {
 #[cfg(target_os = "linux")]
 fn probe_entry_absent(dir: RawFd, name: &str) -> bool {
     let Ok(name) = std::ffi::CString::new(name) else { return false };
+    // SAFETY: libc::stat is plain integers, for which all-zero is a valid value.
     let mut stat = unsafe { std::mem::zeroed::<libc::stat>() };
     let rc =
+        // SAFETY: `name` is a NUL-terminated CString and `stat` a writable out-parameter, both live
+        // for the call; a bad `dir` only fails with EBADF.
         unsafe { libc::fstatat(dir, name.as_ptr(), &mut stat, libc::AT_SYMLINK_NOFOLLOW as _) };
     rc < 0 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ENOENT)
 }
@@ -930,6 +933,7 @@ fn probe_entry_absent(dir: RawFd, name: &str) -> bool {
 #[cfg(target_os = "linux")]
 fn probe_paths_are_absent(probe: &PersistenceProbe) -> bool {
     let hooks = std::ffi::CString::new(".git/hooks").unwrap();
+    // SAFETY: `probe.fd` is open for the call (borrowed) and `hooks` is a NUL-terminated CString.
     let hooks_fd = unsafe {
         libc::openat(
             probe.fd.as_raw_fd(),
@@ -940,6 +944,7 @@ fn probe_paths_are_absent(probe: &PersistenceProbe) -> bool {
     if hooks_fd < 0 {
         return false;
     }
+    // SAFETY: openat just returned `hooks_fd` (checked >= 0), owned by nothing else.
     let hooks = unsafe { OwnedFd::from_raw_fd(hooks_fd) };
     probe_entry_absent(hooks.as_raw_fd(), "pre-commit")
         && probe_entry_absent(probe.fd.as_raw_fd(), "CLAUDE.md")
@@ -950,6 +955,8 @@ fn probe_paths_are_absent(probe: &PersistenceProbe) -> bool {
 fn probe_sources_intact(probe: &PersistenceProbe) -> bool {
     for name in ["source-git", "source-claude"] {
         let Ok(name) = std::ffi::CString::new(name) else { return false };
+        // SAFETY: `probe.fd` is open for the call (borrowed) and `name` is a NUL-terminated
+        // CString.
         let raw = unsafe {
             libc::openat(
                 probe.fd.as_raw_fd(),
@@ -960,14 +967,19 @@ fn probe_sources_intact(probe: &PersistenceProbe) -> bool {
         if raw < 0 {
             return false;
         }
+        // SAFETY: openat just returned `raw` (checked >= 0), owned by nothing else.
         let fd = unsafe { OwnedFd::from_raw_fd(raw) };
+        // SAFETY: libc::stat is plain integers, for which all-zero is a valid value.
         let mut stat = unsafe { std::mem::zeroed::<libc::stat>() };
+        // SAFETY: `fd` is open for the call and `stat` a writable out-parameter on this frame.
         if unsafe { libc::fstat(fd.as_raw_fd(), &mut stat) } != 0
             || stat.st_mode & libc::S_IFMT != libc::S_IFREG
         {
             return false;
         }
         let mut byte = [0_u8; 2];
+        // SAFETY: `byte` is a live 2-byte buffer and read is passed that length, so it writes
+        // within it.
         let read = unsafe { libc::read(fd.as_raw_fd(), byte.as_mut_ptr().cast(), byte.len() as _) };
         if read != 1 || byte[0] != b'x' {
             return false;
@@ -992,6 +1004,7 @@ fn canary_persistence_probe(cwd: &Path, linux: bool) -> Result<Option<Persistenc
     let text = std::ffi::CString::new(probe.as_os_str().as_encoded_bytes())
         .map_err(|_| "canary probe path contains NUL")?;
     #[cfg(target_os = "linux")]
+    // SAFETY: `text` is a NUL-terminated CString live for the call; flags are integers.
     let raw = unsafe {
         libc::open(text.as_ptr(), libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
     };
@@ -1000,6 +1013,7 @@ fn canary_persistence_probe(cwd: &Path, linux: bool) -> Result<Option<Persistenc
         return Err(format!("canary pin probe: {}", std::io::Error::last_os_error()));
     }
     #[cfg(target_os = "linux")]
+    // SAFETY: open just returned `raw` (checked >= 0), owned by nothing else.
     Ok(Some(PersistenceProbe { path: probe, fd: unsafe { OwnedFd::from_raw_fd(raw) } }))
 }
 
@@ -1687,6 +1701,8 @@ mod endpoint_tests {
         let probe = canary_persistence_probe(&root2, true).unwrap().unwrap();
         let fifo = probe.path.join("source-git");
         let _ = std::fs::remove_file(&fifo);
+        // SAFETY: the CString temporary lives until the end of this statement, so the path pointer
+        // is valid and NUL-terminated for the call.
         unsafe {
             libc::mkfifo(
                 std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap().as_ptr(),

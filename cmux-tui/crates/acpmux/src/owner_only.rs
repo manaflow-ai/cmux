@@ -403,6 +403,7 @@ pub(crate) fn file_id(path: &Path) -> io::Result<(u64, u64)> {
     }
     // SAFETY: CreateFileW returned one owned handle.
     let opened = unsafe { File::from_raw_handle(handle) };
+    // SAFETY: BY_HANDLE_FILE_INFORMATION is plain integers, for which all-zero is valid.
     let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
     // SAFETY: a valid handle and a zeroed out-parameter.
     if unsafe { GetFileInformationByHandle(opened.as_raw_handle(), &mut info) } == 0 {
@@ -414,7 +415,9 @@ pub(crate) fn file_id(path: &Path) -> io::Result<(u64, u64)> {
 
 fn same_opened_object(left: &File, right: &File) -> io::Result<bool> {
     let identity = |file: &File| -> io::Result<(u32, u64)> {
+        // SAFETY: BY_HANDLE_FILE_INFORMATION is plain integers, for which all-zero is valid.
         let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+        // SAFETY: `file` keeps its handle open for the call; `info` is a writable out-parameter.
         if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) } == 0 {
             return Err(io::Error::last_os_error());
         }
@@ -502,6 +505,8 @@ pub(crate) fn only_owner_reads(path: &Path) -> io::Result<bool> {
 pub(crate) fn dacl_is_protected(path: &Path) -> io::Result<bool> {
     let opened = open_for_security(path, false)?;
     let mut sd: PSECURITY_DESCRIPTOR = null_mut();
+    // SAFETY: `opened` keeps its handle open for the call; `sd` is a writable out-pointer, and the
+    // descriptor it receives is freed by `Local` below (LocalFree, once).
     let status = unsafe {
         GetSecurityInfo(
             opened.as_raw_handle(),
@@ -520,6 +525,8 @@ pub(crate) fn dacl_is_protected(path: &Path) -> io::Result<bool> {
     let _free = Local(sd);
     let mut control = 0u16;
     let mut _revision = 0u32;
+    // SAFETY: `sd` is the live descriptor GetSecurityInfo returned (freed by `_free` after this);
+    // both out-parameters are writable locals.
     if unsafe { GetSecurityDescriptorControl(sd, &mut control, &mut _revision) } == 0 {
         return Err(io::Error::last_os_error());
     }

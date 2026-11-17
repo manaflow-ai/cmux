@@ -33,15 +33,27 @@ fn bytes(pid: u32, address: u64, length: usize) -> Result<Vec<u8>> {
     }
     let local = iovec { iov_base: data.as_mut_ptr().cast(), iov_len: length };
     let remote = iovec { iov_base: address as *mut c_void, iov_len: length };
+    // SAFETY: local covers exactly data's length initialized bytes, so the
+    // kernel writes at most length bytes into our buffer. The remote address is
+    // the target's pointer, validated by the kernel against the target's
+    // memory only (EFAULT/short read), never dereferenced here.
     if unsafe { process_vm_readv(pid as i32, &local, 1, &remote, 1, 0) } != length as isize {
         return Err(EFAULT);
     }
     Ok(data)
 }
 
-// Only integer-only C layouts are copied by these private call sites.
-fn value<T: Copy>(pid: u32, address: u64) -> Result<T> {
+/// Copies one `T` out of the target's memory.
+///
+/// # Safety
+///
+/// Every bit pattern must be a valid `T` (an integer-only C layout such as
+/// `utimbuf`, `timeval` or `timespec`): the bytes are target-controlled.
+unsafe fn value<T: Copy>(pid: u32, address: u64) -> Result<T> {
     let data = bytes(pid, address, size_of::<T>())?;
+    // SAFETY: data holds exactly size_of::<T>() initialized bytes and
+    // read_unaligned needs no alignment; the caller guarantees any bit pattern
+    // is a valid T.
     Ok(unsafe { data.as_ptr().cast::<T>().read_unaligned() })
 }
 
@@ -51,17 +63,20 @@ fn times(pid: u32, address: u64, format: u8) -> Result<Option<[timespec; 2]>> {
     }
     let result = match format {
         1 => {
-            let t: utimbuf = value(pid, address)?;
+            // SAFETY: utimbuf is two time_t integers; every bit pattern is valid.
+            let t: utimbuf = unsafe { value(pid, address) }?;
             [timespec { tv_sec: t.actime, tv_nsec: 0 }, timespec { tv_sec: t.modtime, tv_nsec: 0 }]
         }
         2 => {
-            let t: [timeval; 2] = value(pid, address)?;
+            // SAFETY: timeval is two integers; every bit pattern is valid.
+            let t: [timeval; 2] = unsafe { value(pid, address) }?;
             if t.iter().any(|t| !(0..1_000_000).contains(&t.tv_usec)) {
                 return Err(EINVAL);
             }
             t.map(|t| timespec { tv_sec: t.tv_sec, tv_nsec: t.tv_usec * 1000 })
         }
-        _ => value(pid, address)?,
+        // SAFETY: timespec is two integers; every bit pattern is valid.
+        _ => unsafe { value::<[timespec; 2]>(pid, address) }?,
     };
     Ok(Some(result))
 }
@@ -222,6 +237,8 @@ pub(super) fn emulate(
                 if data.get(16..).unwrap_or_default().iter().any(|b| *b != 0) {
                     return Err(E2BIG);
                 }
+                // SAFETY: data has at least 16 initialized bytes (a[5] >= 16), so
+                // an unaligned u64 read at offset 0 is in bounds; any bits are a u64.
                 let pointer = unsafe { data.as_ptr().cast::<u64>().read_unaligned() };
                 let size = u32::from_ne_bytes(
                     data.get(8..12).ok_or(EINVAL)?.try_into().map_err(|_| EINVAL)?,
@@ -313,6 +330,8 @@ pub(super) fn emulate(
         if !valid(listener, &request.id, stop)? {
             return Ok(None);
         }
+        // SAFETY: name and to_name are live NUL-terminated CStrings and both
+        // parent fds are owned by resolved/to, which outlive the call.
         return checked(unsafe {
             syscall(
                 SYS_renameat2,
@@ -332,7 +351,11 @@ pub(super) fn emulate(
         let mask = status.lines().find_map(|s| s.strip_prefix("Umask:")).ok_or(EACCES)?;
         let mask = u32::from_str_radix(mask.trim(), 8).map_err(|_| EACCES)?;
         // run unshares CLONE_FS; kernel umask/default ACL handling needs the original mode.
+        // SAFETY: integer arg only; CLONE_FS is unshared, so only this thread's
+        // umask changes, and it is restored below.
         let previous = unsafe { umask(mask as mode_t) };
+        // SAFETY: name and the symlink target are live NUL-terminated CStrings and
+        // parent is a dirfd owned by resolved for the whole call.
         let rc = unsafe {
             match operation {
                 Operation::Mkdir(mode) => mkdirat(parent, name.as_ptr(), mode),
@@ -342,12 +365,14 @@ pub(super) fn emulate(
             }
         };
         let result = checked(rc);
+        // SAFETY: integer arg only; restores this thread's previous umask.
         unsafe {
             umask(previous);
         }
         return result.map(|n| Some(n as i64));
     }
     if let Operation::Unlink(flags) = operation {
+        // SAFETY: name is a live CString and parent is owned by resolved.
         return checked(unsafe { unlinkat(parent, name.as_ptr(), flags) }).map(|n| Some(n as i64));
     }
     if let Some(fd) = target_fd {
@@ -381,6 +406,7 @@ pub(super) fn emulate(
                 return Err(EACCES);
             }
         }
+        // SAFETY: integer args only; file is a live OwnedFd.
         return checked(unsafe { ftruncate(file.as_raw_fd(), length) }).map(|n| Some(n as i64));
     }
     // A trailing slash must not turn the nofollow leaf into a followed component.
@@ -403,6 +429,9 @@ pub(super) fn emulate(
     }
     let object_path =
         CString::new(format!("/proc/self/fd/{}", pin.as_raw_fd())).map_err(|_| EACCES)?;
+    // SAFETY: every path/name argument is a live NUL-terminated CString or c""
+    // literal; xattr data pointers come from a Vec whose len is passed with them;
+    // times is null or a live [timespec; 2]; pin and parent stay open throughout.
     let rc = unsafe {
         match operation {
             Operation::Chmod(mode) => chmod(object_path.as_ptr(), mode),

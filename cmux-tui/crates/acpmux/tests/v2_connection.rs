@@ -66,6 +66,7 @@ fn memory_kib(field: &str) -> usize {
 fn trim_allocator() {
     // The RSS gate must measure pages retained by this connection, not free
     // allocator arenas left by fixture construction.
+    // SAFETY: malloc_trim takes an integer and only returns free heap pages; glibc locks its arenas.
     unsafe {
         libc::malloc_trim(0);
     }

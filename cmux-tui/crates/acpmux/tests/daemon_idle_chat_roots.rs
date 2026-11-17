@@ -172,6 +172,7 @@ fn threads(pid: u32) -> Vec<(u64, String, Duration)> {
     handles
         .into_iter()
         .filter_map(|handle| {
+            // SAFETY: ThreadInfo is plain integers and a byte array, for which all-zero is valid.
             let mut info: ThreadInfo = unsafe { std::mem::zeroed() };
             let size = size_of::<ThreadInfo>() as c_int;
             // SAFETY: `info` matches struct proc_threadinfo and its size.

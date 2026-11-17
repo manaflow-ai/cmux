@@ -37,8 +37,9 @@ fn serve(limits: Limits) -> i32 {
     use std::os::fd::FromRawFd;
     use std::os::unix::net::UnixStream;
 
-    // SAFETY: fstat on a descriptor number only inspects it.
+    // SAFETY: `libc::stat` is plain C data (integers only); all-zero is a valid value.
     let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+    // SAFETY: fstat on a descriptor number only inspects it, writing into the live `stat`.
     if unsafe { libc::fstat(3, &mut stat) } != 0 || (stat.st_mode & libc::S_IFMT) != libc::S_IFSOCK
     {
         eprintln!("cmux-app-host: fd 3 must be the supervisor's socket");

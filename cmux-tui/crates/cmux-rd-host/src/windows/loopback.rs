@@ -24,6 +24,8 @@ impl DesktopMode {
         // SAFETY: DEVMODEW is initialized with the required size and filled by Windows.
         let mut original: DEVMODEW = unsafe { zeroed() };
         original.dmSize = size_of::<DEVMODEW>() as u16;
+        // SAFETY: `original` is a live DEVMODEW with dmSize set; a null device name means the
+        // primary display.
         if unsafe { EnumDisplaySettingsW(std::ptr::null(), ENUM_CURRENT_SETTINGS, &mut original) }
             == 0
         {
@@ -39,6 +41,8 @@ impl DesktopMode {
         requested.dmPelsHeight = height;
         requested.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT;
         // Test before changing the runner's temporary desktop; never persist a registry setting.
+        // SAFETY: `requested` is a live, fully initialized DEVMODEW copied from Windows' own
+        // answer; CDS_TEST changes nothing.
         let tested = unsafe { ChangeDisplaySettingsW(&requested, CDS_TEST) };
         if optional_4k_mode_unavailable(width, height, tested) {
             return Ok(None);
@@ -46,6 +50,7 @@ impl DesktopMode {
         if tested != DISP_CHANGE_SUCCESSFUL {
             return Err(format!("Windows display cannot provide {width}x{height}: ChangeDisplaySettingsW(CDS_TEST)={tested}; current={}x{}", original.dmPelsWidth, original.dmPelsHeight).into());
         }
+        // SAFETY: as above; CDS_FULLSCREEN keeps the change out of the registry.
         let changed = unsafe { ChangeDisplaySettingsW(&requested, CDS_FULLSCREEN) };
         if changed != DISP_CHANGE_SUCCESSFUL {
             return Err(format!(
@@ -134,6 +139,8 @@ impl ViewerWindow {
         let pixel = rgb.get(center..center + 3).ok_or("decoded center pixel missing")?;
         let expected =
             u32::from(pixel[0]) | (u32::from(pixel[1]) << 8) | (u32::from(pixel[2]) << 16);
+        // SAFETY: BITMAPINFO is plain C data (integers); all-zero is valid and the header is filled
+        // next.
         let mut info: BITMAPINFO = unsafe { zeroed() };
         info.bmiHeader = BITMAPINFOHEADER {
             biSize: size_of::<BITMAPINFOHEADER>() as u32,
@@ -142,16 +149,22 @@ impl ViewerWindow {
             biPlanes: 1,
             biBitCount: 24,
             biCompression: BI_RGB,
+            // SAFETY: BITMAPINFOHEADER is plain C data; all-zero is a valid value for its remaining
+            // fields.
             ..unsafe { zeroed() }
         };
         // Pump the window's messages before drawing so a pending paint cannot erase the proof.
+        // SAFETY: MSG is plain C data; all-zero is valid and PeekMessageW fills it.
         let mut msg: MSG = unsafe { zeroed() };
+        // SAFETY: `msg` is a live MSG; the loop only reads messages PeekMessageW wrote for this
+        // thread's own window and hands them back to Windows.
         unsafe {
             while PeekMessageW(&mut msg, self.0, 0, 0, PM_REMOVE) != 0 {
                 TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }
         }
+        // SAFETY: `self.0` is the window this value created and destroys only in Drop.
         let dc = unsafe { GetDC(self.0) };
         if dc.is_null() {
             return Err("Windows viewer GetDC failed".into());
@@ -174,8 +187,11 @@ impl ViewerWindow {
                 SRCCOPY,
             )
         };
+        // SAFETY: no arguments.
         unsafe { GdiFlush() };
+        // SAFETY: `dc` is the non-null DC GetDC returned above, released only after this call.
         let shown = unsafe { GetPixel(dc, 160, 90) };
+        // SAFETY: releases the DC GetDC returned for this window, once; it is not used after.
         unsafe { ReleaseDC(self.0, dc) };
         if rows <= 0 || shown != expected {
             return Err(format!("Windows viewer readback failed: rows={rows}, expected={expected:#x}, shown={shown:#x}").into());
@@ -186,6 +202,8 @@ impl ViewerWindow {
 
 impl Drop for ViewerWindow {
     fn drop(&mut self) {
+        // SAFETY: destroys the window `new` created, once (Drop); the thread that created it is the
+        // one dropping it in this single-threaded benchmark.
         unsafe { DestroyWindow(self.0) };
     }
 }

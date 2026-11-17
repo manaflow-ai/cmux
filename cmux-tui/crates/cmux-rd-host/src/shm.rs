@@ -24,9 +24,12 @@ impl ShmSeg {
         }
         // SAFETY: fd is a fresh descriptor we own.
         let owned = unsafe { OwnedFd::from_raw_fd(fd) };
+        // SAFETY: integer args on the memfd `owned` holds open for the call.
         if unsafe { libc::ftruncate(fd, len as libc::off_t) } != 0 {
             return Err(std::io::Error::last_os_error().into());
         }
+        // SAFETY: a fresh shared mapping of our own memfd at an address the kernel picks; it
+        // aliases no Rust object. The X server maps the same pages, which is the point of MIT-SHM.
         let ptr = unsafe {
             libc::mmap(
                 std::ptr::null_mut(),

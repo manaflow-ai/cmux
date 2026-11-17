@@ -1151,6 +1151,8 @@ async fn acp_steps(
     // then read the rest of its stderr: the pipe closes when it exits.
     #[cfg(unix)]
     if let Some(pid) = pid {
+        // SAFETY: killpg takes integers only: `pid` is the harness we spawned as its group's
+        // leader, not yet reaped (waited below), so the group id is still its own.
         unsafe {
             libc::killpg(pid as libc::pid_t, libc::SIGKILL);
         }

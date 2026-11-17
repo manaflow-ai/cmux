@@ -43,12 +43,17 @@ fn checked(rc: i32) -> Result<i32> {
 // structs, or sized buffers. Returned descriptors become owned exactly once.
 fn open_at(dir: RawFd, path: &str, flags: i32, mode: u32) -> Result<OwnedFd> {
     let path = CString::new(path).map_err(|_| EACCES)?;
+    // SAFETY: path is a live NUL-terminated CString; dir is an integer fd (a bad
+    // one fails with EBADF).
     let fd = checked(unsafe { openat(dir, path.as_ptr(), flags | O_CLOEXEC, mode) })?;
+    // SAFETY: checked() passed, so fd is a fresh descriptor nothing else owns.
     Ok(unsafe { OwnedFd::from_raw_fd(fd) })
 }
 
 fn stat(fd: RawFd) -> Result<stat> {
+    // SAFETY: libc::stat is plain integers, for which all-zero bytes are valid.
     let mut out = unsafe { std::mem::zeroed() };
+    // SAFETY: out is a live, writable stat; a bad fd fails with EBADF.
     checked(unsafe { fstat(fd, &mut out) }).map_err(|_| EACCES)?;
     Ok(out)
 }
@@ -57,7 +62,9 @@ fn link_at(dir: RawFd, path: &str) -> Result<String> {
     let path = CString::new(path).map_err(|_| EACCES)?;
     let mut buf = [0u8; PATH_MAX as usize];
     let n = checked(
-        unsafe { readlinkat(dir, path.as_ptr(), buf.as_mut_ptr().cast(), buf.len()) } as i32
+        // SAFETY: path is a live CString; readlinkat writes at most buf.len()
+        // bytes into the live buf.
+        unsafe { readlinkat(dir, path.as_ptr(), buf.as_mut_ptr().cast(), buf.len()) } as i32,
     )? as usize;
     if n == buf.len() {
         return Err(ENAMETOOLONG);
@@ -78,6 +85,10 @@ fn copy_path(pid: u32, address: u64) -> Result<String> {
             iov_base: address.checked_add(used as u64).ok_or(EFAULT)? as *mut c_void,
             iov_len: local.iov_len,
         };
+        // SAFETY: local covers buf[used..], so the kernel writes at most the
+        // remaining bytes of our live buffer. The remote address comes from the
+        // sandboxed task and is only checked by the kernel against that task's
+        // memory (EFAULT/short read); it is never dereferenced here.
         let n = unsafe { process_vm_readv(pid as i32, &local, 1, &remote, 1, 0) };
         if n <= 0 {
             return Err(EFAULT);
@@ -130,6 +141,8 @@ fn proc_fd_number(name: &str) -> Result<u32> {
 fn directory_flags(fd: RawFd) -> Result<c_long> {
     let readable = open_at(fd, ".", O_RDONLY | O_DIRECTORY | O_NONBLOCK, 0).map_err(|_| EACCES)?;
     let mut flags: c_long = 0;
+    // SAFETY: FS_IOC_GETFLAGS writes at most a long (the kernel writes an int)
+    // into the live c_long flags; readable is an open OwnedFd.
     checked(unsafe { ioctl(readable.as_raw_fd(), FS_IOC_GETFLAGS, &mut flags) })?;
     Ok(flags)
 }
@@ -164,6 +177,8 @@ fn resolve_inner(
     let root = open_at(task, "root", O_PATH | O_DIRECTORY, 0).map_err(|_| EACCES)?;
     let check_directory = |fd, device_route| {
         if verify_filesystem {
+            // SAFETY: both callers pass the raw fd of an OwnedFd (root or pin)
+            // that stays open across this call; the borrow ends with it.
             let verified = lookup::verify_dir(unsafe { BorrowedFd::borrow_raw(fd) });
             if verified.is_ok() {
                 return Ok(());
@@ -171,7 +186,9 @@ fn resolve_inner(
             // devtmpfs may lack FS_IOC_GETFLAGS. It is allowed only on the
             // already-special-cased /dev routes; all other mounts fail closed.
             if device_route {
+                // SAFETY: statfs is plain integers; all-zero bytes are valid.
                 let mut fs: statfs = unsafe { std::mem::zeroed() };
+                // SAFETY: fs is a live, writable statfs; fd is open (see above).
                 if checked(unsafe { fstatfs(fd, &mut fs) }).is_ok()
                     && fs.f_type as u64 == 0x0102_1994
                 {
@@ -180,7 +197,9 @@ fn resolve_inner(
             }
             return Err(EACCES);
         }
+        // SAFETY: statfs is plain integers; all-zero bytes are valid.
         let mut fs: statfs = unsafe { std::mem::zeroed() };
+        // SAFETY: fs is a live, writable statfs; a bad fd fails with EBADF.
         checked(unsafe { fstatfs(fd, &mut fs) }).map_err(|_| EACCES)?;
         lookup::classify(fs.f_type as u64, read_flags(fd), Err(ENOTTY)).map_err(|reason| {
             eprintln!("sandbox directory refused: {reason}");
@@ -257,7 +276,9 @@ fn resolve_inner(
             }
             Err(e) => return Err(e),
         };
+        // SAFETY: statfs is plain integers; all-zero bytes are valid.
         let mut fs: statfs = unsafe { std::mem::zeroed() };
+        // SAFETY: fs is a live, writable statfs and pin is an open OwnedFd.
         checked(unsafe { fstatfs(pin.as_raw_fd(), &mut fs) }).map_err(|_| EACCES)?;
         // libc's statfs field and PROC_SUPER_MAGIC use architecture-dependent
         // integer aliases; normalize both before comparing across Linux ABIs.
@@ -445,6 +466,8 @@ fn valid_errno(errno: i32) -> Result<bool> {
 /// Checks the notification id, retrying EINTR until the stop fd is readable.
 fn valid(fd: RawFd, id: &u64, stop: RawFd) -> Result<bool> {
     loop {
+        // SAFETY: ID_VALID only reads one u64 through id, a live &u64; a fd that
+        // is not a listener fails (ENOTTY/EBADF) without touching memory.
         if unsafe { ioctl(fd, SECCOMP_IOCTL_NOTIF_ID_VALID, id) } == 0 {
             return Ok(true);
         }
@@ -452,6 +475,7 @@ fn valid(fd: RawFd, id: &u64, stop: RawFd) -> Result<bool> {
         match valid_errno(errno) {
             Ok(true) => {
                 let mut pollfd = pollfd { fd: stop, events: POLLIN, revents: 0 };
+                // SAFETY: pollfd is a live local and nfds is 1.
                 let rc = unsafe { poll(&mut pollfd, 1, 10) };
                 if rc < 0 && error() != EINTR {
                     return Err(EACCES);
@@ -548,12 +572,16 @@ fn open_leaf(
 fn rollback_created(resolved: &Resolved, opened: &OwnedFd) {
     let Ok(info) = stat(opened.as_raw_fd()) else { return };
     let Ok(name) = CString::new(resolved.name.as_str()) else { return };
+    // SAFETY: stat is plain integers; all-zero bytes are valid.
     let mut current: stat = unsafe { std::mem::zeroed() };
+    // SAFETY: name is a live CString, current a live writable stat, and the
+    // parent fd is owned by resolved.
     if unsafe {
         fstatat(resolved.parent.as_raw_fd(), name.as_ptr(), &mut current, AT_SYMLINK_NOFOLLOW)
     } == 0
         && (current.st_dev, current.st_ino) == (info.st_dev, info.st_ino)
     {
+        // SAFETY: name is a live CString and the parent fd is owned by resolved.
         unsafe {
             unlinkat(resolved.parent.as_raw_fd(), name.as_ptr(), 0);
         }
@@ -584,13 +612,18 @@ fn emulate(fd: RawFd, request: &seccomp_notif, policy: &WritePolicy, stop: RawFd
     if !valid(fd, &request.id, stop)? {
         return Ok(());
     }
+    // SAFETY: integer arg only; run() unshared CLONE_FS, so this changes only
+    // this thread's umask, restored right below.
     let previous_umask = unsafe { umask(mask as mode_t) };
     let opened_result = open_leaf(&resolved, flags, open_mode(mode, mask), || {});
+    // SAFETY: integer arg only; restores the thread's previous umask.
     unsafe { umask(previous_umask) };
     let (opened, created) = opened_result?;
     let delivery = (|| {
         if flags & (O_NONBLOCK | O_PATH) == 0 {
+            // SAFETY: integer args only; opened is a live OwnedFd.
             let current = checked(unsafe { fcntl(opened.as_raw_fd(), F_GETFL) })?;
+            // SAFETY: integer args only; opened is a live OwnedFd.
             checked(unsafe { fcntl(opened.as_raw_fd(), F_SETFL, current & !O_NONBLOCK) })?;
         }
         let add = seccomp_notif_addfd {
@@ -600,6 +633,9 @@ fn emulate(fd: RawFd, request: &seccomp_notif, policy: &WritePolicy, stop: RawFd
             newfd: 0,
             newfd_flags: (flags & O_CLOEXEC) as u32,
         };
+        // SAFETY: ADDFD reads one seccomp_notif_addfd (the size its ioctl number
+        // encodes) from the live add. The kernel dups srcfd into the target, so
+        // opened keeps sole ownership of ours and closes it once on drop.
         checked(unsafe { ioctl(fd, SECCOMP_IOCTL_NOTIF_ADDFD, &add) }).map(|_| ())
     })();
     if delivery.is_err() && created {
@@ -617,12 +653,17 @@ fn emulate(fd: RawFd, request: &seccomp_notif, policy: &WritePolicy, stop: RawFd
 /// notified syscalls with ENOSYS: fail closed. All inner loops consume bounded
 /// paths/collections; poll/RECV retries end on stop, HUP, or fatal I/O error.
 pub(crate) fn run(notify_fd: OwnedFd, policy: WritePolicy, stop: OwnedFd) -> io::Result<()> {
+    // SAFETY: integer arg only; unshares this thread's fs_struct (cwd, root,
+    // umask) so the umask changes below never affect other threads.
     checked(unsafe { unshare(CLONE_FS) }).map_err(io::Error::from_raw_os_error)?;
+    // SAFETY: integer arg only; thread-local after the unshare above.
     unsafe {
         umask(0);
     }
     let lock = locking::open(&policy).map_err(io::Error::from_raw_os_error)?;
+    // SAFETY: seccomp_notif_sizes is three u16s; all-zero bytes are valid.
     let mut sizes: seccomp_notif_sizes = unsafe { std::mem::zeroed() };
+    // SAFETY: GET_NOTIF_SIZES writes one seccomp_notif_sizes into the live sizes.
     checked(unsafe { syscall(SYS_seccomp, SECCOMP_GET_NOTIF_SIZES, 0, &mut sizes) } as i32)
         .map_err(io::Error::from_raw_os_error)?;
     if (sizes.seccomp_notif as usize) < size_of::<seccomp_notif>()
@@ -639,6 +680,7 @@ pub(crate) fn run(notify_fd: OwnedFd, policy: WritePolicy, stop: OwnedFd) -> io:
         pollfd { fd: stop.as_raw_fd(), events: POLLIN, revents: 0 },
     ];
     loop {
+        // SAFETY: polls is a live 2-element pollfd array, matching nfds = 2.
         if unsafe { poll(polls.as_mut_ptr(), 2, -1) } < 0 {
             if error() == EINTR {
                 continue;
@@ -655,12 +697,17 @@ pub(crate) fn run(notify_fd: OwnedFd, policy: WritePolicy, stop: OwnedFd) -> io:
             continue;
         }
         receive.fill(0);
+        // SAFETY: RECV writes the kernel's seccomp_notif, sizes.seccomp_notif
+        // bytes, and receive is a live u64 buffer of at least that many bytes.
         if unsafe { ioctl(fd, SECCOMP_IOCTL_NOTIF_RECV, receive.as_mut_ptr()) } < 0 {
             if matches!(error(), EINTR | ENOENT | EAGAIN) {
                 continue;
             }
             return Err(io::Error::last_os_error());
         }
+        // SAFETY: receive is 8-byte aligned (u64 elements, >= seccomp_notif's
+        // alignment), at least size_of::<seccomp_notif>() bytes (checked above),
+        // and fully initialized; seccomp_notif is integers, valid for any bits.
         let request = unsafe { receive.as_ptr().cast::<seccomp_notif>().read() };
         let _transaction = match locking::acquire(&lock, stop.as_raw_fd(), fd) {
             Ok(guard) => guard,
@@ -678,9 +725,13 @@ pub(crate) fn run(notify_fd: OwnedFd, policy: WritePolicy, stop: OwnedFd) -> io:
             Err(errno) => (0, errno),
         };
         let reply = seccomp_notif_resp { id: request.id, val: value, error: -errno, flags: 0 };
+        // SAFETY: response is 8-byte aligned (u64 elements) and at least
+        // size_of::<seccomp_notif_resp>() bytes (checked above).
         unsafe {
             response.as_mut_ptr().cast::<seccomp_notif_resp>().write(reply);
         }
+        // SAFETY: SEND reads sizes.seccomp_notif_resp bytes from response, which
+        // is that long; bytes past our struct stay zero from initialization.
         if unsafe { ioctl(fd, SECCOMP_IOCTL_NOTIF_SEND, response.as_ptr()) } < 0
             && error() != ENOENT
         {
@@ -817,7 +868,11 @@ mod tests {
         let leaf = fixture.0.join("leaf");
         fs::write(&leaf, b"original").unwrap();
         let fifo = CString::new(fixture.0.join("fifo").to_str().unwrap()).unwrap();
-        assert_eq!(unsafe { mkfifo(fifo.as_ptr(), 0o600) }, 0);
+        assert_eq!(
+            // SAFETY: fifo is a live NUL-terminated CString.
+            unsafe { mkfifo(fifo.as_ptr(), 0o600) },
+            0
+        );
         let resolved =
             resolve(task().as_raw_fd(), AT_FDCWD, leaf.to_str().unwrap(), O_WRONLY, &nspid())
                 .unwrap();
@@ -859,6 +914,7 @@ mod tests {
     fn delivery_device_swap_never_opens_the_replacement() {
         let fixture = Fixture::new();
         let device = CString::new(fixture.0.join("device").to_str().unwrap()).unwrap();
+        // SAFETY: device is a live NUL-terminated CString; the rest are integers.
         if unsafe { mknod(device.as_ptr(), S_IFCHR | 0o600, makedev(5, 0)) } < 0 {
             let errno = error();
             assert!(matches!(errno, EPERM | EACCES | EOPNOTSUPP));
@@ -998,6 +1054,7 @@ mod tests {
         fs::create_dir(&directory).unwrap();
         let fd = open_at(AT_FDCWD, directory.to_str().unwrap(), O_RDONLY | O_DIRECTORY, 0).unwrap();
         let mut flags: c_long = 0;
+        // SAFETY: GETFLAGS writes at most a long into the live c_long flags.
         if unsafe { ioctl(fd.as_raw_fd(), FS_IOC_GETFLAGS, &mut flags) } < 0 {
             assert!(matches!(error(), EOPNOTSUPP | ENOTTY | EINVAL | EPERM | EACCES));
             eprintln!(
@@ -1007,6 +1064,7 @@ mod tests {
             return;
         }
         flags |= 0x4000_0000;
+        // SAFETY: SETFLAGS only reads an int-sized value from the live c_long flags.
         if unsafe { ioctl(fd.as_raw_fd(), FS_IOC_SETFLAGS, &flags) } < 0 {
             let errno = error();
             assert!(
@@ -1315,6 +1373,11 @@ mod notification_tests {
 
     // Aligned control storage; send/recv each transfer exactly one fd.
     unsafe fn transfer(socket: RawFd, fd: RawFd, send: bool) -> RawFd {
+        // SAFETY: control is usize-aligned and 64 bytes, more than
+        // CMSG_SPACE(4), so the header and its data are in bounds; byte, iov
+        // and control outlive sendmsg/recvmsg. On receive, the header is
+        // null-checked and its length must be exactly one fd before CMSG_DATA is
+        // read. Allocation-free, so callable from the forked child.
         unsafe {
             let mut byte = 0u8;
             let mut iov = iovec { iov_base: (&mut byte as *mut u8).cast(), iov_len: 1 };
@@ -1362,7 +1425,11 @@ mod notification_tests {
         }
         if case == 200 {
             let fifo = CString::new(fixture.0.join("fifo").to_str().unwrap()).unwrap();
-            assert_eq!(unsafe { mkfifo(fifo.as_ptr(), 0o600) }, 0);
+            assert_eq!(
+                // SAFETY: fifo is a live NUL-terminated CString.
+                unsafe { mkfifo(fifo.as_ptr(), 0o600) },
+                0
+            );
         }
         if (4..=16).contains(&case) || case == 18 {
             fs::write(fixture.0.join(".git/hooks/pre-commit.sample"), b"protected").unwrap();
@@ -1383,6 +1450,11 @@ mod notification_tests {
         );
         let cwd = CString::new(fixture.0.as_os_str().as_encoded_bytes()).unwrap();
         let program = seccomp::filter(true).unwrap();
+        // SAFETY: every syscall gets live locals (action, sockets, prog, ack,
+        // status) or CStrings built before fork. The forked child of this
+        // multithreaded harness only makes raw libc calls on that pre-built data,
+        // never allocates, and leaves through _exit; raw fds it closes belong to
+        // OwnedFds it never drops. Parent-side OwnedFds wrap fresh fds once.
         unsafe {
             let mut action = SECCOMP_RET_USER_NOTIF;
             if syscall(SYS_seccomp, SECCOMP_GET_ACTION_AVAIL, 0, &mut action) < 0 {
@@ -1553,6 +1625,10 @@ mod notification_tests {
         let mut sockets = [[-1; 2]; 2];
         let mut listeners: Vec<OwnedFd> = Vec::new();
         let mut children = Vec::new();
+        // SAFETY: as in exercise: the forked children only make raw libc calls
+        // on data built before fork and _exit without allocating; each raw
+        // socket fd is closed once per process and each received listener is
+        // wrapped in exactly one OwnedFd.
         unsafe {
             for pair in &mut sockets {
                 assert_eq!(
@@ -1680,6 +1756,10 @@ mod notification_tests {
 
     /// Finite syscall cases; SIGALRM bounds blocking opens and the race worker.
     unsafe fn child_case(case: u8, paths: &[CString]) -> i32 {
+        // SAFETY: runs in the forked child: raw libc calls on c"" literals and
+        // the caller's pre-fork CStrings, fds opened here or inherited (closing
+        // inherited ones is fine: this process never drops their owners), no
+        // allocation, errno via this thread's __errno_location.
         unsafe {
             if case >= 210 {
                 return review_case(case);
@@ -1885,6 +1965,8 @@ mod notification_tests {
     /// Each case runs a finite syscall sequence; the harness's child alarm
     /// bounds any blocking operation. No allocations or unwinding after fork.
     unsafe fn mutation_case(case: u8) -> i32 {
+        // SAFETY: runs in the forked child: raw libc calls on c"" literals, live
+        // local timespec arrays and fds opened here; no allocation.
         unsafe {
             let at = AT_FDCWD;
             let hook = c".git/hooks/pre-commit.sample".as_ptr();
@@ -2014,9 +2096,18 @@ mod notification_tests {
         stop: AtomicBool,
     }
 
+    // A static, not a pointer argument: the safe start routine below then never
+    // dereferences a raw pointer a caller could make dangling. Each forked child
+    // has its own copy, and race resets it before starting the worker.
+    static RACING_PATH: RacingPath = RacingPath {
+        prefix: AtomicU32::new(u32::from_ne_bytes(*b"good")),
+        tail: *b"/config\0",
+        stop: AtomicBool::new(false),
+    };
+
     /// Worker stops when the finite 10k-open loop sets stop; child alarm bounds both.
-    extern "C" fn flip(data: *mut c_void) -> *mut c_void {
-        let path = unsafe { &*data.cast::<RacingPath>() };
+    extern "C" fn flip(_: *mut c_void) -> *mut c_void {
+        let path = &RACING_PATH;
         while !path.stop.load(Ordering::Relaxed) {
             path.prefix.store(u32::from_ne_bytes(*b".git"), Ordering::Relaxed);
             path.prefix.store(u32::from_ne_bytes(*b"good"), Ordering::Relaxed);
@@ -2024,25 +2115,22 @@ mod notification_tests {
         std::ptr::null_mut()
     }
 
-    /// Exactly 10k write-open attempts; worker is joined before its path is dropped.
+    /// Exactly 10k write-open attempts; the worker is joined before returning.
     unsafe fn race() -> i32 {
+        // SAFETY: runs in the forked child. pthread_t is an integer, so zeroed
+        // is a valid out-param; flip takes no data. pointer addresses the static
+        // repr(C) RacingPath, whose 4-byte prefix and NUL-terminated tail are
+        // contiguous, so open always reads a terminated 12-byte path (the kernel
+        // may see either prefix value, which is the race under test).
         unsafe {
-            let mut path = RacingPath {
-                prefix: AtomicU32::new(u32::from_ne_bytes(*b"good")),
-                tail: *b"/config\0",
-                stop: AtomicBool::new(false),
-            };
+            let path = &RACING_PATH;
+            path.prefix.store(u32::from_ne_bytes(*b"good"), Ordering::Relaxed);
+            path.stop.store(false, Ordering::Relaxed);
             let mut thread = std::mem::zeroed();
-            if pthread_create(
-                &mut thread,
-                std::ptr::null(),
-                flip,
-                (&mut path as *mut RacingPath).cast(),
-            ) != 0
-            {
+            if pthread_create(&mut thread, std::ptr::null(), flip, std::ptr::null_mut()) != 0 {
                 return 60;
             }
-            let pointer = (&path as *const RacingPath).cast::<c_char>();
+            let pointer = (path as *const RacingPath).cast::<c_char>();
             for _ in 0..10_000 {
                 let fd = open(pointer, O_CREAT | O_WRONLY | O_TRUNC, 0o600);
                 if fd >= 0 {

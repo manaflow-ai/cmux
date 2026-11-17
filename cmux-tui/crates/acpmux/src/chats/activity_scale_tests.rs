@@ -39,9 +39,11 @@ fn scale_hub(closed_count: usize, live_count: usize) -> Arc<Hub> {
 fn process_cpu() -> Duration {
     let mut value = std::mem::MaybeUninit::<libc::timespec>::uninit();
     assert_eq!(
+        // SAFETY: `value` is a live, writable timespec slot for clock_gettime to fill.
         unsafe { libc::clock_gettime(libc::CLOCK_PROCESS_CPUTIME_ID, value.as_mut_ptr()) },
         0
     );
+    // SAFETY: clock_gettime returned 0 (asserted above), so it initialized `value`.
     let value = unsafe { value.assume_init() };
     Duration::new(u64::try_from(value.tv_sec).unwrap(), u32::try_from(value.tv_nsec).unwrap())
 }

@@ -394,6 +394,7 @@ fn spawn_upload(key: &str, plan: &Plan, codec: Codec, cold_ms: u64) -> anyhow::R
 fn lock(file: &std::fs::File, wait: bool) -> std::io::Result<()> {
     use std::os::fd::AsRawFd;
     let op = libc::LOCK_EX | if wait { 0 } else { libc::LOCK_NB };
+    // SAFETY: flock on the live descriptor `file` borrows for the call; integers only.
     if unsafe { libc::flock(file.as_raw_fd(), op) } == 0 {
         Ok(())
     } else {

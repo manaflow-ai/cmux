@@ -208,9 +208,11 @@ fn session_groups(session: libc::pid_t) -> Result<Vec<libc::pid_t>, ()> {
         }
         // SAFETY: both calls query a positive PID; an exited process returns -1.
         let sid = unsafe { libc::getsid(pid) };
+        // SAFETY: as above: an integer PID; an exited process returns -1.
         let pgid = unsafe { libc::getpgid(pid) };
         // Query the session again after the group to reject a PID that left
         // the session (or was reused) between the first query and getpgid.
+        // SAFETY: integer PID only; an exited process returns -1.
         if sid == session && pgid > 0 && unsafe { libc::getsid(pid) } == session {
             groups.insert(pgid);
         }

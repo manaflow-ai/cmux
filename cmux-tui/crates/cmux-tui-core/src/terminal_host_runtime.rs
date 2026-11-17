@@ -488,6 +488,7 @@ mod unix {
 
     impl Drop for SpawnedPtyChild {
         fn drop(&mut self) {
+            // SAFETY: getpgrp takes no arguments and cannot fail.
             let host_group = unsafe { libc::getpgrp() };
             let groups = validated_process_groups(self.process_groups, host_group);
             let groups_signaled = signal_validated_process_groups(
@@ -737,8 +738,13 @@ pub fn isolate_terminal_host_process_fds() -> anyhow::Result<()> {
 pub(crate) fn sweep_released_pty_locks(_root: &Path) {}
 
 /// Windows hosts set nothing up before they serve (no inherited handle).
+///
+/// # Safety
+///
+/// Call it while this process runs one thread only (before the host starts any): the Unix twin
+/// removes variables from the process environment, which is unsound while another thread can read it.
 #[cfg(not(unix))]
-pub fn enter_terminal_host_process() -> anyhow::Result<()> {
+pub unsafe fn enter_terminal_host_process() -> anyhow::Result<()> {
     Ok(())
 }
 

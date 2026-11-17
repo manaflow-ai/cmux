@@ -268,22 +268,31 @@ fn clear_history_fallback_write_has_a_deadline_when_pty_input_is_full() {
     surface.with_terminal(|term| term.vt_write(b"\x1b[?1049h\x1b[>1u"));
 
     let mut pipe_fds = [0; 2];
+    // SAFETY: `pipe_fds` is a live [c_int; 2], exactly what pipe writes.
     assert_eq!(unsafe { libc::pipe(pipe_fds.as_mut_ptr()) }, 0);
+    // SAFETY: pipe succeeded, so both fds are fresh and owned by nothing else; each
+    // File below takes one.
     let read_end = unsafe { std::fs::File::from_raw_fd(pipe_fds[0]) };
+    // SAFETY: the write end from the same pipe call, owned only by this File.
     let write_end = unsafe { std::fs::File::from_raw_fd(pipe_fds[1]) };
+    // SAFETY: integer args only; `write_end` is open.
     let master_fd = unsafe { libc::dup(write_end.as_raw_fd()) };
     assert!(master_fd >= 0);
+    // SAFETY: dup returned a fresh, checked descriptor that only this File owns.
     let master_file = unsafe { std::fs::File::from_raw_fd(master_fd) };
 
     let write_fd = write_end.as_raw_fd();
+    // SAFETY: integer args only on the open `write_end`.
     let original_flags = unsafe { libc::fcntl(write_fd, libc::F_GETFL) };
     assert!(original_flags >= 0);
     assert_eq!(
+        // SAFETY: integer args only on the open `write_end`.
         unsafe { libc::fcntl(write_fd, libc::F_SETFL, original_flags | libc::O_NONBLOCK) },
         0
     );
     let fill = [b'x'; 4096];
     loop {
+        // SAFETY: `fill` is a live array; write reads at most fill.len() bytes.
         let written = unsafe { libc::write(write_fd, fill.as_ptr().cast(), fill.len()) };
         if written > 0 {
             continue;
@@ -292,6 +301,7 @@ fn clear_history_fallback_write_has_a_deadline_when_pty_input_is_full() {
         assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
         break;
     }
+    // SAFETY: integer args only on the open `write_end`.
     assert_eq!(unsafe { libc::fcntl(write_fd, libc::F_SETFL, original_flags) }, 0);
 
     {
@@ -326,6 +336,7 @@ fn clear_history_fallback_write_has_a_deadline_when_pty_input_is_full() {
     if !completed_before_drain {
         let mut drain = [0; 4096];
         assert!(
+            // SAFETY: `drain` is a live array; read writes at most drain.len() bytes into it.
             unsafe { libc::read(read_end.as_raw_fd(), drain.as_mut_ptr().cast(), drain.len()) } > 0
         );
     }

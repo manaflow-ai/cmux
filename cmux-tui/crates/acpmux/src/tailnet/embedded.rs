@@ -1391,6 +1391,7 @@ fn open_logout_directory(state_dir: &Path) -> Result<Option<std::fs::File>, Stri
     let metadata = directory
         .metadata()
         .map_err(|error| format!("stat private tailnet state directory: {error}"))?;
+    // SAFETY: getuid has no preconditions.
     let uid = unsafe { libc::getuid() };
     if !metadata.is_dir() || metadata.uid() != uid || metadata.mode() & 0o777 != 0o700 {
         return Err("tailnet state directory is not a private directory owned by this user".into());
@@ -1405,6 +1406,7 @@ fn clear_saved_login(directory: Option<std::fs::File>) -> Result<(), String> {
 fn unlink_saved_file(directory: Option<&std::fs::File>, name: &str) -> Result<(), String> {
     let Some(directory) = directory else { return Ok(()) };
     let name = CString::new(name).map_err(|error| error.to_string())?;
+    // SAFETY: `directory` is open for the call and `name` a NUL-terminated CString.
     let result = unsafe { libc::unlinkat(directory.as_raw_fd(), name.as_ptr(), 0) };
     if result == 0 {
         return Ok(());

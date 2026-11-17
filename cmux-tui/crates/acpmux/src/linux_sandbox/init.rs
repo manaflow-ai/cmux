@@ -89,10 +89,15 @@ fn send_handoff(fd: RawFd, listeners: &[RawFd], proxy: u16, api: Option<u16>) ->
     let mut iov =
         libc::iovec { iov_base: payload.as_ptr() as *mut libc::c_void, iov_len: payload.len() };
     let fd_bytes = std::mem::size_of_val(listeners);
+    // SAFETY: CMSG_SPACE is pure arithmetic on its integer argument; fd_bytes
+    // is at most three descriptors, so the u32 cast cannot truncate.
     let control_len = unsafe { libc::CMSG_SPACE(fd_bytes as u32) as usize };
     // usize storage provides cmsghdr alignment as well as enough space.
     let mut control = vec![0usize; control_len.div_ceil(std::mem::size_of::<usize>())];
-    // SAFETY: control is aligned, CMSG_SPACE-sized and lives through sendmsg.
+    // SAFETY: control is usize-aligned (>= cmsghdr alignment), zeroed and
+    // CMSG_SPACE(fd_bytes) long, so the header and CMSG_DATA..+fd_bytes are in
+    // bounds; listeners is a live slice of fd_bytes bytes. iov, payload and
+    // control all outlive the sendmsg call, which only reads them.
     unsafe {
         let header = control.as_mut_ptr().cast::<libc::cmsghdr>();
         (*header).cmsg_level = libc::SOL_SOCKET;
@@ -123,6 +128,7 @@ fn send_handoff(fd: RawFd, listeners: &[RawFd], proxy: u16, api: Option<u16>) ->
 /// The following nonblocking recv cannot extend that timeout.
 fn wait_ack(fd: RawFd) -> Result<(), String> {
     let mut pollfd = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+    // SAFETY: pollfd is a live local and nfds is 1; a bad fd reports POLLNVAL.
     let result = unsafe { libc::poll(&mut pollfd, 1, 10_000) };
     if result < 0 {
         return Err(format!("handoff poll: {}", io::Error::last_os_error()));
@@ -136,6 +142,7 @@ fn wait_ack(fd: RawFd) -> Result<(), String> {
         return Err("handoff closed before acknowledgement".into());
     }
     let mut byte = [0u8; 1];
+    // SAFETY: byte is a live 1-byte buffer and recv writes at most 1 byte.
     let received = unsafe { libc::recv(fd, byte.as_mut_ptr().cast(), 1, libc::MSG_DONTWAIT) };
     if received == 1 {
         Ok(())
@@ -147,8 +154,10 @@ fn wait_ack(fd: RawFd) -> Result<(), String> {
 }
 
 fn close_extra_fds(keep: &[RawFd]) -> io::Result<()> {
-    // SAFETY: close_range only acts on this process's descriptors >= 3.
     if keep.is_empty() {
+        // SAFETY: integer args only. Closing every fd >= 3 is what the caller
+        // asked for: this single-threaded pre-exec helper holds no other
+        // OwnedFd above 2 that it uses afterwards.
         let result = unsafe { libc::syscall(libc::SYS_close_range, 3u32, u32::MAX, 0u32) };
         if result == 0 {
             return Ok(());
@@ -170,7 +179,10 @@ fn close_extra_fds(keep: &[RawFd]) -> io::Result<()> {
         }
     }
     for fd in descriptors {
-        // SAFETY: each value came from /proc/self/fd and is closed at most once.
+        // SAFETY: integer arg only. Each value came from /proc/self/fd and is
+        // closed at most once; the only fds this single-threaded helper still
+        // uses are in keep. The read_dir fd is already closed, so its number
+        // fails with EBADF (nothing was opened in between).
         unsafe {
             libc::close(fd);
         }
@@ -284,6 +296,8 @@ pub(crate) fn main(args: Vec<OsString>) -> ! {
     drop(proxy);
     drop(notify);
     // The handoff descriptor is no longer needed and must not reach PROGRAM.
+    // SAFETY: integer arg only; handoff_fd was inherited raw (no OwnedFd owns
+    // it) and is closed exactly once here, right before exec.
     unsafe {
         libc::close(options.handoff_fd);
     }

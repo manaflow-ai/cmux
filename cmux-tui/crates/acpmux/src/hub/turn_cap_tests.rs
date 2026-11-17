@@ -69,7 +69,9 @@ impl Fixture {
     async fn gated_turn(&mut self, name: &str) -> tokio::task::JoinHandle<Result<Value, RpcError>> {
         let fifo = self.dir.join(name);
         let path = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
-        assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+        // SAFETY: `path` is a NUL-terminated CString live for the call.
+        let made = unsafe { libc::mkfifo(path.as_ptr(), 0o600) };
+        assert_eq!(made, 0);
         let (hub, session) = (self.hub.clone(), self.session.clone());
         let text = format!("gate: {}", fifo.display());
         let turn = tokio::spawn(async move {

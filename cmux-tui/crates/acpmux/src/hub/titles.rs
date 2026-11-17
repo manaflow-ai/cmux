@@ -510,6 +510,8 @@ async fn run(mut cmd: tokio::process::Command, request: &str) -> Option<String> 
         // all while its leader, not yet reaped, still holds the group's id.
         #[cfg(unix)]
         if let Some(pid) = pid {
+            // SAFETY: killpg takes integers only: `pid` is the command we spawned as its group's
+            // leader, not yet reaped (dropped below), so the group id is still its own.
             unsafe {
                 libc::killpg(pid as i32, libc::SIGKILL);
             }

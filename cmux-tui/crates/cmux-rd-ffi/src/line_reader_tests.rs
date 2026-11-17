@@ -82,10 +82,10 @@ fn json_of(line: &CmuxRdLine) -> serde_json::Value {
         out.insert("path".into(), serde_json::json!({"kind": kind, "rtt_ms": rtt}));
     }
     if has(CMUX_RD_LINE_DISPLAYS) {
-        // SAFETY: display_count pairs at `displays`, valid until the next call.
         let flat = if line.display_count == 0 {
             &[][..]
         } else {
+            // SAFETY: display_count pairs at `displays`, valid until the next call.
             unsafe { std::slice::from_raw_parts(line.displays, line.display_count * 2) }
         };
         let pairs: Vec<serde_json::Value> =
@@ -166,19 +166,19 @@ fn fallback_bit_is_typed_and_does_not_leak_across_lines() {
 #[test]
 fn null_arguments_and_a_null_reader_are_refused() {
     let mut line = CmuxRdLine::default();
-    // SAFETY: NULL reader with a valid out pointer.
     assert_eq!(
+        // SAFETY: NULL reader with a valid out pointer.
         unsafe { cmux_rd_line_reader_next(std::ptr::null_mut(), &mut line) },
         CMUX_RD_ERR_NULL
     );
     let reader = Reader::new();
-    // SAFETY: live reader, NULL out.
     assert_eq!(
+        // SAFETY: live reader, NULL out.
         unsafe { cmux_rd_line_reader_next(reader.0, std::ptr::null_mut()) },
         CMUX_RD_ERR_NULL
     );
-    // SAFETY: live reader, NULL bytes with a length.
     assert_eq!(
+        // SAFETY: live reader, NULL bytes with a length.
         unsafe { cmux_rd_line_reader_push(reader.0, std::ptr::null(), 4) },
         CMUX_RD_ERR_NULL
     );

@@ -69,6 +69,7 @@ async fn socket_ready_does_not_wait_for_store_open() {
         .unwrap()
         .expect("daemon reported readiness");
     assert_eq!(ready["pid"], child.0.id());
+    // SAFETY: integer args only; the child is not yet reaped (try_wait below), so its pid is ours.
     unsafe { libc::kill(child.0.id() as i32, libc::SIGTERM) };
     let status = tokio::time::timeout(Duration::from_secs(10), async {
         loop {

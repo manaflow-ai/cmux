@@ -1239,14 +1239,17 @@ mod unix {
         // SAFETY: each function returns this thread's errno slot.
         #[cfg(any(target_vendor = "apple", target_os = "freebsd", target_os = "dragonfly"))]
         {
+            // SAFETY: __error has no preconditions and returns this thread's errno slot.
             Some(unsafe { libc::__error() })
         }
         #[cfg(target_os = "linux")]
         {
+            // SAFETY: __errno_location has no preconditions and returns this thread's errno slot.
             Some(unsafe { libc::__errno_location() })
         }
         #[cfg(any(target_os = "android", target_os = "netbsd", target_os = "openbsd"))]
         {
+            // SAFETY: __errno has no preconditions and returns this thread's errno slot.
             Some(unsafe { libc::__errno() })
         }
         #[cfg(not(any(

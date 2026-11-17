@@ -203,6 +203,7 @@ pub fn serve(
     listener: std::os::unix::net::UnixListener,
     mux: Arc<Mux>,
 ) -> io::Result<std::thread::JoinHandle<()>> {
+    // SAFETY: integer arguments only; it changes this process's dumpable flag.
     let result = unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) };
     if result != 0 {
         return Err(io::Error::last_os_error());
@@ -362,6 +363,7 @@ mod tests {
         use std::os::unix::net::UnixStream;
 
         let (client, server) = UnixStream::pair().unwrap();
+        // SAFETY: geteuid takes no arguments and cannot fail.
         assert_eq!(peer_uid(&server).unwrap(), unsafe { libc::geteuid() });
         drop(client);
     }

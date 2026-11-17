@@ -17,6 +17,8 @@ pub(super) struct Guard<'a> {
 }
 impl Drop for Guard<'_> {
     fn drop(&mut self) {
+        // SAFETY: integer args only; file is borrowed for the guard's lifetime,
+        // so the fd is still open here.
         unsafe {
             flock(self.file.as_raw_fd(), LOCK_UN);
         }
@@ -30,6 +32,7 @@ fn valid_lock(info: &stat, uid: uid_t) -> bool {
 }
 pub(super) fn open(policy: &WritePolicy) -> Result<OwnedFd> {
     use std::os::unix::fs::DirBuilderExt;
+    // SAFETY: getuid takes no arguments and cannot fail.
     let uid = unsafe { getuid() };
     let directory = match std::env::var_os("XDG_RUNTIME_DIR") {
         Some(path) => std::path::PathBuf::from(path),
@@ -80,6 +83,7 @@ pub(super) fn acquire(file: &OwnedFd, stop: RawFd, listener: RawFd) -> Result<Gu
             Err(TryLockError::Poisoned(_)) => return Err(EACCES),
         };
         if let Some(local) = local {
+            // SAFETY: integer args only; file is a live borrowed OwnedFd.
             if unsafe { flock(file.as_raw_fd(), LOCK_EX | LOCK_NB) } == 0 {
                 return Ok(Guard { file, _local: local });
             }
@@ -91,6 +95,8 @@ pub(super) fn acquire(file: &OwnedFd, stop: RawFd, listener: RawFd) -> Result<Gu
             pollfd { fd: stop, events: POLLIN, revents: 0 },
             pollfd { fd: listener, events: 0, revents: 0 },
         ];
+        // SAFETY: polls is a live 2-element pollfd array, matching nfds = 2; a
+        // closed fd only reports POLLNVAL.
         if unsafe { poll(polls.as_mut_ptr(), 2, 10) } < 0 && error() != EINTR {
             return Err(error());
         }
@@ -109,8 +115,10 @@ mod tests {
     use std::{sync::mpsc, time::Duration};
 
     fn event() -> OwnedFd {
+        // SAFETY: integer args only; returns a new fd or -1.
         let fd = unsafe { eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK) };
         assert!(fd >= 0);
+        // SAFETY: fd is a fresh eventfd that nothing else owns.
         unsafe { OwnedFd::from_raw_fd(fd) }
     }
 
@@ -135,7 +143,11 @@ mod tests {
         let stop = event();
         let listener = event();
         let guard = acquire(&first, stop.as_raw_fd(), listener.as_raw_fd()).unwrap();
-        assert_eq!(unsafe { flock(second.as_raw_fd(), LOCK_EX | LOCK_NB) }, -1);
+        assert_eq!(
+            // SAFETY: integer args only; second is a live OwnedFd.
+            unsafe { flock(second.as_raw_fd(), LOCK_EX | LOCK_NB) },
+            -1
+        );
         assert_eq!(error(), EWOULDBLOCK);
         let stop_worker = stop.try_clone().unwrap();
         let (tx, rx) = mpsc::channel();
@@ -151,6 +163,7 @@ mod tests {
 
     #[test]
     fn lock_file_is_owner_write_only() {
+        // SAFETY: geteuid takes no arguments and cannot fail.
         if unsafe { geteuid() } == 0 {
             eprintln!("skipped: lock readability test requires a non-root uid");
             return;
@@ -169,7 +182,9 @@ mod tests {
         let path = format!("/tmp/acpmux-lock-preexisting-{}", std::process::id());
         let file = open_at(AT_FDCWD, &path, O_CREAT | O_EXCL | O_RDWR, 0o600).unwrap();
         let info = stat(file.as_raw_fd()).unwrap();
-        assert!(!valid_lock(&info, unsafe { getuid() }));
+        // SAFETY: getuid takes no arguments and cannot fail.
+        let uid = unsafe { getuid() };
+        assert!(!valid_lock(&info, uid));
         drop(file);
         let _ = std::fs::remove_file(path);
     }
@@ -178,7 +193,11 @@ mod tests {
     #[test]
     fn external_flock_blocks_until_stop() {
         let (first, second) = files();
-        assert_eq!(unsafe { flock(first.as_raw_fd(), LOCK_EX | LOCK_NB) }, 0);
+        assert_eq!(
+            // SAFETY: integer args only; first is a live OwnedFd.
+            unsafe { flock(first.as_raw_fd(), LOCK_EX | LOCK_NB) },
+            0
+        );
         let stop = event();
         let listener = event();
         let stop_worker = stop.try_clone().unwrap();
@@ -188,7 +207,11 @@ mod tests {
             tx.send(result.err()).unwrap();
         });
         let premature = rx.recv_timeout(Duration::from_millis(50));
-        assert_eq!(unsafe { write(stop.as_raw_fd(), (&1u64 as *const u64).cast(), 8) }, 8);
+        assert_eq!(
+            // SAFETY: the source is a live 8-byte u64 and stop is an open eventfd.
+            unsafe { write(stop.as_raw_fd(), (&1u64 as *const u64).cast(), 8) },
+            8
+        );
         let outcome = premature
             .as_ref()
             .copied()

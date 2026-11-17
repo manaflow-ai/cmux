@@ -280,6 +280,7 @@ pub fn space(path: &Path) -> Option<Space> {
 fn statvfs(path: &Path) -> Option<(u64, u64)> {
     use std::os::unix::ffi::OsStrExt as _;
     let c = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
+    // SAFETY: libc::statvfs is plain integers, for which all-zero is a valid value.
     let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
     // SAFETY: `c` is a valid NUL-terminated path and `st` a writable statvfs.
     if unsafe { libc::statvfs(c.as_ptr(), &mut st) } != 0 {

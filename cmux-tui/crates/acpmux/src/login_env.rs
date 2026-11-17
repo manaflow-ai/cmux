@@ -600,6 +600,8 @@ async fn run_shell(shell: &str, marker: &str) -> Option<String> {
     // take the terminal a foreground daemon runs in), and its process group
     // id is its pid (killed as a group on timeout).
     #[cfg(unix)]
+    // SAFETY: the closure runs in the forked child before exec and calls only setsid and errno
+    // reads, both async-signal-safe; it captures nothing and allocates nothing on success.
     unsafe {
         cmd.pre_exec(|| {
             if libc::setsid() == -1 {
@@ -1613,6 +1615,7 @@ fn delivered_names_in(home: &std::path::Path) -> Vec<String> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt as _;
+        // SAFETY: getuid has no preconditions.
         if meta.uid() != unsafe { libc::getuid() } {
             return Vec::new();
         }

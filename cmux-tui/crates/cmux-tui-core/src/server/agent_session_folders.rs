@@ -118,6 +118,7 @@ pub(crate) fn private_owned_dir(path: &Path) -> bool {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt as _;
+        // SAFETY: geteuid takes no arguments and cannot fail.
         metadata.uid() == unsafe { libc::geteuid() } && metadata.mode() & 0o022 == 0
     }
     #[cfg(not(unix))]

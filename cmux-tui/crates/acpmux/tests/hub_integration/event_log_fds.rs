@@ -22,6 +22,8 @@ fn open_files_under(root: &Path) -> Vec<std::path::PathBuf> {
     for entry in std::fs::read_dir("/dev/fd").unwrap().flatten() {
         let Ok(fd) = entry.file_name().to_string_lossy().parse::<i32>() else { continue };
         let mut buf = vec![0u8; libc::PATH_MAX as usize];
+        // SAFETY: F_GETPATH writes at most PATH_MAX bytes, and `buf` is PATH_MAX long and live;
+        // a closed fd fails with EBADF.
         if unsafe { libc::fcntl(fd, libc::F_GETPATH, buf.as_mut_ptr()) } != 0 {
             continue;
         }

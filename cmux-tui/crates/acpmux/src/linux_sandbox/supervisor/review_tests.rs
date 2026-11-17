@@ -59,7 +59,8 @@ fn review_proc_fd_directory_prefix_denied_outside_writable_root() {
 }
 
 /// `/proc/self/fd/<fd>/<rest>` in a caller-owned buffer; no allocation after
-/// fork. `rest` ends with NUL; the 96-byte buffer holds every case below.
+/// fork. `rest` ends with NUL; the 96-byte buffer holds every case below, and
+/// its last byte is never written, so the result is always NUL-terminated.
 fn proc_fd_path(buf: &mut [u8; 96], fd: c_int, rest: &[u8]) -> *const c_char {
     let mut digits = [0u8; 10];
     let mut count = 0;
@@ -75,7 +76,7 @@ fn proc_fd_path(buf: &mut [u8; 96], fd: c_int, rest: &[u8]) -> *const c_char {
     let number = digits.iter().take(count).rev();
     let bytes = b"/proc/self/fd/".iter().chain(number).chain(b"/").chain(rest);
     buf.fill(0);
-    for (slot, byte) in buf.iter_mut().zip(bytes) {
+    for (slot, byte) in buf.iter_mut().take(95).zip(bytes) {
         *slot = *byte;
     }
     buf.as_ptr().cast()
@@ -83,6 +84,9 @@ fn proc_fd_path(buf: &mut [u8; 96], fd: c_int, rest: &[u8]) -> *const c_char {
 
 /// Finite syscall sequences through `/proc/self/fd/<dirfd>/<name>` paths.
 unsafe fn proc_fd_case(case: u8) -> i32 {
+    // SAFETY: runs in the forked child: raw libc calls only, no allocation.
+    // Every path is a c"" literal or a proc_fd_path result, which is always
+    // NUL-terminated inside the live 96-byte buf; fds are opened and closed here.
     unsafe {
         let mut buf = [0u8; 96];
         let flags = O_PATH | O_DIRECTORY | O_CLOEXEC;
@@ -139,6 +143,8 @@ fn review_truncate_symlink_race_preserves_config() {
 
 /// Bounded syscall sequences; the harness alarm also bounds thread joins.
 unsafe fn review_case(case: u8) -> i32 {
+    // SAFETY: runs in the forked child: raw libc calls on c"" literals and fds
+    // opened here, plus errno through __errno_location (this thread's errno).
     unsafe {
         let at = AT_FDCWD;
         if case == 218 {
@@ -197,13 +203,21 @@ struct LeafRace {
     stop: AtomicBool,
 }
 
+// A static, not a pointer argument: the safe start routine below then never
+// dereferences a raw pointer a caller could make dangling. Each forked child
+// has its own copy and truncate_race resets it before starting the thread.
+static LEAF_RACE: LeafRace =
+    LeafRace { ready: AtomicBool::new(false), stop: AtomicBool::new(false) };
+
 /// Swaps the missing leaf with a protected symlink until stop or 10k iterations.
-extern "C" fn swap_leaf(data: *mut c_void) -> *mut c_void {
-    let state = unsafe { &*data.cast::<LeafRace>() };
+extern "C" fn swap_leaf(_: *mut c_void) -> *mut c_void {
+    let state = &LEAF_RACE;
     for _ in 0..10_000 {
         if state.stop.load(Ordering::Acquire) {
             break;
         }
+        // SAFETY: both paths are NUL-terminated c"" literals; the rest are
+        // integer args.
         unsafe {
             libc::symlinkat(c".git/config".as_ptr(), AT_FDCWD, c"racing".as_ptr());
             state.ready.store(true, Ordering::Release);
@@ -216,18 +230,18 @@ extern "C" fn swap_leaf(data: *mut c_void) -> *mut c_void {
 
 /// One thousand truncates race a sibling; SIGALRM bounds the readiness wait.
 unsafe fn truncate_race() -> i32 {
+    // SAFETY: runs in the forked child: c"" literal paths, a zeroed pthread_t
+    // (an integer) as pthread_create's out-param, and a start routine that
+    // takes no data; the thread is joined before returning.
     unsafe {
         if libc::truncate(c"racing".as_ptr(), 0) != -1 || *libc::__errno_location() != ENOENT {
             return 136;
         }
-        let state = LeafRace { ready: AtomicBool::new(false), stop: AtomicBool::new(false) };
+        let state = &LEAF_RACE;
+        state.ready.store(false, Ordering::Release);
+        state.stop.store(false, Ordering::Release);
         let mut thread = std::mem::zeroed();
-        if libc::pthread_create(
-            &mut thread,
-            std::ptr::null(),
-            swap_leaf,
-            (&state as *const LeafRace).cast_mut().cast(),
-        ) != 0
+        if libc::pthread_create(&mut thread, std::ptr::null(), swap_leaf, std::ptr::null_mut()) != 0
         {
             return 137;
         }

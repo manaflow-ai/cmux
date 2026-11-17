@@ -137,8 +137,8 @@ mod tests {
         std::fs::write(&lock, format!("{}\n", std::process::id())).unwrap();
         assert!(!lock_has_live_holder(&lock), "a stale pid is not a lock holder");
         let file = std::fs::OpenOptions::new().read(true).write(true).open(&lock).unwrap();
-        // SAFETY: this test owns the descriptor and releases the probe lock below.
         assert_eq!(
+            // SAFETY: flock on the live descriptor this test owns; integers only.
             unsafe {
                 libc::flock(
                     std::os::unix::io::AsRawFd::as_raw_fd(&file),
@@ -148,6 +148,7 @@ mod tests {
             0
         );
         assert!(lock_has_live_holder(&lock));
+        // SAFETY: as above; releases the lock taken above before `file` drops.
         unsafe { libc::flock(std::os::unix::io::AsRawFd::as_raw_fd(&file), libc::LOCK_UN) };
         drop(file);
         // A pid no process has (above the default pid_max) is still not a holder.

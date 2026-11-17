@@ -24,9 +24,9 @@ fn python() -> Option<&'static str> {
 
 fn socketpair() -> (std::os::unix::net::UnixStream, std::os::unix::net::UnixStream) {
     let mut fds = [-1; 2];
-    // SAFETY: fds points to two writable integers and the call has no Rust
-    // references that outlive this function.
     assert_eq!(
+        // SAFETY: fds points to two writable integers and the call has no Rust
+        // references that outlive this function.
         unsafe {
             libc::socketpair(
                 libc::AF_UNIX,
@@ -90,6 +90,7 @@ fn recv_handoff(
     stream.set_read_timeout(Some(Duration::from_secs(15))).unwrap();
     let mut bytes = vec![0u8; 4096];
     let control_len =
+        // SAFETY: CMSG_SPACE is pure arithmetic on its integer argument.
         unsafe { libc::CMSG_SPACE((3 * std::mem::size_of::<RawFd>()) as u32) as usize };
     let mut cmsg = vec![0usize; control_len.div_ceil(std::mem::size_of::<usize>())];
     let mut iov = libc::iovec { iov_base: bytes.as_mut_ptr().cast(), iov_len: bytes.len() };
@@ -201,6 +202,7 @@ print(json.dumps({key: os.environ[key] for key in keys}))"#,
     ack(&parent);
     // Poll bounds the accept wait even if the child fails before connecting.
     let mut ready = libc::pollfd { fd: api_listener.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+    // SAFETY: `ready` is one live pollfd, matching nfds = 1, for the call's duration.
     assert_eq!(unsafe { libc::poll(&mut ready, 1, 10_000) }, 1, "API request did not arrive");
     let (mut connection, _) = api_listener.accept().unwrap();
     connection.set_read_timeout(Some(Duration::from_secs(5))).unwrap();

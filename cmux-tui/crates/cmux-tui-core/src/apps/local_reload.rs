@@ -800,6 +800,7 @@ fn on_screen<T>(work: impl FnOnce() -> T) -> T {
         unsafe { libc::pthread_get_qos_class_np(libc::pthread_self(), &mut was, &mut relative) };
         // SAFETY: sets the calling thread's own class; no pointer is passed.
         let raised = (was as u32) < (QOS_CLASS_USER_INITIATED as u32)
+            // SAFETY: as above: sets this thread's own class; integer args only.
             && unsafe { libc::pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0) } == 0;
         let out = work();
         if raised {

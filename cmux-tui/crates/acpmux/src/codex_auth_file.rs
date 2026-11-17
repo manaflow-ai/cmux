@@ -53,8 +53,8 @@ pub fn read_at(path: &Path, owner_marker: &Path) -> Result<Option<AccessFile>> {
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path)?;
     let metadata = file.metadata()?;
-    // SAFETY: getuid has no preconditions.
     ensure!(
+        // SAFETY: getuid has no preconditions.
         metadata.is_file() && metadata.uid() == unsafe { libc::getuid() },
         "Codex broker file owner mismatch"
     );

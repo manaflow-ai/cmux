@@ -84,6 +84,7 @@ mod unix {
     fn stat(fd: &OwnedFd) -> io::Result<libc::stat> {
         // SAFETY: a zeroed stat is a valid out-parameter; fd is valid.
         let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+        // SAFETY: `stat` is a writable stat on this frame; `fd` is borrowed open for the call.
         if unsafe { libc::fstat(fd.as_raw_fd(), &mut stat) } < 0 {
             return Err(io::Error::last_os_error());
         }
@@ -309,6 +310,9 @@ impl Dir {
                     };
                     // SAFETY: zeroed stat out-parameter, valid descriptor and name.
                     let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+                    // SAFETY: `dir` is an open descriptor borrowed for the call, `name` a
+                    // NUL-terminated CString that outlives it, and `stat` a writable out-parameter
+                    // on this frame.
                     let result = unsafe {
                         libc::fstatat(
                             std::os::fd::AsRawFd::as_raw_fd(&dir),

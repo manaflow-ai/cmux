@@ -24,6 +24,8 @@ pub(super) fn validate_app(
         return Err("remote_app_mismatch".into());
     }
     // getpwuid_r reads the login HOME, independently of the capture's HOME override.
+    // SAFETY: passwd is integers and raw pointers, valid when all zero; getpwuid_r
+    // overwrites it before any field is read.
     let mut password: libc::passwd = unsafe { std::mem::zeroed() };
     let mut storage = vec![0_i8; 16_384];
     let mut result = std::ptr::null_mut();

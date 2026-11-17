@@ -129,8 +129,8 @@ fn cancelling_a_pending_chunk_drops_it() {
     assert_eq!(queue(&tx, 1, &[9u8; 3_000]), CMUX_RD_OK);
     let mut small = [0u8; 16];
     let mut len = 0usize;
-    // SAFETY: live handle; `small` holds 16 bytes.
     assert_eq!(
+        // SAFETY: live handle; `small` holds 16 bytes.
         unsafe { cmux_rd_bulk_sender_pop_frame(tx.0, 0, false, small.as_mut_ptr(), 16, &mut len) },
         CMUX_RD_ERR_BUFFER
     );
@@ -154,8 +154,8 @@ fn the_queue_is_bounded_and_transfers_are_unique() {
     assert_eq!(unsafe { cmux_rd_bulk_sender_queued_bytes(tx.0) }, 0);
     assert_eq!(queue(&tx, 2, &[1]), CMUX_RD_OK);
     assert!(cmux_rd_bulk_sender_new(0).is_null());
-    // SAFETY: NULL is allowed.
     assert_eq!(
+        // SAFETY: NULL is allowed.
         unsafe { cmux_rd_bulk_sender_queue(std::ptr::null_mut(), 1, [1u8].as_ptr(), 1) },
         CMUX_RD_ERR_NULL
     );

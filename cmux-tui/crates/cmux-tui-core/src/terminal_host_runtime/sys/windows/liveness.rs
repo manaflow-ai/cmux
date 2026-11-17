@@ -74,6 +74,8 @@ pub fn acquire(path: &Path, kind: LeaseKind, wait: bool) -> io::Result<Option<Le
 /// Locks the whole of an open `file` through this handle. `wait`: block
 /// until free; else Ok(false) when another handle holds a conflicting lock.
 /// The lock lives until [`unlock_file`] or the handle closes.
+/// `file` must be opened for synchronous I/O (no FILE_FLAG_OVERLAPPED), as
+/// every caller's is: the OVERLAPPED passed to the kernel is a stack local.
 pub fn lock_file(file: &File, kind: LeaseKind, wait: bool) -> io::Result<bool> {
     let mut flags = 0;
     if kind == LeaseKind::Exclusive {
@@ -82,9 +84,13 @@ pub fn lock_file(file: &File, kind: LeaseKind, wait: bool) -> io::Result<bool> {
     if !wait {
         flags |= LOCKFILE_FAIL_IMMEDIATELY;
     }
+    // SAFETY: OVERLAPPED is integers, a union of integers/pointer and a
+    // HANDLE; all-zero is valid (offset 0, no event).
     let mut overlapped: OVERLAPPED = unsafe { std::mem::zeroed() };
-    // SAFETY: a valid file handle; a synchronous handle, so the zeroed
-    // OVERLAPPED only names offset 0.
+    // SAFETY: a valid file handle borrowed from `file`. Sound only because the
+    // handle is synchronous: the call completes before returning, so the
+    // kernel never writes the stack `overlapped` after this frame (an
+    // overlapped handle could return ERROR_IO_PENDING and write it later).
     let ok = unsafe {
         LockFileEx(file.as_raw_handle() as HANDLE, flags, 0, u32::MAX, u32::MAX, &mut overlapped)
     };
@@ -98,10 +104,13 @@ pub fn lock_file(file: &File, kind: LeaseKind, wait: bool) -> io::Result<bool> {
     Err(error)
 }
 
-/// Releases this handle's whole-file lock.
+/// Releases this handle's whole-file lock. Same synchronous-handle
+/// requirement as [`lock_file`].
 pub fn unlock_file(file: &File) {
+    // SAFETY: all-zero is a valid OVERLAPPED (offset 0, no event).
     let mut overlapped: OVERLAPPED = unsafe { std::mem::zeroed() };
-    // SAFETY: a valid handle; the whole range `lock_file` locked.
+    // SAFETY: a valid handle; the whole range `lock_file` locked. The handle
+    // is synchronous, so the kernel is done with `overlapped` on return.
     unsafe { UnlockFileEx(file.as_raw_handle() as HANDLE, 0, u32::MAX, u32::MAX, &mut overlapped) };
 }
 

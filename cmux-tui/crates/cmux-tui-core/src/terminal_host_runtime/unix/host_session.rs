@@ -130,7 +130,12 @@ fn owner_part(value: Option<&str>) -> String {
 /// inherited descriptor ([`isolate_terminal_host_process_fds`]). A host
 /// already in its own session (an adopting host's launcher still runs
 /// `setsid` itself) keeps it.
-pub fn enter_terminal_host_process() -> anyhow::Result<()> {
+///
+/// # Safety
+///
+/// Call it while this process runs one thread only (before the host starts any): it removes
+/// variables from the process environment, which is unsound while another thread can read it.
+pub unsafe fn enter_terminal_host_process() -> anyhow::Result<()> {
     // Under a test, name the test process (a host a test ran its daemon in
     // its own process for is that test's child, cx-leo45).
     // SAFETY: the host is still single-threaded (see below).
@@ -141,6 +146,7 @@ pub fn enter_terminal_host_process() -> anyhow::Result<()> {
     // SAFETY: getpid/getsid/setsid take no pointers; the host is still
     // single-threaded here.
     let own_session = unsafe { libc::getsid(0) == libc::getpid() };
+    // SAFETY: setsid takes no arguments; the host is still single-threaded here.
     if !own_session && unsafe { libc::setsid() } < 0 {
         return Err(std::io::Error::last_os_error())
             .context("terminal host could not leave the daemon's session");

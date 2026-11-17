@@ -126,6 +126,7 @@ pub fn peer_scratch_root() -> PathBuf {
     static ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
     ROOT.get_or_init(|| {
         #[cfg(unix)]
+        // SAFETY: getuid has no preconditions.
         let uid = unsafe { libc::getuid() }.to_string();
         #[cfg(not(unix))]
         let uid = "user".to_owned();

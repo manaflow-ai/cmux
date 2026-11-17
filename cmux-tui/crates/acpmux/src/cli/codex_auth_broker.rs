@@ -70,8 +70,8 @@ pub async fn run(home: PathBuf, codex: PathBuf) -> Result<()> {
 fn ignore_broken_pipe() -> Result<()> {
     // The CLI defaults SIGPIPE for ordinary pipelines. This private owner must
     // instead receive EPIPE and stop/reap Codex before releasing its lock.
-    // SAFETY: SIG_IGN is a supported process-wide disposition for SIGPIPE.
     ensure!(
+        // SAFETY: integers only; SIG_IGN is a supported process-wide disposition for SIGPIPE.
         unsafe { libc::signal(libc::SIGPIPE, libc::SIG_IGN) } != libc::SIG_ERR,
         "cannot configure broker pipe handling"
     );
@@ -118,6 +118,8 @@ fn private_pipe(source: i32) -> Result<tokio::io::unix::AsyncFd<OwnedFd>> {
     // SAFETY: duplicate a stdio descriptor; OwnedFd owns only the new descriptor.
     let fd = unsafe { libc::fcntl(source, libc::F_DUPFD_CLOEXEC, 3) };
     ensure!(fd >= 0, "cannot open broker pipe");
+    // SAFETY: fcntl just returned this new descriptor (checked >= 0); nothing else owns it, so
+    // the OwnedFd closes it exactly once.
     let fd = unsafe { OwnedFd::from_raw_fd(fd) };
     nonblocking_input(fd)
 }
@@ -153,6 +155,7 @@ fn nonblocking_input(fd: OwnedFd) -> Result<tokio::io::unix::AsyncFd<OwnedFd>> {
     let flags = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETFL) };
     ensure!(
         flags >= 0
+            // SAFETY: as above: `fd` is owned and live; integers only.
             && unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) } >= 0,
         "cannot make broker input nonblocking"
     );
@@ -468,9 +471,9 @@ fn access(path: &Path) -> Result<Value> {
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path)?;
     let metadata = file.metadata()?;
-    // SAFETY: getuid has no preconditions.
     ensure!(
         metadata.is_file()
+            // SAFETY: getuid has no preconditions.
             && metadata.uid() == unsafe { libc::getuid() }
             && metadata.mode() & 0o077 == 0
             && metadata.len() <= LIMIT as u64,

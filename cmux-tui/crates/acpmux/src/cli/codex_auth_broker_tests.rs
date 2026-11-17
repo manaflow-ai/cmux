@@ -90,6 +90,8 @@ async fn closed_reply_pipe_returns_error_instead_of_sigpipe() {
     }
     // Exercise the actual CLI default in an isolated process, never change
     // another parallel test's signal disposition.
+    // SAFETY: signal takes integers only; this test runs in its own child process (CHILD above), so
+    // no parallel test sees the disposition change.
     unsafe {
         libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }

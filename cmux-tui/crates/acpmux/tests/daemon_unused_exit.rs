@@ -91,8 +91,11 @@ async fn exit_within(
 /// Stops a daemon a test kept running, and reports whether it was still running.
 async fn stop(child: &mut std::process::Child) -> bool {
     let running = child.try_wait().unwrap().is_none();
-    unsafe {
-        libc::kill(child.id() as i32, libc::SIGTERM);
+    if running {
+        // SAFETY: integer args only; try_wait just saw the child unreaped, so its pid is ours.
+        unsafe {
+            libc::kill(child.id() as i32, libc::SIGTERM);
+        }
     }
     if exit_within(child, acpmux::daemon::EXIT_BUDGET).await.is_none() {
         let _ = child.kill();

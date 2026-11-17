@@ -25,6 +25,9 @@ struct AllocationCounter;
 
 // Test-only allocator: counting is enabled per thread, so unrelated tests do not
 // affect the record-size assertion while the old `to_vec` implementation allocates.
+// SAFETY: every method forwards to `System` with the caller's unchanged arguments, so
+// `System` upholds GlobalAlloc's contract; the counting touches only const-initialized
+// thread-local Cells (try_with, no allocation) and never unwinds.
 unsafe impl GlobalAlloc for AllocationCounter {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let _ = RECORD_BYTES_ALLOCS.try_with(|count| {
@@ -33,6 +36,7 @@ unsafe impl GlobalAlloc for AllocationCounter {
             }
         });
         note_bytes(layout.size() as isize);
+        // SAFETY: forwards the caller's `layout`, under the same contract this fn was called with.
         unsafe { System.alloc(layout) }
     }
 
@@ -43,11 +47,14 @@ unsafe impl GlobalAlloc for AllocationCounter {
             }
         });
         note_bytes(layout.size() as isize);
+        // SAFETY: forwards the caller's `layout`, under the same contract this fn was called with.
         unsafe { System.alloc_zeroed(layout) }
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         note_bytes(-(layout.size() as isize));
+        // SAFETY: `ptr` and `layout` come unchanged from the caller, who got `ptr` from this
+        // allocator, i.e. from `System`.
         unsafe { System.dealloc(ptr, layout) }
     }
 
@@ -58,6 +65,8 @@ unsafe impl GlobalAlloc for AllocationCounter {
             }
         });
         note_bytes(size as isize - layout.size() as isize);
+        // SAFETY: `ptr`, `layout` and `size` come unchanged from the caller under realloc's
+        // contract; `ptr` came from `System` through this allocator.
         unsafe { System.realloc(ptr, layout, size) }
     }
 }

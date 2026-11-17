@@ -117,6 +117,7 @@ async fn the_daemon_serves_a_fixture_and_reads_nothing_live() {
     assert!(!marker.exists(), "the fixture harness ran: {:?}", std::fs::read_to_string(&marker));
     assert!(!dir.join("harness-health.json").exists(), "a fixture's health was saved");
 
+    // SAFETY: integer args only; `child` has not been waited on, so its pid is still ours.
     unsafe {
         libc::kill(child.id() as i32, libc::SIGTERM);
     }
@@ -170,6 +171,7 @@ async fn the_daemon_serves_a_first_run_matrix_cell() {
     );
     assert!(!dir.join("harness-health.json").exists(), "a fixture's health was saved");
 
+    // SAFETY: integer args only; `child` has not been waited on, so its pid is still ours.
     unsafe {
         libc::kill(child.id() as i32, libc::SIGTERM);
     }
