@@ -27,6 +27,7 @@ on:
       - "tests/test_cargo_test_verdict.py"
       # Files outside cmux-tui that acpmux or its path dependencies include_str!
       # (tests/test_cargo_test_verdict.py keeps this list whole).
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
       - "Resources/theme-files/*.json"
       - "docs/remote-agents-and-cloud.md"
       - "plans/cmux-next/spec-proposals/visuals/design-tokens.json"
@@ -39,6 +40,7 @@ on:
       - "schemas/settings/settings-schema.json"
       - "schemas/settings/source/agent-cache.json"
       - "schemas/settings/source/agent-retry.json"
+      - "schemas/settings/source/general.json"
       - "schemas/settings/source/subsessions.json"
       - "schemas/settings/source/trust.json"
       - "schemas/theme/theme-ink-vectors.json"
