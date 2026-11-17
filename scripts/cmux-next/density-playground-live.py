@@ -206,9 +206,9 @@ try:
     field("6")
     frame("sidebar row gap 6")
     keys((("cmd",), "2"))
+    keys("tab")  # the shown field left with the group: Tab starts again at the name
     frame("Horizontal tabs")
-    type_text("36")
-    keys("return")
+    field("36")
     frame("tab height 36")
     field("6")
     frame("strip padding 6")

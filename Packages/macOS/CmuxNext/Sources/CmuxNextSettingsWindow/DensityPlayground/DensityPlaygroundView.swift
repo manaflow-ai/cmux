@@ -15,7 +15,7 @@ struct DensityPlaygroundView: View {
     @State private var confirmingDelete = false
     @State private var flash: String?
     @FocusState private var nameFocused: Bool
-    /// The value field with the keyboard (its key): Command-1, -2 and -3 put it on the group's first value.
+    /// The value field with the keyboard (its key).
     @FocusState private var focusedValue: String?
 
     /// The window's own sizes (a 4 pt grid), apart from the density being tuned.
@@ -157,12 +157,7 @@ struct DensityPlaygroundView: View {
     /// Command-1, -2 and -3 pick a group from the keyboard (a segmented control takes no focus by default).
     private var groupShortcuts: some View {
         ForEach(Array(DensityTokenCatalog.Group.allCases.enumerated()), id: \.offset) { index, item in
-            Button("") {
-                // A new group's fields replace the shown ones: the keys go to its first value.
-                guard group != item else { return }
-                group = item
-                focusedValue = model.entries.first { $0.group == item }?.key
-            }
+            Button("") { group = item }
                 .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
                 .opacity(0).frame(width: 0, height: 0)
                 .accessibilityHidden(true)
