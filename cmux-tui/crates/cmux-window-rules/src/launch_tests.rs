@@ -67,3 +67,43 @@ fn before_the_daemon_answers_only_the_sessions_decide() {
     let unrecorded = facts(Some("registry-this-home"), None, None, &[], &[]);
     assert_eq!(verdict(&unrecorded), Verdict::Current);
 }
+
+/// A home's Application Support in a fresh temporary folder.
+fn app_support(name: &str) -> std::path::PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos())
+        .unwrap_or_default();
+    let root =
+        std::env::temp_dir().join(format!("launch-registry-{name}-{}-{nanos}", std::process::id()));
+    std::fs::create_dir_all(root.join("cmux-next")).expect("temporary folder");
+    root
+}
+
+/// The one reader of `cmux-next/launch-snapshot-registry.<session>` (the app's launch read and stage 0).
+#[test]
+fn current_registry_id_reads_the_id_this_home_recorded() {
+    let root = app_support("reads");
+    let file = root.join("cmux-next").join("launch-snapshot-registry.cmux-app");
+    assert_eq!(current_registry_id(&root, "cmux-app"), None, "missing file");
+    std::fs::write(&file, "4cd043ac-registry").expect("write");
+    assert_eq!(current_registry_id(&root, "cmux-app").as_deref(), Some("4cd043ac-registry"));
+    std::fs::write(&file, "4cd043ac-registry\n").expect("write");
+    assert_eq!(current_registry_id(&root, "cmux-app").as_deref(), Some("4cd043ac-registry"));
+    // Another session's name reads its own file only.
+    assert_eq!(current_registry_id(&root, "cmux-app-tag"), None);
+    std::fs::write(&file, "  \n").expect("write");
+    assert_eq!(current_registry_id(&root, "cmux-app"), None, "empty");
+    std::fs::write(&file, "x".repeat(MAX_REGISTRY_ID_BYTES + 1)).expect("write");
+    assert_eq!(current_registry_id(&root, "cmux-app"), None, "longer than the bound");
+    std::fs::write(&file, "x".repeat(MAX_REGISTRY_ID_BYTES)).expect("write");
+    assert_eq!(
+        current_registry_id(&root, "cmux-app").map(|id| id.len()),
+        Some(MAX_REGISTRY_ID_BYTES)
+    );
+    std::fs::write(&file, [0xff, 0xfe]).expect("write");
+    assert_eq!(current_registry_id(&root, "cmux-app"), None, "not UTF-8");
+    assert_eq!(current_registry_id(&root, "../cmux-app"), None, "a path is not a session name");
+    assert_eq!(current_registry_id(&root, ""), None);
+    let _ = std::fs::remove_dir_all(root);
+}
