@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44122406193",
+  "recorded_at": "2026-11-17T16:27:44Z",
+  "reason": "cmux-tui 688ead4ab568 changes the image's cmux-tui (pinned 2178b792d5ea)",
+  "dry_run": false,
+  "cmux_tui": "688ead4ab5687673cf8972d6271a8b836aff9781",
+  "fixes": [
+    {
+      "sha": "688ead4ab5687673cf8972d6271a8b836aff9781",
+      "mergedAt": "2026-11-17T07:46:21-08:00",
+      "subject": "screen share: say when the Mac is locked or its display asleep; grants read the app's own on NIGHTLY (#45530)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T16:27:44Z",
+    "snapshot_id": "sh-5da0fde4bf1341c4a521d17b66a5f64d",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44122406193): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "0e7c6bbd4fcfc6e6b97974c061e7efd6aa69a340",
+    "image": "cloud-native-auto-688ead4a-44122406193-1",
+    "revision": "ci-44122406193-1",
+    "at": "2026-11-17T16:27:44Z"
+  },
+  "rolled_back": false
+}
