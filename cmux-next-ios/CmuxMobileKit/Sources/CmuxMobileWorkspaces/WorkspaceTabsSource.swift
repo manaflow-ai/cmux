@@ -2326,7 +2326,7 @@ struct WorkspaceTabPage: View {
                 topInset: insets.top + 8,
                 onUserScroll: { context.reportScroll(fingerDelta: $0) }
             )
-            .background(Color.cmuxMobileBackground)
+            .background(CmuxMobileChatBackdrop())
             // A page built during a zoom or swipe is laid out before its
             // composer is measured; once it settles, a following chat lands
             // on its newest turn above the composer.

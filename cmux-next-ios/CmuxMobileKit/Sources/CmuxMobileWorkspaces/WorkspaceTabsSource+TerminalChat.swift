@@ -269,7 +269,7 @@ struct TerminalChatPage<Terminal: View>: View {
                     AgentChatTranscript(
                         store: source.terminalChatStore(tab, in: workspace, chatSession: chatSession, faces: faces),
                         surface: source.surface("\(tab.id)#chat"), topInset: topInset + 8, onUserScroll: reportScroll)
-                        .background(Color.cmuxMobileBackground)
+                        .background(CmuxMobileChatBackdrop())
                 } else {
                     CmuxSpinner(label: Text("Opening chat…"))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)

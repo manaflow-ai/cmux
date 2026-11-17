@@ -54,11 +54,7 @@ import Testing
             #expect(reason != nil, "\(descriptor.id) is hidden from the palette without a reason")
             #expect((reason == .paletteInternal) == descriptor.requires.contains(.paletteOpen), "\(descriptor.id)")
         }
-        // Check, Rotate Credential and Revoke… on a joined machine are palette rows in the Rust catalog
-        // (cmux-action-catalog joined_machine.rs) and menu-only in the pinned app FFI until its re-pin
-        // (docs/ci/app-ffi-release.md, step A); either is right until then.
-        let joinedAwaitingRepin: Set<String> = ["machine.joined.check", "machine.joined.revoke", "machine.joined.rotate"]
-        #expect(catalog.filter { !$0.isPaletteVisible && !joinedAwaitingRepin.contains($0.id.rawValue) }.map(\.id.rawValue).sorted()
+        #expect(catalog.filter { !$0.isPaletteVisible }.map(\.id.rawValue).sorted()
             == (["agent.openSessionTab", "agent.openSessionWorkspace", "agent.share.kick", "agent.share.list", "agent.share.revoke", "agent.share.uninvite", "app.menu.run", "browser.findPrevious", "browser.image.copy", "browser.image.copyAddress", "browser.image.saveAs", "browser.link.copy",
                 "browser.link.copyText", "browser.link.saveAs", "browser.selection.copy", "browser.selection.lookUp",
                 "chief.openSubagent", "commandPaletteNext", "commandPalettePrevious", "feed.githubAction", "feed.openItem", "history.goTo", "home.messageAbout", "home.messageChiefFromAnyApp", "home.openConversation", "home.sendSelectionTo", "home.showHideChiefFromAnyApp",
