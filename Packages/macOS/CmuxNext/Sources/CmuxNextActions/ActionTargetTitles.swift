@@ -72,8 +72,9 @@ public enum ActionTargetTitles {
         if let title = action?.targetTitle?(invocation) { item.title = title }
         if let on = action?.targetState?(invocation) { item.state = on ? .on : .off }
         // A row a person can run past its reason (Sign In, then the action) says what the click does.
-        if let reason = registry.personRecovery(for: id, invocation)?.note
-            ?? ActionTargetReasons.reason(for: id, invocation: invocation, in: registry) {
+        // One with no note (it waits for cmux to finish starting) reads as an enabled row.
+        let recovery = registry.personRecovery(for: id, invocation)
+        if let reason = recovery.map(\.note) ?? ActionTargetReasons.reason(for: id, invocation: invocation, in: registry) {
             if #available(macOS 14.4, *) { item.subtitle = reason }
             item.toolTip = reason
             hideShortcut(of: item)
