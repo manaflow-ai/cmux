@@ -15,7 +15,7 @@ extension BookmarkService {
     /// Wires a new browser page's chrome (`TabContentCache.onBrowserEntryCreated`): its native bar
     /// reads the tab's profile through the app (``BookmarksBarHostSource``).
     func attach(_ entry: BrowserEntry) {
-        let key = entry.tab.id.rawValue
+        let key = entry.key
         let bar = BookmarksBarView()
         bar.source = BookmarksBarHostSource(host: services, tabKey: key)
         chromes[key] = WeakChrome(entry: entry, bar: bar)

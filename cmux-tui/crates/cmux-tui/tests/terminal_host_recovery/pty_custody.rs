@@ -6,8 +6,9 @@
 
 use cmux_tui_core::terminal_host_protocol::{FLAG_PTY_CUSTODY, TerminalExitOutcome};
 use cmux_tui_core::terminal_host_runtime::{
-    HostAttachment, TerminalHostAdoption, TerminalHostIdentity, launch_terminal_host_adopting,
-    request_terminal_host_pty_custody, terminal_host_exit_record,
+    HostAttachment, PtyFenceWait, TerminalHostAdoption, TerminalHostIdentity,
+    launch_terminal_host_adopting, request_terminal_host_pty_custody, terminal_host_exit_record,
+    wait_for_terminal_host_exit,
 };
 use cmux_tui_core::{DefaultColors, SurfaceOptions};
 use ghostty_vt::KittyGraphicsLimits;
@@ -88,6 +89,7 @@ fn adoption<'a>(
         kitty_graphics_limits: KittyGraphicsLimits::default(),
         seed,
         host_binary: Some(PathBuf::from(bin())),
+        fence_wait: Default::default(),
     }
 }
 
@@ -268,4 +270,83 @@ fn a_stopped_host_is_never_replaced_and_keeps_serving_after_it_resumes() {
     let (_, current) = wait_for_host_records(&harness.host_root(), 1).remove(0);
     assert_eq!(current.host_pid, record.host_pid);
     assert_eq!(current.host_start_nonce, record.host_start_nonce);
+}
+
+/// A host that a signal ended lets go of its liveness lease a moment before
+/// its PTY fence, so its owner can read it as dead while the fence is still
+/// held. The replacement host must then start when the fence is free; it
+/// must not fail (decision of 2026-11-16). The test holds the fence in the
+/// place of the dead host and lets go only when the launcher says that it
+/// waits.
+#[test]
+fn a_replacement_host_waits_for_the_pty_fence_that_the_dead_host_still_holds() {
+    enum Seen {
+        Waiting,
+        Done,
+    }
+
+    let _exclusive = exclusive_process_test();
+    let mut harness = RecoveryHarness::start("pty-custody-fence");
+    run_in_new_workspace(&harness.socket, &["/bin/sh"], "fence");
+    let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    let custody = request_terminal_host_pty_custody(&record, &record_path).unwrap();
+
+    // No daemon may react to the host's death: stop it, then kill it.
+    harness.signal_daemon(libc::SIGSTOP);
+    harness.sigkill();
+    signal_pid(record.host_pid, libc::SIGKILL);
+    // Each of the 2 calls returns when the kernel lets go of a lock of the
+    // dead host: its lease, then its fence. From here the test holds the
+    // fence and the record reads dead.
+    wait_for_terminal_host_exit(&record_path, &record).unwrap();
+    let fence_name = format!("{}.{}.pty.lock", record.terminal_id, record.incarnation);
+    let fence = fs::File::open(record_path.with_file_name(fence_name)).unwrap();
+    fence.lock().unwrap();
+    assert_eq!(
+        terminal_host_record_liveness(&record_path, &record).unwrap(),
+        TerminalHostLiveness::Dead
+    );
+
+    let (seen, events) = mpsc::channel();
+    let waiting = seen.clone();
+    let options = SurfaceOptions { cols: 80, rows: 24, ..SurfaceOptions::default() };
+    let mut replacement = adoption(&custody, &record, &options, b"");
+    replacement.fence_wait = PtyFenceWait::observed(move || {
+        let _ = waiting.send(Seen::Waiting);
+    });
+    let root = harness.host_root();
+    let (launched, waited) = std::thread::scope(|scope| {
+        // Lets go of the fence at the first event: the launcher waits for
+        // the fence, or the launch ended.
+        let holder = scope.spawn(move || {
+            let waited = matches!(events.recv(), Ok(Seen::Waiting));
+            // Unlock, then close: a child that this process forks in
+            // between keeps no lock.
+            fence.unlock().unwrap();
+            waited
+        });
+        let launched = launch_terminal_host_adopting(&root, replacement);
+        let _ = seen.send(Seen::Done);
+        (launched, holder.join().unwrap())
+    });
+    let mut owner = launched.unwrap_or_else(|error| {
+        panic!("no replacement host while the dead host still held its PTY fence: {error:#}")
+    });
+    assert!(waited, "the replacement host started while the fence was held");
+    let identity = TerminalHostIdentity {
+        terminal_id: record.terminal_id.clone(),
+        incarnation: record.incarnation.clone(),
+    };
+    assert_eq!(owner.identity(), identity);
+    assert_ne!(owner.record.host_pid, record.host_pid);
+
+    // The shell of the dead host answers through the replacement host.
+    let mut shell = adopt_terminal_host(owner.record.clone(), owner.record_path.clone()).unwrap();
+    shell.send(MessageKind::Input, b"echo pid=$$\n").unwrap();
+    let output = read_output_until(&mut shell, &format!("pid={}", custody.child_pid));
+    assert!(output.contains("pid="), "{output}");
+
+    owner.terminate_and_wait_for_exit().unwrap();
+    shell.disconnect();
+    owner.disconnect();
 }
