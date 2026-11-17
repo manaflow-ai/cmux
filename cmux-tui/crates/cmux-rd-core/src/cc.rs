@@ -698,24 +698,21 @@ impl CongestionController {
             .collect();
         samples.sort_unstable_by_key(|s| s.0);
 
-        // A radio hold releases a receiver-shaped burst: several packets cover a
-        // materially wider send span, and their arrival dispersion collapses into
-        // one burst. Usually feedback was quiet for at least one short hold. A
-        // periodic hold can still leave a recent report in flight, so a much
-        // wider send span is sufficient even when that feedback gap is shorter.
-        // Treat the burst as an outage edge, discard its delay samples, and
-        // resume at the held rate.
+        // A radio hold releases a receiver-shaped burst: feedback was quiet for
+        // at least one short hold, several packets cover a materially wider send
+        // span, and their arrival dispersion collapses into one burst. Treat that
+        // burst as an outage edge, discard its delay samples, and resume at the
+        // held rate. A normal 50 ms feedback interval has comparable send and
+        // arrival spans and does not satisfy this shape.
         let receiver_burst = self.profile == EncodeProfile::Ultra
+            && feedback_gap_us >= 50_000
             && samples.len() >= 2
             && samples.last().is_some_and(|last| {
                 let first = samples[0];
                 let send_span = last.0.saturating_sub(first.0);
                 let min_arrival = samples.iter().map(|sample| sample.1).min().unwrap_or(first.1);
                 let max_arrival = samples.iter().map(|sample| sample.1).max().unwrap_or(first.1);
-                let arrival_span = max_arrival.saturating_sub(min_arrival);
-                arrival_span <= 20_000
-                    && ((feedback_gap_us >= 50_000 && send_span >= 30_000)
-                        || (feedback_gap_us < 50_000 && send_span >= 100_000))
+                send_span >= 30_000 && max_arrival.saturating_sub(min_arrival) <= 20_000
             });
 
         if receiver_burst {
