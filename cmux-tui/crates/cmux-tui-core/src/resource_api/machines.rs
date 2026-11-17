@@ -6,13 +6,19 @@ use serde_json::Value;
 
 impl LocalResourceMachineService {
     pub(super) fn remote_machine_snapshots(&self) -> Vec<Value> {
+        self.remote_machine_records(|_, _| true)
+    }
+
+    fn remote_machine_records(&self, keep: impl Fn(&str, &str) -> bool) -> Vec<Value> {
         #[cfg(unix)]
         if let Some(mux) = self.mux.upgrade()
-            && let Some((publisher, records)) = mux.control_clients.remote_machine_catalog()
+            && let Some((publisher, records)) = mux.control_clients.remote_machine_catalog(keep)
             && mux.conversation_principal(publisher) == crate::conversation_store::LOCAL_USER
         {
             return records;
         }
+        #[cfg(not(unix))]
+        let _ = keep;
         Vec::new()
     }
 
@@ -28,15 +34,11 @@ impl LocalResourceMachineService {
             )
         })?;
         let selector = Selector::parse(raw)?;
-        let matches: Vec<_> = self
-            .remote_machine_snapshots()
-            .into_iter()
-            .filter(|record| match &selector {
-                Selector::Id(id) => record["id"].as_str() == Some(id.as_str()),
-                Selector::Name(name) => record["name"].as_str() == Some(name.as_str()),
-                Selector::Current => false,
-            })
-            .collect();
+        let matches = self.remote_machine_records(|id, name| match &selector {
+            Selector::Id(wanted) => id == wanted,
+            Selector::Name(wanted) => name == wanted,
+            Selector::Current => false,
+        });
         match matches.as_slice() {
             [] => Err(ResourceError::not_found("machine", raw)),
             [record] => Ok(record.clone()),

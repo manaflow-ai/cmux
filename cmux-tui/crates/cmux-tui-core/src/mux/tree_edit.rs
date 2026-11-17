@@ -592,6 +592,13 @@ pub(super) fn remove_surface(
         );
         pane.active_tab =
             pick.and_then(|pick| pane.tabs.iter().position(|id| *id == pick)).unwrap_or(0);
+        // A tab that still launches can have its slot next to the closed
+        // tab: the list of the creations keeps the active tab for it, while
+        // the active tab of the pane stays where this close puts it.
+        let then =
+            tab_strip::place_list::ActiveNow { tab: pane.active_surface(), at: pane.active_at };
+        let was_active = selected == Some(target);
+        state.tab_places.lock().tab_closes(pane_id, &old_order, target, was_active, then);
         fence_layout_undo_for_tab_membership(state, &[pane_id]);
         return (removed, false);
     }

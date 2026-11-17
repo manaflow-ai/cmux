@@ -6,10 +6,12 @@ import Foundation
 import Testing
 import QuartzCore
 
-/// Pane layout motion replayed through the real layout path with stub pane content
-/// (CMUX_PANE_BENCH=1; panes-perf, Lawrence 2026-10-21). A grid of `columns` x `rows` panes in
-/// a 1600 x 1000 window; each action is one daemon layout (`LayoutModel.apply`), then display
-/// frames until the springs rest. Each frame runs what one display frame runs: the model's
+/// Pane layout changes replayed through the real layout path with stub pane content
+/// (CMUX_PANE_BENCH=1; panes-perf). A grid of `columns` x `rows` panes in a 1600 x 1000 window;
+/// each action is one daemon layout (`LayoutModel.apply`), then display frames until nothing
+/// moves. A split, a close, a zoom and an unzoom are one commit: one frame shows the whole
+/// change, so each round of such an action is one frame. New Column moves the strip's camera to
+/// the new column on its spring. Each frame runs what one display frame runs: the model's
 /// observation turn, `advanceFrame`, layout and display. Per frame it records wall time; the
 /// budget is the frame at 120 Hz (8.33 ms). Stub content isolates our layout work from
 /// terminal and page content (the fleet's pane-perf run measures those).
@@ -141,7 +143,8 @@ struct PaneMotionBench {
         }
         var times: [Double] = []
         for _ in 0..<3 {
-            // Column close starts focused on the column it closes, so the camera springs back.
+            // Column close starts focused on the column it closes: the camera rests at the strip's end, and the close
+            // takes that end away (the camera is at the new end in the frame that shows the close).
             let harness = Harness(before, focused: bench.name == "columnClose" ? PaneID("p\(c)-0") : PaneID("p0-0"))
             defer { harness.window.closeAfterTest() }
             _ = await harness.frame()
@@ -151,7 +154,13 @@ struct PaneMotionBench {
         let over = times.filter { $0 > Self.frameBudget }.count
         let ms = { (value: Double) in String(format: "%.3f", value * 1000) }
         print("PANE-BENCH action=\(bench.name) panes=\(c * r) frames=\(times.count) p50_ms=\(ms(p50)) p95_ms=\(ms(p95)) max_ms=\(ms(max)) over_8ms=\(over)")
-        #expect(times.count > 3, "\(bench) moved: \(times.count) frames")
+        // New Column moves the strip's camera on its spring. Every other action here is one commit: the one frame of each
+        // of the 3 rounds shows the whole change.
+        if bench.name == "column" {
+            #expect(times.count > 3, "\(bench) moved: \(times.count) frames")
+        } else {
+            #expect(times.count == 3, "\(bench) is one frame for each of the 3 rounds: \(times.count) frames")
+        }
         #expect(p95 <= Self.layoutBudget, "\(bench): layout frame p95 \(ms(p95)) ms over \(ms(Self.layoutBudget)) ms")
         #expect(max <= Self.frameBudget, "\(bench): layout frame max \(ms(max)) ms over one 120 Hz frame")
     }
