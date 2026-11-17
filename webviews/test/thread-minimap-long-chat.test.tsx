@@ -595,6 +595,7 @@ test("an open places the rail's list after the transcript's offset, in the same 
       ),
     );
     const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+    console.log("RAILDEBUG", JSON.stringify(writes.slice(0, 30)));
     const railAt = writes.findIndex((write) => write.rail && write.value > 0);
     const transcriptAt = writes.findIndex((write) => !write.rail && write.value > 0);
     // The rail reaches its end with the chat's, and the transcript's offset is written first.

@@ -2629,6 +2629,8 @@ function TranscriptView({
   const rowsChange = useRef<RowsChange | undefined>(undefined);
   /// The minimap's hook for this commit's settled offset (ThreadMinimap `placed`).
   const minimapPlaced = useRef<(() => void) | undefined>(undefined);
+  /// The rail's first list placement for a chat, run right after the placement pass (ThreadMinimap `firstPlace`).
+  const minimapFirstPlace = useRef<(() => void) | undefined>(undefined);
   const [olderRows] = useState(() => new OlderRowFade(() => ref.current));
   /// The mounted rows' frame elements, kept while what each is drawn from holds (`RowFrameCache`).
   const [rowFrameCache] = useState(() => new RowFrameCache());
@@ -5204,6 +5206,15 @@ function TranscriptView({
     minimapPlaced.current?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
   }, [layout, rows, range.first, height, width, dockSpace, room, lift, sessionId, followResume]);
+  // The rail's first list placement for a chat, after this commit's placement pass (declared after
+  // it, so it runs after it whether or not that pass ran): one page layout for both offsets, before
+  // the frame paints (ThreadMinimap `placedFor`).
+  useLayoutEffect(() => {
+    const place = minimapFirstPlace.current;
+    if (!place) return;
+    minimapFirstPlace.current = undefined;
+    place();
+  });
   // The turn that just ended folds from the rows drawn then to the rows placed now (turnEndFold.ts).
   useLayoutEffect(() => {
     const capture = turnEndCapture.current;
@@ -6953,6 +6964,7 @@ function TranscriptView({
               width={paneWidth}
               columnWidth={width}
               placed={minimapPlaced}
+              firstPlace={minimapFirstPlace}
               change={rowsChange.current}
               topInset={topInset}
             />
