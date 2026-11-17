@@ -2261,6 +2261,14 @@ function TranscriptView({
   dockTrayRef.current = dockTray;
   /// The reader opened or folded something in the tray, and the room has not taken it yet.
   const trayToggled = useRef(false);
+  /// The host's line in that stack (HostError.tsx: "Reconnecting…", or a refusal and its Retry), which
+  /// comes and goes while the pane finds acpmux: the room under the last row takes it only once the
+  /// rows move anyway (`noticeHold`).
+  const [dockNotice, setDockNotice] = useState(0);
+  const dockNoticeRef = useRef(0);
+  dockNoticeRef.current = dockNotice;
+  /// The host line's height the room under the last row last took (`noticeHold` below).
+  const noticeBase = useRef(0);
   /// The tray's height the room under the last row was last given (`trayHold` below), and the rows'
   /// own height as of the last pass, which tells a pass whose rows grew.
   const foldBase = useRef(0);
@@ -2324,6 +2332,7 @@ function TranscriptView({
       setDockHeight(0);
       setDockCard(0);
       setDockTray(0);
+      setDockNotice(0);
       return;
     }
     // Before the frame paints, as the viewport's own size is: a composer that grew a line, or a
@@ -2345,6 +2354,14 @@ function TranscriptView({
       space > 0
         ? (dock.querySelector(`:scope > .acpmux-running-tray:not(.${TRAY_GHOST})`)?.getBoundingClientRect().height ?? 0)
         : 0;
+    // The host's line, while the stack reaches over the view.
+    const notice = (space: number) => {
+      if (space <= 0) return 0;
+      let height = 0;
+      for (const line of dock.querySelectorAll(":scope > .acpmux-host-line, :scope > .acpmux-host-line-group"))
+        height += line.getBoundingClientRect().height;
+      return height;
+    };
     // A click on one of its disclosures (the header, View all, a command's line) is the reader's.
     // One that changes no height (or a tray that goes) holds nothing: the flag goes after two frames
     // unless the tray's height changed meanwhile, or its fold is still to move it (useFold's motion
@@ -2411,6 +2428,7 @@ function TranscriptView({
       const nextHeight = height() + rest;
       const nextCard = card(drawn) + (drawn > 0 ? rest : 0);
       const nextTray = tray(drawn);
+      const nextNotice = notice(drawn);
       // A tray that went holds nothing: the room is the stack's again.
       if (nextTray <= 0) trayToggled.current = false;
       if (
@@ -2423,6 +2441,7 @@ function TranscriptView({
           setDockHeight(nextHeight);
           setDockCard(nextCard);
           setDockTray(nextTray);
+          setDockNotice(nextNotice);
         });
     };
     const observer = new ResizeObserver(take);
@@ -2463,6 +2482,7 @@ function TranscriptView({
     setDockHeight(fullHeight);
     setDockCard(card(space));
     setDockTray(tray(space));
+    setDockNotice(notice(space));
     return () => {
       observer.disconnect();
       dock.removeEventListener("click", toggled, { capture: true });
@@ -3531,9 +3551,12 @@ function TranscriptView({
   /// follows again (`room` below).
   const takeRoom = useCallback(() => {
     const held =
-      Math.abs(foldBase.current - dockTrayRef.current) > 0.5 || Math.abs(cardBase.current - dockCardRef.current) > 0.5;
+      Math.abs(foldBase.current - dockTrayRef.current) > 0.5 ||
+      Math.abs(cardBase.current - dockCardRef.current) > 0.5 ||
+      Math.abs(noticeBase.current - dockNoticeRef.current) > 0.5;
     foldBase.current = dockTrayRef.current;
     cardBase.current = dockCardRef.current;
+    noticeBase.current = dockNoticeRef.current;
     trayToggled.current = false;
     if (!held && Math.abs(heldRoom.current - dockRoomRef.current) <= 0.5) return;
     heldRoom.current = dockRoomRef.current;
@@ -4155,6 +4178,18 @@ function TranscriptView({
     : overlayDock && following && !sessionSwitched && openedAtLatest && dockSpace > 0 && cardHeldAt > 0;
   const cardHold =
     cardHolds && rowsGrew <= 0.5 ? Math.max(0, Math.min(dockSpace - Math.max(0, trayHold), dockCard - cardHeldAt)) : 0;
+  // The host's line above the composer moves no row either (Leo, 2026-11-16, after a restart: "it said
+  // something went wrong with a retry button just above the composer ... and then it layout shifted"):
+  // while the view follows, the line that comes lies over the transcript's foot, as the tray's list
+  // does, and the room it leaves when it goes stays under the last row (`noticeHold`, the line's change
+  // since the room last took it; negative for one that went). The room takes it once the rows move
+  // anyway (they grew: a reply streaming on, a send), or at Jump to latest or the reader's wheel past
+  // the end (`takeRoom`, `giveTrayRoom`). A line there at the chat's first draw is room as before.
+  const noticeHeldAt = noticeBase.current;
+  const noticeHold =
+    following && !sessionSwitched && openedAtLatest && dockSpace > 0 && rowsGrew <= 0.5
+      ? Math.min(dockSpace - Math.max(0, trayHold) - cardHold, dockNotice - noticeHeldAt)
+      : 0;
   // Over a floating stack the newest line rests the rest gap over it (`dockRoom`, model.ts `restRoom`);
   // a turn footer's action row lies in the band under its reply, so that band comes first
   // (transcriptGrid.ts `restBand`). Docked in flow, the composer gap is the rows' own (`tailGap`).
@@ -4162,7 +4197,8 @@ function TranscriptView({
     dockSpace > 0
       ? (measured.layout.restBand ?? 0)
       : (measured.layout.tailGap ?? TRANSCRIPT_COMPOSER_GAP * (measured.layout.scale ?? 1));
-  const rowsAtDock = measured.layout.totalHeight + THREAD_TOP + topInset + tailGap + dockRoom - trayHold - cardHold;
+  const rowsAtDock =
+    measured.layout.totalHeight + THREAD_TOP + topInset + tailGap + dockRoom - trayHold - cardHold - noticeHold;
   const atDock = Math.max(floorHeight, rowsAtDock);
   // A card that grew is drawn up by at most what the offset can take back: the view keeps more than
   // the follow deadband to scroll, so the reader's scroll up still leaves the latest row (and the
@@ -4186,7 +4222,7 @@ function TranscriptView({
           ),
         )
       : grown;
-  const room = sessionSwitched || following ? dockRoom - lifted - trayHold - cardHold : heldRoom.current;
+  const room = sessionSwitched || following ? dockRoom - lifted - trayHold - cardHold - noticeHold : heldRoom.current;
   const rowsHeight = measured.layout.totalHeight + THREAD_TOP + topInset + tailGap + room;
   // The content's end without the room a collapse left (`foldRoom`), which it is released against.
   const rowsEnd = Math.max(floorHeight - lifted, rowsHeight);
@@ -5151,7 +5187,7 @@ function TranscriptView({
     foldRide.current?.takeHanded(drawnRef.current);
     previousViewport.current = { height, width, dockSpace, dockCard };
     // With the composer's growth, which is room again once the view stops following.
-    heldRoom.current = room + lifted + cardHold;
+    heldRoom.current = room + lifted + cardHold + noticeHold;
     appliedLift.current = lift;
     liftedBefore.current = lifted;
     // A view that follows keeps the card height it began following at; any other takes the card's.
@@ -5234,6 +5270,7 @@ function TranscriptView({
   useLayoutEffect(() => {
     foldBase.current = trayBase;
     cardBase.current = dockCard - cardHold;
+    noticeBase.current = dockNotice - noticeHold;
     rowsSeen.current = measured.layout.totalHeight - (measured.layout.origin ?? 0);
     if (Math.abs(trayHold) <= 0.5 && (rowsGrew > 0.5 || !following || sessionSwitched)) trayToggled.current = false;
   });
@@ -5247,11 +5284,14 @@ function TranscriptView({
       if (
         event.deltaY <= 0 ||
         !followingRef.current ||
-        (dockTrayRef.current - foldBase.current <= 0.5 && dockCardRef.current - cardBase.current <= 0.5)
+        (dockTrayRef.current - foldBase.current <= 0.5 &&
+          dockCardRef.current - cardBase.current <= 0.5 &&
+          dockNoticeRef.current - noticeBase.current <= 0.5)
       )
         return;
       foldBase.current = dockTrayRef.current;
       cardBase.current = dockCardRef.current;
+      noticeBase.current = dockNoticeRef.current;
       trayToggled.current = false;
       heldRoom.current = dockRoomRef.current;
       flushSync(() => {
