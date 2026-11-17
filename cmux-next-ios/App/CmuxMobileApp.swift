@@ -55,6 +55,8 @@ struct CmuxMobileApp: App {
                 TerminalFloodBenchRoot()
             } else if AgentCLIHybridBenchRoot.isRequested {
                 AgentCLIHybridBenchRoot()
+            } else if TerminalProjectionGoldenRoot.isRequested {
+                TerminalProjectionGoldenRoot()
             } else if TerminalDemoRoot.isRequested || DeveloperOptions.launchDemo == "terminal" {
                 TerminalDemoRoot()
             } else {
