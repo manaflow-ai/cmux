@@ -13,7 +13,7 @@ use crate::fdwait::wait_readable;
 use crate::upstream::{UpstreamSink, Upstreams};
 use crate::wire::Control;
 use crate::Res;
-use cmux_rd_core::cc::PathKind;
+use cmux_rd_core::cc::{CcConfig, PathKind};
 use cmux_rd_core::flow::Rect;
 use cmux_rd_core::pacer::Pacer;
 use cmux_rd_core::policy::Principal;
@@ -26,6 +26,9 @@ pub struct SessionCfg {
     pub display: String,
     pub max_fps: u32,
     pub start_kbps: u32,
+    /// `--start-kbps` was not given: a session whose control stream's round trip says LAN
+    /// starts at the LAN rate instead ([`default_start_kbps`]).
+    pub start_kbps_from_rtt: bool,
     pub max_kbps: u32,
     #[cfg_attr(target_os = "macos", allow(dead_code))] // software encoders only
     pub preset: String,
@@ -62,6 +65,40 @@ pub struct SessionCfg {
     /// Linux: how the screen is captured (X11, or the portal on a Wayland session).
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub capture: crate::capture_backend::CaptureBackend,
+}
+
+/// The start bitrate when `--start-kbps` is not given, from the current path's class and
+/// medium (wire names) and round trip; never above `max_kbps`. A relay is never LAN. The LAN
+/// test and both rates are the congestion controller's ([`CcConfig`]: under `lan_rtt_us` starts
+/// at `lan_start_bps`, else `start_bps`), so the encoder is created at the rate the
+/// controller's first target will be. The controller grows only 8% per second of flowing
+/// frames, so from 8 Mbps it took about 24 s of motion to reach 50 Mbps; a LAN carries
+/// 30 Mbps at once, and a rising delay still cuts it within a few frames.
+pub(crate) fn default_start_kbps(
+    path_kind: Option<&str>,
+    medium: Option<&str>,
+    rtt_us: Option<u64>,
+    max_kbps: u32,
+) -> u32 {
+    let cc = CcConfig::default();
+    let relay = matches!(path_kind, Some("turn_relay" | "do_relay" | "via_cloud_region"));
+    // A peer first learned during the handshake is classed `direct_wan`: its round trip decides.
+    let lan = !relay
+        && (path_kind == Some("direct_lan")
+            || matches!(medium, Some("lan" | "link"))
+            || rtt_us.is_some_and(|rtt| rtt < cc.lan_rtt_us));
+    let start_bps = if lan { cc.lan_start_bps } else { cc.start_bps };
+    u32::try_from(start_bps / 1000).unwrap_or(u32::MAX).min(max_kbps)
+}
+
+/// `cfg` with the start bitrate a control stream's round trip `rtt_us` picks, when
+/// `--start-kbps` was not given ([`SessionCfg::start_kbps_from_rtt`]).
+pub(crate) fn with_start_from_rtt(cfg: &SessionCfg, rtt_us: Option<u64>) -> SessionCfg {
+    let mut cfg = cfg.clone();
+    if cfg.start_kbps_from_rtt {
+        cfg.start_kbps = default_start_kbps(None, None, rtt_us, cfg.max_kbps);
+    }
+    cfg
 }
 
 pub struct MediaSession {
@@ -804,6 +841,7 @@ mod encode_off_loop_tests {
             display: String::new(),
             max_fps: 60,
             start_kbps: 1000,
+            start_kbps_from_rtt: false,
             max_kbps: 2000,
             preset: String::new(),
             profile: String::new(),
@@ -874,5 +912,42 @@ mod encode_off_loop_tests {
             seen.injected_before_encode_returned.load(SeqCst),
             "the key press waited for the encode to finish"
         );
+    }
+
+    #[test]
+    fn a_lan_path_starts_at_the_lan_bitrate() {
+        assert_eq!(default_start_kbps(Some("direct_lan"), None, None, 50_000), 30_000);
+        assert_eq!(default_start_kbps(Some("direct_wan"), Some("lan"), None, 50_000), 30_000);
+        assert_eq!(default_start_kbps(Some("direct_wan"), Some("link"), None, 50_000), 30_000);
+        // A peer learned in the handshake is classed WAN; a sub-5 ms round trip is LAN.
+        assert_eq!(default_start_kbps(Some("direct_wan"), None, Some(1_200), 50_000), 30_000);
+        assert_eq!(default_start_kbps(None, None, Some(4_999), 50_000), 30_000);
+    }
+
+    #[test]
+    fn other_paths_keep_the_old_start_and_max_caps_both() {
+        assert_eq!(default_start_kbps(None, None, None, 50_000), 8_000);
+        assert_eq!(
+            default_start_kbps(Some("direct_wan"), Some("routed"), Some(5_000), 50_000),
+            8_000
+        );
+        assert_eq!(default_start_kbps(Some("direct_wan"), None, Some(40_000), 50_000), 8_000);
+        // A relay is never LAN, whatever its round trip.
+        assert_eq!(default_start_kbps(Some("turn_relay"), Some("lan"), Some(1_000), 50_000), 8_000);
+        assert_eq!(default_start_kbps(Some("direct_lan"), None, None, 20_000), 20_000);
+        assert_eq!(default_start_kbps(None, None, None, 4_000), 4_000);
+    }
+
+    #[test]
+    fn a_control_stream_round_trip_under_5_ms_starts_at_the_lan_rate() {
+        let auto = SessionCfg { start_kbps: 8_000, start_kbps_from_rtt: true, ..cfg() };
+        let auto = SessionCfg { max_kbps: 50_000, ..auto };
+        assert_eq!(with_start_from_rtt(&auto, Some(180)).start_kbps, 30_000);
+        assert_eq!(with_start_from_rtt(&auto, Some(5_000)).start_kbps, 8_000);
+        // A Unix socket (the systemd host) has no round trip: the old start.
+        assert_eq!(with_start_from_rtt(&auto, None).start_kbps, 8_000);
+        // An explicit --start-kbps wins.
+        let fixed = SessionCfg { start_kbps: 12_000, start_kbps_from_rtt: false, ..auto };
+        assert_eq!(with_start_from_rtt(&fixed, Some(180)).start_kbps, 12_000);
     }
 }

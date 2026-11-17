@@ -239,33 +239,6 @@ impl Carrier for ServeCarrier {
     }
 }
 
-/// Start bitrate off a direct LAN path (the congestion controller's own start).
-const WAN_START_KBPS: u32 = 8_000;
-/// Start bitrate on a direct LAN path. The controller grows only 8% per second of
-/// flowing frames, so from 8 Mbps it took about 24 s of motion to reach 50 Mbps; a LAN
-/// carries 30 Mbps at once, and a rising delay still cuts it within a few frames.
-const LAN_START_KBPS: u32 = 30_000;
-/// A round trip under this counts as LAN when the path's class does not say so (a peer
-/// first learned during the handshake is classed `direct_wan`).
-const LAN_RTT_US: u64 = 5_000;
-
-/// The start bitrate when `--start-kbps` is not given, from the current path's class and
-/// medium (wire names) and round trip; never above `max_kbps`. A relay is never LAN.
-fn default_start_kbps(
-    path_kind: Option<&str>,
-    medium: Option<&str>,
-    rtt_us: Option<u64>,
-    max_kbps: u32,
-) -> u32 {
-    let relay = matches!(path_kind, Some("turn_relay" | "do_relay" | "via_cloud_region"));
-    let lan = !relay
-        && (path_kind == Some("direct_lan")
-            || matches!(medium, Some("lan" | "link"))
-            || rtt_us.is_some_and(|rtt| rtt < LAN_RTT_US));
-    let start = if lan { LAN_START_KBPS } else { WAN_START_KBPS };
-    start.min(max_kbps)
-}
-
 /// Whether a session with the setup line's `scope` (`view` or `control`) starts view only
 /// when its capture does or does not apply input: one that applies none (the Wayland portal
 /// without a RemoteDesktop grant) is view only, so the viewer is told view, not a control
@@ -475,12 +448,13 @@ fn serve_session(
     let max_kbps = opts.num_or("max-kbps", 50_000)?;
     let start_kbps = opts.num_or(
         "start-kbps",
-        default_start_kbps(path_kind, path_medium, carrier.link.rtt_us, max_kbps),
+        crate::stream::default_start_kbps(path_kind, path_medium, carrier.link.rtt_us, max_kbps),
     )?;
     let cfg = SessionCfg {
         display,
         max_fps,
         start_kbps,
+        start_kbps_from_rtt: false,
         max_kbps,
         preset: String::new(),
         profile: opts.str_or("profile", "high"),
@@ -541,29 +515,5 @@ mod tests {
         assert!(view_only_for("view", granted).unwrap());
         assert!(!view_only_for("control", granted).unwrap());
         assert!(view_only_for("full", x11).is_err());
-    }
-
-    #[test]
-    fn a_lan_path_starts_at_the_lan_bitrate() {
-        assert_eq!(default_start_kbps(Some("direct_lan"), None, None, 50_000), 30_000);
-        assert_eq!(default_start_kbps(Some("direct_wan"), Some("lan"), None, 50_000), 30_000);
-        assert_eq!(default_start_kbps(Some("direct_wan"), Some("link"), None, 50_000), 30_000);
-        // A peer learned in the handshake is classed WAN; a sub-5 ms round trip is LAN.
-        assert_eq!(default_start_kbps(Some("direct_wan"), None, Some(1_200), 50_000), 30_000);
-        assert_eq!(default_start_kbps(None, None, Some(4_999), 50_000), 30_000);
-    }
-
-    #[test]
-    fn other_paths_keep_the_old_start_and_max_caps_both() {
-        assert_eq!(default_start_kbps(None, None, None, 50_000), 8_000);
-        assert_eq!(
-            default_start_kbps(Some("direct_wan"), Some("routed"), Some(5_000), 50_000),
-            8_000
-        );
-        assert_eq!(default_start_kbps(Some("direct_wan"), None, Some(40_000), 50_000), 8_000);
-        // A relay is never LAN, whatever its round trip.
-        assert_eq!(default_start_kbps(Some("turn_relay"), Some("lan"), Some(1_000), 50_000), 8_000);
-        assert_eq!(default_start_kbps(Some("direct_lan"), None, None, 20_000), 20_000);
-        assert_eq!(default_start_kbps(None, None, None, 4_000), 4_000);
     }
 }

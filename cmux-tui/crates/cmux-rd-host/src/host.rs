@@ -127,6 +127,7 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
         display,
         max_fps,
         start_kbps: opts.num_or("start-kbps", 8000)?,
+        start_kbps_from_rtt: opts.get("start-kbps").is_none(),
         max_kbps: opts.num_or("max-kbps", 50_000)?,
         preset: opts.str_or("preset", "ultrafast"),
         // High for hardware decoders (VideoToolbox); the Linux bench decoder needs baseline.
@@ -379,6 +380,9 @@ pub(crate) trait ViewerStream: Read + Write + AsRawFd {
     fn close(&self);
     /// The viewer's address for the UDP carrier; `None` on a Unix socket.
     fn peer_ip(&self) -> Option<IpAddr>;
+    /// The stream's measured round trip, µs (TCP's smoothed RTT, from the handshake on);
+    /// `None` on a Unix socket or where it cannot be read.
+    fn rtt_us(&self) -> Option<u64>;
 }
 
 impl ViewerStream for TcpStream {
@@ -399,6 +403,27 @@ impl ViewerStream for TcpStream {
     fn peer_ip(&self) -> Option<IpAddr> {
         self.peer_addr().ok().map(|a| a.ip())
     }
+    #[cfg(target_os = "linux")]
+    fn rtt_us(&self) -> Option<u64> {
+        // SAFETY: tcp_info is plain old data; all-zero is a valid value.
+        let mut info: libc::tcp_info = unsafe { std::mem::zeroed() };
+        let mut len = std::mem::size_of::<libc::tcp_info>() as libc::socklen_t;
+        // SAFETY: getsockopt fills at most `len` bytes of the struct we own.
+        let rc = unsafe {
+            libc::getsockopt(
+                self.as_raw_fd(),
+                libc::IPPROTO_TCP,
+                libc::TCP_INFO,
+                (&mut info as *mut libc::tcp_info).cast(),
+                &mut len,
+            )
+        };
+        (rc == 0 && info.tcpi_rtt > 0).then_some(u64::from(info.tcpi_rtt))
+    }
+    #[cfg(not(target_os = "linux"))]
+    fn rtt_us(&self) -> Option<u64> {
+        None
+    }
 }
 
 impl ViewerStream for UnixStream {
@@ -415,6 +440,9 @@ impl ViewerStream for UnixStream {
         let _ = self.shutdown(std::net::Shutdown::Both);
     }
     fn peer_ip(&self) -> Option<IpAddr> {
+        None
+    }
+    fn rtt_us(&self) -> Option<u64> {
         None
     }
 }
@@ -630,6 +658,10 @@ fn stream_session<S: ViewerStream>(
         DatagramOut::Udp { .. } => "udp",
         DatagramOut::Stream => "stream",
     };
+    // On a LAN (the control stream's round trip under 5 ms) the encoder is created at the LAN
+    // rate, as the controller's first target: from 8 Mbit/s the first motion frames were coded
+    // for that rate for the ~430 ms until the controller's own feedback read the LAN.
+    let cfg = &crate::stream::with_start_from_rtt(cfg, stream.rtt_us());
     let mut media = MediaSession::open(cfg, max_datagram, &negotiated.caps, sink)?;
     let (width, height) = media.size();
     write_control(
