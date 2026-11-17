@@ -1302,6 +1302,8 @@ def run(opts, root: Path, report):
         (home / ".config/cmux/cmux-next.json").write_text(json.dumps(
             # downloadAutomatically: a person who keeps automatic updates; it is user-only over the socket
             # (setting_user_only), so it goes in the person's own file, before the launch.
+            # Keep the retired Quit key as legacy on-disk state: this fixture measures a real
+            # post-630 upgrade, so the launch migration write is intentionally part of the sample.
             {"app": {"quitBehavior": "keep"}, "updates": {"installOnQuit": True, "downloadAutomatically": True}},
             indent=1))
         # A file that already went through the one-time "forget stored defaults" pass

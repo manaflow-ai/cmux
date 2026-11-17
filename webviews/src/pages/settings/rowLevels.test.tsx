@@ -23,7 +23,7 @@ test("a link to a key Personalization draws opens Personalization, from any page
   expect(routeSection("appearance", "appearance.backgroundOpacity")).toBe("personalization");
   // Text Size is drawn by the density card there.
   expect(routeSection("appearance", "appearance.metrics.chromeFontSize")).toBe("personalization");
-  expect(routeSection("general", "app.quitBehavior")).toBe("general");
+  expect(routeSection("general", "navigation.historyScope")).toBe("general");
 });
 
 test("Appearance's undo and reset cover only real categories, never General by fallback", () => {

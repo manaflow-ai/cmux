@@ -293,7 +293,7 @@ describe("editors", () => {
   // Lucas 2026-11-12: segments in a card read as "containers inside containers"; every choice is a
   // menu, a short one too.
   test("every choice row is a menu, a short one too", async () => {
-    for (const key of ["app.quitBehavior", "diff.layout"]) {
+    for (const key of ["navigation.historyScope", "diff.layout"]) {
       const choice = rowsByKey.get(key)!;
       page = await renderPage({ path: `/settings/${homes.get(choice.key)?.category ?? choice.section}` });
       const row = rowElement(page.container, choice.key);

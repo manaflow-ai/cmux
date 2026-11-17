@@ -45,8 +45,8 @@ extension SettingsController {
     /// The launch's settings migrations, in order, each once its own way; a failed one leaves the
     /// file as it was and the next still runs.
     public func runLaunchMigrations(marker: UserDefaults) async {
-        // `app.quitBehavior: "end"` (first release) is now "end-keep-layout"; "ask" (the removed quit alert) goes.
-        _ = try? await migrateLegacyQuitBehavior()
+        // `app.quitBehavior` and `app.confirmQuit` are retired (one Quit, CMUX-630): both leave the file.
+        _ = try? await removeRetiredQuitSettings()
         _ = try? await migrateLegacyWorkspaceRowKeys() // `sidebar.showWorkspaceDirectory` / `showCounts` move to `sidebar.workspaceRow.*`
         _ = try? await migrateLegacyPaneToolbarButtons() // `tabs.hiddenButtons` becomes `tabs.toolbarButtons`
         // Classic cmux keys next reads under another name (`ClassicSettingRename`).

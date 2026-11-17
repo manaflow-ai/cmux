@@ -17,12 +17,11 @@ extension SettingsPageLayout {
         SettingText(key: section.titleKey, text: section.title)
     }
 
-    /// General holds the app itself: windows, quitting, history and housekeeping. The sidebar, tabs and panes, the New Tab page, the viewers and chats each have their own page (settings overhaul, 2026-11-07).
+    /// General holds the app itself: windows, history and housekeeping. The sidebar, tabs and panes, the New Tab page, the viewers and chats each have their own page (settings overhaul, 2026-11-07).
     private static let generalCategory = CategorySpec(
         id: "general", title: section(.general), symbol: "gearshape",
         groups: [
             GroupSpec(group: "settings.group.window"),
-            GroupSpec(group: "settings.group.quit"),
             GroupSpec(group: "settings.group.history"),
             GroupSpec(group: "settings.group.workspaceHibernation"),
             GroupSpec(group: "settings.group.autoArchive"),

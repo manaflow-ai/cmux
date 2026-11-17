@@ -637,12 +637,6 @@
       "title" : "Download Announcements",
       "type" : "boolean"
     },
-    "app.confirmQuit" : {
-      "default" : true,
-      "description" : "Cmd-Q asks first when quitting would end working agents or open terminals. A quit that keeps the sessions running never asks.",
-      "title" : "Ask Before Quitting Ends Agents or Terminals",
-      "type" : "boolean"
-    },
     "app.globalHotKey" : {
       "default" : false,
       "description" : "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front.",
@@ -660,17 +654,6 @@
       "description" : "Shows the debug commands (playgrounds, Debug Settings, diagnostics) in the Command Palette as \"Debug: …\" rows. There is no Debug menu.",
       "title" : "Internal Developer Mode",
       "type" : "boolean"
-    },
-    "app.quitBehavior" : {
-      "default" : "keep",
-      "description" : "Terminals run in cmux-tui and keep running after cmux quits unless you end them.",
-      "enum" : [
-        "keep",
-        "end-keep-layout",
-        "end-everything"
-      ],
-      "title" : "When Quitting",
-      "type" : "string"
     },
     "app.showMenuBarIcon" : {
       "default" : true,

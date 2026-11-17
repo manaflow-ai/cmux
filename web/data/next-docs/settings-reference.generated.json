@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 623,
+  "count": 621,
   "sections": [
     {
       "id": "general",
@@ -476,14 +476,6 @@
           "group": "Announcements"
         },
         {
-          "key": "app.confirmQuit",
-          "title": "Ask Before Quitting Ends Agents or Terminals",
-          "help": "Cmd-Q asks first when quitting would end working agents or open terminals. A quit that keeps the sessions running never asks.",
-          "kind": "toggle",
-          "default": true,
-          "group": "Quitting"
-        },
-        {
           "key": "app.globalHotKey",
           "title": "Global Hot Key",
           "help": "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front.",
@@ -498,19 +490,6 @@
           "kind": "toggle",
           "default": true,
           "group": "Window"
-        },
-        {
-          "key": "app.quitBehavior",
-          "title": "When Quitting",
-          "help": "Terminals run in cmux-tui and keep running after cmux quits unless you end them.",
-          "kind": "choice",
-          "default": "keep",
-          "group": "Quitting",
-          "values": [
-            "keep",
-            "end-keep-layout",
-            "end-everything"
-          ]
         },
         {
           "key": "app.showMenuBarIcon",

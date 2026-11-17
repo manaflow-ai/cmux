@@ -13,7 +13,7 @@ import os
 
 /// Runs a quit (user decision 2026-09-30). `applicationShouldTerminate`
 /// hands every quit here: it takes the origin (`QuitOriginTracker`), asks
-/// about unsaved documents, decides (`QuitPolicy`; no quit asks how to quit, and Cmd-Q, the menu and the Dock
+/// about unsaved documents, decides (`QuitRules`; no quit asks how to quit, and Cmd-Q, the menu and the Dock
 /// quit the app only, CMUX-630), then completes (`QuitSteps`, CmuxNextControl): save and close windows, and
 /// for End end the local terminals and stop the local daemon. A failed end
 /// step shows `QuitFailureAlert` (Retry or Quit Anyway). Remote sessions are
@@ -93,11 +93,10 @@ final class QuitCoordinator {
         // Quit (menu, Cmd-Q, socket) never waits on another open sheet.
         SheetDismissal.endAll()
         let origin = origins.consume(appleEventReason: NSAppleEventManager.shared().quitReason)
-        let behavior = services.settings?.snapshot.quitBehavior ?? QuitBehaviorSetting.fallback
-        logger.notice("quit origin=\(String(describing: origin), privacy: .public) behavior=\(behavior.rawValue, privacy: .public)")
+        logger.notice("quit origin=\(String(describing: origin), privacy: .public)")
         // [services]: the quit task pins the app's services until it ends (cx-6so P1b).
         Task { @MainActor [services] in
-            let choice = QuitPolicy.decide(origin, behavior: behavior)
+            let choice = QuitRules.decide(origin)
             // Unsaved documents (R96 quit hook) are the only question a quit can ask.
             guard await resolveUnsaved(origin) else {
                 isQuitting = false

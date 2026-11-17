@@ -498,7 +498,7 @@ def main():
     work = tempfile.mkdtemp(prefix="cmux-update-e2e-")
     config = os.path.join(work, "cmux.json")
     with open(config, "w") as f:
-        json.dump({"app": {"quitBehavior": "keep"}, "updates": {"installOnQuit": True}}, f)
+        json.dump({"updates": {"installOnQuit": True}}, f)
     log = open(os.path.join(work, "app.log"), "a")
     acpmux_config = add_fake_harness(work)
     try:
@@ -608,9 +608,6 @@ def main():
         except RuntimeError as error:
             print(f"trust reset: {error}")
         try:
-            with open(config, "w") as f:
-                json.dump({"app": {"quitBehavior": "end-everything"}}, f)
-            time.sleep(1)  # the app reloads cmux.json from its file watcher
             app.quit(end_everything=True)
         except Exception as error:  # noqa: BLE001 - cleanup continues
             print(f"final quit: {error}")

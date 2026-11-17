@@ -38,7 +38,7 @@ test("the route comes from the fragment alone, never the page's query string", a
   const { createFragmentHistory } = await import("./router");
   const { parseLocation } = await import("./router");
   const url = new URL(
-    "https://host.test/frame.html?entry=pages.settings&variant=x#/settings/general?focus=app.quitBehavior",
+    "https://host.test/frame.html?entry=pages.settings&variant=x#/settings/general?focus=navigation.historyScope",
   );
   const fake = {
     location: { hash: url.hash, search: url.search, pathname: url.pathname },
@@ -49,7 +49,7 @@ test("the route comes from the fragment alone, never the page's query string", a
   const history = createFragmentHistory(fake);
   expect(parseLocation(history.location.href)).toEqual({
     section: "general",
-    focus: "app.quitBehavior",
+    focus: "navigation.historyScope",
     workspace: null,
     query: "",
   });

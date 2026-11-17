@@ -5,7 +5,7 @@ extension SettingsSchema {
     /// cmux-next keys cmux-browser reads too (cmux-browser #567 moved its copies to cmux.json). The
     /// `appearance.metrics.*` rows say so themselves.
     static let sharedWithBrowser: Set<String> = [
-        "layout.defaultColumnWidth", "layout.minimumPaneWidth", "app.quitBehavior",
+        "layout.defaultColumnWidth", "layout.minimumPaneWidth",
     ]
 
     /// Keys Reset All Settings leaves alone: the look picked at onboarding
@@ -40,7 +40,6 @@ extension SettingsSchema {
     /// (`forgetStoredDefaults`) drops a stored value equal to one, so the key follows its default again.
     static let formerDefaults: [String: [JSONValue]] = [
         "agents.subsessions.maxChildren": [.number(50)], "agents.subsessions.maxRunning": [.number(16)],
-        "app.quitBehavior": [.string("ask")],
         "appearance.chromeStyle": [.string("default"), .string("flat-sidebar-line")],
         "appearance.focusIndicator": [.string("both")], "browser.hibernation": [.string("moderate")],
         "browser.links.cmdClick": [.string("backgroundTab")], "browser.omnibar.glass": [.string("transparent")],

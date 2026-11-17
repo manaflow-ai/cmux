@@ -6,7 +6,7 @@ export const ROW_LEVELS: {
   merges: Record<string, { into: string; from: string[]; title: string }[]>;
 } = {
   levels: {
-    // General's Window card and its untitled When Quitting card show every row (Lucas 2026-11-11), so
+    // General's Window card and its untitled History card show every row (Lucas 2026-11-11), so
     // none of their keys has a level here; Idle Workspaces keeps its More Options.
     "workspaces.hibernation.hiddenSpaceMinutes": "hidden",
     "workspaces.freeing.idleMinutes": "more",
@@ -402,13 +402,9 @@ export const ROW_LEVELS: {
         title: "Idle Workspaces",
       },
       {
-        into: "settings.group.quit",
-        from: [
-          "settings.group.history",
-          "settings.group.tasks",
-          "settings.group.announcements",
-          "settings.group.picker",
-        ],
+        // The untitled card that held When Quitting until the quit settings were retired (CMUX-630).
+        into: "settings.group.history",
+        from: ["settings.group.tasks", "settings.group.announcements", "settings.group.picker"],
         title: "",
       },
     ],

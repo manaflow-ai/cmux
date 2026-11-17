@@ -23,7 +23,7 @@ import Security
     private var asking = false
 
     /// `open` routes URLs as the app's own open events do; `relaunching` runs right before this copy quits for a
-    /// switch or a move, so the quit keeps every session whatever `app.quitBehavior` says.
+    /// switch or a move, so the quit keeps every session.
     public init(open: @escaping @MainActor ([URL]) -> Void, relaunching: @escaping @MainActor () -> Void,
                 center: CmuxDialogCenter = .shared) {
         self.open = open
