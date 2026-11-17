@@ -228,6 +228,18 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `focusRing.color` | string |  |  | Color |
 | `focusRing.width` | real | `1` | 0.5 to 8 | Width |
 | `focusRing.showWhenSinglePane` | boolean | `false` |  | Show With One Pane |
+| `appearance.accentGlow.dark` | string |  |  | Accent Glow (Dark). A soft glow in this color around the focused pane in the dark appearance. Unset, no glow. |
+| `appearance.accentGlow.light` | string |  |  | Accent Glow (Light). The glow's color in the light appearance. Unset, the dark color. |
+| `appearance.accentGlow.radius` | real | `24` | 0 to 200 | Accent Glow Radius. How far the accent glow spreads from the focused pane. |
+| `appearance.accentGlow.opacity` | real | `0.35` | 0 to 1 | Accent Glow Opacity. How strong the accent glow is. |
+| `appearance.tabClose.from` | string |  |  | Tab Close Color. The color of a tab's close button. Unset, the text color. |
+| `appearance.tabClose.toDark` | string |  |  | Tab Close Hover Color (Dark). The color a tab's close button turns to under the pointer in the dark appearance. Unset, the standard hover. |
+| `appearance.tabClose.toLight` | string |  |  | Tab Close Hover Color (Light). The close button's hover color in the light appearance. Unset, the dark color. |
+| `appearance.tabClose.interpolation` | string | `"oklab"` | `oklab`, `srgb` | Tab Close Blend. How the close button's color blends to its hover color. |
+| `appearance.sidebarHeader.dark` | string |  |  | Sidebar Header Image (Dark). A picture across the top of the sidebar in the dark appearance (file: and an absolute path). Unset, none. |
+| `appearance.sidebarHeader.light` | string |  |  | Sidebar Header Image (Light). The sidebar header picture in the light appearance. Unset, the dark picture. |
+| `appearance.paneArt.dark` | array | `[]` |  | Pane Art (Dark). Pictures behind panes in the dark appearance, one per pane in turn. Empty, panes show the window background as set above. |
+| `appearance.paneArt.light` | array | `[]` |  | Pane Art (Light). Pictures behind panes in the light appearance. Empty, the dark list. |
 | `ui.calm` | string | `"off"` | `off`, `calm`, `still` | Calm Mode. Calm: nothing slides, springs or spins, hover cards stay closed and the pointer leaves no highlight on tabs, rows and buttons. Still: Calm, and every animation is instant. Your other motion and hover card settings come back when it is off. |
 | `ui.animations.enabled` | boolean | `true` |  | Play Animations. Off turns every animation in cmux off: rows, tabs, panes, menus, cards, the agent cursor, spinners and cmux web pages change at once. On, the switches below choose area by area. |
 | `ui.animations.sidebar` | boolean | `true` |  | Animate the Sidebar. Rows and groups slide when they reorder, open, close, pin or move to the top, and the sidebar slides when it shows or hides. Off: they change at once. |
@@ -331,6 +343,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.commandLabels` | string | `[]` |  | Command Labels. How the chat names background commands: preset names such as cmux-fleet, and rules with a program or pattern and a label. |
 | `terminal.fontFamily` | string |  |  | Font Family. A monospaced font installed on this Mac. |
 | `terminal.fontSize` | real |  | 4 to 96 | Font Size |
+| `terminal.cursorStyle` | string |  | `block`, `bar`, `underline`, `block_hollow` | Cursor Style. The terminal cursor's shape. Unset, the Ghostty config's cursor-style. |
+| `terminal.cursorBlink` | string |  | `on`, `off` | Cursor Blink. Whether the terminal cursor blinks. Unset, the Ghostty config's cursor-style-blink. |
 | `terminal.linkOpener.default` | string | `"cmux"` |  | Open Program Links In. Where a URL goes when a program in a terminal opens a browser, such as aws login or gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, a profile after @ (chrome@Profile 1), or command:<command> to let your script decide. A BROWSER you set yourself wins. |
 | `terminal.linkOpener.rules` | array | `[]` |  | Program Link Rules. Checked in order before the default; the first match wins. Write <match> -> <target>: caller:aws matches the program that opened the URL, and text, * wildcards or re: match the URL. Example: caller:gh github.com -> safari |
 | `terminal.term` | string | `"xterm-256color"` | `xterm-256color`, `xterm-ghostty` | Terminal Type (TERM). The TERM new terminals start with. xterm-256color works on every host you ssh to. xterm-ghostty needs Ghostty's terminfo on each of those hosts, and applies only when it is installed on this Mac. |
