@@ -1461,7 +1461,7 @@ function Columns({
           onKeyDown={keyDown}
           // A press anywhere but the avatar and its card closes the card. No press takes the keyboard
           // from the search field (a caption, a note, a gap), except on a column's scroll bar or the
-          // update footer's sideways one.
+          // update footer's list.
           onPointerDown={(event) => {
             const target = event.target as Element;
             if (profileOpen && !target.closest?.(".acpmux-cols-corner")) setProfileOpen(false);

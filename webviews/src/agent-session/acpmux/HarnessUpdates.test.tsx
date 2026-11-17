@@ -213,8 +213,9 @@ test("one outdated agent has no Update all; a version skipped in this profile is
   expect(view.names()).toEqual(["opencode"]);
 });
 
-test("many outdated agents stay one sideways line, and × closes the footer until a newer version (cmux#45713)", async () => {
-  // Eight agents outdated at once took over the model menu: one full-width row each.
+test("many outdated agents stay in one capped list, and × closes the footer until a newer version (cmux#45713)", async () => {
+  // Eight agents outdated at once took over the model menu. They stay rows of one list, which
+  // harnessUpdates.css caps at three visible rows (layout is checked in the gallery, not jsdom).
   const many = [
     codex,
     opencode,

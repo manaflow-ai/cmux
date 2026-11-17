@@ -18,7 +18,7 @@ const row = (id: string, version: string, latest: string, command: string): Harn
 });
 const codex = row("codex", "0.164.0", "0.167.2", "npm install -g @openai/codex@latest");
 const opencode = row("opencode", "1.19.0", "1.19.5", "npm install -g opencode-ai@latest");
-/// Every agent outdated at once (cmux#45713): more than the menu's width holds.
+/// Every agent outdated at once (cmux#45713): more than the footer's three rows hold.
 const many = [
   codex,
   opencode,
@@ -93,7 +93,7 @@ export default componentEntry<Props>({
       props: { rows: [codex, opencode] },
     },
     "many-harnesses": {
-      note: "Every agent outdated: one line of agents that scrolls sideways, each capped in width, the menu's height unchanged.",
+      note: "Every agent outdated: three rows show and the rest scroll inside the list; the menu keeps its width.",
       props: { own: true, rows: many },
     },
     dismissed: {

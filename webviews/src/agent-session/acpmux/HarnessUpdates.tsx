@@ -2,9 +2,9 @@
 // agent CLI on one row each (its mark, its name, the installed and newest versions, Update), Update
 // all in the heading once there are two, and the reason under them. The reference (Leo 2026-11-12)
 // listed Codex and OpenCode; it is the same list for Claude Code and every other harness.
-// With many agents outdated the list took over the menu (cmux#45713): the agents now sit on one
-// line that scrolls sideways, each item capped in width, and × closes the footer until a newer
-// version shows up.
+// With many agents outdated the list took over the menu (cmux#45713): it now shows at most three
+// rows and scrolls the rest, never widens the menu, and × closes the footer until a newer version
+// shows up.
 import type { KeyboardEvent, Ref } from "react";
 import { AgentMark } from "../shared/AgentMark";
 import { Spinner } from "./conversation/icons";
