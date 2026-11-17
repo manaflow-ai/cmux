@@ -285,7 +285,7 @@ enum SidebarStyle {
     static var groupBarWidth: CGFloat { groupChromeShape ? Metrics.space2 : Metrics.space1 }
     static var groupBarX: CGFloat { (Metrics.sidebarRowHeight * 0.12).rounded() }
     /// One nesting step: a nested group's rows move in this far per level below the top.
-    static var groupGutter: CGFloat { groupBarX + 2 * Metrics.space1 }
+    static var groupGutter: CGFloat { Metrics.densityToken("sidebarGroupIndent") ?? groupBarX + 2 * Metrics.space1 }
     /// How far a row at group level `depth` (`SidebarRow.depth`) moves in from the list's inset.
     /// A top-level group's header and members line up with ungrouped rows: same leading x, same
     /// pill width (Leo 2026-10-21: "THE STUPID INDENT, IS THAT CHROME???? WHY IS THERE INDENT ON
@@ -332,7 +332,8 @@ enum SidebarStyle {
     /// secondary ink, not a smaller semibold label. The Codex heading measures 13 px over 13 px rows, about 59% of
     /// the way from its ground to white, which `textSecondary` (62%) matches.
     static var headerFont: NSFont {
-        tuned(derivedHeaderFont, size: SidebarRowTuning.headingSize.tunable.override, weight: SidebarRowTuning.headingWeight)
+        tuned(derivedHeaderFont, size: SidebarRowTuning.headingSize.tunable.override ?? Metrics.densityToken("sidebarHeadingSize"),
+              weight: SidebarRowTuning.headingWeight)
     }
     /// ``headerFont`` before the Sidebar Row Tuner (`sidebarRows.headingSize`'s default).
     static var derivedHeaderFont: NSFont { sized(rowTitleBase, weight: .regular) }
