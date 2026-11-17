@@ -512,7 +512,7 @@ pub(crate) fn rank(
     // The strongest learned pick for this query that still matches it goes first.
     let candidates = lift_candidates(store, raw, now);
     // A few candidates, each found by one walk of the matched rows: no map of every match.
-    if let Some(position) = candidates.iter().find_map(|key| {
+    if let Some(position) = candidates.iter().filter(|key| !key.is_empty()).find_map(|key| {
         scored.iter().position(|item| {
             item.enabled && entries[item.index].frecency_key.as_deref() == Some(key.as_str())
         })
