@@ -143,7 +143,7 @@
         "top",
         "compact"
       ],
-      "title" : "Model Picker Harness Placement",
+      "title" : "Model Picker Agent Placement",
       "type" : "string"
     },
     "agentPane.display.minimap" : {
@@ -458,7 +458,7 @@
     },
     "agents.chats.discovery" : {
       "default" : true,
-      "description" : "Find harness chat folders automatically. When off, only the listed folders are used.",
+      "description" : "Find agent chat folders automatically. When off, only the listed folders are used.",
       "title" : "Discover Chat Folders",
       "type" : "boolean"
     },
@@ -2573,7 +2573,7 @@
     "chief.reactionClassifier.harness" : {
       "default" : "",
       "description" : "The agent that reads reactions, such as claude or codex. Empty uses the Chief's.",
-      "title" : "Reaction Classifier Harness",
+      "title" : "Reaction Classifier Agent",
       "type" : "string"
     },
     "chief.reactionClassifier.model" : {

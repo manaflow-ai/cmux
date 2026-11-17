@@ -143,7 +143,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `palette.pins` | array | `[]` |  | Pinned Commands. Commands shown first when the command palette opens, in this order, by action id. |
 | `palette.searchHistory` | boolean | `true` |  | Remember Palette Searches. Rows you pick and use often rank higher. Off records nothing. |
 | `agents.chats.enabled` | boolean | `true` |  | Enable Chats. Show chats stored on this device. Nothing is uploaded. |
-| `agents.chats.discovery` | boolean | `true` |  | Discover Chat Folders. Find harness chat folders automatically. When off, only the listed folders are used. |
+| `agents.chats.discovery` | boolean | `true` |  | Discover Chat Folders. Find agent chat folders automatically. When off, only the listed folders are used. |
 | `agents.chats.roots` | array | `[]` |  | Chat Folders. Folders agents may also use. |
 | `agents.chats.sessionRecap` | boolean | `true` |  | Session Recap. A line on where a Claude chat stands when you come back. Each is a small model call. |
 | `agents.chats.coldArchive` | boolean | `false` |  | Compress Old Chats. Unused chats are compressed into one small file each and open as before. |
@@ -325,7 +325,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.promptCoach` | boolean | `true` |  | Prompt Coach. After a chat with many corrections, shows a better first prompt. |
 | `agentPane.display.statusVerbs.mode` | string | `"thinking"` | `thinking`, `rotate`, `custom` | Working Status Verbs. Choose whether the live status line rotates through verbs or stays on Thinking. |
 | `agentPane.display.statusVerbs.custom` | string |  |  | Custom Working Verbs. Comma-separated -ing verbs for the live status line. |
-| `agentPane.display.harnessPlacement` | string | `"symbols"` | `symbols`, `left`, `top`, `compact` | Model Picker Harness Placement |
+| `agentPane.display.harnessPlacement` | string | `"symbols"` | `symbols`, `left`, `top`, `compact` | Model Picker Agent Placement |
 | `agentPane.display.rail.side` | string | `"left"` | `left`, `right` | Prompt Rail Side. Right-click the rail to move it. |
 | `agentPane.display.commandLabels` | string | `[]` |  | Command Labels. The names the chat shows for background commands. |
 | `terminal.fontFamily` | string |  |  | Font Family. A monospaced font installed on this Mac. |
@@ -601,7 +601,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `home.chiefDock.openBeside` | boolean | `true` |  | Show Chief When Opening Workspaces. Links in the Chief open their workspace with the Chief over it. Esc hides it. |
 | `home.chiefEngine` | string | `"auto"` | `auto`, `local`, `hosted` | Engine. Auto uses this Mac's Chief while it runs, else the Hosted Chief. |
 | `chief.reactionsCanWake` | boolean | `true` |  | Reactions Can Wake the Chief. A reaction on a Chief message can start a turn, such as ? on a question. |
-| `chief.reactionClassifier.harness` | string | `""` |  | Reaction Classifier Harness. The agent that reads reactions, such as claude or codex. Empty uses the Chief's. |
+| `chief.reactionClassifier.harness` | string | `""` |  | Reaction Classifier Agent. The agent that reads reactions, such as claude or codex. Empty uses the Chief's. |
 | `chief.reactionClassifier.model` | string | `"claude-haiku-5-5"` |  | Reaction Classifier Model. The model that decides whether a reaction starts a turn. |
 | `chief.reactionClassifier.prompt` | string | `""` |  | Reaction Classifier Instructions. What the classifier is told when it decides. Empty uses the built-in instructions. |
 | `chief.permissionMode` | string | `"bypassPermissions"` | `bypassPermissions`, `auto`, `default` | Chief Permission Mode. How the Chief's own turns handle permissions. Bypass runs every command without asking. Auto lets a safety check decide each command. Manual refuses each change that would need approval. Applies from the next turn. |
