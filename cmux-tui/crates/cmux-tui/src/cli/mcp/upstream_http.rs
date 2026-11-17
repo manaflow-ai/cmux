@@ -39,9 +39,10 @@ impl std::fmt::Debug for Http {
 impl Http {
     /// `{url, headers}` in a spec, or None when it is not that.
     pub(in super::super) fn from_json(item: &Value) -> Option<Self> {
-        let url = item["url"].as_str()?.to_owned();
-        let headers = item["headers"]
-            .as_object()
+        let url = item.get("url")?.as_str()?.to_owned();
+        let headers = item
+            .get("headers")
+            .and_then(Value::as_object)
             .map(|headers| {
                 headers
                     .iter()
@@ -152,9 +153,11 @@ impl Client {
             .post(method, &message, Some(id), timeout)?
             .ok_or_else(|| Failure::Lost(format!("no answer to {method}")))?;
         if let Some(error) = reply.get("error") {
-            return Err(Failure::Refused(error["message"].as_str().unwrap_or("error").to_owned()));
+            return Err(Failure::Refused(
+                error.get("message").and_then(Value::as_str).unwrap_or("error").to_owned(),
+            ));
         }
-        Ok(reply["result"].clone())
+        Ok(reply.get("result").cloned().unwrap_or(Value::Null))
     }
 
     /// POSTs `message` and reads the answer to request `id` (a notification: none).
@@ -261,7 +264,7 @@ impl Client {
 
 /// Whether `reply` is the answer to request `id`.
 fn answers(reply: &Value, id: u64) -> bool {
-    reply.get("method").is_none() && reply["id"].as_u64() == Some(id)
+    reply.get("method").is_none() && reply.get("id").and_then(Value::as_u64) == Some(id)
 }
 
 /// The status and headers of a reply.
