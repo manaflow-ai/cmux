@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44156090531",
+  "recorded_at": "2026-11-17T19:31:29Z",
+  "reason": "cmux-tui 9d5f6bd60c17 changes the image's cmux-tui (pinned 4a03708b603d)",
+  "dry_run": false,
+  "cmux_tui": "9d5f6bd60c1719d7feff4198a486c2d2c441895f",
+  "fixes": [
+    {
+      "sha": "9d5f6bd60c1719d7feff4198a486c2d2c441895f",
+      "mergedAt": "2026-11-17T10:30:33-08:00",
+      "subject": "cmux-tui: every terminal is calculated for a lines viewer; PTY bytes only for a full-screen exception (#45434)"
+    },
+    {
+      "sha": "3baffc6ac409d0d88ba42f7c88da416469a5176c",
+      "mergedAt": "2026-11-17T10:29:25-08:00",
+      "subject": "acpmux: headless by default, its ratatui TUI behind an off-by-default tui feature (#45132)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T19:31:29Z",
+    "snapshot_id": "sh-9e39461ea86c4df5a3c785f748246583",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44156090531): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ee7b0693d05dff0949759b2499a7ed8a81783e1a",
+    "image": "cloud-native-auto-9d5f6bd6-44156090531-1",
+    "revision": "ci-44156090531-1",
+    "at": "2026-11-17T19:31:29Z"
+  },
+  "rolled_back": false
+}
