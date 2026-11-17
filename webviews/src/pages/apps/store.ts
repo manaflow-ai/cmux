@@ -312,7 +312,8 @@ export class AppsStore {
       if (generation !== this.generation) return;
       this.showIcons();
       void this.loadIcons(generation);
-      void this.loadPreviews(generation);
+      // Awaited so a reload settles with Discover's hero art, the way it settles the detail above.
+      await this.loadPreviews(generation);
     } catch (error) {
       if (generation !== this.generation) return;
       const failed = failure(error);

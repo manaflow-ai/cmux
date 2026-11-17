@@ -1013,7 +1013,7 @@ code {
   object-position: top left;
   border-radius: 12px;
   border: 1px solid var(--page-separator);
-  box-shadow: 0 8px 24px color-mix(in srgb, var(--page-text) 14%, transparent);
+  box-shadow: var(--elevation-2);
 }
 
 @container apps-discover (max-width: 620px) {
@@ -1109,7 +1109,7 @@ code {
 }
 
 .apps-listing-header > .apps-icon {
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--page-text) 12%, transparent);
+  box-shadow: var(--elevation-1);
 }
 
 .apps-listing-title {
