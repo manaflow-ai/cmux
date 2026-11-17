@@ -59,4 +59,20 @@ struct AcpmuxChatRowsFollowUpTests {
         #expect(await fed.host.snapshotForTesting().sids.isEmpty)
         #expect(await fed.host.open(sid: "rows.1", request: ChatWire.open) == .success("rows.1"), "the sid is free")
     }
+
+    @Test("a pane hidden from its open (a covered window) draws its chat: the first window goes at once, its rows go on (cmux#44964)")
+    func hiddenPaneDrawsItsChat() async throws {
+        let fed = FedChatRowsHost()
+        // A New Tab chat in a window behind another app's: hidden before its first open.
+        fed.host.setHidden(true)
+        #expect(await fed.host.open(sid: "rows.1", request: ChatWire.open) == .success("rows.1"))
+        try await fed.feed(ChatWire.opening + ChatWire.window(cursor: 10, ids: 1...10), chunk: 1 << 20)
+        #expect(await eventually { fed.receiver.rowIds == Array(1...10) }, "the page waits on its first window: it goes while hidden")
+        // The agent's answer and the turn's end: v1 hands a hidden page these too, so the chat
+        // never shows Thinking with nothing under it while acpmux has the turn.
+        try await fed.feed(ChatWire.op(11, text: "pong"), chunk: 1 << 20)
+        #expect(await eventually { fed.receiver.rowIds == Array(1...11) }, "a hidden page's rows go on, at the hidden pace")
+        try await fed.feed(ChatWire.op(12), chunk: 1 << 20)
+        #expect(await eventually { fed.receiver.rowIds == Array(1...12) }, "and the sub reads on: a hidden page's taken is acknowledged")
+    }
 }
