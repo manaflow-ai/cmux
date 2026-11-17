@@ -12,12 +12,11 @@ Everything is a value, so a test builds an input and checks the tokens. The
 tests live in `CmuxNextDesignTests`, which CI's cmux-next lane runs:
 
 ```swift
-import CMUXMobileCore
 import CmuxTheme
 import Testing
 
-@Test func monokaiTextIsReadable() {
-    let tokens = ThemeTokens.derive(from: ThemeInput(terminalTheme: .monokai))
+@Test func defaultTextIsReadable() {
+    let tokens = ThemeTokens.derive(from: .ghosttyDefault)
     #expect(tokens.textPrimary.contrast(with: tokens.contentBackground) >= 4.5)
 }
 ```
