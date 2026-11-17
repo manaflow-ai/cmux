@@ -219,9 +219,10 @@ pub fn web_engine(bundle_id: Option<&str>) -> WebEngine {
 /// page within 2 s with it; it refuses `AXManualAccessibility`). WebKit
 /// shows its pages to any client.
 pub fn web_accessibility_attribute(engine: WebEngine) -> Option<&'static str> {
-    // Stub (red): never asked, as before.
-    let _ = engine;
-    None
+    match engine {
+        WebEngine::Chromium => Some("AXEnhancedUserInterface"),
+        WebEngine::Other => None,
+    }
 }
 
 /// How a web field is given its page's focus in a background app.
@@ -240,9 +241,10 @@ pub enum WebFocusWrite {
 }
 
 pub fn web_focus_write(engine: WebEngine) -> WebFocusWrite {
-    // Stub (red): the AXFocused write everywhere, as before.
-    let _ = engine;
-    WebFocusWrite::Focused
+    match engine {
+        WebEngine::Chromium => WebFocusWrite::Focused,
+        WebEngine::Other => WebFocusWrite::Caret,
+    }
 }
 
 /// Where a background app's focused element (`AXFocusedUIElement`) is,
@@ -292,9 +294,34 @@ pub struct WebKeyFacts {
 /// (a docked inspector names nothing either) and no sheet or second window
 /// could take them. The reason otherwise.
 pub fn web_keys_guard(f: &WebKeyFacts) -> Result<(), &'static str> {
-    // Stub (red): as before, no keys into a background page's web view.
-    let _ = f;
-    Err("the web view's host is not focused in a background window")
+    if f.own != Some(true) {
+        return Err("the field did not take its page's focus");
+    }
+    if f.web_areas > 1 {
+        return Err("the field is in a frame inside the page, whose focus cannot be checked");
+    }
+    match f.other_web_views {
+        Some(false) => {}
+        Some(true) => {
+            return Err(
+                "the window shows another web view (a web inspector or a second page), which may hold the keyboard",
+            );
+        }
+        None => return Err("the window's web views could not be read"),
+    }
+    match f.app_focus {
+        Some(AppFocus::Nothing | AppFocus::Target | AppFocus::InPage) => {}
+        Some(AppFocus::Outside) => {
+            return Err(
+                "the window's keyboard focus is outside the page (its address bar, a find bar or another field), so keys would go there",
+            );
+        }
+        None => return Err("the app's focused element could not be read"),
+    }
+    if f.no_focused_window && f.other_targets {
+        return Err("the app has a sheet or another window that keys could reach");
+    }
+    Ok(())
 }
 
 /// The UTF-16 caret at the end of a field's text (where the caret write

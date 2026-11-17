@@ -3038,6 +3038,7 @@ fn every_targeted_field_write_goes_through_the_caret_gate() {
             "actions.rs:set_value",
             "actions.rs:slider_drag",
             "actions.rs:type_text",
+            "actions.rs:web_focus",
             "actions.rs:web_value_write",
             "actions.rs:write_attribute",
         ],
@@ -3046,7 +3047,7 @@ fn every_targeted_field_write_goes_through_the_caret_gate() {
     exempt.sort_unstable();
     assert_eq!(
         exempt,
-        ["actions.rs:write_attribute", "mod.rs:restore_focus"],
+        ["actions.rs:show_web_content", "actions.rs:write_attribute", "mod.rs:restore_focus"],
         "a new caret-gate exemption: say why it is not a field write and list it here"
     );
 }
