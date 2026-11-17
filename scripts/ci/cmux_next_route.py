@@ -127,7 +127,12 @@ DAEMON_JOB = "daemon-test"
 
 
 def _daemon_map_inputs(root: Path) -> tuple[str, ...]:
-    data = json.loads((root / AFFECTED_JOBS_MAP).read_text(encoding="utf-8"))
+    """The map's daemon-test inputs, read from ROOT; beside this file when ROOT lacks it (the routing replay copies
+    the base's router and map out of git into one directory: cmux_next_route_replay.py load_router)."""
+    path = root / AFFECTED_JOBS_MAP
+    if not path.is_file():
+        path = Path(__file__).resolve().parent / Path(AFFECTED_JOBS_MAP).name
+    data = json.loads(path.read_text(encoding="utf-8"))
     for entry in data["workflows"].values():
         if DAEMON_JOB in entry["jobs"]:
             return tuple(entry.get("inputs", [])) + tuple(entry["jobs"][DAEMON_JOB].get("inputs", []))
