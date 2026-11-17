@@ -1299,11 +1299,12 @@
      specified width times t once, so (anchor / t) * t equals the composer. */
   width: calc(var(--anchor-width) / var(--cmux-composer-zoom, 1));
 }
-/* The rows' padding and height in whole drawn pixels (after the zoom): at a compact density they came to 3.3 and
-   23.3 px, so a row's edges fell between pixels and a lone Ask row sat 1 px low (Lucas 2026-11-17). An engine
+/* A lone row's padding and height in whole drawn pixels (after the zoom): at a compact density they came to 3.3 and
+   23.3 px, so the row's edges fell between pixels and it sat 1 px low (Lucas 2026-11-17). Only one row: a list keeps
+   every size Default times the zoom, which rounding each row would break (new-tab-density-scaling). An engine
    without round() keeps the sizes above. */
 @supports (width: round(nearest, 1.5px, 1px)) {
-  .nt-popover {
+  .nt-popover.nt-popover-single {
     --ui-popup-padding: calc(
       round(nearest, var(--ds-space-1) * var(--nt-density, 1) * var(--cmux-composer-zoom, 1), 1px) /
         var(--cmux-composer-zoom, 1)

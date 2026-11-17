@@ -2581,7 +2581,10 @@ export function NewTabScreen(props: Props) {
           anchor={anchor}
           side={stage ? "top" : "bottom"}
           label={nt("suggestions")}
-          className="nt-composer-surface nt-popover"
+          // One row (a prompt on many lines): whole-pixel padding and row, so it sits centered (screen.css).
+          className={
+            rows.length === 1 ? "nt-composer-surface nt-popover nt-popover-single" : "nt-composer-surface nt-popover"
+          }
           hostGlass={false}
           initialFocus={false}
           finalFocus={false}
