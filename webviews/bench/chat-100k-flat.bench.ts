@@ -221,7 +221,8 @@ try {
   const { build } = await import("vite");
   await build({
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    build: { outDir: out, emptyOutDir: true, sourcemap: PAINT },
+    // HEAP_RETAINERS: names as written, so a holder reads as its source's (the minified build's are two letters).
+    build: { outDir: out, emptyOutDir: true, sourcemap: PAINT, ...(HEAP_RETAINERS ? { minify: false } : {}) },
     logLevel: "error",
   });
   // The paint windows name the sites that ask for frames by their source (the build's maps; PAINT above).
