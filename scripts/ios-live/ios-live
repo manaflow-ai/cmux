@@ -10,6 +10,7 @@
 #   ios-live up [REF]                rebuild at REF (default origin/feat-cmux-next), no patch (lease)
 #   ios-live undo [--all]            take back the newest live Swift patch (or all of them) (lease)
 #   ios-live relaunch | tap X Y | type TEXT | tree | log [N]
+#   ios-live window                  open the Simulator app on the live device, in the background
 #   ios-live ffi-sync FROM_HOST      copy the built Rust FFI from FROM_HOST (a host with Rust iOS targets)
 #
 # "Your change" is this checkout against its merge base with origin/feat-cmux-next: commits,
@@ -68,7 +69,7 @@ send_patch() {  # prints "BASE REMOTE_PATCH"
 
 cmd="${1:-status}"; shift || true
 case "$cmd" in
-  status|log|tree|udid) install_host; host_sh "$cmd" "$@" ;;
+  status|log|tree|udid|window) install_host; host_sh "$cmd" "$@" ;;
   shot)
     out="${1:-ios-live.png}"
     install_host
