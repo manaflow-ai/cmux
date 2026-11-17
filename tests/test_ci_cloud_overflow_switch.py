@@ -519,6 +519,24 @@ class MainTests(unittest.TestCase):
         # The owned macOS pool is retried; 16 vCPU stalled with the rest, so LINUX_RUNNER waits.
         self.assertEqual(writer.writes, [("MACOS_RUNNER_PR", "glaeda-std-xcode-26.6")])
 
+    def test_a_stalled_record_never_replays_a_variable_with_no_failover(self) -> None:
+        # 2026-11-16: the record holds MACOS_RUNNER_DUAL_XCODE -> the std pool, which has no SDK 15
+        # Xcode. Put back by hand to its recorded before, the next stalled probe must not re-apply it.
+        record = {"since": ago(60), "probe": "blacksmith-4vcpu-ubuntu-2404", "changed": {
+            "MACOS_RUNNER_DUAL_XCODE": {"before": None, "after": "glaeda-std-xcode-26.6"},
+            "MACOS_RUNNER_PR": {"before": "blacksmith-6vcpu-macos-26", "after": "glaeda-std-xcode-26.6"}}}
+        env = {"VAR_CI_CLOUD_OVERFLOW_SAVED": json.dumps(record),
+               "VAR_MACOS_RUNNER_PR": "blacksmith-6vcpu-macos-26", "VAR_CMUX_CI_XCODE_APP_PR": PIN}
+        writer = FakeSwitch()
+        code, _, summary = run_main(env, FakeActions(probe_job(0)), writer)
+        self.assertEqual(code, 0)
+        self.assertEqual(writer.writes, [("MACOS_RUNNER_PR", "glaeda-std-xcode-26.6")])
+        self.assertIn("MACOS_RUNNER_DUAL_XCODE: no failover", summary)
+        # The record still restores it once Blacksmith serves.
+        restores = {r.name: r for r in switch.plan_on(record, {"MACOS_RUNNER_DUAL_XCODE": "glaeda-std-xcode-26.6"})}
+        self.assertEqual((restores["MACOS_RUNNER_DUAL_XCODE"].value, restores["MACOS_RUNNER_DUAL_XCODE"].skipped),
+                         (None, ""))
+
     def test_a_record_on_hosted_ubuntu_moves_to_the_blacksmith_failover(self) -> None:
         # Written by the switch before 2026-10-27 (Linux failed over to GitHub-hosted Ubuntu).
         record = {"since": ago(60), "probe": "blacksmith-4vcpu-ubuntu-2404", "changed": {
