@@ -3697,7 +3697,7 @@ export function scrollLeadRanges(
   if (margin < Math.abs(delta) * PREDICTED_JITTER) return ranges;
   // A jump builds only the next frame's view: the commit after it builds the one after that, and a
   // second window ahead doubled the rows a frame built (and drew again as rows above them measured).
-  const predicted = jumping ? 1 : steps;
+  const predicted = jumping ? 0 : steps;
   for (let step = 1; step <= predicted; step += 1)
     ranges.push(
       visibleLayoutRange(layoutModel, scrollTop + delta * step - margin, viewportHeight + 2 * margin, overscan),
