@@ -360,6 +360,12 @@ struct ACloseTabKeyAwayFromTheKeptNewTabKeysTests {
                 workspaceTabs = keys.newTabs
                 let outcome = try keys.closeTab()
                 close = (outcome, log.replays)
+                // A Close Tab key that the hold kept acts at the hold's end: the test's creation ends, with no tab, so
+                // that the hold can end before the check. A Close Tab key that ran left no hold for the test to end.
+                if outcome == .kept {
+                    holds.resolve(ticket, landed: false, in: window)
+                    ticket = nil
+                }
                 try await Rows.settle(keys, in: window, services: services)
             } catch { failure = error }
             if let close {

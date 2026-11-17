@@ -137,13 +137,22 @@ struct ACloseTabKeyAfterKeptNewTabKeysTests {
         private(set) var wantOldTabsGone = 0
         /// The tabs of the start that a Close Tab key closed in its own call after 1 or more New Tab keys.
         private(set) var oldTabsClosedAfterANewTabKey: [String] = []
+        /// The New Tab actions and the Close Tab actions that ran since this value was made, in their order. The
+        /// registry tells each run of an action before it runs (`willRunObservers`), also a run that does not come
+        /// through the key path: a kept key of a terminal that is not the focused one runs its action with that
+        /// terminal's tab as the target, and the replay log does not have that run.
+        private(set) var tabActs: [String] = []
+        private var closeTabKeys = 0
 
         init(services: AppServices, window: NSWindow, log: KeyLog) {
             self.services = services
             self.window = window
             self.log = log
             self.start = Set(PasswordManagerRouteTests.tabs(services).map(\.id))
+            services.registry.willRunObservers.append { [weak self] id, _ in self?.noteAct(id.rawValue) }
         }
+
+        private func noteAct(_ id: String) { if id == "newTab.default" || id == "closeTab" { tabActs.append(id) } }
 
         /// The store's tabs now, each pane's in its order.
         var tabs: [String] { PasswordManagerRouteTests.tabs(services).map(\.id) }
@@ -162,6 +171,11 @@ struct ACloseTabKeyAfterKeptNewTabKeysTests {
         /// Tab keys.
         var keptKeysRunAgain: Int { log.replays }
         var tabKeyCounts: [Double?] { AHoldsEndCountsItsTabKeyPairsAndLostCloseKeysTests.counts(services) }
+        /// How many New Tab actions ran, then how many Close Tab actions.
+        var tabActCounts: [Int] { [tabActs.count(where: { $0 == "newTab.default" }), tabActs.count(where: { $0 == "closeTab" })] }
+        /// The same two counts as the keys ask for them when one Close Tab key goes with one New Tab key: the action
+        /// of each key but the two of that pair.
+        var tabActCountsWithOnePair: [Int] { [newTabKeys - 1, closeTabKeys - 1] }
 
         private func label(_ id: String) -> String { (start.contains(id) ? "old tab " : "new tab ") + id }
 
@@ -231,6 +245,7 @@ struct ACloseTabKeyAfterKeptNewTabKeysTests {
         @discardableResult
         func closeTab(repeats: Bool = false) throws -> Outcome {
             let pressed = try press("Cmd-W", "w", code: 13, repeats: repeats)
+            closeTabKeys += 1
             if openNewTabs > 0 {
                 openNewTabs -= 1
                 wantNewTabs -= 1
@@ -303,7 +318,7 @@ struct ACloseTabKeyAfterKeptNewTabKeysTests {
 
     /// The two checks of each test, and the test's counts.
     static func check(_ keys: Keys, _ label: String, lateAnswers: Int) {
-        print("KEYS-IN-ORDER \(label): \(keys.count) keys, \(keys.repeats) repeats, \(lateAnswers) answers given late, \(keys.keptNewTabKeys) New Tab keys kept by a hold, \(keys.keptKeysRunAgain) kept keys that ran again, counts \(keys.tabKeyCounts)")
+        print("KEYS-IN-ORDER \(label): \(keys.count) keys, \(keys.repeats) repeats, \(lateAnswers) answers given late, \(keys.keptNewTabKeys) New Tab keys kept by a hold, \(keys.keptKeysRunAgain) kept keys that ran again through the key path, the tab actions \(keys.tabActs), counts \(keys.tabKeyCounts)")
         #expect(keys.oldTabsClosedAfterANewTabKey.isEmpty,
                 "a Close Tab key that came after a New Tab key closed \(keys.oldTabsClosedAfterANewTabKey), tabs that were there before the first key; \(keys.keptNewTabKeys) New Tab keys were kept by a hold; \(keys.said)")
         let new = keys.newTabs, gone = keys.oldTabsGone
@@ -320,11 +335,20 @@ struct ACloseTabKeyAfterKeptNewTabKeysTests {
     }
 
     /// A row whose hold keeps two New Tab keys that make terminals and then one Close Tab key. In each order of the
-    /// row's answers the Close Tab key goes with the newest kept New Tab key: 1 kept key ran again (the other New Tab
-    /// key), and `debug.focus` counts 1 pair and no lost key.
+    /// row's answers the Close Tab key goes with the newest kept New Tab key: the action of each key of the row runs
+    /// but the two of that pair (the other kept New Tab key runs again), and `debug.focus` counts 1 pair and no lost
+    /// key.
+    ///
+    /// The check reads the tab actions that ran (`Keys.tabActs`). Until 2026-11-17 it read the replay log's count
+    /// (want 1). That count has two right values: a kept key that runs again comes through the replay log only when
+    /// it runs through the key path. A kept key of a terminal that is not the focused one runs its action directly,
+    /// with that terminal's tab as the target (`CreationInputCoordinator.runAgain`), and the count is then 0. The
+    /// order of the row's answers chooses the path, so the old check failed in one of them with a right result. The
+    /// row's line prints the count.
     static func checkOnePairAndOneKeyThatRanAgain(_ keys: Keys) {
-        #expect(keys.keptKeysRunAgain == 1 && keys.tabKeyCounts == [1, 0],
-                "\(keys.keptKeysRunAgain) kept keys ran again and the debug read counts \(keys.tabKeyCounts) (want 1 key, then 1 cancelled pair and 0 lost Close Tab keys: the Close Tab key goes with the newest kept New Tab key, and the other kept New Tab key runs again); \(keys.said)")
+        let want = keys.tabActCountsWithOnePair
+        #expect(keys.tabActCounts == want && keys.tabKeyCounts == [1, 0],
+                "the tab actions that ran are \(keys.tabActs) and the debug read counts \(keys.tabKeyCounts) (want \(want[0]) New Tab actions and \(want[1]) Close Tab actions, then 1 cancelled pair and 0 lost Close Tab keys: the Close Tab key goes with the newest kept New Tab key, and the action of each other key runs); \(keys.keptKeysRunAgain) kept keys ran again through the key path; \(keys.said)")
     }
 
     /// The tab that the split key made in its own call (the tab of the split's pane) is open at the end: the Close Tab
@@ -415,11 +439,12 @@ struct ACloseTabKeyAfterKeptNewTabKeysTests {
             Self.check(keys, "a split key, 2 New Tab keys that make pages, a Close Tab key", lateAnswers: 1)
             Self.checkTheSplitsTab(splitTabs, keys)
             #expect(close == .kept, "the Close Tab key that came after a kept New Tab key was not kept by a hold (its own call: \(close.map { "\($0)" } ?? "no call")); \(keys.said)")
-            let ownViewFirst = keys.keptKeysRunAgain == 3 && keys.tabKeyCounts == [0, 0]
-            let answerFirst = keys.keptKeysRunAgain == 1 && keys.tabKeyCounts == [1, 0]
+            // The tab actions that ran, not the replay log's count (`checkOnePairAndOneKeyThatRanAgain` says why).
+            let ownViewFirst = keys.tabActs == ["newTab.default", "newTab.default", "closeTab"] && keys.tabKeyCounts == [0, 0]
+            let answerFirst = keys.tabActs == ["newTab.default"] && keys.tabKeyCounts == [1, 0]
             print("KEYS-IN-ORDER the split key with pages, the order of its answers: \(ownViewFirst ? "the split's own view took its keys first" : answerFirst ? "the daemon's answer came first" : "not one of the two orders")")
             #expect(ownViewFirst || answerFirst,
-                    "\(keys.keptKeysRunAgain) kept keys ran again and the debug read counts \(keys.tabKeyCounts) (want one of two results: 3 keys, then 0 cancelled pairs and 0 lost Close Tab keys, when the split's own view takes its keys in the order of the presses; or 1 key, then 1 cancelled pair and 0 lost Close Tab keys, when the daemon's answer comes first); \(keys.said)")
+                    "the tab actions that ran are \(keys.tabActs) and the debug read counts \(keys.tabKeyCounts) (want one of two results: 2 New Tab actions and then 1 Close Tab action, then 0 cancelled pairs and 0 lost Close Tab keys, when the split's own view takes its keys in the order of the presses; or 1 New Tab action, then 1 cancelled pair and 0 lost Close Tab keys, when the daemon's answer comes first); \(keys.keptKeysRunAgain) kept keys ran again through the key path; \(keys.said)")
             // Each creation of a New Tab page ends before the window closes.
             held.release()
             if let failure { throw failure }
