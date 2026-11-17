@@ -78,8 +78,11 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
   },
   set(this: object, value: number) {
     offsets.set(this, value);
+    writes.push({ rail: (this as HTMLElement).classList.contains("acpmux-minimap__list"), value });
   },
 });
+/// Every offset written, in order: whether to the rail's list, and the value.
+const writes: { rail: boolean; value: number }[] = [];
 // A browser scrolls the rail's list to a row that takes focus; the list's scroll event then moves the
 // drawn rows along. jsdom scrolls nothing, so focus does it here.
 dom.window.document.addEventListener(
@@ -572,3 +575,33 @@ test("a scrolled rail hidden for lack of room comes back at its place, its rows 
     await act(async () => root.unmount());
   }
 }, 120_000);
+
+// CMUX-571: the rail's list was placed in its own layout effect, before the transcript's placement
+// pass of the same commit, so an open laid the whole page out for the rail's offset and again for
+// the transcript's. A chat's first list placement now runs in the transcript's pass, after its offset.
+test("an open places the rail's list after the transcript's offset, in the same commit", async () => {
+  const document = dom.window.document;
+  const root = createRoot(document.getElementById("root")!);
+  try {
+    writes.length = 0;
+    await act(async () =>
+      root.render(
+        <VirtualTranscript
+          sessionId="rail-order"
+          rows={turnView(turns, new Set())}
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      ),
+    );
+    const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+    const railAt = writes.findIndex((write) => write.rail && write.value > 0);
+    const transcriptAt = writes.findIndex((write) => !write.rail && write.value > 0);
+    // The rail reaches its end with the chat's, and the transcript's offset is written first.
+    expect(list.scrollTop).toBeGreaterThan(1000);
+    expect(transcriptAt).toBeGreaterThanOrEqual(0);
+    expect(railAt).toBeGreaterThan(transcriptAt);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
