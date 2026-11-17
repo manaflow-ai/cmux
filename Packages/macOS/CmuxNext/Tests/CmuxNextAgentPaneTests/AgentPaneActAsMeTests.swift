@@ -147,24 +147,26 @@ struct AgentPaneActAsMeTests {
 
     // MARK: The relay
 
-    @Test func aPostedSendGoesThroughTheRelayOnlyWhileOn() async throws {
+    /// A send needs no gesture (Leo, 2026-11-17: "go remove this"), so a posted one goes through the
+    /// relay on or off, and spends no grant: nothing is let through, so nothing is logged.
+    @Test func aPostedSendGoesThroughTheRelayOnOrOffAndUsesNoGrant() async throws {
         let pane = try await AgentPaneDelayedSendGestureTests.paneWithChat()
         defer { pane.server.stop(); try? FileManager.default.removeItem(atPath: pane.folder) }
         let grant = AgentPaneActAsMe()
         pane.transport.gestures.actAsMe = grant
 
         pane.transport.gestures.recordPosted(driver: Self.driver)
-        #expect(await pane.transport.send(connection: pane.id, frames: [Slow.prompt(id: 2, promptId: "p-1")]) == .gestureRequired)
+        #expect(await pane.transport.send(connection: pane.id, frames: [Slow.prompt(id: 2, promptId: "p-1")]) == nil)
 
         grant.turnOn(.init())
         pane.transport.gestures.recordPosted(driver: Self.driver)
         #expect(await pane.transport.send(connection: pane.id, frames: [Slow.prompt(id: 3, promptId: "p-2")]) == nil)
         _ = await pane.inbox.frame(containing: #""id":3"#)
-        #expect(grant.letThroughs.map(\.method) == ["session/prompt"])
+        #expect(grant.letThroughs.isEmpty)
 
         grant.turnOff()
         pane.transport.gestures.recordPosted(driver: Self.driver)
-        #expect(await pane.transport.send(connection: pane.id, frames: [Slow.prompt(id: 4, promptId: "p-3")]) == .gestureRequired)
+        #expect(await pane.transport.send(connection: pane.id, frames: [Slow.prompt(id: 4, promptId: "p-3")]) == nil)
     }
 
     @Test func aPostedGestureGivesASendTicketOnlyWhileOn() throws {

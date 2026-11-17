@@ -8,7 +8,9 @@ import Testing
 /// reach its backend can take longer to answer `session/new`, so the prompt reached the relay with
 /// no gesture left and came back `transport.gesture_required`: "Not sent". The start that took the
 /// person's gesture now carries it to that chat's first prompt, as a start on another machine does,
-/// once and within the start credit's lifetime.
+/// once and within the start credit's lifetime. A prompt needs no gesture at all now (Leo,
+/// 2026-11-17, on "Not sent: it needs your own key press or click.": "go remove this"); the credit
+/// still backs a held prompt's ticket.
 @Suite(.serialized)
 @MainActor
 struct AgentPaneSlowStartPromptTests {
@@ -67,23 +69,23 @@ struct AgentPaneSlowStartPromptTests {
         _ = await pane.inbox.frame(containing: #""id":2"#)
         #expect(pane.server.peers.first?.frames.contains { $0.contains("session/prompt") } == true)
 
-        // One grant per gesture: a second prompt with no new gesture is refused.
-        #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 3, promptId: "p-2")]) == .gestureRequired)
+        // A second prompt with no new gesture goes too: a send needs none.
+        #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 3, promptId: "p-2")]) == nil)
     }
 
-    @Test func aStartWithoutTheGestureCarriesNothingAndTheCreditEnds() async throws {
+    @Test func aPromptGoesWithNoStartGestureAndAfterTheCreditEnds() async throws {
         let pane = try await Self.pane()
         defer { pane.server.stop(); try? FileManager.default.removeItem(atPath: pane.folder) }
 
-        // A start the page made by itself (no gesture of the person's) gives its prompt nothing.
+        // A start with no gesture of the person's: its prompt still goes.
         #expect(await Self.start(pane, id: 1) == nil)
-        #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 2, promptId: "p-1")]) == .gestureRequired)
+        #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 2, promptId: "p-1")]) == nil)
 
-        // A start under the gesture whose prompt comes after the credit's lifetime is refused too.
+        // A prompt after the start credit's lifetime goes too.
         pane.transport.gestures.record()
         #expect(await Self.start(pane, id: 3) == nil)
         pane.clock.now += AgentPaneTransport.startCreditLifetime + 1
-        #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 4, promptId: "p-2")]) == .gestureRequired)
+        #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 4, promptId: "p-2")]) == nil)
     }
 
     /// A prompt acpmux held for the folder trust answer keeps the send's gesture as a ticket

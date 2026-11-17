@@ -5,8 +5,9 @@ import Testing
 /// P0, 2026-10-29: on a Mac at load ~200, Leo's own typed messages came back "Not sent: it needs
 /// your own key press or click." The person's Enter was recorded when AppKit dispatched it, but the
 /// page's prompt reached the relay more than ``AgentPaneUserGestures/lifetime`` later (a starved main
-/// thread and web process), so the expired gesture refused a send the person made. A send now spends
-/// the person's unspent gesture however old it is; only a send with no gesture of theirs is refused.
+/// thread and web process), so the expired gesture refused a send the person made. A send then spent
+/// the person's unspent gesture however old it was; now it needs no gesture at all (Leo, 2026-11-17,
+/// on "Not sent: it needs your own key press or click.": "go remove this").
 @Suite(.serialized)
 @MainActor
 struct AgentPaneDelayedSendGestureTests {
@@ -34,16 +35,22 @@ struct AgentPaneDelayedSendGestureTests {
         _ = await pane.inbox.frame(containing: #""id":2"#)
         #expect(pane.server.peers.first?.frames.contains { $0.contains("session/prompt") } == true)
 
-        // One send per gesture: a prompt with no new key press or click is still refused.
-        #expect(await pane.transport.send(connection: pane.id, frames: [Slow.prompt(id: 3, promptId: "p-2")]) == .gestureRequired)
+        // A prompt with no new key press or click goes too: a send needs none.
+        #expect(await pane.transport.send(connection: pane.id, frames: [Slow.prompt(id: 3, promptId: "p-2")]) == nil)
     }
 
-    @Test func aPromptWithNoGestureOfThePersonsIsStillRefused() async throws {
+    /// Leo, 2026-11-17: his own typed "hi" came back "Not sent: it needs your own key press or
+    /// click." ("go remove this"). A typed send with no live gesture of the person's is sent.
+    @Test func aPromptWithNoGestureOfThePersonsIsSent() async throws {
         let pane = try await Self.paneWithChat()
         defer { pane.server.stop(); try? FileManager.default.removeItem(atPath: pane.folder) }
 
         pane.clock.now += AgentPaneUserGestures.lifetime * 4
-        #expect(await pane.transport.send(connection: pane.id, frames: [Slow.prompt(id: 2, promptId: "p-1")]) == .gestureRequired)
+        #expect(!pane.transport.gestures.isAvailable)
+        #expect(await pane.transport.send(connection: pane.id, frames: [Slow.prompt(id: 2, promptId: "p-1")]) == nil,
+                "a typed send with no live gesture came back Not sent")
+        _ = await pane.inbox.frame(containing: #""id":2"#)
+        #expect(pane.server.peers.first?.frames.contains { $0.contains("session/prompt") } == true)
     }
 
     /// A send that takes a ticket first (a prompt with attachments, `nativePromptUpload.ts`) gets it
