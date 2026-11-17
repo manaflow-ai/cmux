@@ -723,3 +723,13 @@ pub fn daemon_move_index(
 pub fn is_provisional(handle: u64) -> bool {
     handle >= PROVISIONAL_BIT
 }
+
+/// Reads one `optimistic` request (the JSON the app sends).
+pub fn parse_request(bytes: &[u8]) -> serde_json::Result<Request> {
+    serde_json::from_slice(bytes)
+}
+
+/// Reads any JSON value under the same rules as [`parse_request`] (an answer read back).
+pub fn parse_value(bytes: &[u8]) -> serde_json::Result<Value> {
+    serde_json::from_slice(bytes)
+}
