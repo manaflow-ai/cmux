@@ -2021,9 +2021,16 @@ function watchKeys(): void {
   for (const type of ["keydown", "beforeinput", "compositionupdate"])
     window.addEventListener(type, note, { capture: true, passive: true });
 }
-function keyYieldsFrame(): boolean {
+/// The frame (its rAF time) a key took: every chat's draw in that frame waits, not only the first.
+let yieldedFrame: number | undefined;
+/// Whether the draw asked for in the frame at `frameTime` waits a frame for a key. The 50 ms fallback
+/// (no frame time) never waits: it is the bound.
+function keyYieldsFrame(frameTime: number | undefined): boolean {
+  if (frameTime === undefined) return false;
+  if (frameTime === yieldedFrame) return true;
   if (lastKeyAt === yieldedKeyAt || performance.now() - lastKeyAt > KEY_FRAME_MS) return false;
   yieldedKeyAt = lastKeyAt;
+  yieldedFrame = frameTime;
   return true;
 }
 
@@ -2050,11 +2057,12 @@ export const nextFrame = (run: () => void): (() => void) => {
       if (fallback !== undefined) clearTimeout(fallback);
       stopPending = undefined;
     };
-    const once = () => {
+    const once = (frameTime?: number) => {
       if (ran || done) return;
       // A key typed since the last frame paints first: this frame draws only its edit, and the
       // stream's draw takes the next one (`keyYieldsFrame`).
-      if (keyYieldsFrame() && typeof requestAnimationFrame === "function" && typeof drawn === "number") {
+      const at = typeof frameTime === "number" ? frameTime : undefined;
+      if (keyYieldsFrame(at) && typeof requestAnimationFrame === "function" && typeof drawn === "number") {
         drawn = requestAnimationFrame(once);
         return;
       }
@@ -2066,7 +2074,7 @@ export const nextFrame = (run: () => void): (() => void) => {
     };
     stopPending = stop;
     drawn = requestAnimationFrame(once);
-    fallback = setTimeout(once, 50);
+    fallback = setTimeout(() => once(), 50);
     // A frame that came at once (a test's clock) leaves no fallback behind.
     if (ran) stop();
   };
