@@ -510,27 +510,35 @@ fn recent_values(
     let mut cut_ended = older > 0;
     if used > budget {
         // The ended rows, the first to end first: whole ends go until the rest fits.
-        let mut ended: Vec<usize> = (0..rows.len()).filter(|&at| !rows[at].0).collect();
-        ended.sort_by_key(|&at| rows[at].1);
-        let mut index = 0;
-        while used > budget && index < ended.len() {
-            let end = rows[ended[index]].1;
-            while index < ended.len() && rows[ended[index]].1 == end {
-                let at = ended[index];
-                keep[at] = false;
-                used = used.saturating_sub(rows[at].3.saturating_add(1));
-                index += 1;
+        let mut ended: Vec<(u64, usize)> = rows
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| !row.0)
+            .map(|(at, row)| (row.1, at))
+            .collect();
+        ended.sort_by_key(|&(end, _)| end);
+        let mut ended = ended.into_iter().peekable();
+        while used > budget {
+            let Some((end, at)) = ended.next() else { break };
+            let mut group = vec![at];
+            while let Some((_, at)) = ended.next_if(|&(next, _)| next == end) {
+                group.push(at);
+            }
+            for at in group {
+                let (Some(flag), Some(row)) = (keep.get_mut(at), rows.get(at)) else { continue };
+                *flag = false;
+                used = used.saturating_sub(row.3.saturating_add(1));
             }
             cutoff = cutoff.max(end.saturating_add(1));
             cut_ended = true;
         }
         // Running rows past the budget on their own: the oldest go first.
-        for (at, row) in rows.iter().enumerate() {
+        for (row, flag) in rows.iter().zip(keep.iter_mut()) {
             if used <= budget {
                 break;
             }
             if row.0 {
-                keep[at] = false;
+                *flag = false;
                 used = used.saturating_sub(row.3.saturating_add(1));
             }
         }
