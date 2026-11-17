@@ -2041,7 +2041,10 @@ fn daemon_command(this: &crate::self_command::SelfCommand) -> std::process::Comm
 
 #[cfg(not(target_os = "linux"))]
 fn daemon_command(this: &crate::self_command::SelfCommand) -> std::process::Command {
-    this.command(&["daemon", "run", "--ready-fd"])
+    let mut command = this.command(&["daemon", "run", "--ready-fd"]);
+    // The daemon's freed pages go back as it frees them (macOS; malloc_space.rs).
+    command.envs(cmux_tui_platform::malloc_space::child_env());
+    command
 }
 
 /// Start `<exe> [prefix] daemon run --ready-fd N` in its own session and
