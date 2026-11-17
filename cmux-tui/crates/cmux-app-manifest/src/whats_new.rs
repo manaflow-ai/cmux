@@ -65,12 +65,12 @@ impl VersionRow {
     }
 
     fn from_json(value: &Value) -> Option<Self> {
-        let text = |key: &str| value[key].as_str().map(str::to_string);
+        let text = |key: &str| value.get(key).and_then(Value::as_str).map(str::to_string);
         Some(Self {
             version: text("version").filter(|v| !v.is_empty())?,
             tag: text("tag"),
             commit: text("commit"),
-            date_ms: value["date_ms"].as_i64(),
+            date_ms: value.get("date_ms").and_then(Value::as_i64),
         })
     }
 }
@@ -96,17 +96,21 @@ impl WhatsNew {
     ///
     /// [`to_json`]: Self::to_json
     pub fn from_json(value: &Value) -> Option<Self> {
-        let version = value["version"].as_str().filter(|v| !v.is_empty())?.to_string();
-        let items = value["items"]
-            .as_array()?
+        let version =
+            value.get("version").and_then(Value::as_str).filter(|v| !v.is_empty())?.to_string();
+        let items = value
+            .get("items")
+            .and_then(Value::as_array)?
             .iter()
             .filter_map(|item| {
-                let title = item["title"].as_str().filter(|t| !t.is_empty())?;
-                Some(WhatsNewItem { title: title.to_string(), pr: item["pr"].as_u64()? })
+                let title = item.get("title").and_then(Value::as_str).filter(|t| !t.is_empty())?;
+                let pr = item.get("pr").and_then(Value::as_u64)?;
+                Some(WhatsNewItem { title: title.to_string(), pr })
             })
             .collect();
-        let versions = value["versions"]
-            .as_array()
+        let versions = value
+            .get("versions")
+            .and_then(Value::as_array)
             .into_iter()
             .flatten()
             .filter_map(VersionRow::from_json)
@@ -250,7 +254,7 @@ fn git(repo: &Path, args: &[&str]) -> Result<String, String> {
 
 fn manifest_version(text: &str) -> Option<String> {
     let manifest: Value = serde_json::from_str(text).ok()?;
-    manifest["version"].as_str().filter(|v| !v.is_empty()).map(str::to_string)
+    manifest.get("version").and_then(Value::as_str).filter(|v| !v.is_empty()).map(str::to_string)
 }
 
 /// The version of the app's manifest at `commit` (`None`: the working tree),

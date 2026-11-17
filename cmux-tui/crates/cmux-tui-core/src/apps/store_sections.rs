@@ -116,9 +116,11 @@ fn shelved(package: &Package) -> Shelved {
     let current = whats_new_file(package).filter(|file| file.version == package.version);
     Shelved {
         id: package.id.clone(),
-        name: text(&package.manifest["name"]).to_lowercase(),
-        categories: package.manifest["categories"]
-            .as_array()
+        name: package.manifest.get("name").map(text).unwrap_or_default().to_lowercase(),
+        categories: package
+            .manifest
+            .get("categories")
+            .and_then(Value::as_array)
             .into_iter()
             .flatten()
             .filter_map(|c| c.as_str().map(str::to_string))
