@@ -3245,10 +3245,15 @@ function TranscriptView({
   /// This is render-phase state, alongside `sendsAt`, so the counter does not add a mutable ref read
   /// to the render path (React Doctor's no-ref-current-in-render rule).
   const [pendingSentPromptCount, setPendingSentPromptCount] = useState(0);
-  /// The last committed row snapshot used to distinguish an async prompt registration from history
-  /// already in the tail. State keeps this render comparison out of the ref-backed placement cache.
-  const [sendRowsSnapshot, setSendRowsSnapshot] = useState(() => ({ current: rows, previous: rows }));
-  if (sendRowsSnapshot.current !== rows) setSendRowsSnapshot({ current: rows, previous: sendRowsSnapshot.current });
+  /// The rows the latest send was made against: what the transcript held when `sends` last went up,
+  /// kept only while a sent prompt is still waiting for its row. The matching below asks one thing of
+  /// it, "which rows arrived since the send", and nothing else reads it, so it is taken once per send.
+  /// It used to be taken on every row change (a `{current, previous}` pair), which is a render-phase
+  /// setState on every chunk of a streaming chat: `rows` is a fresh array per delta (App.tsx's
+  /// `transcriptRows` memo recomputes on `turnRowsShown`, into which the live text is spliced), so
+  /// React re-ran this component a second time for every chunk with nobody typing, and a keystroke's
+  /// frame queued behind both. A send happens when a person sends; a chunk happens 60 times a second.
+  const [sendRowsSnapshot, setSendRowsSnapshot] = useState<readonly AcpmuxRow[]>(NO_ROWS);
   /// A prompt was sent before the chat opened (while its tail still fits): it opens at the latest
   /// message, not at the reader's old place.
   const sentBeforeOpen = useRef(false);
@@ -3268,6 +3273,8 @@ function TranscriptView({
   if (sends !== sendsAt) {
     setSendsAt(sends);
     setSteered(working);
+    // The rows as they stand before this send's prompt arrives: its "before" for the matching below.
+    setSendRowsSnapshot(rows);
   }
   // Under the scrollbar fade (the host theme sets it, applyPaneTheme), the scrollbar fades in and
   // out with the scrolling marks (scrollers.ts).
@@ -3467,6 +3474,8 @@ function TranscriptView({
       setSentPromptIds(sentPromptIdsForRender);
     }
     if (pendingSentPromptCount !== 0) setPendingSentPromptCount(0);
+    // Another session's rows: nothing here can match a send of this one.
+    if (sendRowsSnapshot.length !== 0) setSendRowsSnapshot(NO_ROWS);
   } else {
     let pending = pendingSentPromptCount;
     let promptIds = sentPromptIds;
@@ -3476,31 +3485,38 @@ function TranscriptView({
     } else if (sends < observedSends) {
       pending = 0;
     }
-    const previous = sendRowsSnapshot.previous;
-    const first = Math.max(0, previous.length - ARRIVAL_TAIL);
-    const last = Math.min(rows.length, previous.length + ARRIVAL_TAIL);
-    const indexes = new Set<number>();
-    for (let index = first; index < last; index += 1) indexes.add(index);
-    for (let index = Math.max(0, rows.length - ARRIVAL_TAIL); index < rows.length; index += 1) indexes.add(index);
-    for (const index of indexes) {
-      const row = rows[index];
-      // A later send can arrive before the row snapshot changes. A prompt already matched to
-      // an earlier send must not consume that later send's pending slot again.
-      if (
-        pending > 0 &&
-        row?.kind === "user" &&
-        !isLineRow(row) &&
-        row.id !== previous[index]?.id &&
-        !promptIds.has(row.id)
-      ) {
-        if (promptIds === sentPromptIds) promptIds = new Set(sentPromptIds);
-        rememberSentPromptId(promptIds, row.id);
-        pending -= 1;
+    // Only a send still waiting for its prompt row has anything to match. With none waiting, this
+    // window was built and walked on every commit of a streaming chat for a result it could not use.
+    if (pending > 0) {
+      const previous = sendRowsSnapshot;
+      const first = Math.max(0, previous.length - ARRIVAL_TAIL);
+      const last = Math.min(rows.length, previous.length + ARRIVAL_TAIL);
+      const indexes = new Set<number>();
+      for (let index = first; index < last; index += 1) indexes.add(index);
+      for (let index = Math.max(0, rows.length - ARRIVAL_TAIL); index < rows.length; index += 1) indexes.add(index);
+      for (const index of indexes) {
+        const row = rows[index];
+        // A later send can arrive before the row snapshot changes. A prompt already matched to
+        // an earlier send must not consume that later send's pending slot again.
+        if (
+          pending > 0 &&
+          row?.kind === "user" &&
+          !isLineRow(row) &&
+          row.id !== previous[index]?.id &&
+          !promptIds.has(row.id)
+        ) {
+          if (promptIds === sentPromptIds) promptIds = new Set(sentPromptIds);
+          rememberSentPromptId(promptIds, row.id);
+          pending -= 1;
+        }
       }
     }
     sentPromptIdsForRender = promptIds;
     if (promptIds !== sentPromptIds) setSentPromptIds(promptIds);
     if (pending !== pendingSentPromptCount) setPendingSentPromptCount(pending);
+    // Every send's prompt has landed: let the held rows go, so one send does not keep an old
+    // snapshot of the whole chat alive for the rest of the session.
+    if (pending === 0 && sendRowsSnapshot.length !== 0) setSendRowsSnapshot(NO_ROWS);
   }
   const previousViewport = useRef({ height, width, dockSpace, dockCard });
   /// The room kept under the last row (`room` below) as of the last placement pass.
