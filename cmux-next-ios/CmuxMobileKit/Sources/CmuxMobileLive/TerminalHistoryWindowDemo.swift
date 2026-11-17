@@ -2,6 +2,7 @@
 #if os(iOS) && DEBUG
 import CmuxMobileArtifacts
 import CmuxMobileTerminal
+import CmuxMobileTransport
 import Foundation
 import SwiftUI
 
