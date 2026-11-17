@@ -42,7 +42,7 @@
  * Every VM, snapshot and agent key it makes is deleted by exact id at the end.
  */
 import { randomBytes } from "node:crypto";
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { writeFileSync } from "node:fs";
 
 const argv = process.argv.slice(2);
@@ -240,6 +240,11 @@ async function runCleanup(): Promise<void> {
       console.error(`cleanup_needed_${label}=${path.split("/").at(-1)} (${error instanceof Error ? error.message : String(error)})`);
     }
   };
+  for (const key of [...cliCreationKeys]) {
+    const creation = await call("GET", "/v1/vm-creations/by-key", undefined, { "idempotency-key": key }).catch(() => null);
+    const id = creation === null ? undefined : field(creation.body, "id");
+    if (typeof id === "string" && VM_ID.test(id)) lifecycleVms.add(id);
+  }
   for (const id of [...lifecycleSnapshots]) await sweep(`/v1/snapshots/${encodeURIComponent(id)}`, "snapshot");
   for (const id of [...lifecycleAgentKeys]) await sweep(`/v1/agent-keys/${encodeURIComponent(id)}`, "agent_key");
   for (const id of [...lifecycleVms]) await sweep(vmPath(id), "vm");
@@ -303,31 +308,57 @@ async function waitGone(id: string, timeoutMs: number, token = bearer): Promise<
   }
 }
 
+/** The leg's VMs pause after 300 s without network traffic (the dev/test cap); a read wakes one first. */
+async function awake(id: string): Promise<void> {
+  const state = field((await call("GET", vmPath(id))).body, "state");
+  if (state === "running") return;
+  if (state === "paused" || state === "pausing") {
+    if (state === "pausing") await waitForState(id, "paused", 3 * 60_000);
+    expectStatus(await call("POST", `${vmPath(id)}/resume`, undefined, {}, 5 * 60_000), [200], "POST resume (wake)");
+  }
+  await waitForState(id, "running", 5 * 60_000);
+}
+
 async function readMarker(id: string): Promise<string> {
+  await awake(id);
   return (await exec(id, `cat ${LIFECYCLE_FILE} 2>/dev/null || echo missing`)).stdout.trim();
 }
 
-/** One `cmux vm ...` run of the CLI under test, with the journey's key in its environment. */
-function cli(args: string[], timeoutMs = 5 * 60_000): { code: number; stdout: string; stderr: string; ms: number } {
+/**
+ * One `cmux vm ...` run of the CLI under test, with the journey's key in its environment. Asynchronous, so a signal
+ * or the deadline can still run cleanup while it runs.
+ */
+function cli(args: string[], timeoutMs = 5 * 60_000): Promise<{ code: number; stdout: string; stderr: string; ms: number }> {
   const startedAt = performance.now();
-  const out = spawnSync(cmuxPath, ["vm", ...args], {
-    encoding: "utf8",
-    timeout: timeoutMs,
-    env: {
-      ...process.env,
-      CMUX_VM_BASE_URL: origin.origin,
-      CMUX_VM_API_KEY: bearer,
-      ...(useService ? { CMUX_VM_TEAM_ID: serviceTeam } : {}),
-    },
+  return new Promise((resolve) => {
+    const child = spawn(cmuxPath, ["vm", ...args], {
+      env: { ...process.env, CMUX_VM_BASE_URL: origin.origin, CMUX_VM_API_KEY: bearer, ...(useService ? { CMUX_VM_TEAM_ID: serviceTeam } : {}) },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString()));
+    child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString()));
+    const timer = setTimeout(() => child.kill("SIGTERM"), timeoutMs);
+    const done = (code: number) => {
+      clearTimeout(timer);
+      const ms = Math.round(performance.now() - startedAt);
+      console.error(`cli cmux vm ${args.join(" ")} -> ${code} in ${ms}ms`);
+      resolve({ code, stdout, stderr: stderr.replaceAll(bearer, "<key>"), ms });
+    };
+    child.on("error", (error) => {
+      stderr += String(error);
+      done(-1);
+    });
+    child.on("close", (code) => done(code ?? -1));
   });
-  const ms = Math.round(performance.now() - startedAt);
-  const row = { code: out.status ?? -1, stdout: out.stdout ?? "", stderr: (out.stderr ?? "").replaceAll(bearer, "<key>"), ms };
-  console.error(`cli cmux vm ${args.join(" ")} -> ${row.code} in ${ms}ms`);
-  return row;
 }
 
-function cliJson(args: string[], what: string): unknown {
-  const out = cli([...args, "--json"]);
+/** The CLI cannot set autoDeleteSeconds, so a CLI VM whose answer was lost is found again by its idempotency key. */
+const cliCreationKeys = new Set<string>();
+
+async function cliJson(args: string[], what: string): Promise<unknown> {
+  const out = await cli([...args, "--json"]);
   if (out.code !== 0) throw new Error(`cmux vm ${what} exited ${out.code}: ${out.stderr.slice(0, 400)}`);
   try {
     return JSON.parse(out.stdout);
@@ -379,11 +410,12 @@ async function lifecycleApi(failed: string[]): Promise<void> {
   await exec(fork, `printf %s fork > ${LIFECYCLE_FILE}`);
   proofs["forkIsolated"] = (await readMarker(source)) === marker;
 
+  await awake(source);
   const snapshotReply = await timed("lcSnapshot", () =>
-    call("POST", `${vmPath(source)}/snapshots`, { displayName: `lifecycle ${runId}`.slice(0, 100), ttlSeconds: 3600 }, { "idempotency-key": `lifecycle-snap-${runId}` }, 10 * 60_000));
-  if (snapshotReply.status === 403) {
+    call("POST", `${vmPath(source)}/snapshots`, { displayName: `lifecycle ${runId}`.slice(0, 100), ttlSeconds: 3600, ...(useService ? { labels: { role: "chief" } } : {}) }, { "idempotency-key": `lifecycle-snap-${runId}` }, 10 * 60_000));
+  if (snapshotReply.status === 403 && /snapshot:write/i.test(snapshotReply.text)) {
     note("the key lacks snapshot:write; the API snapshot legs were skipped");
-    proofs["snapshot"] = "skipped: 403";
+    proofs["snapshot"] = "skipped: no snapshot:write";
   } else {
     const snapshotId = field(expectStatus(snapshotReply, [201], "POST snapshots"), "id");
     if (typeof snapshotId !== "string") throw new Error("snapshot returned no id");
@@ -419,45 +451,55 @@ async function lifecycleCli(failed: string[]): Promise<void> {
     lifecycleVms.add(id);
     return id;
   };
+  // A CLI create whose answer is lost is found again by its key (cleanup), since the CLI sets no autoDeleteSeconds.
+  const cliKey = (label: string) => {
+    const key = `lifecycle-cli-${label}-${runId}`;
+    cliCreationKeys.add(key);
+    return key;
+  };
   const source = await timed("cliNew", async () =>
-    idOf(cliJson(["new", "--name", `lifecycle cli ${runId}`.slice(0, 100), "--idle-timeout", "300", "--idempotency-key", `lifecycle-cli-${runId}`], "new"), "new"));
+    idOf(await cliJson(["new", "--name", `lifecycle cli ${runId}`.slice(0, 100), "--idle-timeout", "300", "--idempotency-key", cliKey("source")], "new"), "new"));
   await timed("cliRunning", () => waitForState(source, "running", 5 * 60_000));
   await timed("cliExecWrite", async () => {
-    const out = cli(["exec", source, "--", `printf %s ${marker} > ${LIFECYCLE_FILE} && sync`]);
+    const out = await cli(["exec", source, "--", `printf %s ${marker} > ${LIFECYCLE_FILE} && sync`]);
     if (out.code !== 0) throw new Error(`cmux vm exec exited ${out.code}: ${out.stderr.slice(0, 300)}`);
   });
-  const cliRead = (id: string) => cli(["exec", id, "--", `cat ${LIFECYCLE_FILE}`]).stdout.trim();
-  await timed("cliPause", async () => cliJson(["pause", source], "pause"));
+  const cliRead = async (id: string) => {
+    await awake(id);
+    return (await cli(["exec", id, "--", `cat ${LIFECYCLE_FILE}`])).stdout.trim();
+  };
+  await timed("cliPause", () => cliJson(["pause", source], "pause"));
   await timed("cliPaused", () => waitForState(source, "paused", 3 * 60_000));
-  await timed("cliResume", async () => cliJson(["resume", source], "resume"));
+  await timed("cliResume", () => cliJson(["resume", source], "resume"));
   await timed("cliResumed", () => waitForState(source, "running", 3 * 60_000));
-  proofs["fileAfterResume"] = cliRead(source) === marker;
-  await timed("cliStop", async () => cliJson(["stop", source], "stop"));
+  proofs["fileAfterResume"] = (await cliRead(source)) === marker;
+  await timed("cliStop", () => cliJson(["stop", source], "stop"));
   await timed("cliStopped", () => waitForState(source, "stopped", 5 * 60_000));
-  await timed("cliStart", async () => cliJson(["start", source], "start"));
+  await timed("cliStart", () => cliJson(["start", source], "start"));
   await timed("cliStarted", () => waitForState(source, "running", 5 * 60_000));
-  proofs["fileAfterStopStart"] = cliRead(source) === marker;
+  proofs["fileAfterStopStart"] = (await cliRead(source)) === marker;
   const fork = await timed("cliFork", async () =>
-    idOf(cliJson(["fork", source, "--name", `lifecycle cli fork ${runId}`.slice(0, 100), "--idle-timeout", "300", "--idempotency-key", `lifecycle-cli-fork-${runId}`], "fork"), "fork"));
+    idOf(await cliJson(["fork", source, "--name", `lifecycle cli fork ${runId}`.slice(0, 100), "--idle-timeout", "300", "--idempotency-key", cliKey("fork")], "fork"), "fork"));
   await timed("cliForkRunning", () => waitForState(fork, "running", 5 * 60_000));
-  proofs["fileInFork"] = cliRead(fork) === marker;
-  const snapshot = cli(["snapshot", "create", source, "--name", `lifecycle cli ${runId}`.slice(0, 100), "--ttl", "3600", "--idempotency-key", `lifecycle-cli-snap-${runId}`, "--json"]);
+  proofs["fileInFork"] = (await cliRead(fork)) === marker;
+  await awake(source);
+  const snapshot = await cli(["snapshot", "create", source, "--name", `lifecycle cli ${runId}`.slice(0, 100), "--ttl", "3600", "--idempotency-key", `lifecycle-cli-snap-${runId}`, "--json"]);
   timings["cliSnapshotMs"] = snapshot.ms;
-  if (snapshot.code !== 0 && /snapshot:write|forbidden|403/i.test(snapshot.stderr)) {
+  if (snapshot.code !== 0 && /snapshot:write/i.test(snapshot.stderr)) {
     note("the key lacks snapshot:write; the CLI snapshot legs were skipped");
-    proofs["snapshot"] = "skipped: 403";
+    proofs["snapshot"] = "skipped: no snapshot:write";
   } else {
     if (snapshot.code !== 0) throw new Error(`cmux vm snapshot create exited ${snapshot.code}: ${snapshot.stderr.slice(0, 300)}`);
     const snapshotId = field(JSON.parse(snapshot.stdout), "id");
     if (typeof snapshotId !== "string") throw new Error("cmux vm snapshot create printed no id");
     lifecycleSnapshots.add(snapshotId);
-    cliJson(["snapshot", "get", snapshotId], "snapshot get");
+    await cliJson(["snapshot", "get", snapshotId], "snapshot get");
     const fromSnapshot = await timed("cliNewFromSnapshot", async () =>
-      idOf(cliJson(["new", "--snapshot", snapshotId, "--name", `lifecycle cli snap ${runId}`.slice(0, 100), "--idle-timeout", "300", "--idempotency-key", `lifecycle-cli-from-snap-${runId}`], "new --snapshot"), "new --snapshot"));
+      idOf(await cliJson(["new", "--snapshot", snapshotId, "--name", `lifecycle cli snap ${runId}`.slice(0, 100), "--idle-timeout", "300", "--idempotency-key", cliKey("from-snap")], "new --snapshot"), "new --snapshot"));
     await timed("cliFromSnapshotRunning", () => waitForState(fromSnapshot, "running", 5 * 60_000));
-    proofs["fileInSnapshotVm"] = cliRead(fromSnapshot) === marker;
+    proofs["fileInSnapshotVm"] = (await cliRead(fromSnapshot)) === marker;
     await timed("cliSnapshotDelete", async () => {
-      const out = cli(["snapshot", "delete", snapshotId, "--yes"]);
+      const out = await cli(["snapshot", "delete", snapshotId, "--yes"]);
       if (out.code !== 0) throw new Error(`cmux vm snapshot delete exited ${out.code}: ${out.stderr.slice(0, 300)}`);
     });
     expectStatus(await call("GET", `/v1/snapshots/${encodeURIComponent(snapshotId)}`), [404], "GET snapshot after CLI delete");
@@ -465,7 +507,7 @@ async function lifecycleCli(failed: string[]): Promise<void> {
   }
   await timed("cliRm", async () => {
     for (const id of [...lifecycleVms]) {
-      const out = cli(["rm", id, "--yes"]);
+      const out = await cli(["rm", id, "--yes"]);
       if (out.code !== 0) throw new Error(`cmux vm rm exited ${out.code}: ${out.stderr.slice(0, 300)}`);
       expectStatus(await call("GET", vmPath(id)), [404], "GET after cmux vm rm");
       lifecycleVms.delete(id);
@@ -486,19 +528,28 @@ async function lifecycleCleanup(failed: string[]): Promise<void> {
   proofs["autoDeleteOnPause"] = await timed("acGoneAfterPause", () => waitGone(ephemeral, 10 * 60_000));
 
   // 2 and 3 need an agent key: the session's own credential.
-  const keyReply = await call("POST", "/v1/agent-keys", { name: `lifecycle ${runId}`.slice(0, 200), ttlSeconds: 1800, maxVms: 2, maxUsdPerHour: 2 });
-  if (keyReply.status === 403 || keyReply.status === 400) {
-    note(`agent keys refused this credential (${keyReply.status}); the self-delete and revoke legs were skipped`);
-    proofs["selfDelete"] = proofs["revokeDeletes"] = `skipped: ${keyReply.status}`;
+  // A VM's network is private by default; the self-deleting VM needs public egress to reach the API, which needs
+  // vm:network on the key that creates it.
+  const keyRequest = { name: `lifecycle ${runId}`.slice(0, 200), ttlSeconds: 1800, maxVms: 2, maxUsdPerHour: 2 };
+  let keyReply = await call("POST", "/v1/agent-keys", { ...keyRequest, scopes: ["vm:write", "vm:exec", "vm:network"] });
+  let egress = keyReply.status === 201;
+  if (!egress && keyReply.status === 403) {
+    note(`an agent key with vm:network was refused (${keyReply.text.slice(0, 160)}); the self-delete leg runs without egress`);
+    keyReply = await call("POST", "/v1/agent-keys", keyRequest);
+  }
+  if (keyReply.status === 403) {
+    note(`agent keys refused this credential (${keyReply.text.slice(0, 160)}); the self-delete and revoke legs were skipped`);
+    proofs["selfDelete"] = proofs["revokeDeletes"] = "skipped: 403";
   } else {
     const keyBody = expectStatus(keyReply, [201], "POST /v1/agent-keys");
     const keyId = field(keyBody, "id");
     const agentKey = field(keyBody, "key");
     if (typeof keyId !== "string" || typeof agentKey !== "string") throw new Error("agent key answer has no id or key");
+    if (process.env["GITHUB_ACTIONS"] === "true") console.log(`::add-mask::${agentKey}`);
     lifecycleAgentKeys.add(keyId);
 
     // 2. The VM deletes itself from inside, with the agent key it was given.
-    const self = await timed("sdCreate", () => lifecycleCreate("self-delete", {}, agentKey));
+    const self = await timed("sdCreate", () => lifecycleCreate("self-delete", egress ? { initialNetwork: { publicEgress: true } } : {}, agentKey));
     await timed("sdRunning", () => waitForState(self, "running", 5 * 60_000));
     const keyFile = "/tmp/cmux-lifecycle-agent-key";
     // The key is short-lived (30 min) and revoked below; it goes in as an exec body, never printed.
@@ -508,6 +559,7 @@ async function lifecycleCleanup(failed: string[]): Promise<void> {
     const selfDelete = await timed("sdDelete", () =>
       exec(self, `curl -sS -o /dev/null -w '%{http_code}' -X DELETE -H "authorization: Bearer $(cat ${keyFile})" ${origin.origin}${vmPath(self)}`, 60_000).catch((error: unknown) => ({ exitCode: null, stdout: "", stderr: String(error) })));
     result["selfDeleteHttp"] = selfDelete.stdout.trim();
+    result["selfDeleteEgress"] = egress;
     proofs["selfDelete"] = await timed("sdGone", () => waitGone(self, 3 * 60_000));
 
     // 3. The session ends: revoking its agent key deletes the key's VMs at once.
@@ -688,8 +740,9 @@ try {
 
   if (lifecycle) {
     await lifecycleApi(failed);
-    if (cmuxPath !== "") await lifecycleCli(failed);
-    else note("no --cmux binary; the CLI lifecycle legs were skipped");
+    if (cmuxPath === "") note("no --cmux binary; the CLI lifecycle legs were skipped");
+    else if (useService) note("a service key needs role=chief on every VM and `cmux vm` sets no labels; the CLI lifecycle legs were skipped");
+    else await lifecycleCli(failed);
     await lifecycleCleanup(failed);
   }
 
