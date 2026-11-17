@@ -2,8 +2,9 @@
 # A released chat the prewarmed spare page takes (first-load-after-restart MODE=reopen-spare), before and after a
 # change, from one harness on one machine: this checkout's pane and BASE's pane (a detached worktree of BASE with this
 # checkout's bench and node_modules, removed when done), interleaved ROUNDS times at each TURNS.
-#   bench/reopen-spare-ab.sh BASE [rounds=3] [turns=10,100]
+#   bench/reopen-spare-ab.sh BASE [rounds=3] [turns=10,100] [SHA...]
 #   cmux-ci test --setup playwright -- bash webviews/bench/reopen-spare-ab.sh <full base sha> 3 10,100
+# Each extra SHA is one more side, in a worktree of its own like BASE's (a stack's commits, one per cut).
 # PROFILE=1 passes on (the adopt's CPU profile per side); ROUNDS_EACH (default 5) is the bench's own ROUNDS per run.
 # Per side and TURNS it prints each run's summary lines (first content, live, adopt task, spare footprint) and the
 # median over runs of first content p50 and of the adopt task p50. Each run's log goes to OUT (default
@@ -12,6 +13,8 @@ set -euo pipefail
 base="${1:?usage: reopen-spare-ab.sh BASE [rounds] [turns]}"
 rounds="${2:-3}"
 IFS=, read -r -a turns <<<"${3:-10,100}"
+shift 3 2>/dev/null || shift $#
+extra=("$@")
 cd "$(dirname "$0")/.."
 out="${OUT:-${FAST_CHECKS_OUT:-$(mktemp -d)}}"
 mkdir -p "$out"
@@ -22,20 +25,25 @@ sides=(after)
 declare -A dirs=([after]="$here")
 trees=()
 trap 'for t in "${trees[@]}"; do git -C "$here" worktree remove --force "$t" 2>/dev/null || true; done' EXIT
-if [ "$base" != - ]; then
-  depth=()
+# `side NAME SHA`: a detached worktree of SHA with this checkout's bench and node_modules, measured as side NAME.
+side() {
+  local name="$1" sha="$2" depth=() tree
   [ "$(git rev-parse --is-shallow-repository)" = true ] && depth=(--depth=1)
-  sha="$(git rev-parse --verify -q "$base^{commit}" || { git fetch -q "${depth[@]}" origin "$base" && git rev-parse "$base^{commit}"; })"
-  tree="$(mktemp -d)/before"
+  sha="$(git rev-parse --verify -q "$sha^{commit}" || { git fetch -q "${depth[@]}" origin "$sha" && git rev-parse "$sha^{commit}"; })"
+  tree="$(mktemp -d)/$name"
   trees+=("$tree")
   git worktree add -q --detach "$tree" "$sha"
   rm -rf "$tree/$rel/bench"
   cp -R "$here/bench" "$tree/$rel/bench"
   ln -s "$here/node_modules" "$tree/$rel/node_modules"
   (cd "$tree/$rel" && bun scripts/pages/gen-strings.mjs --best-effort >/dev/null)
-  dirs[before]="$tree/$rel"
-  sides+=(before)
-  echo "=== side before at $sha"
+  dirs[$name]="$tree/$rel"
+  sides+=("$name")
+  echo "=== side $name at $sha"
+}
+if [ "$base" != - ]; then
+  side before "$base"
+  for at in "${!extra[@]}"; do side "s$((at + 1))-${extra[$at]:0:8}" "${extra[$at]}"; done
 fi
 run() {
   local side="$1" turn="$2" round="$3" log="$out/$1-t$2-$3.log"
@@ -73,7 +81,7 @@ for turn in turns:
         heap = [v for v in (grab(p, r"JS heap p50 ([\d.]+) MB") for p in logs) if v is not None]
         nodes = [v for v in (grab(p, r"DOM nodes p50 ([\d.]+)") for p in logs) if v is not None]
         med = lambda xs: f"{statistics.median(xs):.1f}" if xs else "-"
-        print(f"  TURNS={turn:<4} {s:<7} first content {med(first)} ms  live {med(live)} ms  adopt task {med(task)} ms  "
+        print(f"  TURNS={turn:<4} {s:<12} first content {med(first)} ms  live {med(live)} ms  adopt task {med(task)} ms  "
               f"spare heap {med(heap)} MB  nodes {med(nodes)}  runs {first}")
 PY
 echo "reopen-spare-ab: wrote $out"
