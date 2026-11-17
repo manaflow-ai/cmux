@@ -79,9 +79,9 @@ import Testing
         defer { harness.window.closeAfterTest() }
         let screen = try #require(harness.screen)
         let grid = Commit.Rest(harness.model.screens, in: screen, style: harness.root.context.style)
-        // The display frame that shows the zoom: the one at which the dim over the other panes has had its fade in frame
-        // time (`ScreenContentView.zoomDimFade`, read before the zoom; 0: no dim, the first frame).
-        let first = max(1, Int((screen.zoomDimFade / PaneMotionBench.frameBudget).rounded(.up)))
+        // The display frame that shows the zoom: the one after the frame at which the dim over the other panes has had its
+        // fade in frame time (`PaneZoomDimTests.showFrame(of:)`, read before the zoom; with no dim: the first frame).
+        let first = PaneZoomDimTests.showFrame(of: screen)
         try #require(first <= Commit.frames, "the zoom's dim takes \(first) display frames; this test steps \(Commit.frames)")
 
         let (shown, zoomed, follows) = try Self.frames(of: harness, after: Self.screens(zoomedOn: "p4"), covered: covered)

@@ -254,9 +254,9 @@ import Testing
         let old = Rest(harness.model.screens, in: screen, style: style)
         #expect(old.isShown(by: Self.shown(screen)), "the screen does not rest at the layout before the change: \(Self.shown(screen).panes)")
         let sizesBefore = harness.provider.contents.mapValues(\.sizes.count)
-        // The display frame that shows the change: the first one. A zoom shows when the dim over the other panes has had
-        // its fade in frame time (`ScreenContentView.zoomDimFade`, read before the zoom; 0: no dim, the first frame).
-        let first = change.name == "zoom" ? max(1, Int((screen.zoomDimFade / PaneMotionBench.frameBudget).rounded(.up))) : 1
+        // The display frame that shows the change: the first one. A zoom shows after the dim over the other panes has had
+        // its fade in frame time (`PaneZoomDimTests.showFrame(of:)`, read before the zoom; with no dim: the first frame).
+        let first = change.name == "zoom" ? PaneZoomDimTests.showFrame(of: screen) : 1
         try #require(first <= Self.frames, "the zoom's dim takes \(first) display frames; this test steps \(Self.frames)")
 
         harness.model.apply(screens: after)

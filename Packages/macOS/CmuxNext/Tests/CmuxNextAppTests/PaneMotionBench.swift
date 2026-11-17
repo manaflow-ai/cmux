@@ -145,8 +145,9 @@ struct PaneMotionBench {
         default: (Self.grid(c, r, zoomed: true), Self.grid(c, r))
         }
         var times: [Double] = []
-        // The most frames the 3 rounds of a zoom or an unzoom take: the dim's fade in frames (`ScreenContentView.zoomDimFade`,
-        // read before the change), which end with the frame that shows a zoom and follow the frame that shows an unzoom.
+        // The most frames the 3 rounds of a zoom or an unzoom take: the dim's fade in frames (`PaneZoomDim.fade(on:)`,
+        // read before the change) and the frame that shows the change, which follows them for a zoom and comes first for
+        // an unzoom.
         var dimFrames = 0
         for _ in 0..<3 {
             // Column close starts focused on the column it closes: the camera rests at the strip's end, and the close
@@ -154,9 +155,8 @@ struct PaneMotionBench {
             let harness = Harness(before, focused: bench.name == "columnClose" ? PaneID("p\(c)-0") : PaneID("p0-0"))
             defer { harness.window.closeAfterTest() }
             _ = await harness.frame()
-            let dim = Int(((harness.root.screenViews.values.first?.zoomDimFade ?? 0) / Self.frameBudget).rounded(.up))
-            // `Swift.max`: this function names a constant `max` below.
-            dimFrames += bench.name == "zoom" ? Swift.max(dim, 1) : 1 + dim
+            let fade = harness.root.screenViews.values.first.map { $0.zoomDim.fade(on: $0) } ?? 0
+            dimFrames += 1 + PaneZoomDimTests.ticks(of: fade)
             times += await harness.run(after, focus: bench.name == "column" ? PaneID("p\(c)-0") : nil)
         }
         let p50 = Self.percentile(times, 0.5), p95 = Self.percentile(times, 0.95), max = times.max() ?? 0

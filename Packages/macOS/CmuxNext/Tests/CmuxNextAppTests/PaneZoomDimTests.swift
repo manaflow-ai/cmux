@@ -8,7 +8,8 @@ import Testing
 /// The light around a zoom (Cmd-Shift-Enter): the other panes dim, and no frame shows a pane between two layouts.
 ///
 /// - At the zoom key nothing moves: the screen shows the layout before the zoom, whole, and a dim comes over the other
-///   panes. When the dim's fade is over, one frame shows the zoomed pane alone at its screen's size, and the dim is gone.
+///   panes. No pane hears its new size while the dim comes. In the frame where the dim's fade is spent the panes hear
+///   their sizes, and the frame after it shows the zoomed pane alone at its screen's size, with the dim gone.
 /// - An unzoom shows every pane at its place in one frame, the other panes under the dim, which then fades out.
 /// - A second key while the dim comes ends it at once.
 /// - With no pane animation (Reduce Motion) there is no dim, and each change shows in its first frame.
@@ -68,8 +69,15 @@ import Testing
     /// The fade of the dim on the Mac that runs the test: the pane veil's (`MotionFade.paneDim`).
     static func fade() throws -> TimeInterval {
         let duration = Motion.panes.duration(.paneDim)
-        try #require(duration > 0 && duration <= 0.3, "SETUP: the pane veil's fade is \(duration) s on this Mac")
+        try #require(duration > 0 && duration <= PaneZoomDim.longest, "SETUP: the pane veil's fade is \(duration) s on this Mac")
         return duration
+    }
+
+    /// The display frame after a zoom key that shows the zoom on `screen`, read before the key. With no dim: the first
+    /// one. With a dim: the frame after the one where the dim's fade is spent (the panes hear their sizes in that one).
+    static func showFrame(of screen: ScreenContentView) -> Int {
+        let fade = screen.zoomDim.fade(on: screen)
+        return fade > 0 ? ticks(of: fade) + 1 : 1
     }
 
     @Test func aZoomDimsTheOtherPanesBeforeItShowsWhole() throws {
@@ -115,8 +123,9 @@ import Testing
             #expect(frame.misfits.isEmpty, "tick \(tick): a pane's content is not at the rect its pane gives it: \(frame.misfits)")
         }
         let at = try #require(shownAt, "the zoom never showed")
-        #expect(at >= 2 && Double(at) * Self.dt <= 0.3 && abs(Double(at) * Self.dt - duration) <= Self.dt + 1e-6,
-                "the zoom showed at tick \(at) (\(Double(at) * Self.dt) s); the dim's fade is \(duration) s")
+        // The frame after the one where the dim's fade is spent, and inside 300 ms.
+        #expect(at == Self.ticks(of: duration) + 1 && Double(at) * Self.dt <= 0.3,
+                "the zoom showed at tick \(at) (\(Double(at) * Self.dt) s); the dim's fade is \(duration) s, \(Self.ticks(of: duration)) ticks")
         #expect(harness.provider.released.isEmpty, "the zoom released a pane: \(harness.provider.released)")
     }
 

@@ -39,9 +39,9 @@ import Testing
         try #require(glass.count == 1, "SETUP: the overlay dock shows \(glass.count) backdrops at rest")
         let before = Commit.shown(screen)
         try #require(before.panes.count == 3, "SETUP: the screen does not show its 3 panes at rest: \(before.panes)")
-        // The display frame that shows the zoom: the one at which the dim over the other panes has had its fade in frame
-        // time (`ScreenContentView.zoomDimFade`, read before the zoom; 0: no dim, the first frame).
-        let first = max(1, Int((screen.zoomDimFade / PaneMotionBench.frameBudget).rounded(.up)))
+        // The display frame that shows the zoom: the one after the frame at which the dim over the other panes has had its
+        // fade in frame time (`PaneZoomDimTests.showFrame(of:)`, read before the zoom; with no dim: the first frame).
+        let first = PaneZoomDimTests.showFrame(of: screen)
 
         harness.model.apply(screens: Self.screens(zoomedOn: "p1"))
         harness.root.syncWithModel()

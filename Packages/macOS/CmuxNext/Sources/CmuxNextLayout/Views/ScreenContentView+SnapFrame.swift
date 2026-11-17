@@ -118,11 +118,9 @@ extension ScreenContentView {
     /// structural snap (a split, a close, a zoom) does not wait for programs: its grid goes when it shows (m58).
     func heldSnapAwaitsContent() -> Bool {
         guard frameInput.snapWaitsForContent, window != nil, !isHiddenOrHasHiddenAncestor else { return false }
+        if zoomDim.holdsFrame(of: self) { return true } // a zoom's dim comes first; its panes hear their sizes when its fade is spent
         frameInput.snapRefreshesWaited += 1
         let waited = frameInput.snapRefreshesWaited
-        // A zoom's dim comes first: the zoom shows when the dim's fade is over (`ScreenContentView+ZoomDim`), or at
-        // once when panes stop animating in that time (Reduce Motion, a full-screen transition, a live resize).
-        if zoomDim.phase == .coming, zoomDim.remaining > 0, !context.reduceMotion { return true }
         if waited <= Self.commitBound, frameInput.commitAwaited.contains(where: { frameInput.commitSurfaces[$0] != nil }) { return true }
         guard frameInput.snapAwaitsPrograms else { return false }
         for pane in paneFrames.keys {
@@ -136,8 +134,7 @@ extension ScreenContentView {
     func presentHeldSnap() {
         guard frameInput.snapWaitsForContent else { return }
         (frameInput.snapWaitsForContent, frameInput.snapAwaitsPrograms) = (false, false)
-        // The dim that came before a zoom leaves in the commit that shows the zoom.
-        if zoomDim.phase == .coming { endZoomDim() }
+        zoomDim.changeShows() // the dim that came before a zoom leaves in the commit that shows the zoom
         // The rings and dims the model asked for while the change waited show with it.
         if let chrome = frameInput.heldChrome {
             frameInput.heldChrome = nil

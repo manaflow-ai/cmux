@@ -456,7 +456,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
             let landsAtOnce = isNew && waited.contains(screen.id)
             let old = before[screen.id]
             view.hiddenDividers = screen.hiddenDividers
-            view.zoomPresentsPage = screen.presented
+            view.zoomDim.presentsPage = screen.presented
             // A zoomed pane shows full size over its canvas (canvas-layout.md).
             let canvas = screen.zoomed ? nil : snapshot.canvases[screen.id]
             let layoutChanged = isNew || old?.layout != screen.layout || old?.zoomed != screen.zoomed || sharedChanged
@@ -573,7 +573,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         // A drag's newest pointer first, as in a frame (its window went out of sight mid-drag): it lands in this one pass.
         let input = LayoutFrameInput(root: self)
         input.apply()
-        for view in screenViews.values { view.land() }
+        for view in screenViews.values { view.zoomDim.land(view) }
         let snapWaits = input.presentWaiting(waitsForContent: waitsForContent)
         highlight.settle()
         updateVisibility()
@@ -609,7 +609,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
             if view.displayFrameBegan() { panning = true }
             if view.step(dt, policy: policy) { moving = true }
             if view.stepCanvasCamera(dt, policy: policy) { moving = true }
-            _ = view.stepZoomDim(dt)
+            view.zoomDim.step(dt)
         }
         let snapWaits = input.presentWaiting()
         if highlight.step(dt) { moving = true }
@@ -623,7 +623,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         if !moving && !gesturing { setLayoutInMotion(false) }
         // A strip pan and a divider drag keep the ticks a little after each event (`ScreenContentView.panTickTail`);
         // a gesture with a still pointer needs none after that.
-        return moving || panning || dragging || snapWaits || screenViews.values.contains(where: \.zoomDimGoes)
+        return moving || panning || dragging || snapWaits || screenViews.values.contains(where: \.zoomDim.goes)
     }
 
     /// Tells the layout motion observers when the first spring starts and when the last one lands.

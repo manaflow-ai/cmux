@@ -199,12 +199,11 @@ struct AgentChatTakesOneSizePerSpringTests {
             }
         case .zoomAndUnzoom:
             // Toggle Pane Zoom's key turn (`DaemonService` zoom effect -> `DaemonStore.intend`), then the same key again.
-            // The zoom shows when the dim over the pane beside it has had its fade in frame time
-            // (`ScreenContentView.zoomDimFade`, read before the key; 0: no dim, the first tick). The unzoom shows at its
-            // first tick, and the ticks after it only count its dim's fade.
+            // The zoom shows after the dim over the pane beside it has had its fade in frame time
+            // (`PaneZoomDimTests.showFrame(of:)`, read before the key; with no dim: the first tick). The unzoom shows at
+            // its first tick, and the ticks after it only count its dim's fade.
             let screen = try #require(host.superview as? ScreenContentView, "fixture: the pane's host is in no screen")
-            let dimTicks = Int((screen.zoomDimFade / Self.dt).rounded(.up))
-            try takesOneSize("the zoom", showsAt: max(dimTicks, 1)) {
+            try takesOneSize("the zoom", showsAt: PaneZoomDimTests.showFrame(of: screen)) {
                 store.intend(.zoomPane(pane: Self.chatPane, zoomed: true), transaction: ClientTransactionID.generate())
                 content.applyCurrent()
             }
