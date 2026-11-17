@@ -217,8 +217,10 @@ jobs:
           if [ "$LIFECYCLE" = "true" ]; then
             args+=(--lifecycle --cmux "$RUNNER_TEMP/trusted-cmux/cmux")
             # The public cmux is built from main and has no `cmux vm` yet: the CLI legs run the headless VM CLI
-            # (the library `cmux vm` links) built from this checkout. Without cargo they are skipped with a note.
-            if command -v cargo >/dev/null && (cd workers/cmux-vm/cli && cargo build --release --locked -p cmux-vm); then
+            # (the library `cmux vm` links) built from this checkout; a failed build fails the job. Without cargo the
+            # journey skips them with a note.
+            if command -v cargo >/dev/null; then
+              (cd workers/cmux-vm/cli && cargo build --release --locked -p cmux-vm)
               args+=(--cmux-vm "$PWD/workers/cmux-vm/cli/target/release/cmux-vm")
             fi
           fi
