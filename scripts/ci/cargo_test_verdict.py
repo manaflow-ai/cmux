@@ -58,6 +58,29 @@ READ_AT_TEST_TIME = {
     "cmux-tui/crates/acpmux": ("scripts/cmux-next/run-v2-gates.sh", "scripts/cmux-next/v2-gates.d/"),
 }
 INCLUDE = re.compile(r'include_(?:str|bytes)!\(\s*"([^"]+)"')
+# include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../spec/x.json")) names a path from the crate directory;
+# include_str!(concat!("../dir/", $name, ".json")) one from the source's directory. The first literal is the path, or,
+# when more pieces follow it (a macro's $name), the directory it opens: its prefix up to the last "/" (cmux#45420
+# review P3-F1: the Windows check skipped a change to cmux-tui/spec/browser-host-operations.json). env!("OUT_DIR") and
+# other non-literal heads name no file of the tree and are not matched.
+INCLUDE_CONCAT = re.compile(r'include_(?:str|bytes)!\(\s*concat!\(\s*(env!\(\s*"CARGO_MANIFEST_DIR"\s*\)\s*,\s*)?'
+                            r'"([^"]*)"\s*([,)])')
+
+
+def _concat_includes(tree, crate: str, source: str, text: str) -> list[str]:
+    """The paths (files, or the directory a macro-built name opens) TEXT's include_str!(concat!(...)) calls name."""
+    found = []
+    for match in INCLUDE_CONCAT.finditer(text):
+        manifest_dir, literal, after = match.groups()
+        if after == ",":
+            literal = literal[:literal.rfind("/") + 1] if "/" in literal else ""
+        relative = literal.lstrip("/") if manifest_dir else literal
+        if not relative.strip("/."):
+            continue  # the crate or source directory itself: nothing narrower than what is already counted
+        named = _follow(tree, crate if manifest_dir else posixpath.dirname(source), relative.rstrip("/"))
+        if named is not None:
+            found.append(named)
+    return found
 DEPENDENCY_TABLES = ("dependencies", "dev-dependencies", "build-dependencies")
 PASSED = re.compile(r"^test (\S+) \.\.\. ok$")
 FAILED_LINE = re.compile(r"^test (\S+) \.\.\. FAILED$")
@@ -319,6 +342,7 @@ def tested_crate_inputs(tree, crate_dir: str, features=(), references: bool = Tr
             included = _follow(tree, posixpath.dirname(source), match.group(1))
             if included is not None:
                 inputs.add(included)
+        inputs.update(_concat_includes(tree, crate, source, text))
         if not references or "../" not in text:
             continue
         for literal in RELATIVE_REF.findall(text):

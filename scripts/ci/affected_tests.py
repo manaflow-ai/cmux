@@ -410,12 +410,14 @@ def plan(root: Path, base: str, head: str, files: list[str] | None, shards: int,
         p.native([item["manifest"] for item in focused["native"]])
     return {"base": base, "head": head, "all": bool(reasons), "reasons": reasons, "files": files,
             "units": p.units, "not_run": p.not_run, "docs": focused.get("docs", []),
-            "ci_jobs": ci_jobs(root, base, head, files)}
+            "ci_jobs": ci_jobs(root, base, head, None if everything else files)}
 
 
-def ci_jobs(root: Path, base: str, head: str, files: list[str]) -> list[dict]:
+def ci_jobs(root: Path, base: str, head: str, files: list[str] | None) -> list[dict]:
     """The pull-request CI jobs the change reaches, from the same crate graph and map PR CI routes them by
-    (scripts/ci/affected_jobs.py, scripts/ci/affected-jobs.json): what the pull request's own CI will run."""
+    (scripts/ci/affected_jobs.py, scripts/ci/affected-jobs.json): what the pull request's own CI will run. FILES None
+    (--all, or no merge base: nothing says what changed) routes every job, as the router does for an unlisted change
+    (cmux#45420 review P3-F2: it reported every job skipped)."""
     try:
         with affected_jobs.git_tree.GitTree(root, head) as tree, affected_jobs.git_tree.GitTree(root, base) as base_tree:
             route = affected_jobs.route(tree, files, base_tree=base_tree)

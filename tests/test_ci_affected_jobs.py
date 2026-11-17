@@ -120,6 +120,23 @@ class Routes(unittest.TestCase):
         run, _ = route(["webviews/fixtures/a.json"])  # a test fixture of core: only core's own tests read it
         self.assertEqual(run, {"app-tests": False, "app-sim": False, "core-check": False})
 
+    def test_a_concat_include_names_its_file_even_for_a_compile_only_job(self):
+        # cmux#45420 review P3-F1: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../spec/x.json")) is read at
+        # compile time, so a compile-only job (no "../" literal scan) must count it; a macro-built name counts the
+        # directory its first literal opens.
+        files = {**FILES, "cmux-tui/crates/core/src/spec.rs":
+                 'const A: &str = include_str!(concat!(\n    env!("CARGO_MANIFEST_DIR"),\n'
+                 '    "/../../../spec/ops.json"\n));\n'
+                 'macro_rules! m { ($d:expr) => { include_str!(concat!("../../../../ifaces/", $d, "/1.json")) } }\n'
+                 'const O: &str = include_str!(concat!(env!("OUT_DIR"), "/gen.ts"));\n',
+                 "spec/ops.json": "{}", "ifaces/a/1.json": "{}", "ifaces/b/1.json": "{}"}
+        with fake_tree(files) as tree:
+            for changed in (["spec/ops.json"], ["ifaces/b/1.json"]):
+                with self.subTest(changed=changed):
+                    result = jobs.route(tree, changed, map_text=MAP)
+                    run = {key[1]: value for key, value in result.run.items()}
+                    self.assertEqual(run, {"app-tests": True, "app-sim": True, "core-check": True}, result.lines())
+
     def test_a_jobs_own_inputs_and_the_workspace_inputs_run_it(self):
         self.assertEqual(route(["scripts/run-app.sh"])[0], {"app-tests": True, "app-sim": False, "core-check": False})
         self.assertTrue(all(route(["cmux-tui/Cargo.lock"])[0].values()))
