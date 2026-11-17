@@ -27,10 +27,19 @@ ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / "scripts" / "cmux-next" / "hot-verify-ci.py"
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-next-hot-verify.yml"
 WEB_PUBLISH = ROOT / ".github" / "workflows" / "cmux-next-web-bundle-publish.yml"
+# tests/git_fixture_env.py, loaded by path (`python3 -I` puts no script folder on sys.path): the fetch fixture's
+# repositories get git's auto maintenance off, so no detached writer is left when the temp folder goes.
+_git_fixture_spec = importlib.util.spec_from_file_location("git_fixture_env", ROOT / "tests" / "git_fixture_env.py")
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 spec = importlib.util.spec_from_file_location("hot_verify_ci", SCRIPT)
 hv = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = hv
 spec.loader.exec_module(hv)
+RECEIPT_SCRIPT = ROOT / "scripts" / "cmux-next" / "hot-verify-receipt.py"
+_receipt_spec = importlib.util.spec_from_file_location("hot_verify_receipt", RECEIPT_SCRIPT)
+hr = importlib.util.module_from_spec(_receipt_spec)
+_receipt_spec.loader.exec_module(hr)
 
 HEAD = "a" * 40
 OTHER = "b" * 40
@@ -300,6 +309,61 @@ class Comment(unittest.TestCase):
             hv.gh = original
 
 
+    def test_a_look_at_a_merged_prs_merge_commit_posts_and_a_receipt_is_found(self) -> None:
+        merge = "c" * 40
+
+        def fake(*args, body=None):
+            if args[1].endswith("/pulls/7") and args[3].startswith(".head.sha"):
+                return f"{OTHER} {merge}\n"
+            if args[1].endswith("/pulls/8") and args[3].startswith(".head.sha"):
+                return f"{OTHER} \n"  # open: no merge commit to take
+            if args[1].endswith("/pulls/7"):
+                return "no marker here\n"
+            if args[1].endswith("/pulls/8"):
+                return f"text\n{MARKER}\n"
+            if "/issues/7/comments?per_page=100&page=1" in args[1]:
+                return json.dumps({"id": 5, "login": "someone", "head": "lgtm"}) + "\n"
+            if "/comments?per_page=100&page=1" in args[1]:
+                return ""
+            return "{}"
+
+        with mock.patch.object(hv, "gh", side_effect=fake):
+            self.assertEqual(hv.post("body", 7, merge), "posted a comment")
+            self.assertIn("moved", hv.post("body", 8, merge))
+
+    def test_the_receipt_check_reads_once_and_never_waits(self) -> None:
+        # hot-verify-receipt.py runs in `plan` with the workflow's token: one read per question, no sleep loop
+        # (tests/test_ci_no_github_token_polling.py), and an unreadable answer is an error, never "no receipt".
+        self.assertEqual(hr.MARKER_PREFIX, hv.MARKER_PREFIX)
+        self.assertNotIn("while True", RECEIPT_SCRIPT.read_text())
+
+        def answer(body, comments):
+            def run(argv, **kw):
+                text = comments if "comments" in argv[2] else body
+                return subprocess.CompletedProcess(argv, 0, text, "")
+            return run
+
+        for body, comments, want in (("no marker\n", "false\nfalse\n", False), (f"text\n{MARKER}\n", "", True),
+                                     ("", "false\ntrue\n", True), ("", "", False)):
+            with self.subTest(body=body, comments=comments), \
+                    mock.patch.object(hr.subprocess, "run", side_effect=answer(body, comments)) as run:
+                self.assertEqual(hr.has_receipt(7), want)
+            self.assertLessEqual(run.call_count, 2)
+        # A full page asks for the next one, one bounded call each, never gh's paginate flag (tests/test_gh_pages.py).
+        def paged(argv, **kw):
+            if "comments" not in argv[2]:
+                return subprocess.CompletedProcess(argv, 0, "", "")
+            text = "false\n" * hr.PER_PAGE if argv[2].endswith("&page=1") else "true\n"
+            return subprocess.CompletedProcess(argv, 0, text, "")
+        with mock.patch.object(hr.subprocess, "run", side_effect=paged) as run:
+            self.assertTrue(hr.has_receipt(7))
+        self.assertEqual(run.call_count, 3)
+        self.assertNotIn("--" + "paginate", [arg for call in run.call_args_list for arg in call.args[0]])
+        denied = subprocess.CompletedProcess([], 1, "", "HTTP 403: API rate limit exceeded")
+        with mock.patch.object(hr.subprocess, "run", return_value=denied) as run, redirect_stderr(io.StringIO()):
+            self.assertEqual(hr.main(["--pr", "7"]), 1)
+        self.assertEqual(run.call_count, 1)
+
     def test_a_call_out_of_quota_waits_for_the_reset_then_retries(self) -> None:
         # Run 43790108433 (cmux#44086, 2026-11-16): the look passed, then "post the look" died on
         # "API rate limit exceeded for installation" and the finished look was never posted.
@@ -377,8 +441,9 @@ class Workflow(unittest.TestCase):
         fetch = textwrap.dedent("\n".join(lines[start:end]))
         with tempfile.TemporaryDirectory(prefix="hot-verify-fetch-") as scratch:
             root = Path(scratch)
-            env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
-                   "GIT_COMMITTER_EMAIL": "t@t", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"}
+            env = git_fixture_env.fixture_env({
+                **os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+                "GIT_COMMITTER_EMAIL": "t@t", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"})
 
             def git(cwd: Path, *args: str) -> str:
                 return subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True,
@@ -386,7 +451,7 @@ class Workflow(unittest.TestCase):
 
             src = root / "src"
             src.mkdir()
-            git(src, "init", "-q", "-b", "feat-cmux-next")
+            git_fixture_env.init_repo(src, "-b", "feat-cmux-next", env=env)
             git(src, "config", "uploadpack.allowFilter", "true")
             for n in range(5):
                 (src / "f").write_text(f"{n}\n")
@@ -402,7 +467,7 @@ class Workflow(unittest.TestCase):
             git(src, "checkout", "-q", "feat-cmux-next")
             clone = root / "clone"
             clone.mkdir()
-            git(clone, "init", "-q")
+            git_fixture_env.init_repo(clone, env=env)
             git(clone, "remote", "add", "origin", src.as_uri())
             # As actions/checkout: the base branch alone, at depth 1.
             git(clone, "fetch", "-q", "--no-tags", "--depth=1", "origin",
@@ -461,7 +526,7 @@ class Workflow(unittest.TestCase):
 
     def test_a_look_lost_on_the_fleet_is_started_once_more_and_only_once(self) -> None:
         # 2026-11-16: run 43788086518's step failed on three lent Macs' disk declines, run 43788591989's worker
-        # stopped renewing its lease, and cmux8s's gateway runner refused 8 looks under a reservation (runs
+        # stopped renewing its lease, and a reserved fleet Mac's gateway runner refused 8 looks (runs
         # 43833883489, 43834069668, ...). Each lost its look for good: nothing started one again.
         block = "\n".join(self.job_block("again"))
         self.assertIn("needs: [target, look]", block)
@@ -476,6 +541,64 @@ class Workflow(unittest.TestCase):
         self.assertIn("cmux-next-hot-verify.yml", argv)
         for field in ("pr=7", f"head={HEAD}", "layers=web,rust", "event_at=1794800000", "attempt=1"):
             self.assertIn(field, argv)
+        done, _, argv = self.run_block("again", "", {"PR": "7", "HEAD_SHA": HEAD, "LAYERS": "rust", "EVENT_AT": "",
+                                                      "KIND": "merge"})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("kind=merge", argv)
+
+    def test_a_merged_pr_with_no_receipt_is_looked_at_at_its_merge_commit(self) -> None:
+        # A look at the PR head that needs the change's own Rust (8 of 90 looks, 2026-11-15/16) cannot run on the
+        # nightly copy; at the merge commit the tree is published and the engine plans from its first parent. The
+        # closed event plans and dispatches that look once, and only when the PR has no receipt yet.
+        text = WORKFLOW.read_text()
+        self.assertIn("types: [opened, synchronize, reopened, ready_for_review, closed]", text)
+        self.assertIn("(github.event.action != 'closed' || github.event.pull_request.merged)", "\n".join(self.job_block("plan")))
+        self.assertIn("hot-verify-receipt.py --pr", "\n".join(self.job_block("plan")))
+        hand_off = "\n".join(self.job_block("hand-off"))
+        self.assertIn("github.event.action == 'closed' && github.event.pull_request.merge_commit_sha", hand_off)
+        self.assertIn('-f kind="$KIND"', hand_off)
+        # its own concurrency group: it never cancels a head look still queued when the PR merged
+        self.assertIn("inputs.kind == 'merge') && '-merge'", text)
+        merge = "c" * 40
+        row = f"manaflow-ai/cmux\t{OTHER}\tfeat-cmux-next\tclosed\tfalse\t2026-11-16T10:00:00Z\t{merge}"
+        done, out, _ = self.run_block("target", row, {"PR": "7", "HEAD_SHA": merge, "LAYERS": "web,rust"})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("ok=true\n", out.read_text())
+        self.assertIn(f"pr_head={OTHER}\n", out.read_text())  # the web layer waits for the PR's own head
+        unmerged = f"manaflow-ai/cmux\t{OTHER}\tfeat-cmux-next\topen\tfalse\t-\t{merge}"
+        done, out, _ = self.run_block("target", unmerged, {"PR": "7", "HEAD_SHA": merge, "LAYERS": "rust"})
+        self.assertIn("ok=false\n", out.read_text())
+
+    def test_a_receipt_check_that_cannot_read_github_still_looks(self) -> None:
+        # Run 44033383427 (cmux#45098, 2026-11-17): the receipt read hit "API rate limit exceeded for installation",
+        # receipt=unknown counted as a receipt, and the merged daemon PR got no look. Only receipt=true skips.
+        block = self.job_block("plan")
+        start = next(i for i, line in enumerate(block) if line.strip() == "run: |") + 1
+        script = textwrap.dedent("\n".join(block[start:]))
+        unreadable = "import sys\nprint('hot-verify-receipt: API rate limit exceeded', file=sys.stderr)\nsys.exit(1)\n"
+        for answer, skips in ((unreadable, False), ("print('receipt=false')\n", False), ("print('receipt=true')\n", True)):
+            with self.subTest(answer=answer):
+                scratch = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="hot-verify-plan-")))
+                (scratch / "scripts/cmux-next").mkdir(parents=True)
+                (scratch / "scripts/cmux-next/hot-verify-receipt.py").write_text(answer)
+                (scratch / "bin").mkdir()
+                # The git fetch after the receipt check stops the script: reaching it means the plan went on.
+                (scratch / "bin/git").write_text("#!/bin/bash\necho reached-git >> \"$GITHUB_STEP_SUMMARY\"; exit 3\n")
+                (scratch / "bin/git").chmod(0o755)
+                out, summary = scratch / "out", scratch / "summary"
+                done = subprocess.run(["bash", "-c", script], cwd=scratch, capture_output=True, text=True,
+                                      env={**os.environ, "PATH": f"{scratch / 'bin'}:{os.environ['PATH']}",
+                                           "GITHUB_OUTPUT": str(out), "GITHUB_STEP_SUMMARY": str(summary),
+                                           "GITHUB_REPOSITORY": "manaflow-ai/cmux", "PR": "7", "BASE_REF": "feat-cmux-next",
+                                           "HEAD_SHA": "c" * 40, "MERGED": "true"})
+                said = summary.read_text() if summary.exists() else ""
+                if skips:
+                    self.assertEqual(done.returncode, 0, done.stderr)
+                    self.assertIn("eligible=false", out.read_text())
+                    self.assertNotIn("reached-git", said)
+                else:
+                    self.assertIn("reached-git", said, (done.stderr, said))
+                    self.assertFalse(out.exists() and "eligible=false" in out.read_text())
 
     def test_the_web_publisher_takes_a_pr_dispatch(self) -> None:
         text = WEB_PUBLISH.read_text()

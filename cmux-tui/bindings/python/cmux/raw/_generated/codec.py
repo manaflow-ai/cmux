@@ -383,6 +383,7 @@ MODEL_BY_PATH = {
     'commands/feed-local-handoff-done/request': models.FeedLocalHandoffDoneRequest,
     'commands/feed-local-list/request': models.FeedLocalListRequest,
     'commands/feed-local-read/request': models.FeedLocalReadRequest,
+    'commands/float-pane/request': models.FloatPaneRequest,
     'commands/focus-direction/request': models.FocusDirectionRequest,
     'commands/focus-pane/request': models.FocusPaneRequest,
     'commands/forget-session/request': models.ForgetSessionRequest,
