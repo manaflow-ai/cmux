@@ -133,8 +133,11 @@ struct PaneZoomDimsOthersTests {
         }
         try #require(!Self.isZooming(screen), "SETUP: the zoom did not land")
         try #require(peak > 0, "the zoom showed no dim")
+        let zoomedWidth = try #require(screen.hostSize("p1")?.width, "SETUP: the zoomed pane has no host")
         screen.unzoom()
         var last = CGFloat.infinity, dimmed = 0, landed: Int?
+        // Each frame's opacity with the pane's width in it: read against the whole way back after the land.
+        var samples: [(frame: Int, opacity: CGFloat, width: CGFloat)] = []
         for frame in 1...120 {
             screen.step()
             guard Self.isZooming(screen) else {
@@ -147,6 +150,7 @@ struct PaneZoomDimsOthersTests {
             if frame == 1 { #expect(dim.opacity >= peak * 0.8, "the unzoom's first frame dims at \(dim.opacity), the zoom reached \(peak)") }
             #expect(dim.opacity <= last + 0.000_001, "frame \(frame): the dim rose from \(last) to \(dim.opacity)")
             last = dim.opacity
+            if let width = screen.hostSize("p1")?.width { samples.append((frame, dim.opacity, width)) }
             let faults = Self.faults(dim, zooming: "p1", in: screen)
             #expect(faults.isEmpty, "frame \(frame): \(faults.joined(separator: "; "))")
         }
@@ -155,6 +159,16 @@ struct PaneZoomDimsOthersTests {
         #expect(Self.dim(screen) == nil, "the unzoom landed and the dim still shows")
         #expect(!Self.inPlane(screen), "the unzoom landed and the dim view is still in the plane")
         #expect(last < peak * 0.1, "the dim was at \(last) of \(peak) in the frame before the unzoom landed")
+        // The pane's own spring on the way back too: in each frame the dim has as much left as the pane has.
+        let whole = Palette.zoomDim
+        let restWidth = try #require(screen.hostSize("p1")?.width, "the pane has no host after the unzoom")
+        try #require(abs(zoomedWidth - restWidth) > 100, "SETUP: the unzoom changed the pane's width from \(zoomedWidth) to \(restWidth)")
+        #expect(samples.count == dimmed, "\(samples.count) of \(dimmed) frames had the pane's width")
+        for sample in samples {
+            let left = (sample.width - restWidth) / (zoomedWidth - restWidth)
+            #expect(abs(sample.opacity / whole - left) <= 0.02,
+                    "frame \(sample.frame): the dim has \(sample.opacity / whole) of its way left, the pane \(left) of its own")
+        }
     }
 
     @Test func aSecondKeyInMidZoomTurnsTheDimBackFromTheValueItHas() throws {

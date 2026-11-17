@@ -45,8 +45,12 @@ enum SidebarStyle {
     static var placeholderBarHeight: CGFloat { Metrics.space3 }
     /// Placeholder bar widths, as shares of the title width.
     static let placeholderFractions: [CGFloat] = [0.72, 0.5, 0.62]
-    /// Icon frame; the glyph inside is `kindGlyphSize`.
-    static var iconBox: CGFloat { leadingGlyphSide + Metrics.space2 }
+    /// Icon frame; the glyph inside is `kindGlyphSize`. A browser density's icon column (`sidebarIconColumn`, the tab's
+    /// icon box) when it sets one, so Home, pinned and workspace rows share the tab's icon box at every title size.
+    static var iconBox: CGFloat {
+        guard let side = Metrics.densityToken("sidebarIconColumn") else { return leadingGlyphSide + Metrics.space2 }
+        return side + (SidebarDensityTokens.isComfortable ? Metrics.space2 : 0) + SidebarDensityTokens.textSize.glyphStep
+    }
     /// A leading glyph drawn at a fixed side (a pin, a header's leading icon): the small icon size plus the
     /// `sidebar.textSize` step, so it grows with the text beside it. Trailing marks keep `Metrics.smallIconSize`.
     static var leadingGlyphSide: CGFloat { Metrics.smallIconSize + SidebarDensityTokens.textSize.glyphStep }
@@ -104,7 +108,7 @@ enum SidebarStyle {
     /// for these workspace icons". Compact keeps its old 16 pt glyph exactly.
     static var workspaceGlyphSide: CGFloat { iconColumnBox }
     /// How much a workspace icon's drawing grows with `workspaceGlyphSide`: 1 at compact.
-    static var workspaceGlyphScale: CGFloat { workspaceGlyphSide / iconBox }
+    static var workspaceGlyphScale: CGFloat { workspaceGlyphSide / (Metrics.densityToken("sidebarIconColumn") ?? iconBox) }
     /// A workspace icon's symbol point size: the title's, grown with its glyph square.
     static var workspaceSymbolPointSize: CGFloat { (titleFont.pointSize * workspaceGlyphScale).rounded() }
     /// A workspace icon's favicon side: the row glyph's, grown with its glyph square.
@@ -117,7 +121,13 @@ enum SidebarStyle {
     /// (``SidebarRowTuning/glyphSize``) is a tab's icon box, `Metrics.iconSize`, grown with the sidebar's own density and
     /// text size as ``workspaceFaviconSide`` grows from the sidebar's defaults (Lucas 2026-11-13).
     static var rowGlyphOpticalSide: CGFloat { SidebarRowTuning.glyphSize.value }
-    static var rowGlyphOptics: SidebarOpticalGlyph { SidebarOpticalGlyph(target: rowGlyphOpticalSide) }
+    /// The raster box grows with the sidebar settings; measured ink uses the shared optical size.
+    /// A tuned glyph size (`sidebarRows.glyphSize`) wins over the box: the glyphs fill the tuned side at every density.
+    static var rowGlyphOptics: SidebarOpticalGlyph {
+        let tabBox = SidebarRowTuning.glyphSize.tunable.override != nil ? nil
+            : Metrics.densityToken("sidebarIconColumn").map { _ in iconColumnBox }
+        return SidebarOpticalGlyph(target: rowGlyphOpticalSide, box: tabBox)
+    }
     /// Reserve the icon column only when a visible icon precedes the title.
     static func titleTextX(leading: CGFloat, iconSide: CGFloat, swatch: Bool = false) -> CGFloat {
         columns(rowWidth: 0, leadingOffset: leading - titleLeading).text(hasLeadingMark: iconSide > 0)
@@ -135,7 +145,8 @@ enum SidebarStyle {
     static func leadingTextX(leading: CGFloat) -> CGFloat { columns(rowWidth: 0, leadingOffset: leading - titleLeading).text }
     /// An item's glyph on its `iconBox` well (the list look), clear of the well's edge.
     static var wellGlyphSize: CGFloat { Swift.max(.iconFloor, iconBox - Metrics.space2) }
-    static var controlSize: CGFloat { Metrics.iconSize + Metrics.space2 }
+    /// The Default row's 20 pt square on its 30 pt fill, scaled with the row and sidebar text.
+    static var controlSize: CGFloat { Metrics.chromeRowHeight * 2 / 3 }
     /// The +'s side: the top row's one button size, the toolbar band's too (`TopRowSpacing`).
     static var toolbarButtonSize: CGFloat { TopRowSpacing.buttonSide }
     /// The width of the +'s menu segment (the workspace chooser chevron): a narrow indicator
@@ -181,7 +192,7 @@ enum SidebarStyle {
     static var favoriteGlyphSize: CGFloat { railGlyphSize + SidebarRowTokens.current.extraHeight }
     /// As tall as the status glyph beside it (`Metrics.statusMarkSize`).
     static var badgeHeight: CGFloat { Metrics.statusMarkSize }
-    static var searchHeight: CGFloat { Metrics.sidebarRowHeight }
+    static var searchHeight: CGFloat { SidebarRowTokens.current.band.rowHeight }
     /// The profile control's circle at compact density (the icon box, 16 pt). The avatar lives in
     /// the row-height square, so its click target scales with the display density. #23757 grew it
     /// to the square but a hairline (22 pt); Lawrence 2026-10-21 reverted that: "bottom footer
@@ -211,7 +222,7 @@ enum SidebarStyle {
         tuned(derivedTitleFont, size: SidebarRowTuning.titleSize.tunable.override, weight: SidebarRowTuning.titleWeight)
     }
     /// ``titleFont`` before the Sidebar Row Tuner (`sidebarRows.titleSize`'s default).
-    static var derivedTitleFont: NSFont { sized(Typography.body, weight: .regular) }
+    static var derivedTitleFont: NSFont { sized(rowTitleBase, weight: .regular) }
     /// `base`, or the system face at a tuned size or weight when the tuner sets either.
     private static func tuned(_ base: NSFont, size: CGFloat?, weight: Tunable<SidebarTunedWeight>) -> NSFont {
         let tunedWeight = weight.override
@@ -324,7 +335,12 @@ enum SidebarStyle {
         tuned(derivedHeaderFont, size: SidebarRowTuning.headingSize.tunable.override, weight: SidebarRowTuning.headingWeight)
     }
     /// ``headerFont`` before the Sidebar Row Tuner (`sidebarRows.headingSize`'s default).
-    static var derivedHeaderFont: NSFont { sized(Typography.body, weight: .regular) }
+    static var derivedHeaderFont: NSFont { sized(rowTitleBase, weight: .regular) }
+    /// A row title's base font: the density's own `sidebarTitleSize` (its tab's title, Lucas 2026-11-14) where it sets one,
+    /// else the body text as before (Compact and Ultra-compact keep their grid's sizes).
+    private static var rowTitleBase: NSFont {
+        Metrics.densityToken("sidebarTitleSize") != nil ? Typography.sidebarTitle : Typography.body
+    }
     /// The count: tabular digits in the system face (a monospaced face read
     /// boxy and cramped, Leo 2026-10-13), at the shortcut size.
     static var badgeFont: NSFont { Typography.system(.monospacedDigit, size: Typography.shortcut.pointSize, weight: .medium) }

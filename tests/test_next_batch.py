@@ -84,7 +84,16 @@ class Classify(unittest.TestCase):
             "schemas/settings/settings-schema.json": "swift",
             "plans/cmux-next/action-surfaces.json": "swift",
             "cmux-tui/bindings/python/cmux/raw/_generated/models.py": "sdk",
-            "cmux-tui/bindings/java/src/com/cmux/raw/Client.java": "sdk",
+            "cmux-tui/bindings/java/src/com/cmux/raw/AckTabNotificationsRequest.java": "sdk",
+            # Hand-written files beside generated ones (not in the package's .cmux-sdk-manifest.json).
+            "cmux-tui/bindings/java/src/com/cmux/raw/CmuxClient.java": "source",
+            "cmux-tui/bindings/go/raw/client.go": "source",
+            # Every other generated family (scripts/cmux-next/generated_merge.py).
+            "webviews/src/agent-session/acpmux/protocol/generated/types.ts": "generated",
+            "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSection.generated.swift": "generated",
+            # Hand-written registries: cmux-insertions-v1, never kept.
+            "cmux-tui/crates/cmux-agent-pane-policy/policy.json": "source",
+            "cmux-tui/crates/acpmux/docs/acpmux-schema.json": "source",
             "cmux-tui/spec/sdk-schema.json": "spec",
             "Resources/Localizable.xcstrings": "xcstrings",
             "cmux.xcodeproj/project.pbxproj": "pbxproj",

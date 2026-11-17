@@ -6,6 +6,7 @@ import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHomeEngine
 import CmuxNextLayout
 import CmuxNextPages
 import CmuxNextWakeups
@@ -63,6 +64,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// their surfaces pause and only the warm set's LRU may destroy one; it sends no focus events,
     /// because the window's focus follows the shown workspace.
     private(set) var isParked = false
+    /// Its window showed this workspace as a guest when it was built: another window owns it, so its terminals are
+    /// views of this window's own (`PaneController+SharedSpace`). The window builds it again when that changes.
+    let isGuestView: Bool
     #if DEBUG
     /// This controller's share of `DebugLayoutCounters.workspaceApplies` and `.topologySends`: the
     /// process-wide counters also count every other workspace (tests run side by side).
@@ -143,6 +147,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     init(workspace: WorkspaceModel, daemon: DaemonService, services: AppServices, state: WindowState, parked: Bool = false) {
         self.workspace = workspace
         isParked = parked
+        isGuestView = services.windows.registry.value.isGuest(workspace.id, in: state.id)
         self.daemon = daemon
         self.services = services
         self.state = state
@@ -186,14 +191,12 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         for pane in panes.values {
             if case .agent(let view)? = pane.currentContent, view.model.newTab != nil, view.pageDrawsOverCovers { view.placeMovedChromiumPage(requiringFrame: true) }
         }
-        // A Home with no pane yet is still being made (its dock, then the Chief conversation, over
-        // several daemon replies): it stays clear until its conversation is in, never in pieces.
-        if workspace.kind == "home", layoutModel.screens.allSatisfy({ $0.layout.panes.isEmpty }) {
-            services.launchReveal.hold(contentView, until: .home)
-        }
+        // A Home with no pane yet stays clear until its page is in its dock (HomeDock.revealWhenDocked), never in pieces.
+        if workspace.kind == "home", layoutModel.screens.allSatisfy({ $0.layout.panes.isEmpty }) { services.launchReveal.hold(contentView, until: .home) }
     }
 
     func teardown() {
+        if contentView.deferredPastPaintHold({ [self] in teardown() }) { return } // a closed workspace the window still shows: it goes with the swap
         observation?.cancel()
         connectionObservation?.cancel()
         attentionObservation?.cancel()
@@ -319,6 +322,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         sendTopology()
         isApplying = true
         layoutView.syncWithModel() // focus the topology landed (a split's pane) rings in this frame
+        if HomeDock.revealWhenDocked(workspace, reveal: services.launchReveal) { DebugTimings.markLaunch("home.saved_page_shown") }
     }
 
     /// Takes the mapping's handles. A pane record a resync rebuilt under the same key keeps its
