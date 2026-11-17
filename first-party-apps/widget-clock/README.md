@@ -41,8 +41,7 @@ from `cmux.time.zone`.
   on Monday, November 16, 2026 in Los Angeles; `--check` verifies it. The webviews gallery entry
   `apps.clock-widget` renders them with the real scene renderer.
 - `screenshots/`: captures of that gallery entry, listed in the store.
-- The store copy is `Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/store/widget-clock/`,
-  written by `scripts/cmux-next/sync-app-runtime.sh`; never edit it.
+- `STORE` marks it for the App Store. The store package is build output, generated from this folder at build time; nothing is committed under `AppPlatform/store/`.
 
 ## Platform gaps
 
