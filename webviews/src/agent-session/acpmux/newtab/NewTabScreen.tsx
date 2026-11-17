@@ -354,6 +354,10 @@ type Props = NewTabScreenActions & {
   upload?(files: File[]): Promise<UploadResult>;
   /// A fix-from-link request failed while the New Tab remains mounted.
   fixError?: string;
+  /// A start this page made failed after the page had become the chat (a queued harness start,
+  /// screenActions.ts): the page came back, and says the failure in place with Retry, as it does for
+  /// a start that fails while it shows (App.tsx `startLeftNewTab`).
+  startFailure?: Omit<NewTabStartFailure, "retry">;
 };
 
 /// `/`, `/Users`, a home folder: never a chat's start folder (AgentPaneStartFolders drops them).
@@ -726,7 +730,13 @@ export function NewTabScreen(props: Props) {
     setRefusedPick(refusalPick);
     setSandboxRefusal(undefined);
   }
-  const [startError, setStartError] = useState<NewTabStartFailure>();
+  const [startError, setStartError] = useState<NewTabStartFailure | undefined>(() => {
+    const failure = props.startFailure;
+    if (!failure) return undefined;
+    const harness = failure.harness;
+    // Retry asks the same agent again with the draft as it is now, as a failure here does.
+    return harness ? { ...failure, retry: () => continueAfterSetup.current(harness) } : failure;
+  });
   /// The request in flight (its number), or 0: Return waits for it. Only that request's own end
   /// opens the page again, never an older one's late reply.
   const asking = useRef(0);
