@@ -44,7 +44,7 @@ public nonisolated enum BrowserPageScroll: Sendable, CaseIterable {
     /// A held key's top speed for the person's key repeat (System Settings > Keyboard): what a
     /// held key moved before, one ``step`` per repeat, from 1200 up to 2400px/s, so a fast key
     /// repeat keeps its pace without the jumps.
-    public static func topSpeed(keyRepeatInterval: TimeInterval) -> Double {
+    public static func topSpeed(keyRepeatInterval: Double) -> Double {
         guard keyRepeatInterval > 0 else { return holdTopSpeed }
         return min(holdFastestSpeed, max(holdTopSpeed, Double(step) / keyRepeatInterval))
     }
