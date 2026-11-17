@@ -1,0 +1,305 @@
+{
+  "version": 1,
+  "build": "4399814061301",
+  "notes": "notes/4399814061301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 44913,
+      "title": "Settings: Personalization title no longer blurred under a white haze with motion off",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44771,
+      "title": "feat(cmux-tui floating panes): the command float-pane (floating-panes-v1)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44917,
+      "title": "docs: drop TapKit mentions from cmux-next docs",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44758,
+      "title": "test(cmux-tui): the creation restart test holds a lower bound of the session's revision",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44935,
+      "title": "ui text budget: refuse a sparse checkout that lacks a listed table",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44922,
+      "title": "ui text budget: drop the allowlist rows base no longer needs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44830,
+      "title": "cmux-rd linux-host: a joined machine signs itself in with its machine credential; the virtual display starts on demand",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44744,
+      "title": "v2 pane chat host: the #44353 follow-ups",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44896,
+      "title": "measure: ios-sim-density, N cloned simulators at once per fleet Mac",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44835,
+      "title": "machine-join-e2e: share mode proves a joined headless Linux machine is shared with no step on it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44871,
+      "title": "Launch times: a relaunch that never shows Home still records its times (CMUX-571)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44882,
+      "title": "ci: keep nightly v2 gate rows in the sticky report",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44838,
+      "title": "measure: a pane film is `made` only after checks of its acts",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44746,
+      "title": "measure: private-home harnesses get a login keychain, not CMUX_MOCK_KEYCHAIN",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44652,
+      "title": "launch-ready profile: read tagged backtraces, profile to the first frame",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44840,
+      "title": "What's New clips: screen-sharing, hover-card and profile-menu specs run on the before app and the tip",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44842,
+      "title": "Agent chat: the relay takes the row store's hold attach, so a chat typed on New Tab starts (#42460)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42459,
+      "title": "Browser omnibar: URL and site icon take the current theme's ink when the chrome comes back into a window (#42436)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44837,
+      "title": "acpmux share host: the daemon serves a screen share with no cmux app running",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44767,
+      "title": "Agent chat: the message menu's time header draws in the rows' label color",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44812,
+      "title": "ios-sim: every step simulator through sim_create (the fleet worker's slim helper)",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44751,
+      "title": "ci(cloud-chat-proof): mint the production agent session for NIGHTLY and a Linux screen host",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44849,
+      "title": "cmux-api: a failed refresh of Stack's key set is a retryable 503, never \"sign in again\"",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44790,
+      "title": "cloud-vm-image smoke: judge daemon-listening from create-done; replace clones the provider never finished",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44809,
+      "title": "Mac Screen: the app yields host tickets the acpmux daemon serves (one Mac, one device)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44803,
+      "title": "screen-eval: marker-locate measures the guard cells' edges, so a marker at x 0 keeps its cell size",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44719,
+      "title": "cloud-journey: the ensure bench records the daemon behind its first ensure",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44742,
+      "title": "ci: namespace autofix clones one commit of base and head",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44595,
+      "title": "base_red_excuse: an expression job name never names a job beside an exact one",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44774,
+      "title": "Lint UI text against a word budget per kind",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44826,
+      "title": "app FFI release: list cmux-launch-record in the push paths (base red since #44351)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44798,
+      "title": "device-hub: a join turns Mac Screen sharing on; a person's explicit off always wins; hosts report screenShare",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44796,
+      "title": "measure: launch-reveal-capture.sh records another app's launch reveal",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44831,
+      "title": "device-hub: get cmux relay ICE from the platform's one TURN minter",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44588,
+      "title": "iOS: a Chat tap during launch waits for the kept chat pairing instead of falling back to the terminal",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42593,
+      "title": "fix(favicons): browser rows no longer keep the globe after a failed icon load (#42435)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44722,
+      "title": "Base red: cmux-next checks green at one head (carries #44406, #44538)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44759,
+      "title": "ci(cmux-next): the checks job runs its script tests by glob, so a new test can't turn the base red",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44583,
+      "title": "ci: drop a reused shallow checkout before each treeless full-history checkout",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44025,
+      "title": "CmuxNext: no call into a suspended WKWebView raises (#44019)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44749,
+      "title": "measure: scratch folders are removed on every exit, with a test (CMUX-571)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44808,
+      "title": "Screen Sharing: the Offline group row shows its label, not just a chevron",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44782,
+      "title": "agent chat: judge each shown chat's first load in the field (restart layout shift)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44681,
+      "title": "fix(cmux-next): a tree that holds a created terminal tab names its create",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44772,
+      "title": "Screen Sharing: one row per Mac, offline folded, rows say only what you can do now",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44745,
+      "title": "Generated files merge and rebuild with no person: driver coverage from the generated-files check",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44779,
+      "title": "Quiet UI text: panes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44737,
+      "title": "app FFI re-pin hold: a failed read leaves the branch alone",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44406,
+      "title": "Base reds: CEFPageRendererGC decodes off the main actor, RemoteVideoView's cursor shadow uses the theme token, action exports regenerated",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
