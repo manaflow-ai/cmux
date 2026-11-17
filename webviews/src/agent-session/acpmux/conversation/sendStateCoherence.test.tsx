@@ -127,7 +127,7 @@ test("a slow acknowledgement shows one pending state, in the time slot, and no a
 // Leo, 2026-11-17: "Queued, sends when the turn ends" / "it's not really useful to see ever". A
 // prompt waiting behind the running turn keeps its time in the slot: no clock, no queued words.
 test("a prompt queued behind the running turn never says Queued in its footer: its slot keeps its age", async () => {
-  for (const extra of [{}, { steer: true }] as const) {
+  for (const extra of [{}, { steer: "waiting" }] satisfies Partial<AcpmuxRow>[]) {
     const container = await render(prompt({ state: "sending", sentAt: Date.now() - 5_000, queued: true }, extra));
     const state = said(container);
     expect(state.pending).toBe(0);
