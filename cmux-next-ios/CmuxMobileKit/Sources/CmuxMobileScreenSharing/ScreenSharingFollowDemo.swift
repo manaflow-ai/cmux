@@ -8,8 +8,9 @@ import Foundation
 /// Follow mode on the built-in demo desktop, without a Mac. It types a long
 /// command line into the desktop's terminal-like window and sends the focus
 /// events a Mac would (its display, the focused window, the caret after
-/// each character), so the crop can be seen following the typing. The
-/// first two seconds show the fitted view with Follow off.
+/// each character), so the crop can be seen following the typing. It
+/// starts with the fitted view and Follow off; the typing starts once the
+/// person turns Follow on.
 @MainActor
 final class ScreenSharingFollowDemo {
     static var isRequested: Bool { CommandLine.arguments.contains("-CmuxMobileScreenSharingFollowDemo") }
@@ -47,8 +48,10 @@ final class ScreenSharingFollowDemo {
         // The demo desktop (ScreenSession's demo server) and its status window, the "terminal".
         send(#"{"t_us":0,"kind":"source","w":1440,"h":900}"#)
         send(#"{"t_us":0,"kind":"window","id":1,"x":40,"y":40,"w":1360,"h":220}"#)
-        guard (try? await Task.sleep(for: .seconds(2))) != nil else { return }
-        camera.toggle()
+        // The person turns Follow on with the button; the typing starts a second later.
+        while !camera.isFollowing {
+            guard (try? await Task.sleep(for: .milliseconds(100))) != nil else { return }
+        }
         guard (try? await Task.sleep(for: .seconds(1))) != nil else { return }
         var typed = ""
         for character in Self.line {
