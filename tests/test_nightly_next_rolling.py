@@ -97,7 +97,8 @@ class RollingRuleTests(unittest.TestCase):
                                     oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=24)),
                                     starts=[holder, waiting])
         self.assertFalse(go, reason)
-        self.assertIn("runs/15", reason)
+        # The head's run pending on the group holds too (run_holds_group): a promotion would replace it.
+        self.assertRegex(reason, r"runs/1[56]\b")
 
     def test_a_queued_run_that_never_started_is_not_building(self):
         """Run 40738012059: `decide` queued 73 minutes on a label that started nothing."""
@@ -187,6 +188,38 @@ class RollingRuleTests(unittest.TestCase):
             go, reason = rolling.decide(NOW, head=head, head_runs=[retry], jobs_of=lambda r: BUILDING,
                                         promotions=[promo], oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=24)),
                                         starts=[retry], window_minutes=5)
+            self.assertFalse(go, reason)
+
+    def test_a_run_waiting_in_its_leave_slot_step_does_not_hold(self):
+        """Run 43558081148 of a22a4eb1 (created 04:43:49Z on 2026-11-14) waited 23 min in the push group behind
+        86dc299b's build, started at 05:06 with 20 newer feat-cmux-next commits, and built the old head (it
+        failed; its retry built a22a4eb1 again: 60.9 min from landing to the feed). On feat-cmux-next such a
+        stale run waits in resolve's "Leave the build slot to a newer nightly-next push" step for a promotion,
+        before any build job starts (resolve-leave-build-slot.sh). A run in that step builds nothing yet and
+        leaves once nightly-next moves, so it is no holder: promote the newest buildable commit."""
+        def resolve(step_status: str) -> dict:
+            out = job("resolve-nightly-cmux-tui-client", "in_progress", 1, "ultra")
+            out["steps"] = [{"name": "Checkout build ref", "status": "completed", "conclusion": "success"},
+                            {"name": "Leave the build slot to a newer nightly-next push", "status": step_status, "conclusion": None}]
+            return out
+        stale = run(43558081148, 25, head_sha=HEAD)
+        waiting = [job("decide", "completed", 2, "r"), resolve("in_progress"),
+                   job("nightly-next-one", "queued", 0.1)]
+        go, reason = decide(head_runs=[stale], jobs={43558081148: waiting}, waited_minutes=24)
+        self.assertTrue(go, reason)
+        self.assertIn("nothing is building", reason)
+        with self.subTest("past the step, building: it holds"):
+            past = [job("decide", "completed", 2, "r"), resolve("completed"),
+                    job("nightly-next-one", "in_progress", 0.1, "mac")]
+            go, reason = decide(head_runs=[stale], jobs={43558081148: past}, waited_minutes=24)
+            self.assertFalse(go, reason)
+        with self.subTest("a job beside it that has a runner holds"):
+            beside = [*waiting, job("refresh-compilation-cache", "queued", 0.1, "mac")]
+            go, reason = decide(head_runs=[stale], jobs={43558081148: beside}, waited_minutes=24)
+            self.assertFalse(go, reason)
+        with self.subTest("another build running beside it still holds"):
+            go, reason = decide(head_runs=[stale, run(9, 30, head_sha="e" * 40)],
+                                jobs={43558081148: waiting}, waited_minutes=24)
             self.assertFalse(go, reason)
 
     def test_evaluate_promotes_past_a_retry_of_the_head(self):
@@ -291,9 +324,16 @@ class OneStartPerWindowTests(unittest.TestCase):
                 go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api)
                 self.assertFalse(go, reason)
                 self.assertIn("so waiting", reason)
+        # An open run created within RUN_LOOKBACK may wait at the push slot: a promotion would get it cancelled.
         old = api_for(compare("ahead", [(WAITING, 30)]), runs=[run(41, 30, head_sha=HEAD)])
         old.routes["/jobs?"] = OSError("502")
-        self.assertTrue(rolling.evaluate(NOW, "o/r", TIP, api=old)[0], "an old start and a failed read still promote")
+        go, reason = rolling.evaluate(NOW, "o/r", TIP, api=old)
+        self.assertFalse(go, "an open run created within RUN_LOOKBACK and a failed read wait")
+        self.assertIn("may be waiting at the push slot", reason)
+        gone = api_for(compare("ahead", [(WAITING, 30)]), runs=[run(42, 200, head_sha=HEAD)])
+        gone.routes["event=workflow_dispatch"] = OSError("502")
+        self.assertTrue(rolling.evaluate(NOW, "o/r", TIP, api=gone)[0],
+                        "only runs older than RUN_LOOKBACK and a failed read still promote")
 
     def test_with_nothing_building_and_no_recent_start_it_promotes_at_once(self):
         promo = run(35, 3, status="completed", display_title="Promote nightly-next to tick:" + WAITING)
@@ -457,11 +497,12 @@ class ApiReadTests(unittest.TestCase):
         self.assertFalse(go)
         self.assertIn("could not read nightly-next", reason)
 
-    def test_other_failed_reads_promote_and_say_so(self):
+    def test_an_unreadable_run_listing_waits_and_says_so(self):
+        """A run waiting at the push slot can't be ruled out: a promotion would get its pending job cancelled."""
         api = api_for(compare("ahead", [(WAITING, 4)]), jobs=None)
         api.routes["branch=nightly-next"] = OSError("rate limited")
         go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api)
-        self.assertTrue(go)
+        self.assertFalse(go)
         self.assertIn("could not read the running builds", reason)
 
     def test_main_writes_its_answer_without_any_git_remote(self):

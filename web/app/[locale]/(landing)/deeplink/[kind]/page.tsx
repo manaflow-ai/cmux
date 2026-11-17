@@ -4,6 +4,7 @@ import { buildAlternates, seoDescription } from "@/i18n/seo";
 import { Link } from "@/i18n/navigation";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import { DOWNLOAD_CONFIRMATION_HREF } from "@/app/lib/download";
+import { AutoOpen } from "./auto-open";
 import {
   AGENT_ALLOWED_PARAMS,
   AGENT_REQUIRED_PARAMS,
@@ -436,6 +437,7 @@ export default async function DeeplinkPage({
 
         {canOpen ? (
           <div className="mb-6 flex flex-wrap gap-3">
+            <AutoOpen href={href} />
             <a
               href={href}
               className="inline-flex items-center rounded-full bg-foreground px-5 py-2.5 text-[15px] font-medium transition-opacity hover:opacity-85"
