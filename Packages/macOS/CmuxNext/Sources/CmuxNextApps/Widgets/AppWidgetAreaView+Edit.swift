@@ -111,6 +111,7 @@ nonisolated final class AppWidgetMenuItem: NSMenuItem {
     required init(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     @objc private func fire() {
+        let run = run
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated { run() } // main-proof: guarded by Thread.isMainThread above
     }
