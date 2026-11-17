@@ -554,7 +554,8 @@ class WorkflowShape(unittest.TestCase):
         names = [s.get("name", "") for s in steps]
         first, last = names.index("Setup Node") + 1, names.index("Test webviews")
         gate = steps[names.index("Fail on the gate checks")]
-        self.assertEqual(gate["if"], "${{ !cancelled() }}")
+        # A shard past web-subarea-scope's count (SHARD_IDLE) runs no step; every shard that runs reaches the gate.
+        self.assertEqual(gate["if"], "${{ env.SHARD_IDLE != 'true' && (!cancelled()) }}")
         gated = list(gate["env"].values())
         for step in steps[first:last]:
             with self.subTest(step=step["name"]):

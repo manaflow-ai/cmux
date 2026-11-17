@@ -278,7 +278,7 @@ class WebValidationTests(unittest.TestCase):
             body = block[block.index(f"- name: {name}\n"):]
             return body[: body.index("\n      - name:", 1)] if "\n      - name:" in body[1:] else body
         self.assertIn("id: engines", step("Install headless engines"))
-        self.assertIn("if: ${{ !cancelled() && steps.engines.outcome != 'failure' }}", step("Test webviews"))
+        self.assertIn("if: ${{ env.SHARD_IDLE != 'true' && (!cancelled() && steps.engines.outcome != 'failure') }}", step("Test webviews"))
         self.assertIn("steps.webview-tests.outcome != 'skipped'", step("Upload head webview results"))
         gate = step("Fail on the gate checks")
         self.assertIn("ENGINES: ${{ steps.engines.outcome }}", gate)
