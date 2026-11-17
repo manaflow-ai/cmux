@@ -1597,71 +1597,7 @@ async fn dispatch_request_with_identity(
                 mux_meta(&params).and_then(|m| m.get("peer")).and_then(Value::as_str)
                 && !peer_name.is_empty()
             {
-                let peer = hub
-                    .peer_by_name(peer_name)
-                    .ok_or_else(|| RpcError::not_found(format!("no peer {peer_name:?}")))?;
-                if super::trust_gate::gated(conn.origin, &params) && !peer.supports_trust_gate() {
-                    return Err(super::trust_gate::peer_unsupported(&peer.name));
-                }
-                let mut p = params.clone();
-                super::peer_forward::strip_new_meta(&mut p);
-                super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut p);
-                // An approved no-prompt preset's chat runs unattended there (`unattended_presets.rs`).
-                let unattended =
-                    hub.forward_unattended_preset(conn.caller(), &peer.name, &mut p).await?;
-                // A full-access starter's chat runs in full access there too, and the person's
-                // own start at the person's start level (`hub/full_access_children.rs`).
-                let carried = hub
-                    .forward_start_policy(person_start(conn, &params), conn.caller(), &mut p)
-                    .await;
-                crate::hub::merge_mux_meta(&mut p, created_by_stamp(hub, conn, &params));
-                // This caller's own opt-out for its remote chains there (`hub/vm_boundary.rs`),
-                // for the person's own clients here only (`vm_boundary::owner`): a saved
-                // `vmBoundary`, or a dedicated agent VM of this caller's own fleet registry
-                // (`hub/agent_vm.rs`).
-                if crate::hub::vm_boundary::owner(
-                    conn.auth,
-                    super::remote_guard::control_of(conn.origin, conn.auth, &params),
-                    &params,
-                ) && (peer.vm_boundary()
-                    || crate::hub::agent_vm::registry_agent_vm(&peer.name, &peer.url))
-                {
-                    crate::hub::merge_mux_meta(
-                        &mut p,
-                        json!({crate::hub::vm_boundary::FIELD: true}),
-                    );
-                }
-                if let Some((name, digest)) = &unattended {
-                    hub.unattended_preset_holds(name, digest).await?;
-                }
-                // A peer that takes no full access from this machine still starts the person's
-                // own chat, asking, as before the start level was carried (`Carried::Person`).
-                let asking = (carried == crate::hub::full_access_children::Carried::Person)
-                    .then(|| crate::hub::full_access_children::without_carried_policy(&p));
-                let mut result = match super::remote_guard::hint::new_on(&peer, &params, p).await {
-                    Err(e)
-                        if asking.is_some()
-                            && e.data
-                                .as_ref()
-                                .is_some_and(|d| d.get("fullAccessRefusedBy").is_some()) =>
-                    {
-                        let asking = asking.unwrap_or_default();
-                        super::remote_guard::hint::new_on(&peer, &params, asking).await?
-                    }
-                    r => r?,
-                };
-                if let Some(approved) = &unattended {
-                    let id = result.get("sessionId").and_then(Value::as_str);
-                    hub.log_unattended_start(approved, &peer.name, conn.caller(), id);
-                }
-                if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
-                    view::subscribe_remote(hub, conn, id, None);
-                    peer.mark_attached(id);
-                }
-                if let Some(obj) = result.as_object_mut() {
-                    obj.insert("peer".into(), Value::String(peer.name.clone()));
-                }
-                return Ok(result);
+                return Box::pin(new_on_peer(hub, conn, &params, peer_name)).await;
             }
             let mut cwd = str_param(&params, "cwd").map(PathBuf::from);
             let meta = mux_meta(&params);
@@ -4031,4 +3967,72 @@ pub(super) fn note_initialize(conn: &Conn, params: &Value) {
         && conn.auth.peer_daemon()
         && params.pointer("/_meta/acpmux/githubBroker").and_then(Value::as_bool) == Some(true);
     conn.client_requests.lends_github.store(lends, Ordering::SeqCst);
+}
+
+/// A `session/new` started on the peer `peer_name` (`_meta.acpmux.peer`, or a full host's
+/// redirect, `admission_redirect.rs`): forwarded with what this daemon carries for it.
+pub(super) async fn new_on_peer(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    params: &Value,
+    peer_name: &str,
+) -> Result<Value, RpcError> {
+    let params = params.clone();
+    let peer = hub
+        .peer_by_name(peer_name)
+        .ok_or_else(|| RpcError::not_found(format!("no peer {peer_name:?}")))?;
+    if super::trust_gate::gated(conn.origin, &params) && !peer.supports_trust_gate() {
+        return Err(super::trust_gate::peer_unsupported(&peer.name));
+    }
+    let mut p = params.clone();
+    super::peer_forward::strip_new_meta(&mut p);
+    super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut p);
+    // An approved no-prompt preset's chat runs unattended there (`unattended_presets.rs`).
+    let unattended = hub.forward_unattended_preset(conn.caller(), &peer.name, &mut p).await?;
+    // A full-access starter's chat runs in full access there too, and the person's
+    // own start at the person's start level (`hub/full_access_children.rs`).
+    let carried =
+        hub.forward_start_policy(person_start(conn, &params), conn.caller(), &mut p).await;
+    crate::hub::merge_mux_meta(&mut p, created_by_stamp(hub, conn, &params));
+    // This caller's own opt-out for its remote chains there (`hub/vm_boundary.rs`),
+    // for the person's own clients here only (`vm_boundary::owner`): a saved
+    // `vmBoundary`, or a dedicated agent VM of this caller's own fleet registry
+    // (`hub/agent_vm.rs`).
+    if crate::hub::vm_boundary::owner(
+        conn.auth,
+        super::remote_guard::control_of(conn.origin, conn.auth, &params),
+        &params,
+    ) && (peer.vm_boundary() || crate::hub::agent_vm::registry_agent_vm(&peer.name, &peer.url))
+    {
+        crate::hub::merge_mux_meta(&mut p, json!({crate::hub::vm_boundary::FIELD: true}));
+    }
+    if let Some((name, digest)) = &unattended {
+        hub.unattended_preset_holds(name, digest).await?;
+    }
+    // A peer that takes no full access from this machine still starts the person's
+    // own chat, asking, as before the start level was carried (`Carried::Person`).
+    let asking = (carried == crate::hub::full_access_children::Carried::Person)
+        .then(|| crate::hub::full_access_children::without_carried_policy(&p));
+    let mut result = match super::remote_guard::hint::new_on(&peer, &params, p).await {
+        Err(e)
+            if asking.is_some()
+                && e.data.as_ref().is_some_and(|d| d.get("fullAccessRefusedBy").is_some()) =>
+        {
+            let asking = asking.unwrap_or_default();
+            super::remote_guard::hint::new_on(&peer, &params, asking).await?
+        }
+        r => r?,
+    };
+    if let Some(approved) = &unattended {
+        let id = result.get("sessionId").and_then(Value::as_str);
+        hub.log_unattended_start(approved, &peer.name, conn.caller(), id);
+    }
+    if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
+        view::subscribe_remote(hub, conn, id, None);
+        peer.mark_attached(id);
+    }
+    if let Some(obj) = result.as_object_mut() {
+        obj.insert("peer".into(), Value::String(peer.name.clone()));
+    }
+    return Ok(result);
 }

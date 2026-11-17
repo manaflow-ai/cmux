@@ -16,12 +16,8 @@
 
 use super::{Conn, Origin, mux_meta};
 use crate::hub::Hub;
-use crate::rpc::{RpcError, method};
-use cmux_json::JsonSet as _;
 use serde_json::Value;
-use std::future::Future;
 use std::path::PathBuf;
-use std::pin::Pin;
 use std::sync::Arc;
 
 /// Whether this `session/new` may start on another host at all (module docs).
@@ -58,11 +54,8 @@ pub(super) async fn elsewhere(
     if let Some(obj) = p.as_object_mut() {
         obj.remove("cwd");
     }
-    crate::hub::merge_mux_meta(&mut p, serde_json::json!({"peer": to.peer}));
-    // Boxed as a trait object: the forward runs the same request handler that called this.
-    let forward: Pin<Box<dyn Future<Output = Result<Value, RpcError>> + Send + '_>> =
-        Box::pin(super::requests::dispatch_request(hub, conn, method::SESSION_NEW, p, None));
-    match forward.await {
+    // Sent as `_meta.acpmux.peer` sends one (`requests::new_on_peer`).
+    match Box::pin(super::requests::new_on_peer(hub, conn, &p, &to.peer)).await {
         Ok(mut reply) => {
             crate::hub::merge_mux_meta(&mut reply, serde_json::json!({"admission": notice}));
             if let Some(obj) = reply.as_object_mut() {
