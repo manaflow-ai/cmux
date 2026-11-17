@@ -734,7 +734,7 @@ function outline(win: Window, event: LayoutEvent): void {
   const box = row.getBoundingClientRect();
   const mark = doc.createElement("div");
   mark.setAttribute("data-layout-watch-mark", event.invariant);
-  mark.style.cssText = `position:fixed;pointer-events:none;z-index:2147483647;left:${box.left}px;top:${box.top}px;width:${box.width}px;height:${box.height}px;outline:2px solid magenta;`; // colour-allow: a dev-only debug outline
+  mark.style.cssText = `position:fixed;pointer-events:none;z-index:var(--layer-debug);left:${box.left}px;top:${box.top}px;width:${box.width}px;height:${box.height}px;outline:2px solid magenta;`; // colour-allow: a dev-only debug outline
   doc.body.appendChild(mark);
   win.setTimeout(() => mark.remove(), OVERLAY_MS);
 }
