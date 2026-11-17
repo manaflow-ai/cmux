@@ -40,8 +40,8 @@ extension PageWebView {
         guard let page = chromiumSession?.page else { return try? await webView.takeSnapshot(configuration: nil) }
         guard let json = try? await page.devTools("Page.captureScreenshot", params: Self.clearAreaSnapshotParams),
               let data = await Self.screenshotData(json), let image = NSImage(data: data) else { return nil }
-        // The viewport: the page window lays its web contents one point under its top edge (``PageWebViewContainer``).
-        image.size = NSSize(width: bounds.width, height: max(0, bounds.height - PageWebViewContainer.chromiumFrameBand))
+        // The viewport: the page window lays its web contents one point under its top edge (``chromiumFrameBand``).
+        image.size = NSSize(width: bounds.width, height: max(0, bounds.height - Self.chromiumFrameBand))
         return image
     }
 
