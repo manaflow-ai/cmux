@@ -454,6 +454,12 @@ impl RegistryConnection {
         &self.write_path_stats
     }
 
+    /// True while this thread holds the connection lock (a pin or a guard).
+    #[cfg(test)]
+    pub(crate) fn is_held_by_current_thread(&self) -> bool {
+        self.connection.is_owned_by_current_thread()
+    }
+
     /// Request-side lock order checks: never on the journal writer thread
     /// (counted in release, `writer_registry_locks`), and never first taken
     /// while this thread holds the mux state lock (re-entry after a pin is
