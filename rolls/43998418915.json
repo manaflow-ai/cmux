@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43998418915",
+  "recorded_at": "2026-11-17T01:58:53Z",
+  "reason": "cmux-tui bf7d09b2bd4b changes the image's cmux-tui (pinned e9ac209913e8)",
+  "dry_run": false,
+  "cmux_tui": "bf7d09b2bd4b893fe5c8b1a72b1c69b819374825",
+  "fixes": [
+    {
+      "sha": "bf7d09b2bd4b893fe5c8b1a72b1c69b819374825",
+      "mergedAt": "2026-11-17T01:32:17Z",
+      "subject": "cmux NEXT: screen sharing in its own signed helper app, so a grant never relaunches cmux (#44069)"
+    },
+    {
+      "sha": "08fde068bc682eedde292dd7bd90f701cb1998aa",
+      "mergedAt": "2026-11-16T17:09:05-08:00",
+      "subject": "feat(cmux-tui floating panes): the command float-pane (floating-panes-v1) (#44771)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T01:58:53Z",
+    "snapshot_id": "sh-67398236d3bf449e835417b650b33e53",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43998418915): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9cba443bdc11603e6cff00d4c21ed08a7372952b",
+    "image": "cloud-native-auto-bf7d09b2-43998418915-1",
+    "revision": "ci-43998418915-1",
+    "at": "2026-11-17T01:58:53Z"
+  },
+  "rolled_back": false
+}
