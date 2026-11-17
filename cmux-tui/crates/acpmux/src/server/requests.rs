@@ -793,7 +793,6 @@ async fn dispatch_brief(
 /// The tag the chat lists hide a session by (webviews sessionList.ts `ARCHIVED_TAG`).
 const ARCHIVED_TAG: &str = "archived";
 // The tag that marks a side chat, valued with its chat's session (`hub/btw.rs`).
-use crate::hub::SIDE_TAG;
 
 /// An agent a remote device drives (its caller session's turn, or its last one, is a Web turn,
 /// `hub/remote_floor.rs`) sends no files: not through `acpmux send --attach` from its shell, now
@@ -952,6 +951,11 @@ pub(super) async fn handle_request(
         })
         .await
         .map_err(|_| crate::turn_attestation::refused("turn_attestation.unavailable"))?;
+    }
+    // The owner's Cloud credential for one of this daemon's own sessions, by its exact id: handled
+    // here, before any name routing or peer forward can send it elsewhere (`agent_credentials.rs`).
+    if m == crate::agent_credentials::UPDATE_METHOD {
+        return agent_credentials_update(hub, conn, &params).await;
     }
     // A bare name or prefix on this machine's socket names the one live session here or on a
     // peer; every check below reads the route it found (`hub/key_route.rs`).
@@ -1593,6 +1597,13 @@ async fn dispatch_request_with_identity(
                 mux_meta(&params).and_then(|m| m.get("peer")).and_then(Value::as_str)
                 && !peer_name.is_empty()
             {
+                // A credential is for an agent on this machine only: never sent on to a peer.
+                if mux_meta(&params).and_then(|m| m.get(crate::agent_credentials::FIELD)).is_some()
+                {
+                    return Err(RpcError::invalid_params(
+                        "credentials start an agent on this machine only, never on a peer",
+                    ));
+                }
                 let peer = hub
                     .peer_by_name(peer_name)
                     .ok_or_else(|| RpcError::not_found(format!("no peer {peer_name:?}")))?;
@@ -1733,6 +1744,11 @@ async fn dispatch_request_with_identity(
             {
                 return Err(RpcError::invalid_params(format!("route {r:?} is not a route id")));
             }
+            // The owner's Cloud credential (`agent_credentials.rs`): this socket's, never an agent's.
+            let credential = crate::agent_credentials::requested(meta)?;
+            if credential.is_some() {
+                crate::agent_credentials::admit(conn.origin == Origin::Local, conn.caller())?;
+            }
             let disallowed_tools = disallowed_tools(meta)?;
             let additional_directories = crate::hub::additional_dirs::requested(&params).await?;
             // Its parent is the session this connection proved it runs in (`hub/lineage.rs`):
@@ -1811,6 +1827,7 @@ async fn dispatch_request_with_identity(
                     && mux_meta(&params).and_then(|m| m.get("throwaway")).and_then(Value::as_bool)
                         == Some(true),
                 require_asking: crate::hub::require_asking::asked(meta),
+                credential,
             };
             let s = match &admitted {
                 Some(admitted) => {
@@ -1818,6 +1835,8 @@ async fn dispatch_request_with_identity(
                 }
                 None => heap(|| hub.new_session_with_id(req, fixed_id)).await?,
             };
+            // This connection's own new session: what its `_acpmux/side` may tag (the tour's task).
+            conn.note_created(&s.id);
             if let Some(tags) = meta.and_then(|m| m.get("tags")).and_then(Value::as_object)
                 && !tags.is_empty()
             {
@@ -2964,12 +2983,9 @@ async fn dispatch_request_with_identity(
             let chat = hub.resolve(chat).ok().filter(|c| c.id == chat).ok_or_else(|| {
                 RpcError::not_found(format!("no chat with the session id {chat:?}"))
             })?;
-            if chat.id == s.id {
-                return Err(RpcError::invalid_params("a chat is not its own side chat"));
-            }
-            let mut set = serde_json::Map::new();
-            set.insert(SIDE_TAG.into(), Value::String(chat.id.clone()));
-            hub.set_tags(&s, Some(&set), &[], None);
+            // A fork of the chat, or a session this same connection just made with `session/new`
+            // (the repo tour's task, which has no parent): never a session someone else made.
+            hub.mark_side(&s, &chat, conn.created_here(&s.id))?;
             Ok(hub.session_summary(&s))
         }
         method::MUX_HARNESS_ENABLE => {
@@ -2990,10 +3006,26 @@ async fn dispatch_request_with_identity(
         | method::MUX_ROUTE_TEST
         | method::MUX_ROUTE_DEFAULT_SET
         | method::MUX_CHAT_ROUTE_SET => {
-            heap(|| super::routes::handle(hub, conn.origin, m, &params)).await
+            let reply = heap(|| super::routes::handle(hub, conn.origin, m, &params)).await;
+            if reply.is_ok() && super::connections::changes_connections(m) {
+                super::connections::announce_later(hub);
+            }
+            reply
         }
         method::MUX_ACCOUNTS | method::MUX_ACCOUNT_SET | method::MUX_ACCOUNT_USAGE => {
-            heap(|| super::accounts::handle(hub, conn.origin, m, &params)).await
+            let reply = heap(|| super::accounts::handle(hub, conn.origin, m, &params)).await;
+            if reply.is_ok() && super::connections::changes_connections(m) {
+                super::connections::announce_later(hub);
+            }
+            reply
+        }
+        name if super::connections::METHODS.contains(&name) => {
+            // A connection's token goes to the person's app, never to an agent acpmux runs: only a
+            // connection that proved the person reads one (`connections::reads_token`).
+            if super::connections::reads_token(name) && !conn.is_person() {
+                return Err(conn.person_only("reading a connection's token"));
+            }
+            heap(|| super::connections::handle(hub, conn.origin, name, &params)).await
         }
         method::ACP_TRUST_GET | method::ACP_TRUST_SET => {
             // Recorded here, not on a peer: only a folder that exists here (`remote_guard.rs`).
@@ -4027,4 +4059,25 @@ pub(super) fn note_initialize(conn: &Conn, params: &Value) {
         && conn.auth.peer_daemon()
         && params.pointer("/_meta/acpmux/githubBroker").and_then(Value::as_bool) == Some(true);
     conn.client_requests.lends_github.store(lends, Ordering::SeqCst);
+}
+
+/// `agent/credentials.update {sessionId, env}` (`hub/credentials.rs`): this socket's, never an
+/// agent's own connection; the session by its exact id on this daemon.
+async fn agent_credentials_update(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    crate::agent_credentials::admit(conn.origin == Origin::Local, conn.caller())?;
+    let id = params
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?;
+    if params.as_object().is_some_and(|o| o.keys().any(|k| k != "sessionId" && k != "env")) {
+        return Err(RpcError::invalid_params("agent/credentials.update takes sessionId and env"));
+    }
+    let env = params.get("env").cloned().unwrap_or(Value::Null);
+    let credential = crate::agent_credentials::AgentCredential::parse(&json!({"env": env}))?;
+    hub.update_credential(id, credential).await
 }

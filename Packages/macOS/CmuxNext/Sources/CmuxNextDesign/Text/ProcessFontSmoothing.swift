@@ -43,6 +43,29 @@ public nonisolated struct ProcessFontSmoothing: Sendable, Equatable {
     // same way, and UserDefaults is Apple-documented thread-safe.
     public static let current = ProcessFontSmoothing(defaults: .standard)
 
+    /// The smoothing of the text cmux draws into its own bitmaps (``GlyphMask``: ``ChromeLabel``,
+    /// ``ChromeTextLayer``, so the sidebar, tabs and most chrome), which follows
+    /// `appearance.fontSmoothing` live, as web pages do.
+    ///
+    /// It reads the app's defaults now, where ``apply(_:to:)`` writes the setting at launch and on
+    /// each change: at launch it is ``current``; after a change it is the new value, while AppKit's
+    /// own text keeps ``current`` until a restart (https://github.com/manaflow-ai/cmux/issues/44844:
+    /// the sidebar kept the launch's weight after a change while pages changed at once).
+    public static var chrome: ProcessFontSmoothing { ProcessFontSmoothing(defaults: .standard) }
+
+    /// ``apply(_:to:)`` to the app's defaults, for a settings change while the app runs: when
+    /// ``chrome`` changes, every ``ChromeLabel`` and ``ChromeTextLayer`` in the app's windows draws
+    /// again in it (``GlyphMask/weight(of:smoothing:)`` keys their images by it).
+    ///
+    /// - Returns: the smoothing chrome text now draws with.
+    @MainActor @discardableResult
+    public static func applyLive(_ mode: FontSmoothing) -> ProcessFontSmoothing {
+        let before = chrome
+        let after = apply(mode, to: .standard)
+        if after != before { ChromeTextRefresh.all() }
+        return after
+    }
+
     /// Writes `mode` for AppKit to read at its first text draw, and returns what text then draws.
     ///
     /// ``FontSmoothing/antialiased`` writes 0 and ``FontSmoothing/subpixel`` writes 2 in the app's

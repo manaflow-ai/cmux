@@ -18,7 +18,8 @@ public struct LaunchTask: Sendable, Equatable {
 /// The launch task inventory is intentionally explicit metadata for the current
 /// launch plan. Adding a stage-0 declaration outside the shell operations makes
 /// the registry test fail; this registry does not instrument runtime call sites.
-public enum LaunchStageRegistry {
+public struct LaunchStageRegistry {
+    public init() {}
     public static let stageZeroAllowlist: Set<String> = [
         "read_launch_record", "make_window", "put_saved_image", "commit_first_frame", "finish_launching",
     ]

@@ -173,6 +173,30 @@ fn rate_limits_and_transport_errors_become_refusals() {
 }
 
 #[test]
+fn a_refusal_keeps_a_github_configure_page_and_drops_any_other_url() {
+    let a = ask(json!({ "contents": "read" }));
+    let page = "https://github.com/organizations/acme/settings/installations/9";
+    let refused = |url: &str| {
+        let body =
+            json!({ "error": { "code": "policy.denied", "message": "m", "configure_url": url } });
+        reply_for(&a, &Answer::Http { status: 403, body })["error"].clone()
+    };
+    assert_eq!(
+        refused(page),
+        json!({ "code": "policy.denied", "message": "m", "configure_url": page })
+    );
+    for other in [
+        "http://github.com/settings/installations/9",
+        "https://evil.example/settings",
+        "https://github.com.evil.example/x",
+        "https://github.com/settings?token=x",
+        "https://github.com/",
+    ] {
+        assert_eq!(refused(other), json!({ "code": "policy.denied", "message": "m" }), "{other}");
+    }
+}
+
+#[test]
 fn asks_are_checked_before_they_reach_the_api() {
     let bad = |v: Value| TokenAsk::from_json(&v).is_err();
     assert!(bad(json!({ "repo": "manaflow-ai", "permissions": { "contents": "read" } })));

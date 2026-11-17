@@ -96,7 +96,6 @@ import { SuggestionGlyph } from "./RowGlyph";
 import { useNoEntryMotion } from "./noEntryMotion";
 import { EnvironmentCard, SuggestionsCard } from "./StageCards";
 import { FirstRunStarters, showsFirstRunStarters, type FirstRunStarterLook } from "./FirstRunStarters";
-import { Icon } from "../icons/Icon";
 import { type NewTabTranslate, useNt } from "./strings";
 import { DEFAULT_NEW_TAB_TEMPLATE, screenSections, screenTemplate, type ScreenTemplate } from "./templates";
 import { useT } from "../i18n";
@@ -613,9 +612,9 @@ export function NewTabScreen(props: Props) {
   /// Starts the chat on `harness` with the draft as it is now (`model`: the chip's pick). Setup's
   /// continuation, and a failed start's Retry: whatever began the start (Return, New chat, an Ask
   /// row), Retry asks the agent again, never re-routing the draft to a page or a no-op.
-  const continueAfterSetup = useRef<(harness: string, model?: string) => void>(() => {});
-  const openSetup = () => {
-    if (props.onSetup) props.onSetup((agent) => continueAfterSetup.current(agent));
+  const continueAfterSetup = useRef<(harness: string, model?: string, empty?: boolean) => void>(() => {});
+  const openSetup = (empty = false) => {
+    if (props.onSetup) props.onSetup((agent) => continueAfterSetup.current(agent, undefined, empty === true));
     else openHarnessesPage();
   };
   const wholeSelection = useRef(false);
@@ -1036,6 +1035,8 @@ export function NewTabScreen(props: Props) {
               screenRows(typed, {
                 omnibar: profiles ? omnibar : { ...omnibar, profiles: undefined },
                 home,
+                translate: nt,
+                create: props.onCreate ? ["terminal", "browser", "chat"] : ["chat"],
                 ...(ask ? { ask } : {}),
                 chats: barChats,
                 folders: barFolders,
@@ -1058,6 +1059,8 @@ export function NewTabScreen(props: Props) {
       ask,
       commandTyping,
       props.suggestionOrder,
+      props.onCreate,
+      nt,
       barChats,
       barFolders,
       barAgents,
@@ -1307,6 +1310,8 @@ export function NewTabScreen(props: Props) {
         return props.onJump("workspace", row.id);
       case "ask":
         return askChat(row.harness, row.text, project, row.harness === harness ? chipModel : undefined);
+      case "create":
+        return row.kind === "chat" ? startChat() : create(row.kind);
       case "action":
         return props.onAction?.(row.id);
       case "inProfile":
@@ -1402,8 +1407,8 @@ export function NewTabScreen(props: Props) {
     const list = rows.length ? rows : suggested;
     const opensTop = !rows.length || (current < 0 && isAddress(typed.trim(), home));
     const row = opensTop ? list[defaultSelection(list)] : rows[current];
-    // Staged attachments go with a chat: a row that opens a page or a tab would drop them.
-    const keeps = !row || attachments.length === 0 || row.type === "ask";
+    // Navigation keeps staged files in chat. An explicit creation command keeps its own action.
+    const keeps = !row || attachments.length === 0 || row.type === "ask" || row.type === "create";
     // With no harness, a default text suggestion would search before setup can open. A row
     // explicitly selected with the keyboard, and navigation matches, keep their own actions.
     if (!harness && prompt && !isAddress(prompt, home) && row?.type === "search" && selected === undefined) {
@@ -1466,26 +1471,19 @@ export function NewTabScreen(props: Props) {
     created.current = true;
     props.onCreate?.(kind);
   };
-  // New chat: Return's chat, with the prompt the field holds (an address or a shell command stays
-  // behind: the chat starts empty).
+  // The New chat command starts an empty chat with the selected model and environment.
   const startChat = () => {
     touch();
+    edit("");
     // The empty New chat action is another first-run entry point. It must open setup when no
     // harness is installed, rather than leaving the person on an inert page.
     if (!harness) {
-      openSetup();
+      openSetup(true);
       return;
     }
     if (created.current) return;
-    const prompt = shell ? "" : typed.trim();
-    if (command.intercept(prompt, harness, attachments.length)) return;
     created.current = true;
-    const asked = askChat(
-      harness,
-      prompt && !isAddress(prompt, home) && !pairingLinkRefused(prompt) ? prompt : "",
-      project,
-      chipModel,
-    );
+    const asked = askChat(harness, "", project, chipModel);
     // A Sandboxed New chat that started nothing (no prompt, a refusal) leaves the page's creates open.
     if (asked === false) created.current = false;
   };
@@ -1521,12 +1519,12 @@ export function NewTabScreen(props: Props) {
     }
     requestChat(agent, "", folder, agent === harness ? chipModel : undefined);
   };
-  continueAfterSetup.current = (agent, model) => {
+  continueAfterSetup.current = (agent, model, empty = false) => {
     // Setup may finish while an attachment is still loading. Resume the same draft only once
     // its files are ready, reading the latest state rather than the setup-opening snapshot.
-    if (holdForAttachments(() => continueAfterSetup.current(agent, model)) || created.current) return;
+    if (holdForAttachments(() => continueAfterSetup.current(agent, model, empty)) || created.current) return;
     created.current = true;
-    const prompt = shell ? "" : typed.trim();
+    const prompt = empty || shell ? "" : typed.trim();
     const asked = askChat(
       agent,
       prompt && !isAddress(prompt, home) && !pairingLinkRefused(prompt) ? prompt : "",
@@ -2525,12 +2523,7 @@ export function NewTabScreen(props: Props) {
         onNoProject={() => pickProject(undefined)}
         {...(browseProject ? { onBrowse: browseProject } : {})}
       />
-      <SuggestionsCard
-        attention={needsYou}
-        onOpen={openCard}
-        {...(props.onCreate ? { onCreate: create } : {})}
-        onChat={startChat}
-      />
+      <SuggestionsCard attention={needsYou} onOpen={openCard} />
     </div>
   );
   const playerAndLists = (
@@ -2570,42 +2563,6 @@ export function NewTabScreen(props: Props) {
                 where it always sat (screen.css .nt-composer-room). */}
           {minimal && <div className="nt-composer-room" />}
           {composerCard}
-          {/* Every layout, All Chats too: the suggestions no longer list New terminal and New browser tab. */}
-          {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-          <div className="nt-create ui-ghost-row" role="group" aria-label={nt("create.label")}>
-            {props.onCreate && (
-              <>
-                <button
-                  type="button"
-                  className="nt-tool ui-ghost"
-                  data-create="terminal"
-                  onClick={() => create("terminal")}
-                >
-                  <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
-                    <Icon name="terminal" size={14} />
-                  </span>
-                  <span>{nt("create.terminal")}</span>
-                </button>
-                <button
-                  type="button"
-                  className="nt-tool ui-ghost"
-                  data-create="browser"
-                  onClick={() => create("browser")}
-                >
-                  <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
-                    <Icon name="browser" size={14} />
-                  </span>
-                  <span>{nt("create.browser")}</span>
-                </button>
-              </>
-            )}
-            <button type="button" className="nt-tool ui-ghost" data-create="chat" onClick={startChat}>
-              <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
-                <Icon name="agent.chat" size={14} />
-              </span>
-              <span>{nt("create.chat")}</span>
-            </button>
-          </div>
           {starters}
           {props.notice}
           {environmentPanel}
@@ -2741,6 +2698,8 @@ function rowKey(row: ScreenRow): string {
       return `open:${row.url}`;
     case "workspace":
       return `workspace:${row.id}`;
+    case "create":
+      return `create:${row.kind}`;
     case "action":
       return `action:${row.id}`;
     case "profile":
@@ -2772,6 +2731,7 @@ function rowTitle(nt: NewTabTranslate, row: ScreenRow): string {
     case "tab":
     case "workspace":
     case "action":
+    case "create":
       return row.title;
     case "inProfile":
       return nt("row.openInProfile");

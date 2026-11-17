@@ -90,7 +90,7 @@ extension CloudMoveCLI.StartChatPlan {
     public nonisolated static func strands(_ error: any Error) -> Bool {
         if error is CancellationError { return false }
         if let failure = error as? CloudMoveFailure { return failure.retry == nil }
-        return true
+        return !(error is any CloudStartRetriesOnMachine)
     }
 
     /// Whether this plan's machine was made for its start: the App made it (the plan named none) or the platform created it now.
@@ -125,3 +125,7 @@ extension CloudMoveCLI {
         }
     }
 }
+
+/// A start's failure whose Retry runs on the same machine (a clone the person fixes by connecting GitHub):
+/// it never strands the start, so its machine is kept (``CloudMoveCLI/StartChatPlan/strands(_:)``).
+public protocol CloudStartRetriesOnMachine: Error {}
