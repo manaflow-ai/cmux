@@ -1,8 +1,8 @@
-import { memo } from "react";
+import { memo, useSyncExternalStore } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { NextStepCard } from "./NextStepCard";
-import { askKey } from "./waitingAskStore";
+import { answeredAsks, askKey, subscribeAnswers } from "./waitingAskStore";
 import "./PendingAsks.css";
 
 /// The questions still waiting on the person (waitingAskStore.ts), pinned in the bottom stack above the
@@ -26,9 +26,13 @@ export const PendingAsks = memo(function PendingAsks({
   asker?: string;
 }) {
   const t = useT();
+  // An ask answered from this page leaves in the click's frame, header and all (waitingAskStore.ts
+  // `givenAnswer`): its answer may wait in the queue, where no prompt row settles it yet.
+  const answered = useSyncExternalStore(subscribeAnswers, answeredAsks, answeredAsks);
+  const shown = answered.size ? asks.filter((row) => !answered.has(askKey(row))) : asks;
   return (
     <>
-      {asks.map((row, index) => {
+      {shown.map((row, index) => {
         const step = row.nextStep;
         if (!step) return null;
         // The recap stays with the turn it sums up; the pinned copy is the question alone.
@@ -45,7 +49,7 @@ export const PendingAsks = memo(function PendingAsks({
               className="ui-glass ui-glass-floats acpmux-stack-material"
               ask={ask}
               onAnswer={onAnswer}
-              registerKey={index === asks.length - 1 ? registerKey : undefined}
+              registerKey={index === shown.length - 1 ? registerKey : undefined}
               answerKey={askKey(row)}
               asker={asker}
             />

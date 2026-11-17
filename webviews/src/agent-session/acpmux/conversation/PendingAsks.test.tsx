@@ -188,12 +188,12 @@ test("a click answers the card in the same frame, and it stays answered while th
     />,
   );
   await act(async () => named(container, "Plugged in").click());
-  // On its way: the card reads as answered, with no buttons, and leaves the pinned list and the hat.
+  // On its way: the pinned card leaves, header and all, and leaves the hat too.
   expect(container.querySelectorAll(".acpmux-next-step__answer")).toHaveLength(0);
-  expect(container.querySelector(".acpmux-question-answered-answer")?.textContent).toBe("Plugged in");
+  expect(container.querySelector(".acpmux-pending-ask")).toBeNull();
   expect(answeredAsks().has(askKey(physical))).toBe(true);
   expect(shownAsks([physical], withAnswered(new Set(), answeredAsks()))).toEqual([]);
-  // Sent, and waiting in the queue behind the running turn: still answered.
+  // Sent, and waiting in the queue behind the running turn: still gone.
   await act(async () => release());
   expect(container.querySelectorAll(".acpmux-next-step__answer")).toHaveLength(0);
   expect(answeredAsks().has(askKey(physical))).toBe(true);

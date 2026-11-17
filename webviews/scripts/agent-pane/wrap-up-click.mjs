@@ -13,7 +13,7 @@ try {
     const page = await browser.newPage({ viewport: { width: 900, height: 760 }, deviceScaleFactor: 2 });
     page.on("pageerror", (error) => console.log("pageerror", error.message));
     await stubMockBridge(page, { ready: { sessionId } });
-    await page.goto(`${server.url}?mock`, { waitUntil: "load", timeout: 180_000 });
+    await page.goto(server.url, { waitUntil: "load", timeout: 180_000 });
     const button = page.locator(".acpmux-next-step__answer").first();
     await button.waitFor({ timeout: 120_000 }).catch(async (error) => {
       await page.screenshot({ path: path.join(out, `${sessionId}-no-card.png`) });
@@ -22,16 +22,17 @@ try {
     // Leo's case: a turn runs when he answers, so the answer waits in the queue behind it.
     await page.waitForFunction(() => window.cmuxAcpmuxActions?.["chat.send"]);
     await page.evaluate(() => window.cmuxAcpmuxActions["chat.send"]({ text: "Also check the tests" }));
-    await page
-      .waitForFunction(
-        () => document.querySelector(".acpmux-composer [data-working], .acpmux-stop-button, [aria-label='Stop']"),
-        null,
-        { timeout: 5000 },
-      )
-      .catch(() => console.log("no working marker"));
+    await page.waitForTimeout(100);
     await settle(page);
     const label = (await button.innerText()).split("\n")[0].trim();
-    await page.screenshot({ path: path.join(out, `${sessionId}-0-before.png`) });
+    await button.evaluate((node) => node.scrollIntoView({ block: "center" }));
+    await settle(page);
+    const card = page.locator(".acpmux-next-step").first();
+    await card.screenshot({ path: path.join(out, `${sessionId}-0-before.png`) });
+    // Leo's answer waited behind a running turn: hold the mock's answer to the clicked prompt 6 s.
+    await page.evaluate(() =>
+      Object.assign(window, { cmuxAcpmuxMockSlowMethod: "session/prompt", cmuxAcpmuxMockSlowMs: 6_000 }),
+    );
     // What the frame right after the click draws, then the pane later on.
     const frame = await page.evaluate(
       (label) =>
@@ -39,6 +40,7 @@ try {
           const target = [...document.querySelectorAll(".acpmux-next-step__answer")].find((b) =>
             b.textContent.startsWith(label),
           );
+          target.scrollIntoView({ block: "center" });
           target.click();
           requestAnimationFrame(() =>
             resolve({
@@ -51,9 +53,9 @@ try {
         }),
       label,
     );
-    await page.screenshot({ path: path.join(out, `${sessionId}-1-frame.png`) });
-    await page.waitForTimeout(600);
-    await page.screenshot({ path: path.join(out, `${sessionId}-2-600ms.png`) });
+    await card.screenshot({ path: path.join(out, `${sessionId}-1-frame.png`) });
+    await page.waitForTimeout(300);
+    await card.screenshot({ path: path.join(out, `${sessionId}-2-300ms.png`) });
     await page.waitForTimeout(3000);
     await page.screenshot({ path: path.join(out, `${sessionId}-3-later.png`) });
     const later = await page.evaluate(() => ({
