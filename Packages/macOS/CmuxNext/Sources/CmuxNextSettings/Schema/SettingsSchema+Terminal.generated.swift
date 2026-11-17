@@ -64,7 +64,7 @@ nonisolated enum TerminalSettingsSchema {
                 section: .terminal,
                 group: group,
                 title: SettingsText.keyed("settings.terminal.linkOpener.default", "Open Program Links In"),
-                help: SettingsText.keyed("settings.terminal.linkOpener.default.help", "Where a URL goes when a program in a terminal opens a browser, such as aws login or gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, a profile after @ (chrome@Profile 1), or command:<command> to let your script decide. A BROWSER you set yourself wins."),
+                help: SettingsText.keyed("settings.terminal.linkOpener.default.help", "Where terminal programs open URLs: cmux, system, chrome, safari, app:<name> or command:<cmd>."),
                 kind: .text,
                 default: .string(TerminalLinkOpener.defaultDefault),
                 keywords: ["browser", "open", "url", "link", "BROWSER", "xdg-open", "login", "oauth", "default browser", "chrome", "safari", "profile"]
@@ -74,7 +74,7 @@ nonisolated enum TerminalSettingsSchema {
                 section: .terminal,
                 group: group,
                 title: SettingsText.keyed("settings.terminal.linkOpener.rules", "Program Link Rules"),
-                help: SettingsText.keyed("settings.terminal.linkOpener.rules.help", "Checked in order before the default; the first match wins. Write <match> -> <target>: caller:aws matches the program that opened the URL, and text, * wildcards or re: match the URL. Example: caller:gh github.com -> safari"),
+                help: SettingsText.keyed("settings.terminal.linkOpener.rules.help", "<match> -> <target>, first match wins. Example: caller:gh github.com -> safari"),
                 summary: SettingsText.keyed("settings.terminal.linkOpener.rules.summary", "Rules for program links"),
                 kind: .stringList,
                 default: .array(TerminalLinkOpener.rulesDefault.map { .string($0) }),
@@ -93,7 +93,7 @@ nonisolated enum TerminalSettingsSchema {
                 section: .terminal,
                 group: group,
                 title: SettingsText.keyed("settings.terminal.term", "Terminal Type (TERM)"),
-                help: SettingsText.keyed("settings.terminal.term.help", "The TERM new terminals start with. xterm-256color works on every host you ssh to. xterm-ghostty needs Ghostty's terminfo on each of those hosts, and applies only when it is installed on this Mac."),
+                help: SettingsText.keyed("settings.terminal.term.help", "xterm-ghostty needs Ghostty's terminfo on every host you ssh to."),
                 kind: .choice([
                     SettingChoice(TerminalTerm.xterm256color.rawValue, SettingsText.keyed("settings.choice.xterm256color", "xterm-256color (standard)")),
                     SettingChoice(TerminalTerm.xtermGhostty.rawValue, SettingsText.keyed("settings.choice.xtermGhostty", "xterm-ghostty")),

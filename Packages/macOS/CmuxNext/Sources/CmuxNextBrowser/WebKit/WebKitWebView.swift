@@ -7,6 +7,10 @@ import WebKit
 // webview-allow: the WebKit browser engine; BrowserEngineResolver picks it
 final class WebKitWebView: WKWebView {
     weak var owner: WebKitTab?
+    /// WebKit's `WebPageProxy::m_isSuspended`, kept where cmux sends `_suspendPage:` and `_resumePage:` the
+    /// way WebKit keeps it (`WebKitTab+Freeze`): set on a suspend, cleared on a resume, each only while the
+    /// page's process runs. True after that process ended: WebKit then never resumes the page.
+    var pageSuspended = false
     /// The last mouse-down or key-down the user gave this view: a page may
     /// enter pane fullscreen only shortly after one (transient activation).
     private(set) var lastUserInput: ContinuousClock.Instant?

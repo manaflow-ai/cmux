@@ -2,7 +2,8 @@
 //! machine through the platform's relay, and the link speaks the same authenticated WebSocket
 //! over the stream it returns, so `serve_heard`, its liveness and its `afterSeq` replay run
 //! unchanged. It is one more of the peer's paths (`peer_carriers.rs`), in the relayed class
-//! (`peer_paths.rs`): dialed last, and carrying the link only while no other path answers.
+//! (`peer_paths.rs`): relay first, it is dialed at once beside the remembered path and carries
+//! the link until a direct path proved itself on its probes.
 
 use super::*;
 
