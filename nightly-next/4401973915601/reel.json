@@ -1,0 +1,131 @@
+{
+  "version": 1,
+  "build": "4401973915601",
+  "notes": "notes/4401973915601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 45101,
+      "title": "measure: launch-capture probe (no Screen Recording grant)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44817,
+      "title": "cmux-rd: an outage is not congestion (controller freezes through a Wi-Fi hold)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44166,
+      "title": "hot-verify workflow: a rust look starts after the head's cmux-tui tree is published",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45035,
+      "title": "ci(next): tab switch measure step runs in the background",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45053,
+      "title": "GitHub gateway: read paths for docs readers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45006,
+      "title": "cmux-layout-reducer: stress harness for large and deep pane layouts; deep split chains get their optimistic view",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44609,
+      "title": "hot-verify: the fleet export carries the engine's Swift tools",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45128,
+      "title": "app-ffi-release: an FFI-only owned pool, vars.CI_FFI_RELEASE_POOL, for the release build",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44754,
+      "title": "Cloud VM image roll: the harness gate blocks only regressions against the live image",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45077,
+      "title": "measure: the new window film and the workspace switch film check their acts",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44971,
+      "title": "Downscale images in linear light: model copies and link preview pictures (checkerboard 188, not 128)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44944,
+      "title": "cmux-next iOS: center list bullets on their item's first line",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44495,
+      "title": "[startup] wire launch record writer and stage registry",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45085,
+      "title": "start bench: VM API rows use the user's Stack team; platform rows keep the create trace",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45004,
+      "title": "acpmux outbox: a model-based test against an in-order list oracle, and the two bugs it found",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44898,
+      "title": "App Store: a Community source from the extension registry, and installed community items for sync",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45026,
+      "title": "cmux-app-host: fuzz the extension host with hostile extensions; expensive steps and refused calls no longer hold it past the deadline",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44988,
+      "title": "sidebar doc: a scale bench for view, project, drag start and one-item ops",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44948,
+      "title": "test(tab-place): the order of a pane's tabs over a stop and a start of the daemon",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44951,
+      "title": "cmux-tui: a scoped load of the stored topology reads the side table rows of its own screens",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
