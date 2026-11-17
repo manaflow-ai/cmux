@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextDevices
 @testable import CmuxNextMacScreen
 import CmuxNextTestSupport
@@ -65,7 +66,8 @@ struct MacScreenAppKitViewTests {
         let prompt = MacScreenApprovalPrompt()
         prompt.present = { _ in }
         prompt.update([SessionRequest(id: "s1", viewerId: "v1", viewerName: "Laptop", scope: .view)])
-        let approval = MacScreenApprovalView(prompt: prompt)
+        let approval = CmuxDialogView(dialog: .standalone(MacScreenApprovalPrompt.spec(
+            SessionRequest(id: "s1", viewerId: "v1", viewerName: "Laptop", scope: .view), error: nil)) { _ in })
         for root in [home, pane.view, approval] as [NSView] {
             for view in views(under: root) {
                 #expect(!String(describing: type(of: view)).contains("Hosting"), "\(type(of: view)) under \(type(of: root))")
@@ -264,20 +266,39 @@ struct MacScreenAppKitViewTests {
         window.close()
     }
 
+    /// The device-control prompt is the cmux dialog card on its glass (Lawrence 2026-11-17, "think liquid glass"):
+    /// the request, the fingerprint in two lines of four groups on a well, and the four answers stacked the card's
+    /// width with Allow Once first (Return) and Deny last as quiet red text (Escape).
     @Test func approvalShowsTheRequestAndItsFourAnswers() throws {
         let prompt = MacScreenApprovalPrompt()
-        prompt.present = { _ in }
-        let fingerprint = String(repeating: "ab", count: 32)
+        defer { prompt.update([]) }
+        let fingerprint = "78be18e0c08c9c4d7443d95e2db68074" + String(repeating: "ab", count: 16)
         prompt.update([SessionRequest(id: "s1", viewerId: "v1", viewerName: "Laptop", viewerKeyFingerprint: fingerprint, scope: .full)])
-        let view = MacScreenApprovalView(prompt: prompt)
+        let view = try #require(prompt.dialogView, "the prompt draws the cmux dialog card")
+        view.window?.contentView?.layoutSubtreeIfNeeded()
         let shown = texts(under: view)
         #expect(shown.contains(String(format: L.t("macScreen.approval.titleFull", "%@ wants to control this Mac"), "Laptop")))
-        #expect(shown.contains(DeviceIdentity.displayFingerprint(fingerprint)))
-        for id in ["macScreen.approval.deny", "macScreen.approval.once", "macScreen.approval.alwaysView", "macScreen.approval.alwaysFull"] {
-            #expect(findView(id, under: view) is NSButton, "\(id)")
+        #expect(shown.contains("78BE 18E0 C08C 9C4D\n7443 D95E 2DB6 8074"))
+        #expect(view.spec.layout == .stacked)
+        #expect(views(under: view).contains { $0 is OverlaySurfaceView }, "on the dialog glass")
+        let ids = ["once", "alwaysView", "alwaysFull", "deny"]
+        let buttons = try ids.map { try #require(view.buttonView($0), "\($0)") }
+        let frames = buttons.map { $0.convert($0.bounds, to: nil) }
+        for (upper, lower) in zip(frames, frames.dropFirst()) {
+            #expect(lower.maxY <= upper.minY)
+            #expect(lower.width == upper.width && lower.minX == upper.minX)
         }
-        let size = view.fittingSize
-        #expect(size.width == MacScreenApprovalView.width && size.height > 100)
-        prompt.update([])
+        #expect(buttons[0].keyHint == .return && buttons[3].keyHint == .escape && buttons[3].isQuiet)
+        #expect(MacScreenApprovalChoice.allCases.allSatisfy { ids.contains($0.rawValue) })
+        let card = try #require(prompt.panelFrame)
+        #expect(abs(card.width - view.fittingSize.width) < 1 && card.height > 100)
+    }
+
+    @Test func aFailedAnswerShowsInTheCard() {
+        let spec = MacScreenApprovalPrompt.spec(SessionRequest(id: "s1", viewerId: "v1", viewerName: "Laptop", scope: .view),
+                                                error: "The answer did not reach the device hub. Try again.")
+        #expect(spec.error == "The answer did not reach the device hub. Try again.")
+        #expect(spec.title == String(format: L.t("macScreen.approval.titleView", "%@ wants to see this Mac"), "Laptop"))
+        #expect(spec.fields.isEmpty, "no fingerprint, no well")
     }
 }
