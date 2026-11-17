@@ -9,15 +9,20 @@
 //!
 //! Each op appends two short lines and reads nothing, so a call costs the
 //! same at 10 entries and at 100,000 (the bench in `examples/` measures it).
-//! Opening replays the file once. One process writes a ledger at a time.
+//! Opening replays the file once. One process writes a ledger at a time (it
+//! holds the file's lock).
+//!
+//! A key belongs to one provider, project and location: the same key and
+//! request against another zone is a conflict, not a replay.
 
 use crate::contract::{
     IdempotencyKey, MachineProvider, MachineState, Op, ProviderError, Receipt, Request,
 };
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -73,26 +78,37 @@ pub struct Ledger {
 }
 
 impl Ledger {
-    /// Open (or create) the ledger at `path`, replaying what it holds. A torn
-    /// last line (a crash mid-append) is ignored; its op stays pending.
+    /// Open (or create) the ledger at `path`, replaying what it holds, and
+    /// hold it: a second open, here or in another process, is refused until
+    /// this one drops. A torn last line (a crash mid-append) is cut off, so
+    /// its op stays pending and the next line starts clean.
     pub fn open(path: &Path) -> std::io::Result<Self> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
         let mut options = OpenOptions::new();
-        options.create(true).append(true).read(true);
+        options.create(true).truncate(false).read(true).write(true);
         #[cfg(unix)]
         std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-        let file = options.open(path)?;
+        let mut file = options.open(path)?;
+        file.try_lock().map_err(|e| {
+            std::io::Error::other(format!("{}: another process holds it ({e})", path.display()))
+        })?;
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes)?;
+        let whole = bytes.iter().rposition(|&b| b == b'\n').map_or(0, |i| i + 1);
+        if whole < bytes.len() {
+            file.set_len(whole as u64)?;
+        }
+        file.seek(SeekFrom::Start(whole as u64))?;
         let mut ledger = Self {
             path: path.to_owned(),
             file,
             entries: HashMap::new(),
             generations: HashMap::new(),
         };
-        let reader = BufReader::new(File::open(path)?);
-        for line in reader.lines() {
-            let Ok(line) = serde_json::from_str::<Line>(&line?) else { continue };
+        for line in bytes[..whole].split(|&b| b == b'\n') {
+            let Ok(line) = serde_json::from_slice::<Line>(line) else { continue };
             ledger.absorb(line);
         }
         Ok(ledger)
@@ -134,7 +150,9 @@ impl Ledger {
         if let Some(spec) = &request.spec {
             spec.validate()?;
         }
-        let fingerprint = request.fingerprint();
+        let scope = scope_of(provider);
+        let fingerprint =
+            hex::encode(Sha256::digest(format!("{scope}\0{}", request.fingerprint()).as_bytes()));
         let machine = match (request.op, &request.machine) {
             (Op::Create, _) => provider.machine_for(key),
             (_, Some(machine)) => machine.clone(),
@@ -196,11 +214,13 @@ impl Ledger {
         artifact: Option<String>,
         reconciled: bool,
     ) -> Receipt {
+        let generation_key = format!("{}/{machine}", scope_of(provider));
         Receipt {
             provider: provider.provider().to_owned(),
             project: provider.project().to_owned(),
+            location: provider.location().to_owned(),
             machine: machine.to_owned(),
-            generation: self.generations.get(machine).copied().unwrap_or(0) + 1,
+            generation: self.generations.get(&generation_key).copied().unwrap_or(0) + 1,
             op,
             key: key.clone(),
             state,
@@ -231,7 +251,11 @@ impl Ledger {
                 self.entries.insert(key, Entry::Pending { fingerprint, op, machine });
             }
             Line::Done { fingerprint, receipt } => {
-                self.generations.insert(receipt.machine.clone(), receipt.generation);
+                let at = format!(
+                    "{}/{}/{}/{}",
+                    receipt.provider, receipt.project, receipt.location, receipt.machine
+                );
+                self.generations.insert(at, receipt.generation);
                 self.entries.insert(receipt.key.clone(), Entry::Done { fingerprint, receipt });
             }
             Line::Failed { key, fingerprint, .. } => {
@@ -239,6 +263,11 @@ impl Ledger {
             }
         }
     }
+}
+
+/// Where a key's machines live: `provider/project/location`.
+fn scope_of(provider: &dyn MachineProvider) -> String {
+    format!("{}/{}/{}", provider.provider(), provider.project(), provider.location())
 }
 
 /// The state that shows a pending op took effect, or `None` when it must be

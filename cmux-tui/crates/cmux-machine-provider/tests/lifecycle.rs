@@ -56,6 +56,7 @@ fn the_whole_lifecycle_commits_once_and_replays() {
     assert_eq!(fake.state(&machine), None);
     let calls = fake.applied.get();
     // Reopen: every key replays from the file, no provider call.
+    drop(ledger);
     let mut reopened = Ledger::open(&path).unwrap();
     let again = reopened.run(&fake, &key("c1"), &Request::create(spec())).unwrap();
     assert!(matches!(again, Outcome::Replayed(_)));
@@ -87,6 +88,7 @@ fn a_lost_create_answer_settles_by_looking_not_by_creating_again() {
     assert!(matches!(err, ProviderError::Indeterminate(_)));
     assert_eq!(ledger.pending().len(), 1, "the lost op is an orphan until settled");
     // A restart, then the same click.
+    drop(ledger);
     let mut ledger = Ledger::open(&path).unwrap();
     assert_eq!(ledger.pending().len(), 1);
     let settled = ledger.run(&fake, &key("c"), &Request::create(spec())).unwrap();
@@ -205,8 +207,13 @@ impl Transport for Script {
     }
 }
 
+fn on() -> labs::Enabled {
+    labs::require_in_text(r#"{"labs": {"gcpMachineProvider": true}}"#).unwrap()
+}
+
 fn gcp(script: &Script) -> GcpProvider {
     GcpProvider::new(
+        on(),
         "my-project",
         "us-central1-a",
         AccessToken::new(b"ya29.secret-token\n").unwrap(),
@@ -318,7 +325,7 @@ fn gcp_refuses_names_that_would_change_the_url() {
     }
     assert!(script.calls.borrow().is_empty());
     let token = AccessToken::new(b"t").unwrap();
-    assert!(GcpProvider::new("p/../q", "z", token, Box::new(script)).is_err());
+    assert!(GcpProvider::new(on(), "p/../q", "z", token, Box::new(script)).is_err());
     assert!(AccessToken::new(b"two words").is_err());
     assert!(AccessToken::new(b"line\nInjected: 1").is_err());
 }
@@ -328,12 +335,112 @@ fn gcp_snapshot_names_are_stable_per_key() {
     let script = Script::default();
     let provider = gcp(&script);
     let mut ledger = Ledger::open(&ledger_path("gcp-snap")).unwrap();
+    let label = |k: &str| key(k).digest("label")[..32].to_owned();
+    // 409 on a snapshot carrying our key's label: ours.
     script.answer(409, json!({"error": {"message": "already exists"}}));
+    script.answer(200, json!({"labels": {"cmux-key": label("snap")}}));
     script.answer(200, json!({"status": "RUNNING"}));
     let out = ledger.run(&provider, &key("snap"), &Request::on(Op::Snapshot, "cmux-0123")).unwrap();
     let name = out.receipt().artifact.clone().unwrap();
-    assert!(name.starts_with("cmux-0123-"));
-    let calls = script.calls.borrow();
-    assert!(calls[0].1.contains("/disks/cmux-0123/createSnapshot?requestId="));
-    assert_eq!(calls[0].2.as_ref().unwrap()["name"], json!(name));
+    assert!(name.starts_with("cmux-snap-") && name.len() <= 63);
+    {
+        let calls = script.calls.borrow();
+        assert!(calls[0].1.contains("/disks/cmux-0123/createSnapshot?requestId="));
+        assert_eq!(calls[0].2.as_ref().unwrap()["name"], json!(name));
+        assert!(calls[1].1.ends_with(&format!("/projects/my-project/global/snapshots/{name}")));
+    }
+    // 409 on someone else's snapshot of that name: a conflict.
+    script.answer(409, json!({"error": {"message": "already exists"}}));
+    script.answer(200, json!({"labels": {"cmux-key": "someone-else"}}));
+    assert!(matches!(
+        ledger.run(&provider, &key("snap2"), &Request::on(Op::Snapshot, "cmux-0123")),
+        Err(ProviderError::Conflict(_))
+    ));
+}
+
+#[test]
+fn a_key_belongs_to_one_zone() {
+    // A delete times out in one zone and is retried against another: the
+    // ledger refuses, instead of finding nothing there and calling it done.
+    let script = Script::default();
+    let a = gcp(&script);
+    let b = GcpProvider::new(
+        on(),
+        "my-project",
+        "us-central1-b",
+        AccessToken::new(b"t").unwrap(),
+        Box::new(script.clone()),
+    )
+    .unwrap();
+    let mut ledger = Ledger::open(&ledger_path("zones")).unwrap();
+    script.lose();
+    let delete = Request::on(Op::Delete, "cmux-0123");
+    assert!(matches!(ledger.run(&a, &key("d"), &delete), Err(ProviderError::Indeterminate(_))));
+    assert!(matches!(ledger.run(&b, &key("d"), &delete), Err(ProviderError::Conflict(_))));
+    assert_eq!(script.calls.borrow().len(), 1, "nothing was asked of the other zone");
+    // A create's spec names the provider's own zone.
+    let mut elsewhere = spec();
+    elsewhere.zone = "us-central1-b".into();
+    assert!(matches!(
+        ledger.run(&a, &key("c"), &Request::create(elsewhere)),
+        Err(ProviderError::Refused(_))
+    ));
+}
+
+#[test]
+fn a_failed_operation_is_a_failure_even_without_waiting() {
+    let script = Script::default();
+    let provider = gcp(&script);
+    let mut ledger = Ledger::open(&ledger_path("op-error")).unwrap();
+    script.answer(
+        200,
+        json!({"name": "operation-1", "error": {"errors": [{"message": "QUOTA_EXCEEDED"}]}}),
+    );
+    let err = ledger.run(&provider, &key("c"), &Request::create(spec())).unwrap_err();
+    assert!(matches!(err, ProviderError::Api { ref message, .. } if message == "QUOTA_EXCEEDED"));
+}
+
+#[test]
+fn a_second_open_of_a_held_ledger_is_refused() {
+    let path = ledger_path("locked");
+    let held = Ledger::open(&path).unwrap();
+    assert!(Ledger::open(&path).is_err());
+    drop(held);
+    assert!(Ledger::open(&path).is_ok());
+}
+
+#[test]
+fn a_line_after_a_torn_tail_survives_the_next_open() {
+    let fake = FakeProvider::new();
+    let path = ledger_path("torn-then-append");
+    drop(Ledger::open(&path).unwrap());
+    // A crash mid-append, in the middle of a multi-byte character.
+    std::fs::write(&path, &"{\"phase\":\"failed\",\"error\":\"caf\u{e9}".as_bytes()[..30]).unwrap();
+    let mut ledger = Ledger::open(&path).unwrap();
+    let made = ledger.run(&fake, &key("c"), &Request::create(spec())).unwrap();
+    drop(ledger);
+    let mut ledger = Ledger::open(&path).unwrap();
+    let again = ledger.run(&fake, &key("c"), &Request::create(spec())).unwrap();
+    assert!(matches!(again, Outcome::Replayed(_)));
+    assert_eq!(again.receipt(), made.receipt());
+}
+
+#[test]
+fn labs_off_makes_no_provider() {
+    assert!(labs::require_in_text("{}").is_err());
+    assert!(labs::require_in_text(r#"{"labs": {"gcpMachineProvider": false}}"#).is_err());
+}
+
+#[test]
+fn label_keys_start_with_a_lowercase_letter() {
+    let fake = FakeProvider::new();
+    let mut ledger = Ledger::open(&ledger_path("label-keys")).unwrap();
+    for (i, bad) in ["1team", "_team", "-team"].into_iter().enumerate() {
+        let mut s = spec();
+        s.labels.insert(bad.into(), "x".into());
+        assert!(matches!(
+            ledger.run(&fake, &key(&format!("l{i}")), &Request::create(s)),
+            Err(ProviderError::Refused(_))
+        ));
+    }
 }

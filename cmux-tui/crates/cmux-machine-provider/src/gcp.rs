@@ -14,6 +14,7 @@ use crate::contract::{
     CostEstimate, CreateSpec, IdempotencyKey, MachineProvider, MachineState, Op, ProviderError,
     Request,
 };
+use crate::labs;
 use cmux_process::{Command, Stdio};
 use serde_json::{Value, json};
 use std::fmt;
@@ -110,8 +111,16 @@ impl Transport for CurlTransport {
             .args(["-sS", "--max-time", &self.max_seconds.to_string(), "-X", method])
             .args(["-H", "@-", "-H", "Content-Type: application/json"])
             .args(["-w", "\n%{http_code}"]);
-        if let Some(body) = body {
-            command.args(["--data-binary", &body.to_string()]);
+        match body {
+            Some(body) => {
+                command.args(["--data-binary", &body.to_string()]);
+            }
+            // A POST with no body still says `Content-Length: 0`; Google's
+            // front end answers 411 without it.
+            None if method == "POST" => {
+                command.args(["--data-binary", ""]);
+            }
+            None => {}
         }
         let mut child = command
             .arg(url)
@@ -151,14 +160,18 @@ pub struct GcpProvider {
 }
 
 impl GcpProvider {
+    /// A provider for one project and zone. `labs` is the proof that
+    /// `labs.gcpMachineProvider` was on ([`labs::require`]): no provider, and
+    /// so no call, exists without it.
     pub fn new(
+        _labs: labs::Enabled,
         project: &str,
         zone: &str,
         token: AccessToken,
         transport: Box<dyn Transport>,
     ) -> Result<Self, ProviderError> {
         for (what, value) in [("project", project), ("zone", zone)] {
-            if !resource_name_ok(value) {
+            if !valid_name(value) {
                 return Err(ProviderError::Refused(format!("{what} {value:?} is not a GCP name")));
             }
         }
@@ -199,6 +212,12 @@ impl GcpProvider {
     /// turn its error into ours. A wait that ends before the operation does
     /// is indeterminate: the ledger settles it on the next run.
     fn finish(&self, operation: &Value) -> Result<(), ProviderError> {
+        // An operation can come back already failed (a retried request id
+        // returns the original operation).
+        if let Some(message) = operation.pointer("/error/errors/0/message").and_then(Value::as_str)
+        {
+            return Err(ProviderError::Api { status: 200, message: message.to_owned() });
+        }
         if !self.wait {
             return Ok(());
         }
@@ -226,36 +245,65 @@ impl GcpProvider {
             Err(e) => Err(e),
         }
     }
+}
 
-    /// The Compute Engine `instances.insert` body for `spec`.
-    pub fn insert_body(&self, key: &IdempotencyKey, machine: &str, spec: &CreateSpec) -> Value {
-        let mut labels: serde_json::Map<String, Value> =
-            spec.labels.iter().map(|(k, v)| (k.clone(), json!(v))).collect();
-        labels.insert("cmux-machine".into(), json!("true"));
-        labels.insert("cmux-key".into(), json!(key_label(key)));
-        json!({
-            "name": machine,
-            "machineType": format!("zones/{}/machineTypes/{}", self.zone, spec.machine_type),
-            "labels": labels,
-            "disks": [{
-                "boot": true,
-                "autoDelete": true,
-                "deviceName": machine,
-                "initializeParams": {
-                    "diskName": machine,
-                    "sourceImage": spec.image,
-                    "diskSizeGb": spec.disk_gb.to_string(),
-                },
-            }],
-            // No accessConfigs: no external address. Attach goes over IAP.
-            "networkInterfaces": [{ "network": "global/networks/default" }],
-            "serviceAccounts": [],
-            "shieldedInstanceConfig": { "enableSecureBoot": true, "enableVtpm": true },
-            "metadata": { "items": [
-                { "key": "enable-oslogin", "value": "TRUE" },
-                { "key": "cmux-idle-grace-minutes", "value": spec.idle_grace_minutes.to_string() },
-            ]},
-        })
+/// The machine a `create` with `key` makes.
+pub fn machine_name(key: &IdempotencyKey) -> String {
+    format!("cmux-{}", &key.digest("machine")[..16])
+}
+
+/// The Compute Engine `instances.insert` body for `spec` (the setup sheet's
+/// preview shows exactly this).
+pub fn insert_body(key: &IdempotencyKey, machine: &str, spec: &CreateSpec) -> Value {
+    let mut labels: serde_json::Map<String, Value> =
+        spec.labels.iter().map(|(k, v)| (k.clone(), json!(v))).collect();
+    labels.insert("cmux-machine".into(), json!("true"));
+    labels.insert("cmux-key".into(), json!(key_label(key)));
+    json!({
+        "name": machine,
+        "machineType": format!("zones/{}/machineTypes/{}", spec.zone, spec.machine_type),
+        "labels": labels,
+        "disks": [{
+            "boot": true,
+            "autoDelete": true,
+            "deviceName": machine,
+            "initializeParams": {
+                "diskName": machine,
+                "sourceImage": spec.image,
+                "diskSizeGb": spec.disk_gb.to_string(),
+            },
+        }],
+        // No accessConfigs: no external address. Attach goes over IAP.
+        "networkInterfaces": [{ "network": "global/networks/default" }],
+        "serviceAccounts": [],
+        "shieldedInstanceConfig": { "enableSecureBoot": true, "enableVtpm": true },
+        "metadata": { "items": [
+            { "key": "enable-oslogin", "value": "TRUE" },
+            { "key": "cmux-idle-grace-minutes", "value": spec.idle_grace_minutes.to_string() },
+        ]},
+    })
+}
+
+/// List-price estimates for `spec`, each with its source.
+pub fn cost_estimate(spec: &CreateSpec) -> CostEstimate {
+    // List prices, us-central1, on demand, read 2026-11. A prototype table:
+    // the release reads the user's billing catalog instead.
+    let per_hour = match spec.machine_type.as_str() {
+        "e2-standard-2" => 0.067,
+        "e2-standard-4" => 0.134,
+        "e2-standard-8" => 0.268,
+        "n2-standard-4" => 0.194,
+        "n2-standard-8" => 0.388,
+        _ => f64::NAN,
+    };
+    CostEstimate {
+        machine_type: spec.machine_type.clone(),
+        zone: spec.zone.clone(),
+        running_per_hour: per_hour,
+        stopped_disk_per_month: 0.04 * f64::from(spec.disk_gb),
+        egress_per_gb: 0.12,
+        currency: "USD".into(),
+        source: "static list-price table, us-central1, 2026-11 (prototype)".into(),
     }
 }
 
@@ -268,8 +316,12 @@ impl MachineProvider for GcpProvider {
         &self.project
     }
 
+    fn location(&self) -> &str {
+        &self.zone
+    }
+
     fn machine_for(&self, key: &IdempotencyKey) -> String {
-        format!("cmux-{}", &key.digest("machine")[..16])
+        machine_name(key)
     }
 
     fn apply(
@@ -281,7 +333,7 @@ impl MachineProvider for GcpProvider {
             Op::Create => self.machine_for(key),
             _ => request.machine.clone().unwrap_or_default(),
         };
-        if !resource_name_ok(&machine) {
+        if !valid_name(&machine) {
             return Err(ProviderError::Refused(format!("machine {machine:?} is not a GCP name")));
         }
         let rid = request_id(key, request.op);
@@ -292,7 +344,13 @@ impl MachineProvider for GcpProvider {
                     .spec
                     .as_ref()
                     .ok_or_else(|| ProviderError::Refused("create needs a spec".into()))?;
-                let body = self.insert_body(key, &machine, spec);
+                if spec.zone != self.zone {
+                    return Err(ProviderError::Refused(format!(
+                        "the spec's zone {} is not this provider's zone {}",
+                        spec.zone, self.zone
+                    )));
+                }
+                let body = insert_body(key, &machine, spec);
                 match self.call("POST", &format!("{zone}/instances?requestId={rid}"), Some(&body)) {
                     Ok(operation) => {
                         self.finish(&operation)?;
@@ -336,13 +394,30 @@ impl MachineProvider for GcpProvider {
                 Ok((state, None))
             }
             Op::Snapshot => {
-                let name = format!("{machine}-{}", &key.digest("snapshot")[..12]);
-                let body = json!({ "name": name, "labels": { "cmux-machine": "true" } });
+                let name = format!("cmux-snap-{}", &key.digest("snapshot")[..16]);
+                let label = key_label(key);
+                let body = json!({
+                    "name": name,
+                    "labels": { "cmux-machine": "true", "cmux-key": label },
+                });
                 let url = format!("{zone}/disks/{machine}/createSnapshot?requestId={rid}");
                 match self.call("POST", &url, Some(&body)) {
                     Ok(operation) => self.finish(&operation)?,
-                    // The deterministic name already exists: this key made it.
-                    Err(ProviderError::Conflict(_)) => {}
+                    // The name exists: ours only if it carries our label.
+                    Err(ProviderError::Conflict(_)) => {
+                        let url = format!(
+                            "{}/projects/{}/global/snapshots/{name}",
+                            self.base, self.project
+                        );
+                        let found = self.call("GET", &url, None)?;
+                        if found.pointer("/labels/cmux-key").and_then(Value::as_str)
+                            != Some(label.as_str())
+                        {
+                            return Err(ProviderError::Conflict(format!(
+                                "snapshot {name} belongs to another key"
+                            )));
+                        }
+                    }
                     Err(e) => return Err(e),
                 }
                 Ok((state_of(self.instance(&machine)?.as_ref()), Some(name)))
@@ -368,32 +443,14 @@ impl MachineProvider for GcpProvider {
     }
 
     fn observe(&self, machine: &str) -> Result<Option<MachineState>, ProviderError> {
-        if !resource_name_ok(machine) {
+        if !valid_name(machine) {
             return Err(ProviderError::Refused(format!("machine {machine:?} is not a GCP name")));
         }
         Ok(self.instance(machine)?.map(|i| state_of(Some(&i))))
     }
 
     fn cost_estimate(&self, spec: &CreateSpec) -> CostEstimate {
-        // List prices, us-central1, on demand, read 2026-11. A prototype
-        // table: the release reads the user's billing catalog instead.
-        let per_hour = match spec.machine_type.as_str() {
-            "e2-standard-2" => 0.067,
-            "e2-standard-4" => 0.134,
-            "e2-standard-8" => 0.268,
-            "n2-standard-4" => 0.194,
-            "n2-standard-8" => 0.388,
-            _ => f64::NAN,
-        };
-        CostEstimate {
-            machine_type: spec.machine_type.clone(),
-            zone: spec.zone.clone(),
-            running_per_hour: per_hour,
-            stopped_disk_per_month: 0.04 * f64::from(spec.disk_gb),
-            egress_per_gb: 0.12,
-            currency: "USD".into(),
-            source: "static list-price table, us-central1, 2026-11 (prototype)".into(),
-        }
+        cost_estimate(spec)
     }
 }
 
@@ -409,8 +466,9 @@ fn state_of(instance: Option<&Value>) -> MachineState {
 }
 
 /// A GCP resource name: lowercase letters, digits and `-`, 1 to 63, starting
-/// with a letter. Every name that goes into a URL path passes this.
-fn resource_name_ok(name: &str) -> bool {
+/// with a letter. Every name that goes into a URL path or a file name passes
+/// this.
+pub fn valid_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 63
         && name.as_bytes()[0].is_ascii_lowercase()

@@ -86,7 +86,9 @@ impl CreateSpec {
                         b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_'
                     })
             };
-            if !label_ok(key, 1) || !label_ok(value, 0) || key.starts_with("cmux-") {
+            let starts_lower = key.bytes().next().is_some_and(|b| b.is_ascii_lowercase());
+            if !starts_lower || !label_ok(key, 1) || !label_ok(value, 0) || key.starts_with("cmux-")
+            {
                 return Err(ProviderError::Refused(format!("label {key:?} is not allowed")));
             }
         }
@@ -140,6 +142,8 @@ pub enum MachineState {
 pub struct Receipt {
     pub provider: String,
     pub project: String,
+    /// The zone or region the machine lives in.
+    pub location: String,
     pub machine: String,
     pub generation: u64,
     pub op: Op,
@@ -207,6 +211,8 @@ pub trait MachineProvider {
     fn provider(&self) -> &str;
     /// The project or account the machines and the bill belong to.
     fn project(&self) -> &str;
+    /// The zone or region its calls address. Part of every key's scope.
+    fn location(&self) -> &str;
     /// The machine name a `create` with this key makes. Deterministic, so a
     /// retried create after a lost answer finds the machine it made.
     fn machine_for(&self, key: &IdempotencyKey) -> String;

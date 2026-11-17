@@ -3,11 +3,7 @@
 //! --example machine_provider_bench [-- DIR]`. DIR defaults to the temp dir;
 //! each call syncs, so the disk under DIR sets the floor.
 
-use cmux_machine_provider::{
-    AccessToken, CreateSpec, FakeProvider, GcpProvider, IdempotencyKey, Ledger, MachineProvider,
-    Op, Request, Transport, TransportError,
-};
-use serde_json::Value;
+use cmux_machine_provider::{CreateSpec, FakeProvider, IdempotencyKey, Ledger, Op, Request, gcp};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -26,19 +22,6 @@ fn spec() -> CreateSpec {
 fn pct(samples: &mut [Duration], p: f64) -> Duration {
     samples.sort();
     samples[((samples.len() as f64 - 1.0) * p).round() as usize]
-}
-
-struct Ok200;
-impl Transport for Ok200 {
-    fn send(
-        &self,
-        _: &str,
-        _: &str,
-        _: &AccessToken,
-        _: Option<&Value>,
-    ) -> Result<(u16, Value), TransportError> {
-        Ok((200, serde_json::json!({"name": "operation-1", "status": "RUNNING"})))
-    }
 }
 
 fn main() {
@@ -96,20 +79,13 @@ fn main() {
         );
         let _ = std::fs::remove_file(&path);
     }
-    let provider = GcpProvider::new(
-        "my-project",
-        "us-central1-a",
-        AccessToken::new(b"t").unwrap(),
-        Box::new(Ok200),
-    )
-    .unwrap();
     let key = IdempotencyKey::new("build").unwrap();
-    let machine = provider.machine_for(&key);
+    let machine = gcp::machine_name(&key);
     let spec = spec();
     let mut build = Vec::new();
     for _ in 0..10_000 {
         let t = Instant::now();
-        std::hint::black_box(provider.insert_body(&key, &machine, &spec));
+        std::hint::black_box(gcp::insert_body(&key, &machine, &spec));
         build.push(t.elapsed());
     }
     println!(

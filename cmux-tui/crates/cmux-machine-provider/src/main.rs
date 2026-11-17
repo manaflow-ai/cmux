@@ -16,7 +16,7 @@
 
 use cmux_machine_provider::{
     AccessToken, CreateSpec, CurlTransport, GcpProvider, IdempotencyKey, Ledger, MachineProvider,
-    Op, Outcome, ProviderError, Request, labs,
+    Op, Outcome, ProviderError, Request, gcp, labs,
 };
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
@@ -57,7 +57,13 @@ fn run(args: &[String]) -> Result<String, ProviderError> {
     let get = |name: &str| flags.get(name).map(String::as_str);
     let need = |name: &str| get(name).ok_or_else(|| refused(&format!("--{name} is required")));
     let project = need("project")?;
-    let ledger_path = get("ledger").map(PathBuf::from).unwrap_or_else(|| default_ledger(project));
+    if !gcp::valid_name(project) {
+        return Err(refused(&format!("project {project:?} is not a GCP project id")));
+    }
+    let ledger_path = match get("ledger") {
+        Some(path) => PathBuf::from(path),
+        None => default_ledger(project)?,
+    };
     if verb == "pending" {
         let ledger = Ledger::open(&ledger_path).map_err(|e| refused(&e.to_string()))?;
         let rows: Vec<_> = ledger
@@ -82,32 +88,24 @@ fn run(args: &[String]) -> Result<String, ProviderError> {
     };
     let zone = need("zone")?;
     if verb == "plan" || verb == "cost" {
-        // Nothing leaves this machine: the sheet's preview.
-        let provider = GcpProvider::new(
-            project,
-            zone,
-            AccessToken::new(b"plan")?,
-            Box::new(CurlTransport::default()),
-        )?;
+        // Nothing leaves this machine, and no provider is made: the sheet's
+        // preview.
         let spec = spec()?;
         spec.validate()?;
         let key = IdempotencyKey::new(need("key").unwrap_or("preview"))?;
-        let machine = provider.machine_for(&key);
+        let machine = gcp::machine_name(&key);
         return Ok(serde_json::to_string_pretty(&serde_json::json!({
+            "project": project,
             "machine": machine,
-            "insert": provider.insert_body(&key, &machine, &spec),
-            "cost": provider.cost_estimate(&spec),
+            "insert": gcp::insert_body(&key, &machine, &spec),
+            "cost": gcp::cost_estimate(&spec),
         }))
         .unwrap_or_default());
     }
-    if !labs::enabled() {
-        return Err(refused(&format!(
-            "the GCP machine provider is a Labs feature and {} is off",
-            labs::KEY
-        )));
-    }
+    let enabled = labs::require()?;
     let fd: u32 = need("token-fd")?.parse().map_err(|_| refused("--token-fd takes a number"))?;
     let mut provider = GcpProvider::new(
+        enabled,
         project,
         zone,
         AccessToken::from_fd(fd)?,
@@ -161,7 +159,9 @@ fn parse_flags(args: &[String]) -> Result<HashMap<String, String>, ProviderError
 }
 
 /// `~/.local/state/cmux/machine-provider/gcp-<project>.jsonl`.
-fn default_ledger(project: &str) -> PathBuf {
-    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
-    home.join(".local/state/cmux/machine-provider").join(format!("gcp-{project}.jsonl"))
+/// Refused with no `HOME` (it would land in the working directory).
+fn default_ledger(project: &str) -> Result<PathBuf, ProviderError> {
+    let home = std::env::var_os("HOME").filter(|h| !h.is_empty()).map(PathBuf::from);
+    let home = home.ok_or_else(|| ProviderError::Refused("no HOME: pass --ledger".into()))?;
+    Ok(home.join(".local/state/cmux/machine-provider").join(format!("gcp-{project}.jsonl")))
 }

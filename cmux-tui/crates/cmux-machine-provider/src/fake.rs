@@ -43,6 +43,10 @@ impl MachineProvider for FakeProvider {
         "fake-project"
     }
 
+    fn location(&self) -> &str {
+        "fake-zone"
+    }
+
     fn machine_for(&self, key: &IdempotencyKey) -> String {
         format!("cmux-{}", &key.digest("machine")[..16])
     }
