@@ -2584,6 +2584,18 @@ function TranscriptView({
   /// The rows the render before this one drew, and its chat, for a turn's end (turnEndFold.ts).
   const rowsBefore = rowsRef.current;
   rowsRef.current = rows;
+  /// Whether these rows are the last ones with only a streamed token in them (the same rows, a reply
+  /// or the live thinking row at a new version: `arrivedAtTail`), which `queueDrawn` leaves to the
+  /// rows' observer. Anything else (a row that came or left, a tool row's new state, the turn's
+  /// end) reads its rows in the commit, so the pass that places them sees their heights: left to
+  /// the observer's pass after it, the turn's end moved the rows by them at once (send-stream-motion
+  /// tools and steer, 29 px). O(1): the tail window and the first row.
+  const tokenRows = useRef<{ rows: readonly AcpmuxRow[]; token: boolean }>({ rows, token: false });
+  if (tokenRows.current.rows !== rows)
+    tokenRows.current = {
+      rows,
+      token: rowsBefore !== rows && rowsBefore[0]?.id === rows[0]?.id && !arrivedAtTail(rowsBefore, rows),
+    };
   /// Whether the render before this one drew any row: a send into a chat with none yet (a new
   /// chat's first prompt) has no latest row to become, and fades in place (conversation/sendMorph.ts).
   const drewRowsBefore = useRef(false);
@@ -2839,7 +2851,7 @@ function TranscriptView({
       // browser's own layout pass, before the frame paints (`observer` below); one it left at its
       // height keeps the height already placed, whose version differs only in a field placement
       // never reads. Read here only when no height is kept for the row as it is drawn now.
-      if (versionOnly && typeof ResizeObserver !== "undefined") {
+      if (versionOnly && tokenRows.current.token && typeof ResizeObserver !== "undefined") {
         const known = drawnRef.current.get(id);
         if (
           known &&
