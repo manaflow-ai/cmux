@@ -353,19 +353,31 @@ extension LetterBetweenTwoNewTabKeysTests {
             let process = "window on screen: \(scene.window.isVisible), key window: \(scene.window.isKeyWindow), app active: \(NSApp.isActive)"
 
             // The app types into the first page, by its own call, and the test reads the field of the page.
-            var landed = false, text: String?
+            var landed = false, text: String?, reason = "not read"
             if hidden != nil {
+                let appCount = page1.focusEpoch
                 landed = await page1.insert("x", expectedEpoch: page1.focusEpoch)
                 if let view1 {
                     let read = "const el = document.activeElement; return el ? String(el.value !== undefined ? el.value : el.textContent) : null;"
                     text = (try? await view1.callPageScript(read)).flatMap { $0 as? String }
+                    // Print only, after the call and the field's read, so the row's timing does not change: why the
+                    // page can refuse. Its script refuses a focused element that is not editable, a focus count
+                    // of the page that is not the app's count, and an element that has another edit token.
+                    let state = """
+                        const el = document.activeElement;
+                        const kind = !el ? 'none' : (el.tagName || '?').toLowerCase() + (el.id ? '#' + el.id : '') + (el.isContentEditable ? ' editable' : '');
+                        const token = el && el.__cmuxInputEditToken !== undefined ? 'set' : 'not set';
+                        return 'focus count ' + String(window.__cmuxInputFocusEpoch) + ', focused element: ' + kind + ', its edit token: ' + token;
+                        """
+                    let pageState = (try? await view1.callPageScript(state)).flatMap { $0 as? String } ?? "not read"
+                    reason = "the app's focus count at the call: \(appCount), after it: \(page1.focusEpoch); the page after the call: \(pageState)"
                 }
             }
             print("""
                 LetterBetweenTwoNewTabKeysTests: the real New Tab page: the field of the page that the pane no longer shows \
                 reported ready \(words(hidden)) from the second New Tab key; the field of the page that the pane shows reported \
                 \(words(shown)); the app keeps text for a page for 2 s. The app's call typed into the first page: \(landed); its \
-                field has the text: \(text ?? "not read"). \(place); \(process)
+                field has the text: \(text ?? "not read"). For the reason of a refusal: \(reason). \(place); \(process)
                 """)
             if hidden == nil {
                 try #require(shown != nil, "setup: no New Tab page reported its field ready in 20 s in this test process (\(process)): the row gives no verdict")
