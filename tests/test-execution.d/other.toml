@@ -579,6 +579,11 @@ lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23). Checks that a Python script's line right before it stops a process never skips the kill on a closed stdout (BrokenPipeError): behaviour rows on three cmux-next cleanups and an AST scan of scripts/; run python3 -I tests/test_python_guard_logs_survive_closed_pipe.py yourself after adding or changing a script that prints right before it stops a process (about 20 s; python3 and ps)."
 
 [[test]]
+path = "tests/test_quit_gamut_check.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). A quit gamut round that measured nothing fails with why, and a quit the app never ran is a failed quit; run python3 -I tests/test_quit_gamut_check.py yourself after changing scripts/ci/quit_gamut_check.py (under a second; no process is started)."
+
+[[test]]
 path = "tests/test_r2_cache_prune.py"
 lane = "linux-guard"
 
@@ -789,6 +794,11 @@ lane = "linux-guard"
 path = "tests/test_stale_base_readers.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23). Pins that each tool measuring a branch's own change from where HEAD meets origin/feat-cmux-next (affected tests, the Rust panic ratchet, build_class, gate-plan, the test-determinism scan, codebase-health, a manual arch-ratchet run) fetches that base first; run python3 -I tests/test_stale_base_readers.py yourself after changing one (a few seconds, no build)."
+
+[[test]]
+path = "tests/test_startup_paths.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). The fresh-install round's first-launch prompt with its input routes mocked: the fleet's computer-use driver presses Open, a failed System Events is asked once, and a prompt nothing could press is a harness failure; run python3 -I tests/test_startup_paths.py yourself after changing scripts/ci/startup_paths.py (about 6 s; no process is started)."
 
 [[test]]
 path = "tests/test_stress_cli_socket_api.py"
