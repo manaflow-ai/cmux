@@ -15,6 +15,180 @@ type LoadReceipt = {
 };
 const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
 const quantile = (xs: number[], q: number) => [...xs].sort((a, b) => a - b)[Math.round((xs.length - 1) * q)] ?? null;
+/// What the stream makes the direct client do while the keys are typed, by the client method that does it (as
+/// test/agent-pane-older-paging-at-bottom.test.ts counts them): let go of its oldest held records, read an older
+/// page, refold the held window. A heavy run that sheds 0 times did not reach the shed loop it is meant to price.
+const CLIENT_COUNTS = {
+  sheds: "shedOlderHeld",
+  older_pages: "fetchOlder",
+  refolds: "rebuildKeepingLiveState",
+} as const;
+type ClientCounts = Record<keyof typeof CLIENT_COUNTS, number>;
+
+/// Finds the pane's direct client through React's fiber above the composer and wraps the counted methods; the counts
+/// live on `window.__benchClientCounts`. Bench-only: it patches the live instance in the bench's page.
+async function countClientWork(page: Page): Promise<string | undefined> {
+  return page.evaluate(
+    ({ selectors, methods }) => {
+      const isClient = (value: any) =>
+        !!value &&
+        typeof value === "object" &&
+        typeof value.lastSeq === "number" &&
+        "selectedSessionId" in value &&
+        typeof value.socket?.onmessage === "function";
+      let client: any;
+      for (const selector of selectors) {
+        const element = document.querySelector(selector) as any;
+        if (!element) continue;
+        const key = Object.keys(element).find((name) => name.startsWith("__reactFiber$"));
+        for (let fiber = key ? element[key] : undefined; fiber && !client; fiber = fiber.return)
+          for (let hook = fiber.memoizedState; hook && typeof hook === "object" && "next" in hook; hook = hook.next)
+            if (isClient(hook.memoizedState?.current)) {
+              client = hook.memoizedState.current;
+              break;
+            }
+        if (client) break;
+      }
+      if (!client) return "no direct client found through the pane's fiber";
+      const counts: Record<string, number> = {};
+      for (const [name, method] of Object.entries(methods)) {
+        const own = client[method];
+        if (typeof own !== "function") return `the client has no ${method}`;
+        counts[name] = 0;
+        client[method] = function (this: unknown, ...args: unknown[]) {
+          counts[name]! += 1;
+          return own.apply(this, args);
+        };
+      }
+      (window as any).__benchClient = client;
+      (window as any).__benchClientCounts = counts;
+      return undefined;
+    },
+    { selectors: [PROMPT, ".acpmux-scroll", ".acpmux-composer"], methods: CLIENT_COUNTS },
+  );
+}
+const resetClientCounts = (page: Page) =>
+  page.evaluate(() => {
+    const counts = (window as any).__benchClientCounts as Record<string, number> | undefined;
+    for (const name of Object.keys(counts ?? {})) counts![name] = 0;
+  });
+const readClientCounts = (page: Page) =>
+  page.evaluate(() => {
+    const counts = (window as any).__benchClientCounts as Record<string, number> | undefined;
+    return counts ? { ...counts } : undefined;
+  }) as Promise<ClientCounts | undefined>;
+
+type HostPushReceipt = LoadReceipt & { prefilled_lines: number; held_before_keys: number };
+/// `--held N`: the load as the host's pacer pushes it, raw frames through the client's own socket with one record per
+/// tool line (the mock daemon's load folds a tick's lines into one update, about 120 records a second, so a chat
+/// never grows past direct.ts `HELD_RECORDS` inside a run and never sheds). Before the first key it fills an open
+/// turn until the client holds `held` records, so a run filled past `HELD_RECORDS` (4,000) sheds from the first key;
+/// then a reply at `rate` chunks/s and `lines` tool lines/s, every frame due pushed once per ~16 ms on a fixed
+/// schedule. The receipt has the mock load's shape (debug `typingLoad`), so the same rate and continuity checks apply.
+async function startHostPush(page: Page, options: { rate: number; lines: number; held: number }) {
+  const error = await page.evaluate(({ rate, lines, held }) => {
+    const client = (window as any).__benchClient;
+    if (!client) return "no direct client to push to";
+    type Socket = { readyState: number; onmessage: ((message: { data: string }) => void) | null };
+    let seq = client.lastSeq as number;
+    const id = JSON.stringify(client.selectedSessionId);
+    const event = (kind: string, msg: string) =>
+      `{"jsonrpc":"2.0","method":"_acpmux/event","params":{"sessionId":${id},"seq":${++seq},"at":${Date.now()},"dir":"mux","kind":"${kind}","msg":${msg}}}`;
+    const update = (body: string) =>
+      `{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":${id},"update":${body},"_meta":{"acpmux":{"seq":${++seq},"at":${Date.now()}}}}}`;
+    const call = "bench-held-load";
+    let chunks = 0;
+    let toolLines = 0;
+    const chunk = () =>
+      update(
+        `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":${JSON.stringify(`word ${++chunks} `)}}}`,
+      );
+    const line = () =>
+      update(
+        `{"sessionUpdate":"tool_call_update","toolCallId":"${call}","status":"in_progress","_meta":{"terminal_output":{"data":${JSON.stringify(`[${++toolLines}] compiling module${toolLines % 97}.ts ok\n`)}}}}`,
+      );
+    const push = (frames: string[]) => {
+      const socket = client.socket as Socket | undefined;
+      for (const data of frames) if (socket && socket.readyState === 1) socket.onmessage?.({ data });
+    };
+    push([
+      event("user_message", `{"text":"Build it"}`),
+      event("turn_started", "{}"),
+      update(
+        `{"sessionUpdate":"tool_call","toolCallId":"${call}","title":"Run bun run build","kind":"execute","status":"in_progress","rawInput":{"command":"bun run build"}}`,
+      ),
+    ]);
+    const receipt = {
+      running: true,
+      started_epoch_ms: 0,
+      deltas: 0,
+      toolLines: 0,
+      elapsedMs: 0,
+      maxGapMs: 0,
+      maxScheduleOffsetMs: 0,
+      prefilled_lines: 0,
+      held_before_keys: 0,
+    };
+    const state = { stopped: false, filled: false, receipt };
+    (window as any).__hostPush = state;
+    const pace = () => {
+      receipt.held_before_keys = client.events?.length ?? 0;
+      state.filled = true;
+      const t0 = performance.now();
+      receipt.started_epoch_ms = performance.timeOrigin + t0;
+      let last = t0;
+      let sentChunks = 0;
+      let sentLines = 0;
+      const pump = () => {
+        if (state.stopped) {
+          receipt.running = false;
+          return;
+        }
+        const now = performance.now();
+        const elapsed = (now - t0) / 1000;
+        receipt.maxGapMs = Math.max(receipt.maxGapMs, now - last);
+        last = now;
+        const dueChunks = Math.floor(elapsed * rate);
+        const dueLines = Math.floor(elapsed * lines);
+        // How late the oldest frame pushed in this tick is against its due time.
+        const oldest = Math.min(
+          sentChunks < dueChunks ? (sentChunks + 1) / rate : Infinity,
+          lines > 0 && sentLines < dueLines ? (sentLines + 1) / lines : Infinity,
+        );
+        if (Number.isFinite(oldest))
+          receipt.maxScheduleOffsetMs = Math.max(receipt.maxScheduleOffsetMs, now - t0 - oldest * 1000);
+        const frames: string[] = [];
+        for (; sentChunks < dueChunks; sentChunks += 1) frames.push(chunk());
+        for (; sentLines < dueLines; sentLines += 1) frames.push(line());
+        push(frames);
+        receipt.deltas = sentChunks;
+        receipt.toolLines = sentLines;
+        receipt.elapsedMs = now - t0;
+        if (elapsed < 120) setTimeout(pump, 16);
+        else receipt.running = false;
+      };
+      setTimeout(pump, 16);
+    };
+    // The fill: tool lines in batches of 500, a task each, until the client holds `held` records.
+    const fill = () => {
+      if (state.stopped) return;
+      if ((client.events?.length ?? 0) < held && receipt.prefilled_lines < 200_000) {
+        push(Array.from({ length: 500 }, line));
+        receipt.prefilled_lines += 500;
+        setTimeout(fill, 0);
+      } else pace();
+    };
+    fill();
+    return undefined;
+  }, options);
+  if (error) throw new Error(`held load: ${error}`);
+  await page.waitForFunction(() => (window as any).__hostPush?.filled === true, null, { timeout: 60_000 });
+}
+const readHostPush = (page: Page) =>
+  page.evaluate(() => ({
+    ...(window as any).__hostPush.receipt,
+    epoch_clock_error_ms: Date.now() - (performance.timeOrigin + performance.now()),
+  })) as Promise<HostPushReceipt>;
 
 export async function seedComposer(surface: Surface, turns: number) {
   await surface.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
@@ -45,9 +219,12 @@ export async function runComposerLoad(
     gap: number;
     stream: number;
     toolLines: number;
+    /// `--held N` (L1 only): the load pushed as the host does, after filling the chat to N held records (`startHostPush`).
+    held?: number;
   },
 ) {
-  const { port, mode, length, keys, gap } = options;
+  const { port, mode, length, keys, gap, held } = options;
+  if (held !== undefined && mode !== "L1") throw new Error("--held applies to the focused stream (L1 / stream) only");
   await page.goto(`http://127.0.0.1:${port}/?mock`);
   // A light turn reduces to prompt, reply and turnSummary (direct.ts turn_result).
   // Always report/check the actual model count too; the old fixture comment omits the summary.
@@ -101,7 +278,10 @@ export async function runComposerLoad(
   const loads: Surface[] = mode === "L2" ? backgrounds : mode === "L0" ? [] : [page];
   const rate = mode === "L2" ? 30 : options.stream;
   const lines = mode === "L2" ? 0 : options.toolLines;
-  for (const surface of loads) {
+  // Counted on the focused document's client; L2's load runs in other documents.
+  const countError = await countClientWork(page);
+  if (held !== undefined) await startHostPush(page, { rate, lines, held });
+  for (const surface of held !== undefined ? [] : loads) {
     const receipt = await surface.evaluate(
       ({ rate, lines }) =>
         (window as any).cmuxAcpmuxDebug.typingLoad({
@@ -114,13 +294,16 @@ export async function runComposerLoad(
     if (receipt.error) throw new Error(receipt.error);
   }
   await page.waitForTimeout(500);
-  const readLoads = () =>
-    Promise.all(
-      loads.map(
-        (surface) => surface.evaluate(() => (window as any).cmuxAcpmuxDebug.typingLoad()) as Promise<LoadReceipt>,
-      ),
-    );
+  const readLoads = (): Promise<LoadReceipt[]> =>
+    held !== undefined
+      ? Promise.all([readHostPush(page)])
+      : Promise.all(
+          loads.map(
+            (surface) => surface.evaluate(() => (window as any).cmuxAcpmuxDebug.typingLoad()) as Promise<LoadReceipt>,
+          ),
+        );
   const before = await readLoads();
+  if (!countError) await resetClientCounts(page);
   await page.evaluate(() => {
     const debug = (window as any).cmuxAcpmuxDebug;
     debug.resetTyping();
@@ -171,8 +354,12 @@ export async function runComposerLoad(
     const debug = (window as any).cmuxAcpmuxDebug;
     return { typing: debug.typingStats(), renders: debug.renders(), watch: (window as any).__finishTypingWatch() };
   });
+  const counts = countError ? undefined : await readClientCounts(page);
   const after = await readLoads();
-  for (const surface of loads) await surface.evaluate(() => (window as any).cmuxAcpmuxDebug.typingLoad({ stop: true }));
+  if (held !== undefined) await page.evaluate(() => void ((window as any).__hostPush.stopped = true));
+  else
+    for (const surface of loads)
+      await surface.evaluate(() => (window as any).cmuxAcpmuxDebug.typingLoad({ stop: true }));
   const loadRates = after.map((receipt, i) => {
     const ms = receipt.elapsedMs - before[i]!.elapsedMs;
     return {
@@ -233,6 +420,15 @@ export async function runComposerLoad(
     )
   )
     errors.push("missing or invalid timing samples");
+  // A stream that never let go of a held record measured typing under that stream, not the shed loop.
+  const shed =
+    mode === "L0" || mode === "L2"
+      ? "no focused stream"
+      : !counts
+        ? `not counted: ${countError}`
+        : counts.sheds > 0
+          ? "reached shed"
+          : "did not reach shed";
   return {
     mode,
     requested_rows: requestedRows,
@@ -264,6 +460,13 @@ export async function runComposerLoad(
     keys_sharing_frame: [...frames.values()].filter((n) => n > 1).reduce((sum, n) => sum + n, 0),
     driver_late_p95_ms: quantile(late, 0.95),
     load_rates: loadRates,
+    load_path: held !== undefined ? "host push, a record per tool line" : "mock daemon load",
+    held_records: held ?? null,
+    held_before_keys: held !== undefined ? ((after[0] as HostPushReceipt).held_before_keys ?? null) : null,
+    sheds: counts?.sheds ?? null,
+    older_pages: counts?.older_pages ?? null,
+    refolds: counts?.refolds ?? null,
+    shed,
     budget_p95_ms: 16,
     budget_p99_ms: 33,
     budget_policy: "report-only",
