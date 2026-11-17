@@ -121,13 +121,86 @@ pub fn read_at(path: &Path, require_root: bool) -> Result<BTreeMap<String, Strin
     validate(parse(&text))
 }
 
-/// This machine's route: the image file's on a Cloud VM, nothing elsewhere. Read on every call
-/// (a few hundred bytes), so a `cmux host update` that rewrites it applies to the next spawn.
+/// This machine's route: the image file's on a Cloud VM whose edge host resolves, nothing
+/// elsewhere. Read on every call (a few hundred bytes), so a `cmux host update` that rewrites it
+/// applies to the next spawn.
+///
+/// The image bakes the file on every machine, but only a backend that installs the machine's
+/// edge rule makes `coderouter.cmux.internal` resolve (development only; staging and production
+/// send no rule, plans/cmux-next/vm-coderouter-edge.md). Filling the pair there points every
+/// agent at a host that does not exist, over the person's own sign-in ("Can't reach the API
+/// server (ENOTFOUND)", Cloud journey on staging after #40159). So a route whose host does not
+/// resolve is no route, as `claude_cloud_auth::team_pair` and `codex_cloud_auth` already rule.
 pub fn machine_plane() -> BTreeMap<String, String> {
     if !crate::cloud_host::is_cloud_vm() {
         return BTreeMap::new();
     }
-    read_at(Path::new(PLANE_FILE), true).unwrap_or_default()
+    let plane = read_at(Path::new(PLANE_FILE), true).unwrap_or_default();
+    reachable(plane, edge_resolves)
+}
+
+/// `plane`, or nothing when one of its base URLs' hosts does not resolve (`resolves`).
+pub fn reachable(
+    plane: BTreeMap<String, String>,
+    resolves: impl Fn(&str) -> bool,
+) -> BTreeMap<String, String> {
+    let mut hosts: Vec<&str> = ["ANTHROPIC_BASE_URL", "OPENAI_BASE_URL", "CMUX_CODEROUTER_URL"]
+        .iter()
+        .filter_map(|k| plane.get(*k))
+        .filter_map(|url| host_of(url))
+        .collect();
+    hosts.sort_unstable();
+    hosts.dedup();
+    if hosts.is_empty() || !hosts.iter().all(|h| resolves(h)) {
+        return BTreeMap::new();
+    }
+    plane
+}
+
+/// The host (and port, if any) of an `https://` URL.
+fn host_of(url: &str) -> Option<&str> {
+    let rest = url.strip_prefix("https://")?;
+    let host = rest.split(['/', '?', '#']).next()?;
+    let host = host.rsplit_once('@').map_or(host, |(_, h)| h);
+    (!host.is_empty()).then_some(host)
+}
+
+/// How long one spawn waits for the resolver before it starts without the route.
+const RESOLVE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+/// How long an answer is reused, so a burst of spawns resolves once.
+const RESOLVE_REUSE: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Whether `host` resolves, answered from a short cache. A resolver that gives no answer within
+/// [`RESOLVE_WAIT`] counts as unreachable for this spawn and is not cached.
+fn edge_resolves(host: &str) -> bool {
+    use std::sync::Mutex;
+    use std::time::Instant;
+    static CACHE: Mutex<Option<(String, Instant, bool)>> = Mutex::new(None);
+    if let Some((h, at, ok)) = CACHE.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
+        && h == host
+        && at.elapsed() < RESOLVE_REUSE
+    {
+        return *ok;
+    }
+    let target = if host.contains(':') { host.to_owned() } else { format!("{host}:443") };
+    let (tx, rx) = std::sync::mpsc::channel();
+    let spawned = std::thread::Builder::new().name("model-plane-resolve".into()).spawn(move || {
+        let ok = std::net::ToSocketAddrs::to_socket_addrs(&target)
+            .map(|mut a| a.next().is_some())
+            .unwrap_or(false);
+        let _ = tx.send(ok);
+    });
+    if spawned.is_err() {
+        return false;
+    }
+    match rx.recv_timeout(RESOLVE_WAIT) {
+        Ok(ok) => {
+            *CACHE.lock().unwrap_or_else(|e| e.into_inner()) =
+                Some((host.to_owned(), Instant::now(), ok));
+            ok
+        }
+        Err(_) => false,
+    }
 }
 
 /// The `plane` variables for each name `present` says the child does not have yet.
@@ -246,6 +319,28 @@ mod tests {
             assert_eq!(read_at(&link, false), Err(Problem::Untrusted));
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Staging and production machines get no edge rule, so the baked host does not resolve
+    /// there: no spawn gets the route (the person's own sign-in or a team launcher stays in
+    /// charge). Where the edge resolves (development), the route is kept whole.
+    #[test]
+    fn a_route_whose_host_does_not_resolve_is_no_route() {
+        let plane = validate(parse(BAKED)).unwrap();
+        assert!(reachable(plane.clone(), |_| false).is_empty());
+        let asked = std::cell::RefCell::new(Vec::new());
+        let kept = reachable(plane.clone(), |h| {
+            asked.borrow_mut().push(h.to_owned());
+            true
+        });
+        assert_eq!(kept, plane);
+        assert_eq!(*asked.borrow(), ["coderouter.cmux.internal"], "one host, asked once");
+        // A file whose OpenAI route names another host needs both to resolve.
+        let mut split = plane.clone();
+        split.insert("OPENAI_BASE_URL".into(), "https://other.example:8443/v1".into());
+        assert!(reachable(split.clone(), |h| h == "coderouter.cmux.internal").is_empty());
+        assert_eq!(reachable(split.clone(), |_| true), split);
+        assert!(reachable(BTreeMap::new(), |_| true).is_empty());
     }
 
     /// The reported bug: a daemon env with no route gets the machine's; a value anything else
