@@ -18,7 +18,7 @@ SA_ONLY="zizmor gitleaks" bash scripts/static-analysis/run-all.sh  # a subset
 | `ast-grep.sh` | ast-grep | Structural rules in `ast-grep/rules/` (Rust, Swift, TS). Each rule's `note` names the existing detector it mirrors; the originals stay as they are. |
 | `cargo-machete.sh` | cargo-machete | Unused dependencies in every Cargo workspace. Deps whose `[lib] name` differs from the package name are re-checked by lib name. |
 | `knip.sh` | knip | Unused files, exports and dependencies in every TS package with a lockfile. Entry points come from `knip/gen-config.mjs` and `knip/webviews.entries`. |
-| `periphery.sh` | Periphery | Unused Swift code. On Linux only the SwiftPM packages that build there; the app project needs a Mac (`SA_PERIPHERY_XCODE=1`). `run-all.sh` skips it unless `SA_ONLY` names it. |
+| `periphery.sh` | Periphery | Unused Swift code in the SwiftPM packages; the app project needs a Mac (`SA_PERIPHERY_XCODE=1`). `run-all.sh` skips it unless `SA_ONLY` names it. |
 | `zizmor.sh` | zizmor | GitHub Actions security (template injection, token permissions, unpinned actions, cache poisoning). Online audits only with `GH_TOKEN`. |
 | `gitleaks.sh` | gitleaks | Secrets in new commits (`origin/<base>..HEAD`; `GITLEAKS_RANGE`, `SA_BASE`, `GITLEAKS_FULL=1`), always redacted. Allowlist in `gitleaks/gitleaks.toml`. |
 | `osv-scanner.sh` | osv-scanner | Known vulnerabilities in every lockfile (Cargo, bun, npm, Go, SwiftPM). |

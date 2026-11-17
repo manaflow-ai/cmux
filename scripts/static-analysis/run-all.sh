@@ -5,8 +5,8 @@
 #
 #   cmux-ci test -- bash scripts/static-analysis/run-all.sh
 #
-# SA_ONLY="ruff gitleaks" runs a subset; SA_SKIP (default "periphery", which
-# builds a Swift toolchain on Linux) leaves tools out. Each tool's full report lands in
+# SA_ONLY="ruff gitleaks" runs a subset; SA_SKIP (default "periphery", the slowest)
+# leaves tools out. Each tool's full report lands in
 # ${FAST_CHECKS_OUT:-${TMPDIR:-/tmp}/static-analysis-out}/.
 set -uo pipefail
 
