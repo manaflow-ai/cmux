@@ -19,6 +19,16 @@
 //!   person put it and keeps its size; [`Camera::resume`] (a tap) pans back
 //!   to the focus from there.
 //!
+//! - Salient: [`Signal::Salient`] regions (from [`saliency`], or faces a
+//!   detector found) frame a picture with no person driving it: a wallpaper,
+//!   an idle screen, a cover. They rank above the focused window and below
+//!   damage; when several are live the goal is [`fit::place`]'s crop, the
+//!   one function [`fit::fit`] uses too. [`dwell`] turns regions into a slow
+//!   tour for a moving wallpaper.
+//! - Viewport: [`Camera::set_viewport`] changes the crop's aspect and zoom
+//!   live (a window resize) keeping the crop's centre; the normal pan then
+//!   settles on the new goal, so no frame jumps.
+//!
 //! No I/O, no threads, no clock: every time is the caller's monotonic clock
 //! in microseconds, and the same events give the same path at any frame
 //! rate (the motion steps at [`STEP_US`]). Coordinates are the shared
@@ -28,10 +38,24 @@ use std::collections::VecDeque;
 
 use serde::{Deserialize, Serialize};
 
+pub mod dwell;
+pub mod fit;
+pub mod saliency;
+
+pub use fit::{
+    Bleed, CropReport, FitOptions, Framing, Size, fit, fit_report, fit_with, place, report,
+};
+pub use saliency::{SaliencyMap, SaliencyOptions, saliency_luma, saliency_map, saliency_rgb};
+
 /// The motion's fixed step: 240 Hz.
 pub const STEP_US: u64 = 1_000_000 / 240;
 /// After a cut, how long new focus signals still snap instead of pan.
 pub const CUT_SETTLE_US: u64 = 200_000;
+/// Salient regions kept for the focus (one set; the heaviest count).
+const MAX_SALIENT: usize = 32;
+/// The dead zone for a [`Signal::Salient`] focus: its crop's centre may sit
+/// up to 2% of the crop off the goal's before the goal moves.
+const SALIENT_DEAD_ZONE: f64 = 0.04;
 /// Damage rects kept for the focus (newest last).
 const MAX_DAMAGE: usize = 64;
 /// A longer gap between two `advance` calls (a backgrounded viewer) puts
@@ -95,6 +119,11 @@ pub enum Signal {
     Window { id: u64, x: f64, y: f64, w: f64, h: f64 },
     /// A region whose pixels changed.
     Damage { x: f64, y: f64, w: f64, h: f64 },
+    /// A salient part of the picture (a figure, a face) with a positive
+    /// weight. Regions pushed at the same time form one set; a region at a
+    /// later time starts a new set (a new saliency pass, the next stop of a
+    /// [`dwell`] tour). A cut clears the set.
+    Salient { x: f64, y: f64, w: f64, h: f64, weight: f64 },
     /// A cut the source knows about (a scene change in a recording).
     Cut,
 }
@@ -214,6 +243,9 @@ pub struct Camera {
     /// When the pointer last moved more than `POINTER_MOVE_PX`.
     pointer_moved_us: Option<u64>,
     damage: VecDeque<(u64, Rect)>,
+    /// The live salient set and the time it was pushed.
+    salient: Vec<fit::Salient>,
+    salient_us: u64,
     /// Signals up to this time snap.
     snap_until_us: Option<u64>,
     /// The best focus the shot since the last cut has framed.
@@ -224,6 +256,7 @@ pub struct Camera {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Rank {
     Window,
+    Salient,
     Damage,
     Intent,
 }
@@ -246,6 +279,8 @@ impl Camera {
             pointer: None,
             pointer_moved_us: None,
             damage: VecDeque::new(),
+            salient: Vec::new(),
+            salient_us: 0,
             snap_until_us: None,
             shot: None,
         };
@@ -336,6 +371,31 @@ impl Camera {
                     self.damage.push_back((t, rect));
                 }
             }
+            Signal::Salient { x, y, w, h, weight } => {
+                if self.salient_us != t {
+                    self.salient.clear();
+                    self.salient_us = t;
+                }
+                let finite = [x, y, w, h, weight].iter().all(|v| v.is_finite());
+                if finite && weight > 0.0 && w >= 0.0 && h >= 0.0 {
+                    if self.salient.len() == MAX_SALIENT {
+                        // Keep the heaviest: drop the lightest when this one is heavier.
+                        let lightest = self
+                            .salient
+                            .iter()
+                            .enumerate()
+                            .min_by(|a, b| a.1.weight.total_cmp(&b.1.weight))
+                            .filter(|(_, r)| r.weight < weight)
+                            .map(|(i, _)| i);
+                        if let Some(i) = lightest {
+                            self.salient.remove(i);
+                        }
+                    }
+                    if self.salient.len() < MAX_SALIENT {
+                        self.salient.push(fit::Salient::new(x, y, w, h, weight));
+                    }
+                }
+            }
             Signal::Cut => self.cut(t),
         }
         self.started = true;
@@ -348,13 +408,15 @@ impl Camera {
         self.caret = None;
         self.pointer_moved_us = None;
         self.damage.clear();
+        self.salient.clear();
         self.snap_until_us = Some(t + CUT_SETTLE_US);
         self.shot = None;
     }
 
     /// What the camera should look at now: the newest intent (caret or a
     /// moving pointer), else recent damage in the focused window, else the
-    /// focused window, else nothing.
+    /// crop that keeps the most salient weight, else the focused window,
+    /// else nothing.
     pub fn focus(&self) -> Option<Rect> {
         self.ranked_focus().map(|(_, rect)| rect)
     }
@@ -385,7 +447,22 @@ impl Camera {
                 None => Some(*r),
             })
             .reduce(|a, b| a.union(&b));
-        damage.map(|r| (Rank::Damage, r)).or(window.map(|r| (Rank::Window, r)))
+        damage
+            .map(|r| (Rank::Damage, r))
+            .or_else(|| self.salient_focus().map(|r| (Rank::Salient, r)))
+            .or(window.map(|r| (Rank::Window, r)))
+    }
+
+    /// The crop of the camera's size that keeps the most salient weight
+    /// ([`fit::place`], the function [`fit::fit`] uses), or none without a
+    /// live salient set.
+    fn salient_focus(&self) -> Option<Rect> {
+        if self.salient.is_empty() {
+            return None;
+        }
+        let source = Size::new(self.source.0, self.source.1);
+        let rect = place(source, self.size, &self.salient, FitOptions::default().center_bias);
+        (rect.w > 0.0 && rect.h > 0.0).then_some(rect)
     }
 
     /// Moves the goal when the focus has left the dead zone. Right after a
@@ -404,8 +481,17 @@ impl Camera {
         }
         if !better {
             let (w, h) = self.size;
-            let margin_x = w * (1.0 - self.config.dead_zone) / 2.0;
-            let margin_y = h * (1.0 - self.config.dead_zone) / 2.0;
+            // A salient focus is already a whole framed crop, not a point to
+            // keep in view: hold only within a small zone, so the picture
+            // lands on its fit and a slightly different saliency pass does
+            // not move it.
+            let dead_zone = if rank == Rank::Salient {
+                SALIENT_DEAD_ZONE.min(self.config.dead_zone)
+            } else {
+                self.config.dead_zone
+            };
+            let margin_x = w * (1.0 - dead_zone) / 2.0;
+            let margin_y = h * (1.0 - dead_zone) / 2.0;
             let (gx, gy) = self.goal;
             let inside = fx >= gx + margin_x
                 && fx <= gx + w - margin_x
@@ -460,6 +546,37 @@ impl Camera {
         self.x = Axis { pos: r.x, vel: 0.0 };
         self.y = Axis { pos: r.y, vel: 0.0 };
         self.goal = (r.x, r.y);
+    }
+
+    /// The crop's shape changed live (the window or split showing it was
+    /// resized): a new `aspect` (width over height) and `zoom`. The crop keeps
+    /// its centre (moved only as far as the source's edges force) and its
+    /// goal's centre, then the focus retargets and the normal bounded pan
+    /// settles on it, so no frame jumps. The speed is capped at the new
+    /// size's top speed. An aspect that is not positive and finite is
+    /// ignored; a zoom that is not finite keeps the current zoom. In manual
+    /// mode the person's crop takes the new size too.
+    pub fn set_viewport(&mut self, aspect: f64, zoom: f64) {
+        if !(aspect.is_finite() && aspect > 0.0) {
+            return;
+        }
+        let zoom = if zoom.is_finite() { zoom.max(1.0) } else { self.config.zoom };
+        let (cx, cy) = self.rect().center();
+        let (gcx, gcy) = (self.goal.0 + self.size.0 / 2.0, self.goal.1 + self.size.1 / 2.0);
+        self.config.aspect = aspect;
+        self.config.zoom = zoom;
+        self.size = self.zoom_size(zoom);
+        let (w, h) = self.size;
+        let r = self.clamp(cx - w / 2.0, cy - h / 2.0);
+        let vmax = self.config.max_speed * w;
+        self.x = Axis { pos: r.x, vel: self.x.vel.clamp(-vmax, vmax) };
+        self.y = Axis { pos: r.y, vel: self.y.vel.clamp(-vmax, vmax) };
+        let g = self.clamp(gcx - w / 2.0, gcy - h / 2.0);
+        self.goal = (g.x, g.y);
+        if self.mode == Mode::Manual {
+            self.goal = (r.x, r.y);
+        }
+        self.retarget();
     }
 
     /// Hands the camera back (a tap): pan from where the person left it to
