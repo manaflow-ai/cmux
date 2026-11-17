@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44134232380",
+  "recorded_at": "2026-11-17T17:37:17Z",
+  "reason": "cmux-tui c6fbdcac3c2f changes the image's cmux-tui (pinned 20f220212fb8)",
+  "dry_run": false,
+  "cmux_tui": "c6fbdcac3c2f350629f353fa839c87247c4ad3ee",
+  "fixes": [
+    {
+      "sha": "c6fbdcac3c2f350629f353fa839c87247c4ad3ee",
+      "mergedAt": "2026-11-17T08:45:06-08:00",
+      "subject": "fix(cmux-next): a launch snapshot the daemon does not recognize lands on Home (hq#12660) (#45272)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T17:37:17Z",
+    "snapshot_id": "sh-d76a260db6b74426bdfd4c152af6689b",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44134232380): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "b0bc33849b2e44f01ca36b483a82941aedd54c93",
+    "image": "cloud-native-auto-c6fbdcac-44134232380-1",
+    "revision": "ci-44134232380-1",
+    "at": "2026-11-17T17:37:17Z"
+  },
+  "rolled_back": false
+}
