@@ -500,6 +500,9 @@ pub struct Session {
     /// What asked for the agent the next wake starts (`idle.rs` `wake_cause`): `typing`, `prompt`,
     /// else a request that needs the agent.
     pub(super) wake_cause: StdMutex<Option<&'static str>>,
+    /// The last start refused because its harness cannot keep the chat's policy, while nothing it
+    /// depends on changed (`policy_mode.rs` `RefusalLatch`): no wake or request starts it again.
+    pub(super) policy_refusal: super::policy_mode::RefusalLatch,
     /// The agent's own requests (a file read, a terminal, a permission) whose task has not
     /// ended: the idle exit waits for none of them, it keeps the agent (`idle.rs`).
     pub(super) agent_requests: std::sync::atomic::AtomicUsize,
@@ -584,9 +587,11 @@ impl Session {
         self.ownership_epoch.fetch_max(epoch, Ordering::SeqCst);
     }
     /// The person wrote to this chat (`Session::person`): its next agent start waits as long as
-    /// its harness works on it.
+    /// its harness works on it, and a start a policy refusal held back is tried again
+    /// (`policy_refusal`).
     pub(crate) fn person_wrote(&self) {
         self.person.store(true, Ordering::SeqCst);
+        self.policy_refusal.clear();
     }
 
     /// Fence untagged compaction metadata for this live session. Claude's
