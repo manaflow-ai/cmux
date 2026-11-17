@@ -27,8 +27,13 @@ public final class LineChannel: Sendable {
     public init(read: Int32, write: Int32) {
         readDescriptor = read
         writeDescriptor = write
+        // A write after the peer left fails with EPIPE, never SIGPIPE, for a socket and for a
+        // pipe (a child's stdin) alike: SO_NOSIGPIPE covers sockets only, F_SETNOSIGPIPE both.
+        // The process need not ignore SIGPIPE (a test runner does not).
+        guard write >= 0 else { return }
         var on: Int32 = 1
         _ = setsockopt(write, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+        _ = fcntl(write, F_SETNOSIGPIPE, 1)
     }
 
     /// The next line, or nil at end of stream (or a line over the limit).
