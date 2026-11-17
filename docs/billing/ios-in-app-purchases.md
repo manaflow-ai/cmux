@@ -102,3 +102,25 @@ Subscription group "cmux Plans" (localized name "cmux", en-US and ja) per app, a
 Group IDs: `com.cmux.app` 22433557, `dev.cmux.app.beta` 22433386. Display names "cmux Max", "cmux Pro", "cmux Go" (en-US and ja). Descriptions, en-US / ja: Max "Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM" / "クラウドVM最大5台で80 vCPU・160 GB RAMを共有"; Pro "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM" / "クラウドVM最大5台で20 vCPU・40 GB RAMを共有"; Go "1 Cloud VM with 40 VM-hours a month" / "クラウドVM 1台、月40 VM時間". The VM resources are one pool shared by the plan's VMs, not a per-VM allowance; App Store Connect descriptions must use this pooled wording.
 
 The products are in `MISSING_METADATA` until each gets an App Review screenshot of the paywall. The first subscriptions for an app must be submitted with an app version.
+
+## CI
+
+Pull requests that touch billing run the Billing lane (`.github/workflows/billing.yml`): every billing unit, database and server end-to-end story test, picked by `scripts/ci/billing_lane.py`.
+
+The Billing nightly (`.github/workflows/billing-nightly.yml`, 09:41 UTC on main) adds what is too slow or depends on Apple:
+
+- the whole Billing lane on main's HEAD, whatever changed;
+- an Apple delivery round trip for `com.cmux.app` in Sandbox and Production: the App Store Server API sends a TEST notification, the job waits until Apple reports it delivered to `/api/billing/apple/notifications`, then reads `GET /api/cron/apple-notifications/health?uuid=<notificationUUID>` (`Authorization: Bearer $APPLE_NOTIFICATIONS_HEALTH_TOKEN`) to confirm the ledger recorded it. The read answers only for TEST notifications, with `found`, `environment`, `receivedAt`, `processed` and `processedAt`; without `APPLE_NOTIFICATIONS_HEALTH_TOKEN` in the deployment it answers 503;
+- an App Store Server API status lookup of a known Sandbox subscription (`vars.APPLE_IAP_HEALTH_ORIGINAL_TRANSACTION_ID`);
+- the StoreKit simulator suite (`BillingStoreKitTests`), dispatched on feat-cmux-next, where the iOS billing client lives.
+
+A red night opens or updates the issue "Billing nightly is red" and posts to #cmux-automations on a state change. The Apple checks skip, green, until the `billing-nightly` GitHub environment (deployment branches: main) has `APPLE_IAP_KEY_ID`, `APPLE_IAP_ISSUER_ID`, `APPLE_IAP_PRIVATE_KEY` (the server values above), `APPLE_NOTIFICATIONS_HEALTH_TOKEN` (the production deployment's value) and `CMUX_NOTIFY_TOKEN`.
+
+### Manual release checklist
+
+Real purchases need a device signed in to a Sandbox tester account, so CI does not make them. Before an App Store release, on a device with a Sandbox tester (App Store Connect > Users and Access > Sandbox):
+
+1. Buy each plan in the build under review; the Plan screen and `/api/billing/apple/account-token` show it within a minute.
+2. Let a monthly Sandbox subscription renew (Sandbox renews every few minutes) and see the renewal in `apple_notifications`.
+3. Cancel it in Settings > Apple ID > Subscriptions and see access end at expiry.
+4. Restore purchases after reinstalling the app.

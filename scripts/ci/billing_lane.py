@@ -7,6 +7,7 @@ means. The workflow's `on.pull_request.paths` must equal the union of the
 pattern lists below; tests/test_ci_billing_lane.py fails when they drift.
 
     billing_lane.py route              # writes web= and ios= to $GITHUB_OUTPUT
+                                       # (every job on a dispatch or the nightly)
     billing_lane.py web-tests          # every billing web test file, one per line
     billing_lane.py web-tests --db     # the CMUX_DB_TEST-gated subset of those
 
@@ -133,6 +134,11 @@ TEST_FILE = re.compile(r"(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs
 DB_GATE = "process.env.CMUX_DB_TEST"
 
 
+# A dispatch, and billing-nightly.yml's schedule (a called workflow sees its
+# caller's event), run every job: main's last commit must not narrow them.
+FULL_RUN_EVENTS = ("workflow_dispatch", "schedule")
+
+
 def workflow_paths() -> list[str]:
     """The pull_request path filter billing.yml must declare, in order."""
     return [*LANE_PATTERNS, *WEB_PATTERNS, *IOS_PATTERNS]
@@ -192,7 +198,7 @@ def changed_paths() -> list[str] | None:
 
 def route() -> int:
     every = {"web": True, "ios": True}
-    if os.environ.get("EVENT_NAME") == "workflow_dispatch":
+    if os.environ.get("EVENT_NAME") in FULL_RUN_EVENTS:
         areas = every
     else:
         paths = changed_paths()

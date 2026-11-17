@@ -373,6 +373,8 @@ export const env = createEnv({
     // Hosted coderouter and Subrouter have no plan, permission, or team
     // allow-list gate: team membership is the only access requirement.
     CRON_SECRET: z.string().min(1).optional(),
+    // Bearer token for the Billing nightly's read of /api/cron/apple-notifications/health.
+    APPLE_NOTIFICATIONS_HEALTH_TOKEN: z.string().min(1).optional(),
     CMUX_ALERTS_SLACK_WEBHOOK_URL: z.string().url().optional(),
     // Preserve the legacy VM alert range. The VM consumers already apply
     // their compatibility fallback for zero and unsafe values.
@@ -592,6 +594,7 @@ export const env = createEnv({
       process.env.CMUX_VM_PUBLICATION_SIGN_IN_RATE_LIMIT_ID,
     ),
     CRON_SECRET: trimEnv(process.env.CRON_SECRET),
+    APPLE_NOTIFICATIONS_HEALTH_TOKEN: trimEnv(process.env.APPLE_NOTIFICATIONS_HEALTH_TOKEN),
     CMUX_ALERTS_SLACK_WEBHOOK_URL: trimEnv(process.env.CMUX_ALERTS_SLACK_WEBHOOK_URL),
     CMUX_VM_ALERT_CREATE_FAILURES_15M: trimEnv(process.env.CMUX_VM_ALERT_CREATE_FAILURES_15M),
     CMUX_VM_ALERT_EXPIRED_LEASES: trimEnv(process.env.CMUX_VM_ALERT_EXPIRED_LEASES),

@@ -87,6 +87,9 @@ on:
   # commit does not touch billing.
   merge_group:
   workflow_dispatch:
+  # billing-nightly.yml runs every job here each night on main (its schedule
+  # is the event, which billing_lane.py routes to every job).
+  workflow_call:
 
 permissions:
   contents: read

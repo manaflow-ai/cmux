@@ -1,0 +1,231 @@
+name: Billing nightly
+
+# The slow half of billing CI. Pull requests that touch billing run the fast
+# half (billing.yml: unit, database and server end-to-end story tests, picked
+# by scripts/ci/billing_lane.py). Every night, on main's HEAD:
+#
+# - suite: billing.yml in full (every billing job, whatever changed), so a
+#   non-billing change the lane's path filter missed still meets every
+#   billing test within a day.
+# - apple-delivery (Sandbox and Production): asks the App Store Server API for
+#   a TEST notification for com.cmux.app, waits until Apple reports it was
+#   delivered to our notification URL (https://cmux.com/api/billing/apple/
+#   notifications serves both environments of the App Store app), then reads
+#   GET /api/cron/apple-notifications/health?uuid= to confirm the ledger
+#   recorded it. Production delivery is what paying customers depend on.
+# - apple-api: the In-App Purchase key authenticates and a known Sandbox
+#   subscription (vars.APPLE_IAP_HEALTH_ORIGINAL_TRANSACTION_ID) has a status.
+# - storekit: the StoreKit simulator suite (BillingStoreKitTests) lives with
+#   the iOS billing client on feat-cmux-next. GitHub runs schedules only from
+#   main, so this job dispatches billing-nightly.yml on feat-cmux-next, as
+#   ios-reliability-matrix.yml does; that file runs the suite when it exists
+#   and reports its own red.
+# - alert: one "Billing nightly is red" issue, opened on a red night, its body
+#   rewritten on later reds and closed by the next green, as
+#   cloud-journey-prod.yml does; and one Slack message to #cmux-automations
+#   when the state changes, as cloud-vm-canary.yml does.
+#
+# Secrets live in the `billing-nightly` environment (deployment branches: main
+# only). Until an operator adds them, the Apple jobs skip with a summary that
+# names what is missing, and the night stays green:
+#   APPLE_IAP_KEY_ID, APPLE_IAP_ISSUER_ID, APPLE_IAP_PRIVATE_KEY: the server's
+#     In-App Purchase key (docs/billing/ios-in-app-purchases.md, "Server env").
+#   APPLE_NOTIFICATIONS_HEALTH_TOKEN: the same value as the production web
+#     deployment's APPLE_NOTIFICATIONS_HEALTH_TOKEN.
+#   CMUX_NOTIFY_TOKEN: the notify-only token cloud-vm-canary.yml uses.
+#   Variable APPLE_IAP_HEALTH_ORIGINAL_TRANSACTION_ID: a Sandbox subscription
+#     of com.cmux.app to look up (apple-api skips without it).
+#
+# Real Sandbox purchases with a tester account need a device and are a manual
+# release checklist item (docs/billing/ios-in-app-purchases.md), not this job.
+on:
+  schedule:
+    - cron: "41 9 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: billing-nightly-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  suite:
+    name: suite
+    if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/billing.yml
+    permissions:
+      contents: read
+
+  apple-delivery:
+    name: apple-delivery (${{ matrix.environment }})
+    # Only main's own definition gets the environment's secrets.
+    if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main'
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [Sandbox, Production]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    environment: billing-nightly
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Check configuration
+        id: config
+        working-directory: .
+        env:
+          HAS_APPLE_IAP_KEY_ID: ${{ secrets.APPLE_IAP_KEY_ID != '' }}
+          HAS_APPLE_IAP_ISSUER_ID: ${{ secrets.APPLE_IAP_ISSUER_ID != '' }}
+          HAS_APPLE_IAP_PRIVATE_KEY: ${{ secrets.APPLE_IAP_PRIVATE_KEY != '' }}
+          HAS_APPLE_NOTIFICATIONS_HEALTH_TOKEN: ${{ secrets.APPLE_NOTIFICATIONS_HEALTH_TOKEN != '' }}
+        run: python3 scripts/ci/billing_nightly.py config APPLE_IAP_KEY_ID APPLE_IAP_ISSUER_ID APPLE_IAP_PRIVATE_KEY APPLE_NOTIFICATIONS_HEALTH_TOKEN
+
+      - name: Setup Bun
+        if: steps.config.outputs.ready == 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Cache Bun package cache
+        if: steps.config.outputs.ready == 'true'
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+
+      - name: Install dependencies
+        if: steps.config.outputs.ready == 'true'
+        run: bun install --frozen-lockfile
+
+      - name: Apple delivery round trip (com.cmux.app, ${{ matrix.environment }})
+        if: steps.config.outputs.ready == 'true'
+        env:
+          APPLE_IAP_KEY_ID: ${{ secrets.APPLE_IAP_KEY_ID }}
+          APPLE_IAP_ISSUER_ID: ${{ secrets.APPLE_IAP_ISSUER_ID }}
+          APPLE_IAP_PRIVATE_KEY: ${{ secrets.APPLE_IAP_PRIVATE_KEY }}
+          APPLE_NOTIFICATIONS_HEALTH_TOKEN: ${{ secrets.APPLE_NOTIFICATIONS_HEALTH_TOKEN }}
+          ENVIRONMENT: ${{ matrix.environment }}
+          HEALTH_URL: ${{ vars.BILLING_NIGHTLY_HEALTH_URL || 'https://cmux.com/api/cron/apple-notifications/health' }}
+        run: |
+          bun scripts/billing/apple-nightly-check.ts delivery \
+            --environment "$ENVIRONMENT" --bundle-id com.cmux.app \
+            --health-url "$HEALTH_URL" --report "$RUNNER_TEMP/apple-delivery.json"
+
+  apple-api:
+    name: apple-api
+    if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    environment: billing-nightly
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Check configuration
+        id: config
+        working-directory: .
+        env:
+          HAS_APPLE_IAP_KEY_ID: ${{ secrets.APPLE_IAP_KEY_ID != '' }}
+          HAS_APPLE_IAP_ISSUER_ID: ${{ secrets.APPLE_IAP_ISSUER_ID != '' }}
+          HAS_APPLE_IAP_PRIVATE_KEY: ${{ secrets.APPLE_IAP_PRIVATE_KEY != '' }}
+          HAS_APPLE_IAP_HEALTH_ORIGINAL_TRANSACTION_ID: ${{ vars.APPLE_IAP_HEALTH_ORIGINAL_TRANSACTION_ID != '' }}
+        run: python3 scripts/ci/billing_nightly.py config APPLE_IAP_KEY_ID APPLE_IAP_ISSUER_ID APPLE_IAP_PRIVATE_KEY APPLE_IAP_HEALTH_ORIGINAL_TRANSACTION_ID
+
+      - name: Setup Bun
+        if: steps.config.outputs.ready == 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Cache Bun package cache
+        if: steps.config.outputs.ready == 'true'
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+
+      - name: Install dependencies
+        if: steps.config.outputs.ready == 'true'
+        run: bun install --frozen-lockfile
+
+      - name: App Store Server API status lookup (com.cmux.app, Sandbox)
+        if: steps.config.outputs.ready == 'true'
+        env:
+          APPLE_IAP_KEY_ID: ${{ secrets.APPLE_IAP_KEY_ID }}
+          APPLE_IAP_ISSUER_ID: ${{ secrets.APPLE_IAP_ISSUER_ID }}
+          APPLE_IAP_PRIVATE_KEY: ${{ secrets.APPLE_IAP_PRIVATE_KEY }}
+          ORIGINAL_TRANSACTION_ID: ${{ vars.APPLE_IAP_HEALTH_ORIGINAL_TRANSACTION_ID }}
+        run: |
+          bun scripts/billing/apple-nightly-check.ts api \
+            --environment Sandbox --bundle-id com.cmux.app \
+            --original-transaction-id "$ORIGINAL_TRANSACTION_ID" --report "$RUNNER_TEMP/apple-api.json"
+
+  storekit:
+    name: storekit
+    # No secrets: it only dispatches this workflow on feat-cmux-next.
+    if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      actions: write # dispatch billing-nightly.yml on feat-cmux-next
+      contents: read
+    steps:
+      - name: Dispatch the StoreKit suite on feat-cmux-next
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Until feat-cmux-next has its billing-nightly.yml, there is nothing to run.
+          if ! gh api "repos/$GITHUB_REPOSITORY/contents/.github/workflows/billing-nightly.yml?ref=feat-cmux-next" --silent 2>/dev/null; then
+            echo "feat-cmux-next has no billing-nightly.yml yet; StoreKit suite skipped." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          gh workflow run billing-nightly.yml -R "$GITHUB_REPOSITORY" --ref feat-cmux-next
+          echo "Dispatched billing-nightly.yml on feat-cmux-next; it reports the StoreKit suite in its own run and issue." >> "$GITHUB_STEP_SUMMARY"
+
+  alert:
+    name: alert
+    needs: [suite, apple-delivery, apple-api, storekit]
+    if: ${{ always() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    environment: billing-nightly
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci/billing_nightly.py
+          sparse-checkout-cone-mode: false
+
+      - name: Open, update or close the red-nightly issue; tell Slack when the state changes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          NEEDS: ${{ toJSON(needs) }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          CMUX_NOTIFY_TOKEN: ${{ secrets.CMUX_NOTIFY_TOKEN }}
+          CMUX_NOTIFY_URL: https://cmux-testflight-founders.debussy.workers.dev
+          # #cmux-automations
+          CMUX_NOTIFY_CHANNEL: C0BA32V49FD
+        run: python3 scripts/ci/billing_nightly.py alert --title "Billing nightly is red" --workflow billing-nightly.yml
