@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44069181406",
+  "recorded_at": "2026-11-17T11:11:30Z",
+  "reason": "cmux-tui 52c3806ac662 changes the image's cmux-tui (pinned 759ed6153583)",
+  "dry_run": false,
+  "cmux_tui": "52c3806ac662f9f15d81fca9eb51051648d40821",
+  "fixes": [
+    {
+      "sha": "52c3806ac662f9f15d81fca9eb51051648d40821",
+      "mergedAt": "2026-11-17T02:38:53-08:00",
+      "subject": "Cloud MCP: noun_verb tool names with aliases, idempotency_key on agent_run, terminal_input_write and send_message (#45384)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T11:11:30Z",
+    "snapshot_id": "sh-c642d7b3487d4c548fac31c26fb7fe1d",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44069181406): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f41efeff934b571c1aa8322693eb4a2fa2f4dcdf",
+    "image": "cloud-native-auto-52c3806a-44069181406-1",
+    "revision": "ci-44069181406-1",
+    "at": "2026-11-17T11:11:30Z"
+  },
+  "rolled_back": false
+}
