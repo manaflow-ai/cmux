@@ -145,6 +145,15 @@ class Routes(unittest.TestCase):
         run, result = route(["cmux-tui/crates/gone/src/lib.rs"])
         self.assertTrue(all(run.values()), result.lines())  # no base to place it: unknown
 
+    def test_deleting_a_fixture_a_test_still_names_runs_the_job(self):
+        # fixtures/app/x.json is read at run time through a "../" literal, which counts only while the path exists:
+        # the head's graph alone does not see a change that deletes it.
+        head = {path: text for path, text in FILES.items() if path != "fixtures/app/x.json"}
+        with fake_tree(FILES) as base, fake_tree(head) as tree:
+            result = jobs.route(tree, ["fixtures/app/x.json"], map_text=MAP, base_tree=base)
+        run = {key[1]: value for key, value in result.run.items()}
+        self.assertEqual(run, {"app-tests": True, "app-sim": True, "core-check": False}, result.lines())
+
     def test_an_unreadable_graph_runs_everything(self):
         broken = {**FILES, "cmux-tui/crates/app/Cargo.toml": "[package\n"}
         with fake_tree(broken) as tree:

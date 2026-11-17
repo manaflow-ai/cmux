@@ -195,12 +195,15 @@ def route(tree: git_tree.GitTree | None, changed: list[str] | None, *, event: st
         result.router_changed = True
         return everything(f"the router changed ({own[0]})")
     graph = Graph(tree, workspace_inputs, jobs, base_tree)
+    # The graph at the base too: a fixture a test reads at run time ("../" literal) counts only while it exists, so
+    # a change that deletes it is no input of the head's graph, yet breaks the test that still names it.
+    base_graph = Graph(base_tree, workspace_inputs, jobs) if base_tree is not None else None
     try:
         unknown = [path for path in changed if graph.unknown(path)]
         if unknown:
             return everything(f"{unknown[0]} is in no cmux-tui package and no job's input")
         for job in jobs_here:
-            inputs = graph.inputs(job)
+            inputs = graph.inputs(job) + (base_graph.inputs(job) if base_graph is not None else [])
             hits = [path for path in changed if any(under(path, entry) for entry in inputs)]
             result.run[job.workflow, job.id] = bool(hits)
             result.why[job.workflow, job.id] = (
