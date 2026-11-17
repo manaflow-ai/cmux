@@ -538,6 +538,10 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     private var forced: Set<String> = []
     /// The first reload with a width lays out the newest rows on the spot (what opens on screen).
     private var primed = false
+    /// The most rows the first reload with rows looks at to prime (`reload`).
+    static let primeVisitLimit = 160
+    /// Rows looked at for priming, in all (tests: once, bounded, however many reloads follow).
+    private(set) var primeVisits = 0
     /// Each turn's rows as last shown: its build generation, row ids and layout items.
     private var shownTurns: [String: ShownTurn] = [:]
 
@@ -912,20 +916,29 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         var heldMissing: [String] = []
         if !primed, lookup.layouts.environment != nil {
             // The newest 24 rows, and more while they fill less than a screen and a half (short rows),
-            // up to 80: every row the chat opens on is laid out at its real height.
+            // up to 80: every row the chat opens on is laid out at its real height. At most
+            // `primeVisitLimit` rows are looked at, native or not: a history of mostly SwiftUI rows
+            // (prompts from other agents, questions) must not walk the whole chat.
             let fill = collectionView.bounds.height * 1.5
             var filled: CGFloat = 0
-            func wants() -> Bool { prime.count < 80 && (prime.count < 24 || filled < fill) }
+            var visited = 0
+            func wants() -> Bool {
+                visited < Self.primeVisitLimit && prime.count < 80 && (prime.count < 24 || filled < fill)
+            }
             for turn in built.reversed() where wants() {
                 for row in turn.rows.reversed() where wants() {
+                    visited += 1
                     filled += row.estimatedHeight(width: width) + row.gap
                     if lookup.eligible(row) { prime.insert(row.id) }
                 }
             }
-            // Primed once there were rows to prime: a chat that opened before its history landed (an
-            // empty first reload) primes the history's newest rows when it lands. They took
-            // estimates before, then their real heights a few frames later, moving every row on screen.
-            primed = !prime.isEmpty
+            primeVisits += visited
+            // Primed once the history is in: a chat that opened before its history landed (an empty
+            // first reload) primes the history's newest rows when it lands. They took estimates
+            // before, then their real heights a few frames later, moving every row on screen. A
+            // history with no native row among its newest is primed too (nothing to prime), so no
+            // later reload walks it again.
+            primed = !turns.isEmpty
         }
         for turn in built {
             if let shown = shownTurns[turn.turnID], shown.generation == turn.generation, !shown.ids.contains(where: seen.contains) {
