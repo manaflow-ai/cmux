@@ -41,7 +41,7 @@ for v in "$claude_version" "$codex_version"; do
   [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "mcp-fanout.sh: versions are X.Y.Z" >&2; exit 2; }
 done
 [[ -z "$tool" || "$tool" =~ ^[A-Za-z0-9_]{1,128}$ ]] || { echo "mcp-fanout.sh: tool= is a tool name" >&2; exit 2; }
-for t in curl python3 npm ps; do command -v "$t" >/dev/null || { echo "MCP-FANOUT-MISSING-TOOL $t" >&2; exit 2; }; done
+for t in curl python3 ps shasum; do command -v "$t" >/dev/null || { echo "MCP-FANOUT-MISSING-TOOL $t" >&2; exit 2; }; done
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 work="$root/.build/mcp-fanout"
@@ -74,6 +74,24 @@ else
 fi
 [[ -x "$bin" ]] || { echo "MCP-FANOUT no acpmux at $bin" >&2; exit 3; }
 echo "MCP-FANOUT-ACPMUX $("$bin" --version 2>&1 | head -1)"
+
+# A bench Mac may have no npm (cmux20-bench had none): fetch a pinned Node, checked against nodejs.org's SHASUMS256.
+if ! command -v npm >/dev/null; then
+  node_v=v24.22.3
+  case "$(uname -m)" in
+    arm64) node_arch=darwin-arm64 node_sum=ff6e17d4874b76d272212b908cc020d6e815fba5a6c7eaaa06add725840307fd ;;
+    x86_64) node_arch=darwin-x64 node_sum=977614af0504c81045e7fd85596dbca0e5f951b96681516dadafedcca8c447f7 ;;
+    *) echo "MCP-FANOUT-MISSING-TOOL npm (no pinned Node for $(uname -s) $(uname -m))" >&2; exit 2 ;;
+  esac
+  mkdir -p "$work/node"
+  curl -fsSL --proto '=https' --retry 3 --retry-all-errors -o "$work/node/node.tar.gz" \
+    "https://nodejs.org/dist/$node_v/node-$node_v-$node_arch.tar.gz"
+  echo "$node_sum  $work/node/node.tar.gz" | shasum -a 256 -c - >/dev/null \
+    || { echo "MCP-FANOUT node $node_v $node_arch checksum mismatch" >&2; exit 3; }
+  tar -xzf "$work/node/node.tar.gz" -C "$work/node" --strip-components 1
+  export PATH="$work/node/bin:$PATH"
+  echo "MCP-FANOUT-NODE pinned $node_v $node_arch"
+fi
 
 npm install --prefix "$work/tools" --no-fund --no-audit \
   "@anthropic-ai/claude-code@$claude_version" "@openai/codex@$codex_version" >/dev/null

@@ -763,21 +763,36 @@ def _light_room(label: str, runners: Sequence[Mapping[str, Any]], seen: Any) -> 
     """The idle runners carrying the light side `label` beyond the jobs already queued on it, or 0 while the
     janitor snapshot is unread or stale, or while a nightly or release job waits on the light family (any pool
     of the same `<class>-xcode-<version>` with reserved_queued): nightly first."""
-    snapshot = getattr(seen, "snapshot", None) if seen is not None else None
-    if not isinstance(snapshot, Mapping) or getattr(seen, "stale", True):
-        return 0
-    pools = snapshot.get("pools") or {}
-    own = _family(label)
-    if not isinstance(pools, Mapping) or any(
-            _family(str(name)) == own and int((entry or {}).get("reserved_queued") or 0) > 0
-            for name, entry in pools.items() if isinstance(entry, Mapping)):
+    if not _light_family_open(label, seen):
         return 0
     queued = int((getattr(seen, "owned_queued", None) or {}).get(label, 0) or 0)
     return max(0, pool.live_owned_free(runners, [label])[label] - queued)
 
 
+def _light_family_open(label: str, seen: Any) -> bool:
+    """Whether the janitor snapshot is read and fresh and no nightly or release job waits on the light family of
+    `label` (any pool of the same `<class>-xcode-<version>` with reserved_queued): nightly first."""
+    snapshot = getattr(seen, "snapshot", None) if seen is not None else None
+    if not isinstance(snapshot, Mapping) or getattr(seen, "stale", True):
+        return False
+    pools = snapshot.get("pools") or {}
+    own = _family(label)
+    return isinstance(pools, Mapping) and not any(
+        _family(str(name)) == own and int((entry or {}).get("reserved_queued") or 0) > 0
+        for name, entry in pools.items() if isinstance(entry, Mapping))
+
+
+def cloud_has_room(live: Mapping[str, int] | None, waiting: Mapping[str, int] | None) -> bool:
+    """Whether the light-fit jobs' Blacksmith leg (GUI_OVERFLOW) has a free slot now: in flight plus queued under
+    its capacity (next_macos_cascade.CAPACITY). light_spill_route() reads it only with both counts read."""
+    if live is None or waiting is None:
+        return False
+    return int(live.get(GUI_OVERFLOW, 0)) + int(waiting.get(GUI_OVERFLOW, 0)) < cascade.CAPACITY[GUI_OVERFLOW]
+
+
 def light_spill_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None, seen: Any,
-                      owned: Sequence[str] = (), fast: str = "") -> tuple[str, tuple[str, ...]]:
+                      owned: Sequence[str] = (), fast: str = "", live: Mapping[str, int] | None = None,
+                      waiting: Mapping[str, int] | None = None) -> tuple[str, tuple[str, ...]]:
     """(the light minis' side label, the LIGHT_SPILL_JOBS its idle runners take), else ("", ()).
 
     Leo, 2026-11-11, with the std minis at 95 to 100% CPU and the light minis at 21 of 92 capacity units
@@ -791,6 +806,17 @@ def light_spill_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any
     one job per runner, before the cascade. As light_fast_route(): attempt 1 only, never while a nightly
     or release job waits on the light family, and an unread or stale snapshot places nothing. A light
     runner the fast tier just took (`fast`) is not counted.
+
+    With no idle light runner for a job, it still queues on the light side label while that label has an
+    online runner and the Blacksmith leg (GUI_OVERFLOW) has no free slot (cloud_has_room(); `live` and
+    `waiting` are the cascade's counts). It used to go to the cascade, and the cascade's last resort is a
+    Blacksmith macOS label at its cap. On 2026-11-17, cmux#43307's daemon tests (run 44001991089) were placed
+    at 02:23Z with no idle light runner, when `blacksmith-6vcpu-macos-26` held 17 in flight and 91 queued of
+    10. The job became runnable at 04:17Z, landed on that queue and had no runner an hour later. Meanwhile the
+    owned light runners turned over every few minutes (12 busy and 56 held at 02:17Z). A queue on an owned
+    label drains as its runners free; a queue past a cloud label's cap does not. Queuing on the owned label is
+    also safe when the decision is old: the label is right whenever the job becomes runnable, and a cloud slot
+    is taken only while one is free at placement.
     """
     if runners is None or (env.get("GITHUB_RUN_ATTEMPT") or "").strip() not in ("", "1"):
         return "", ()
@@ -800,6 +826,9 @@ def light_spill_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any
     if not label or not jobs:
         return "", ()
     room = _light_room(label, runners, seen) - (1 if fast == label else 0)
+    if (room < len(jobs) and _light_family_open(label, seen) and _online(label, runners) > 0
+            and live is not None and waiting is not None and not cloud_has_room(live, waiting)):
+        return label, tuple(jobs)  # queue on the owned label: the cloud leg is full (docstring)
     return (label, tuple(jobs[:room])) if room > 0 else ("", ())
 
 
@@ -1393,7 +1422,7 @@ def _main(env: Mapping[str, str] = os.environ) -> int:
         env = without_jobs(env, fresh_jobs)
     owned, fallback, why = decide(env, runners)
     # The jobs no idle std runner took that a light mini runs: an idle light side runner before the cascade.
-    light, light_jobs = light_spill_route(env, runners, seen, owned, fast)
+    light, light_jobs = light_spill_route(env, runners, seen, owned, fast, live, waiting)
     if light_jobs:
         env = without_jobs(env, light_jobs)
         why += f"; no idle std side runner for {', '.join(light_jobs)}, so they take idle light `{light}`"

@@ -181,6 +181,28 @@ fn next_records_carry_creator_and_team() {
 }
 
 #[test]
+fn a_next_record_carries_its_size() {
+    let machine = next(json!({
+        "id": "vm_s", "status": "running", "size": {"cpu": 4, "memory_mb": 16384, "disk_mb": 65536}
+    }));
+    let size = machine.size.clone().unwrap();
+    assert_eq!((size.cpu, size.memory_mb, size.storage_mb), (Some(4), Some(16384), Some(65536)));
+    assert_eq!(size.name, None);
+    // The app's JSON (CloudMachine.swift `Size`) names them as the classic record does.
+    let text = serde_json::to_value(&machine).unwrap();
+    assert_eq!(text["size"]["memoryMb"], 16384);
+    assert_eq!(text["size"]["storageMb"], 65536);
+    // A malformed field drops only itself; no readable field, or no size, is no size.
+    let partial = next(
+        json!({"id": "vm_s", "status": "running", "size": {"cpu": "four", "memory_mb": 4096}}),
+    );
+    assert_eq!(partial.size.unwrap().memory_mb, Some(4096));
+    assert_eq!(next(json!({"id": "vm_s", "size": {"cpu": "four"}})).size, None);
+    assert_eq!(next(json!({"id": "vm_s", "size": null})).size, None);
+    assert_eq!(next(json!({"id": "vm_s"})).size, None);
+}
+
+#[test]
 fn a_next_record_carries_when_a_paused_machine_is_deleted() {
     let paused = next(json!({"id": "vm_p", "status": "paused", "evict_at": 1_800_000_000_000_i64}));
     assert_eq!(paused.evict_at, Some(1_800_000_000_000.0));

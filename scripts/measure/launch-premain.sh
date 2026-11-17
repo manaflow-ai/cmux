@@ -176,7 +176,25 @@ ended() { quiesce 0; sleep 3; }
 
 # relink: a second hard link to the executable made and removed, as Chromium's code-sign clone links it into
 # $DARWIN_USER_TEMP/../X/<bundle id>.code_sign_clone/ (cmux#44204): the link count and ctime change, the bytes do not.
-relink() { ln "$EXE" "$OUT/exe-link" && rm -f "$OUT/exe-link"; }
+# First as the step's user; if that is refused, as the console user the app runs as (Chromium links as the app). A row
+# (role relink) says who made the link, or both errors.
+relink() {
+  local direct console="" by=step nlink
+  nlink="$(stat -f %l "$EXE")"
+  if ! direct="$(ln "$EXE" "$OUT/exe-link" 2>&1)"; then
+    rm -f "$OUT/home/exe-link"
+    if console="$(GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh /bin/sh -c \
+        'ln "$1" "$2" && rm -f "$2"' sh "$EXE" "$OUT/home/exe-link" 2>&1 >/dev/null)"; then
+      by=console
+    else
+      by=none
+    fi
+  fi
+  rm -f "$OUT/exe-link"
+  record relink "LP-RUN $(python3 -I -c 'import json,sys; print(json.dumps({"relink_by": sys.argv[1], "nlink_before": int(sys.argv[2]), "nlink_after": int(sys.argv[3]), "direct_error": sys.argv[4][-300:], "console_error": sys.argv[5][-300:]}))' \
+    "$by" "$nlink" "$(stat -f %l "$EXE")" "$direct" "$console")"
+  [[ "$by" != none ]]
+}
 
 # measured open|exec|sampled: the measured launch B (open: SIGTERM at its first window), with the executable's link
 # count and seconds since its ctime before it, and the CPU the system's code checkers (syspolicyd, XprotectService,

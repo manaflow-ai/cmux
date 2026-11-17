@@ -10,8 +10,10 @@ import CmuxNextCompat
 ///
 /// The coverage is the coverage AppKit gives a label on screen. Font smoothing (on macOS that is
 /// stem darkening, not subpixel color) is what AppKit uses in this process
-/// (``ProcessFontSmoothing/current``, `appearance.fontSmoothing`): an explicit setting on a bitmap
-/// context is not reached by the `AppleFontSmoothing` default AppKit follows, so the mask reads it.
+/// at launch (``ProcessFontSmoothing/chrome``, `appearance.fontSmoothing`): an explicit setting on a
+/// bitmap context is not reached by the `AppleFontSmoothing` default AppKit follows, so the mask
+/// reads it, and a later change of the setting reaches the mask at once (AppKit's own text keeps
+/// the launch's until a restart).
 /// With smoothing on, the ink is the text's own color: Core Graphics
 /// darkens stems by the ink's luminance, in four steps (measured on macOS 27 at 13 pt, 2x: near-white
 /// ink covers 15% more than black, so a mask drawn in black is 13% light on a dark theme). The
@@ -22,11 +24,16 @@ nonisolated enum GlyphMask {
     ///
     /// Core Graphics does not publish the steps, so this asks it: the coverage of a reference
     /// string drawn in `ink`, cached per 8-bit sRGB color.
-    static func weight(of ink: CGColor?) -> Int {
+    ///
+    /// The value also names the smoothing (``ProcessFontSmoothing/chrome``) the image draws with:
+    /// an image kept for one smoothing is never shown for the other, and a smoothing change makes
+    /// every label's weight differ from the one it drew, so it draws again (``ChromeTextRefresh``).
+    static func weight(of ink: CGColor?, smoothing: ProcessFontSmoothing = .chrome) -> Int {
         let rgb = components(of: ink)
-        let key = rgb.reduce(UInt32(0)) { $0 << 8 | UInt32(($1 * 255).rounded()) }
+        let smooths = smoothing.smoothsStems
+        let key = rgb.reduce(UInt32(smooths ? 1 : 0)) { $0 << 8 | UInt32(($1 * 255).rounded()) }
         if let known = weights.withLock({ $0[key] }) { return known }
-        let measured = measure(rgb)
+        let measured = measure(rgb, smoothing: smoothing) * 2 + (smooths ? 1 : 0)
         weights.withLock { cache in
             if cache.count >= 512 { cache.removeAll() }
             cache[key] = measured
@@ -37,9 +44,9 @@ nonisolated enum GlyphMask {
     /// The glyph coverage of `draw` over `size` points at `scale`, top row first.
     ///
     /// `draw` runs in a top-down point space (origin at the top left, like a flipped view) with
-    /// font smoothing as `smoothing` says (this process's, by default), `ink` (opaque) as the fill color and a flipped `NSGraphicsContext` current,
+    /// font smoothing as `smoothing` says (``ProcessFontSmoothing/chrome``, by default), `ink` (opaque) as the fill color and a flipped `NSGraphicsContext` current,
     /// so Core Text and AppKit cells draw into it alike. The image is whole pixels, rounded up.
-    static func image(size: CGSize, scale: CGFloat, ink: CGColor?, smoothing: ProcessFontSmoothing = .current,
+    static func image(size: CGSize, scale: CGFloat, ink: CGColor?, smoothing: ProcessFontSmoothing = .chrome,
                       draw: (CGContext, CGColor) -> Void) -> CGImage? {
         let scale = max(scale, 1)
         let (width, height) = pixels(size, scale: scale)
@@ -107,15 +114,15 @@ nonisolated enum GlyphMask {
         return CGColor(srgbRed: rgb[0], green: rgb[1], blue: rgb[2], alpha: 1)
     }
 
-    /// The alpha sum of a reference string drawn in `rgb`, smoothed as this process smooths.
-    private static func measure(_ rgb: [CGFloat]) -> Int {
+    /// The alpha sum of a reference string drawn in `rgb`, smoothed as `smoothing` says.
+    private static func measure(_ rgb: [CGFloat], smoothing: ProcessFontSmoothing) -> Int {
         let width = 96, height = 40
         guard let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
                                   space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return 0 }
         ctx.scaleBy(x: 2, y: 2)
         ctx.setAllowsFontSmoothing(true)
-        ctx.setShouldSmoothFonts(ProcessFontSmoothing.current.smoothsStems)
+        ctx.setShouldSmoothFonts(smoothing.smoothsStems)
         ctx.setFillColor(CGColor(srgbRed: rgb[0], green: rgb[1], blue: rgb[2], alpha: 1))
         let line = CTLineCreateWithAttributedString(NSAttributedString(string: "Hlm", attributes: [
             .font: NSFont.systemFont(ofSize: TypeScale.Base.body),

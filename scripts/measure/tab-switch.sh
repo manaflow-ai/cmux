@@ -42,6 +42,71 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
+# A build here (build=SHA, build=head, or the --flag mode) fetches pinned assets whose last source is the private
+# cmux-cef R2 bucket, read with the CMUX_CEF_R2_* read credentials (cmux-remote-dev.pin.json in a Release build that
+# embeds cmux Remote, the Chromium engine when the store has no copy). Without them the build ran 7 to 13 minutes under
+# the host lock and then failed (cmux19, 2026-11-16 22:28Z, 22:42Z and 00:04Z), so they are checked first: the
+# environment, else CMUX_CEF_R2_ENV_FILE, else ~/.secrets/cmux-cef.env of this HOME or of the account (a fleet step
+# has its own HOME). The file found is exported, so the build reads the same one. The controller sends these steps
+# only to workers that advertise cef-r2 (cmuxterm-hq build-fleet); build-fleet/mini-ops/cef-r2-key.sh installs the key.
+cef_read_file_ok() {
+  local file="$1" name
+  [[ -n "$file" && -r "$file" ]] || return 1
+  for name in CMUX_CEF_R2_ACCOUNT_ID CMUX_CEF_R2_ACCESS_KEY_ID CMUX_CEF_R2_SECRET_ACCESS_KEY; do
+    grep -Eq "^(export )?$name=[\"']?[^\"'[:space:]]" "$file" || return 1
+  done
+}
+require_cef_read_credentials() {
+  if [[ -n "${CMUX_CEF_R2_ACCESS_KEY_ID:-}" && -n "${CMUX_CEF_R2_SECRET_ACCESS_KEY:-}" &&
+    -n "${CMUX_CEF_R2_ACCOUNT_ID:-}${CMUX_CEF_R2_ENDPOINT:-}" ]]; then
+    return 0
+  fi
+  local account_home="${TSW_ACCOUNT_HOME-$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk '{print $2}')}"
+  local file
+  for file in "${CMUX_CEF_R2_ENV_FILE:-}" "$HOME/.secrets/cmux-cef.env" "${account_home:+$account_home/.secrets/cmux-cef.env}"; do
+    if cef_read_file_ok "$file"; then
+      export CMUX_CEF_R2_ENV_FILE="$file"
+      return 0
+    fi
+  done
+  echo "TSW no CMUX_CEF_R2_* read credentials on this Mac (none in the environment, ${CMUX_CEF_R2_ENV_FILE:+$CMUX_CEF_R2_ENV_FILE, }$HOME/.secrets/cmux-cef.env${account_home:+ or $account_home/.secrets/cmux-cef.env}): a build here would fail after minutes fetching its pinned assets. Not building. Measure build=nightly, or run on a worker labeled cef-r2 (cmuxterm-hq build-fleet/mini-ops/cef-r2-key.sh HOST installs the read key)."
+  exit 3
+}
+
+# Each submodule commit the build checks out must be fetchable before the build starts: a pointer to a ghostty commit
+# its fork lacks, or a host mirror (url.*.insteadOf) older than the pointer, failed with "cannot fetch" only after the
+# step had taken the host (a fleet Mac, 2026-11-16). One commit object is fetched (--depth 1 --filter=tree:0, under a second)
+# into a scratch bare repository under DIR; on a miss the line says which: a stale mirror, an unreachable remote, or a
+# commit the fork never received (push it there first). Exit 3, could not measure.
+require_submodule_refs() { # SRC DIR [PREFIX]
+  local src="$1" dir="$2" prefix="${3:-TSW}" sub sha url probe effective why
+  # A stalled transfer (under 1 byte/s for 20 s) gives up: macOS has no timeout(1).
+  local stall=(-c http.lowSpeedLimit=1 -c http.lowSpeedTime=20)
+  for sub in ghostty ghostty-next; do
+    sha="$(git -C "$src" rev-parse --verify --quiet "HEAD:$sub" 2>/dev/null)" || continue
+    [ -e "$src/$sub/.git" ] && continue # prepare_build reuses a checked-out submodule as it is
+    url="$(git -C "$src" config -f .gitmodules "submodule.$sub.url" 2>/dev/null)" || continue
+    probe="$dir/submodule-probe-$sub"
+    rm -rf -- "$probe" && git init --quiet --bare "$probe"
+    if git "${stall[@]}" -C "$probe" fetch --quiet --no-tags --depth 1 --filter=tree:0 "$url" "$sha" 2>/dev/null; then
+      rm -rf -- "$probe"
+      continue
+    fi
+    effective="$(git ls-remote --get-url "$url")" || effective="$url" # reads config only, never the remote
+    if [[ "$effective" != "$url" ]] && GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+      git "${stall[@]}" -C "$probe" fetch --quiet --no-tags --depth 1 --filter=tree:0 "$url" "$sha" 2>/dev/null; then
+      why="this host's mirror $effective lacks it but $url has it: refresh the mirror"
+    elif ! git "${stall[@]}" ls-remote --exit-code "$url" HEAD >/dev/null 2>&1; then
+      why="$effective cannot be reached from this host"
+    else
+      why="$url does not have it: the cmux commit records a $sub pointer that was never pushed to the fork"
+    fi
+    rm -rf -- "$probe"
+    echo "$prefix cannot fetch submodule $sub at $sha: $why. Not building."
+    return 3
+  done
+}
+
 # Submodules, GhosttyKit and the pinned bun a tagged build needs (a fleet step checks out no submodules).
 prepare_build() {
   local tmp="$1"
@@ -99,6 +164,7 @@ app_under_test() {
       src="$tmp/src"
       git -c submodule.recurse=false worktree add --quiet --detach "$src" "$build" || return 3
     fi
+    require_submodule_refs "$src" "$tmp" "$prefix" || return 3
     APP_LABEL="$(git -C "$src" rev-parse HEAD)" || return 3
     local configuration=(--release)
     [[ "$config" == bench ]] && configuration=(--config bench)
@@ -142,6 +208,7 @@ frames_main() {
   [[ -z "$rows" || "$rows" =~ ^[0-9]+$ ]] || { echo "tab-switch: rows= takes a number" >&2; exit 2; }
   [[ "$load" =~ ^[A-Za-z0-9+,-]+$ && "$scenarios" =~ ^[a-z0-9,-]*$ ]] || { echo "tab-switch: load= and scenarios= take names" >&2; exit 2; }
   [[ "$build" == nightly || "$build" == head || "$build" =~ ^[0-9a-f]{40}$ ]] || { echo "tab-switch: build= is nightly, head or a 40-hex commit" >&2; exit 2; }
+  [[ "$build" == nightly ]] || require_cef_read_credentials
   local root="$PWD" out="$PWD/.build/tab-switch" tmp
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
   tmp="$(mktemp -d)"
@@ -195,12 +262,14 @@ if [[ "${1:-}" =~ ^(build|rounds|load|scenarios|gate|turns|agents|dmg|config|rec
   frames_main "$@"
 fi
 
+require_cef_read_credentials
 tag="tabswitch"
 out="$(mktemp -d)"
 # Remove the scratch folder on every exit (a failed build, a TERM), not only at the end: a leaked one holds a build.
 trap 'rm -rf -- "$out"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+require_submodule_refs "$PWD" "$out" || exit 3
 prepare_build "$out"
 # --config=<debug|release|bench> picks reload.sh's build configuration (bench: Release optimization with the
 # debug.* control commands kept); every other argument goes to the bench.
