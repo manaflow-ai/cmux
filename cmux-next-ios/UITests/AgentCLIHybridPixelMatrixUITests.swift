@@ -180,6 +180,9 @@ final class AgentCLIHybridPixelMatrixUITests: XCTestCase {
         let fullScreen: Bool
         let alternate: Bool
         let scale: CGFloat
+        /// The bench's `attach-surface` answers (1: no reattach; a reattach gets the attach
+        /// moment's screen again, which the frames after it do not build on).
+        var attaches = 1
     }
 
     static func pause(_ seconds: TimeInterval) {
@@ -209,6 +212,7 @@ final class AgentCLIHybridPixelMatrixUITests: XCTestCase {
             return nil
         }
         XCTAssertFalse(result.label.contains("\"error\""), result.label)
+        let attaches = (try? JSONSerialization.jsonObject(with: Data(result.label.utf8)) as? [String: Any])?["attaches"] as? Int ?? 1
         if let between {
             between(app)
             // The page lays out again (and the bench's geometry follows it every 200 ms).
@@ -226,7 +230,7 @@ final class AgentCLIHybridPixelMatrixUITests: XCTestCase {
         let shot = XCUIScreen.main.screenshot()
         return Still(image: shot.image, grid: grid, cursor: Self.rect(geometry["cursor"]), cell: CGSize(width: cell[0], height: cell[1]),
                      fullScreen: geometry["fullScreen"] as? Bool ?? false, alternate: geometry["alternate"] as? Bool ?? false,
-                     scale: CGFloat(geometry["scale"] as? Double ?? Double(shot.image.scale)))
+                     scale: CGFloat(geometry["scale"] as? Double ?? Double(shot.image.scale)), attaches: attaches)
     }
 
     static func rect(_ value: Any?) -> CGRect? {
@@ -254,6 +258,9 @@ final class AgentCLIHybridPixelMatrixUITests: XCTestCase {
         guard let pty = shot(name, "pty", atMs, panEnd: panEnd, between: between),
               let lean = shot(name, "lean", atMs, panEnd: panEnd, between: between) else { return }
         var failures: [String] = []
+        if pty.attaches != 1 || lean.attaches != 1 {
+            failures.append("the bench was attached \(pty.attaches) times (PTY) and \(lean.attaches) (lean)")
+        }
         if pty.grid != lean.grid { failures.append("grid placed at \(lean.grid) instead of \(pty.grid)") }
         if pty.cursor != lean.cursor {
             failures.append("cursor at \(lean.cursor.map { "\($0)" } ?? "none") instead of \(pty.cursor.map { "\($0)" } ?? "none")")
@@ -276,7 +283,7 @@ final class AgentCLIHybridPixelMatrixUITests: XCTestCase {
         let bands = diff.bands.map { "\($0.name)=\($0.differing)/\($0.compared)" }.joined(separator: " ")
         let line = "PIXEL_MATRIX row=\(row) case=\(id) pass=\(failures.isEmpty) grid=\(diff.differing)/\(diff.compared) "
             + "share=\(String(format: "%.4f", gridShare * 100))% \(bands) fullScreen=\(pty.fullScreen)/\(lean.fullScreen) "
-            + "alternate=\(pty.alternate)/\(lean.alternate)" + (failures.isEmpty ? "" : " why=\(failures.joined(separator: "; "))")
+            + "alternate=\(pty.alternate)/\(lean.alternate) attaches=\(pty.attaches)/\(lean.attaches)" + (failures.isEmpty ? "" : " why=\(failures.joined(separator: "; "))")
         print(line)
         let summary = XCTAttachment(string: line)
         summary.name = "\(id)-summary"

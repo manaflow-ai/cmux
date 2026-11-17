@@ -98,11 +98,6 @@ final class AgentCLIHybridBench {
             open: { DaemonClient(channel: daemon.main, eventCapacity: BoundedDaemonEventBuffer.defaultCapacity) },
             openInput: { DaemonClient(channel: daemon.lane, eventCapacity: BoundedDaemonEventBuffer.defaultCapacity) }
         )
-        // A still (the pixel matrix) plays the session at once after the attach, while the
-        // phone's size claim waits for the Mac's answer, and this fake Mac never answers it:
-        // the PTY side then held a Mac grid change (`TerminalReclaimHold`) and showed the
-        // screen from before it. A real Mac answers within a round trip; no claim wait here.
-        if Self.stillMs != nil { terminal.reclaimWait = .zero }
         self.terminal = terminal
         model = TerminalModel(session: terminal, artifactSource: MockArtifactSource(), title: "hybrid bench")
     }
@@ -178,7 +173,8 @@ final class AgentCLIHybridBench {
                 _ = await settledScreen(clock)
             }
             geometry = Self.geometryLine(probe.readGeometry?(), alternate: terminal.isAlternateScreen)
-            finish(["mode": mode, "stillMs": stillMs, "firstFrameParity": firstParity.percent])
+            finish(["mode": mode, "stillMs": stillMs, "firstFrameParity": firstParity.percent,
+                    "attaches": daemon.attaches])
             // Nothing moves from here on, but the page can (a rotation, the background and
             // back): the geometry follows it until the test ends the app.
             while !Task.isCancelled {
@@ -428,6 +424,10 @@ final class HybridBenchDaemon: @unchecked Sendable {
     private let lock = NSLock()
     private var _attachAt: CFTimeInterval?
     private var _attachBytes = 0
+    /// `attach-surface` requests answered. Every one gets the attach moment's screen, so a
+    /// reattach after the play moved on draws later frames on an older screen: a still
+    /// reports it (`attaches`) instead of passing as the session.
+    private var _attaches = 0
     private var _streamed = 0
     private var _declaredHybrid = false
     private var nextPTY = 0
@@ -436,6 +436,7 @@ final class HybridBenchDaemon: @unchecked Sendable {
 
     var attachAt: CFTimeInterval? { lock.withLock { _attachAt } }
     var attachBytes: Int { lock.withLock { _attachBytes } }
+    var attaches: Int { lock.withLock { _attaches } }
     var streamedBytes: Int { lock.withLock { _streamed } }
     var declaredHybrid: Bool { lock.withLock { _declaredHybrid } }
 
@@ -498,6 +499,7 @@ final class HybridBenchDaemon: @unchecked Sendable {
             lock.withLock {
                 _attachAt = CACurrentMediaTime()
                 _attachBytes = first.count
+                _attaches += 1
             }
             // On the alternate screen the daemon tells an agent CLI's viewer the switch first.
             let before = hybrid ? session.attachBefore.map(Self.outputLine) : nil
