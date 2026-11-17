@@ -922,6 +922,63 @@ pub fn adopt(paths: &Paths) -> Outcome {
     }
     record_installed(&mut state, &plan);
     let _ = save_state(paths, &state);
+    flip_and_restart(paths, *plan, "adopt")
+}
+
+/// `cmux host update install --file PATH --commit C --committed-at T`: puts the build at
+/// `file` (a client's own pinned cmux-tui, the cmux NEXT app's: `cmux link machine update
+/// --to-bundled` on a machine whose work link is the store link) in the store and flips
+/// the profile to it, as [`adopt`] does with the channel's build: it relinks the work
+/// user's cmux-tui into `current`, arms the guard, restarts acpmux, the cmux units and
+/// last `cmux-host.service`, and the new `cmux host run` proves the build or rolls it
+/// back ([`healthy`]). Run as root, from the new build itself. Only cmux-tui changes
+/// ([`super::decide_pinned`]); a build not newer than the last one applied here, or one
+/// rolled back here, is left out, so the channel and the app never move a machine back.
+/// Like [`adopt`] it honors no hold: the caller asked for it while it waits.
+pub fn install_pinned(paths: &Paths, file: &Path, commit: &str, committed_at: u64) -> Outcome {
+    let Some(_lock) = Lock::take(paths, false) else {
+        return Outcome::Failed("another update check runs".to_owned());
+    };
+    if paths.at(super::OFF_FILE).exists() {
+        return Outcome::Off(format!("{} exists", super::OFF_FILE));
+    }
+    if load_pending(paths).is_some() {
+        return Outcome::Failed("an update is waiting for its health check".to_owned());
+    }
+    let sha256 = match store::sha256_file(file) {
+        Ok(sha) => sha,
+        Err(e) => return Outcome::Failed(format!("{}: {e}", file.display())),
+    };
+    let size = fs::metadata(file).map(|m| m.len()).unwrap_or(0);
+    let pinned = super::Pinned { sha256, size, commit: commit.to_owned(), committed_at };
+    let mut state = load_state(paths);
+    let plan = match super::decide_pinned(paths, &state, &pinned) {
+        Ok(Decision::Update(plan)) => plan,
+        Ok(Decision::Current) => return Outcome::Current(pinned.commit),
+        Ok(Decision::Older) => return Outcome::Older,
+        Ok(Decision::RolledBack) => return Outcome::RolledBackBefore,
+        Err(e) => return Outcome::Failed(e),
+    };
+    if !store::has_entry(paths, &pinned.sha256, CMUX_TUI)
+        && let Err(e) = store::add_entry(paths, &pinned.sha256, CMUX_TUI, file)
+    {
+        return Outcome::Failed(format!("adding {} to the store: {e}", file.display()));
+    }
+    if let Err(e) = store::build_profile(paths, plan.from, plan.to, &plan.replacements()) {
+        return Outcome::Failed(format!("building profile {}: {e}", plan.to));
+    }
+    // Only the new cmux-tui is this update's: the hook entry stays the profile's own.
+    if !state.installed.contains(&pinned.sha256) {
+        state.installed.push(pinned.sha256);
+    }
+    let _ = save_state(paths, &state);
+    flip_and_restart(paths, *plan, "install")
+}
+
+/// The last steps of [`adopt`] and [`install_pinned`], once the next profile is built:
+/// records the update as pending, arms the guard, relinks the work link, flips
+/// `/opt/cmux/current` and restarts the services. `what` names the verb in the log.
+fn flip_and_restart(paths: &Paths, plan: Plan, what: &str) -> Outcome {
     let pending = plan.pending(now());
     if let Err(e) = save_pending(paths, &pending) {
         return Outcome::Failed(format!("recording the update: {e}"));
@@ -954,7 +1011,7 @@ pub fn adopt(paths: &Paths) -> Outcome {
         log(&format!("{} links {} again", super::WORK_CMUX_TUI_LINK, super::CURRENT_CMUX_TUI));
     }
     log(&format!(
-        "adopt: profile {} -> {}: cmux-tui {} ({}); restarting the services",
+        "{what}: profile {} -> {}: cmux-tui {} ({}); restarting the services",
         plan.from,
         plan.to,
         short_hex(&plan.cmux_tui.sha256),
@@ -1763,45 +1820,76 @@ pub(super) fn report_then_restart(
 }
 
 /// [`restart_after_flip`] but `cmux-host.service`: the work user's acpmux and the
-/// other `cmux-*` system services that run `old`.
-pub(super) fn restart_others(old: &Path) {
+/// other `cmux-*` system services whose `ExecStart` program is a cmux-tui. systemd says
+/// which units run and what each starts, so nothing lists processes and `_old` (the
+/// binary just replaced) does not decide which unit restarts (plans/cmux-next/pty-holder.md
+/// section 4); a pinned install's old binary may not be the store entry the profile named.
+pub(super) fn restart_others(_old: &Path) {
     if !user_systemctl(&["restart", "--no-block", ACPMUX_UNIT]) {
         log("restarting the work user's acpmux.service failed (none on this image?)");
     }
-    for unit in services_running(old) {
+    let listed = systemctl_stdout(&[
+        "list-units",
+        "--type=service",
+        "--state=running",
+        "--plain",
+        "--no-legend",
+        "--no-pager",
+        "cmux-*.service",
+    ]);
+    for unit in running_units(listed.as_deref().unwrap_or_default()) {
         // Only the image's own cmux units: a provider agent or an operator's
         // shell that happens to run the binary (`cmux host update check`) stays.
-        if unit.starts_with("cmux-") && unit != HOST_UNIT && !unit.starts_with(GUARD_UNIT) {
+        if unit == HOST_UNIT || unit.starts_with(GUARD_UNIT) {
+            continue;
+        }
+        let exec = systemctl_stdout(&["show", "--property=ExecStart", "--value", &unit]);
+        if exec.as_deref().is_some_and(starts_cmux_tui) {
             let _ = systemctl(&["restart", "--no-block", &unit]);
         }
     }
 }
 
-/// The system services (`/system.slice/<unit>.service`) with a process
-/// whose executable is `binary`. Terminal hosts (their own scopes) and the
-/// user's units are not services here.
-fn services_running(binary: &Path) -> Vec<String> {
-    let mut units = Vec::new();
-    for entry in fs::read_dir("/proc").into_iter().flatten().flatten() {
-        let dir = entry.path();
-        if !entry.file_name().to_str().is_some_and(|n| n.bytes().all(|b| b.is_ascii_digit())) {
-            continue;
-        }
-        if fs::read_link(dir.join("exe")).ok().as_deref() != Some(binary) {
-            continue;
-        }
-        let Ok(cgroup) = fs::read_to_string(dir.join("cgroup")) else { continue };
-        for line in cgroup.lines() {
-            if let Some(unit) = line.strip_prefix("0::/system.slice/")
-                && unit.ends_with(".service")
-                && !unit.contains('/')
-                && !units.iter().any(|u| u == unit)
-            {
-                units.push(unit.to_owned());
-            }
+/// `systemctl …`'s standard output, at most 60 s; `None` when it fails.
+fn systemctl_stdout(args: &[&str]) -> Option<String> {
+    let output = Command::new("timeout")
+        .arg("60")
+        .arg("systemctl")
+        .args(args)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// The `cmux-*` service names in `systemctl list-units --plain --no-legend`
+/// output (the first word of each line).
+pub(super) fn running_units(listed: &str) -> Vec<String> {
+    let mut units: Vec<String> = Vec::new();
+    for line in listed.lines() {
+        let Some(unit) = line.split_whitespace().next() else { continue };
+        if unit.starts_with("cmux-")
+            && unit.ends_with(".service")
+            && !unit.contains('/')
+            && !units.iter().any(|u| u == unit)
+        {
+            units.push(unit.to_owned());
         }
     }
     units
+}
+
+/// Whether a unit's `ExecStart` (`systemctl show --property=ExecStart
+/// --value`: `{ path=/x/cmux-tui ; argv[]=… }`, one per command) starts a
+/// program named cmux-tui.
+pub(super) fn starts_cmux_tui(exec_start: &str) -> bool {
+    exec_start.split(';').any(|field| {
+        let field = field.trim().trim_start_matches('{').trim();
+        field
+            .strip_prefix("path=")
+            .is_some_and(|path| Path::new(path.trim()).file_name().is_some_and(|n| n == CMUX_TUI))
+    })
 }
 
 /// `cmux host update status [--json] | check [--skip-resume-hold] | guard --to N`.
@@ -1828,6 +1916,13 @@ pub fn verb(args: &[String]) -> u8 {
         }
         ["adopt"] => {
             let outcome = adopt(&paths);
+            log(&outcome.line());
+            println!("{}", outcome.json(None));
+            if matches!(outcome, Outcome::Failed(_)) { 1 } else { 0 }
+        }
+        ["install", "--file", file, "--commit", commit, "--committed-at", at] => {
+            let Ok(at) = at.parse::<u64>() else { return 2 };
+            let outcome = install_pinned(&paths, Path::new(file), commit, at);
             log(&outcome.line());
             println!("{}", outcome.json(None));
             if matches!(outcome, Outcome::Failed(_)) { 1 } else { 0 }
@@ -1861,7 +1956,7 @@ pub fn verb(args: &[String]) -> u8 {
         }
         _ => {
             eprintln!(
-                "usage: cmux host update status [--json] | check [--skip-resume-hold] | adopt | guard --to GENERATION"
+                "usage: cmux host update status [--json] | check [--skip-resume-hold] | adopt | install --file PATH --commit SHA --committed-at SECONDS | guard --to GENERATION"
             );
             2
         }

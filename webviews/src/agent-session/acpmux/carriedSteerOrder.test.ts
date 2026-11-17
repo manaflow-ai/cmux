@@ -327,3 +327,117 @@ test("a steer the person sends from the pane and the agent reads mid-turn stays 
     client.close?.();
   }
 });
+
+// Leo, 2026-11-17: "and the message you sent after my steer... shot up. instead of landing after my
+// steer prompt". A reply that was streaming when the person steered keeps its words above the
+// steer, but once the agent reads the steer (`steer_read`) what it writes next answers it and draws
+// below, even when its chunks carry no message id (or the same one) to say a new message began.
+async function liveSteer() {
+  const { AcpmuxDirectClient } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  const { forgetTail } = await import("./tailCache");
+  const { turnView } = await import("./conversation/turns");
+  forgetTail(mockHost.sessionId!);
+  const id = mockHost.sessionId!;
+  type Live = {
+    emit: (target: string, step: unknown) => void;
+    touch: (target: string, fields: Record<string, unknown>) => void;
+  };
+  let live: Live | undefined;
+  class Relay extends MockAcpmuxSocket {
+    constructor() {
+      super(() => Promise.resolve());
+      live = this as unknown as Live;
+      const self = this as unknown as { answer: (method: string, params: Record<string, any>) => Promise<unknown> };
+      const answer = self.answer.bind(this);
+      self.answer = (method, params) => {
+        if (method === "session/prompt" && params._meta?.acpmux?.steer === true) {
+          const text = (params.prompt as { type: string; text?: string }[]).map((block) => block.text ?? "").join("");
+          live!.emit(id, {
+            mux: "user_message",
+            msg: { text, promptId: params._meta.acpmux.promptId, steer: true, turnId: "t-1" },
+          });
+          return Promise.resolve({});
+        }
+        return answer(method, params);
+      };
+    }
+  }
+  let rows: Row[] = [];
+  const wakes: Array<() => void> = [];
+  const until = async (check: () => boolean) => {
+    while (!check()) await new Promise<void>((resolve) => wakes.push(resolve));
+  };
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    (snapshot) => {
+      rows = snapshot.rows as Row[];
+      for (const wake of wakes.splice(0)) wake();
+    },
+    undefined,
+    () => new Relay() as unknown as WebSocket,
+  );
+  await until(() => live !== undefined);
+  live!.touch(id, { status: "running" });
+  const emit = (step: unknown) => live!.emit(id, step);
+  const say = (words: string, messageId?: string) =>
+    emit({
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        ...(messageId && { messageId }),
+        content: { type: "text", text: words },
+      },
+    });
+  const steer = async (words: string, promptId: string) => {
+    void client.send(words, [], promptId, undefined, `ticket-${promptId}`, true);
+    await until(() => rows.some((row) => row.text === words && row.steer === "waiting"));
+  };
+  const finish = async () => {
+    emit({ mux: "turn_end", msg: { stopReason: "end_turn", turnId: "t-1" } });
+    emit({ mux: "turn_result", msg: { status: "completed", turnId: "t-1" } });
+    live!.touch(id, { status: "ready" });
+    await until(() => rows.some((row) => row.kind === "turnSummary"));
+  };
+  const view = (open: string[] = []) => turnView(rows as never, new Set(open)).map((entry) => entry.id);
+  return { client, emit, say, steer, finish, view, rows: () => rows, until };
+}
+
+for (const [name, messageIds] of [
+  ["without message ids", [undefined, undefined]],
+  ["under the message id the reply had", ["m-1", "m-1"]],
+] as const)
+  test(`a reply the agent writes after it read a steer draws below the steer, ${name}`, async () => {
+    const live = await liveSteer();
+    try {
+      live.emit({ mux: "user_message", msg: { text: "Fix the list", promptId: "p-1" } });
+      live.emit({ mux: "turn_started", msg: { promptId: "p-1", turnId: "t-1" } });
+      live.say("Looking at the list now", messageIds[0]);
+      await live.until(() => live.rows().some((row) => row.text === "Looking at the list now"));
+      await live.steer("and the flicker?", "p-steer");
+      // The reply that was streaming at the steer finishes in its row, above the steer.
+      live.say(".", messageIds[0]);
+      live.emit({ mux: "steer_read", msg: { promptId: "p-steer", turnId: "t-1" } });
+      live.say("On the flicker: it comes from the remount.", messageIds[1]);
+      await live.until(() => live.rows().some((row) => row.text?.includes("On the flicker")));
+      const check = () => {
+        const rows = live.rows();
+        const pre = rows.find((row) => row.text?.startsWith("Looking at the list now"))!;
+        const steered = rows.find((row) => row.text === "and the flicker?")!;
+        const reply = rows.find((row) => row.text?.includes("On the flicker"))!;
+        const order = live.view();
+        expect(reply.id).not.toBe(pre.id);
+        expect(pre.text).toBe("Looking at the list now.");
+        expect(reply.text).toBe("On the flicker: it comes from the remount.");
+        expect(steered.steer).toBe("landed");
+        expect(order.indexOf(pre.id)).toBeGreaterThan(-1);
+        expect(order.indexOf(pre.id)).toBeLessThan(order.indexOf(steered.id));
+        expect(order.indexOf(steered.id)).toBeLessThan(order.indexOf(reply.id));
+      };
+      check();
+      // The order stays once the turn ends.
+      await live.finish();
+      check();
+    } finally {
+      live.client.close?.();
+    }
+  });

@@ -678,8 +678,9 @@ public final class DaemonTerminalSession: TerminalSession {
             self.inbox = inbox
             let surface = surface
             let resumeFrom = hybridWanted ? hybridResume : nil
+            let resumeAlternate = resumeFrom != nil && isAlternateScreen
             eventTask = Task.detached { [weak self] in
-                var parser = DaemonTerminalEventParser(surface: surface, hybridResume: resumeFrom)
+                var parser = DaemonTerminalEventParser(surface: surface, hybridResume: resumeFrom, alternate: resumeAlternate)
                 for await line in events {
                     await inbox.push(parser.parse(line))
                 }
