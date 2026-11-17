@@ -769,9 +769,19 @@ jobs:
           sparse-checkout: |
             cmux-tui/relays/cloudflare-do
             scripts/ci/api_call_log
+      # The sparse checkout above names only the relay: read the pins (.node-version*) of this
+      # workflow's own commit, so setup-node never fails before the rollback runs.
+      - name: Check out the Node pins
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .build/node-pin
+          sparse-checkout: /.node-version*
+          sparse-checkout-cone-mode: false
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version-file: .node-version-22
+          node-version-file: .build/node-pin/.node-version-22
           cache: npm
           cache-dependency-path: cmux-tui/relays/cloudflare-do/package-lock.json
       - run: npm ci --no-audit --no-fund
