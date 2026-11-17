@@ -126,7 +126,9 @@ pub(crate) fn probe_all(hosts: &[String], budget: Duration, probe: &Probe) -> Ve
                 let _ = tx.send((i, probe(&host, deadline)));
             });
         if spawned.is_ok() {
-            out[i] = SshReach::NoAnswer;
+            if let Some(slot) = out.get_mut(i) {
+                *slot = SshReach::NoAnswer;
+            }
             pending += 1;
         }
     }
@@ -135,7 +137,9 @@ pub(crate) fn probe_all(hosts: &[String], budget: Duration, probe: &Probe) -> Ve
         let left = deadline.saturating_duration_since(Instant::now());
         match rx.recv_timeout(left) {
             Ok((i, reach)) => {
-                out[i] = reach;
+                if let Some(slot) = out.get_mut(i) {
+                    *slot = reach;
+                }
                 pending -= 1;
             }
             Err(_) => break,
