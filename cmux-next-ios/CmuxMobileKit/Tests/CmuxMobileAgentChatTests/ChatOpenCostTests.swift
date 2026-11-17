@@ -76,8 +76,9 @@ import UIKit
     }
 
     /// The history's off-main layouts landing give the landed rows their real heights and weigh no
-    /// row again: before, each landed batch dropped its turns' kept rows, so the open's one batch for
-    /// the whole history weighed all ~1,400 rows again on the main thread, in one frame.
+    /// other row again: before, each landed batch dropped its turns' kept rows (and a batch laid out
+    /// for a row's older revision dropped its turn too), so the open weighed the whole history again
+    /// on the main thread.
     @Test func landedLayoutsWeighNoRowAgain() async {
         let store = AgentChatStore(source: SmoothChatTests.Silent())
         store.nextFrame = nil
@@ -97,7 +98,10 @@ import UIKit
         let reasons = Dictionary(list.weighReasons.map { ($0, 1) }, uniquingKeysWith: +).sorted { $0.value > $1.value }
             .map { "\($0.key)=\($0.value)" }.joined(separator: " ")
         print("CHATOPENCOST weighed-again \(reasons) applies=\(list.applies)")
-        #expect(list.rowsWeighed - weighedAtOpen == 0, "rows weighed again when the layouts landed: \(list.rowsWeighed - weighedAtOpen) of \(list.layout.items.count): \(reasons)")
+        // A row whose content changed meanwhile (an edit row when its diff lands, off the main thread)
+        // is weighed for its new content; no other row is weighed again.
+        let again = list.weighReasons.filter { !$0.hasPrefix("changed:") }
+        #expect(again.isEmpty, "rows weighed again when the layouts landed: \(again.count) of \(list.layout.items.count): \(reasons)")
     }
 
     @Test func reportsTheOpensMainThreadWork() async {

@@ -744,10 +744,15 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
                 guard let row = rows[id], lookup.eligible(row) else { continue }
                 let revision = revisions[id] ?? 0
                 let open = lookup.expanded(id)
-                guard shown.items[position].revision == revision, lookup.layouts.has(id, revision: revision, expanded: open) else {
+                guard shown.items[position].revision == revision else {
                     whole = false
                     break
                 }
+                // A layout for an older revision or disclosure state (the row changed while its batch was
+                // laid out, as an edit row does when its diff lands): the row keeps its item, and the
+                // layout queued for its current state patches it when it lands. Dropping the turn here
+                // weighed its every row again.
+                guard lookup.layouts.has(id, revision: revision, expanded: open) else { continue }
                 // Laid out as SwiftUI after all (math): it keeps its estimate, as a reload weighs it.
                 guard let height = lookup.layouts.height(id, revision: revision, expanded: open) else { continue }
                 shown.items[position].estimate = height
