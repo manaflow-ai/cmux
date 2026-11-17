@@ -496,48 +496,7 @@ Object.assign(variants, {
       ],
     },
   }),
-  // Remove asks first, in the row. Three states of the one flow: the question open on an added
-  // Codex login (shadow home), on a Claude API-key account, and a signed-out account whose usage
-  // read before its sign-out is no longer shown.
-  "agents-harnesses-account-remove-confirm": variant("agents", {
-    note: "Remove on ChatGPT 2 asks first, in its row: only cmux's record goes; the login folder and the CLI's own sign-in stay.",
-    harnesses: { loading: false, problem: null, accounts: providerAccounts, harnesses: codexHarness },
-    steps: [
-      wait('[data-account="codex-2"] [data-account-action="remove"]'),
-      click('[data-account="codex-2"] [data-account-action="remove"]'),
-      wait('[data-account="codex-2"] [data-account-remove-confirm]'),
-    ],
-  }),
-  "agents-harnesses-account-remove-confirm-key": variant("agents", {
-    note: "Remove on a Claude API-key account asks the same question; says the API key stays where it is stored.",
-    harnesses: {
-      loading: false,
-      problem: null,
-      accounts: [
-        ...providerAccounts,
-        {
-          id: "claude-key",
-          family: "claude",
-          name: "Work key",
-          home: null,
-          defaultHome: "~/.claude",
-          shadowOf: null,
-          signedIn: true,
-          plan: null,
-          email: null,
-          enabled: true,
-          builtin: false,
-          key: true,
-        },
-      ],
-      harnesses: [{ id: "claude", name: null, kind: "claude-stdio", source: "path", problem: null, version: "2.0.9" }],
-    },
-    steps: [
-      wait('[data-account="claude-key"] [data-account-action="remove"]'),
-      click('[data-account="claude-key"] [data-account-action="remove"]'),
-      wait('[data-account="claude-key"] [data-account-remove-confirm]'),
-    ],
-  }),
+  // A signed-out account whose usage read before its sign-out is no longer shown.
   "agents-harnesses-account-signed-out": variant("agents", {
     note: "ChatGPT 2 after its sign-out: Sign In comes back and the usage read before it is no longer shown.",
     harnesses: {
