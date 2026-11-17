@@ -87,9 +87,11 @@ A state broken on the first run is rendered twice more, and only a state broken 
 
 `broken-allowlist.json` names known broken states, each with why it waits. A broken state that is
 not listed fails the check; a listed state that now renders is printed so its line can go. The
-`gallery health` workflow renders, in four shards, the entries a pull request touches and the
-entries each push to feat-cmux-next touches (everything when a global stylesheet, this folder or
-the workflow changes):
+`gallery health` workflow renders the entries a pull request touches and the entries each push to
+feat-cmux-next touches (everything when a global stylesheet, this folder or the workflow changes). Its
+plan job chooses them once, builds the gallery once, and starts one shard per ~400 cases (at most 16,
+none when nothing renders); a string catalog touches only the entries whose page tables take a changed
+key (`webviews/scripts/gallery/catalogs.ts`), and `route-check.ts` fails on a bundled file routing misses:
 
 ```sh
 CMUX_GALLERY_IN_VM=1 bun health.ts --manifest manifest.json --gallery-dir ../../webviews/dist/gallery
