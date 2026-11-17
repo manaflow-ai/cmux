@@ -1,0 +1,415 @@
+//! The drop of an owner after its release (decision of 2026-11-17): the last
+//! write of its output store, and the files of the session's registry.
+//!
+//! The lease is the last thing that an owner gives up. So an owner whose
+//! output store still has its last write to make keeps the session, and
+//! makes that write as the session's owner; an owner that gave the session
+//! up writes no file of it at its drop.
+
+use super::*;
+
+const DROP_TERMINAL: &str = "0000000000004000800000000000007b";
+const DROP_INCARNATION: &str = "1000000000004000800000000000007b";
+/// The name that a release gives when the last write of the owner's output
+/// store is missing.
+const LAST_PASS: &str = "output store: the last pass";
+/// The last line that the terminal of a row prints. It has no space: a
+/// stored screen can hold a space as a cursor move.
+const LAST_LINE: &str = "the-last-line-of-the-terminal";
+
+/// What a file of a folder is at one moment.
+struct FileNow {
+    length: u64,
+    changed: Option<std::time::SystemTime>,
+    inode: u64,
+    /// `None`: not a plain file (a socket, a link).
+    bytes: Option<Vec<u8>>,
+}
+
+/// Each file below `folder`, by its path in `folder`. The time of a file can
+/// have a coarse grain, so a write of the same length inside one grain shows
+/// in the bytes, and a file that was replaced shows in the inode.
+fn files_of(folder: &Path) -> std::collections::BTreeMap<std::path::PathBuf, FileNow> {
+    let mut files = std::collections::BTreeMap::new();
+    let mut folders = vec![folder.to_path_buf()];
+    while let Some(next) = folders.pop() {
+        for entry in std::fs::read_dir(&next).into_iter().flatten().flatten() {
+            let path = entry.path();
+            let Ok(metadata) = std::fs::symlink_metadata(&path) else { continue };
+            if metadata.is_dir() {
+                folders.push(path);
+                continue;
+            }
+            let bytes = if metadata.is_file() { std::fs::read(&path).ok() } else { None };
+            let file = FileNow {
+                length: metadata.len(),
+                changed: metadata.modified().ok(),
+                inode: std::os::unix::fs::MetadataExt::ino(&metadata),
+                bytes,
+            };
+            files.insert(path.strip_prefix(folder).unwrap_or(&path).to_path_buf(), file);
+        }
+    }
+    files
+}
+
+/// The files that differ between two reads of [`files_of`], each with what
+/// differs.
+fn changed_files(
+    before: &std::collections::BTreeMap<std::path::PathBuf, FileNow>,
+    after: &std::collections::BTreeMap<std::path::PathBuf, FileNow>,
+) -> Vec<String> {
+    let mut said = Vec::new();
+    for (path, was) in before {
+        let Some(is) = after.get(path) else {
+            said.push(format!("{}: removed", path.display()));
+            continue;
+        };
+        let mut what = Vec::new();
+        if was.length != is.length {
+            what.push(format!("its length, {} to {} bytes", was.length, is.length));
+        }
+        if was.changed != is.changed {
+            what.push("its time".to_string());
+        }
+        if was.inode != is.inode {
+            what.push("its inode".to_string());
+        }
+        if was.bytes != is.bytes {
+            what.push("its bytes".to_string());
+        }
+        if !what.is_empty() {
+            said.push(format!("{}: {}", path.display(), what.join(", ")));
+        }
+    }
+    for path in after.keys().filter(|path| !before.contains_key(*path)) {
+        said.push(format!("{}: new", path.display()));
+    }
+    said
+}
+
+/// The folder of the owner's output store.
+fn store_folder(owner: &Mux) -> std::path::PathBuf {
+    owner
+        .output_store
+        .directory()
+        .expect("setup: the owner's output store has no folder, so its stop does nothing")
+        .to_path_buf()
+}
+
+/// Whether `files` has a file of `terminal` (its snapshot, its tail).
+fn has_a_file_of(
+    files: &std::collections::BTreeMap<std::path::PathBuf, FileNow>,
+    terminal: &TerminalPublicId,
+) -> bool {
+    files.keys().any(|path| path.to_string_lossy().starts_with(terminal.as_str()))
+}
+
+/// An owner with one running terminal, that terminal's screen, and its id in
+/// the output store.
+fn open_owner_with_a_terminal(
+    root: &Path,
+    session: &str,
+) -> (Arc<Mux>, Arc<Surface>, TerminalPublicId) {
+    let mux = open_owner(root, session);
+    let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+    // A terminal that the session keeps after its program's end: the owner
+    // after this one has it, and so the files of its output.
+    let surface = mux
+        .seed_running_terminal_with_on_exit_for_test(
+            DROP_TERMINAL,
+            DROP_INCARNATION,
+            &workspace.key,
+            TerminalOnExit::Keep,
+        )
+        .unwrap();
+    let surface = mux.surface(surface).unwrap();
+    let terminal = mux
+        .workspace_registry
+        .lock()
+        .unwrap()
+        .terminal_resource_id(DROP_TERMINAL)
+        .unwrap()
+        .unwrap();
+    (mux, surface, terminal)
+}
+
+/// Prints `bytes` in the terminal as its reader does: on its screen and
+/// into the output store.
+fn print(owner: &Mux, surface: &Surface, terminal: &TerminalPublicId, bytes: &[u8]) {
+    surface.apply_stream_output_for_test(bytes).expect("setup: the terminal has a screen");
+    owner.output_store.append(terminal, &Arc::from(DROP_INCARNATION), bytes, None);
+}
+
+/// The stop of an owner went on without the writer of its output store,
+/// which was in a pass: that stop made no last write of the store. The pass
+/// ended before the release, so no thread of the owner lives at the release.
+///
+/// The stop here has no screen checkpoint: a stop with one makes the store's
+/// last write a second time, after the store's stop, and waits for the pass
+/// lock to do it. A stop that hands the terminals to the next daemon (an
+/// update of the app, `server stop`) and a stop in the window of a teardown
+/// have none. The row opens that window; a hand-over is not in it.
+///
+/// The store's last write is still to make, and the lease is the last thing
+/// that an owner gives up: the release keeps the session and names the last
+/// pass. The drop of the owner then makes that write as the session's
+/// owner, and the owner after it reads the terminal's last line.
+#[test]
+fn an_owner_whose_output_store_made_no_last_write_keeps_its_session_for_that_write() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-session-release-last-pass-{}",
+        crate::workspace_registry::new_uuid_v4()
+    ));
+    let session = "release-last-pass";
+    let (mux, surface, terminal) = open_owner_with_a_terminal(&root, session);
+    let folder = session_folder(&mux);
+    let store = store_folder(&mux);
+    let (began, pass_began) = mpsc::sync_channel(1);
+    let (end_the_pass, pass_runs) = mpsc::sync_channel::<()>(1);
+    let writer_ended = crate::output_store::OutputStore::put_a_writer_in_a_pass(&mux, move || {
+        let _ = began.send(());
+        // Until the test drops its end of the channel.
+        let _ = pass_runs.recv();
+    });
+    pass_began
+        .recv_timeout(OWNER_CALL_WAIT)
+        .expect("setup: the writer's thread did not begin its pass");
+    // The store's own writer ended above and this pass writes nothing, so no
+    // byte of these lines is in a file before the owner's last write.
+    print(&mux, &surface, &terminal, format!("a first line\r\n{LAST_LINE}\r\n").as_bytes());
+    // Open at the start of the stop: the stop makes no screen checkpoint.
+    let teardown = mux.begin_terminal_teardown();
+    let (said, shutdown_said) = mpsc::sync_channel(1);
+    let stopping = Arc::clone(&mux);
+    let stopper = std::thread::spawn(move || {
+        stopping.shutdown();
+        let _ = said.send(());
+    });
+    // The pass ends only after this line: a shutdown that the test has here
+    // went on without the writer and made no last write of the store.
+    let returned = shutdown_said.recv_timeout(OWNER_CALL_WAIT).is_ok();
+    drop(end_the_pass);
+    let _ = stopper.join();
+    drop(teardown);
+    // The writer's thread gives up the pass lock and its handle of the
+    // owner: the channel closes then.
+    let pass_ended = matches!(
+        writer_ended.recv_timeout(OWNER_CALL_WAIT),
+        Err(mpsc::RecvTimeoutError::Disconnected)
+    );
+    let release = mux.release_ownership(&root.join("control.sock"));
+    let names = kept_names(Some(&release));
+    let before = files_of(&store);
+    drop(surface);
+    // The drop runs here, on this thread, when this handle is the last one.
+    let dropped = Arc::into_inner(mux).is_some();
+    let changed = changed_files(&before, &files_of(&store));
+    // The end of the owner before: the kernel frees a kept session then.
+    crate::workspace_registry::owner_release::end_kept_owner_for_test(&folder);
+    let next = try_open_owner(&root, session);
+    let next_said = next.as_ref().err().map(|error| format!("{error:#}"));
+    let read_the_last_line = next
+        .as_ref()
+        .ok()
+        .and_then(|next| next.output_store.previous_screen(&terminal))
+        .is_some_and(|screen| {
+            screen.bytes.windows(LAST_LINE.len()).any(|bytes| bytes == LAST_LINE.as_bytes())
+        });
+    if let Ok(next) = next {
+        next.shutdown();
+        next.release_ownership(&root.join("control.sock"));
+    }
+    crate::workspace_registry::owner_release::end_kept_owner_for_test(&folder);
+    let _ = std::fs::remove_dir_all(&root);
+    eprintln!(
+        "the release: {release:?}; the store's folder at the drop: {changed:?}; the next \
+         owner's error: {next_said:?}; it read the last line: {read_the_last_line}"
+    );
+    assert!(
+        returned && pass_ended,
+        "setup: the owner's shutdown did not return while a pass of its output store writer \
+         ran, or that pass did not end (returned: {returned}; the pass ended: {pass_ended})"
+    );
+    assert!(
+        !has_a_file_of(&before, &terminal),
+        "setup: the output store had a file of the terminal before the owner's last write"
+    );
+    assert!(
+        names.contains(&LAST_PASS),
+        "an owner whose output store made no last write gave its session up, so that write \
+         is lost or lands in a session that the next owner has: its release: {release:?}"
+    );
+    assert!(
+        dropped,
+        "setup: the test's handle of the owner was not the last one, so the owner's drop did \
+         not run before the next owner opened"
+    );
+    assert!(
+        changed.iter().any(|file| file.starts_with(terminal.as_str())),
+        "the drop of an owner that kept its session for the last write of its output store \
+         wrote no file of the terminal: {changed:?}"
+    );
+    assert!(
+        read_the_last_line,
+        "the owner after one that kept its session for the last write of its output store \
+         did not read the terminal's last line (its error at its open: {next_said:?})"
+    );
+}
+
+/// A clean stop makes the whole last write of the output store. The release
+/// then gives the session up, and the drop of the owner changes no file of
+/// the store.
+#[test]
+fn a_drop_of_an_owner_after_a_whole_last_write_changes_no_file_of_its_output_store() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-session-release-whole-pass-{}",
+        crate::workspace_registry::new_uuid_v4()
+    ));
+    let (mux, surface, terminal) = open_owner_with_a_terminal(&root, "release-whole-pass");
+    let folder = session_folder(&mux);
+    let store = store_folder(&mux);
+    print(&mux, &surface, &terminal, format!("a first line\r\n{LAST_LINE}\r\n").as_bytes());
+    mux.shutdown();
+    let release = mux.release_ownership(&root.join("control.sock"));
+    let before = files_of(&store);
+    drop(surface);
+    // The drop runs here, on this thread, when this handle is the last one.
+    let dropped = Arc::into_inner(mux).is_some();
+    let changed = changed_files(&before, &files_of(&store));
+    crate::workspace_registry::owner_release::end_kept_owner_for_test(&folder);
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(
+        release == lifecycle::OwnershipRelease::Released,
+        "an owner whose stop made the whole last write of its output store did not give its \
+         session up: its release: {release:?}"
+    );
+    assert!(
+        has_a_file_of(&before, &terminal),
+        "setup: the owner's stop wrote no file of the terminal, so the row has no last write"
+    );
+    assert!(
+        changed.is_empty(),
+        "after its release returned, the drop of the owner changed files of its output \
+         store, which the next owner has from then on: {changed:?}"
+    );
+    assert!(
+        dropped,
+        "setup: the test's handle of the owner was not the last one, so the owner's drop did \
+         not run between the two reads of the store's folder"
+    );
+}
+
+/// A prune of the output store that became due after the owner's last write
+/// does not run after the release: the drop removes no file. A prune that is
+/// late by one start loses nothing.
+#[test]
+fn a_drop_of_an_owner_after_its_release_runs_no_prune_of_its_output_store() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-session-release-late-prune-{}",
+        crate::workspace_registry::new_uuid_v4()
+    ));
+    let mux = open_owner(&root, "release-late-prune");
+    let folder = session_folder(&mux);
+    let store = store_folder(&mux);
+    mux.shutdown();
+    // After the owner's last write: a terminal leaves the store, so a prune
+    // is due, and the store's folder has a file of a terminal that is not in
+    // the session, which a prune removes.
+    let gone = restore_terminal_id(0x5e);
+    let generation = Arc::from("1000000000004000800000000000005e");
+    mux.output_store.append(&gone, &generation, b"a line\r\n", None);
+    mux.output_store.forget(&gone);
+    let stray = std::path::PathBuf::from(format!("{}.snap", gone.as_str()));
+    std::fs::write(store.join(&stray), b"a file of a terminal that is not in the session").unwrap();
+    let release = mux.release_ownership(&root.join("control.sock"));
+    let before = files_of(&store);
+    // The drop runs here, on this thread, when this handle is the last one.
+    let dropped = Arc::into_inner(mux).is_some();
+    let changed = changed_files(&before, &files_of(&store));
+    crate::workspace_registry::owner_release::end_kept_owner_for_test(&folder);
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(
+        release == lifecycle::OwnershipRelease::Released,
+        "setup: an owner whose stop made its last write did not give its session up: its \
+         release: {release:?}"
+    );
+    assert!(
+        before.contains_key(&stray),
+        "setup: the file of a terminal that is not in the session was not in the store's \
+         folder when the release returned"
+    );
+    assert!(
+        changed.is_empty(),
+        "after its release returned, the drop of the owner ran a prune of its output store, \
+         which the next owner has from then on: {changed:?}"
+    );
+    assert!(
+        dropped,
+        "setup: the test's handle of the owner was not the last one, so the owner's drop did \
+         not run between the two reads of the store's folder"
+    );
+}
+
+/// The drop of an owner closes its connection to the registry of the
+/// session. After the release the next owner has that database: the close
+/// changes no byte of its main file and leaves its write-ahead log, which
+/// holds a commit that the main file does not have.
+#[test]
+fn a_drop_of_an_owner_after_its_release_leaves_the_registry_file_and_its_log() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-session-release-close-{}", crate::workspace_registry::new_uuid_v4()));
+    let mux = open_owner(&root, "release-close");
+    let folder = session_folder(&mux);
+    let database = mux
+        .workspace_registry
+        .lock()
+        .unwrap()
+        .session_journal_database_path()
+        .expect("a session on disk has its registry");
+    let main = std::path::PathBuf::from(database.file_name().expect("the registry has a name"));
+    let mut log = main.clone().into_os_string();
+    log.push("-wal");
+    let log = std::path::PathBuf::from(log);
+    mux.shutdown();
+    // A commit after the stop and before the release: the owner has the
+    // session, and the log holds this commit when the release returns.
+    let wrote = {
+        let mut registry = mux.workspace_registry.lock().unwrap();
+        let (revision, _) = store_state(&registry);
+        write_at(&mut registry, "before-the-release", revision)
+    };
+    let release = mux.release_ownership(&root.join("control.sock"));
+    let mut before = files_of(&folder);
+    // The drop runs here, on this thread, when this handle is the last one.
+    let dropped = Arc::into_inner(mux).is_some();
+    let mut after = files_of(&folder);
+    crate::workspace_registry::owner_release::end_kept_owner_for_test(&folder);
+    let _ = std::fs::remove_dir_all(&root);
+    eprintln!("the session folder at the drop: {:?}", changed_files(&before, &after));
+    before.retain(|path, _| *path == main || *path == log);
+    after.retain(|path, _| *path == main || *path == log);
+    let log_bytes = before.get(&log).map_or(0, |file| file.length);
+    let changed = changed_files(&before, &after);
+    assert!(wrote.is_ok(), "setup: the owner's commit before its release failed: {wrote:?}");
+    assert!(
+        release == lifecycle::OwnershipRelease::Released,
+        "setup: an owner whose threads all ended did not give its session up: its release: \
+         {release:?}"
+    );
+    assert!(
+        before.contains_key(&main) && log_bytes > 0,
+        "setup: the registry's main file or a commit in its log was not there when the \
+         release returned (the log: {log_bytes} bytes)"
+    );
+    assert!(
+        changed.is_empty(),
+        "after its release returned, the drop of the owner changed the registry's main file \
+         or its log, which the next owner has from then on: {changed:?}"
+    );
+    assert!(
+        dropped,
+        "setup: the test's handle of the owner was not the last one, so the owner's drop did \
+         not run between the two reads of the session folder"
+    );
+}

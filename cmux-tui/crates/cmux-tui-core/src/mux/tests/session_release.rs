@@ -1267,3 +1267,7 @@ fn a_thread_that_a_stop_left_keeps_the_session_of_its_own_owner_only() {
          first owner: {for_first:?}; for the second owner: {for_second:?}"
     );
 }
+
+/// The drop of an owner after its release: the last write of its output
+/// store, and the files of the session's registry.
+mod drop_rows;
