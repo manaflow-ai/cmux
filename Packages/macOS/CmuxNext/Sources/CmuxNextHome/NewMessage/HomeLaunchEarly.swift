@@ -4,76 +4,97 @@ public import CmuxNextDesign
 
 /// A bare launch's message box in stage 0's first frame (`LaunchShellContent.bare`), before
 /// `AppServices` and the real window exist: the Chief's own view over the launch store, taking
-/// keys from the first frame. One store and one hold for the launch: the real window's page
-/// (``HomeLaunchComposer``) adopts them, so at stage 0's swap nothing moves (the draft and the
-/// held sends are already the page's) and the page's box takes the keyboard with the same text.
-/// A launch whose real window never mounts that page gives them to the Chief when it is known
-/// (``HomeLaunchComposer/claimParked(to:in:)``), so nothing typed in stage 0 is dropped.
+/// keys from the first frame. One per launch, made in `main` and kept on stage 0's content
+/// (`LaunchShellContent.owner`), from where the app gives it to Home (`HomeService.launchEarly`).
+/// One store and one hold for the launch: the real window's page (``HomeLaunchComposer``) adopts
+/// them, so at stage 0's swap nothing moves (the draft and the held sends are already the page's)
+/// and the page's box takes the keyboard with the same text. A launch whose real window never
+/// mounts that page gives them to the Chief when it is known, and a quit before either keeps them
+/// as Home's draft of the launch conversation: nothing typed in stage 0 is dropped.
 @MainActor
 public final class HomeLaunchEarly {
-    /// This launch's, once stage 0 asked for it; nil after a page adopted it or the Chief took it.
-    public private(set) static var current: HomeLaunchEarly?
-    /// The one a page adopted, until that page's box took the keyboard (``boxIsUp()``).
-    private static var adopted: HomeLaunchEarly?
+    /// Stage 0's box, once stage 0 asked for it; nil again after a page or the Chief took it.
+    public private(set) var box: Box?
+    /// The box a page took, until that page's box took the keyboard (``boxIsUp()``).
+    private var adopted: Box?
+    /// Stage 0's swap waits for this (`LaunchShellContent.bareReady`) until Home's box is up.
+    private var ready: (@MainActor () -> Void)?
+    private var isUp = false
+    private let title: @MainActor () -> String
+    private let mark: @MainActor (String) -> Void
+
+    /// The launch store and hold behind stage 0's box, and its view.
+    @MainActor
+    public final class Box {
+        public let store: HomeStore
+        public let hold: LaunchChiefHold
+        /// Stage 0's content: the Chief view in a container that gives its box the keyboard in the window.
+        let view: NSView
+
+        init(title: String, frame: CGRect, makeView: (HomeStore) -> NSView) {
+            hold = LaunchChiefHold()
+            store = HomeStore(source: HomeLaunchChiefSource(me: HomeLaunchEarly.me, title: title, hold: hold))
+            store.start()
+            let chief = makeView(store)
+            HomeNativeTranscriptView.first(in: chief)?.holdsChiefFace = true
+            view = KeyboardOnWindow(content: chief, frame: frame)
+        }
+    }
+
     /// The signed-in person is not known before `AppServices`: a local me, as the provisional
     /// Chief is local; the held sends go to the real Chief under their keys either way.
     static let me = Participant(id: ParticipantID("me"), kind: .human, displayName: "")
 
-    public let store: HomeStore
-    public let hold: LaunchChiefHold
-    /// Stage 0's content: the Chief view in a container that gives its box the keyboard in the window.
-    let view: NSView
-    /// Stage 0's swap waits for this (`LaunchShellContent.bareReady`) until Home's page is up.
-    private var ready: (@MainActor () -> Void)?
-    private var isUp = false
-
-    private init(title: String, frame: CGRect, makeView: (HomeStore) -> NSView) {
-        hold = LaunchChiefHold()
-        store = HomeStore(source: HomeLaunchChiefSource(me: Self.me, title: title, hold: hold))
-        store.start()
-        let chief = makeView(store)
-        HomeNativeTranscriptView.first(in: chief)?.holdsChiefFace = true
-        view = KeyboardOnWindow(content: chief, frame: frame)
+    /// - Parameters:
+    ///   - title: The Chief's name (`HomeStrings.chiefName`), read when stage 0 asks.
+    ///   - mark: The box's launch marks (`home.launch_early`, and `window_usable` when it takes
+    ///     the keyboard in a key window), as Home's page in the real window marks them.
+    public init(title: @escaping @MainActor () -> String, mark: @escaping @MainActor (String) -> Void) {
+        self.title = title
+        self.mark = mark
     }
 
-    /// Stage 0 (`shell`) shows a bare launch's message box: the Chief's view over the launch
-    /// store, its box taking keys from the first frame. `mark` gets the box's focus marks
-    /// (`window_usable` when its window is key), as Home's page in the real window marks them.
-    public static func attach(_ shell: LaunchShell, title: @escaping @MainActor () -> String,
-                              mark: @escaping @MainActor (String) -> Void) -> LaunchShell {
-        shell.content.bare = { frame, _ in start(title: title(), frame: frame, mark: mark) }
-        shell.content.bareReady = { whenUp($0) }
+    /// Stage 0 (`shell`) shows a bare launch's message box; returns `shell`.
+    public func attach(_ shell: LaunchShell) -> LaunchShell {
+        shell.content.owner = self
+        shell.content.bare = { [weak self] frame, _ in self?.start(frame: frame) }
+        shell.content.bareReady = { [weak self] ready in
+            guard let self else { return ready() }
+            whenUp(ready)
+        }
         // The page has the store already, or the Chief takes it when known: only the view goes.
         shell.content.handoff = { view in view.removeFromSuperview() }
         return shell
     }
 
-    /// Stage 0's content for this launch: makes the launch's box (``current``) and its view.
-    static func start(title: String, frame: CGRect, mark: @escaping @MainActor (String) -> Void) -> NSView {
-        let early = HomeLaunchEarly(title: title, frame: frame) { store in
-            HomeNativeTranscriptView(store: store, conversation: HomeLaunchChiefSource.conversation, me: me.id,
+    /// Stage 0's content for this launch: makes the box and its view.
+    func start(frame: CGRect) -> NSView {
+        let mark = mark
+        let box = Box(title: title(), frame: frame) { store in
+            HomeNativeTranscriptView(store: store, conversation: HomeLaunchChiefSource.conversation, me: Self.me.id,
                                      composerFocused: { mark($0.window?.isKeyWindow == true ? "window_usable" : "home.composer_focused_not_key") })
         }
-        current = early
+        self.box = box
         mark("home.launch_early")
-        return early.view
+        return box.view
     }
 
     /// Calls `ready` once Home's box in the real window is up (at once when it is, or when there is
     /// no launch box).
-    static func whenUp(_ ready: @escaping @MainActor () -> Void) {
-        guard let early = current ?? adopted, !early.isUp else { return ready() }
-        early.ready = ready
+    func whenUp(_ ready: @escaping @MainActor () -> Void) {
+        guard box != nil || adopted != nil, !isUp else { return ready() }
+        self.ready = ready
     }
 
     /// Home's message box in the real window took the keyboard (Home's page, the provisional one
     /// or the Chief's): stage 0 swaps to it. Every focus calls this; only the first after an adopt counts.
-    public static func boxIsUp() {
-        adopted?.pageIsUp()
+    public func boxIsUp() {
+        guard adopted != nil else { return }
         adopted = nil
+        up()
     }
 
-    private func pageIsUp() {
+    private func up() {
         isUp = true
         let ready = ready
         self.ready = nil
@@ -81,19 +102,27 @@ public final class HomeLaunchEarly {
     }
 
     /// The real window's page takes the launch's store and hold (once).
-    static func adopt() -> HomeLaunchEarly? {
-        defer { current = nil }
-        adopted = current
-        return current
+    func adopt() -> Box? {
+        defer { box = nil }
+        adopted = box
+        return box
     }
 
     /// No page took the launch and the Chief is `chief`: its draft and held sends go to it in `home`.
-    static func giveToChief(_ chief: ConversationID, in home: HomeStore) {
-        guard let early = adopt() else { return }
+    public func giveToChief(_ chief: ConversationID, in home: HomeStore) {
+        guard let box = adopt() else { return }
         adopted = nil
-        HomeLaunchComposer.handOff(early.store, hold: early.hold, to: chief, store: home)
-        early.pageIsUp()
-        early.store.stop()
+        HomeLaunchComposer.handOff(box.store, hold: box.hold, to: chief, store: home)
+        up()
+        box.store.stop()
+    }
+
+    /// Quit's save step while no page took the box: its held and typed text as `home`'s draft of the
+    /// launch conversation, which the next launch's page starts with. The box goes on (a quit can be cancelled).
+    public func saveForQuit(in home: HomeStore) {
+        guard let box else { return }
+        let text = HomeLaunchComposer.keptText(box.store, held: box.hold.heldParts)
+        home.setDraft(text, for: HomeLaunchChiefSource.conversation)
     }
 }
 

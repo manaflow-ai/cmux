@@ -228,6 +228,8 @@ public final class LaunchShell {
     /// Called with `bare`'s view at the swap, before stage 0 closes: the bare lane takes what was
     /// typed and sent into it (its own store; the real Home claims it).
     public var handoff: ((NSView) -> Void)?
+    /// The bare lane's own object behind these closures, kept for the app to hand on (Home's page reads it).
+    public var owner: AnyObject?
 
     public init() {}
 }

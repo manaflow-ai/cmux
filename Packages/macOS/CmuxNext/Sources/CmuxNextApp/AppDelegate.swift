@@ -9,6 +9,7 @@ import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHome
 import CmuxNextImportCards
 import CmuxNextKeepAwake
 import CmuxNextKeys
@@ -161,7 +162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                    heldKeyReplay: { event, _, _ in NSApp.sendEvent(event) }, work: launchReads.work, mainWork: mainWork,
                                    launchImages: launchReads.images, relaunchWake: launchReads.wake, peerApprover: PeerApprovalsApp.approver())
         AppProcessRoot.shared.adopt(services)
-        self.services = services
+        self.services = services; services.home.launchEarly = launchReads.shell.content.owner as? HomeLaunchEarly  // stage 0's box, for Home's page
         // Where each agent chat rests, beside the snapshot, so a relaunch reopens it there (cx-6bgzj).
         AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), files: services.agentPaneStateFiles)
         #if DEBUG || CMUX_BENCH_HOOKS

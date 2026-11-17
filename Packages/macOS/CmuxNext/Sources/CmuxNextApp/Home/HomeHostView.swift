@@ -83,7 +83,7 @@ final class HomeHostView: NSView {
         let id = ConversationID(conversation)
         let store = owner ?? service.homeStore
         transcript = HomeNativeTranscriptView(store: store, conversation: id, me: service.homeSource.me.id, diagrams: service.diagrams,
-                                              openPanel: services.openPanel, composerFocused: { DebugTimings.markLaunch($0.window?.isKeyWindow == true ? "window_usable" : "home.composer_focused_not_key"); HomeLaunchEarly.boxIsUp() }) // window_usable: the next key goes in (piece 8)
+                                              openPanel: services.openPanel, composerFocused: { [weak home = services.home] in DebugTimings.markLaunch($0.window?.isKeyWindow == true ? "window_usable" : "home.composer_focused_not_key"); home?.launchEarly?.boxIsUp() }) // window_usable: the next key goes in (piece 8)
         let approvals = ChiefApprovalDecider(home: service.chief.home, app: QuitAgents.environment(services),
                                              work: services.work, environment: ChiefHomeAcpmux.environment)
         transcript.approvals = approvals

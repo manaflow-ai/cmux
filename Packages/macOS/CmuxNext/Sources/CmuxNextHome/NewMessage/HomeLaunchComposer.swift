@@ -29,10 +29,11 @@ public final class HomeLaunchComposer {
     ///   - makeView: The app's Chief view over this page's ``store`` and its conversation (the
     ///     page is complete but for its view: the view may read ``hold``). Its Chief face waits for
     ///     the real Chief (an empty disc: `HomeNativeTranscriptView.holdsChiefFace`).
-    public init(home: HomeStore, me: Participant, title: String, in column: NSView? = nil,
+    ///   - early: This launch's stage 0 box (``HomeLaunchEarly``), whose store and hold the page takes.
+    public init(home: HomeStore, me: Participant, title: String, in column: NSView? = nil, early: HomeLaunchEarly? = nil,
                 makeView: (HomeLaunchComposer) -> NSView) {
-        // Stage 0's box (``HomeLaunchEarly``): its store and hold, with what was typed and sent there.
-        if let early = HomeLaunchEarly.adopt() {
+        // Stage 0's box: its store and hold, with what was typed and sent there.
+        if let early = early?.adopt() {
             (self.home, hold, store) = (home, early.hold, early.store)
             Self.appendDraft(home.draft(for: Self.conversation) ?? "", to: Self.conversation, store: store)
         } else {
@@ -129,8 +130,8 @@ public final class HomeLaunchComposer {
 
     /// What a page released or quit before its Chief answered kept in `home` goes after `chief`'s own
     /// draft (a launch that had its Chief at once mounts no page to take it).
-    public static func claimParked(to chief: ConversationID, in home: HomeStore) {
-        HomeLaunchEarly.giveToChief(chief, in: home)  // stage 0's box, when no page took it
+    public static func claimParked(to chief: ConversationID, in home: HomeStore, early: HomeLaunchEarly? = nil) {
+        early?.giveToChief(chief, in: home)  // stage 0's box, when no page took it
         if appendDraft(home.draft(for: conversation) ?? "", to: chief, store: home) { home.setDraft("", for: conversation) }
     }
 
