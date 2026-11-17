@@ -11,9 +11,19 @@
 # build's log goes to stderr and DIR.reload.log). The build's DerivedData is this checkout's
 # .build/DerivedData/cmux-measure-at-<sha12> (arm-derived-data.sh): one DerivedData per commit, as two commits built
 # in one tree meet a stale precompiled module. Returns non-zero when the commit cannot be fetched or its build prints no app.
+# When it returns, built or failed, it caps those per-commit caches, as a warm checkout keeps its .build between steps
+# (measure_prune_derived_data: the 3 most recently used and any a live run marked stay; DERIVED-DATA-PRUNE on stderr).
+# A wrapper rather than a trap: callers own their EXIT traps, and every return path goes through it.
 . "$(dirname "${BASH_SOURCE[0]}")/arm-derived-data.sh"
 
 measure_app_at_commit() {
+  local status=0
+  _measure_app_at_commit_build "$@" || status=$?
+  measure_prune_derived_data || true
+  return "$status"
+}
+
+_measure_app_at_commit_build() {
   local sha="$1" tag="$2" tree="$3" root full status=0 app
   shift 3
   root="$(git rev-parse --show-toplevel)"
@@ -44,6 +54,7 @@ measure_app_at_commit() {
   fi
   local derived
   derived="$(measure_arm_derived_data "at-${full:0:12}")" || return 1
+  measure_derived_data_in_use "$derived" || return 1
   mkdir -p "$root/.build/DerivedData"
   (cd "$tree" && CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" \
     --derived-data "$derived" "$@") 2>&1 | tee "$tree.reload.log" >&2 || status=$?
