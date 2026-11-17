@@ -15,7 +15,9 @@ import Testing
 ///
 /// Each row but the last has the scene of the first file: a whole window, no daemon, no creation answered, pages
 /// that load nothing, each key a key-down event through the key router. The test reports a page's field ready, and
-/// reads what the app types into a page at the one call for it (`PageInputReadiness.editor`).
+/// reads what the app types into a page at the one call for it (`PageInputReadiness.editor`). After its last read
+/// each of these rows types one more text through that call and stops in its set-up when the test does not get it:
+/// a row that wants no edit is not green by a read that reads nothing.
 ///
 /// The last row has the real New Tab page of the build. It asks one question: a New Tab page that the pane no
 /// longer shows (a second New Tab key came), does its field report ready, and can the app type into it. It waits on
@@ -112,6 +114,14 @@ extension LetterBetweenTwoNewTabKeysTests {
                          "setup: the window's key hold did not take the key with code \(code). The hold's log ends: \(input.log.suffix(6))")
         }
 
+        /// The test still reads what the app types into `page`. A `setup` stop when it does not.
+        func stillReads(_ page: PageInputReadiness, into typed: Typed) async throws {
+            let before = typed.edits.count
+            let reads = await page.insert("seam")
+            try #require(reads && typed.edits.count == before + 1 && typed.edits.last == .insert("seam"),
+                         "setup: the test no longer reads what the app types into the page")
+        }
+
         /// The end of the key hold's log, for a message.
         var holdLog: String { input.log.suffix(8).joined(separator: " | ") }
     }
@@ -200,6 +210,8 @@ extension LetterBetweenTwoNewTabKeysTests {
                 \(got.second) into the second page; the key hold of the second new tab gave its key on at the page's report: \
                 \(gaveOn); the hold's log ends: \(scene.holdLog)
                 """)
+            try await scene.stillReads(page1, into: first)
+            try await scene.stillReads(page2, into: second)
             #expect(got.first == [.insert("a")],
                     "the app typed \(got.first) into the page of the first new tab, want the first letter one time. The hold's log ends: \(scene.holdLog)")
             #expect(got.second == [.insert("b")],
@@ -235,6 +247,8 @@ extension LetterBetweenTwoNewTabKeysTests {
                 \(got.second) into the second page; \(returns.count) Return keys ran again, \(elsewhere.count) of them while the \
                 pane showed another tab; the hold's log ends: \(scene.holdLog)
                 """)
+            try await scene.stillReads(page1, into: first)
+            try await scene.stillReads(page2, into: second)
             #expect(got.first == [.insert("a")],
                     "the app typed \(got.first) into the page of the first new tab, want the letter one time. The hold's log ends: \(scene.holdLog)")
             #expect(got.second.isEmpty, "the app typed \(got.second) into the page of the second new tab, want nothing")
@@ -264,6 +278,7 @@ extension LetterBetweenTwoNewTabKeysTests {
                 was in its queue after the key's call: \(queued); the app typed \(got) into the page after the page's report; the \
                 test's view got \(scene.old.keys) keys; the hold's log ends: \(scene.holdLog)
                 """)
+            try await scene.stillReads(page, into: typed)
             #expect(got.isEmpty, "the app typed \(got) into the page after the paste key ran: the paste then stands before the letter")
             #expect(scene.old.keys == 0, "the view that had the keyboard before the New Tab key got \(scene.old.keys) keys, want 0")
         }
@@ -292,6 +307,7 @@ extension LetterBetweenTwoNewTabKeysTests {
                 tab is in the strip: \(open); the app typed \(got) into its page; a letter is in the key router's queue: \
                 \(queued); the test's view got \(scene.old.keys) keys; the hold's log ends: \(scene.holdLog)
                 """)
+            try await scene.stillReads(page, into: typed)
             #expect(got.isEmpty, "the app typed \(got) into the page after the Close Tab key ran, want nothing")
             #expect(!queued, "a letter waits in the key router's queue after the Close Tab key ran")
             #expect(scene.old.keys == 0, "the view that had the keyboard before the New Tab key got \(scene.old.keys) keys, want 0")
