@@ -2615,6 +2615,22 @@ jobs:
         with:
           bun-version: "1.4.4"
 
+      # The build tree's own pin: the nightly product key hashes that tree, and
+      # web-bundle-key.py keys the bundles on the same file. A build tree from before
+      # .node-version has no file; web-bundle-key.py keys such a tree on
+      # PRE_NODE_VERSION_FILE_NODE, so it is built with that Node too.
+      - &x26node
+        name: Read the build tree's Node pin (cmux-next web bundles)
+        id: web-node-pin
+        if: (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')) && steps.nightly-product.outputs.hit != 'true' && !env.LEFT_SLOT
+        run: |
+          set -euo pipefail
+          if [ -f .node-version ]; then
+            echo "node_version=$(tr -d '[:space:]' < .node-version)" >> "$GITHUB_OUTPUT"
+          else
+            echo "node_version=24.22.1" >> "$GITHUB_OUTPUT"  # web-bundle-key.py PRE_NODE_VERSION_FILE_NODE
+          fi
+
       # The webviews app's `vp build` must run on node: on bun it emits
       # different bytes (build-web-bundles.sh).
       - &x27
@@ -2622,16 +2638,14 @@ jobs:
         if: (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')) && steps.nightly-product.outputs.hit != 'true' && !env.LEFT_SLOT
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          # The build tree's own pin: the nightly product key hashes that tree, and
-          # web-bundle-key.py keys the bundles on the same file.
-          node-version-file: .node-version
+          node-version: ${{ steps.web-node-pin.outputs.node_version }}
 
       # setup-node can succeed with no node on PATH (scripts/ci/ensure-setup-node.sh).
       - &x28
         name: Check node is on PATH (cmux-next web bundles)
         if: (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')) && steps.nightly-product.outputs.hit != 'true' && !env.LEFT_SLOT
         timeout-minutes: 12
-        run: scripts/ci/ensure-setup-node.sh "$(tr -d '[:space:]' < .node-version)"
+        run: scripts/ci/ensure-setup-node.sh "${{ steps.web-node-pin.outputs.node_version }}"
 
       # build-nightly-inputs can start after this step (run 41570134320 queued it 7.6 min, so the
       # bundles built here for 106 s); feat-cmux-next's pushes publish them to R2 by source key.
@@ -7234,6 +7248,7 @@ jobs:
       - *x24
       - *x25
       - *x26
+      - *x26node
       - *x27
       - *x28
       - *x29

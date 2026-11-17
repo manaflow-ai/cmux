@@ -15,8 +15,13 @@ set -euo pipefail
 
 BUILD="${CMUX_WEB_BUNDLES_BUILD:-scripts/cmux-next/build-web-bundles.sh}"
 CACHE="${CMUX_CI_CACHE_DIR:-$HOME/Library/Caches/cmux-ci}"
-# .node-version is the one Node pin (setup-node reads it with node-version-file).
-NODE_PIN="$(tr -d '[:space:]' < .node-version)"
+# .node-version is the one Node pin (setup-node reads it with node-version-file). A tree from
+# before that file builds with the Node web-bundle-key.py keys it on (PRE_NODE_VERSION_FILE_NODE).
+if [ -f .node-version ]; then
+  NODE_PIN="$(tr -d '[:space:]' < .node-version)"
+else
+  NODE_PIN="24.22.1"
+fi
 
 if "$BUILD" --verify > /dev/null 2>&1; then
   echo "web bundles are current"
