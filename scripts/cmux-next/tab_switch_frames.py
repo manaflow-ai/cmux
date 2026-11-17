@@ -185,6 +185,7 @@ class App:
                        capture_output=True, timeout=30)
         self.socket_path = os.path.join(self.root, "c.sock")
         env = self.smoke.fresh_env(Path(self.root), Path(self.socket_path), 2)
+        self.smoke.login_keychain(env)  # a person's home has one: no Safe Storage Keychain dialog (cmuxterm-hq#11994)
         env.pop("CMUX_NEXT_LAUNCH_MARKS_FD", None)
         env.pop("CMUX_NEXT_NO_ACTIVATE", None)  # the window is in front on the worker's display: the capture reads it
         env.update({"CMUX_NEXT_SKIP_ONBOARDING": "1", "CMUX_NEXT_TEST_WINDOW_FRAME": WINDOW_FRAME,

@@ -1,9 +1,9 @@
-// The frame classification of bench/first-load-after-restart.bench.ts (bench/firstLoadFrames.ts): a
+// The frame classification of bench/first-load-after-restart.bench.ts (src/agent-session/acpmux/firstLoadFrames.ts): a
 // first load whose first frame is its last counts nothing, and a pane that blanked after it had
 // content, or whose composer or last row moved, counts each such frame (Leo, 2026-11-09: "the chat
 // loading kinda flickered in and out and layout shifted").
 import { describe, expect, test } from "bun:test";
-import { classifyFrames, type FrameRecord, type FrameRow } from "../bench/firstLoadFrames";
+import { classifyFrames, type FrameRecord, type FrameRow } from "../src/agent-session/acpmux/firstLoadFrames";
 
 const ROWS: FrameRow[] = [
   { id: "user-117", top: 120 },
