@@ -44,7 +44,7 @@ export function parseArms(value: string | undefined, webviews: string): Arm[] | 
 /// or with `dev` the tree's vite dev server. `releases` gets what to stop afterwards.
 export async function servePane(
   dir: string,
-  options: { dev?: boolean; unminified?: boolean },
+  options: { dev?: boolean; unminified?: boolean; sourcemap?: boolean; built?: (out: string) => void },
   releases: (() => unknown)[],
 ): Promise<number> {
   const configFile = path.join(dir, "vite.config.acpmux-pane.mjs");
@@ -66,9 +66,15 @@ export async function servePane(
   const { build } = await import("vite");
   await build({
     configFile,
-    build: { outDir: out, emptyOutDir: true, ...(options.unminified ? { minify: false } : {}) },
+    build: {
+      outDir: out,
+      emptyOutDir: true,
+      ...(options.unminified ? { minify: false } : {}),
+      ...(options.sourcemap ? { sourcemap: true } : {}),
+    },
     logLevel: "error",
   });
+  options.built?.(out);
   const statics = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",

@@ -21,7 +21,7 @@ pub(super) fn restore_focus_identity(state: &mut State, focus: Option<FocusIdent
     };
     state.workspaces[workspace_index].active_screen = screen_index;
     if state.workspaces[workspace_index].screens[screen_index].root.contains(pane_id) {
-        state.workspaces[workspace_index].screens[screen_index].active_pane = pane_id;
+        state.workspaces[workspace_index].screens[screen_index].set_active_pane(pane_id);
     }
 }
 
@@ -142,7 +142,17 @@ pub(super) fn append_to_auto_layout(
     *auto_layout = Some(panes);
 }
 
+/// Removes `pane` from the live `screen`. False when the screen has no pane
+/// left. The floating panes follow the tree: the entry of `pane` goes, and
+/// when `pane` was the last tiled pane, the front floating pane becomes tiled
+/// (`floating-panes-v1`).
 pub(super) fn remove_pane_from_screen_layout(mux: &Mux, screen: &mut Screen, pane: PaneId) -> bool {
+    let remains = remove_pane_from_screen_tree(mux, screen, pane);
+    screen.settle_floating_panes();
+    remains
+}
+
+fn remove_pane_from_screen_tree(mux: &Mux, screen: &mut Screen, pane: PaneId) -> bool {
     screen.invalidate_layout_undo();
     if screen.layout_columns_active() {
         let Some(index) =
@@ -597,7 +607,7 @@ pub(super) fn remove_surface(
             None
         };
         if let Some(next) = next_active {
-            state.workspaces[wi].screens[si].active_pane = next;
+            state.workspaces[wi].screens[si].set_active_pane(next);
         }
         stamp_changed_active_pane(mux, state, previous_active);
         return (removed, true);
@@ -643,7 +653,7 @@ pub(super) fn collapse_empty_pane(mux: &Mux, state: &mut State, pane_id: PaneId)
             None
         };
         if let Some(next) = next_active {
-            state.workspaces[wi].screens[si].active_pane = next;
+            state.workspaces[wi].screens[si].set_active_pane(next);
         }
     } else {
         let ws = &mut state.workspaces[wi];
@@ -722,7 +732,7 @@ pub(super) fn move_tab_in_state(
         let ws = &mut state.workspaces[wi];
         ws.active_screen = si;
         let screen = &mut ws.screens[si];
-        screen.active_pane = target_pane;
+        screen.set_active_pane(target_pane);
         Some((ws.id, screen.id))
     } else {
         None
