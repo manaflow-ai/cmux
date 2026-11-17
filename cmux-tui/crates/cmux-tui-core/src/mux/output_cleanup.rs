@@ -79,12 +79,17 @@ struct OutputCleanupWorker {
 }
 
 impl OutputCleanupWorker {
+    /// Tells the worker to stop and returns at once: no wait for its end.
+    fn signal_stop(&self) {
+        *self.control.stopped.lock().unwrap_or_else(PoisonError::into_inner) = true;
+        self.control.changed.notify_all();
+    }
+
     /// Stops the worker and joins it, waiting at most `wait`: a worker still
     /// blocked after that is left to finish on its own, and this returns
     /// what says when its thread ended.
     fn stop(mut self, wait: Duration) -> Option<Receiver<()>> {
-        *self.control.stopped.lock().unwrap_or_else(PoisonError::into_inner) = true;
-        self.control.changed.notify_all();
+        self.signal_stop();
         let thread = self.thread.take()?;
         // The last `Arc<Mux>` can drop on the worker itself; it must not
         // join its own thread.
@@ -214,12 +219,27 @@ impl Mux {
         }
     }
 
+    /// Tells the cleanup worker to stop and returns at once, with no wait
+    /// for its end. The owner's release calls this before its first wait, so
+    /// the worker has the whole of the release's one bound to end, and not
+    /// what another wait left of it (decision of 2026-11-17).
+    /// [`Self::output_cleanup_ended_by`] then says if it ended.
+    pub(super) fn signal_output_cleanup_stop(&self) {
+        if let Some(worker) =
+            self.output_cleanup.worker.lock().unwrap_or_else(PoisonError::into_inner).as_ref()
+        {
+            worker.signal_stop();
+        }
+    }
+
     /// True when no cleanup worker of this owner lives. A worker writes the
     /// staged registry in the session's folder on a connection of its own,
     /// and the next owner's start acts on that file, so the owner's release
     /// keeps the session while one lives (decision of 2026-11-16). A worker
     /// that no stop reached yet is stopped here. The stop and the wait for a
-    /// worker that lived past its stop end at `deadline` at the latest.
+    /// worker that lived past its stop end at `deadline` at the latest; a
+    /// caller that waits for something else first signals the stop before
+    /// that wait ([`Self::signal_output_cleanup_stop`]).
     pub(super) fn output_cleanup_ended_by(&self, deadline: Instant) -> bool {
         self.stop_output_cleanup_within(
             deadline.saturating_duration_since(Instant::now()).min(STOP_WAIT),

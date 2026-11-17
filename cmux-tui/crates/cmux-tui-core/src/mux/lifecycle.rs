@@ -233,7 +233,10 @@ impl Mux {
     /// the session and that `shutdown` can leave alive: the journal writer
     /// (its join gives up after a bound, with an admitted commit still the
     /// writer's own) and the output cleanup worker (it writes the staged
-    /// registry on a connection of its own). Then it takes the registry
+    /// registry on a connection of its own). It tells the worker to stop
+    /// before the first of these waits (decision of 2026-11-17): the 2
+    /// threads end side by side in the one bound, and the wait for the
+    /// first leaves the second no less of it. Then it takes the registry
     /// connection's lock, so no registry transaction is open on another
     /// thread, and under that lock it sets the owner's release and drops the
     /// locks. Each later commit of this process fails in the one commit hook
@@ -254,6 +257,10 @@ impl Mux {
     pub fn release_ownership(&self, socket_path: &Path) -> OwnershipRelease {
         let began = Instant::now();
         let deadline = began + RELEASE_WAIT;
+        // The stop before the first wait: the worker ends while this waits
+        // for the writer, and a writer that only the worker's stop frees
+        // can end in this wait.
+        self.signal_output_cleanup_stop();
         let mut alive = Vec::new();
         if !self.journal_ingress.writer_ended_by(deadline) {
             alive.push(JOURNAL_WRITER);
