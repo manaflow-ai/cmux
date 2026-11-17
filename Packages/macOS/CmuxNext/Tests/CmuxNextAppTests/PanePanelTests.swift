@@ -113,6 +113,45 @@ import Testing
         #expect(parent.asked == 2)
     }
 
+    @Test func theKeysGoToTheWindowOfThePaneThatHasTheFocus() {
+        let parent = Self.parent(), other = Self.parent()
+        let panel = PanePanel(pane: "p1", frame: Self.frame)
+        defer {
+            parent.removeChildWindow(panel)
+            panel.closeAfterTest()
+            parent.closeAfterTest()
+            other.closeAfterTest()
+        }
+        parent.addChildWindow(panel, ordered: .above)
+        func home(_ pane: String?, key: NSWindow?) -> NSWindow? { PanePanel.keyHome(in: parent, toPane: pane, key: key, inPress: false) }
+        #expect(home("p1", key: parent) === panel, "the keys stayed in the app window when a floating pane got the focus")
+        #expect(home("p2", key: panel) === parent, "the keys stayed in a panel when a tiled pane got the focus")
+        #expect(home(nil, key: panel) === parent, "the keys stayed in a panel when no pane has the focus")
+        #expect(home("p1", key: panel) == nil, "the keys moved when the pane's own panel had them")
+        #expect(home("p2", key: parent) == nil, "the keys moved when the app window had them for a tiled pane")
+        #expect(home("p1", key: other) == nil, "a window of another family lost the keys")
+        #expect(home("p1", key: nil) == nil, "the app took the keys when no window of it had them")
+        #expect(PanePanel.keyHome(in: nil, toPane: "p1", key: panel, inPress: false) == nil)
+    }
+
+    /// A press chose the window that has the keys: the focus change that the press makes moves no keys.
+    @Test func aPressOfAPointerButtonMovesNoKeys() {
+        let parent = Self.parent()
+        let panel = PanePanel(pane: "p1", frame: Self.frame)
+        defer {
+            parent.removeChildWindow(panel)
+            panel.closeAfterTest()
+            parent.closeAfterTest()
+        }
+        parent.addChildWindow(panel, ordered: .above)
+        func home(_ pane: String?, key: NSWindow?, inPress: Bool) -> NSWindow? { PanePanel.keyHome(in: parent, toPane: pane, key: key, inPress: inPress) }
+        #expect(home("p1", key: parent, inPress: false) === panel)
+        #expect(home("p1", key: parent, inPress: true) == nil, "a press in the app window gave the keys to a panel")
+        #expect(home("p2", key: panel, inPress: true) == nil, "a press in a panel gave the keys to the app window")
+        #expect(PanePanel.isPress(.leftMouseDown) && PanePanel.isPress(.rightMouseDown) && PanePanel.isPress(.otherMouseDown))
+        #expect(!PanePanel.isPress(.keyDown) && !PanePanel.isPress(.leftMouseUp) && !PanePanel.isPress(nil), "a key or a release is read as a press")
+    }
+
     /// A floating pane's panel is content of the app window that it is a child of, and so is a page window in it.
     /// A plain panel over the app window, and a page window in it, gate the menu chords as before.
     @Test func aFloatingPanesPanelIsContentOfItsAppWindowAndAPlainPanelIsNot() throws {
