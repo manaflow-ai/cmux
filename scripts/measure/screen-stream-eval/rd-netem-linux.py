@@ -899,11 +899,23 @@ def warmup_diag(scratch: Path, host_log: Path, frames: list, presses: list) -> d
     for line in host_log.read_text(errors="replace").splitlines():
         head = line.split(" ", 1)
         if len(head) == 2 and head[0].isdigit() and lo <= int(head[0]) <= hi:
-            trace.append(f"{int(head[0]) - s0} {head[1][:90]}")
+            if " damage " in head[1] and head[1].endswith("-> None"):
+                continue
+            trace.append(f"{int(head[0]) - s0} {head[1][:220]}")
     return {"s0_us": s0, "load": os.getloadavg(), "ncpu": os.cpu_count(),
             "frames": [[f[0] - s0, (f[1] or s0) - s0, f[2] - s0, f[4], f[5]] for f in frames[:24]],
             "presses": [[p["sent_us"] - s0, p.get("to_release"), p["total"]] for p in presses[:10]],
-            "paints": paints[:400], "trace": trace[:400]}
+            "paints": paints[:5], "trace": trace[:1500]}
+
+
+def udp_snmp(rig) -> dict:
+    """Diagnostic: the host namespace's Udp counters and rmem_max."""
+    out = run(priv(["ip", "netns", "exec", rig.host_ns, "cat", "/proc/net/snmp"]), check=False).stdout
+    rows = [l.split() for l in out.splitlines() if l.startswith("Udp:")]
+    d = dict(zip(rows[0][1:], map(int, rows[1][1:]))) if len(rows) >= 2 else {}
+    d["rmem_max"] = run(["cat", "/proc/sys/net/core/rmem_max"], check=False).stdout.strip()
+    d["rmem_default"] = run(["cat", "/proc/sys/net/core/rmem_default"], check=False).stdout.strip()
+    return d
 
 
 def measure_lo(rig: Rig, binary: Path, row: dict, scratch: Path, display: str, passive_s: int,
@@ -948,6 +960,7 @@ def measure_lo(rig: Rig, binary: Path, row: dict, scratch: Path, display: str, p
             row["stalls"] = stall_metrics(passive, driver.stalls)
             row["key"] = {"skipped": "the stall profile measures the passive session only"}
         else:
+            snmp_before = udp_snmp(rig)
             key, kerr = bench(rig, binary, token, ["--input", "key", "--samples", str(samples)],
                               samples * 3 + 90, loopback=True)
             driver.stop()
@@ -964,6 +977,7 @@ def measure_lo(rig: Rig, binary: Path, row: dict, scratch: Path, display: str, p
             row["key_presses"] = press_rows((key or {}).get("sample_times"), key_text, key_holds)
             row["key_frames"] = key_frames(key_text)
             row["diag"] = warmup_diag(scratch, host_log, row["key_frames"], row["key_presses"])
+            row["diag"]["snmp_before"], row["diag"]["snmp_after"] = snmp_before, udp_snmp(rig)
         data = timing.read_bytes()
         row["idr_passive"] = count_idrs(data[:mid].decode(errors="replace"))
         row["gate_wait"] = gate_wait(data[:mid].decode(errors="replace"))
