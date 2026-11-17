@@ -28,13 +28,27 @@ import Testing
     }
 
     @Test(arguments: [DensityPreset.comfortable, .spacious])
-    func aboveDefaultTheChatGrowsWithThePage(preset: DensityPreset) throws {
+    func aboveDefaultTheChatGrowsWithTheDensity(preset: DensityPreset) throws {
         let design = DesignSettings.shared
         let saved = design.densityTokens
         defer { design.densityTokens = saved }
         design.densityTokens = preset.tokens
-        let page = Double(Typography.pageScale)
+        let page = Double(Typography.pageDensityTextScale)
         let here = try #require(chatTextScale(preset))
-        #expect(abs(here - page) < 0.0001, "\(preset): chat text scale \(here), the page's \(page)")
+        #expect(abs(here - page) < 0.0001, "\(preset): chat text scale \(here), the density's \(page)")
+    }
+
+    /// The Chief chat's native transcript draws at ``Typography/chatUserScale``: with a chrome font size set it is
+    /// that size over Default's at every density, as it is at Default.
+    @Test(arguments: DensityPreset.allCases)
+    func theChiefChatsScaleIgnoresTheDensity(preset: DensityPreset) {
+        let design = DesignSettings.shared
+        let saved = (design.densityTokens, design.overrides[.chromeFontSize])
+        defer { design.densityTokens = saved.0; design.setOverride(.chromeFontSize, saved.1) }
+        design.setOverride(.chromeFontSize, 14)
+        design.densityTokens = DensityPreset.cozy.tokens
+        let atDefault = Typography.chatUserScale
+        design.densityTokens = preset.tokens
+        #expect(abs(Typography.chatUserScale - atDefault) < 0.0001, "\(preset): \(Typography.chatUserScale), Default's \(atDefault)")
     }
 }
