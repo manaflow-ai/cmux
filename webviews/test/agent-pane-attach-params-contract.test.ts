@@ -17,7 +17,8 @@ const contract: Contract = JSON.parse(
 const listed = (name: string) => contract.attach.find((frame) => frame.name === name)?.params;
 
 // The page's attaches by the name the contract gives them (direct.ts `sendAttach`).
-const sent: Record<string, Record<string, unknown> | undefined> = {
+// Typed params are interfaces, so they need no index signature here (`object`, not `Record`).
+const sent: Record<string, object | undefined> = {
   "plain, local": plainAttach("s", { settled: false, visible: true, local: true, maxBytes: 128 * 1024 }),
   "plain, peer": plainAttach("s", { settled: false, visible: false, local: false, maxBytes: 128 * 1024 }),
   "settled, local": plainAttach("s", { settled: true, visible: true, local: true, maxBytes: 128 * 1024 }),
