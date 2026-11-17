@@ -37,6 +37,8 @@ Startup paths (startup_paths.py; Leo, 2026-11-17: "i mean across all startups we
   cold-cache     the scripted quit, the disk cache purged (`sudo -n purge`, else a fresh bundle copy), the reopen:
                  a reboot's cold start, approximated (a fleet step cannot reboot)
   loaded         the scripted quit, then the reopen under a fixed synthetic CPU and IO load (the row's `load`)
+  after-run      the app left running AFTER_RUN_S (60 s) from its start, the scripted quit, the reopen: a launch after
+                 a full run, whose executable pages may have been dropped (back-to-back launches hide this)
 STATEs:
   stream     a chat whose reply streams a word 8 times a second through the quit and after it, in front
   idle       a chat with one answered turn, in front
@@ -74,8 +76,9 @@ import relaunch_restore_check as l5  # noqa: E402
 import stable_next_ui_journey as ui  # noqa: E402
 import startup_paths as startup  # noqa: E402
 
-PATHS = ("dock", "cmdq", "scripted", "update", "kill", "term", "fresh-install", "cold-cache", "loaded")
-REOPEN_PATHS = ("cold-cache", "loaded")  # a scripted quit, then a reopen changed by the path
+PATHS = ("dock", "cmdq", "scripted", "update", "kill", "term", "fresh-install", "cold-cache", "loaded", "after-run")
+REOPEN_PATHS = ("cold-cache", "loaded", "after-run")  # a scripted quit, then a reopen changed by the path
+AFTER_RUN_S = 60.0
 STATES = ("stream", "idle", "midturn", "queued", "tool", "long", "many")
 IN_FLIGHT = ("stream", "midturn", "queued", "tool", "many")
 GATED = ("midturn", "queued", "tool", "many")
@@ -101,12 +104,14 @@ class App:
         self.marks: dict[str, float] = {}
         self._marks_fd = -1
         self._partial = b""
+        self.started_at = 0.0
 
     def start(self) -> float:
         if os.path.exists(self.sock):
             os.remove(self.sock)
         self.marks, self._partial = {}, b""
         self.process, self._marks_fd, _ = l5.launch(self.bundle, self.env, self.root / "app.log")
+        self.started_at = time.monotonic()
         return time.monotonic()
 
     def drain(self) -> dict[str, float]:
@@ -498,6 +503,10 @@ class Gamut:
         row["state_before"] = case.get("state_before")
         if case.get("queued_note"):
             row["queued_note"] = case["queued_note"]
+        if path == "after-run":
+            # The condition is the app's age itself: it has run AFTER_RUN_S before it is quit.
+            row["ran_s"] = round(max(AFTER_RUN_S, time.monotonic() - self.app.started_at), 1)
+            time.sleep(max(0.0, AFTER_RUN_S - (time.monotonic() - self.app.started_at)))
         processes_before = set(smoke.own_pids(self.root))
         recorder = self.record_start(name)
         time.sleep(0.5 if recorder else 0)
