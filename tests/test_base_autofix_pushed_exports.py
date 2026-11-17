@@ -901,8 +901,14 @@ class PrAutofixTakesTheGeneratedFilesPack(unittest.TestCase):
     def test_a_replaced_file_an_extra_path_or_a_missing_export_is_a_miss(self):
         files = {rel: f"fresh {rel}\n".encode() for rel in NAMES}
         tampered = pack_zip(MERGE_TREE, 5, MERGE, files)
-        manifest_files = {rel: sha256(data) for rel, data in files.items()}
-        bad_digest = pack_zip(MERGE_TREE, 5, MERGE, files, files={**manifest_files, NAMES[0]: "0" * 64})
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr("manifest.json", json.dumps({
+                "schema": px.SCHEMA, "tree": MERGE_TREE, "run_id": 5, "source_sha": MERGE,
+                "files": {**{rel: sha256(data) for rel, data in files.items()}, NAMES[0]: "0" * 64}}))
+            for rel, data in files.items():
+                archive.writestr(rel, data)
+        bad_digest = buffer.getvalue()
         extra = pack_zip(MERGE_TREE, 5, MERGE, {**files, ".github/workflows/evil.yml": b"x"})
         missing = pack_zip(MERGE_TREE, 5, MERGE, {rel: data for rel, data in files.items() if rel != NAMES[-1]})
         self.assertEqual(self.lookup(self.done_api(tampered))["hit"], "true")
