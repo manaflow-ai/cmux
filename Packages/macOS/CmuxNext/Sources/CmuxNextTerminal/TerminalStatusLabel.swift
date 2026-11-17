@@ -64,10 +64,9 @@ final class TerminalStatusLabel {
 
     /// Shows the label for `status` (with the host loss, its cause and the daemon's stall), hides it,
     /// or waits. A label on screen stays (with the new words); a hidden one waits its status's delay
-    /// first. A change while it still waits keeps the longer wait from the same start, so
-    /// "Restoring…" turning into a reconnecting stall does not show early, and "Reconnecting…" turning
-    /// into "Disconnected" shows the shared quiet time after the drop began; a state in words with a
-    /// shorter delay keeps its own from that start. Returns whether the label's view changed (the host lays it out).
+    /// first. A change while it still waits keeps its deadline from the same start. Automatic
+    /// restore and reconnect clear any label and cancel the wait. Returns whether the label's view
+    /// changed (the host lays it out).
     @discardableResult
     func show(_ status: TerminalConnectionStatus, hostLoss: TerminalHostLoss?, cause: TerminalHostLossCause?,
               stall: TerminalShellStall?) -> Bool {

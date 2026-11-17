@@ -1,7 +1,6 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
-import CmuxNextWakeups
 
 /// What a remote-terminal tab shows while its terminal's session is not
 /// attached (plans/cmux-next/data-model.md 1.4): the machine, its state,
@@ -25,8 +24,6 @@ final class RemoteTerminalPlaceholderView: NSView {
     private(set) var state: State = .reconnecting
     private(set) var machine = ""
     var onConnect: (() -> Void)?
-    /// "Reconnecting to {machine}…" waits the shared connection quiet time, as the sidebar and terminal do (Leo, 2026-11-14).
-    var reconnectHold = QuietHold(owner: "remote-terminal-reconnect", delay: QuietHold.connectionDelay)
 
     /// The glyph drawn (tests).
     var glyph: NSImage? { icon.image }
@@ -92,14 +89,15 @@ final class RemoteTerminalPlaceholderView: NSView {
         self.machine = machine
         self.state = state
         status.stringValue = switch state {
-        case .reconnecting: RemoteStrings.placeholderReconnecting(machine)
+        case .reconnecting: ""
         case .offline: RemoteStrings.placeholderOffline(machine)
         case .unknown: RemoteStrings.placeholderUnknown(machine)
         }
         connect.isHidden = state != .offline || onConnect == nil
         setSnapshot(snapshot)
-        reconnectHold.update(state == .reconnecting) { [weak self] in self?.status.isHidden = false }
-        status.isHidden = reconnectHold.held
+        // Automatic recovery has no action to offer, however long it takes. Keep the saved screen.
+        status.isHidden = state == .reconnecting
+        icon.isHidden = state == .reconnecting
         setAccessibilityLabel(status.stringValue)
     }
 
