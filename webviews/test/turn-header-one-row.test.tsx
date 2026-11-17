@@ -212,9 +212,10 @@ test("the header's clock has one start and one formula, running and ended, and n
   // Running: it ticks from the stretch's start.
   expect(running!.at).toBe(20_000);
   expect(running!.durationMs).toBeUndefined();
-  // The answer has come: the clock holds where the ended line will read.
+  // The answer has come: the turn folds under its line before its end, which reads from the same
+  // start to the answer.
   const answered = header(live(continuedAnswered, 32_000), "cu");
-  expect(answered!.at + (answered!.durationMs ?? Number.NaN)).toBe(30_000);
+  expect(answered!.durationMs).toBe(30_000 - 20_000);
   // Ended: the same start, the same end.
   const done = header(ended(continuedEnded), "cu");
   expect(done!.durationMs).toBe(30_000 - 20_000);

@@ -3,6 +3,8 @@
 // agent-pane.turn-header-steady the header line ("Working for …", then "Worked for …") is there from
 // the first state and keeps its top and height, the prompt and the folded message run keep theirs,
 // the sender chip sits on the preview's baseline, and the timer keeps its width as its digits change.
+// The header is one row (one id, kind and element) in every state, its chevron's slot held right
+// after its words from the start, and the sender's mark keeps one box.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
@@ -36,6 +38,7 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
     timer: { text: string; width: number }[] | null;
     /** The header row's kind class and its chevron's slot (there, hidden or not, in every state). */
     headerKind: string | null;
+    /** `left`: from the words' right edge. */
     chevron: { left: number; width: number } | null;
     /** The prompt's sender mark: one fixed box, whatever picture comes. */
     mark: { width: number; height: number } | null;
@@ -129,7 +132,10 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
           ? ([...headerRow.classList].find((name) => /^acpmux-(worked|working)$/.test(name)) ?? null)
           : null;
         const chevronBox = headerRow?.querySelector(".cv-worked__chevron")?.getBoundingClientRect();
-        const chevron = chevronBox ? { left: chevronBox.left, width: chevronBox.width } : null;
+        const labelBox = headerRow?.querySelector(".cv-worked__label")?.getBoundingClientRect();
+        // The chevron sits right after the words (conversation.css), so its slot is read from them.
+        const chevron =
+          chevronBox && labelBox ? { left: chevronBox.left - labelBox.right, width: chevronBox.width } : null;
         const markBox = prompt?.querySelector(".cv-received__mark")?.getBoundingClientRect();
         const mark = markBox ? { width: markBox.width, height: markBox.height } : null;
         return { rows, worked, baseline, headerKind, chevron, mark };
@@ -235,7 +241,7 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
         "header .cv-worked",
         STATES.map((state) => [state, all.get(state)!.worked]),
       );
-      // One kind in every state, and the chevron's slot held from the start, in one place.
+      // One kind in every state, and the chevron's slot held from the start, right after the words.
       for (const state of STATES) {
         const m = all.get(state)!;
         if (m.headerKind !== "acpmux-worked") failures.push(`header kind in ${state}: ${m.headerKind}`);
