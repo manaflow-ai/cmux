@@ -403,7 +403,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Agent-launched builds never take system-wide keys from the person's app, nor a menu bar item.
         if !environment.noActivate { services.globalHotKeys.start(); services.menuBarExtra.follow(settings, background: services.background) }
         services.cache.browserTabs.preference.follow(settings)
-        if settings.snapshot.browserDefaultEngine == .chromium, AgentPaneTunables.chromium.value, !services.crashRecovery.recovery.isSafeRestart { services.cache.cef.initializeAfter(firstFrame); services.cache.cef.preload() } // a restored chat's page starts Chromium as the window builds: map its framework now, off main; CefInitialize waits for the first frame (CMUX-571)
+        if settings.snapshot.browserDefaultEngine == .chromium, AgentPaneTunables.chromium.value, !services.crashRecovery.recovery.isSafeRestart { services.cache.cef.initializeAfter(firstFrame); firstFrame.whenOpen { [cef = services.cache.cef] in cef.preload() } } // the framework map holds dyld's loader lock, which the window's build waits on: map it once the first frame is in (a restored chat's page that starts Chromium sooner loads it itself); CefInitialize waits for the first frame (CMUX-571)
         BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, cef: services.cache.cef)
         WorkspaceAutoNameWiring(services: services).start(settings: settings) // `workspaces.autoName.variant` persist (hq#1957)
         BrowserOmnibarPreference.follow(settings, cache: services.cache)
