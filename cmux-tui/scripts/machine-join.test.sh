@@ -90,6 +90,19 @@ case "\$1" in -s) echo "\$JT_OS" ;; -m) echo "\$JT_ARCH" ;; *) echo fake ;; esac
 EOF
 chmod 755 "$shims/uname"
 
+# The fake systemctl: JT_UNIT=1 has acpmux.service loaded, and JT_UNIT_UP=0
+# keeps it from coming up; otherwise nothing is loaded and every call is a no-op.
+cat >"$shims/systemctl" <<EOF
+#!/bin/sh
+. "$fakes/record.sh"
+[ "\${JT_UNIT:-0}" = 1 ] || exit 0
+case "\$*" in
+  "--user show -p LoadState --value acpmux.service") echo loaded ;;
+  "--user is-active --quiet acpmux.service") [ "\${JT_UNIT_UP:-1}" = 1 ] ;;
+esac
+EOF
+chmod 755 "$shims/systemctl"
+
 # The fake curl: serves \$JT_SERVE/<kind> by the URL's shape, honours -o.
 cat >"$shims/curl" <<EOF
 #!/bin/sh
@@ -270,7 +283,7 @@ new_case() {
   JT_OS=Linux JT_ARCH=x86_64
   JT_CAPS="acpmux-v1 machine.join.stdin.v1"
   JT_JOIN_EXIT=0 JT_DOCTOR=0 JT_SERVICE=1 JT_PROBE=unknown JT_JOIN_ERR=""
-  JT_VAULT=fail JT_CODEX_RT=0 JT_SVC=ok JT_RESTART=ok
+  JT_VAULT=fail JT_CODEX_RT=0 JT_SVC=ok JT_RESTART=ok JT_UNIT=0 JT_UNIT_UP=1
   : >"$d/log/argv"
 }
 
@@ -284,7 +297,7 @@ run_join() {
     JT_DOCTOR="$JT_DOCTOR" JT_SERVICE="$JT_SERVICE" JT_PROBE="$JT_PROBE" JT_JOIN_ERR="$JT_JOIN_ERR" \
     JT_PENDING="$d/home/pending" JT_REVOKED="$d/home/revoked" \
     JT_VAULT="$JT_VAULT" JT_CODEX_RT="$JT_CODEX_RT" JT_SVC="$JT_SVC" JT_RESTART="$JT_RESTART" \
-    CMUX_PLATFORM_URL="$origin" "$@"
+    JT_UNIT="$JT_UNIT" JT_UNIT_UP="$JT_UNIT_UP" CMUX_PLATFORM_URL="$origin" "$@"
   rc=0
   case "$form" in
     env) "$@" CMUX_JOIN="$token" $shell_cmd -s <"$script_under_test" >"$d/out" 2>&1 || rc=$? ;;
@@ -444,7 +457,76 @@ suite() {
   check "the channel build replaced it" test "$(sha "$d/home/.local/bin/acpmux")" = "$(sha "$d/serve/acpmux")"
   check "the old one kept as acpmux.prev" grep -q "a different build" "$d/home/.local/bin/acpmux.prev"
   check "the replaced daemon restarted" grep -q "^acpmux daemon restart" "$d/log/argv"
+  check "replace and redeem restart the daemon once, not twice" test "$(grep -c "^acpmux daemon restart" "$d/log/argv")" = 1
   check "token on stdin of the verified binary" token_on_stdin_once
+
+  # acpmux.prev still runs (processes started before an earlier update): on
+  # Linux, writing over it fails with "Text file busy"; the join goes on.
+  if [ "$(uname -s)" = Linux ]; then
+    new_case prev-busy
+    bin="$d/home/.local/bin"
+    mkdir -p "$bin"
+    { cat "$root/acpmux.src"; echo "# a different build"; } >"$bin/acpmux"
+    chmod 755 "$bin/acpmux"
+    cp "$(command -v sleep)" "$bin/acpmux.prev"
+    chmod 755 "$bin/acpmux.prev"
+    "$bin/acpmux.prev" 120 &
+    busy=$!
+    tries=0
+    while [ "$(readlink "/proc/$busy/exe" 2>/dev/null)" != "$bin/acpmux.prev" ] && [ "$tries" -lt 50 ]; do
+      sleep 0.1
+      tries=$((tries + 1))
+    done
+    # Live: the copy-over this replaced fails on this file.
+    check "prev-busy: acpmux.prev is running, so cp over it fails" eval '! cp "$bin/acpmux" "$bin/acpmux.prev" 2>/dev/null'
+    run_join env
+    kill "$busy" 2>/dev/null || :
+    wait "$busy" 2>/dev/null || :
+    check "prev-busy: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+    check "prev-busy: the channel build replaced it" test "$(sha "$bin/acpmux")" = "$(sha "$d/serve/acpmux")"
+    check "prev-busy: the old one kept as acpmux.prev" grep -q "a different build" "$bin/acpmux.prev"
+    check "prev-busy: no staged copy left" test ! -e "$bin/.acpmux.prev.new"
+    check "prev-busy: token on stdin" token_on_stdin_once
+  fi
+
+  # systemd's acpmux.service runs the daemon: restarts go through it after
+  # reset-failed, once per run (two within seconds hit its start limit).
+  new_case unit-replace-join
+  JT_UNIT=1
+  mkdir -p "$d/home/.local/bin"
+  { cat "$root/acpmux.src"; echo "# a different build"; } >"$d/home/.local/bin/acpmux"
+  chmod 755 "$d/home/.local/bin/acpmux"
+  run_join env
+  check "unit: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "unit: one systemd restart" test "$(grep -c "^systemctl --user restart acpmux.service" "$d/log/argv")" = 1
+  check "unit: reset-failed before it" grep -q "^systemctl --user reset-failed acpmux.service" "$d/log/argv"
+  check "unit: never acpmux daemon restart or start" eval '! grep -qE "^acpmux daemon (restart|start)" "$d/log/argv"'
+  check "unit: the restart comes after the redeem" eval '[ "$(grep -n "^acpmux host join --hub" "$d/log/argv" | head -n 1 | cut -d: -f1)" -lt "$(grep -n "^systemctl --user restart" "$d/log/argv" | cut -d: -f1)" ]'
+  check "unit: says it is active" out_has "restarted acpmux.service; it is active"
+  : >"$d/log/argv"
+  run_join env
+  check "unit re-run: exit 0 (got $rc)" rc_is 0
+  check "unit re-run: no restart" eval '! grep -q "^systemctl --user restart" "$d/log/argv"'
+
+  # A replaced binary on a joined machine (nothing redeemed) still restarts, once.
+  new_case unit-replace-joined
+  JT_UNIT=1
+  mkdir -p "$d/home/.local/bin"
+  { cat "$root/acpmux.src"; echo "# a different build"; } >"$d/home/.local/bin/acpmux"
+  chmod 755 "$d/home/.local/bin/acpmux"
+  : >"$d/home/joined"
+  run_join env
+  check "unit, joined: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "unit, joined: nothing redeemed" no_redeem
+  check "unit, joined: one systemd restart" test "$(grep -c "^systemctl --user restart acpmux.service" "$d/log/argv")" = 1
+
+  # The unit does not come back: fail with the way out.
+  new_case unit-down
+  JT_UNIT=1
+  JT_UNIT_UP=0
+  run_join env
+  check "unit down: exit 1 (got $rc)" rc_is 1
+  check "unit down: names reset-failed and start" out_has "systemctl --user reset-failed acpmux.service; systemctl --user start acpmux.service"
 
   # Without a token (repair), a capable different build is kept.
   new_case capable-mismatch-repair
@@ -514,7 +596,7 @@ suite() {
   JT_RESTART=fail
   run_join env
   check "restart fails: still joins (got $rc)" rc_is 0
-  check "restart fails: says the daemon has no heartbeat yet" out_has "did not restart onto the join, so it sends no heartbeat yet"
+  check "restart fails: says the daemon has no heartbeat yet" out_has "did not restart onto the new acpmux or the join, so it sends no heartbeat yet"
 
   new_case no-service
   JT_SERVICE=0

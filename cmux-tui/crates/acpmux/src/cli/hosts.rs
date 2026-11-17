@@ -495,7 +495,8 @@ fn push_update(
 /// Install the pushed `.acpmux-new/acpmux` once its `--version` runs (else
 /// delete it and leave the installed binary alone) and the host's restart
 /// window and downgrade check let it (else the same), keeping the binary it
-/// replaces as `acpmux.prev` (a hard link, else a copy; none when nothing
+/// replaces as `acpmux.prev` (a hard link, else a copy renamed into place,
+/// since a still-running `acpmux.prev` cannot be written over; none when nothing
 /// was installed, so a rollback never brings back an older one) for a
 /// rollback. Only a binary known to run replaces `acpmux.prev`: the
 /// installed one when the daemon that answered (`$c`, its commit) runs its
@@ -505,7 +506,7 @@ fn push_update(
 /// Prints the new binary's version. Once it is in place nothing fails the
 /// install: a staging folder that will not go is left for the next push
 /// to clear.
-const INSTALL_PUSHED: &str = "cd ~/.local/bin && chmod +x .acpmux-new/acpmux && { v=$(.acpmux-new/acpmux --version) || { rm -rf .acpmux-new; echo 'the pushed acpmux does not run on this host' >&2; exit 1; }; } && { ! acpmux_window_refuses || { rm -rf .acpmux-new; exit 1; }; } && { ! acpmux_downgrade acpmux .acpmux-new/acpmux || { rm -rf .acpmux-new; exit 1; }; } && { if [ ! -e acpmux ]; then rm -f acpmux.prev; elif [ -f acpmux.prev ] && ! { [ -n \"$c\" ] && grep -qaF \"($c\" acpmux; }; then :; else ln -f acpmux acpmux.prev 2>/dev/null || cp -p acpmux acpmux.prev; fi; } && mv -f .acpmux-new/acpmux acpmux && { rmdir .acpmux-new 2>/dev/null; printf '%s\\n' \"$v\"; }";
+const INSTALL_PUSHED: &str = "cd ~/.local/bin && chmod +x .acpmux-new/acpmux && { v=$(.acpmux-new/acpmux --version) || { rm -rf .acpmux-new; echo 'the pushed acpmux does not run on this host' >&2; exit 1; }; } && { ! acpmux_window_refuses || { rm -rf .acpmux-new; exit 1; }; } && { ! acpmux_downgrade acpmux .acpmux-new/acpmux || { rm -rf .acpmux-new; exit 1; }; } && { if [ ! -e acpmux ]; then rm -f acpmux.prev; elif [ -f acpmux.prev ] && ! { [ -n \"$c\" ] && grep -qaF \"($c\" acpmux; }; then :; else ln -f acpmux acpmux.prev 2>/dev/null || { cp -p acpmux .acpmux.prev.new && mv -f .acpmux.prev.new acpmux.prev; } || { rm -f .acpmux.prev.new; false; }; fi; } && mv -f .acpmux-new/acpmux acpmux && { rmdir .acpmux-new 2>/dev/null; printf '%s\\n' \"$v\"; }";
 
 /// Put `acpmux.prev` back as `~/.local/bin/acpmux`; fails without one.
 const RESTORE_PREV: &str = "(cd ~/.local/bin && [ -f acpmux.prev ] && rm -f acpmux && { ln acpmux.prev acpmux 2>/dev/null || cp -p acpmux.prev acpmux; })";

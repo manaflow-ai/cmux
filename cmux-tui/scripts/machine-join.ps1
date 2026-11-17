@@ -160,7 +160,16 @@
       New-Item -ItemType Directory -Force -Path $binDir -ErrorAction Stop | Out-Null
       $prev = Join-Path $binDir 'acpmux.prev.exe'
       if ($installed) {
+        # A running acpmux.prev.exe (processes from before an earlier update)
+        # can be neither deleted nor replaced, only renamed: set it aside
+        # under a name of its own, and sweep the ones no longer running.
+        Get-ChildItem -LiteralPath $binDir -Filter 'acpmux.prev.*.old.exe' -ErrorAction SilentlyContinue |
+          Remove-Item -Force -ErrorAction SilentlyContinue
         Remove-Item -Force -LiteralPath $prev -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $prev) {
+          $aside = Join-Path $binDir ('acpmux.prev.{0}.old.exe' -f [guid]::NewGuid().ToString('N'))
+          Move-Item -Force -LiteralPath $prev -Destination $aside -ErrorAction Stop
+        }
         Move-Item -Force -LiteralPath $acpmux -Destination $prev -ErrorAction Stop
         $replaced = $true
       }
