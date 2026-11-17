@@ -210,8 +210,13 @@ function startFailureSentence(t: Translate, switching: StartFailure): StartFailu
   // again.") is already plain words: it stays the sentence, after the not-installed check above.
   if (writtenForPeople(raw)) return { sentence: t("switch.failed", { agent: switching.name, reason: raw }) };
   // An unknown failure at start is a start that failed, not "had a problem and stopped".
-  if (kind === "other")
+  if (kind === "other") {
+    // An unclassified failure in plain words says them: "Claude Code couldn't start." with the
+    // reason only under Details told nobody why (#44964). Raw text stays under Details.
+    const reason = plainReason(raw);
+    if (reason) return { sentence: t("switch.failed", { agent: switching.name, reason }), detail: raw };
     return { sentence: t("turn.failure.spawnFailed", { harness: switching.name }), detail: raw, unexplained: true };
+  }
   return {
     sentence: failureCopy(t, raw, { name: switching.name, harness: switching.harness }, switching.code),
     detail: raw,
