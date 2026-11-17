@@ -84,7 +84,7 @@ pub const FAMILIES: &[&str] = &[
 
 /// Ops that wait for the user (a file panel) get the long deadline.
 /// `system_calendar.request_access` waits on the system Calendars prompt.
-const WAITS_FOR_USER: &[&str] = &["fs.pick", super::system_calendar::REQUEST_ACCESS];
+const WAITS_FOR_USER: &[&str] = &["fs.pick", system_calendar::REQUEST_ACCESS];
 /// Largest params a routed call may carry (the provider's control queue is
 /// bounded; an untrusted app must not be able to overflow it).
 pub(super) const MAX_PARAMS_BYTES: usize = 64 * 1024;
