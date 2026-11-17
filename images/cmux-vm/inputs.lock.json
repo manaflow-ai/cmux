@@ -645,27 +645,27 @@
   "programs": [
     {
       "name": "cmux-tui",
-      "version": "7aaaf036694ab3790bb40bc828fad4f55b77d433",
-      "url": "https://files.cmux.com/cmux-tui/7aaaf036694ab3790bb40bc828fad4f55b77d433/cmux-tui-x86_64-unknown-linux-musl",
-      "sha256": "0c584f0b5a3ae382cba69099a18a53d8c5f1298474081f0f925fb56fefe75308",
-      "size": 159606656,
+      "version": "3b37e19afb634017b39c9c91a75c4fd8ea4c33d9",
+      "url": "https://files.cmux.com/cmux-tui/3b37e19afb634017b39c9c91a75c4fd8ea4c33d9/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "23e6498831e390e0f4c31440a9aeb71914bad4766393217587d76b89e1b4ffbe",
+      "size": 159808256,
       "format": "raw",
       "fileName": "cmux-tui",
       "bin": { "acpmux": "cmux-tui", "cmux": "cmux-tui", "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
-      "source": "https://files.cmux.com/cmux-tui/7aaaf036694ab3790bb40bc828fad4f55b77d433/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/44005522655; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/3b37e19afb634017b39c9c91a75c4fd8ea4c33d9/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/44006313996; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "cmux-tui-hook",
-      "version": "7aaaf036694ab3790bb40bc828fad4f55b77d433",
-      "url": "https://files.cmux.com/cmux-tui/7aaaf036694ab3790bb40bc828fad4f55b77d433/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "version": "3b37e19afb634017b39c9c91a75c4fd8ea4c33d9",
+      "url": "https://files.cmux.com/cmux-tui/3b37e19afb634017b39c9c91a75c4fd8ea4c33d9/cmux-tui-hook-x86_64-unknown-linux-musl",
       "sha256": "2ab8ef3523c421c807f332f37eaf7b47f28b84ed3d69bbf485f7358178f63ecb",
       "size": 4874240,
       "format": "raw",
       "fileName": "cmux-tui-hook",
       "bin": { "cmux-tui-hook": "cmux-tui-hook" },
       "versionArgs": [],
-      "source": "https://files.cmux.com/cmux-tui/7aaaf036694ab3790bb40bc828fad4f55b77d433/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/44005522655; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/3b37e19afb634017b39c9c91a75c4fd8ea4c33d9/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/44006313996; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "coderouter",
