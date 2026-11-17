@@ -1,11 +1,13 @@
+import AppKit
 import CmuxHomeCore
 @testable import CmuxNextHome
 @testable import CmuxNextHomeEngine
+import Foundation
 import Testing
 
 /// A bare launch's Chief page before its Chief's owner answers: the settings card's changes wait
 /// for the real Chief and are made on it (never dropped on the provisional one), a page that went
-/// first refuses them, and the page shows the Chief the launch will most likely open.
+/// first refuses them, and the page shows no engine or face that could change at the handover.
 @MainActor @Suite
 struct HomeLaunchChiefSettingsTests {
     static let chief = ConversationID("conv_chief")
@@ -56,14 +58,16 @@ struct HomeLaunchChiefSettingsTests {
         #expect(real.writes.isEmpty)
     }
 
-    @Test func theCardReadsTheRealChiefWhenTheProvisionalOneCannotAnswer() async throws {
+    @Test func theCardShowsNoEngineUntilTheRealChiefIsNamed() async throws {
         let hold = LaunchChiefHold()
-        let real = Engine(name: "real")
+        let provisional = Engine(name: "provisional"), real = Engine(name: "real")
+        provisional.model = "claude-haiku-5-5"
         real.model = "claude-opus-5-5"
-        let source = HomeLaunchChiefEngine.source(for: HomeLaunchChiefSource.conversation, own: Engine(name: "provisional", fails: true), hold: hold) { _ in real }
+        let source = HomeLaunchChiefEngine.source(for: HomeLaunchChiefSource.conversation, own: provisional, hold: hold) { _ in real }
         let read = Task { try await source.read() }
         for _ in 0..<100 { await Task.yield() }
         hold.resolve(Self.chief) { _, _, _ in }
+        // The real Chief's engine, never the provisional one's (it could change at the handover).
         #expect(try await read.value.model == "claude-opus-5-5")
     }
 
@@ -73,15 +77,16 @@ struct HomeLaunchChiefSettingsTests {
         #expect((source as? Engine) === own)
     }
 
-    @Test func thePageGuessesTheChiefTheLaunchWillOpen() {
-        // Signed in, Auto, this Mac's Chief not running: the Hosted Chief (the cloud read lists it).
-        #expect(HomeLaunchChiefEngine.guessesCloud(signedIn: true, engine: nil, localRunning: false))
-        #expect(HomeLaunchChiefEngine.guessesCloud(signedIn: true, engine: "hosted", localRunning: true))
-        // Auto while this Mac's Chief runs, or the Engine row on This Mac: this Mac's.
-        #expect(!HomeLaunchChiefEngine.guessesCloud(signedIn: true, engine: nil, localRunning: true))
-        #expect(!HomeLaunchChiefEngine.guessesCloud(signedIn: true, engine: "local", localRunning: false))
-        // Signed out: no cloud Chief to open.
-        #expect(!HomeLaunchChiefEngine.guessesCloud(signedIn: false, engine: "hosted", localRunning: false))
+    @Test func thePageDrawsAnEmptyFaceUntilTheChiefAnswers() {
+        let me = Participant(id: ParticipantID("me"), kind: .human, displayName: "Me")
+        let store = HomeStore(source: HomeLaunchChiefSource(me: me, title: "Chief", hold: LaunchChiefHold()),
+                              blobCacheDirectory: FileManager.default.temporaryDirectory.appendingPathComponent("home-launch-face-\(UUID().uuidString)"))
+        let view = HomeNativeTranscriptView(store: store, conversation: HomeLaunchChiefSource.conversation, me: me.id)
+        defer { view.stop() }
+        view.holdsChiefFace = true
+        view.setChiefAvatar(picture: NSImage(size: NSSize(width: 4, height: 4)), text: "AB")
+        #expect(view.avatarPicture == nil)
+        #expect(view.avatarText == " ")
     }
 }
 

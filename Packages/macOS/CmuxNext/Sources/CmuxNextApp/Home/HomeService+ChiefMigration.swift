@@ -56,9 +56,9 @@ extension HomeService {
     }
 
     /// A conversation of the cloud owner (a cloud Chief's, or one the
-    /// store lists as cloud; a bare launch's page that guesses one): it does not wait for the local Chief owner.
+    /// store lists as cloud): it does not wait for the local Chief owner.
     func isCloudConversation(_ id: ConversationID) -> Bool {
-        cloudChiefs.chief(for: id.rawValue) != nil || homeStore.summary(id)?.owner == .cloud || launchPage?.guessesCloud(id) == true
+        cloudChiefs.chief(for: id.rawValue) != nil || homeStore.summary(id)?.owner == .cloud
     }
 
     /// The notice row of a conversation: on the local Chief, agents off in this build session (cx-tgf4h)

@@ -16,9 +16,6 @@ public final class HomeLaunchComposer {
     public private(set) var view = NSView()
     public let store: HomeStore
     public let hold: LaunchChiefHold
-    /// The page shows the Chief the launch will most likely open: a cloud Chief's
-    /// (`HomeLaunchChiefEngine.guessesCloud`), else this Mac's.
-    public let isCloud: Bool
     /// Home's own store: the Chief's sends and drafts go there.
     private let home: HomeStore
     private static let conversation = HomeLaunchChiefSource.conversation
@@ -28,19 +25,20 @@ public final class HomeLaunchComposer {
     ///   - home: Home's own store.
     ///   - me: The signed-in person when `home` has none yet.
     ///   - title: The header's name (`HomeStrings.chiefName`).
-    ///   - isCloud: The Chief the launch will most likely open is a cloud Chief.
     ///   - column: Where the page goes, filling it (the Messages page's transcript column); nil: nowhere yet.
     ///   - makeView: The app's Chief view over this page's ``store`` and its conversation (the
-    ///     page is complete but for its view: the view may read ``hold`` and ``isCloud``).
-    public init(home: HomeStore, me: Participant, title: String, isCloud: Bool = false, in column: NSView? = nil,
+    ///     page is complete but for its view: the view may read ``hold``). Its Chief face waits for
+    ///     the real Chief (an empty disc: `HomeNativeTranscriptView.holdsChiefFace`).
+    public init(home: HomeStore, me: Participant, title: String, in column: NSView? = nil,
                 makeView: (HomeLaunchComposer) -> NSView) {
         let hold = LaunchChiefHold()
-        (self.home, self.hold, self.isCloud) = (home, hold, isCloud)
+        (self.home, self.hold) = (home, hold)
         store = HomeStore(source: HomeLaunchChiefSource(me: home.me ?? me, title: title, hold: hold))
         store.start()
         store.setDraft(home.draft(for: Self.conversation) ?? "", for: Self.conversation)
         home.setDraft("", for: Self.conversation)
         view = makeView(self)
+        HomeNativeTranscriptView.first(in: view)?.holdsChiefFace = true
         guard let column else { return }
         view.frame = column.bounds
         view.autoresizingMask = [.width, .height]
@@ -73,10 +71,6 @@ public final class HomeLaunchComposer {
         end()
         return nil
     }
-
-    /// `id` is this page's conversation and the page guesses a cloud Chief (``isCloud``): the app
-    /// treats it as a cloud conversation (its settings card, controls and availability).
-    public func guessesCloud(_ id: ConversationID) -> Bool { isCloud && id == Self.conversation }
 
     /// The window's keyboard is in the page.
     public var holdsKeyboard: Bool {
