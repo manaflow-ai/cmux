@@ -1,4 +1,7 @@
 public import Foundation
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 
 /// Which cloud data space a build's requests ask for, decided once in each app's composition root and passed to
 /// every client that talks to a cloud backend (cloud-api, cmux-mobile-api).

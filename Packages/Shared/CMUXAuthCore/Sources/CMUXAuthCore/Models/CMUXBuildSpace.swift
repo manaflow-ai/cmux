@@ -1,4 +1,7 @@
 public import Foundation
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 
 /// The cloud data space a dev build's requests ask for: `X-Cmux-Build-Space: dev:<slug>`.
 ///
