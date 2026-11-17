@@ -1507,6 +1507,32 @@ class BuildRescueToBlacksmith(unittest.TestCase):
         self.assertEqual(self.runner(""), self.SIDE)
         self.assertEqual(self.runner("something-else"), self.SIDE)
 
+    POOL = "glaeda-promote-trusted-light-xcode-26.6"
+
+    def pool_runner(self, pool: str, rescue: str = "", event: str = "push", attempt: int = 1) -> str:
+        build = self.workflow["jobs"]["build"]
+        return evaluate(workflow_jobs.single_runs_on(build), {
+            "github": {"repository_owner": "manaflow-ai", "event_name": event, "run_attempt": attempt},
+            "inputs": {"rescue": rescue}, "needs": {"placement": {"outputs": {"placed_attempt": "1"}}},
+            "vars": {"CI_FFI_RELEASE_POOL": pool, "CI_SIDE_LANE_RUNNER": self.SIDE,
+                     "CI_NEXT_PROMOTE_POOL": "glaeda-promote-trusted-std-xcode-26.6",
+                     "RUNNER_POOLS": json.dumps({"macos_26": self.SMALL, "macos_26_large": self.LARGE})}})
+
+    def test_the_ffi_release_pool_takes_every_attempt_when_set(self):
+        for event in ("push", "workflow_dispatch"):
+            for attempt in (1, 2):
+                with self.subTest(event=event, attempt=attempt):
+                    self.assertEqual(self.pool_runner(self.POOL, event=event, attempt=attempt), self.POOL)
+
+    def test_a_rescue_still_goes_first_and_unset_keeps_the_earlier_routes(self):
+        self.assertEqual(self.pool_runner(self.POOL, rescue="blacksmith"), self.SMALL)
+        self.assertEqual(self.pool_runner(""), self.SIDE)
+
+    def test_only_this_workflow_reads_the_ffi_release_pool(self):
+        readers = sorted(path.name for path in (ROOT / ".github/workflows").glob("*.yml")
+                         if "CI_FFI_RELEASE_POOL" in path.read_text(encoding="utf-8"))
+        self.assertEqual(readers, ["app-ffi-release.yml"])
+
     def test_a_rescued_run_places_with_blacksmith_on(self):
         place = next(step for step in self.workflow["jobs"]["placement"]["steps"] if step.get("id") == "place")
         expression = place["env"]["CI_BLACKSMITH_MACOS"]
