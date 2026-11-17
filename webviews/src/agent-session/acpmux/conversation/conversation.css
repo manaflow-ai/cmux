@@ -75,7 +75,7 @@
      height, size or chip of its own: test/transcript-row-metric-tokens.test.ts holds these to
      rowMetric.ts and test/transcript-activity-row-density.test.ts measures every kind. */
   --cv-tool-row-height: 20px;
-  --cv-row-font-size: calc(var(--cv-font-size) - 1px);
+  --cv-row-font-size: calc(var(--cv-font-size) * 13 / 14);
   --cv-row-chip-height: 16px;
   --cv-row-glyph: 16px;
   /* "Worked for"'s rule: this much under its words and this much over the next row. */

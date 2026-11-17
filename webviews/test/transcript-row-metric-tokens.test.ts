@@ -33,7 +33,7 @@ describe("the shared row metric", () => {
       ruleBelow: token(css, "--cv-worked-rule-below"),
     }).toEqual({
       height: `${ROW_METRIC.height}px`,
-      font: `calc(var(--cv-font-size) - ${PROSE - ROW_METRIC.font}px)`,
+      font: `calc(var(--cv-font-size) * ${ROW_METRIC.font} / ${PROSE})`,
       chip: `${ROW_METRIC.chip}px`,
       glyph: `${ROW_METRIC.glyph}px`,
       ruleAbove: `${ROW_METRIC.ruleAbove}px`,
