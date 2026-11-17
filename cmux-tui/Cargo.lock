@@ -1842,6 +1842,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "objc2-app-kit",
+ "png",
  "windows-sys 0.61.2",
 ]
 

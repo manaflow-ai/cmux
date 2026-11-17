@@ -229,6 +229,44 @@
   }
 }
 
+/* WALLPAPER LIGHTING (appearance.wallpaperLighting, off by default; Leo 2026-11-17: "what if you almost
+   treat the background wallpaper like a light source? lighting inside cmux!?"). The host reads the
+   wallpaper once per picture into a light field (cmux-motion light.rs, in linear light) and sends it
+   with the theme (WebTheme.swift), never per frame:
+   - data-wallpaper-light on the root while it is on;
+   - --wl-rim, --wl-rim-alpha: the key light's hue at a fixed brightness, and how much it stands out;
+   - --wl-dx, --wl-dy: the unit direction from the window's center toward the key light (y down);
+   - --wl-bloom, --wl-bloom-alpha: the picture's most colorful dominant color, for the composer's glow;
+   - --wl-tint, --wl-tint-share: the picture's mean color and how far the glass surface leans to it.
+   The material rim (above) keeps its white top-left specular and gains a colored line and a soft wash
+   on the edge that faces the light; the glass surface leans toward the picture's color (mixed in
+   linear light). The colors are theme colors, so a new picture crossfades them with the theme's own
+   transition (appearance.colorTransition, off with motion off); the numbers move at once. Reduce
+   Transparency and the lens keep their own looks. */
+@media not (prefers-reduced-transparency: reduce) {
+  :root[data-wallpaper-light]:not([data-reduce-transparency]) {
+    --glass-surface: color-mix(
+      in srgb-linear,
+      var(--cmux-surface-solid, Canvas),
+      var(--wl-tint) calc(100% * var(--wl-tint-share))
+    );
+  }
+  :root[data-wallpaper-light]:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency]),
+  :root[data-wallpaper-light]:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency]) .ui-glass {
+    --wl-lit: color-mix(in srgb, var(--wl-rim) calc(100% * var(--wl-rim-alpha) * var(--glass-rim)), transparent);
+    --wl-lit-soft: color-mix(in srgb, var(--wl-rim) calc(45% * var(--wl-rim-alpha) * var(--glass-rim)), transparent);
+    /* An inset shadow shows on the side opposite its offset, so the offset points away from the light. */
+    --glass-material-rim:
+      inset 0 var(--cmux-hairline, 0.5px) 0 0 var(--glass-material-specular),
+      inset 1px 1.5px 1px -1px var(--glass-material-specular),
+      inset -1px -1px 1px -1px var(--glass-material-return),
+      inset 0 calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--glass-material-return),
+      inset 0 16px 20px -16px var(--glass-material-sheen),
+      inset calc(-1.5px * var(--wl-dx)) calc(-1.5px * var(--wl-dy)) 1px -0.5px var(--wl-lit),
+      inset calc(-18px * var(--wl-dx)) calc(-18px * var(--wl-dy)) 24px -16px var(--wl-lit-soft);
+  }
+}
+
 /* SVG REFRACTION (svgRefraction.ts; the gallery's and the latency harness's comparison, never set by a
    shipped page): Chromium runs the SVG filter as the backdrop, bending the page's own pixels. */
 @media not (prefers-reduced-transparency: reduce) {
