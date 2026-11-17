@@ -53,28 +53,18 @@ public struct DebugKeySequence: Sendable, Equatable {
             self.ticksPerSecond = ticksPerSecond
         }
 
-        /// The clock for a sequence that starts now: a fresh probe event's own ticks and the seconds AppKit reads
-        /// from it, or, when the probe carries no timestamp (macOS 27, 2026-10-31: every sequence was refused),
-        /// the host's mach ticks now at the timebase's rate (the HID clock event timestamps follow).
-        ///
-        /// - Parameters:
-        ///   - probeTimestamp: A fresh probe event's `timestamp`.
-        ///   - probeSeconds: The seconds AppKit reads from that probe (`NSEvent.timestamp`), nil without one.
-        ///   - hostTicks: `mach_absolute_time()` now.
-        ///   - timebaseNumer: `mach_timebase_info` numerator (nanoseconds per tick, times `timebaseDenom`).
-        ///   - timebaseDenom: `mach_timebase_info` denominator.
-        /// - Returns: The start, or nil when neither clock is usable.
-        public static func start(probeTimestamp: CGEventTimestamp, probeSeconds: Double?, hostTicks: UInt64,
-                                 timebaseNumer: UInt32, timebaseDenom: UInt32) -> Stamp? {
-            if probeTimestamp > 0, let probeSeconds, probeSeconds > 0 {
-                return Stamp(base: probeTimestamp, ticksPerSecond: Double(probeTimestamp) / probeSeconds)
-            }
-            guard hostTicks > 0, timebaseNumer > 0, timebaseDenom > 0 else { return nil }
-            return Stamp(base: hostTicks, ticksPerSecond: 1e9 * Double(timebaseDenom) / Double(timebaseNumer))
-        }
+        /// Nanoseconds in a second: the documented unit of `CGEventTimestamp`.
+        private static let nanosecondsPerSecond = 1e9
 
-        /// The start for a probe with no timestamp, from the host's clock in the unit that AppKit reads (decision of
-        /// 2026-11-17). Not written yet: this is the start of the form with no `stampedRate`.
+        /// The clock for a sequence that starts now.
+        ///
+        /// A fresh probe event with a timestamp gives its own ticks and the seconds AppKit reads from it. A probe
+        /// with no timestamp (macOS 27, 2026-10-31: every sequence was refused) gives no unit. The start then comes
+        /// from the host's clock in the unit that AppKit reads (decision of 2026-11-17): `stampedRate` says how many
+        /// event ticks AppKit takes for a second (``eventTicksPerSecond(stamping:with:read:)``), and the base is the
+        /// host's seconds since boot at that rate. Before that decision the base was the host's mach ticks at the
+        /// timebase's rate. On a Mac with macOS 26.7 AppKit read those ticks as nanoseconds, so each event of a
+        /// sequence was older than it was by 122/125 of the time since boot.
         ///
         /// - Parameters:
         ///   - probeTimestamp: A fresh probe event's `timestamp`.
@@ -83,17 +73,32 @@ public struct DebugKeySequence: Sendable, Equatable {
         ///   - timebaseNumer: `mach_timebase_info` numerator (nanoseconds per tick, times `timebaseDenom`).
         ///   - timebaseDenom: `mach_timebase_info` denominator.
         ///   - stampedRate: The event ticks in a second for a probe stamped with the host's nanoseconds now (its
-        ///     argument).
+        ///     argument). Asked only when the probe has no timestamp.
         /// - Returns: The start, or nil when neither clock is usable.
         public static func start(probeTimestamp: CGEventTimestamp, probeSeconds: Double?, hostTicks: UInt64,
                                  timebaseNumer: UInt32, timebaseDenom: UInt32,
                                  stampedRate: (CGEventTimestamp) -> Double) -> Stamp? {
-            start(probeTimestamp: probeTimestamp, probeSeconds: probeSeconds, hostTicks: hostTicks,
-                  timebaseNumer: timebaseNumer, timebaseDenom: timebaseDenom)
+            if probeTimestamp > 0, let probeSeconds, probeSeconds > 0 {
+                return Stamp(base: probeTimestamp, ticksPerSecond: Double(probeTimestamp) / probeSeconds)
+            }
+            guard hostTicks > 0, timebaseNumer > 0, timebaseDenom > 0 else { return nil }
+            // The host's nanoseconds since boot: ticks x numer / denom, with no overflow of the product.
+            // (`truncatingIfNeeded` from 32 bits to 64 bits keeps each value.)
+            let denom = UInt64(truncatingIfNeeded: timebaseDenom)
+            let product = hostTicks.multipliedFullWidth(by: UInt64(truncatingIfNeeded: timebaseNumer))
+            guard product.high < denom else { return nil }
+            let nanoseconds = denom.dividingFullWidth(product).quotient
+            guard nanoseconds > 0 else { return nil }
+            let rate = stampedRate(nanoseconds)
+            guard rate != nanosecondsPerSecond else { return Stamp(base: nanoseconds, ticksPerSecond: rate) }
+            guard rate.isFinite, rate > 0,
+                  let base = CGEventTimestamp(exactly: (Double(nanoseconds) / nanosecondsPerSecond * rate).rounded()) else { return nil }
+            return Stamp(base: base, ticksPerSecond: rate)
         }
 
-        /// The event ticks that AppKit takes for a second, by its own read of a probe stamped with `ticks`. Not
-        /// written yet: no stamp, no read.
+        /// The event ticks that AppKit takes for a second, by its own read: stamps `probe` with `ticks` and divides
+        /// `ticks` by the seconds that `read` gives for the probe. A read with no usable seconds (none, zero, below
+        /// zero, not finite) gives nanoseconds, the documented unit of `CGEventTimestamp`.
         ///
         /// - Parameters:
         ///   - probe: A probe event; its timestamp becomes `ticks`.
@@ -102,21 +107,26 @@ public struct DebugKeySequence: Sendable, Equatable {
         /// - Returns: Event ticks per second.
         public static func eventTicksPerSecond(stamping probe: CGEvent, with ticks: CGEventTimestamp,
                                                read: (CGEvent) -> Double?) -> Double {
-            0
+            probe.timestamp = ticks
+            guard ticks > 0, let seconds = read(probe), seconds.isFinite, seconds > 0 else { return nanosecondsPerSecond }
+            return Double(ticks) / seconds
         }
 
-        /// ``start(probeTimestamp:probeSeconds:hostTicks:timebaseNumer:timebaseDenom:)`` with this host's
-        /// mach clock now.
+        /// ``start(probeTimestamp:probeSeconds:hostTicks:timebaseNumer:timebaseDenom:stampedRate:)`` for a fresh
+        /// `probe` with this host's mach clock now. A probe with no timestamp is stamped to learn the unit: its
+        /// timestamp changes.
         ///
         /// - Parameters:
-        ///   - probeTimestamp: A fresh probe event's `timestamp`.
-        ///   - probeSeconds: The seconds AppKit reads from that probe, nil without one.
+        ///   - probe: A fresh probe event, nil when the system made none.
+        ///   - read: The seconds AppKit reads from an event (`NSEvent(cgEvent:)?.timestamp`), nil without one.
         /// - Returns: The start, or nil when neither clock is usable.
-        public static func start(probeTimestamp: CGEventTimestamp, probeSeconds: Double?) -> Stamp? {
+        public static func start(probe: CGEvent?, read: (CGEvent) -> Double?) -> Stamp? {
             var timebase = mach_timebase_info_data_t()
             mach_timebase_info(&timebase)
-            return start(probeTimestamp: probeTimestamp, probeSeconds: probeSeconds, hostTicks: mach_absolute_time(),
-                         timebaseNumer: timebase.numer, timebaseDenom: timebase.denom)
+            return start(probeTimestamp: probe?.timestamp ?? 0, probeSeconds: probe.flatMap(read), hostTicks: mach_absolute_time(),
+                         timebaseNumer: timebase.numer, timebaseDenom: timebase.denom) { nanoseconds in
+                probe.map { eventTicksPerSecond(stamping: $0, with: nanoseconds, read: read) } ?? nanosecondsPerSecond
+            }
         }
 
         /// The event timestamp `offset` after the start.
