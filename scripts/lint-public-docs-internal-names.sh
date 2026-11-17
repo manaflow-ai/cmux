@@ -36,7 +36,7 @@ ALWAYS+='|gcp lane vm'
 ALWAYS+='|[.]tail[0-9a-f]+[.]ts[.]net'
 ALWAYS+='|(^|[^0-9.])100[.](6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])[.][0-9]+[.][0-9]+([^/0-9]|$)'
 # The VM provider, team machine names and the private workspace repository.
-PROSE='(^|[^a-z0-9_-])(freestyle|huge[- ]blue|big-red|cmux-lawrence[a-z0-9-]*|cosmic-gray'
+PROSE='(^|[^a-z0-9_-])(freestyle|huge[- ]blue|big[-]red|cmux-lawrence[a-z0-9-]*|cosmic-gray'
 PROSE+='|mini-cmuxs-mac-mini[a-z0-9-]*|leo-workspace)([^a-z0-9_-]|$)'
 
 # Print FILE:LINE: text for each finding in the given files.
