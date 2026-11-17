@@ -190,11 +190,7 @@ pub(super) fn apply_focus_path(mux: &Mux, state: &mut State, pane: PaneId) {
 
 /// Expands the stacks of `previous` and of `pane` on `current`, as a focus
 /// that goes from the one to the other shows both.
-pub(super) fn expand_focus_stacks(
-    current: &mut crate::model::Screen,
-    previous: PaneId,
-    pane: PaneId,
-) {
+pub(super) fn expand_focus_stacks(current: &mut Screen, previous: PaneId, pane: PaneId) {
     if current.layout_columns_active() {
         let mut expanded = false;
         for column in &mut current.layout_columns {
