@@ -9,6 +9,7 @@
 //! and never written to argv, the environment, a receipt, a log or the ledger.
 //! The VM it creates gets no provider credential and no public address.
 
+pub mod conformance;
 pub mod contract;
 pub mod fake;
 pub mod gcp;

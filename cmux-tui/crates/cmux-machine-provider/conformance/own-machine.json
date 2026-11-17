@@ -1,0 +1,14 @@
+{
+  "provider": "own machine",
+  "about": "A machine of your own: cmux's daemon on it, reached with {on} (`sh -c` on the machine itself, `ssh HOST` from another), and one agent turn placed there by acpmux (`--machine {machine}`). No pause or resume. Set on, cmux (the cmux binary on that machine) and machine.",
+  "steps": {
+    "attach": { "run": "{on} '{cmux} daemon ensure --session {tag}'", "timeout_s": 120 },
+    "connect": { "run": "{on} '{cmux} daemon status --session {tag}'", "timeout_s": 60 },
+    "agent_turn": {
+      "run": "acpmux run --machine {machine} -m claude/haiku --ephemeral --on-permission fail --timeout 150 'Reply with exactly the word PONG and nothing else.'",
+      "expect": "PONG",
+      "timeout_s": 180
+    },
+    "detach": { "run": "{on} '{cmux} daemon stop --session {tag} --end-terminals'", "timeout_s": 60 }
+  }
+}

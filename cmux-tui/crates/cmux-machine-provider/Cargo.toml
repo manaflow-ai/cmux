@@ -14,6 +14,10 @@ workspace = true
 name = "cmux-gcp-machine"
 path = "src/main.rs"
 
+[[bin]]
+name = "cmux-machine-conformance"
+path = "src/conformance_main.rs"
+
 [dependencies]
 cmux-config.workspace = true
 cmux-process.workspace = true
