@@ -70,8 +70,7 @@ extension ScreenContentView {
         }
     }
 
-    /// Steps the row springs on `spring` (the scroll spring, or a close's while the close moves);
-    /// true while one moves.
+    /// Steps the row springs on `spring` (the scroll spring); true while one moves.
     func stepRows(_ dt: Double, spring: SpringParameters) -> Bool {
         var moving = false
         for id in Array(rowScrolls.keys) where rowScrolls[id]?.state.isGestureActive == false {

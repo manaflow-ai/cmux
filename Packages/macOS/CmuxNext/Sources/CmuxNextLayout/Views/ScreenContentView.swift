@@ -196,8 +196,9 @@ final class ScreenContentView: NSView {
     /// or content at another size than its pane gives it. A zoom keeps the panes it leaves, hidden, for the unzoom
     /// (`LayoutViewContext.Retirement.zoom`).
     /// Ratio and width changes (equalize, width presets, another client's
-    /// divider drag) keep their spring. The strip scroll (including the
-    /// spring back after the last column closes) is `syncScroll`'s: it moves panes and changes no size.
+    /// divider drag) keep their spring. The cameras are `syncScroll`'s: a removed column or row leaves no camera past
+    /// the end of what stays (`ColumnScrollState.reduce`), and a reveal of the focused pane inside that range moves
+    /// whole panes and changes no size.
     /// `snapWaitsForFrame`: the root runs frames, so a change that snaps and resizes a pane shows at the next tick, its
     /// content drawn at its new size (`ScreenContentView+SnapFrame`).
     @discardableResult
