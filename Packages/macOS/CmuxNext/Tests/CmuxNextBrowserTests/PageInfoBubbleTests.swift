@@ -152,8 +152,11 @@ struct PageInfoSiteDataMemoryTests {
 @MainActor
 struct PageInfoSiteNameTests {
     /// One unit a character, so the widths below are character counts.
-    private func fitted(_ name: String, _ width: CGFloat) -> String {
-        PageInfoSite.fittedName(name, width: width) { CGFloat($0.count) }
+    private func fitted(
+        _ name: String, _ width: CGFloat,
+        registrableDomain: ((String) -> String?)? = PublicSuffixList.sharedRegistrableDomain
+    ) -> String {
+        PageInfoSite.fittedName(name, width: width, registrableDomain: registrableDomain) { CGFloat($0.count) }
     }
 
     @Test func aLongHostKeepsItsRegistrableDomainInThePartThatAlwaysShows() {
@@ -207,6 +210,20 @@ struct PageInfoSiteNameTests {
 
     @Test func aNarrowHeaderStillShowsThePrivateSuffixSitesOwner() {
         #expect(fitted("paypal-login.evil.github.io", 20) == "paypa…evil.github.io")
+    }
+
+    /// The header lays out on the main thread: before the list is read it guesses, and the list is
+    /// read on another thread, never the caller's (Codex review, #44608).
+    @Test func theHeaderGuessesUntilTheListIsReadInTheBackground() async {
+        #expect(fitted("paypal-login.evil.github.io", 20, registrableDomain: nil) == "paypal-log…github.io")
+        // A read in the caller's own task (for the header, on the main thread) hands back no list.
+        let caller = withUnsafeCurrentTask { $0?.hashValue }
+        let lookup = await PublicSuffixList.sharedRegistrableDomainInBackground {
+            withUnsafeCurrentTask { $0?.hashValue } == caller ? nil : PublicSuffixList.sharedRegistrableDomain
+        }
+        #expect(lookup != nil)
+        #expect(fitted("paypal-login.evil.github.io", 20, registrableDomain: lookup) == "paypa…evil.github.io")
+        #expect(await PublicSuffixList.sharedRegistrableDomainInBackground() != nil)
     }
 
     /// A local name has no dot to cut at, or is a site of its own: it shows whole.

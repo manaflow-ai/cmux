@@ -13,7 +13,9 @@ nonisolated extension PageInfoSite {
     /// - Parameters:
     ///   - name: a host with an optional port, or any other name (a path).
     ///   - registrableDomain: a host's registrable domain, nil when it has none; nil when there is
-    ///     no list. The app's one list (``PublicSuffixList/shared``) by default.
+    ///     no list. The app's one list (``PublicSuffixList/shared``) by default, which parses the
+    ///     bundled list on its first read: a main-thread caller passes the lookup it read in the
+    ///     background (``PublicSuffixList/sharedRegistrableDomainInBackground(read:)``) instead.
     static func splitName(
         _ name: String,
         registrableDomain: ((String) -> String?)? = PublicSuffixList.sharedRegistrableDomain
@@ -49,10 +51,18 @@ nonisolated extension PageInfoSite {
     /// returned for the label to cut at its start.
     /// - Parameters:
     ///   - width: the room the name has.
+    ///   - registrableDomain: the lookup ``splitName(_:registrableDomain:)`` cuts with; nil (the
+    ///     list not read yet, or missing) guesses. Never the default there: layout runs on the
+    ///     main thread, which must not parse the list.
     ///   - measure: the width a text draws at.
-    static func fittedName(_ name: String, width: CGFloat, measure: (String) -> CGFloat) -> String {
+    static func fittedName(
+        _ name: String,
+        width: CGFloat,
+        registrableDomain: ((String) -> String?)?,
+        measure: (String) -> CGFloat
+    ) -> String {
         guard measure(name) > width else { return name }
-        let (head, tail) = splitName(name)
+        let (head, tail) = splitName(name, registrableDomain: registrableDomain)
         guard !head.isEmpty else { return name }
         var kept = Substring(head)
         while !kept.isEmpty {
@@ -61,5 +71,17 @@ nonisolated extension PageInfoSite {
             if measure(candidate) <= width { return candidate }
         }
         return "…" + tail
+    }
+}
+
+nonisolated extension PublicSuffixList {
+    /// ``sharedRegistrableDomain`` read off the calling thread: its first read parses the bundled
+    /// list (10,000+ rules), which Page Info's header, laid out on the main thread, must not wait
+    /// for. Later reads return the kept list at once.
+    /// - Parameter read: the read to run in the background (tests); ``sharedRegistrableDomain``.
+    static func sharedRegistrableDomainInBackground(
+        read: @escaping @Sendable () -> (@Sendable (String) -> String?)? = { PublicSuffixList.sharedRegistrableDomain }
+    ) async -> (@Sendable (String) -> String?)? {
+        await Task.detached(priority: .utility) { read() }.value
     }
 }
