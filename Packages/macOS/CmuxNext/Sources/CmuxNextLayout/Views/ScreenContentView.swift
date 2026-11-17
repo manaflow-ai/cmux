@@ -278,7 +278,7 @@ final class ScreenContentView: NSView {
         let splits = animate && context.animatesPaneLayout
         var arrivals = splits && structural && !unzooming
             ? PaneArrival.split(paneFrames.mapValues(\.targetRect), from: before, to: baseGeometry, offset: scroll.value,
-                                slidesBeside: { [context] in context.hosts[$0]?.holdsContentWhileMoving == true }) : [:]
+                                slidesBeside: { [context] in context.provider?.slidesNewPaneInBeside(for: $0) == true }) : [:]
         // A pane that hands what it shows to the pane this change adds (`LayoutModel.handOffContent`): the
         // added pane shows in place and the giver slides in (`PaneArrival.handoff`). A pane added on the
         // giver's screen spends it.
@@ -361,11 +361,6 @@ final class ScreenContentView: NSView {
                 // A close taken back springs on as any live frame does (it snaps when this change does not animate).
                 if takenBack != nil { place(&frame, at: target, animated: animateFrames) } else { frame.setTarget(target, alpha: 1) }
                 paneFrames[pane] = frame
-            }
-            if let handoff, handoff.pane == pane {
-                // PaneHostView must distinguish this from an ordinary moving shrink: both have a
-                // nonzero rest offset, but only a handoff's first frame is already at its target size.
-                context.hosts[pane]?.isContentHandoff = true
             }
             context.hosts[pane]?.applyShape(padding: style.panePadding, cornerRadius: style.paneCornerRadius, wholeCard: style.floatingPanes)
         }

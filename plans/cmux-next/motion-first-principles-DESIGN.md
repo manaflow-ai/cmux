@@ -85,16 +85,43 @@ Nothing in this document was measured for it. No build or test can run where it 
 
 ### 1.3 Content hand-off today, per motion
 
-| Motion | Terminal grid goes to the PTY | Terminal surface size | Chromium (CEF) page | WebKit page |
-| --- | --- | --- | --- | --- |
-| Split, close, equalize | once, at the spring's start, in the key's turn [read] | final size at the start, held [read] | laid out every frame; a page that holds the keys: once at its rest size [read] | every frame [read] |
-| Zoom, unzoom | once, at the spring's start, which is after the daemon's answer [read] | final size at the spring's start, held [read] | as a split [read] | every frame [read] |
-| Key resize | one per refresh at most [read] | every frame, reflow preview [read] | every frame [read] | every frame [read] |
-| Divider drag | one per refresh at most; the newest at the release [read] | every frame [read] | page window detached unless it holds focus, attached again at the landing [read, 2nd] | every frame [read] |
-| Sidebar show or hide | once, at the END of the slide [read] | every frame [read] | every frame [read] | every frame [read] |
-| Window live resize | after each committed size [inferred by the helper, not confirmed] | every size AppKit gives | page window detached unless it holds focus [read, 2nd]; the commit waits `liveResizeDeadlineMs` for the page, default 0 [read] | every size |
-| Full screen | once, at the end (`S/CmuxNextBridge/ResizeCoordinator.swift`) [read, 2nd] | final size at the start; AppKit animates a snapshot | final size | final size |
-| Hidden pane, tab or screen | none; one size when it shows [read, 2nd] | none | parked and frozen | one size when it shows |
+One column per kind of pane content (`TabContent.Kind`: terminal, chromium, webkit, agent, page, placeholder, notice,
+conversation). The last five columns say what size the kind's view has; an agent chat's own Chromium page inside that
+view is laid out as the Chromium column says. Those five columns were read at the commit that removed the chat's hold
+(pane resize all kinds, 2026-11-11): **[read, pr]**. **[not read]**: no one read that cell for this table.
+
+| Motion | Terminal grid goes to the PTY | Terminal surface size | Chromium (CEF) page | WebKit page | Agent chat | Internal page (file viewer) | Placeholder | Notice | Conversation (Home) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Split, close, equalize | once, at the spring's start, in the key's turn [read] | final size at the start, held [read] | laid out every frame; a page that holds the keys: once at its rest size [read] | every frame [read] | every frame [read, pr] | every frame [read, pr] | every frame [read, pr] | every frame [read, pr] | every frame [read, pr] |
+| Zoom, unzoom | once, at the spring's start, which is after the daemon's answer [read] | final size at the spring's start, held [read] | as a split [read] | every frame [read] | every frame [read, pr] | every frame [read, pr] | every frame [read, pr] | every frame [read, pr] | every frame [read, pr] |
+| Key resize | one per refresh at most [read] | every frame, reflow preview [read] | every frame [read] | every frame [read] | every frame [read, pr] | every frame; the 2 Home pages (the docked Home, the Home page tab): held at the start size, one size after the landing [read, pr] | every frame [read, pr] | every frame [read, pr] | every frame [read, pr] |
+| Divider drag | one per refresh at most; the newest at the release [read] | every frame [read] | page window detached unless it holds focus, attached again at the landing [read, 2nd] | every frame [read] | [not read] | [not read] | [not read] | [not read] | [not read] |
+| Sidebar show or hide | once, at the END of the slide [read] | every frame [read] | every frame [read] | every frame [read] | [not read] | [not read] | [not read] | [not read] | [not read] |
+| Window live resize | after each committed size [inferred by the helper, not confirmed] | every size AppKit gives | page window detached unless it holds focus [read, 2nd]; the commit waits `liveResizeDeadlineMs` for the page, default 0 [read] | every size | [not read] | [not read] | [not read] | [not read] | [not read] |
+| Full screen | once, at the end (`S/CmuxNextBridge/ResizeCoordinator.swift`) [read, 2nd] | final size at the start; AppKit animates a snapshot | final size | final size | [not read] | [not read] | [not read] | [not read] | [not read] |
+| Hidden pane, tab or screen | none; one size when it shows [read, 2nd] | none | parked and frozen | one size when it shows | [not read] | [not read] | [not read] | [not read] | [not read] |
+
+The pane host has one rule for the three first rows, with no kind in it (`PaneHostView.contentFrame(in:)`,
+`S/CmuxNextLayout/Views/PaneHostView.swift`): the pane's content view has the clip's bounds in every frame. Until
+2026-11-11 a provider could ask the host to hold a pane's content through a split, a close and a zoom
+(`holdsContentInMotion`, true for an agent chat): the chat took its rest size once, at the spring's start, pinned at an
+edge on a ground the host painted where the chat did not cover its pane. That path is deleted (Lawrence 2026-11-11:
+"all must have smooth transition"). What stays is the shape of a new pane's arrival beside a chat: it enters at its
+final width and slides in (`PaneArrival.slidingIn`, the provider's `slidesNewPaneInBeside`); the chat beside it
+follows its narrowing pane in every frame.
+
+A key resize has 2 holds that stay, and both are for one kind: the 2 Home pages (`InternalPageID.homeDock` and
+`.homeTab`, the views that state `PaneKeyResizeHeld`). (1) A Home that draws its tools in its pane's tab row at the
+press has no hold area (`PaneContentAreaView.holdArea(for:drawsInTabRow:)` gives nil): the host holds the pane's whole
+content, its tab strip too, at its start size until after the landing (`PaneHostView.heldArea` is nil; test
+`theDockedHomeWithItsToolsInTheTabRowHoldsItsWholePaneThroughAKeyResize`). A bare view in a test takes the same path.
+(2) A Home with no tools in the tab row at the press, and a Home that a tab change shows inside the hold, is held by
+the hold area (`PaneContentAreaView`) of the app's pane content (`PaneContentView`): the tab strip follows the pane,
+and the area keeps the Home at its start size, under the tab strip, at the edge that stays, and gives it one new size
+after the landing (`keepsSizeInHold`, `keepsOutOfTabRowInHold`; cmux#41105 and cmux#41291). The cause is measured: a
+Home that followed its pane missed 13 to 15 of about 125 refreshes. So "every frame" in the key resize row is false for
+these 2 pages until the Home's layout is cheap enough to follow. In a split, a close and a zoom neither hold is on,
+for any kind.
 
 What shows between the old and the new picture today:
 

@@ -77,7 +77,7 @@ struct PaneArrival: Equatable {
     /// scroll `offset` and the strip's origin, which a dock moves); the seed
     /// is in the new pane's own coordinates.
     /// `slidesBeside`: whether a pane opening on the right of this pane slides in (``slidingIn(target:clipMaxX:)``); the
-    /// screen answers true for a pane whose content holds its layout while it moves (an agent chat).
+    /// screen asks its provider (``LayoutPaneContentProvider/slidesNewPaneInBeside(for:)``: an agent chat).
     static func split(_ previous: [PaneID: CGRect], from old: ScreenGeometry, to new: ScreenGeometry,
                       offset: CGFloat, slidesBeside: (PaneID) -> Bool = { _ in false }) -> [PaneID: PaneArrival] {
         let before = shown(previous, in: old, offset: offset), after = shown(new.panes, in: new, offset: offset)
@@ -94,7 +94,8 @@ struct PaneArrival: Equatable {
 
     /// A panel opening on a chat's right (Leo 2026-11-06: "their agent pane flows smoothly when a thing opens up on the
     /// right even when there's big lag on the computer"): the new pane enters at its final width from where the sliver
-    /// would start, past the screen's trailing edge, and slides in on the split spring while the chat's edge makes room.
+    /// would start, past the screen's trailing edge, and slides in on the split spring while the chat follows its
+    /// narrowing pane in every frame, as every kind of content does.
     /// Both of its sides travel the same distance on the same spring, so its size never changes: its page lays out once,
     /// at its final size, and every frame after only moves it (a Chromium or WebKit page is not resized per frame).
     /// Content still moves while it animates (Lawrence 2026-10-18); nothing is held under a clip. Only a pane that grows

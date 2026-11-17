@@ -18,20 +18,33 @@ public protocol RestingPlacement: NSView {
     /// gives it at the spring's start. A view that joins the content mid-spring (a split's new pane gets its
     /// terminal from the daemon's echo) asks for it here. Nil at rest or with no size change.
     var restContentSizeChange: CGSize? { get }
+    /// As ``restContentSizeChange``, from the size the content has in this frame. The two differ only in a key resize,
+    /// where the content follows its pane while its producers hold (FRAME OWNER S1/S3): a producer measures from the
+    /// size its hold began at (``restContentSizeChange``, a terminal's surface), and a view that lays out at the
+    /// content's size now (an agent chat's page moved in mid-spring) measures from this.
+    var liveRestContentSizeChange: CGSize? { get }
 }
 
 public extension RestingPlacement {
     var isOnLayoutSpring: Bool { restOffset != .zero }
     var restContentSizeChange: CGSize? { nil }
+    var liveRestContentSizeChange: CGSize? { restContentSizeChange }
 }
 
 public extension NSView {
     /// The nearest enclosing ``RestingPlacement``'s ``RestingPlacement/restContentSizeChange``: the size change
     /// this view's spring will rest at, for a view that joins mid-spring. Nil outside a spring.
-    var enclosingRestSizeChange: CGSize? {
+    var enclosingRestSizeChange: CGSize? { enclosingSpringPlacement?.restContentSizeChange }
+
+    /// The nearest enclosing ``RestingPlacement``'s ``RestingPlacement/liveRestContentSizeChange``: what a view that
+    /// has its pane content's size in this frame adds to it for the size it will rest at. Nil outside a spring.
+    var enclosingLiveRestSizeChange: CGSize? { enclosingSpringPlacement?.liveRestContentSizeChange }
+
+    /// The nearest enclosing ``RestingPlacement`` when it is on a layout spring.
+    private var enclosingSpringPlacement: (any RestingPlacement)? {
         var ancestor = superview
         while let view = ancestor {
-            if let placement = view as? RestingPlacement { return placement.isOnLayoutSpring ? placement.restContentSizeChange : nil }
+            if let placement = view as? RestingPlacement { return placement.isOnLayoutSpring ? placement : nil }
             ancestor = view.superview
         }
         return nil
@@ -56,8 +69,8 @@ public protocol PaneMotionTargeting: NSView {
     /// The enclosing placement's content area will rest `sizeChange` larger (negative: smaller) than it is
     /// now, in points; the pane chrome around this view does not change size during a spring, so this
     /// view's final size is `bounds.size + sizeChange`.
-    /// - Returns: The edge held content taller than its clip should be pinned to during the spring
-    ///   (``PaneMotionAnchor``): a terminal whose prompt is on its last row answers `.bottom`.
+    /// - Returns: The vertical edge this view's kept frame rides (``PaneMotionAnchor``): a terminal whose prompt is
+    ///   on its last row answers `.bottom`. The pane's host reads it only for content it holds whole in a key resize.
     func paneMotionWillRest(sizeChange: CGSize) -> PaneMotionAnchor
 }
 
@@ -79,7 +92,9 @@ public extension PaneResizeGestureFollowing {
     func paneResizeGestureReleased() {}
 }
 
-/// The vertical edge a pane's held content rides during a layout spring (``PaneMotionTargeting``).
+/// The vertical edge that kept content rides while its pane moves (``PaneMotionTargeting``): a terminal's surface in
+/// its host on a layout spring, and content that its pane's host holds whole in a key resize. No host holds content on
+/// a split's, a close's or a zoom's spring.
 public enum PaneMotionAnchor: Sendable {
     /// Pinned at the top (the default).
     case top

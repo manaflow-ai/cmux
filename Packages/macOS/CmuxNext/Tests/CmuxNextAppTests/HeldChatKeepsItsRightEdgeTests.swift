@@ -7,12 +7,9 @@ import Testing
 
 /// a102: my blue bubbles sit at a chat's right edge (20 pt in from it). While a pane slides, a chat
 /// held at a size wider than the pane's clip is cut at the clip's moving edge, and the cut takes my
-/// bubbles first. These drive the holds a pane runs (a keyboard resize's hold of its content area,
-/// and a split or close spring's hold of an agent chat) frame by frame.
-///
-/// Not covered: a spring that widens an agent chat's pane gives the chat its rest width on the first
-/// frame (Leo 2026-11-05: no waiting for the landing), so its right part shows as the pane grows. That
-/// is the chosen design, not this bug.
+/// bubbles first. These drive a pane's motions frame by frame: a keyboard resize (its content area's
+/// hold) and a split or close spring, where a chat is held at no size since 2026-11-11 (Lawrence: "all
+/// must have smooth transition") and has its pane's width in every frame.
 @MainActor @Suite(.serialized, .closesItsWindows)
 struct HeldChatKeepsItsRightEdgeTests {
     /// A keyboard resize narrows the pane from its right edge: its content area holds. Home (its
@@ -48,12 +45,12 @@ struct HeldChatKeepsItsRightEdgeTests {
         #expect(home.frame == area.bounds, "Home is \(home.frame) after the hold, in \(area.bounds)")
     }
 
-    /// A pane opens beside an agent chat: the chat takes its final, narrower width on the spring's first
-    /// frame and keeps it (Leo 2026-11-05: no waiting for the landing), so nothing of it is cut.
-    @Test func aHeldChatInANarrowingPaneTakesItsRestWidthAtTheStart() {
+    /// A pane opens beside an agent chat: the chat has its pane's width in every frame of the spring (it waits for no
+    /// landing: Leo 2026-11-05, and is held at no other size), so nothing of it is cut and none of its pane is empty.
+    @Test func aChatInANarrowingPaneHasItsPanesWidthInEveryFrame() {
         _ = NSApplication.shared
         let content = NSView()
-        let host = PaneHostView(pane: "chat", content: content, holdsContentInMotion: { true })
+        let host = PaneHostView(pane: "chat", content: content)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -74,7 +71,9 @@ struct HeldChatKeepsItsRightEdgeTests {
             PaneHeldContentLandingTests.present(host, at: CGRect(x: 0, y: 0, width: width, height: 800), rest: rest)
             widths.insert(content.frame.width)
             #expect(content.frame.maxX <= host.clipView.bounds.maxX + 0.5, "frame \(width): the chat is cut")
+            #expect(content.frame == host.clipView.bounds && content.frame.width == width - 16,
+                    "frame \(width): the chat is at \(content.frame) in a pane that shows \(host.clipView.bounds)")
         }
-        #expect(widths.count == 1, "the chat laid out at \(widths.sorted()) during the spring, not once at its rest width")
+        #expect(widths.count == 6, "the chat laid out at \(widths.sorted()) during the spring, not at each frame's width")
     }
 }

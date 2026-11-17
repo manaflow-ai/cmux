@@ -65,9 +65,8 @@ extension AgentPaneView {
     }
 }
 
-/// SPLIT OPEN CHAT: the chat's ground is this pane's ground. Its pane shows it where the chat, held at its rest size
-/// on a split's spring, does not reach yet (`PaneClipView.showHeldGround`), and when the pane closes. Nil under a
-/// picture of the chat and for a translucent ground: the pane then shows what it showed before.
+/// The chat's ground is this pane's ground: its pane shows it when the pane closes. Nil under a picture of the chat and
+/// for a translucent ground: the pane then shows what it showed before.
 extension AgentPaneView: PaneGroundReporting {
     public var paneGround: CGColor? { ground.isHidden ? nil : ground.layer?.backgroundColor }
 }
