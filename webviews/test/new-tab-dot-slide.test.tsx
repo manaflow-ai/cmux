@@ -94,7 +94,7 @@ test("the accent mark sits on the current dot in its first frame, with no motion
   expect(mark.parentElement!.hasAttribute("data-settled")).toBe(false);
 });
 
-test("a pick places the mark on the new dot at once and slides it on transform over 180 ms", async () => {
+test(`a pick places the mark on the new dot at once and slides it on transform over ${MOTION_MS.standard} ms`, async () => {
   const mark = await mount();
   await act(async () => pick("threads"));
   expect(mark.style.transform).toBe("translate(48px, 0px)");

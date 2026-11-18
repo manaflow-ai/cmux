@@ -1,8 +1,9 @@
 public import CmuxNextLayout
 
 // The Chief panel (user 2026-11-06): the Chief chat floating over the workspace a window shows, or docked at one
-// edge as a Chief-only pane, never over Home. It opens only on purpose: a link clicked in the Chief (the next
-// workspace that link shows gets it, floating), or Show/Hide Chief (Cmd-I). A workspace opened any other way (the
+// edge as a Chief-only pane, never over Home. It opens only on purpose: Show/Hide Chief (Cmd-I), or, with
+// `home.chiefDock.openBeside` on (off by default, cmux#45889), a link clicked in the Chief (the next workspace that
+// link shows gets it, floating). A workspace opened any other way (the
 // sidebar, Cmd-P, a switch, a restore, a launch, a new window) shows no Chief. Docking is the person's choice (Dock
 // in its bar, or Dock Workspace on Home); Float floats it again. Every entry point ends in one of these operations,
 // which change window view state in this turn.
