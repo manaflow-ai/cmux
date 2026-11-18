@@ -354,18 +354,18 @@ fn plan_pins_a_machine_that_exists_and_names_a_new_one_otherwise() {
 #[test]
 fn a_copied_folder_keeps_move_to_clouds_name_under_the_sends_place() {
     // The name `CloudMoveFolder.remoteName` gives: the folder's name and 24 bits of FNV-1a.
-    assert_eq!(remote_name("/Users/me/src/paint"), "paint-33f597");
-    assert_eq!(remote_name("/"), format!("folder-{}", &remote_name("/")[7..]));
+    assert_eq!(remote_name("/Users/me/src/paint"), "paint");
+    assert_eq!(remote_name("/"), "folder");
     let copy = copy_of("/Users/me/src/paint", "web/app");
     let place = copy.fresh_place();
     let send = format!("chats/{}/", copy.key.to_lowercase());
     assert!(place.starts_with(&send) && place.len() == send.len() + 8, "{place}");
     assert_ne!(copy.fresh_place(), place, "each copy gets a folder of its own");
     let (folder, chat) = copy.remote("/home/cmux/work", &place);
-    assert_eq!(folder, format!("/home/cmux/work/{place}/paint-33f597"));
-    assert_eq!(chat, format!("/home/cmux/work/{place}/paint-33f597/web/app"));
+    assert_eq!(folder, format!("/home/cmux/work/{place}/paint"));
+    assert_eq!(chat, format!("/home/cmux/work/{place}/paint/web/app"));
     let top = StartCopy { subpath: String::new(), ..copy };
-    assert_eq!(top.remote("/root/work/", &place).1, format!("/root/work/{place}/paint-33f597"));
+    assert_eq!(top.remote("/root/work/", &place).1, format!("/root/work/{place}/paint"));
 }
 
 fn copy_of(local: &str, subpath: &str) -> StartCopy {
@@ -408,7 +408,7 @@ fn a_copy_tries_the_next_work_root_only_when_the_first_is_not_the_machines_home(
     // Both roots were tried with the same folder of the send's own.
     let place = seen.borrow()[1].strip_prefix("/root/work/").unwrap().to_string();
     assert_eq!(seen.borrow()[0], format!("/home/cmux/work/{place}"));
-    let place = place.strip_suffix("/paint-33f597").unwrap();
+    let place = place.strip_suffix("/paint").unwrap();
     assert_eq!(answer["chat"], json!(copy.remote("/root/work", place).1));
 
     // Another failure stops at once, with its code (the App's outdated-machine retry reads it).
@@ -2109,9 +2109,9 @@ fn a_larger_size_goes_with_the_ensure_and_takes_no_spare() {
     }
 }
 
-/// A size whose own disk is below the folder's needed disk asks it grown, in GiB rounded up to 4 and at most the plan's
-/// largest disk (`plan_max`, 256 GiB when not known) (`disk_gib`); a folder the size holds, unknown bytes or the chat
-/// size send none.
+/// Under a plan known (`plan_max`), a size whose own disk is below the folder's needed disk asks it grown, in GiB rounded
+/// up to 4 and at most the plan's largest disk (`disk_gib`); with no plan known, a folder the size holds, unknown bytes
+/// or the chat size, none.
 #[test]
 fn a_folder_past_its_sizes_disk_asks_a_grown_disk() {
     const GIB: u64 = 1024 * 1024 * 1024;
@@ -2125,16 +2125,20 @@ fn a_folder_past_its_sizes_disk_asks_a_grown_disk() {
         Ok(json!({"machine": {"id": format!("vm-{}", bodies.borrow().len())}, "created": true}))
     };
     let asks = [
-        (Some("lg"), Some(50 * GIB), None, Some(76)),
-        // cmux NEXT Max, 90 GiB: `xl` grown to 136.
-        (Some("xl"), Some(90 * GIB), Some("2xl"), Some(136)),
-        // No plan known, 100 GiB: `xl` grown to 152.
-        (Some("xl"), Some(100 * GIB), None, Some(152)),
+        // cmux NEXT Pro, 48 GiB: `lg` grown to 72.
+        (Some("lg"), Some(48 * GIB), Some("lg"), Some(72)),
+        // cmux NEXT Pro, 60 GiB: `lg` grown to 92.
+        (Some("lg"), Some(60 * GIB), Some("lg"), Some(92)),
         // cmux NEXT Pro, 100 GiB: `lg` grown to Pro's 128 at most.
         (Some("lg"), Some(100 * GIB), Some("lg"), Some(128)),
-        (Some("lg"), Some(40 * GIB), None, None),
+        // cmux NEXT Max, 90 GiB: `xl` grown to 136; 200 GiB: `2xl` grown to Max's 256 at most.
+        (Some("xl"), Some(90 * GIB), Some("2xl"), Some(136)),
+        (Some("2xl"), Some(200 * GIB), Some("2xl"), Some(256)),
+        // No plan known: the size's own disk, as before.
+        (Some("lg"), Some(48 * GIB), None, None),
+        (Some("xl"), Some(100 * GIB), None, None),
         (Some("lg"), None, Some("lg"), None),
-        (Some("sm"), Some(50 * GIB), None, None),
+        (Some("sm"), Some(50 * GIB), Some("lg"), None),
     ];
     for (size, bytes, plan_max, _) in asks {
         let mut request = json!({"key": key(), "account": "user-leo/", "loaded": false,

@@ -61,75 +61,132 @@ pub(super) fn floor_disk(bytes: u64) -> u64 {
     bytes.saturating_add(RESERVED_BYTES)
 }
 
-/// The disk a start asks for `bytes` of folder: half again the folder, and at least its [`floor_disk`]. It picks the
-/// size asked and the disk grown, never a refusal (the App's `CloudChatSize.neededDiskBytes`).
+/// The disk a start grows its size toward for `bytes` of folder under a plan known: half again the folder, and at least
+/// its [`floor_disk`]. It only grows a disk ([`grown_disk_gib`]): it never picks the size asked nor refuses (the App's
+/// `CloudChatSize.neededDiskBytes`).
 pub(super) fn needed_disk(bytes: u64) -> u64 {
     let half_again = bytes.saturating_add(bytes.div_ceil(2));
     half_again.max(floor_disk(bytes))
 }
 
-/// The largest disk a plan whose largest size is `plan_max` gives: `lg` (cmux NEXT Pro and the classic plans below
-/// Max) 128 GiB, `2xl` (Max) [`LARGEST_DISK`], another ladder size its own disk; None for a size off the ladder.
-fn plan_disk(plan_max: &str) -> Option<u64> {
-    match plan_max {
-        "lg" => Some(128 * GIB),
-        "2xl" => Some(LARGEST_DISK),
-        other => LADDER.iter().find(|(name, _)| *name == other).map(|(_, disk)| *disk),
+/// The ladder index of a plan's largest size `plan_max`; None for none or a size off the ladder (a plan not known).
+fn plan_index(plan_max: Option<&str>) -> Option<usize> {
+    plan_max.and_then(|plan_max| LADDER.iter().position(|(name, _)| *name == plan_max))
+}
+
+/// The largest disk a plan whose largest size is ladder index `plan` gives: `lg` (cmux NEXT Pro and the classic plans
+/// below Max) 128 GiB, `2xl` (Max) [`LARGEST_DISK`], another size its own disk.
+fn plan_disk(plan: usize) -> u64 {
+    match LADDER[plan].0 {
+        "lg" => 128 * GIB,
+        "2xl" => LARGEST_DISK,
+        _ => LADDER[plan].1,
     }
 }
 
-/// The size a start with no plan known asks for `bytes` of folder ([`planned_size`]).
+/// The smallest ladder index (`sm` to `xl`; `2xl` has `xl`'s disk, so never the smallest) whose own disk holds the
+/// folder's [`floor_disk`]; None above `xl`.
+fn floor_index(bytes: u64) -> Option<usize> {
+    let floor = floor_disk(bytes);
+    LADDER.iter().position(|(_, own)| floor <= *own)
+}
+
+/// The size a start with no plan known asks for `bytes` of folder: the smallest whose own disk holds the folder and the
+/// reserve ([`floor_disk`]), None above `xl` (the rule before the half-again target). The preflight's `needed_size`.
 pub(super) fn needed_size(bytes: u64) -> Option<&'static str> {
     planned_size(bytes, None)
 }
 
 /// The size a start asks for `bytes` of folder under a plan whose largest size is `plan_max` (None, or a size off the
-/// ladder: not known); None only for a folder whose [`floor_disk`] is past [`LARGEST_DISK`]. The smallest whose disk
-/// holds the [`needed_disk`], within the plan; else the smallest within the plan whose disk holds the
-/// [`floor_disk`] (its disk grown toward the needed one, [`grown_disk_gib`]); else, with a plan known, its largest
-/// size grown when the plan's disk holds the floor, or the size past the plan that the platform refuses with its
-/// upgrade (`cloud.size.locked`); with none known, `xl` grown. The App's `CloudChatSize.planned(bytes:planMax:)`.
+/// ladder: not known, [`needed_size`] and no grown disk). With a plan known: [`needed_size`] when the plan gives it;
+/// else, when the plan's largest disk holds the floor, the plan's largest size, its disk grown ([`grown_disk_gib`];
+/// a platform that ignores it is answered [`outgrown_plan`]); else the size past the plan, which the platform refuses
+/// with its upgrade (`cloud.size.locked`): [`needed_size`], or `2xl` above `xl`. None for a folder whose floor is past
+/// [`LARGEST_DISK`]. The App's `CloudChatSize.planned(bytes:planMax:)`.
 pub(super) fn planned_size(bytes: u64, plan_max: Option<&str>) -> Option<&'static str> {
+    let fit = floor_index(bytes);
+    let Some(plan) = plan_index(plan_max) else { return fit.map(|index| LADDER[index].0) };
+    if let Some(index) = fit.filter(|index| *index <= plan) {
+        return Some(LADDER[index].0);
+    }
     let floor = floor_disk(bytes);
     if floor > LARGEST_DISK {
         return None;
     }
-    let plan = plan_max.and_then(|plan_max| LADDER.iter().position(|(name, _)| *name == plan_max));
-    let within = |index: &usize| plan.is_none_or(|plan| *index <= plan);
-    let smallest = |disk: u64| LADDER.iter().position(|(_, own)| disk <= *own);
-    if let Some(index) = smallest(needed_disk(bytes)).filter(within) {
-        return Some(LADDER[index].0);
+    if floor <= plan_disk(plan) {
+        return Some(LADDER[plan].0);
     }
-    if let Some(index) = smallest(floor).filter(within) {
-        return Some(LADDER[index].0);
-    }
-    let Some(plan) = plan else { return Some("xl") };
-    let (largest, _) = LADDER[plan];
-    if plan_disk(largest).is_some_and(|disk| floor <= disk) {
-        return Some(largest);
-    }
-    Some(smallest(floor).map_or("2xl", |index| LADDER[index].0))
+    Some(fit.map_or("2xl", |index| LADDER[index].0))
 }
 
-/// The disk in GiB a start asks beyond `size`'s own (the ensure body's `disk_gib`): the folder's [`needed_disk`]
-/// rounded up to [`DISK_STEP_GIB`], at most the plan's largest disk ([`plan_disk`] of `plan_max`; [`LARGEST_DISK`]
-/// when not known), only when that is more than the size's own disk. None for no size, a size off the ladder, unknown
-/// bytes or a folder the size's own disk holds. A platform that ignores it makes the size's own disk, which goes on
-/// while it holds the folder's [`floor_disk`] ([`too_small`]). The App's `CloudChatSize.grownDiskMb`.
+/// The disk in GiB a start asks beyond `size`'s own (the ensure body's `disk_gib`) under a plan known by its largest
+/// size `plan_max`: the folder's [`needed_disk`] rounded up to [`DISK_STEP_GIB`], at most the plan's largest disk
+/// ([`plan_disk`]), only when that is more than the size's own disk. None with no plan known (none, or a size off the
+/// ladder: the start asks exactly what it did before the half-again target), no size, a size off the ladder, unknown
+/// bytes or a folder the size's own disk holds. The App's `CloudChatSize.grownDiskMb`.
 pub(super) fn grown_disk_gib(
     size: Option<&str>,
     bytes: Option<u64>,
     plan_max: Option<&str>,
 ) -> Option<u64> {
+    let plan = plan_index(plan_max)?;
     let (_, own) = LADDER.iter().find(|(name, _)| Some(*name) == size)?;
     let needed = needed_disk(bytes?);
     if needed <= *own {
         return None;
     }
-    let cap = plan_max.and_then(plan_disk).unwrap_or(LARGEST_DISK) / GIB;
+    let cap = plan_disk(plan) / GIB;
     let gib = needed.div_ceil(DISK_STEP_GIB * GIB).saturating_mul(DISK_STEP_GIB).min(cap);
     (gib.saturating_mul(GIB) > *own).then_some(gib)
 }
+
+/// The refusal of a start that asked the plan's largest size `size` grown for `bytes` of folder no size within the plan
+/// holds ([`planned_size`]), when the platform made `machine` with a disk below the folder's [`floor_disk`] (it ignored
+/// `disk_gib`): the size refusal the platform answers a start past the plan's sizes (`cloud.size.locked`), naming the
+/// size the folder needs ([`needed_size`], else the size above the plan) and the plan's largest, so the App's start card
+/// offers the upgrade, never [`too_small`]. None for no plan known, a size other than the plan's largest, a size within
+/// the plan that holds the floor, no size above the plan, unknown bytes or disk, or a disk that holds the floor.
+pub(super) fn outgrown_plan(
+    size: Option<&str>,
+    bytes: Option<u64>,
+    plan_max: Option<&str>,
+    machine: &Machine<'_>,
+) -> Option<Value> {
+    let plan = plan_index(plan_max)?;
+    let (largest, _) = LADDER[plan];
+    if size != Some(largest) {
+        return None;
+    }
+    let bytes = bytes?;
+    if floor_index(bytes).is_some_and(|index| index <= plan) {
+        return None;
+    }
+    let disk = machine.disk_bytes?;
+    if floor_disk(bytes) <= disk {
+        return None;
+    }
+    let needed = floor_index(bytes).or_else(|| (plan + 1 < LADDER.len()).then_some(plan + 1))?;
+    let (needed, _) = LADDER[needed];
+    let mut line = super::refused(
+        SIZE_LOCKED,
+        format!(
+            "{} has a {} GiB disk, too small for this folder: it needs a {needed} machine, which the plan does not give",
+            machine.title,
+            disk / GIB
+        ),
+    );
+    super::with_handling(&mut line, 403, SIZE_LOCKED, None);
+    if let Value::Object(object) = &mut line {
+        object.insert("size_locked".into(), json!({"needed": needed, "allowed": largest}));
+        object.insert("copy_bytes".into(), json!(bytes));
+        object.insert("machine_id".into(), json!(machine.id));
+        object.insert("machine_title".into(), json!(machine.title));
+    }
+    Some(line)
+}
+
+/// The platform's code for a size the plan does not give (cmux-platform `admitSize`).
+const SIZE_LOCKED: &str = "cloud.size.locked";
 
 /// The least a machine is taken to have room for, whatever its disk (the App's `CloudSeedRefusal.leastRoomBytes`).
 const LEAST_ROOM_BYTES: u64 = 4 * GIB;
