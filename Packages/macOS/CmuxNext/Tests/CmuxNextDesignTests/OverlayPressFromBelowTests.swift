@@ -11,9 +11,34 @@ import Testing
 /// `WindowOverlayHost.takeEventFromBelow` (the host's mouse monitor) hands such a press to the panel. The button the
 /// press reached runs AppKit's tracking loop, which takes the release straight from the event queue, unseen by any
 /// monitor and still addressed to the window under the panel, so its point is in that window's coordinates: the
-/// release missed the button and the click answered nothing. The tests give the release to the queue first, as the
-/// window server does, and dispatch it as the app does when no tracking loop takes it.
-@MainActor @Suite(.closesItsWindows) struct OverlayPressFromBelowTests {
+/// release missed the button and the click answered nothing.
+///
+/// On a display host AppKit's own loop never sees a synthesized release (DialogCardClickTests), so a `Tracker` lies
+/// over the card's control and tracks the press as `NSCell` does: it takes the next release from the queue and
+/// clicks the control when that release lands on it. The window server queues the release before the press is
+/// handled; the app dispatches a release no tracking loop took through the host, as `ShellWindow.sendEvent` does.
+/// The suite runs serialized: every test shares the app's event queue.
+@MainActor @Suite(.closesItsWindows, .serialized) struct OverlayPressFromBelowTests {
+    /// AppKit's tracking of a press on `control`, which it covers: the next release in the queue ends the press, and
+    /// it clicks `control` when it lands on it in this window's coordinates.
+    final class Tracker: NSControl {
+        let control: NSControl
+        private(set) var presses = 0
+        init(over control: NSControl) {
+            self.control = control
+            super.init(frame: .zero)
+        }
+        @available(*, unavailable) required init?(coder: NSCoder) { nil }
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+        override func mouseDown(with event: NSEvent) {
+            presses += 1
+            guard let release = NSApp.nextEvent(matching: .leftMouseUp, until: .distantPast, inMode: .eventTracking,
+                                                dequeue: true) else { return }
+            let landed = release.window === window && bounds.contains(convert(release.locationInWindow, from: nil))
+            if landed { control.performClick(nil) }
+        }
+    }
+
     /// The close question as `DestructiveConfirmation.spec` builds it.
     private static let spec = CmuxDialogSpec(
         title: "Close \u{201C}Align GUI Bullet Points\u{201D}?", lines: ["Still running: claude."],
@@ -53,12 +78,21 @@ import Testing
 
     private static func all(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(all) }
 
-    /// The middle of the dialog's control `id`, in screen coordinates.
-    private static func screenPoint(of id: String, in shown: Shown) throws -> NSPoint {
+    /// A tracker over the dialog's control `id`, on the panel's content view.
+    private static func tracker(over id: String, in shown: Shown) throws -> Tracker {
         let card = try #require(shown.center.dialog(shown.id)?.view)
-        let control = try #require(all(card).first { $0.identifier?.rawValue == id })
-        let inPanel = control.convert(NSPoint(x: control.bounds.midX, y: control.bounds.midY), to: nil)
-        return shown.panel.convertPoint(toScreen: inPanel)
+        let control = try #require(all(card).first { $0.identifier?.rawValue == id } as? NSControl)
+        let root = try #require(shown.panel.contentView)
+        let tracker = Tracker(over: control)
+        tracker.frame = root.convert(control.bounds, from: control)
+        root.addSubview(tracker)
+        return tracker
+    }
+
+    /// The middle of `tracker`, in screen coordinates.
+    private static func screenPoint(of tracker: Tracker) -> NSPoint {
+        let inPanel = tracker.convert(NSPoint(x: tracker.bounds.midX, y: tracker.bounds.midY), to: nil)
+        return tracker.window!.convertPoint(toScreen: inPanel)
     }
 
     /// A divider catcher over `screen`: a small borderless child window of the main window, as `DividerMouseCatchers`
@@ -79,27 +113,30 @@ import Testing
                                         context: nil, eventNumber: number, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
     }
 
-    /// A person's click at `screen` that the window server gives to `source` (a window under the panel): the release
-    /// is queued before the press is handled. The press goes through the host's monitor path; the release, when no
-    /// tracking loop took it from the queue, is dispatched the same way.
-    private static func click(at screen: NSPoint, from source: NSWindow, in shown: Shown) throws {
+    /// A person's press at `screen`, released at `release`, that the window server gives to `source` (a window under
+    /// the panel): the release is queued before the press is handled. The press goes through the host's monitor path;
+    /// the release, when no tracking loop took it from the queue, is dispatched the same way.
+    private static func click(at screen: NSPoint, releasedAt release: NSPoint? = nil, from source: NSWindow,
+                              in shown: Shown, tracker: Tracker) throws {
         let down = try event(.leftMouseDown, at: screen, in: source, number: 9101)
-        let up = try event(.leftMouseUp, at: screen, in: source, number: 9101)
+        let up = try event(.leftMouseUp, at: release ?? screen, in: source, number: 9101)
         NSApp.postEvent(up, atStart: false)
         #expect(shown.host.takeEventFromBelow(down), "the press on the card goes to the overlay panel")
-        // The release is still queued when no tracking loop took it: the app's dispatch hands it to the host.
-        if let queued = NSApp.nextEvent(matching: .leftMouseUp, until: .distantPast, inMode: .default, dequeue: true) {
-            if !shown.host.takeEventFromBelow(queued) { queued.window?.sendEvent(queued) }
+        if let queued = NSApp.nextEvent(matching: .leftMouseUp, until: .distantPast, inMode: .default, dequeue: true),
+           !shown.host.takeEventFromBelow(queued) {
+            queued.window?.sendEvent(queued)
         }
+        #expect(tracker.presses == 1, "the press reaches the card's control once")
     }
 
     @Test func aClickOnCloseOverADividerCatcherClosesAtTheFirstClick() throws {
         var answers: [String] = []
         let shown = try Self.show { answers.append($0.button) }
         defer { shown.close() }
-        let point = try Self.screenPoint(of: "cmux.dialog.button.confirm", in: shown)
+        let tracker = try Self.tracker(over: "cmux.dialog.button.confirm", in: shown)
+        let point = Self.screenPoint(of: tracker)
         let catcher = Self.catcher(over: point, in: shown.window)
-        try Self.click(at: point, from: catcher, in: shown)
+        try Self.click(at: point, from: catcher, in: shown, tracker: tracker)
         #expect(answers == ["confirm"], "one click on Close answers Close")
         #expect(shown.center.dialog(shown.id) == nil, "the question leaves")
     }
@@ -108,9 +145,10 @@ import Testing
         var answers: [String] = []
         let shown = try Self.show { answers.append($0.button) }
         defer { shown.close() }
-        let point = try Self.screenPoint(of: "cmux.dialog.button.cancel", in: shown)
+        let tracker = try Self.tracker(over: "cmux.dialog.button.cancel", in: shown)
+        let point = Self.screenPoint(of: tracker)
         let catcher = Self.catcher(over: point, in: shown.window)
-        try Self.click(at: point, from: catcher, in: shown)
+        try Self.click(at: point, from: catcher, in: shown, tracker: tracker)
         #expect(answers == ["cancel"])
     }
 
@@ -118,9 +156,10 @@ import Testing
         var answers: [String] = []
         let shown = try Self.show { answers.append($0.button) }
         defer { shown.close() }
-        let point = try Self.screenPoint(of: "cmux.dialog.field.dont-ask-again", in: shown)
+        let tracker = try Self.tracker(over: "cmux.dialog.field.dont-ask-again", in: shown)
+        let point = Self.screenPoint(of: tracker)
         let catcher = Self.catcher(over: point, in: shown.window)
-        try Self.click(at: point, from: catcher, in: shown)
+        try Self.click(at: point, from: catcher, in: shown, tracker: tracker)
         #expect(shown.center.record(shown.id)?.values["dont-ask-again"] == .bool(true), "the check box is checked")
         #expect(answers.isEmpty, "a check box answers nothing")
     }
@@ -129,8 +168,8 @@ import Testing
         var answers: [String] = []
         let shown = try Self.show { answers.append($0.button) }
         defer { shown.close() }
-        let point = try Self.screenPoint(of: "cmux.dialog.button.confirm", in: shown)
-        try Self.click(at: point, from: shown.window, in: shown)
+        let tracker = try Self.tracker(over: "cmux.dialog.button.confirm", in: shown)
+        try Self.click(at: Self.screenPoint(of: tracker), from: shown.window, in: shown, tracker: tracker)
         #expect(answers == ["confirm"])
     }
 
@@ -138,16 +177,11 @@ import Testing
         var answers: [String] = []
         let shown = try Self.show { answers.append($0.button) }
         defer { shown.close() }
-        let point = try Self.screenPoint(of: "cmux.dialog.button.confirm", in: shown)
+        let tracker = try Self.tracker(over: "cmux.dialog.button.confirm", in: shown)
+        let point = Self.screenPoint(of: tracker)
         let catcher = Self.catcher(over: point, in: shown.window)
-        let down = try Self.event(.leftMouseDown, at: point, in: catcher, number: 9102)
         let away = NSPoint(x: shown.window.frame.minX + 20, y: shown.window.frame.minY + 20)
-        let up = try Self.event(.leftMouseUp, at: away, in: catcher, number: 9102)
-        NSApp.postEvent(up, atStart: false)
-        _ = shown.host.takeEventFromBelow(down)
-        if let queued = NSApp.nextEvent(matching: .leftMouseUp, until: .distantPast, inMode: .default, dequeue: true) {
-            _ = shown.host.takeEventFromBelow(queued)
-        }
+        try Self.click(at: point, releasedAt: away, from: catcher, in: shown, tracker: tracker)
         #expect(answers.isEmpty, "a press dragged off Close and released elsewhere answers nothing")
         #expect(shown.center.dialog(shown.id) != nil)
     }
