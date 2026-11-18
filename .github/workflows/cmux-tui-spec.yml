@@ -382,7 +382,11 @@ jobs:
         working-directory: cmux-tui
         run: |
           output="$RUNNER_TEMP/acpmux-v2-bench.json"
-          cargo bench -q -p acpmux --bench v2 -- --output "$output"
+          # The test step's profile, not bench's (release: thin LTO, acpmux at one codegen unit).
+          # With no --measures the home only lists its rows and times nothing, so optimizing it
+          # bought nothing, and the release build was a second full build of acpmux and every
+          # dependency beside the test step's; under the test profile the test step reuses it.
+          cargo bench -q --profile test -p acpmux --bench v2 -- --output "$output"
           python3 - "$output" <<'PY'
           import json, sys
           with open(sys.argv[1], encoding="utf-8") as f:
