@@ -108,6 +108,7 @@ import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./ha
 import {
   injectedNewTabContext,
   useEarlyNewTabContext,
+  useLostSharedPart,
   useNewTabAdoption,
   useNewTabPlaces,
   adoptionPlan,
@@ -4707,6 +4708,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setChooseFolder(start.chooseFolder);
   }, []);
   const earlyNewTab = useEarlyNewTabContext(callNative, takeEarlyNewTab, markContextKnown);
+  // A context that came with no shared part while this document keeps none: asked again (newtab/sharedPart.ts).
+  const checkSharedPart = useLostSharedPart(callNative, setNewTab);
   // Agent chats live in the window's one sidebar (Projects and Recents); the pane opens what it picks.
   const selectSession = useCallback((sessionId: string) => {
     newTabStartGeneration.current += 1;
@@ -8512,6 +8515,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // The early context lacks the folder the handshake filled in (seed, start folder) and, on a
         // cold page, the palette's actions whose places event came before its listener: add them.
         else if (!reconnect) setNewTab((current) => withHandshakeNewTab(current, host));
+        if (!reconnect) checkSharedPart(host.newTab);
         // A chat opened from another tab starts with what it inherited (#16620). Swift hands the
         // draft out once, so a retried `ready` after a failed connect has none and keeps this one.
         const seeded = composerDraft(host.draft);
@@ -10202,6 +10206,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     queryClient,
     toggleInspector,
     earlyNewTab,
+    checkSharedPart,
     restartGate,
     sandbox,
     cloudTypingPrewarm,
