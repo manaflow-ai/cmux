@@ -36,6 +36,7 @@ public final class AgentPaneSpareReturns {
         guard let window, view.window === window, parking.window === window else { return false }
         expire(after: Self.limit, in: parking)
         waiting.removeAll { $0.view == nil || $0.view === view }
+        if waiting.isEmpty { expiry.cancel() } // its release came: no deadline while nothing waits
         yieldKeyboard(of: view, in: window)
         parking.addSubview(view)
         waiting.append(Waiting(view: view, since: .now))
@@ -60,6 +61,7 @@ public final class AgentPaneSpareReturns {
     /// spare that a Cmd-T would attach to the window in the key's turn.
     public func arrived(_ view: AgentPaneView, in parking: NSView, of window: NSWindow?) -> Bool {
         waiting.removeAll { $0.view == nil || $0.view === view }
+        if waiting.isEmpty { expiry.cancel() } // its release came: no deadline while nothing waits
         if view.superview !== parking {
             guard let window, view.window === window, parking.window === window else { return false }
             yieldKeyboard(of: view, in: window)

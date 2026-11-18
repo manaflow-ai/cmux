@@ -1,6 +1,6 @@
 import AppKit
 import CmuxNextPages
-import CmuxNextSettings
+public import CmuxNextSettings
 import os
 
 /// Every agent page its maker made and nobody closed yet, so one owner can check that each has a reason to live.
