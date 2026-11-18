@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""session_real.py: ONE shared bench session of the size of the person who uses the app.
+"""session_real.py: ONE shared bench session of the size of a large session of real use.
 
-His session, read from his one session daemon on 2026-11-10: 826 workspaces, 858 panes, 1600 tabs,
+The size, read from one session daemon on 2026-11-10: 826 workspaces, 858 panes, 1600 tabs,
 798 terminals, 170 agents, 13 clients. Every bench owner uses this script (or the HOME it saved)
 for the `real` session arm; nobody writes a second "800" maker.
 
