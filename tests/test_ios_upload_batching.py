@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Pin count-plus-age batching of the scheduled iOS TestFlight uploads.
 
-ios-testflight.yml (CMUX INTERNAL, 20-minute polls) and ios-appstore-upload.yml
-(cmux.app, hourly) upload only when at least one relevant commit is waiting
+ios-appstore-upload.yml (cmux CLASSIC, hourly) uploads only when at least one relevant commit is waiting
 AND (N are waiting OR the oldest is T minutes old). The rule lives in
 scripts/ci/ios_upload_batch_decision.py; these tests cover the rule, the git
 history reader against a real repository, and the workflow wiring.
@@ -12,9 +11,10 @@ import importlib.util
 import ast
 import textwrap
 import os
-import shlex
 import subprocess
 import sys
+import atexit
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -24,9 +24,18 @@ import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/ios_upload_batch_decision.py"
-INTERNAL = ROOT / ".github/workflows/ios-testflight.yml"
+# --paths-from-workflow reads a `const iosRelevantPaths = [...]` array. Its
+# only workflow (the retired classic INTERNAL lane) is gone, so a fixture
+# carries the same shape.
+_FIXTURE_DIR = tempfile.mkdtemp(prefix="ios-batch-fixture-")
+atexit.register(shutil.rmtree, _FIXTURE_DIR, True)
+INTERNAL = Path(_FIXTURE_DIR, "path-filter-workflow.yml")
+INTERNAL.write_text(
+    "script: |\n  const iosRelevantPaths = ['ios/', 'Packages/iOS/', 'Packages/Shared/', "
+    "'Packages/macOS/CmuxPhonePush/', 'Sources/Mobile/', 'ghostty', 'ghostty.h'];\n",
+    encoding="utf-8",
+)
 OFFICIAL = ROOT / ".github/workflows/ios-appstore-upload.yml"
-NOTES_GENERATOR = ROOT / "ios/scripts/generate-testflight-notes.sh"
 
 spec = importlib.util.spec_from_file_location("ios_upload_batch_decision", SCRIPT)
 batch = importlib.util.module_from_spec(spec)
@@ -122,16 +131,8 @@ class ThresholdTests(unittest.TestCase):
 
 
 class PathFilterTests(unittest.TestCase):
-    def test_reads_the_internal_workflow_filter(self):
+    def test_reads_a_workflow_path_array(self):
         paths = batch.workflow_path_filter(INTERNAL.read_text(encoding="utf-8"))
-        # The notes generator carries the same contract (pinned by
-        # test_ios_testflight_main_push_filter.py), so compare against it.
-        assignment = next(
-            line for line in NOTES_GENERATOR.read_text(encoding="utf-8").splitlines()
-            if line.startswith("PATHS=")
-        )
-        notes_paths = shlex.split(assignment.removeprefix("PATHS="))[0].split()
-        self.assertEqual(tuple(path.rstrip("/") for path in paths), tuple(notes_paths))
         self.assertIn("ios/", paths)
         self.assertIn("ghostty", paths)
 
@@ -235,7 +236,7 @@ class HistoryTests(unittest.TestCase):
         exec(compile(ast.Module(body=[function], type_ignores=[]), "public_compare_filter", "exec"), namespace)
         for path in ("web/app.ts", "docs/a.md", "tests/a.py", "cmuxTests/A.swift",
                      ".github/workflows/ci.yml", ".github/workflows/ios-appstore-upload.yml",
-                     ".github/workflows/ios-testflight.yml", "Packages/macOS/CmuxPhonePush/A.swift",
+                     "Packages/macOS/CmuxPhonePush/A.swift",
                      "Packages/Shared/A.swift", "ios/cmux/A.swift", "scripts/install-zig-ci.sh",
                      "unknown/new-input", "", None):
             with self.subTest(path=path):
@@ -316,10 +317,7 @@ def step(steps, name):
 
 class WorkflowWiringTests(unittest.TestCase):
     CASES = (
-        (INTERNAL, "should_build", "Batch INTERNAL uploads by iOS commit count and age",
-         "IOS_TESTFLIGHT_INTERNAL_MIN_COMMITS", "IOS_TESTFLIGHT_INTERNAL_MAX_AGE_MINUTES",
-         "5", "180"),
-        (OFFICIAL, "upload", "Batch official uploads by commit count and age",
+        (OFFICIAL, "upload", "Batch cmux CLASSIC uploads by commit count and age",
          "IOS_APPSTORE_MIN_COMMITS", "IOS_APPSTORE_MAX_AGE_MINUTES", "10", "360"),
     )
 
@@ -353,27 +351,15 @@ class WorkflowWiringTests(unittest.TestCase):
                 self.assertEqual(checkout["with"]["filter"], "blob:none")
                 self.assertFalse(checkout["with"]["persist-credentials"])
 
-    def test_internal_batch_skips_demo_and_reuses_the_workflow_path_filter(self):
-        steps = load(INTERNAL)["jobs"]["decide"]["steps"]
-        batch_step = step(steps, "Batch INTERNAL uploads by iOS commit count and age")
-        self.assertIn("steps.decide.outputs.variant == 'internal'", batch_step["if"])
-        self.assertIn(
-            "--paths-from-workflow .github/workflows/ios-testflight.yml", batch_step["run"]
-        )
-        self.assertIn(
-            ".github/workflows/ios-testflight.yml",
-            step(steps, "Check out the upload batching policy")["with"]["sparse-checkout"],
-        )
-
     def test_official_uses_public_filter_and_unchanged_means_uploaded(self):
         steps = load(OFFICIAL)["jobs"]["decide"]["steps"]
         self.assertNotIn(
             "--paths-from-workflow",
-            step(steps, "Batch official uploads by commit count and age")["run"],
+            step(steps, "Batch cmux CLASSIC uploads by commit count and age")["run"],
         )
-        self.assertIn("--public-path-filter", step(steps, "Batch official uploads by commit count and age")["run"])
+        self.assertIn("--public-path-filter", step(steps, "Batch cmux CLASSIC uploads by commit count and age")["run"])
         decide = step(steps, "Skip an unchanged scheduled revision")["run"]
-        self.assertIn("name=cmux-app-testflight-upload", decide)
+        self.assertIn("name=cmux-classic-testflight-upload", decide)
         self.assertIn(
             '[ "$LAST_SHA" = "$HEAD_SHA" ] && [ "$LAST_UPLOAD_SHA" = "$HEAD_SHA" ]', decide
         )
@@ -385,11 +371,7 @@ class BatchingFailsOpenTests(unittest.TestCase):
     STEPS = {
         ".github/workflows/ios-appstore-upload.yml": (
             "Check out the upload batching policy",
-            "Batch official uploads by commit count and age",
-        ),
-        ".github/workflows/ios-testflight.yml": (
-            "Check out the upload batching policy",
-            "Batch INTERNAL uploads by iOS commit count and age",
+            "Batch cmux CLASSIC uploads by commit count and age",
         ),
     }
 

@@ -284,6 +284,11 @@ public protocol ControlSidebarContext: AnyObject {
     /// can't resolve.
     func controlSidebarReset(tabArg: String?) -> Bool
 
+    /// Parses and applies a `left_sidebar` remote command from pre-tokenized
+    /// args (parse + apply stay app-side; the parser is shared with the
+    /// socket focus-policy path).
+    func controlSidebarApplyLeftSidebarRemoteCommand(tokens: [String]) -> ControlSidebarLeftSidebarResolution
+
     /// Parses and applies a `right_sidebar` remote command from pre-tokenized
     /// args (parse + apply stay app-side; the parser is shared with the
     /// socket focus-policy path).

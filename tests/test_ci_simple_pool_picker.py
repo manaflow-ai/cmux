@@ -49,10 +49,10 @@ class PickRuleTests(unittest.TestCase):
                 picker.BLACKSMITH[0],
             ),
             (
-                "queued release consumes only its slots",
+                "queued release work holds its whole label",
                 picker.State(jobs=1, blacksmith=(pool(picker.BLACKSMITH[0], 5, reserved=1),
                                                  pool(picker.BLACKSMITH[1], 10))),
-                picker.BLACKSMITH[0],
+                picker.BLACKSMITH[1],
             ),
             (
                 "all full uses the lowest queued plus running ratio",
@@ -482,8 +482,7 @@ class OwnedQueueTests(unittest.TestCase):
         by_label = {pool.label: pool for pool in state.blacksmith}
         self.assertEqual((by_label[picker.BLACKSMITH[0]].queued, by_label[picker.BLACKSMITH[0]].reserved), (7, 1))
         self.assertEqual(by_label[picker.BLACKSMITH[1]].running, 10)
-        # The reserved count consumes one slot; the pool may still be picked
-        # when its remaining capacity is sufficient.
+        # A label holding queued release work is never picked while another label is not held.
         self.assertNotEqual(picker.pick(state).label, picker.BLACKSMITH[0])
 
     def test_logged_picker_inputs_use_unreserved_slots(self):
@@ -778,6 +777,123 @@ class EveryMacos26LabelDeadTests(unittest.TestCase):
 
     def test_a_live_label_still_takes_the_overflow(self):
         self.assertEqual(picker.pick(self.busy_fleet(self.snap(small_started_minutes=1))).label, self.SMALL)
+
+
+
+class AQueuedReleaseBuildHoldsItsLabel(unittest.TestCase):
+    """One queued app FFI release build (the janitor's reserved_queued) keeps pull request runs off its label on
+    both paths: the free-slot pick and the least-loaded fallback. 2026-11-10: run 42833220418's build queued 66
+    minutes on blacksmith-6vcpu-macos-26 while pull request runs kept taking that label's free slots."""
+
+    def test_the_free_slot_path_skips_a_held_label_with_room(self):
+        large, small, mac15 = picker.BLACKSMITH
+        state = picker.State(jobs=1, blacksmith=(pool(large, 5, running=5), pool(small, 10, running=2, reserved=1),
+                                                 pool(mac15, 10, running=1)))
+        self.assertEqual(pool(small, 10, running=2, reserved=1).unreserved_available, 0)
+        self.assertNotEqual(picker.pick(state).label, small)
+
+    def test_the_least_loaded_fallback_skips_a_held_label(self):
+        large, small, mac15 = picker.BLACKSMITH
+        # Every label is full, and the held one is the least loaded: before, the fallback took it.
+        state = picker.State(jobs=1, blacksmith=(pool(large, 5, running=5, queued=9),
+                                                 pool(small, 10, running=10, queued=1, reserved=1),
+                                                 pool(mac15, 10, running=10, queued=9)))
+        self.assertNotEqual(picker.pick(state).label, small)
+
+    def test_the_admission_borrow_and_the_retry_runner_skip_a_held_label(self):
+        large, small, mac15 = picker.BLACKSMITH
+        choice = picker.pick(picker.State(jobs=3, blacksmith=(pool(large, 5, reserved=1), pool(small, 10),
+                                                              pool(mac15, 10))))
+        self.assertEqual((choice.label, choice.admission_label), (small, ""))
+
+    def test_a_snapshot_reservation_reaches_the_pick(self):
+        large, small, mac15 = picker.BLACKSMITH
+        pools = {large: {"queued": 3, "running": 5}, small: {"queued": 1, "running": 2, "reserved_queued": 1},
+                 mac15: {"queued": 4, "running": 10}}
+        state = observed([], pools, runners_error=OSError("no runners"))
+        self.assertNotEqual(picker.pick(state).label, small)
+
+    def test_with_every_label_held_a_run_still_gets_one(self):
+        held = tuple(pool(label, 10, running=10, reserved=1) for label in picker.BLACKSMITH)
+        self.assertIn(picker.pick(picker.State(jobs=1, blacksmith=held)).label, picker.BLACKSMITH)
+
+    def test_a_moving_held_label_wins_over_stalled_unheld_ones(self):
+        large, small, mac15 = picker.BLACKSMITH
+        # Dropping the held label first left only the stalled ones, so the run took the dead 12 vCPU label and
+        # stayed queued there after the reservation cleared.
+        state = picker.State(jobs=1, blacksmith=(
+            dataclasses.replace(pool(large, 5, running=0, queued=1), stalled=True),
+            pool(small, 10, running=10, queued=3, reserved=1),
+            dataclasses.replace(pool(mac15, 10, running=0, queued=1), stalled=True)))
+        self.assertEqual(picker.pick(state).label, small)
+
+    def test_with_every_moving_label_held_a_run_takes_a_held_moving_label_over_a_dead_one(self):
+        large, small, mac15 = picker.BLACKSMITH
+        # The dead label is the only unheld one. Filtering reservations first left only it, so the run went to a
+        # label that was not moving.
+        dead = dataclasses.replace(pool(large, 5, running=0, queued=4), stalled=True)
+        state = picker.State(jobs=1, blacksmith=(dead, pool(small, 10, running=10, queued=2, reserved=1),
+                                                 pool(mac15, 10, running=10, queued=5, reserved=1)))
+        self.assertEqual(picker.pick(state).label, small)
+
+
+class BlacksmithSwitchTests(unittest.TestCase):
+    """vars.CI_BLACKSMITH_MACOS off: an owned pick names no Blacksmith label (run 43990120167, 2026-11-17).
+
+    Compile admission waited on the owned light pool; the shards it did not own took the Blacksmith
+    retry_runner, blacksmith-12vcpu-macos-26, and sat queued five hours with the switch off.
+    """
+
+    LIGHT_POOL = "glaeda-light-xcode-26.6"
+    FREE = (pool(picker.BLACKSMITH[0], 5), pool(picker.BLACKSMITH[1], 10), pool(picker.BLACKSMITH[2], 10))
+
+    def state(self, *, switch: str | None, **kwargs):
+        env = {} if switch is None else {"CI_BLACKSMITH_MACOS": switch}
+        defaults = dict(jobs=8, owned=(pool(self.LIGHT_POOL, 4, running=3, free=1, queued=0),),
+                        blacksmith=self.FULL_OR_FREE, owned_enabled=True, wait_on_owned=True,
+                        blacksmith_on=picker.blacksmith_allowed(env))
+        defaults.update(kwargs)
+        return picker.State(**defaults)
+
+    FULL_OR_FREE = (pool(picker.BLACKSMITH[0], 5, 5, 3), pool(picker.BLACKSMITH[1], 10, 10, 4),
+                    pool(picker.BLACKSMITH[2], 10, 10, 2))
+
+    def test_only_on_allows_blacksmith(self):
+        self.assertTrue(picker.blacksmith_allowed({}))  # a caller that passes no switch keeps today's route
+        self.assertTrue(picker.blacksmith_allowed({"CI_BLACKSMITH_MACOS": "on"}))
+        for value in ("", "off", "pr-rescue", "1"):
+            self.assertFalse(picker.blacksmith_allowed({"CI_BLACKSMITH_MACOS": value}), value)
+
+    def test_the_owned_wait_names_no_blacksmith_retry_runner_while_off(self):
+        choice = picker.pick(self.state(switch=""))
+        self.assertEqual(choice.label, self.LIGHT_POOL)
+        values = picker.write_outputs(choice, 8, env={"RUN_MACOS": "true", "RUN_FULL_SUITE": "true"})
+        for key in ("runner", "retry_runner", "shard_runner", "side_runner"):
+            self.assertFalse(values[key].startswith("blacksmith-"), (key, values[key]))
+        self.assertEqual(values["retry_runner"], self.LIGHT_POOL)
+
+    def test_a_free_blacksmith_slot_takes_nothing_while_off(self):
+        choice = picker.pick(self.state(switch="", blacksmith=self.FREE, wait_on_owned=False))
+        self.assertEqual(choice.label, self.LIGHT_POOL)
+        self.assertTrue(choice.owned)
+        self.assertEqual(picker.write_outputs(choice, 8)["retry_runner"], self.LIGHT_POOL)
+
+    def test_on_keeps_the_blacksmith_retry_runner(self):
+        choice = picker.pick(self.state(switch="on"))
+        self.assertEqual(choice.label, self.LIGHT_POOL)
+        self.assertTrue(picker.write_outputs(choice, 8)["retry_runner"].startswith("blacksmith-"))
+
+    def test_a_fork_still_takes_blacksmith_while_off(self):
+        choice = picker.pick(self.state(switch="", fork=True, blacksmith=self.FREE))
+        self.assertTrue(choice.label.startswith("blacksmith-"))
+
+    def test_state_from_reads_the_switch(self):
+        state = picker.state_from(jobs=1, env={"CI_BLACKSMITH_MACOS": ""}, fork=False, runners=None, snapshot=None,
+                                  fallback=picker.BLACKSMITH[1], owned_enabled=True)
+        self.assertFalse(state.blacksmith_on)
+        state = picker.state_from(jobs=1, env={}, fork=False, runners=None, snapshot=None,
+                                  fallback=picker.BLACKSMITH[1], owned_enabled=True)
+        self.assertTrue(state.blacksmith_on)
 
 
 if __name__ == "__main__":

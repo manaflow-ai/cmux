@@ -43,7 +43,6 @@ RELEASE_JOBS = {
     "release.yml": ["build-sign-notarize"],
     "nightly.yml": ["build-sign-notarize-nightly", "publish-nightly"],
     "ios-app-store.yml": ["upload-and-validate"],
-    "ios-testflight.yml": ["set-testflight-notes", "assign-internal-group"],
     "ios-appstore-upload.yml": ["set-testflight-notes", "assign-internal"],
     "repair-v0-64-25-helper-rpaths.yml": ["repair"],
     "iroh-release-gate.yml": ["simulator-e2e"],

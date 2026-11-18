@@ -539,6 +539,23 @@ class SupersededCancelledRun(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "cancelled"):
             self.judge()
 
+    def test_a_check_named_whose_green_has_a_newer_failed_job_is_no_superseding_green(self):
+        # supersede-rev-1 F1 on #40209: head_checks takes the green by check run id, but recency is the linked job
+        # id. A green job 5 with the higher check run id must not supersede the cancelled job 1 while job 7, newer by
+        # job id, failed.
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.newer("success")
+        self.newer("failure", run=12, job_id=7)
+        self.gh.check_ids = {5: 900, 7: 3}
+        with self.assertRaises(excuse.Refused) as caught:
+            self.check()
+        self.assertNotIn("ignored", str(caught.exception))
+        # A newer skip is no verdict: it does not stop the green from superseding the cancel.
+        self.skipped(7, 12)
+        lines = self.check()
+        self.assertTrue(lines[0].startswith(f"ignored '{SWIFT}': its newest job 5 on {HEAD} is success, superseding 1 "
+                                            "cancelled run(s)"), lines)
+
 
 def crashed(job, signal, unfinished, frames, *extra):
     """A swift test log whose test helper died on `signal` with `unfinished` tests in flight."""
@@ -1167,6 +1184,31 @@ class ShardsAndStatusJobs(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "check-layers"):
             self.judge(runs=(), checks=["web / Web status"])
 
+    def superseded_lint(self):
+        """Run 10 also cancelled 'lint' (job 7); the newer run 11 of the same workflow passed it (job 8)."""
+        self.gh.jobs[7] = dict(failed_job(7, 10, HEAD, name="lint"), conclusion="cancelled")
+        self.gh.jobs[8] = dict(failed_job(8, 11, HEAD, name="lint"), conclusion="success")
+        self.gh.commit_checks[HEAD] = [check_run(self.gh.jobs[job_id]) for job_id in (3, 7, 8)]
+
+    def test_a_status_job_reads_its_runs_superseded_cancel_once_and_says_so_once(self):
+        # supersede-rev-1 F3 on #40209: the status job's own read of its run kept no audit line and read the head's
+        # check runs again for each status job.
+        self.add_status_jobs()
+        self.base_shards(40, TIP)
+        self.superseded_lint()
+        text = "\n".join(self.judge())
+        self.assertEqual(text.count("ignored 'lint'"), 1, text)
+        self.assertEqual(sum(f"commits/{HEAD}/check-runs?filter=all" in route for route in self.gh.routes), 1,
+                         self.gh.routes)
+
+    def test_a_red_status_check_says_its_runs_superseded_cancel(self):
+        self.add_status_jobs()
+        self.base_shards(40, TIP)
+        self.superseded_lint()
+        text = "\n".join(self.judge(runs=(), checks=["web / Web status"]))
+        self.assertIn(f"excused '{RAC} (1)'", text)
+        self.assertEqual(text.count("ignored 'lint': its cancelled job in run 10 is superseded by job 8"), 1, text)
+
     def test_a_status_job_with_no_failed_job_under_it_is_refused(self):
         self.add_status_jobs()
         del self.gh.jobs[1]
@@ -1766,6 +1808,20 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         for path in ("cmux-tui/rust-toolchain.toml", "scripts/cmux-next/build-app-ffi.sh"):
             self.files = [{"filename": path}]
             self.assertIn(f"only '{FFI_PIN}' is red", self.judge()[0], path)
+
+    def test_the_rust_bindings_are_ffi_inputs(self):
+        # cmux-app-ffi reaches cmux-tui/bindings/rust through a Cargo path dependency, so check-app-ffi-pin.sh counts
+        # it (--list-inputs). A PR that changes only bindings/rust/src was told it "changes no app FFI input"
+        # (2026-11-10, after #39027 changed cmux-tui/bindings/rust).
+        self.files = [{"filename": "cmux-tui/bindings/rust/src/generated/types.rs"}]
+        self.assertIn(f"only '{FFI_PIN}' is red", self.judge()[0])
+
+    def test_the_other_bindings_are_not_ffi_inputs(self):
+        # No crate cmux-app-ffi reaches lives there: a change to them alone is no step-A Rust change.
+        for path in ("cmux-tui/bindings/cpp/CMakeLists.txt", "cmux-tui/bindings/python/cmux/__init__.py"):
+            self.files = [{"filename": path}]
+            with self.assertRaises(excuse.Refused, msg=path):
+                self.judge()
 
     def test_without_the_pull_request_nothing_is_excused(self):
         with self.assertRaises(excuse.Refused):
