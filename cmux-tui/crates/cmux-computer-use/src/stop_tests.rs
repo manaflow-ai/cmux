@@ -184,3 +184,29 @@ fn a_stopped_call_keeps_the_focus_report() {
     assert_eq!(out.code.as_deref(), Some(STOPPED_CODE), "{:?}", out.body);
     assert_eq!(out.body["focus"]["restored_from"], "com.apple.Safari", "{:?}", out.body);
 }
+
+#[test]
+fn a_stop_survives_a_worker_restart_until_the_person_resumes() {
+    let dir = std::env::temp_dir().join(format!("cu-stop-restart-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let open = || {
+        let mut parts = EngineParts::new(Arc::new(FakeDesktop::standard()));
+        parts.state_dir = Some(dir.clone());
+        Engine::new(parts)
+    };
+    let first = open();
+    assert!(first.stop_session("s1", "Claude"));
+    drop(first);
+    // A restarted worker (a crash, a grant change, `restart`) still refuses s1.
+    let second = open();
+    assert!(second.is_stopped("s1"));
+    let out = second.call(&ctx("s1", "after"), "screenshot", &json!({"window_id": "1"}));
+    assert_eq!(out.code.as_deref(), Some(STOPPED_CODE), "{:?}", out.body);
+    assert!(!second.is_stopped("s2"));
+    // Only the person's Resume clears it, also for the next worker.
+    assert!(second.resume_session("s1"));
+    drop(second);
+    assert!(!open().is_stopped("s1"));
+    let _ = std::fs::remove_dir_all(dir);
+}

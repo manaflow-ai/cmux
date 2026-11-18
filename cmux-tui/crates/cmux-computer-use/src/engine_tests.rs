@@ -1369,3 +1369,25 @@ fn a_name_for_several_apps_is_refused_before_anyone_is_asked() {
     assert!(out.body["error"].as_str().unwrap().contains("names several apps"), "{:?}", out.body);
     assert!(!desktop.events().iter().any(|e| matches!(e, Event::Launch(_))));
 }
+
+#[test]
+fn request_permission_obeys_the_mode_and_never_comes_from_another_machine() {
+    let args = json!({"permission": "accessibility"});
+    let off = engine(
+        Arc::new(FakeDesktop::standard()),
+        PolicyConfig { mode: Mode::Off, ..PolicyConfig::default() },
+    );
+    assert_eq!(
+        off.call(&ctx(None), "request_permission", &args).code.as_deref(),
+        Some("computer_use_off")
+    );
+    // Only the person at this machine can grant its OS permissions: an agent on
+    // another of their machines never raises the prompt here.
+    let on = engine(Arc::new(FakeDesktop::standard()), PolicyConfig::default());
+    let mut remote = ctx(None);
+    remote.origin = OriginKind::Remote { machine: "m".into(), same_account: true };
+    assert_eq!(
+        on.call(&remote, "request_permission", &args).code.as_deref(),
+        Some("remote_not_allowed")
+    );
+}
