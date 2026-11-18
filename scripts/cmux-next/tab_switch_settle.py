@@ -50,6 +50,7 @@ BLINK_TILES = 2
 OSCILLATION_RETURNS = 2
 OSCILLATION_TILES = 12
 OSCILLATION_STATES = 3
+OSCILLATION_MATCH_SHARE = 0.15
 AMBIENT_S = 0.5
 AMBIENT_MAX_SHARE = 0.5
 STATES_PER_TILE = 8
@@ -138,7 +139,8 @@ def settle(frames, mark, w, h, frame_ms, end=None, ambient_tiles=(), quiet_ms=QU
     prev = before[0][1].translate(judge.QUANT)
     seen = {}  # tile -> its pictures since the mark (the one before the mark first)
     steps = []  # (frame index, changed tiles, whether every one went back to a picture it showed)
-    returns = {}  # tile -> how often it went back to a picture it showed
+    returns = {}  # tile -> how often it went back to a picture it showed (OSCILLATION_MATCH_SHARE alike)
+    pictures = {}  # tile -> its pictures since the mark, OSCILLATION_MATCH_SHARE alike folded
     for i, (t, g) in enumerate(after):
         q = g.translate(judge.QUANT)
         changed = changed_tiles(prev, q, w, h, tile) - skip
@@ -147,19 +149,23 @@ def settle(frames, mark, w, h, frame_ms, end=None, ambient_tiles=(), quiet_ms=QU
             for k in changed:
                 states = seen.setdefault(k, [tile_bytes(prev, w, h, k, tile)])
                 now = tile_bytes(q, w, h, k, tile)
-                if any(judge.diff_share(now, s) <= TILE_CHANGE_SHARE for s in states):
-                    returns[k] = returns.get(k, 0) + 1
-                else:
+                if not any(judge.diff_share(now, s) <= TILE_CHANGE_SHARE for s in states):
                     revisit = False
                     states.append(now)
                     del states[:-STATES_PER_TILE]
+                # Oscillation matches looser: the recording's compression redraws a blinking caret a little differently.
+                loose = pictures.setdefault(k, [tile_bytes(prev, w, h, k, tile)])
+                if any(judge.diff_share(now, s) <= OSCILLATION_MATCH_SHARE for s in loose):
+                    returns[k] = returns.get(k, 0) + 1
+                else:
+                    loose.append(now)
             steps.append((i, changed, revisit))
         prev = q
     # A tile that went back to an earlier picture OSCILLATION_RETURNS times or more, among at most OSCILLATION_STATES
     # pictures (the one before the action, then off and on), blinks: a terminal cursor and a composer caret at once,
     # more than BLINK_TILES tiles (cmux21, 2026-11-18). A change of only such tiles is a blink, its first showing
     # included. A tile cycling through more pictures (a running animation) still counts.
-    oscillating = {k for k, n in returns.items() if n >= OSCILLATION_RETURNS and len(seen[k]) <= OSCILLATION_STATES}
+    oscillating = {k for k, n in returns.items() if n >= OSCILLATION_RETURNS and len(pictures[k]) <= OSCILLATION_STATES}
     real = []
     for i, changed, revisit in steps:
         if (len(changed) <= BLINK_TILES and revisit) or (len(changed) <= OSCILLATION_TILES and changed <= oscillating):
