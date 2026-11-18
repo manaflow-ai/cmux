@@ -507,6 +507,27 @@ struct ChromiumQuestionKeyChannelTests {
         channel.invalidate()
     }
 
+    /// The page host's session has its Runtime domain off between navigations
+    /// (``ChromiumPageHostBridge``), so no `Runtime.executionContextsCleared` comes when the main frame
+    /// commits a new document: the commit itself (``ChromiumQuestionKeyChannel/documentReplaced()``)
+    /// refuses the old world's proofs and tells the owner, which installs again for the new document.
+    @Test func aCommittedDocumentRefusesOldProofsAndAsksTheOwnerToInstallAgain() async throws {
+        let page = page()
+        let channel = ChromiumQuestionKeyChannel(page: page, owns: { $0?.absoluteString == Self.url })
+        var told = 0
+        channel.onInvalidated = { told += 1 }
+        var accepted = false
+        let installed = try await install(channel, page: page) { _ in accepted = true }
+        let isolated = try scriptContext(binding: installed.binding, source: installed.source, guardSource: installed.guardSource)
+        isolated.evaluateScript("press()")
+        let nonce = try #require(isolated.evaluateScript("reports[0]").toString())
+        channel.documentReplaced()
+        #expect(told == 1)
+        #expect(!channel.hasTargets([Self.target]))
+        #expect(!channel.receive(try Self.event(binding: installed.binding, payload: nonce)))
+        #expect(!accepted)
+    }
+
     @Test func anExistingDocumentWithoutTheEarlyGuardAndADocumentOpenResetFailClosed() async throws {
         let page = page()
         let channel = ChromiumQuestionKeyChannel(page: page, owns: { $0?.absoluteString == Self.url })

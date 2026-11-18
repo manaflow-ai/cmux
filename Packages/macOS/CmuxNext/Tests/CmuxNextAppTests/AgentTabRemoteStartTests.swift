@@ -96,6 +96,11 @@ struct AgentTabRemoteStartTests {
         #expect(AgentRemoteStartRefusal.olderDaemonCodes.contains(AgentRemoteStartRefusal.folderNeededCode))
     }
 
+    /// A Codex credential refused for an older machine's acpmux (cmux#45774) is answered by updating the machine.
+    @Test func aCodexCredentialOnAnOlderCloudDaemonIsAnOlderDaemonRefusal() {
+        #expect(AgentRemoteStartRefusal.olderDaemonCodes.contains(AgentSessionAttachClient.codexCredentialsUnsupported))
+    }
+
     @Test func theFolderListIsTheWorkspacesThenTheMachinesEachOnce() {
         let folders = AgentRemoteStartFolders(listed: ["/srv/app", "/home/cmux/work"],
                                               machine: ["/home/cmux/work", "/home/cmux/work/repo"]).merged
