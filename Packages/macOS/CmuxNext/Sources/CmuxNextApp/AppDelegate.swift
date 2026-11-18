@@ -34,8 +34,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var launchSnapshot: Task<LaunchSnapshot?, Never>?  // started in `main` (readAtLaunch); nil once the launch took its result
     /// The first live terminal frame (or no daemon), never before the first window frame: deferrable warm-up waits for it.
     private let launchSettle: LaunchSettle
-    /// When the launch's layout stops moving, for a launch harness only (`layout.*` marks).
-    private var layoutSettle: LaunchLayoutSettle?
     /// Launch work that starts after the first window frame (perf-launch-memory).
     let firstFrame: FirstFrameGate
     /// Cleanup deferred until the launch settles (injected; tests pass their own).
@@ -169,11 +167,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #if DEBUG || CMUX_BENCH_HOOKS
         services.windowRecord.watchLaunch() // `--record-launch`: before the first window is made
         #endif
-        if LaunchMarkSink.shared.isActive { // a launch harness's `layout.*` marks: before the first window is made
-            layoutSettle = LaunchLayoutSettle(frontWindow: { [NSApp.keyWindow].compactMap { $0 }.first { $0 is ShellWindow && $0.isVisible } ?? NSApp.orderedWindows.first { $0 is ShellWindow && $0.isVisible } },
-                                              now: { DebugTimings.millisecondsSinceProcessStart() }, write: { LaunchMarkSink.shared.write(name: $0, ms: $1) })
-            layoutSettle?.start()
-        }
+        // A launch harness's `layout.*` marks: before the first window is made.
+        LaunchLayoutSettle.start(when: LaunchMarkSink.shared.isActive, isShell: { $0 is ShellWindow }, now: { DebugTimings.millisecondsSinceProcessStart() }, write: { LaunchMarkSink.shared.write(name: $0, ms: $1) })
         // Hangs, lag spikes and opt-in hang reports (WatchdogReporting); the controller lives with the process.
         AppProcessRoot.shared.adopt(hangReports: WatchdogReporting.install(control.watchdog, services: services))
         services.quit.watchdog = control.watchdog

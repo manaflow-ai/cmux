@@ -43,6 +43,22 @@ public final class LaunchLayoutSettle {
         self.write = write
     }
 
+    /// The launch's watch while it runs.
+    private static var running: LaunchLayoutSettle?
+
+    /// Starts the launch's watch when `measured` (a harness reads the marks), before the first window is made. The front
+    /// window is the key window when `isShell` takes it, else the frontmost visible window it takes.
+    public static func start(when measured: Bool, isShell: @escaping @MainActor (NSWindow) -> Bool, now: @escaping () -> Double,
+                             write: @escaping (String, Double) -> Void) {
+        guard measured, running == nil else { return }
+        let watch = LaunchLayoutSettle(frontWindow: {
+            if let key = NSApp.keyWindow, isShell(key), key.isVisible { return key }
+            return NSApp.orderedWindows.first { isShell($0) && $0.isVisible }
+        }, now: now, write: write)
+        running = watch
+        watch.start()
+    }
+
     /// Before the first window is made.
     public func start() {
         guard client == nil else { return }
@@ -83,6 +99,7 @@ public final class LaunchLayoutSettle {
         write("layout.cost_ms", costMs)
         geometry = nil
         window = nil
+        if Self.running === self { Self.running = nil }
         return false
     }
 
