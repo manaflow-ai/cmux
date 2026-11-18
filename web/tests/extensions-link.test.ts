@@ -89,6 +89,33 @@ describe("link routes: forwarding", () => {
     }
   });
 
+  test("not connected with no install URL says why: an expired sign-in is a 401, a failing registry a 503", async () => {
+    const cases: Array<[() => Response, number, string]> = [
+      [refusal(401, "auth_required", "sign in"), 401, "extension.auth_required"],
+      [refusal(500, "internal", "boom"), 503, "extension.unavailable"],
+      [() => new Response("<html>bad gateway</html>", { status: 502 }), 503, "extension.unavailable"],
+      [() => new Response("<html>not json</html>", { status: 200 }), 503, "extension.unavailable"],
+    ];
+    for (const [answer, status, code] of cases) {
+      const { deps: d } = deps({
+        "GET /v1/me/github": ok({ connected: false }),
+        "GET /v1/connectors/github/install": answer,
+      });
+      const response = await link.handleStatus(new Request("https://cmux.com/api/extensions/link"), d, SIGN_IN);
+      expect(response.status).toBe(status);
+      expect((await response.json()).code).toBe(code);
+    }
+  });
+
+  test("a failing install endpoint still answers the connect URL GitHub status gave", async () => {
+    const { deps: d } = deps({
+      "GET /v1/me/github": ok({ connected: false, connectUrl: "https://cmux.com/connect/github" }),
+      "GET /v1/connectors/github/install": refusal(500, "internal", "boom"),
+    });
+    const response = await link.handleStatus(new Request("https://cmux.com/api/extensions/link"), d, SIGN_IN);
+    expect(await response.json()).toEqual({ connected: false, installUrl: "https://cmux.com/connect/github" });
+  });
+
   test("connected GitHub answers the login and never the token", async () => {
     const { deps: d } = deps({ "GET /v1/me/github": ok({ connected: true, login: "octo-dev", source: "github-app" }) });
     const response = await link.handleStatus(new Request("https://cmux.com/api/extensions/link"), d, SIGN_IN);
@@ -188,6 +215,9 @@ describe("link routes: error mapping", () => {
       [404, "extension.no_marker"],
       [422, "extension.no_marker"],
       [429, "extension.rate_limited"],
+      [405, "extension.method_not_allowed"],
+      [410, "extension.gone"],
+      [413, "extension.too_large"],
     ] as const) {
       const { deps: d } = deps({ "POST /v1/extensions/link": refusal(status, code, `${code} message`) });
       const response = await link.handleLink(post({ repo: "octo-dev/x" }), d, SIGN_IN);
