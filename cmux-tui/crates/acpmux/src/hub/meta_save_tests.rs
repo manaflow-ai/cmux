@@ -580,13 +580,28 @@ fn a_failed_metadata_save_stays_dirty_until_a_successful_save() {
     std::fs::rename(&backup, &path).unwrap();
     assert!(saved.is_err(), "a file could not replace a directory");
     assert!(session.meta_writer.needs_flush(&session));
-    assert!(
-        session.meta_writer.state.lock().unwrap().saved.as_ref().unwrap().composer_draft.is_none()
-    );
+    // The writer still holds the last good save, the one without the draft.
+    let mut before = session.meta();
+    before.composer_draft = None;
+    assert_eq!(session.meta_writer.state.lock().unwrap().saved, super::meta_digest(&before));
     hub.flush();
     assert_eq!(saves.load(Ordering::Relaxed), 2, "one failed attempt and one retry");
     assert!(!session.meta_writer.needs_flush(&session));
     assert_eq!(on_disk(home.path(), &session.id)["composerDraft"], "keep this");
+}
+
+/// The writer keeps a digest of its last save, not a copy (CMUX-571): equal metadata gives the
+/// same digest and any change, however small, another.
+#[test]
+fn the_saved_digest_tells_a_changed_chat_from_an_unchanged_one() {
+    let (_home, hub, _saves) = loaded_closed_chats(1);
+    let session = hub.resolve_here("chat-0").unwrap();
+    let meta = session.meta();
+    assert_eq!(super::meta_digest(&meta), super::meta_digest(&meta.clone()));
+    assert_eq!(session.meta_writer.state.lock().unwrap().saved, super::meta_digest(&meta));
+    let mut changed = meta.clone();
+    changed.unread = !changed.unread;
+    assert_ne!(super::meta_digest(&changed), super::meta_digest(&meta));
 }
 
 /// Even when memory returns to its saved value, the writer's held copy can be different.
