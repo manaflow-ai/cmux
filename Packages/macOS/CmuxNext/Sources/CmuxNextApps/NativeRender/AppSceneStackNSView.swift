@@ -47,10 +47,11 @@ final class AppSceneStackNSView: AppSceneNodeNSView {
             return
         }
         var y = rect.minY
-        // A stack taller than its content (a widget's frame filling its tile) gives the room left to
-        // its spacers, as SwiftUI does: a widget's Spacer pushes its big number to the bottom.
+        // In a widget tile a stack taller than its content (its frame filling the tile) gives the room
+        // left to its spacers, as SwiftUI does: a widget's Spacer pushes its big number to the bottom.
+        // Elsewhere a vertical stack lays its children from the top, as before widgets.
         let spacers = childViews.filter(\.isSpacer).count
-        let slack = spacers > 0 ? max(0, rect.height - contentHeight(width: rect.width)) / CGFloat(spacers) : 0
+        let slack = spacers > 0 && drawsInWidgetTile ? max(0, rect.height - contentHeight(width: rect.width)) / CGFloat(spacers) : 0
         for child in childViews {
             if child.isSpacer, slack > 0 {
                 let height = child.height(width: rect.width) + slack

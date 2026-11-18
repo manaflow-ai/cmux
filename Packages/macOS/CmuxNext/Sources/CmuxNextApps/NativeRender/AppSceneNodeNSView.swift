@@ -22,6 +22,18 @@ class AppSceneNodeNSView: NSView {
     var isLeaving = false
     /// The app bundle's folder (an `Image` node's `src` is inside it), set by the reconciler.
     var bundleDirectory: URL?
+    /// The node draws in a widget tile (``AppSceneNativeView/fillsBounds``). Only there do spacers
+    /// take a tall stack's slack and `transition` / `contentTransition` run: every other app scene
+    /// (a sidebar section, a hover card, a pane) draws as it did before widgets
+    /// (AppSceneDefaultUnchangedTests).
+    var drawsInWidgetTile: Bool {
+        var view = superview
+        while let current = view {
+            if let native = current as? AppSceneNativeView { return native.fillsBounds }
+            view = current.superview
+        }
+        return false
+    }
     private var isPressed = false
     /// Tracks the pointer while the node has a `hoverBackground` (a local wash, no script round trip).
     var decorationHover: PointerHover?
@@ -66,9 +78,14 @@ class AppSceneNodeNSView: NSView {
     func setChildren(_ views: [AppSceneNodeNSView]) {
         guard views.map(ObjectIdentifier.init) != childViews.map(ObjectIdentifier.init) else { return }
         let keep = Set(views.map(ObjectIdentifier.init))
-        // After the first frame a child's `transition` moves it in and out (AppSceneNodeNSView+Transition).
-        let transitions = hasDrawnChildren && window != nil
-        for old in childViews where !keep.contains(ObjectIdentifier(old)) && old.superview === childHost {
+        // After the first frame a child's `transition` moves it in and out (AppSceneNodeNSView+Transition),
+        // in a widget tile only.
+        let transitions = hasDrawnChildren && window != nil && drawsInWidgetTile
+        // The new children first: an exit that ends at once (a window with no screen, motion off) asks
+        // them whether the node came back, and must find it gone.
+        let previous = childViews
+        childViews = views
+        for old in previous where !keep.contains(ObjectIdentifier(old)) && old.superview === childHost {
             guard transitions, old.sceneTransition != nil else {
                 old.removeFromSuperview()
                 continue
@@ -89,7 +106,6 @@ class AppSceneNodeNSView: NSView {
                 view.settleAtRest()
             }
         }
-        childViews = views
         hasDrawnChildren = true
         needsLayout = true
     }
