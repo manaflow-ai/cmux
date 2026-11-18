@@ -167,8 +167,10 @@ func rpc(_ method: String) -> [String: Any]? {
     return object["result"] as? [String: Any]
 }
 
-// What is in front: the focused workspace (its model key, stable across launches), its tab, and the key window's top
-// page (`context.keys` topPage: "home" when Home is in front; snapshot.get has no top page). Read once, after the
+// What is in front: the focused workspace (its model key, stable across launches), its tab and that tab's page
+// ("home-dock" for the Home a launch docks in its workspace), the surface with the keyboard (`context.keys`
+// surfaceKind; nil while the keyboard is on the sidebar or nowhere) and whether Home is in front: the focused tab is
+// the docked Home, or Home covers the window (topPage "home", which a launch's docked Home never sets). Read once, after the
 // settle and just before the quit, so nothing in the timed part of the launch waits on it. It is both what this
 // launch reopened and what the next launch with this home must reopen (Leo, 2026-11-17: "my recently opened thing").
 func front() -> [String: Any] {
@@ -180,10 +182,24 @@ func front() -> [String: Any] {
     let workspace = (topology["workspaces"] as? [[String: Any]] ?? []).first { $0["id"] as? String == focused }?["key"] as? String ?? focused
     let context = rpc("context.keys") ?? [:]
     let keys = context["keys"] as? [String: Any] ?? context
-    return ["workspace": workspace.map { $0 as Any } ?? NSNull(), "tab": focus["tab"] ?? NSNull(), "top_page": keys["topPage"] ?? NSNull(),
+    let surface = keys["surfaceKind"] as? String, page = (focus["tab"] as? String).flatMap { tabPage($0, in: topology) }
+    return ["workspace": workspace.map { $0 as Any } ?? NSNull(), "tab": focus["tab"] ?? NSNull(), "page": page.map { $0 as Any } ?? NSNull(),
+            "surface": surface.map { $0 as Any } ?? NSNull(),
+            "home": keys["topPage"] as? String == "home" || page == "home-dock" || surface == "home-dock",
             "windows": (topology["windows"] as? [Any])?.count ?? 0]
 }
 var frontAtQuit: [String: Any]?
+
+/// The `page` of the tab with id `tab` anywhere in snapshot.get's topology (its panes' tabs), nil if it names none.
+func tabPage(_ tab: String, in node: Any) -> String? {
+    if let object = node as? [String: Any] {
+        if object["id"] as? String == tab, let page = object["page"] as? String { return page }
+        for value in object.values { if let page = tabPage(tab, in: value) { return page } }
+    } else if let array = node as? [Any] {
+        for value in array { if let page = tabPage(tab, in: value) { return page } }
+    }
+    return nil
+}
 
 let timer = Timer(timeInterval: 0.001, repeats: true) { _ in
     let t = now()
