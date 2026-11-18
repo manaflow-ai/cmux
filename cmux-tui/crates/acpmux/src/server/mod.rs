@@ -2389,6 +2389,7 @@ mod trigger_chat;
 pub use conn_auth::ConnAuth;
 mod fork_through;
 mod harness_admin;
+mod harness_disable;
 mod harness_enable;
 pub(crate) mod host_notice;
 mod inventory_watch;

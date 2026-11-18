@@ -1711,6 +1711,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/harness_disable",
+      "params": {
+        "$ref": "#/types/HarnessDisableParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/harness/add",
       "params": true,
       "result": true
@@ -3519,6 +3527,17 @@
         "handoffId": true,
         "promptId": true,
         "revision": true
+      },
+      "type": "object"
+    },
+    "HarnessDisableParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "folder": true,
+        "id": true
       },
       "type": "object"
     },

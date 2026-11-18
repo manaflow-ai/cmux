@@ -1,6 +1,399 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "action.agent.harness.disableFolder" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disable Folder Harness…"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تعطيل أداة تشغيل المجلد…"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Onemogući harness mape…"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Deaktiver mappens harness…"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ordner-Harness deaktivieren…"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Desactivar harness de carpeta…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Désactiver le harness du dossier…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Disattiva harness della cartella…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "フォルダのハーネスを無効にする…"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បិទ harness ថត…"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "폴더 하네스 비활성화…"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Deaktiver mappens harness…"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wyłącz harness folderu…"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Desativar harness da pasta…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Отключить оболочку папки…"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ปิดใช้งาน harness ของโฟลเดอร์…"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Klasör Harness'ını Devre Dışı Bırak…"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вимкнути оболонку папки…"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tắt harness của thư mục…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "停用文件夹 harness…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "停用資料夾 harness…"
+          }
+        }
+      }
+    },
+    "action.terminal.pinTail" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pin Last Output Line to Sidebar"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تثبيت آخر سطر من المخرجات في الشريط الجانبي"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prikači posljednju liniju izlaza na bočnu traku"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fastgør sidste outputlinje i sidepanelet"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Letzte Ausgabezeile an Seitenleiste anheften"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fijar la última línea de salida en la barra lateral"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Épingler la dernière ligne de sortie dans la barre latérale"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fissa l’ultima riga di output nella barra laterale"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "最後の出力行をサイドバーに固定"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ខ្ទាស់បន្ទាត់លទ្ធផលចុងក្រោយទៅរបារចំហៀង"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "마지막 출력 줄을 사이드바에 고정"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fest siste utdatalinje i sidefeltet"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Przypnij ostatni wiersz wyjścia do paska bocznego"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fixar Última Linha de Saída na Barra Lateral"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Закрепить последнюю строку вывода на боковой панели"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ปักหมุดบรรทัดเอาต์พุตล่าสุดไว้ที่แถบด้านข้าง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Son Çıktı Satırını Kenar Çubuğuna Sabitle"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Закріпити останній рядок виводу на бічній панелі"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ghim dòng đầu ra cuối cùng vào thanh bên"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "将最后一行输出固定到侧边栏"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "將最後一行輸出釘選到側邊欄"
+          }
+        }
+      }
+    },
+    "action.terminal.unpinTail" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unpin Last Output Line from Sidebar"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "إلغاء تثبيت آخر سطر من المخرجات من الشريط الجانبي"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Otkači posljednju liniju izlaza s bočne trake"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Frigør sidste outputlinje fra sidepanelet"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Letzte Ausgabezeile von Seitenleiste lösen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dejar de fijar la última línea de salida en la barra lateral"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Détacher la dernière ligne de sortie de la barre latérale"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rimuovi l’ultima riga di output dalla barra laterale"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "最後の出力行をサイドバーから固定解除"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ដោះខ្ទាស់បន្ទាត់លទ្ធផលចុងក្រោយពីរបារចំហៀង"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "사이드바에서 마지막 출력 줄 고정 해제"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Løsne siste utdatalinje fra sidefeltet"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Odepnij ostatni wiersz wyjścia od paska bocznego"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Desafixar Última Linha de Saída da Barra Lateral"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Открепить последнюю строку вывода от боковой панели"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เลิกปักหมุดบรรทัดเอาต์พุตล่าสุดจากแถบด้านข้าง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Son Çıktı Satırının Kenar Çubuğu Sabitlemesini Kaldır"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Відкріпити останній рядок виводу від бічної панелі"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bỏ ghim dòng đầu ra cuối cùng khỏi thanh bên"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "从侧边栏取消固定最后一行输出"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "從側邊欄取消釘選最後一行輸出"
+          }
+        }
+      }
+    },
     "action.updates.snooze": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تأجيل بطاقة التحديث…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Odgodi karticu ažuriranja…"}},"da":{"stringUnit":{"state":"needs_review","value":"Udsæt opdateringskort…"}},"de":{"stringUnit":{"state":"needs_review","value":"Update-Karte zurückstellen…"}},"en":{"stringUnit":{"state":"translated","value":"Snooze Update Card…"}},"es":{"stringUnit":{"state":"needs_review","value":"Posponer tarjeta de actualización…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Reporter la carte de mise à jour…"}},"it":{"stringUnit":{"state":"needs_review","value":"Posticipa la scheda di aggiornamento…"}},"ja":{"stringUnit":{"state":"translated","value":"アップデートカードをスヌーズ…"}},"km":{"stringUnit":{"state":"needs_review","value":"ពន្យារកាតបច្ចុប្បន្នភាព…"}},"ko":{"stringUnit":{"state":"needs_review","value":"업데이트 카드 다시 알림…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Utsett oppdateringskortet…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Odłóż kartę aktualizacji…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Adiar cartão de atualização…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отложить карточку обновления…"}},"th":{"stringUnit":{"state":"needs_review","value":"เลื่อนการ์ดอัปเดต…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Güncelleme Kartını Ertele…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відкласти картку оновлення…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tạm ẩn thẻ cập nhật…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"推迟更新卡片…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"延後更新卡片…"}}}},
     "argument.updates.snooze": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تأجيل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Odgodi"}},"da":{"stringUnit":{"state":"needs_review","value":"Udsæt"}},"de":{"stringUnit":{"state":"needs_review","value":"Zurückstellen"}},"en":{"stringUnit":{"state":"translated","value":"Snooze"}},"es":{"stringUnit":{"state":"needs_review","value":"Posponer"}},"fr":{"stringUnit":{"state":"needs_review","value":"Reporter"}},"it":{"stringUnit":{"state":"needs_review","value":"Posticipa"}},"ja":{"stringUnit":{"state":"translated","value":"スヌーズ"}},"km":{"stringUnit":{"state":"needs_review","value":"ពន្យារ"}},"ko":{"stringUnit":{"state":"needs_review","value":"다시 알림"}},"nb":{"stringUnit":{"state":"needs_review","value":"Utsett"}},"pl":{"stringUnit":{"state":"needs_review","value":"Odłóż"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Adiar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отложить"}},"th":{"stringUnit":{"state":"needs_review","value":"เลื่อน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Ertele"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відкласти"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tạm hoãn"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"推迟"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"延後"}}}},
     "argument.value.updates.snooze.hideVersion": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إخفاء حتى يتوفر إصدار أحدث"}},"bs":{"stringUnit":{"state":"needs_review","value":"Sakrij do novije verzije"}},"da":{"stringUnit":{"state":"needs_review","value":"Skjul indtil en nyere version"}},"de":{"stringUnit":{"state":"needs_review","value":"Bis zu einer neueren Version ausblenden"}},"en":{"stringUnit":{"state":"translated","value":"Hide Until a Newer Version"}},"es":{"stringUnit":{"state":"needs_review","value":"Ocultar hasta una versión más reciente"}},"fr":{"stringUnit":{"state":"needs_review","value":"Masquer jusqu’à une version plus récente"}},"it":{"stringUnit":{"state":"needs_review","value":"Nascondi fino a una versione più recente"}},"ja":{"stringUnit":{"state":"translated","value":"新しいバージョンまで非表示"}},"km":{"stringUnit":{"state":"needs_review","value":"លាក់រហូតដល់មានកំណែថ្មីជាងនេះ"}},"ko":{"stringUnit":{"state":"needs_review","value":"새 버전이 나올 때까지 숨기기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Skjul til en nyere versjon"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ukryj do nowszej wersji"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Ocultar até uma Versão Mais Nova"}},"ru":{"stringUnit":{"state":"needs_review","value":"Скрыть до более новой версии"}},"th":{"stringUnit":{"state":"needs_review","value":"ซ่อนจนกว่าจะมีเวอร์ชันใหม่กว่า"}},"tr":{"stringUnit":{"state":"needs_review","value":"Daha Yeni Bir Sürüme Kadar Gizle"}},"uk":{"stringUnit":{"state":"needs_review","value":"Приховати до новішої версії"}},"vi":{"stringUnit":{"state":"needs_review","value":"Ẩn cho đến khi có phiên bản mới hơn"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"隐藏，直到有更新的版本"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"隱藏，直到有更新的版本"}}}},

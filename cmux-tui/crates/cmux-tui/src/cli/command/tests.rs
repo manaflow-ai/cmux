@@ -118,16 +118,44 @@ fn terminal_keep_maps_to_the_private_set_terminal_keep_command() {
 }
 
 #[test]
-fn terminal_pin_tail_maps_to_set_terminal_tail_pin() {
+fn terminal_pin_tail_sends_typed_terminal_tail_pin_set() {
     const TERMINAL: &str = "term_0123456789abcdef0123456789abcdef";
-    let on = raw_request(&["terminal", TERMINAL, "pin-tail", "on"]);
-    assert_eq!(on["cmd"], "set-terminal-tail-pin");
-    assert_eq!(on["terminal"], TERMINAL);
-    assert_eq!(on["pinned"], true);
-    let off = raw_request(&["terminal", TERMINAL, "pin-tail", "off"]);
-    assert_eq!(off["pinned"], false);
-    for bad in [["terminal", "@2", "pin-tail", "on"], ["terminal", TERMINAL, "pin-tail", "maybe"]] {
-        assert!(parse(&strings(&bad), super::super::Surface::CmuxTui).is_err());
+    const PANE: &str = "pane_0123456789abcdef0123456789abcdef";
+    let on = protocol(&["terminal", TERMINAL, "pin-tail", "on"]);
+    assert_eq!(operation(&on), "terminal.tail_pin.set");
+    assert_eq!(
+        on.params,
+        json!({"machine": "current", "session": "current", "terminal": TERMINAL, "pinned": true})
+    );
+    assert!(on.resolve.is_empty(), "the full term_ ID goes through unresolved");
+    let off = protocol(&["terminal", TERMINAL, "pin-tail", "off"]);
+    assert_eq!(off.params["pinned"], false);
+
+    // The pane form a palette row mirrors: the pane's selected tab.
+    let pane = protocol(&["terminal", "pin-tail", "on", "--pane", PANE]);
+    assert_eq!(operation(&pane), "terminal.tail_pin.set");
+    assert_eq!(
+        pane.params,
+        json!({"machine": "current", "session": "current", "pane": PANE, "pinned": true})
+    );
+    assert!(pane.resolve.is_empty(), "the full pane_ ID goes through unresolved");
+    let pane_off = protocol(&["terminal", "pin-tail", "off", "--pane", PANE]);
+    assert_eq!(pane_off.params["pinned"], false);
+
+    let catalog = operation_catalog();
+    for plan in [&on, &off, &pane, &pane_off] {
+        assert_plan_matches_catalog(plan, "terminal.tail_pin.set", &catalog);
+    }
+
+    for bad in [
+        vec!["terminal", "@2", "pin-tail", "on"],
+        vec!["terminal", TERMINAL, "pin-tail", "maybe"],
+        vec!["terminal", "pin-tail", "on"],
+        vec!["terminal", "pin-tail", "on", "--pane", "current"],
+        vec!["terminal", "pin-tail", "maybe", "--pane", PANE],
+        vec!["terminal", TERMINAL, "pin-tail", "on", "--expected-revision", "7"],
+    ] {
+        assert!(parse(&strings(&bad), super::super::Surface::CmuxTui).is_err(), "{bad:?}");
     }
 }
 

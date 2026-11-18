@@ -81,6 +81,9 @@ const fn access(operation: Op) -> Access {
         Op::TerminalScreenRead
         | Op::TerminalHistoryRead
         | Op::TerminalHistoryClear
+        // A pin publishes the terminal's last output line as a workspace
+        // status entry, so pinning is reading the screen.
+        | Op::TerminalTailPinSet
         | Op::TerminalOutputRead
         | Op::TerminalStateRead
         | Op::TerminalCopy

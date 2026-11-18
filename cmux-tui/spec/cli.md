@@ -800,6 +800,7 @@ terminal <selector> show|status|write|keys|mouse|copy|move|project|attach|close
 terminal <selector> close [--if-unplaced]
 terminal <term_id> keep on|off
 terminal <term_id>|current pin-tail on|off
+terminal pin-tail on|off --pane <pane_id>
 terminal <selector> focus <in|out>
 terminal <selector> screen read [--unwrap] [--lines <n>]
 terminal <selector> screen wait --pattern <regex> [--new] [--timeout-ms <n>]
@@ -1042,6 +1043,13 @@ ends the session-owned process and removes all of its placements.
 `terminal <selector> close --if-unplaced` sends `if_unplaced: true`: it ends
 the terminal only when it has no tab, no `keep` mark and no attach stream, and
 otherwise fails and changes nothing.
+`terminal <term_id>|current pin-tail on|off` sends `terminal.tail_pin.set`
+(capability `terminal-tail-pin-set-v1`) with `{terminal, pinned}`; `current`
+is the caller's `CMUX_TUI_TERMINAL_ID`. `terminal pin-tail on|off --pane
+<pane_id>` sends `{pane, pinned}`: the terminal in that pane's selected tab,
+an `operation.failed` with reason `not_a_terminal` when that tab is not a
+terminal. Both pass the full ID through unresolved. A pinned terminal's last
+output line shows under its workspace in the sidebar.
 `tab`, `pane`, `screen` and `workspace <selector> close` with `--others`,
 `--to-right`, `--to-left` or `--all` (panes: `--others` or `--all`) send one
 `layout.bulk` close: the selected object's siblings in its pane, screen,

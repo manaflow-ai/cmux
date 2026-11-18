@@ -5,7 +5,7 @@
 
 use std::time::Duration;
 
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use super::*;
 use crate::SurfaceOptions;
@@ -313,4 +313,106 @@ fn a_restart_clears_the_lines_an_earlier_run_left() {
     f.mux.terminal_tail_pins.lock().pins.clear();
     f.mux.clear_stale_terminal_tails();
     assert_eq!(f.tails(), Vec::new());
+}
+
+/// One `terminal.tail_pin.set` request: the response envelope, or the
+/// request's validation error.
+fn tail_pin_set(mux: &Arc<Mux>, key: &str, fields: Value) -> Result<Value, Value> {
+    let mut params = json!({"machine": "current", "session": "current"});
+    params.as_object_mut().unwrap().extend(fields.as_object().unwrap().clone());
+    let envelope = json!({
+        "protocol": "cmux.protocol/2",
+        "type": "request",
+        "id": format!("tail-pin-{key}"),
+        "operation": "terminal.tail_pin.set",
+        "params": params,
+        "idempotency_key": format!("tail-pin-{key}"),
+    });
+    crate::resource_router::handle_resource_message(mux, &envelope.to_string())
+        .map_err(|error| serde_json::to_value(error).unwrap())
+}
+
+fn pane_public_id_of(mux: &Mux, view: SurfaceId) -> String {
+    mux.with_state(|state| {
+        let pane = state.pane_of(view).expect("the tab's pane");
+        state.panes.get(&pane).expect("the pane").public_id.as_str().to_owned()
+    })
+}
+
+#[test]
+fn the_typed_operation_pins_and_unpins_by_terminal_and_by_pane() {
+    let f = fixture("tail-pin-typed");
+    let terminal = f.surface.terminal_public_id().cloned().unwrap();
+    let pane = pane_public_id_of(&f.mux, f.surface.id);
+    let by_terminal = |pinned: bool| json!({"terminal": terminal.as_str(), "pinned": pinned});
+    f.print(b"typed pin\r\n");
+
+    let on = tail_pin_set(&f.mux, "1", by_terminal(true)).unwrap();
+    assert_eq!(on["ok"], true, "{on}");
+    assert_eq!(on["result"]["value"]["terminal"], terminal.as_str());
+    assert_eq!(on["result"]["value"]["pinned"], true);
+    assert!(f.mux.terminal_tail_pinned(f.surface.id));
+    wait_for("the typed pin published", || f.tail_text().as_deref() == Some("typed pin"));
+
+    let off = tail_pin_set(&f.mux, "2", by_terminal(false)).unwrap();
+    assert_eq!(off["ok"], true, "{off}");
+    assert_eq!(off["result"]["value"]["pinned"], false);
+    assert!(!f.mux.terminal_tail_pinned(f.surface.id));
+    assert_eq!(f.tails(), Vec::new());
+
+    // By pane: the terminal in the pane's selected tab.
+    let on = tail_pin_set(&f.mux, "3", json!({"pane": pane, "pinned": true})).unwrap();
+    assert_eq!(on["ok"], true, "{on}");
+    assert_eq!(on["result"]["value"]["terminal"], terminal.as_str());
+    assert!(f.mux.terminal_tail_pinned(f.surface.id));
+    wait_for("the pane pin published", || f.tail_text().as_deref() == Some("typed pin"));
+    let off = tail_pin_set(&f.mux, "4", json!({"pane": pane, "pinned": false})).unwrap();
+    assert_eq!(off["ok"], true, "{off}");
+    assert!(!f.mux.terminal_tail_pinned(f.surface.id));
+    assert_eq!(f.tails(), Vec::new());
+}
+
+#[test]
+fn the_typed_operation_refuses_both_neither_a_non_terminal_tab_and_an_unknown_pane() {
+    let f = fixture("tail-pin-typed-refusals");
+    let terminal = f.surface.terminal_public_id().cloned().unwrap();
+    let pane = pane_public_id_of(&f.mux, f.surface.id);
+
+    let both = tail_pin_set(
+        &f.mux,
+        "both",
+        json!({"terminal": terminal.as_str(), "pane": pane, "pinned": true}),
+    )
+    .unwrap_err();
+    assert_eq!(both["code"], "validation.invalid", "{both}");
+    let neither = tail_pin_set(&f.mux, "neither", json!({"pinned": true})).unwrap_err();
+    assert_eq!(neither["code"], "validation.invalid", "{neither}");
+    assert!(!f.mux.terminal_tail_pinned(f.surface.id));
+
+    let unknown = tail_pin_set(
+        &f.mux,
+        "unknown",
+        json!({"pane": "pane_0123456789abcdef0123456789abcdef", "pinned": true}),
+    )
+    .unwrap();
+    assert_eq!(unknown["ok"], false, "{unknown}");
+    assert_eq!(unknown["error"]["code"], "selector.not_found", "{unknown}");
+
+    // The pane's selected tab is a browser: refused, the terminal stays unpinned.
+    let pane_id = f.mux.with_state(|state| state.pane_of(f.surface.id).unwrap());
+    let browser =
+        f.mux.new_browser_tab("about:blank".into(), Some(pane_id), Some((80, 24))).unwrap();
+    let index = f.mux.with_state(|state| {
+        state.panes.get(&pane_id).unwrap().tabs.iter().position(|tab| *tab == browser.id).unwrap()
+    });
+    f.mux.select_tab(Some(pane_id), Some(index), None);
+    assert_eq!(
+        f.mux.with_state(|state| state.panes.get(&pane_id).unwrap().active_surface()),
+        Some(browser.id)
+    );
+    let refused = tail_pin_set(&f.mux, "browser", json!({"pane": pane, "pinned": true})).unwrap();
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(refused["error"]["code"], "operation.failed", "{refused}");
+    assert_eq!(refused["error"]["details"]["reason"], "not_a_terminal", "{refused}");
+    assert!(!f.mux.terminal_tail_pinned(f.surface.id));
 }

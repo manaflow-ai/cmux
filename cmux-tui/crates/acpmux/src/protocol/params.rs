@@ -209,6 +209,8 @@ keyed! {
     HandoffPrepareParams: ["sessionId", "harness", "handoffKey", "memoryRefs"];
     /// `_acpmux/handoff_start`.
     HandoffStartParams: ["handoffId", "revision", "promptId", "capsule", "checkpoint"];
+    /// `_acpmux/harness_disable`.
+    HarnessDisableParams: ["folder", "id"];
     /// `_acpmux/harness_enable`.
     HarnessEnableParams: ["folder", "id"];
     /// `_acpmux/harness/health`.

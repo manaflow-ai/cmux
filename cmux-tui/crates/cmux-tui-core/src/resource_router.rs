@@ -20,6 +20,7 @@ mod owner;
 pub(crate) mod palette_rank;
 mod revision_conflict;
 mod session;
+pub(crate) mod terminal_tail_pin;
 pub(crate) mod theme_scheme;
 mod topology;
 mod wait_text;

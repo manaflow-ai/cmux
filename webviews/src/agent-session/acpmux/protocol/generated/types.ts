@@ -514,6 +514,12 @@ export interface HandoffStartParams {
   revision?: unknown;
 }
 
+export interface HarnessDisableParams {
+  _meta?: RequestMeta;
+  folder?: unknown;
+  id?: unknown;
+}
+
 export interface HarnessEnableParams {
   _meta?: RequestMeta;
   folder?: unknown;

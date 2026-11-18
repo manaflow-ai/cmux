@@ -243,6 +243,13 @@ pub fn table() -> Vec<(&'static str, Ask)> {
                 "an in-process hub has no home, so folder profiles are off (invalid params)",
             ),
         ),
+        (
+            method::MUX_HARNESS_DISABLE,
+            Any(
+                json!({"folder": "$CWD", "id": "fake"}),
+                "an in-process hub has no home, so folder profiles are off (invalid params)",
+            ),
+        ),
         // Makes `~/Projects/lso-project` with `git init` and trusts it: this process's HOME is
         // its hermetic scratch home (`support/daemon_env.rs`), never the person's.
         (method::MUX_PROJECT_NEW, Run(json!({"name": "lso-project"}))),

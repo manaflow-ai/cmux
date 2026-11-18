@@ -123,6 +123,22 @@ impl Mux {
         Ok(terminal)
     }
 
+    /// Pin or unpin terminal `terminal` (its public `term_` id) through the
+    /// tab that shows it; a pinned terminal no tab shows still unpins by its
+    /// id. `set-terminal-tail-pin` and `terminal.tail_pin.set` both name a
+    /// terminal through here. Returns the terminal's public id.
+    pub(crate) fn set_terminal_tail_pin_of(
+        self: &Arc<Self>,
+        terminal: &str,
+        pinned: bool,
+    ) -> anyhow::Result<String> {
+        match self.placed_surface_of_terminal(terminal) {
+            Some(surface) => Ok(self.set_terminal_tail_pin(surface, pinned)?.into_string()),
+            None if !pinned && self.end_terminal_tail_of(terminal) => Ok(terminal.to_owned()),
+            None => anyhow::bail!("terminal_not_found"),
+        }
+    }
+
     /// A tab that shows terminal `terminal` (its public `term_` id), for a pin
     /// named by terminal.
     pub(crate) fn placed_surface_of_terminal(&self, terminal: &str) -> Option<SurfaceId> {

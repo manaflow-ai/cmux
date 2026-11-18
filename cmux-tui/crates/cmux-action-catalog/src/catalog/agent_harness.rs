@@ -68,6 +68,22 @@ pub static ACTIONS: &[Action] = &[
         cli_name: "agent check-harness",
         ..Action::DEFAULT
     },
+    // A catalog request row (`Action::request`): the app sends acpmux's `_acpmux/harness_disable`, what
+    // `cmux harness disable ID --folder DIR` sends.
+    Action {
+        id: "agent.harness.disableFolder",
+        group: GROUP,
+        title: t("ActionCatalog", "action.agent.harness.disableFolder", "Disable Folder Harness…"),
+        keywords: &["agent", "harness", "folder", "profile", "disable", "withdraw", "revoke", "turn off", "byo"],
+        category: "agents",
+        symbol: "xmark.shield",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::ID, args::PATH],
+        cli_name: "harness disable",
+        request: Some(Request { lane: RequestLane::Acpmux, operation: "_acpmux/harness_disable", params: &[RequestParam { name: "folder", source: ParamSource::Argument("path") }, RequestParam { name: "id", source: ParamSource::Argument("id") }] }),
+        ..Action::DEFAULT
+    },
     Action {
         id: "agent.harness.setIcon",
         group: GROUP,

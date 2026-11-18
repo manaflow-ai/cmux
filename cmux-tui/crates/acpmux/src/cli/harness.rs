@@ -105,7 +105,9 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
         HarnessCmd::Enable { id, folder, yes } => {
             super::harness_folder::enable_cmd(&id, &folder, yes, json_out)
         }
-        HarnessCmd::Disable { id, folder } => super::harness_folder::disable_cmd(&id, &folder),
+        HarnessCmd::Disable { id, folder } => {
+            super::harness_folder::disable_cmd(&id, &folder).await
+        }
         HarnessCmd::Run { tab: true, .. } => {
             bail!("--tab opens a cmux tab: run `cmux harness run ID --tab`")
         }

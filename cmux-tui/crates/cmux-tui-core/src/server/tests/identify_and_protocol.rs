@@ -421,6 +421,7 @@ fn identify_advertises_additive_capabilities() {
         crate::git_ops::FILES_SEARCH_CAPABILITY,
         crate::git_ops::FILES_LIST_CAPABILITY,
         crate::git_ops::FINGERPRINT_CAPABILITY,
+        crate::resource_router::terminal_tail_pin::CAPABILITY,
         crate::git_ops::BRANCHES_CAPABILITY,
         crate::git_ops::DIFF_COMMENTS_CAPABILITY,
         crate::git_ops::DIFF_COMMENTS_SEND_CAPABILITY,

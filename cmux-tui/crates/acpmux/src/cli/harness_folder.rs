@@ -128,9 +128,52 @@ pub fn enable_cmd(id: &str, folder: &Path, yes: bool, json_out: bool) -> Result<
     Ok(())
 }
 
-pub fn disable_cmd(id: &str, folder: &Path) -> Result<()> {
-    let cfg = Config::load()?;
-    if folder_profiles::disable(gate(&cfg)?, folder, id).map_err(|e| anyhow!(e))? {
+/// The one daemon request `disable ID --folder DIR` sends: `_acpmux/harness_disable
+/// {folder, id}`, the folder made absolute against the current folder (the daemon takes only
+/// an absolute one). The command palette's Disable Folder Harness row sends the same.
+pub fn disable_request(id: &str, folder: &Path) -> Result<(&'static str, serde_json::Value)> {
+    let folder = std::path::absolute(folder)
+        .map_err(|e| anyhow!("{}: {e}", folder.display()))?
+        .to_string_lossy()
+        .into_owned();
+    Ok((crate::rpc::method::MUX_HARNESS_DISABLE, json!({"folder": folder, "id": id})))
+}
+
+/// The one typed daemon request a `harness …` argv (the words after `cmux` or `acpmux`)
+/// sends, for the verbs that send exactly one: `harness disable ID --folder DIR`. None for
+/// any other argv; `Some(Err)` for one clap or the folder refuses. cmux-tui's
+/// `catalog_request_matches_cli` compares it with the palette row.
+pub fn sent_request(args: &[String]) -> Option<Result<(&'static str, serde_json::Value)>> {
+    use crate::cli::command::{Cli, Command, HarnessCmd};
+    use clap::Parser as _;
+    let argv = std::iter::once("acpmux").chain(args.iter().map(String::as_str));
+    let cli = match Cli::try_parse_from(argv) {
+        Ok(cli) => cli,
+        Err(error) => return Some(Err(anyhow!(error.to_string()))),
+    };
+    match cli.command? {
+        Command::Harness(HarnessCmd::Disable { id, folder }) => Some(disable_request(&id, &folder)),
+        _ => None,
+    }
+}
+
+/// `disable ID --folder DIR`: sends [`disable_request`] to the running daemon, so the CLI
+/// and the app withdraw the same way. With no daemon running it writes the same enable
+/// record itself (`folder_profiles::disable`, what the daemon runs), as the folder
+/// commands work without a daemon.
+pub async fn disable_cmd(id: &str, folder: &Path) -> Result<()> {
+    let (method, params) = disable_request(id, folder)?;
+    let disabled = match crate::daemon::connect(false).await {
+        Ok(client) => {
+            let reply = client.request(method, params).await?;
+            reply.get("disabled").and_then(serde_json::Value::as_bool).unwrap_or(false)
+        }
+        Err(_) => {
+            let cfg = Config::load()?;
+            folder_profiles::disable(gate(&cfg)?, folder, id).map_err(|e| anyhow!(e))?
+        }
+    };
+    if disabled {
         println!("disabled {id} for {}", folder.display());
     } else {
         println!("{id} was not enabled for {}", folder.display());

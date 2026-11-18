@@ -310,21 +310,41 @@ pub(super) fn parse_terminal(
                 }
             };
             validate_prefixed_id("terminal", "term", &selector)?;
-            let pinned = match *state {
-                "on" => true,
-                "off" => false,
-                _ => return Err(UsageError::new("terminal pin-tail must be on or off")),
-            };
-            Ok(CommandPlan::RawCommand(super::super::raw::RawCommandPlan {
-                request: json!({
-                    "id": 1,
-                    "cmd": "set-terminal-tail-pin",
-                    "terminal": selector,
-                    "pinned": pinned,
-                }),
-                stream: false,
-            }))
+            tail_pin_request("terminal", selector, state, selectors, flags)
+        }
+        // The pane form a command palette row mirrors: the terminal in the
+        // pane's selected tab, named by its full pane ID.
+        ["pin-tail", state] => {
+            let pane = flags.required("pane")?;
+            validate_prefixed_id("pane", "pane", &pane)?;
+            tail_pin_request("pane", pane, state, selectors, flags)
         }
         _ => usage("terminal action"),
     }
+}
+
+/// `terminal.tail_pin.set` with the full `term_` or `pane_` ID in `field`:
+/// the daemon resolves it, so the plan has no resolve step.
+fn tail_pin_request(
+    field: &str,
+    id: String,
+    state: &str,
+    selectors: &Selectors,
+    flags: &mut Flags,
+) -> Result<CommandPlan, UsageError> {
+    // A structural parent path (`tab <selector> terminal pin-tail`) names
+    // nothing the operation takes; machine and session route it.
+    if selectors.values.keys().any(|scope| !matches!(*scope, "machine" | "session")) {
+        return Err(UsageError::new(
+            "terminal pin-tail takes a term_ ID, current or --pane <pane_id>, not a parent path",
+        ));
+    }
+    let pinned = match state {
+        "on" => true,
+        "off" => false,
+        _ => return Err(UsageError::new("terminal pin-tail must be on or off")),
+    };
+    let mut params = map_with(field, Value::String(id));
+    params.insert("pinned".into(), Value::Bool(pinned));
+    request(ResourceOperation::TerminalTailPinSet, selectors, flags, params)
 }

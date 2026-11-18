@@ -506,6 +506,9 @@ impl From<LinkError> for Failure {
 fn execute(link: &mut Link, request: &Request, output: OutputMode) -> Result<(), Failure> {
     let t = text();
     let json_out = request.json || super::json_output(output);
+    if request.word == "adopt" {
+        return adopt(link, request, json_out);
+    }
     // The first call: an older daemon refuses the unknown operation.
     let chiefs = match link.call("chief.profile.list", json!({}), None) {
         Ok(chiefs) => chiefs,
@@ -536,14 +539,7 @@ fn execute(link: &mut Link, request: &Request, output: OutputMode) -> Result<(),
         return Ok(());
     }
     let avatar = request.avatar.as_deref().map(read_avatar).transpose().map_err(Failure::Usage)?;
-    let mut record = if request.word == "adopt" {
-        let agent = request.chief.as_deref().ok_or_else(|| Failure::Usage(t.needs_agent.into()))?;
-        let mut params = request.fields.clone();
-        params.insert("participant_id".into(), json!(agent));
-        let key = super::link::new_message_id();
-        let adopted = link.call("chief.profile.adopt", Value::Object(params), Some(&key))?;
-        adopted.get("value").cloned().unwrap_or(Value::Null)
-    } else if request.word == "new" {
+    let mut record = if request.word == "new" {
         if !request.fields.contains_key("display_name") {
             return Err(Failure::Usage(t.needs_name.into()));
         }
@@ -639,6 +635,73 @@ fn execute(link: &mut Link, request: &Request, output: OutputMode) -> Result<(),
         _ => t.updated,
     };
     print_result(&record, template, json_out);
+    Ok(())
+}
+
+/// The request `cmux chief adopt AGENT [PROFILE]` sends: `chief.profile.adopt` with the profile
+/// fields and `participant_id`, and nothing read first. The command palette's Adopt Agent as
+/// Chief… row sends the same (cmux-tui's `catalog_request_matches_cli`).
+fn adopt_request(request: &Request) -> Result<(&'static str, Value), String> {
+    let agent = request.chief.as_deref().ok_or_else(|| text().needs_agent.to_owned())?;
+    let mut params = request.fields.clone();
+    params.insert("participant_id".into(), json!(agent));
+    Ok(("chief.profile.adopt", Value::Object(params)))
+}
+
+/// What `cmux chief …` words (the words after `chief`) send as one typed request, for the words
+/// that send exactly one: `adopt AGENT [PROFILE]` without `--avatar` (a picture is a second
+/// request after it). None for any other word; Err for words the parse refuses.
+#[cfg(all(test, unix))]
+pub(in crate::cli) fn sent_request(
+    args: &[String],
+) -> Option<Result<(&'static str, Value), String>> {
+    if args.first().map(String::as_str) != Some("adopt") {
+        return None;
+    }
+    Some(parse(args).and_then(|request| {
+        if request.avatar.is_some() {
+            return Err("cmux chief adopt --avatar sends a second request".into());
+        }
+        adopt_request(&request)
+    }))
+}
+
+/// `cmux chief adopt AGENT [PROFILE] [--avatar FILE]`: [`adopt_request`] first, with no read
+/// before it (an older daemon's refusal of the unknown operation says it has no registry),
+/// then the picture, when given, as a second write.
+fn adopt(link: &mut Link, request: &Request, json_out: bool) -> Result<(), Failure> {
+    let t = text();
+    let avatar = request.avatar.as_deref().map(read_avatar).transpose().map_err(Failure::Usage)?;
+    let (operation, params) = adopt_request(request).map_err(Failure::Usage)?;
+    let key = super::link::new_message_id();
+    let adopted = match link.call(operation, params, Some(&key)) {
+        Ok(adopted) => adopted,
+        Err(LinkError::Rejected { code, message })
+            if code.starts_with("validation.invalid")
+                && (code.contains("unknown operation")
+                    || message.contains("unknown operation")) =>
+        {
+            return Err(Failure::Unsupported);
+        }
+        Err(error) => return Err(error.into()),
+    };
+    let mut record = adopted.get("value").cloned().unwrap_or(Value::Null);
+    if let Some((media_type, bytes)) = avatar {
+        let key = super::link::new_message_id();
+        let params = json!({
+            "chief": record["id"],
+            "media_type": media_type,
+            "data": STANDARD.encode(bytes),
+        });
+        match link.call("chief.profile.avatar.set", params, Some(&key)) {
+            Ok(set) => record = set.get("value").cloned().unwrap_or(Value::Null),
+            Err(error) => {
+                let done = format!("{}; {}", fill(&record, t.adopted), t.picture_not_set);
+                return Err(Failure::Partial { done, error });
+            }
+        }
+    }
+    print_result(&record, t.adopted, json_out);
     Ok(())
 }
 
