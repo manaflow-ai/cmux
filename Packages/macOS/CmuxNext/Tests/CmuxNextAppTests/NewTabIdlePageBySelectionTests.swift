@@ -26,9 +26,11 @@ import Testing
 /// - Row 4, print only: a workspace that went out of view gave its page view to the workspace that the window made
 ///   ahead, and is shown again. How many page views are built at that show, with an untouched page in another
 ///   workspace that is out of view, and with none.
-/// - Row 5: one more New Workspace key, with no workspace made ahead and no page in the pool. Want: no commit of
-///   the run loop has the left workspace in the window with an empty pane. It prints how many page views were
-///   built and what the ledger said of the left tab before the key.
+/// - Row 5, 2 cases (the left workspace is one that the window made ahead; one whose content it made at its key):
+///   one more New Workspace key, with no workspace made ahead and no page in the pool. Want: when the key's call
+///   returns with the left workspace still in the window, the tab that its pane has selected has its page view;
+///   and no commit of the run loop has the left workspace in the window with an empty pane. It prints how many
+///   page views were built and what the ledger said of the left tab before the key.
 ///
 /// Limits. Each page view is a WebKit one (the package's tests have no Chromium host), the pool of pages made ahead
 /// is empty, and the rows read which view a tab has, not what a page draws.
@@ -221,9 +223,9 @@ struct NewTabIdlePageBySelectionTests {
     }
 
     /// Row 5.
-    @Test func aNewWorkspaceKeyLeavesNoEmptyPaneAtACommit() async throws {
-        try await Self.afterOneKey("cn-idle-by-selection-leaves", firstPageUsed: true) { services, start in
-            let controller = start.controller
+    @Test(arguments: [false, true]) func aNewWorkspaceKeyLeavesNoEmptyPaneAtACommit(madeAtItsKey: Bool) async throws {
+        try await Self.afterOneKey("cn-idle-by-selection-leaves\(madeAtItsKey ? "-at-key" : "")", firstPageUsed: true, second: madeAtItsKey) { services, start in
+            let controller = start.controller, tabs = services.agentTabs
             let left = try #require(controller.content, "setup: the window shows no workspace")
             let pane = try #require(left.focusedPane, "setup: the window's workspace has no focused pane")
             try #require(pane.view.hostsContent, "setup: the pane that the window shows has no content before the key")
@@ -241,6 +243,9 @@ struct NewTabIdlePageBySelectionTests {
             commits.counts = true
             try #require(services.registry.perform("newTab", invocation: ActionInvocation(origin: .user)), "setup: the New Workspace key was refused")
             let inTheKeysCall = !pane.view.hostsContent
+            // At the return of the key's call: is the left workspace still the window's content with the tab selected, and has that tab its page view.
+            let stillShown = controller.content === left && Self.selected(controller) == start.shown
+            let keptAtTheReturn = tabs.existingView(start.shown) === page
             await NewTabPageAtItsFrameTests.frame(services)
             try await PasswordManagerRouteTests.until({ controller.content.map { $0 !== left && $0.focusedPane != nil } == true },
                                                       within: .seconds(5), report: { "setup: the window shows no focused pane of the key's workspace" })
@@ -249,13 +254,17 @@ struct NewTabIdlePageBySelectionTests {
             let took = Self.showsPage(page, controller, services)
             let built = Self.pages(services).filter { view in !before.contains { $0 === view } }.count
             print("""
-                NewTabIdlePageBySelectionTests: row 5, one more New Workspace key with no workspace made ahead and no page in the \
-                pool; before the key the surface ledger said that a pane draws the tab that the key leaves: \(drawn); the tab of \
+                NewTabIdlePageBySelectionTests: row 5 (the window made the left workspace's content at its key: \(madeAtItsKey)), \
+                one more New Workspace key with no workspace made ahead and no page in the \
+                pool; before the key the surface ledger said that a pane draws the tab that the key leaves: \(drawn); when the \
+                key's call returned the window still showed the left workspace with that tab selected: \(stillShown), and that \
+                tab had its page view: \(keptAtTheReturn); the tab of \
                 the key's workspace has the page view of the tab that the key left: \(took); page views built: \(built); the left \
                 pane was empty when the key's call returned: \(inTheKeysCall); commits of the run loop from the key on: \
                 \(commits.all), of them with the left workspace in the window and its pane empty: \(commits.withAnEmptyPane)
                 """)
             try #require(commits.all > 0, "the row saw no commit of the run loop after the key")
+            #expect(!stillShown || keptAtTheReturn, "when the New Workspace key's call returned, the window still showed the left workspace, and the tab that its pane has selected had lost its page view")
             #expect(!inTheKeysCall, "the New Workspace key took the page view out of the pane that it leaves before the window's swap")
             #expect(commits.withAnEmptyPane == 0, "\(commits.withAnEmptyPane) of \(commits.all) commits after the key had the left workspace in the window with an empty pane")
         }
