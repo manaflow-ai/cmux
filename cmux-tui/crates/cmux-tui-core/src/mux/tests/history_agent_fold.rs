@@ -251,12 +251,18 @@ fn a_history_list_with_the_agent_fold_behind_answers_through_the_router() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+// The rows of the save stride seed a running terminal, which is unix only:
+// each item from here to the file's end is for them.
+#[cfg(unix)]
 const STRIDE_TERMINAL: &str = "00000000000040008000000000000071";
+#[cfg(unix)]
 const STRIDE_INCARNATION: &str = "10000000000040008000000000000071";
+#[cfg(unix)]
 const STRIDE_AGENT: &str = "history-agent-save-stride";
 
 /// One hook of the agent session `STRIDE_AGENT` on `terminal`, through the
 /// journal ingress path, as its hook helper sends it.
+#[cfg(unix)]
 fn stride_hook(mux: &Arc<Mux>, terminal: &TerminalPublicId, event: &str, mut native: Value) {
     native["session_id"] = serde_json::json!(STRIDE_AGENT);
     native["cwd"] = serde_json::json!("/srv/project");
@@ -273,6 +279,7 @@ fn stride_hook(mux: &Arc<Mux>, terminal: &TerminalPublicId, event: &str, mut nat
 
 /// The saved agent fold in the registry: its cursor and its sessions (`None`
 /// when the fold was never saved).
+#[cfg(unix)]
 pub(super) fn saved_agent_fold(mux: &Mux) -> Option<(u64, String)> {
     mux.workspace_registry
         .lock()
@@ -283,6 +290,7 @@ pub(super) fn saved_agent_fold(mux: &Mux) -> Option<(u64, String)> {
 }
 
 /// Journal rows after `sequence`, counted by kind.
+#[cfg(unix)]
 pub(super) fn journal_kinds_after(
     mux: &Mux,
     mut sequence: u64,
@@ -311,6 +319,7 @@ pub(super) fn journal_kinds_after(
 /// of the fold (512 sequences), asks a list (which answers when the fold is
 /// at the journal's head) and reads the saved fold again. It must be the
 /// same row: the turn ends saved nothing.
+#[cfg(unix)]
 #[test]
 fn turn_ends_below_one_journal_page_do_not_save_the_agent_history_again() {
     const TURNS: usize = 8;
