@@ -41,5 +41,9 @@ extension PageWebView {
         resumeLoadWaiters()
         onDocumentLoaded?()
         healthFeed?.pageLoaded(self)
+        if let notice = pendingRestartNotice {
+            pendingRestartNotice = nil
+            onRendererRestarted?(notice)
+        }
     }
 }

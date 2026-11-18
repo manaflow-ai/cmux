@@ -30,6 +30,9 @@ public final class AppHealth: Sendable {
     /// The contract's part kinds.
     public enum Kind: String, Sendable, CaseIterable {
         case page, renderer, sessionDaemon, acpmux, pageHost, roster
+        /// One renderer of visible agent chats: the model pings it while its pages rest, and ends
+        /// it after two unanswered pings over 30 s (cmux-health-core's liveness rule).
+        case liveness
     }
 
     /// The contract's states, best first (so `<` reads "better than").
@@ -52,12 +55,19 @@ public final class AppHealth: Sendable {
     /// What the host does to a part (the contract's `action`).
     public enum Repair: String, Sendable {
         case reloadPage, restartRenderer, reconnect, restartConnection, restartPageHost, holdReplace, none
+        /// A `liveness` part: one round trip to the renderer's main thread; its answer is a ``beat(_:rest:)``.
+        case ping
+        /// A `liveness` part missed its pings: end that renderer by force.
+        case endRenderer
     }
 
     /// The contract's events (`event {id, event}`).
     public enum Event: String, Sendable {
         case crashed, loaded, unresponsive, responsive, connected, disconnected, loadFailed, listenerMissing
         case started, ready, exited, restoreProgress, restoreStarted, restoreFinished
+        /// A `liveness` part's time did not count (the Mac slept or woke, a debugger holds the page
+        /// or the app): its pings out are void.
+        case void
     }
 
     /// One thing to do, from `tick` or `repairNow`.
@@ -69,13 +79,16 @@ public final class AppHealth: Sendable {
         /// The model's token for this action, sent back with its result so a late result never
         /// lands on a newer attempt (nil from a model that sends none).
         public var token: UInt64?
+        /// `endRenderer`: how long the renderer has not answered, in model ms.
+        public var hungMs: UInt64?
 
-        public init(id: String, kind: Kind, action: Repair, attempt: Int, token: UInt64? = nil) {
+        public init(id: String, kind: Kind, action: Repair, attempt: Int, token: UInt64? = nil, hungMs: UInt64? = nil) {
             self.id = id
             self.kind = kind
             self.action = action
             self.attempt = attempt
             self.token = token
+            self.hungMs = hungMs
         }
     }
 
@@ -150,6 +163,10 @@ public final class AppHealth: Sendable {
     /// ABI 2 or later, or none linked (nothing is timed). An older pinned model would take a rest
     /// beat for a plain one and reload the resting page, so its pages keep beating.
     public var takesRestBeats: Bool { box.withLock { $0.model.takesRestBeats } }
+
+    /// Whether the linked model times `liveness` parts (ABI 3): an older pinned one would refuse
+    /// them, so the feed registers none and nothing is pinged.
+    public var timesLiveness: Bool { box.withLock { $0.model.timesLiveness } }
 
     /// Whether the one timer is armed (tests: no deadline, no timer).
     public var isTimerArmed: Bool { timer.isScheduled }
@@ -408,7 +425,8 @@ public final class AppHealth: Sendable {
             guard let id = value["id"]?.stringValue, let kind = Kind(rawValue: value["kind"]?.stringValue ?? ""),
                   let action = Repair(rawValue: value["action"]?.stringValue ?? "") else { return nil }
             let token = value["token"]?.doubleValue.flatMap { UInt64(exactly: $0) }
-            return Action(id: id, kind: kind, action: action, attempt: value["attempt"]?.intValue ?? 1, token: token)
+            let hungMs = value["hungMs"]?.doubleValue.flatMap { UInt64(exactly: $0) }
+            return Action(id: id, kind: kind, action: action, attempt: value["attempt"]?.intValue ?? 1, token: token, hungMs: hungMs)
         }
     }
 
@@ -420,11 +438,13 @@ public final class AppHealth: Sendable {
                 report(action, ok: false)
                 continue
             }
-            logger.notice("health: \(action.action.rawValue, privacy: .public) for \(action.kind.rawValue, privacy: .public), attempt \(action.attempt)")
+            // A ping is no repair: its answer is the part's beat, and it leaves no receipt or log line.
+            let isPing = action.action == .ping
+            if !isPing { logger.notice("health: \(action.action.rawValue, privacy: .public) for \(action.kind.rawValue, privacy: .public), attempt \(action.attempt)") }
             // task-owner: one repair per model action; ends when the owner's handler returns (each is bounded).
             Task(priority: .utility) { [weak self] in
                 let ok = await handler(action)
-                self?.report(action, ok: ok)
+                if !isPing { self?.report(action, ok: ok) }
             }
         }
     }
@@ -454,6 +474,9 @@ private final class Model {
     /// ABI 2 added the page's rest beat (cmux-health-core `Health::rest`).
     var takesRestBeats: Bool { handle == nil || cmux_health_abi_version() >= 2 }
 
+    /// ABI 3 added `liveness` parts and their `ping` / `endRenderer` actions.
+    var timesLiveness: Bool { handle != nil && cmux_health_abi_version() >= 3 }
+
     /// One op's reply (JSON), nil when the model refused it.
     func call(_ op: String, _ request: Data) -> Data? {
         guard let handle else { return nil }
@@ -471,6 +494,7 @@ private final class Model {
     #else
     var isLinked: Bool { false }
     var takesRestBeats: Bool { true }
+    var timesLiveness: Bool { false }
 
     func call(_ op: String, _ request: Data) -> Data? { nil }
     #endif

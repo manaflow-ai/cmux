@@ -61,6 +61,14 @@ extension PageChromiumPage {
     public func restartRenderer() { reload() }
 
     public var isUnresponsive: Bool { false }
+
+    public var rendererClientID: Int32? { nil }
+
+    public var rendererProcessID: Int32? { nil }
+
+    public var isBeingDebugged: Bool { false }
+
+    public func endRenderer() -> Int32? { nil }
 }
 
 extension PageChromiumHosting {
@@ -131,6 +139,18 @@ public protocol PageChromiumPage: AnyObject {
     /// Whether Chromium's hang monitor says the page's renderer stopped answering (observable: the
     /// page view follows it for app health's renderer part). The default: never.
     var isUnresponsive: Bool { get }
+    /// The one renderer process hosting the page (Chromium's renderer client id: pages that share
+    /// a renderer share it); nil when unknown or the page spans several. The default: nil.
+    var rendererClientID: Int32? { get }
+    /// That renderer's process id; nil when unknown. The default: nil.
+    var rendererProcessID: Int32? { get }
+    /// Whether DevTools may hold the page on purpose (they are open: a breakpoint stops its main
+    /// thread), so a silent main thread is then no hang. The default: false.
+    var isBeingDebugged: Bool { get }
+    /// Ends the page's renderer by force, whether or not Chromium reported it hung (the liveness
+    /// watchdog proved it): every page in it ends with it. Returns the pid ended (0: ended, pid
+    /// unknown), nil when nothing was ended. The default: nil.
+    func endRenderer() -> Int32?
     /// Sets the page zoom (1 is 100%).
     func setZoom(_ zoom: Double)
     /// Gives or takes the keyboard focus.

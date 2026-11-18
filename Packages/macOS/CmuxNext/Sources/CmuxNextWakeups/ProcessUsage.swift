@@ -36,6 +36,15 @@ public struct ProcessUsage: Sendable, Equatable {
                             physFootprint: info.ri_phys_footprint, uptimeNanos: clock_gettime_nsec_np(CLOCK_UPTIME_RAW))
     }
 
+    /// Whether a debugger traces `pid` (`P_TRACED`): a process stopped in it is not hung.
+    public static func isTraced(_ pid: pid_t) -> Bool {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var name: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        guard sysctl(&name, 4, &info, &size, nil, 0) == 0, size > 0 else { return false }
+        return info.kp_proc.p_flag & P_TRACED != 0
+    }
+
     /// CPU share of one core between two samples of the same process (1.0 = 100%).
     public func cpuShare(since earlier: ProcessUsage) -> Double {
         let wall = Double(uptimeNanos &- earlier.uptimeNanos)

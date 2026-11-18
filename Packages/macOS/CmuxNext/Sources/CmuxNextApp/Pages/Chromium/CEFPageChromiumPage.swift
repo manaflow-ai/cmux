@@ -120,6 +120,10 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
     func reload() { tab.reload() }
     var isUnresponsive: Bool { tab.state.isUnresponsive }
     func restartRenderer() { if tab.state.isUnresponsive { tab.answerUnresponsivePage(terminate: true) } else { tab.reload() } }
+    var rendererClientID: Int32? { tab.soleRendererClientID }
+    var rendererProcessID: Int32? { tab.soleRendererProcessID }
+    var isBeingDebugged: Bool { tab.isBeingDebugged }
+    func endRenderer() -> Int32? { tab.endRenderer() }
 
     func setZoom(_ zoom: Double) { tab.setZoom(zoom) }
 

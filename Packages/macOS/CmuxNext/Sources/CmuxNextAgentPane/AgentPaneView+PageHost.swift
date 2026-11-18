@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 import CmuxNextPages
 
 /// The agent pane on the shared page host (react-pages.md, agent pane move P2): the bundled page at
@@ -54,6 +55,14 @@ extension AgentPaneView {
         // IME composition, unsent chips): a crash shows the notice, and Reload is the person's.
         page.reloadsAfterCrash = false
         page.onCrash = { [weak self] _, reloading in self?.pageCrashed(reloading: reloading) }
+        // App health ended this chat's hung renderer and the chat loaded again: the pane says so in one line.
+        page.onRendererRestarted = { [weak self] line in
+            self?.model.onToast?(CmuxToast(id: "agentPane.rendererRestarted", message: line))
+        }
+        // The watchdog's log line names the chat it ended.
+        page.logIdentity = { [weak self] in
+            "session=\(self?.model.sessionId ?? "none") tab=\(self?.model.tabKey() ?? "none")"
+        }
         // No clear of the New Tab context's mark here (``AgentPaneModel/newTabSharedGeneration``): on this host each
         // new document asks `newTab.context` early, and that answer always carries the shared text.
         page.onDocumentLoaded = { [weak self] in self?.pageLoadedAgain() }
