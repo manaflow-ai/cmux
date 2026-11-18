@@ -59,8 +59,10 @@ test("a push that lands before the page's drop links the file by path, with no r
 test("a push that lands just after the page's drop (Chromium) is used the moment it lands", async () => {
   const file = bigFile("notes.pdf", 2 * MB, []);
   noteDomDrop([file]);
-  // The ask answers late (a busy host); the push comes 5 ms after the drop.
+  // The ask answers late (a busy host); the push comes 5 ms after the drop, as Chromium's does.
+  // fixed-wait: the ask's late answer is the behavior under test.
   const ask = () => new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 2_000));
+  // fixed-wait: the push landing 5 ms after the drop is the behavior under test.
   setTimeout(() => receivePushedDrop({ local: true, items: [{ path: "/Users/you/notes.pdf", folder: false }] }), 5);
   const started = performance.now();
   const items = await pushedDropPaths([file], ask);
@@ -185,6 +187,7 @@ test("the tile's x cancels the put by its token", async () => {
     },
   });
   const sending = uploadDropped([file], call, async () => undefined, cancelled);
+  // fixed-wait: the put is under way (its begin is in flight) before the tile's x.
   await new Promise((resolve) => setTimeout(resolve, 5));
   removed = true;
   for (const changed of listeners) changed();

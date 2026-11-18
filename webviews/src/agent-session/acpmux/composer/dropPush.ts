@@ -50,7 +50,7 @@ export function receivePushedDrop(detail: unknown): void {
   fresh();
   lastPushAt = performance.now();
   held.push({ at: lastPushAt, local: drop.local === true, items });
-  for (const wake of [...waiting]) wake();
+  for (const wake of waiting) wake();
 }
 
 /// The page took a DOM drop of `files`: their push, if it has not come yet, is waited for.
