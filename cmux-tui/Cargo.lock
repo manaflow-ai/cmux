@@ -1505,6 +1505,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-customize-recipes"
+version = "0.1.0"
+dependencies = [
+ "cmux-action-catalog",
+ "cmux-config",
+ "cmux-customize",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "cmux-daemon-client"
 version = "0.1.0"
 dependencies = [
@@ -1927,7 +1939,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-rd-host"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "cc",
  "cmux-encode",
@@ -2306,6 +2318,7 @@ dependencies = [
  "cmux-config",
  "cmux-conversation",
  "cmux-customize",
+ "cmux-customize-recipes",
  "cmux-device-kind",
  "cmux-file-lock",
  "cmux-focus-core",

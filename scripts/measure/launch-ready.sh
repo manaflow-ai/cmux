@@ -31,21 +31,27 @@
 #   copy=fresh   each measured launch is the first exec of a new copy: just before it, the side's copy is deleted and
 #                copied again from the DMG's (new files at the same path, the same code signature), as an update in
 #                place leaves it. The home stays. Default copy=same: every launch runs the one copy.
+#   late=MS      a third side, late: its own copy of the head's DMG and its own home, interleaved after head, whose measured
+#                launches wait MS ms (0 to 10000) between the previous launch's quit and their open request. It tells a
+#                head cost that comes from overlapping the quit before it from one the head pays anyway. Default 0.
 # Each side gets one copy of the app and one home. The priming launch makes the home's state (a person's second
 # launch on), then every measured launch is a relaunch through LaunchServices, activated, as a Dock click is.
 # scripts/measure/launch-ready.swift times each one: finished_launching (the Dock's bounce ends), the first
 # on-screen window, and the app's own marks. Prints LR-RUN per launch, LR-MEDIAN per side, LR-PROFILE with profile=1.
-# Each launch's row carries load_1m, the Mac's 1-minute load average just before it (LR-MEDIAN: the side's highest).
+# Each launch waits (at most 10 min, LR-LOAD-WAIT) until the Mac's 1-minute load is under 8, then its row carries
+# load_1m, the load just before it (LR-MEDIAN: the side's highest).
 # Each side has its own app defaults (side_defaults, through launch-ready-defaults.py); the account's are set aside for
 # the run and put back at its end. A launch that left a launch snapshot path outside its own side's home read the
 # other side's state: LR-CROSS-ARM, and the step fails. Each row's front is what the launch had in front just before
 # its quit; a measured launch whose front is not its side's previous launch's front did not reopen what was open last
-# (Leo, 2026-11-17: "my recently opened thing"): an LR-FAIL row, counted in LR-REOPENED SIDE N/M.
+# (Leo, 2026-11-17: "my recently opened thing"): an LR-FAIL row, counted in LR-REOPENED SIDE N/M. The stress3 seed
+# writes its own front just before it quits the app. A launch whose previous launch left no readable front is an
+# LR-SKIP, outside N/M.
 set -uo pipefail
 
 main() {
   cd "$(dirname "$0")/../.." || exit 3
-  local out="$PWD/.build/launch-ready" dmg=nightly base="" headsha="" runs=5 profile=0 session=small prerun=0 copy=same machines=0 arg rc=0 i side
+  local out="$PWD/.build/launch-ready" dmg=nightly base="" headsha="" runs=5 profile=0 session=small prerun=0 copy=same machines=0 late=0 arg rc=0 i side
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
   LR_STATE=kept
   # Each side's control socket (SIDE.sock). A socket path must fit sun_path (104 bytes with its NUL), and on a fleet
@@ -64,6 +70,7 @@ main() {
       session=small|session=stress3) session="${arg#session=}" ;;
       prerun=*) prerun="${arg#prerun=}" ;;
       copy=same|copy=fresh) copy="${arg#copy=}" ;;
+      late=*) late="${arg#late=}" ;;
       machines=*) machines="${arg#machines=}" ;;
       *) echo "unknown argument: $arg" >&2; exit 2 ;;
     esac
@@ -73,6 +80,8 @@ main() {
   [[ "$LR_STATE" == kept || ( "$session" == small && "$machines" == 0 ) ]] \
     || { echo "state=bare empties the home before each launch: it takes no session=$session or machines=$machines" >&2; exit 2; }
   [[ "$prerun" =~ ^[0-9]+$ && "$prerun" -le 600 ]] || { echo "prerun= takes 0 to 600 seconds" >&2; exit 2; }
+  [[ "$late" =~ ^[0-9]+$ && "$late" -le 10000 ]] || { echo "late= takes 0 to 10000 ms" >&2; exit 2; }
+  LR_LATE="$late"
   [[ -z "$base" || ( "$dmg" == build && "$base" =~ ^[0-9a-f]{40}$ ) ]] || { echo "base= takes a 40-hex commit, with dmg=build" >&2; exit 2; }
   [[ -z "$headsha" || ( "$dmg" == build && "$headsha" =~ ^[0-9a-f]{40}$ ) ]] || { echo "head= takes a 40-hex commit, with dmg=build" >&2; exit 2; }
   echo "LR state $LR_STATE"
@@ -122,15 +131,19 @@ main() {
   fi
   source scripts/ci/lib/signing-runtime-guard.sh
   cmux_signing_runtime_guard || exit 3
+  [[ "$late" == 0 ]] || sides+=(late)
   for side in "${sides[@]}"; do
-    local mount="$out/mnt-$side"
+    local mount="$out/mnt-$side" image="$side"
+    [[ "$side" != late ]] || image=head # the late side runs the head's build
     mkdir -p "$mount" "$out/$side"
-    hdiutil attach "$out/$side.dmg" -nobrowse -readonly -mountpoint "$mount" >/dev/null || { echo "LR attach $side failed"; exit 3; }
+    hdiutil attach "$out/$image.dmg" -nobrowse -readonly -mountpoint "$mount" >/dev/null || { echo "LR attach $side failed"; exit 3; }
     local found; found="$(find "$mount" -maxdepth 1 -name '*.app' | head -1)"
     ditto "$found" "$out/$side/$(basename "$found")" || exit 3
     if [[ "$copy" == fresh ]]; then mkdir -p "$out/$side-dmg" && ditto "$found" "$out/$side-dmg/$(basename "$found")" || exit 3; fi
     hdiutil detach "$mount" >/dev/null || hdiutil detach -force "$mount" >/dev/null
-    echo "LR app $side $(basename "$found") $(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$out/$side/$(basename "$found")/Contents/Info.plist" 2>/dev/null)"
+    local info="$out/$side/$(basename "$found")/Contents/Info.plist"
+    [[ -f "$info" ]] || { echo "LR-FAIL $side $(basename "$found") has no Contents/Info.plist"; exit 3; }
+    echo "LR app $side $(basename "$found") $(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$info" 2>/dev/null)"
     defaults_aside "$out" "$out/$side/$(basename "$found")" || { echo "LR-FAIL $side defaults not set aside"; exit 3; }
     probe "$out" "$side" prime 10 0 || rc=1
     if [[ "$session" == stress3 ]]; then seed "$out" "$side" || rc=1; fi
@@ -145,10 +158,16 @@ main() {
   # Every process a launch left (the daemons a quit keeps): only ones started from this run's copies.
   local pids; pids="$(ps -axo pid=,command= | awk -v r="$out/" 'index($0, r) { print $1 }')"
   [[ -n "$pids" ]] && kill $pids 2>/dev/null
-  python3 -I - "$out/runs.jsonl" <<'PY'
-import json, statistics, sys
+  python3 -I - "$out/runs.jsonl" "$LR_STATE" "$out" <<'PY'
+import json, os, statistics, sys
 from collections import Counter
 rows = [json.loads(line) for line in open(sys.argv[1]) if line.strip()]
+bare = sys.argv[2] == "bare"
+# The stress3 seed quits the app itself, so its probe read no front; the seed wrote the one it left just before.
+for r in rows:
+    seeded = os.path.join(sys.argv[3], f"seed-{r['side']}.front.json")
+    if r["label"] == "seed" and (not r.get("front") or "error" in r["front"]) and os.path.exists(seeded):
+        r["front"] = json.load(open(seeded))
 for side in dict.fromkeys(r["side"] for r in rows):
     done = [r for r in rows if r["side"] == side and r["label"].startswith("run") and r.get("window_on_screen") is not None]
     loads = [r["load_1m"] for r in done if r.get("load_1m") is not None]
@@ -165,17 +184,27 @@ for side in dict.fromkeys(r["side"] for r in rows):
     # Reopened last open: each measured launch's front against its side's previous launch's (Leo, 2026-11-17: "well
     # for one, at least on my end, it indeed would need to be like... my recently opened thing"). The workspace (its
     # model key) and the top page are compared; the tab id is kept in the row only.
-    prev, measured, reopened = None, 0, 0
+    # state=bare: every launch starts from an empty home, so there is nothing to reopen (each launch's workspace is
+    # new: its id comes from the emptied home). What a bare launch owes is Home's page (home.first_page) and the window
+    # taking keys in it (window_usable) before the probe quits it.
+    # A launch whose previous launch left no readable front cannot be judged: LR-SKIP, outside N/M, not an LR-FAIL.
+    prev, prev_label, measured, reopened, usable, skipped = None, None, 0, 0, 0, 0
     for r in (r for r in rows if r["side"] == side):
         front = r.get("front")
         if r["label"].startswith("run"):
             measured += 1
+            usable += "window_usable" in r["marks"]
             if r.get("cross_arm"):
                 reason = "cross-arm " + json.dumps(r["cross_arm"])
+            elif bare:
+                reason = ("not on Home: no home.first_page" if "home.first_page" not in r["marks"]
+                          else None if "window_usable" in r["marks"] else "no window_usable: Home's message field never took keys")
             elif not front or "error" in front:
                 reason = "no front: " + str((front or {}).get("error") or r.get("error") or "none read")
             elif not prev or "error" in prev:
-                reason = "no front for the launch before"
+                skipped, reason = skipped + 1, None
+                print("LR-SKIP", side, r["label"], f"{prev_label or 'the launch before'} left no readable front:",
+                      str((prev or {}).get("error") or "none read"), flush=True)
             elif (front.get("workspace"), front.get("top_page")) != (prev.get("workspace"), prev.get("top_page")):
                 reason = "opened " + json.dumps(front, sort_keys=True) + " after " + json.dumps(prev, sort_keys=True)
             else:
@@ -183,10 +212,12 @@ for side in dict.fromkeys(r["side"] for r in rows):
                 reason = None
             if reason:
                 print("LR-FAIL", side, r["label"], reason, flush=True)
-        prev = front
-    med["reopened"] = f"{reopened}/{measured}"
+        prev, prev_label = front, r["label"]
+    med["reopened"] = "n/a (bare: expects Home)" if bare else f"{reopened}/{measured - skipped}" + (f" ({skipped} skipped)" if skipped else "")
+    med["usable"] = f"{usable}/{measured}"
     print("LR-MEDIAN", side, json.dumps(med), flush=True)
     print("LR-REOPENED", side, med["reopened"], flush=True)
+    print("LR-USABLE", side, med["usable"], flush=True)
 PY
   tar -czf "$out.tgz" -C "$out" --exclude '*.dmg' --exclude '*.app' --exclude '*.trace' . 2>/dev/null && mv "$out.tgz" "$out/report.tgz"
   exit "$rc"
@@ -212,12 +243,16 @@ probe() {
   if [[ "$LR_STATE" == bare ]]; then rm -rf "$out/home-$side/h" "$out/home-$side/t" "$out/home-$side/defaults.plist"; fi
   side_defaults "$out" load "$app" "$out/home-$side/defaults.plist" \
     || { echo "LR-FAIL $side $label defaults not loaded"; return 1; }
+  wait_load "$side" "$label"
   load="$(load_1m)"
   if [[ "$profile" == 1 ]]; then
     xcrun xctrace record --template 'Time Profiler' --all-processes --time-limit 15s --output "$trace" --no-prompt \
       >>"$out/xctrace.log" 2>&1 &
     recorder=$!
     sleep 5 # the recorder's own start (a measurement script, not runtime code)
+  fi
+  if [[ "$side" == late && "$label" == run* ]]; then
+    sleep "$(awk -v ms="${LR_LATE:-0}" 'BEGIN { printf "%.3f", ms / 1000 }')" # late=MS, just before the open request
   fi
   line="$(GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh "$out/launch-ready" "$app" "$out/home-$side" "$label" "$settle" "$LR_SOCKETS/$side.sock" \
     $([[ "$LR_STATE" == bare ]] && echo shell) 2>>"$out/probe.log" | grep '^LR-RUN ')"
@@ -251,7 +286,7 @@ seed() {
   probe "$out" "$side" seed 600 0 >"$out/seed-$side.probe" &
   launch=$!
   GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh python3 -I "$out/seed.py" "$LR_SOCKETS/$side.sock" \
-    2>>"$out/seed.log" | sed "s/^LR-SEED /LR-SEED $side /"
+    --front-out "$out/seed-$side.front.json" 2>>"$out/seed.log" | sed "s/^LR-SEED /LR-SEED $side /"
   status=${PIPESTATUS[0]}
   wait "$launch"; probed=$?
   cat "$out/seed-$side.probe"
@@ -325,6 +360,24 @@ fresh_copy() {
 quiesce_left() {
   ps -axo command= | LR_MACOS="$1/Contents/MacOS/" LR_FRAMEWORKS="$1/Contents/Frameworks/" \
     awk 'index($0, ENVIRON["LR_MACOS"]) || index($0, ENVIRON["LR_FRAMEWORKS"]) { n++ } END { print n + 0 }'
+}
+
+# wait_load SIDE LABEL: a launch starts only once the 1-minute load is under LR_LOAD_MAX (default 8), as
+# launch-premain's pairs do. The step's own two builds leave the load at 12-21 for the first pairs, so without this
+# every such step came back NOT VALID. At most LR_LOAD_WAIT_S (default 600) seconds; past that the launch runs and its
+# row carries the load, as before. LR-LOAD-WAIT says how long it waited whenever it waited.
+wait_load() {
+  local max="${LR_LOAD_MAX:-8}" limit="${LR_LOAD_WAIT_S:-600}" waited=0 l
+  while l="$(load_1m)"; [[ -n "$l" ]] && ! awk -v l="$l" -v m="$max" 'BEGIN { exit !(l < m) }'; do
+    if (( waited >= limit )); then
+      echo "LR-LOAD-WAIT $1 $2 waited_s=$waited load_1m=$l still over $max"
+      return 0
+    fi
+    sleep 5 # the Mac's own load average settling (a measurement script, not runtime code)
+    waited=$((waited + 5))
+  done
+  if (( waited > 0 )); then echo "LR-LOAD-WAIT $1 $2 waited_s=$waited load_1m=$l"; fi
+  return 0
 }
 
 # load_1m: the Mac's 1-minute load average (`sysctl -n vm.loadavg` prints "{ 1.92 2.10 2.31 }"), empty if unread.
