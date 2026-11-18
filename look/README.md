@@ -28,6 +28,9 @@ Back: `cmux customize library off NAME` for the web layer, `cmux customize disca
     line, the branch bar and the composer's radius.
   - `conversation/ClaudeFileLabel.tsx`, `ToolGroupRow.tsx`, `WriteLabel.tsx`: one-file edits and
     writes read "Edit `src/api/client.ts` +112 -84" and "Write `src/api/retry.ts` +47".
+  - `conversation/toolGroups.ts`: each edit and write is its own row, and a run's calls are never
+    folded under one summary line (`runStretches`).
+  - `turnChanges/settings.ts`: no edited-files card by default; the per-file rows show instead.
   - `ClaudeBranchBar.tsx` (in `Composer.tsx`): "main ← branch +N -N Create PR" over the composer.
   - `composerLook.ts`: Claude's composer look (the picker row under the box) by default.
   - `newtab/templates.ts`: Claude Code desktop's new-session page by default.
@@ -38,5 +41,5 @@ Back: `cmux customize library off NAME` for the web layer, `cmux customize disca
 Captures: `node webviews/scripts/agent-pane/look-capture.mjs --out DIR` on a Linux machine
 (never a Mac): the mock pane under the look's theme.
 
-Tests that pin cmux's own wording ("Edited", "Wrote") and its default composer look and New Tab
+Tests that pin cmux's own wording, run folding, edited-files card ("Edited", "Wrote") and its default composer look and New Tab
 template disagree with this branch on purpose; they stay as they are on feat-cmux-next.
