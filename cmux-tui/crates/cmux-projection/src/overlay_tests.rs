@@ -229,3 +229,18 @@ fn a_file_made_read_only_is_still_written_through_its_create() {
     assert_eq!(overlay.read(made.ino, 0, 10).unwrap(), b"blob");
     assert_eq!(overlay.getattr(made.ino).unwrap().mode, 0o444);
 }
+
+#[test]
+fn the_lower_cache_evicts_oldest_entries_before_its_budget() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("cache");
+    fs::create_dir_all(&cache).unwrap();
+    fs::write(cache.join("manifest-id"), b"id\n").unwrap();
+    fs::write(cache.join("000-old"), b"1234").unwrap();
+    fs::write(cache.join("999-new"), b"5678").unwrap();
+    let target = cache.join("incoming");
+    make_room(&cache, 4, &target, 7);
+    assert!(!cache.join("000-old").exists());
+    assert!(cache.join("999-new").exists());
+    assert!(cache.join("manifest-id").exists());
+}

@@ -92,6 +92,7 @@ impl Manifest {
             let (last, above) = names.split_last().ok_or_else(|| anyhow::anyhow!("empty path"))?;
             let mut at = &mut root;
             for name in above {
+                ensure_case_unique(&at.children, name, &item.path)?;
                 anyhow::ensure!(
                     matches!(at.kind, None | Some(Kind::Dir)),
                     "{} is below a file",
@@ -108,6 +109,7 @@ impl Manifest {
                 "{} is below a file",
                 item.path
             );
+            ensure_case_unique(&at.children, last, &item.path)?;
             let node = at.children.entry((*last).to_owned()).or_default();
             anyhow::ensure!(
                 node.kind.is_none() || (node.kind == Some(Kind::Dir) && item.kind == Kind::Dir),
@@ -293,6 +295,19 @@ impl Manifest {
         }
         Ok(())
     }
+}
+
+fn ensure_case_unique(
+    children: &BTreeMap<String, Node>,
+    name: &str,
+    path: &str,
+) -> anyhow::Result<()> {
+    let folded = name.to_lowercase();
+    anyhow::ensure!(
+        children.keys().all(|existing| existing == name || existing.to_lowercase() != folded),
+        "{path} collides with a case-insensitive sibling"
+    );
+    Ok(())
 }
 
 fn entry(name: String, parent: u32, node: Node) -> Entry {

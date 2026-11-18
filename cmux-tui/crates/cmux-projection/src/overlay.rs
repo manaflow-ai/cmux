@@ -18,13 +18,15 @@ use std::os::unix::fs::{FileExt as _, MetadataExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::manifest::{Kind, Manifest, ROOT};
 use crate::{Fetch, FetchError};
 
 /// The size of a chunk of a big file, and the largest file fetched whole.
 pub const CHUNK: u64 = 4 * 1024 * 1024;
+/// The lower-byte cache is bounded per projection so a broad search cannot fill the machine disk.
+pub const CACHE_BUDGET_BYTES: u64 = 512 * 1024 * 1024;
 /// The most files one directory readahead batch asks for.
 const BATCH_FILES: usize = 256;
 /// The most bytes one directory readahead batch asks for.
@@ -512,9 +514,17 @@ impl Overlay {
         if !self.fetch.cache() {
             return;
         }
+        let Ok(size) = u64::try_from(bytes.len()) else { return };
+        if size > CACHE_BUDGET_BYTES {
+            return;
+        }
         let temp = self.scratch_path();
-        if fs::write(&temp, bytes).is_ok() && fs::rename(&temp, self.cache_path(key)).is_err() {
-            let _ = fs::remove_file(&temp);
+        if fs::write(&temp, bytes).is_ok() {
+            let target = self.cache_path(key);
+            make_room(&self.cache, size, &target, CACHE_BUDGET_BYTES);
+            if fs::rename(&temp, target).is_err() {
+                let _ = fs::remove_file(&temp);
+            }
         }
     }
 
@@ -888,6 +898,36 @@ impl Overlay {
     #[must_use]
     pub fn root(&self) -> u64 {
         u64::from(ROOT) + 1
+    }
+}
+
+fn make_room(cache: &Path, incoming: u64, protected: &Path, budget: u64) {
+    let mut files: Vec<(SystemTime, u64, PathBuf)> = fs::read_dir(cache)
+        .ok()
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let path = entry.path();
+            (path != protected
+                && path.file_name().and_then(|name| name.to_str()) != Some("manifest-id"))
+            .then_some(path)
+        })
+        .filter_map(|path| {
+            let metadata = fs::metadata(&path).ok()?;
+            Some((metadata.modified().unwrap_or(UNIX_EPOCH), metadata.len(), path))
+        })
+        .collect();
+    let mut used = files.iter().map(|(_, size, _)| *size).sum::<u64>();
+    files.sort_by(|(left_time, _, left), (right_time, _, right)| {
+        left_time.cmp(right_time).then_with(|| left.cmp(right))
+    });
+    while used.saturating_add(incoming) > budget {
+        let Some((_, size, path)) = files.first().cloned() else { break };
+        files.remove(0);
+        if fs::remove_file(path).is_ok() {
+            used = used.saturating_sub(size);
+        }
     }
 }
 

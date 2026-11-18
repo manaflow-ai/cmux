@@ -46,3 +46,39 @@ fn each_chat_has_its_own_projection_and_its_name_is_one_the_machine_takes() {
     assert!(one.len() <= 64);
     assert!(one.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"-_".contains(&byte)));
 }
+
+#[test]
+fn a_removed_source_is_reported_and_never_falls_back_to_bytes() {
+    let folder = tempfile::tempdir().unwrap();
+    let root = folder.path();
+    std::fs::write(root.join("gone.txt"), "before").unwrap();
+    let listed = list(&std::fs::canonicalize(root).unwrap()).unwrap();
+    let entry = listed.manifest.resolve("gone.txt").unwrap();
+    std::fs::remove_file(root.join("gone.txt")).unwrap();
+    assert_eq!(Source::read(&listed, entry, 0, 16).status, wire::FAILED);
+}
+
+#[test]
+fn a_huge_single_file_uses_ranged_reads_instead_of_whole() {
+    let folder = tempfile::tempdir().unwrap();
+    let root = folder.path();
+    let path = root.join("huge.bin");
+    let file = std::fs::File::create(&path).unwrap();
+    file.set_len(u64::from(wire::MAX_READ) + 1).unwrap();
+    let listed = list(&std::fs::canonicalize(root).unwrap()).unwrap();
+    let entry = listed.manifest.resolve("huge.bin").unwrap();
+    assert_eq!(Source::whole(&listed, entry).status, wire::FAILED);
+    assert_eq!(Source::read(&listed, entry, u64::from(wire::MAX_READ), 1).status, wire::OK);
+}
+
+#[test]
+fn projection_disable_is_a_reversible_kill_switch() {
+    let was_enabled = enabled();
+    set_enabled(false).unwrap();
+    assert!(!enabled());
+    set_enabled(true).unwrap();
+    assert!(enabled());
+    if !was_enabled {
+        set_enabled(false).unwrap();
+    }
+}
