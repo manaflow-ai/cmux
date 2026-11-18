@@ -106,10 +106,10 @@ public final class ChiefSources {
     /// The Mac Chief beside the Cloud Chief, while the Cloud Chief is the
     /// default. It stays reachable once a Mac was linked in this session
     /// (the link can drop; the last Mac's name is kept), and while it holds
-    /// anything for the user: an outbox, unread messages, an open question.
+    /// anything for the user: unread messages, an open question.
     public var secondary: ChiefSession? {
         guard isCloudReady else { return nil }
-        let holdsSomething = !mac.outbox.isEmpty || mac.unreadCount > 0 || mac.openQuestion != nil
+        let holdsSomething = mac.unreadCount > 0 || mac.openQuestion != nil
         return mac.macName != nil || holdsSomething ? mac : nil
     }
 
@@ -335,7 +335,6 @@ public final class ChiefSources {
     /// phone keeps the choice for the account.
     public func select(_ chief: CloudChief) {
         guard chief.id != cloudChief?.id else { return }
-        guard outboxIsEmpty() else { return }
         changeError = nil
         selectedChiefID = chief.id
         refresh()
@@ -344,7 +343,7 @@ public final class ChiefSources {
     /// Makes a Cloud Chief for this account (`chief.create`) and turns its
     /// Cloud brain on (``defaultModel``, ``defaultEffort``), then opens it.
     public func createChief(named name: String) async {
-        guard let http, !isChanging, brainsAvailable, outboxIsEmpty() else { return }
+        guard let http, !isChanging, brainsAvailable else { return }
         isChanging = true
         changeError = nil
         defer { isChanging = false }
@@ -425,15 +424,6 @@ public final class ChiefSources {
         throw ChiefCloudError.badReply(String(localized: "This Chief changed on another device. Try again."))
     }
 
-    /// Messages queued for the open Cloud Chief would go to another one.
-    private func outboxIsEmpty() -> Bool {
-        guard cloud.outbox.isEmpty else {
-            changeError = String(localized: "A message is waiting to be sent to this Chief. Send or delete it first.")
-            return false
-        }
-        return true
-    }
-
     private func adopt(_ chief: CloudChief, userID: String, http: ChiefCloudHTTP) {
         guard let conversation = chief.mainConversation else { return }
         let identity = chief.identity(userID: userID)
@@ -492,7 +482,7 @@ public final class ChiefSources {
             return nil
             #endif
         }
-        let session = ChiefSession(backend: backend, identity: identity, outbox: ChiefOutbox(file: nil))
+        let session = ChiefSession(backend: backend, identity: identity)
         cloudConversations[route.conversationID] = session
         return session
     }

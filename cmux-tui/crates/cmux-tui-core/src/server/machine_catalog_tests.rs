@@ -11,6 +11,9 @@ mod reader_tests;
 #[path = "machine_identity_reader_tests.rs"]
 mod identity_reader_tests;
 
+#[path = "machine_catalog_scale_tests.rs"]
+mod scale_tests;
+
 struct Publisher {
     client: u64,
     writer: MessageWriter,

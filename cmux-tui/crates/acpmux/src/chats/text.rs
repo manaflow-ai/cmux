@@ -120,10 +120,17 @@ impl Doc {
                     continue;
                 }
                 bytes = bytes.saturating_add(flat.len() + 1);
+                let turn = u32::try_from(turn).unwrap_or(u32::MAX).saturating_add(first_turn);
                 if bytes > CHAT_BYTES {
+                    // A newest message past the bound alone (a pasted log) keeps its newest
+                    // text, so its chat is still found.
+                    if newest_first.is_empty() {
+                        let tail = newest_tail(&flat, CHAT_BYTES.saturating_sub(1)).to_owned();
+                        bytes = tail.len().saturating_add(1);
+                        newest_first.push((turn, answer, tail));
+                    }
                     break 'turns;
                 }
-                let turn = u32::try_from(turn).unwrap_or(u32::MAX).saturating_add(first_turn);
                 newest_first.push((turn, answer, flat));
             }
         }
@@ -185,11 +192,19 @@ impl Doc {
             return;
         }
         let fits = self.messages.partition_point(|m| len - m.start as usize > CHAT_BYTES);
-        let keep = fits.max(self.live as usize);
-        let cut = self.messages.get(keep).map_or(len, |m| m.start as usize);
+        let mut keep = fits.max(self.live as usize);
+        let mut cut = self.messages.get(keep).map_or(len, |m| m.start as usize);
+        // The newest message past the bound alone keeps its newest text, as `of_turns` keeps it.
+        if keep == self.messages.len() && self.messages.len() > self.live as usize {
+            keep = self.messages.len().saturating_sub(1);
+            cut = len.saturating_sub(newest_tail(&self.text, CHAT_BYTES).len());
+        }
         self.text.drain(..cut);
         self.messages.drain(..keep);
         let cut = u32::try_from(cut).unwrap_or(u32::MAX);
+        if let Some(first) = self.messages.first_mut() {
+            first.start = first.start.max(cut);
+        }
         for message in &mut self.messages {
             message.start -= cut;
         }
@@ -262,6 +277,14 @@ impl Doc {
         }
         found
     }
+}
+
+/// At most the last `max` bytes of `text`, cut on a character boundary.
+fn newest_tail(text: &str, max: usize) -> &str {
+    let start = (text.len().saturating_sub(max)..=text.len())
+        .find(|&at| text.is_char_boundary(at))
+        .unwrap_or(text.len());
+    text.get(start..).unwrap_or_default()
 }
 
 /// Whether `text` holds a letter that lowercases to ASCII (`İ`, the Kelvin sign).
@@ -641,6 +664,10 @@ pub static SAVE_CHECKED: std::sync::OnceLock<fn(bool)> = std::sync::OnceLock::ne
 #[cfg(test)]
 #[path = "text_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "text_scale_bench_tests.rs"]
+mod text_scale_bench;
 
 #[cfg(test)]
 #[path = "follow_tests.rs"]
