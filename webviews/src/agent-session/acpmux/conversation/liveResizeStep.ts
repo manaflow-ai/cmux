@@ -37,20 +37,6 @@ export interface LiveResizeClock {
   steps: number;
   /// When the last width step's own work finished: the render it forced and the measuring with it.
   served?: number;
-  /// When the width last held and the resize settled.
-  settled?: number;
-}
-
-/// How soon after a settle a new width resumes the drag instead of starting a new one. A hand that
-/// pauses on a divider for a few hundred ms and moves on is still dragging: started again, its next
-/// two widths were steps before flow, each laying out rows at a new width (Leo's 2026-11-18
-/// recording paused this way and stalled 0.9-1.5 s at each pause).
-export const LIVE_RESUME_MS = 1000;
-
-/// Whether a width arriving at `now`, after the last live resize settled, takes that drag up again.
-export function resumesLiveResize(clock: LiveResizeClock, now: number, window = LIVE_RESUME_MS): boolean {
-  if (clock.settled === undefined) return false;
-  return now - clock.settled < window;
 }
 
 /// Whether a width arriving at `now` continues the live resize `clock` describes.

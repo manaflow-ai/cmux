@@ -3273,46 +3273,7 @@ function pickedPromptHeight(
 /// The row's edge is kept too: a reply's height changes when its turn's footer arrives after it, and
 /// a footer's when a prompt follows it.
 /// `scale` is the Interface Size it was measured at (gridScale), which a remembered height must share.
-/// `width` and `height` are the newest measure; `older` holds the ones before it at other widths, newest
-/// first, up to ROW_HEIGHT_WIDTHS in all: a divider dragged narrow and back finds every row's height at
-/// the width it comes back to and measures none of them again.
-export type RowHeights = WeakMap<AcpmuxRow, RowHeight>;
-export interface RowHeight {
-  width: number;
-  height: number;
-  edge?: string;
-  scale?: number;
-  older?: readonly { width: number; height: number }[];
-}
-/// How many widths a row's estimated height is kept at (`RowHeight.older`).
-export const ROW_HEIGHT_WIDTHS = 4;
-/// The row's kept height at `width`, when it was measured there at this edge and scale.
-function heightAt(
-  kept: RowHeight | undefined,
-  width: number,
-  edge: string | undefined,
-  scale: number,
-): number | undefined {
-  if (!kept || kept.edge !== edge || (kept.scale ?? 1) !== scale) return undefined;
-  if (kept.width === width) return kept.height;
-  return kept.older?.find((entry) => entry.width === width)?.height;
-}
-/// The row's entry with `height` at `width` as its newest measure; its other widths stay while the edge
-/// and scale do.
-function withHeight(
-  kept: RowHeight | undefined,
-  width: number,
-  height: number,
-  edge: string | undefined,
-  scale: number,
-): RowHeight {
-  if (!kept || kept.edge !== edge || (kept.scale ?? 1) !== scale) return { width, height, edge, scale };
-  if (kept.width === width) return { ...kept, height };
-  const older = [{ width: kept.width, height: kept.height }];
-  for (const entry of kept.older ?? [])
-    if (entry.width !== width && older.length < ROW_HEIGHT_WIDTHS - 1) older.push(entry);
-  return { width, height, edge, scale, older };
-}
+export type RowHeights = WeakMap<AcpmuxRow, { width: number; height: number; edge?: string; scale?: number }>;
 
 /// A footer with nothing to show at rest (turns.ts isEmptyFooter) lays its hover controls over the gap
 /// and takes no height. A reply's footer is a row of its own: ChatGPT's 32 line of buttons, 8 under
@@ -3344,10 +3305,7 @@ export function layoutConversation(
   /// view and the cached ones, not the whole chat. This is Chromium's `content-visibility: auto` with
   /// `contain-intrinsic-size: auto`: content off screen keeps its last remembered size and is laid out
   /// again as it is rendered; here the row's drawn height replaces it once it mounts.
-  /// `all`: every row away from the view keeps its last height, prepared or not, whatever it draws: a
-  /// new box width (a divider that held, a window edge, a sidebar) then costs the rows near the view
-  /// whatever the chat's length, not every prepared row and every row with no text again.
-  near?: { from: number; to: number; all?: boolean },
+  near?: { from: number; to: number },
 ): ConversationLayout {
   const gaps = new Float64Array(rows.length);
   const marks = new Uint8Array(rows.length);
@@ -3400,9 +3358,8 @@ export function layoutConversation(
     if (!drawsNothing(row)) prevDrawn = row;
     const edge = rowEdge(row, rows[nextDrawn], prev);
     const kept = known?.get(row);
-    const keptHere = heightAt(kept, width, edge, scale);
     let height: number;
-    if (keptHere !== undefined) height = keptHere;
+    if (kept && kept.width === width && kept.edge === edge) height = kept.height;
     else if (
       resizing &&
       (resizing.layout.scale ?? 1) === scale &&
@@ -3413,16 +3370,19 @@ export function layoutConversation(
       // Out of view during a live resize: its height at the last width, never recorded as this width's.
       height = resizing.layout.heights[index]!;
     else {
-      const away =
-        near !== undefined &&
-        kept !== undefined &&
+      const customHeight = measureOverride?.(row, width);
+      const custom = customHeight !== undefined && Number.isFinite(customHeight) && customHeight >= 0;
+      if (
+        !custom &&
+        near &&
+        kept &&
         kept.edge === edge &&
         (kept.scale ?? 1) === scale &&
-        (index < near.from || index >= near.to);
-      const customHeight = away && near.all ? undefined : measureOverride?.(row, width);
-      const custom = customHeight !== undefined && Number.isFinite(customHeight) && customHeight >= 0;
-      if (away && (near.all || (!custom && row.text && !cache.has(row.id)))) {
-        // Away from the view, at a new width or with its prepared text gone (PREPARED_ROWS): its last height, never
+        (index < near.from || index >= near.to) &&
+        row.text &&
+        !cache.has(row.id)
+      ) {
+        // Away from the view, with its prepared text gone (PREPARED_ROWS): its last height, never
         // recorded as this width's. Its drawn height replaces it once it mounts, and a layout that
         // measures it (near the view, after a change above it) records this width's.
         height = kept.height;
@@ -3444,7 +3404,7 @@ export function layoutConversation(
               );
         // A row that draws nothing stays at 0; a custom renderer's height is its own.
         if (!custom && height > 0) height += statusDelta(row, statusEdge(row, rows[nextDrawn], prev));
-        known?.set(row, withHeight(kept, width, height, edge, scale));
+        known?.set(row, { width, height, edge, scale });
       }
     }
     if (height > 0) {
