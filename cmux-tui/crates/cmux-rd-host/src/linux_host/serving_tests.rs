@@ -181,9 +181,11 @@ fn person_hub() -> (String, Arc<Mutex<Vec<Seen>>>) {
     })
 }
 
-fn person_cell(
-    token: &str,
-) -> (PathBuf, Device, Res<(Device, String)>, Vec<(String, String)>, Vec<usize>) {
+/// What a person cell leaves: its directory, the earlier device, the sign-in, the hub's calls and
+/// the unit's stops.
+type PersonCell = (PathBuf, Device, Res<(Device, String)>, Vec<(String, String)>, Vec<usize>);
+
+fn person_cell(token: &str) -> PersonCell {
     let (origin, seen) = person_hub();
     let dir = dir(&format!("person-{token}"));
     let old = hold(&dir, &origin, Before::PersonAnchored).unwrap();
@@ -235,7 +237,7 @@ fn an_unanswered_sign_out_is_asked_again_and_the_host_is_off_meanwhile() {
     super::tear_down(&dir, super::Previous::load(&dir).unwrap(), &unit).unwrap();
     assert!(Account::load(&dir).unwrap().is_none() && Device::load(&dir).unwrap().is_none());
     let pending = super::load_pending(&dir).unwrap();
-    assert_eq!(pending.iter().map(|p| p.device.id.clone()).collect::<Vec<_>>(), [old.id.clone()]);
+    assert_eq!(pending.iter().map(|p| p.device.id.as_str()).collect::<Vec<_>>(), [old.id.as_str()]);
     // Still unanswered: kept. Once a hub answers, dropped.
     super::retry_pending(&dir);
     assert_eq!(super::load_pending(&dir).unwrap().len(), 1);
