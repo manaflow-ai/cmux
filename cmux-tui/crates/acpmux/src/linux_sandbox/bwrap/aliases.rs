@@ -267,7 +267,7 @@ pub(super) type HomeView = (u64, PathBuf);
 
 /// Every other mount of the HOME's device whose root holds the whole HOME,
 /// with the path where the HOME appears through it (an fstab bind of
-/// /home/<user> at /Users/<user>). A mount showing only part of the HOME, or showing it at
+/// /home/u at /alias/u). A mount showing only part of the HOME, or showing it at
 /// a point inside or above the HOME, is no view: the check keeps refusing it.
 /// The loop ends after the finite mountinfo snapshot.
 pub(super) fn home_views(
@@ -489,9 +489,9 @@ mod tests {
         format!("{ROOT}2 1 0:42 / /mnt/leak rw - overlay overlay {options}\n")
     }
 
-    /// An fstab bind: /home/u is also mounted at /Users/u.
-    const BIG_RED: &str =
-        "1 0 8:1 / / rw - ext4 root rw\n57 1 8:1 /home/u /Users/u rw - ext4 root rw\n";
+    /// A second mount of the home: /home/u is also mounted at /alias/u.
+    const SECOND_HOME: &str =
+        "1 0 8:1 / / rw - ext4 root rw\n57 1 8:1 /home/u /alias/u rw - ext4 root rw\n";
 
     #[test]
     fn regression_home_alias_refuses_without_a_rebuilt_view() {
@@ -500,9 +500,9 @@ mod tests {
             (Path::new("/home/u/.ssh"), 1, false),
             (Path::new("/home/u/Projects/repo"), 1, true),
         ];
-        let reasons = guarded_aliases(&trees, BIG_RED);
+        let reasons = guarded_aliases(&trees, SECOND_HOME);
         for name in [".aws", ".ssh", "Projects/repo"] {
-            let want = format!("/home/u/{name} is also visible at /Users/u/{name}");
+            let want = format!("/home/u/{name} is also visible at /alias/u/{name}");
             assert!(reasons.contains(&want), "{want}: {reasons:?}");
         }
     }
@@ -510,19 +510,19 @@ mod tests {
     #[test]
     fn home_views_finds_every_whole_home_alias_and_nothing_else() {
         let views = |info: &str| home_views(Path::new("/home/u"), 1, info).unwrap();
-        assert_eq!(views(BIG_RED), [(57, PathBuf::from("/Users/u"))]);
+        assert_eq!(views(SECOND_HOME), [(57, PathBuf::from("/alias/u"))]);
         assert!(views(ROOT).is_empty());
         // A second mount of / shows the HOME at its own subpath.
         let sysroot = format!("{ROOT}3 1 8:1 / /mnt/sysroot rw - ext4 root rw\n");
         assert_eq!(views(&sysroot), [(3, PathBuf::from("/mnt/sysroot/home/u"))]);
         // A separate /home partition bound again elsewhere.
-        let part = "1 0 8:1 / / rw - ext4 root rw\n2 1 8:2 / /home rw - ext4 home rw\n3 1 8:2 /u /Users/u rw - ext4 home rw\n";
+        let part = "1 0 8:1 / / rw - ext4 root rw\n2 1 8:2 / /home rw - ext4 home rw\n3 1 8:2 /u /alias/u rw - ext4 home rw\n";
         assert_eq!(
             home_views(Path::new("/home/u"), 2, part).unwrap(),
-            [(3, PathBuf::from("/Users/u"))]
+            [(3, PathBuf::from("/alias/u"))]
         );
         // Not views: another device, a subtree of HOME, HOME at a point inside itself.
-        let other_device = format!("{ROOT}3 1 8:9 /home/u /Users/u rw - ext4 root rw\n");
+        let other_device = format!("{ROOT}3 1 8:9 /home/u /alias/u rw - ext4 root rw\n");
         assert!(views(&other_device).is_empty());
         let subtree = format!("{ROOT}3 1 8:1 /home/u/.ssh /mnt/ssh rw - ext4 root rw\n");
         assert!(views(&subtree).is_empty());
@@ -533,7 +533,7 @@ mod tests {
     #[test]
     fn rebuilt_home_view_accepts_only_aliases_inside_it() {
         let home = Path::new("/home/u");
-        let views = home_views(home, 1, BIG_RED).unwrap();
+        let views = home_views(home, 1, SECOND_HOME).unwrap();
         let check = |trees: &[(&Path, u64, bool)], info: &str| {
             guarded_aliases_viewed(trees, info, home, &views, |p| Ok(p.to_path_buf()), |_| Ok(true))
         };
@@ -543,13 +543,13 @@ mod tests {
             (Path::new("/home/u/.claude/projects/s/memory"), 1, false),
             (Path::new("/home/u/Projects/repo"), 1, true),
         ];
-        assert!(check(&trees, BIG_RED).is_empty(), "{:?}", check(&trees, BIG_RED));
+        assert!(check(&trees, SECOND_HOME).is_empty(), "{:?}", check(&trees, SECOND_HOME));
         // A guarded path outside HOME is not covered by the rebuilt view.
-        let sysroot = format!("{BIG_RED}3 1 8:1 /etc /mnt/etc rw - ext4 root rw\n");
+        let sysroot = format!("{SECOND_HOME}3 1 8:1 /etc /mnt/etc rw - ext4 root rw\n");
         let reasons = check(&[(Path::new("/etc/shadow"), 1, false)], &sysroot);
         assert!(reasons.contains(&"/etc/shadow is also visible at /mnt/etc/shadow".into()));
         // A second alias the plan has no view for still refuses.
-        let twice = format!("{BIG_RED}58 1 8:1 /home/u/.ssh /mnt/ssh rw - ext4 root rw\n");
+        let twice = format!("{SECOND_HOME}58 1 8:1 /home/u/.ssh /mnt/ssh rw - ext4 root rw\n");
         let reasons = check(&trees, &twice);
         assert!(
             reasons.contains(&"/home/u/.ssh is also visible at /mnt/ssh".into()),
@@ -558,9 +558,9 @@ mod tests {
         // A view computed for another mount does not vouch for this one.
         let reasons = guarded_aliases_viewed(
             &trees,
-            BIG_RED,
+            SECOND_HOME,
             home,
-            &[(99, PathBuf::from("/Users/u"))],
+            &[(99, PathBuf::from("/alias/u"))],
             |p| Ok(p.to_path_buf()),
             |_| Ok(true),
         );

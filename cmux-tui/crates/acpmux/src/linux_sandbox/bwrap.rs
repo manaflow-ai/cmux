@@ -296,7 +296,7 @@ fn plan_with_mount_id(
     for path in writable {
         trees.push((path.as_path(), mount_id(path)?, true));
     }
-    // A second mount of the whole HOME (the fleet's /Users/<name> bind) would
+    // A second mount of the whole HOME (a bind of /home/u at /alias/u) would
     // carry every guarded name through `--ro-bind / /`. The HOME is rebuilt
     // there too, and the check accepts an alias only inside such a view.
     let views = aliases::home_views(&paths.home, mount_id(&paths.home)?, mountinfo)?;
@@ -526,8 +526,8 @@ mod tests {
         assert!(error.contains("also visible at /alias"), "{error}");
     }
 
-    /// The fleet's identical-paths bind: the whole HOME is mounted a second
-    /// time (an fstab bind of /home/<user> at /Users/<user>). The plan must
+    /// A second mount of the home: the whole HOME is mounted a second
+    /// time (an fstab bind of /home/u at /alias/u). The plan must
     /// rebuild HOME at that view too, so no guarded name is reachable there,
     /// work folders stay readable, and nothing is writable through it.
     #[test]
@@ -538,7 +538,7 @@ mod tests {
         fs::write(p.home.join(".ssh/id_ed25519"), "key").unwrap();
         fs::create_dir_all(p.home.join(".config/gh")).unwrap();
         fs::create_dir_all(p.home.join("Projects/repo")).unwrap();
-        let alias = PathBuf::from("/Users/u");
+        let alias = PathBuf::from("/alias/u");
         let at = |path: &Path| alias.join(path.strip_prefix(&p.home).unwrap());
         let info = format!(
             "1 0 8:1 / / rw - ext4 root rw\n57 1 8:1 {} {} rw - ext4 root rw\n",
@@ -592,9 +592,14 @@ mod tests {
                 root.display(),
                 point.display()
             );
-            let error =
-                plan_with_mount_id(&p, &[ssh.clone()], &info, &strings(&["true"]), |_| Ok(1))
-                    .unwrap_err();
+            let error = plan_with_mount_id(
+                &p,
+                std::slice::from_ref(&ssh),
+                &info,
+                &strings(&["true"]),
+                |_| Ok(1),
+            )
+            .unwrap_err();
             assert!(error.contains("is also visible at"), "{}: {error}", point.display());
         }
     }
