@@ -39,7 +39,7 @@ nonisolated enum WorkspaceHibernationSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.workspaceHibernation.enabled", "Hibernate Idle Workspaces"),
-                help: SettingsText.keyed("settings.workspaceHibernation.enabled.help", "Frees the memory of workspaces you have not used for a while. Terminals and agents keep running; pages and chats come back where they were when you open the workspace."),
+                help: SettingsText.keyed("settings.workspaceHibernation.enabled.help", "Frees the memory of unused workspaces. Terminals and agents keep running."),
                 kind: .toggle,
                 default: .bool(WorkspaceHibernationSettings.enabledDefault),
                 keywords: ["hibernate", "hibernation", "sleep", "pause", "memory", "ram", "idle", "evict", "workspaces", "saver"]
@@ -49,7 +49,7 @@ nonisolated enum WorkspaceHibernationSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.workspaceHibernation.idleMinutes", "Hibernate After"),
-                help: SettingsText.keyed("settings.workspaceHibernation.idleMinutes.help", "A workspace hibernates when you have not opened it and nothing in it changed for this many minutes. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate."),
+                help: SettingsText.keyed("settings.workspaceHibernation.idleMinutes.help", "Minutes a workspace goes unopened and unchanged before it hibernates."),
                 kind: .number(SettingNumber(WorkspaceHibernationSettings.idleMinutesRange, step: 5, unit: .minutes)),
                 default: .number(WorkspaceHibernationSettings.idleMinutesDefault),
                 keywords: ["hibernate", "idle", "minutes", "timeout", "memory"]
@@ -59,7 +59,7 @@ nonisolated enum WorkspaceHibernationSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.workspaceHibernation.hiddenSpaceMinutes", "Hibernate Hidden Spaces After"),
-                help: SettingsText.keyed("settings.workspaceHibernation.hiddenSpaceMinutes.help", "When no window shows a space, its workspaces hibernate after this many idle minutes instead. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate."),
+                help: SettingsText.keyed("settings.workspaceHibernation.hiddenSpaceMinutes.help", "Idle minutes before the workspaces of a space no window shows hibernate."),
                 kind: .number(SettingNumber(WorkspaceHibernationSettings.hiddenSpaceMinutesRange, step: 5, unit: .minutes)),
                 default: .number(WorkspaceHibernationSettings.hiddenSpaceMinutesDefault),
                 keywords: ["hibernate", "idle", "minutes", "hidden", "space", "spaces", "window", "memory"]
@@ -69,7 +69,7 @@ nonisolated enum WorkspaceHibernationSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.workspaceHibernation.freeingEnabled", "Free Idle Terminals"),
-                help: SettingsText.keyed("settings.workspaceHibernation.freeingEnabled.help", "Ends the shells of workspaces you have not used for a long time when they sit at an empty prompt. Opening the workspace starts each shell again in the same folder, with its saved screen above it. Pinned workspaces and workspaces kept awake are never freed."),
+                help: SettingsText.keyed("settings.workspaceHibernation.freeingEnabled.help", "Ends idle shells of long-unused workspaces; they restart in the same folder."),
                 kind: .toggle,
                 default: .bool(WorkspaceHibernationSettings.freeingEnabledDefault),
                 keywords: ["free", "freeing", "park", "shell", "terminal", "processes", "idle", "resources", "restore", "scrollback"]
@@ -79,7 +79,7 @@ nonisolated enum WorkspaceHibernationSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.workspaceHibernation.freeingIdleMinutes", "Free Terminals After"),
-                help: SettingsText.keyed("settings.workspaceHibernation.freeingIdleMinutes.help", "A hibernated workspace's idle shells end after this many minutes without use (1440 is one day)."),
+                help: SettingsText.keyed("settings.workspaceHibernation.freeingIdleMinutes.help", "Minutes before a hibernated workspace's idle shells end (1440 is a day)."),
                 kind: .number(SettingNumber(WorkspaceHibernationSettings.freeingIdleMinutesRange, step: 60, unit: .minutes)),
                 default: .number(WorkspaceHibernationSettings.freeingIdleMinutesDefault),
                 keywords: ["free", "idle", "hours", "timeout", "shell", "terminal"]
@@ -89,7 +89,7 @@ nonisolated enum WorkspaceHibernationSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.workspaceHibernation.freeingAgents", "Free Idle Agents"),
-                help: SettingsText.keyed("settings.workspaceHibernation.freeingAgents.help", "Also ends Claude Code and Codex sessions that wait for your next message. Opening the tab resumes the same session."),
+                help: SettingsText.keyed("settings.workspaceHibernation.freeingAgents.help", "Also ends idle Claude Code and Codex sessions; opening the tab resumes them."),
                 kind: .toggle,
                 default: .bool(WorkspaceHibernationSettings.freeingAgentsDefault),
                 keywords: ["free", "agent", "claude", "codex", "resume", "idle"]

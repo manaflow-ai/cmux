@@ -7,8 +7,8 @@ import AppKit
 /// hand tune the values"). The Sidebar Row Tuner (`debug.sidebarRowTuner`) shows exactly these, live; Debug Settings
 /// lists them under Sidebar Rows.
 ///
-/// Every number is a ``ComputedTunable``: with no override it is the value the density, the text size and the type
-/// scale derive (the expression lives once, in its `derive`), so a tuned value never freezes the other densities.
+/// Every number is a ``ComputedTunable``: with no override it is the value the density (its own token when it sets one:
+/// the Density Playground's `sidebar*` keys, ``DensityTokenCatalog``), the text size and the type scale derive (the expression lives once, in its `derive`), so a tuned value never freezes the other densities.
 /// In Release the store is inert and every read is its derived default.
 public nonisolated struct SidebarRowTuning {
     public nonisolated init() {}
@@ -26,12 +26,15 @@ public nonisolated struct SidebarRowTuning {
     public static let rowGap = ComputedTunable(
         "sidebarRows.rowGap", section, "Row gap",
         help: "The gap between two rows, list and bands; two lit fills keep it between them.",
-        range: 0...12, code: "SidebarRowTuning.rowGap") { Metrics.space1 }
+        range: 0...12, code: "SidebarRowTuning.rowGap") { Metrics.densityToken("sidebarRowGap") ?? Metrics.space1 }
     /// The gap between a row's fill and the sidebar's edges.
     public static let outerInset = ComputedTunable(
         "sidebarRows.outerInset", section, "Fill to sidebar edge",
         help: "The gap between a row's fill and the sidebar's left and right edges.",
-        range: 0...24, code: "SidebarRowTuning.outerInset") { SidebarDensityTokens.isComfortable ? Metrics.space4 : Metrics.space3 }
+        range: 0...24, code: "SidebarRowTuning.outerInset") {
+            // A density's `sidebarRowInset` (Helium's 6, Chrome's 12 vertical tab strip padding).
+            Metrics.densityToken("sidebarRowInset") ?? (SidebarDensityTokens.isComfortable ? Metrics.space4 : Metrics.space3)
+        }
     /// The padding between a row's fill and its content.
     public static let contentInset = ComputedTunable(
         "sidebarRows.contentInset", section, "Fill to content",
@@ -41,18 +44,20 @@ public nonisolated struct SidebarRowTuning {
     public static let cornerRadius = ComputedTunable(
         "sidebarRows.cornerRadius", section, "Fill corner radius",
         help: "The corner radius of every row fill: hover, selection, Home and the pinned rows.",
-        range: 0...20, code: "SidebarRowTuning.cornerRadius") { Metrics.tabCornerRadius }
+        range: 0...20, code: "SidebarRowTuning.cornerRadius") { Metrics.densityToken("sidebarCornerRadius") ?? Metrics.tabCornerRadius }
     /// The gap between two sections of the list.
     public static let sectionGap = ComputedTunable(
         "sidebarRows.sectionGap", section, "Section gap",
         help: "The room between two sections of the list (a heading and the rows above it).",
-        range: 0...32, code: "SidebarRowTuning.sectionGap") { SidebarDensityTokens.isComfortable ? Metrics.space5 : Metrics.space4 }
+        range: 0...32, code: "SidebarRowTuning.sectionGap") {
+            Metrics.densityToken("sidebarSectionGap") ?? (SidebarDensityTokens.isComfortable ? Metrics.space5 : Metrics.space4)
+        }
 
     /// The gap between two bands above the list (Home and the pinned rows).
     public static let bandGap = ComputedTunable(
         "sidebarRows.bandGap", section, "Home to pinned gap",
         help: "The extra room between two bands above the list: Home, then the pinned rows.",
-        range: 0...16, code: "SidebarRowTuning.bandGap") { Metrics.space2 }
+        range: 0...16, code: "SidebarRowTuning.bandGap") { Metrics.densityToken("sidebarBandGap") ?? Metrics.space2 }
 
     // MARK: Leading glyph
 
@@ -63,8 +68,17 @@ public nonisolated struct SidebarRowTuning {
         range: 8...28, code: "SidebarRowTuning.glyphSize") {
             // A tab's icon box at the sidebar's defaults (Compact density, standard text), grown with its text size and
             // density as the workspace favicon grows (Lucas 2026-11-13: Helium's 16 pt favicon beside 12 pt text).
-            let atDefaults = CGFloat.iconRowSize(forLabelPointSize: Typography.body.pointSize)
-            return (Metrics.iconSize * SidebarStyle.workspaceFaviconSide / max(1, atDefaults)).rounded()
+            // A density with its own icon column (`sidebarIconColumn`) takes the ink a tab's icon shows in its box
+            // (`Metrics.tabIconSize`): the pack's glyphs fill 11 of 16 of it, so a sidebar item's icon is its tab's size
+            // (Lucas 2026-11-14: sidebar items and tabs match 1:1), grown with the sidebar's text size. A density's
+            // `sidebarGlyphInk` sets it exactly. Compact and Ultra-compact keep the grid's size.
+            guard Metrics.densityToken("sidebarIconColumn") != nil else {
+                let atDefaults = CGFloat.iconRowSize(forLabelPointSize: Typography.body.pointSize)
+                return (Metrics.iconSize * SidebarStyle.workspaceFaviconSide / max(1, atDefaults)).rounded()
+            }
+            let atDefaults = CGFloat.iconRowSize(forLabelPointSize: Typography.sidebarTitle.pointSize)
+            let ink = Metrics.densityToken("sidebarGlyphInk") ?? Metrics.tabIconSize * 11 / 16
+            return (ink * SidebarStyle.workspaceFaviconSide / max(1, atDefaults) * 2).rounded() / 2
         }
     /// The leading icon column's width: a title after a glyph starts one gap after it.
     public static let iconColumn = ComputedTunable(
@@ -77,7 +91,11 @@ public nonisolated struct SidebarRowTuning {
     public static let glyphGap = ComputedTunable(
         "sidebarRows.glyphGap", section, "Glyph to title gap",
         help: "The gap between the leading icon column and the title after it.",
-        range: 0...20, code: "SidebarRowTuning.glyphGap") { LayoutGrid.gap }
+        range: 0...20, code: "SidebarRowTuning.glyphGap") {
+            // A browser density's `sidebarIconGap`: its tab's gap from icon to title, so the row's title starts where its
+            // tab's does. The compact densities keep the grid's gap.
+            Metrics.densityToken("sidebarIconGap") ?? LayoutGrid.gap
+        }
     /// How strong a leading glyph draws.
     public static let glyphOpacity = Tunable<Double>.number(
         "sidebarRows.glyphOpacity", section, "Glyph opacity",
@@ -104,7 +122,9 @@ public nonisolated struct SidebarRowTuning {
     public static let headingSize = ComputedTunable(
         "sidebarRows.headingSize", section, "Heading size",
         help: "A section or list heading's point size (Workspaces, Pinned, a computer's name, a group's name).",
-        range: 9...20, step: 0.5, code: "SidebarRowTuning.headingSize") { SidebarStyle.derivedHeaderFont.pointSize }
+        range: 9...20, step: 0.5, code: "SidebarRowTuning.headingSize") {
+            Metrics.densityToken("sidebarHeadingSize") ?? SidebarStyle.derivedHeaderFont.pointSize
+        }
     /// A section or list heading's weight.
     public static let headingWeight = Tunable<SidebarTunedWeight>.choice(
         "sidebarRows.headingWeight", section, "Heading weight",
@@ -116,7 +136,7 @@ public nonisolated struct SidebarRowTuning {
     public static let statusDot = ComputedTunable(
         "sidebarRows.statusDot", section, "Status dot size",
         help: "Every status dot's diameter: unread, needs you, done.",
-        range: 4...14, code: "SidebarRowTuning.statusDot") { Metrics.space4 }
+        range: 4...14, code: "SidebarRowTuning.statusDot") { Metrics.densityToken("sidebarStatusDot") ?? Metrics.space4 }
 
     /// The numbers, in the tuner's order.
     static var computed: [ComputedTunable] {

@@ -55,7 +55,7 @@ public import CmuxNextDesign
 
     public static func spec(title: String, detail: String, cancel: String, copy: String,
                             check: String, retry: String) -> CmuxDialogSpec {
-        CmuxDialogSpec(title: title, lines: [detail],
+        CmuxDialogSpec(usesTransientMaterial: true, title: title, lines: [detail],
                        buttons: [.cancel(cancel), CmuxDialogButton(id: "copy", title: copy),
                                  CmuxDialogButton(id: "check", title: check),
                                  CmuxDialogButton(id: "retry", title: retry, role: .default)],
