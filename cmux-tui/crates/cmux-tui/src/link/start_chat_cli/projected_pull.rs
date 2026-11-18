@@ -128,7 +128,9 @@ fn run_until(dir: &Path, socket: Option<PathBuf>, dry_run: bool, stop_after: Opt
     }
     match result {
         Ok(mut summary) => {
-            summary["mount"] = json!(record.mount);
+            if let Some(fields) = summary.as_object_mut() {
+                fields.insert("mount".to_string(), json!(record.mount));
+            }
             summary
         }
         Err(failure) => failed(&failure.code, failure.message),
