@@ -122,6 +122,8 @@ await requireBrowserLane("chat-switch-prefetch.test.ts", async () => {
   /// let a test switch before its own page had read the chat ahead, so the switch waited on the
   /// attach.
   let currentPage = 0;
+  /// The pages' open connections, each tagged with its page, for a test that tells them a chat changed.
+  const sockets = new Set<{ data: unknown; send(message: string): unknown }>();
   let staleReadAheads = 0;
   const readAheadWaiters = new Set<() => void>();
 
@@ -181,6 +183,12 @@ await requireBrowserLane("chat-switch-prefetch.test.ts", async () => {
           : new Response("acpmux", { status: 426 });
       },
       websocket: {
+        open(ws) {
+          sockets.add(ws);
+        },
+        close(ws) {
+          sockets.delete(ws);
+        },
         message(ws, raw) {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
           if (message.id === undefined) return;
@@ -353,39 +361,47 @@ await requireBrowserLane("chat-switch-prefetch.test.ts", async () => {
     }
   });
 
-  // Every workspace's pages read the same recent chats ahead, so N hidden pages read each one N times
-  // for a switch only the shown page takes (Leo, 2026-11-18: "And other general perf"). A hidden page
-  // reads none ahead until it shows; then it reads them as a shown page does.
+  // Every workspace's pages read the same recent chats ahead, and read each again when it runs on, so
+  // N hidden pages read each chat N times for a switch only the shown page takes (Leo, 2026-11-18:
+  // "And other general perf"). A hidden page reads none ahead until it shows; then it reads them as a
+  // shown page does.
   test("a hidden page reads no chat ahead until it shows", async () => {
-    readAhead.clear();
-    currentPage += 1;
-    const page = await browser!.newPage({ viewport: { width: 1000, height: 760 }, deviceScaleFactor: 2 });
+    const page = await openPage(chats[0]!);
     try {
-      await page.addInitScript(() => {
-        const flag = window as unknown as { __benchHidden: boolean };
-        flag.__benchHidden = true;
-        Object.defineProperty(Document.prototype, "visibilityState", {
-          configurable: true,
-          get: () => (flag.__benchHidden ? "hidden" : "visible"),
-        });
-        Object.defineProperty(Document.prototype, "hidden", { configurable: true, get: () => flag.__benchHidden });
+      const recent = chats.slice(1, 1 + RECENT);
+      await readAheadOf(page, recent);
+      // The workspace goes to the background: the document is hidden.
+      await page.evaluate(() => {
+        Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+        Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
+        document.dispatchEvent(new Event("visibilitychange"));
       });
-      await installPaintedFrames(page);
-      const from = calls.length;
-      await page.goto(url(chats[0]!.sessionId));
-      const deadline = Date.now() + 30_000;
-      while (!calls.slice(from).some((call) => call.method === "_acpmux/watch")) {
-        if (Date.now() > deadline) throw new Error("the hidden page never listed its chats");
-        await new Promise((resolve) => setTimeout(resolve, 50));
+      // fixed-wait: past the read ahead's refresh floor (direct.ts READ_AHEAD_REFRESH_MS, 5 s), so a run on
+      // would be read again.
+      await new Promise((resolve) => setTimeout(resolve, 5_500));
+      readAhead.clear();
+      // Each recent chat runs on: acpmux lists it changed.
+      for (const entry of recent) {
+        entry.say(`${entry.marker} And then some.`);
+        entry.listed.updatedAt = Date.now();
+        const change = JSON.stringify({
+          jsonrpc: "2.0",
+          method: "_acpmux/session_changed",
+          params: { sessionId: entry.sessionId, kind: "updated", session: entry.listed },
+        });
+        for (const socket of sockets) if ((socket.data as { page: number }).page === currentPage) socket.send(change);
       }
       // fixed-wait: three times the idle read ahead's delay (direct.ts READ_AHEAD_DELAY_MS, 600 ms).
       await new Promise((resolve) => setTimeout(resolve, 1_800));
-      expect(readAhead.size).toBe(0);
+      const readWhileHidden = recent.filter((entry) => readAhead.has(entry.sessionId)).length;
+      console.log(`chat-switch-prefetch: a hidden page read ${readWhileHidden} of ${RECENT} recent chats that ran on`);
+      expect(readWhileHidden).toBe(0);
       await page.evaluate(() => {
-        (window as unknown as { __benchHidden: boolean }).__benchHidden = false;
+        delete (document as { visibilityState?: unknown }).visibilityState;
+        delete (document as { hidden?: unknown }).hidden;
         document.dispatchEvent(new Event("visibilitychange"));
       });
-      await readAheadOf(page, chats.slice(1, 1 + RECENT));
+      await readAheadOf(page, recent);
     } finally {
       await page.close();
     }
