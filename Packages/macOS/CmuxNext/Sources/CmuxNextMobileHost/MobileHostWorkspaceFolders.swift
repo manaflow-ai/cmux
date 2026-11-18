@@ -9,7 +9,7 @@ import CmuxNextDaemon
 /// reading any workspace's fields, and each workspace's folders are their own observation, so a `cd` in one terminal
 /// reads its workspace's tabs again, never every tab. acpmux gets the list only when its folders changed.
 ///
-/// The work after one workspace's change does not grow with the session (the person's session has 826 workspaces): the
+/// The work after one workspace's change does not grow with the session (a large session has 826 workspaces): the
 /// changed workspace's folders arrive as one change (`ObservedItems.Change`), and the list is updated for the folders
 /// that came or went only, by how many workspaces list each folder. Only a change of the workspace list reads the
 /// folders of every workspace. What still follows the count of folders: the request itself, which carries every folder
