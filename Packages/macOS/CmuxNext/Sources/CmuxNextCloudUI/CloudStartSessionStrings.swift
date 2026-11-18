@@ -54,6 +54,12 @@ public struct CloudStartSessionStrings {
         String(format: String(localized: "cloud.startSession.needsMachine", defaultValue: "Say which Cloud machine to start %1$@ on: `cmux cloud start-session --target machine:<id> --agent %1$@`, or `--name <name>` to take that machine or create it. `cmux cloud list-machines` lists your machines.", table: "CloudSessions", bundle: .module), agent)
     }
 
+    /// Cloud first use refused the run (``CloudSetup/decide(harness:model:)`` answered setup, as the composer's
+    /// Set up Cloud card): no connection on this Mac or the team serves `agent`'s family, so no machine was taken.
+    public static func setupRequired(agent: String, command: String) -> String {
+        String(format: String(localized: "cloud.startSession.setupRequired", defaultValue: "Nothing on this Mac or your team serves %1$@ in Cloud yet, so no Cloud machine was started. Cloud chats use a connection from Settings > Cloud (Continue with ChatGPT, Set up Claude, or an API key); a Codex or Claude Code sign-in in your terminal serves chats on this Mac only. Connect one, then run `%2$@` again.", table: "CloudSessions", bundle: .module), agent, command)
+    }
+
     public static func noSuchMachine(id: String, agent: String) -> String {
         String(format: String(localized: "cloud.startSession.noSuchMachine", defaultValue: "No Cloud machine `%1$@` is listed on this Mac. `cmux cloud list-machines` lists them, and `cmux cloud start-session --name <name> --agent %2$@` creates one.", table: "CloudSessions", bundle: .module), id, agent)
     }
@@ -99,7 +105,14 @@ public struct CloudStartSessionStrings {
         guard let plan = locked.upgrade else {
             return String(format: String(localized: "cloud.startSession.sizeLockedNoUpgrade", defaultValue: "this folder needs a %1$@ machine (%2$@ vCPU, %3$@ GB memory), larger than your plan includes", table: "CloudSessions", bundle: .module), name, cpu, memory)
         }
-        return String(format: String(localized: "cloud.startSession.sizeLocked", defaultValue: "this folder needs a %1$@ machine (%2$@ vCPU, %3$@ GB memory), which your plan doesn't include. Upgrade to cmux %4$@ to use one", table: "CloudSessions", bundle: .module), name, cpu, memory, plan == "max" ? "Max" : "Pro")
+        // The words after "cmux": product names, never translated.
+        let words = switch plan {
+        case "max": "Max"
+        case "next_pro": "NEXT Pro"
+        case "next_max": "NEXT Max"
+        default: "Pro"
+        }
+        return String(format: String(localized: "cloud.startSession.sizeLocked", defaultValue: "this folder needs a %1$@ machine (%2$@ vCPU, %3$@ GB memory), which your plan doesn't include. Upgrade to cmux %4$@ to use one", table: "CloudSessions", bundle: .module), name, cpu, memory, words)
     }
 
     /// The machine to create (`--name`) could not be created; `reason` says why. `quoted` is the

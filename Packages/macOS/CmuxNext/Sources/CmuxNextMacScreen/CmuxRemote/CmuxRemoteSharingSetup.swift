@@ -2,7 +2,8 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDesign
 
-/// A window-scoped permission guide for the process that actually captures the screen: this app.
+/// A window-scoped permission guide for the process that actually captures the screen: the
+/// helper holding the grants (``MacScreenShareHost/grantHolderName``), or this app without one.
 /// The same guide serves the visible Share action and the CLI's person-confirmed share request.
 @MainActor
 struct CmuxRemoteSharingSetup {
@@ -14,6 +15,7 @@ struct CmuxRemoteSharingSetup {
     var enable: () async throws -> Void
 
     init(host: MacScreenHubHost) {
+        holder = { host.share.grantHolderName }
         refresh = {
             await host.share.refreshPermissions()
             return (host.share.screenRecordingGranted, host.share.accessibilityGranted)
@@ -22,6 +24,9 @@ struct CmuxRemoteSharingSetup {
         requestControl = { await host.share.requestAndWait(screenRecording: false) }
         enable = { try await host.setSharing(true, requestPermissions: false) }
     }
+
+    /// The app whose switches the permission steps name, read after each grant check.
+    var holder: () -> String? = { nil }
 
     /// A native Share click is consent when both grants are ready. Automation still commits its
     /// confirmation sheet on the action's own turn, regardless of the origin it claims.
@@ -87,7 +92,7 @@ struct CmuxRemoteSharingSetup {
             let step: Step = needsScreen
                 ? (screenRequested ? .screenCheck : .screen)
                 : (controlRequested ? .controlCheck : .control)
-            let answer = await present(Self.spec(step))
+            let answer = await present(Self.spec(step, holder: holder()))
             guard !Task.isCancelled else { return false }
             switch answer {
             case "allow":
@@ -112,7 +117,9 @@ struct CmuxRemoteSharingSetup {
 
     nonisolated static func identifier(_ step: Step) -> String { "cmux.dialog.screenSharing.setup.\(step.rawValue)" }
 
-    static func spec(_ step: Step) -> CmuxDialogSpec {
+    /// `holder`: the app whose switches the permission steps name (``MacScreenShareHost/grantHolderName``;
+    /// nil names this app).
+    static func spec(_ step: Step, holder: String? = nil) -> CmuxDialogSpec {
         let title: String, lines: [String], choices: [CmuxDialogButton]
         switch step {
         case .overview:
@@ -122,12 +129,12 @@ struct CmuxRemoteSharingSetup {
             choices = [.init(id: "continue", title: L.t("macScreen.setup.continue", "Continue"), role: .default)]
         case .screen, .screenCheck:
             title = L.t("macScreen.setup.screen.title", "Allow Screen Recording")
-            lines = [L.t("macScreen.setup.screen.body", "macOS needs Screen Recording permission for this cmux app to share your display."),
-                     L.t("macScreen.setup.screen.settings", "Allow cmux in the macOS permission prompt or System Settings, then return here and check again.")]
+            lines = [MacScreenGrantCopy.setupScreenBody(holder), MacScreenGrantCopy.setupAllow(holder)]
             choices = permissionButtons(check: step == .screenCheck)
         case .control, .controlCheck:
             title = L.t("macScreen.setup.control.title", "Allow Accessibility (optional)")
-            lines = [L.t("macScreen.setup.control.body", "Accessibility lets a device you approve use the keyboard and pointer. You can share your screen without allowing control.")]
+            lines = [L.t("macScreen.setup.control.body", "Accessibility lets a device you approve use the keyboard and pointer. You can share your screen without allowing control."),
+                     MacScreenGrantCopy.setupAllow(holder)]
             choices = [.init(id: "view", title: L.t("macScreen.setup.viewOnly", "Continue Without Control"))] + permissionButtons(check: step == .controlCheck)
         }
         return CmuxDialogSpec(title: title, lines: lines, buttons: [.cancel()] + choices,
