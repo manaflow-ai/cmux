@@ -1,0 +1,65 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44256881868",
+  "recorded_at": "2026-11-18T07:39:27Z",
+  "reason": "cmux-tui 3a042fbb85fe changes the image's cmux-tui (pinned ee7b4aa38c53)",
+  "dry_run": false,
+  "cmux_tui": "3a042fbb85fe7fa558199b6937927dc06a6b701e",
+  "fixes": [
+    {
+      "sha": "3a042fbb85fe7fa558199b6937927dc06a6b701e",
+      "mergedAt": "2026-11-17T21:50:42-08:00",
+      "subject": "cmux NEXT: the agent history is saved by a stride, not at each turn end (#45903)"
+    },
+    {
+      "sha": "09db24fe1e2e0a32472ccabc278c41e354b2fbb0",
+      "mergedAt": "2026-11-17T21:47:28-08:00",
+      "subject": "cmux device list: probe ssh first; add commands only for hosts that answer, the rest fold into one line (#44876)"
+    },
+    {
+      "sha": "5c2f13a01d898686ef18d95ccc00d476ae2dabcc",
+      "mergedAt": "2026-11-17T20:33:53-08:00",
+      "subject": "Cloud GitHub: say why a private repository's token is refused, and who can fix it (#45858)"
+    },
+    {
+      "sha": "9a701e073b74c979d8712aa72358a4a4e1d8702b",
+      "mergedAt": "2026-11-17T20:31:55-08:00",
+      "subject": "cmux-tui-core: drop two unneeded qualifications in presentation_store snapshot.rs (#45879)"
+    },
+    {
+      "sha": "ecf714483bf1265d4ca8de556f2f65d12afa4f85",
+      "mergedAt": "2026-11-17T19:46:21-08:00",
+      "subject": "cmux NEXT Cloud: connect GitHub from the composer folder menu when it is unavailable (#45772)"
+    },
+    {
+      "sha": "c7d9b9f4c876e86e4045a45a2f8d647436d82d59",
+      "mergedAt": "2026-11-17T19:28:44-08:00",
+      "subject": "Cloud: Codex signed in with ChatGPT runs on a Cloud machine (#45794)"
+    },
+    {
+      "sha": "2cbff6e080f4bd8782bef48dcc833c5052242b0c",
+      "mergedAt": "2026-11-17T18:55:39-08:00",
+      "subject": "acpmux: every Linux agent session gets its own TMPDIR without a runtime dir (#45638)"
+    },
+    {
+      "sha": "934d1ce8010fc4cd740074ad10cc4bcfc0b6b91c",
+      "mergedAt": "2026-11-17T18:40:30-08:00",
+      "subject": "cmux-browser-host Linux notices: regenerate for cmux-process and const-oid (#45124)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-18T07:39:27Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
