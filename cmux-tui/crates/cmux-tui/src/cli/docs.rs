@@ -99,22 +99,8 @@ pub(super) const GUIDES: &[Guide] = &[
     Guide {
         topic: "Check a hover, scroll or typing fix in a chat, in the person's own build",
         keywords: &[
-            "hover",
-            "scroll",
-            "wheel",
-            "typing",
-            "type",
-            "flicker",
-            "rerender",
-            "render",
-            "composer",
-            "verify",
-            "nightly",
-            "release",
-            "chat",
-            "drive",
-            "pointer",
-            "screenshot",
+            "hover", "scroll", "wheel", "typing", "type", "flicker", "rerender", "render",
+            "composer", "verify", "nightly", "release", "drive", "pointer",
         ],
         text: "`cmux app chat drive --tab TAB` (every build, Nightly and Release too) drives one \
         agent chat tab's page without moving the system pointer and without focusing, raising or \
