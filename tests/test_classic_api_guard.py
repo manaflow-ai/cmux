@@ -122,7 +122,10 @@ class ClassicApiGuardTests(unittest.TestCase):
         text = WORKFLOW.read_text()
         self.assertIn("branches: [main, feat-cmux-next]", text)
         self.assertIn("edited", text)
-        self.assertNotIn("changes.body", text)
+        # An edit re-runs it only when it moves the `Classic API change:` line or the base
+        # (tests/test_ci_edit_events_start_no_runner.py simulates the events).
+        self.assertIn("contains(github.event.changes.body.from, 'Classic API change:')", text)
+        self.assertIn("!github.event.changes.base", text)
         self.assertIn("--expected-files", text)
         self.assertIn("--listed-records", text)
         self.assertIn("grep -q -- '--listed-records' scripts/ci/classic_api_guard.py", text)

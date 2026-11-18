@@ -124,6 +124,10 @@ path = "tests/test_ci_e2e_runner_pool_auto.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_edit_events_start_no_runner.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_evidence_outcomes.py"
 lane = "linux-guard"
 
