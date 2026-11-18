@@ -309,3 +309,25 @@ test("a document out of sync is walked whole, as Milkdown's syncs walk it", asyn
   expect(JSON.stringify(sides[1].view.state.doc.toJSON())).not.toContain('"label":"9."');
   expect(notes(sides[1].view.state.doc)).toBe("renamed");
 });
+
+test("a bullet list made ordered is walked again on the next edit, as Milkdown's syncs walk it", async () => {
+  const sides = await pair("- one\n\nintro text\n\nend text");
+  // The first item of the list ordered and labelled "3." by a change kept out of the history,
+  // as an undo (not a generic transaction: neither sync runs) can leave it.
+  both(
+    sides,
+    (state) => {
+      const pos = state.doc.resolve(after(state.doc, "one")).before(2);
+      const item = state.doc.nodeAt(pos)!;
+      return state.tr
+        .setNodeMarkup(pos, undefined, { ...item.attrs, listType: "ordered", label: "3." })
+        .setMeta("addToHistory", false);
+    },
+    "an ordered item in a bullet list",
+  );
+  // Milkdown's walk makes the list ordered, but leaves the item's label for the walk after.
+  both(sides, (state) => state.tr.insertText("x", after(state.doc, "intro")), "an edit elsewhere makes it ordered");
+  expect(JSON.stringify(sides[1].view.state.doc.toJSON())).toContain('"label":"3."');
+  both(sides, (state) => state.tr.insertText("y", after(state.doc, "end")), "the next edit elsewhere");
+  expect(JSON.stringify(sides[1].view.state.doc.toJSON())).not.toContain('"label":"3."');
+});

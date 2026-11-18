@@ -140,11 +140,13 @@ const listOrderPlugin = $prose(
         };
         let tr = newState.tr;
         let needDispatch = false;
+        let converted = false;
         const visit = (node: ProseNode, pos: number, parent: ProseNode | null, index: number) => {
           if (node.type === bulletListType) {
             const base = node.maybeChild(0);
             if (base?.type === listItemType && base.attrs.listType === "ordered") {
               needDispatch = true;
+              converted = true;
               tr.setNodeMarkup(pos, orderedListType, { spread: true });
               node.descendants((child, pos, _parent, index) => {
                 if (child.type === listItemType) {
@@ -177,7 +179,9 @@ const listOrderPlugin = $prose(
           listOrderSynced.add(newState.doc);
           return null;
         }
-        listOrderSynced.add(tr.doc);
+        // A bullet list made ordered keeps its items' labels until the next walk (Milkdown's walk of
+        // its items gives positions in the list as the document's): that next walk is whole, as Milkdown's.
+        if (!converted) listOrderSynced.add(tr.doc);
         return tr.setMeta("addToHistory", false);
       },
     }),
