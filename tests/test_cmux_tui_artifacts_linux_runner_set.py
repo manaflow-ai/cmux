@@ -70,6 +70,8 @@ def resolved(runs_on: str, owner: str, linux_runner: str, overflow: str, trusted
             "CI_CLOUD_OVERFLOW_SAVED": [overflow],
             "CI_TRUSTED_RUNNER": [trusted],
             "LINUX_RUNNER_DARWIN_CROSS": [darwin_cross],
+            # Unset here: test_the_build_runner_pin_comes_before_linux_runner checks a set one wins.
+            "LINUX_BUILD_RUNNER": [""],
         },
         silent=("needs",),
     )
@@ -177,6 +179,24 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
                         self.assertIn(DARWIN_CROSS, labels)
                     else:
                         self.assertNotIn(DARWIN_CROSS, labels)
+
+    def test_the_build_runner_pin_comes_before_linux_runner(self) -> None:
+        # 2026-11-18: the overflow switch had written GitHub-hosted ubuntu-24.04 into LINUX_RUNNER, the org-wide hosted
+        # queue held every short job of run 44205925797 for hours, and the NEXT nightly (44224028014) gave up waiting
+        # for its tree after 45 min, while the build legs ran on the Blacksmith pool vars.LINUX_BUILD_RUNNER names. A
+        # set LINUX_BUILD_RUNNER is the first alternative after the fork check, so it wins over LINUX_RUNNER on every
+        # Linux job of the tree publish: this workflow's, the build package's own Linux jobs and the tree request's.
+        routes = [(WORKFLOW.name, name, runs_on) for name, runs_on in linux_routes() if name != DARWIN_CROSS_JOB]
+        for workflow in ("cmux-tui-build-package.yml", "cmux-tui-tree-request.yml"):
+            jobs = yaml.load((WORKFLOW.parent / workflow).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)["jobs"]
+            routes.extend((workflow, name, job["runs-on"]) for name, job in jobs.items()
+                          if "vars.LINUX_RUNNER" in str(job.get("runs-on", "")))
+        self.assertGreater(len(routes), len(SHORT_JOBS))
+        for workflow, name, runs_on in routes:
+            with self.subTest(workflow=workflow, job=name):
+                self.assertRegex(runs_on, r"^\$\{\{ github\.repository_owner != 'manaflow-ai' && 'ubuntu-24\.04' \|\| "
+                                          r"(inputs\.linux_runner != '' && !startsWith\(inputs\.linux_runner, "
+                                          r"'blacksmith-'\) && inputs\.linux_runner \|\| )?vars\.LINUX_BUILD_RUNNER \|\| ")
 
     def test_a_fork_keeps_github_hosted_ubuntu(self) -> None:
         for name, runs_on in linux_routes():
