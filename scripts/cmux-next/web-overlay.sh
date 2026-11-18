@@ -169,6 +169,7 @@ checkout_commit() {
 # commit it was built from when known (DEV builds carry no CMUXCommit).
 install_app() {
   local res="$1/Contents/Resources" commit="${2:-}"
+  [[ -n "$commit" || -f "$1/Contents/Info.plist" ]] || commit=unknown
   [[ -n "$commit" ]] || commit="$(/usr/libexec/PlistBuddy -c "Print CMUXCommit" "$1/Contents/Info.plist" 2>/dev/null || echo unknown)"
   install_dirs "$res/CmuxNext_CmuxNextAgentPane.bundle/Contents/Resources/agent-pane" \
     "$res/CmuxNext_CmuxNextPages.bundle/Contents/Resources/pages" "$res/markdown-viewer/webviews-app" "$commit"
