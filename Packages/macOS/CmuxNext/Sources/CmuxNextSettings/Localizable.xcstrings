@@ -1,6 +1,138 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.choice.fontSmoothingAuto": {
+      "comment": "Text Smoothing choice: no override; the Mac's own smoothing and each page's own style.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تلقائي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatski"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisch"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automático"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatique"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatico"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្វ័យប្រវត្តិ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatyczne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automático"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Авто"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otomatik"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Авто"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tự động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        }
+      }
+    },
     "settings.choice.backgroundFollowAppearance": {
       "comment": "Settings choice: the background switches between a light and a dark picture with the appearance.",
       "extractionState": "manual",
@@ -162908,798 +163040,6 @@
         }
       }
     },
-    "settings.agentPane.display.composerLook": {
-      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Composer Style"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "نمط مربع الكتابة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stil polja za pisanje"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Skrivefeltets stil"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stil des Eingabefelds"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Estilo del campo de redacción"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Style de la zone de saisie"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stile del campo di scrittura"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "入力欄のスタイル"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "រចនាប័ទ្មប្រអប់សរសេរ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "입력창 스타일"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stil på skrivefeltet"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Styl pola tekstowego"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Estilo do campo de texto"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Стиль поля ввода"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "รูปแบบช่องเขียนข้อความ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yazma alanı stili"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Стиль поля введення"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kiểu ô soạn thảo"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "输入框样式"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "輸入框樣式"
-          }
-        }
-      }
-    },
-    "settings.agentPane.display.composerLook.help": {
-      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "How the message box lays out its controls: Claude's quiet row under the box, or Codex's row inside it. The dots under the composer pick it too."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "كيف يرتّب مربع الرسالة عناصر التحكم: صف Claude الهادئ أسفل المربع، أو صف Codex داخله. يمكن اختياره أيضًا من النقاط أسفل مربع الكتابة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kako polje za poruku raspoređuje kontrole: Claudeov tihi red ispod polja ili Codexov red unutar njega. Birate ga i tačkama ispod polja za pisanje."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hvordan beskedfeltet placerer sine knapper: Claudes rolige række under feltet eller Codex' række inde i det. Prikkerne under skrivefeltet vælger det også."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wie das Nachrichtenfeld seine Bedienelemente anordnet: Claudes ruhige Zeile unter dem Feld oder die Zeile von Codex darin. Die Punkte unter dem Eingabefeld wählen es ebenfalls."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cómo el cuadro de mensaje coloca sus controles: la fila discreta de Claude debajo del cuadro o la fila de Codex dentro de él. Los puntos debajo del campo de redacción también lo eligen."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Disposition des commandes de la zone de message : la ligne discrète de Claude sous la zone, ou la ligne de Codex à l'intérieur. Les points sous la zone de saisie permettent aussi de choisir."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Come il riquadro del messaggio dispone i controlli: la riga discreta di Claude sotto il riquadro o la riga di Codex al suo interno. Si sceglie anche con i punti sotto il campo di scrittura."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "メッセージ欄のコントロールの配置です。Claude は欄の下に控えめな行を、Codex は欄の中に行を置きます。入力欄の下のドットでも選べます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "របៀបដែលប្រអប់សារដាក់ការគ្រប់គ្រង៖ ជួរស្ងាត់របស់ Claude នៅក្រោមប្រអប់ ឬជួររបស់ Codex នៅខាងក្នុងប្រអប់។ ចំណុចនៅក្រោមប្រអប់សរសេរក៏ជ្រើសវាបានដែរ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "메시지 상자에 컨트롤을 배치하는 방식입니다. Claude는 상자 아래의 조용한 줄, Codex는 상자 안의 줄을 씁니다. 입력창 아래의 점으로도 고를 수 있습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hvordan meldingsfeltet plasserer kontrollene: Claudes rolige rad under feltet eller Codex' rad inne i det. Prikkene under skrivefeltet velger det også."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Układ elementów sterujących pola wiadomości: spokojny wiersz Claude pod polem albo wiersz Codex w jego wnętrzu. Można go też wybrać kropkami pod polem tekstowym."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Como a caixa de mensagem organiza os controles: a linha discreta do Claude abaixo da caixa ou a linha do Codex dentro dela. Os pontos abaixo do campo de texto também escolhem."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Как поле сообщения располагает элементы управления: тихая строка Claude под полем или строка Codex внутри него. Выбрать можно и точками под полем ввода."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "วิธีที่ช่องข้อความจัดวางปุ่มควบคุม: แถวเรียบ ๆ ของ Claude ใต้ช่อง หรือแถวของ Codex ภายในช่อง เลือกได้จากจุดใต้ช่องเขียนข้อความด้วย"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mesaj kutusunun denetimleri nasıl yerleştirdiği: Claude'un kutunun altındaki sade satırı ya da Codex'in kutunun içindeki satırı. Yazma alanının altındaki noktalar da bunu seçer."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Як поле повідомлення розміщує елементи керування: тихий рядок Claude під полем або рядок Codex усередині нього. Вибрати можна й крапками під полем введення."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cách ô tin nhắn sắp xếp các nút điều khiển: hàng gọn của Claude bên dưới ô, hoặc hàng của Codex bên trong ô. Các chấm bên dưới ô soạn thảo cũng chọn được."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "消息框如何排列控件：Claude 在框下方放一行低调的控件，Codex 把这一行放在框内。也可以用输入框下方的圆点选择。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "訊息框如何排列控制項：Claude 在框下方放一行低調的控制項，Codex 把這一行放在框內。也可以用輸入框下方的圓點選擇。"
-          }
-        }
-      }
-    },
-    "settings.agentPane.display.modelChipIcon": {
-      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Model Logo in Composer"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "شعار النموذج في مربع الكتابة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Logo modela u polju za pisanje"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modellogo i skrivefeltet"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modell-Logo im Eingabefeld"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Logotipo del modelo en el campo de redacción"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Logo du modèle dans la zone de saisie"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Logo del modello nel campo di scrittura"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "入力欄にモデルのロゴを表示"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "និមិត្តសញ្ញាម៉ូដែលក្នុងប្រអប់សរសេរ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "입력창에 모델 로고 표시"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modellogo i skrivefeltet"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Logo modelu w polu tekstowym"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Logotipo do modelo no campo de texto"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Логотип модели в поле ввода"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "โลโก้โมเดลในช่องเขียนข้อความ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yazma alanında model logosu"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Логотип моделі в полі введення"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Logo mô hình trong ô soạn thảo"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在输入框中显示模型标志"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在輸入框中顯示模型標誌"
-          }
-        }
-      }
-    },
-    "settings.agentPane.display.modelChipIcon.help": {
-      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shows the provider's logo next to the model's name in the message box. Right-click the model to turn it off or on."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يعرض شعار المزوّد بجانب اسم النموذج في مربع الرسالة. انقر بزر الماوس الأيمن على النموذج لإيقافه أو تشغيله."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prikazuje logo dobavljača pored naziva modela u polju za poruku. Desnim klikom na model ga isključite ili uključite."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Viser udbyderens logo ved siden af modellens navn i beskedfeltet. Højreklik på modellen for at slå det fra eller til."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zeigt das Logo des Anbieters neben dem Modellnamen im Nachrichtenfeld. Klicke mit der rechten Maustaste auf das Modell, um es aus- oder einzuschalten."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Muestra el logotipo del proveedor junto al nombre del modelo en el cuadro de mensaje. Haz clic derecho en el modelo para desactivarlo o activarlo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Affiche le logo du fournisseur à côté du nom du modèle dans la zone de message. Cliquez avec le bouton droit sur le modèle pour le désactiver ou l'activer."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra il logo del fornitore accanto al nome del modello nel riquadro del messaggio. Fai clic destro sul modello per disattivarlo o attivarlo."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "メッセージ欄のモデル名の横にプロバイダのロゴを表示します。モデルを右クリックするとオン・オフを切り替えられます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បង្ហាញនិមិត្តសញ្ញារបស់អ្នកផ្តល់សេវានៅជាប់ឈ្មោះម៉ូដែលក្នុងប្រអប់សារ។ ចុចកណ្ដុរស្ដាំលើម៉ូដែលដើម្បីបិទ ឬបើកវា។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "메시지 상자의 모델 이름 옆에 제공업체 로고를 표시합니다. 모델을 오른쪽 클릭해 끄거나 켤 수 있습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Viser leverandørens logo ved siden av modellnavnet i meldingsfeltet. Høyreklikk på modellen for å slå det av eller på."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pokazuje logo dostawcy obok nazwy modelu w polu wiadomości. Kliknij model prawym przyciskiem, aby je wyłączyć lub włączyć."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra o logotipo do provedor ao lado do nome do modelo na caixa de mensagem. Clique com o botão direito no modelo para desativar ou ativar."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показывает логотип поставщика рядом с названием модели в поле сообщения. Нажмите на модель правой кнопкой, чтобы выключить или включить его."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แสดงโลโก้ของผู้ให้บริการข้างชื่อโมเดลในช่องข้อความ คลิกขวาที่โมเดลเพื่อปิดหรือเปิด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mesaj kutusunda modelin adının yanında sağlayıcının logosunu gösterir. Kapatmak veya açmak için modele sağ tıklayın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показує логотип постачальника поруч із назвою моделі в полі повідомлення. Клацніть модель правою кнопкою, щоб вимкнути або ввімкнути його."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hiện logo của nhà cung cấp cạnh tên mô hình trong ô tin nhắn. Nhấp chuột phải vào mô hình để tắt hoặc bật."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在消息框中的模型名称旁显示提供方的标志。右键点按模型可将其关闭或打开。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在訊息框中的模型名稱旁顯示提供者的標誌。按右鍵點按模型可將其關閉或開啟。"
-          }
-        }
-      }
-    },
-    "settings.agentPane.display.queueing": {
-      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Queue Prompts During a Turn"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "وضع الطلبات في قائمة الانتظار أثناء الدور"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stavi upite u red tokom poteza"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sæt prompter i kø under en tur"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prompts während eines Durchgangs einreihen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Poner en cola las instrucciones durante un turno"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mettre les invites en file pendant un tour"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Metti in coda i prompt durante un turno"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターン中のプロンプトをキューに入れる"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ដាក់ប្រអប់បញ្ចូលក្នុងជួររង់ចាំក្នុងវេន"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "턴 중 프롬프트를 대기열에 넣기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sett ledetekster i kø under en tur"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kolejkuj polecenia podczas tury"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enfileirar prompts durante um turno"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ставить запросы в очередь во время хода"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "จัดคิวพรอมต์ระหว่างรอบการทำงาน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tur sırasında istemleri sıraya al"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ставити запити в чергу під час ходу"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Xếp hàng lời nhắc trong một lượt"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "回合进行中将提示加入队列"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "回合進行中將提示加入佇列"
-          }
-        }
-      }
-    },
-    "settings.agentPane.display.queueing.help": {
-      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "On, Send and ⌘Return queue a prompt sent while a turn runs, and Return steers it into the turn. Off, every send steers, so nothing waits."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "عند التشغيل، يضع زر الإرسال و⌘Return الطلب المُرسل أثناء الدور في قائمة الانتظار، ويوجّهه Return إلى الدور الجاري. عند الإيقاف، يوجّه كل إرسال، فلا ينتظر شيء."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Uključeno: Pošalji i ⌘Return stavljaju u red upit poslan tokom poteza, a Return ga usmjerava u potez. Isključeno: svako slanje usmjerava, pa ništa ne čeka."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Til: Send og ⌘Return sætter en prompt sendt under en tur i kø, og Return styrer den ind i turen. Fra: hver afsendelse styrer, så intet venter."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ein: Senden und ⌘Return reihen einen Prompt, der während eines Durchgangs gesendet wird, ein, und Return lenkt ihn in den Durchgang. Aus: Jedes Senden lenkt, nichts wartet."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Activado: Enviar y ⌘Return ponen en cola una instrucción enviada durante un turno, y Return la dirige al turno. Desactivado: cada envío la dirige, así que nada espera."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Activé : Envoyer et ⌘Retour mettent en file une invite envoyée pendant un tour, et Retour l'oriente dans le tour. Désactivé : chaque envoi oriente, rien n'attend."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Attivo: Invia e ⌘Return mettono in coda un prompt inviato durante un turno, e Return lo indirizza nel turno. Disattivo: ogni invio lo indirizza, così niente resta in attesa."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "オンにすると、ターン中に送ったプロンプトは送信と ⌘Return でキューに入り、Return でそのターンに割り込ませます。オフにすると、どの送信も割り込むので待つものはありません。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បើក៖ ផ្ញើ និង ⌘Return ដាក់ប្រអប់បញ្ចូលដែលបានផ្ញើក្នុងវេនក្នុងជួររង់ចាំ ហើយ Return បញ្ជូនវាចូលវេន។ បិទ៖ ការផ្ញើនីមួយៗបញ្ជូនចូល ដូច្នេះគ្មានអ្វីរង់ចាំទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "켜면 턴 중에 보낸 프롬프트를 보내기와 ⌘Return이 대기열에 넣고, Return은 진행 중인 턴에 끼워 넣습니다. 끄면 모든 전송이 끼워 넣어지므로 기다리는 것이 없습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "På: Send og ⌘Return setter en ledetekst sendt under en tur i kø, og Return styrer den inn i turen. Av: hver sending styrer, så ingenting venter."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Włączone: Wyślij i ⌘Return kolejkują polecenie wysłane w trakcie tury, a Return kieruje je do tury. Wyłączone: każde wysłanie kieruje, więc nic nie czeka."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ativado: Enviar e ⌘Return enfileiram um prompt enviado durante um turno, e Return o direciona para o turno. Desativado: cada envio direciona, então nada espera."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Включено: «Отправить» и ⌘Return ставят запрос, отправленный во время хода, в очередь, а Return направляет его в текущий ход. Выключено: каждая отправка направляет, ничего не ждёт."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เปิด: ส่งและ ⌘Return จะจัดคิวพรอมต์ที่ส่งระหว่างรอบ และ Return จะนำเข้าสู่รอบนั้น ปิด: ทุกการส่งจะนำเข้าทันที จึงไม่มีอะไรรอ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Açık: Gönder ve ⌘Return, tur sırasında gönderilen istemi sıraya alır; Return onu tura yönlendirir. Kapalı: her gönderim yönlendirir, hiçbir şey beklemez."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Увімкнено: «Надіслати» і ⌘Return ставлять у чергу запит, надісланий під час ходу, а Return спрямовує його в хід. Вимкнено: кожне надсилання спрямовує, тож ніщо не чекає."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bật: Gửi và ⌘Return xếp hàng lời nhắc gửi trong một lượt, còn Return lái nó vào lượt đó. Tắt: mỗi lần gửi đều lái vào, nên không có gì phải chờ."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "打开时，回合进行中发送的提示会通过“发送”和 ⌘Return 加入队列，Return 则将其插入当前回合。关闭时，每次发送都会插入，不会有任何等待。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "開啟時，回合進行中傳送的提示會透過「傳送」和 ⌘Return 加入佇列，Return 則將其插入目前回合。關閉時，每次傳送都會插入，不會有任何等待。"
-          }
-        }
-      }
-    },
     "settings.agentPane.display.trayTucked": {
       "comment": "Settings: the agent chat's and Markdown viewer's display rows",
       "extractionState": "manual",
@@ -219855,6 +219195,399 @@
         }
       }
     },
+    "settings.browser.verificationAutofill.accounts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Email Accounts for Codes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حسابات البريد للرموز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "E-mail računi za kodove"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "E-mailkonti til koder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "E-Mail-Konten für Codes"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuentas de correo para códigos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comptes e-mail pour les codes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Account email per i codici"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "コードを読むメールアカウント"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គណនីអ៊ីមែលសម្រាប់លេខកូដ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "코드용 이메일 계정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "E-postkontoer for koder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konta e-mail dla kodów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Contas de e-mail para códigos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Почтовые ящики для кодов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บัญชีอีเมลสำหรับรหัส"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kodlar için e-posta hesapları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поштові скриньки для кодів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tài khoản email cho mã"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "用于验证码的邮箱账户"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "用於驗證碼的郵件帳號"
+          }
+        }
+      }
+    },
+    "settings.browser.verificationAutofill.accounts.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codes come only from these addresses. Mail is read on this Mac, never stored or sent."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تأتي الرموز من هذه العناوين فقط. تُقرأ الرسائل على هذا الـ Mac ولا تُخزَّن ولا تُرسَل أبدًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kodovi dolaze samo s ovih adresa. Pošta se čita na ovom Macu i nikad se ne pohranjuje niti šalje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koder kommer kun fra disse adresser. Mail læses på denne Mac og bliver aldrig gemt eller sendt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codes kommen nur von diesen Adressen. Mails werden auf diesem Mac gelesen, nie gespeichert oder gesendet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los códigos solo provienen de estas direcciones. El correo se lee en este Mac y nunca se guarda ni se envía."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les codes viennent uniquement de ces adresses. Les e-mails sont lus sur ce Mac, jamais enregistrés ni envoyés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I codici arrivano solo da questi indirizzi. La posta viene letta su questo Mac, mai salvata né inviata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "コードはこれらのアドレスからのみ読み取ります。メールはこの Mac 上で読み取り、保存も送信もしません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លេខកូដមកពីអាសយដ្ឋានទាំងនេះតែប៉ុណ្ណោះ។ អ៊ីមែលត្រូវបានអាននៅលើ Mac នេះ មិនដែលរក្សាទុក ឬផ្ញើទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "코드는 이 주소에서만 가져옵니다. 메일은 이 Mac에서 읽으며 저장하거나 전송하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koder kommer bare fra disse adressene. E-post leses på denne Macen og blir aldri lagret eller sendt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kody pochodzą tylko z tych adresów. Poczta jest czytana na tym Macu, nigdy zapisywana ani wysyłana."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Os códigos vêm apenas destes endereços. Os e-mails são lidos neste Mac e nunca são guardados nem enviados."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Коды берутся только с этих адресов. Почта читается на этом Mac, никогда не сохраняется и не отправляется."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รหัสมาจากที่อยู่เหล่านี้เท่านั้น อีเมลถูกอ่านบน Mac เครื่องนี้ ไม่ถูกเก็บหรือส่งไปที่ใด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kodlar yalnızca bu adreslerden gelir. E-postalar bu Mac'te okunur, asla saklanmaz veya gönderilmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Коди беруться лише з цих адрес. Пошта читається на цьому Mac і ніколи не зберігається й не надсилається."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mã chỉ lấy từ các địa chỉ này. Thư được đọc trên máy Mac này, không bao giờ được lưu hay gửi đi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "验证码只来自这些地址。邮件只在这台 Mac 上读取，从不保存或发送。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "驗證碼只來自這些地址。郵件只在這台 Mac 上讀取，從不儲存或傳送。"
+          }
+        }
+      }
+    },
+    "settings.browser.verificationAutofill.accounts.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Addresses cmux may read codes from"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "العناوين التي يمكن لـ cmux قراءة الرموز منها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adrese s kojih cmux smije čitati kodove"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresser, cmux må læse koder fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adressen, aus denen cmux Codes lesen darf"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Direcciones de las que cmux puede leer códigos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresses où cmux peut lire les codes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indirizzi da cui cmux può leggere i codici"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux がコードを読み取れるアドレス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អាសយដ្ឋានដែល cmux អាចអានលេខកូដបាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 코드를 읽을 수 있는 주소"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresser cmux kan lese koder fra"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresy, z których cmux może czytać kody"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Endereços dos quais o cmux pode ler códigos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Адреса, из которых cmux может читать коды"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ที่อยู่ที่ cmux อ่านรหัสได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux'un kod okuyabileceği adresler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Адреси, з яких cmux може читати коди"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các địa chỉ cmux được đọc mã"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 可读取验证码的地址"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 可讀取驗證碼的地址"
+          }
+        }
+      }
+    },
     "settings.appearance.fontSmoothing": {
       "comment": "Settings row title: how heavy cmux's own text draws (font smoothing).",
       "extractionState": "manual",
@@ -220251,6 +219984,138 @@
         }
       }
     },
+    "settings.choice.fontSmoothingSmooth": {
+      "comment": "Text Smoothing choice: the macOS font smoothing turned on everywhere (CSS subpixel-antialiased).",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ناعم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glatko"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udglattet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geglättet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Smooth"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suavizado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lissé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Smussato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "滑らか"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រលោង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "부드럽게"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utjevnet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wygładzone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suavizado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сглаженное"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เรียบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yumuşak"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Згладжене"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mượt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "平滑"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "平滑"
+          }
+        }
+      }
+    },
     "settings.internalDeveloperMode.help": {
       "comment": "Help text under the Internal Developer Mode toggle. \"Debug: …\" is the title prefix of the palette rows; translate it the same way as the action.debug.titleFormat string.",
       "extractionState": "manual",
@@ -220643,6 +220508,666 @@
           "stringUnit": {
             "state": "translated",
             "value": "內部開發者模式"
+          }
+        }
+      }
+    },
+    "settings.category.cloud": {
+      "comment": "Settings sidebar: the Cloud category (what Cloud chats run on, Cloud Environments and Cloud Workspaces). Cloud is the product feature.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السحابة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nube"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウド"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "云端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "雲端"
+          }
+        }
+      }
+    },
+    "settings.category.models": {
+      "comment": "Settings sidebar: the Models category (which subscription or key each Cloud thread runs on).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Models"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "النماذج"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modeli"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modeller"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelle"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modèles"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelli"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ូដែល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모델"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modeller"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modele"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Модели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โมเดล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modeller"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Моделі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mô hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模型"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模型"
+          }
+        }
+      }
+    },
+    "settings.group.models": {
+      "comment": "Settings > Models: group title of the model connection settings",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "النماذج"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modeli"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modeller"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelle"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Models"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modèles"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelli"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ូដែល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모델"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modeller"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modele"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Модели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โมเดล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modeller"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Моделі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mô hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模型"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模型"
+          }
+        }
+      }
+    },
+    "settings.models.spreadUsage": {
+      "comment": "Settings > Models: toggle title; a thread may move between the person's subscriptions",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توزيع الاستخدام على اشتراكاتي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rasporedi korištenje na moje pretplate"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fordel forbruget på mine abonnementer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nutzung auf meine Abos verteilen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spread Usage Across My Subscriptions"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repartir el uso entre mis suscripciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Répartir l’usage entre mes abonnements"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Distribuisci l’uso tra i miei abbonamenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用量をサブスクリプション間で分散"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចែកការប្រើប្រាស់ទៅលើការជាវរបស់ខ្ញុំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 구독에 사용량 분산"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fordel bruken på abonnementene mine"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rozkładaj użycie na moje subskrypcje"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Distribuir o uso entre minhas assinaturas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Распределять использование по моим подпискам"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กระจายการใช้งานไปยังการสมัครสมาชิกของฉัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanımı aboneliklerime dağıt"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розподіляти використання між моїми підписками"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phân bổ mức dùng cho các gói của tôi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在我的订阅之间分摊用量"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在我的訂閱之間分攤用量"
+          }
+        }
+      }
+    },
+    "settings.models.spreadUsage.help": {
+      "comment": "Settings > Models: help text of the spread toggle",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عند نفاد أحد الاشتراكات، تنتقل المحادثة إلى اشتراك آخر بالنموذج نفسه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kada jedna pretplata potroši limit, chat prelazi na drugu s istim modelom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når et abonnement er brugt op, flytter en chat til et andet med samme model."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ist ein Abo aufgebraucht, wechselt ein Chat zu einem anderen mit demselben Modell."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When one subscription runs out, a chat moves to another with the same model."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuando una suscripción se agota, el chat pasa a otra con el mismo modelo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quand un abonnement est épuisé, la discussion passe à un autre avec le même modèle."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quando un abbonamento si esaurisce, una chat passa a un altro con lo stesso modello."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "あるサブスクリプションの上限に達すると、同じモデルを使える別のサブスクリプションにチャットが移ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅពេលការជាវមួយអស់ ការជជែកផ្លាស់ទៅការជាវផ្សេងទៀតដែលមានម៉ូដែលដដែល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "한 구독의 한도가 다 되면 같은 모델을 쓰는 다른 구독으로 채팅이 옮겨갑니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når ett abonnement er brukt opp, flyttes en chat til et annet med samme modell."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gdy jedna subskrypcja się wyczerpie, czat przechodzi na inną z tym samym modelem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quando uma assinatura se esgota, o chat passa para outra com o mesmo modelo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Когда одна подписка исчерпана, чат переходит на другую с той же моделью."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เมื่อการสมัครสมาชิกหนึ่งใช้หมด แชตจะย้ายไปยังอีกรายการที่มีโมเดลเดียวกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir abonelik tükendiğinde sohbet, aynı modeli sunan başka bir aboneliğe geçer."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Коли одна підписка вичерпана, чат переходить на іншу з тією самою моделлю."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khi một gói hết hạn mức, cuộc trò chuyện chuyển sang gói khác có cùng mô hình."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一个订阅用完后，聊天会转到另一个提供同一模型的订阅。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一個訂閱用完後，聊天會轉到另一個提供同一模型的訂閱。"
           }
         }
       }
@@ -224933,1319 +225458,794 @@
         }
       }
     },
-    "settings.choice.fontSmoothingAuto": {
-      "comment": "Text Smoothing choice: no override; the Mac's own smoothing and each page's own style.",
+    "settings.agentPane.display.composerLook": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
       "extractionState": "manual",
       "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Composer Style"
+          }
+        },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تلقائي"
+            "value": "نمط مربع الكتابة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automatski"
+            "value": "Stil polja za pisanje"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automatisk"
+            "value": "Skrivefeltets stil"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automatisch"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Auto"
+            "value": "Stil des Eingabefelds"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automático"
+            "value": "Estilo del campo de redacción"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automatique"
+            "value": "Style de la zone de saisie"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automatico"
+            "value": "Stile del campo di scrittura"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "自動"
+            "value": "入力欄のスタイル"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ស្វ័យប្រវត្តិ"
+            "value": "រចនាប័ទ្មប្រអប់សរសេរ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "자동"
+            "value": "입력창 스타일"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automatisk"
+            "value": "Stil på skrivefeltet"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automatyczne"
+            "value": "Styl pola tekstowego"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automático"
+            "value": "Estilo do campo de texto"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Авто"
+            "value": "Стиль поля ввода"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "อัตโนมัติ"
+            "value": "รูปแบบช่องเขียนข้อความ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Otomatik"
+            "value": "Yazma alanı stili"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Авто"
+            "value": "Стиль поля введення"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tự động"
+            "value": "Kiểu ô soạn thảo"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "自动"
+            "value": "输入框样式"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "自動"
+            "value": "輸入框樣式"
           }
         }
       }
     },
-    "settings.browser.verificationAutofill.accounts": {
+    "settings.agentPane.display.composerLook.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Email Accounts for Codes"
+            "value": "How the message box lays out its controls: Claude's quiet row under the box, or Codex's row inside it. The dots under the composer pick it too."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "حسابات البريد للرموز"
+            "state": "translated",
+            "value": "كيف يرتّب مربع الرسالة عناصر التحكم: صف Claude الهادئ أسفل المربع، أو صف Codex داخله. يمكن اختياره أيضًا من النقاط أسفل مربع الكتابة."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "E-mail računi za kodove"
+            "state": "translated",
+            "value": "Kako polje za poruku raspoređuje kontrole: Claudeov tihi red ispod polja ili Codexov red unutar njega. Birate ga i tačkama ispod polja za pisanje."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "E-mailkonti til koder"
+            "state": "translated",
+            "value": "Hvordan beskedfeltet placerer sine knapper: Claudes rolige række under feltet eller Codex' række inde i det. Prikkerne under skrivefeltet vælger det også."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "E-Mail-Konten für Codes"
+            "state": "translated",
+            "value": "Wie das Nachrichtenfeld seine Bedienelemente anordnet: Claudes ruhige Zeile unter dem Feld oder die Zeile von Codex darin. Die Punkte unter dem Eingabefeld wählen es ebenfalls."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Cuentas de correo para códigos"
+            "state": "translated",
+            "value": "Cómo el cuadro de mensaje coloca sus controles: la fila discreta de Claude debajo del cuadro o la fila de Codex dentro de él. Los puntos debajo del campo de redacción también lo eligen."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Comptes e-mail pour les codes"
+            "state": "translated",
+            "value": "Disposition des commandes de la zone de message : la ligne discrète de Claude sous la zone, ou la ligne de Codex à l'intérieur. Les points sous la zone de saisie permettent aussi de choisir."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Account email per i codici"
+            "state": "translated",
+            "value": "Come il riquadro del messaggio dispone i controlli: la riga discreta di Claude sotto il riquadro o la riga di Codex al suo interno. Si sceglie anche con i punti sotto il campo di scrittura."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "コードを読むメールアカウント"
+            "state": "translated",
+            "value": "メッセージ欄のコントロールの配置です。Claude は欄の下に控えめな行を、Codex は欄の中に行を置きます。入力欄の下のドットでも選べます。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "គណនីអ៊ីមែលសម្រាប់លេខកូដ"
+            "state": "translated",
+            "value": "របៀបដែលប្រអប់សារដាក់ការគ្រប់គ្រង៖ ជួរស្ងាត់របស់ Claude នៅក្រោមប្រអប់ ឬជួររបស់ Codex នៅខាងក្នុងប្រអប់។ ចំណុចនៅក្រោមប្រអប់សរសេរក៏ជ្រើសវាបានដែរ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "코드용 이메일 계정"
+            "state": "translated",
+            "value": "메시지 상자에 컨트롤을 배치하는 방식입니다. Claude는 상자 아래의 조용한 줄, Codex는 상자 안의 줄을 씁니다. 입력창 아래의 점으로도 고를 수 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "E-postkontoer for koder"
+            "state": "translated",
+            "value": "Hvordan meldingsfeltet plasserer kontrollene: Claudes rolige rad under feltet eller Codex' rad inne i det. Prikkene under skrivefeltet velger det også."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Konta e-mail dla kodów"
+            "state": "translated",
+            "value": "Układ elementów sterujących pola wiadomości: spokojny wiersz Claude pod polem albo wiersz Codex w jego wnętrzu. Można go też wybrać kropkami pod polem tekstowym."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Contas de e-mail para códigos"
+            "state": "translated",
+            "value": "Como a caixa de mensagem organiza os controles: a linha discreta do Claude abaixo da caixa ou a linha do Codex dentro dela. Os pontos abaixo do campo de texto também escolhem."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Почтовые ящики для кодов"
+            "state": "translated",
+            "value": "Как поле сообщения располагает элементы управления: тихая строка Claude под полем или строка Codex внутри него. Выбрать можно и точками под полем ввода."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "บัญชีอีเมลสำหรับรหัส"
+            "state": "translated",
+            "value": "วิธีที่ช่องข้อความจัดวางปุ่มควบคุม: แถวเรียบ ๆ ของ Claude ใต้ช่อง หรือแถวของ Codex ภายในช่อง เลือกได้จากจุดใต้ช่องเขียนข้อความด้วย"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Kodlar için e-posta hesapları"
+            "state": "translated",
+            "value": "Mesaj kutusunun denetimleri nasıl yerleştirdiği: Claude'un kutunun altındaki sade satırı ya da Codex'in kutunun içindeki satırı. Yazma alanının altındaki noktalar da bunu seçer."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Поштові скриньки для кодів"
+            "state": "translated",
+            "value": "Як поле повідомлення розміщує елементи керування: тихий рядок Claude під полем або рядок Codex усередині нього. Вибрати можна й крапками під полем введення."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Tài khoản email cho mã"
+            "state": "translated",
+            "value": "Cách ô tin nhắn sắp xếp các nút điều khiển: hàng gọn của Claude bên dưới ô, hoặc hàng của Codex bên trong ô. Các chấm bên dưới ô soạn thảo cũng chọn được."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "用于验证码的邮箱账户"
+            "state": "translated",
+            "value": "消息框如何排列控件：Claude 在框下方放一行低调的控件，Codex 把这一行放在框内。也可以用输入框下方的圆点选择。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "用於驗證碼的郵件帳號"
+            "state": "translated",
+            "value": "訊息框如何排列控制項：Claude 在框下方放一行低調的控制項，Codex 把這一行放在框內。也可以用輸入框下方的圓點選擇。"
           }
         }
       }
     },
-    "settings.browser.verificationAutofill.accounts.help": {
+    "settings.agentPane.display.modelChipIcon": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codes come only from these addresses. Mail is read on this Mac, never stored or sent."
+            "value": "Model Logo in Composer"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "تأتي الرموز من هذه العناوين فقط. تُقرأ الرسائل على هذا الـ Mac ولا تُخزَّن ولا تُرسَل أبدًا."
+            "state": "translated",
+            "value": "شعار النموذج في مربع الكتابة"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Kodovi dolaze samo s ovih adresa. Pošta se čita na ovom Macu i nikad se ne pohranjuje niti šalje."
+            "state": "translated",
+            "value": "Logo modela u polju za pisanje"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Koder kommer kun fra disse adresser. Mail læses på denne Mac og bliver aldrig gemt eller sendt."
+            "state": "translated",
+            "value": "Modellogo i skrivefeltet"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Codes kommen nur von diesen Adressen. Mails werden auf diesem Mac gelesen, nie gespeichert oder gesendet."
+            "state": "translated",
+            "value": "Modell-Logo im Eingabefeld"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Los códigos solo provienen de estas direcciones. El correo se lee en este Mac y nunca se guarda ni se envía."
+            "state": "translated",
+            "value": "Logotipo del modelo en el campo de redacción"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Les codes viennent uniquement de ces adresses. Les e-mails sont lus sur ce Mac, jamais enregistrés ni envoyés."
+            "state": "translated",
+            "value": "Logo du modèle dans la zone de saisie"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "I codici arrivano solo da questi indirizzi. La posta viene letta su questo Mac, mai salvata né inviata."
+            "state": "translated",
+            "value": "Logo del modello nel campo di scrittura"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "コードはこれらのアドレスからのみ読み取ります。メールはこの Mac 上で読み取り、保存も送信もしません。"
+            "state": "translated",
+            "value": "入力欄にモデルのロゴを表示"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "លេខកូដមកពីអាសយដ្ឋានទាំងនេះតែប៉ុណ្ណោះ។ អ៊ីមែលត្រូវបានអាននៅលើ Mac នេះ មិនដែលរក្សាទុក ឬផ្ញើទេ។"
+            "state": "translated",
+            "value": "និមិត្តសញ្ញាម៉ូដែលក្នុងប្រអប់សរសេរ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "코드는 이 주소에서만 가져옵니다. 메일은 이 Mac에서 읽으며 저장하거나 전송하지 않습니다."
+            "state": "translated",
+            "value": "입력창에 모델 로고 표시"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Koder kommer bare fra disse adressene. E-post leses på denne Macen og blir aldri lagret eller sendt."
+            "state": "translated",
+            "value": "Modellogo i skrivefeltet"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Kody pochodzą tylko z tych adresów. Poczta jest czytana na tym Macu, nigdy zapisywana ani wysyłana."
+            "state": "translated",
+            "value": "Logo modelu w polu tekstowym"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Os códigos vêm apenas destes endereços. Os e-mails são lidos neste Mac e nunca são guardados nem enviados."
+            "state": "translated",
+            "value": "Logotipo do modelo no campo de texto"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Коды берутся только с этих адресов. Почта читается на этом Mac, никогда не сохраняется и не отправляется."
+            "state": "translated",
+            "value": "Логотип модели в поле ввода"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "รหัสมาจากที่อยู่เหล่านี้เท่านั้น อีเมลถูกอ่านบน Mac เครื่องนี้ ไม่ถูกเก็บหรือส่งไปที่ใด"
+            "state": "translated",
+            "value": "โลโก้โมเดลในช่องเขียนข้อความ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Kodlar yalnızca bu adreslerden gelir. E-postalar bu Mac'te okunur, asla saklanmaz veya gönderilmez."
+            "state": "translated",
+            "value": "Yazma alanında model logosu"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Коди беруться лише з цих адрес. Пошта читається на цьому Mac і ніколи не зберігається й не надсилається."
+            "state": "translated",
+            "value": "Логотип моделі в полі введення"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Mã chỉ lấy từ các địa chỉ này. Thư được đọc trên máy Mac này, không bao giờ được lưu hay gửi đi."
+            "state": "translated",
+            "value": "Logo mô hình trong ô soạn thảo"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "验证码只来自这些地址。邮件只在这台 Mac 上读取，从不保存或发送。"
+            "state": "translated",
+            "value": "在输入框中显示模型标志"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "驗證碼只來自這些地址。郵件只在這台 Mac 上讀取，從不儲存或傳送。"
+            "state": "translated",
+            "value": "在輸入框中顯示模型標誌"
           }
         }
       }
     },
-    "settings.browser.verificationAutofill.accounts.summary": {
+    "settings.agentPane.display.modelChipIcon.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Addresses cmux may read codes from"
+            "value": "Shows the provider's logo next to the model's name in the message box. Right-click the model to turn it off or on."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "العناوين التي يمكن لـ cmux قراءة الرموز منها"
+            "state": "translated",
+            "value": "يعرض شعار المزوّد بجانب اسم النموذج في مربع الرسالة. انقر بزر الماوس الأيمن على النموذج لإيقافه أو تشغيله."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Adrese s kojih cmux smije čitati kodove"
+            "state": "translated",
+            "value": "Prikazuje logo dobavljača pored naziva modela u polju za poruku. Desnim klikom na model ga isključite ili uključite."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Adresser, cmux må læse koder fra"
+            "state": "translated",
+            "value": "Viser udbyderens logo ved siden af modellens navn i beskedfeltet. Højreklik på modellen for at slå det fra eller til."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Adressen, aus denen cmux Codes lesen darf"
+            "state": "translated",
+            "value": "Zeigt das Logo des Anbieters neben dem Modellnamen im Nachrichtenfeld. Klicke mit der rechten Maustaste auf das Modell, um es aus- oder einzuschalten."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Direcciones de las que cmux puede leer códigos"
+            "state": "translated",
+            "value": "Muestra el logotipo del proveedor junto al nombre del modelo en el cuadro de mensaje. Haz clic derecho en el modelo para desactivarlo o activarlo."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Adresses où cmux peut lire les codes"
+            "state": "translated",
+            "value": "Affiche le logo du fournisseur à côté du nom du modèle dans la zone de message. Cliquez avec le bouton droit sur le modèle pour le désactiver ou l'activer."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Indirizzi da cui cmux può leggere i codici"
+            "state": "translated",
+            "value": "Mostra il logo del fornitore accanto al nome del modello nel riquadro del messaggio. Fai clic destro sul modello per disattivarlo o attivarlo."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux がコードを読み取れるアドレス"
+            "state": "translated",
+            "value": "メッセージ欄のモデル名の横にプロバイダのロゴを表示します。モデルを右クリックするとオン・オフを切り替えられます。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "អាសយដ្ឋានដែល cmux អាចអានលេខកូដបាន"
+            "state": "translated",
+            "value": "បង្ហាញនិមិត្តសញ្ញារបស់អ្នកផ្តល់សេវានៅជាប់ឈ្មោះម៉ូដែលក្នុងប្រអប់សារ។ ចុចកណ្ដុរស្ដាំលើម៉ូដែលដើម្បីបិទ ឬបើកវា។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux가 코드를 읽을 수 있는 주소"
+            "state": "translated",
+            "value": "메시지 상자의 모델 이름 옆에 제공업체 로고를 표시합니다. 모델을 오른쪽 클릭해 끄거나 켤 수 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Adresser cmux kan lese koder fra"
+            "state": "translated",
+            "value": "Viser leverandørens logo ved siden av modellnavnet i meldingsfeltet. Høyreklikk på modellen for å slå det av eller på."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Adresy, z których cmux może czytać kody"
+            "state": "translated",
+            "value": "Pokazuje logo dostawcy obok nazwy modelu w polu wiadomości. Kliknij model prawym przyciskiem, aby je wyłączyć lub włączyć."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Endereços dos quais o cmux pode ler códigos"
+            "state": "translated",
+            "value": "Mostra o logotipo do provedor ao lado do nome do modelo na caixa de mensagem. Clique com o botão direito no modelo para desativar ou ativar."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Адреса, из которых cmux может читать коды"
+            "state": "translated",
+            "value": "Показывает логотип поставщика рядом с названием модели в поле сообщения. Нажмите на модель правой кнопкой, чтобы выключить или включить его."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ที่อยู่ที่ cmux อ่านรหัสได้"
+            "state": "translated",
+            "value": "แสดงโลโก้ของผู้ให้บริการข้างชื่อโมเดลในช่องข้อความ คลิกขวาที่โมเดลเพื่อปิดหรือเปิด"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux'un kod okuyabileceği adresler"
+            "state": "translated",
+            "value": "Mesaj kutusunda modelin adının yanında sağlayıcının logosunu gösterir. Kapatmak veya açmak için modele sağ tıklayın."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Адреси, з яких cmux може читати коди"
+            "state": "translated",
+            "value": "Показує логотип постачальника поруч із назвою моделі в полі повідомлення. Клацніть модель правою кнопкою, щоб вимкнути або ввімкнути його."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Các địa chỉ cmux được đọc mã"
+            "state": "translated",
+            "value": "Hiện logo của nhà cung cấp cạnh tên mô hình trong ô tin nhắn. Nhấp chuột phải vào mô hình để tắt hoặc bật."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux 可读取验证码的地址"
+            "state": "translated",
+            "value": "在消息框中的模型名称旁显示提供方的标志。右键点按模型可将其关闭或打开。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux 可讀取驗證碼的地址"
+            "state": "translated",
+            "value": "在訊息框中的模型名稱旁顯示提供者的標誌。按右鍵點按模型可將其關閉或開啟。"
           }
         }
       }
     },
-    "settings.choice.fontSmoothingSmooth": {
-      "comment": "Text Smoothing choice: the macOS font smoothing turned on everywhere (CSS subpixel-antialiased).",
+    "settings.agentPane.display.queueing": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
       "extractionState": "manual",
       "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Queue Prompts During a Turn"
+          }
+        },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ناعم"
+            "value": "وضع الطلبات في قائمة الانتظار أثناء الدور"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Glatko"
+            "value": "Stavi upite u red tokom poteza"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Udglattet"
+            "value": "Sæt prompter i kø under en tur"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Geglättet"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Smooth"
+            "value": "Prompts während eines Durchgangs einreihen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Suavizado"
+            "value": "Poner en cola las instrucciones durante un turno"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lissé"
+            "value": "Mettre les invites en file pendant un tour"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Smussato"
+            "value": "Metti in coda i prompt durante un turno"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "滑らか"
+            "value": "ターン中のプロンプトをキューに入れる"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "រលោង"
+            "value": "ដាក់ប្រអប់បញ្ចូលក្នុងជួររង់ចាំក្នុងវេន"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "부드럽게"
+            "value": "턴 중 프롬프트를 대기열에 넣기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utjevnet"
+            "value": "Sett ledetekster i kø under en tur"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wygładzone"
+            "value": "Kolejkuj polecenia podczas tury"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Suavizado"
+            "value": "Enfileirar prompts durante um turno"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Сглаженное"
+            "value": "Ставить запросы в очередь во время хода"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เรียบ"
+            "value": "จัดคิวพรอมต์ระหว่างรอบการทำงาน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Yumuşak"
+            "value": "Tur sırasında istemleri sıraya al"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Згладжене"
+            "value": "Ставити запити в чергу під час ходу"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mượt"
+            "value": "Xếp hàng lời nhắc trong một lượt"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "平滑"
+            "value": "回合进行中将提示加入队列"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "平滑"
+            "value": "回合進行中將提示加入佇列"
           }
         }
       }
     },
-    "settings.category.cloud": {
-      "comment": "Settings sidebar: the Cloud category (what Cloud chats run on, Cloud Environments and Cloud Workspaces). Cloud is the product feature.",
+    "settings.agentPane.display.queueing.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud"
+            "value": "On, Send and ⌘Return queue a prompt sent while a turn runs, and Return steers it into the turn. Off, every send steers, so nothing waits."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "السحابة"
+            "value": "عند التشغيل، يضع زر الإرسال و⌘Return الطلب المُرسل أثناء الدور في قائمة الانتظار، ويوجّهه Return إلى الدور الجاري. عند الإيقاف، يوجّه كل إرسال، فلا ينتظر شيء."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud"
+            "value": "Uključeno: Pošalji i ⌘Return stavljaju u red upit poslan tokom poteza, a Return ga usmjerava u potez. Isključeno: svako slanje usmjerava, pa ništa ne čeka."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud"
+            "value": "Til: Send og ⌘Return sætter en prompt sendt under en tur i kø, og Return styrer den ind i turen. Fra: hver afsendelse styrer, så intet venter."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud"
+            "value": "Ein: Senden und ⌘Return reihen einen Prompt, der während eines Durchgangs gesendet wird, ein, und Return lenkt ihn in den Durchgang. Aus: Jedes Senden lenkt, nichts wartet."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nube"
+            "value": "Activado: Enviar y ⌘Return ponen en cola una instrucción enviada durante un turno, y Return la dirige al turno. Desactivado: cada envío la dirige, así que nada espera."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud"
+            "value": "Activé : Envoyer et ⌘Retour mettent en file une invite envoyée pendant un tour, et Retour l'oriente dans le tour. Désactivé : chaque envoi oriente, rien n'attend."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud"
+            "value": "Attivo: Invia e ⌘Return mettono in coda un prompt inviato durante un turno, e Return lo indirizza nel turno. Disattivo: ogni invio lo indirizza, così niente resta in attesa."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "クラウド"
+            "value": "オンにすると、ターン中に送ったプロンプトは送信と ⌘Return でキューに入り、Return でそのターンに割り込ませます。オフにすると、どの送信も割り込むので待つものはありません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud"
+            "value": "បើក៖ ផ្ញើ និង ⌘Return ដាក់ប្រអប់បញ្ចូលដែលបានផ្ញើក្នុងវេនក្នុងជួររង់ចាំ ហើយ Return បញ្ជូនវាចូលវេន។ បិទ៖ ការផ្ញើនីមួយៗបញ្ជូនចូល ដូច្នេះគ្មានអ្វីរង់ចាំទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "클라우드"
+            "value": "켜면 턴 중에 보낸 프롬프트를 보내기와 ⌘Return이 대기열에 넣고, Return은 진행 중인 턴에 끼워 넣습니다. 끄면 모든 전송이 끼워 넣어지므로 기다리는 것이 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud"
+            "value": "På: Send og ⌘Return setter en ledetekst sendt under en tur i kø, og Return styrer den inn i turen. Av: hver sending styrer, så ingenting venter."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud"
+            "value": "Włączone: Wyślij i ⌘Return kolejkują polecenie wysłane w trakcie tury, a Return kieruje je do tury. Wyłączone: każde wysłanie kieruje, więc nic nie czeka."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud"
+            "value": "Ativado: Enviar e ⌘Return enfileiram um prompt enviado durante um turno, e Return o direciona para o turno. Desativado: cada envio direciona, então nada espera."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud"
+            "value": "Включено: «Отправить» и ⌘Return ставят запрос, отправленный во время хода, в очередь, а Return направляет его в текущий ход. Выключено: каждая отправка направляет, ничего не ждёт."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud"
+            "value": "เปิด: ส่งและ ⌘Return จะจัดคิวพรอมต์ที่ส่งระหว่างรอบ และ Return จะนำเข้าสู่รอบนั้น ปิด: ทุกการส่งจะนำเข้าทันที จึงไม่มีอะไรรอ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud"
+            "value": "Açık: Gönder ve ⌘Return, tur sırasında gönderilen istemi sıraya alır; Return onu tura yönlendirir. Kapalı: her gönderim yönlendirir, hiçbir şey beklemez."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud"
+            "value": "Увімкнено: «Надіслати» і ⌘Return ставлять у чергу запит, надісланий під час ходу, а Return спрямовує його в хід. Вимкнено: кожне надсилання спрямовує, тож ніщо не чекає."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud"
+            "value": "Bật: Gửi và ⌘Return xếp hàng lời nhắc gửi trong một lượt, còn Return lái nó vào lượt đó. Tắt: mỗi lần gửi đều lái vào, nên không có gì phải chờ."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "云端"
+            "value": "打开时，回合进行中发送的提示会通过“发送”和 ⌘Return 加入队列，Return 则将其插入当前回合。关闭时，每次发送都会插入，不会有任何等待。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "雲端"
-          }
-        }
-      }
-    },
-    "settings.category.models": {
-      "comment": "Settings sidebar: the Models category (which subscription or key each Cloud thread runs on).",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Models"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "النماذج"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modeli"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modeller"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modelle"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modelos"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modèles"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modelli"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "モデル"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ម៉ូដែល"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "모델"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modeller"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modele"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modelos"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Модели"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "โมเดล"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modeller"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Моделі"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mô hình"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "模型"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "模型"
-          }
-        }
-      }
-    },
-    "settings.group.models": {
-      "comment": "Settings > Models: group title of the model connection settings",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "النماذج"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modeli"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modeller"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modelle"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Models"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modelos"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modèles"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modelli"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "モデル"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ម៉ូដែល"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "모델"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modeller"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modele"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modelos"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Модели"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "โมเดล"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modeller"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Моделі"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mô hình"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "模型"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "模型"
-          }
-        }
-      }
-    },
-    "settings.models.spreadUsage": {
-      "comment": "Settings > Models: toggle title; a thread may move between the person's subscriptions",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "توزيع الاستخدام على اشتراكاتي"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rasporedi korištenje na moje pretplate"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fordel forbruget på mine abonnementer"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nutzung auf meine Abos verteilen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Spread Usage Across My Subscriptions"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Repartir el uso entre mis suscripciones"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Répartir l’usage entre mes abonnements"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Distribuisci l’uso tra i miei abbonamenti"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "使用量をサブスクリプション間で分散"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ចែកការប្រើប្រាស់ទៅលើការជាវរបស់ខ្ញុំ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "내 구독에 사용량 분산"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fordel bruken på abonnementene mine"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rozkładaj użycie na moje subskrypcje"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Distribuir o uso entre minhas assinaturas"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Распределять использование по моим подпискам"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "กระจายการใช้งานไปยังการสมัครสมาชิกของฉัน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kullanımı aboneliklerime dağıt"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Розподіляти використання між моїми підписками"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Phân bổ mức dùng cho các gói của tôi"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在我的订阅之间分摊用量"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在我的訂閱之間分攤用量"
-          }
-        }
-      }
-    },
-    "settings.models.spreadUsage.help": {
-      "comment": "Settings > Models: help text of the spread toggle",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "عند نفاد أحد الاشتراكات، تنتقل المحادثة إلى اشتراك آخر بالنموذج نفسه."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kada jedna pretplata potroši limit, chat prelazi na drugu s istim modelom."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Når et abonnement er brugt op, flytter en chat til et andet med samme model."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ist ein Abo aufgebraucht, wechselt ein Chat zu einem anderen mit demselben Modell."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "When one subscription runs out, a chat moves to another with the same model."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cuando una suscripción se agota, el chat pasa a otra con el mismo modelo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quand un abonnement est épuisé, la discussion passe à un autre avec le même modèle."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quando un abbonamento si esaurisce, una chat passa a un altro con lo stesso modello."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "あるサブスクリプションの上限に達すると、同じモデルを使える別のサブスクリプションにチャットが移ります。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "នៅពេលការជាវមួយអស់ ការជជែកផ្លាស់ទៅការជាវផ្សេងទៀតដែលមានម៉ូដែលដដែល។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "한 구독의 한도가 다 되면 같은 모델을 쓰는 다른 구독으로 채팅이 옮겨갑니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Når ett abonnement er brukt opp, flyttes en chat til et annet med samme modell."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Gdy jedna subskrypcja się wyczerpie, czat przechodzi na inną z tym samym modelem."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quando uma assinatura se esgota, o chat passa para outra com o mesmo modelo."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Когда одна подписка исчерпана, чат переходит на другую с той же моделью."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เมื่อการสมัครสมาชิกหนึ่งใช้หมด แชตจะย้ายไปยังอีกรายการที่มีโมเดลเดียวกัน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bir abonelik tükendiğinde sohbet, aynı modeli sunan başka bir aboneliğe geçer."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Коли одна підписка вичерпана, чат переходить на іншу з тією самою моделлю."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Khi một gói hết hạn mức, cuộc trò chuyện chuyển sang gói khác có cùng mô hình."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "一个订阅用完后，聊天会转到另一个提供同一模型的订阅。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "一個訂閱用完後，聊天會轉到另一個提供同一模型的訂閱。"
+            "value": "開啟時，回合進行中傳送的提示會透過「傳送」和 ⌘Return 加入佇列，Return 則將其插入目前回合。關閉時，每次傳送都會插入，不會有任何等待。"
           }
         }
       }
