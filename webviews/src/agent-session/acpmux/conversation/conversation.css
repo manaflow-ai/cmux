@@ -4244,7 +4244,7 @@ button.cv-video-frames__frame:focus-visible {
   gap: var(--ds-space-2);
   margin: 0 0 var(--ds-space-2) var(--cv-tool-text-inset);
   padding: var(--ds-space-1) var(--ds-space-3);
-  border-radius: var(--cv-card-radius, var(--grid-cards-radius));
+  border-radius: var(--grid-cards-radius);
   background: var(--cv-card-fill);
   box-shadow:
     inset 2px 0 0 color-mix(in srgb, var(--agent-status-failure) 70%, transparent),
