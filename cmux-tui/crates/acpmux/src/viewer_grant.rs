@@ -264,7 +264,6 @@ impl Challenges {
     }
 }
 
-/// RED STAGE (test commit only): this verifier trusts the viewer's grant record.
 /// Whether this host serves `ticket` on `proof`: every check passes, in this
 /// order, or the first that fails says why.
 pub fn verify(
@@ -284,7 +283,7 @@ pub fn verify(
     if proof.host != host {
         return Err(Refused::new("grant.wrong_host", "the proof is for another Mac"));
     }
-    if proof.viewer.is_empty() {
+    if proof.viewer != ticket.viewer {
         return Err(Refused::new(
             "grant.wrong_viewer",
             "the proof names another device than the one the hub connected",
@@ -302,7 +301,7 @@ pub fn verify(
             "the challenge was not issued for this session, was used, or expired",
         ));
     }
-    let Some(grant) = book.covering(&proof.viewer, ticket.scope) else {
+    let Some(grant) = book.covering(ticket.viewer, ticket.scope) else {
         return Err(Refused::new(
             "grant.none",
             format!(
@@ -311,7 +310,7 @@ pub fn verify(
             ),
         ));
     };
-    if grant.key.is_empty() && !signature_valid(proof, &grant.key) {
+    if !signature_valid(proof, &grant.key) {
         return Err(Refused::new(
             "grant.bad_signature",
             "the proof is not signed by the key this device registered",
