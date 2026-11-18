@@ -8329,7 +8329,10 @@ export class AcpmuxDirectClient {
       const page = records(result?.events);
       stored.push(...page.filter((event) => event.seq <= endSeq));
       if (result?.hasMore !== true || page.length === 0) break;
-      cursor = Math.max(cursor, ...page.map((event) => event.seq));
+      const next = Math.max(...page.map((event) => event.seq));
+      // A page that says hasMore but holds nothing past the cursor would read the same page again.
+      if (next <= cursor) break;
+      cursor = next;
     }
     return stored;
   }
