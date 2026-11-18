@@ -581,6 +581,10 @@ impl Customize {
             entry.thumbnail.keys =
                 if layer.has_web() { vec![WEB_KEY.to_owned()] } else { Vec::new() };
             entry.on = entry.on && layer.has_web();
+            // A watch rebuild is a folder in use: its 24 hours start again.
+            if entry.on && layer.kind == CodeKind::Dir {
+                entry.on_ms = Some(now_ms);
+            }
             entry.code = Some(layer);
             Ok(())
         })
@@ -605,7 +609,11 @@ impl Customize {
                 .ok_or_else(|| Error::Library(format!("{name} is not a code entry")))?;
             code.note = one_line(note);
             if let Some(on) = on {
+                let was_on = entry.on;
                 entry.on = on && entry.code.as_ref().is_some_and(CodeLayer::has_web);
+                if entry.on && !was_on {
+                    entry.on_ms = Some(now_ms);
+                }
             }
             Ok(())
         })

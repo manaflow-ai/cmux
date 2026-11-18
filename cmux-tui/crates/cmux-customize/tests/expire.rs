@@ -10,7 +10,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use cmux_customize::library::expire::{MAX_AGE_MS, WEB_DEV_OVERLAY};
-use cmux_customize::library::{CodeLayer, Expiry};
+use cmux_customize::library::{CodeKind, CodeLayer, Expiry};
 use cmux_customize::{Customize, Roots};
 use serde_json::{Value, json};
 
@@ -152,7 +152,13 @@ fn a_pr_layer_whose_pr_merged_or_closed_turns_off() {
     customize.library_use_code(layer(10, 1), vec![], "cli", 1).unwrap();
     customize.library_use_code(layer(20, 2), vec![], "cli", 2).unwrap();
     customize.library_use_code(layer(30, 3), vec![], "cli", 3).unwrap();
-    let ended = BTreeMap::from([(10, "merged".to_owned()), (20, "closed".to_owned())]);
+    let cmux = || "manaflow-ai/cmux".to_owned();
+    let ended = BTreeMap::from([
+        ((cmux(), 10), "merged".to_owned()),
+        ((cmux(), 20), "closed".to_owned()),
+        // A fork's PR 30 merged; this entry is manaflow-ai/cmux's open PR 30.
+        (("someone/cmux".to_owned(), 30), "merged".to_owned()),
+    ]);
     let out = customize.expire_stale(&Expiry { now_ms: 4, ended, ..Expiry::default() }, "app");
     let why: Vec<(String, String)> =
         out.expired.iter().map(|expired| (expired.name.clone(), expired.why.clone())).collect();
@@ -194,6 +200,27 @@ fn a_hand_installed_overlay_past_its_bound_turns_off_and_comes_back() {
     assert!(customize.layers_at(Some(7), now + HOUR).expired.is_empty());
     assert!(customize.expire_stale(&at(now + 10 * HOUR), "cli").expired.is_empty());
     assert_eq!(customize.expire_stale(&at(now + 26 * HOUR), "cli").expired.len(), 1);
+}
+
+/// A folder layer a watch keeps rebuilding is in use: each rebuild starts its
+/// 24 hours again, so it stays on while someone edits it.
+#[test]
+fn a_watched_folder_layer_stays_on_while_it_rebuilds() {
+    let home = Home::new();
+    let customize = home.customize();
+    install(&customize, 1);
+    install(&customize, 2);
+    let dir = |n| CodeLayer { kind: CodeKind::Dir, source: "/src/cmux".to_owned(), ..layer(0, n) };
+    customize.library_use_code(dir(1), vec![], "cli", 1_000).unwrap();
+    let name = customize.library().unwrap().entries[0].name.clone();
+
+    // Rebuilt by the watch a day and a half later.
+    let rebuilt = 1_000 + 36 * HOUR;
+    customize.library_update_code(dir(2), "watch", rebuilt).unwrap();
+    assert!(customize.expire_stale(&at(rebuilt + HOUR), "cli").expired.is_empty());
+    assert!(on(&customize, &name));
+    // Left alone past its bound after the last rebuild, it expires.
+    assert_eq!(customize.expire_stale(&at(rebuilt + 25 * HOUR), "cli").expired.len(), 1);
 }
 
 /// An overlay the app refuses for another web ABI is stale however new.

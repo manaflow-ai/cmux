@@ -177,13 +177,18 @@ pub(super) struct Http {
 
 impl Http {
     pub(super) fn new() -> Result<Http, Failure> {
+        Http::with_timeout(Duration::from_secs(300))
+    }
+
+    /// One whose every request gives up after `timeout`.
+    fn with_timeout(timeout: Duration) -> Result<Http, Failure> {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .map_err(|error| failure(format!("could not start a network runtime: {error}")))?;
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(300))
+            .timeout(timeout)
             .user_agent(concat!("cmux-customize/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|error| failure(format!("could not start an HTTP client: {error}")))?;
@@ -738,13 +743,20 @@ fn ended(http: &Http, repo: &str, pr: u64) -> Option<String> {
     })
 }
 
-/// `cmux customize library expire`: every layer past its bound off, the
-/// PRs that are on asked about on GitHub first (one that does not answer
-/// is judged by age alone). The app runs it at launch.
+/// How long `expire` waits for GitHub about one PR, and about all of them:
+/// the app gives the whole run 30 s (`BundledCLIRun`).
+const EXPIRE_ASK: Duration = Duration::from_secs(5);
+const EXPIRE_ASK_ALL: Duration = Duration::from_secs(15);
+
+/// `cmux customize library expire`: every layer past its bound off, by age
+/// first, so a network that hangs keeps none on; then the PRs still on asked
+/// about on GitHub (one that does not answer in time stays judged by age).
+/// The app runs it at launch.
 pub(super) fn expire(customize: &Customize, origin: &str, now_ms: u64) -> Result<Answer, Failure> {
     let app = App::find();
     let mut expiry =
         cmux_customize::library::Expiry { now_ms, app_abi: app.abi, ..Default::default() };
+    let mut expiring = customize.expire_stale(&expiry, origin);
     let on_prs: Vec<(String, u64)> = customize
         .library()
         .map(|listing| {
@@ -759,15 +771,23 @@ pub(super) fn expire(customize: &Customize, origin: &str, now_ms: u64) -> Result
         })
         .unwrap_or_default();
     if !on_prs.is_empty()
-        && let Ok(http) = Http::new()
+        && let Ok(http) = Http::with_timeout(EXPIRE_ASK)
     {
+        let started = std::time::Instant::now();
         for (repo, pr) in on_prs {
+            if started.elapsed() > EXPIRE_ASK_ALL {
+                break;
+            }
             if let Some(word) = ended(&http, &repo, pr) {
-                expiry.ended.insert(pr, word);
+                expiry.ended.insert((repo, pr), word);
             }
         }
     }
-    let expiring = customize.expire_stale(&expiry, origin);
+    if !expiry.ended.is_empty() {
+        let more = customize.expire_stale(&expiry, origin);
+        expiring.expired.extend(more.expired);
+        expiring.problems.extend(more.problems);
+    }
     let mut human = if expiring.expired.is_empty() {
         "nothing past its bound\n".to_owned()
     } else {
