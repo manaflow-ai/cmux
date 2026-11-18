@@ -36,13 +36,24 @@ nonisolated struct CEFBuiltInExtensions: Equatable, Sendable {
 
     func plan(resources: URL?, profiles: URL?,
               fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) -> Plan {
-        let person = profiles.map { Self.personAdBlocker(profiles: $0) } ?? nil
+        plan(resources: resources, person: profiles.map { Self.personAdBlocker(profiles: $0) } ?? nil, fileExists: fileExists)
+    }
+
+    /// The plan for a `person` read ahead (`personAdBlocker(profiles:)` reads and parses each profile's
+    /// preference files: a launch reads it off the main thread before the first frame, `CEFRuntime.beginLaunchPrep`).
+    func plan(resources: URL?, person: Int?,
+              fileExists: (String) -> Bool) -> Plan {
         guard adBlockerEnabled, person == nil, let resources else { return Plan(folders: [], keepsUnpackedEnabled: person == 4) }
-        let manifest = resources.appendingPathComponent(Self.adBlockerFolder).appendingPathComponent("manifest.json").path
+        let manifest = Self.adBlockerManifest(resources: resources).path
         let folder = resources.appendingPathComponent(Self.adBlockerFolder).path
         // Chromium splits --load-extension on commas.
         guard fileExists(manifest), !folder.contains(",") else { return Plan(folders: [], keepsUnpackedEnabled: false) }
         return Plan(folders: [folder], keepsUnpackedEnabled: true)
+    }
+
+    /// The built-in uBlock Origin's manifest under the app's `resources`.
+    static func adBlockerManifest(resources: URL) -> URL {
+        resources.appendingPathComponent(adBlockerFolder).appendingPathComponent("manifest.json")
     }
 
     /// True when a Chromium profile under `profiles` holds a uBlock Origin the

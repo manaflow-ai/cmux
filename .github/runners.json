@@ -255,6 +255,7 @@
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
     },
     "app-ffi-release.yml#build": "apple-app-build",
+    "billing.yml#ios-billing": "apple-ios",
     "auth-refresh-tests.yml#auth-refresh-tests": {
       "class": "apple-swift-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
@@ -439,7 +440,7 @@
     "ios-internal-nightly.yml#archive": "apple-ios",
     "ios-review-gate.yml#reviewer-path": {
       "class": "apple-ios",
-      "picker_followup": "holds the agent pass's Claude token and runs its CLI on the Mac, so it stays on the ephemeral Blacksmith macOS 26 pool; an owned route needs a picker that keeps credentialed jobs off persistent machines"
+      "picker_followup": "holds no secret since the agent reviewer pass was removed; it stays on the ephemeral Blacksmith macOS 26 pool until a picker job routes it to an owned Mac"
     },
     "ios-review-gate.yml#asc-validate": {
       "class": "apple-ios",

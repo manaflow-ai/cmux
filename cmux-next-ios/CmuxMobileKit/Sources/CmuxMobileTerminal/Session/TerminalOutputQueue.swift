@@ -23,7 +23,9 @@ public struct TerminalOutputQueue: Sendable {
     private enum Item: Sendable {
         case bytes([Data])
         case alternateScreen(Bool)
-        case hostGrid(columns: Int, rows: Int)
+        /// `stale`: the Mac's answer to a resize the phone asked for before
+        /// its newest one (that one's answer is still coming).
+        case hostGrid(columns: Int, rows: Int, stale: Bool)
         case hostGridOwner(String?)
     }
 
@@ -50,6 +52,17 @@ public struct TerminalOutputQueue: Sendable {
     public init() {}
 
     public var isEmpty: Bool { items.isEmpty }
+
+    /// A switch off the alternate screen is queued (a replay that leaves it).
+    public var leavesAlternateScreen: Bool {
+        items.contains { if case .alternateScreen(false) = $0 { true } else { false } }
+    }
+
+    /// The Mac's grid change at the front, when that is the next step.
+    public var nextHostGrid: (columns: Int, rows: Int)? {
+        guard case .hostGrid(let columns, let rows, _)? = items.first else { return nil }
+        return (columns, rows)
+    }
     public var isOverHighWater: Bool { pendingBytes > Self.highWater }
     public var isUnderLowWater: Bool { pendingBytes < Self.lowWater }
 
@@ -71,8 +84,8 @@ public struct TerminalOutputQueue: Sendable {
 
     /// The Mac's grid became `columns` x `rows` here: taken once every byte
     /// before it was taken, so no byte is drawn at a grid it was not written for.
-    public mutating func append(hostGrid columns: Int, rows: Int) {
-        items.append(.hostGrid(columns: columns, rows: rows))
+    public mutating func append(hostGrid columns: Int, rows: Int, stale: Bool = false) {
+        items.append(.hostGrid(columns: columns, rows: rows, stale: stale))
     }
 
     /// The device that sets the Mac's grid changed here: taken in order with
@@ -89,7 +102,7 @@ public struct TerminalOutputQueue: Sendable {
         case .alternateScreen(let on):
             items.removeFirst()
             return .alternateScreen(on)
-        case .hostGrid(let columns, let rows):
+        case .hostGrid(let columns, let rows, _):
             items.removeFirst()
             return .hostGrid(columns: columns, rows: rows)
         case .hostGridOwner(let name):
@@ -123,6 +136,70 @@ public struct TerminalOutputQueue: Sendable {
             pendingBytes -= out.count
             return .bytes(out)
         }
+    }
+
+    /// The grid change at the front answers a resize older than the
+    /// newest one: the queue waits there for the newest answer.
+    public var nextHostGridIsStale: Bool {
+        guard case .hostGrid(_, _, let stale)? = items.first else { return false }
+        return stale
+    }
+
+    /// A newer resize went out: every answer still queued is an older one's.
+    public mutating func markGridsStale() {
+        for index in items.indices {
+            if case .hostGrid(let columns, let rows, false) = items[index] { items[index] = .hostGrid(columns: columns, rows: rows, stale: true) }
+        }
+    }
+
+    /// The newest answer is not coming (its wait ran out): the queued
+    /// answers go to the screen in order.
+    public mutating func clearStale() {
+        for index in items.indices {
+            if case .hostGrid(let columns, let rows, true) = items[index] { items[index] = .hostGrid(columns: columns, rows: rows, stale: false) }
+        }
+    }
+
+    /// The newest answer did not come: only the last stale answer queued
+    /// stays (the older ones' resets would end its replay's count early).
+    public mutating func keepLastStaleAnswer() {
+        guard let last = items.lastIndex(where: { if case .hostGrid(_, _, true) = $0 { true } else { false } }),
+              let first = items[..<last].firstIndex(where: { if case .hostGrid(_, _, true) = $0 { true } else { false } }) else { return }
+        var dropped = 0
+        var kept: [Item] = []
+        for item in items[first..<last] {
+            switch item {
+            case .bytes(let chunks): dropped += chunks.reduce(0) { $0 + $1.count }
+            case .hostGrid: break
+            case .alternateScreen, .hostGridOwner: kept.append(item)
+            }
+        }
+        items.replaceSubrange(first..<last, with: kept)
+        pendingBytes -= dropped
+    }
+
+    /// The newest answer starts here (the grid change just queued): the
+    /// stale answers queued before it (a grid change, its mirror reset and
+    /// replay, and any bytes after them) are dropped, because its own reset
+    /// clears whatever they would draw. Mode switches and grid owners stay,
+    /// in order. Returns the bytes dropped.
+    @discardableResult
+    public mutating func dropStaleAnswers() -> Int {
+        guard case .hostGrid(_, _, false)? = items.last else { return 0 }
+        let last = items.count - 1
+        guard let first = items[..<last].firstIndex(where: { if case .hostGrid(_, _, true) = $0 { true } else { false } }) else { return 0 }
+        var dropped = 0
+        var kept: [Item] = []
+        for item in items[first..<last] {
+            switch item {
+            case .bytes(let chunks): dropped += chunks.reduce(0) { $0 + $1.count }
+            case .hostGrid: break
+            case .alternateScreen, .hostGridOwner: kept.append(item)
+            }
+        }
+        items.replaceSubrange(first..<last, with: kept)
+        pendingBytes -= dropped
+        return dropped
     }
 
     /// Drops everything (the session restarted).
