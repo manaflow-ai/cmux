@@ -25,7 +25,7 @@ public struct AgentChatDriveControl: Sendable {
     public nonisolated static let maxSeconds = 30
     public nonisolated static let defaultSeconds = 10
     /// How long after the person's own key or click in the chat it counts as theirs.
-    public nonisolated static let personQuietSeconds: TimeInterval = 2
+    nonisolated static let personQuietSeconds: TimeInterval = 2
 
     public typealias ChatPage = AgentChatPerfControl.ChatPage
 
