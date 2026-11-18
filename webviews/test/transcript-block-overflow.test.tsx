@@ -248,7 +248,11 @@ test("a long output scrolls through its last 400 lines, and Show all output draw
   const shell = host.querySelector(".cv-shell")!;
   expect(shell.querySelector(".cv-shell__output")?.textContent?.startsWith("line 601\n")).toBe(true);
   await click(byText("Show all output", shell));
-  expect(shell.querySelector(".cv-shell__output")?.textContent).toBe(lines(1000).replace(/\n$/, ""));
+  // Its box now scrolls through all of it from the first line; it mounts the lines in the box's view
+  // (lineWindow.ts, transcript-block-lines-window.test.tsx).
+  const drawn = shell.querySelector(".cv-shell__output")?.textContent ?? "";
+  expect(drawn.startsWith("line 1\n")).toBe(true);
+  expect(lines(1000).startsWith(drawn)).toBe(true);
   // Show less closes it up to its end again, still scrolling in its box.
   await click(byText("Show less", shell));
   expect(shell.querySelector(".cv-shell__body")?.getAttribute("data-preview")).toBe("cut");

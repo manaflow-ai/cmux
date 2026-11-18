@@ -95,12 +95,19 @@ export function useLineWindow(box: RefObject<HTMLElement | null>, total: number,
     if (!scroller || !head || !tail) return;
     const shown = drawn.current;
     const view = scroller.getBoundingClientRect();
+    // A box not laid out (hidden, or not yet in the page) has no view to window to.
+    if (view.height <= 0) return;
     const above = head.getBoundingClientRect();
     const below = tail.getBoundingClientRect();
     const mounted = shown.to - shown.from;
     const lines = below.top - above.bottom;
-    const fallback = parseFloat(scroller.ownerDocument.defaultView?.getComputedStyle(scroller).lineHeight ?? "") || 18;
-    const line = mounted > 0 && lines > 0 ? lines / mounted : shown.line || fallback;
+    // Nothing drawn to measure (an empty window): the last estimate, else the box's line height.
+    const line =
+      mounted > 0 && lines > 0
+        ? lines / mounted
+        : shown.line ||
+          parseFloat(scroller.ownerDocument.defaultView?.getComputedStyle(scroller).lineHeight ?? "") ||
+          18;
     // The line at the box's top edge, read off what is drawn: through a spacer in proportion to
     // its height, so a stale estimate maps back onto the lines it stood for.
     const y = view.top - above.top;
@@ -188,8 +195,12 @@ export function useLineWindow(box: RefObject<HTMLElement | null>, total: number,
     scroller.addEventListener("scroll", measure, { passive: true });
     doc.addEventListener("selectionchange", onSelection);
     const view = doc.defaultView;
+    // The box, for a width change, and the lines' parent, whose height changes when the same lines
+    // take other rows (Wrap lines, the mono font loading) while the box keeps its height.
     const resize = view?.ResizeObserver ? new view.ResizeObserver(measure) : undefined;
     resize?.observe(scroller);
+    const host = topNode.current?.parentElement;
+    if (host) resize?.observe(host);
     return () => {
       // Off (Find opened the block whole, its command ran again): the next time it windows, it
       // measures what it then draws first.
