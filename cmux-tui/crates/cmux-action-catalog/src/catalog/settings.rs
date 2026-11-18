@@ -350,10 +350,12 @@ pub static ACTIONS: &[Action] = &[
         symbol: "arrow.uturn.backward.circle",
         surfaces: PALETTE | MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), mcp_exemption: Some("systemChange"), ..SurfacePlan::DEFAULT },
+        // Not destructive: it quits into the build this Mac kept, and updating again undoes it
+        // (terminals and agents keep running), so a pick runs it. `--confirm` is still taken and
+        // changes nothing, for scripts written when it asked.
         arguments: &[args::CONFIRM.optional()],
         cli_name: "settings rollback-update",
         main_menu: Some("app"),
-        is_destructive: true,
         ..Action::DEFAULT
     },
     Action {
@@ -379,6 +381,73 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
         arguments: &[args::UPDATE_SNOOZE],
         cli_name: "action updates-snooze",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "updates.cancelDownload",
+        group: GROUP,
+        title: t("ActionCatalog", "action.updates.cancelDownload", "Cancel Update Download"),
+        keywords: &["update", "download", "cancel", "stop", "abort", "nightly", "version"],
+        category: "settings",
+        symbol: "xmark.circle",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        cli_name: "action updates-cancel-download",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "updates.showDetails",
+        group: GROUP,
+        title: t("ActionCatalog", "action.updates.showDetails", "Show Update Details"),
+        keywords: &["update", "details", "error", "failed", "failure", "why", "nightly", "version"],
+        category: "settings",
+        symbol: "info.circle",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        cli_name: "action updates-show-details",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "updates.releaseNotes",
+        group: GROUP,
+        title: t("ActionCatalog", "action.updates.releaseNotes", "Open Update Release Notes"),
+        keywords: &["update", "release notes", "changelog", "changes", "new version", "nightly"],
+        category: "settings",
+        symbol: "doc.text",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        cli_name: "action updates-release-notes",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "tips.muteDay",
+        group: GROUP,
+        title: t("ActionCatalog", "action.tips.muteDay", "Mute Tips for 1 Day"),
+        keywords: &["tips", "tip", "did you know", "mute", "hide", "snooze", "card", "sidebar", "day"],
+        category: "settings",
+        symbol: "bell.slash",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        cli_name: "action tips-mute-day",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "tips.muteWeek",
+        group: GROUP,
+        title: t("ActionCatalog", "action.tips.muteWeek", "Mute Tips for 1 Week"),
+        keywords: &["tips", "tip", "did you know", "mute", "hide", "snooze", "card", "sidebar", "week"],
+        category: "settings",
+        symbol: "bell.slash",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        cli_name: "action tips-mute-week",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "tabs.toolbar.togglePin",
+        group: GROUP,
+        title: t("ActionCatalog", "action.tabs.toolbar.togglePin", "Pin or Unpin Tab Bar Button…"),
+        keywords: &["tab bar", "toolbar", "button", "pin", "unpin", "show in tab bar", "split", "more"],
+        category: "settings",
+        symbol: "pin",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::TAB_BAR_BUTTON],
+        cli_name: "action tabs-toolbar-toggle-pin",
         ..Action::DEFAULT
     },
     Action {

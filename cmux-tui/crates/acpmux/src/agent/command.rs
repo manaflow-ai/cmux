@@ -304,7 +304,9 @@ fn build_harness_command(
                 let blank = |key: &str| env.get(key).is_some_and(|v| v.is_empty());
                 // SAFETY: getuid has no preconditions.
                 let uid = unsafe { libc::getuid() };
-                cmd.envs(session_tmp::env_for(&dir, agent, blank, cfg!(target_os = "macos"), uid));
+                let runtime = session_tmp::user_runtime_dir(uid);
+                let mac = cfg!(target_os = "macos");
+                cmd.envs(session_tmp::env_for(&dir, agent, blank, mac, runtime.as_deref(), uid));
             }
         }
     }
@@ -763,9 +765,12 @@ mod tests {
         assert_eq!(var(&env, SESSION_TMPDIR_ENV), Some(dir_a.clone()));
         // Without a runtime dir (when this test process has none): a Mac gives
         // the session its folder as TMPDIR and pins the socket base the agent
-        // resolved before (the TMPDIR it has without a session); elsewhere
-        // TMPDIR stays.
+        // resolved before (the TMPDIR it has without a session); Linux gives it
+        // its folder and the user's systemd runtime dir when there is one, else
+        // TMPDIR stays and Claude Code's own folder is the session's.
         if std::env::var_os("XDG_RUNTIME_DIR").is_none_or(|v| v.is_empty()) {
+            // SAFETY: getuid has no preconditions.
+            let runtime = super::super::session_tmp::user_runtime_dir(unsafe { libc::getuid() });
             let plain: HarnessProfile =
                 serde_json::from_value(serde_json::json!({"argv": ["/usr/bin/true"]})).unwrap();
             let unsessioned =
@@ -773,15 +778,24 @@ mod tests {
             let before = var(&command_env(&unsessioned), "TMPDIR").filter(|v| !v.is_empty());
             let env = session_env(&base, a, serde_json::json!({}));
             assert_eq!(var(&env, SESSION_TMPDIR_ENV), Some(dir_a.clone()));
-            match before.filter(|_| cfg!(target_os = "macos")) {
-                Some(before) => {
+            match (before.filter(|_| cfg!(target_os = "macos")), &runtime) {
+                (Some(before), _) => {
                     assert_eq!(var(&env, "TMPDIR"), Some(dir_a.clone()));
                     assert_eq!(var(&env, "XDG_RUNTIME_DIR"), Some(before));
                 }
-                None => assert_eq!(
-                    var(&env, "TMPDIR").filter(|v| !v.is_empty()),
-                    var(&command_env(&unsessioned), "TMPDIR").filter(|v| !v.is_empty())
-                ),
+                (None, Some(runtime)) => {
+                    assert_eq!(var(&env, "TMPDIR"), Some(dir_a.clone()));
+                    assert_eq!(var(&env, "XDG_RUNTIME_DIR"), Some(runtime.display().to_string()));
+                }
+                (None, None) => {
+                    assert_eq!(
+                        var(&env, "TMPDIR").filter(|v| !v.is_empty()),
+                        var(&command_env(&unsessioned), "TMPDIR").filter(|v| !v.is_empty())
+                    );
+                    if !cfg!(target_os = "macos") {
+                        assert_eq!(var(&env, "CLAUDE_CODE_TMPDIR"), Some(dir_a.clone()));
+                    }
+                }
             }
             // A profile's TMPDIR still wins there too; the pinned base is that TMPDIR, the
             // base the agent resolves its sockets under.

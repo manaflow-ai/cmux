@@ -111,6 +111,7 @@ impl Hub {
             disallowed_tools,
             checked_cwd,
             additional_directories,
+            stop_condition,
             person,
             wait_start,
             throwaway,
@@ -296,6 +297,10 @@ impl Hub {
         meta.workspace_id = workspace_id;
         meta.additional_directories =
             super::additional_dirs::without_cwd(additional_directories, &meta.cwd);
+        // Claude Code (stdio) takes it as a Stop hook, Codex (codex-acp) as its goal
+        // (`stop_condition.rs`); the session/new answer says whether it was kept.
+        meta.stop_condition =
+            stop_condition.filter(|_| super::stop_condition::kept_by(&profile, &family));
         meta.vm_boundary = remote && vm_boundary;
         meta.subsession = subsession;
         meta.lineage = lineage;
@@ -308,17 +313,26 @@ impl Hub {
         // disallowed tools, nor in a folder a sub-session start checked: a pooled harness started
         // wherever the path led. Never for an agent's create (`starter`): the warm agent is kept
         // for the person's next chat, which never waits behind a lane's start.
-        let claimable = fixed_id.is_none()
+        let shaped = fixed_id.is_none()
             && adopt.is_none()
             && starter.is_none()
             && meta.session_env.is_empty()
             && route.is_none()
             && meta.tools.off.is_empty()
             && meta.additional_directories.is_empty()
-            && checked_cwd.is_none()
-            && credential.is_none();
-        let pooled =
-            if claimable { self.pool_claim(&meta, &profile, &defaults.env).await } else { None };
+            && meta.stop_condition.is_none()
+            && checked_cwd.is_none();
+        // A Cloud chat's owner credential (`agent_credentials.rs`) takes only an entry warmed with
+        // that same credential (`_acpmux/prewarm` `credentials`, cmux#45953): the key's auth
+        // fingerprint hashes the credentialed spawn env, so another credential, or none, misses.
+        let pooled = if shaped {
+            self.pool_claim(&meta, &profile, &defaults.env, credential.as_ref()).await
+        } else {
+            None
+        };
+        // Only a shape with no credential of its own is remembered for a spare or the last-used
+        // role: those start with no credential, so they never hold one.
+        let claimable = shaped && credential.is_none();
         // Every way out of here (an error, or this future dropped) before
         // `ensure_child` took the entry puts it back or ends it.
         let _claim = pooled.as_ref().map(|id| self.pool_claim_guard(id.clone()));
@@ -1290,6 +1304,8 @@ impl Hub {
             // The chat's Sources (`additional_dirs.rs`), at every start.
             let mut plan = plan;
             plan.args.extend(super::additional_dirs::claude_args(&meta));
+            // Its stop condition, at every start (a resume or respawn too: `stop_condition.rs`).
+            plan.args.extend(super::stop_condition::claude_args(&meta));
             let (plan, profile) = self.remote_chain_plan(session, profile, plan).await?;
             // A fresh process was given its id; a resumed one already has it.
             let known = if fork { None } else { fresh_id.clone().or_else(|| existing_sid.clone()) };
