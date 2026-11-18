@@ -182,6 +182,7 @@ impl Hub {
         let store = self.mcp_store_dir().await;
         let kept = self.keep_in_shared_store(
             &store,
+            session,
             &card,
             &scope,
             &connected,
@@ -268,23 +269,35 @@ impl Hub {
         })
     }
 
-    /// Keeps an approved remote server in the machine's store, so every Chief and agent of this
-    /// machine has it (and a Chief's `mcp` finishes a sign-in it needs). A key the person typed
-    /// goes to the 0600 secrets file only. A server of that name already there with another URL
-    /// is left alone. Returns the store's name for it, or None when nothing was kept.
+    /// Keeps an approved remote server in the machine's store with the scope the person picked
+    /// (`chat` for this chat, `chief` for the Chief it works for, ...), so the agents that scope
+    /// names have it through `cmux mcp serve`'s `mcp_servers` tool, and a Chief's `mcp` finishes
+    /// a sign-in it needs. Who sees it is `shared::visible`. A key the person typed goes to the
+    /// 0600 secrets file only. A server of that name already there with another URL is left
+    /// alone; one with this URL this chat already sees is kept as it is (it may be wider than
+    /// this card); one it does not see takes this card's scope (the person's latest choice).
+    /// Returns the store's name for it, or None when nothing was kept.
     fn keep_in_shared_store(
         &self,
         dir: &std::path::Path,
+        session: &Session,
         card: &Value,
         scope: &str,
         connected: &Value,
         key: Option<&str>,
     ) -> Option<String> {
         use cmux_mcp_connect::shared;
-        // "This chat" stays this chat's: the store is what every Chief and agent shares.
-        if field(card, "transport").as_str() != Some("remote") || scope == "chat" {
+        if field(card, "transport").as_str() != Some("remote") {
             return None;
         }
+        let chief = shared::chief_of_session(&session.meta().name).map(str::to_owned);
+        let viewer = shared::Viewer::Agent { session: session.id.clone(), chief: chief.clone() };
+        // "This Chief" from a chat no Chief runs is this chat (fail closed, never every Chief).
+        let (scope, owner) = match (scope, chief) {
+            ("chat", _) | ("chief", None) => ("chat", Some(session.id.clone())),
+            ("chief", Some(home)) => ("chief", Some(home)),
+            (other, _) => (other, None),
+        };
         let state = match field(connected, "connect").as_str() {
             Some("connected") => "connected",
             Some("signInNeeded") => "needs sign-in",
@@ -299,8 +312,13 @@ impl Hub {
             if old.pointer("/transport/url").and_then(Value::as_str) != Some(url) {
                 return None;
             }
-            // Signed in already (by a Chief or an earlier card): keep it as it is.
-            if *field(&old, "state") == "connected" && state != "connected" {
+            let sees = shared::visible(
+                field(&old, "scope").as_str(),
+                field(&old, "owner").as_str(),
+                &viewer,
+            );
+            // Signed in already (by a Chief or an earlier card) and this chat has it.
+            if sees && *field(&old, "state") == "connected" && state != "connected" {
                 return Some(name);
             }
         }
@@ -320,6 +338,7 @@ impl Hub {
             added_ms,
             state,
             scope: Some(scope),
+            owner: owner.as_deref(),
             secret_names: &secret_names,
         }
         .record();
