@@ -15,7 +15,7 @@ private design references.
 | R1 | A tonal design system's color spec: color roles (surface, container, on-surface, primary) laid on tonal palettes in a perceptual hue-chroma-tone space | Every color is a role at a tone, never a hand-picked hex. Text is the on-surface role, quiet text the on-surface-variant role, links and marks the primary role |
 | R2 | That system's color science and its open reference library | The palette is generated, not drawn: one seed, the library's default tonal scheme, contrast level 0 (`#2f8fa3` below) |
 | R3 | A mobile OS's wallpaper-derived palettes: one source color picked from the wallpaper, every surface tinted toward it | Even the neutrals carry the seed's hue at low chroma, so no gray reads as "unthemed primer". Gel uses a fixed seed because cmux has no wallpaper-to-seed setting yet |
-| R4 | The same system's shape scale (4, 8, 12, 16, 20, 28) | Large soft corners for the prompt bubble (20), small for chips (8); the content card keeps the flush corner's own radius |
+| R4 | The same system's shape scale (4, 8, 12, 16, 20, 28) | Large soft corners for the prompt bubble (14, between the medium and large steps), small for chips (8); the content card keeps the flush corner's own radius |
 | R5 | The same system's motion tokens: decelerate on enter, short durations, motion that follows the finger | Gel adds no motion of its own; it keeps cmux's gated motion (below), whose curves already follow this rule |
 | R6 | Shipped app 1: the OS's messaging app, whose bubbles are filled tonal containers with no outline | The prompt bubble is the secondary-container tone with no edge, and replies sit on the page with no box |
 | R7 | Shipped app 2: the OS's own settings and launcher, where every group is a container one tone step off the page | Cards in the transcript are the surface-container tone one step off the page, again with no ring; sidebar sections draw as cards |
@@ -62,7 +62,7 @@ Seed `#2f8fa3` (sea glass), the reference library's default tonal scheme, light 
    4.5:1 or more on the light glass over a black backdrop (table below). The hover card is the
    App's popover glass; its state chip is chip glass (`.glass("chip")`, guarded for older apps);
    its place chips are filled tonal containers, so the two kinds of chip read apart.
-5. **Shape.** The prompt bubble 20 pt, chips 8 pt, the content card the flush corner's own radius.
+5. **Shape.** The prompt bubble 14 pt at the chat's text scale (20 and 16 both made a one-line prompt read as a capsule in review), chips 8 pt, the content card the flush corner's own radius.
    No capsule controls. Corners never change a box (`--cv-user-bubble-radius` is paint).
 6. **Type and density.** Roboto in the chat (bundled with cmux) at 14 pt with a 1.6 line height and
    a 760 pt column; the sidebar and app at comfortable density, which also keeps the flush corner on
@@ -86,6 +86,10 @@ Seed `#2f8fa3` (sea glass), the reference library's default tonal scheme, light 
 | The goo fillets | `tunable.chrome.cornerFlush: flush-goo` | A Debug Settings tunable kept in the app's own `debug-tunables.json`, not a row of the settings schema, so `cmux setup install` refuses it ("not one this cmux has") and a theme file cannot carry it | Debug Settings > Corner flush > "Flush, goo"; the look falls back to the flush corner without fillets |
 | A seed taken from the wallpaper | none | cmux derives no palette from a picture | a fixed seed |
 | A larger content-card radius | `layout.paneCornerRadius` | Setting it turns the flush corner's default off (it draws only over stock pane chrome) | the flush corner's radius |
+| The custom hover card on first hover | none | A workspace's hover card opens collapsed (its tabs only); the `cmux.hovercard/1` card draws after Show details | hover a row, then Show details |
+
+**Gel needs the goo.** It is designed with `flush-goo` on: set Debug Settings > Corner flush >
+"Flush, goo" once. Everything else installs with the setup.
 
 ## Contrast
 

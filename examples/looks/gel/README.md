@@ -26,6 +26,11 @@ The fillets where the selected tab meets the card are a Debug Settings choice th
 set yet: open Debug Settings, Corner flush, and pick "Flush, goo". Without it, Gel keeps the flush
 corner (the selected tab runs straight into the card) with no fillets.
 
+## The hover card
+
+A workspace's hover card opens collapsed, with its tabs; Gel's card (the headline, the state chip and
+the place chips) shows after you click Show details on it.
+
 ## Screenshots
 
 See [Media](#media).
