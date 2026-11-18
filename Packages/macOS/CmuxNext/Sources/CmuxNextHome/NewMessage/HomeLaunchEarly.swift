@@ -30,8 +30,8 @@ public final class HomeLaunchEarly {
     public final class Box {
         public let store: HomeStore
         public let hold: LaunchChiefHold
-        /// Stage 0's content: the Chief view in a container that gives its box the keyboard in the window.
-        let view: NSView
+        /// Stage 0's content: Home's columns, with the Chief view in the chat's, giving its box the keyboard in the window.
+        let view: LaunchColumnsView
 
         init(title: String, frame: CGRect, makeView: (HomeStore) -> NSView) {
             hold = LaunchChiefHold()
@@ -39,7 +39,7 @@ public final class HomeLaunchEarly {
             store.start()
             let chief = makeView(store)
             HomeNativeTranscriptView.first(in: chief)?.holdsChiefFace = true
-            view = KeyboardOnWindow(content: chief, frame: frame)
+            view = LaunchColumnsView(chat: chief, frame: frame)
         }
     }
 
@@ -137,25 +137,66 @@ public final class HomeLaunchEarly {
     }
 }
 
-/// Stage 0's content view: gives the Chief view's message box the keyboard once it is in a window.
-private final class KeyboardOnWindow: NSView {
-    private let content: NSView
+/// Stage 0's content view: Home's split as the real window's page lays it out at the swap
+/// (``HomeSplitColumns``): the list's column, empty until its rows come in the real window, the
+/// divider, and the Chief view in the chat column. A bare launch's list holds one conversation (the
+/// Chief) at the standard width: a new window has no saved one. Gives the box the keyboard once
+/// it is in a window.
+final class LaunchColumnsView: NSView {
+    private let chat: NSView
+    private let list = NSView()
+    private let divider = NSView()
+    /// Home's split's divider (`NSSplitView.DividerStyle.thin`).
+    static let dividerThickness: CGFloat = 1
 
-    init(content: NSView, frame: CGRect) {
-        self.content = content
+    init(chat: NSView, frame: CGRect) {
+        self.chat = chat
         super.init(frame: frame)
         autoresizingMask = [.width, .height]
-        content.frame = bounds
-        content.autoresizingMask = [.width, .height]
-        addSubview(content)
+        for view in [list, divider] { view.wantsLayer = true }
+        for view in [list, divider, chat] { addSubview(view) }
+        layoutColumns()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    /// The columns at this width.
+    var columns: HomeSplitColumns {
+        HomeSplitColumns(width: bounds.width, own: HomeSidebarWidth.standard, divider: Self.dividerThickness,
+                         holdsOneConversation: true, loneRail: HomeTunables.loneConversationRail.value)
+    }
+
+    /// The chat column's frame (the page's `transcriptColumn` at the swap).
+    var chatFrame: CGRect { chat.frame }
+
+    override func layout() {
+        super.layout()
+        layoutColumns()
+    }
+
+    private func layoutColumns() {
+        let columns = columns
+        list.frame = CGRect(x: 0, y: 0, width: columns.list, height: bounds.height)
+        divider.frame = CGRect(x: columns.list, y: 0, width: columns.divider, height: bounds.height)
+        chat.frame = CGRect(x: columns.chatX, y: 0, width: bounds.width - columns.chatX, height: bounds.height)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    /// The list's and the divider's colors, as ``HomeSidebarView`` and the split draw them.
+    private func applyColors() {
+        list.layer?.backgroundColor = performWithTheme { Palette.fill(for: .home, default: Palette.paneFill).cgColor }
+        divider.layer?.backgroundColor = performWithTheme { NSColor.separatorColor.cgColor }
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         guard window != nil else { return }
-        HomeNativeTranscriptView.first(in: content)?.takeKeyboardOnOpen()
+        applyColors()
+        HomeNativeTranscriptView.first(in: chat)?.takeKeyboardOnOpen()
     }
 }

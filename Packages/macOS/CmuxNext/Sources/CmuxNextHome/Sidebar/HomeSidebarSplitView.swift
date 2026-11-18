@@ -227,9 +227,9 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     /// to avatars keeps its column (and so the divider to drag it back); a wider column brings the
     /// list back at their width. Debug Settings can keep the column.
     private var foldsLoneConversation: Bool {
-        let own = widths.width(window: windowKey()) ?? standard
-        return list.holdsOneConversation && HomeSidebarHeaderLayout.isCompact(width: clamp(own))
-            && !HomeSidebarHeaderLayout.isCompact(width: own) && !HomeTunables.loneConversationRail.value(in: tunables)
+        HomeSplitColumns(width: bounds.width, own: widths.width(window: windowKey()) ?? standard, minimum: minimum,
+                         divider: dividerThickness, holdsOneConversation: list.holdsOneConversation,
+                         loneRail: HomeTunables.loneConversationRail.value(in: tunables)).folded
     }
 
     /// Hides or shows the list for ``foldsLoneConversation``; true while it is folded.
