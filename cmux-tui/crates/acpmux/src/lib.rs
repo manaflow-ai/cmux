@@ -172,6 +172,7 @@ pub mod managed_codex;
 pub mod mcp_hint;
 pub mod mesh;
 pub mod mesh_control;
+pub mod mesh_health;
 pub mod mesh_http;
 pub mod mesh_node_key;
 pub mod mesh_relay_config;

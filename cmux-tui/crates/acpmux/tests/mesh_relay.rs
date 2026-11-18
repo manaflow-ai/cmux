@@ -543,6 +543,13 @@ async fn the_relay_ends_when_the_daemon_stops_or_the_mesh_hub_refuses_it() {
     ends(&relay, "the daemon stops").await;
     let calls = fake.with(|s| (s.inbox_calls, s.heartbeats.len()));
     assert!(fake.with(|s| s.heartbeats.last().is_some_and(|b| b.sessions.is_empty())));
+    // Each heartbeat carries this host's health, numbers only; the leaving one carries none, so
+    // the hub keeps no reading of a daemon that stopped.
+    let (first, last) = fake.with(|s| (s.heartbeats[0].clone(), s.heartbeats.last().cloned()));
+    let health = first.health.expect("the first heartbeat carries host health");
+    assert!(health["cpus"].as_u64().is_some_and(|n| n > 0), "{health}");
+    assert_eq!(health.get("os"), None, "{health}");
+    assert!(last.is_some_and(|b| b.leaving && b.health.is_none()));
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(fake.with(|s| (s.inbox_calls, s.heartbeats.len())), calls);
 
@@ -912,6 +919,7 @@ async fn mesh_controls_start_and_stop_through_shared_sender_and_replay_success()
             host: "worker".into(),
             sessions: hub.mesh_rows().await,
             leaving: false,
+            health: None,
         })
         .await
         .unwrap();
@@ -1193,7 +1201,12 @@ async fn a_send_through_the_hub_names_its_proven_session_not_a_claimed_one() {
         team_address: None,
     };
     fake.with(|s| {
-        s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
+        s.heartbeats.push(Heartbeat {
+            host: "b".into(),
+            sessions: vec![row],
+            leaving: false,
+            health: None,
+        })
     });
     let _ = a.mesh.set(fake.clone());
     let mut as_lane = Client::local(&a);
@@ -1224,7 +1237,12 @@ async fn a_send_through_the_hub_carries_its_sender_claim() {
         team_address: None,
     };
     fake.with(|s| {
-        s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
+        s.heartbeats.push(Heartbeat {
+            host: "b".into(),
+            sessions: vec![row],
+            leaving: false,
+            health: None,
+        })
     });
     let _ = a.mesh.set(fake.clone());
     let mut client = Client::local(&a);

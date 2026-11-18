@@ -84,8 +84,9 @@ pub fn placed(verdict: &Value) -> Option<String> {
 /// health reading (`_acpmux/host_health` fields, or null), and when that
 /// reading arrived (ms on this machine's clock; `None` when unknown). The
 /// weighing ignores `health_at`; the shadow verdict reads it (`shadow_admission.rs`).
-/// `via_hub`: a machine only the mesh hub lists (`mesh_book_hosts`), which no link asks
-/// for health, so its resources stay unknown whatever its build.
+/// `via_hub`: a machine only the mesh hub lists (`mesh_book_hosts`): no link asks it for
+/// health, so it has a reading only when the hub's address book carried one (`mesh_health`),
+/// and one older than `HUB_HEALTH_STALE_MS` comes with `health_at` but no `health`.
 #[derive(Clone, Debug)]
 pub struct Candidate {
     pub name: String,
@@ -595,6 +596,9 @@ fn unknown(c: &Candidate) -> String {
         format!(
             "resources unknown: its acpmux build has no host health; update it (`acpmux machine update {name}`)"
         )
+    } else if let (true, Some(at)) = (c.via_hub, c.health_at) {
+        let secs = crate::store::now_ms().saturating_sub(at) / 1000;
+        format!("resources unknown: the hub's last reading is {secs}s old")
     } else if c.via_hub {
         format!(
             "resources unknown: only the mesh hub reaches it, and the hub carries no host health; \

@@ -722,3 +722,31 @@ fn the_pick_order_is_under_then_headroom_then_unread_then_full() {
     let v = place(&[full], Some(&reg), Work::Agent);
     assert_eq!((&v["pick"], &v["overloaded"]), (&json!("big"), &json!(true)), "{v:#}");
 }
+
+/// A machine only the hub reaches, whose address book carried a fresh reading
+/// (`mesh_book_hosts`), is weighed as a linked peer with the same reading is; one whose reading
+/// went stale says how old it is.
+#[test]
+fn a_hub_row_with_fresh_health_is_weighed_like_a_linked_peer() {
+    let reading = health(60.0, 32, 4.0, 300.0, 2);
+    let at = crate::store::now_ms();
+    let hub_row = json!({"name": "big", "connected": true, "state": "connected", "via": "hub",
+        "health": reading, "healthAt": at});
+    let linked_row = json!({"name": "big", "connected": true, "state": "connected",
+        "health": reading, "healthAt": at});
+    let hub = Candidate::peer(&hub_row).unwrap();
+    assert!(hub.via_hub);
+    let other = c("laptop", health(30.0, 8, 1.0, 300.0, 0));
+    let by_hub = place(&[hub, other.clone()], Some(&registry()), Work::Agent);
+    let linked =
+        place(&[Candidate::peer(&linked_row).unwrap(), other], Some(&registry()), Work::Agent);
+    assert_eq!(host(&by_hub, "big")["why"], host(&linked, "big")["why"]);
+    assert!(!host(&by_hub, "big")["why"].as_str().unwrap().contains("unknown"), "{by_hub:#}");
+
+    let stale_row = json!({"name": "big", "connected": true, "state": "connected", "via": "hub",
+        "healthAt": at - 120_000, "healthStaleSecs": 120});
+    let v = place(&[Candidate::peer(&stale_row).unwrap()], Some(&registry()), Work::Agent);
+    let why = host(&v, "big")["why"].as_str().unwrap().to_owned();
+    assert!(why.starts_with("resources unknown: the hub's last reading is 12"), "{why}");
+    assert!(why.ends_with("s old"), "{why}");
+}
