@@ -457,7 +457,6 @@
    "src/agent-session/guest/GuestPage.tsx::react-hooks-js/todo": 1,
    "src/agent-session/guest/OpenInApp.tsx::react-doctor/no-ref-current-in-render": 1,
    "src/agent-session/guest/OpenInApp.tsx::react-hooks-js/refs": 1,
-   "src/app-health/AppHealthHost.tsx::react-doctor/effect-needs-cleanup": 1,
    "src/apps/scene/SceneRenderer.tsx::react-hooks-js/error-boundaries": 1,
    "src/chief-web/ChiefWeb.tsx::react-doctor/effect-needs-cleanup": 1,
    "src/chief-web/ChiefWeb.tsx::react-hooks-js/todo": 1,

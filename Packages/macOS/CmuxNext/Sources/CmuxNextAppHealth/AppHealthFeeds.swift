@@ -51,7 +51,7 @@ public final class AppHealthFeeds {
         self.stateDirectory = stateDirectory
         self.work = work
         pageFeed = AppHealthPageFeed(health: health)
-        popover = AppHealthPopover(health: health, overlayProcess: overlayProcess)
+        popover = AppHealthPopover(health: health)
     }
 
     /// Before the daemon starts (its first ensure is a health fact). The debug socket's `debug.health`
