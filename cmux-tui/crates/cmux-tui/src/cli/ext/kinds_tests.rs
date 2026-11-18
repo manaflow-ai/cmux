@@ -412,6 +412,8 @@ fn every_view_kind_draws_the_scene_its_gallery_entry_shows() {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../../webviews/src/apps/scene/extTemplateScenes.json");
     let Ok(text) = std::fs::read_to_string(&fixture) else {
+        // A sparse checkout (`wt new --files`) may have no webviews/; CI always has it.
+        assert!(std::env::var_os("CI").is_none(), "no {} on CI", fixture.display());
         eprintln!("SKIPPED: no {} in this checkout", fixture.display());
         return;
     };
