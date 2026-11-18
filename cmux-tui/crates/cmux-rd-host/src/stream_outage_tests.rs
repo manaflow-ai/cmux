@@ -146,6 +146,7 @@ fn outage_with_queue(unstarted: usize) -> Outage {
         display: String::new(),
         max_fps: 60,
         start_kbps: 2_000,
+        start_kbps_from_rtt: false,
         max_kbps: 4_000,
         preset: String::new(),
         profile: String::new(),
