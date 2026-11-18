@@ -238,6 +238,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_review_receipt.py
 
+      - name: Validate gh-merge-green's explicit GitHub paging
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_gh_pages.py
+
       - name: Validate the gh-merge-green check-path gate
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_merge_check_paths.py
