@@ -266,6 +266,8 @@ fn a_folder_past_the_limits_is_projected_whole_and_reads_come_from_the_mac() {
     let start = start_chat(&state, &w.socket, &w.local, &w.home.join("work"), true);
     let folder = &start.folder;
     assert_eq!(start.answer["mode"], "projected", "{}", start.answer);
+    // One projection per chat, named by its start key: Bring Back finds the chat's edits by it.
+    assert_eq!(start.answer["projected"]["name"], format!("chat-{KEY}"), "{}", start.answer);
 
     // The whole folder, at once: the 21 GiB image (by its size, no byte of it moved), every
     // repository with its history, every note.

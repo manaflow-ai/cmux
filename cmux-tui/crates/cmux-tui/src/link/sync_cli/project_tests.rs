@@ -36,3 +36,14 @@ fn each_chat_folder_has_its_own_projection_name() {
     assert_ne!(name_of("/home/cmux/work/a"), name_of("/home/cmux/work/b"));
     assert!(name_of("/x").bytes().all(|byte| byte.is_ascii_alphanumeric()));
 }
+
+#[test]
+fn each_chat_has_its_own_projection_and_its_name_is_one_the_machine_takes() {
+    let one = chat_name("0c6f2c1e-6a4e-4d8e-9a59-1f7d3c2b9e10");
+    let two = chat_name("5b0a9d7e-2f43-4c1b-8e6d-3a9c7f1e2d40");
+    assert_ne!(one, two);
+    assert_eq!(one, chat_name("0c6f2c1e-6a4e-4d8e-9a59-1f7d3c2b9e10"));
+    // The daemon's rule (cmux-tui-core projection.rs): 1-64 letters, digits, - or _.
+    assert!(one.len() <= 64);
+    assert!(one.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"-_".contains(&byte)));
+}

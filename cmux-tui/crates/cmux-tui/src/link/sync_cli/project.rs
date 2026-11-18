@@ -122,7 +122,17 @@ fn set_enabled(on: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The name a projection of `remote` has on the machine (one per chat folder).
+/// The projection name for the chat whose start key is `key` (the page's UUID). There is one per
+/// chat, so two chats on the same folder never share an upper layer. A later step (Bring Back)
+/// finds that chat's edits under this name, in `projections/<name>/upper` and `whiteouts` in the
+/// machine daemon's state folder, which an unmount never deletes.
+#[must_use]
+pub(crate) fn chat_name(key: &str) -> String {
+    format!("chat-{key}")
+}
+
+/// What this Mac names the server it runs for the mount point `remote` (its log and pid files),
+/// and the projection's name when it was started without a chat (`serve` by hand).
 fn name_of(remote: &str) -> String {
     let hash = remote.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
         (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
@@ -138,6 +148,7 @@ pub(crate) fn start(
     socket: &Path,
     local: &Path,
     remote: &str,
+    chat: &str,
 ) -> anyhow::Result<Result<Value, NotProjected>> {
     if !enabled() {
         return Ok(Err(NotProjected::Off));
@@ -150,8 +161,10 @@ pub(crate) fn start(
         .map(|dir| dir.join("link-sync").join("projections"))
         .context("this Mac has no state folder")?;
     std::fs::create_dir_all(&log)?;
-    let name = name_of(remote);
-    let stderr = std::fs::File::create(log.join(format!("{name}.log")))?;
+    // The server's files go by its mount point (`stop --at`), the projection by its chat.
+    let server = name_of(remote);
+    let name = chat_name(chat);
+    let stderr = std::fs::File::create(log.join(format!("{server}.log")))?;
     let mut command = cmux_process::Command::new(exe);
     command
         .args(["link", "project", "serve", "--socket"])
@@ -173,9 +186,11 @@ pub(crate) fn start(
         .with_context(|| format!("the folder's server answered {line:?}"))?;
     if answer["ok"] == true {
         // It runs on as the folder's server; `cmux link project stop --at REMOTE` ends it.
-        let _ = std::fs::write(log.join(format!("{name}.pid")), child.id().to_string());
+        let _ = std::fs::write(log.join(format!("{server}.pid")), child.id().to_string());
         child.detach("the folder's server outlives the start that made it");
         drop(child);
+        let mut answer = answer;
+        answer["data"]["name"] = Value::from(name);
         return Ok(Ok(answer));
     }
     let _ = child.wait();
