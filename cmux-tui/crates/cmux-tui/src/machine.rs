@@ -620,6 +620,8 @@ pub struct MachineUiState {
     workspace_creation: HashMap<MachineKey, WorkspaceCreationPolicy>,
     client_renamable_machines: HashSet<MachineKey>,
     managed_machines: Vec<ManagedMachineDescriptor>,
+    /// Each managed machine's index in `managed_machines`.
+    managed_machine_index: HashMap<MachineKey, usize>,
     managed_workspaces: HashMap<MachineKey, Vec<ManagedWorkspaceDescriptor>>,
     /// Per machine, the indexes in `managed_workspaces` of the recoverable
     /// ones, kept with them so a rail draw reaches row `n` directly.
@@ -735,6 +737,7 @@ impl MachineUiState {
             workspace_creation: HashMap::new(),
             client_renamable_machines: HashSet::new(),
             managed_machines: Vec::new(),
+            managed_machine_index: HashMap::new(),
             managed_workspaces: HashMap::new(),
             recoverable_workspaces: HashMap::new(),
         };
@@ -847,6 +850,11 @@ impl MachineUiState {
     }
 
     pub fn set_managed_machines(&mut self, machines: Vec<ManagedMachineDescriptor>) {
+        // The first entry for a key wins, as the `find` this replaced did.
+        self.managed_machine_index.clear();
+        for (index, machine) in machines.iter().enumerate() {
+            self.managed_machine_index.entry(machine.key).or_insert(index);
+        }
         self.managed_machines = machines;
     }
 
@@ -855,7 +863,7 @@ impl MachineUiState {
     }
 
     pub fn managed_machine(&self, key: MachineKey) -> Option<&ManagedMachineDescriptor> {
-        self.managed_machines.iter().find(|machine| machine.key == key)
+        self.managed_machine_index.get(&key).and_then(|index| self.managed_machines.get(*index))
     }
 
     pub fn set_managed_workspaces(

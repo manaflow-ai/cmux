@@ -166,7 +166,7 @@ fn draw_agents_section(
     let dim = app.chrome.sidebar_dim_fg;
     let rows = app.sidebar_status.agents();
     let selected = selected_surface
-        .and_then(|surface| rows.iter().position(|row| row.surface == surface))
+        .and_then(|surface| app.sidebar_status.agent_row(surface))
         .filter(|_| app.workspace_rail_follow_selection)
         .map(|index| rail::RowSpan::new(index * metrics.stride, metrics.height));
     let mut footer_scroll = 0;
@@ -299,7 +299,6 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
     // are read in place, not copied per frame.
     let Some(machine_ui) = app.machine_ui.as_ref() else { return };
     let machines = machine_ui.snapshot.machines.as_slice();
-    let managed_machines = machine_ui.managed_machines();
     let mut hits = Vec::new();
     if machines.is_empty()
         && let Some(y) = viewport.body_y(rail::RowSpan::new(machine_start, 1))
@@ -320,7 +319,7 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
         let focused = app.machine_sidebar_focused()
             && rail_selection == MachineRailSelection::Machine
             && selection == index;
-        let managed = managed_machines.iter().find(|managed| managed.key == machine.key);
+        let managed = machine_ui.managed_machine(machine.key);
         let recoverable = managed.is_some_and(|managed| {
             managed.status == crate::machine::ManagedMachineStatus::Recoverable
         });
@@ -448,6 +447,7 @@ pub fn draw_tabs(app: &mut App, frame: &mut Frame) {
         // Only the rows in view are built.
         let in_view = viewport.body_items(0, target_count, metrics.stride);
         let targets = app.sidebar_tab_targets_in(in_view.clone());
+        // visible-only: the targets built for the rows in view.
         for (target_index, target) in in_view.zip(&targets) {
             let span = rail::RowSpan::new(target_index * metrics.stride, metrics.height);
             let Some(y) = viewport.body_y(span) else { continue };
@@ -566,6 +566,7 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
             Hit::ProjectionRow { view: view_index, row: row_index, target: row.target },
         ));
     }
+    // visible-only: the view's configured action buttons, a handful.
     for (action_index, action) in actions.iter().enumerate() {
         let Some(y) = viewport.footer_y(rail::RowSpan::new(action_index, 1)) else { continue };
         rail::action(
@@ -691,6 +692,7 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         .flatten();
     let selected_footer = if app.workspace_sidebar_focused() && app.workspace_rail_follow_selection
     {
+        // visible-only: the rail's configured action buttons, a handful.
         actions
             .iter()
             .position(|action| app.workspace_rail_selection.matches_action(action.target))
@@ -785,6 +787,7 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
 
     let recoverable_in_view =
         viewport.body_items(workspace_count * metrics.stride, recoverable_count, metrics.stride);
+    // visible-only: a range of the recoverable rows in view.
     for index in recoverable_in_view {
         let Some(workspace) =
             app.machine_ui.as_ref().and_then(|ui| ui.recoverable_workspace(index))
@@ -847,6 +850,7 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         }
     }
 
+    // visible-only: the rail's configured action buttons, a handful.
     for (row, action) in actions.iter().enumerate() {
         let Some(y) = viewport.footer_y(rail::RowSpan::new(row, 1)) else { continue };
         rail::action(
