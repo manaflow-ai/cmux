@@ -88,6 +88,34 @@ class RunnerSetTests(unittest.TestCase):
                 self.assertTrue(runs_on.rstrip().endswith(tail), runs_on)
                 self.assertNotIn("cmux-fleet-linux-x64", runs_on)
 
+    def test_every_hosted_first_light_job_yields_when_hosted_is_saturated(self) -> None:
+        # The hosted-first release valve (scripts/ci/linux_pool_spill.py valve_choice()). On 2026-11-18 01:40-02:10Z
+        # jobs that finished on GitHub-hosted had waited a median 10,768 s, so every pull request's `changes`
+        # router sat there and its required checks never started. Each attempt-1 hosted branch is preceded by the
+        # valve, which reads the smallest live Linux pool while RUNNER_POOLS marks hosted saturated; the reusable
+        # resolver, which must not fromJSON a variable, guards its hosted branch instead and takes its trusted retry.
+        # Coordinator, 2026-11-18: "Yes to your release valve, behind its saturation check: ship and land it now."
+        hosted = "github.run_attempt == 1 && 'ubuntu-24.04'"
+        valve = ("github.run_attempt == 1 && fromJSON(vars.RUNNER_POOLS).hosted_saturated && "
+                 "fromJSON(vars.RUNNER_POOLS).linux_2 || " + hosted)
+        guarded = "github.run_attempt == 1 && !contains(vars.RUNNER_POOLS, '\"hosted_saturated\"') && 'ubuntu-24.04'"
+        sites = 0
+        for path in sorted(WORKFLOWS.glob("*.y*ml")):
+            if path.name == "nightly.yml":  # nightlies never run on Blacksmith; their hosted routes stay
+                continue
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                if hosted not in line and guarded not in line:
+                    continue
+                sites += 1
+                with self.subTest(site=f"{path.name}:{number}"):
+                    if guarded in line:
+                        self.assertEqual(path.name, "resolve-runners.yml")
+                        self.assertNotIn(hosted, line)
+                    else:
+                        self.assertEqual(line.count(hosted), 1, line)
+                        self.assertIn(valve, line)
+        self.assertGreaterEqual(sites, 19)
+
     def test_stalled_paths_use_the_live_linux_pool(self) -> None:
         for workflow, names in TARGETS.items():
             document = yaml.safe_load((WORKFLOWS / workflow).read_text(encoding="utf-8")) or {}
@@ -101,7 +129,9 @@ class RunnerSetTests(unittest.TestCase):
                     self.assertNotIn("outputs.map", runs_on)
                     # Past the fork branches, no Blacksmith size is written down.
                     self.assertNotIn("'blacksmith-", runs_on.split("github.repository && ")[-1].split("|| ", 1)[-1])
-                    self.assertNotRegex(runs_on, r"RUNNER_POOLS\)\.linux_\d")
+                    self.assertNotRegex(runs_on.replace(
+                        "fromJSON(vars.RUNNER_POOLS).hosted_saturated && fromJSON(vars.RUNNER_POOLS).linux_2", ""),
+                        r"RUNNER_POOLS\)\.linux_\d")
 
     def test_gallery_health_reads_the_live_16_vcpu_pool(self) -> None:
         # A CPU-bound render (ask-378f0fa70e: 4 vCPU 30.5 s, 16 vCPU 13.4 s for the same cases): the 16 vCPU
