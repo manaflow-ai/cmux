@@ -197,7 +197,7 @@ final class HomeNewMessageView: NSView {
             guard let self else { throw HomeRejection.invalid("new_message.closed") }
             return try await firstSend(parts)
         }
-        let store = HomeStore(source: source, prunesBlobCache: false)  // keeps no blobs: Home's store prunes the shared folder
+        let store = Self.composerStore(source: source, blobs: services.home.homeStore.blobCacheDirectory)
         store.start()
         if !text.isEmpty { store.setDraft(text, for: HomeNewMessageComposerSource.conversation) }
         let view = HomeNativeTranscriptView(store: store, conversation: HomeNewMessageComposerSource.conversation, me: me.id,
@@ -209,6 +209,12 @@ final class HomeNewMessageView: NSView {
         content.addSubview(view)
         composer = view
         composerStore = store
+    }
+
+    /// The blank page's store, over Home's own attachment folder (`blobs`): it keeps no blobs of its own, so it
+    /// never prunes that folder, whose drafts and pending sends Home's store keeps.
+    static func composerStore(source: HomeNewMessageComposerSource, blobs: URL) -> HomeStore {
+        HomeStore(source: source, blobCacheDirectory: blobs, prunesBlobCache: false)
     }
 
     private func removeComposer() { composer?.removeFromSuperview() }
