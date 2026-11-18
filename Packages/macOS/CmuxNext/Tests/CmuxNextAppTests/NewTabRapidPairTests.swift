@@ -83,7 +83,7 @@ struct NewTabRapidPairTests {
     /// after the second.
     ///
     /// The rows of this suite are for the pool's path. The tab of a New Tab key takes the page view of an untouched
-    /// New Tab page that its pane leaves, or that no pane draws, before the pool's spare (`AgentTabStore.idlePage`):
+    /// New Tab page that its pane leaves, or that no window shows, before the pool's spare (`AgentTabStore.idlePage`):
     /// the app starts on such a page, and the first key's tab is one for the second key. So each row counts each
     /// New Tab page of the app as used before each of its keys (`NewTabOpenFramesTests.useEachNewTabPage`), as after
     /// a click in each page.

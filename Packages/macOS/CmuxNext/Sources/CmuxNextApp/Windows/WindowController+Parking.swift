@@ -59,6 +59,9 @@ extension WindowController {
         state.isOnScreenBeside(id)
     }
 
+    /// Whether a pane of a workspace that this window shows (its content, or a parked one on screen beside it) has tab `id` selected in its strip, drawn yet or not.
+    func showsSelected(_ id: String) -> Bool { (parked.values.filter { isOnScreenBeside($0.workspace.id) } + [content].compactMap { $0 }.filter { !$0.isParked }).contains { $0.panes.values.contains { $0.stripModel.selectedID?.rawValue == id } } }
+
     /// Whether this window draws tab `id` of `pane` now: no top page, the pane in the viewport of the shown workspace's
     /// active screen (`visiblePanes`), and `id` the tab its strip shows. Never a remembered selection, which outlives
     /// a screen switch, a page or a scroll.

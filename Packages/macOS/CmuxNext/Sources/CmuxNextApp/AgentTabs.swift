@@ -205,8 +205,7 @@ final class AgentTabStore {
     var recycle: ((AgentPaneView) -> Bool)?
     /// The prewarmed New Tab page, for a first page that has no view yet (NewTabSparePool); the next one follows as `refill` says.
     var takeSpare: ((AgentPaneSpareRefill) -> AgentPaneView?)?
-    /// What ``idlePage(for:leaving:take:)`` asks of the panes: whether a pane draws tab `key` now (with no panes: each tab counts as drawn, so no
-    /// page is idle), and that a pane which holds the tab off screen lets go of the view that the tab gave away.
+    /// What ``idlePage(for:leaving:take:)`` asks of the windows: whether one shows tab `key` (a pane draws it, or a pane of a shown workspace has it selected; with no windows each tab counts, so no page is idle), and that a pane which holds the tab off screen lets go of the view that the tab gave away.
     var idlePanes: (draws: (String) -> Bool, letGo: (String) -> Void) = ({ _ in true }, { _ in })
     /// The prewarmed page once it is connected and drawn, for a tab opening an existing chat of
     /// this Mac (``AgentPaneSpareAdoption``); nil leaves the spare in the pool.

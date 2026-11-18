@@ -76,7 +76,7 @@ extension NewTabPage {
         }
         // A pane of another machine shows the same page, never a prewarmed spare: a spare is connected
         // to this Mac's acpmux, and that pane's chat starts on its machine at the first send (cx-k21v).
-        // No spare either while an idle page waits (the untouched New Tab page that this pane leaves now, or one that no pane draws): the new
+        // No spare either while an idle page waits (the untouched New Tab page that this pane leaves now, or one that no window shows): the new
         // tab takes that one when the pane shows it (`AgentTabStore.idlePage`), in this turn, so a hold of this key makes no page and uses no spare.
         let spare = seed == nil && pane.daemon.isLocal && services.agentTabs.idlePage(leaving: pane.currentTabKey) == nil
             ? BenchSpans.measure("newTab.take", { services.newTabSpares.take(for: pane.view.window, size: NewTabSparePool.newTabContentSize(in: pane), still: { [weak strip = pane.view.stripView] in strip?.whenStill($0) }) })

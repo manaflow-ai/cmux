@@ -25,7 +25,7 @@ struct NewTabOpenFramesTests {
 
     /// Marks each New Tab page view that the tab store has now as one that the person used, so no tab takes its view
     /// (`AgentTabStore.idlePage`: a New Tab tab that a pane shows takes the view of an untouched New Tab page that the
-    /// pane leaves or that no pane draws, before the pool's spare and before a cold page). For a test of the pool's
+    /// pane leaves or that no window shows, before the pool's spare and before a cold page). For a test of the pool's
     /// path or of the cold path: its app can start on a New Tab page, and its New Tab key must not get that page's view.
     static func useEachNewTabPage(_ services: AppServices) {
         for view in services.agentTabs.views.values where view.model.newTab != nil { view.model.hostTouch.mark("the test's setup") }

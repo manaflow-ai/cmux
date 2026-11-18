@@ -113,11 +113,9 @@ extension AgentTabStore {
         release(tabKey, machine: tabStores.entries.first { $0.key.key == tabKey && $0.value === store }?.key.machine)
     }
 
-    /// The page view of an untouched New Tab tab that no pane draws, or of tab `leaving` (its pane leaves it now): the page view that the New Tab
-    /// tab which a pane shows next gets, so no page is made while such a one waits behind a tab. Each of these pages draws one screen until the
-    /// person touches it, and the view takes the next tab's own page at once (``adoptSpare(_:key:page:)``). `take` takes the view from its tab,
-    /// which gets a page view again at its own next show. Never the reserved workspace's page (the next Cmd-N's), never a page of another
-    /// machine's tab. `tab`: nil also when that tab takes no such view at its show (the conditions of the spare branch of ``view(for:machine:known:)``).
+    /// The page view of an untouched New Tab tab that no window shows (``idlePanes``), or of tab `leaving` (its pane leaves it now): the page view that the New Tab tab which a pane shows next
+    /// gets, so no page is made while such a one waits behind a tab. The view takes the next tab's own page at once (``adoptSpare(_:key:page:)``). `take` takes the view from its tab, which gets one again at its own next show.
+    /// Never the reserved workspace's page (the next Cmd-N's), never a page of another machine's tab. `tab`: nil also when that tab takes no such view at its show (the spare branch of ``view(for:machine:known:)``).
     func idlePage(for tab: AgentTabKey? = nil, leaving: String? = nil, take: Bool = false) -> AgentPaneView? {
         guard tab.map({ newTabPages[$0] != nil && sessions[$0] == nil && seeds[$0]?.holdsOnlyFolder ?? true && wakeStates[$0] == nil }) ?? true else { return nil }
         guard let idle = views.firstMarked(take: take, where: { key, view in
