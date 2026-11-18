@@ -21,7 +21,7 @@
 //!     cmux link project back --socket S --at REMOTE FOLDER [--keep]
 
 use std::collections::BTreeMap;
-use std::io::{BufRead as _, BufReader, Read as _, Write as _};
+use std::io::{BufRead as _, BufReader, Read as _, Seek as _, Write as _};
 use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -358,22 +358,19 @@ fn keep_ignored_home(
     let mut ignored: Vec<String> = Vec::new();
     for (repo, paths) in by_repo {
         let folder = if repo.is_empty() { root.to_path_buf() } else { root.join(&repo) };
-        let mut child = git_back::local(&folder)
-            .args(["check-ignore", "--no-index", "-z", "--stdin"])
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .context("cannot run git")?;
-        let mut input = Vec::new();
+        // The paths go in from a file, so git's answers never wait on a writer of ours.
+        let mut input = tempfile::tempfile().context("cannot make a scratch file")?;
         for path in &paths {
-            input.extend_from_slice(path.as_bytes());
-            input.push(0);
+            input.write_all(path.as_bytes())?;
+            input.write_all(&[0])?;
         }
-        let mut stdin = child.stdin.take().context("no pipe to git")?;
-        let writer = std::thread::spawn(move || stdin.write_all(&input));
-        let output = child.wait_with_output()?;
-        let _ = writer.join();
+        input.seek(std::io::SeekFrom::Start(0))?;
+        let output = git_back::local(&folder)
+            .args(["check-ignore", "--no-index", "-z", "--stdin"])
+            .stdin(std::process::Stdio::from(input))
+            .stderr(std::process::Stdio::null())
+            .output()
+            .context("cannot run git")?;
         for hit in output.stdout.split(|byte| *byte == 0).filter(|hit| !hit.is_empty()) {
             let hit = String::from_utf8_lossy(hit);
             let inside = hit.strip_suffix(&format!("/{PROBE}")).unwrap_or(&hit).to_owned();
