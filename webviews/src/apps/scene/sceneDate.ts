@@ -114,7 +114,7 @@ function schedule() {
 function tick() {
   timer = undefined;
   now = Date.now();
-  for (const listener of [...listeners]) listener();
+  for (const listener of Array.from(listeners)) listener();
   schedule();
 }
 
