@@ -869,7 +869,7 @@ impl Git {
             ],
         )?;
         let tree = if reference.path.is_empty() {
-            resolved.commit.clone()
+            resolved.commit
         } else {
             format!("{}:{}", resolved.commit, reference.path)
         };
