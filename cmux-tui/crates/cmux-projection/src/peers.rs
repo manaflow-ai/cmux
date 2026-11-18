@@ -470,7 +470,9 @@ fn respond(stream: &mut TcpStream, status: &str, body: &[u8], close: bool) -> st
 }
 
 fn connection(git_dir: &Path, stream: TcpStream, bucket: &Mutex<Bucket>) -> anyhow::Result<()> {
-    stream.set_read_timeout(Some(Duration::from_secs(30)))?;
+    // A client's idle pooled connection holds one of the seed's few slots, so an idle one is
+    // closed after 5 s, not held open for other checkouts to be answered busy.
+    stream.set_read_timeout(Some(Duration::from_secs(5)))?;
     let mut writer = stream.try_clone()?;
     let mut reader = BufReader::new(stream);
     let mut objects = crate::git::ObjectReader::spawn(git_dir)?;
