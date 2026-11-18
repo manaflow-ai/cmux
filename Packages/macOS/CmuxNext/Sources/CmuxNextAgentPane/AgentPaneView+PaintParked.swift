@@ -29,19 +29,16 @@ extension AgentPaneView {
         isHidden = false
         PageWebView.syncChromiumVisibility(in: self)
         let model = model
-        // concurrency-allow: the observation ends on cancellation; the sleep bounds the wait
-        return await withTaskGroup(of: Bool.self) { group in
-            group.addTask { @MainActor in
-                for await painted in ObservationStream({ model.hasPainted }) where painted { return true }
-                return false
-            }
-            group.addTask {
-                // wakeup-allow: one-shot bound on a page's first paint before its chat shows anyway
-                try? await Task.sleep(for: limit)
-                return false
-            }
-            defer { group.cancelAll() }
-            return await group.next() ?? false
+        let watcher = Task { // on the main actor, as this view (no hop): it only reads `hasPainted`
+            for await painted in ObservationStream({ model.hasPainted }) where painted { return true }
+            return false // cancelled by the bound below
         }
+        let bound = Task {
+            // wakeup-allow: one-shot bound on a page's first paint before its chat shows anyway
+            try? await Task.sleep(for: limit)
+            watcher.cancel()
+        }
+        defer { bound.cancel() }
+        return await withTaskCancellationHandler { await watcher.value } onCancel: { watcher.cancel() }
     }
 }
