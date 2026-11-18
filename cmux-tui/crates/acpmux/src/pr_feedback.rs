@@ -64,9 +64,9 @@ impl Kind {
 }
 
 const CONTEXTS: &str = "contexts(first: 100) { nodes { __typename \
-... on CheckRun { name status conclusion detailsUrl \
+... on CheckRun { databaseId name status conclusion \
 checkSuite { workflowRun { databaseId event workflow { databaseId name } } } } \
-... on StatusContext { context state targetUrl description } } }";
+... on StatusContext { context state description } } }";
 
 fn query() -> String {
     format!(
@@ -214,18 +214,20 @@ fn read_pull(
     }
 }
 
-/// An Actions job's id in its check's link (`.../actions/runs/R/job/J`).
-fn job_id(url: &str) -> Option<u64> {
-    let rest = url.split_once("/job/")?.1;
-    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
-    digits.parse().ok()
+/// An Actions check run's workflow run and job ids (a check run's id is its job's). None for a
+/// commit status or another app's check, which has no job log. Ids, not `detailsUrl`: the link is
+/// built from them, and a broker that allows only some GraphQL fields still answers.
+fn actions_job(check: &Value) -> Option<(i64, i64)> {
+    let run = check.pointer("/checkSuite/workflowRun/databaseId")?.as_i64()?;
+    let id = check.get("databaseId")?.as_i64()?;
+    Some((run, id))
 }
 
 /// A job's first failed step and its log's end: kept on disk once the job finished.
 fn job_tail(
     ctx: &Ctx,
     repo: &str,
-    id: u64,
+    id: i64,
     deadline: Instant,
 ) -> Result<(Option<String>, String), String> {
     let dir = ctx.dir.join("jobs");
@@ -290,19 +292,16 @@ fn reds(ctx: &Ctx, repo: &str, own: &[&Value], deadline: Instant) -> Vec<Red> {
     let mut logs = 0;
     own.iter()
         .map(|check| {
-            let url = check
-                .get("detailsUrl")
-                .or_else(|| check.get("targetUrl"))
-                .and_then(Value::as_str)
-                .filter(|u| u.starts_with("https://"))
-                .map(str::to_owned);
+            let job = actions_job(check);
             let mut red = Red {
                 name: classify::name(check),
                 workflow: classify::workflow_name(check),
-                url: url.clone(),
+                url: job.map(|(run, id)| {
+                    format!("https://github.com/{repo}/actions/runs/{run}/job/{id}")
+                }),
                 ..Red::default()
             };
-            match url.as_deref().and_then(job_id) {
+            match job.map(|(_, id)| id) {
                 Some(_) if logs >= MAX_LOGS => {
                     red.log_note = Some(format!("log not read: only the first {MAX_LOGS} are"));
                 }
