@@ -40,7 +40,7 @@ struct Daemon {
 }
 
 impl Daemon {
-    fn open(session: &'static str, root: &std::path::Path) -> Arc<Mux> {
+    fn open(session: &'static str, root: &Path) -> Arc<Mux> {
         let mux = open_persistent_test_mux(session, root);
         // The maintenance worker checkpoints and seals on its own clock.
         mux.stop_journal_maintenance();
