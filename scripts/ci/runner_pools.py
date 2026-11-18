@@ -612,7 +612,11 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
         notes.append(f"the janitor snapshot is from {iso(generated)}, outside the last {SNAPSHOT_MAX_AGE}; "
                      "no snapshot evidence")
     elif generated is not None and pr_runner_pool.snapshot_truncated(snapshot):
-        notes.append(f"{pr_runner_pool.snapshot_truncated(snapshot)}; no snapshot evidence")
+        # A cut listing undercounts queues, so it marks nothing dead, but a start it saw is still a start: on
+        # 2026-11-18 from 13:18Z every snapshot was truncated (over 3,000 runs in flight), the probe alone judged,
+        # and 4, 8, 16 and 32 vCPU stayed marked dead while they kept starting jobs.
+        started |= recently_started(snapshot, now=now)
+        notes.append(f"{pr_runner_pool.snapshot_truncated(snapshot)}; only its recent starts count")
     elif generated is not None:
         age = max(0.0, (now - generated).total_seconds() / 60)
         started |= recently_started(snapshot, now=now)
@@ -657,10 +661,11 @@ def evidence_covers(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any
                 dt.timedelta(minutes=-1) <= now - checked <= HEALTH_MAX_AGE:
             covered |= {str(label) for label in labels}
     generated = parse_time(snapshot.get("generated_at")) if isinstance(snapshot, Mapping) else None
-    if generated is not None and dt.timedelta(minutes=-1) <= now - generated <= SNAPSHOT_MAX_AGE \
-            and not pr_runner_pool.snapshot_truncated(snapshot):
-        covered |= {label for spec in pools.values() for label in members(spec)} - probed
-        # A probed size the janitor saw start a job recently is covered too: label_evidence() calls it started.
+    if generated is not None and dt.timedelta(minutes=-1) <= now - generated <= SNAPSHOT_MAX_AGE:
+        if not pr_runner_pool.snapshot_truncated(snapshot):
+            covered |= {label for spec in pools.values() for label in members(spec)} - probed
+        # A size the janitor saw start a job recently is covered too, truncated or not: label_evidence() calls it
+        # started.
         covered |= recently_started(snapshot, now=now)
     return covered
 
