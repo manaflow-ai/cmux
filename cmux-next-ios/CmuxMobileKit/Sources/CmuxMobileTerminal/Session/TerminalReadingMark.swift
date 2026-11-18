@@ -71,6 +71,14 @@ struct TerminalReadingMark: Equatable {
         self.tail = (tailStart..<totalRows).map { rowText($0).map(Self.normalized) ?? "" }
     }
 
+    /// The reader's rows at a mirror reset, from the rows on screen: the
+    /// whole-screen read (`screen`, rows numbered like the scrollbar) and
+    /// Ghostty's addressable rows (`reader`: the viewport, the active area
+    /// and the first rows).
+    init?(anchor: TerminalScrollModel.Anchor, totalRows: Int, screen: TerminalScreenRows?, reader: (Int) -> String?) {
+        self.init(anchor: anchor, totalRows: totalRows, rowText: reader)
+    }
+
     /// The same rows, expected at the same distance from the end of a
     /// scrollback of `totalRows` rows: a replay that starts at another row of
     /// the Mac's history (a tab's new host, older rows fetched;
