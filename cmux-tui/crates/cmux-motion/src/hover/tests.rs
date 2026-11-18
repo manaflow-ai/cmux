@@ -350,8 +350,9 @@ fn hover_card_tab_resting_on_the_card_keeps_it_and_off_it_hides_at_once() {
     let off = run(&mut m, hit(None, true));
     let grace = m.armed_token().unwrap();
     assert_eq!(off, vec![E::Hide, E::Schedule { token: grace, after: RESHOW }]);
-    // Back onto a tab within the grace: its card at once.
-    assert_eq!(run(&mut m, hit(Some(row(2)), true)), vec![E::CancelTimer, show(row(2), false)]);
+    // Back onto another tab within the grace: its card at once, its content fading in over the
+    // card that is fading out (#32688).
+    assert_eq!(run(&mut m, hit(Some(row(2)), true)), vec![E::CancelTimer, show(row(2), true)]);
     // Off again, past the grace: the next tab waits the delay again.
     run(&mut m, hit(None, true));
     let grace = m.armed_token().unwrap();
