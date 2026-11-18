@@ -179,6 +179,56 @@ import Testing
         #expect(AgentChatDetail.of(summary: ["model": "m"])?.archived == false)
     }
 
+    /// Hidden chats cost only their cursor and kept tail (Leo, 2026-11-16: "the dream is infinite chats of
+    /// infinite length with flat or no growth in cpu/memory/even disk"): only the ``HiddenChatPages/warmHidden``
+    /// most recently hidden idle chats keep their page for the idle wait, so a look at another tab and back stays
+    /// warm; every other hidden idle chat gives it back after the composer's short wait. Ten open chats cost the
+    /// visible pages plus a warm set, not ten pages.
+    @Test func onlyAWarmSetOfHiddenIdleChatsKeepsItsPage() {
+        let (planner, host) = Self.make()
+        let order = (0..<9).map { "tab_\($0)" }
+        for key in order {
+            Self.hide(key, planner, host)
+            host.elapsed += .seconds(1)
+        }
+        Self.advance(HiddenChatPages<Host>.minimumHidden, planner, host)
+        // The warm set's size, written out so this test also runs (and fails) on a planner without one.
+        let warm = Array(order.suffix(2))
+        #expect(Set(host.pages.keys) == Set(warm), "hidden idle chats past the warm set kept their page: \(host.pages.keys.sorted())")
+        #expect(host.released == Array(order.dropLast(warm.count)), "released out of least-recently-seen order: \(host.released)")
+        #expect(planner.hasDeadline, "the warm set has no idle deadline")
+
+        // A working chat keeps its page and takes no place in the warm set.
+        host.busy = ["tab_busy"]
+        Self.hide("tab_busy", planner, host)
+        Self.advance(HiddenChatPages<Host>.minimumHidden + 1, planner, host)
+        #expect(host.pages["tab_busy"] != nil, "a working chat was let go")
+        #expect(Set(host.pages.keys) == Set(warm + ["tab_busy"]), "a working chat pushed an idle chat out of the warm set")
+
+        // A newer hide pushes the oldest warm chat out; it goes after the short wait.
+        Self.hide("tab_new", planner, host)
+        Self.advance(HiddenChatPages<Host>.minimumHidden + 1, planner, host)
+        #expect(host.released.last == warm.first, "the oldest warm chat kept its page past the warm set: \(host.released)")
+
+        // The warm set itself still goes after the idle wait.
+        Self.advance(Self.idle, planner, host)
+        #expect(Set(host.pages.keys) == ["tab_busy"], "the warm set outlived the idle wait: \(host.pages.keys.sorted())")
+    }
+
+    /// A chat due at once (archived) takes no place in the warm set: the two newest idle chats it would have
+    /// pushed out keep their page for the idle wait.
+    @Test func aChatDueAtOnceTakesNoWarmPlace() {
+        let (planner, host) = Self.make()
+        for key in ["tab_old", "tab_warm_a", "tab_warm_b", "tab_archived"] {
+            if key == "tab_archived" { host.archived = [key] }
+            Self.hide(key, planner, host)
+            host.elapsed += .seconds(1)
+        }
+        Self.advance(HiddenChatPages<Host>.minimumHidden, planner, host)
+        #expect(Set(host.released) == ["tab_old", "tab_archived"], "released: \(host.released)")
+        #expect(Set(host.pages.keys) == ["tab_warm_a", "tab_warm_b"], "an archived chat took a warm place: \(host.pages.keys.sorted())")
+    }
+
     @Test func theLeastRecentlySeenChatGoesFirst() {
         let (planner, host) = Self.make()
         let order = ["tab_c", "tab_a", "tab_e", "tab_b", "tab_f", "tab_d"]
@@ -186,7 +236,8 @@ import Testing
             Self.hide(key, planner, host)
             host.elapsed += .seconds(5)
         }
-        // All due at once: asked oldest hidden first.
+        // All due at once: asked oldest hidden first (the hides above already asked for the chats past the warm set).
+        host.requested = []
         host.elapsed += .seconds(10 * 60)
         planner.replan()
         #expect(host.requested == order, "released out of least-recently-seen order: \(host.requested)")

@@ -1,0 +1,441 @@
+/**
+ * The scenario catalogue (plans/cmux-next/cloud-selftest-DESIGN.md §5). Each scenario is data: actors with their team
+ * roles, steps (actor, action, args, expect), and the edge cases it covers. A step whose verb a lane still has to add
+ * runs once that lane's verb is in the cmux under test, and is PENDING-<lane> until then.
+ *
+ * Actor names keep one role in the whole catalogue: owner (team owner), admin, member, member2, leaver (a member who
+ * is removed mid-run), guest (signed in, outside the team, joins by link), outsider (signed in, no relation), anon (no
+ * account: usage errors), app (the person signed in to the tagged app, for its verbs and this computer's link).
+ */
+import type { ActorSpec, Scenario, Step } from "./engine";
+
+const OWNER: ActorSpec = { name: "owner", team_role: "owner" };
+const ADMIN: ActorSpec = { name: "admin", team_role: "admin" };
+const MEMBER: ActorSpec = { name: "member", team_role: "member" };
+const MEMBER2: ActorSpec = { name: "member2", team_role: "member" };
+const LEAVER: ActorSpec = { name: "leaver", team_role: "member" };
+const GUEST: ActorSpec = { name: "guest", team_role: null };
+const OUTSIDER: ActorSpec = { name: "outsider", team_role: null };
+const ANON: ActorSpec = { name: "anon", team_role: null, kind: "anon" };
+const APP: ActorSpec = { name: "app", team_role: null, kind: "app" };
+
+const s = (actor: string, action: string, args?: Step["args"], expect?: Step["expect"], more: Partial<Step> = {}): Step => ({ actor, action, ...(args ? { args } : {}), ...(expect ? { expect } : {}), ...more });
+const listed = (role: string) => ({ teams: { $contains: { id: "${team}", role } } });
+/** A `cmux link chat` step's machine and chat: --link-host, and the chat `link.chat_list` saved. */
+const LINK = { host: "${link_host}", surface: "${surface}" };
+/** A machine and an agent session on it, with the model stub on its loopback, as the owner. */
+/** The stub's reply names the prompt's `[st-N]` tag, so a step can tell which turn answered. */
+const ECHO = { version: 1, steps: [{ text: "Stub reply {{nonce}}: {{prompt~(\\[st-[^\\]]+\\])}}" }] };
+const machineWithChat = (script?: unknown): Step[] => [
+  s("owner", "machine.create", {}, { ok: true, json: { machine_id: { $exists: true } } }, { save: { vm: "machine_id" } }),
+  s("owner", "machine.get", { machine: "${vm}" }, { json: { status: "running" }, within_ms: 300_000, every_ms: 3_000 }, { label: "owner: machine running" }),
+  s("owner", "vm.stub", { machine: "${vm}", script: script ?? ECHO }),
+  s("owner", "chat.start", { machine: "${vm}", session: "${session}" }),
+];
+/**
+ * A gateway turn needs the machine's agents pointed at the model edge (the login-free VM's base URLs, lane A). Without
+ * it Claude Code reports "Not logged in" (auth.signed_out) and the gateway is never asked, so say that first. Read from
+ * the agent daemon's own environment (what its agents inherit), after the chat starts it.
+ */
+const edgeRouted = s("owner", "vm.credentials", { machine: "${vm}" }, { json: { daemon_seen: true, daemon_anthropic_base_url: { $re: "^https?://" }, daemon_auth_env: { $contains: { $oneOf: ["ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"] } } } }, { label: "owner: the machine's agents reach models at the edge (login-free VM, lane A)" });
+const deleteVm: Step[] = [s("owner", "machine.delete", { machine: "${vm}" }, { ok: true }, { label: "owner: delete the machine (cleanup)" })];
+
+export const SCENARIOS: Scenario[] = [
+  {
+    name: "identity.isolated",
+    summary: "each actor is its own signed-in account with its own HOME; one actor's token is never another's",
+    covers: ["multi-actor isolation", "guest vs member vs admin vs non-member"],
+    tags: ["identity", "fast"],
+    actors: [OWNER, MEMBER, OUTSIDER],
+    steps: [
+      s("owner", "auth.probe", { token: "own" }, { ok: true, json: { teams: { $contains: { kind: "personal" } } } }),
+      s("member", "auth.probe", { token: "own" }, { ok: true }),
+      s("outsider", "auth.probe", { token: "own" }, { ok: true, json: { teams: { $not: { $contains: { id: "${team}" } } } } }),
+    ],
+  },
+  {
+    name: "team.list",
+    summary: "owner, admin and member each list the team with their role; an outsider does not see it",
+    covers: ["team list", "guest vs member vs admin vs non-member"],
+    tags: ["team", "fast"],
+    actors: [OWNER, ADMIN, MEMBER, OUTSIDER],
+    steps: [
+      s("owner", "team.list", {}, { json: listed("owner") }),
+      s("admin", "team.list", {}, { json: listed("admin") }),
+      s("member", "team.list", {}, { json: listed("member") }),
+      s("outsider", "team.list", {}, { json: { teams: { $not: { $contains: { id: "${team}" } } } } }),
+    ],
+  },
+  {
+    name: "team.role_matrix",
+    summary: "who may read the team and its machines: owner, admin, member yes; a non-member is refused team.not_member",
+    covers: ["role matrix", "guest vs member vs admin vs non-member"],
+    tags: ["team", "fast"],
+    actors: [OWNER, ADMIN, MEMBER, OUTSIDER],
+    steps: [
+      s("owner", "team.members", {}, { json: { members: { $contains: { user: "${member.user}", role: "member" } } } }),
+      s("admin", "team.members", {}, { json: { members: { $contains: { user: "${admin.user}", role: "admin" } } } }),
+      s("member", "team.members", {}, { json: { members: { $contains: { user: "${owner.user}", role: "owner" } } } }),
+      s("outsider", "team.members", { team: "${team}" }, { error: "team.not_member" }),
+      s("member", "machine.list", {}, { ok: true }),
+    ],
+  },
+  {
+    name: "auth.expired_revoked",
+    summary: "an expired or garbage token is refused auth.unauthenticated; after a revoke the refresh is refused",
+    covers: ["expired/revoked tokens"],
+    tags: ["auth", "fast"],
+    actors: [OWNER, LEAVER],
+    needs: ["fixtures.mutate"],
+    steps: [
+      s("owner", "auth.probe", { token: "expired" }, { error: "auth.unauthenticated" }),
+      s("owner", "auth.probe", { token: "garbage" }, { error: "auth.unauthenticated" }),
+      s("owner", "auth.probe", { token: "none" }, { error: "auth.unauthenticated" }),
+      s("leaver", "auth.refresh", {}, { ok: true }, { label: "leaver: a refresh works before the revoke" }),
+      s("harness", "fixtures.revoke_sessions", { user: "leaver" }, { ok: true }),
+      s("leaver", "auth.refresh", {}, { error: "auth.refresh_refused", within_ms: 30_000 }),
+    ],
+  },
+  {
+    name: "team.member_removed_live",
+    summary: "a member removed from the team loses access on their next request (no restart), and the team list drops it",
+    covers: ["member removed mid-session (access revoked live)", "following then losing access"],
+    tags: ["team", "revoke"],
+    actors: [OWNER, LEAVER],
+    needs: ["fixtures.mutate"],
+    steps: [
+      s("leaver", "team.members", {}, { ok: true }, { label: "leaver: reads the team while a member" }),
+      s("harness", "fixtures.remove", { user: "leaver" }, { ok: true }),
+      // With the Worker fixtures route TeamDO syncs before it answers; through the sign-in service it waits for its webhook.
+      s("leaver", "team.members", { team: "${team}" }, { error: "team.not_member", within_ms: 120_000, every_ms: 5_000 }, { label: "leaver: refused once removed" }),
+      s("leaver", "team.list", {}, { json: { teams: { $not: { $contains: { id: "${team}" } } } }, within_ms: 60_000 }),
+      s("owner", "team.members", {}, { json: { members: { $not: { $contains: { user: "${leaver.user}" } } } } }),
+    ],
+  },
+  {
+    name: "vm.login_free",
+    summary: "a new Cloud machine holds no provider login: no login files, only placeholder keys, base URLs at the edge",
+    covers: ["login-free VM (no credential files on the VM)"],
+    tags: ["vm", "machine"],
+    actors: [OWNER],
+    needs: ["machine"],
+    steps: [
+      s("owner", "machine.create", {}, { json: { machine_id: { $exists: true } } }, { save: { vm: "machine_id" } }),
+      s("owner", "machine.get", { machine: "${vm}" }, { json: { status: "running" }, within_ms: 300_000, every_ms: 3_000 }),
+      s("owner", "vm.credentials", { machine: "${vm}" }, { json: { files: [], real_env: [], anthropic_base_url: { $re: "^(https://coderouter\\.cmux\\.internal|$)" } } }),
+      s("owner", "vm.auth_status", { machine: "${vm}" }, { json: { machine_id: "${vm}", holds_credential: false, login_files: [], credential_env: [] } }),
+    ],
+    finally: deleteVm,
+  },
+  {
+    name: "vm.chat_sleep_wake",
+    summary: "a turn on the stub, then the VM sleeps and wakes, and the next turn keeps the session (history once, in order)",
+    covers: ["VM asleep or waking", "large transcripts (history read back)"],
+    tags: ["vm", "machine", "chat"],
+    actors: [OWNER],
+    needs: ["machine"],
+    steps: [
+      ...machineWithChat(),
+      s("owner", "chat.send", { machine: "${vm}", session: "${session}", text: "[st-1] first" }),
+      s("owner", "chat.wait", { machine: "${vm}", session: "${session}" }, { json: { reply: { $re: "\\[st-1\\]" } } }),
+      s("owner", "machine.pause", { machine: "${vm}" }),
+      s("owner", "machine.get", { machine: "${vm}" }, { json: { status: { $oneOf: ["paused", "suspended", "stopped"] } }, within_ms: 180_000, every_ms: 3_000 }),
+      s("owner", "machine.resume", { machine: "${vm}" }),
+      s("owner", "machine.get", { machine: "${vm}" }, { json: { status: "running" }, within_ms: 300_000, every_ms: 3_000 }),
+      s("owner", "vm.stub", { machine: "${vm}", script: ECHO }, { ok: true }, { label: "owner: the stub again (processes do not survive a pause)" }),
+      s("owner", "chat.send", { machine: "${vm}", session: "${session}", text: "[st-2] after wake" }),
+      s("owner", "chat.wait", { machine: "${vm}", session: "${session}" }, { json: { reply: { $re: "\\[st-2\\]" } } }),
+      s("owner", "chat.history", { machine: "${vm}", session: "${session}" }, { json: { count: 2, turns: [{ prompt: { $re: "^\\[st-1\\]" } }, { prompt: { $re: "^\\[st-2\\]" } }] } }),
+    ],
+    finally: deleteVm,
+  },
+  {
+    name: "vm.restart_mid_turn",
+    summary: "the agent daemon dies mid-turn (a VM restart as the session sees it); it comes back with the session and no duplicate prompt",
+    covers: ["VM restarted mid-turn", "network drop and resume without losing or duplicating messages"],
+    tags: ["vm", "machine", "chat"],
+    actors: [OWNER],
+    needs: ["machine"],
+    steps: [
+      ...machineWithChat({ version: 1, steps: [{ text: "slow {{nonce}} {{prompt~(\\[st-[^\\]]+\\])}}", delay_ms: 20_000 }] }),
+      s("owner", "chat.send", { machine: "${vm}", session: "${session}", text: "[st-r1] slow turn" }),
+      s("owner", "vm.daemon_kill", { machine: "${vm}" }, { json: { killed: { $exists: true } } }),
+      s("owner", "chat.history", { machine: "${vm}", session: "${session}" }, { json: { turns: { $contains: { prompt: { $re: "^\\[st-r1\\]" } } } }, within_ms: 90_000, every_ms: 3_000 }, { label: "owner: the session is back with the prompt" }),
+      s("owner", "chat.send", { machine: "${vm}", session: "${session}", text: "[st-r2] after restart" }),
+      s("owner", "chat.wait", { machine: "${vm}", session: "${session}" }, { json: { reply: { $re: "\\[st-r2\\]" } } }),
+      s("owner", "chat.history", { machine: "${vm}", session: "${session}" }, { json: { turns: { $len: 2 } } }, { label: "owner: each prompt once" }),
+    ],
+    finally: deleteVm,
+  },
+  {
+    name: "chat.large_transcript",
+    summary: "a 200 KB prompt and 20 turns go through and read back whole",
+    covers: ["large transcripts"],
+    tags: ["chat", "machine"],
+    actors: [OWNER],
+    needs: ["machine"],
+    steps: [
+      ...machineWithChat(),
+      s("owner", "chat.prompt_big", { machine: "${vm}", session: "${session}", marker: "[st-big]", bytes: 200_000 }),
+      s("owner", "chat.wait", { machine: "${vm}", session: "${session}" }, { json: { reply: { $re: "\\[st-big\\]" } } }),
+      ...Array.from({ length: 19 }, (_, i) => [
+        s("owner", "chat.send", { machine: "${vm}", session: "${session}", text: `[st-${i + 2}] turn` }),
+        s("owner", "chat.wait", { machine: "${vm}", session: "${session}" }, { json: { reply: { $re: `\\[st-${i + 2}\\]` } } }),
+      ]).flat(),
+      s("owner", "chat.history", { machine: "${vm}", session: "${session}", limit: 50 }, { json: { count: 20 } }),
+    ],
+    finally: deleteVm,
+  },
+  {
+    name: "gateway.offline_reconnect",
+    summary: "no gateway: a turn ends inference.gateway_offline with clear copy; the gateway connects and the next turn passes; it drops and comes back",
+    covers: ["gateway offline", "gateway reconnecting", "owner offline / Mac asleep"],
+    tags: ["gateway", "machine"],
+    actors: [OWNER],
+    needs: ["machine", "gateway", "stub"],
+    steps: [
+      s("owner", "gateway.mode", { mode: "gateway" }, { ok: true }),
+      s("owner", "gateway.status", {}, { json: { online: false } }),
+      s("owner", "machine.create", {}, { json: { machine_id: { $exists: true } } }, { save: { vm: "machine_id" } }),
+      s("owner", "machine.get", { machine: "${vm}" }, { json: { status: "running" }, within_ms: 300_000, every_ms: 3_000 }),
+      s("owner", "chat.start", { machine: "${vm}", session: "${session}" }),
+      edgeRouted,
+      s("owner", "chat.send", { machine: "${vm}", session: "${session}", text: "[st-off] no gateway" }),
+      s("owner", "chat.wait", { machine: "${vm}", session: "${session}", timeout_ms: 240_000 }, { error: "inference.gateway_offline" }),
+      s("owner", "gateway.start", { id: "g1" }),
+      s("owner", "gateway.status", {}, { json: { online: true }, within_ms: 60_000 }),
+      s("owner", "chat.send", { machine: "${vm}", session: "${session}", text: "[st-on] gateway up" }),
+      s("owner", "chat.wait", { machine: "${vm}", session: "${session}" }, { json: { reply: { $re: "\\[st-on\\]" } } }),
+      s("owner", "gateway.stop", { id: "g1" }),
+      s("owner", "gateway.status", {}, { json: { online: false }, within_ms: 90_000, every_ms: 5_000 }),
+      s("owner", "gateway.start", { id: "g1" }),
+      s("owner", "gateway.status", {}, { json: { online: true }, within_ms: 60_000 }),
+      s("owner", "stub.calls", {}, { json: { count: { $gte: 1 } } }),
+    ],
+    finally: [s("owner", "gateway.stop", { id: "g1" }), s("owner", "gateway.mode", { mode: "off" }), ...deleteVm],
+  },
+  {
+    name: "gateway.route_order",
+    summary: "a machine's route follows the documented order: the owner's personal gateway before the team's",
+    covers: ["team shared keys (route order)", "two gateways for one owner"],
+    tags: ["gateway", "machine"],
+    actors: [OWNER],
+    needs: ["machine"],
+    steps: [
+      s("owner", "machine.create", {}, { json: { machine_id: { $exists: true } } }, { save: { vm: "machine_id" } }),
+      s("owner", "machine.get", { machine: "${vm}" }, { json: { status: "running" }, within_ms: 300_000, every_ms: 3_000 }),
+      s("owner", "gateway.mode", { mode: "gateway" }, { ok: true }),
+      s("owner", "gateway.route", { machine: "${vm}" }, { json: { route: "team_gateway" } }),
+      s("owner", "gateway.mode", { mode: "gateway", personal: true }, { ok: true }),
+      s("owner", "gateway.status", { personal: true }, { json: { mode: "gateway" } }),
+      s("owner", "gateway.route", { machine: "${vm}" }, { json: { route: "owner_gateway" } }),
+    ],
+    finally: [s("owner", "gateway.mode", { mode: "off", personal: true }), s("owner", "gateway.mode", { mode: "off" }), ...deleteVm],
+  },
+  {
+    name: "gateway.two_gateways",
+    summary: "two gateways for one team: either answers, and one going away loses no turn",
+    covers: ["two gateways for one owner"],
+    tags: ["gateway", "machine"],
+    actors: [OWNER],
+    needs: ["machine", "gateway", "stub"],
+    steps: [
+      s("owner", "gateway.mode", { mode: "gateway" }, { ok: true }),
+      s("owner", "gateway.start", { id: "a" }),
+      s("owner", "gateway.start", { id: "b" }),
+      s("owner", "gateway.status", {}, { json: { online: true }, within_ms: 60_000 }),
+      s("owner", "machine.create", {}, { json: { machine_id: { $exists: true } } }, { save: { vm: "machine_id" } }),
+      s("owner", "machine.get", { machine: "${vm}" }, { json: { status: "running" }, within_ms: 300_000, every_ms: 3_000 }),
+      s("owner", "chat.start", { machine: "${vm}", session: "${session}" }),
+      edgeRouted,
+      s("owner", "chat.send", { machine: "${vm}", session: "${session}", text: "[st-2g-1] both up" }),
+      s("owner", "chat.wait", { machine: "${vm}", session: "${session}" }, { json: { reply: { $re: "\\[st-2g-1\\]" } } }),
+      s("owner", "gateway.stop", { id: "a" }),
+      s("owner", "chat.send", { machine: "${vm}", session: "${session}", text: "[st-2g-2] one left" }),
+      s("owner", "chat.wait", { machine: "${vm}", session: "${session}" }, { json: { reply: { $re: "\\[st-2g-2\\]" } } }),
+    ],
+    finally: [s("owner", "gateway.stop", { id: "b" }), s("owner", "gateway.mode", { mode: "off" }), ...deleteVm],
+  },
+  {
+    name: "gateway.provider_errors",
+    summary: "the subscription's rate limit, auth error and overload reach the chat as typed errors; a retry after them answers",
+    covers: ["provider rate-limit and auth errors surfaced with clear copy", "idempotent retries"],
+    tags: ["gateway", "machine"],
+    actors: [OWNER],
+    needs: ["machine", "gateway", "stub"],
+    steps: [
+      s("owner", "gateway.mode", { mode: "gateway" }, { ok: true }),
+      s("owner", "gateway.start", { id: "g1" }),
+      s("owner", "gateway.status", {}, { json: { online: true }, within_ms: 60_000 }),
+      s("owner", "machine.create", {}, { json: { machine_id: { $exists: true } } }, { save: { vm: "machine_id" } }),
+      s("owner", "machine.get", { machine: "${vm}" }, { json: { status: "running" }, within_ms: 300_000, every_ms: 3_000 }),
+      s("owner", "chat.start", { machine: "${vm}", session: "${session}" }),
+      edgeRouted,
+      s("harness", "stub.fault", { faults: [{ status: 429, type: "rate_limit_error", message: "rate limited", retry_after: 1, count: 20 }] }),
+      s("owner", "chat.send", { machine: "${vm}", session: "${session}", text: "[st-429] limited" }),
+      s("owner", "chat.wait", { machine: "${vm}", session: "${session}" }, { error: "provider.rate_limited" }),
+      s("harness", "stub.fault", { faults: [{ status: 401, type: "authentication_error", message: "login expired", count: 20 }] }),
+      s("owner", "chat.send", { machine: "${vm}", session: "${session}", text: "[st-401] auth" }),
+      s("owner", "chat.wait", { machine: "${vm}", session: "${session}" }, { error: "provider.auth" }),
+      s("owner", "chat.send", { machine: "${vm}", session: "${session}", text: "[st-ok] after" }),
+      s("owner", "chat.wait", { machine: "${vm}", session: "${session}" }, { json: { reply: { $re: "\\[st-ok\\]" } } }),
+    ],
+    finally: [s("owner", "gateway.stop", { id: "g1" }), s("owner", "gateway.mode", { mode: "off" }), ...deleteVm],
+  },
+  {
+    name: "gateway.admin",
+    summary: "the owner turns the team's gateway on and off; status says the mode and that none is online, to a member too",
+    covers: ["gateway mode (team and personal)", "gateway offline"],
+    tags: ["gateway", "fast"],
+    actors: [OWNER, MEMBER],
+    needs: ["cmux"],
+    steps: [
+      s("owner", "gateway.mode", { mode: "gateway" }, { json: { mode: "gateway" } }),
+      s("owner", "gateway.status", {}, { json: { mode: "gateway", online: false } }),
+      s("member", "gateway.status", {}, { json: { mode: "gateway", online: false } }, { label: "member: reads the team's gateway" }),
+      s("owner", "gateway.mode", { mode: "off" }, { json: { mode: "off" } }),
+      s("owner", "gateway.status", {}, { json: { mode: "off" } }),
+    ],
+    finally: [s("owner", "gateway.mode", { mode: "off" })],
+  },
+  {
+    name: "gateway.admin_personal",
+    summary: "the owner turns their own gateway (their machines in every team) on and off, apart from the team's",
+    covers: ["gateway mode (team and personal)"],
+    tags: ["gateway", "fast"],
+    actors: [OWNER],
+    needs: ["cmux"],
+    steps: [
+      s("owner", "gateway.mode", { mode: "gateway", personal: true }, { json: { mode: "gateway" } }),
+      s("owner", "gateway.status", { personal: true }, { json: { mode: "gateway", online: false } }),
+      s("owner", "gateway.status", {}, { json: { mode: "off" } }, { label: "owner: the team's gateway is not the owner's own" }),
+      s("owner", "gateway.mode", { mode: "off", personal: true }, { json: { mode: "off" } }),
+    ],
+    finally: [s("owner", "gateway.mode", { mode: "off", personal: true })],
+  },
+  {
+    name: "team_keys.shared_path",
+    summary: "the owner sets the team's shared Claude key from a file (a replay says so); a member sees it is set but cannot set it; a non-member cannot read it; removed, it is gone",
+    covers: ["team shared key path", "role matrix", "idempotent retries"],
+    tags: ["keys", "team", "fast"],
+    actors: [OWNER, MEMBER, OUTSIDER],
+    needs: ["cmux"],
+    steps: [
+      s("member", "team_keys.set", { agent: "claude", secret_file: "${keyfile}" }, { error: "auth.forbidden" }),
+      s("owner", "team_keys.set", { agent: "claude", secret_file: "${keyfile}", idempotency_key: "${run}-tk-claude" }, { json: { agent: "claude", set: true, kind: "api_key" } }),
+      s("owner", "team_keys.set", { agent: "claude", secret_file: "${keyfile}", idempotency_key: "${run}-tk-claude" }, { json: { set: true, replayed: true } }, { label: "owner: the same set again is answered from the first" }),
+      s("owner", "team_keys.status", {}, { json: { team: "${team}", can_manage: true, agents: { $contains: { agent: "claude", set: true, updated_by: "${owner.user}" } } } }),
+      s("member", "team_keys.status", {}, { json: { can_manage: false, agents: { $contains: { agent: "claude", set: true } } } }),
+      s("outsider", "team_keys.status", { team: "${team}" }, { error: ["team.not_member", "auth.forbidden"] }),
+      s("member", "team_keys.remove", { agent: "claude" }, { error: "auth.forbidden" }),
+      s("owner", "team_keys.remove", { agent: "claude" }, { json: { agent: "claude", removed: true } }),
+      s("member", "team_keys.status", {}, { json: { agents: { $not: { $contains: { agent: "claude", set: true } } } } }),
+    ],
+    finally: [s("owner", "team_keys.remove", { agent: "claude" })],
+  },
+  {
+    name: "cli.usage_errors",
+    summary: "the multiplayer verbs refuse bad usage with their stable codes before any call (no account needed)",
+    covers: ["stable error codes"],
+    tags: ["cli", "fast"],
+    actors: [ANON],
+    needs: ["cmux"],
+    steps: [
+      s("anon", "cli.raw", { verb: "cloud team-keys set", argv: ["--json", "cloud", "team-keys", "set", "gemini"] }, { error: "usage.invalid" }),
+      s("anon", "cli.raw", { verb: "cloud team-keys status", argv: ["--json", "cloud", "team-keys", "status"] }, { error: "usage.invalid" }, { label: "anon: team-keys with no team or credential" }),
+      s("anon", "cli.raw", { verb: "cloud machine-auth", argv: ["--json", "cloud", "machine-auth", "--machine", "vm;rm"] }, { error: "usage.invalid" }),
+      s("anon", "cli.raw", { verb: "inference route", argv: ["--json", "inference", "route", "--agent", "claude"] }, { error: "cli.invalid_args" }),
+      s("anon", "cli.raw", { verb: "inference gateway mode", argv: ["--json", "inference", "gateway", "mode", "sometimes"] }, { error: "cli.invalid_args" }),
+      s("anon", "cli.raw", { verb: "link chat send", argv: ["link", "chat", "send", "--host", "host_selftest", "--text", "hi"] }, { error: "chat.bad_usage" }),
+    ],
+  },
+  {
+    name: "app.team_read",
+    summary: "the tagged app's person lists the team's sessions and members, gets a session's link, and is refused a bad session or group with its code",
+    covers: ["team list", "links", "role matrix"],
+    tags: ["app", "team", "links"],
+    actors: [APP],
+    needs: ["app"],
+    steps: [
+      s("app", "app.ping", {}, { ok: true }),
+      s("app", "app.team_members", {}, { json: { members: { $contains: { you: true } } } }),
+      s("app", "app.team_sessions", { scope: "team", limit: 5 }, { json: { sessions: { $exists: true } } }),
+      s("app", "app.team_sessions", { scope: "following", limit: 5 }, { json: { sessions: { $exists: true } } }),
+      s("app", "app.team_session", { session: "not-a-session" }, { error: "cloud_session.invalid" }),
+      s("app", "app.copy_link", { session: "cloud:team_selftest/vm_selftest/st-${run}" }, { json: { key: "cloud:team_selftest/vm_selftest/st-${run}", link: { $re: "^cmux://cloud/" }, copied: false } }),
+      s("app", "app.group_members", { group: "grp_selftest_${run}" }, { ok: false }, { label: "app: an unknown group is refused" }),
+      s("app", "app.group_member_set", { group: "grp_selftest_${run}", user: "user_00000000000000000000", role: "view" }, { ok: false }),
+      s("app", "app.group_member_remove", { group: "grp_selftest_${run}", user: "user_00000000000000000000" }, { ok: false }),
+      s("app", "app.show_team_section", {}, { ok: true }),
+    ],
+  },
+  {
+    name: "app.session_changes",
+    summary: "on the session --app-session names: follow and unfollow, archive and bring back, reassign to its assignee, copy its link (each answers TeamDO's row)",
+    covers: ["follow / unfollow", "reassign", "archive", "links"],
+    tags: ["app", "team"],
+    actors: [APP],
+    needs: ["app", "app.session"],
+    steps: [
+      s("app", "app.team_session", { session: "${app_session}" }, { json: { session: { key: "${app_session}", assignee: { $exists: true } } } }, { save: { assignee: "session.assignee" } }),
+      s("app", "app.follow", { session: "${app_session}" }, { json: { session: { following: true } } }),
+      s("app", "app.unfollow", { session: "${app_session}" }, { json: { session: { following: false } } }),
+      s("app", "app.archive", { session: "${app_session}", archived: true }, { json: { session: { archived: true } } }),
+      s("app", "app.archive", { session: "${app_session}", archived: false }, { json: { session: { archived: false } } }),
+      s("app", "app.reassign", { session: "${app_session}", to: "${assignee}" }, { json: { session: { assignee: "${assignee}" } } }),
+      s("app", "app.copy_link", { session: "${app_session}" }, { json: { key: "${app_session}", link: { $re: "^cmux://cloud/" } } }),
+    ],
+    finally: [s("app", "app.archive", { session: "${app_session}", archived: false })],
+  },
+  {
+    name: "app.transfer_local",
+    summary: "Transfer to This Mac of the Cloud chat tab --app-tab names, into a new folder",
+    covers: ["transfer to this Mac"],
+    tags: ["app", "transfer"],
+    actors: [APP],
+    needs: ["app", "app.tab"],
+    steps: [s("app", "app.transfer_local", { tab: "${app_tab}", path: "${transfer_dir}" }, { ok: true })],
+  },
+  {
+    name: "link.chat_owner",
+    summary: "over this computer's link, the app's person lists the machine's chats, reads one, and is refused a decision on a prompt that is not held",
+    covers: ["Cloud chat share", "stable error codes"],
+    tags: ["link", "share"],
+    actors: [APP],
+    needs: ["app", "link"],
+    steps: [
+      s("app", "link.chat_list", { host: "${link_host}" }, { json: { machine: { $exists: true }, chats: { $contains: { surface: { $exists: true }, cloud_id: { $re: "^cloud:" } } } } }, { save: { surface: "chats.0.surface" } }),
+      s("app", "link.chat_read", { ...LINK, limit: 5 }, { json: { events: { $exists: true } } }),
+      s("app", "link.chat_decline", { ...LINK, prompt_id: "st-none-${run}" }, { ok: false }, { label: "app: no such held prompt" }),
+    ],
+  },
+  {
+    name: "share.guest_held",
+    summary: "a guest's prompt into the owner's Cloud chat waits for the owner; the guest cannot decide it; the owner lets it in",
+    covers: ["Cloud chat share", "guest vs member", "queue/held state", "author stamps"],
+    tags: ["share", "link"],
+    actors: [OWNER, GUEST],
+    needs: ["link.actors"],
+    steps: [
+      s("owner", "link.chat_list", { host: "${link_host}" }, { json: { chats: { $contains: { surface: { $exists: true } } } } }, { save: { surface: "chats.0.surface" } }),
+      s("guest", "link.chat_send", { ...LINK, text: "[st-g] from the guest" }, { json: { awaiting_owner: true } }, { save: { held_id: "prompt_id", held_turn: "turn_id" } }),
+      s("guest", "link.chat_decline", { ...LINK, prompt_id: "${held_id}" }, { error: ["agent_session.owner_only", "remote_denied"] }),
+      s("owner", "link.chat_approve", { ...LINK, prompt_id: "${held_id}", turn_id: "${held_turn}", revision: 0 }, { ok: true }),
+    ],
+  },
+  {
+    name: "share.member_steer",
+    summary: "two members prompt the owner's running Cloud chat at once and steer it; a member cannot approve; a non-member is refused",
+    covers: ["teammate attach + steer", "two people prompting at once", "guest vs member vs admin vs non-member"],
+    tags: ["share", "team", "link"],
+    actors: [OWNER, MEMBER, MEMBER2, OUTSIDER],
+    needs: ["link.actors"],
+    steps: [
+      s("member", "link.chat_list", { host: "${link_host}" }, { json: { chats: { $contains: { cloud_id: { $re: "^cloud:" } } } } }, { save: { surface: "chats.0.surface" } }),
+      s("member", "link.chat_send", { ...LINK, text: "[st-m] member steers", steer: true }, { json: { awaiting_owner: false, state: { $oneOf: ["steered", "queued", "started"] } } }, { concurrent: true }),
+      s("member2", "link.chat_send", { ...LINK, text: "[st-m2] at the same time" }, { json: { awaiting_owner: false } }, { concurrent: true }),
+      s("member", "link.chat_approve", { ...LINK, prompt_id: "st-none", turn_id: "t", revision: 0 }, { error: ["agent_session.owner_only", "remote_denied"] }),
+      s("outsider", "link.chat_list", { host: "${link_host}" }, { error: ["remote_denied", "not_authorized", "unknown_host"] }),
+    ],
+  },
+];

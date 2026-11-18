@@ -25,6 +25,12 @@ the design rests on, on one launch of a NIGHTLY or a built app (scripts/measure/
              with pages (bench builds; pages less raw is the Page.captureScreenshot cost). browser.page.screenshot
              is tried once shown and once hidden behind a terminal tab: the socket refuses it to scripts by design.
 
+--launch open starts the app through LaunchServices (`open -n -a BUNDLE --env ...`), not as a child of this script,
+so the app is its own responsible process for TCC (as when a person opens it): tccd's requests then name the app, not
+the fleet worker, as the responsible process. The report's `launch` says how it started, its pid, its parent (launchd:
+1) and tccd's verdict line (`tcc_verdict`): any kTCCServiceScreenCapture request by the app that is not a preflight
+answered "unknown" (authValue 1) counts against the launch-image design.
+
 Writes OUT/report.json, OUT/report.md and the pictures (OUT/images/*.png: the screen's window, each composite, the
 page image). Exit 0 once the report is written (an artifact comes back only from a passing step), 3 when it could
 not measure. Kills only what it started: its app copy (its bundle's processes), its marker, its log stream.
@@ -35,6 +41,7 @@ import argparse
 import json
 import os
 import plistlib
+import re
 import pwd
 import shutil
 import sqlite3
@@ -119,7 +126,8 @@ class PromptWatch:
         self.stop_flag = threading.Event()
         self.paused = threading.Event()  # set while the timing rounds run: the polls would load the Mac they time
         self.ignore = set()
-        self.processes = {}  # name -> first seen (s since start)
+        self.processes = {}  # name -> first seen (s since start), a prompt process not running before
+        self.base_processes = set()
         self.windows = {}  # owner -> first seen
         self.window_errors = []
         self.polls = 0
@@ -139,7 +147,16 @@ class PromptWatch:
 
     def start(self):
         self.base_owners = self.owners()
+        self.base_processes = {n for n in self.process_names() if n in PROMPT_PROCESSES}
         self.thread.start()
+
+    @staticmethod
+    def process_names():
+        try:
+            listing = subprocess.run(["ps", "-axo", "comm="], capture_output=True, text=True, timeout=10).stdout
+        except (OSError, subprocess.SubprocessError):
+            listing = ""
+        return {os.path.basename(line.strip()) for line in listing.splitlines()}
 
     def run(self):
         while not self.stop_flag.is_set():
@@ -148,27 +165,23 @@ class PromptWatch:
                 continue
             self.polls += 1
             now = round(time.monotonic() - self.t0, 2)
-            try:
-                listing = subprocess.run(["ps", "-axo", "comm="], capture_output=True, text=True, timeout=10).stdout
-            except (OSError, subprocess.SubprocessError):
-                listing = ""
-            for line in listing.splitlines():
-                name = os.path.basename(line.strip())
-                if name in PROMPT_PROCESSES:
+            for name in self.process_names():
+                if name in PROMPT_PROCESSES and name not in self.base_processes:
                     self.processes.setdefault(name, now)
             owners = self.owners()
             if owners is not None:
                 for owner in owners:
                     if owner in self.ignore:
                         continue
-                    if owner in PROMPT_PROCESSES or (self.base_owners is not None and owner not in self.base_owners):
+                    if self.base_owners is not None and owner not in self.base_owners:
                         self.windows.setdefault(owner, now)
             self.stop_flag.wait(0.25)
 
     def stop(self):
         self.stop_flag.set()
         self.thread.join(timeout=15)
-        return {"polls": self.polls, "prompt_processes_seen": self.processes,
+        return {"polls": self.polls, "new_prompt_processes_seen": self.processes,
+                "prompt_processes_before": sorted(self.base_processes),
                 "new_window_owners_seen": self.windows, "base_window_owners": sorted(self.base_owners or []),
                 "window_list_errors": self.window_errors}
 
@@ -187,6 +200,32 @@ class TccLog:
         except OSError as error:
             self.process, self.error = None, str(error)
 
+    @staticmethod
+    def app_requests(lines, bundle_id):
+        """tccd's kTCCServiceScreenCapture requests whose requesting process is BUNDLE_ID: per msgID the function,
+        preflight, the responsible process and AUTHREQ_RESULT (authValue 0 denied, 1 unknown, 2 allowed)."""
+        found = {}
+        for line in lines:
+            try:
+                message = json.loads(line).get("eventMessage") or ""
+            except ValueError:
+                continue
+            match = re.search(r"msgID=([0-9.]+)", message)
+            if not match:
+                continue
+            entry = found.setdefault(match.group(1), {})
+            grab = lambda pattern: (re.search(pattern, message) or [None, None])[1]  # noqa: E731
+            if message.startswith("AUTHREQ_CTX:"):
+                entry.update(service=grab(r"service=(\w+)"), function=grab(r"function=(\w+)"),
+                             preflight=grab(r"preflight=(\w+)"))
+            elif message.startswith("AUTHREQ_ATTRIBUTION:"):
+                entry.update(requesting=grab(r"requesting=\{TCCDProcess: identifier=([^,]+)"),
+                             responsible=grab(r"responsible=\{TCCDProcess: identifier=([^,]+)"))
+            elif message.startswith("AUTHREQ_RESULT:"):
+                entry["result"] = message[len("AUTHREQ_RESULT: "):][:160]
+        return [dict(e, msg_id=k) for k, e in found.items()
+                if e.get("service") == "kTCCServiceScreenCapture" and e.get("requesting") == bundle_id]
+
     def stop(self, bundle_id, executable):
         if self.process is not None and self.process.poll() is None:
             self.process.terminate()  # our own child
@@ -196,11 +235,105 @@ class TccLog:
                 self.process.kill()
         self.handle.close()
         lines = Path(self.path).read_text(errors="replace").splitlines()
+        requests = self.app_requests(lines, bundle_id)
         screen = [line for line in lines if "ScreenCapture" in line]
         app = [line for line in screen if bundle_id in line or (executable and executable in line)]
-        return {"lines": len(lines), "screen_capture_lines": len(screen), "screen_capture_lines_naming_app": len(app),
+        return {"app_screen_capture_requests": requests, "lines": len(lines), "screen_capture_lines": len(screen), "screen_capture_lines_naming_app": len(app),
                 "app_examples": [line[:600] for line in app[:5]], "screen_examples": [line[:400] for line in screen[:5]],
                 "first_line": lines[0][:300] if lines else None}
+
+
+class OpenedApp(frames.App):
+    """frames.App started through LaunchServices (`open -n`): its own responsible process, a child of launchd."""
+
+    class Process:
+        """The opened app's pid, with the poll() frames.App reads."""
+
+        def __init__(self, pid):
+            self.pid, self.returncode = pid, None
+
+        def poll(self):
+            try:
+                os.kill(self.pid, 0)
+            except ProcessLookupError:
+                self.returncode = -1
+                return self.returncode
+            except PermissionError:
+                pass
+            return None
+
+        def wait(self, timeout=None):
+            deadline = None if timeout is None else time.monotonic() + timeout
+            while self.poll() is None:
+                if deadline is not None and time.monotonic() > deadline:
+                    raise subprocess.TimeoutExpired("open -n app", timeout)
+                time.sleep(0.25)  # test script: waiting for the opened app to exit
+            return self.returncode
+
+    def launch(self):
+        # frames.App.launch builds the run's home, defaults and env, then starts the binary; this keeps all of that and
+        # swaps only the start: subprocess.Popen is pointed at `open` for the one call.
+        real_popen = subprocess.Popen
+        binary = os.path.join(self.bundle, "Contents/MacOS", self.executable)
+        opened = {}
+
+        def popen(argv, env=None, **kwargs):
+            if argv and argv[0] != binary:
+                return real_popen(argv, env=env, **kwargs)
+            log = os.path.join(self.root, "app.log")
+            command = ["/usr/bin/open", "-n", "-F", "--stdout", log, "--stderr", log, "-a", self.bundle]
+            # Every key: the app gets launchd's session environment, not this script's, so nothing is inherited.
+            for key, value in sorted((env or {}).items()):
+                command += ["--env", f"{key}={value}"]
+            command += ["--args", *argv[1:]]
+            before = set(pids_of(binary))
+            done = subprocess.run(command, capture_output=True, text=True, timeout=60)
+            if done.returncode != 0:
+                raise frames.Unmeasurable(f"open -n failed ({done.returncode}): {done.stderr.strip()[:300]}")
+            deadline = time.monotonic() + 30
+            while time.monotonic() < deadline:
+                new = [pid for pid in pids_of(binary) if pid not in before]
+                if new:
+                    opened["pid"] = new[0]
+                    return OpenedApp.Process(new[0])
+                time.sleep(0.25)  # test script: LaunchServices starts the app
+            raise frames.Unmeasurable("open -n started no process of the bundle in 30 s")
+
+        subprocess.Popen = popen
+        try:
+            super().launch()
+        finally:
+            subprocess.Popen = real_popen
+        pid = opened.get("pid")
+        parent = subprocess.run(["ps", "-o", "ppid=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+        self.launch_info = {"mode": "open -n", "pid": pid, "ppid": int(parent) if parent.isdigit() else parent}
+        say("opened app", json.dumps(self.launch_info))
+
+
+def pids_of(binary):
+    """Pids whose command line starts with BINARY (the app's executable path) or its real path, from ps: LaunchServices
+    starts a bundle under /var/folders from /private/var/folders."""
+    listing = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True, timeout=10).stdout
+    paths = {binary, os.path.realpath(binary)}
+    pids = []
+    for line in listing.splitlines():
+        pid, _, command = line.strip().partition(" ")
+        command = command.strip()
+        if pid.isdigit() and any(command == path or command.startswith(path + " ") for path in paths):
+            pids.append(int(pid))
+    return pids
+
+
+def tcc_verdict(log):
+    """`ok` when every kTCCServiceScreenCapture request by the app is a preflight answered unknown (authValue 1) or
+    there is none; `STOP` with the requests that are not (a real request, a prompt, a grant or a denial); `no-log`
+    when tccd's log stream gave no line (nothing was read, so nothing is known)."""
+    requests = log.get("app_screen_capture_requests") or []
+    if not log.get("lines"):
+        return {"verdict": "no-log", "requests": 0, "beyond_unknown_preflight": []}
+    beyond = [r for r in requests
+              if not (str(r.get("preflight")).lower() in ("yes", "true", "1") and "authValue=1" in (r.get("result") or ""))]
+    return {"verdict": "STOP" if beyond else "ok", "requests": len(requests), "beyond_unknown_preflight": beyond}
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -386,14 +519,14 @@ class Sources:
     def run(self, name, index):
         path = os.path.join(self.scratch, f"{name}-{index}.png")
         if name == "idle":
-            time.sleep(0.15)
+            # The baseline: the same debug.hangs reads around a no-op (a step's 150 ms sleep came back as 295 ms).
             return {}, None
         if name == "window.screenshot":
             reply = self.c.action("window.screenshot", focus=False, out=path)
         elif name == "debug.window_snapshot.raw":
-            reply = self.c.call("debug.window_snapshot", {"webviews": False, "path": path}, timeout=60)
+            reply = self.c.call("debug.window_snapshot", {"kind": "main", "webviews": False, "path": path}, timeout=60)
         elif name == "debug.window_snapshot.pages":
-            reply = self.c.call("debug.window_snapshot", {"path": path}, timeout=60)
+            reply = self.c.call("debug.window_snapshot", {"kind": "main", "path": path}, timeout=60)
         else:
             reply = self.c.call("browser.page.screenshot", {"tab": self.ids["chromium"]}, timeout=60)
         error = (reply or {}).get("error") if isinstance(reply, dict) else None
@@ -442,6 +575,8 @@ def main(argv=None):
     parser.add_argument("--tools", required=True, help="the compiled scripts/measure/tab-switch-frames/tools.swift")
     parser.add_argument("--rounds", type=int, default=12)
     parser.add_argument("--out", default=os.path.join(os.getcwd(), ".build/launch-capture-probe"))
+    parser.add_argument("--launch", choices=("child", "open"), default="child",
+                        help="child: this script starts the binary (default); open: LaunchServices `open -n`")
     args = parser.parse_args(argv)
     if not (args.app or args.dmg):
         parser.error("--app or --dmg")
@@ -471,8 +606,9 @@ def main(argv=None):
         watch.start()
         tcc_log = TccLog(args.out)
         watch.ignore = {executable, "cmux", "tab-switch-tools", "CuaDriver", "cua-driver"}
-        app = frames.App(bundle, root, smoke)
+        app = (OpenedApp if args.launch == "open" else frames.App)(bundle, root, smoke)
         app.launch()
+        report["launch"] = getattr(app, "launch_info", {"mode": "child", "pid": app.process.pid, "ppid": os.getpid()})
         control = app.control
         ids = build_workload(control, root)
         report["workload"] = ids
@@ -542,6 +678,8 @@ def main(argv=None):
                 report["end_error"] = str(error)[:300]
             if tcc_log is not None:
                 report["tcc_log"] = tcc_log.stop(report.get("bundle_id", "?"), report.get("executable"))
+                report["tcc_verdict"] = tcc_verdict(report["tcc_log"])
+                say("tcc verdict", json.dumps(report["tcc_verdict"])[:800])
         if watch is not None:
             report["prompt_watch"] = watch.stop()
         if report.get("bundle_id"):
@@ -564,6 +702,8 @@ def write_markdown(report, path):
     for when in ("tcc_before", "tcc_after"):
         lines.append(f"- {when}: `{json.dumps(report.get(when))[:900]}`")
     lines.append(f"- prompt watch: `{json.dumps(report.get('prompt_watch'))[:900]}`")
+    lines.append(f"- launch: `{json.dumps(report.get('launch'))}`")
+    lines.append(f"- tccd verdict: `{json.dumps(report.get('tcc_verdict'))[:900]}`")
     lines.append(f"- tccd log: `{json.dumps(report.get('tcc_log'))[:900]}`")
     lines += ["", "| picture | left red share | right blue share | right common color | MAD vs screen (all/left/right) |",
               "|---|---|---|---|---|"]

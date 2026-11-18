@@ -809,14 +809,16 @@ export async function runE2E(
     evidence.share = ev
     const pause = (ms: number) => within(new Promise(() => undefined), Math.max(0, ms), true)
     live()
-    // The joined user's commands see its user manager (runtime directory and bus), as in its login session:
+    // The joined user's commands see its user manager (runtime directory and bus), as in its login session,
+    // and the acpmux home the join wrote its machine credential to, as acpmux's daemon passes it when it runs
+    // the enable (cmux-rd never guesses a default home: linux_host/machine.rs):
     // `enable` installs and starts the host's user unit through it.
     const id = await deps.run(asUserTool(["id", "-u"]), { env: childEnv, timeoutMs: 10_000 })
     const uid = id.stdout.trim()
     if (id.code !== 0 || !/^\d{1,10}$/.test(uid)) throw new Failed("share: no uid for the joined user")
     const hostRd = `${opts.home}/.local/bin/cmux-rd`
     const asHost = (args: string[]) =>
-      asUserTool(["/usr/bin/env", `XDG_RUNTIME_DIR=/run/user/${uid}`, `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${uid}/bus`, ...args])
+      asUserTool(["/usr/bin/env", `XDG_RUNTIME_DIR=/run/user/${uid}`, `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${uid}/bus`, `ACPMUX_HOME=${opts.home}/.acpmux`, ...args])
     // The host unit runs ~/.local/bin/cmux-rd: it must be the run's own build.
     const link = await deps.run(asUserTool(["readlink", "-f", "--", hostRd]), { env: childEnv, timeoutMs: 10_000 })
     if (link.code !== 0 || link.stdout.trim() !== sh.cmuxRd) throw new Failed("share: ~/.local/bin/cmux-rd is not the run's cmux-rd")

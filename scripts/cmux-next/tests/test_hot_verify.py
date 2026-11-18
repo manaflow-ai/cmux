@@ -160,6 +160,17 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(planned["layers"], ["rust"])
         self.assertFalse(planned["needs_build"], planned["build"])
 
+    def test_a_landed_commit_with_no_app_is_planned_from_its_first_parent(self):
+        # The workflow's merged half plans the merge commit with no app: its merge base with feat-cmux-next is
+        # itself, so head..head was empty and cmux#44971 (Rust in cmux-tui) planned as "nothing in the app changes".
+        tip = self.advance_base({"docs/notes.md": "drift\n"})
+        landed = self.land({"cmux-tui/crates/cmux-tui/src/main.rs": "fn main() { println!(\"mine\"); }\n"}, tip)
+        planned = hv.plan(self.fx.repo, f"sha:{landed}", hv.NO_APP, None)
+        self.assertEqual(planned["base"], tip)
+        self.assertEqual(planned["fork"], tip)
+        self.assertEqual(planned["layers"], ["rust"])
+        self.assertFalse(planned["needs_build"], planned["build"])
+
     def test_a_branch_merged_in_as_second_parent_keeps_all_its_commits(self):
         # Review of the first-parent rule: 161 first-parent merges in 30 days landed real branches as second parents.
         # A look at such a branch's last commit after it landed must still count the branch's earlier Swift.
@@ -244,6 +255,84 @@ class PlanTest(unittest.TestCase):
         planned = self.plan(head)
         self.assertTrue(planned["needs_build"])
         self.assertIn("Rust the app links (FFI), in the commits the app lacks", planned["build"])
+
+    def test_a_repin_the_app_lacks_puts_the_fork_s_release_in_first(self):
+        # 2026-11-17: 7 of the 8 Rust looks that failed planned `rust` here, then ended `hot-apply.py apply --parts
+        # rust exited 3`: the NIGHTLY pinned an older app FFI release than the fork, and no FFI source changed in
+        # the commits between, so the plan saw nothing while hot-apply held the daemon back for the repin.
+        self.fx.base = self.fx.commit({hv.FFI_PIN_FILE: self.PIN % ("a" * 40, "0" * 64)}, "pin",
+                                      parent=self.fx.base)
+        tip = self.advance_base({hv.FFI_PIN_FILE: self.PIN % ("b" * 40, "1" * 64)})
+        head = self.fx.commit({"cmux-tui/crates/cmux-tui/src/main.rs": "fn main() { println!(\"mine\"); }\n"},
+                              "change", parent=tip)
+        h = hv.hot()
+        with unittest.mock.patch.object(h.ffi_part, "additive", return_value=[]):
+            planned = self.plan(head)
+        self.assertEqual(planned["layers"], ["rust"])
+        self.assertFalse(planned["needs_build"], planned["build"])
+        self.assertEqual(planned["ffi_baseline"]["source"], "b" * 40)
+        self.assertEqual(planned["ffi_baseline"]["app_pin_source"], "a" * 40)
+        with unittest.mock.patch.object(h.ffi_part, "additive", return_value=["drops ffi_old()"]):
+            planned = self.plan(head)
+        self.assertTrue(planned["needs_build"])
+        self.assertEqual(planned["build"]["Rust the app links (FFI), in the commits the app lacks"], [hv.FFI_PIN_FILE])
+        self.assertNotIn("ffi_baseline", planned)
+        self.assertTrue(any("drops ffi_old()" in note for note in planned["notes"]), planned["notes"])
+
+    def test_a_repin_the_app_lacks_with_rust_the_swift_build_reads_still_needs_a_build(self):
+        # Review of cmux#46195: the fork's release brings the library up, not what the Swift build reads itself;
+        # hot-apply leaves that, then holds the daemon back, so the look would end in exit 3 again.
+        self.fx.base = self.fx.commit({hv.FFI_PIN_FILE: self.PIN % ("a" * 40, "0" * 64)}, "pin",
+                                      parent=self.fx.base)
+        tip = self.advance_base({hv.FFI_PIN_FILE: self.PIN % ("b" * 40, "1" * 64)})
+        head = self.fx.commit({"cmux-tui/crates/cmux-tui/src/main.rs": "fn main() { println!(\"mine\"); }\n"},
+                              "change", parent=tip)
+        h = hv.hot()
+        with unittest.mock.patch.object(h.ffi_part, "additive", return_value=[]), \
+                unittest.mock.patch.object(h, "swift_read_rust", return_value=["cmux-tui/include/cmux.h"]):
+            planned = self.plan(head)
+        self.assertTrue(planned["needs_build"], planned)
+        self.assertIn("Rust the app links (FFI), in the commits the app lacks", planned["build"])
+        self.assertNotIn("ffi_baseline", planned)
+
+    def test_a_repin_of_the_same_release_is_no_release_change(self):
+        # Review of cmux#46195: a pin file that only rewrites the checksum names the library the app has; hot-apply
+        # compares the release's commit, so the plan does too.
+        self.fx.base = self.fx.commit({hv.FFI_PIN_FILE: self.PIN % ("a" * 40, "0" * 64)}, "pin",
+                                      parent=self.fx.base)
+        tip = self.advance_base({hv.FFI_PIN_FILE: self.PIN % ("a" * 40, "1" * 64)})
+        head = self.fx.commit({"cmux-tui/crates/cmux-tui/src/main.rs": "fn main() { println!(\"mine\"); }\n"},
+                              "change", parent=tip)
+        planned = self.plan(head)
+        self.assertEqual(planned["layers"], ["rust"], planned)
+        self.assertFalse(planned["needs_build"], planned["build"])
+        self.assertNotIn("ffi_baseline", planned)
+
+    def test_a_change_branched_before_an_app_a_repin_ahead_needs_a_build(self):
+        # cmux#44876's look: the change forked before the NIGHTLY, which pinned a newer release; hot-apply holds the
+        # daemon back (an older release does not go in), so the plan must not say `rust`.
+        self.fx.base = self.fx.commit({hv.FFI_PIN_FILE: self.PIN % ("a" * 40, "0" * 64)}, "pin",
+                                      parent=self.fx.base)
+        self.fx.git("push", "-q", "-f", "origin", f"{self.fx.base}:refs/heads/feat-cmux-next")
+        self.fx.git("fetch", "-q", "origin")
+        head = self.fx.change({"cmux-tui/crates/cmux-tui/src/main.rs": "fn main() { println!(\"mine\"); }\n"})
+        app = self.fx.commit({hv.FFI_PIN_FILE: self.PIN % ("b" * 40, "1" * 64)}, "repin", parent=self.fx.base)
+        with unittest.mock.patch.object(hv.hot().ffi_part, "additive", return_value=["drops ffi_new()"]):
+            planned = self.plan(head, base=app)
+        self.assertTrue(planned["needs_build"], planned)
+        self.assertIn("Rust the app links (FFI): the app's release is not the change's", planned["build"])
+        self.assertNotIn("rust", planned["layers"])
+
+    def test_a_checkout_without_the_xcode_project_reads_the_rules_root(self):
+        # The 2026-11-18 swap-vs-dev-build sample planned from such a checkout: with no project file every cmux-tui
+        # path read as a bundled helper's input, and 28-36% of PR heads "needed a build" (2-5% with the project).
+        tree = Path(self.tmp.name) / "sparse"
+        (tree / "cmux-tui").mkdir(parents=True)
+        (tree / "cmux-tui/Cargo.toml").write_text("[workspace]\n")
+        self.assertTrue(hv.needs_rules_root(tree))
+        (tree / "cmux.xcodeproj").mkdir()
+        (tree / "cmux.xcodeproj/project.pbxproj").write_text("// project\n")
+        self.assertEqual(hv.needs_rules_root(tree), not (hv.ROOT / hv.ROUTE).is_file())
 
     def test_a_daemon_change_after_resource_drift_swaps_the_daemon(self):
         # The fleet's looks on cmux#43653 and cmux#43683 crashed here ("module 'hot_apply' has no attribute
@@ -420,6 +509,42 @@ class PlanTest(unittest.TestCase):
         self.assertIsNone(receipt["marker"])
         self.assertTrue(receipt["plan"]["needs_build"])
         self.assertIn("plan", receipt["phases"])
+
+
+class PublishedPullRequestWebTest(unittest.TestCase):
+    """look --pr N: a pull request's web layer comes from the bundles CI published for its head."""
+
+    HEAD = "92019c2684f5a22820837a020c520a9122f57b5a"  # cmux#45917's head, on no branch once it merged
+    KEY = "8c95ee2270c26fe36d1c127cdc1061570026b045223f1d160c23b4a7f9b316ff"
+
+    def pointer(self, url):
+        return {"head": self.HEAD, "key": self.KEY} if url.endswith("/pr/45917/latest.json") else None
+
+    def test_a_merged_head_on_no_branch_on_a_worker_with_no_bun_looks_from_its_published_layer(self):
+        # 2026-11-18 own looks: cmux#45917 (cmux18) ended "is on no branch of origin" and cmux#46028 (cmux21)
+        # "no bun here serves its webviews"; both heads' pointers named them. Neither check runs on that path.
+        planned = {"head": self.HEAD, "pr": 45917, "layers": ["web"]}
+        ran = []
+
+        def run(argv, **_kw):
+            ran.append(Path(argv[0]).name)
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        side = unittest.mock.Mock(env=lambda: {})
+        with unittest.mock.patch.object(hv, "fetch_json", side_effect=self.pointer), \
+                unittest.mock.patch.object(hv.shutil, "which", side_effect=AssertionError("asked for bun")), \
+                unittest.mock.patch.object(hv, "git", side_effect=AssertionError("checked the branches")), \
+                unittest.mock.patch.object(hv.subprocess, "run", side_effect=run), \
+                unittest.mock.patch.object(hv.time, "sleep"):
+            done = hv.apply_web(Path("/nonexistent"), planned, None, side, Path("/nonexistent"))
+        self.assertEqual(done, {"how": "published bundles", "key": self.KEY})
+        self.assertEqual(ran, ["fetch-web-bundles.sh", "web-overlay.sh"])
+
+    def test_a_pointer_for_another_head_is_not_used(self):
+        planned = {"head": "1" * 40, "pr": 45917}
+        with unittest.mock.patch.object(hv, "fetch_json", side_effect=self.pointer), \
+                unittest.mock.patch.object(hv.hot(), "web_key", return_value="f" * 64):
+            self.assertIsNone(hv.published_web_key(Path("/nonexistent"), planned))
 
 
 class MarkerTest(unittest.TestCase):
