@@ -90,7 +90,7 @@ export function UserBubble({
   const branch = branches?.of.get(row.id);
   const [editing, setEditing] = useState(false);
   // A prompt still on its way says so in its footer's time slot, and only there (PromptDelivery.tsx).
-  const pendingShown = usePendingShown(row.delivery);
+  const pendingShown = usePendingShown(row.delivery, Boolean(row.steer || row.delivery?.queued));
   const through = edit?.seqs.get(row.id);
   // Fork goes through the prompt's own turn, as its right-click Fork does, so the new chat keeps it.
   const own = promptTurns?.get(row.id);
@@ -293,7 +293,7 @@ export function UserBubble({
                 </span>
               )}
               {pendingShown && row.delivery ? (
-                <PendingDelivery delivery={row.delivery} queued={Boolean(row.steer || row.delivery.queued)} />
+                <PendingDelivery delivery={row.delivery} />
               ) : (
                 <MessageTime at={row.at} className="cv-user__time" />
               )}
