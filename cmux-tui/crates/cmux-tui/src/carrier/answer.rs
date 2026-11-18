@@ -492,6 +492,8 @@ impl HttpSource {
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .timeout(FETCH_TIMEOUT)
+            // A black-holed SYN costs 1 s per address, then a new socket (`connect_retry`).
+            .connect_timeout(cmux_cloud_client::connect_retry::CONNECT_TIMEOUT)
             .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|_| "the HTTP client is unavailable".to_owned())?;
@@ -555,8 +557,10 @@ impl HttpSource {
         if let Some(team) = &self.team {
             request = request.header(TEAM_HEADER, team);
         }
-        let response =
-            request.send().await.map_err(|_| SourceError::retry("cmux-platform did not answer"))?;
+        // Sent again only when it did not connect: no byte of it reached the platform.
+        let response = cmux_cloud_client::connect_retry::send(request)
+            .await
+            .map_err(|_| SourceError::retry("cmux-platform did not answer"))?;
         let status = response.status().as_u16();
         Ok((status, response.json().await.unwrap_or(Value::Null)))
     }

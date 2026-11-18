@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { inlineToken, promptBlocks, type ComposerAttachment } from "./attachments";
+import { setCloudPlanForTest } from "./cloudMachines";
 import type { AcpmuxHostConfig } from "./direct";
 import {
   cloudFolderGrants,
@@ -304,6 +305,22 @@ test("a Cloud chat copies its project; with none (or home) it starts in the mach
   expect(cloudStartFolder("/Users/me/.cmux/chief/com.cmuxterm.app.debug.tag/")).toEqual({ home: true });
   // A project whose name only looks like it still copies.
   expect(cloudStartFolder("/Users/me/src/.cmux-chief")).toEqual({ cwd: "/Users/me/src/.cmux-chief" });
+});
+
+test("a start names the plan's largest size the page read, so the host can grow its disk within the plan", async () => {
+  const calls: Record<string, unknown>[] = [];
+  const send = (start: Parameters<typeof startCloudChat>[1]) =>
+    startCloudChat(async (_method, params) => (calls.push(params), {}), start, "00000000-0000-4000-8000-000000000003");
+  setCloudPlanForTest({ state: "active", id: "next_pro", maxSize: "lg" });
+  try {
+    await send({ task: "hi", home: true });
+    await send({ task: "hi", home: true, planMax: "2xl" });
+    setCloudPlanForTest({ state: "none", id: null, maxSize: "lg" });
+    await send({ task: "hi", home: true });
+  } finally {
+    setCloudPlanForTest();
+  }
+  expect(calls.map((params) => params.planMax)).toEqual(["lg", "2xl", undefined]);
 });
 
 test("a start with no project tells the host home, and never names a folder", async () => {

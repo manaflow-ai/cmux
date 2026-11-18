@@ -1400,20 +1400,15 @@ dependencies = [
  "anyhow",
  "axum",
  "base64",
- "bytes",
  "cmux-json",
  "cmux-link",
  "cmux-local-auth",
  "cmux-unix-socket",
  "fs4",
- "futures-util",
  "getrandom 0.3.4",
  "hex",
  "hmac",
  "http",
- "http-body-util",
- "hyper",
- "hyper-util",
  "libc",
  "reqwest",
  "rustls",
@@ -1422,7 +1417,6 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "tokio",
- "tokio-util",
  "tower-http",
  "tracing",
  "url",
@@ -1933,7 +1927,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-rd-host"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "cc",
  "cmux-encode",
@@ -2090,7 +2084,6 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-cloud-environment",
- "cmux-cloud-wire",
  "cmux-json",
  "cmux-link",
  "cmux-server-core",
@@ -2158,6 +2151,22 @@ dependencies = [
  "regex",
  "syn 2.0.119",
  "toml",
+]
+
+[[package]]
+name = "cmux-stack-auth"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "getrandom 0.3.4",
+ "httpdate",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -2448,6 +2457,7 @@ dependencies = [
  "cmux-remote-protocol",
  "cmux-sdk",
  "cmux-signed-bundle",
+ "cmux-supervise-core",
  "cmux-tasks",
  "cmux-tasks-core",
  "cmux-terminal-iface",
