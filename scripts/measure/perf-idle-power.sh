@@ -11,6 +11,7 @@
 #     [--arg=freeze=SECONDS] [--arg=neighbors=0..3]  (browser.freezeHiddenTabs and
 #     browser.keepNeighborTabsAwake without JSON, which the fleet's argument check refuses)
 #     [--arg=extension=mv3-all-sites]  (a minimal all-sites MV3 extension loaded: bench_power.py --extension)
+#     [--arg=pages=busy]  (the tabs open a page with a timer and an animation loop: bench_power.py --tab-page)
 # Each idle scenario settles 120 s first (Chromium's post-load work), so a
 # full run takes about 25 minutes.
 # The idle-CPU stop condition (40 open chats, 60 s settle, 120 s measured, every
@@ -36,6 +37,7 @@ settings="{}"
 freeze=""
 neighbors=""
 extension=""
+pages=""
 for arg in "$@"; do
   case "$arg" in
     measure=*) measure="${arg#measure=}"; [[ "$measure" =~ ^[0-9]+$ ]] || { echo "perf-idle-power.sh: measure=SECONDS" >&2; exit 2; } ;;
@@ -49,6 +51,7 @@ for arg in "$@"; do
     freeze=*) freeze="${arg#freeze=}"; [[ "$freeze" =~ ^[0-9]+$ ]] || { echo "perf-idle-power.sh: freeze=SECONDS" >&2; exit 2; } ;;
     neighbors=*) neighbors="${arg#neighbors=}"; [[ "$neighbors" =~ ^[0-3]$ ]] || { echo "perf-idle-power.sh: neighbors=0..3" >&2; exit 2; } ;;
     extension=*) extension="${arg#extension=}"; [[ "$extension" =~ ^[a-z0-9-]+$ ]] || { echo "perf-idle-power.sh: extension=NAME" >&2; exit 2; } ;;
+    pages=*) pages="${arg#pages=}"; [[ "$pages" =~ ^(static|busy)$ ]] || { echo "perf-idle-power.sh: pages=static|busy" >&2; exit 2; } ;;
     *) echo "perf-idle-power.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
@@ -88,5 +91,6 @@ extra=()
 [ -n "$rounds" ] && extra+=(--relaunch-rounds "$rounds")
 [ -n "$budget" ] && extra+=(--process-budget "$budget")
 [ -n "$extension" ] && extra+=(--extension "$extension")
+[ -n "$pages" ] && extra+=(--tab-page "$pages")
 python3 scripts/cmux-next/bench_power.py --app "$app" --config "$settings" \
   --out artifacts/perf-idle-power.json --md artifacts/perf-idle-power.md ${extra[@]+"${extra[@]}"}

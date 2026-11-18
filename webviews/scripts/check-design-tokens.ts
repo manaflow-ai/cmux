@@ -16,6 +16,8 @@
  *   font-weight  anything but 400/600 (`normal`); 700 for monograms is recorded in the baseline.
  *   duration     a literal transition/animation duration other than 0, not var(--cmux-motion-*).
  *   easing       cubic-bezier() or ease/ease-in/ease-out/ease-in-out, not var(--cmux-ease-out).
+ *   motion-literal  a TS/TSX file (tests and galleries too) typing a motion-scale step or curve instead of
+ *                importing it from motion/scale.generated.ts (see scriptMotionFindings).
  * Font sizes are the type-scale ratchet's job (scripts/cmux-next/check-type-scale.py), not this one's.
  * A migration PR shrinks the baseline with `bun scripts/check-design-tokens.ts --update-baseline`,
  * which refuses to grow any count.
@@ -78,6 +80,7 @@ export interface Finding {
     | "font-weight"
     | "duration"
     | "easing"
+    | "motion-literal"
     | "token-only"
     | "token-copy";
   selector: string;
@@ -768,8 +771,138 @@ export function findTokenCopies(): Finding[] {
   ];
 }
 
+/**
+ * Motion literals in scripts (kind `motion-literal`): a TS or TSX file, tests and galleries included,
+ * that hand-types a duration or a curve the motion scale names, so a scale change has to find every
+ * copy (cmux#39380 moved one value, 265 to 180 ms, in 14 files; Leo, 2026-11-14: "fewer sources of
+ * truth for individual things"). The value comes from webviews/src/motion/scale.generated.ts
+ * (`MOTION_MS.standard`, `MOTION_SETTLE_MS`, `MOTION_SETTLE`, `MOTION_EASE_OUT`) or from a
+ * `var(--cmux-motion-*)` in a CSS string. Counted:
+ *   string   a string or template piece with a scale step as a CSS time (80/120/180/240 ms or
+ *            0.08/0.12/0.18/0.24 s, "180 ms" in prose too) or the scale's ease-out or settle curve.
+ *            A `var(--cmux-motion-*, 180ms)` fallback is the generator's to keep in step
+ *            (scripts/cmux-next/gen-motion-scale.py --check), not counted here.
+ *   number   a bare 80/120/180/240 bound to a name that reads as a length in ms (`FOLD_MS`,
+ *            `durationMs`, `duration:`) or asserted against one (`expect(fold.durationMs).toBe(180)`).
+ * A line marked `motion-allow: <reason>` is a reviewed exception (a value that only happens to equal a
+ * step, such as a 120 ms debounce). The generated scale itself is not read.
+ */
+const SCALE_MS = new Set([80, 120, 180, 240]);
+const MOTION_TIME = /(?<![\w.$-])(\d*\.?\d+) ?(ms|s)\b/g;
+const MOTION_CURVE = /cubic-bezier\(\s*(?:0\.16\s*,\s*1\s*,\s*0\.3\s*,\s*1|0\s*,\s*0\s*,\s*0\.58\s*,\s*1)\s*\)/g;
+const SCALE_FALLBACK = /var\(\s*--cmux-(?:motion|ease|spinner)-[\w-]+\s*,(?:[^()]|\([^()]*\))*\)/g;
+const MS_NAME = /(?:^|_)MS$|[a-z]Ms$|^ms$|[Dd]uration$|DURATION$/;
+const MOTION_ALLOW = /motion(?::\s*allow|-allow:)\s*\S/;
+/** Generated copies of the scales (motion/scale.generated.ts, ui/designTokens.generated.ts) are the source. */
+const SCRIPT_SKIP = /\.generated\.ts$|\.d\.ts$/;
+
+function scriptFiles(): string[] {
+  const walk = (dir: string): string[] =>
+    existsSync(dir)
+      ? readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+          if (entry.isDirectory() && (entry.name === "node_modules" || entry.name === "generated")) return [];
+          const path = join(dir, entry.name);
+          if (entry.isDirectory()) return walk(path);
+          return /\.tsx?$/.test(entry.name) ? [path] : [];
+        })
+      : [];
+  return [...walk(SRC), ...walk(join(ROOT, "test"))].filter((path) => !SCRIPT_SKIP.test(path.replaceAll("\\", "/")));
+}
+
+/** The scale-named durations and curves `text` (a string's contents) types out. */
+export function motionLiteralsInText(text: string): string[] {
+  const bare = text.replace(SCALE_FALLBACK, "§");
+  const found: string[] = [];
+  for (const match of bare.matchAll(MOTION_TIME)) {
+    const ms = Number(match[1]) * (match[2]!.toLowerCase() === "s" ? 1000 : 1);
+    if (SCALE_MS.has(Math.round(ms * 1000) / 1000)) found.push(match[0]);
+  }
+  for (const match of bare.matchAll(MOTION_CURVE)) found.push(match[0].replace(/\s+/g, " "));
+  return found;
+}
+
+function bindingName(node: ts.Node): string | undefined {
+  const parent = node.parent;
+  const name = (n: ts.Node | undefined) =>
+    n && (ts.isIdentifier(n) || ts.isStringLiteral(n) || ts.isPrivateIdentifier(n)) ? n.text : undefined;
+  if (ts.isVariableDeclaration(parent) || ts.isPropertyAssignment(parent) || ts.isPropertyDeclaration(parent))
+    return parent.initializer === node ? name(parent.name) : undefined;
+  if (ts.isParameter(parent) && parent.initializer === node) return name(parent.name);
+  if (ts.isBinaryExpression(parent) && parent.right === node && parent.operatorToken.kind === ts.SyntaxKind.EqualsToken)
+    return ts.isPropertyAccessExpression(parent.left) ? parent.left.name.text : name(parent.left);
+  // expect(<subject>).toBe(180): the subject names it.
+  if (ts.isCallExpression(parent) && ts.isPropertyAccessExpression(parent.expression)) {
+    const matcher = parent.expression.name.text;
+    const target = parent.expression.expression;
+    if (
+      /^to(?:Be|Equal|BeCloseTo|BeLessThanOrEqual|BeGreaterThanOrEqual)$/.test(matcher) &&
+      ts.isCallExpression(target)
+    ) {
+      const subject = target.arguments[0];
+      if (subject && ts.isIdentifier(target.expression) && target.expression.text === "expect") {
+        const last = ts.isPropertyAccessExpression(subject)
+          ? subject.name.text
+          : ts.isIdentifier(subject)
+            ? subject.text
+            : "";
+        return last || undefined;
+      }
+    }
+  }
+  return undefined;
+}
+
+/** Hand-typed motion-scale literals in one script (see the header above `SCALE_MS`). */
+export function scriptMotionFindings(rel: string, source: string): Finding[] {
+  const ast = ts.createSourceFile(
+    rel,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    rel.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+  const lines = source.split("\n");
+  const findings: Finding[] = [];
+  const push = (node: ts.Node, property: "string" | "number", value: string) => {
+    const line = ast.getLineAndCharacterOfPosition(node.getStart(ast)).line + 1;
+    if (MOTION_ALLOW.test(lines[line - 1] ?? "") || MOTION_ALLOW.test(lines[line - 2] ?? "")) return;
+    findings.push({ file: rel, kind: "motion-literal", selector: "", property, value, line });
+  };
+  const visit = (node: ts.Node) => {
+    if (
+      ts.isStringLiteral(node) ||
+      ts.isNoSubstitutionTemplateLiteral(node) ||
+      ts.isTemplateHead(node) ||
+      ts.isTemplateMiddle(node) ||
+      ts.isTemplateTail(node) ||
+      ts.isJsxText(node)
+    ) {
+      for (const value of motionLiteralsInText(node.text)) push(node, "string", value);
+    } else if (ts.isNumericLiteral(node) && SCALE_MS.has(Number(node.text))) {
+      const name = bindingName(node);
+      if (name && MS_NAME.test(name)) push(node, "number", node.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(ast);
+  return findings;
+}
+
+function scriptFindings(): Finding[] {
+  return scriptFiles().flatMap((file) => {
+    const rel = relative(SRC, file).replaceAll("\\", "/");
+    return scriptMotionFindings(rel, readFileSync(file, "utf8"));
+  });
+}
+
 export function findDesignTokenViolations(): Finding[] {
-  return [...cssFiles().flatMap(findingsForFile), ...glassFindings(), ...tsxFindings(), ...findTokenCopies()];
+  return [
+    ...cssFiles().flatMap(findingsForFile),
+    ...glassFindings(),
+    ...tsxFindings(),
+    ...findTokenCopies(),
+    ...scriptFindings(),
+  ];
 }
 
 function loadBaseline(): Map<string, number> {

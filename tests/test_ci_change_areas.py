@@ -63,6 +63,7 @@ WEB_JOBS = (
     "web-tests",
     "web-instant-navigation",
     "react-apps-check",
+    "agent-pane-real-acpmux",
     "diff-sidecar-check",
     "web-db-migrations",
 )
@@ -4978,6 +4979,7 @@ def test_web_status_allows_unselected_subarea_jobs_to_skip() -> None:
             "web-tests": "skipped",
             "web-instant-navigation": "skipped",
             "react-apps-check": "skipped",
+            "agent-pane-real-acpmux": "skipped",
             "diff-sidecar-check": "skipped",
             "web-db-migrations": "skipped",
         },
