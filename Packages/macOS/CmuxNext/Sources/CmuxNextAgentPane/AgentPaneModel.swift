@@ -315,6 +315,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var workspaceAgentHome: (@MainActor () -> AgentHomeFill?)?
     /// Where this pane's new chat starts: the store's answer and its rules (cx-9aps).
     @ObservationIgnored public let startFolders = AgentPaneStartFolders()
+    /// Makes the JSON of this page's New Tab context (``AgentPaneNewTabText``).
+    @ObservationIgnored public var newTabText = AgentPaneNewTabText()
     /// Shows the native folder sheet for "Choose Folder…" and saves the pick as the workspace's
     /// agent folder; a refusal carries its localized text (an older background service, a save
     /// that failed).
@@ -604,7 +606,7 @@ public final class AgentPaneModel {
         case .newTabContext:
             // Only a page with no chat yet is a New Tab page, and marks so; the handshake still sends the same context.
             if sessionId == nil { AgentPaneLaunchTimings.shared.mark("agent_pane.newtab_context") }
-            guard sessionId == nil, let newTab = newTabForPage, let data = try? JSONEncoder().encode(newTab),
+            guard sessionId == nil, let newTab = newTabForPage, let data = try? newTabText.data(of: newTab),
                   let object = try? JSONSerialization.jsonObject(with: data) else { return AgentPaneReply.success() }
             return AgentPaneReply.success(["newTab": object])
         // Another machine's chats are not this Mac's: only a local page's list warms the next page.

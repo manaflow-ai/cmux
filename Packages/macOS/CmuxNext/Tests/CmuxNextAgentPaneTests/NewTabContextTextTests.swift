@@ -1,0 +1,100 @@
+@testable import CmuxNextAgentPane
+import Foundation
+import Testing
+
+/// A New Tab page's context has two parts. The larger part is the same for each page of a window: the bar's
+/// workspaces, folders, actions, commands and recent pages. The smaller part is the page's own: the token of
+/// the keys typed before its field is ready, its folder, and the bar's open tabs, which a held New Tab key
+/// changes at each key. The host makes the JSON of the larger part one time for the pages that share it, and
+/// a page gets it one time. Each make and each send of it is main thread time in the frames of a New Tab key.
+@MainActor @Suite
+struct NewTabContextTextTests {
+    struct Host: AgentPaneHostProviding {
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { .mock }
+    }
+
+    static let actions = 50
+
+    /// The context of the page that the key number `key` of a hold opens: its own token, one more open tab
+    /// than the page before it, and the same bar otherwise.
+    static func context(key: Int) -> AgentPaneNewTab {
+        let tabs = (0...key).map { AgentPaneOmnibar.Tab(id: "tab-\($0)", kind: .agent, title: "Tab \($0)") }
+        let listed = (0..<actions).map { AgentPaneOmnibar.Action(id: "action.\($0)", title: "Action \($0)") }
+        let bar = AgentPaneOmnibar(
+            tabs: tabs, workspaces: [.init(id: "workspace", name: "Workspace")], folders: ["/project"],
+            actions: listed, commands: ["ls"], history: [.init(url: "https://example.com", title: "Example")])
+        var page = AgentPaneNewTab(kind: .agent, cwd: "/project", omnibar: bar)
+        page.inputToken = token(key)
+        return page
+    }
+
+    static func token(_ key: Int) -> String { "input-token-\(key)" }
+
+    static func model(key: Int, text: AgentPaneNewTabText) -> AgentPaneModel {
+        let model = AgentPaneModel(host: Host(), newTab: context(key: key))
+        model.startFolders.resolve = { _ in nil }
+        model.newTabText = text
+        return model
+    }
+
+    /// The `newTab` object of a reply's value.
+    static func newTab(of reply: [String: Any]) throws -> [String: Any] {
+        let value = try #require(reply["value"] as? [String: Any])
+        return try #require(value["newTab"] as? [String: Any])
+    }
+
+    /// The pages of a hold share the bar's larger part: its JSON is made one time for all of them, at the
+    /// page's early ask for its context and at its handshake.
+    @Test func thePagesOfAHoldCostOneEncodeOfTheSharedPart() async throws {
+        let text = AgentPaneNewTabText()
+        for key in 0..<4 {
+            let model = Self.model(key: key, text: text)
+            _ = await model.respond(to: .newTabContext)
+            _ = await model.respond(to: .ready)
+        }
+        #expect(text.encodes == 1, "4 pages, each asks for its context and shakes hands: one make of the shared part")
+    }
+
+    /// The shared part goes as one text that the page parses, so the reply's tree has one node for it. The
+    /// page's own part stays in the tree: each page gets its own token and its own open tabs, and the shared
+    /// text holds neither.
+    @Test func eachPageGetsItsOwnTokenBesideTheSharedText() async throws {
+        let text = AgentPaneNewTabText()
+        var shared: [String] = []
+        for key in 0..<2 {
+            let model = Self.model(key: key, text: text)
+            let newTab = try await Self.newTab(of: model.respond(to: .newTabContext))
+            #expect(newTab["inputToken"] as? String == Self.token(key))
+            let bar = try #require(newTab["omnibar"] as? [String: Any])
+            #expect((bar["tabs"] as? [Any])?.count == key + 1, "the page's own open tabs")
+            #expect(bar["actions"] == nil, "the shared lists are not in the tree")
+            let part = try #require(newTab["shared"] as? String, "the shared part is one text")
+            #expect(!part.contains("input-token-"), "no page's token is in the text that the pages share")
+            let parsed = try #require(try JSONSerialization.jsonObject(with: Data(part.utf8)) as? [String: Any])
+            let parsedBar = try #require(parsed["omnibar"] as? [String: Any])
+            #expect((parsedBar["actions"] as? [Any])?.count == Self.actions, "the page joins the bar from the text")
+            #expect(parsedBar["tabs"] == nil)
+            shared.append(part)
+        }
+        #expect(shared.count == 2 && shared[0] == shared[1], "the 2 pages get the same text")
+    }
+
+    /// A page that got the shared text at its early ask has it: its handshake sends the page's own part only.
+    @Test func theHandshakeAfterTheEarlyAskSendsNoSharedPartAgain() async throws {
+        let model = Self.model(key: 0, text: AgentPaneNewTabText())
+        let early = try await Self.newTab(of: model.respond(to: .newTabContext))
+        #expect(early["shared"] is String)
+        let handshake = try await Self.newTab(of: model.respond(to: .ready))
+        #expect(handshake["inputToken"] as? String == Self.token(0))
+        #expect(handshake["shared"] == nil, "the page has the shared text of its early ask")
+        #expect((handshake["omnibar"] as? [String: Any])?["actions"] == nil, "and no list of it comes in the tree")
+    }
+
+    /// A page that did not ask early gets the shared text with its handshake.
+    @Test func aHandshakeWithNoEarlyAskCarriesTheSharedText() async throws {
+        let model = Self.model(key: 0, text: AgentPaneNewTabText())
+        let handshake = try await Self.newTab(of: model.respond(to: .ready))
+        #expect(handshake["inputToken"] as? String == Self.token(0))
+        #expect(handshake["shared"] is String)
+    }
+}
