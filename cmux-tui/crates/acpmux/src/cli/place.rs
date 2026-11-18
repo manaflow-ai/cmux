@@ -189,6 +189,27 @@ pub fn lines(v: &Value) -> Vec<String> {
     out
 }
 
+/// `acpmux machine chat-pick`: the place, why, each rule that weighed in, and with `--running`
+/// the move Auto would make.
+pub fn chat_lines(v: &Value) -> Vec<String> {
+    let text = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or_default();
+    let mut out = vec![format!("{}: {}", text("place"), text("why"))];
+    for r in v.get("reasons").and_then(Value::as_array).into_iter().flatten() {
+        out.push(format!("  {}", r.as_str().unwrap_or_default()));
+    }
+    match v.get("move") {
+        Some(Value::Null) => out.push("move: none".into()),
+        Some(m) => out.push(format!(
+            "move: to {}{}: {}",
+            m.get("to").and_then(Value::as_str).unwrap_or_default(),
+            m.get("peer").and_then(Value::as_str).map(|p| format!(" ({p})")).unwrap_or_default(),
+            m.get("why").and_then(Value::as_str).unwrap_or_default()
+        )),
+        None => {}
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -263,25 +284,4 @@ mod tests {
         assert!(running_on(&list, "b").is_empty(), "a peer's name is not a session name");
         assert!(running_on(&list, "fresh").is_empty());
     }
-}
-
-/// `acpmux machine chat-pick`: the place, why, each rule that weighed in, and with `--running`
-/// the move Auto would make.
-pub fn chat_lines(v: &Value) -> Vec<String> {
-    let text = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or_default();
-    let mut out = vec![format!("{}: {}", text("place"), text("why"))];
-    for r in v.get("reasons").and_then(Value::as_array).into_iter().flatten() {
-        out.push(format!("  {}", r.as_str().unwrap_or_default()));
-    }
-    match v.get("move") {
-        Some(Value::Null) => out.push("move: none".into()),
-        Some(m) => out.push(format!(
-            "move: to {}{}: {}",
-            m.get("to").and_then(Value::as_str).unwrap_or_default(),
-            m.get("peer").and_then(Value::as_str).map(|p| format!(" ({p})")).unwrap_or_default(),
-            m.get("why").and_then(Value::as_str).unwrap_or_default()
-        )),
-        None => {}
-    }
-    out
 }
