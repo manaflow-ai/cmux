@@ -19,6 +19,8 @@ use serde_json::{Value, json};
 use super::super::{RECORD, Record, build, stage};
 use super::*;
 
+#[path = "projected_pull_moves_tests.rs"]
+mod moves;
 #[path = "projected_pull_random_tests.rs"]
 mod random;
 
@@ -32,6 +34,8 @@ struct State {
     upper: Vec<Value>,
     /// Paths whose `fs.read` drops the connection.
     broken: BTreeSet<String>,
+    /// Paths whose `fs.read` the machine refuses (an I/O error there).
+    refusing: BTreeSet<String>,
     /// Every path the Mac asked about.
     asked: Vec<String>,
 }
@@ -115,6 +119,9 @@ fn answer(request: &Value, state: &Mutex<State>) -> Option<Value> {
             if state.broken.contains(&path) {
                 return None;
             }
+            if state.refusing.contains(&path) {
+                return Some(refuse("fs.io"));
+            }
             let Ok(bytes) = std::fs::read(&path) else { return Some(refuse("fs.not_found")) };
             let offset = usize::try_from(request["offset"].as_u64().unwrap()).unwrap();
             let max = usize::try_from(request["max_bytes"].as_u64().unwrap()).unwrap();
@@ -187,6 +194,7 @@ impl<'d> Fixture<'d> {
         state.dir.clone_from(&machine);
         state.upper.clear();
         state.broken.clear();
+        state.refusing.clear();
         state.asked.clear();
         drop(state);
         Fixture { _dir: dir, daemon, root, kept, machine, outside }

@@ -29,7 +29,13 @@
 //!   lists under the old path that the upper layer does not replace, read from the merged
 //!   folder. These are brought first, while the old path is still on this Mac to serve them. A
 //!   move this Mac cannot map (from a path the projection has no folder at, or below another
-//!   move) refuses the whole pull before anything changes (`redirect_unmapped`).
+//!   move) refuses the whole pull before anything changes (`redirect_unmapped`). The old path
+//!   (the origin) holds the only copy of what was moved, so nothing at, below or above it is
+//!   changed until everything else of the pull is done, and then only when every item at or
+//!   below the new path landed here (in this pull or, for a move an earlier pull settled, then).
+//!   One that did not (refused by any rule, or a conflict with nothing beside) keeps the origin
+//!   whole: each of those items is refused as `origin_kept` and the move is not settled, so a
+//!   later pull tries it again ([`moves`]).
 //! - `unsupported`: named under `refused`.
 //! - A path this pull brought back that the upper layer no longer lists (the machine deleted a
 //!   file it made) is deleted by the delete rule, with what this pull left as its base.
@@ -48,6 +54,8 @@
 mod apply;
 #[path = "projected_back_disk.rs"]
 mod disk;
+#[path = "projected_back_moves.rs"]
+mod moves;
 #[path = "projected_back_rules.rs"]
 mod rules;
 
@@ -169,11 +177,12 @@ struct Item {
 
 /// Items that go together: an opaque folder and the deletes of what it hides, or a moved
 /// folder and what it brings. `tag` is the machine version of `head` that settles the whole
-/// group (one an earlier pull settled is skipped whole).
+/// group (one an earlier pull settled is skipped whole). `origin` is a move's old path.
 struct Group {
     head: String,
     tag: Option<String>,
     items: Vec<Item>,
+    origin: Option<String>,
 }
 
 /// What the pull did.
@@ -207,6 +216,9 @@ struct Run<'a, 'l> {
     out: Out,
     upper: BTreeMap<String, Change>,
     ignored: BTreeSet<String>,
+    /// Paths whose machine version did not land here in this pull: refused, or a conflict with
+    /// nothing beside.
+    unlanded: BTreeSet<String>,
 }
 
 fn ms(since: Instant) -> u64 {
@@ -238,6 +250,7 @@ pub(in crate::link) fn pull(
         out: Out::default(),
         upper: BTreeMap::new(),
         ignored: BTreeSet::new(),
+        unlanded: BTreeSet::new(),
     };
     run.all(changes)?;
     let out = run.out;
@@ -395,26 +408,17 @@ impl Run<'_, '_> {
             .map(|(path, _)| Item { path: path.clone(), work: Work::Vanished })
             .collect();
         self.ignored = self.ignored_of(&groups);
-        for item in &vanished {
-            self.item(item)?;
+        self.ordered(&vanished, &groups)
+    }
+
+    /// Notes `group` settled: its tag on its head, so a later pull skips it.
+    fn settle(&mut self, group: &Group) {
+        if let Some(tag) = &group.tag
+            && !self.back.dry_run
+            && let Some(pulled) = self.ledger.paths.get_mut(&group.head)
+        {
+            pulled.machine.clone_from(tag);
         }
-        for group in &groups {
-            if let Some(tag) = &group.tag
-                && self.settled(&group.head, tag)
-            {
-                continue;
-            }
-            for item in &group.items {
-                self.item(item)?;
-            }
-            if let Some(tag) = &group.tag
-                && !self.back.dry_run
-                && let Some(pulled) = self.ledger.paths.get_mut(&group.head)
-            {
-                pulled.machine.clone_from(tag);
-            }
-        }
-        Ok(())
     }
 
     /// The work list: moved folders first (while what they bring is still here to serve), then
@@ -427,13 +431,15 @@ impl Run<'_, '_> {
                 head: path.clone(),
                 tag: None,
                 items: vec![Item { path: path.clone(), work }],
+                origin: None,
             };
             match change {
                 Change::Redirect(from) => first.push(self.moved(path, from)?),
                 Change::OpaqueDir => {
                     let mut items = vec![Item { path: path.clone(), work: Work::Dir }];
                     items.extend(self.hidden(path));
-                    rest.push(Group { head: path.clone(), tag: Some("opaque".into()), items });
+                    let tag = Some("opaque".into());
+                    rest.push(Group { head: path.clone(), tag, items, origin: None });
                 }
                 Change::File => rest.push(one(Work::File)),
                 Change::Metadata => rest.push(one(Work::Metadata)),
@@ -473,10 +479,11 @@ impl Run<'_, '_> {
         };
         let tag = Some(format!("redirect:{from}"));
         let head = path.to_owned();
+        let origin = Some(lower.clone());
         match entry.stat.kind {
             Kind::File => {
                 let items = vec![Item { path: head.clone(), work: Work::File }];
-                Ok(Group { head, tag, items })
+                Ok(Group { head, tag, items, origin })
             }
             Kind::Symlink => Err(unmapped("a symlink")),
             Kind::Dir => {
@@ -504,7 +511,7 @@ impl Run<'_, '_> {
                     };
                     items.push(Item { path: new, work });
                 }
-                Ok(Group { head, tag, items })
+                Ok(Group { head, tag, items, origin })
             }
         }
     }
@@ -582,10 +589,14 @@ impl Run<'_, '_> {
     }
 
     fn refuse(&mut self, path: &str, reason: &str) {
+        self.unlanded.insert(path.to_owned());
         self.out.refused.push(json!({ "path": path, "reason": reason }));
     }
 
     fn conflict(&mut self, path: &str, kept: Option<&str>, beside: Option<&str>) {
+        if beside.is_none() {
+            self.unlanded.insert(path.to_owned());
+        }
         self.out.conflicts.push(json!({ "path": path, "kept": kept, "beside": beside }));
     }
 }
