@@ -1141,8 +1141,11 @@ class RefusedRead(unittest.TestCase):
         value, out = self.main_output(fallback)
         self.assertEqual(fallback.calls, 1)
         self.assertIn(self.SIXTEEN, value["_dead"])
-        # Every x64 size but 2 vCPU stalled with no snapshot: linux_16 (16, 8, 32 vCPU) takes the 2 vCPU valve.
-        self.assertEqual(value["linux_16"], self.TWO)
+        # Every x64 size but 2 vCPU stalled with no snapshot: linux (4, 16 vCPU), which has no floor, takes the
+        # 2 vCPU valve; linux_16 (16, 8, 32 vCPU) declares min_vcpu 8, so it waits on 16 rather than go below it
+        # (#46366: the fat-LTO release compile was SIGKILLed out of memory on 4 and 2 vCPU).
+        self.assertEqual(value["linux"], self.TWO)
+        self.assertEqual(value["linux_16"], self.SIXTEEN)
         self.assertIn("judging on the probe alone", out)
 
     def test_a_fallback_with_no_snapshot_warns_it_judges_on_the_probe(self) -> None:
@@ -1150,7 +1153,8 @@ class RefusedRead(unittest.TestCase):
         fallback = self.Counting(None)
         value, out = self.main_output(fallback)
         self.assertEqual(fallback.calls, 1)
-        self.assertEqual(value["linux_16"], self.TWO)
+        self.assertEqual(value["linux"], self.TWO)
+        self.assertEqual(value["linux_16"], self.SIXTEEN)  # its min_vcpu 8 floor: never the 2 vCPU valve
         self.assertIn("judging on the probe alone", out)
         self.assertNotIn("janitor snapshot read with the fallback token", out)
 
