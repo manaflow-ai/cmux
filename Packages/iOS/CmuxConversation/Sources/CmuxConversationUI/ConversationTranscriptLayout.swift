@@ -337,6 +337,48 @@ final class ConversationTranscriptLayout: UICollectionViewLayout {
         return attributes
     }
 
+    /// Measures now the rows a scroll to row `index` crosses and lands among
+    /// (from the rows in view to one viewport of overscan past the target),
+    /// so an animated jump passes only measured rows and lands where
+    /// `frame(at:)` says; the cost is the jump's distance, not the
+    /// conversation's length. Returns how far the rows in view moved (the
+    /// rows above them changed) for the caller to move the content offset
+    /// by, or nil when every such row was measured already.
+    func measureRowsForJump(to index: Int) -> CGFloat? {
+        guard let collectionView, index >= 0, index < offsets.count, offsets.staleCount > 0 else { return nil }
+        let bounds = collectionView.bounds
+        let reach = bounds.height * Self.overscan
+        let first = firstRow(at: bounds.minY)
+        guard first < offsets.count else { return nil }
+        let anchorFrame = snappedFrame(at: first)
+        let anchorTop = contentTop(of: first)
+        var measuredAny = false
+        if index < first {
+            var row = first - 1
+            while row >= 0, contentTop(of: row) >= contentTop(of: index) - reach {
+                if !offsets.isFresh(row) {
+                    measure(row)
+                    measuredAny = true
+                }
+                row -= 1
+            }
+        } else {
+            var row = first
+            while row < offsets.count, contentTop(of: row) <= contentTop(of: index) + bounds.height + reach {
+                if !offsets.isFresh(row) {
+                    measure(row)
+                    measuredAny = true
+                }
+                row += 1
+            }
+        }
+        guard measuredAny else { return nil }
+        phase = ConversationTranscriptPixelGrid.phase(placing: preparedTopPadding + offsets.top(of: first), likePreviousTop: anchorTop, scale: scale)
+        contentHeight = computedContentHeight()
+        cachedAttributes.removeAll(keepingCapacity: true)
+        return snappedFrame(at: first).minY - anchorFrame.minY
+    }
+
     /// Items whose frames intersect `rect` (an index search, no attributes).
     func itemRange(in rect: CGRect) -> Range<Int> {
         guard offsets.count > 0 else { return 0..<0 }

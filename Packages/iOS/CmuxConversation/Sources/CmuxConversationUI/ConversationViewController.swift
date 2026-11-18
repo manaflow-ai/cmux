@@ -1590,10 +1590,14 @@ public final class ConversationViewController: UIViewController {
             viewport: collectionView.bounds.height
         ) else { return }
         isWarmingCellPools = true
+        let heightBefore = collectionView.contentSize.height
         UIView.performWithoutAnimation {
             collectionView.contentOffset = CGPoint(x: resting.x, y: y)
             collectionView.layoutIfNeeded()
-            collectionView.contentOffset = resting
+            // The rows laid out up there were measured on the way (the layout
+            // measures rows as they come into view); all of them sit above
+            // the resting rows, which move down by what they changed.
+            collectionView.contentOffset = CGPoint(x: resting.x, y: resting.y + collectionView.contentSize.height - heightBefore)
             collectionView.layoutIfNeeded()
         }
         isWarmingCellPools = false

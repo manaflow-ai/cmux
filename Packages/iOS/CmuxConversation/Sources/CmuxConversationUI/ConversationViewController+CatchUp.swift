@@ -131,7 +131,19 @@ extension ConversationViewController {
     /// first unread message at the top of the transcript).
     func jumpToRow(_ rowID: String) {
         collectionView.layoutIfNeeded()
-        guard let index = rowIndex[rowID], let frame = layout.frame(at: index) else { return }
+        guard let index = rowIndex[rowID] else { return }
+        // Rows the scroll crosses are measured first (the layout measures
+        // rows as they come into view), so it lands on the row; the rows in
+        // view stay still meanwhile.
+        if let shift = layout.measureRowsForJump(to: index) {
+            UIView.performWithoutAnimation {
+                collectionView.contentOffset.y += shift
+                layout.invalidateLayout()
+                collectionView.layoutIfNeeded()
+            }
+            decelerationFill.contentShifted(by: shift)
+        }
+        guard let frame = layout.frame(at: index) else { return }
         isPinnedToBottom = false
         let top = collectionView.adjustedContentInset.top
         let y = min(max(-top, frame.minY - top - 8), bottomOffset.y)
