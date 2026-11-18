@@ -99,9 +99,18 @@ for name in dict.fromkeys(r["row"] for r in rows):
     for key in ("prompt", "prompt_gone", "start", "main", "window", "usable", "main_start",
                 "syspolicyd_ms", "xprotect_ms", "amfid_ms", "trustd_ms", "mount_ms", "prepare_checker_ms", "prewarm_ms"):
         table[key] = med([r.get(key) for r in runs])
-    # The part of the window's time after the prompt is gone: what the app can be faster at.
+    # The prompt's dwell (on screen to dismissed) is a person's click, not ours to cut: window, usable and main are
+    # reported as measured above and again with the dwell subtracted (*_less_dwell; equal to the measured value when
+    # no prompt showed). window_after_prompt is the window's time after the prompt was gone.
+    num = lambda v: isinstance(v, (int, float))
+    def dwell(r):
+        return r["prompt_gone"] - r["prompt"] if num(r.get("prompt")) and num(r.get("prompt_gone")) else 0
+    table["dwell"] = med([dwell(r) for r in runs if num(r.get("prompt")) and num(r.get("prompt_gone"))])
+    for key in ("main", "window", "usable"):
+        table[key + "_less_dwell"] = med([r[key] - (dwell(r) if num(r.get("prompt")) and r["prompt"] < r[key] else 0)
+                                          for r in runs if num(r.get(key))])
     table["window_after_prompt"] = med([r["window"] - r["prompt_gone"] for r in runs
-                                        if isinstance(r.get("window"), (int, float)) and isinstance(r.get("prompt_gone"), (int, float))])
+                                        if num(r.get("window")) and num(r.get("prompt_gone"))])
     print("LF-TABLE", json.dumps(table), flush=True)
 PY
   tar -czf "$out.tgz" -C "$out" --exclude '*.dmg' --exclude 'copy-*' --exclude 'mnt-*' --exclude 'home-*' . 2>/dev/null && mv "$out.tgz" "$out/report.tgz"
