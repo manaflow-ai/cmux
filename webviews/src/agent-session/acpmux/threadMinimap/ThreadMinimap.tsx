@@ -12,6 +12,7 @@ import { flushSync } from "react-dom";
 import { HIDDEN_SCROLLER_ATTRIBUTE } from "../../../scrollers";
 import { layoutGeometry, type AcpmuxRow, type TranscriptLayout } from "../model";
 import { useT } from "../i18n";
+import { useCountedRender } from "../perfRender";
 import { layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordinates";
 import { MinimapTick } from "../../../ui/MinimapTick";
 import { useRailPlacement } from "./useRailPlacement";
@@ -395,6 +396,12 @@ export function ThreadMinimap({
   /// One height for a fixed arm; the others are never shorter than the prompts on screen (railHeight).
   const heightConfig = railHeightConfig(heightArm);
   const rowPitch = heightConfig.pitch ?? ROW_PITCH;
+  /// The first row in the list's view, for a tick's entrance place (Tick `place`). The list reads
+  /// it only as a tick mounts, which a change of `ranges` brings, so it is read through a ref: as a
+  /// prop it changed on every row of the list's scroll and rendered the list each time, past the
+  /// window's 6-row steps (tickWindow.ts).
+  const listFirst = useRef(0);
+  listFirst.current = Math.floor(listTop / rowPitch);
   const boxRail = railHeight(
     turns.length,
     windowHeight,
@@ -1488,7 +1495,7 @@ export function ThreadMinimap({
               active={active}
               first={onScreen.first}
               last={onScreen.last}
-              listFirst={Math.floor(listTop / rowPitch)}
+              listFirst={listFirst}
               described={showCard ? cardRow : undefined}
               cardId={cardId}
               actions={actions}
@@ -1586,9 +1593,9 @@ const TickList = memo(function TickList({
   /// The band: the prompts on screen.
   first: number;
   last: number;
-  /// The first row in the list's view: a tick's entrance place counts from it (Tick `place`). It
-  /// moves with the list's scroll, as `ranges` does, so it renders the list no more often.
-  listFirst: number;
+  /// The first row in the list's view, read as a tick mounts: its entrance place counts from it
+  /// (Tick `place`). A ref, so the list's scroll renders the list only when `ranges` moves.
+  listFirst: React.RefObject<number>;
   /// The row the open card describes.
   described: number | undefined;
   cardId: string;
@@ -1596,6 +1603,7 @@ const TickList = memo(function TickList({
   /// The rows to draw (tickWindow.ts); spacers stand in for the rest.
   ranges: ReadonlyArray<readonly [number, number]>;
 }) {
+  useCountedRender("ThreadMinimap.TickList");
   const t = useT();
   const marks = usePromptMarks(sessionId);
   /// Each drawn row's spoken label, by its prompt, as last built. Every row the pointer crosses
@@ -1670,24 +1678,25 @@ const TickList = memo(function TickList({
   function tickAt(index: number) {
     const tick = ticks.at(index)!;
     const marked = marks.has(tick);
-    // A list item that names its place among every prompt, drawn or not; it draws no box.
+    // The row's list item is the Tick's own, so a tick whose props hold renders no part of its row:
+    // the list renders again each row of a scroll (`listFirst`), and an item built here was a new
+    // element on every row each time.
     return (
-      <li key={tick.key} className="acpmux-minimap__entry" aria-posinset={index + 1} aria-setsize={ticks.length}>
-        <Tick
-          entering={entering.pending.has(tick.key)}
-          index={index}
-          place={index - listFirst}
-          last={ticks.length - 1}
-          progress={hovered !== undefined ? tickProgress(index - hovered) : index === focused ? 1 : 0}
-          active={index === active}
-          current={index >= first && index <= last}
-          marked={marked}
-          incoming={tick.from !== undefined}
-          describedBy={described === index ? cardId : undefined}
-          label={labelOf(tick, index, marked)}
-          actions={actions}
-        />
-      </li>
+      <Tick
+        key={tick.key}
+        entering={entering.pending.has(tick.key)}
+        index={index}
+        place={index - listFirst.current}
+        last={ticks.length - 1}
+        progress={hovered !== undefined ? tickProgress(index - hovered) : index === focused ? 1 : 0}
+        active={index === active}
+        current={index >= first && index <= last}
+        marked={marked}
+        incoming={tick.from !== undefined}
+        describedBy={described === index ? cardId : undefined}
+        label={labelOf(tick, index, marked)}
+        actions={actions}
+      />
     );
   }
 });
@@ -1707,7 +1716,8 @@ type TickActions = {
   click(index: number, target: EventTarget): void;
 };
 
-/// One prompt's row: a 10 px by 36 px button with its tick and, when marked, the bookmark dot.
+/// One prompt's row: a list item that names its place among every prompt, drawn or not, and draws
+/// no box; in it a 10 px by 36 px button with its tick and, when marked, the bookmark dot.
 const Tick = memo(function Tick({
   entering,
   index,
@@ -1738,66 +1748,69 @@ const Tick = memo(function Tick({
   label: string;
   actions: TickActions;
 }) {
+  useCountedRender("ThreadMinimap.Tick");
   // Capture eligibility at mount: consuming it after commit must not cancel this entrance.
   const [enter] = useState(entering);
   const [entrance] = useState(place);
   const length = tickLength(progress);
   return (
-    <MinimapTick
-      type="button"
-      index={index}
-      last={last}
-      // Every row is a tab stop, as the Codex rail's buttons are.
-      active
-      data-tick={index}
-      data-entering={enter || undefined}
-      className="acpmux-minimap__tick"
-      data-focus-ring="tick"
-      data-tone={active ? "active" : current ? "current" : "rest"}
-      data-bookmarked={marked || undefined}
-      data-incoming={incoming || undefined}
-      style={{ "--acpmux-minimap-place": entrance } as React.CSSProperties}
-      aria-label={label}
-      aria-current={current ? "true" : undefined}
-      aria-describedby={describedBy}
-      onPointerEnter={() => actions.enter(index)}
-      onFocus={() => actions.focus(index)}
-      onBlur={() => actions.blur(index)}
-      onClick={(event) => actions.click(index, event.target)}
-      keyboard={(event) => {
-        if (event.key === "Escape") actions.escape();
-        const list = event.currentTarget.closest(".acpmux-minimap__list");
-        const tickAt = (row: number) => list?.querySelector<HTMLButtonElement>(`[data-tick="${row}"]`);
-        // Tab walks every row; a row past the drawn ones is drawn, then focused.
-        if (event.key === "Tab" && !event.altKey && !event.metaKey && !event.ctrlKey) {
-          const row = index + (event.shiftKey ? -1 : 1);
-          if (row >= 0 && row <= last && !tickAt(row)) {
-            event.preventDefault();
-            actions.reveal(row);
+    <li className="acpmux-minimap__entry" aria-posinset={index + 1} aria-setsize={last + 1}>
+      <MinimapTick
+        type="button"
+        index={index}
+        last={last}
+        // Every row is a tab stop, as the Codex rail's buttons are.
+        active
+        data-tick={index}
+        data-entering={enter || undefined}
+        className="acpmux-minimap__tick"
+        data-focus-ring="tick"
+        data-tone={active ? "active" : current ? "current" : "rest"}
+        data-bookmarked={marked || undefined}
+        data-incoming={incoming || undefined}
+        style={{ "--acpmux-minimap-place": entrance } as React.CSSProperties}
+        aria-label={label}
+        aria-current={current ? "true" : undefined}
+        aria-describedby={describedBy}
+        onPointerEnter={() => actions.enter(index)}
+        onFocus={() => actions.focus(index)}
+        onBlur={() => actions.blur(index)}
+        onClick={(event) => actions.click(index, event.target)}
+        keyboard={(event) => {
+          if (event.key === "Escape") actions.escape();
+          const list = event.currentTarget.closest(".acpmux-minimap__list");
+          const tickAt = (row: number) => list?.querySelector<HTMLButtonElement>(`[data-tick="${row}"]`);
+          // Tab walks every row; a row past the drawn ones is drawn, then focused.
+          if (event.key === "Tab" && !event.altKey && !event.metaKey && !event.ctrlKey) {
+            const row = index + (event.shiftKey ? -1 : 1);
+            if (row >= 0 && row <= last && !tickAt(row)) {
+              event.preventDefault();
+              actions.reveal(row);
+            }
+            return;
           }
-          return;
-        }
-        const to =
-          event.key === "ArrowUp"
-            ? index - 1
-            : event.key === "ArrowDown"
-              ? index + 1
-              : event.key === "Home"
-                ? 0
-                : event.key === "End"
-                  ? last
-                  : undefined;
-        if (to === undefined) return;
-        const row = Math.max(0, Math.min(last, to));
-        const node = tickAt(row);
-        if (node) node.focus();
-        else actions.reveal(row);
-      }}
-    >
-      <span className="acpmux-minimap__bar" style={{ transform: `scaleX(${length / TICK_BOX})` }} />
-      {marked && <span className="acpmux-minimap__dot" style={{ transform: `translateX(${length}px)` }} />}
-      <span className="acpmux-minimap__dot-hit" data-dot-hit="" />
-    </MinimapTick>
+          const to =
+            event.key === "ArrowUp"
+              ? index - 1
+              : event.key === "ArrowDown"
+                ? index + 1
+                : event.key === "Home"
+                  ? 0
+                  : event.key === "End"
+                    ? last
+                    : undefined;
+          if (to === undefined) return;
+          const row = Math.max(0, Math.min(last, to));
+          const node = tickAt(row);
+          if (node) node.focus();
+          else actions.reveal(row);
+        }}
+      >
+        <span className="acpmux-minimap__bar" style={{ transform: `scaleX(${length / TICK_BOX})` }} />
+        {marked && <span className="acpmux-minimap__dot" style={{ transform: `translateX(${length}px)` }} />}
+        <span className="acpmux-minimap__dot-hit" data-dot-hit="" />
+      </MinimapTick>
+    </li>
   );
 }, tickPropsEqual);
 
