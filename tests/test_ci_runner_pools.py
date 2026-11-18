@@ -39,6 +39,12 @@ POOLS = {
 }
 
 
+def fresh_snapshot(now):
+    """A complete janitor snapshot from a minute before NOW that saw no Linux start: beside it a probe's stall
+    counts (label_evidence())."""
+    return dict(copy.deepcopy(RECORDED), generated_at=runner_pools.iso(now - dt.timedelta(minutes=1)), label_started={})
+
+
 def health(labels, checked=NOW):
     # Exactly what the overflow switch writes to CI_CLOUD_LABEL_HEALTH (cloud_overflow_switch.label_health()).
     import cloud_overflow_switch as switch
@@ -576,7 +582,8 @@ class Main(unittest.TestCase):
             "blacksmith-4vcpu-ubuntu-2404": "stalled", "blacksmith-16vcpu-ubuntu-2404": "stalled",
             "blacksmith-2vcpu-ubuntu-2404": "started", "blacksmith-8vcpu-ubuntu-2404": "started",
             "blacksmith-32vcpu-ubuntu-2404": "stalled"}, checked=now))})
-        self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": live}, api=self.Api(None), switch=switch, now=now), 0)
+        self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": live}, api=self.Api(fresh_snapshot(now)), switch=switch,
+                                           now=now), 0)
         value = json.loads(switch.writes[0][1])
         self.assertEqual(value["linux_16"], "blacksmith-8vcpu-ubuntu-2404")
         self.assertEqual(value["linux_32"], "blacksmith-8vcpu-ubuntu-2404")
@@ -586,7 +593,8 @@ class Main(unittest.TestCase):
         # The next pass keeps it (the writer used to reset any label outside the members). It rewrites the
         # variable only to refresh the dead marks' times.
         again = self.Switch(switch.variables)
-        self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": switch.writes[0][1]}, api=self.Api(None),
+        self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": switch.writes[0][1]},
+                                           api=self.Api(fresh_snapshot(now + dt.timedelta(minutes=1))),
                                            switch=again, now=now + dt.timedelta(minutes=1)), 0)
         kept = json.loads(dict(again.writes).get("RUNNER_POOLS", switch.writes[0][1]))
         self.assertEqual((kept["linux_16"], kept["linux_32"]),
@@ -827,7 +835,8 @@ class RawLabelVars(unittest.TestCase):
             json.loads(switch.variables[runner_pools.HEALTH_VARIABLE])["labels"], checked=now))
         switch.writes.clear()
         with redirect_stdout(out):
-            code = runner_pools.main([], {"RUNNER_POOLS": pools_value}, api=Main.Api(None), switch=switch, now=now)
+            code = runner_pools.main([], {"RUNNER_POOLS": pools_value}, api=Main.Api(fresh_snapshot(now)), switch=switch,
+                                     now=now)
         self.assertEqual(code, 0)
         written = dict(switch.writes)
         return written, json.loads(written.get("RUNNER_POOLS", pools_value)), out.getvalue()
