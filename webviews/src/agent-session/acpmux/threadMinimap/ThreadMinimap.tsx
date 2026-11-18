@@ -243,7 +243,7 @@ export function ThreadMinimap({
   const [filter, setFilter] = useState<RailFilter>("all");
   // A run of other chats' messages next to each other draws as one tick (model.ts `foldIncoming`):
   // the rail's jumps, hover, keys and bookmarks all read the folded lists. The full-height map keeps
-  // a mark per prompt (`loadedTurns`). A filtered rail draws each prompt it keeps as its own tick, and
+  // a turn per prompt (`loadedTurns`), drawing those its rail has the px for (mapGeometry.ts mapMarks). A filtered rail draws each prompt it keeps as its own tick, and
   // falls back to every prompt when the filter would leave none, so the rail and its menu stay.
   const named = useMemo(() => {
     const start = read.loadedStart ?? 0;
@@ -1234,6 +1234,7 @@ export function ThreadMinimap({
         scrolls={scrolls}
         placement={placement}
         marks={marks}
+        change={change}
         // The map numbers the loaded turns from 0, one per prompt; the rail's `turns` start with the
         // earlier and pending ones and fold runs of other chats' messages: find its turn by row.
         jump={(turn, how) => {

@@ -26,13 +26,17 @@ import {
   THREAD_PADDING_TOP,
   TICK_BOX,
   type MinimapTurn,
+  type RowsChange,
   replyMore,
 } from "./model";
+import { useCountedRender } from "../perfRender";
 import {
   MAP_MARGIN,
   MAP_MIN_PROMPTS,
   mapMarks,
   mapProgress,
+  mapRows,
+  type MapRows,
   mapThumb,
   markAt,
   marksIn,
@@ -64,6 +68,7 @@ export function ScrollMap({
   placement,
   marks: bookmarks,
   jump,
+  change,
 }: {
   rows: readonly AcpmuxRow[];
   turns: readonly MinimapTurn[];
@@ -76,26 +81,70 @@ export function ScrollMap({
   marks: PromptMarks;
   /// The compact rail's jump to a prompt (ThreadMinimap), so a click lands and flashes the same.
   jump: (turn: number, how: "click" | "scrub") => number | undefined;
+  /// Where `rows` first differs from the last snapshot (VirtualTranscript), so the marks' rows index
+  /// reads only the rows from there (mapGeometry.ts mapRows).
+  change?: RowsChange;
 }) {
   const t = useT();
   const height = Math.max(0, Math.floor(viewportHeight - 2 * MAP_MARGIN));
-  const marks = useMemo(() => mapMarks(rows, turns, layout, height), [rows, turns, layout, height]);
-  /// Each mark's place in `marks`, by its row's id. The state below names row ids, not places: which
-  /// replies merge moves as a reply streams, and older turns arriving renumber every place and row.
-  const keyOf = (mark: MapMark | undefined) => (mark ? (rows[mark.row]?.id ?? `#${mark.row}`) : undefined);
-  const byKey = useMemo(
-    () => new Map(marks.map((mark, index) => [rows[mark.row]?.id ?? `#${mark.row}`, index])),
-    [marks, rows],
-  );
+  /// The rows that draw a mark, as of the last commit: the next snapshot extends it.
+  const lastIndex = useRef<MapRows | undefined>(undefined);
+  const index = useMemo(() => mapRows(rows, lastIndex.current, change), [rows, change]);
+  useLayoutEffect(() => {
+    lastIndex.current = index;
+  }, [index]);
+  const keyOfRow = (row: number) => rows[row]?.id ?? `#${row}`;
+  const keyOf = (mark: MapMark | undefined) => (mark ? keyOfRow(mark.row) : undefined);
   /// The pointer's place on the rail (for the fisheye), and the row id of the mark it is on.
   const [pointerY, setPointerY] = useState<number | undefined>(undefined);
   const [hovered, setHovered] = useState<string | undefined>(undefined);
   const [focused, setFocused] = useState<string | undefined>(undefined);
   const [cardMark, setCardMark] = useState<string | undefined>(undefined);
+  /// The prompt the arrows (or Home, End) moved to while its band drew another's: it draws so it
+  /// can take focus, and then its focus keeps it drawn.
+  const [reveal, setReveal] = useState<string | undefined>(undefined);
   const [cardFocus, setCardFocus] = useState(false);
   const [scrubbing, setScrubbing] = useState(false);
   const [reduce, setReduce] = useState(false);
   const preview = useHoverIntent<"map">({ delay: CARD_DELAY });
+  /// The row each id the state names was last at (-1: not in the rows): a mark a band merges away
+  /// while it is focused or previewed still draws, so focus and the card's aria stay on it. Only an
+  /// id whose row moved (earlier turns arrived, a change that reads the rows from the first anyway)
+  /// is looked for, once.
+  const rowOfKey = useRef(new Map<string, number>());
+  const rowOf = (key: string | undefined) => {
+    if (key === undefined) return undefined;
+    const was = rowOfKey.current.get(key);
+    const row =
+      was !== undefined && (was < 0 || keyOfRow(was) === key) ? was : rows.findIndex((each) => each.id === key);
+    return row < 0 ? undefined : row;
+  };
+  const [keptFocus, cardRowAt, keptReveal] = [focused, cardMark, reveal].map(rowOf);
+  rowOfKey.current = new Map();
+  for (const [key, row] of [
+    [focused, keptFocus],
+    [cardMark, cardRowAt],
+    [reveal, keptReveal],
+  ] as const)
+    if (key !== undefined) rowOfKey.current.set(key, row ?? -1);
+  // The previewed mark draws while its card shows.
+  const keptCard = preview.shown !== null ? cardRowAt : undefined;
+  const marks = useMemo(
+    () => mapMarks(rows, turns, layout, height, index, [keptFocus, keptCard, keptReveal]),
+    [rows, turns, layout, height, index, keptFocus, keptCard, keptReveal],
+  );
+  /// Each mark's place in `marks`, by its row's id. The state names row ids, not places: which
+  /// marks a band draws moves as a reply streams, and older turns arriving renumber every row.
+  const byKey = useMemo(
+    () => new Map(marks.map((mark, at) => [rows[mark.row]?.id ?? `#${mark.row}`, at])),
+    [marks, rows],
+  );
+  /// `key`, its mark's row noted for the state that names it.
+  const note = (key: string | undefined) => {
+    const at = key === undefined ? undefined : marks[byKey.get(key) ?? -1];
+    if (key !== undefined && at) rowOfKey.current.set(key, at.row);
+    return key;
+  };
   const intend = preview.hover;
   const dismiss = preview.dismiss;
   const rail = useRef<HTMLElement>(null);
@@ -160,6 +209,14 @@ export function ScrollMap({
     activate: (row) => handlers.current?.activate(row),
   }));
 
+  // A prompt drawn for the arrows takes focus once it is in the DOM.
+  useLayoutEffect(() => {
+    if (reveal === undefined) return;
+    const turn = marks[byKey.get(reveal) ?? -1]?.turn;
+    if (turn !== undefined) rail.current?.querySelector<HTMLButtonElement>(`[data-tick="${turn}"]`)?.focus();
+    setReveal(undefined);
+  }, [reveal, marks, byKey]);
+
   if (!shown) return null;
 
   const railY = (clientY: number) => clientY - (rail.current?.getBoundingClientRect().top ?? 0);
@@ -197,7 +254,7 @@ export function ScrollMap({
     setHovered(at);
     // A scrub moves the transcript, not the card: it opens again once the drag ends.
     if (at === undefined || press.current?.moved) return;
-    setCardMark(at);
+    setCardMark(note(at));
     intend("map");
   };
   const endPress = (event: React.PointerEvent<HTMLElement>) => {
@@ -215,15 +272,21 @@ export function ScrollMap({
   };
   // The previewed message stays lit while the pointer is on its card.
   const active = hovered ?? focused ?? (showCard ? cardMark : undefined);
-  const focusTick = (turn: number) =>
-    rail.current
-      ?.querySelector<HTMLButtonElement>(`[data-tick="${Math.max(0, Math.min(turns.length - 1, turn))}"]`)
-      ?.focus();
+  const focusTick = (turn: number) => {
+    const to = Math.max(0, Math.min(turns.length - 1, turn));
+    const node = rail.current?.querySelector<HTMLButtonElement>(`[data-tick="${to}"]`);
+    if (node) return node.focus();
+    // Its band draws another prompt: draw it, then focus it (the effect above).
+    const row = turns[to]?.index;
+    if (row === undefined || row < 0) return;
+    rowOfKey.current.set(keyOfRow(row), row);
+    setReveal(keyOfRow(row));
+  };
   handlers.current = {
     focus(key) {
       if (press.current) return;
       setReduce(reducedMotion());
-      setFocused(key);
+      setFocused(note(key));
       setCardMark(key);
       intend("map", 0);
     },
@@ -389,18 +452,7 @@ type MarkActions = {
   activate(key: string): void;
 };
 
-const Mark = memo(function Mark({
-  id,
-  mark,
-  progress,
-  active,
-  current,
-  bookmarked,
-  describedBy,
-  prompt,
-  count,
-  actions,
-}: {
+type MarkProps = {
   /// The mark's row id, which the rail's state names.
   id: string;
   mark: MapMark;
@@ -414,7 +466,21 @@ const Mark = memo(function Mark({
   prompt?: string;
   count: number;
   actions: MarkActions;
-}) {
+};
+
+const Mark = memo(function Mark({
+  id,
+  mark,
+  progress,
+  active,
+  current,
+  bookmarked,
+  describedBy,
+  prompt,
+  count,
+  actions,
+}: MarkProps) {
+  useCountedRender("ScrollMap.Mark");
   const t = useT();
   const [rest, grown] = mark.kind === "user" ? USER_LENGTH : AGENT_LENGTH;
   const length = rest + (grown - rest) * progress;
@@ -457,7 +523,25 @@ const Mark = memo(function Mark({
       <span className="acpmux-minimap__dot" style={{ transform: `translateX(${length}px)` }} />
     </MinimapTick>
   );
-});
+}, markPropsEqual);
+
+/// A mark renders only when what it draws changes: the map builds its marks again on every layout,
+/// and a mark the same as before (same row, turn and px) is the same mark.
+function markPropsEqual(a: MarkProps, b: MarkProps): boolean {
+  for (const key in b) {
+    if (key === "mark") continue;
+    if (a[key as keyof MarkProps] !== b[key as keyof MarkProps]) return false;
+  }
+  const was = a.mark;
+  const mark = b.mark;
+  return (
+    Object.keys(a).length === Object.keys(b).length &&
+    was.kind === mark.kind &&
+    was.row === mark.row &&
+    was.turn === mark.turn &&
+    was.y === mark.y
+  );
+}
 
 /// A row's layout top, 0 past the placed rows (as an unplaced row's `tops[index] ?? 0`).
 const rowTop = (geometry: ReturnType<typeof layoutGeometry>, index: number) =>
