@@ -116,7 +116,7 @@ await requireBrowserLane("plain-run-estimate-browser.test.ts", async () => {
     page.evaluate(
       async ([one, w]) => {
         const model = (await import(
-          /* @vite-ignore */ "/src/agent-session/acpmux/model.ts"
+          /* @vite-ignore */ `${location.origin}/src/agent-session/acpmux/model.ts`
         )) as typeof import("../src/agent-session/acpmux/model");
         return model.layoutConversation([one as never], w, undefined, undefined, undefined, undefined, "session-1")
           .heights[0]!;
