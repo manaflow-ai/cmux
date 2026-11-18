@@ -201,6 +201,72 @@ final class PagedListUITests: XCTestCase {
         attach(app, "agentchats-empty-after-pull")
     }
 
+    // MARK: Changes while the reader holds still mid-list
+
+    /// Each change the list can get while someone reads the middle of it, none of which may move a
+    /// row on screen: the reading row removed or moved to the newest end, a row above it growing, a
+    /// newest row arriving, a top banner coming and going, the first page read again, and a rotation.
+    @MainActor func testDownKeepsTheReaderThroughChanges() { assertKeepsTheReader("down:normal", direction: .down) }
+    @MainActor func testUpKeepsTheReaderThroughChanges() { assertKeepsTheReader("up:normal", direction: .up) }
+
+    @MainActor
+    private func assertKeepsTheReader(_ lab: String, direction: Direction) {
+        // Every change is measured and recorded, also after one fails.
+        continueAfterFailure = true
+        let app = launch(lab)
+        XCTAssertTrue(app.descendants(matching: .any)["lab.row.0"].waitForExistence(timeout: 15))
+        // Into the second page, then hold still with the edge idle.
+        var drags = 0
+        while hud(app).rows < 60 || drags < 6, drags < 40 {
+            drag(app, by: direction == .down ? -420 : 420)
+            drags += 1
+        }
+        waitFor("an idle edge", timeout: 10) { self.hud(app).edge == "more" }
+        settle(app.collectionViews["lab.list"].cells.firstMatch)
+        var results: [String] = []
+        for (op, name) in [("grow", "a row above grows"), ("insert", "a newest row arrives"), ("banner", "a top banner shows"),
+                           ("banner", "the top banner goes"), ("remove", "the reading row is removed"),
+                           ("move", "the reading row moves to the newest end"), ("reload", "the first page is read again")] {
+            let before = readableTops(app)
+            XCTAssertFalse(before.isEmpty, "no rows on screen before \(name)")
+            app.buttons["lab.op.\(op)"].tap()
+            settle(app.collectionViews["lab.list"].cells.firstMatch)
+            if op == "reload" {
+                // The lab's source answers in 0.4 s: give the first page time to land.
+                _ = XCTWaiter.wait(for: [XCTestExpectation(description: "the first page lands")], timeout: 1.5)
+                settle(app.collectionViews["lab.list"].cells.firstMatch)
+            }
+            let after = readableTops(app)
+            let common = Set(before.keys).intersection(after.keys)
+            let moved = common.map { abs(after[$0]! - before[$0]!) }.max() ?? -1
+            results.append("{\"op\":\"\(name)\",\"rowsCompared\":\(common.count),\"shift\":\(moved)}")
+            attach(app, "\(direction)-keeps-\(op)")
+            XCTAssertGreaterThanOrEqual(common.count, 2, "\(name): the rows being read are gone (\(before.keys.sorted()) → \(after.keys.sorted()))")
+            XCTAssertLessThanOrEqual(moved, 0.5, "\(name) moved the rows being read by \(moved) pt")
+        }
+        // A rotation and back: the same rows where they were.
+        let before = readableTops(app)
+        XCUIDevice.shared.orientation = .landscapeLeft
+        settle(app.collectionViews["lab.list"].cells.firstMatch)
+        attach(app, "\(direction)-keeps-landscape")
+        XCUIDevice.shared.orientation = .portrait
+        settle(app.collectionViews["lab.list"].cells.firstMatch)
+        let after = readableTops(app)
+        let common = Set(before.keys).intersection(after.keys)
+        let moved = common.map { abs(after[$0]! - before[$0]!) }.max() ?? .infinity
+        results.append("{\"op\":\"a rotation and back\",\"rowsCompared\":\(common.count),\"shift\":\(moved)}")
+        record("keeps-\(direction)", "[" + results.joined(separator: ",") + "]")
+        XCTAssertGreaterThanOrEqual(common.count, 2, "a rotation lost the rows being read")
+        XCTAssertLessThanOrEqual(moved, 0.5, "a rotation and back moved the rows being read by \(moved) pt")
+    }
+
+    /// Tops of the rows below the navigation bar: the rows being read (rows under the bar are not).
+    @MainActor
+    private func readableTops(_ app: XCUIApplication) -> [String: CGFloat] {
+        let barBottom = app.navigationBars.firstMatch.frame.maxY
+        return rowTops(app).filter { $0.value >= barBottom - 0.5 }
+    }
+
     // MARK: Flings
 
     @MainActor func testDownFlingsMeetRowsWithoutHitches() { fling("down:fast", up: false) }

@@ -28,6 +28,8 @@ public final class PagedListProbe {
     public var pageLanded: ((_ shift: CGFloat, _ rows: Int) -> Void)?
     /// The reader started (true) or stopped (false) moving the list.
     public var scrolling: ((Bool) -> Void)?
+    /// The row being read: the first row under the list's top edge, after the last layout pass.
+    public internal(set) var readingID: AnyHashable?
 
     public init() {}
 }
@@ -352,6 +354,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     /// row stays on it (keyboard, rotation, a row that grew); a reader in the middle of an `.up` list
     /// keeps the bottom edge's distance when the list's height changes (Messages does the same).
     private func didLayout() {
+        if let probe, case .row(let id)? = captureAnchor()?.id { probe.readingID = AnyHashable(id) }
         guard direction == .up else { return }
         let height = collectionView.bounds.height
         defer { lastBoundsHeight = height }

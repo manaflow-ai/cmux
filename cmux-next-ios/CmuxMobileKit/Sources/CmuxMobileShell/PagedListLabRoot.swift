@@ -33,6 +33,9 @@ public struct PagedListLabRoot: View {
     @State private var probe = PagedListProbe()
     @State private var draft = ""
     @State private var sent = 0
+    /// The top banner (`lab.op.banner`): a top inset that comes and goes mid-list, like "Updating…".
+    @State private var banner = false
+    @State private var inserted = 0
 
     public init(arguments: [String] = ProcessInfo.processInfo.arguments) {
         func value(_ flag: String) -> String? {
@@ -74,11 +77,22 @@ public struct PagedListLabRoot: View {
             .pagedEndLabel(direction == .up ? "Beginning of the conversation" : "You're all caught up")
             .pagedIdentifier("lab.list")
             .pagedProbe(probe)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if banner {
+                    Text("Updating…")
+                        .font(theme.type.meta)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(.bar)
+                        .accessibilityIdentifier("lab.banner")
+                }
+            }
             .background(theme.colors.bg.color.ignoresSafeArea())
             .navigationTitle(direction == .up ? "Chat" : "Feed")
             .navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 VStack(spacing: 0) {
+                    if !clean { operations }
                     if !clean { hudLine }
                     if direction == .up { composer }
                 }
@@ -100,6 +114,47 @@ public struct PagedListLabRoot: View {
                 next -= 1
             }
         }
+    }
+
+    /// Changes a test makes while the reader holds still mid-list; none may move a row on screen
+    /// (UITests `test*KeepsTheReaderThrough*`). "The reading row" is the probe's: the first row under
+    /// the list's top edge.
+    private var operations: some View {
+        HStack(spacing: 4) {
+            operation("Remove", "remove") {
+                if let id = probe.readingID?.base as? Int { model.remove(id) }
+            }
+            operation("Move", "move") {
+                if let id = probe.readingID?.base as? Int, let item = model.items.first(where: { $0.id == id }) {
+                    model.receiveNewest([item])
+                }
+            }
+            operation("Grow", "grow") {
+                let items = model.items
+                if let id = probe.readingID?.base as? Int, let index = items.firstIndex(where: { $0.id == id }), index > 0 {
+                    let above = items[index - 1]
+                    model.update(PagedLabItem(id: above.id, mine: above.mine,
+                                              text: above.text + " and then it grew by three more lines of text that wrap"))
+                }
+            }
+            operation("Insert", "insert") {
+                inserted += 1
+                model.receiveNewest([PagedLabItem(id: -5000 - inserted)])
+            }
+            operation("Banner", "banner") { banner.toggle() }
+            operation("Reload", "reload") { Task { await model.loadFirst() } }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(.bar)
+    }
+
+    private func operation(_ title: String, _ id: String, _ action: @escaping () -> Void) -> some View {
+        Button(title, action: action)
+            .font(theme.type.meta)
+            .buttonStyle(.cmuxPressFill)
+            .frame(maxWidth: .infinity)
+            .accessibilityIdentifier("lab.op.\(id)")
     }
 
     private var hudLine: some View {
