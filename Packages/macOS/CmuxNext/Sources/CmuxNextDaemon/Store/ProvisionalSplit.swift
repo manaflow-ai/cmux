@@ -18,7 +18,7 @@ import Foundation
     /// has nothing left to show.
     static func daemonPlaces(_ provisional: ProvisionalPane, in store: DaemonStore) -> Bool {
         guard let pane = daemonPane(provisional, in: store) else { return false }
-        return store.screen(containing: pane.handle)?.layout.paneIDs.contains(pane.handle) == true
+        return store.screen(containing: pane.handle)?.layout.contains(pane: pane.handle) == true
     }
 
     /// Whether the split's daemon pane reached the records and left them before any layout
@@ -172,7 +172,7 @@ import Foundation
         let undo = IntentUndo.splitPane(screen: screen.handle, layout: screen.layout, columns: screen.columns,
                                         pane: daemon == nil ? provisional.handle : nil)
         screen.layout = placed.layout
-        if placed.columns != screen.columns { screen.columns = placed.columns }
+        if placed.columnsEdited, placed.columns != screen.columns { screen.columns = placed.columns }
         guard daemon == nil else { return undo }
         let pane = model(of: provisional, in: store)
         screen.panes.insert(pane, at: min(max(placed.paneAt, 0), screen.panes.count))
