@@ -192,6 +192,17 @@ public final class CloudSetup {
         connectionsChanged()
     }
 
+    /// A start on `harness`, `model` and `account` reached a machine whose agent reaches no model and carried no connection
+    /// (`CloudMachineRoute.NeedsConnection`): when it ran on the organization's shared key, that key is unrouted
+    /// (``organizationUnrouted(_:)``), and the answer is the Set up Cloud card's family and model where the next choice
+    /// is that card. Nil for anything else (connections unread, an agent Cloud does not serve): the card could never pass.
+    public func unrouted(harness: String?, model: String?, account: String?) async -> (family: String, model: String?)? {
+        guard case .organization(let family) = await choose(harness: harness, model: model, account: account) else { return nil }
+        organizationUnrouted(family)
+        guard case .setup(_, let model) = await choose(harness: harness, model: model, account: account) else { return nil }
+        return (family, model)
+    }
+
     /// `snapshot` without the organization families a start found unrouted.
     private func routed(_ snapshot: Snapshot) -> Snapshot {
         var snapshot = snapshot

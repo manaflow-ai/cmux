@@ -93,3 +93,15 @@ extension AgentPaneCloudStart {
         }
     }
 }
+
+extension AgentPaneCloudStart {
+    /// The page's reply when this start's machine gave its agent no model and the start carried no connection
+    /// (`CloudMachineRoute.NeedsConnection`, cmux#45773): Set up Cloud where the next choice is that card
+    /// (``CloudSetup/unrouted(harness:model:account:)``), else `message` with no Retry, which could never pass.
+    @MainActor public func needsConnectionReply(_ message: String, setup: CloudSetup) async -> [String: Any] {
+        guard let card = await setup.unrouted(harness: harness, model: model, account: account) else {
+            return AgentPaneReply.failure(code: "cloud_start_failed", message: message, details: nil, retryable: false, origin: "native")
+        }
+        return AgentPaneReply.failure(code: "cloud_setup_required", message: "cloud_setup_required", details: ["family": card.family, "model": card.model ?? ""], retryable: false, origin: "native")
+    }
+}

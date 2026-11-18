@@ -67,6 +67,18 @@ struct CloudSetupTests {
         #expect(await rule.choose(harness: "claude", model: nil, account: nil) == .connection(id: "claude-token:1", family: "claude"))
     }
 
+    /// cmux#45773: a start whose machine gave its agent no model shows Set up Cloud only when it ran on the team's key and
+    /// the next choice is that card; with this Mac's connections unread, or a connection of its own, it answers nil.
+    @Test func anUnroutedStartShowsSetUpCloudOnlyForTheTeamsKey() async {
+        let rule = setup(Connections(.init(personal: [], organization: ["claude"])))
+        let card = await rule.unrouted(harness: "claude", model: "opus", account: nil)
+        #expect(card?.family == "claude" && card?.model == "opus")
+        #expect(rule.unroutedOrganization == ["claude"])
+        #expect(await setup(Connections(.init(personal: nil, organization: ["claude"]))).unrouted(harness: "claude", model: nil, account: nil) == nil)
+        #expect(await setup(Connections(.init(personal: [], organization: nil))).unrouted(harness: "claude", model: nil, account: nil) == nil)
+        #expect(await rule.unrouted(harness: "gemini", model: nil, account: nil) == nil)
+    }
+
     /// Revision 2's choice: the picker's account when it serves Cloud, else the first enabled
     /// Cloud-serving connection of the family in order, before the organization's key. A Mac CLI login
     /// (`serves_cloud: false`) is never chosen.
