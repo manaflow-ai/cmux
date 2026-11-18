@@ -1,5 +1,6 @@
 import CmuxMobileTransport
 import Foundation
+import Observation
 import Testing
 @testable import CmuxMobileBrowserStream
 
@@ -10,11 +11,37 @@ import Testing
 @MainActor @Suite struct PageEventsTests {
     func settle() async { for _ in 0..<40 { await Task.yield() } }
 
-    /// Gives the main actor back until `condition` holds: the host's messages reach the model
-    /// through a main-actor task each, so how many turns that takes depends on what else the
-    /// process runs, not on this test. Bounded by turns, not time.
-    func until(_ condition: () -> Bool) async {
-        for _ in 0..<100_000 where !condition() { await Task.yield() }
+    /// Waits, without spinning, until `condition` holds: it reads the model's observed state
+    /// and wakes when that state changes. The host's messages reach the model through a
+    /// main-actor task each, so when that happens depends on what else the process runs, not on
+    /// this test. (A loop of yields here kept the main actor busy for every other test; the
+    /// test's time limit bounds a condition that never holds.)
+    func until(_ condition: @escaping @MainActor () -> Bool) async {
+        while !condition() {
+            await withCheckedContinuation { (changed: CheckedContinuation<Void, Never>) in
+                let once = ResumeOnce(changed)
+                // The continuation's body runs at once, on the caller's actor: the main actor.
+                let holds = MainActor.assumeIsolated {
+                    withObservationTracking { condition() } onChange: { once.resume() }
+                }
+                if holds { once.resume() }
+            }
+        }
+    }
+
+    /// Resumes a continuation the first time only: an observed change and a condition that
+    /// already held can both try.
+    final class ResumeOnce: @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<Void, Never>?
+        init(_ continuation: CheckedContinuation<Void, Never>) { self.continuation = continuation }
+        func resume() {
+            let pending = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+                defer { continuation = nil }
+                return continuation
+            }
+            pending?.resume()
+        }
     }
 
     /// A long press whose wait for the page's menu does not end during the test (a day): the
@@ -303,7 +330,8 @@ import Testing
     /// The page crashed or its session closed (`rb.state` crashed / closed, `rb.closed`): the
     /// open dialog, `<select>` and context menu go with it, unanswered, as the Mac's viewer
     /// closes them (cmux-remote-browser `Client::session`). A live or paused page keeps them.
-    @Test(arguments: [#"{"t":"rb.state","state":"crashed"}"#, #"{"t":"rb.state","state":"closed"}"#,
+    @Test(.timeLimit(.minutes(1)),
+          arguments: [#"{"t":"rb.state","state":"crashed"}"#, #"{"t":"rb.state","state":"closed"}"#,
                       #"{"t":"rb.closed","reason":"viewer_closed"}"#])
     func aPageThatCrashedOrClosedTakesItsDialogAndMenusWithIt(_ end: String) async throws {
         let (model, stream, sink) = try await model()
