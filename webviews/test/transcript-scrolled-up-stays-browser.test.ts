@@ -262,7 +262,21 @@ await requireBrowserLane("transcript-scrolled-up-stays-browser.test.ts", async (
           expect(failures).toEqual([]);
           return;
         }
-        await painted(page, 6);
+        // The reader's own scroll comes to rest: the transcript's offset stays within 0.5 px of one
+        // value for 10 painted frames and 300 ms (a wheel's eased distance, the transcript's or WebKit's,
+        // runs on the clock: at a fast frame rate its tail moves under 0.5 px a frame for many frames).
+        await page.evaluate(async () => {
+          const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+          let since = { top: node.scrollTop, at: performance.now(), frames: 0 };
+          for (let frames = 0; frames < 2_000; frames++) {
+            await window.cmuxPaintFrame();
+            if (Math.abs(node.scrollTop - since.top) >= 0.5)
+              since = { top: node.scrollTop, at: performance.now(), frames: 0 };
+            else since.frames += 1;
+            if (since.frames >= 10 && performance.now() - since.at >= 300) return;
+          }
+        });
+        box = (await nested(page, spec.rowId, spec.scrolls))!;
 
         // From here the reader scrolls only the box: watch the transcript's offset and its rows.
         await page.evaluate(() => {
@@ -282,22 +296,28 @@ await requireBrowserLane("transcript-scrolled-up-stays-browser.test.ts", async (
             offsets: [] as string[],
             following: 0,
             frames: 0,
+            started: performance.now(),
+            ms: 0,
             stop: false,
           };
-          let last = places();
+          // Each row against where it was when the watch began, not the frame before: a creep under
+          // 0.5 px a frame, at any frame rate, still adds up past it.
+          const first = places();
           const offset = node.scrollTop;
           window.cmuxAfterPaint(() => {
             if (watch.stop) return false;
             watch.frames += 1;
-            const now = places();
-            for (const [id, top] of now) {
-              const before = last.get(id);
-              if (before !== undefined && Math.abs(top - before) > 0.5)
-                watch.moves.push(`frame ${watch.frames} ${id} ${before.toFixed(1)}->${top.toFixed(1)}`);
+            watch.ms = performance.now() - watch.started;
+            for (const [id, top] of places()) {
+              if (!first.has(id)) first.set(id, top);
+              const before = first.get(id)!;
+              if (Math.abs(top - before) > 0.5)
+                watch.moves.push(
+                  `frame ${watch.frames} (${Math.round(watch.ms)} ms) ${id} ${before.toFixed(1)}->${top.toFixed(1)} (offset ${node.scrollTop})`,
+                );
             }
-            last = now;
             if (Math.abs(node.scrollTop - offset) > 0.5)
-              watch.offsets.push(`frame ${watch.frames} ${offset}->${node.scrollTop}`);
+              watch.offsets.push(`frame ${watch.frames} (${Math.round(watch.ms)} ms) ${offset}->${node.scrollTop}`);
             if ((window as unknown as { __followSnapshot(): { following: boolean } }).__followSnapshot().following)
               watch.following += 1;
           });
@@ -305,17 +325,28 @@ await requireBrowserLane("transcript-scrolled-up-stays-browser.test.ts", async (
         });
         // Inside the box near its left, clear of Jump to latest (which floats over the view's middle).
         await page.mouse.move(box.left + 30, box.top + Math.min(60, (box.bottom - box.top) / 2));
-        // Five notches down and two up, all within the box's own scroll: none reaches its end.
+        // Five notches down and two up, all within the box's own scroll: none reaches its end. Each
+        // notch's box and transcript offsets, for the log when it fails.
+        const notches: string[] = [];
         for (const delta of [60, 60, 60, 60, 60, -60, -60]) {
           await page.mouse.wheel(0, delta);
           await painted(page, 3);
+          const now = await nested(page, spec.rowId, spec.scrolls);
+          notches.push(`${delta}: box ${now?.scrollTop} transcript ${(await scroller(page)).scrollTop}`);
         }
         const inside = await nested(page, spec.rowId, spec.scrolls);
         // fixed-wait: the reader rests while the turn streams on; three seconds is the case's own length.
         await page.waitForTimeout(3_000);
         const seen = await page.evaluate(() => {
           const w = window as unknown as {
-            __watch: { moves: string[]; offsets: string[]; following: number; frames: number; stop: boolean };
+            __watch: {
+              moves: string[];
+              offsets: string[];
+              following: number;
+              frames: number;
+              ms: number;
+              stop: boolean;
+            };
             __stream: { stop(): void };
           };
           w.__stream.stop();
@@ -323,13 +354,19 @@ await requireBrowserLane("transcript-scrolled-up-stays-browser.test.ts", async (
           return w.__watch;
         });
         console.log(
-          `scrolled-up ${name} ${kind}: ${JSON.stringify({ boxScrolled: inside?.scrollTop, frames: seen.frames, moves: seen.moves.slice(0, 6), offsets: seen.offsets.slice(0, 4), followingFrames: seen.following })}`,
+          `scrolled-up ${name} ${kind}: ${JSON.stringify({ boxScrolled: inside?.scrollTop, frames: seen.frames, ms: Math.round(seen.ms), moves: seen.moves.slice(0, 6), offsets: seen.offsets.slice(0, 4), followingFrames: seen.following })}`,
         );
         if (!(inside && inside.scrollTop > 0)) failures.push(`the ${kind} did not scroll under the wheel`);
-        if (seen.frames < 60) failures.push(`only ${seen.frames} frames watched`);
+        // The watch spans the notches and the rest, whatever the frame rate.
+        if (seen.ms < 3_000 || seen.frames < 10) failures.push(`watched ${seen.frames} frames over ${seen.ms} ms`);
         if (seen.following > 0) failures.push(`following on ${seen.following} frames`);
         if (seen.offsets.length) failures.push(`the transcript moved: ${seen.offsets.slice(0, 3).join(", ")}`);
         if (seen.moves.length) failures.push(`rows moved: ${seen.moves.slice(0, 4).join(", ")}`);
+        // On a failure the log names it: every frame's move and offset, and each notch in the box.
+        if (failures.length)
+          console.log(
+            `scrolled-up ${name} ${kind} failed: ${JSON.stringify({ notches, moves: seen.moves, offsets: seen.offsets })}`,
+          );
         await page.close();
         expect(failures).toEqual([]);
       });
