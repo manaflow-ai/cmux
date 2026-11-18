@@ -138,9 +138,9 @@ pub(crate) struct SessionJournalSubjectPage {
     pub(crate) records: Vec<SessionJournalRecord>,
 }
 
-/// One retained `terminal.output` record's content and stream coverage
-/// (test-only: shipped builds read output from output_store.rs).
-#[cfg(test)]
+/// One retained `terminal.output` record's content and stream coverage.
+/// Output is no longer journaled (output_store.rs); these are records an
+/// older daemon wrote, read until retention removes them.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TerminalOutputChunk {
     pub(crate) stream_offset_start: u64,
@@ -149,7 +149,6 @@ pub(crate) struct TerminalOutputChunk {
 }
 
 /// A record-boundary window over one terminal generation's output stream.
-#[cfg(test)]
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TerminalOutputRecordsWindow {
     pub(crate) chunks: Vec<TerminalOutputChunk>,
@@ -1224,9 +1223,32 @@ impl WorkspaceRegistry {
         Ok(())
     }
 
+    /// The most recently started journal output stream of every terminal
+    /// that has one (written by daemons that journaled output), by public
+    /// terminal id: (generation, exclusive end offset).
+    pub(crate) fn terminal_stream_ends_latest(
+        &self,
+    ) -> anyhow::Result<std::collections::HashMap<String, (String, u64)>> {
+        let mut statement = self.connection.prepare(
+            "SELECT terminal_id, generation, next_offset FROM journal_terminal_streams
+             ORDER BY rowid ASC",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
+        })?;
+        let mut ends = std::collections::HashMap::new();
+        for row in rows {
+            let (terminal_id, generation, next_offset) = row?;
+            let next_offset =
+                u64::try_from(next_offset).context("terminal journal offset is negative")?;
+            // Later rows started later: the latest stream wins.
+            ends.insert(terminal_id, (generation, next_offset));
+        }
+        Ok(ends)
+    }
+
     /// The most recently started journal output stream for one terminal:
     /// its generation and the exclusive end offset of its journaled bytes.
-    #[cfg(test)]
     pub(crate) fn terminal_stream_latest(
         &self,
         terminal_id: &str,
@@ -1259,7 +1281,6 @@ impl WorkspaceRegistry {
     /// retained vt-replay snapshot (a checkpoint blob for live terminals, the
     /// terminal exit snapshot for exited ones) and readers see the coverage
     /// clamp through the window's start offset.
-    #[cfg(test)]
     pub(crate) fn terminal_output_records_after(
         &self,
         terminal_id: &str,

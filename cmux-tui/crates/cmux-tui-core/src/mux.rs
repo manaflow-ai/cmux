@@ -5849,10 +5849,11 @@ impl Mux {
     /// store's (output_store.rs), and offsets are byte offsets of the
     /// terminal's current generation. The store keeps a bounded tail in
     /// memory; a cursor older than what is kept starts at the oldest kept
-    /// byte. Once the terminal left this daemon (close policy, restart) the
-    /// store has no stream for it; its exit snapshot (the final screen)
-    /// answers instead, as it does for a cursor before the snapshot's
-    /// coverage.
+    /// byte. After a daemon restart the store has no stream for an exited
+    /// terminal; its exit snapshot (the final screen) answers instead, as it
+    /// does for a cursor before the snapshot's coverage. With neither, the
+    /// `terminal.output` records an older daemon journaled answer, until
+    /// retention removes them.
     pub(crate) fn terminal_output_read(
         &self,
         terminal_id: &TerminalPublicId,
@@ -5900,9 +5901,16 @@ impl Mux {
             let complete = stream_end.is_none_or(|end| snapshot.covered_through >= end);
             return Ok(terminal_output_read_result(text, 0, snapshot.covered_through, complete));
         }
+        let (cols, rows) = surface
+            .as_ref()
+            .map(|surface| surface.size())
+            .or_else(|| snapshot.as_ref().map(|snapshot| (snapshot.cols, snapshot.rows)))
+            .or(spec_geometry)
+            .unwrap_or((80, 24));
         let Some(window) = self.output_store.read_after(terminal_id, requested, max_bytes) else {
-            // Nothing was ever printed in this daemon: an empty, complete stream.
-            return Ok(terminal_output_read_result(String::new(), requested, requested, true));
+            // Nothing was printed in this daemon and no exit snapshot exists:
+            // the records an older daemon journaled, if any.
+            return self.legacy_terminal_output_read(terminal_id, requested, max_bytes, cols, rows);
         };
         if window.bytes.is_empty() {
             return Ok(terminal_output_read_result(
@@ -5912,12 +5920,6 @@ impl Mux {
                 !window.truncated,
             ));
         }
-        let (cols, rows) = surface
-            .as_ref()
-            .map(|surface| surface.size())
-            .or_else(|| snapshot.as_ref().map(|snapshot| (snapshot.cols, snapshot.rows)))
-            .or(spec_geometry)
-            .unwrap_or((80, 24));
         let text =
             render_terminal_output_plain(std::iter::once(window.bytes.as_slice()), cols, rows)?;
         Ok(terminal_output_read_result(
@@ -5926,6 +5928,66 @@ impl Mux {
             window.next_offset,
             !window.truncated,
         ))
+    }
+
+    /// `terminal.output_read` over the `terminal.output` records a daemon
+    /// that still journaled output wrote (before the output store): its
+    /// latest generation, record windows as before. Nothing journaled: an
+    /// empty, complete stream.
+    fn legacy_terminal_output_read(
+        &self,
+        terminal_id: &TerminalPublicId,
+        requested: u64,
+        max_bytes: u64,
+        cols: u16,
+        rows: u16,
+    ) -> anyhow::Result<Value> {
+        let window = {
+            let registry = self.workspace_registry.lock().unwrap();
+            let Some((generation, _)) = registry.terminal_stream_latest(terminal_id.as_str())?
+            else {
+                return Ok(terminal_output_read_result(String::new(), requested, requested, true));
+            };
+            registry.terminal_output_records_after(
+                terminal_id.as_str(),
+                &generation,
+                requested,
+                max_bytes,
+            )?
+        };
+        let Some((first, last)) = window.chunks.first().zip(window.chunks.last()) else {
+            return Ok(terminal_output_read_result(String::new(), requested, requested, true));
+        };
+        let (start_offset, next_offset) = (first.stream_offset_start, last.stream_offset_end);
+        let text = render_terminal_output_plain(
+            window.chunks.iter().map(|chunk| chunk.bytes.as_ref()),
+            cols,
+            rows,
+        )?;
+        Ok(terminal_output_read_result(text, start_offset, next_offset, !window.truncated))
+    }
+
+    /// The `terminal.output` stream end an older daemon journaled for each
+    /// terminal, by generation: the output store continues those streams
+    /// (output_store.rs). Empty when the journal cannot be read.
+    pub(crate) fn legacy_terminal_stream_ends(&self) -> HashMap<TerminalPublicId, (String, u64)> {
+        let ends = match self
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .terminal_stream_ends_latest()
+        {
+            Ok(ends) => ends,
+            Err(error) => {
+                eprintln!("cmux-tui: could not read the journaled terminal stream ends: {error:#}");
+                return HashMap::new();
+            }
+        };
+        ends.into_iter()
+            .filter_map(|(terminal_id, end)| {
+                Some((TerminalPublicId::parse(&terminal_id).ok()?, end))
+            })
+            .collect()
     }
 
     /// Best-effort capture of a terminal's final screen as one bounded,
@@ -8495,15 +8557,29 @@ impl Mux {
             {
                 hook(&terminal_hex);
             }
+            // The incarnation is the terminal's output generation: the reader
+            // records output under it and the exit snapshot matches it.
+            let incarnation = TerminalId::random()?.to_hex();
             #[cfg(test)]
             let surface_result = if self.test_surface_runtime {
                 Surface::spawn_for_test_at_cell_pixels(id, opts, Arc::downgrade(self), cell_pixels)
             } else {
-                Surface::spawn_at_cell_pixels(id, opts, Arc::downgrade(self), cell_pixels)
+                Surface::spawn_in_process_at_cell_pixels(
+                    id,
+                    opts,
+                    Arc::downgrade(self),
+                    &incarnation,
+                    cell_pixels,
+                )
             };
             #[cfg(not(test))]
-            let surface_result =
-                Surface::spawn_at_cell_pixels(id, opts, Arc::downgrade(self), cell_pixels);
+            let surface_result = Surface::spawn_in_process_at_cell_pixels(
+                id,
+                opts,
+                Arc::downgrade(self),
+                &incarnation,
+                cell_pixels,
+            );
             let surface = match surface_result {
                 Ok(surface) => surface,
                 Err(error) => {
@@ -8515,7 +8591,6 @@ impl Mux {
                     return Err(error);
                 }
             };
-            let incarnation = TerminalId::random()?.to_hex();
             let identity = TerminalHostIdentity {
                 terminal_id: terminal_hex.clone(),
                 incarnation: incarnation.clone(),
@@ -10905,6 +10980,7 @@ impl Mux {
             (commit, incarnation, public_id.clone(), newly_closed.then_some(public_id).flatten())
         };
         self.notify_terminal_exit_waiters(notify_public_id);
+        let mut closed_public_id = None;
         let (target, removed, runtime, changed_screens, empty_revision) = {
             let mut state = self.state.lock().unwrap();
             let catalog_public_id = public_id.or_else(|| {
@@ -10918,6 +10994,7 @@ impl Mux {
                 .as_ref()
                 .and_then(|public_id| state.terminal_catalog.get(public_id))
                 .cloned();
+            closed_public_id = catalog_public_id.clone();
             // The durable close has committed. From this point cleanup must
             // finish even if an in-memory host incarnation was stale; leaving
             // a live runtime behind would contradict the terminal tombstone.
@@ -10959,6 +11036,10 @@ impl Mux {
         };
         for surface in removed {
             self.purge_surface_side_tables(surface.id);
+        }
+        // A closed terminal's output is not read again: drop its tail too.
+        if let Some(public_id) = &closed_public_id {
+            self.output_store.discard(public_id);
         }
         let had_runtime = runtime.is_some();
         if let Some(runtime) = runtime {
@@ -32868,6 +32949,161 @@ mod tests {
         mux.shutdown();
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Polls `read` until it returns `Some`: a real PTY's output arrives on
+    /// its reader thread.
+    #[cfg(unix)]
+    fn eventually<T>(what: &str, mut read: impl FnMut() -> Option<T>) -> T {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if let Some(value) = read() {
+                return value;
+            }
+            assert!(Instant::now() < deadline, "{what} did not happen");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    /// An older daemon journaled output as `terminal.output` records. With
+    /// no output-store stream and no exit snapshot, those records answer,
+    /// and the store continues their stream where the journal left it.
+    #[cfg(unix)]
+    #[test]
+    fn output_read_falls_back_to_records_an_older_daemon_journaled() {
+        const TERMINAL: &str = "0000000000004000800000000000004f";
+        const INCARNATION: &str = "1000000000004000800000000000004f";
+        let root = std::env::temp_dir()
+            .join(format!("cmux-mux-legacy-output-{}", crate::workspace_registry::new_uuid_v4()));
+        let mux = Mux::open_persistent("legacy-output", SurfaceOptions::default(), &root).unwrap();
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+        let terminal =
+            mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
+        let journaled: &[u8] = b"journaled \x1b[32mbefore\x1b[0m the upgrade\r\n";
+        {
+            let event = crate::journal_ingress::JournalIngressEvent::TerminalOutput {
+                terminal_id: Arc::new(terminal.clone()),
+                generation: INCARNATION.into(),
+                occurred_at_ms: 1,
+                bytes: journaled.to_vec(),
+            };
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .append_journal_ingress_events(&[&event])
+                .unwrap();
+        }
+        let total = u64::try_from(journaled.len()).unwrap();
+        assert!(mux.output_store.stream_end(&terminal).is_none());
+
+        let read = mux.terminal_output_read(&terminal, None, 1 << 20).unwrap();
+        let text = read["text"].as_str().unwrap();
+        assert!(text.contains("journaled before the upgrade"), "{read}");
+        assert_eq!(read["start_offset"], "0");
+        assert_eq!(read["next_offset"], total.to_string());
+        assert_eq!(read["complete"], true);
+        let resumed = mux.terminal_output_read(&terminal, Some(total), 1 << 20).unwrap();
+        assert_eq!(resumed["text"], "");
+        assert_eq!(resumed["complete"], true);
+
+        assert_eq!(
+            mux.legacy_terminal_stream_ends().get(&terminal),
+            Some(&(INCARNATION.to_string(), total))
+        );
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// An in-memory session has no journal; its terminals' readers still
+    /// hand their output to the output store, and the tail stays readable
+    /// after the process exits (memory mode stores no exit snapshot).
+    #[cfg(unix)]
+    #[test]
+    fn an_in_memory_session_reads_output_from_the_reader_also_after_exit() {
+        let mux = Mux::new(
+            format!("in-memory-output-{}", WorkspacePublicId::random().unwrap()),
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    "printf 'in-memory output marker\\r\\n'".into(),
+                ]),
+                ..SurfaceOptions::default()
+            },
+        );
+        assert!(mux.output_store.memory_only());
+        let surface = mux.new_workspace(Some("in-memory".into()), Some((80, 24))).unwrap();
+        let terminal = surface.terminal_public_id().cloned().expect("a resource terminal");
+        let marker = |mux: &Mux| {
+            let read = mux.terminal_output_read(&terminal, None, 1 << 20).unwrap();
+            read["text"].as_str().unwrap().contains("in-memory output marker").then_some(read)
+        };
+        eventually("the reader's output in terminal.output_read", || marker(&mux));
+
+        let exit = mux.wait_for_terminal_exit(&terminal, Some(Duration::from_secs(10))).unwrap();
+        assert_eq!(exit["state"], "exited", "{exit}");
+        eventually("the close policy's detach", || {
+            mux.terminal_resource_surface(&terminal).is_none().then_some(())
+        });
+        let after_exit = marker(&mux).expect("the tail stays readable after the exit");
+        assert_eq!(after_exit["complete"], true, "{after_exit}");
+        mux.shutdown();
+    }
+
+    /// An in-process terminal records its output under its registry
+    /// incarnation, so the exit latch captures its snapshot.
+    #[cfg(unix)]
+    #[test]
+    fn an_in_process_terminal_records_output_under_its_incarnation() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-mux-in-process-output-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let mux = Mux::open_persistent(
+            "in-process-output",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    "printf 'in-process marker\\r\\n'; exec cat".into(),
+                ]),
+                ..SurfaceOptions::default()
+            },
+            &root,
+        )
+        .unwrap();
+        let surface = mux.new_workspace(Some("in-process".into()), Some((80, 24))).unwrap();
+        let identity = mux
+            .resource_terminal_host_identity(&surface)
+            .expect("a reserved in-process terminal has a registry incarnation");
+        let terminal = surface.terminal_public_id().cloned().expect("a resource terminal");
+        eventually("the reader's output in terminal.output_read", || {
+            let read = mux.terminal_output_read(&terminal, None, 1 << 20).unwrap();
+            read["text"].as_str().unwrap().contains("in-process marker").then_some(())
+        });
+        let (generation, end) = mux.output_store.stream_end(&terminal).unwrap();
+        assert_eq!(generation.as_ref(), identity.incarnation);
+
+        let exit = TerminalExit {
+            outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 0 },
+            exited_at_ms: 1_234,
+        };
+        assert!(mux.persist_terminal_exit_for_test(&terminal, &exit).unwrap());
+        let snapshot = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .terminal_exit_snapshot(terminal.as_str())
+            .unwrap()
+            .expect("the exit latch stored a snapshot");
+        assert_eq!(snapshot.generation, identity.incarnation);
+        assert_eq!(snapshot.covered_through, end);
+
+        mux.shutdown();
+        drop(mux);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[cfg(unix)]

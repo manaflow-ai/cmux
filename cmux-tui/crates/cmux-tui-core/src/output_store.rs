@@ -57,6 +57,10 @@ pub(crate) const SNAPSHOT_DEFAULT_MAX_TOTAL_BYTES: u64 = 50 * 1024 * 1024;
 pub(crate) const OUTPUT_TAIL_BYTES: usize = 64 * 1024;
 /// Directory beside the registry that holds the store's files.
 const STORE_DIRECTORY: &str = "terminal-output";
+/// Terminals that left this daemon whose tails stay readable (exit receipts
+/// answer `terminal.output_read` after the runtime is gone); the oldest go
+/// first, so at most this many times [`OUTPUT_TAIL_BYTES`] stay in memory.
+const RETIRED_TAILS: usize = 64;
 
 /// What the store keeps on disk.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -120,6 +124,11 @@ struct LogState {
     dirty: bool,
     /// Content digest of the last snapshot written.
     snapshot_digest: Option<u64>,
+    /// Stream end the last snapshot written recorded.
+    snapshot_end: Option<u64>,
+    /// Moves when the person clears the history: a screen captured before
+    /// the clear is not written after it.
+    clear_epoch: u64,
 }
 
 impl LogState {
@@ -132,11 +141,18 @@ impl LogState {
 pub(crate) struct TerminalLog {
     terminal_id: TerminalPublicId,
     state: Mutex<LogState>,
+    /// Held while this terminal's snapshot file is written, and by a history
+    /// clear: the clear waits for this terminal's write only.
+    write: Mutex<()>,
 }
 
 impl TerminalLog {
     fn state(&self) -> MutexGuard<'_, LogState> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn write_lock(&self) -> MutexGuard<'_, ()> {
+        self.write.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
@@ -156,6 +172,9 @@ pub(crate) struct OutputStore {
     directory: Option<PathBuf>,
     policy: PersistencePolicy,
     logs: Mutex<HashMap<TerminalPublicId, Arc<TerminalLog>>>,
+    /// Logs of terminals that left this daemon, newest last (at most
+    /// [`RETIRED_TAILS`]); reads only.
+    retired: Mutex<VecDeque<Arc<TerminalLog>>>,
     writer: snapshot::Writer,
     snapshot_interval: Duration,
     /// Held by each write pass: the writer thread, a checkpoint and the quit
@@ -191,6 +210,7 @@ impl OutputStore {
             directory: registry_directory.map(|directory| directory.join(STORE_DIRECTORY)),
             policy,
             logs: Mutex::new(HashMap::new()),
+            retired: Mutex::new(VecDeque::new()),
             writer: snapshot::Writer::default(),
             snapshot_interval,
             pass: Mutex::new(()),
@@ -230,8 +250,12 @@ impl OutputStore {
         if self.memory_only() {
             return Ok(());
         }
-        *self.resume.lock().unwrap_or_else(PoisonError::into_inner) =
-            snapshot::stream_ends(directory);
+        // A terminal without a snapshot continues the stream an older
+        // daemon journaled (`terminal.output` records), so cursors from
+        // before the upgrade stay meaningful.
+        let mut resume = mux.legacy_terminal_stream_ends();
+        resume.extend(snapshot::stream_ends(directory));
+        *self.resume.lock().unwrap_or_else(PoisonError::into_inner) = resume;
         self.writer.start(Arc::downgrade(mux))
     }
 
@@ -239,6 +263,19 @@ impl OutputStore {
         let mut logs = self.logs.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(log) = logs.get(terminal_id) {
             return log.clone();
+        }
+        // A terminal that left and came back continues its stream (a new
+        // generation still starts at offset 0, see `append`).
+        let revived = {
+            let mut retired = self.retired.lock().unwrap_or_else(PoisonError::into_inner);
+            retired
+                .iter()
+                .position(|log| log.terminal_id == *terminal_id)
+                .and_then(|index| retired.remove(index))
+        };
+        if let Some(log) = revived {
+            logs.insert(terminal_id.clone(), log.clone());
+            return log;
         }
         // A terminal this daemon re-adopted continues its stream where the
         // last snapshot left it (a client's cursor stays meaningful).
@@ -257,7 +294,10 @@ impl OutputStore {
                 tail: VecDeque::new(),
                 dirty: false,
                 snapshot_digest: None,
+                snapshot_end: None,
+                clear_epoch: 0,
             }),
+            write: Mutex::new(()),
         });
         logs.insert(terminal_id.clone(), log.clone());
         log
@@ -282,6 +322,7 @@ impl OutputStore {
             state.tail_start = 0;
             state.tail.clear();
             state.snapshot_digest = None;
+            state.snapshot_end = None;
         }
         let keep = bytes.len().min(OUTPUT_TAIL_BYTES);
         let skipped = (bytes.len() - keep) as u64;
@@ -299,27 +340,44 @@ impl OutputStore {
 
     /// The terminal's current generation and the offset after its last byte.
     pub(crate) fn stream_end(&self, terminal_id: &TerminalPublicId) -> Option<(Arc<str>, u64)> {
-        let log =
-            self.logs.lock().unwrap_or_else(PoisonError::into_inner).get(terminal_id)?.clone();
+        let log = self.readable_log(terminal_id)?;
         let state = log.state();
         Some((state.generation.clone(), state.next_offset()))
     }
 
+    /// The log of a terminal in this daemon, or of one that left it
+    /// recently (its tail stays readable after its exit).
+    fn readable_log(&self, terminal_id: &TerminalPublicId) -> Option<Arc<TerminalLog>> {
+        if let Some(log) = self.logs.lock().unwrap_or_else(PoisonError::into_inner).get(terminal_id)
+        {
+            return Some(log.clone());
+        }
+        self.retired
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .rev()
+            .find(|log| log.terminal_id == *terminal_id)
+            .cloned()
+    }
+
     /// Retained output at or after `after`, at most `max_bytes` (never less
     /// than one byte when any exists). A cursor older than what is kept
-    /// starts at the oldest kept byte.
+    /// starts at the oldest kept byte. A cursor past the end can only come
+    /// from an earlier daemon whose stream end was not recorded (it stopped
+    /// without its quit pass): the window starts at the oldest kept byte, so
+    /// `start_offset` below the cursor tells the reader to reset.
     pub(crate) fn read_after(
         &self,
         terminal_id: &TerminalPublicId,
         after: u64,
         max_bytes: u64,
     ) -> Option<OutputWindow> {
-        let log =
-            self.logs.lock().unwrap_or_else(PoisonError::into_inner).get(terminal_id)?.clone();
+        let log = self.readable_log(terminal_id)?;
         let budget = usize::try_from(max_bytes.max(1)).unwrap_or(usize::MAX);
         let state = log.state();
         let end = state.next_offset();
-        let start = after.clamp(state.tail_start, end);
+        let start = if after > end { state.tail_start } else { after.max(state.tail_start) };
         let skip = usize::try_from(start - state.tail_start).unwrap_or(usize::MAX);
         let available = usize::try_from(end - start).unwrap_or(usize::MAX);
         let take = available.min(budget);
@@ -335,20 +393,24 @@ impl OutputStore {
     /// The person cleared this terminal's history: drop the stored output
     /// and write the snapshot at once.
     pub(crate) fn history_cleared(&self, terminal_id: &TerminalPublicId) {
-        // A pass that already read this terminal's screen finishes before
-        // the clear, so it cannot write it back afterwards.
-        let _pass = self.lock_pass();
         let Some(log) =
             self.logs.lock().unwrap_or_else(PoisonError::into_inner).get(terminal_id).cloned()
         else {
             return;
         };
         {
+            // Waits only for a write of this terminal's file that is in
+            // progress. A pass that captured the screen before the clear and
+            // has not written it yet sees the new epoch and skips the write;
+            // one that already wrote it is followed by the pass asked for
+            // below, which writes the cleared screen.
+            let _write = log.write_lock();
             let mut state = log.state();
             let end = state.next_offset();
             state.tail.clear();
             state.tail_start = end;
             state.snapshot_digest = None;
+            state.clear_epoch += 1;
             state.dirty = !self.memory_only();
         }
         if !self.memory_only() {
@@ -356,15 +418,45 @@ impl OutputStore {
         }
     }
 
-    /// Forget a terminal runtime that left this daemon: its memory. The next
-    /// write pass removes the files of terminals that left the session.
+    /// Forget a terminal runtime that left this daemon (its exit under the
+    /// close policy, a close, a restart). Its tail stays readable among the
+    /// [`RETIRED_TAILS`] most recent ones, in memory only, so an exit
+    /// receipt still answers `terminal.output_read`. The next write pass
+    /// removes the files of terminals that left the session, including a
+    /// snapshot an earlier daemon wrote for a terminal that printed nothing
+    /// in this one.
     pub(crate) fn forget(&self, terminal_id: &TerminalPublicId) {
-        if self.logs.lock().unwrap_or_else(PoisonError::into_inner).remove(terminal_id).is_some()
-            && !self.memory_only()
-        {
+        let removed = self.logs.lock().unwrap_or_else(PoisonError::into_inner).remove(terminal_id);
+        if let Some(log) = removed {
+            let mut retired = self.retired.lock().unwrap_or_else(PoisonError::into_inner);
+            retired.retain(|retired| retired.terminal_id != *terminal_id);
+            if retired.len() == RETIRED_TAILS {
+                retired.pop_front();
+            }
+            retired.push_back(log);
+        }
+        self.resume.lock().unwrap_or_else(PoisonError::into_inner).remove(terminal_id);
+        if !self.memory_only() {
             self.prune_pending.store(true, Ordering::Release);
             self.writer.mark_dirty(self.snapshot_interval);
         }
+    }
+
+    /// Drop everything kept for a terminal the person closed: its live and
+    /// retired tail (its files go with the next pass, as in [`Self::forget`]).
+    pub(crate) fn discard(&self, terminal_id: &TerminalPublicId) {
+        self.forget(terminal_id);
+        self.retired
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|retired| retired.terminal_id != *terminal_id);
+    }
+
+    /// A capture or write of this log's snapshot did not happen: try again
+    /// with the next pass rather than wait for the terminal's next output.
+    fn retry_later(&self, log: &TerminalLog) {
+        log.state().dirty = true;
+        self.writer.mark_dirty(self.snapshot_interval);
     }
 
     /// The logs whose terminal printed since the writer last looked; their
@@ -380,18 +472,20 @@ impl OutputStore {
     /// Final write at quit, on the caller's thread: stop the writer, then
     /// write every changed terminal once more. A caller that is unwinding
     /// from a panic only stops the writer (its locks may be poisoned).
+    /// A writer that did not stop in time keeps its pass (it may be stuck in
+    /// file I/O), so the final write is skipped rather than wait for it.
     pub(crate) fn shutdown(&self, mux: &Mux) {
         if self.memory_only() {
             return;
         }
-        self.writer.stop();
-        if !std::thread::panicking() {
+        if self.writer.stop() && !std::thread::panicking() {
             self.write_now(mux);
         }
     }
 
-    /// Write every terminal's snapshot now when its content changed (a
-    /// journal checkpoint and quit).
+    /// Write every terminal's snapshot now when its content changed or its
+    /// stream moved since the last write (a journal checkpoint and quit), so
+    /// a re-adopted terminal continues its stream at the current end.
     pub(crate) fn write_now(&self, mux: &Mux) {
         if self.memory_only() {
             return;
@@ -399,7 +493,7 @@ impl OutputStore {
         for log in self.logs.lock().unwrap_or_else(PoisonError::into_inner).values() {
             log.state().dirty = true;
         }
-        snapshot::write_pass(mux, self);
+        snapshot::write_pass(mux, self, true);
     }
 
     fn lock_pass(&self) -> MutexGuard<'_, ()> {
@@ -456,8 +550,175 @@ mod tests {
         assert_eq!((window.start_offset, window.next_offset), (5, 5));
         assert!(window.bytes.is_empty());
 
+        // A terminal that left the daemon stays readable; a closed one not.
+        store.append(&terminal, &next, b" tail");
         store.forget(&terminal);
+        let window = store.read_after(&terminal, 5, 1 << 20).unwrap();
+        assert_eq!((window.start_offset, window.next_offset), (5, 10));
+        assert_eq!(window.bytes, b" tail");
+        store.discard(&terminal);
         assert!(store.stream_end(&terminal).is_none());
+        assert!(store.read_after(&terminal, 0, 1 << 20).is_none());
+    }
+
+    /// A cursor past the end (a daemon that stopped before it recorded the
+    /// end, or an earlier stream) starts at the oldest kept byte, below the
+    /// cursor, so the client sees the reset.
+    #[test]
+    fn a_cursor_past_the_end_restarts_at_the_oldest_kept_byte() {
+        let store = OutputStore::with_policy(None, PersistencePolicy::resolve(Some("memory")));
+        let generation: Arc<str> = Arc::from("generation-one");
+        let terminal = terminal();
+        store.append(&terminal, &generation, b"new output");
+        let window = store.read_after(&terminal, 1_000, 1 << 20).unwrap();
+        assert_eq!((window.start_offset, window.next_offset), (0, 10));
+        assert_eq!(window.bytes, b"new output");
+        // At the end exactly: empty and complete, as before.
+        let window = store.read_after(&terminal, 10, 1 << 20).unwrap();
+        assert_eq!((window.start_offset, window.next_offset), (10, 10));
+        assert!(window.bytes.is_empty() && !window.truncated);
+    }
+
+    /// Departed terminals' tails are bounded: the oldest go first.
+    #[test]
+    fn departed_tails_are_bounded() {
+        let store = OutputStore::with_policy(None, PersistencePolicy::resolve(Some("memory")));
+        let generation: Arc<str> = Arc::from("generation-one");
+        let terminals = (0..=RETIRED_TAILS)
+            .map(|index| {
+                TerminalPublicId::parse(&format!("term_{:032x}", 0x100 + index))
+                    .expect("terminal id")
+            })
+            .collect::<Vec<_>>();
+        for terminal in &terminals {
+            store.append(terminal, &generation, b"output");
+            store.forget(terminal);
+        }
+        assert!(store.stream_end(&terminals[0]).is_none(), "the oldest tail was kept");
+        assert!(terminals[1..].iter().all(|terminal| store.stream_end(terminal).is_some()));
+        // A terminal that comes back (a respawn) writes a live stream again.
+        store.append(&terminals[1], &generation, b"!");
+        assert_eq!(store.stream_end(&terminals[1]), Some((generation, 7)));
+    }
+
+    /// A terminal re-adopted from an earlier daemon has a snapshot file and
+    /// a resume entry but may print nothing in this one: forgetting it still
+    /// asks for the prune that removes its file.
+    #[test]
+    fn forgetting_a_terminal_that_printed_nothing_prunes_its_files() {
+        let directory = std::env::temp_dir()
+            .join(format!("cmux-output-store-forget-{}", crate::workspace_registry::new_uuid_v4()));
+        let store = OutputStore::with_policy(
+            Some(&directory),
+            PersistencePolicy::resolve(Some("snapshot")),
+        );
+        let terminal = terminal();
+        store
+            .resume
+            .lock()
+            .unwrap()
+            .insert(terminal.clone(), ("generation-one".to_string(), 1_234));
+        store.forget(&terminal);
+        assert!(store.prune_pending.load(Ordering::Acquire));
+        assert!(store.resume.lock().unwrap().is_empty());
+    }
+
+    /// A history clear waits for this terminal's own snapshot write only,
+    /// not for a write pass over every terminal.
+    #[test]
+    fn a_history_clear_does_not_wait_for_a_write_pass() {
+        let directory = std::env::temp_dir()
+            .join(format!("cmux-output-store-clear-{}", crate::workspace_registry::new_uuid_v4()));
+        let store = OutputStore::with_policy(
+            Some(&directory),
+            PersistencePolicy::resolve(Some("snapshot")),
+        );
+        let generation: Arc<str> = Arc::from("generation-one");
+        let terminal = terminal();
+        store.append(&terminal, &generation, b"before the clear");
+        let log = store.logs.lock().unwrap().get(&terminal).cloned().unwrap();
+        let epoch = log.state().clear_epoch;
+        // A pass in progress (another terminal's slow write) holds this.
+        let _pass = store.lock_pass();
+        store.history_cleared(&terminal);
+        let state = log.state();
+        assert_eq!(state.clear_epoch, epoch + 1, "a pass's earlier capture must not be written");
+        assert!(state.dirty && state.tail.is_empty() && state.snapshot_digest.is_none());
+        assert_eq!(state.next_offset(), 16);
+    }
+
+    #[cfg(unix)]
+    fn persistent_mux(name: &str) -> (Arc<Mux>, PathBuf) {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-output-store-{name}-{}", crate::workspace_registry::new_uuid_v4()));
+        let mux = Mux::open_persistent(name, crate::SurfaceOptions::default(), &root).unwrap();
+        (mux, root)
+    }
+
+    /// Cursor-only output moves the stream end but not the content digest.
+    /// A periodic pass writes nothing for it; a checkpoint (and quit) pass
+    /// records the new end, so a re-adopted terminal continues from it.
+    #[cfg(unix)]
+    #[test]
+    fn a_checkpoint_records_the_stream_end_of_cursor_only_output() {
+        const TERMINAL: &str = "00000000000040008000000000000093";
+        const INCARNATION: &str = "10000000000040008000000000000093";
+        let (mux, root) = persistent_mux("watermark");
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let surface_id =
+            mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+        let surface = mux.surface(surface_id).unwrap();
+        let terminal =
+            mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
+        let generation: Arc<str> = Arc::from(INCARNATION);
+        let print = |bytes: &[u8]| {
+            surface.apply_stream_output_for_test(bytes).unwrap();
+            mux.output_store.append(&terminal, &generation, bytes);
+        };
+        let directory = mux.output_store.directory().unwrap().to_path_buf();
+        let recorded = || snapshot::stream_ends(&directory).get(&terminal).cloned();
+
+        print(b"some text\r\n");
+        mux.output_store.write_now(&mux);
+        assert_eq!(recorded(), Some((INCARNATION.to_string(), 11)));
+
+        let cursor: &[u8] = b"\x1b[1;1H\x1b[?25h";
+        print(cursor);
+        snapshot::write_pass(&mux, &mux.output_store, false);
+        assert_eq!(recorded(), Some((INCARNATION.to_string(), 11)), "a periodic pass rewrote");
+        mux.output_store.write_now(&mux);
+        let end = 11 + cursor.len() as u64;
+        assert_eq!(recorded(), Some((INCARNATION.to_string(), end)));
+
+        mux.shutdown();
+        drop(mux);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// A writer stuck in file I/O keeps the pass: stop gives up after its
+    /// timeout, says so (also at a later stop), and shutdown then skips the
+    /// final pass instead of waiting for that writer again.
+    #[cfg(unix)]
+    #[test]
+    fn shutdown_skips_the_final_pass_when_the_writer_does_not_stop() {
+        let (mux, root) = persistent_mux("writer-stuck");
+        let store = &mux.output_store;
+        let pass = store.lock_pass();
+        store.writer.mark_dirty(Duration::ZERO);
+        // The writer took the due pass; it now waits for `pass` inside it.
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while store.writer.pass_due() {
+            assert!(std::time::Instant::now() < deadline, "the writer never started its pass");
+            std::thread::yield_now();
+        }
+        assert!(!store.writer.stop(), "a stuck writer reported that it stopped");
+        assert!(!store.writer.stop(), "a later stop forgot the detached writer");
+        // Returns at once: a final pass would wait for `pass`, held here.
+        store.shutdown(&mux);
+        drop(pass);
+        mux.shutdown();
+        drop(mux);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

@@ -1852,6 +1852,15 @@ enum PtyLifetime {
     DaemonOwned,
 }
 
+/// Who a spawned terminal is: its host id (hosted), its resource identity,
+/// and for an in-process terminal with a registry incarnation, that
+/// incarnation as its output generation (`None`: a `local-` generation).
+struct SpawnIdentity {
+    terminal_id: Option<crate::terminal_host::TerminalId>,
+    resource_identity: Option<TabResourceIdentity>,
+    in_process_generation: Option<Arc<str>>,
+}
+
 #[cfg(unix)]
 struct HostedSurfaceLaunch {
     attachment: crate::terminal_host_runtime::HostAttachment,
@@ -2409,6 +2418,29 @@ impl Surface {
         )
     }
 
+    /// An in-process terminal whose registry incarnation is `generation`:
+    /// its output stream and its exit snapshot share that generation.
+    pub(crate) fn spawn_in_process_at_cell_pixels(
+        id: SurfaceId,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        generation: &str,
+        cell_pixels: (u16, u16),
+    ) -> anyhow::Result<Arc<Surface>> {
+        Self::spawn_with_generation_at_cell_pixels(
+            id,
+            opts,
+            mux,
+            SpawnIdentity {
+                terminal_id: None,
+                resource_identity: Some(TabResourceIdentity::terminal(None)?),
+                in_process_generation: Some(Arc::from(generation)),
+            },
+            PtyLifetime::SessionOwned,
+            cell_pixels,
+        )
+    }
+
     pub(crate) fn spawn_with_terminal_id_at_cell_pixels(
         id: SurfaceId,
         opts: SurfaceOptions,
@@ -2450,13 +2482,32 @@ impl Surface {
 
     fn spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
         id: SurfaceId,
-        mut opts: SurfaceOptions,
+        opts: SurfaceOptions,
         mux: Weak<Mux>,
         terminal_id: Option<crate::terminal_host::TerminalId>,
         resource_identity: Option<TabResourceIdentity>,
         lifetime: PtyLifetime,
         cell_pixels: (u16, u16),
     ) -> anyhow::Result<Arc<Surface>> {
+        Self::spawn_with_generation_at_cell_pixels(
+            id,
+            opts,
+            mux,
+            SpawnIdentity { terminal_id, resource_identity, in_process_generation: None },
+            lifetime,
+            cell_pixels,
+        )
+    }
+
+    fn spawn_with_generation_at_cell_pixels(
+        id: SurfaceId,
+        mut opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        identity: SpawnIdentity,
+        lifetime: PtyLifetime,
+        cell_pixels: (u16, u16),
+    ) -> anyhow::Result<Arc<Surface>> {
+        let SpawnIdentity { terminal_id, resource_identity, in_process_generation } = identity;
         let terminal_public_id = resource_identity
             .as_ref()
             .map(|identity| {
@@ -2617,10 +2668,9 @@ impl Surface {
             terminal: Arc::new(PtyTerminalRuntime {
                 event_surface_id: id,
                 terminal_public_id: terminal_public_id.map(Arc::new),
-                journal_generation: Arc::from(format!(
-                    "local-{}",
-                    crate::workspace_registry::new_uuid_v4()
-                )),
+                journal_generation: in_process_generation.unwrap_or_else(|| {
+                    Arc::from(format!("local-{}", crate::workspace_registry::new_uuid_v4()))
+                }),
                 journal_capture_supported: true,
                 journal_capture_epoch: AtomicU64::new(0),
                 journal_capture_gate: Mutex::new(()),
@@ -2727,7 +2777,7 @@ impl Surface {
                     );
                     loop {
                         let pty = surface.as_pty().expect("surface reader got non-pty surface");
-                        let journal_target = pty.journal_target();
+                        let journal_target = pty.output_target();
                         // Reserve the capture epoch before read(2). Shutdown
                         // can revoke a blocked reservation, but it cannot place
                         // its final barrier in the read-to-parser gap.
@@ -3295,7 +3345,7 @@ impl Surface {
                     };
                     'host_stream: loop {
                         if journal_update.is_none() {
-                            journal_target = pty.journal_target();
+                            journal_target = pty.output_target();
                             journal_update = journal_target
                                 .as_ref()
                                 .and_then(|_| pty.begin_terminal_journal_update());
@@ -5273,7 +5323,7 @@ impl Surface {
         };
         pty.observe_terminal_output(&output);
         pty.broadcast_attach_output(&output);
-        if let Some(journal_target) = pty.journal_target() {
+        if let Some(journal_target) = pty.output_target() {
             pty.record_output(journal_target, &output);
         }
         pty.stream_progress.notify();
@@ -5448,11 +5498,13 @@ impl Surface {
         &self,
         fallback_key: Option<&KeyInput>,
     ) -> Result<(), ClearHistoryFailure> {
-        self.clear_history_in_terminal(fallback_key)?;
+        let cleared = self.clear_history_in_terminal(fallback_key)?;
         // What the person cleared must not come back from the output store:
         // it drops this terminal's stored output and rewrites its snapshot
-        // at once.
-        if let Some(pty) = self.as_pty()
+        // at once. A request that cleared nothing (an alternate-screen
+        // application got the fallback key, or no key exists) keeps them.
+        if cleared
+            && let Some(pty) = self.as_pty()
             && let (Some(terminal_id), Some(mux)) =
                 (pty.terminal_public_id.as_ref(), pty.mux.upgrade())
         {
@@ -5461,10 +5513,12 @@ impl Surface {
         Ok(())
     }
 
+    /// `true` when the terminal's history was cleared; `false` when the
+    /// request only reached the application (fallback key) or did nothing.
     fn clear_history_in_terminal(
         &self,
         fallback_key: Option<&KeyInput>,
-    ) -> Result<(), ClearHistoryFailure> {
+    ) -> Result<bool, ClearHistoryFailure> {
         let Some(pty) = self.as_pty() else {
             return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
                 "browser surface does not have a VT terminal"
@@ -5473,11 +5527,15 @@ impl Surface {
         #[cfg(unix)]
         {
             {
+                // The host makes the same screen decision on its parser; the
+                // daemon's mirror tells which one it makes. Read before the
+                // runtime lock (terminal before runtime).
+                let primary = pty.term.lock().unwrap().active_screen() != Screen::Alternate;
                 let runtime = pty.runtime.lock().unwrap();
                 match &*runtime {
                     PtyRuntime::Hosted(host) => {
                         if host.send_clear_history(fallback_key)? {
-                            return Ok(());
+                            return Ok(primary);
                         }
                         return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
                             "terminal host does not support clear-history"
@@ -5533,9 +5591,10 @@ impl Surface {
                         )));
                     };
                     drop(term);
-                    return write_clear_history_fallback(master, writer.as_mut(), &encoded);
+                    return write_clear_history_fallback(master, writer.as_mut(), &encoded)
+                        .map(|()| false);
                 }
-                ClearHistoryTransition::Noop => return Ok(()),
+                ClearHistoryTransition::Noop => return Ok(false),
                 ClearHistoryTransition::Cleared(clear) => {
                     pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
                     pty.broadcast_attach_output(&clear);
@@ -5556,7 +5615,7 @@ impl Surface {
                 mux.emit_terminal_scroll(pty.event_surface_id, offset, at_bottom);
             }
             pty.mark_output_dirty();
-            return Ok(());
+            return Ok(true);
         }
     }
 
@@ -6851,11 +6910,19 @@ impl cmux_pty::Child for StartupChild {
 }
 
 impl PtySurface {
-    fn journal_target(&self) -> Option<(Arc<Mux>, Arc<TerminalPublicId>)> {
+    /// Where the reader hands accepted output: the output store of a
+    /// terminal with a public id, also in a session without a journal (an
+    /// in-memory session keeps output in memory). The reader still takes the
+    /// capture fence for it, so shutdown can close capture between reads.
+    fn output_target(&self) -> Option<(Arc<Mux>, Arc<TerminalPublicId>)> {
         let terminal_id = self.terminal_public_id.clone()?;
         let mux = self.mux.upgrade()?;
-        (mux.terminal_journal_enabled() && self.journal_capture_supported)
-            .then_some((mux, terminal_id))
+        self.journal_capture_supported.then_some((mux, terminal_id))
+    }
+
+    /// [`Self::output_target`] of a session that journals terminal events.
+    fn journal_target(&self) -> Option<(Arc<Mux>, Arc<TerminalPublicId>)> {
+        self.output_target().filter(|(mux, _)| mux.terminal_journal_enabled())
     }
 
     /// Hands output the parser accepted to the output store

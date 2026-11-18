@@ -25,6 +25,7 @@ use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError, Weak, mpsc};
 use std::time::{Duration, Instant};
 
@@ -65,6 +66,8 @@ struct WriterThread {
 pub(super) struct Writer {
     state: Arc<(Mutex<WriterState>, Condvar)>,
     thread: Mutex<Option<WriterThread>>,
+    /// Stop gave up waiting for the thread: it may still hold the pass.
+    detached: AtomicBool,
 }
 
 impl Writer {
@@ -95,29 +98,44 @@ impl Writer {
         }
     }
 
-    pub(super) fn stop(&self) {
+    /// A pass is scheduled and the writer has not started it yet.
+    #[cfg(test)]
+    pub(super) fn pass_due(&self) -> bool {
+        self.state.0.lock().unwrap_or_else(PoisonError::into_inner).due.is_some()
+    }
+
+    /// Stop the writer thread. `false` when it did not finish within
+    /// [`STOP_TIMEOUT`] (now or at an earlier stop): it stays detached and
+    /// may still hold the pass, so the caller must not start another pass.
+    pub(super) fn stop(&self) -> bool {
         {
             let (lock, changed) = &*self.state;
             lock.lock().unwrap_or_else(PoisonError::into_inner).stop = true;
             changed.notify_all();
         }
         let Some(thread) = self.thread.lock().unwrap_or_else(PoisonError::into_inner).take() else {
-            return;
+            return !self.detached.load(Ordering::Acquire);
         };
         // The writer can hold the last Mux handle, so the Mux may drop (and
-        // stop the writer) on the writer thread itself.
+        // stop the writer) on the writer thread itself, between passes.
         if thread.handle.thread().id() == std::thread::current().id() {
-            return;
+            return true;
         }
         match thread.finished.recv_timeout(STOP_TIMEOUT) {
             Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => {
                 // The thread has returned or unwound: this join is bounded.
                 let _ = thread.handle.join();
+                true
             }
-            Err(mpsc::RecvTimeoutError::Timeout) => eprintln!(
-                "cmux-tui: output store writer did not stop within {} ms; it stays detached",
-                STOP_TIMEOUT.as_millis()
-            ),
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                self.detached.store(true, Ordering::Release);
+                eprintln!(
+                    "cmux-tui: output store writer did not stop within {} ms; it stays detached \
+                     and the final snapshot pass is skipped",
+                    STOP_TIMEOUT.as_millis()
+                );
+                false
+            }
         }
     }
 }
@@ -148,7 +166,7 @@ fn run(mux: &Weak<Mux>, state: &(Mutex<WriterState>, Condvar)) {
             }
         }
         let Some(mux) = mux.upgrade() else { return };
-        write_pass(&mux, &mux.output_store);
+        write_pass(&mux, &mux.output_store, false);
     }
 }
 
@@ -167,8 +185,12 @@ pub(super) struct Captured {
 }
 
 /// Write the snapshot of every terminal that printed since the last pass and
-/// whose content changed; then keep the directory under its cap.
-pub(super) fn write_pass(mux: &Mux, store: &OutputStore) {
+/// whose content changed; then keep the directory under its cap. `final_end`
+/// (a checkpoint and quit) also writes a terminal whose content is unchanged
+/// but whose stream end moved (cursor-only output), so the end a re-adopted
+/// terminal continues from is current. A capture or write that did not
+/// happen is retried with a later pass.
+pub(super) fn write_pass(mux: &Mux, store: &OutputStore, final_end: bool) {
     let Some(directory) = store.directory() else { return };
     let policy = store.policy;
     let _pass = store.lock_pass();
@@ -182,25 +204,52 @@ pub(super) fn write_pass(mux: &Mux, store: &OutputStore) {
     }
     let mut wrote = false;
     for log in dirty {
+        // A terminal that left the session has nothing to write; its files
+        // go with the prune its departure asked for.
         let Some(surface) = mux.output_store_terminal(&log.terminal_id) else { continue };
-        let previous = log.state().snapshot_digest;
+        let (previous, epoch) = {
+            let state = log.state();
+            let end_moved = state.snapshot_end != Some(state.next_offset());
+            let previous = if final_end && end_moved { None } else { state.snapshot_digest };
+            (previous, state.clear_epoch)
+        };
         let captured = surface.try_with_terminal(|terminal| {
             capture(terminal, previous, policy.max_bytes_per_terminal)
         });
-        let Ok(Some(Captured { digest, replay: Some(replay) })) = captured else { continue };
+        let (digest, replay) = match captured {
+            Ok(Some(Captured { digest, replay: Some(replay) })) => (digest, replay),
+            // Unchanged since the last write.
+            Ok(Some(Captured { replay: None, .. })) => continue,
+            // The screen could not be read or replayed now.
+            Ok(None) | Err(_) => {
+                store.retry_later(&log);
+                continue;
+            }
+        };
+        let _write = log.write_lock();
         let (generation, stream_end) = {
             let state = log.state();
+            if state.clear_epoch != epoch {
+                // The person cleared the history after this capture; the
+                // pass the clear asked for writes the cleared screen.
+                continue;
+            }
             (state.generation.clone(), state.next_offset())
         };
         match write(directory, &log.terminal_id, &generation, stream_end, &replay) {
             Ok(()) => {
-                log.state().snapshot_digest = Some(digest);
+                let mut state = log.state();
+                state.snapshot_digest = Some(digest);
+                state.snapshot_end = Some(stream_end);
                 wrote = true;
             }
-            Err(error) => eprintln!(
-                "cmux-tui: terminal {} output snapshot was not written: {error:#}",
-                log.terminal_id
-            ),
+            Err(error) => {
+                eprintln!(
+                    "cmux-tui: terminal {} output snapshot was not written: {error:#}",
+                    log.terminal_id
+                );
+                store.retry_later(&log);
+            }
         }
     }
     if wrote {
@@ -272,15 +321,34 @@ fn write(
     let compressed = encoder.finish()?;
     let target = path(directory, terminal_id);
     let staged = target.with_extension(format!("{SUFFIX}.tmp"));
-    {
-        let mut file = fs::File::create(&staged)?;
-        file.write_all(MAGIC)?;
-        serde_json::to_writer(&mut file, &header)?;
-        file.write_all(b"\n")?;
-        file.write_all(&compressed)?;
-        file.sync_all()?;
+    if let Err(error) = replace_file(&staged, &target, &header, &compressed) {
+        // The previous snapshot stays; a partial staged file must not stay
+        // behind outside the storage cap.
+        let _ = fs::remove_file(&staged);
+        return Err(error);
     }
-    fs::rename(&staged, &target)?;
+    // The rename is durable once the directory entry is.
+    #[cfg(unix)]
+    fs::File::open(directory)?.sync_all()?;
+    Ok(())
+}
+
+/// Stage the file (synced; on macOS std's `sync_all` is `F_FULLFSYNC`), then
+/// rename it over `target`.
+fn replace_file(
+    staged: &Path,
+    target: &Path,
+    header: &serde_json::Value,
+    compressed: &[u8],
+) -> anyhow::Result<()> {
+    let mut file = fs::File::create(staged)?;
+    file.write_all(MAGIC)?;
+    serde_json::to_writer(&mut file, header)?;
+    file.write_all(b"\n")?;
+    file.write_all(compressed)?;
+    file.sync_all()?;
+    drop(file);
+    fs::rename(staged, target)?;
     Ok(())
 }
 
@@ -486,6 +554,29 @@ mod tests {
         let mut replayed = Terminal::new(80, 24, 64 * 1024 * 1024, Callbacks::default()).unwrap();
         replayed.vt_write(&bytes);
         assert!(replayed.viewport_text().unwrap().contains("line 000029"));
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    /// A write that fails after staging began leaves no staged file behind
+    /// (it would sit outside the storage cap) and keeps the previous file.
+    #[test]
+    fn a_failed_snapshot_write_removes_its_staged_file() {
+        let directory = std::env::temp_dir().join(format!(
+            "cmux-output-store-snapshot-failed-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let terminal_id = TerminalPublicId::parse("term_00000000000000000000000000000093").unwrap();
+        let mut terminal = printed_terminal(80, 24, 30);
+        let replay =
+            capture(&mut terminal, None, MAX_SNAPSHOT_REPLAY_BYTES as u64).unwrap().replay.unwrap();
+        // The target is a directory that is not empty: the rename fails.
+        let target = path(&directory, &terminal_id);
+        fs::create_dir_all(target.join("occupied")).unwrap();
+
+        assert!(write(&directory, &terminal_id, "generation-one", 1234, &replay).is_err());
+        let staged = target.with_extension(format!("{SUFFIX}.tmp"));
+        assert!(!staged.exists(), "the staged file stayed behind");
+        assert!(target.join("occupied").is_dir(), "the previous entry was replaced");
         fs::remove_dir_all(directory).unwrap();
     }
 }
