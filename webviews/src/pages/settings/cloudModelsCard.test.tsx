@@ -229,7 +229,8 @@ test("Edit on a Claude token adds the new token, then removes the old one", asyn
   );
   await click(form.querySelector('[data-models-action="addClaudeToken"]')!);
   expect(rendered.provider.modelRuns).toEqual([
-    { action: "addClaudeToken", token: "sk-ant-oat01-replacement0123456789" },
+    // The old connection's name carries over to the one that replaces it.
+    { action: "addClaudeToken", token: "sk-ant-oat01-replacement0123456789", label: "Claude Code token" },
     { action: "remove", id: "claude-token" },
   ]);
   expect(sheet()).toBeNull();
