@@ -11482,6 +11482,8 @@ want's `len`), `{status:"changed", size, mtime_ns, ctime_ns, mode}`,
 | `projfs.next` | the Mac, over the link | `{mount, wait_ms}` | `{batch: {id, wants} \| null}` | `projfs.limit` |
 | `projfs.answer` | the Mac, over the link | `{mount, batch, results}` (`batch` is the id `projfs.next` gave) | `{answered}` | `projfs.unknown_batch` |
 | `projfs.status` | either | `{mount?}` | `{mounts: [{mount, queued, batches_out, polling, fetching, bytes_answered, last_answer_age_ms}]}` | |
+| `projfs.mount` | the Mac, over the link | `{mount, manifest, at, state}` | the helper's first line as it printed it: `{ok:true, mount, at, entries, bytes, ms}` or `{ok:false, code, message}` | `projfs.outside_roots`, `projfs.helper_failed`, `projfs.helper_timeout` |
+| `projfs.unmount` | the Mac, over the link | `{at, state}` | the helper's `unmount` line | `projfs.outside_roots`, `projfs.helper_failed`, `projfs.helper_timeout` |
 
 `wait_ms` is capped at 25 s. `projfs.fetch` answers when every want was
 answered; a want no Mac took within `wait_ms` answers `away`, and one a Mac
@@ -11495,6 +11497,22 @@ keeps at most 4096 waiting wants; a daemon keeps 64 mounts and forgets the
 idle one used least recently past that. Bad params are `projfs.bad_request`;
 a caller the op is not for gets `projfs.permission_denied`. A waiting op
 holds only its own connection.
+
+`projfs.mount` starts the mount helper (`cmux-tui projfs mount --mount
+--manifest --at --state --socket`, the daemon's own executable and socket)
+in a session of its own, stdin and stderr closed, so it outlives the
+request and a restart of the daemon. It answers the helper's first JSON
+line as it is, a refusal included (`data.ok` is false and `data.code` the
+helper's code: the Mac copies the folder instead). A helper that prints
+nothing within 20 s is stopped (SIGTERM, SIGKILL 5 s later), its `unmount`
+is run, and the request answers `projfs.helper_timeout`; one that exits
+without a line, or prints something else, is `projfs.helper_failed`.
+`projfs.unmount` runs the helper's `unmount --at --state` (at most 30 s)
+and answers its line. Every path is checked by `fs.write`'s rule before
+anything runs (absolute, no `.` or `..`, under a work root, no symlink on
+the way or at the end, not a root itself; `manifest` a regular file, `at`
+and `state` folders, and only `at`'s folder for an unmount):
+`projfs.outside_roots` otherwise.
 
 ## Guest browser opening
 

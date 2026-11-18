@@ -34,7 +34,7 @@ const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// The remote gate of the link entry: it admits a frame only when its `cmd`
 /// is one of the seven `fs-v1` ops, the two `fs-symlink-v1` ops, the two `git-seed-v1` ops, the
-/// `blob-fetch-v2` ops, the Mac's three `projfs-v1` ops (never `projfs.fetch`), or a `cloud.repo.*`
+/// `blob-fetch-v2` ops, the Mac's five `projfs-v1` ops (never `projfs.fetch`), or a `cloud.repo.*`
 /// op other than `cloud.repo.local` and `cloud.repo.remember`, exactly;
 /// every other frame is denied as before (`remote_denied`, no detail),
 /// except the explicit agent carrier admitted separately for authenticated
@@ -103,11 +103,21 @@ pub(super) fn try_handle(
     if message.contains("\"projfs.") && crate::projfs_rendezvous::frame_command(message).is_some() {
         // A waiting fetch or poll holds only this connection's reader (one per connection).
         let caller = projfs_caller(mux, client);
-        let reply = crate::projfs_rendezvous::answer_line(
-            crate::projfs_rendezvous::installed(),
-            caller,
-            message,
-        );
+        let reply = if crate::projfs_mount::frame_command(message).is_some() {
+            // The helper fetches through this daemon's own socket.
+            crate::projfs_mount::answer_line(
+                crate::projfs_mount::installed(),
+                caller,
+                mux.bound_socket_path.get().map(std::path::PathBuf::as_path),
+                message,
+            )
+        } else {
+            crate::projfs_rendezvous::answer_line(
+                crate::projfs_rendezvous::installed(),
+                caller,
+                message,
+            )
+        };
         return Some(writer.send_control(&reply).is_ok());
     }
     if !message.contains("\"fs.") {

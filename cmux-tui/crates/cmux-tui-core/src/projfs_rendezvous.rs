@@ -24,6 +24,8 @@
 //!   expired batch is refused (`projfs.unknown_batch`) and its bytes are dropped.
 //! - `projfs.status {mount?}`: `{mounts:[{mount, queued, batches_out, polling, fetching,
 //!   bytes_answered, last_answer_age_ms}]}`.
+//! - `projfs.mount` and `projfs.unmount`: the Mac, over the link: start and stop the mount
+//!   helper itself ([`crate::projfs_mount`]).
 //!
 //! Served exactly where `fs-v1` is (Cloud hosts). Waits use one condition variable, never a
 //! sleep. A waiting op holds only its own connection's reader: every connection has a reader
@@ -38,13 +40,21 @@ use serde_json::{Map, Value, json};
 /// The capability that carries the `projfs.*` ops.
 pub const PROJFS_CAPABILITY: &str = "projfs-v1";
 
-/// The ops of `projfs-v1`, exactly.
-pub const PROJFS_COMMANDS: [&str; 4] =
-    ["projfs.fetch", "projfs.next", "projfs.answer", "projfs.status"];
+/// The ops of `projfs-v1`, exactly: the rendezvous's four, and the two that start and stop the
+/// mount helper (`projfs.mount|unmount`, served by [`crate::projfs_mount`]).
+pub const PROJFS_COMMANDS: [&str; 6] = [
+    "projfs.fetch",
+    "projfs.next",
+    "projfs.answer",
+    "projfs.status",
+    "projfs.mount",
+    "projfs.unmount",
+];
 
 /// The ops the link's remote gate admits beside the `fs-v1` ops: the Mac's side. Never
 /// `projfs.fetch`, which only the mount helper on this machine sends.
-pub const PROJFS_REMOTE_COMMANDS: [&str; 3] = ["projfs.next", "projfs.answer", "projfs.status"];
+pub const PROJFS_REMOTE_COMMANDS: [&str; 5] =
+    ["projfs.next", "projfs.answer", "projfs.status", "projfs.mount", "projfs.unmount"];
 
 /// Mounts one daemon keeps queues for; past it an idle mount is forgotten, else refused.
 pub const MAX_MOUNTS: usize = 64;
@@ -149,6 +159,15 @@ pub fn answer_line(service: Option<&Rendezvous>, caller: Caller, line: &str) -> 
     let Some(cmd) = frame_command(line) else {
         return envelope(&id, Err(Refusal::bad("unknown projfs op")));
     };
+    if crate::projfs_mount::frame_command(line).is_some() {
+        // The helper's start and stop, with the helper's own default socket.
+        return crate::projfs_mount::answer_line(
+            crate::projfs_mount::installed(),
+            caller,
+            None,
+            line,
+        );
+    }
     request.remove("cmd");
     // The helper's op from this machine only; the Mac's ops from the link (or from here, which
     // a local test or tool may use to read the status).
@@ -178,7 +197,9 @@ pub fn answer_line(service: Option<&Rendezvous>, caller: Caller, line: &str) -> 
     envelope(&id, result)
 }
 
-fn envelope(id: &Value, result: Result<Value, Refusal>) -> Value {
+/// The daemon's envelope around one answer: `{id, ok:true, data}` or `{id, ok:false, error,
+/// error_code}`.
+pub(crate) fn envelope(id: &Value, result: Result<Value, Refusal>) -> Value {
     match result {
         Ok(data) => json!({ "id": id, "ok": true, "data": data }),
         Err(refusal) => json!({
@@ -651,7 +672,7 @@ impl MountQueue {
 }
 
 /// Refuses a param outside `allowed`.
-fn only(params: &Map<String, Value>, allowed: &[&str]) -> Result<(), Refusal> {
+pub(crate) fn only(params: &Map<String, Value>, allowed: &[&str]) -> Result<(), Refusal> {
     match params.keys().find(|key| !allowed.contains(&key.as_str())) {
         Some(key) => Err(Refusal::bad(format!("unknown param {key:?}"))),
         None => Ok(()),
@@ -659,7 +680,7 @@ fn only(params: &Map<String, Value>, allowed: &[&str]) -> Result<(), Refusal> {
 }
 
 /// `mount`: 1 to [`MAX_MOUNT_ID`] letters, digits, `.`, `_` or `-`.
-fn mount_id(params: &Map<String, Value>) -> Result<String, Refusal> {
+pub(crate) fn mount_id(params: &Map<String, Value>) -> Result<String, Refusal> {
     params
         .get("mount")
         .and_then(Value::as_str)

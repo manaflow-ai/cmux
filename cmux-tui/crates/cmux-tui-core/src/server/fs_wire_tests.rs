@@ -518,6 +518,24 @@ fn the_projfs_hook_admits_the_helper_locally_and_the_mac_remotely() {
     assert_eq!(projfs_answer(&mux, web, &fetch)["error_code"], "projfs.permission_denied");
 }
 
+/// `projfs.mount|unmount`: the gate admits them, and the hook lets only the Mac (a remote client
+/// with a bound peer) start or stop a helper; never a local connection.
+#[test]
+fn the_projfs_mount_ops_are_the_macs_over_the_link_only() {
+    let gate = FsGate;
+    for cmd in crate::projfs_mount::PROJFS_MOUNT_COMMANDS {
+        let frame = json!({ "id": 1, "cmd": cmd, "at": "/home/cmux/a", "state": "/home/cmux/s" });
+        assert!(gate.admit(&peer(), &frame.to_string()), "{cmd}");
+        let mux = test_mux();
+        let local = mux.control_clients.register(ClientTransport::Unix, fs_writer().0);
+        assert_eq!(projfs_answer(&mux, local, &frame)["error_code"], "projfs.permission_denied");
+        let remote = mux.control_clients.register(ClientTransport::Remote, fs_writer().0);
+        assert_eq!(projfs_answer(&mux, remote, &frame)["error_code"], "projfs.permission_denied");
+        mux.bind_remote_peer(remote, &peer()).unwrap();
+        assert_eq!(projfs_answer(&mux, remote, &frame)["error_code"], "projfs.unavailable");
+    }
+}
+
 /// Lane 10 finding B: a poisoned client registry refuses fs (fail closed).
 #[test]
 fn the_fs_hook_refuses_on_a_poisoned_registry_lock() {
