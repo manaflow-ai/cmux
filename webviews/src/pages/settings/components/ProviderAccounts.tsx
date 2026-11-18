@@ -14,6 +14,7 @@
 import { type ReactNode, memo, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useStableHandlers } from "../../../agent-session/acpmux/stableHandlers";
 import { useKeptItems } from "../keptItems";
+import { useWaitingControls } from "../cardWindow";
 import { PlanUsageCardBody } from "../../../agent-session/acpmux/PlanUsageCard";
 import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
@@ -348,6 +349,9 @@ export function ProviderAccounts({ family, accounts }: { family: string; account
     for (const controls of body.current?.querySelectorAll<HTMLFieldSetElement>("fieldset[data-accounts-busy]") ?? [])
       controls.disabled = busy;
   }, [busy, kept]);
+  // Each waiting control also says aria-disabled itself, so a screen reader already running hears it
+  // disabled and not focusable (cardWindow.ts useWaitingControls).
+  useWaitingControls(body, "fieldset[data-accounts-busy] button", busy, kept);
   return (
     <div className="accounts-body harness-accounts" data-harness-accounts={family} ref={body}>
       <div className="row-help">{t("settingsWindow.harnesses.accounts.help")}</div>

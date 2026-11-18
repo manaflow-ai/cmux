@@ -21,6 +21,7 @@ import {
   useState,
   type FocusEvent,
   type ReactNode,
+  type RefObject,
 } from "react";
 
 const NO_KEYS: ReadonlySet<string> = new Set();
@@ -205,5 +206,41 @@ export function windowGap(gap: number) {
  * contents) and no role, so the rows stay the list's items. Only for rows whose every control waits
  * for the change: a control that stays usable must sit outside it. */
 export function cardBusy(busy: boolean, rows: ReactNode) {
-  return createElement("fieldset", { className: "card-busy", role: "none", disabled: busy }, rows);
+  return createElement(CardBusy, { busy }, rows);
+}
+
+function CardBusy({ busy, children }: { busy: boolean; children?: ReactNode }) {
+  const fieldset = useRef<HTMLFieldSetElement>(null);
+  // The rows are new elements on every render of the list (a scroll step mounts rows), so a row that
+  // mounts while the change waits is marked too.
+  useWaitingControls(fieldset, "button", busy, children);
+  return createElement("fieldset", { className: "card-busy", role: "none", disabled: busy, ref: fieldset }, children);
+}
+
+/** While `busy`, marks every control under `root` matching `selector` (the ones a disabled fieldset
+ * holds) aria-disabled="true", straight in the DOM, and takes the mark off when it answers, so no row
+ * renders. Chromium's accessibility tree does not refresh a control's `focusable` when only its
+ * fieldset's `disabled` changes: with a screen reader already running, a waiting control stayed
+ * focusable, and the control pressed stayed unfocusable after the answer. A mark on the control
+ * itself refreshes it, as `disabled` on each control did. Runs again when `mounted` changes, so a
+ * control mounted while busy is marked; one that already says aria-disabled (React's) is left alone. */
+export function useWaitingControls(
+  root: RefObject<HTMLElement | null>,
+  selector: string,
+  busy: boolean,
+  mounted: unknown,
+) {
+  const marked = useRef<HTMLElement[]>([]);
+  useLayoutEffect(() => {
+    if (!busy) {
+      for (const control of marked.current) control.removeAttribute("aria-disabled");
+      marked.current = [];
+      return;
+    }
+    for (const control of root.current?.querySelectorAll<HTMLElement>(selector) ?? []) {
+      if (control.hasAttribute("aria-disabled")) continue;
+      control.setAttribute("aria-disabled", "true");
+      marked.current.push(control);
+    }
+  }, [root, selector, busy, mounted]);
 }
