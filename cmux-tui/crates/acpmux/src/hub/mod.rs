@@ -23,6 +23,7 @@ mod away_recap;
 mod memory_inbox;
 mod prompt_coach;
 pub mod return_compact;
+pub(crate) mod stop_condition;
 pub use prompt_coach::CoachRewriter;
 mod message_events;
 pub use agent_pairs::PairGuard;
