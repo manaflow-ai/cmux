@@ -66,7 +66,8 @@ struct MovedWindowOwnSpaceTests {
             #expect(Set(landed.workspaceIDs).isDisjoint(with: staying))
             // The source keeps its space and its workspaces, none of them pinned to the new window's space.
             #expect(services.windows.states[source]?.profileID == sourceSpace)
-            #expect(Set(services.windows.registry.value.window(source)?.ownedIDs ?? []).isSuperset(of: staying))
+            let kept = Set(services.windows.registry.value.window(source)?.ownedIDs ?? [])
+            #expect(kept.isSuperset(of: staying))
             #expect(WindowProfiles.visible(staying, profile: sourceSpace, machines: services.machines) == staying)
             let newSpace = try #require(services.windows.states[landed.id]?.profileID)
             #expect(WindowProfiles.visible(staying, profile: newSpace, machines: services.machines).isEmpty)
