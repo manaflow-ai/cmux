@@ -44,9 +44,10 @@ pub struct Expiry {
     pub now_ms: u64,
     /// The web ABI of the app's own pages: an overlay for another is refused.
     pub app_abi: Option<u32>,
-    /// PRs known to be merged or closed, with the word for it (`merged`,
-    /// `closed`). Empty when nobody asked GitHub: then only age counts.
-    pub ended: BTreeMap<u64, String>,
+    /// PRs known to be merged or closed, by repo and number, with the word
+    /// for it (`merged`, `closed`). Empty when nobody asked GitHub: then only
+    /// age counts.
+    pub ended: BTreeMap<(String, u64), String>,
 }
 
 /// One layer that expired.
@@ -113,12 +114,18 @@ impl Customize {
             if !stale.is_empty() {
                 let names: Vec<&str> = stale.iter().map(|(name, _)| name.as_str()).collect();
                 let label = format!("library: expired {}", names.join(", "));
+                let mut turned_off: Vec<String> = Vec::new();
                 let change = self.library_change(&label, origin, now, |library| {
                     for entry in library.entries.iter_mut() {
-                        let Some((_, why)) = stale.iter().find(|(name, _)| name == entry.name())
-                        else {
+                        if !stale.iter().any(|(name, _)| name == entry.name()) {
+                            continue;
+                        }
+                        // Judged again under the lock: one turned on again
+                        // since the read (`library on`, `use pr:N`) stays on.
+                        let Some(why) = entry.on.then(|| stale_why(entry, expiry)).flatten() else {
                             continue;
                         };
+                        turned_off.push(entry.name().to_owned());
                         entry.on = false;
                         if let Some(code) = entry.code.as_mut() {
                             code.note = one_line(&format!("expired: {why}"));
@@ -127,12 +134,16 @@ impl Customize {
                     Ok(())
                 });
                 match change {
-                    Ok(_) => out.expired.extend(stale.into_iter().map(|(name, why)| Expired {
-                        back: format!("cmux customize library on {name}"),
-                        name,
-                        why,
-                        at_ms: now,
-                    })),
+                    Ok(_) => out.expired.extend(
+                        stale.into_iter().filter(|(name, _)| turned_off.contains(name)).map(
+                            |(name, why)| Expired {
+                                back: format!("cmux customize library on {name}"),
+                                name,
+                                why,
+                                at_ms: now,
+                            },
+                        ),
+                    ),
                     Err(error) => out.problems.push(format!(
                         "{} {} past {} but stay on: {error}",
                         names.join(", "),
@@ -270,7 +281,7 @@ impl Customize {
 fn stale_why(entry: &Entry, expiry: &Expiry) -> Option<String> {
     let code = entry.code.as_ref()?;
     if code.kind == CodeKind::Pr
-        && let Some(ended) = expiry.ended.get(&code.pr)
+        && let Some(ended) = expiry.ended.get(&(code.repo.clone(), code.pr))
     {
         return Some(format!("PR {ended}"));
     }
