@@ -60,7 +60,8 @@ final class PagedListUITests: XCTestCase {
 
     @MainActor func testUpLiveRowsKeepAReaderAboveInPlace() {
         let app = launch("up:live")
-        assertOpensAtNewest(app)
+        // Live rows replace row 0 as the newest within 1.5 s: wait for the list, not for row 0's place.
+        XCTAssertTrue(app.descendants(matching: .any)["lab.row.0"].waitForExistence(timeout: 10))
         // Scroll up a screen and hold still: live rows land below the reader and move nothing.
         drag(app, by: 300)
         let row = visibleRow(app)
@@ -188,7 +189,7 @@ final class PagedListUITests: XCTestCase {
         // The last fling comes to rest (its frame window closes).
         settle(list.cells.firstMatch)
         let stats = hud(app)
-        print("PAGEDLIST " + (app.staticTexts["lab.hud"].value as? String ?? "{}") + " lab=\(lab)")
+        record("fling-\(lab)", (app.staticTexts["lab.hud"].value as? String ?? "{}"))
         attach(app, lab.replacingOccurrences(of: ":", with: "-") + "-after-flings")
         XCTAssertGreaterThan(stats.rows, 90, "flings did not read ahead (\(stats.rows) rows)")
         XCTAssertLessThanOrEqual(stats.maxShift, 0.5, "a page moved the reader by \(stats.maxShift) pt")
@@ -233,9 +234,10 @@ final class PagedListUITests: XCTestCase {
         let newest = app.descendants(matching: .any)["lab.row.0"]
         XCTAssertTrue(newest.waitForExistence(timeout: 10), "no newest row")
         settle(newest)
-        let composer = app.textFields["lab.composer"]
-        XCTAssertLessThanOrEqual(newest.frame.maxY, composer.frame.minY + 1, "the newest row is under the composer")
-        XCTAssertGreaterThan(newest.frame.maxY, composer.frame.minY - 60, "the list did not open at its newest row")
+        // The list's bottom edge: the measurement line above the composer (it wraps at large text sizes).
+        let floor = min(app.textFields["lab.composer"].frame.minY, app.staticTexts["lab.hud"].frame.minY)
+        XCTAssertLessThanOrEqual(newest.frame.maxY, floor + 1, "the newest row is under the composer")
+        XCTAssertGreaterThan(newest.frame.maxY, floor - 60, "the list did not open at its newest row")
         attach(app, "up-opens-at-newest")
     }
 
@@ -248,11 +250,14 @@ final class PagedListUITests: XCTestCase {
             let target = 30 * (landing + 1)
             // The next page is asked for two screens before the edge: scroll until it is being read.
             var drags = 0
-            while hud(app).rows < target, hud(app).edge != "loading", drags < 30 {
-                drag(app, by: direction == .down ? -260 : 260)
+            var now = hud(app)
+            while now.rows < target, now.edge != "loading", drags < 80 {
+                drag(app, by: direction == .down ? -420 : 420)
                 drags += 1
+                now = hud(app)
             }
-            XCTAssertLessThan(hud(app).rows, target, "page \(landing + 1) landed before the reader held still; slow the lab's source")
+            XCTAssertEqual(now.edge, "loading", "page \(landing + 1) was never asked for")
+            XCTAssertLessThan(now.rows, target, "page \(landing + 1) landed before the reader held still; slow the lab's source")
             let row = visibleRow(app)
             settle(row)
             let before = row.frame.minY
@@ -262,7 +267,8 @@ final class PagedListUITests: XCTestCase {
             attach(app, "\(name)-page\(landing + 1)-after")
             XCTAssertEqual(row.frame.minY, before, accuracy: 0.5, "page \(landing + 1) moved the row being read (\(row.identifier))")
             let stats = hud(app)
-            print("PAGEDLIST {\"case\":\"\(name)\",\"landing\":\(landing + 1),\"outsideShift\":\(abs(row.frame.minY - before)),\"probeMaxShift\":\(stats.maxShift)}")
+            record("landing-\(name)-page\(landing + 1)",
+                   "{\"case\":\"\(name)\",\"page\":\(landing + 1),\"outsideShift\":\(abs(row.frame.minY - before)),\"probeMaxShift\":\(stats.maxShift)}")
             XCTAssertLessThanOrEqual(stats.maxShift, 0.5, "the probe saw the reader move \(stats.maxShift) pt")
         }
     }
@@ -286,7 +292,7 @@ final class PagedListUITests: XCTestCase {
     @MainActor
     private func drag(_ app: XCUIApplication, by dy: CGFloat) {
         let list = app.collectionViews["lab.list"]
-        let start = list.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: dy < 0 ? 0.75 : 0.25))
+        let start = list.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: dy < 0 ? 0.8 : 0.15))
         start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: dy)), withVelocity: .slow,
                     thenHoldForDuration: 0.3)
     }
@@ -309,6 +315,16 @@ final class PagedListUITests: XCTestCase {
             return still >= 2
         }
         _ = XCTWaiter.wait(for: [expectation(for: steady, evaluatedWith: nil)], timeout: 3)
+    }
+
+    /// A measurement: printed, and kept as a named attachment (the fleet evidence keeps attachments).
+    @MainActor
+    private func record(_ name: String, _ json: String) {
+        print("PAGEDLIST \(name) \(json)")
+        let note = XCTAttachment(string: json)
+        note.name = "PAGEDLIST-\(name)"
+        note.lifetime = .keepAlways
+        add(note)
     }
 
     @MainActor

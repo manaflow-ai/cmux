@@ -8,11 +8,12 @@ import SwiftUI
 /// (2.5 s pages: the edge's spinner), `empty`, `firstfail` (no chats: the screen's failure).
 public struct AgentChatsGallery: View {
     @State private var model: AgentChatsModel
-    private let backend: GalleryChatsBackend
+    /// Held here: the model keeps its backend weakly, as the app's workspace source owns the real one.
+    @State private var backend: GalleryChatsBackend
 
     public init(scenario: String) {
         let backend = GalleryChatsBackend(scenario: scenario)
-        self.backend = backend
+        _backend = State(initialValue: backend)
         _model = State(initialValue: AgentChatsModel(macID: "gallery", backend: backend, memory: nil))
     }
 

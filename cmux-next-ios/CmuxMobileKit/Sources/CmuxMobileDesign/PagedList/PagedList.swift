@@ -58,15 +58,21 @@ public struct PagedList<Item: Identifiable & Equatable, Row: View, Empty: View>:
         case .loading where items.isEmpty:
             CmuxSpinner(label: Text(loadingLabel))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("\(identifier).loading")
         case .failed(let message) where items.isEmpty:
-            EmptyState(symbol: "exclamationmark.triangle", title: failureTitle, message: "\(message)", retry: retry)
+            // The read replaces this state at once (a spinner), which would cancel a task owned by
+            // the button: the retry runs unowned.
+            EmptyState(symbol: "exclamationmark.triangle", title: failureTitle, message: "\(message)",
+                       retry: { [retry] in Task { await retry() } })
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("\(identifier).failed")
         default:
             if items.isEmpty, edge == .end {
                 empty()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("\(identifier).empty")
             } else {
                 PagedListRepresentable(direction: direction, items: items, edge: edge, loadMore: loadMore, retry: retry,
@@ -177,7 +183,9 @@ struct PagedListEdgeView: View {
                         .font(theme.type.rowSubtitle)
                         .foregroundStyle(theme.colors.label2.color)
                         .multilineTextAlignment(.center)
-                    RetryButton("Try Again", style: .inline, action: retry)
+                    // The edge turns into a spinner as the read starts, which would cancel a task
+                    // owned by the button: the retry runs unowned.
+                    RetryButton("Try Again", style: .inline, action: { [retry] in Task { await retry() } })
                         .accessibilityIdentifier("\(identifier).retry")
                 }
                 .padding(.vertical, 8)
