@@ -7,7 +7,7 @@ import { galleryArtifactDocument } from "../../agent-session/acpmux/conversation
 import { FileIcon } from "../../file-icons";
 import { SignInButton } from "../../ui/SignInButton";
 import { SplitEdge } from "../../ui/SplitEdge";
-import { Tree, type TreeLine } from "../../ui/Tree";
+import { Tree, useTreeLineCache, type TreeLine } from "../../ui/Tree";
 import type { Strings } from "../shared/i18n";
 import { lineHunks } from "./lineDiff";
 import { textOf, type ArtifactsFailure, type ArtifactsSnapshot, type ArtifactsStore } from "./store";
@@ -96,57 +96,70 @@ function FileTree({
   // The store may choose another file (a refresh removed this one): the tree follows it.
   useEffect(() => setFocused(selected), [selected]);
   const files = useMemo(() => new Set(paths), [paths]);
-  const lines = useMemo(() => {
-    // Children by folder, folders before files, each sorted by name.
-    const children = new Map<string, { name: string; path: string; folder: boolean }[]>();
-    const add = (parent: string, name: string, path: string, folder: boolean) => {
-      const list = children.get(parent) ?? [];
-      if (!list.some((entry) => entry.path === path)) list.push({ name, path, folder });
-      children.set(parent, list);
-    };
+  // Children by folder, folders before files, each sorted by name: once per listing, not per expand.
+  const children = useMemo(() => {
+    const byFolder = new Map<string, { name: string; path: string; folder: boolean }[]>();
+    const known = new Set<string>();
     for (const path of paths) {
       const parts = path.split("/");
       parts.forEach((name, index) => {
-        add(parts.slice(0, index).join("/"), name, parts.slice(0, index + 1).join("/"), index < parts.length - 1);
+        const child = parts.slice(0, index + 1).join("/");
+        if (known.has(child)) return;
+        known.add(child);
+        const parent = parts.slice(0, index).join("/");
+        const list = byFolder.get(parent) ?? [];
+        list.push({ name, path: child, folder: index < parts.length - 1 });
+        byFolder.set(parent, list);
       });
     }
-    const out: TreeLine[] = [];
-    const walk = (folder: string, depth: number) => {
-      const entries = (children.get(folder) ?? []).sort(
-        (a, b) => Number(b.folder) - Number(a.folder) || a.name.localeCompare(b.name),
-      );
-      for (const entry of entries) {
-        const open = entry.folder && expanded.has(entry.path);
-        out.push({
-          kind: "item",
-          key: entry.path,
-          depth,
-          text: entry.name,
-          expandable: entry.folder,
-          expanded: open,
-          content: (
-            <>
-              <span
-                className={`artifacts-chevron${entry.folder ? "" : " is-leaf"}${open ? " is-open" : ""}`}
-                aria-hidden="true"
-              />
-              {entry.folder ? <span className="artifacts-folder" aria-hidden="true" /> : <FileIcon path={entry.name} />}
-              <span className="artifacts-name">{entry.name}</span>
-            </>
-          ),
-        });
-        if (open) walk(entry.path, depth + 1);
-      }
-    };
-    walk("", 0);
-    if (snapshot.truncated)
-      out.push({
-        kind: "note",
-        key: "truncated",
-        content: <p className="artifacts-note">{strings.t("artifacts.page.truncated")}</p>,
-      });
-    return out;
-  }, [paths, expanded, snapshot.truncated, strings]);
+    for (const list of byFolder.values())
+      list.sort((a, b) => Number(b.folder) - Number(a.folder) || a.name.localeCompare(b.name));
+    return byFolder;
+  }, [paths]);
+  // Each line keeps its object while its entry and openness are the same, so an expand draws the
+  // rows it adds, not every row.
+  const cache = useTreeLineCache();
+  const lines = useMemo(
+    () =>
+      cache.build((line) => {
+        const out: TreeLine[] = [];
+        const walk = (folder: string, depth: number) => {
+          for (const entry of children.get(folder) ?? []) {
+            const open = entry.folder && expanded.has(entry.path);
+            out.push(
+              line.item(
+                { key: entry.path, depth, text: entry.name, expandable: entry.folder, expanded: open },
+                [],
+                () => (
+                  <>
+                    <span
+                      className={`artifacts-chevron${entry.folder ? "" : " is-leaf"}${open ? " is-open" : ""}`}
+                      aria-hidden="true"
+                    />
+                    {entry.folder ? (
+                      <span className="artifacts-folder" aria-hidden="true" />
+                    ) : (
+                      <FileIcon path={entry.name} />
+                    )}
+                    <span className="artifacts-name">{entry.name}</span>
+                  </>
+                ),
+              ),
+            );
+            if (open) walk(entry.path, depth + 1);
+          }
+        };
+        walk("", 0);
+        if (snapshot.truncated)
+          out.push(
+            line.note("truncated", [strings], () => (
+              <p className="artifacts-note">{strings.t("artifacts.page.truncated")}</p>
+            )),
+          );
+        return out;
+      }),
+    [cache, children, expanded, snapshot.truncated, strings],
+  );
   const toggle = (path: string, open: boolean) =>
     setExpanded((current) => {
       const next = new Set(current);
