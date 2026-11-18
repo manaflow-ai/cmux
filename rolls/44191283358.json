@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44191283358",
+  "recorded_at": "2026-11-18T05:01:16Z",
+  "reason": "cmux-tui 6c77648369b2 changes the image's cmux-tui (pinned 9d5f6bd60c17)",
+  "dry_run": false,
+  "cmux_tui": "6c77648369b28c1ce3001ed688ce61d785e43bbd",
+  "fixes": [
+    {
+      "sha": "6c77648369b28c1ce3001ed688ce61d785e43bbd",
+      "mergedAt": "2026-11-17T10:51:14-08:00",
+      "subject": "cmux-rd: NACK and tail-probe repairs go through the pacer (D6) (#44820)"
+    },
+    {
+      "sha": "48e802a6de6f66200b5fadb2ab05552e89fb1874",
+      "mergedAt": "2026-11-17T10:49:46-08:00",
+      "subject": "cmux-action-catalog: palette rows for the hand-built menus (FFI step A) (#45625)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-18T05:01:16Z",
+    "snapshot_id": "sh-9ecd06de3fc74b0b9c9b78c452239f9c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44191283358): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d730e11d2cae33133b861f235eca8fe31196b3fe",
+    "image": "cloud-native-auto-6c776483-44191283358-2",
+    "revision": "ci-44191283358-2",
+    "at": "2026-11-18T05:01:16Z"
+  },
+  "rolled_back": false
+}
