@@ -1,7 +1,18 @@
 import Foundation
 
 extension AcpmuxPaneSocket {
+    /// `_acpmux/event` kinds the page waits on. The permission kinds put an ask in front of the
+    /// person, or take it away, even in a pane nobody is looking at: held below the hidden bound,
+    /// an ask otherwise waited for the pane to show while the agent sat on it.
+    private static let waitedEventKinds: Set<String> = [
+        "turn_end", "turn_result", "queued", "dequeued", "queue_removed", "prompt_refused",
+        "permission_request", "permission_reissued", "permission_decision",
+    ]
+
     private static let rawWaitedEventMarkers = [
+        "\"kind\":\"permission_request\"", "\"kind\": \"permission_request\"",
+        "\"kind\":\"permission_reissued\"", "\"kind\": \"permission_reissued\"",
+        "\"kind\":\"permission_decision\"", "\"kind\": \"permission_decision\"",
         "\"kind\":\"turn_end\"", "\"kind\": \"turn_end\"",
         "\"kind\":\"turn_result\"", "\"kind\": \"turn_result\"",
         "\"kind\":\"queued\"", "\"kind\": \"queued\"",
@@ -15,7 +26,8 @@ extension AcpmuxPaneSocket {
     /// path and use the object overload below. A false positive only wakes a hidden page sooner.
     nonisolated static func pageWaits(on text: String) -> Bool {
         guard text.contains("\"method\"") else { return false }
-        if text.contains("\"_acpmux/prompt_accepted\"") || text.contains("\"session/request_permission\"") {
+        if text.contains("\"_acpmux/prompt_accepted\"") || text.contains("\"session/request_permission\"")
+            || text.contains("\"_acpmux/permission_pending\"") {
             return true
         }
         guard text.contains("\"_acpmux/event\"") else { return false }
@@ -30,17 +42,19 @@ extension AcpmuxPaneSocket {
     /// `prompt_accepted`: `queued` (a prompt behind a running turn, which acpmux takes with no
     /// acceptance), `dequeued`, `queue_removed` and `prompt_refused`. Without them a held pane left a
     /// prompt sent mid-turn "Still sending" until the turn ended (session claude-7, 2026-10-30).
-    /// Session updates, the bulk of a streaming turn, wait until the
+    /// And a permission ask (`_acpmux/permission_pending`, the `permission_*` event kinds), which
+    /// the agent waits on: the hidden pane's bound holds its stream, so an ask not named here
+    /// waited for the pane to show. Session updates, the bulk of a streaming turn, wait until the
     /// pane shows. A full flush's backlog
     /// and the close go to a hidden pane too (``pageWaits``), so its queue stays far below the
     /// bound (``AgentPaneTransport/Limits``) and a long hidden stream costs one call per full flush.
     nonisolated static func pageWaits(on object: [String: Any]) -> Bool {
         if object["id"] != nil { return true }
         switch object["method"] as? String {
-        case "_acpmux/prompt_accepted": return true
+        case "_acpmux/prompt_accepted", "_acpmux/permission_pending": return true
         case "_acpmux/event":
             let kind = (object["params"] as? [String: Any])?["kind"] as? String
-            return ["turn_end", "turn_result", "queued", "dequeued", "queue_removed", "prompt_refused"].contains(kind)
+            return Self.waitedEventKinds.contains(kind ?? "")
         default: return false
         }
     }
