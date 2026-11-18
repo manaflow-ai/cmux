@@ -1077,6 +1077,22 @@ no `auth` before it (`echo` included) is refused at once. The design is in
 - Tests: `endpoint_tests` (order, pin, setting sources, one loopback port, sr)
   and, on macOS, `a_remote_chain_reaches_its_own_loopback_model_proxy_and_nothing_else`.
 
+### `daemon`: a new chat's first message from the phone (`bind-conversation-tab-session`, 2026-11-18)
+
+Leo, 2026-11-18, on a new chat that told him to send its first message from the Mac: "you
+should be able to just start the chat right there". The phone starts the chat as the Mac's own
+first send does: acpmux `session/new` over its `acpmux` lane (the row above: remote guard,
+asking policy, trust held for the person), then `bind-conversation-tab-session` on the tab.
+
+| Rule 2 question | Answer |
+| --- | --- |
+| Executes commands or opens content on local objects? | No. It records a session on a tab; the tab runs nothing. The phone may set only `surface`, `session`, `expected_session` and `harness` (`agent_bind_verdict`). `expected_session` must be present and null: a first bind only, never a rebind of a chat that has a session (the daemon's compare-and-swap refuses one that started meanwhile). `session` and `harness` are short identifiers. |
+| Mutates or destroys objects the session does not own? | Only an agent chat tab of this Mac's own app (`agent_session.host` is this Mac's `install:<id>`, `CMUX_MOBILE_AGENT_TAB_HOST`) that has no session, as the daemon's own `list-workspaces` lists it (`Ownership::UnboundAgentTab`, `lists_unbound_agent_tab`; the cache negotiates `agent-session-tabs-v1` to read the record). A `registry:` tab, another Mac's tab, a terminal or a started chat is refused. The daemon also refuses a `registry:` tab itself. A phone could already open a tab of this Mac on a session it names (`new-conversation-tab`); this grants no more. Without `CMUX_MOBILE_AGENT_TAB_HOST`, refused with `unavailable`. The Swift mirror does not list the command, so it refuses it. |
+| Reads local state the remote should not see? | No new read. |
+
+- Tests: hostd `a_phone_binds_only_the_first_session_of_this_macs_unbound_chat`; iOS
+  `NewChatStartsFromPhoneTests`.
+
 ### `daemon`: Restart Shell Here (`restart-tab`)
 
 | Rule 2 question | Answer |

@@ -442,6 +442,37 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         }
     }
 
+    /// A new chat tab's first message from the phone starts it, as the Mac's own first send
+    /// does: acpmux `session/new` (the tab's agent) in the tab's folder, else its workspace's,
+    /// then `bind-conversation-tab-session` from no session (cmux-mobile-host takes it only for
+    /// an unbound chat tab of this Mac). Returns the tab's session: the Mac's own when it bound
+    /// one first.
+    func startNewChat(tabID: String) async throws -> String {
+        guard let client = sync.daemon, let tree = sync.tree, let surface = tree.surfaces[tabID] else {
+            throw WorkspaceCreationError("Connecting to \(link.target?.name ?? "the Mac")… Send again once the chat loads.", isForPerson: true)
+        }
+        let binding = tree.agentTabs[tabID]
+        if let session = binding?.session { return session }
+        let workspace = (tree.workspaces + tree.homeWorkspaces).first { $0.tabs.contains { $0.id == tabID } }
+        guard let cwd = tree.directories[tabID] ?? workspace?.tabs.lazy.compactMap({ tree.directories[$0.id] }).first else {
+            throw WorkspaceCreationError("This workspace has no folder on the Mac. Open a terminal tab first.", isForPerson: true)
+        }
+        guard !Self.isHomeOrAbove(cwd) else {
+            throw WorkspaceCreationError("Open this workspace in a project folder, then try again.", isForPerson: true)
+        }
+        let (harness, session) = try await startAgentSession(AgentChatStart(harness: binding?.harness), cwd: cwd, macID: sync.macID)
+        do {
+            try WorkspaceSync.check(await client.request("bind-conversation-tab-session", params: [
+                "surface": surface, "session": session, "expected_session": NSNull(), "harness": harness,
+            ]))
+        } catch let error as DaemonReplyError {
+            // The Mac started the chat first: it continues on the Mac's session.
+            if let bound = try? await sync.listNow().agentTabs[tabID]?.session { return bound }
+            throw WorkspaceCreationError(error.message)
+        }
+        return session
+    }
+
     /// The new chat's acpmux session, in the folder of the workspace's
     /// terminal on the Mac: the harness the start names, else the Mac's default
     /// agent (or the first one a phone may start); then its model, when one was

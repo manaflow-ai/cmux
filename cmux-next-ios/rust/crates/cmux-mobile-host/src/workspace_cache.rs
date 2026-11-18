@@ -297,8 +297,9 @@ async fn session_with_probe(
     let (read, mut write) = stream.into_split();
     let mut reader = BufReader::new(read);
     // Subscribe before snapshots so no change between the snapshot and
-    // subscription can go missing. Negotiate page records for surface checks.
-    write.write_all(b"{\"cmd\":\"set-client-info\",\"id\":\"cache-hello\",\"name\":\"cmux-mobile-host\",\"kind\":\"cli\",\"capabilities\":[\"conversation-tabs-v1\",\"page-tabs-v1\"]}\n{\"cmd\":\"subscribe\",\"id\":\"cache-subscribe\",\"tree_events\":\"deltas\"}\n").await.map_err(|_| ())?;
+    // subscription can go missing. Negotiate page records for surface checks, and
+    // agent session records for a phone's first bind (`Ownership::UnboundAgentTab`).
+    write.write_all(b"{\"cmd\":\"set-client-info\",\"id\":\"cache-hello\",\"name\":\"cmux-mobile-host\",\"kind\":\"cli\",\"capabilities\":[\"conversation-tabs-v1\",\"agent-session-tabs-v1\",\"page-tabs-v1\"]}\n{\"cmd\":\"subscribe\",\"id\":\"cache-subscribe\",\"tree_events\":\"deltas\"}\n").await.map_err(|_| ())?;
     let mut state = Snapshots::default();
     let mut subscribed = false;
     let startup_deadline = Instant::now() + QUERY_WAIT;

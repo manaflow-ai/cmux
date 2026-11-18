@@ -266,7 +266,7 @@ public final class LiveCoordinator {
         store.macConnection = [:]
         store.teamDataState = .loading
         AgentSessionDirectory.shared.makeSource = { [weak self] summary in
-            guard let self else { return UnboundAgentSource(summary: summary, macName: nil) }
+            guard let self else { return NewChatAgentSource(summary: summary, start: nil) }
             // The tab's own Mac (tab ids repeat across Macs); a chat of a Mac
             // whose link is closed opens it, and is rebuilt once its tree lists the tab.
             let owner = self.session(tabID: summary.id, macID: summary.macID.isEmpty ? nil : summary.macID)
@@ -305,7 +305,16 @@ public final class LiveCoordinator {
             let session = owner?.tree?.agentTabs[summary.id]?.session
             self.sourcedSessions[key] = (tabID: summary.id, macID: summary.macID, session: session, provisional: false)
             guard let owner, let session else {
-                return UnboundAgentSource(summary: summary, macName: owner?.name ?? self.link.target?.name)
+                // A new chat: its first message starts it here, as the Mac's first send does.
+                var start: NewChatAgentSource.Start?
+                if let owner {
+                    start = { [weak self, weak owner] in
+                        guard let self, let owner else { throw WorkspaceCreationError("Not connected", isForPerson: true) }
+                        let session = try await owner.creation.startNewChat(tabID: summary.id)
+                        return self.agentSource(owner, session: session, summary: scoped)
+                    }
+                }
+                return NewChatAgentSource(summary: scoped, start: start)
             }
             return self.agentSource(owner, session: session, summary: scoped)
         }
@@ -1120,41 +1129,82 @@ final class PendingAgentSource: AgentSessionSource {
     }
 }
 
-/// An agent tab with no acpmux session yet: a new chat on the Mac that has
-/// not had its first message. The Mac starts a chat's session from its own
-/// first send (the daemon starts only `registry:` tabs), so the phone says so;
-/// once the Mac binds the session the coordinator rebuilds the store live.
+/// An agent tab with no acpmux session yet: a new chat that has not had its
+/// first message. It opens as an empty new chat, and its first message starts
+/// it from the phone, as the Mac's own first send does (`start`: acpmux
+/// `session/new`, then the tab's bind; Leo, 2026-11-18: "you should be able to
+/// just start the chat right there"). The prompt goes to the started session;
+/// the coordinator rebuilds the store on it once the Mac's tree lists the bind.
+/// No notice ever says the chat has not started.
 @MainActor
-final class UnboundAgentSource: AgentSessionSource {
+final class NewChatAgentSource: AgentSessionSource {
+    /// Starts the chat's session and binds it to the tab: the session's source.
+    typealias Start = @MainActor () async throws -> AcpmuxSessionSource
+
     let summary: AgentSessionSummary
-    let macName: String
-
-    init(summary: AgentSessionSummary, macName: String?) {
-        self.summary = summary
-        self.macName = macName ?? summary.macName
-    }
-
-    static func notStarted(agent: String, mac: String) -> String {
-        "\(agent) hasn't started in this tab. Send the first message from cmux on \(mac); the chat continues here."
-    }
-
+    private let start: Start?
+    private var started: AcpmuxSessionSource?
+    private var starting = false
+    private var forwarding: Task<Void, Never>?
     private var continuations: [AsyncStream<AgentSessionEvent>.Continuation] = []
+
+    /// `start` nil: the tab's Mac is not linked yet; a send says so and the draft comes back.
+    init(summary: AgentSessionSummary, start: Start?) {
+        self.summary = summary
+        self.start = start
+    }
+
+    isolated deinit {
+        forwarding?.cancel()
+        for continuation in continuations { continuation.finish() }
+    }
+
+    var awaitsFirstPrompt: Bool { starting }
 
     func events() -> AsyncStream<AgentSessionEvent> {
         let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream()
-        continuation.yield(.clientError(Self.notStarted(agent: summary.agentName, mac: macName)))
         continuations.append(continuation)
         return stream
     }
 
-    /// A prompt can't start the chat from the phone: say why again.
     func send(_ intent: AgentClientIntent) {
-        let message = Self.notStarted(agent: summary.agentName, mac: macName)
-        for continuation in continuations { continuation.yield(.clientError(message)) }
+        if let started { return started.send(intent) }
+        guard case .prompt(let text, let attachments, _, let promptID, _) = intent else { return }
+        let notSent = { [weak self] (reason: String) in
+            for continuation in self?.continuations ?? [] {
+                continuation.yield(.promptNotSent(text: text, attachments: attachments, promptID: promptID, reason: reason))
+            }
+        }
+        guard let start else { return notSent("Connecting to \(summary.macName)… Send again once the chat loads.") }
+        guard !starting else { return notSent("\(summary.agentName) is starting. Send again in a moment.") }
+        starting = true
+        Task { [weak self] in
+            do {
+                let source = try await start()
+                guard let self else { return }
+                self.started = source
+                self.forward(source)
+                source.send(intent)
+            } catch {
+                self?.starting = false
+                notSent((error as? WorkspaceCreationError)?.message ?? AcpmuxSessionSource.message(error))
+            }
+        }
+    }
+
+    /// The started session's records, to this chat's readers until the store is rebuilt on it.
+    private func forward(_ source: AcpmuxSessionSource) {
+        let stream = source.events()
+        forwarding = Task { [weak self] in
+            for await event in stream {
+                guard let self else { return }
+                for continuation in self.continuations { continuation.yield(event) }
+            }
+        }
     }
 
     var artifactSource: any ArtifactSource {
-        LinkFileArtifactSource(macName: summary.macName, baseDirectory: summary.cwd) { nil }
+        started?.artifactSource ?? LinkFileArtifactSource(macName: summary.macName, baseDirectory: summary.cwd) { nil }
     }
 }
 #endif
