@@ -14,8 +14,14 @@
 // is held, so a drag across lines (and Select All) copies what the page would have copied whole.
 // Find in Chat opens a block it reveals whole (blockPartsModel.ts `usePreview` "all"), where the
 // caller turns the window off: its counts and highlights read every line, as before.
+//
+// A screen reader meets the box as one region named with its true line count ("Shell, 400 lines"),
+// focusable so the keys scroll it, its lines a list whose items carry their place in the whole
+// (aria-posinset / aria-setsize); scrolling it, by key or by the reader's own scroll, mounts the
+// next lines, so every line stays reachable in order.
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { PREVIEW_LINES } from "./blockPartsModel";
+import { useT } from "../i18n";
 
 /// Lines mounted and dropped together: one box of them.
 export const WINDOW_CHUNK = PREVIEW_LINES;
@@ -28,6 +34,9 @@ export const WINDOW_FROM = 4 * WINDOW_CHUNK;
 export const LINE_WINDOW_ATTRIBUTE = "data-line-window";
 
 export type LineWindow = {
+  /** The block's lines, each mounted line's aria-setsize (a final empty element is not one);
+   * undefined while it draws whole. */
+  setsize?: number;
   /** The first line mounted, and the one after the last. */
   from: number;
   to: number;
@@ -50,8 +59,17 @@ const chunkCeil = (line: number, total: number) => Math.min(total, Math.ceil(lin
 
 /// The lines of `total` to mount while `box` scrolls them, when `enabled` (with more than
 /// `WINDOW_FROM` lines); off, every line. Call it in the component that renders `box` (its ref is
-/// set by the time that component's layout effects run), and hand the window to the lines.
-export function useLineWindow(box: RefObject<HTMLElement | null>, total: number, enabled: boolean): LineWindow {
+/// set by the time that component's layout effects run), and hand the window to the lines. `name` is
+/// the box's own name, which its accessible name leads with; `lines` the block's lines as a reader
+/// counts them, when a final newline leaves `total` one empty element more.
+export function useLineWindow(
+  box: RefObject<HTMLElement | null>,
+  total: number,
+  enabled: boolean,
+  name: string,
+  lines = total,
+): LineWindow {
+  const t = useT();
   const on = enabled && total > WINDOW_FROM;
   const [range, setRange] = useState<Range>(() => ({
     from: 0,
@@ -199,8 +217,8 @@ export function useLineWindow(box: RefObject<HTMLElement | null>, total: number,
     // take other rows (Wrap lines, the mono font loading) while the box keeps its height.
     const resize = view?.ResizeObserver ? new view.ResizeObserver(measure) : undefined;
     resize?.observe(scroller);
-    const host = topNode.current?.parentElement;
-    if (host) resize?.observe(host);
+    const lines = topNode.current?.parentElement;
+    if (lines && lines !== scroller) resize?.observe(lines);
     return () => {
       // Off (Find opened the block whole, its command ran again): the next time it windows, it
       // measures what it then draws first.
@@ -212,5 +230,41 @@ export function useLineWindow(box: RefObject<HTMLElement | null>, total: number,
     };
   }, [box, on, measure]);
 
-  return useMemo(() => ({ from, to, before, after, top, bottom }), [from, to, before, after, top, bottom]);
+  useLayoutEffect(() => {
+    const scroller = box.current;
+    if (!on || !scroller) return;
+    // The region and its list, named with the count, put back as they were when the window goes.
+    const host = topNode.current?.parentElement;
+    const restore = [
+      // A call's output holds its lines itself: the box is then the list, named the same.
+      ...exposeAttributes(scroller, {
+        role: host === scroller ? "list" : "region",
+        tabindex: scroller.getAttribute("tabindex") ?? "0",
+        "aria-label": t("block.linesLabel", {
+          label: name,
+          n: lines,
+          count: new Intl.NumberFormat(scroller.ownerDocument.documentElement.lang || undefined).format(lines),
+        }),
+      }),
+      ...(host && host !== scroller ? exposeAttributes(host, { role: "list" }) : []),
+    ];
+    return () => {
+      for (const put of restore) put();
+    };
+  }, [box, on, t, name, lines]);
+
+  const setsize = windowed ? lines : undefined;
+  return useMemo(
+    () => ({ from, to, before, after, top, bottom, setsize }),
+    [from, to, before, after, top, bottom, setsize],
+  );
+}
+
+/// Sets `values` on `node`; returns what puts each back as it was.
+function exposeAttributes(node: Element, values: Record<string, string>): (() => void)[] {
+  return Object.entries(values).map(([name, value]) => {
+    const was = node.getAttribute(name);
+    node.setAttribute(name, value);
+    return () => (was === null ? node.removeAttribute(name) : node.setAttribute(name, was));
+  });
 }

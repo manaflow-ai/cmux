@@ -260,3 +260,32 @@ test("Find's reveal draws the block whole, as before", () => {
   draw(shell(1_000, 1));
   expect(mounted().length).toBe(1_001);
 });
+
+test("a screen reader meets one region named with the true line count, its lines placed in the whole", () => {
+  // A finished Shell block shows its last 400 lines (toolOutputModel.ts): its first is line 9,600.
+  for (const [view, name, total, firstLine] of [
+    [shell(10_000), "Shell, 400 lines", 400, 9_600],
+    [read(10_000), "big.txt, 10,000 lines", 10_000, 0],
+  ] as const) {
+    draw(view);
+    expect(box().getAttribute("aria-label")).toBe(name);
+    expect(box().getAttribute("tabindex")).toBe("0");
+    scrollTo(200 * LINE);
+    const lines = mounted().filter((line) => line.hasAttribute("role"));
+    expect(lines[0]!.parentElement!.getAttribute("role")).toBe("list");
+    // Every mounted line is an item at its place in the whole block, in order.
+    expect(lines.map((line) => line.getAttribute("role"))).toEqual(lines.map(() => "listitem"));
+    expect(lines.map((line) => line.getAttribute("aria-setsize"))).toEqual(lines.map(() => String(total)));
+    const places = lines.map((line) => Number(line.getAttribute("aria-posinset")));
+    expect(places).toEqual(places.map((_, index) => places[0]! + index));
+    expect(lines[0]!.textContent!.startsWith(`line ${firstLine + places[0]! - 1}`)).toBe(true);
+    // Scrolling on mounts the next lines, numbered on from these.
+    scrollTo(208 * LINE);
+    expect(Number(mounted().at(-1)!.getAttribute("aria-posinset"))).toBeGreaterThan(places.at(-1)!);
+    draw(null);
+  }
+  // Drawn whole (Find's reveal), it is the plain block it was: no region, no list.
+  draw(shell(1_000, 1));
+  expect(box().hasAttribute("role")).toBe(false);
+  expect(mounted()[0]!.hasAttribute("role")).toBe(false);
+});

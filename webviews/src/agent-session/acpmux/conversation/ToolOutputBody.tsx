@@ -41,7 +41,7 @@ function MonoOutput({
   const sideways = useSidewaysRef<HTMLPreElement>();
   // Cut to its box, it mounts only the lines in the box's view (lineWindow.ts).
   const lines = useMemo(() => text.split("\n").length, [text]);
-  const lineWindow = useLineWindow(sideways, lines, preview === "cut");
+  const lineWindow = useLineWindow(sideways, lines, preview === "cut", t("handoff.tool_output"), lineCount(text));
   const ref = useCallback(
     (node: HTMLPreElement | null) => {
       sideways.current = node;

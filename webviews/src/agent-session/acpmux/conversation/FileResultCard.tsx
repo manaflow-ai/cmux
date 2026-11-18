@@ -90,7 +90,7 @@ function ReadCard({ id, read, reveal }: { id: string; read: ReadPeek; reveal: nu
   const highlighted = highlightsCode(read.code);
   const [drawn, setDrawn] = useState<DrawnLines | undefined>(undefined);
   const pierre = highlighted && drawn ? drawn : undefined;
-  const lineWindow = useLineWindow(body, lines, preview.cut && !pierre);
+  const lineWindow = useLineWindow(body, lines, preview.cut && !pierre, pathName(read.path));
   const pierreWindow = useMemo<PierreLineWindow | undefined>(
     () => (highlighted && lines > WINDOW_FROM ? { box: body, whole: !preview.cut, onLines: setDrawn } : undefined),
     [highlighted, lines, body, preview.cut],

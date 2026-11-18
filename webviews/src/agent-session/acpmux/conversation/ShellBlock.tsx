@@ -69,7 +69,7 @@ export function ShellBlock({
       : 0;
   // Finished and cut to its box, it mounts only the lines in the box's view (lineWindow.ts).
   const shownLines = useMemo(() => (raw.shown ? raw.shown.split("\n").length : 0), [raw.shown]);
-  const lineWindow = useLineWindow(body, shownLines, preview.cut && !live);
+  const lineWindow = useLineWindow(body, shownLines, preview.cut && !live, t("shell.label"), lineCount(raw.shown));
   useSidewaysEdge(body);
   // Following first, so the fade reads where the box ends up, not where it was.
   useFollowEnd(body, raw.shown, live && preview.cut);
