@@ -157,22 +157,27 @@ export function usePaneTrayItems({
   return { trayAgents, trayList, trayFinished, setHatHeld, setHatSeen };
 }
 
-/// The chat on screen as of the last render, which the card reads as it goes (`shown`), and the chat
-/// that last rendered without a tray (`absentIn`).
-type TrayChat = { readonly shown: { current: string | undefined }; absentIn: string | undefined };
+/// The chat on screen as of the last render, which the card reads as it goes (`shown`), the chat
+/// that last rendered without a tray (`absentIn`), and whether a tray in the last render entered.
+type TrayChat = { readonly shown: { current: string | undefined }; absentIn: string | undefined; enters: boolean };
 const createTrayChat = (shownSessionId: string | undefined): TrayChat => ({
   shown: { current: shownSessionId },
   absentIn: undefined,
+  enters: false,
 });
-/// Steps `chat` to this render; whether a tray here enters. A chat that shows again starts over.
-/// Absence counts only once the chat's own rows are read: a partial snapshot during a slow switch
-/// would make a tray it already had look new. The same step twice running changes nothing that shows.
-function stepTrayChat(chat: TrayChat, shownSessionId: string | undefined, hasTray: boolean, read: boolean): boolean {
+/// Steps `chat` to this render, `enters` included. A chat that shows again starts over. Absence
+/// counts only once the chat's own rows are read: a partial snapshot during a slow switch would make
+/// a tray it already had look new. The same step twice running changes nothing that shows.
+///
+/// It returns nothing, and its caller reads `chat.enters` after it: a call whose value the hook
+/// returns is cached by the React Compiler on its arguments, and would be skipped on a render whose
+/// arguments match the last committed one's, after an abandoned render stepped `chat` elsewhere
+/// (App.tsx stepped its refs on every render). A call whose value goes nowhere is not cached.
+function stepTrayChat(chat: TrayChat, shownSessionId: string | undefined, hasTray: boolean, read: boolean): void {
   if (chat.shown.current !== shownSessionId) chat.absentIn = undefined;
   chat.shown.current = shownSessionId;
-  const enters = shownSessionId !== undefined && chat.absentIn === shownSessionId;
+  chat.enters = shownSessionId !== undefined && chat.absentIn === shownSessionId;
   if (!hasTray && read) chat.absentIn = shownSessionId;
-  return enters;
 }
 
 /// What App's `counted` holds that a tray command reads when it opens.
@@ -232,7 +237,9 @@ export function usePaneTrayCard({
   // last rendered without one (a tray that appears in it eases in; one a chat opens with is there).
   // Set while rendering, as the card's ref reads it when it detaches, before any effect of this hook.
   const [trayChat] = useState(() => createTrayChat(shownSessionId));
-  const trayEnters = stepTrayChat(trayChat, shownSessionId, hasTray, chatRead === true);
+  // On every render, an abandoned one's next included (see stepTrayChat).
+  stepTrayChat(trayChat, shownSessionId, hasTray, chatRead === true);
+  const trayEnters = trayChat.enters;
   // A chat switch, or the tray moving to another placement (another host), is not the tray leaving:
   // its kept copy goes before the frame paints.
   useLayoutEffect(() => settleTrayExit(), [shownSessionId, trayPlacement]);
