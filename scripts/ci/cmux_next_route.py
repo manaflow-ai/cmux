@@ -267,6 +267,8 @@ BUNDLE_INPUTS = (
     "scripts/cmux-next/build-agent-activity-web.sh",
     "scripts/cmux-next/build-optchat-inspector-web.sh",
     "scripts/cmux-next/build-web-bundles.sh", "scripts/cmux-next/web-bundle-key.py",
+    # The Node pin the bundles build on (web-bundle-key.py INPUTS).
+    ".node-version",
     # Files outside webviews/ that webviews sources import (web-bundle-key.py --inputs;
     # tests/test_web_bundle_key_inputs.sh keeps this list complete).
     "web/data/model-catalog/*", "Resources/markdown-viewer/viewer-navigation.js", "config/vite-plus/*",

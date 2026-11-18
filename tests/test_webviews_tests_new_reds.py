@@ -576,6 +576,7 @@ class Workflow(unittest.TestCase):
             (repo / "webviews/src").mkdir()
             (repo / "webviews/src/other.ts").write_text("export {}\n")
             shutil.copy(PIN, repo / "scripts/ci" / PIN.name)  # the head has the font pin, the merge parent not
+            shutil.copy(ROOT / ".node-version", repo / ".node-version")  # and the Node pin the checkout step reads
             git("add", "-A")
             git("commit", "-qm", "the change: touches nothing the red file reads")
             git("checkout", "-q", "base")
@@ -596,6 +597,7 @@ class Workflow(unittest.TestCase):
             head_results.write_text(json.dumps({f"{red} > received preview opens": False}))
             env = {k: v for k, v in os.environ.items() if k not in ("CMUX_BROWSER_TESTS", "GITHUB_ACTIONS")}
             env.update(PATH=f"{bins}:{os.environ['PATH']}", RUNNER_TEMP=str(runner_temp), TMPDIR=str(tmp),
+                       GITHUB_OUTPUT=str(runner_temp / "github-output"),
                        HEAD_RESULTS=str(head_results), BASE_RESULTS=str(runner_temp / "base-results.json"),
                        CMUX_NEXT_STYLE_GUARDS="warn", CMUX_WEB_TEST_JOBS="1", CMUX_WEB_TEST_RETRIES="0",
                        CMUX_WEB_TEST_FILE_TIMEOUT="10", TAP_TESTS_STATE="off")

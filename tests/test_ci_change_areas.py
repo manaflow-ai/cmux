@@ -3324,6 +3324,9 @@ def test_every_setup_bun_and_setup_node_step_follows_its_one_pin() -> None:
 NODE_PIN_FILES = (".node-version", ".node-version-22", ".node-version-sdk-floor")
 # A job whose workspace root is another commit (or none) checks out its own commit's pins here.
 NODE_PIN_CHECKOUT = ".build/node-pin"
+# The Node a tree from before .node-version keys and builds its web bundles on.
+PRE_NODE = re.search(r'^PRE_NODE_VERSION_FILE_NODE = "([^"]+)"$', (
+    ROOT / "scripts" / "cmux-next" / "web-bundle-key.py").read_text(encoding="utf-8"), re.M).group(1)
 
 
 def _assert_setup_node_reads_a_pin_file(workflows: Path) -> None:
@@ -3366,15 +3369,42 @@ def _assert_setup_node_reads_a_pin_file(workflows: Path) -> None:
             )
         for job_name, job in jobs.items():
             pinned = False
+            # The workspace tree the job switched to, when it is not this workflow's commit: a checkout
+            # into the workspace root of another ref (cmux-next.yml's inputs.same_tree_sha, a release
+            # sha), or a step that detaches onto another commit (a layer applied onto an older base).
+            # That tree may predate the pin files, and setup-node fails on a missing file (#44131).
+            alternate = ""
+            read_here = set()  # steps that read a pin before the job left the workflow's tree
             for step in job.get("steps") or []:
                 uses = str(step.get("uses", ""))
                 with_ = step.get("with") or {}
+                run = str(step.get("run", ""))
+                if step.get("id") and not alternate:
+                    read_here.add(step["id"])
                 if uses.startswith("actions/checkout@") and with_.get("path") == NODE_PIN_CHECKOUT:
                     pinned = True
+                if uses.startswith("actions/checkout@") and str(with_.get("path") or ".") in (".", "./"):
+                    ref = str(with_.get("ref") or "").strip()
+                    if ref not in ("", "${{ github.sha }}"):
+                        alternate = f"checkout ref {ref}"
+                if re.search(r"\bgit\b[^\n]*\bcheckout\b[^\n]*--detach", run):
+                    alternate = alternate or f"step {step.get('name') or step.get('id')!r} detaches"
                 if not uses.startswith("actions/setup-node@"):
                     continue
                 found += 1
                 if "node-version" in with_:
+                    relayed = re.fullmatch(r"\$\{\{ steps\.([A-Za-z0-9_-]+)\.outputs\.node_version(?:_22)? \}\}",
+                                           str(with_["node-version"]).strip())
+                    if alternate and relayed and relayed.group(1) not in read_here:
+                        # Read from the switched tree: it must key a tree without the file the way
+                        # web-bundle-key.py does, not fail on it.
+                        source = "\n".join(str(s.get("run", "")) for s in job.get("steps") or []
+                                           if s.get("id") == relayed.group(1))
+                        assert "if [ -f .node-version ]" in source and f"node_version={PRE_NODE}" in source, (
+                            f"{rel} job {job_name}: step {relayed.group(1)} reads .node-version from the "
+                            f"tree it switched to ({alternate}) with no fallback for a tree without the "
+                            f"file; fall back to web-bundle-key.py's PRE_NODE_VERSION_FILE_NODE ({PRE_NODE})"
+                        )
                     continue  # a relayed pin, checked above
                 source = with_.get("node-version-file")
                 assert source in allowed, (
@@ -3384,6 +3414,11 @@ def _assert_setup_node_reads_a_pin_file(workflows: Path) -> None:
                 assert not source.startswith(NODE_PIN_CHECKOUT) or pinned, (
                     f"{rel} job {job_name}: setup-node reads {source} but no earlier step checks out "
                     f"the pins into {NODE_PIN_CHECKOUT}"
+                )
+                assert not alternate or source.startswith(NODE_PIN_CHECKOUT), (
+                    f"{rel} job {job_name}: setup-node reads {source} from a tree that may predate it "
+                    f"({alternate}); read {NODE_PIN_CHECKOUT}/{source} (a checkout of the pins at "
+                    f"github.sha) or the tree's pin with web-bundle-key.py's fallback"
                 )
     assert found >= 100, "setup-node inventory unexpectedly disappeared"
 

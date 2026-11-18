@@ -93,7 +93,11 @@ class WebOTAPublicationContractTests(unittest.TestCase):
         self.assertNotIn("CMUX_WEB_NODE_VERSION:", workflow)
         self.assertIn('key["declared_node_version"](".")', workflow)
         self.assertIn('bun-version: "1.4.4"', workflow)
-        self.assertIn("node-version-file: .node-version", workflow)
+        # setup-node runs the Node the key names: the built tree's .node-version, or
+        # web-bundle-key.py's PRE_NODE_VERSION_FILE_NODE for a base from before that file.
+        self.assertIn("node-version: ${{ steps.web-node-pin.outputs.node_version }}", workflow)
+        self.assertIn("node_version=$(tr -d '[:space:]' < .node-version)", workflow)
+        self.assertIn('echo "node_version=24.22.1" >> "$GITHUB_OUTPUT"  # web-bundle-key.py PRE_NODE_VERSION_FILE_NODE', workflow)
         self.assertIn('"bun": normalize(subprocess.run(["bun", "--version"]', workflow)
         self.assertIn('"node": normalize(subprocess.run(["node", "--version"]', workflow)
         self.assertIn('manifest_matches_toolchain"]', workflow)

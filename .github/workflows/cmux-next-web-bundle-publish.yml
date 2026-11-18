@@ -50,6 +50,8 @@ on:
       - "scripts/cmux-next/build-optchat-inspector-web.sh"
       - "scripts/cmux-next/build-web-bundles.sh"
       - "scripts/cmux-next/web-bundle-key.py"
+      # The Node pin the bundles build on (web-bundle-key.py INPUTS and toolchain_identity).
+      - ".node-version"
       # Files outside webviews/ that webviews sources import (web-bundle-key.py --inputs;
       # tests/test_web_bundle_key_inputs.sh keeps this list complete).
       - "web/data/model-catalog/**"
@@ -230,12 +232,26 @@ jobs:
         if: steps.key.outputs.published != 'true'
         run: scripts/cmux-next/private-bun.sh
 
+      # The built tree's own pin, as web-bundle-key.py --source keys it: a PR layer applied onto an
+      # older base (inputs.base) may have no .node-version, and such a tree keys and builds on
+      # web-bundle-key.py's PRE_NODE_VERSION_FILE_NODE.
+      - name: Read the build tree's Node pin
+        id: web-node-pin
+        if: steps.key.outputs.published != 'true'
+        run: |
+          set -euo pipefail
+          if [ -f .node-version ]; then
+            echo "node_version=$(tr -d '[:space:]' < .node-version)" >> "$GITHUB_OUTPUT"
+          else
+            echo "node_version=24.22.1" >> "$GITHUB_OUTPUT"  # web-bundle-key.py PRE_NODE_VERSION_FILE_NODE
+          fi
+
       # The webviews app's `vp build` must run on node (build-web-bundles.sh).
       - name: Setup Node
         if: steps.key.outputs.published != 'true'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version-file: .node-version
+          node-version: ${{ steps.web-node-pin.outputs.node_version }}
 
       - name: Build the web bundles
         if: steps.key.outputs.published != 'true'

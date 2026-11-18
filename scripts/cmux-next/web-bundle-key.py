@@ -33,7 +33,8 @@ import sys
 # catalogs and the settings schema); schemas/settings is imported by the settings page and read
 # by gen-strings.mjs; the xcstrings catalogs feed gen-strings.mjs; the What's New highlights feed
 # gen-feature-tips.mjs (the agent pane's feature tips, build output gen-strings.mjs makes);
-# marked.min.js is inlined into the webviews app's agent-session.html.
+# marked.min.js is inlined into the webviews app's agent-session.html; .node-version is the Node
+# the builds run on (toolchain_identity keys its value too; listing it routes a pin-only bump).
 INPUTS = [
     "webviews",
     "schemas/settings",
@@ -48,6 +49,7 @@ INPUTS = [
     "scripts/cmux-next/build-optchat-inspector-web.sh",
     "scripts/cmux-next/build-web-bundles.sh",
     "scripts/cmux-next/web-bundle-key.py",
+    ".node-version",
     ":(glob)Packages/macOS/CmuxNext/Sources/**/*.xcstrings",
 ]
 # The key hashes every CmuxNext catalog (a superset is safe for a cache key); the web CI routing
