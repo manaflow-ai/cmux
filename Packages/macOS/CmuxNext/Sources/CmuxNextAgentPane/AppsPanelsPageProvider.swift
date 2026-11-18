@@ -11,7 +11,8 @@ import UniformTypeIdentifiers
 /// Store's event handling.
 ///
 /// Ops: `list`, `composer` (the composer's extension slash commands and mention providers, as the
-/// daemon answers `apps.composer.list`), `mount {surface, app, section?, context}` (answers `{mount_id, asset_base?}`),
+/// daemon answers `apps.composer.list`), `mentions {query, prefix?, limit?}` (the extension `@` items
+/// that match, as the daemon ranks them in `apps.composer.mentions`), `mount {surface, app, section?, context}` (answers `{mount_id, asset_base?}`),
 /// `dispatch` and `reload {mount_id}` (both only from the person's own click or key), `layout
 /// {mount_id, height}` and `unmount`. The `scene` stream carries each mount's ops batches and its
 /// status, `{mount_id, status: loading|ready|failed|disconnected, reason?}`, as the host model has it.
@@ -77,6 +78,19 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
             // The daemon decides what the composer lists; the page gets its reply as it is.
             do {
                 return try await pageJSON(client.composerPlaces())
+            } catch {
+                throw PageError.failed(error, code: "cmux.apps.panels.failed", retryable: true)
+            }
+        case Self.namespace + "mentions":
+            // The daemon matches and ranks the items; the page gets its reply as it is.
+            guard let query = params["query"]?.stringValue else {
+                throw PageError.invalidParams("query is required")
+            }
+            var args: [String: AppJSON] = ["query": .string(query)]
+            if let prefix = params["prefix"]?.stringValue { args["prefix"] = .string(prefix) }
+            if let limit = params["limit"]?.intValue { args["limit"] = .number(Double(limit)) }
+            do {
+                return try await pageJSON(client.composerMentions(.object(args)))
             } catch {
                 throw PageError.failed(error, code: "cmux.apps.panels.failed", retryable: true)
             }

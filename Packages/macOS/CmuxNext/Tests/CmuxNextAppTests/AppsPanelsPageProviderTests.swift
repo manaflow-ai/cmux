@@ -34,6 +34,26 @@ import Testing
         #expect(command?["extension"]?.stringValue == "Standup")
     }
 
+    /// An `@` word asks the daemon for the extension items that match it; the page gets them as they are.
+    @Test func forwardsTheComposerMentionsQueryAndAnswer() async throws {
+        let transport = FakePanelsTransport()
+        let client = AppsClient(transport: transport)
+        client.start()
+        for _ in 0..<100 where !client.hasList { await Task.yield() }
+        let provider = AppsPanelsPageProvider(client: client)
+        #expect(PageDescriptor.agent.admits("cmux.apps.panels.mentions"))
+        let found = try await provider.call("cmux.apps.panels.mentions",
+                                            params: .object(["query": "441", "prefix": "pr"]), context: Self.page)
+        #expect(transport.mentionQueries.first?["query"]?.stringValue == "441")
+        #expect(transport.mentionQueries.first?["prefix"]?.stringValue == "pr")
+        let mention = found["mentions"]?.arrayValue?.first
+        #expect(mention?["label"]?.stringValue == "#44139 Screen sharing")
+        #expect(mention?["insert"]?.stringValue == "PR #44139")
+        await #expect(throws: PageError.self) {
+            try await provider.call("cmux.apps.panels.mentions", params: .object([:]), context: Self.page)
+        }
+    }
+
     @Test func forwardsListMountSceneDispatchAndUnmountsOnClose() async throws {
         let transport = FakePanelsTransport()
         let client = AppsClient(transport: transport)
@@ -340,6 +360,12 @@ private final class FakePanelsTransport: AppsTransport {
         ["commands": [["app": "local/standup", "extension": "Standup", "name": "standup",
                        "description": "Ask for today's standup", "insert": "Write my standup notes."]],
          "mentions": []]
+    }
+    var mentionQueries: [AppJSON] = []
+    func composerMentions(_ args: AppJSON) async throws(AppsTransportError) -> AppJSON {
+        mentionQueries.append(args)
+        return ["mentions": [["app": "local/team-flow", "extension": "Team flow", "prefix": "pr", "id": "44139",
+                              "label": "#44139 Screen sharing", "insert": "PR #44139"]]]
     }
     func set(app: String, change: AppChange, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppRecord {
         throw AppsTransportError(message: "unused")
