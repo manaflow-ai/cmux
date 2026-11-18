@@ -50,7 +50,7 @@ extension GitHubConnections {
             guard current() == bound else { return nil }
             let team = backendTeam(project: auth.configuration.stackProjectID, stackTeam: bound.team) ?? personalTeam(user: bound.user)
             let access: CloudOwnerAPIClient.AccessToken = { try await auth.tokens().access }
-            return await CloudOwnerAPIClient(baseURL: ownerAPI, accessToken: access, teamID: { team })
+            return await CloudOwnerAPIClient(baseURL: ownerAPI, accessToken: access, teamID: { team }, buildSpace: auth.configuration.buildSpace)
                 .gitHubReconfigureURL(team: team)
         }
         return model
