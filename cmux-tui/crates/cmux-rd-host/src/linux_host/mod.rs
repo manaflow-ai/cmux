@@ -293,7 +293,7 @@ fn load_locked() -> Res<(std::path::PathBuf, Hub, Account, serving::Lock)> {
     let hub = match machine::Joined::load(&dir)? {
         // Only the current join's host serves (serving.rs).
         Some(joined) => {
-            let credential = serving::current_join(&dir, &joined)?;
+            let credential = serving::current_join(&dir, &account.hub, &joined)?;
             Hub::with_renewal(&account.hub, device, None, machine_renewal(credential))?
         }
         // A person's sign-in is always anchored; an unanchored one with no join record is a join

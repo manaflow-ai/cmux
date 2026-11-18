@@ -242,6 +242,7 @@ pub(super) fn still_current(dir: &Path, unit: &dyn Unit) -> Res<()> {
 /// join's, or it serves nothing (a unit started for an earlier join, or after a leave).
 pub(super) fn current_join(
     dir: &Path,
+    _hub_url: &str,
     joined: &machine::Joined,
 ) -> Res<machine::MachineCredential> {
     let credential = machine::load(&joined.acpmux_home)?
