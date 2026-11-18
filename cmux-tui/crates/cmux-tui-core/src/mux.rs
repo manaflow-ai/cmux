@@ -8521,6 +8521,11 @@ impl Mux {
         }
         if let (Some(workspace_key), Some(reservation)) = (workspace_key, reservation.as_ref()) {
             let terminal_hex = reservation.terminal_id.to_hex();
+            // The incarnation is the terminal's output generation: the reader
+            // records output under it and the exit snapshot matches it. It
+            // is chosen before the reservation commits, so failing to choose
+            // one leaves no launching terminal behind.
+            let incarnation = TerminalId::random()?.to_hex();
             let launch_spec = terminal_launch_spec(&opts);
             let terminal = RegistryTerminal {
                 terminal_id: terminal_hex.clone(),
@@ -8557,9 +8562,6 @@ impl Mux {
             {
                 hook(&terminal_hex);
             }
-            // The incarnation is the terminal's output generation: the reader
-            // records output under it and the exit snapshot matches it.
-            let incarnation = TerminalId::random()?.to_hex();
             #[cfg(test)]
             let surface_result = if self.test_surface_runtime {
                 Surface::spawn_for_test_at_cell_pixels(id, opts, Arc::downgrade(self), cell_pixels)
@@ -10495,6 +10497,16 @@ impl Mux {
     }
 
     #[cfg(test)]
+    pub(crate) fn terminal_resource_id_for_test(&self, terminal_id: &str) -> TerminalPublicId {
+        self.workspace_registry
+            .lock()
+            .unwrap()
+            .terminal_resource_id(terminal_id)
+            .unwrap()
+            .expect("a seeded terminal has a public id")
+    }
+
+    #[cfg(test)]
     pub(crate) fn set_terminal_close_failure_for_test(&self, enabled: bool) -> anyhow::Result<()> {
         self.workspace_registry.lock().unwrap().set_terminal_close_failure(enabled)
     }
@@ -10980,7 +10992,6 @@ impl Mux {
             (commit, incarnation, public_id.clone(), newly_closed.then_some(public_id).flatten())
         };
         self.notify_terminal_exit_waiters(notify_public_id);
-        let mut closed_public_id = None;
         let (target, removed, runtime, changed_screens, empty_revision) = {
             let mut state = self.state.lock().unwrap();
             let catalog_public_id = public_id.or_else(|| {
@@ -10994,7 +11005,6 @@ impl Mux {
                 .as_ref()
                 .and_then(|public_id| state.terminal_catalog.get(public_id))
                 .cloned();
-            closed_public_id = catalog_public_id.clone();
             // The durable close has committed. From this point cleanup must
             // finish even if an in-memory host incarnation was stale; leaving
             // a live runtime behind would contradict the terminal tombstone.
@@ -11036,10 +11046,6 @@ impl Mux {
         };
         for surface in removed {
             self.purge_surface_side_tables(surface.id);
-        }
-        // A closed terminal's output is not read again: drop its tail too.
-        if let Some(public_id) = &closed_public_id {
-            self.output_store.discard(public_id);
         }
         let had_runtime = runtime.is_some();
         if let Some(runtime) = runtime {
@@ -33050,6 +33056,22 @@ mod tests {
         let after_exit = marker(&mux).expect("the tail stays readable after the exit");
         assert_eq!(after_exit["complete"], true, "{after_exit}");
         mux.shutdown();
+    }
+
+    /// A clear request in an alternate-screen application without a
+    /// fallback key clears nothing, so the output store keeps its tail.
+    #[test]
+    fn a_clear_that_clears_nothing_keeps_the_output_store_tail() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal = surface.terminal_public_id().cloned().expect("a resource terminal");
+        mux.output_store.append(&terminal, &Arc::from("test-generation"), b"kept output");
+        surface.apply_stream_output_for_test(b"\x1b[?1049h").unwrap();
+
+        surface.clear_history_or_encode_key_classified(None).unwrap();
+        let window = mux.output_store.read_after(&terminal, 0, 1 << 20).unwrap();
+        assert_eq!(window.bytes, b"kept output");
+        assert_eq!((window.start_offset, window.next_offset), (0, 11));
     }
 
     /// An in-process terminal records its output under its registry

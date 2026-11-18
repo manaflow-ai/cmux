@@ -329,13 +329,20 @@ output now:
   snapshots keep no screen either); `snapshot` (default) writes one gzip VT
   replay per terminal (screen plus about 2,000 recent lines, at most 4 MiB),
   replaced atomically, only when the terminal's text, size, screen or history
-  changed, at most every 30 s, at a journal checkpoint and at quit. The files
+  changed, at most every 30 s, at a journal checkpoint and at quit (those two
+  also record a stream end that moved without a content change). The files
   share a 50 MB cap; the oldest go first. The snapshot capture holds the
   terminal's parser lock for one digest of the visible text and, when it
   changed, one bounded replay. A daemon that re-adopts a live terminal host
-  continues the terminal's stream offsets from its snapshot. Clearing a
-  terminal's history drops its stored output and rewrites its snapshot at
-  once.
+  continues the terminal's stream offsets from its snapshot (or, for a
+  terminal without one, from the output records an older daemon journaled).
+  Clearing a terminal's history drops its stored output and rewrites its
+  snapshot at once.
+- A terminal that leaves the daemon (an exit under the close policy, a
+  close) keeps its tail readable in memory, for the 64 most recent such
+  terminals. With no stream in this daemon and no exit snapshot,
+  `terminal.output_read` serves the output records an older daemon journaled,
+  whole records as before.
 
 Accepted geometry changes and the small `terminal.output.gap` markers
 (`host_reconnect`; no bytes) still use the FIFO terminal lane. Registries

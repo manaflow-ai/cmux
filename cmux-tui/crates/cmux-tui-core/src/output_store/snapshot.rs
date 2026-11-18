@@ -195,7 +195,7 @@ pub(super) fn write_pass(mux: &Mux, store: &OutputStore, final_end: bool) {
     let policy = store.policy;
     let _pass = store.lock_pass();
     let dirty = store.take_dirty();
-    let prune_pending = store.prune_pending.swap(false, std::sync::atomic::Ordering::AcqRel);
+    let prune_pending = store.prune_pending.swap(false, Ordering::AcqRel);
     if prune_pending || policy.mode == PersistenceMode::Memory {
         prune(mux, store);
     }
@@ -241,6 +241,7 @@ pub(super) fn write_pass(mux: &Mux, store: &OutputStore, final_end: bool) {
                 let mut state = log.state();
                 state.snapshot_digest = Some(digest);
                 state.snapshot_end = Some(stream_end);
+                state.retries = 0;
                 wrote = true;
             }
             Err(error) => {
@@ -327,9 +328,12 @@ fn write(
         let _ = fs::remove_file(&staged);
         return Err(error);
     }
-    // The rename is durable once the directory entry is.
+    // The rename is durable once the directory entry is. The new file is in
+    // place either way, so a failed directory sync is only reported.
     #[cfg(unix)]
-    fs::File::open(directory)?.sync_all()?;
+    if let Err(error) = fs::File::open(directory).and_then(|directory| directory.sync_all()) {
+        eprintln!("cmux-tui: terminal output snapshot directory was not synced: {error}");
+    }
     Ok(())
 }
 

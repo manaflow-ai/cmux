@@ -11756,6 +11756,7 @@
         "Works on live terminals and on exited ones, including exited terminals whose views were detached: the selector resolves the durable exit receipt exactly like terminal.wait_exit.",
         "start_offset may exceed the requested cursor when earlier bytes are no longer retained. The daemon keeps a bounded recent tail of each terminal's output; a terminal re-adopted after a daemon restart continues its stream at the offset the daemon last recorded (each journal checkpoint and quit records it).",
         "A cursor past the end of the stream (from a daemon that stopped without recording its end, or from before the terminal restarted) starts the window at the oldest retained byte: start_offset below the cursor tells the client to reset its cursor and screen. Offsets of a re-adopted terminal can also restart below cursors served before an unclean daemon stop.",
+        "Output an older daemon journaled as records (served while the terminal has no newer stream and no exit snapshot) keeps record windows: a cursor inside a record starts the window at that record's start, below the cursor.",
         "A cursor before the terminal's exit-snapshot coverage returns the snapshot's screen projection instead of raw output: start_offset is 0 and next_offset is the snapshot coverage end.",
         "Each window is rendered on its own through a fresh terminal, so a window that starts or ends mid-sequence may show replacement characters or lose styling at that edge; a snapshot window cannot."
       ]

@@ -61,6 +61,9 @@ const STORE_DIRECTORY: &str = "terminal-output";
 /// answer `terminal.output_read` after the runtime is gone); the oldest go
 /// first, so at most this many times [`OUTPUT_TAIL_BYTES`] stay in memory.
 const RETIRED_TAILS: usize = 64;
+/// A snapshot that could not be captured or written is tried again this many
+/// times before it waits for the terminal's next output.
+const SNAPSHOT_RETRIES: u8 = 3;
 
 /// What the store keeps on disk.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -129,6 +132,8 @@ struct LogState {
     /// Moves when the person clears the history: a screen captured before
     /// the clear is not written after it.
     clear_epoch: u64,
+    /// Snapshot retries since the last write or output.
+    retries: u8,
 }
 
 impl LogState {
@@ -255,6 +260,9 @@ impl OutputStore {
         // before the upgrade stay meaningful.
         let mut resume = mux.legacy_terminal_stream_ends();
         resume.extend(snapshot::stream_ends(directory));
+        if let Ok(live) = mux.live_terminal_public_ids() {
+            resume.retain(|terminal_id, _| live.contains(terminal_id));
+        }
         *self.resume.lock().unwrap_or_else(PoisonError::into_inner) = resume;
         self.writer.start(Arc::downgrade(mux))
     }
@@ -264,18 +272,22 @@ impl OutputStore {
         if let Some(log) = logs.get(terminal_id) {
             return log.clone();
         }
-        // A terminal that left and came back continues its stream (a new
-        // generation still starts at offset 0, see `append`).
-        let revived = {
+        {
             let mut retired = self.retired.lock().unwrap_or_else(PoisonError::into_inner);
-            retired
-                .iter()
-                .position(|log| log.terminal_id == *terminal_id)
-                .and_then(|index| retired.remove(index))
-        };
-        if let Some(log) = revived {
-            logs.insert(terminal_id.clone(), log.clone());
-            return log;
+            if let Some(index) = retired.iter().position(|log| log.terminal_id == *terminal_id) {
+                // Output of the departed incarnation that its reader handed
+                // over before it stopped joins the departed tail (bounded);
+                // it does not make the terminal live again.
+                if retired[index].state().generation == *generation {
+                    return retired[index].clone();
+                }
+                // A new incarnation (a respawn) is live: its stream starts
+                // at offset 0 (see `append`).
+                if let Some(log) = retired.remove(index) {
+                    logs.insert(terminal_id.clone(), log.clone());
+                    return log;
+                }
+            }
         }
         // A terminal this daemon re-adopted continues its stream where the
         // last snapshot left it (a client's cursor stays meaningful).
@@ -296,6 +308,7 @@ impl OutputStore {
                 snapshot_digest: None,
                 snapshot_end: None,
                 clear_epoch: 0,
+                retries: 0,
             }),
             write: Mutex::new(()),
         });
@@ -331,6 +344,7 @@ impl OutputStore {
         state.tail.drain(..drained);
         state.tail_start += overflow as u64 + skipped;
         state.tail.extend(&bytes[bytes.len() - keep..]);
+        state.retries = 0;
         if !state.dirty && !self.memory_only() {
             state.dirty = true;
             drop(state);
@@ -419,21 +433,26 @@ impl OutputStore {
     }
 
     /// Forget a terminal runtime that left this daemon (its exit under the
-    /// close policy, a close, a restart). Its tail stays readable among the
+    /// close policy, a close). Its tail stays readable among the
     /// [`RETIRED_TAILS`] most recent ones, in memory only, so an exit
-    /// receipt still answers `terminal.output_read`. The next write pass
+    /// receipt still answers `terminal.output_read` (as the journaled
+    /// records did until retention removed them). The next write pass
     /// removes the files of terminals that left the session, including a
     /// snapshot an earlier daemon wrote for a terminal that printed nothing
     /// in this one.
     pub(crate) fn forget(&self, terminal_id: &TerminalPublicId) {
-        let removed = self.logs.lock().unwrap_or_else(PoisonError::into_inner).remove(terminal_id);
-        if let Some(log) = removed {
-            let mut retired = self.retired.lock().unwrap_or_else(PoisonError::into_inner);
-            retired.retain(|retired| retired.terminal_id != *terminal_id);
-            if retired.len() == RETIRED_TAILS {
-                retired.pop_front();
+        {
+            // Under the logs lock, so an append meanwhile finds the log in
+            // one of the two places.
+            let mut logs = self.logs.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(log) = logs.remove(terminal_id) {
+                let mut retired = self.retired.lock().unwrap_or_else(PoisonError::into_inner);
+                retired.retain(|retired| retired.terminal_id != *terminal_id);
+                if retired.len() == RETIRED_TAILS {
+                    retired.pop_front();
+                }
+                retired.push_back(log);
             }
-            retired.push_back(log);
         }
         self.resume.lock().unwrap_or_else(PoisonError::into_inner).remove(terminal_id);
         if !self.memory_only() {
@@ -442,20 +461,18 @@ impl OutputStore {
         }
     }
 
-    /// Drop everything kept for a terminal the person closed: its live and
-    /// retired tail (its files go with the next pass, as in [`Self::forget`]).
-    pub(crate) fn discard(&self, terminal_id: &TerminalPublicId) {
-        self.forget(terminal_id);
-        self.retired
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .retain(|retired| retired.terminal_id != *terminal_id);
-    }
-
     /// A capture or write of this log's snapshot did not happen: try again
-    /// with the next pass rather than wait for the terminal's next output.
+    /// with a later pass rather than wait for the terminal's next output,
+    /// at most [`SNAPSHOT_RETRIES`] times in a row (new output tries again).
     fn retry_later(&self, log: &TerminalLog) {
-        log.state().dirty = true;
+        {
+            let mut state = log.state();
+            if state.retries >= SNAPSHOT_RETRIES {
+                return;
+            }
+            state.retries += 1;
+            state.dirty = true;
+        }
         self.writer.mark_dirty(self.snapshot_interval);
     }
 
@@ -543,22 +560,28 @@ mod tests {
         // A new incarnation starts a new stream at offset 0.
         let next: Arc<str> = Arc::from("generation-two");
         store.append(&terminal, &next, b"fresh");
-        assert_eq!(store.stream_end(&terminal), Some((next, 5)));
+        assert_eq!(store.stream_end(&terminal), Some((next.clone(), 5)));
 
         store.history_cleared(&terminal);
         let window = store.read_after(&terminal, 0, 1 << 20).unwrap();
         assert_eq!((window.start_offset, window.next_offset), (5, 5));
         assert!(window.bytes.is_empty());
 
-        // A terminal that left the daemon stays readable; a closed one not.
+        // A terminal that left the daemon stays readable. Output its reader
+        // hands over after that (before the runtime stops) joins that tail;
+        // it does not bring the terminal back among the live ones.
         store.append(&terminal, &next, b" tail");
         store.forget(&terminal);
+        store.append(&terminal, &next, b" late");
+        assert!(store.logs.lock().unwrap().is_empty(), "late output revived a departed log");
         let window = store.read_after(&terminal, 5, 1 << 20).unwrap();
-        assert_eq!((window.start_offset, window.next_offset), (5, 10));
-        assert_eq!(window.bytes, b" tail");
-        store.discard(&terminal);
-        assert!(store.stream_end(&terminal).is_none());
-        assert!(store.read_after(&terminal, 0, 1 << 20).is_none());
+        assert_eq!((window.start_offset, window.next_offset), (5, 15));
+        assert_eq!(window.bytes, b" tail late");
+        // A new incarnation of the terminal (a respawn) is live again.
+        let respawned: Arc<str> = Arc::from("generation-three");
+        store.append(&terminal, &respawned, b"again");
+        assert_eq!(store.stream_end(&terminal), Some((respawned, 5)));
+        assert_eq!(store.logs.lock().unwrap().len(), 1);
     }
 
     /// A cursor past the end (a daemon that stopped before it recorded the
@@ -596,7 +619,7 @@ mod tests {
         }
         assert!(store.stream_end(&terminals[0]).is_none(), "the oldest tail was kept");
         assert!(terminals[1..].iter().all(|terminal| store.stream_end(terminal).is_some()));
-        // A terminal that comes back (a respawn) writes a live stream again.
+        // Late output of a departed terminal joins its kept tail.
         store.append(&terminals[1], &generation, b"!");
         assert_eq!(store.stream_end(&terminals[1]), Some((generation, 7)));
     }
@@ -668,8 +691,7 @@ mod tests {
         let surface_id =
             mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
         let surface = mux.surface(surface_id).unwrap();
-        let terminal =
-            mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
+        let terminal = mux.terminal_resource_id_for_test(TERMINAL);
         let generation: Arc<str> = Arc::from(INCARNATION);
         let print = |bytes: &[u8]| {
             surface.apply_stream_output_for_test(bytes).unwrap();
@@ -689,6 +711,41 @@ mod tests {
         mux.output_store.write_now(&mux);
         let end = 11 + cursor.len() as u64;
         assert_eq!(recorded(), Some((INCARNATION.to_string(), end)));
+
+        mux.shutdown();
+        drop(mux);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// A snapshot write that failed is retried by a later pass even when
+    /// the terminal prints nothing more.
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_snapshot_write_is_retried_without_new_output() {
+        const TERMINAL: &str = "00000000000040008000000000000094";
+        const INCARNATION: &str = "10000000000040008000000000000094";
+        let (mux, root) = persistent_mux("retry");
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let surface_id =
+            mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+        let surface = mux.surface(surface_id).unwrap();
+        let terminal = mux.terminal_resource_id_for_test(TERMINAL);
+        let printed: &[u8] = b"retried text\r\n";
+        surface.apply_stream_output_for_test(printed).unwrap();
+        mux.output_store.append(&terminal, &Arc::from(INCARNATION), printed);
+        let directory = mux.output_store.directory().unwrap().to_path_buf();
+        // A directory that is not empty where the file goes: the write fails.
+        let target = directory.join(format!("{}.snap", terminal.as_str()));
+        std::fs::create_dir_all(target.join("occupied")).unwrap();
+        snapshot::write_pass(&mux, &mux.output_store, false);
+        assert!(snapshot::stream_ends(&directory).get(&terminal).is_none());
+
+        std::fs::remove_dir_all(&target).unwrap();
+        snapshot::write_pass(&mux, &mux.output_store, false);
+        assert_eq!(
+            snapshot::stream_ends(&directory).get(&terminal),
+            Some(&(INCARNATION.to_string(), printed.len() as u64))
+        );
 
         mux.shutdown();
         drop(mux);
