@@ -1,7 +1,8 @@
 // A change in flight in a Settings card disables its rows' controls and draws no row again (visible-
-// only rule 2): a harness's accounts (a routing switch), the Customization Library (a switch) and
-// Shared Links (a Revoke). The controls sit in a disabled fieldset (cardWindow.ts cardBusy,
-// ProviderAccounts' BusyControls), so the browser disables them with no React render of a row. Each
+// only rule 2): a harness's accounts (a routing switch), the Customization Library (a switch),
+// Shared Links (a Revoke) and Channels (a Switch or Go Back). The controls sit in a disabled fieldset
+// (cardWindow.ts cardBusy, ProviderAccounts' BusyControls, ChannelsCard's SwitchWaits), so the
+// browser disables them with no React render of a row. Each
 // test holds the change until it lets it answer, so only `busy` changes, on and off, and counts the
 // rows React's commits touched (test/support/commitRenders.ts). It also checks every row control:
 // the ones a change waits for match `:disabled` and fire nothing, and the ones that never waited
@@ -17,6 +18,7 @@ import type { Rendered } from "./testing";
 import { installVirtualSizes } from "../../../test/support/virtualSizes";
 import { installCardRects, settingsCardSizes } from "../../../test/support/settingsCardSizes";
 import { manyShares } from "../../../test/support/settingsCardFixtures";
+import { mockGoBack } from "./mockChannels";
 import { rowRenders } from "../../../test/support/commitRenders";
 
 const restore = installDom();
@@ -266,4 +268,86 @@ test("Shared Links: a revoke in flight disables every Revoke and draws no row, o
   expect(renders.end()).toMatchObject({ rerendered: 0, added: 0 });
   expect(revokes().some(disabled)).toBe(false);
   expect(revokes().some(marked)).toBe(false);
+});
+
+const channelRows = '[data-card="channels"] [data-channel-build]';
+
+test("Channels: a Go Back in flight disables every build's Switch, keeps every link usable, and draws no build row, on and off", async () => {
+  page = await renderPage({
+    path: "/settings/updates",
+    setup: (provider) => (provider.channelSwitch = mockGoBack),
+  });
+  await settle();
+  await act(async () => page!.store.set("updates.channel", "nightly"));
+  await settle();
+  const rows = () => [...page!.container.querySelectorAll<HTMLElement>(channelRows)];
+  const switches = () => rows().flatMap((row) => [...row.querySelectorAll<HTMLElement>("[data-channel-switch-build]")]);
+  const links = () => rows().flatMap((row) => [...row.querySelectorAll<HTMLAnchorElement>("a[href]")]);
+  expect(rows().length).toBeGreaterThan(5);
+  expect(switches().length).toBeGreaterThan(5);
+  expect(links().length).toBeGreaterThan(5);
+  expect(switches().some(disabled)).toBe(false);
+  const change = held(null);
+  page.store.channelsGoBack = change.run;
+  const switched = held(null);
+  page.store.channelsSwitchBuild = switched.run;
+
+  // The Go Back is the way back's row, not a build row: no build row runs it.
+  const renders = rowRenders();
+  renders.begin(page.container, channelRows);
+  await click(page.container.querySelector("[data-channel-go-back]")!);
+  expect(renders.end()).toMatchObject({ rerendered: 0, added: 0 });
+  expect(change.calls()).toBe(1);
+  // A build row's one control, its Switch, waits; its links (commit, PRs, changes since yours) never did.
+  expect(rows().flatMap(controls)).toEqual(switches());
+  expect(switches().every(disabled)).toBe(true);
+  // Each one also says so itself, so Chromium's accessibility tree drops `focusable` from it.
+  expect(switches().every((one) => one.getAttribute("aria-disabled") === "true")).toBe(true);
+  await click(switches()[0]!);
+  expect(switched.calls()).toBe(0);
+  expect(change.calls()).toBe(1);
+  expect(links().some((link) => link.closest("fieldset") !== null)).toBe(false);
+  let followed = 0;
+  const link = links()[0]!;
+  link.addEventListener("click", (event) => {
+    event.preventDefault();
+    followed += 1;
+  });
+  await click(link);
+  expect(followed).toBe(1);
+
+  renders.begin(page.container, channelRows);
+  await act(async () => change.answer());
+  await settle();
+  expect(renders.end()).toMatchObject({ rerendered: 0, added: 0 });
+  expect(switches().some(disabled)).toBe(false);
+  expect(switches().some((one) => one.hasAttribute("aria-disabled"))).toBe(false);
+});
+
+test("Channels: a build's Switch in flight draws its own row alone, on and off", async () => {
+  page = await renderPage({ path: "/settings/updates" });
+  await settle();
+  const rows = () => [...page!.container.querySelectorAll<HTMLElement>(channelRows)];
+  const switches = () => rows().flatMap((row) => [...row.querySelectorAll<HTMLElement>("[data-channel-switch-build]")]);
+  expect(rows().length).toBeGreaterThan(5);
+  const change = held(null);
+  page.store.channelsSwitchBuild = change.run;
+  const row = page.container.querySelector<HTMLElement>('[data-channel="dev"] [data-channel-build="3422"]')!;
+
+  const renders = rowRenders();
+  renders.begin(page.container, channelRows);
+  await click(row.querySelector("[data-channel-switch-build]")!);
+  // The clicked row shows its spinner; no other build row draws.
+  expect(renders.end()).toMatchObject({ rerendered: 1, added: 0 });
+  expect(row.dataset.running).toBe("");
+  expect(switches().every(disabled)).toBe(true);
+  await click(switches()[0]!);
+  expect(change.calls()).toBe(1);
+
+  renders.begin(page.container, channelRows);
+  await act(async () => change.answer());
+  await settle();
+  expect(renders.end()).toMatchObject({ rerendered: 1, added: 0 });
+  expect(row.dataset.running).toBeUndefined();
+  expect(switches().some(disabled)).toBe(false);
 });
