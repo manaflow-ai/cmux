@@ -127,4 +127,22 @@ struct MacScreenDeviceRowsCountTests {
         #expect(resize.rowsConfigured == 0)
         #expect(resize.rowsLaidOut == list.rowViewsAlive)
     }
+
+    /// What one device's change still costs over all N: the snapshot compare, the id index and the row tops
+    /// (values, no views). Printed in microseconds per update, the median of 20.
+    @Test(arguments: [100, 10_000])
+    func oneChangeValuePassCost(count: Int) {
+        let (window, home) = page(count)
+        defer { window.close() }
+        var micros: [Double] = []
+        for step in 0..<20 {
+            let snapshot = MacScreenHomeSnapshot(devices: .list(Self.devices(count, renamed: step % 2 == 0 ? 3 : 4)), sharingLook: .list)
+            let start = ContinuousClock.now
+            home.build(snapshot)
+            let took = ContinuousClock.now - start
+            micros.append(Double(took.components.attoseconds) / 1e12 + Double(took.components.seconds) * 1e6)
+        }
+        let median = micros.sorted()[micros.count / 2]
+        print("mac-screen-rows n=\(count) oneChangeBuildMicros=\(Int(median.rounded()))")
+    }
 }
