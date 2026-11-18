@@ -21,7 +21,9 @@ type LaunchHook = Arc<dyn Fn(u64, bool) + Send + Sync>;
 
 impl Mux {
     /// Runs `hook` once, in the next group leader, after it joined its
-    /// group and before it takes the creation fence.
+    /// group and before it takes the creation fence. A request for the quick
+    /// terminal that lost its plan runs it too, before its wait for that
+    /// fence: the one that comes first takes the hook.
     #[cfg(test)]
     pub(crate) fn set_creation_before_fence_hook_for_test(&self, hook: Box<dyn FnOnce() + Send>) {
         *self.creation_burst_seams.before_fence.lock().unwrap_or_else(PoisonError::into_inner) =
