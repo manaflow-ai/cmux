@@ -27,7 +27,7 @@
 // trees in one run, interleaved A B B A for `--rounds` rounds (default 6) with a base-against-base noise floor, and
 // prints each arm's median and spread (composer-arms.ts).
 //   bun bench/composer-typing.bench.ts [--lengths 60,1500,6000] [--keys 60] [--gap 80] [--modes idle,stream] [--dev] [--profile]
-//     [--arms A=.,B=../webviews-b] [--rounds 6] [--no-floor] [--engine webkit]
+//     [--arms A=.,B=../webviews-b] [--rounds 6] [--no-floor] [--engine webkit] [--cold]
 // `--engine webkit` types the same keys in Playwright's WebKit, the engine the Mac app ships: the page's own typing
 // rows (to_listener, to_work, to_frame) and the render counts only, since the layout, style, script and task columns,
 // --profile and --trace read Chromium's DevTools protocol.
@@ -61,6 +61,7 @@ const webviews = path.resolve(import.meta.dir, "..");
 const ARMS = parseArms(flag("--arms"), webviews);
 const ROUNDS = Number(flag("--rounds") ?? 6);
 const FLOOR = !argv.includes("--no-floor");
+const COLD = argv.includes("--cold");
 const ENGINE = flag("--engine") ?? "chromium";
 if (ENGINE !== "chromium" && ENGINE !== "webkit") throw new Error(`--engine must be chromium or webkit, not ${ENGINE}`);
 if (ENGINE === "webkit" && (PROFILE || TRACE))
@@ -191,10 +192,13 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
       );
     };
     await page.locator(PROMPT).first().click();
-    // Warm-up: the first keys load the composer's lazy parts (emoji data, the mention index).
-    for (const key of "warm") await page.keyboard.press(key);
-    await page.waitForTimeout(500);
-    for (let i = 0; i < 4; i += 1) await page.keyboard.press("Backspace");
+    // Warm-up: the first keys load the composer's lazy parts (emoji data, the mention index). With --cold the
+    // measured keys are the chat's first, as the perf cron's chat-anim part types them (agent-engine-bench.py).
+    if (!COLD) {
+      for (const key of "warm") await page.keyboard.press(key);
+      await page.waitForTimeout(500);
+      for (let i = 0; i < 4; i += 1) await page.keyboard.press("Backspace");
+    }
     await page.waitForTimeout(500);
     await page.evaluate(() => {
       const debug = (window as any).cmuxAcpmuxDebug;
