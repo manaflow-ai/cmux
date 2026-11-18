@@ -59,8 +59,8 @@ fn without_sidecars(root: &Path) {
     }
 }
 
-/// Opens, expects the failure, recovers, and opens a new registry.
-fn recovers(root: &Path, expect: impl Fn(&str) -> bool) -> PathBuf {
+/// Opens, expects the failure, recovers, and opens again.
+fn recovers(root: &Path, expect: impl Fn(&str) -> bool) -> RegistryRecovery {
     let error = match open(root) {
         Ok(mux) => {
             mux.shutdown();
@@ -69,13 +69,20 @@ fn recovers(root: &Path, expect: impl Fn(&str) -> bool) -> PathBuf {
         Err(error) => error,
     };
     assert!(expect(&format!("{error:#}")), "{error:#}");
-    let (_, recovery_dir) = recover_registry_after_failed_open(root, SESSION, &error)
+    let (_, recovery) = recover_registry_after_failed_open(root, SESSION, &error)
         .expect("the failure was not recognized as registry damage")
-        .unwrap_or_else(|error| panic!("the registry was not moved aside: {error:#}"));
-    assert!(recovery_dir.join(WORKSPACE_REGISTRY_FILE).is_file());
-    assert!(recovery_dir.starts_with(persistent_session_state_dir(root, SESSION)));
+        .unwrap_or_else(|error| panic!("the registry was not recovered: {error:#}"));
     let mux = open(root).unwrap_or_else(|error| panic!("open after recovery: {error:#}"));
     mux.shutdown();
+    recovery
+}
+
+fn quarantined(recovery: RegistryRecovery, root: &Path) -> PathBuf {
+    let RegistryRecovery::Quarantined(recovery_dir) = recovery else {
+        panic!("the registry was not moved aside: {recovery:?}");
+    };
+    assert!(recovery_dir.join(WORKSPACE_REGISTRY_FILE).is_file());
+    assert!(recovery_dir.starts_with(persistent_session_state_dir(root, SESSION)));
     recovery_dir
 }
 
@@ -88,7 +95,8 @@ fn startup_self_recovery_moves_aside_a_registry_that_is_not_a_database() {
     fs::write(db_path(root.path()), bytes).unwrap();
     without_sidecars(root.path());
 
-    let kept = recovers(root.path(), |error| error.contains("not a database"));
+    let kept =
+        quarantined(recovers(root.path(), |error| error.contains("not a database")), root.path());
     assert!(fs::read_to_string(kept.join("reason.txt")).unwrap().contains("not a database"));
 }
 
@@ -103,13 +111,14 @@ fn startup_self_recovery_moves_aside_a_malformed_registry() {
     fs::write(db_path(root.path()), bytes).unwrap();
     without_sidecars(root.path());
 
-    recovers(root.path(), |error| {
+    let recovery = recovers(root.path(), |error| {
         error.contains("malformed") || error.contains("integrity check failed")
     });
+    quarantined(recovery, root.path());
 }
 
 #[test]
-fn startup_self_recovery_moves_aside_unsettleable_interrupted_creations() {
+fn startup_self_recovery_settles_unsettleable_interrupted_creations_in_place() {
     let root = root();
     {
         let mut registry = WorkspaceRegistry::open(root.path(), SESSION).unwrap();
@@ -144,7 +153,13 @@ fn startup_self_recovery_moves_aside_unsettleable_interrupted_creations() {
         }
     }
 
-    recovers(root.path(), |error| error.contains("cannot be recovered atomically"));
+    let recovery = recovers(root.path(), |error| error.contains("cannot be recovered atomically"));
+    // The registry stays; only the older creation is abandoned.
+    assert_eq!(recovery, RegistryRecovery::AbandonedCreations(vec!["attempt-0".into()]));
+    assert!(db_path(root.path()).is_file());
+    assert!(
+        !persistent_session_state_dir(root.path(), SESSION).join(REGISTRY_RECOVERY_DIR).exists()
+    );
 }
 
 #[test]
@@ -152,7 +167,7 @@ fn startup_self_recovery_leaves_a_registry_another_daemon_holds() {
     let root = root();
     written_registry(root.path());
     let holder = WorkspaceRegistry::open(root.path(), SESSION).unwrap();
-    let damage = RegistryStartupDamage::InterruptedCreations("test".into());
+    let damage = RegistryStartupDamage::Unreadable("test".into());
 
     quarantine_session_registry(root.path(), SESSION, &damage)
         .expect_err("moved a registry another daemon has open");
@@ -191,4 +206,45 @@ fn startup_self_recovery_ignores_failures_that_are_not_damage() {
         None,
     ));
     assert_eq!(registry_startup_damage(&full), None);
+}
+
+#[test]
+fn startup_self_recovery_ignores_io_errors_that_are_not_reads() {
+    let locked = anyhow::Error::new(rusqlite::Error::SqliteFailure(
+        rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_IOERR_SHMOPEN),
+        Some("disk I/O error".into()),
+    ));
+    assert_eq!(registry_startup_damage(&locked), None);
+    let read = anyhow::Error::new(rusqlite::Error::SqliteFailure(
+        rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_IOERR_READ),
+        Some("disk I/O error".into()),
+    ));
+    assert!(matches!(registry_startup_damage(&read), Some(RegistryStartupDamage::Unreadable(_))));
+}
+
+#[test]
+fn startup_self_recovery_keeps_a_bounded_number_of_quarantined_registries() {
+    let root = root();
+    let recovery_root =
+        persistent_session_state_dir(root.path(), SESSION).join(REGISTRY_RECOVERY_DIR);
+    for index in 0..MAX_REGISTRY_QUARANTINES {
+        written_registry(root.path());
+        let mut bytes = fs::read(db_path(root.path())).unwrap();
+        bytes[..100].fill(0x5a);
+        fs::write(db_path(root.path()), bytes).unwrap();
+        without_sidecars(root.path());
+        let damage = RegistryStartupDamage::Unreadable(format!("damage {index}"));
+        quarantine_session_registry(root.path(), SESSION, &damage).unwrap();
+    }
+    written_registry(root.path());
+    let mut bytes = fs::read(db_path(root.path())).unwrap();
+    bytes[..100].fill(0x5a);
+    fs::write(db_path(root.path()), bytes).unwrap();
+    without_sidecars(root.path());
+    let damage = RegistryStartupDamage::Unreadable("one too many".into());
+
+    quarantine_session_registry(root.path(), SESSION, &damage)
+        .expect_err("kept quarantining past the bound");
+    assert!(db_path(root.path()).is_file());
+    assert_eq!(fs::read_dir(recovery_root).unwrap().count(), MAX_REGISTRY_QUARANTINES);
 }

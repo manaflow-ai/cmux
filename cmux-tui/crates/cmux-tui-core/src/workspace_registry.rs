@@ -98,8 +98,9 @@ use session_journal::{
 };
 pub(crate) use session_journal::{SessionJournalReader, unix_epoch_ms};
 pub use startup_recovery::{
-    RegistryIntegrityFailure, RegistryStartupDamage, UnrecoverableInterruptedCreations,
-    quarantine_session_registry, recover_registry_after_failed_open, registry_startup_damage,
+    RegistryIntegrityFailure, RegistryRecovery, RegistryStartupDamage,
+    UnrecoverableInterruptedCreations, quarantine_session_registry,
+    recover_registry_after_failed_open, registry_startup_damage,
 };
 
 // Schema 9 shipped independently on the journal and multiview development

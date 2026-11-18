@@ -142,14 +142,43 @@ fn startup_self_recovery_moves_aside_state_with_wrong_file_types() {
     let error = refusal(directory.path(), &state_root, session);
     assert!(!error.is_empty());
 
+    let fingerprint = info.daemon_fingerprint.clone();
     let actions = recovers_and_starts(directory.path(), &state_root, session);
-    assert!(actions.iter().any(|action| action.contains("fresh state")), "{actions:?}");
+    assert!(actions.iter().any(|action| action.contains("moved them")), "{actions:?}");
     let kept: Vec<_> =
         fs::read_dir(state_root.join(REMOTE_STATE_RECOVERY_DIR)).unwrap().flatten().collect();
     assert_eq!(kept.len(), 1, "{kept:?}");
     let kept = kept[0].path();
     assert!(fs::symlink_metadata(kept.join("shutdown.json")).unwrap().file_type().is_socket());
-    assert!(kept.join("auth").is_dir(), "the moved state lost its authorization");
+    assert!(kept.join("admin.sock").is_file());
+    // The authorization state stayed: same identity, so paired clients still trust it.
+    let runtime = start(directory.path(), &state_root, session).unwrap();
+    assert_eq!(runtime.info().daemon_fingerprint, fingerprint);
+    runtime.shutdown().unwrap();
+}
+
+/// A socket inside `auth/`: the whole session state moves aside.
+#[test]
+fn startup_self_recovery_moves_aside_state_whose_authorization_is_damaged() {
+    let directory = tempfile::tempdir_in("/tmp").unwrap();
+    let state_root = directory.path().join("state");
+    let session = "self-recovery-auth-file-types";
+    let runtime = start(directory.path(), &state_root, session).unwrap();
+    let state_dir = runtime.info().state_dir.clone();
+    runtime.shutdown().unwrap();
+    let devices = state_dir.join("auth").join("devices.json");
+    fs::remove_file(&devices).unwrap();
+    drop(std::os::unix::net::UnixListener::bind(&devices).unwrap());
+
+    let error = refusal(directory.path(), &state_root, session);
+    assert!(!error.is_empty());
+
+    let actions = recovers_and_starts(directory.path(), &state_root, session);
+    assert!(actions.iter().any(|action| action.contains("new identity")), "{actions:?}");
+    let kept: Vec<_> =
+        fs::read_dir(state_root.join(REMOTE_STATE_RECOVERY_DIR)).unwrap().flatten().collect();
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert!(kept[0].path().join("auth").is_dir(), "the moved state lost its authorization");
 }
 
 /// Nothing changes while a predecessor socket still answers.

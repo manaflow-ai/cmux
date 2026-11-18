@@ -120,7 +120,7 @@ pub use workspace_registry::{
     JournalProducer, JournalProducerManifest, JournalReplayPolicy, JournalSegment,
     JournalSensitivity, JournalSubject, PersistentSessionStateReset,
     PersistentSessionStateResetPreview, PersistentSessionStateResetter, ProjectionCommit,
-    RegistryCommit, RegistryEvent, RegistryIntegrityFailure, RegistrySnapshot,
+    RegistryCommit, RegistryEvent, RegistryIntegrityFailure, RegistryRecovery, RegistrySnapshot,
     RegistryStartupDamage, RegistryWorkspace, SessionJournalPage, SessionJournalRecord,
     UnrecoverableInterruptedCreations, UnsupportedWorkspaceRegistrySchema, WorkspaceMutation,
     WorkspaceRegistry, quarantine_session_registry, recover_registry_after_failed_open,

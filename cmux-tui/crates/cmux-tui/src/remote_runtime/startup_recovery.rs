@@ -19,11 +19,15 @@
 //! workspace registry's writer lease and the bound session socket, which any
 //! live predecessor of the same session would hold.
 //!
-//! A state directory whose fixed entries have the wrong file type (a socket
-//! where `shutdown.json` belongs, a regular file at `admin.sock`, a device in
-//! `auth/`) cannot be read by any acknowledgement. After the same socket
-//! probe it moves whole to `<remote root>/recovery/<session>-<unix ms>/` and
-//! the daemon starts with fresh state.
+//! An entry with the wrong file type (a socket where `shutdown.json` belongs,
+//! a regular file at `admin.sock`) cannot be read by any acknowledgement.
+//! After the same socket probe each such entry moves into
+//! `<remote root>/recovery/<session>-<unix ms>/` and the acknowledgements
+//! handle what is left: a socket at `shutdown.json` becomes "no outcome". The
+//! authorization state stays, so the daemon keeps its identity and paired
+//! clients. Only when `auth/` itself is not a directory, or holds a socket,
+//! FIFO or device, does the whole session directory move there, and the
+//! daemon starts with a new identity.
 
 use super::*;
 
@@ -104,9 +108,10 @@ pub(crate) fn classify_predecessor_evidence(
     })
 }
 
-/// The first entry of `state_dir` whose file type no daemon wrote there, as
-/// `(path, what it should be)`.
-fn misplaced_entry(state_dir: &Path) -> anyhow::Result<Option<(PathBuf, &'static str)>> {
+/// The entries of `state_dir` whose file type no daemon wrote there, each as
+/// `(path, what it should be)`, and whether the authorization state itself is
+/// among them.
+fn misplaced_entries(state_dir: &Path) -> anyhow::Result<(Vec<(PathBuf, &'static str)>, bool)> {
     use std::os::unix::fs::FileTypeExt as _;
 
     let file_type = |path: &Path| -> anyhow::Result<Option<fs::FileType>> {
@@ -118,22 +123,26 @@ fn misplaced_entry(state_dir: &Path) -> anyhow::Result<Option<(PathBuf, &'static
             }
         }
     };
+    let mut misplaced = Vec::new();
     for name in ["runtime.json", "shutdown.json", "lifecycle-fence.json"] {
         let path = state_dir.join(name);
         if file_type(&path)?.is_some_and(|kind| !kind.is_file()) {
-            return Ok(Some((path, "a regular file")));
+            misplaced.push((path, "a regular file"));
         }
     }
     for name in ["link.sock", "admin.sock"] {
         let path = state_dir.join(name);
         if file_type(&path)?.is_some_and(|kind| !kind.is_socket()) {
-            return Ok(Some((path, "a socket")));
+            misplaced.push((path, "a socket"));
         }
     }
     let auth = state_dir.join("auth");
     match file_type(&auth)? {
         None => {}
-        Some(kind) if !kind.is_dir() => return Ok(Some((auth, "a directory"))),
+        Some(kind) if !kind.is_dir() => {
+            misplaced.push((auth, "a directory"));
+            return Ok((misplaced, true));
+        }
         Some(_) => {
             for entry in
                 fs::read_dir(&auth).with_context(|| format!("could not list {}", auth.display()))?
@@ -147,16 +156,63 @@ fn misplaced_entry(state_dir: &Path) -> anyhow::Result<Option<(PathBuf, &'static
                     || kind.is_char_device()
                     || kind.is_block_device()
                 {
-                    return Ok(Some((entry.path(), "a regular file or directory")));
+                    misplaced.push((entry.path(), "a regular file or directory"));
+                    return Ok((misplaced, true));
                 }
             }
         }
     }
-    Ok(None)
+    Ok((misplaced, false))
 }
 
-/// Moves the whole session state directory aside and returns where it went.
-fn quarantine_state_dir(state_dir: &Path) -> anyhow::Result<PathBuf> {
+/// Fails while any recorded or current socket path accepts a connection. A
+/// path that exists but is not a socket cannot be listened on, so it is
+/// skipped; every other connect error but "refused" and "not found" fails.
+async fn verify_sockets_inactive(
+    runtime: Option<&DaemonRuntimeInfo>,
+    link_socket: &Path,
+    admin_socket: &Path,
+) -> anyhow::Result<()> {
+    use std::os::unix::fs::FileTypeExt as _;
+
+    let mut sockets: Vec<&Path> = Vec::with_capacity(4);
+    if let Some(runtime) = runtime {
+        sockets.push(&runtime.link_socket);
+        sockets.push(&runtime.admin_socket);
+    }
+    for socket in [link_socket, admin_socket] {
+        if !sockets.contains(&socket) {
+            sockets.push(socket);
+        }
+    }
+    for socket in sockets {
+        if fs::symlink_metadata(socket).is_ok_and(|metadata| !metadata.file_type().is_socket()) {
+            continue;
+        }
+        match bounded_unix_socket_connect(tokio::net::UnixStream::connect(socket)).await {
+            Ok(_) => {
+                return Err(anyhow!(catalog().remote.refuse_active_socket(
+                    catalog().remote.legacy_finalization_label,
+                    &socket.display().to_string()
+                )));
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
+                ) => {}
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    catalog().remote.verify_socket_inactive(&socket.display().to_string())
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A new directory under `<remote root>/recovery/` for this session's state.
+fn new_recovery_dir(state_dir: &Path) -> anyhow::Result<PathBuf> {
     let component = state_dir
         .file_name()
         .ok_or_else(|| anyhow!("remote state directory has no name: {}", state_dir.display()))?;
@@ -178,18 +234,50 @@ fn quarantine_state_dir(state_dir: &Path) -> anyhow::Result<PathBuf> {
             0 => base.clone(),
             _ => format!("{base}-{attempt}"),
         };
-        let destination = recovery_root.join(name);
-        if destination.exists() {
-            continue;
+        let candidate = recovery_root.join(name);
+        match fs::create_dir(&candidate) {
+            Ok(()) => return Ok(candidate),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!("could not create recovery directory {}", candidate.display())
+                });
+            }
         }
-        fs::rename(state_dir, &destination).with_context(|| {
-            format!("could not move {} aside to {}", state_dir.display(), destination.display())
-        })?;
-        let _ = fs::File::open(sessions).and_then(|directory| directory.sync_all());
-        let _ = fs::File::open(&recovery_root).and_then(|directory| directory.sync_all());
-        return Ok(destination);
     }
     Err(anyhow!("no free remote state recovery directory under {}", recovery_root.display()))
+}
+
+/// Moves each misplaced entry into a new recovery directory.
+fn quarantine_entries(
+    state_dir: &Path,
+    entries: &[(PathBuf, &'static str)],
+) -> anyhow::Result<PathBuf> {
+    let destination = new_recovery_dir(state_dir)?;
+    for (path, _) in entries {
+        let target = destination.join(path.file_name().unwrap_or_default());
+        fs::rename(path, &target).with_context(|| {
+            format!("could not move {} aside to {}", path.display(), target.display())
+        })?;
+    }
+    let _ = fs::File::open(state_dir).and_then(|directory| directory.sync_all());
+    let _ = fs::File::open(&destination).and_then(|directory| directory.sync_all());
+    Ok(destination)
+}
+
+/// Moves the whole session state directory aside and returns where it went.
+fn quarantine_state_dir(state_dir: &Path) -> anyhow::Result<PathBuf> {
+    let destination = new_recovery_dir(state_dir)?;
+    // `new_recovery_dir` made an empty directory; the state replaces it.
+    fs::remove_dir(&destination)
+        .with_context(|| format!("could not prepare {}", destination.display()))?;
+    fs::rename(state_dir, &destination).with_context(|| {
+        format!("could not move {} aside to {}", state_dir.display(), destination.display())
+    })?;
+    if let Some(sessions) = state_dir.parent() {
+        let _ = fs::File::open(sessions).and_then(|directory| directory.sync_all());
+    }
+    Ok(destination)
 }
 
 /// Clears a dead predecessor's lifecycle evidence for the session's remote
@@ -224,29 +312,32 @@ pub(crate) async fn recover_state_dir(
     admin_socket: &Path,
 ) -> anyhow::Result<Vec<String>> {
     let mut actions = Vec::new();
-    if let Some((path, expected)) = misplaced_entry(state_dir)? {
+    let (misplaced, authorization_misplaced) = misplaced_entries(state_dir)?;
+    if !misplaced.is_empty() {
         // The runtime record names the predecessor's sockets when it is still
         // readable; the current defaults are probed either way.
         let runtime = fs::symlink_metadata(state_dir.join("runtime.json"))
             .ok()
             .filter(fs::Metadata::is_file)
             .and_then(|_| read_runtime_info(state_dir).ok().flatten());
-        verify_recovery_sockets_inactive(
-            runtime.as_ref(),
-            link_socket,
-            admin_socket,
-            catalog().remote.legacy_finalization_label,
-        )
-        .await?;
-        let destination = quarantine_state_dir(state_dir)?;
-        actions.push(format!(
-            "{} is not {expected}; moved the remote daemon state {} to {} and starting with \
-             fresh state",
-            path.display(),
-            state_dir.display(),
-            destination.display()
-        ));
-        return Ok(actions);
+        verify_sockets_inactive(runtime.as_ref(), link_socket, admin_socket).await?;
+        let found = misplaced
+            .iter()
+            .map(|(path, expected)| format!("{} is not {expected}", path.display()))
+            .collect::<Vec<_>>()
+            .join("; ");
+        if authorization_misplaced {
+            let destination = quarantine_state_dir(state_dir)?;
+            actions.push(format!(
+                "{found}; moved the remote daemon state {} to {} and starting with fresh \
+                 state and a new identity",
+                state_dir.display(),
+                destination.display()
+            ));
+            return Ok(actions);
+        }
+        let destination = quarantine_entries(state_dir, &misplaced)?;
+        actions.push(format!("{found}; moved them to {}", destination.display()));
     }
     for _ in 0..MAX_ACKNOWLEDGEMENTS {
         match classify_predecessor_evidence(state_dir)? {
