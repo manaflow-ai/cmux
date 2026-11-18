@@ -11,8 +11,9 @@
 //! process stays behind as the folder's server, answering over the dial it opened, and dials
 //! again when the link drops (the machine never dials this Mac).
 //!
-//! On by default for chats started from a folder past the copy's limits ([`super::size_cap`]);
-//! every smaller folder is still copied. `cmux link project disable` (or
+//! On by default for every chat started from a local folder, whatever its size and whether or
+//! not it is a git repository: a chat started from a GitHub repository the person picked is
+//! cloned on the machine instead, by its own path, never this one. `cmux link project disable` (or
 //! `CMUX_PROJECTED_FOLDERS=0`) turns it off, and `enable` turns it back on. What the agent writes stays on the machine for now; bringing it back is the
 //! next slice.
 //!
@@ -50,17 +51,20 @@ pub(crate) enum NotProjected {
     Small,
     /// The machine does not serve `projection-v1`.
     Unserved,
-    /// The folder is past the copy's limits and the machine's cmux-tui is older than this one and
-    /// lacks `projection-v1`: its `machine_outdated` line, so the App updates the machine to its
-    /// own build and starts again, projected ([`start`]).
-    Outdated(Value),
 }
 
 /// The listed folder: its manifest and, by manifest entry, what each file is read from.
 struct Listed {
     manifest: Manifest,
     served: Vec<Option<Served>>,
-    within_limits: bool,
+}
+
+fn ok(answer: &Value) -> bool {
+    answer.get("ok").and_then(Value::as_bool) == Some(true)
+}
+
+fn code(answer: &Value) -> Option<&str> {
+    answer.get("error_code").and_then(Value::as_str)
 }
 
 /// One file of the manifest as this Mac reads it.
@@ -151,7 +155,7 @@ fn name_of(remote: &str) -> String {
 }
 
 /// Projects `local` at `remote` on the machine at `socket` when projection is on, the folder is
-/// past the copy's limits and the machine serves it: starts this Mac's server for it (a process of
+/// attached from this Mac (always, when on) and the machine serves it: starts this Mac's server for it (a process of
 /// its own, which outlives this one) and answers once the machine has mounted it. Otherwise why
 /// not, and the caller copies as before.
 pub(crate) fn start(
@@ -164,19 +168,6 @@ pub(crate) fn start(
         return Ok(Err(NotProjected::Off));
     }
     if !machine_serves(socket) {
-        // A folder past the copy's limits on a machine whose older cmux-tui can't project it:
-        // `machine_outdated`, so the App updates the machine to its own build and copies again,
-        // projected, instead of a first pass without the folder's history and big files. A
-        // machine that is not older (nothing to update to) copies as before.
-        if let Some(outdated) = super::super::machine_gate::outdated(
-            socket,
-            &[cmux_tui_core::projection::PROJECTION_CAPABILITY],
-        )
-        .filter(|outdated| outdated.older)
-            && list(local).is_ok_and(|listed| !listed.within_limits)
-        {
-            return Ok(Err(NotProjected::Outdated(outdated.line())));
-        }
         return Ok(Err(NotProjected::Unserved));
     }
     let exe = std::env::current_exe().context("cannot find this cmux binary")?;
@@ -207,23 +198,27 @@ pub(crate) fn start(
     BufReader::new(stdout).read_line(&mut line).context("reading the folder's server")?;
     let answer: Value = serde_json::from_str(line.trim())
         .with_context(|| format!("the folder's server answered {line:?}"))?;
-    if answer["ok"] == true {
+    if ok(&answer) {
         // It runs on as the folder's server; `cmux link project stop --at REMOTE` ends it.
         let _ = std::fs::write(log.join(format!("{server}.pid")), child.id().to_string());
         child.detach("the folder's server outlives the start that made it");
         drop(child);
         let mut answer = answer;
-        answer["data"]["name"] = Value::from(name);
+        if let Some(data) = answer.get_mut("data").and_then(Value::as_object_mut) {
+            data.insert("name".into(), Value::from(name));
+        }
         return Ok(Ok(answer));
     }
     let _ = child.wait();
-    if answer["error_code"] == "projection.small" {
-        return Ok(Err(NotProjected::Small));
+    match code(&answer) {
+        Some("projection.small") => return Ok(Err(NotProjected::Small)),
+        Some("projection.unavailable") => return Ok(Err(NotProjected::Unserved)),
+        _ => {}
     }
-    if answer["error_code"] == "projection.unavailable" {
-        return Ok(Err(NotProjected::Unserved));
-    }
-    bail!("{}", answer["error"].as_str().unwrap_or("the machine refused the projection"))
+    bail!(
+        "{}",
+        answer.get("error").and_then(Value::as_str).unwrap_or("the machine refused the projection")
+    )
 }
 
 /// `stop --at REMOTE`: ends the server [`start`] left running for the projection at `REMOTE`.
@@ -251,7 +246,7 @@ fn stop(args: &[String]) -> anyhow::Result<Value> {
 /// Whether the machine's `identify` lists `projection-v1`.
 fn machine_serves(socket: &Path) -> bool {
     super::machine_call(socket, "identify", json!({})).is_ok_and(|identity| {
-        identity["capabilities"].as_array().is_some_and(|served| {
+        identity.get("capabilities").and_then(Value::as_array).is_some_and(|served| {
             served.iter().any(|name| name == cmux_tui_core::projection::PROJECTION_CAPABILITY)
         })
     })
@@ -282,14 +277,11 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     let started = Instant::now();
     let listed = list(&folder)?;
     let listed_ms = elapsed_ms(started);
-    if listed.within_limits && !any_size {
-        return Ok(
-            json!({"ok": false, "error_code": "projection.small", "error": "the folder is within the copy's limits"}),
-        );
-    }
+    // Every attached folder is projected, a small one too (`--any-size` stays for old callers).
+    let _ = any_size;
     let encoded = listed.manifest.encode()?;
     let (stream, mut answer) = dial(&socket, &name, &at, &encoded)?;
-    if answer["ok"] != true {
+    if !ok(&answer) {
         return Ok(answer);
     }
     if let Some(data) = answer.get_mut("data").and_then(Value::as_object_mut) {
@@ -341,10 +333,10 @@ fn serve_until_gone(
         std::thread::sleep(backoff);
         backoff = (backoff * 2).min(Duration::from_secs(10));
         match dial(socket, name, at, &[]) {
-            Ok((reader, answer)) if answer["ok"] == true => stream = Some(reader),
-            Ok((_, answer)) if answer["error_code"] == "projection.unknown" => {
+            Ok((reader, answer)) if ok(&answer) => stream = Some(reader),
+            Ok((_, answer)) if code(&answer) == Some("projection.unknown") => {
                 match dial(socket, name, at, encoded) {
-                    Ok((reader, answer)) if answer["ok"] == true => stream = Some(reader),
+                    Ok((reader, answer)) if ok(&answer) => stream = Some(reader),
                     Ok((_, answer)) => {
                         eprintln!(
                             "cmux link project: the machine refused the folder again: {answer}"
@@ -404,12 +396,9 @@ fn list(folder: &Path) -> anyhow::Result<Listed> {
     let stats = stat_all(&files);
     let mut items = Vec::with_capacity(files.len() + set.links.len());
     let mut kept = Vec::with_capacity(files.len());
-    let (mut bytes, mut count) = (0u64, 0u64);
     for ((relative, file), stat) in files.into_iter().zip(stats) {
         // A file gone or changed into something else since the listing is left out.
         let Some((size, mtime)) = stat else { continue };
-        bytes = bytes.saturating_add(size);
-        count += 1;
         items.push(Item {
             path: relative.clone(),
             kind: Kind::File,
@@ -443,8 +432,7 @@ fn list(folder: &Path) -> anyhow::Result<Listed> {
             *slot = Some(file);
         }
     }
-    let (max_bytes, max_files) = (super::size_cap::MAX_BYTES, super::size_cap::MAX_FILES);
-    Ok(Listed { manifest, served, within_limits: bytes <= max_bytes && count <= max_files })
+    Ok(Listed { manifest, served })
 }
 
 fn mtime_ns(meta: &std::fs::Metadata) -> i64 {
@@ -515,8 +503,8 @@ impl Source for Listed {
         let want = u64::from(len).min(served.size.saturating_sub(offset));
         let mut bytes = vec![0u8; usize::try_from(want).unwrap_or(0)];
         let mut got = 0usize;
-        while got < bytes.len() {
-            match opened.read_at(&mut bytes[got..], offset + got as u64) {
+        while let Some(rest) = bytes.get_mut(got..).filter(|rest| !rest.is_empty()) {
+            match opened.read_at(rest, offset.saturating_add(got as u64)) {
                 Ok(0) => break,
                 Ok(read) => got += read,
                 Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}

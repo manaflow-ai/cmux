@@ -12,7 +12,6 @@ fn the_manifest_holds_what_a_copy_sends_and_never_a_secret() {
     std::fs::write(root.join("node_modules/x/index.js"), "x\n").unwrap();
 
     let listed = list(&std::fs::canonicalize(root).unwrap()).unwrap();
-    assert!(listed.within_limits);
     let manifest = &listed.manifest;
     let main = manifest.resolve("src/main.rs").expect("src/main.rs is in the manifest");
     assert_eq!(manifest.entry(main).unwrap().size, 13);

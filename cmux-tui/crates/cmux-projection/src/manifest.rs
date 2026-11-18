@@ -246,16 +246,18 @@ impl Manifest {
     fn check(&self) -> anyhow::Result<()> {
         anyhow::ensure!(!self.entries.is_empty(), "the manifest has no folder");
         anyhow::ensure!(self.entries.len() <= MAX_ENTRIES, "more than {MAX_ENTRIES} paths");
-        let root = &self.entries[0];
+        let root = self.entries.first().ok_or_else(|| anyhow::anyhow!("the manifest has no folder"))?;
         anyhow::ensure!(
             root.kind == Kind::Dir && root.name.is_empty(),
             "entry 0 is not the folder"
         );
         let mut seen = vec![false; self.entries.len()];
-        seen[0] = true;
+        if let Some(first) = seen.first_mut() {
+            *first = true;
+        }
         for (index, entry) in self.entries.iter().enumerate() {
             if index != 0 {
-                anyhow::ensure!(seen[index], "entry {index} has no folder");
+                anyhow::ensure!(seen.get(index) == Some(&true), "entry {index} has no folder");
                 check_name(&entry.name)?;
             }
             if entry.kind != Kind::Dir {
@@ -268,19 +270,21 @@ impl Manifest {
                 .filter(|end| *end <= self.entries.len())
                 .ok_or_else(|| anyhow::anyhow!("entry {index}'s children are out of range"))?;
             anyhow::ensure!(entry.children == 0 || start > index, "entry {index} loops");
-            for (child, seen) in seen.iter_mut().enumerate().take(end).skip(start) {
+            let mut before: Option<&Entry> = None;
+            for ((child, seen), node) in seen
+                .iter_mut()
+                .enumerate()
+                .take(end)
+                .skip(start)
+                .zip(self.entries.iter().take(end).skip(start))
+            {
                 anyhow::ensure!(!*seen, "entry {child} has two folders");
                 *seen = true;
-                anyhow::ensure!(
-                    self.entries[child].parent as usize == index,
-                    "entry {child}'s folder disagrees"
-                );
-                if child > start {
-                    anyhow::ensure!(
-                        self.entries[child - 1].name < self.entries[child].name,
-                        "entry {index}'s children are not sorted"
-                    );
+                anyhow::ensure!(node.parent as usize == index, "entry {child}'s folder disagrees");
+                if let Some(before) = before {
+                    anyhow::ensure!(before.name < node.name, "entry {index}'s children are not sorted");
                 }
+                before = Some(node);
             }
         }
         Ok(())

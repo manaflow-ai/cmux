@@ -1203,10 +1203,9 @@ fn push(
         .map_err(|error| super::seed_cli::failure(&error))
 }
 
-/// A folder past the copy's limits is projected when that is on (sync_cli/project.rs): the chat
-/// opens on all of it at once, its files read from this Mac on first use. A machine whose older
-/// cmux-tui can't project it answers `machine_outdated`, which the App answers by updating the
-/// machine and copying again. None for anything else, and for any failure to project, so the
+/// An attached folder is projected when that is on, whatever its size or whether it is a git
+/// repository (sync_cli/project.rs); only a GitHub repository the person picked is cloned: the chat
+/// opens on all of it at once, its files read from this Mac on first use. None when it is not, and for any failure to project, so the
 /// caller seeds or copies as before. Both pushes try it first: the App's first copy asks
 /// (`--on-seed-refusal ask`), and a folder its machine's disk cannot hold would end there,
 /// refused, before a projection that needs no room was tried.
@@ -1220,7 +1219,6 @@ fn project_first(
         Ok(Ok(answer)) => {
             Some(Ok(json!({"mode": "projected", "projected": answer.get("data").cloned()})))
         }
-        Ok(Err(super::sync_cli::project::NotProjected::Outdated(line))) => Some(Err(line)),
         Ok(Err(_)) => None,
         Err(error) => {
             eprintln!(
