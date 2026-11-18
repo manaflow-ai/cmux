@@ -181,14 +181,16 @@ def strip(key, run, arm, cold, label, judged=False):
     print(f"Cmd-{key.upper()} {label} ({arm}): spare={bool(opening.get('spare'))} {reply['frame_count']} frames every {reply['mean_interval_ms']:.1f} ms, "
           f"intermediate={reply['intermediate']:.0f} content_intermediate={reply.get('content_intermediate', 0):.0f} "
           f"strip_motion={reply.get('strip_intermediate', 0):.0f} "
-          f"blank={reply['blank']:.0f} strip={out}/strip.png", flush=True)
+          f"blank={reply['blank']:.0f} first_change_ms={reply.get('first_change_ms')} settled_ms={reply.get('settled_ms')} strip={out}/strip.png", flush=True)
     if reply.get("spans"):
         print("  marks: " + ", ".join(f"{span['name']} {span['ms']:+.0f} ms" for span in reply["spans"]), flush=True)
     for frame in bad:
         print(f"  {frame['file']} at {frame['ms']:+.0f} ms: outside differs {frame['outside_vs_before']:.3f} from before, "
               f"{frame['outside_vs_final']:.3f} from final, content between={frame.get('content_intermediate')}, blank={frame['blank']}", flush=True)
     row = {"key": key, "arm": arm, "label": label, "bad_frames": len(strict),
-           "blank_frames": sum(1 for f in reply["frames"] if f["blank"]), "spare": bool(opening.get("spare"))}
+           "blank_frames": sum(1 for f in reply["frames"] if f["blank"]), "spare": bool(opening.get("spare")),
+           # The content area: the first frame unlike before the key, and the first equal to the settled one for good (the page drawn).
+           "first_change_ms": reply.get("first_change_ms"), "settled_ms": reply.get("settled_ms")}
     OPENINGS.append(row)
     return row, opening, bad
 
@@ -273,6 +275,10 @@ for key in opts.keys.split(","):
     ARM_REPORT[f"cmd_{key}.bad_frames"] = bench_arms.report(f"cmd-n-paint/cmd-{key}", "bad_frames", "frames", samples,
                                                             out=lambda line: print(line, flush=True),
                                                             defects=blank, defect_name="blank_frames")
+    # The key to the page drawn as it settles (its first frame equal to the last for good), per arm.
+    ARM_REPORT[f"cmd_{key}.settled_ms"] = bench_arms.report(f"cmd-n-paint/cmd-{key}", "settled_ms", "ms",
+                                                            {arm: [o.get("settled_ms") for o in OPENINGS if o["key"] == key and o["arm"] == arm] for arm in ARMS},
+                                                            out=lambda line: print(line, flush=True))
     for arm in ARMS:
         rows = [o for o in OPENINGS if o["key"] == key and o["arm"] == arm]
         print(f"ARM cmd-n-paint/cmd-{key} spare_adopted {arm}: {sum(1 for o in rows if o['spare'])}/{len(rows)}", flush=True)
