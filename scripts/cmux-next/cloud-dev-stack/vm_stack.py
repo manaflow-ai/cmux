@@ -38,8 +38,14 @@ from typing import Any
 BASE = Path(os.environ.get("CMUX_WDEV_BASE", "/srv/cmux-dev/wrangler"))
 CLASSIC_BASE = Path(os.environ.get("CMUX_WDEV_CLASSIC_BASE", "/srv/cmux-dev"))
 PORT_MIN, PORT_MAX = (int(p) for p in os.environ.get("CMUX_WDEV_PORTS", "3800-4799").split("-"))
-NODE_MAJOR = "24"
+# Pinned toolchain, checked against the publishers' SHASUMS256.txt before it is unpacked.
+NODE_VERSION = "v24.22.3"
+NODE_SHA256 = "4f2b175a6d53a5c617a80dba2676238a0688cef28c6da4eba35c7d844e66fcfb"  # node-v24.22.3-linux-x64.tar.xz
 BUN_VERSION = "1.4.4"
+BUN_SHA256 = "bf8ccbfb2b0b80159e0f9a6d15c55317add8077534dbc6130a3edb52fccb395c"  # bun-v1.4.4/bun-linux-x64.zip
+# Memory and disk a stack that is preparing or starting will take once it runs (measured 1.5-1.9 GiB).
+PENDING_MEM_GIB = 2.0
+PENDING_DISK_GIB = 2.0
 # Idle: no request reached the stack (wrangler's request log lines) and no `up`/`touch` for this long.
 IDLE_SECS_DEFAULT = int(os.environ.get("CMUX_WDEV_IDLE_SECS", str(2 * 3600)))
 # Hard cap from the last `up`; the database credentials' TTL is this plus an hour.
@@ -48,6 +54,10 @@ MAX_STACKS = int(os.environ.get("CMUX_WDEV_MAX_STACKS", "16"))
 MIN_MEM_GIB = float(os.environ.get("CMUX_WDEV_MIN_MEM_GIB", "24"))
 MIN_DISK_GIB = float(os.environ.get("CMUX_WDEV_MIN_DISK_GIB", "120"))
 REAPED_KEEP_SECS = 7 * 86400
+# A gc's claim on a stopped stack (state releasing) lapses after this, so a gc that died mid-way
+# is retried by the next one and does not block the tag's next up for long.
+RELEASE_CLAIM_SECS = 600
+UP_LOCK_SECS = 1800
 LOG_MAX_BYTES = 64 * 1024 * 1024
 TAG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
 REQUEST_LINE = re.compile(rb"\[wrangler:info\] (GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS) \S+ \d{3}")
@@ -66,6 +76,36 @@ def stack_dir(tag: str) -> Path:
 
 def entry_path(tag: str) -> Path:
     return BASE / "registry" / f"{tag}.json"
+
+
+def ledger_path() -> Path:
+    return BASE / "branches.json"
+
+
+def ledger() -> dict[str, int]:
+    """PlanetScale branches ("db/branch") this host's stacks made, with when it first saw each. The Mac's
+    orphan sweep deletes only these, so a branch another --host keeps alive is never touched."""
+    try:
+        return json.loads(ledger_path().read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def ledger_add(key: str) -> None:
+    data = ledger()
+    data.setdefault(key, int(time.time()))
+    tmp = ledger_path().with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=1, sort_keys=True))
+    os.replace(tmp, ledger_path())
+
+
+def ledger_drop(keys: list[str]) -> None:
+    data = ledger()
+    for k in keys:
+        data.pop(k, None)
+    tmp = ledger_path().with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=1, sort_keys=True))
+    os.replace(tmp, ledger_path())
 
 
 def check_tag(tag: str) -> str:
@@ -231,10 +271,20 @@ Type=simple
 User={user}
 Group={user}
 WorkingDirectory={base}/stacks/%i
+# run.sh sends its own output to logs/wrangler.log as {user}: a systemd append: target would be opened,
+# and created, by root, and the reaper could then not truncate it.
 ExecStart=/bin/bash {base}/stacks/%i/run.sh
-StandardOutput=append:{base}/stacks/%i/logs/wrangler.log
-StandardError=append:{base}/stacks/%i/logs/wrangler.log
+Environment=HOME={base}/stacks/%i/home
 Restart=no
+# Sandbox: the stack writes only its own directory; no sudo, no setuid, its own /tmp.
+ProtectSystem=strict
+ReadWritePaths={base}/stacks/%i
+PrivateTmp=yes
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
 RuntimeMaxSec={max_secs}
 MemoryMax=4G
 MemorySwapMax=0
@@ -252,6 +302,8 @@ Description=cmux-next wrangler dev stacks: stop idle or expired stacks
 Type=oneshot
 User={user}
 ExecStart=/usr/bin/python3 {base}/bin/vm_stack.py reap
+# A pass never hangs: it is killed after this, and the next timer tick starts a new one.
+TimeoutStartSec=10min
 """
 
 REAPER_TIMER = """[Unit]
@@ -293,20 +345,37 @@ def install_host() -> dict[str, Any]:
     return {"units_changed": changed, **ensure_tools()}
 
 
+def sha256_file(path: Path) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def fetch_verified(url: str, sha256: str, dest: Path) -> None:
+    """Download to dest and refuse it unless its SHA-256 is the pinned one."""
+    subprocess.run(["curl", "-fsSL", "--retry", "3", "-o", str(dest), url], check=True, timeout=600)
+    got = sha256_file(dest)
+    if got != sha256:
+        dest.unlink(missing_ok=True)
+        raise Refused(f"{url}: sha256 {got} is not the pinned {sha256}")
+
+
 def ensure_tools() -> dict[str, str]:
     tools = BASE / "tools"
-    nodes = sorted(tools.glob(f"node-v{NODE_MAJOR}.*"))
-    if not nodes or not (nodes[-1] / "bin/node").exists():
-        with urllib.request.urlopen("https://nodejs.org/dist/index.json", timeout=30) as r:
-            version = next(x["version"] for x in json.load(r) if x["version"].startswith(f"v{NODE_MAJOR}."))
-        url = f"https://nodejs.org/dist/{version}/node-{version}-linux-x64.tar.xz"
-        subprocess.run(f"curl -fsSL {url} | tar -xJ -C {tools} && mv {tools}/node-{version}-linux-x64 {tools}/node-{version}", shell=True, check=True)
-        nodes = [tools / f"node-{version}"]
+    node = tools / f"node-{NODE_VERSION}"
+    if not (node / "bin/node").exists():
+        tmp = tools / f".node-{NODE_VERSION}.tar.xz"
+        fetch_verified(f"https://nodejs.org/dist/{NODE_VERSION}/node-{NODE_VERSION}-linux-x64.tar.xz", NODE_SHA256, tmp)
+        subprocess.run(["tar", "-xJf", str(tmp), "-C", str(tools)], check=True, timeout=600)
+        os.replace(tools / f"node-{NODE_VERSION}-linux-x64", node)
+        tmp.unlink()
     bun = tools / f"bun-{BUN_VERSION}" / "bun"
     if not bun.exists():
-        url = f"https://github.com/oven-sh/bun/releases/download/bun-v{BUN_VERSION}/bun-linux-x64.zip"
-        tmp = tools / ".bun.zip"
-        subprocess.run(["curl", "-fsSL", "-o", str(tmp), url], check=True)
+        tmp = tools / f".bun-{BUN_VERSION}.zip"
+        fetch_verified(f"https://github.com/oven-sh/bun/releases/download/bun-v{BUN_VERSION}/bun-linux-x64.zip", BUN_SHA256, tmp)
         import zipfile
         with zipfile.ZipFile(tmp) as z:
             data = z.read("bun-linux-x64/bun")
@@ -314,7 +383,7 @@ def ensure_tools() -> dict[str, str]:
         bun.write_bytes(data)
         bun.chmod(0o755)
         tmp.unlink()
-    return {"node": str(nodes[-1] / "bin"), "bun": str(bun.parent)}
+    return {"node": str(node / "bin"), "bun": str(bun.parent)}
 
 
 def tool_path() -> str:
@@ -408,6 +477,7 @@ def cmd_capacity(_args) -> dict[str, Any]:
         "disk_free_gib": round(disk_free_gib(), 1),
         "stacks_running": len(running),
         "max_stacks": MAX_STACKS,
+        "max_secs": MAX_SECS,
         "min_mem_gib": MIN_MEM_GIB,
         "min_disk_gib": MIN_DISK_GIB,
         "classic_registered": len(classic_ports()),
@@ -415,34 +485,74 @@ def cmd_capacity(_args) -> dict[str, Any]:
 
 
 def admit(tag: str) -> None:
-    cap = cmd_capacity(None)
-    others = [e for e in all_entries() if e.get("state") == "running" and e["tag"] != tag]
+    """Called under the registry lock, which also records the caller as preparing or starting, so two
+    ups at once are counted against each other. A stack that is preparing or starting has not taken its
+    memory yet: it is reserved here, beside the floor."""
+    others = [e for e in all_entries() if e["tag"] != tag and e.get("state") in ("preparing", "starting", "running")]
+    pending = sum(1 for e in others if e.get("state") != "running")
     if len(others) >= MAX_STACKS:
-        raise Refused(f"{len(others)} stacks running (max {MAX_STACKS}); `cloud-dev-stack.sh status` lists them")
-    if cap["mem_available_gib"] < MIN_MEM_GIB:
-        raise Refused(f"MemAvailable {cap['mem_available_gib']} GiB < {MIN_MEM_GIB} GiB (the classic stacks keep a 16 GiB floor)")
-    if cap["disk_free_gib"] < MIN_DISK_GIB:
-        raise Refused(f"free disk {cap['disk_free_gib']} GiB < {MIN_DISK_GIB} GiB (the classic GC starts purging at 100)")
+        raise Refused(f"{len(others)} stacks running or starting (max {MAX_STACKS}); `cloud-dev-stack.sh status` lists them")
+    mem, disk = mem_available_gib(), disk_free_gib()
+    need_mem = MIN_MEM_GIB + PENDING_MEM_GIB * (pending + 1)
+    if mem < need_mem:
+        raise Refused(f"MemAvailable {mem:.1f} GiB < {need_mem:.1f} GiB ({MIN_MEM_GIB} floor + {PENDING_MEM_GIB} for this and each of {pending} starting stacks; the classic stacks keep a 16 GiB floor)")
+    need_disk = MIN_DISK_GIB + PENDING_DISK_GIB * (pending + 1)
+    if disk < need_disk:
+        raise Refused(f"free disk {disk:.1f} GiB < {need_disk:.1f} GiB (the classic GC starts purging at 100)")
 
 
 def cmd_prepare(args) -> dict[str, Any]:
     """Make the stack directory before the Mac rsyncs into it; admission happens here."""
     tag = check_tag(args.tag)
+    now = int(time.time())
     with registry_lock():
         entry = read_entry(tag)
-        if not (entry and entry.get("state") == "running"):
-            admit(tag)
+        state = (entry or {}).get("state")
+        if state == "releasing" and now - entry.get("releasing_at", now) < RELEASE_CLAIM_SECS:
+            raise Refused(f"{tag}: a gc is deleting its stopped stack's credentials and branch; run up again in a minute")
+        # One up of a tag at a time: two would sync into, install in and restart the same directory.
+        # The Mac clears this when its up ends, pass or fail (up-done); a crashed Mac's lapses.
+        if entry and entry.get("up_token") and now - entry.get("up_started", 0) < UP_LOCK_SECS:
+            raise Refused(f"{tag}: another up of this tag has been running for {now - entry['up_started']} s; wait for it, then run up again")
         d = stack_dir(tag)
-        for sub in ("src", "platform", "state", "logs", "secrets"):
+        for sub in ("src", "platform", "state", "logs", "secrets", "home"):
             (d / sub).mkdir(mode=0o700, parents=True, exist_ok=True)
-        # Recorded before the sync and the branch creation: gc and the reaper leave a young
-        # preparing entry alone, so an up in progress is never cleaned up under it.
-        entry = entry or {"tag": tag, "created_at": int(time.time())}
-        if entry.get("state") in ("down", "reaped"):
-            entry.pop("port", None)
-        entry.update({"state": "preparing", "last_up_at": int(time.time())})
+        token = secrets.token_hex(8)
+        if state == "running":
+            # A re-up of a running stack: it stays running (and keeps serving) until start restarts it.
+            # The marker keeps the reaper from treating a unit restart in progress as a crash, and a
+            # re-up that fails before start leaves the stack as it was.
+            entry["reup_at"] = now
+        else:
+            admit(tag)
+            # Recorded before the sync and the branch creation: gc and the reaper leave a young
+            # preparing entry alone, so an up in progress is never cleaned up under it.
+            entry = entry or {"tag": tag, "created_at": now}
+            if state in ("down", "reaped", "releasing"):
+                entry.pop("port", None)
+            entry.update({"state": "preparing", "last_up_at": now})
+        entry.update({"up_token": token, "up_started": now})
         write_entry(entry)
-    return {"dir": str(d)}
+    (d / "heartbeat").touch()
+    return {"dir": str(d), "state": entry["state"], "token": token}
+
+
+def cmd_up_done(args) -> dict[str, Any]:
+    """The end of one up (the Mac's EXIT trap). A failed up leaves a running stack running, and turns a
+    stack that never started into failed, so gc releases it after an hour and the next up may start."""
+    tag = check_tag(args.tag)
+    with registry_lock():
+        entry = read_entry(tag)
+        if not entry or entry.get("up_token") != args.token:
+            return {"tag": tag, "cleared": False}
+        entry.pop("up_token", None)
+        entry.pop("up_started", None)
+        if args.failed:
+            entry.pop("reup_at", None)
+            if entry.get("state") == "preparing":
+                entry["state"] = "failed"
+        write_entry(entry)
+    return {"tag": tag, "cleared": True, "state": entry.get("state")}
 
 
 def cmd_prune(args) -> dict[str, Any]:
@@ -484,6 +594,8 @@ def cmd_put_cred(args) -> dict[str, Any]:
     with os.fdopen(fd, "w") as f:
         f.write(url)
     with registry_lock():
+        if args.mode == "branch":
+            ledger_add(f"{args.db_name}/{args.branch}")
         entry = read_entry(tag) or {"tag": tag, "state": "preparing", "created_at": int(time.time())}
         db = entry.setdefault("db", {})
         replaced = db.get(args.kind) or {}
@@ -630,28 +742,17 @@ def cmd_start(args) -> dict[str, Any]:
     # CallerAuth.ts), so each Worker of the session reads it from a .dev.vars beside its config.
     for project in [api_dir] + ([d / "platform"] if with_platform else []):
         write_private(project / ".dev.vars", f"JWT_PRIVATE_JWK='{jwk}'\n")
-    lines = ["#!/bin/bash", "# Generated by vm_stack.py start; the unit cmux-wdev@<tag> runs it.", "set -euo pipefail",
-             f"export PATH={path}", "export WRANGLER_SEND_METRICS=false CI=1 NO_COLOR=1 FORCE_COLOR=0",
-             f"export WRANGLER_LOG_PATH={d}/logs/wrangler-debug"]
-    # Hyperdrive in wrangler dev connects straight to the origin; miniflare's local proxy does the TLS
-    # upgrade PlanetScale requires when the string asks for it (sslmode=require, ssl-mode=REQUIRED).
-    for kind, bindings, tls in (("pg", ("HYPERDRIVE", "HYPERDRIVE_RO"), ""), ("mysql", ("PS_MYSQL", "PS_MYSQL_RO"), "?ssl-mode=REQUIRED")):
-        if (d / "secrets" / f"{kind}.url").exists():
-            for b in bindings:
-                lines.append(f'export CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_{b}="$(cat {d}/secrets/{kind}.url){tls}"')
-    lines.append(f'echo "== wdev start $(date -u +%FT%TZ) port {port} commit {args.commit}"')
     wrangler = api_dir / "node_modules/.bin/wrangler"
     if with_platform and wrangler_version(d / "platform") > wrangler_version(api_dir):
         # One workerd runs both Workers, so it must know the newer compatibility date of the two.
         wrangler = d / "platform/node_modules/.bin/wrangler"
-    lines.append("exec " + " ".join([str(wrangler), "dev", *configs, "--env", "development",
-                                     "--ip", "127.0.0.1", "--port", str(port), "--local-protocol", "http",
-                                     "--persist-to", str(d / "state"),
-                                     "--show-interactive-dev-session=false", "--inspector-port", "0"]))
-    write_private(d / "run.sh", "\n".join(lines) + "\n")
+    run_sh = render_run_sh(d, path, port, args.commit, wrangler, configs)
+    write_private(d / "run.sh", run_sh)
     (d / "logs").mkdir(exist_ok=True)
     log = d / "logs/wrangler.log"
-    if log.exists() and log.stat().st_size > LOG_MAX_BYTES:
+    (d / "home").mkdir(mode=0o700, exist_ok=True)
+    own_log(log)
+    if log.stat().st_size > LOG_MAX_BYTES:
         log.write_text("")
     log_start = log.stat().st_size if log.exists() else 0
     systemctl("restart", unit(tag))
@@ -679,7 +780,7 @@ def cmd_start(args) -> dict[str, Any]:
             last = str(e)
         time.sleep(2)
     if not ok:
-        tail = log.read_text(errors="replace")[-4000:] if log.exists() else ""
+        tail = redact(log.read_text(errors="replace")[-4000:], d) if log.exists() else ""
         stop_stack(tag, keep_files=True)
         with registry_lock():
             entry = read_entry(tag) or entry
@@ -687,30 +788,86 @@ def cmd_start(args) -> dict[str, Any]:
             write_entry(entry)
         raise Refused(f"wrangler dev did not answer /v1/health on 127.0.0.1:{port} ({last})\n--- log tail ---\n{tail}")
 
-    with serve_lock():
-        target = f"http://127.0.0.1:{port}"
-        current = serve_target(serve_config(), port)
-        if port in classic_ports() or current not in (None, target):
-            stop_stack(tag, keep_files=True, serve=False)
-            with registry_lock():
-                entry = read_entry(tag) or entry
-                entry.update({"state": "failed", "port": None})
-                write_entry(entry)
-            raise Refused(f"port {port} was taken by a classic stack while this one booted; run up again for another port")
-        if current != target:
-            out = subprocess.run(["sudo", "-n", "tailscale", "serve", "--bg", "--yes", f"--https={port}", target], capture_output=True, text=True, timeout=60)
-            if out.returncode != 0:
-                raise Refused(f"tailscale serve --https={port} failed: {(out.stderr or out.stdout).strip()[-400:]}")
+    if not publish(port):
+        # Outside the Serve lock: every path takes the registry lock before the Serve lock, never after.
+        stop_stack(tag, keep_files=True, serve=False)
+        with registry_lock():
+            entry = read_entry(tag) or entry
+            entry.update({"state": "failed", "port": None})
+            write_entry(entry)
+        raise Refused(f"port {port} was taken by a classic stack while this one booted; run up again for another port")
     with registry_lock():
         entry = read_entry(tag) or entry
         entry.update({"state": "running", "started_at": int(time.time()), "log_offset": log.stat().st_size if log.exists() else 0,
                       "last_request_at": int(time.time())})
+        entry.pop("reup_at", None)
         write_entry(entry)
     try:
         health = json.loads(body)
     except ValueError:
         health = last
     return {"tag": tag, "url": origin, "port": port, "health": health}
+
+
+def publish(port: int) -> bool:
+    """Publish 127.0.0.1:port on the tailnet, under the classic daemon's Serve lock and holding nothing
+    else. False (nothing changed) when a classic stack took the port while this one booted."""
+    target = f"http://127.0.0.1:{port}"
+    with serve_lock():
+        current = serve_target(serve_config(), port)
+        if port in classic_ports() or current not in (None, target):
+            return False
+        if current != target:
+            out = subprocess.run(["sudo", "-n", "tailscale", "serve", "--bg", "--yes", f"--https={port}", target], capture_output=True, text=True, timeout=60)
+            if out.returncode != 0:
+                raise Refused(f"tailscale serve --https={port} failed: {(out.stderr or out.stdout).strip()[-400:]}")
+    return True
+
+
+def render_run_sh(d: Path, path: str, port: int, commit: str, wrangler: Path, configs: list[str]) -> str:
+    lines = ["#!/bin/bash", "# Generated by vm_stack.py start; the unit cmux-wdev@<tag> runs it.", "set -euo pipefail",
+             # The stack user owns its log (a systemd append: target would be root's), so start and the
+             # reaper can truncate it.
+             f'exec >>"{d}/logs/wrangler.log" 2>&1',
+             f"export PATH={path}", "export WRANGLER_SEND_METRICS=false CI=1 NO_COLOR=1 FORCE_COLOR=0",
+             f"export WRANGLER_LOG_PATH={d}/logs/wrangler-debug", f"export HOME={d}/home"]
+    # Hyperdrive in wrangler dev connects straight to the origin; miniflare's local proxy does the TLS
+    # upgrade PlanetScale requires when the string asks for it (sslmode=require, ssl-mode=REQUIRED).
+    for kind, bindings, tls in (("pg", ("HYPERDRIVE", "HYPERDRIVE_RO"), ""), ("mysql", ("PS_MYSQL", "PS_MYSQL_RO"), "?ssl-mode=REQUIRED")):
+        if (d / "secrets" / f"{kind}.url").exists():
+            for b in bindings:
+                lines.append(f'export CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_{b}="$(cat {d}/secrets/{kind}.url){tls}"')
+    lines.append(f'echo "== wdev start $(date -u +%FT%TZ) port {port} commit {commit}"')
+    lines.append("exec " + " ".join([str(wrangler), "dev", *configs, "--env", "development",
+                                     "--ip", "127.0.0.1", "--port", str(port), "--local-protocol", "http",
+                                     "--persist-to", str(d / "state"),
+                                     "--show-interactive-dev-session=false", "--inspector-port", "0"]))
+    return "\n".join(lines) + "\n"
+
+
+def own_log(log: Path) -> None:
+    """Make the log the stack user's: a log an older unit opened through systemd append: is root's."""
+    if log.exists() and log.stat().st_uid != os.getuid():
+        subprocess.run(["sudo", "-n", "rm", "-f", str(log)], check=True, timeout=30)
+    log.touch()
+
+
+SECRET_URL = re.compile(r"([a-z][a-z0-9+.-]*://)[^\s:/@]+:[^\s@]+@", re.I)
+
+
+def redact(text: str, d: Path) -> str:
+    """A log tail with the stack's credentials taken out: each stored URL, its password, and any
+    user:password@ that looks like one."""
+    from urllib.parse import unquote, urlsplit
+    for f in sorted((d / "secrets").glob("*.url")) if (d / "secrets").exists() else []:
+        try:
+            url = f.read_text().strip()
+        except OSError:
+            continue
+        for secret in (url, unquote(urlsplit(url).password or ""), urlsplit(url).password or ""):
+            if len(secret) > 8:
+                text = text.replace(secret, "<redacted>")
+    return SECRET_URL.sub(r"\1<redacted>@", text)
 
 
 def stop_stack(tag: str, keep_files: bool, serve: bool = True) -> list[str]:
@@ -739,12 +896,42 @@ def cmd_down(args) -> dict[str, Any]:
     entry = read_entry(tag)
     if not entry:
         return {"tag": tag, "state": "absent", "actions": []}
-    actions = stop_stack(tag, keep_files=False)
     with registry_lock():
+        actions = stop_stack(tag, keep_files=False)
         entry = read_entry(tag) or entry
-        entry.update({"state": "down", "down_at": int(time.time()), "reason": args.reason})
+        # down is its own release claim: no gc releases this entry while the Mac deletes its databases.
+        now = int(time.time())
+        entry.update({"state": "releasing", "down_at": now, "releasing_at": now, "reason": args.reason})
         write_entry(entry)
     return {**entry, "actions": actions}
+
+
+def claimable(entry: dict[str, Any], now: int) -> bool:
+    """Whether a gc may release this entry's credentials and branch now."""
+    state = entry.get("state")
+    if state in ("reaped", "down"):
+        return True
+    if state == "failed":
+        return now - entry.get("last_up_at", now) > 3600
+    if state == "releasing":  # a claim whose gc died
+        return now - entry.get("releasing_at", now) > RELEASE_CLAIM_SECS
+    return False
+
+
+def cmd_claim_release(args) -> dict[str, Any]:
+    """A gc's claim on a stopped stack, taken under the registry lock before any branch or credential is
+    deleted: an up of the same tag in between makes the entry unclaimable (prepare refuses a claimed
+    one), so a branch is never deleted under an up that reuses it."""
+    tag = check_tag(args.tag)
+    now = int(time.time())
+    with registry_lock():
+        entry = read_entry(tag)
+        if not entry or not claimable(entry, now):
+            raise Refused(f"{tag} is {(entry or {}).get('state', 'absent')}; not released")
+        stop_stack(tag, keep_files=False)
+        entry.update({"state": "releasing", "releasing_at": now})
+        write_entry(entry)
+    return entry
 
 
 def cmd_forget(args) -> dict[str, Any]:
@@ -752,7 +939,7 @@ def cmd_forget(args) -> dict[str, Any]:
     entry = read_entry(tag)
     with registry_lock():
         entry = read_entry(tag)
-        if entry and entry.get("state") in ("running", "starting", "preparing"):
+        if entry and entry.get("state") not in ("releasing", "down", "reaped", "failed"):
             raise Refused(f"{tag} is {entry['state']}; run down first")
         if entry:
             stop_stack(tag, keep_files=False)  # a failed stack's files, if the reaper has not cleaned them yet
@@ -801,8 +988,8 @@ def reap_one(tag: str, now: int) -> dict[str, Any] | None:
         if not entry:
             return None
         state = entry.get("state")
-        if state in ("down", "reaped", "failed"):
-            since = entry.get("down_at") or entry.get("reaped_at") or entry.get("last_up_at") or now
+        if state in ("down", "reaped", "failed", "releasing"):
+            since = entry.get("down_at") or entry.get("reaped_at") or entry.get("releasing_at") or entry.get("last_up_at") or now
             if now - since > REAPED_KEEP_SECS:
                 stop_stack(tag, keep_files=False)
                 entry_path(tag).unlink(missing_ok=True)
@@ -817,6 +1004,8 @@ def reap_one(tag: str, now: int) -> dict[str, Any] | None:
             if now - entry.get("last_up_at", entry.get("created_at", now)) < 1800:
                 return None  # an up in progress
             reason = "never started"
+        elif entry.get("reup_at") and now - entry["reup_at"] < 1800:
+            return None  # a re-up in progress restarts the unit; it is not a crash
         else:
             scan_requests(entry)
             write_entry(entry)
@@ -833,8 +1022,48 @@ def reap_one(tag: str, now: int) -> dict[str, Any] | None:
 
 def cmd_reap(_args) -> dict[str, Any]:
     now = int(time.time())
-    out = [r for r in (reap_one(e["tag"], now) for e in all_entries()) if r]
+    out = []
+    for e in all_entries():
+        try:  # one stack's error never ends the pass for the others
+            r = reap_one(e["tag"], now)
+        except Exception as err:  # noqa: BLE001
+            r = {"tag": e["tag"], "action": "error", "error": f"{type(err).__name__}: {err}"[:300]}
+            print(f"reap {e['tag']}: {r['error']}", file=sys.stderr)
+        if r:
+            out.append(r)
     return {"reaped": out}
+
+
+CRED_MARGIN_SECS = 15 * 60
+
+
+def cred_fresh(entry: dict[str, Any], kind: str, mode: str, file_present: bool, now: float) -> bool:
+    """Whether an up may keep the stack's credential: same mode, its file still on the VM (a reap deletes
+    it), and valid past the hard cap this up starts (MAX_SECS from now) plus a margin."""
+    import datetime
+    c = (entry.get("db") or {}).get(kind) or {}
+    exp = c.get("expires_at") or ""
+    if not (file_present and c.get("mode") == mode and exp):
+        return False
+    try:
+        expires = datetime.datetime.fromisoformat(exp.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return False
+    return expires > now + MAX_SECS + CRED_MARGIN_SECS
+
+
+def cmd_cred_fresh(args) -> dict[str, Any]:
+    tag = check_tag(args.tag)
+    entry = read_entry(tag) or {}
+    fresh = cred_fresh(entry, args.kind, args.mode, (stack_dir(tag) / "secrets" / f"{args.kind}.url").exists(), time.time())
+    return {"fresh": fresh}
+
+
+def cmd_ledger(args) -> dict[str, Any]:
+    if args.drop:
+        with registry_lock():
+            ledger_drop(args.drop)
+    return {"branches": ledger()}
 
 
 def cmd_touch(args) -> dict[str, Any]:
@@ -854,7 +1083,7 @@ def cmd_status(args) -> dict[str, Any]:
             continue
         hb = stack_dir(e["tag"]) / "heartbeat"
         last = max(e.get("last_request_at", 0), int(hb.stat().st_mtime) if hb.exists() else 0, e.get("started_at", 0))
-        rows.append({k: e.get(k) for k in ("tag", "state", "url", "port", "commit", "dirty", "platform", "reason", "last_up_at")}
+        rows.append({k: e.get(k) for k in ("tag", "state", "url", "port", "commit", "dirty", "platform", "reason", "last_up_at", "reup_at", "releasing_at")}
                     | {"active": unit_active(e["tag"]) if e.get("state") == "running" else False,
                        "idle_min": (now - last) // 60 if last else None, "idle_limit_min": e.get("idle_secs", IDLE_SECS_DEFAULT) // 60,
                        "mem_mib": unit_memory_mib(e["tag"]) if e.get("state") == "running" else None,
@@ -864,9 +1093,10 @@ def cmd_status(args) -> dict[str, Any]:
 
 
 def cmd_logs(args) -> dict[str, Any]:
-    log = stack_dir(check_tag(args.tag)) / "logs/wrangler.log"
+    d = stack_dir(check_tag(args.tag))
+    log = d / "logs/wrangler.log"
     text = log.read_text(errors="replace") if log.exists() else ""
-    sys.stdout.write("\n".join(text.splitlines()[-args.lines:]) + "\n")
+    sys.stdout.write(redact("\n".join(text.splitlines()[-args.lines:]), d) + "\n")
     return {}
 
 
@@ -888,11 +1118,16 @@ def main() -> int:
     s.add_argument("--commit", default=""); s.add_argument("--dirty", action="store_true"); s.add_argument("--idle", type=int, default=0)
     s.add_argument("--wait", type=int, default=240)
     s = sub.add_parser("down"); s.add_argument("--tag", required=True); s.add_argument("--reason", default="down")
+    s = sub.add_parser("claim-release"); s.add_argument("--tag", required=True)
+    s = sub.add_parser("up-done"); s.add_argument("--tag", required=True); s.add_argument("--token", required=True); s.add_argument("--failed", action="store_true")
+    s = sub.add_parser("cred-fresh"); s.add_argument("--tag", required=True); s.add_argument("--kind", required=True); s.add_argument("--mode", required=True)
+    s = sub.add_parser("ledger"); s.add_argument("--drop", action="append", default=[])
     s = sub.add_parser("logs"); s.add_argument("--tag", required=True); s.add_argument("-n", "--lines", type=int, default=80)
     args = p.parse_args()
     handlers = {"install": lambda a: install_host(), "capacity": cmd_capacity, "reap": cmd_reap, "status": cmd_status,
                 "prepare": cmd_prepare, "touch": cmd_touch, "forget": cmd_forget, "prune": cmd_prune, "put-cred": cmd_put_cred,
-                "migrate": cmd_migrate, "start": cmd_start, "down": cmd_down, "logs": cmd_logs}
+                "migrate": cmd_migrate, "start": cmd_start, "down": cmd_down, "logs": cmd_logs,
+                "claim-release": cmd_claim_release, "up-done": cmd_up_done, "cred-fresh": cmd_cred_fresh, "ledger": cmd_ledger}
     try:
         result = handlers[args.cmd](args)
     except Refused as e:

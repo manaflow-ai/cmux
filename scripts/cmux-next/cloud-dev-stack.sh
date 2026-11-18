@@ -20,7 +20,7 @@
 #
 # Data: Durable Objects, R2 and workflows are local to the stack. Postgres and Vitess are PlanetScale:
 # by default the shared `development` branches (as the shared dev Worker and previews use them), through
-# a credential made for this stack with a 13 h TTL. When this branch adds a migration (backend/db/migrations
+# a credential made for this stack with a 14 h TTL. When this branch adds a migration (backend/db/migrations
 # or backend/db/drizzle-mysql changed since the merge-base with origin/feat-cmux-next; --db branch forces
 # it, --db shared refuses it), the stack gets its own branch `lane-wd-<tag>` of that database, made from
 # development and migrated with this tree; `down` deletes it.
@@ -45,7 +45,7 @@ PG_DB="${CMUX_DEV_STACK_PG_DB:-cmux-next-deprecated}"   # PlanetScale Postgres `
 MYSQL_DB="${CMUX_DEV_STACK_MYSQL_DB:-cmux-next-vitess}"
 PS_ORG=cmux
 DEV_BRANCH=development
-CRED_TTL=13h
+CRED_TTL=14h   # outlives the 12 h cap; an up keeps a credential only while it does (vm_stack.py cred_fresh)
 SYNC_PATHS=(backend libs clients/ts workers/cmux-vm/sdk)
 
 usage() { sed -n '2,40p' "$0"; }
@@ -119,14 +119,8 @@ migration_kinds() {  # prints pg and/or mysql when this branch changes that data
 
 stack_entry() { vm status --tag "$tag" | json "s=d['stacks']; print(json.dumps(s[0] if s else {}))"; }
 
-cred_fresh() {  # cred_fresh KIND MODE: the VM still holds a credential of that mode valid for 2 h more
-  stack_entry | python3 -c "
-import json,sys,datetime
-e=json.load(sys.stdin); c=(e.get('db') or {}).get('$1') or {}
-exp=c.get('expires_at') or ''
-# The file can be gone while the entry remains (a reaped stack's files are deleted).
-ok=(e.get('secrets') or {}).get('$1') and c.get('mode')=='$2' and exp and datetime.datetime.fromisoformat(exp.replace('Z','+00:00'))>datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(hours=2)
-sys.exit(0 if ok else 1)"
+cred_fresh() {  # cred_fresh KIND MODE: the VM holds a credential of that mode that outlives this up's 12 h cap
+  vm cred-fresh --tag "$tag" --kind "$1" --mode "$2" | json "sys.exit(0 if d['fresh'] else 1)"
 }
 
 give_db() {  # give_db KIND MODE
@@ -181,37 +175,46 @@ e=json.load(sys.stdin)
 for kind,c in (e.get('db') or {}).items():
     print(kind, c.get('database') or '', c.get('branch') or '', c.get('mode') or '', c.get('cred_id') or '')" |
   while read -r kind db branch mode cred; do
+    # Every command in this loop reads /dev/null, not the loop's input: ssh would swallow the next lines.
     [ -n "$db" ] || continue
     if [ "$mode" = branch ] && [[ "$branch" == lane-wd-* ]]; then
-      if ps branch delete "$db" "$branch" --force >/dev/null 2>&1; then echo "   deleted branch $db/$branch"
-      else echo "   branch $db/$branch: already gone or delete failed (gc retries)"; fi
+      if ps branch delete "$db" "$branch" --force </dev/null >/dev/null 2>&1; then
+        echo "   deleted branch $db/$branch"
+        vm ledger --drop "$db/$branch" </dev/null >/dev/null
+      else echo "   branch $db/$branch: already gone or delete failed (the orphan sweep retries it)"; fi
     elif [ -n "$cred" ]; then
-      if [ "$kind" = pg ]; then ps role delete "$db" "$branch" "$cred" --force >/dev/null 2>&1 || true
-      else ps password delete "$db" "$branch" "$cred" --force >/dev/null 2>&1 || true; fi
+      if [ "$kind" = pg ]; then ps role delete "$db" "$branch" "$cred" --force </dev/null >/dev/null 2>&1 || true
+      else ps password delete "$db" "$branch" "$cred" --force </dev/null >/dev/null 2>&1 || true; fi
       echo "   deleted credential $db/$branch $cred"
     fi
   done
 }
 
 do_gc() {  # do_gc [TAG TO SPARE]: up spares its own tag, whose branch and credentials it reuses
-  local entries live spare="${1:-}" cutoff
+  local entries live spare="${1:-}" cutoff entry key db br
   entries="$(vm status)"
-  # Stacks the VM stopped (idle, expired) or a down that did not finish: release, then forget. A failed
-  # start is kept for an hour, for the agent's next up.
-  for t in $(json "import time; print(' '.join(s['tag'] for s in d['stacks'] if s['tag'] != '$spare' and (s['state'] in ('reaped','down') or (s['state'] == 'failed' and time.time() - (s.get('last_up_at') or 0) > 3600))))" <<<"$entries"); do
+  # Stacks the VM stopped (idle, expired, a failed start after an hour) or a down or gc that did not
+  # finish. Each is claimed on the VM under its registry lock first (state releasing): the claim fails
+  # when an up of that tag got there first, and an up refuses a claimed tag, so a branch is never
+  # deleted under an up that reuses it.
+  for t in $(json "print(' '.join(s['tag'] for s in d['stacks'] if s['tag'] != '$spare' and s['state'] in ('reaped','down','failed','releasing')))" <<<"$entries"); do
+    entry="$(vm claim-release --tag "$t" 2>/dev/null)" || continue
     echo "== gc $t"
-    vm status --tag "$t" | json "print(json.dumps(d['stacks'][0]))" | release_db
+    release_db <<<"$entry"
     vm forget --tag "$t" >/dev/null
   done
-  # Branches with no stack behind them (a VM that lost its registry, a crash between create and start).
-  live="$(json "print(' '.join('lane-wd-'+s['tag'] for s in d['stacks'] if s['state'] in ('running','starting','preparing','failed') or s['tag'] == '$spare'))" <<<"$entries")"
-  # Only branches a day old: one being made right now by an up on another Mac has no entry yet here,
-  # and a stack on another host (--host) is not in this host's registry.
-  cutoff="$(python3 -c 'import datetime as d; print((d.datetime.now(d.timezone.utc)-d.timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%S"))')"
-  for db in "$PG_DB" "$MYSQL_DB"; do
-    for br in $(ps branch list "$db" | json "print(' '.join(b['name'] for b in d if b['name'].startswith('lane-wd-') and (b.get('created_at') or '9')[:19] < '$cutoff'))"); do
-      case " $live " in *" $br "*) ;; *) ps branch delete "$db" "$br" --force >/dev/null && echo "   gc: deleted orphan branch $db/$br" ;; esac
-    done
+  # Branches this host's stacks made (its ledger) with no stack behind them: a crash between create and
+  # start, or a release whose delete failed. Only a day after the host first saw them, and never one a
+  # stack still holds; a branch another --host made is not in this ledger.
+  live="$(vm status | json "print(' '.join('lane-wd-'+s['tag'] for s in d['stacks']) + ' lane-wd-$spare')")"
+  cutoff="$(( $(date +%s) - 86400 ))"
+  for key in $(vm ledger | json "print(' '.join(k for k,t in d['branches'].items() if t < $cutoff))"); do
+    db="${key%%/*}"; br="${key#*/}"
+    case " $live " in *" $br "*) continue ;; esac
+    if ps branch show "$db" "$br" >/dev/null 2>&1; then
+      if ps branch delete "$db" "$br" --force >/dev/null 2>&1; then echo "   gc: deleted orphan branch $db/$br"; else continue; fi
+    fi
+    vm ledger --drop "$key" >/dev/null
   done
 }
 
@@ -229,7 +232,11 @@ case "$cmd" in
     ensure_helper
     do_gc "$tag"
     echo "== $tag on $HOST"
-    vm prepare --tag "$tag" >/dev/null
+    prepared="$(vm prepare --tag "$tag")" || exit 3   # its refusal is on stderr
+    up_token="$(json "print(d['token'])" <<<"$prepared")"
+    # The VM allows one up of a tag at a time; this ends ours, pass or fail. A failed up leaves a
+    # running stack running and marks one that never started failed.
+    trap 'rc=$?; vm up-done --tag "$tag" --token "$up_token" $([ "$rc" = 0 ] || echo --failed) >/dev/null 2>&1 || true' EXIT
     sync_tree "$root" src "${SYNC_PATHS[@]}"
     if [ -n "$platform" ]; then sync_tree "$platform" platform .; fi
     kinds="$(migration_kinds)"
@@ -277,7 +284,7 @@ for s in d['stacks']:
   down)
     ensure_helper
     echo "== down $tag"
-    entry="$(vm down --tag "$tag" --reason down)"
+    entry="$(vm down --tag "$tag" --reason down)"   # stops the stack and claims it for this release
     json "print('   VM: ' + (', '.join(d.get('actions') or []) or d.get('state','')))" <<<"$entry"
     release_db <<<"$entry"
     vm forget --tag "$tag" >/dev/null
