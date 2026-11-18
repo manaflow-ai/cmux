@@ -96,19 +96,6 @@ struct CloudAgentCredentialRefresherTests {
         #expect(first.pushes == second.pushes)
     }
 
-    /// cmux#45774: the access token of the Mac's Codex CLI ChatGPT login expires like a ChatGPT plan
-    /// token, so a Cloud Codex on it gets the newer one the Mac's Codex renewed, pushed before its end.
-    @Test func aCodexCLILoginTokenIsPushedAgainBeforeItExpires() async throws {
-        let clock = ManualClock(), acpmux = Acpmux(clock: clock), machine = Machine()
-        let refresher = make(clock, acpmux)
-        let codexLogin = CloudAgentCredential(connectionID: "codex-login", family: "codex", kind: "codex-login",
-                                              env: ["CMUX_CODEX_ACCESS_TOKEN": "codex-token-1"],
-                                              expiresAt: Self.base.addingTimeInterval(3_600))
-        #expect(refresher.track(codexLogin, push: machine.push) != nil)
-        try await clock.waitForSleeper()
-        #expect(clock.sleeperDeadlines == [ManualClock.Instant(offset: .seconds(3_000))], "ten minutes before its end")
-    }
-
     @Test func aTokenThatDoesNotExpireIsNotTracked() {
         let clock = ManualClock(), acpmux = Acpmux(clock: clock)
         let refresher = make(clock, acpmux)

@@ -1041,6 +1041,11 @@ jobs:
         if: ${{ !cancelled() }}
         run: bash scripts/measure/tests/tab-switch-submodule-refs.test.sh
 
+      # A Mac whose sudoers grants purge but not launchctl ran every launch-ready step into "a password is required".
+      - name: console-session.sh hops into Aqua only when it must and sudo grants launchctl
+        if: ${{ !cancelled() }}
+        run: bash scripts/ci/tests/console-session-hop.test.sh
+
       - name: install-zig-ci.sh installs only a reviewed Zig
         if: ${{ !cancelled() }}
         run: python3 tests/test_install_zig_ci_reviewed_version.py
