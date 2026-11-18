@@ -10,9 +10,11 @@ struct ChiefMemoryLineRow: View {
     let stale: Bool
     let selected: Bool
     let open: () -> Void
+    @Environment(\.rowDrawn) private var rowDrawn
 
     var body: some View {
-        Button(action: open) {
+        rowDrawn?(name)
+        return Button(action: open) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(name).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)

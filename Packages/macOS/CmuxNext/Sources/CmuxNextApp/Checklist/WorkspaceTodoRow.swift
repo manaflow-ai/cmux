@@ -10,9 +10,11 @@ struct WorkspaceTodoRow: View {
     let isEditing: Bool
     let actions: WorkspaceTodoRowActions
     @State private var text = ""
+    @Environment(\.rowDrawn) private var rowDrawn
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        rowDrawn?(item.id)
+        return HStack(alignment: .firstTextBaseline, spacing: 8) {
             Button { actions.toggle(item.id) } label: {
                 Image(systemName: Self.symbol(item.state))
                     .foregroundStyle(item.state == .done ? Color(nsColor: Palette.litGlyph) : Color.secondary)

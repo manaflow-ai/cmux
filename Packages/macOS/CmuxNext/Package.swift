@@ -1511,7 +1511,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextChiefMemoryTests",
-            dependencies: ["CmuxNextChiefMemory"],
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextChiefMemory",
+                "CmuxNextDesign",
+            ],
             swiftSettings: uiSwiftSettings
         ),
         // The GitHub page (webviews/src/pages/github): a pull request link clicked in a chat shows

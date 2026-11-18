@@ -9,9 +9,11 @@ struct AutomationListRow: View {
     let strings: AutomationStrings
     let now: Date
     let select: @MainActor () -> Void
+    @Environment(\.rowDrawn) private var rowDrawn
 
     var body: some View {
-        Button(action: select) {
+        rowDrawn?(row.id)
+        return Button(action: select) {
             HStack(alignment: .top, spacing: 10) {
                 Circle().fill(row.enabled ? palette.color(row.last) : palette.tertiary).frame(width: 8, height: 8).padding(.top, 5)
                 VStack(alignment: .leading, spacing: 2) {

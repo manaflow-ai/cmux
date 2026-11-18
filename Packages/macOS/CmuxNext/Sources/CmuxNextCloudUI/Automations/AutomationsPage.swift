@@ -28,7 +28,9 @@ public final class AutomationsPage {
     /// (`automation.signed_out`, `feature.disabled`, `no_cli`, `cli_failed`), else `unreachable`.
     public private(set) var problems: [AutomationRow.Target: String] = [:]
 
-    @ObservationIgnored private let local: @Sendable () async throws -> Data
+    /// How many times ``sections(now:calendar:)`` grouped and sorted every row (the row-count tests).
+    @ObservationIgnored private(set) var sectionBuilds = 0
+    @ObservationIgnored private let local:@Sendable () async throws -> Data
     @ObservationIgnored private let cloud: @Sendable () async throws -> Data
 
     /// Makes the page.
@@ -78,7 +80,8 @@ public final class AutomationsPage {
 
     /// The non-empty sections at `now`, each with its rows ordered by next run.
     public func sections(now: Date, calendar: Calendar = .current) -> [(Section, [AutomationRow])] {
-        Section.allCases.compactMap { section in
+        sectionBuilds += 1
+        return Section.allCases.compactMap { section in
             let members = rows
                 .filter { Self.section(of: $0, now: now, calendar: calendar) == section }
                 .sorted { ($0.nextRun ?? .distantFuture, $0.name) < ($1.nextRun ?? .distantFuture, $1.name) }
