@@ -58,7 +58,7 @@ make_patch() {
   top="$(git rev-parse --show-toplevel)" || die "run from a cmux checkout"
   base="$(git -C "$top" merge-base HEAD origin/feat-cmux-next)" || die "no merge base with origin/feat-cmux-next"
   idx="$(mktemp)"
-  cp "$(git -C "$top" rev-parse --git-path index)" "$idx"
+  cp "$(git -C "$top" rev-parse --path-format=absolute --git-path index)" "$idx"
   GIT_INDEX_FILE="$idx" git -C "$top" add -A -- cmux-next-ios scripts >/dev/null 2>&1 || true
   GIT_INDEX_FILE="$idx" git -C "$top" diff --cached --binary "$base" >"$out"
   rm -f "$idx"

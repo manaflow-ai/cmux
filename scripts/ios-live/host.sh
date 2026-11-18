@@ -273,7 +273,10 @@ case "$cmd" in
     cp "$patch" "$root/current.patch"
     state_set patch="$(shasum -a 256 "$patch" | cut -c1-12)" owner="$owner" last_kind=swift swift_ms=$(( $(now_ms) - t0 )) >/dev/null ;;
 
-  undo) owner="${1:?}"; lease holds "$owner"; IOS_SIM_SET="$sims" bash "$src/scripts/live-code/ios-sim.sh" undo "$root/live" ${2:+"$2"} ;;
+  undo)  # undo OWNER [N]: take back live code edits; only a live code build has any
+    owner="${1:?}"; lease holds "$owner"
+    has_live_code && [[ "$(state_get build_kind)" == live-code ]] || die "the running app is not a live code build: nothing to undo (use swap)"
+    IOS_SIM_SET="$sims" bash "$src/scripts/live-code/ios-sim.sh" undo "$root/live" ${2:+"$2"} ;;
 
   relaunch)
     owner="${1:?}"; lease holds "$owner"; ensure_device
