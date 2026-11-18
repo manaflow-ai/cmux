@@ -44,6 +44,9 @@ public struct TerminalScrollModel: Equatable, Sendable {
     /// (V5-2: a fling up from the live bottom is not a fling into it).
     private var movedUp = false
     private var lastOffsetY: CGFloat?
+    /// A restore set `.reading` and the page has not reached its rows yet
+    /// (the controller waits for their frame; ``reachedTarget()``).
+    private var unplaced = false
 
     public init() {}
 
@@ -60,12 +63,15 @@ public struct TerminalScrollModel: Equatable, Sendable {
         touchedBottom = false
         movedUp = false
         lastOffsetY = nil
+        var restored: Anchor?
+        if unplaced, case .reading(let anchor) = state { restored = anchor }
+        unplaced = false
         state = .interacting(startedFollowing: isFollowing || (isInteracting && startedFollowing))
-        return nil
+        return restored
     }
 
     /// The page's offset is the target now (the controller set it).
-    public mutating func reachedTarget() {}
+    public mutating func reachedTarget() { unplaced = false }
 
     private var startedFollowing: Bool {
         if case .interacting(let following) = state { following } else { false }
@@ -118,7 +124,10 @@ public struct TerminalScrollModel: Equatable, Sendable {
 
     /// The mirror was reset and replayed (reattach, resize) or the scrollback
     /// was cleared: the rows being read are gone.
-    public mutating func reset() { state = .following }
+    public mutating func reset() {
+        state = .following
+        unplaced = false
+    }
 
     /// A mirror reset's replay is in: the reader goes back to their rows
     /// (TerminalReadingMark), whatever a gesture did since the reset. That
@@ -132,6 +141,7 @@ public struct TerminalScrollModel: Equatable, Sendable {
     public mutating func restoreReading(_ anchor: Anchor) -> Anchor? {
         if isInteracting { return anchor }
         state = .reading(anchor)
+        unplaced = true
         return nil
     }
 
