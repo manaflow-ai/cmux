@@ -10,7 +10,7 @@
 // And the pill's time moves while the agent's time does (`elapsed`): a completed agent still
 // waiting on background work of its own ticks, a finished one does not.
 import { createRoot, rowRenders } from "./support/rowRenders";
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test, jest } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, type ReactElement } from "react";
 import type { Root } from "react-dom/client";
@@ -47,9 +47,12 @@ beforeAll(() => {
     localStorage: window.localStorage,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
+  // The whole file on one fake clock (the page's clocks among them), so its time only moves forward.
+  jest.useFakeTimers();
 });
 
 afterAll(async () => {
+  jest.useRealTimers();
   await teardownDom(saved, { window: dom.window, scope });
 });
 
@@ -222,7 +225,10 @@ test("agents pill: a completed agent still waiting on its own background work ke
       .find((row) => row.textContent?.includes(name))
       ?.querySelector(".acpmux-agents-list__time")?.textContent;
   const before = { interim: timeOf("Interim"), done: timeOf("Finished") };
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 1_100)));
+  // One tick of the page's second clock: the tick is the behaviour checked, so its time is advanced.
+  await act(async () => {
+    jest.advanceTimersByTime(1_100);
+  });
   const after = { interim: timeOf("Interim"), done: timeOf("Finished") };
   console.log(`PILL-TIME ${JSON.stringify({ before, after })}`);
   expect(after.interim).not.toBe(before.interim);

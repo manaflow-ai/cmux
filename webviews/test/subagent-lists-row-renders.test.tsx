@@ -5,7 +5,7 @@
 // subagents draws none, and a second's tick draws no ended row (the pill's rows none at all: each
 // time is a leaf on its own clock). Counted from React's commits (support/rowRenders.ts).
 import { createRoot, rowRenders } from "./support/rowRenders";
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, type ReactElement } from "react";
 import type { Root } from "react-dom/client";
@@ -41,9 +41,12 @@ beforeAll(() => {
     localStorage: window.localStorage,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
+  // The whole file on one fake clock (the page's clocks among them), so its time only moves forward.
+  jest.useFakeTimers();
 });
 
 afterAll(async () => {
+  jest.useRealTimers();
   await teardownDom(saved, { window: dom.window, scope });
 });
 
@@ -92,8 +95,12 @@ async function mount(element: (agents: Subagent[]) => ReactElement) {
   };
 }
 
-/// One tick of the page's second clock, waited out.
-const tick = () => act(async () => new Promise((resolve) => setTimeout(resolve, 1_100)));
+/// One tick of the page's second clock, on fake timers: the tick is the behaviour counted, so its time
+/// is advanced, not waited out.
+const tick = () =>
+  act(async () => {
+    jest.advanceTimersByTime(1_100);
+  });
 
 test("Subagents tab: one subagent's change, a parent render with the same subagents, a tick", async () => {
   const { SubagentsTab } = await import("../src/agent-session/acpmux/summary/SubagentsTab");
