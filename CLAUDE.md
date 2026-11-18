@@ -101,9 +101,11 @@ use it before the build is done. The agent itself runs it there only when asked;
   survive a relaunch, and checks the build in a fleet simulator signed in with the agent account,
   whose session comes from this Mac (`cmux-ci run --sign-in agent`; no credential lives on a
   worker). Never install with raw `devicectl`, and nothing boots in a simulator on the person's
-  Mac. Rerunning the same command resumes the saved fleet jobs. Details:
+  Mac. Rerunning the same command resumes the saved fleet jobs. Its phone leg has not yet had a
+  green end-to-end run; report a failure as the phone's blocker. Details:
   [cmux-next-ios/CLAUDE.md](cmux-next-ios/CLAUDE.md).
-  The Tag Opener link opens the Mac app and the same-tag iPhone app on every connected phone at once.
+  The Tag Opener link opens the Mac app and, on every connected phone, the same-tag iPhone app it
+  has installed (hq `tools/cmux-hq/Sources/CmuxHQ/TagOpener.swift`, `iosLauncher.launch`).
 - **Install on every connected phone.** A phone that is connected gets the build, including one
   you have not seen before: `review.sh` registers a new phone and installs on it too.
 - **A phone is always connected.** No connected phone, a locked phone, a queued install or a
@@ -265,6 +267,7 @@ https://github.com/manaflow-ai/cmux/issues/13742 with a recommendation first.
 Read these before working in their scope; nested files may not load automatically:
 
 - `ios/`: the classic iPhone app, retired. Don't change it or install it; cmux-next's iPhone app is `cmux-next-ios/`.
+- `Packages/iOS/`: [Packages/iOS/AGENTS.md](Packages/iOS/AGENTS.md) (the Apple HIG rule for iPhone UI).
 - Cloud backend code (control plane, VM API routes, provider drivers, billing,
   entitlements, the NEXT Worker): new code goes to the private
   manaflow-ai/cmux-platform repository, not here. Read

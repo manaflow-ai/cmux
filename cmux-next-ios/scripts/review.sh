@@ -456,7 +456,7 @@ phone_review() {
   fi
   printf '%s\n' "$signed" >"$STATE/phone-$udid/signed.json"
   "$REPO_ROOT/scripts/ios-device-process.sh" terminate-installed --device-id "$udid" --bundle-id "$BUNDLE_ID" >/dev/null 2>&1 || true
-  # The sanctioned install (ios/AGENTS.md iPhone auth gate): it ends in the auth gate below, and the
+  # The sanctioned install (the app-receipt auth gate): it ends in the auth gate below, and the
   # marker lets the local-build-guards devicectl interceptor tell it from a raw install.
   if ! CMUX_SANCTIONED_IPHONE_INSTALL=1 xcrun devicectl device install app --device "$udid" "$app" \
       >"$STATE/phone-$udid/install.log" 2>&1; then
