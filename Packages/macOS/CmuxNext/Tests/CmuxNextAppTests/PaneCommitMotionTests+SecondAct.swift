@@ -153,6 +153,27 @@ extension PaneCommitMotionTests {
         #expect(last.isShown(by: Commit.shown(screen)), "the two splits did not show in the bound of their wait: \(Commit.shown(screen).panes)")
     }
 
+    /// A close in a strip of columns changes the place of each column after it. A column that is out of sight before
+    /// and after the close gets no move: no part of its way shows. The column that comes into sight gets its move.
+    @Test func aPaneWhoseWayIsOutOfSightGetsNoMove() throws {
+        let harness = Commit.Harness(Commit.strip([1, 2, 3, 4, 5, 6]), focused: "p1", holds: false) { $0.rowsEnabledOverride = true }
+        defer { harness.window.closeAfterTest() }
+        harness.model.newColumnWidthModeOverride = .matchCurrent
+        Self.movePanes(harness)
+        Commit.rest(harness)
+        let screen = try #require(harness.screen)
+        let was = try #require(Self.hosts(of: screen)["p6"]?.layer?.frame, "SETUP: the last column has no host before the close")
+        harness.model.apply(screens: Commit.strip([1, 3, 4, 5, 6]))
+        harness.root.syncWithModel()
+        _ = harness.root.advanceFrame(Self.dt)
+        let hosts = Self.hosts(of: screen)
+        let near = try #require(hosts["p3"]?.layer), far = try #require(hosts["p6"]?.layer)
+        try #require(far.frame != was && !was.union(far.frame).intersects(screen.bounds),
+                     "SETUP: the last column did not change its place out of sight: \(was) to \(far.frame)")
+        try #require(Self.move(of: near).moves, "SETUP: the column that comes into sight has no move: the close shows in one frame")
+        #expect(!Self.move(of: far).moves, "a column that is out of sight before and after the close has a move on its layer")
+    }
+
     /// The pane that a close took out shows in each frame of the motion, so its neighbour grows over it and not over
     /// the window's backdrop. The frame that ends the motion hides it.
     @Test func aClosedPaneShowsToTheMotionsEndAndHidesWithIt() throws {

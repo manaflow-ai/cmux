@@ -241,7 +241,10 @@ final class PaneCommitMotion {
         CATransaction.setDisableActions(true)
         dropLastFrame() // a second act in an unzoom's time: no old picture shows over a new layout
         keepUnder(leaving)
-        for change in changes {
+        // A pane or a divider whose way is all out of sight (a column of a strip that is scrolled away before and after
+        // the act) gets no move: no part of that way shows in the motion's time.
+        let sight = screen.bounds
+        for change in changes where change.old.union(change.new).intersects(sight) {
             guard let layer = change.host.layer else { continue }
             move(layer, act.spring, origin: change.origin, size: change.size)
             showGround(beside: change)
@@ -255,7 +258,7 @@ final class PaneCommitMotion {
             guard let layer = view.layer else { continue }
             let new = layer.frame
             if let old = armed.frames[ObjectIdentifier(view)] {
-                guard old != new else { continue }
+                guard old != new, old.union(new).intersects(sight) else { continue }
                 move(layer, act.spring, origin: CGPoint(x: old.minX - new.minX, y: old.minY - new.minY),
                      size: CGSize(width: old.width - new.width, height: old.height - new.height))
             } else if let edge = changes.lazy.compactMap({ Self.edge(of: $0, at: new) }).first {
