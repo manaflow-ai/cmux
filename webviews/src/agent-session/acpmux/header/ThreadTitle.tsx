@@ -21,9 +21,3 @@ export function ThreadTitle({
     </span>
   );
 }
-
-/// The last path component of a folder, the name the Codex app shows for a project.
-export function projectName(cwd: string | undefined): string | undefined {
-  const name = cwd?.replace(/\/+$/, "").split("/").pop();
-  return name || undefined;
-}

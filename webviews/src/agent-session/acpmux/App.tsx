@@ -540,7 +540,7 @@ import { sessionLink } from "./links";
 import { ChatHeaderInlineStatus, ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools } from "./header/ChatHeaderTools";
 import { HEADER_ACTIONS, guardedChatMenu, menuGroups, type ChatMenuItem } from "./header/chatHeaderToolsModel";
-import { projectName, ThreadTitle } from "./header/ThreadTitle";
+import { ThreadTitle } from "./header/ThreadTitle";
 import { deleteChatRow, moveMachineRow } from "./header/chatRows";
 import { moveToTerminal, terminalMoveRow } from "./header/terminalMoveRow";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
