@@ -117,6 +117,12 @@ pub const AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY: &str =
 /// (`_meta.acpmux.credentials`, `agent/credentials.update`), which holds it in memory for that agent
 /// alone (acpmux `agent_credentials.rs`). Advertised only where the owner-Cloud start is.
 pub const AGENT_SESSION_START_CREDENTIALS_CAPABILITY: &str = "agent-session-start-credentials-v1";
+/// This daemon, and the acpmux bundled beside it, take `CMUX_CODEX_ACCESS_TOKEN` (the Mac's Codex
+/// CLI ChatGPT login, cmux#45774) in those credentials. A daemon from before it refuses the whole
+/// start with `agent_session.bad_request`, so the app sends that name only where this is
+/// advertised, which is wherever [`AGENT_SESSION_START_CREDENTIALS_CAPABILITY`] is.
+pub const AGENT_SESSION_START_CODEX_LOGIN_CREDENTIAL_CAPABILITY: &str =
+    "agent-session-start-codex-login-credential-v1";
 
 /// The names a credential may set (acpmux `agent_credentials::NAMES`): a Claude token or key, an
 /// OpenAI key, a ChatGPT plan token, or the access token of the Mac's Codex CLI ChatGPT login

@@ -54,6 +54,16 @@ public actor AgentSessionAttachClient {
     /// credential for a Cloud chat's agent (cmux-tui `agent_session_start.rs`, model-connections.md Revision 2). Served
     /// only on the owner's own Cloud VM, so it is no ``DaemonCapability`` case: this Mac's bundled daemon never lists it.
     public static let startCredentialsCapability = "agent-session-start-credentials-v1"
+    /// Those credentials may carry ``codexLoginCredential`` (cmux#45774): the machine's daemon and the acpmux bundled
+    /// beside it take it. A machine's daemon comes from its image and a running machine is never upgraded, so most run one
+    /// from before it, whose start refuses the whole credential (`agent_session.bad_request`). Served where
+    /// ``startCredentialsCapability`` is, on a daemon from the same build on; no ``DaemonCapability`` case for the same reason.
+    public static let startCodexLoginCredentialCapability = "agent-session-start-codex-login-credential-v1"
+    /// The variable of the Mac's Codex CLI ChatGPT login's access token (acpmux `agent_credentials::CODEX_LOGIN_TOKEN`).
+    public static let codexLoginCredential = "CMUX_CODEX_ACCESS_TOKEN"
+    /// The app's own refusal of a start or a credential refresh carrying ``codexLoginCredential`` to a daemon without
+    /// ``startCodexLoginCredentialCapability``: never sent, as that daemon would refuse it.
+    public static let codexLoginUnsupported = "app.codex_login_unsupported"
     /// A Cloud machine's running link id while its connect answer says the caller owns it, else nil
     /// (`CloudLinkSession.ownerLink`).
     public typealias OwnerLink = @Sendable () async -> Int?
@@ -108,6 +118,8 @@ public actor AgentSessionAttachClient {
         var startMode = false
         /// `agent-session-start-credentials-v1`.
         var credentials = false
+        /// `agent-session-start-codex-login-credential-v1`.
+        var codexLoginCredential = false
         /// `agent-session-trust-vm-kind-v1`.
         var trustVMKind = false
         /// `agent-session-children-v1`.
@@ -222,11 +234,17 @@ public actor AgentSessionAttachClient {
                 throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not support choosing a start model")
             }
         }
+        // The Mac's Codex CLI login to a daemon from before it: that daemon refuses the whole start, so none is sent
+        // (the caller updates the machine or starts on another connection).
+        if callerOwnsVM, served.credentials, let credentials, !Self.takesCredential(credentials, servesCodexLogin: served.codexLoginCredential) {
+            throw Self.codexLoginRefusal
+        }
         let params = Self.startParams(cwd: cwd, harness: harness, homeConfirmed: homeConfirmed, personKey: personKey,
                                       servesKeyedReason: served.keyedReason, callerOwnsVM: callerOwnsVM, servesVMKind: served.vmKind,
                                       model: model, servesModel: served.model, servesPermissionMode: served.permissionMode, permissionMode: permissionMode,
                                       startMode: startMode, servesStartMode: served.startMode,
-                                      servesCredentials: served.credentials, credentials: credentials)
+                                      servesCredentials: served.credentials, credentials: credentials,
+                                      servesCodexLoginCredential: served.codexLoginCredential)
         guard !transport.isClosed else {
             throw AgentSessionAttachError(code: "agent_session.closed", message: "the connection ended before the start was sent")
         }
@@ -275,7 +293,8 @@ public actor AgentSessionAttachClient {
                             servesKeyedReason: Bool, callerOwnsVM: Bool, servesVMKind: Bool,
                             model: String? = nil, servesModel: Bool = false, servesPermissionMode: Bool = false, permissionMode: String? = nil,
                             startMode: String? = nil, servesStartMode: Bool = false,
-                            servesCredentials: Bool = false, credentials: [String: String]? = nil) -> [String: any Sendable] {
+                            servesCredentials: Bool = false, credentials: [String: String]? = nil,
+                            servesCodexLoginCredential: Bool = false) -> [String: any Sendable] {
         var params: [String: any Sendable] = [:]
         if let cwd { params["cwd"] = cwd }
         if let harness { params["harness"] = harness }
@@ -292,10 +311,22 @@ public actor AgentSessionAttachClient {
         // Cloud VM and nowhere else.
         if callerOwnsVM, servesVMKind, servesStartMode, let startMode, !startMode.isEmpty { params["mode"] = startMode }
         // The owner's model credential, only over the owner answer of the link to their own Cloud VM
-        // (`agent-session-start-credentials-v1`); anything else starts on the machine's own route.
-        if callerOwnsVM, servesCredentials, let credentials, !credentials.isEmpty { params["credentials"] = ["env": credentials] }
+        // (`agent-session-start-credentials-v1`); anything else starts on the machine's own route. The Mac's Codex CLI
+        // login goes only to a daemon that takes it (``takesCredential(_:servesCodexLogin:)``); ``start`` refuses it first.
+        if callerOwnsVM, servesCredentials, let credentials, !credentials.isEmpty,
+           takesCredential(credentials, servesCodexLogin: servesCodexLoginCredential) { params["credentials"] = ["env": credentials] }
         return params
     }
+
+    /// Whether a daemon takes the credential `env`: one carrying ``codexLoginCredential`` only with
+    /// ``startCodexLoginCredentialCapability`` (`servesCodexLogin`), as an older one refuses the whole start or refresh.
+    public static func takesCredential(_ env: [String: String], servesCodexLogin: Bool) -> Bool {
+        servesCodexLogin || env[codexLoginCredential] == nil
+    }
+
+    /// The refusal of a credential an older daemon would refuse (``takesCredential(_:servesCodexLogin:)``), never sent.
+    static let codexLoginRefusal = AgentSessionAttachError(
+        code: codexLoginUnsupported, message: "the machine's daemon does not take the Codex CLI login's credential")
 
     /// `agents.defaultPermissionMode` as `agent-session-start` takes it (acpmux `normalize_permission_mode`): unset is
     /// acpmux's default, full access; nil (sent as nothing, so the start keeps `ask`) for a value acpmux does not know.
@@ -346,6 +377,8 @@ public actor AgentSessionAttachClient {
             guard served.credentials else {
                 throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not take model credentials")
             }
+            // A daemon from before the Codex CLI login refuses its refresh too: not sent.
+            guard Self.takesCredential(env, servesCodexLogin: served.codexLoginCredential) else { throw Self.codexLoginRefusal }
         }
         guard callerOwnsVM else { throw Self.notOwner }
         guard !transport.isClosed else {
@@ -897,6 +930,7 @@ public actor AgentSessionAttachClient {
                             permissionMode: identity.supports(DaemonCapability.agentSessionStartPermissionMode.rawValue),
                             startMode: identity.supports(DaemonCapability.agentSessionStartMode.rawValue),
                             credentials: identity.supports(Self.startCredentialsCapability),
+                            codexLoginCredential: identity.supports(Self.startCodexLoginCredentialCapability),
                             trustVMKind: identity.supports(DaemonCapability.agentSessionTrustVMKind.rawValue),
                             children: identity.supports(DaemonCapability.agentSessionChildren.rawValue),
                             fork: identity.supports(DaemonCapability.agentSessionFork.rawValue),

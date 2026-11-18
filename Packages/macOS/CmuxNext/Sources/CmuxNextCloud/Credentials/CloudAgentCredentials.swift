@@ -1,3 +1,4 @@
+import CmuxNextDaemon
 public import Foundation
 
 /// One model connection's credential as this Mac's acpmux gives it for a Cloud chat
@@ -34,6 +35,10 @@ public struct CloudAgentCredential: Sendable, Equatable, CustomStringConvertible
     /// ChatGPT plan token, a Codex CLI login's access token); a Claude token or an API key has none.
     public var refreshes: Bool { expiresAt != nil }
 
+    /// The Mac's Codex CLI login's access token (`CMUX_CODEX_ACCESS_TOKEN`), which a machine daemon from before
+    /// `agent-session-start-codex-login-credential-v1` refuses (``AgentSessionAttachClient/takesCredential(_:servesCodexLogin:)``).
+    public var isCodexLogin: Bool { !AgentSessionAttachClient.takesCredential(env, servesCodexLogin: false) }
+
     public var description: String { "CloudAgentCredential(\(connectionID), \(kind), \(env.keys.sorted().joined(separator: ",")))" }
     public var debugDescription: String { description }
     public var customMirror: Mirror {
@@ -54,6 +59,9 @@ public final class CloudAgentCredentials {
         /// This Mac's acpmux did not give the connection's credential (not running, not the person,
         /// no such connection, or a connection that does not serve Cloud).
         case unavailable(connection: String)
+        /// The chat's connection is the Mac's Codex CLI login, its machine's daemon does not take it, and no other
+        /// connection of this Mac serves the chat's agent on Cloud (``launchCredential(chat:machine:harness:model:takesCodexLogin:)``).
+        case codexLoginUnsupported
     }
 
     /// One `_acpmux/connections/credential {id}` on this Mac's acpmux, as the person: its result.
@@ -107,12 +115,44 @@ public final class CloudAgentCredentials {
     /// The credential the chat's start sends, read now. A chosen connection that cannot be read throws:
     /// the start says so instead of using another route. With no choice, the connection Cloud first use
     /// picks for `harness` (``setup``); nil when none serves it or it cannot be read (the machine's own route).
-    public func launchCredential(chat: String, machine: String, harness: String? = nil, model: String? = nil) async throws -> CloudAgentCredential? {
-        guard let id = connection(chat: chat, machine: machine) else {
-            guard let picked = await setup?.choose(harness: harness, model: model, account: nil).connectionID else { return nil }
-            return try? await credential(forConnection: picked)
+    ///
+    /// `takesCodexLogin` false: the machine's daemon does not take the Mac's Codex CLI login
+    /// (`agent-session-start-codex-login-credential-v1`). A credential that is one is replaced by the next connection
+    /// serving the chat's agent on Cloud that is not (``CloudSetup/otherThanCodexLogin(harness:model:account:)``); with
+    /// none this throws ``Failure/codexLoginUnsupported``, and nothing is sent.
+    public func launchCredential(chat: String, machine: String, harness: String? = nil, model: String? = nil,
+                                 takesCodexLogin: Bool = true) async throws -> CloudAgentCredential? {
+        let chosen: CloudAgentCredential?
+        if let id = connection(chat: chat, machine: machine) {
+            chosen = try await credential(forConnection: id)
+        } else if let picked = await setup?.choose(harness: harness, model: model, account: nil).connectionID {
+            chosen = try? await credential(forConnection: picked)
+        } else {
+            chosen = nil
         }
-        return try await credential(forConnection: id)
+        guard let chosen, chosen.isCodexLogin, !takesCodexLogin else { return chosen }
+        guard let other = await setup?.otherThanCodexLogin(harness: harness ?? chosen.family, model: model, account: nil),
+              let replacement = try? await credential(forConnection: other), !replacement.isCodexLogin else { throw Failure.codexLoginUnsupported }
+        return replacement
+    }
+
+    /// A chat's start, `send`, with `credential`'s env (``launchCredential(chat:machine:harness:model:takesCodexLogin:)``):
+    /// its result and the credential it went with. When the machine's daemon does not take the Mac's Codex CLI login
+    /// (`AgentSessionAttachClient.codexLoginUnsupported`: refused before it was sent, cmux#45774), it is sent once more on
+    /// the next connection of this Mac serving the agent on Cloud; with none, the refusal stands (the start coordinator
+    /// then updates the machine and tries once more, `AgentRemoteStartRefusal.olderDaemonCodes`).
+    public static func sending<T>(_ credential: CloudAgentCredential?, with credentials: CloudAgentCredentials?, chat: String, machine: String,
+                                  harness: String?, model: String?,
+                                  _ send: ([String: String]?) async throws -> T) async -> (Result<T, any Error>, CloudAgentCredential?) {
+        let first: Result<T, any Error>
+        do { first = .success(try await send(credential?.env)) } catch { first = .failure(error) }
+        guard case .failure(let error as AgentSessionAttachError) = first, error.code == AgentSessionAttachClient.codexLoginUnsupported,
+              let other = try? await credentials?.launchCredential(chat: chat, machine: machine, harness: harness, model: model, takesCodexLogin: false) else {
+            return (first, credential)
+        }
+        let again: Result<T, any Error>
+        do { again = .success(try await send(other.env)) } catch { again = .failure(error) }
+        return (again, other)
     }
 
     /// The chat started on `credential`: its choice is spent, and a ChatGPT plan token is kept fresh

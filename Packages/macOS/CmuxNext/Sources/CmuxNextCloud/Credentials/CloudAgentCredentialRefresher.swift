@@ -127,7 +127,8 @@ public final class CloudAgentCredentialRefresher {
 extension CloudAgentCredentialRefresher {
     /// The push to the chat on tab `surface` of a Cloud machine's daemon: `agent-session-credentials`
     /// over the owner answer of its link (``AgentSessionAttachClient/updateCredentials(_:ownerLink:)``).
-    /// A tab its machine no longer has (closed, or a daemon that takes no credential) is gone.
+    /// A tab its machine no longer has (closed, or a daemon that takes no credential or not this one: the Codex CLI
+    /// login's to a daemon without `agent-session-start-codex-login-credential-v1`, never sent) is gone.
     public static func machinePush(surface: UInt64, ownerLink: AgentSessionAttachClient.OwnerLink?,
                                    reconnect: AgentSessionAttachClient.Reconnect?,
                                    endpoint: @escaping AgentSessionAttachClient.EndpointProvider) -> Push {
@@ -138,7 +139,8 @@ extension CloudAgentCredentialRefresher {
                 _ = try await client.updateCredentials(env, ownerLink: ownerLink)
                 outcome = .delivered
             } catch let error as AgentSessionAttachError
-                        where error.code == "agent_session.unknown_tab" || error.code == AgentSessionAttachClient.startUnsupported {
+                        where error.code == "agent_session.unknown_tab" || error.code == AgentSessionAttachClient.startUnsupported
+                            || error.code == AgentSessionAttachClient.codexLoginUnsupported {
                 outcome = .gone
             } catch {
                 outcome = .failed

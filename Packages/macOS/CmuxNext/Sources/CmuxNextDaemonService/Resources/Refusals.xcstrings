@@ -29629,6 +29629,137 @@
         }
       }
     },
+    "handlers.refusal.agentRemoteStart.codexLoginTooOld": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux on %@ is too old to use this Mac's Codex CLI sign-in. Sign in with ChatGPT in Settings > Cloud, or start the chat on a new Cloud machine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の cmux は古いため、この Mac の Codex CLI のサインインを使えません。設定 > Cloud で ChatGPT でサインインするか、新しい Cloud マシンでチャットを開始してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إصدار cmux على %@ أقدم من أن يستخدم تسجيل دخول Codex CLI على هذا الـ Mac. سجّل الدخول باستخدام ChatGPT في الإعدادات > Cloud، أو ابدأ الدردشة على جهاز Cloud جديد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux na %@ je prestar da koristi prijavu za Codex CLI na ovom Macu. Prijavite se putem ChatGPT-a u Postavke > Cloud ili pokrenite chat na novoj Cloud mašini."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux på %@ er for gammel til at bruge denne Macs Codex CLI-login. Log ind med ChatGPT under Indstillinger > Cloud, eller start chatten på en ny Cloud-maskine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux auf %@ ist zu alt, um die Codex-CLI-Anmeldung dieses Macs zu verwenden. Melde dich unter Einstellungen > Cloud mit ChatGPT an oder starte den Chat auf einer neuen Cloud-Maschine."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux en %@ es demasiado antiguo para usar el inicio de sesión de Codex CLI de este Mac. Inicia sesión con ChatGPT en Ajustes > Cloud o inicia el chat en una nueva máquina Cloud."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux sur %@ est trop ancien pour utiliser la connexion Codex CLI de ce Mac. Connectez-vous avec ChatGPT dans Réglages > Cloud, ou démarrez le chat sur une nouvelle machine Cloud."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux su %@ è troppo vecchio per usare l'accesso a Codex CLI di questo Mac. Accedi con ChatGPT in Impostazioni > Cloud oppure avvia la chat su una nuova macchina Cloud."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux នៅលើ %@ ចាស់ពេកមិនអាចប្រើការចូល Codex CLI របស់ Mac នេះបានទេ។ ចូលដោយប្រើ ChatGPT នៅក្នុង ការកំណត់ > Cloud ឬចាប់ផ្តើមការជជែកនៅលើម៉ាស៊ីន Cloud ថ្មី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@의 cmux가 오래되어 이 Mac의 Codex CLI 로그인을 사용할 수 없습니다. 설정 > Cloud에서 ChatGPT로 로그인하거나 새 Cloud 머신에서 채팅을 시작하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux på %@ er for gammel til å bruke denne Macens Codex CLI-pålogging. Logg på med ChatGPT under Innstillinger > Cloud, eller start chatten på en ny Cloud-maskin."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux na %@ jest zbyt stary, aby użyć logowania Codex CLI z tego Maca. Zaloguj się przez ChatGPT w Ustawienia > Cloud lub rozpocznij czat na nowej maszynie Cloud."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux em %@ é antigo demais para usar o login do Codex CLI deste Mac. Entre com o ChatGPT em Ajustes > Cloud ou inicie o chat em uma nova máquina Cloud."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux на %@ слишком старый, чтобы использовать вход Codex CLI с этого Mac. Войдите через ChatGPT в разделе «Настройки > Cloud» или начните чат на новой машине Cloud."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux บน %@ เก่าเกินกว่าจะใช้การลงชื่อเข้าใช้ Codex CLI ของ Mac เครื่องนี้ได้ ลงชื่อเข้าใช้ด้วย ChatGPT ใน การตั้งค่า > Cloud หรือเริ่มแชทบนเครื่อง Cloud ใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ üzerindeki cmux, bu Mac'in Codex CLI oturumunu kullanmak için çok eski. Ayarlar > Cloud'da ChatGPT ile oturum açın veya sohbeti yeni bir Cloud makinesinde başlatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux на %@ надто старий, щоб використати вхід Codex CLI з цього Mac. Увійдіть через ChatGPT у розділі «Налаштування > Cloud» або почніть чат на новій машині Cloud."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux trên %@ quá cũ để dùng thông tin đăng nhập Codex CLI của máy Mac này. Hãy đăng nhập bằng ChatGPT trong Cài đặt > Cloud, hoặc bắt đầu cuộc trò chuyện trên một máy Cloud mới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 上的 cmux 版本过旧，无法使用这台 Mac 的 Codex CLI 登录。请在“设置 > Cloud”中使用 ChatGPT 登录，或在新的 Cloud 机器上开始聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 上的 cmux 版本過舊，無法使用這台 Mac 的 Codex CLI 登入。請在「設定 > Cloud」中使用 ChatGPT 登入，或在新的 Cloud 機器上開始聊天。"
+          }
+        }
+      }
+    },
     "handlers.refusal.agentRemoteStart.homeUnconfirmed": {
       "extractionState": "manual",
       "localizations": {

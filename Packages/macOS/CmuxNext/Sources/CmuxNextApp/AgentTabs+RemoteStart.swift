@@ -90,17 +90,14 @@ extension AgentTabStore {
             throw AgentRemoteStartRefusal.folderNeeded(machine: machineName ?? machine)
         }
         let client = AgentSessionAttachClient(surface: surface, requestTimeout: AgentTabRemoteStart.timeout, reconnect: reconnect, endpoint: endpoint)
-        let result: Result<String, any Error>
         let home = fallback.map { existingView(key, machine: machine)?.model.transport.remoteHomeChosen.contains($0) == true } ?? false // the person's Use Home Folder (cx-1bhjj)
         let harness = chosenHarness ?? seed?.harness
         // A default model pick is omitted by the page. After a harness switch it must remain
         // that harness's default, rather than restoring the previous harness's seeded model.
         let model = chosenModel ?? (harness == seed?.harness ? seed?.model : nil)
         // The owner's model credential its Cloud start chose, else Cloud first use's pick for the harness (read now; never sent to a machine that is not theirs).
-        let credential = ownerLink == nil ? nil : try await cloudCredentials?.launchCredential(chat: key, machine: machine, harness: harness, model: model)
-        do { result = .success(try await client.start(cwd: fallback, harness: harness, homeConfirmed: home, personKey: personKey, ownerLink: ownerLink, model: model, permissionMode: startPermissionMode(),
-                                                      startMode: ownerLink != nil && harness == seed?.harness ? seed?.mode : nil, // the Cloud send's mode pick, own machine only
-                                                      credentials: credential?.env)) } catch { result = .failure(error) }
+        let chosenCredential = ownerLink == nil ? nil : try await cloudCredentials?.launchCredential(chat: key, machine: machine, harness: harness, model: model)
+        let (result, credential) = await CloudAgentCredentials.sending(chosenCredential, with: cloudCredentials, chat: key, machine: machine, harness: harness, model: model) { env in try await client.start(cwd: fallback, harness: harness, homeConfirmed: home, personKey: personKey, ownerLink: ownerLink, model: model, permissionMode: startPermissionMode(), startMode: ownerLink != nil && harness == seed?.harness ? seed?.mode : nil, credentials: env) } // the Cloud send's mode pick, own machine only; a Codex CLI login an older daemon there does not take is never sent: another connection, else refused (CloudAgentCredentials.sending)
         let phases = await client.startPhases
         await client.close()
         switch result {

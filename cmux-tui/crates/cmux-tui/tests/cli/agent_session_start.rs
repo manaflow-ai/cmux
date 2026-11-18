@@ -614,6 +614,9 @@ fn agent_session_start_starts_codex_on_the_callers_own_cloud_vm_only() {
     let identity = owner.rpc(json!({"id": 1, "cmd": "identify"}));
     let capabilities = identity["data"]["capabilities"].to_string();
     assert!(capabilities.contains("agent-session-start-owner-cloud-v1"), "{identity}");
+    // The owner's credential, and the Mac's Codex CLI login in it, go where the owner start does.
+    assert!(capabilities.contains("agent-session-start-credentials-v1"), "{identity}");
+    assert!(capabilities.contains("agent-session-start-codex-login-credential-v1"), "{identity}");
     let surface = owner.own_agent_tab();
     let refused = start(&owner, surface, "fcx", None);
     assert_eq!(refused["error_code"], "agent_session.host_unverified", "{refused}");
@@ -634,6 +637,7 @@ fn agent_session_start_starts_codex_on_the_callers_own_cloud_vm_only() {
     let identity = ssh.rpc(json!({"id": 2, "cmd": "identify"}));
     let capabilities = identity["data"]["capabilities"].to_string();
     assert!(!capabilities.contains("agent-session-start-owner-cloud-v1"), "{identity}");
+    assert!(!capabilities.contains("agent-session-start-codex-login-credential-v1"), "{identity}");
     let surface = ssh.own_agent_tab();
     let refused = start(&ssh, surface, "fcx", Some("owner"));
     assert_eq!(refused["error_code"], "agent_session.not_asking", "{refused}");
@@ -645,6 +649,7 @@ fn agent_session_start_starts_codex_on_the_callers_own_cloud_vm_only() {
     let identity = team.rpc(json!({"id": 3, "cmd": "identify"}));
     let capabilities = identity["data"]["capabilities"].to_string();
     assert!(!capabilities.contains("agent-session-start-owner-cloud-v1"), "{identity}");
+    assert!(!capabilities.contains("agent-session-start-codex-login-credential-v1"), "{identity}");
     let surface = team.own_agent_tab();
     let refused = start(&team, surface, "fcx", None);
     assert_eq!(refused["error_code"], "agent_session.team_vm_blocked", "{refused}");

@@ -20,13 +20,13 @@ import Testing
     }
 
     /// The client's refusal code, if any, and the `agent-session-start` frame the daemon got.
-    private func start(serving extra: [String], ownerLink: AgentSessionAttachClient.OwnerLink?) async throws
+    private func start(serving extra: [String], ownerLink: AgentSessionAttachClient.OwnerLink?, credentials: [String: String]? = nil) async throws
         -> (refusal: String?, frame: [String: Any]?) {
         let daemon = try PresenceDaemon(capabilities: ["agent-session-attach-v1", "agent-session-start-v1"] + extra)
         defer { daemon.stop() }
         let client = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }
         var refusal: String?
-        do { _ = try await client.start(cwd: "/w", harness: nil, ownerLink: ownerLink) } catch let error as AgentSessionAttachError {
+        do { _ = try await client.start(cwd: "/w", harness: nil, ownerLink: ownerLink, credentials: credentials) } catch let error as AgentSessionAttachError {
             refusal = error.code
         }
         await client.close()
@@ -180,6 +180,42 @@ import Testing
         let plain = try await trust(serving: vmKind, ownerLink: nil)
         #expect(plain.frame != nil)
         #expect(plain.frame?["vm_kind"] == nil)
+    }
+
+    /// cmux#45774: the Mac's Codex CLI login (`CMUX_CODEX_ACCESS_TOKEN`) goes only to a daemon advertising
+    /// `agent-session-start-codex-login-credential-v1`. One from before it (most Cloud machines' images) refused the whole
+    /// start (`agent_session.bad_request`), so the client refuses it unsent; a ChatGPT plan token or an OpenAI key still goes.
+    @Test func theCodexCLILoginGoesOnlyToADaemonThatTakesIt() async throws {
+        #expect(AgentSessionAttachClient.startCodexLoginCredentialCapability == "agent-session-start-codex-login-credential-v1")
+        let older = [AgentSessionAttachClient.startCredentialsCapability, DaemonCapability.agentSessionStartVMKind.rawValue]
+        let current = older + [AgentSessionAttachClient.startCodexLoginCredentialCapability]
+        let codex = ["CMUX_CODEX_ACCESS_TOKEN": "eyJhbGciOi.codex.c2ln"]
+        let sent = { (frame: [String: Any]?) in (frame?["credentials"] as? [String: Any])?["env"] as? [String: String] }
+
+        let refused = try await start(serving: older, ownerLink: link(3, 3), credentials: codex)
+        #expect(refused.refusal == AgentSessionAttachClient.codexLoginUnsupported)
+        #expect(refused.frame == nil, "a start the daemon refuses whole was sent")
+        for env in [["CMUX_CHATGPT_ACCESS_TOKEN": "eyJhbGciOi.plan.c2ln"], ["OPENAI_API_KEY": "sk-proj-x"]] {
+            let other = try await start(serving: older, ownerLink: link(3, 3), credentials: env)
+            #expect(sent(other.frame) == env)
+        }
+        let taken = try await start(serving: current, ownerLink: link(3, 3), credentials: codex)
+        #expect(sent(taken.frame) == codex)
+        #expect(AgentSessionAttachClient.startParams(cwd: nil, harness: nil, homeConfirmed: false, personKey: nil, servesKeyedReason: false,
+                                                     callerOwnsVM: true, servesVMKind: true, servesCredentials: true, credentials: codex)["credentials"] == nil)
+
+        // Its refresh (`agent-session-credentials`) the same way.
+        let refreshes: [(serving: [String], refusal: String?)] = [(older, AgentSessionAttachClient.codexLoginUnsupported), (current, nil)]
+        for (serving, refusal) in refreshes {
+            let daemon = try PresenceDaemon(capabilities: ["agent-session-attach-v1", "agent-session-start-v1"] + serving)
+            let client = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }
+            var code: String?
+            do { _ = try await client.updateCredentials(codex, ownerLink: link(3, 3)) } catch let error as AgentSessionAttachError { code = error.code }
+            await client.close()
+            daemon.stop()
+            #expect(code == refusal)
+            #expect((daemon.frames.first { $0["cmd"] as? String == "agent-session-credentials" } != nil) == (refusal == nil))
+        }
     }
 
     @Test func aMachineThatIsNotCloudNeedsNoAnswer() async throws {

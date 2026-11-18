@@ -90,8 +90,10 @@ public nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHost
     /// no-folder starts (`agent-session-start-no-cwd-v1`; a current one starts it in `~/chats/<id>`).
     /// `AgentTabRemoteHost.updateMachine` runs only while the link's owner answer says the machine is the caller's,
     /// so a teammate's machine is never retried (the app refuses that start before it is sent), and an
-    /// SSH host, which has no update, keeps the folder refusal.
-    public static let olderDaemonCodes: Set<String> = [AgentSessionAttachError.teamMachine, "agent_session.host_unverified", appFolderNeeded]
+    /// SSH host, which has no update, keeps the folder refusal. The app's own refusal of the Mac's Codex CLI login to a
+    /// daemon from before it (``AgentSessionAttachClient/codexLoginUnsupported``, never sent) is one too.
+    public static let olderDaemonCodes: Set<String> = [AgentSessionAttachError.teamMachine, "agent_session.host_unverified", appFolderNeeded,
+                                                       AgentSessionAttachClient.codexLoginUnsupported]
     public static func startUnsupported(machine: String) -> Self { Self(code: AgentSessionAttachClient.startUnsupported, machine: machine) }
 
     public var userMessage: String { errorDescription ?? code }
@@ -150,6 +152,10 @@ public nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHost
                                   agentName ?? RefusalStrings.text("handlers.refusal.agentRemoteStart.thisAgent", "This agent"), machine)
         case "agent_session.home_unconfirmed": RefusalStrings.format("handlers.refusal.agentRemoteStart.homeUnconfirmed", "Choose the home folder on %@ with Use Home Folder first.", machine)
         case "agent_session.above_home": RefusalStrings.format("handlers.refusal.agentRemoteStart.aboveHome", "A chat on %@ never runs in a folder above its home folder.", machine)
+        case AgentSessionAttachClient.codexLoginUnsupported:
+            RefusalStrings.format("handlers.refusal.agentRemoteStart.codexLoginTooOld",
+                                  "cmux on %@ is too old to use this Mac's Codex CLI sign-in. Sign in with ChatGPT in Settings > Cloud, or start the chat on a new Cloud machine.",
+                                  machine)
         case "app.trust_update":
             RefusalStrings.format("handlers.refusal.agentRemoteStart.updateForTrust", "Update cmux on %@ to trust folders from here.", machine)
         case Self.appFolderNeeded:

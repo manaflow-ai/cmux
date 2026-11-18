@@ -1,4 +1,5 @@
 import CmuxNextCloud
+import CmuxNextDaemon
 import Foundation
 import Testing
 
@@ -148,5 +149,65 @@ struct CloudSetupTests {
         while connections.reads < 1 { await Task.yield() }
         wait.cancel()
         #expect(await wait.value == false)
+    }
+
+    // cmux#45774: the Mac's Codex CLI login and a machine whose daemon predates its credential.
+    private static let login = CloudSetup.Connection(id: "codex-login", families: ["codex"], kind: "codex-login")
+    private static let added = CloudSetup.Connection(id: "codex-2", families: ["codex"], kind: "subscription")
+    private static let key = CloudSetup.Connection(id: "openai-key", families: ["codex"], kind: "api-key")
+
+    /// A machine that does not take the Codex CLI login gets the next connection serving Codex on Cloud (an OpenAI key),
+    /// never an added Codex CLI account; with none the start is refused before anything is sent (the team's key is no
+    /// way on: machines get no route from it). A daemon that takes the login, and any other connection, keep the choice.
+    @Test func aCodexCLILoginFallsBackOnAMachineThatDoesNotTakeIt() async throws {
+        let connections = Connections(.init(personal: [Self.login, Self.added, Self.key], organization: nil))
+        let rule = setup(connections)
+        let (base, account, other) = (await rule.isCodexLogin("codex-login"), await rule.isCodexLogin("codex-2"), await rule.isCodexLogin("openai-key"))
+        #expect(base && account && !other)
+        #expect(try await rule.connection("codex-login", harness: "codex", model: nil, account: nil, takesCodexLogin: true) == "codex-login")
+        #expect(try await rule.connection("codex-login", harness: "codex", model: nil, account: nil, takesCodexLogin: false) == "openai-key")
+        #expect(try await rule.connection("openai-key", harness: "codex", model: nil, account: nil, takesCodexLogin: false) == "openai-key")
+        #expect(try await rule.connection(nil, harness: "codex", model: nil, account: nil, takesCodexLogin: false) == nil)
+        connections.snapshot = .init(personal: [Self.login, Self.added], organization: ["codex"])
+        await #expect(throws: CloudSetup.CodexLoginUnsupported.self) {
+            try await rule.connection("codex-login", harness: "codex", model: nil, account: nil, takesCodexLogin: false)
+        }
+        // The kind comes from `_acpmux/connections`; a row without one (an older acpmux) is no Codex CLI login.
+        #expect(CloudSetup.Connection(json: ["id": "codex-login", "families": ["codex"], "kind": "codex-login"])?.isCodexLogin == true)
+        #expect(CloudSetup.Connection(json: ["id": "codex-login", "families": ["codex"]])?.isCodexLogin == false)
+    }
+
+    /// A chat's start refused unsent for its Codex CLI login (`app.codex_login_unsupported`, an older machine daemon) goes
+    /// once more on the next connection serving Codex on Cloud, and that is the credential the chat runs (and refreshes) on;
+    /// with none the refusal stands on the login's credential.
+    @Test func aStartRefusedForItsCodexCLILoginGoesOnceMoreOnAnotherConnection() async throws {
+        let connections = Connections(.init(personal: [Self.login, Self.key], organization: nil))
+        let replies = ["codex-login": #"{"family":"codex","kind":"codex-login","env":{"CMUX_CODEX_ACCESS_TOKEN":"eyJhbGciOi.codex.c2ln"},"expires_at":1900000000}"#,
+                       "openai-key": #"{"family":"codex","kind":"api-key","env":{"OPENAI_API_KEY":"sk-proj-x"}}"#]
+        let credentials = CloudAgentCredentials { id in Data(replies[id, default: "{}"].utf8) }
+        credentials.setup = setup(connections)
+        let chosen = try await credentials.launchCredential(chat: "tab-1", machine: "vm-1", harness: "codex")
+        #expect(chosen?.connectionID == "codex-login" && chosen?.isCodexLogin == true)
+        let refusal = AgentSessionAttachError(code: AgentSessionAttachClient.codexLoginUnsupported, message: "older daemon")
+        var sent: [[String]] = []
+        let (result, used) = await CloudAgentCredentials.sending(chosen, with: credentials, chat: "tab-1", machine: "vm-1", harness: "codex", model: nil) { env in
+            sent.append(env?.keys.sorted() ?? [])
+            if env?["CMUX_CODEX_ACCESS_TOKEN"] != nil { throw refusal }
+            return "session-1"
+        }
+        #expect(sent == [["CMUX_CODEX_ACCESS_TOKEN"], ["OPENAI_API_KEY"]])
+        #expect((try? result.get()) == "session-1")
+        #expect(used?.connectionID == "openai-key")
+
+        connections.snapshot = .init(personal: [Self.login], organization: nil)
+        let (alone, kept) = await CloudAgentCredentials.sending(chosen, with: credentials, chat: "tab-1", machine: "vm-1", harness: "codex", model: nil) { _ -> String in
+            throw refusal
+        }
+        #expect(kept?.connectionID == "codex-login")
+        guard case .failure(let error as AgentSessionAttachError) = alone else { Issue.record("the refusal did not stand"); return }
+        #expect(error.code == AgentSessionAttachClient.codexLoginUnsupported)
+        await #expect(throws: CloudAgentCredentials.Failure.codexLoginUnsupported) {
+            try await credentials.launchCredential(chat: "tab-1", machine: "vm-1", harness: "codex", takesCodexLogin: false)
+        }
     }
 }

@@ -21,9 +21,11 @@ public final class CloudSetup {
         public var signedIn: Bool
         public var enabled: Bool
         public var servesCloud: Bool
+        /// The connection's kind (`chatgpt-plan`, `api-key`, `codex-login`, ...); nil when the row names none.
+        public var kind: String?
 
-        public init(id: String, families: [String], signedIn: Bool = true, enabled: Bool = true, servesCloud: Bool = true) {
-            (self.id, self.families, self.signedIn, self.enabled, self.servesCloud) = (id, families, signedIn, enabled, servesCloud)
+        public init(id: String, families: [String], signedIn: Bool = true, enabled: Bool = true, servesCloud: Bool = true, kind: String? = nil) {
+            (self.id, self.families, self.signedIn, self.enabled, self.servesCloud, self.kind) = (id, families, signedIn, enabled, servesCloud, kind)
         }
 
         /// A `Connection` object of `_acpmux/connections`; nil for anything without an id.
@@ -31,7 +33,14 @@ public final class CloudSetup {
             guard let id = json["id"] as? String, !id.isEmpty else { return nil }
             self.init(id: id, families: (json["families"] as? [Any])?.compactMap { $0 as? String } ?? [],
                       signedIn: json["signed_in"] as? Bool ?? true, enabled: json["enabled"] as? Bool ?? true,
-                      servesCloud: json["serves_cloud"] as? Bool ?? true)
+                      servesCloud: json["serves_cloud"] as? Bool ?? true, kind: json["kind"] as? String)
+        }
+
+        /// The Mac's Codex CLI ChatGPT login, the base one or an added account (`codex-login`, `subscription`; acpmux
+        /// `connections.rs` `codex_login_serves_cloud`): its credential is `CMUX_CODEX_ACCESS_TOKEN`, which only a
+        /// machine daemon with `agent-session-start-codex-login-credential-v1` takes (cmux#45774).
+        public var isCodexLogin: Bool {
+            families.contains("codex") && (kind == "codex-login" || kind == "subscription")
         }
     }
 
@@ -56,9 +65,11 @@ public final class CloudSetup {
         /// the daemon's order, else the organization's shared key. With this Mac's connections unread
         /// (no daemon, an acpmux before `_acpmux/connections`) and no shared key the answer is
         /// ``Choice/fallback``: the chat starts as before.
-        public func choice(family: String, model: String?, account: String?) -> Choice {
+        ///
+        /// `codexLogin` false: the machine's daemon takes no Codex CLI login (``Connection/isCodexLogin``), so none is chosen.
+        public func choice(family: String, model: String?, account: String?, codexLogin: Bool = true) -> Choice {
             if let personal {
-                let serving = personal.filter { $0.enabled && $0.signedIn && $0.servesCloud && $0.families.contains(family) }
+                let serving = personal.filter { $0.enabled && $0.signedIn && $0.servesCloud && $0.families.contains(family) && (codexLogin || !$0.isCodexLogin) }
                 if let pick = serving.first(where: { $0.id == account }) ?? serving.first { return .connection(id: pick.id, family: family) }
             }
             if organization?.contains(family) == true { return .organization(family: family) }
@@ -175,9 +186,40 @@ public final class CloudSetup {
     /// The connection a Cloud start on the picker's `harness`, `model` and `account` runs on. Lane F
     /// (app-to-machine credential delivery) reads ``Choice/connection(id:family:)``'s credential and
     /// sends it with the agent launch; ``Choice/setup(family:model:)`` shows the card instead.
-    public func choose(harness: String?, model: String?, account: String?) async -> Choice {
+    /// `codexLogin` false: for a machine whose daemon takes no Codex CLI login (``Snapshot/choice(family:model:account:codexLogin:)``).
+    public func choose(harness: String?, model: String?, account: String?, codexLogin: Bool = true) async -> Choice {
         guard let family = Self.family(of: harness), let read else { return .fallback }
-        return await routed(read()).choice(family: family, model: model, account: account)
+        return await routed(read()).choice(family: family, model: model, account: account, codexLogin: codexLogin)
+    }
+
+    /// Whether this Mac's connection `id` is its Codex CLI login (``Connection/isCodexLogin``); false for nil or a
+    /// connection the read does not list.
+    public func isCodexLogin(_ id: String?) async -> Bool {
+        guard let id, let read else { return false }
+        return await read().personal?.first { $0.id == id }?.isCodexLogin ?? false
+    }
+
+    /// Another of this Mac's connections for a start on `harness`, `model` and `account` whose chosen connection is the
+    /// Codex CLI login and whose machine's daemon does not take it: the next one serving the family on Cloud that is not a
+    /// Codex CLI login (a ChatGPT plan sign-in, an OpenAI key). Nil when none does: the organization's shared key is not
+    /// one, as the machines get no model route from it now (``organizationUnrouted(_:)``).
+    public func otherThanCodexLogin(harness: String?, model: String?, account: String?) async -> String? {
+        await choose(harness: harness, model: model, account: account, codexLogin: false).connectionID
+    }
+
+    /// A start's chosen connection `id` for a machine whose daemon takes the Mac's Codex CLI login or not
+    /// (`takesCodexLogin`, `agent-session-start-codex-login-credential-v1`): `id` itself, unless it is that login and the
+    /// daemon does not take it; then the next connection serving the agent on Cloud (``otherThanCodexLogin(harness:model:account:)``).
+    /// With none this throws ``CodexLoginUnsupported``: a start sent with it would be refused whole (cmux#45774).
+    public func connection(_ id: String?, harness: String?, model: String?, account: String?, takesCodexLogin: Bool) async throws -> String? {
+        guard !takesCodexLogin, await isCodexLogin(id) else { return id }
+        guard let other = await otherThanCodexLogin(harness: harness, model: model, account: account) else { throw CodexLoginUnsupported() }
+        return other
+    }
+
+    /// The machine's daemon does not take the start's Codex CLI login, and no other connection serves its agent on Cloud.
+    public struct CodexLoginUnsupported: Error, Equatable, Sendable {
+        public init() {}
     }
 
     /// The families whose organization shared key a start found unrouted (``organizationUnrouted(_:)``).
