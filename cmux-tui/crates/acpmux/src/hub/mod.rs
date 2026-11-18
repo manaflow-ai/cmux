@@ -337,6 +337,8 @@ mod peer_grace;
 #[cfg(test)]
 mod peer_grace_tests;
 mod peer_lease;
+#[cfg(test)]
+mod peer_restart_budget_tests;
 pub(crate) mod peer_snapshot;
 pub use peer_lease::PeerLease;
 /// Debug builds only: the next `n` reads of whether a copy of `peer` is ahead fail, as a timed
