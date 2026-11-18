@@ -6414,6 +6414,71 @@ WS_CHECK_RUN_NAME = r"Fast checks {}(?: tests \S+| job [0-9a-f]{{32}})?"
 # The broker cuts a hosted repo's snapshot to these paths of the tested tree (its fast_checks_hosts entry).
 WS_CHECK_HOSTS_FILE = "machines/lane-gh-broker.json"
 HEX40 = re.compile(r"[0-9a-f]{40}")
+# A ws-check run the build fleet's Linux pool (or an owned Mac) ran for a cancelled Actions run (hq#12237: the lane-gh
+# broker's ci_fleet_*, parts/43-calls-ci-fleet.py). No runner ever took the Actions job; it was cancelled so the
+# snapshot could run as a controller job, which prints fast-checks.yml's FAST_CHECKS_RECEIPT naming that cancelled run
+# (ran_on "build-fleet"). The status links the cancelled run, and on 2026-11-18 every such status read "job 'checks' in
+# run 44400654026 is completed/cancelled: no result to read" (leo-workspace#5962 at 60199fb5, fleet job
+# 78ae6c6073141385ddcecd04), so no pool-run red, its own or a base's, was ever judged. The broker's failure status now
+# names the controller job in its link (`.../actions/runs/RUN?fleet_job=ID`), and the log is read from the controller
+# (`cmux-ci log ID`) and held to everything an Actions log is, and more: the Actions job never started (no runner, no
+# step), the controller job is a fast-checks job that failed, of the broker job the run-name names, whose command
+# carries the run id; the receipt says build-fleet on the controller's worker. A link that names no fleet job keeps
+# "no result"; one whose job or log cannot be read here is refused, never guessed.
+WS_CHECK_FLEET_JOB = r"(?:\?fleet_job=([0-9a-f]{24}))?"
+WS_CHECK_FLEET_READ_S = 180
+
+
+def fleet_read(op: str, job_id: str) -> str:
+    """`cmux-ci OP JOB_ID`'s output (op: status or log): the build fleet's controller, through this host's client
+    ($CMUX_CI_CLIENT, else cmux-ci on PATH). Refused when there is none, or it fails or times out."""
+    client = os.environ.get("CMUX_CI_CLIENT") or shutil.which("cmux-ci")
+    if not client:
+        raise Refused(f"this host has no cmux-ci client to read fleet job {job_id}")
+    try:
+        done = subprocess.run([client, op, job_id], capture_output=True, text=True, errors="replace",
+                              timeout=WS_CHECK_FLEET_READ_S, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError) as error:
+        raise Refused(f"cmux-ci {op} {job_id} did not answer ({type(error).__name__}: {str(error)[:120]})") from None
+    if done.returncode != 0 or not done.stdout.strip():
+        raise Refused(f"cmux-ci {op} {job_id} exited {done.returncode}: "
+                      f"{(done.stderr or done.stdout).strip()[-200:] or 'no output'}")
+    return done.stdout
+
+
+FLEET_READS: dict[tuple[str, str], str] = {}
+
+
+def fleet_read_once(op: str, job_id: str) -> str:
+    """fleet_read, once per process for each (op, job): a finished controller job never changes."""
+    if (op, job_id) not in FLEET_READS:
+        FLEET_READS[(op, job_id)] = fleet_read(op, job_id)
+    return FLEET_READS[(op, job_id)]
+
+
+def ws_check_fleet_lines(where: str, run_id: str, run: dict, job: dict, fleet_id: str) -> tuple[list[str], dict]:
+    """(the log lines, the controller job) of FLEET_ID, the controller job that ran Actions run RUN_ID's cancelled
+    ws-check JOB; Refused unless it is that run's: see WS_CHECK_FLEET_JOB."""
+    if job.get("status") != "completed" or job.get("conclusion") != "cancelled" or job.get("runner_id") \
+            or job.get("steps"):
+        raise Refused(f"{where}: its status names fleet job {fleet_id}, but job '{job.get('name')}' in run {run_id} "
+                      f"is {job.get('status')}/{job.get('conclusion')} and ran on a runner: only a run cancelled "
+                      "before any runner took it moves to the fleet")
+    try:
+        found = json.loads(fleet_read_once("status", fleet_id))
+    except ValueError:
+        found = None
+    if not isinstance(found, dict) or found.get("id") != fleet_id:
+        raise Refused(f"{where}: the controller's answer for fleet job {fleet_id} is not that job")
+    command, workspace = str(found.get("command") or ""), str(found.get("workspace") or "")
+    named = re.search(r" job ([0-9a-f]{32})$", run.get("display_title") or "")
+    if found.get("kind") != "fast-checks" or found.get("state") != "failed" \
+            or not re.search(rf"\s{re.escape(run_id)}\s", command) \
+            or workspace != (f"fast-checks-{named[1]}" if named else workspace) \
+            or not workspace.startswith("fast-checks-"):
+        raise Refused(f"{where}: fleet job {fleet_id} ({found.get('kind')}, {found.get('state')}, workspace "
+                      f"{workspace or 'none'}) is no failed fast-checks job of run {run_id}")
+    return lines_of(test_reds.plain(fleet_read_once("log", fleet_id))), found
 
 
 def ws_check_mirror(repo: str) -> Path | None:
@@ -6673,7 +6738,8 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
         raise Refused(f"{where}: failure \"{description}\" names no failed steps; only 'N of M steps failed: ...' is "
                       "read per test")
     host = WS_CHECK_REPOS[repo]
-    link = re.fullmatch(r"https://github\.com/" + re.escape(host) + r"/actions/runs/(\d+)(?:/job/\d+)?/?", found["url"])
+    link = re.fullmatch(r"https://github\.com/" + re.escape(host) + r"/actions/runs/(\d+)(?:/job/\d+)?/?"
+                        + WS_CHECK_FLEET_JOB, found["url"])
     if not link:
         raise Refused(f"{where}: its status links {found['url'] or 'nothing'}, not a {host} Actions run")
     run = github.json(f"repos/{host}/actions/runs/{link[1]}")
@@ -6684,11 +6750,16 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
     if len(picked) != 1:
         raise Refused(f"{where}: run {link[1]} has {len(picked)} ws-check jobs for it, not one")
     job = picked[0]
-    if job.get("status") != "completed" or job.get("conclusion") not in ("success", "failure"):
+    fleet = None
+    if link[2]:
+        # The build fleet ran it for the cancelled Actions job (WS_CHECK_FLEET_JOB): its log is the controller's.
+        lines, fleet = ws_check_fleet_lines(where, link[1], run, job, link[2])
+    elif job.get("status") != "completed" or job.get("conclusion") not in ("success", "failure"):
         # No verdict (startup_failure, cancelled, still running): no result, skipped on the base (cmux#36219 F2).
         return "none", dict(found, why=f"job '{job.get('name')}' in run {link[1]} is {job.get('status')}/"
                                        f"{job.get('conclusion')}: no result to read")
-    lines = lines_of(github.log(host, job))
+    else:
+        lines = lines_of(github.log(host, job))
     at = next((n for n in range(len(lines) - 1, -1, -1) if lines[n].startswith("WS_CHECK_RESULT=")), None)
     try:
         result = json.loads(lines[at].split("=", 1)[1]) if at is not None else None
@@ -6698,8 +6769,9 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
     if (not isinstance(failed, list) or not failed or not all(isinstance(step, str) and step for step in failed)
             or result.get("ok") is not False or len(set(failed)) != len(failed)):
         raise Refused(f"{where}: run {link[1]} has no WS_CHECK_RESULT line listing its failed steps")
-    if result.get("head") != sha:
+    if result.get("head") != sha or fleet is not None:
         # Through cmux-ci the run tests a snapshot commit of the head: its own receipt must name that snapshot and run.
+        # A fleet run's always does (the broker always tests a snapshot), and says it ran on that controller worker.
         receipt = next((text for text in reversed(lines) if text.startswith("FAST_CHECKS_RECEIPT=")), "")
         try:
             receipt = json.loads(receipt.split("=", 1)[1]) if receipt else {}
@@ -6710,6 +6782,11 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
                 and re.fullmatch(WS_CHECK_RUN_NAME.format(re.escape(str(result.get("head")))),
                                  run.get("display_title") or "")):
             raise Refused(f"{where}: the WS_CHECK_RESULT of run {link[1]} is from another checkout")
+        if fleet is not None and (receipt.get("ran_on") != "build-fleet" or not fleet.get("worker")
+                                  or receipt.get("fleet_host") != fleet.get("worker")):
+            raise Refused(f"{where}: the receipt in fleet job {link[2]}'s log says it ran on "
+                          f"{receipt.get('ran_on')}/{receipt.get('fleet_host')}, not on that job's worker "
+                          f"{fleet.get('worker')}")
         # Which checkout or runner ran it says nothing; what it tested does. A head's snapshot run is held to its tree
         # (ws_check_red: the head merged with the base tip, ws_check_squash_tree); a base commit's is read as before.
         found["snapshot"] = {"run": link[1], "tree": receipt.get("source_tree")}
