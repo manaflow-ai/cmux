@@ -331,10 +331,12 @@ struct SessionScrollbackCheckpointStore: Sendable {
     /// metadata rename; the aside is garbage the checkpoint queue reclaims. A
     /// failed rename falls back to unlinking the file outright — one file,
     /// still cheap — so a stale checkpoint does not survive on a rename error.
+    /// The common case is no checkpoint on disk, which costs one stat.
     /// Returns whether the canonical path is unreachable afterward.
     @discardableResult
     func invalidate(panelId: UUID, fileManager: FileManager = .default) -> Bool {
         let source = fileURL(panelId: panelId)
+        guard fileManager.fileExists(atPath: source.path) else { return true }
         let aside = source.appendingPathExtension("invalidated-\(UUID().uuidString)")
         guard (try? fileManager.moveItem(at: source, to: aside)) != nil else {
             try? fileManager.removeItem(at: source)
