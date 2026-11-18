@@ -5,7 +5,9 @@
 // A list longer than LISTBOX_WINDOW_AFTER rows mounts only the rows near its viewport (one viewport
 // of overscan each side) and the highlighted row, in list order between spacers, so it costs the
 // same at a thousand rows as at ten thousand; windowed rows carry aria-posinset/aria-setsize. Each
-// row is a memoized component: a highlight change re-renders the two rows it moved between.
+// mounted row is measured (its fractional height, again whenever it resizes), so rows of different
+// heights, a scaled interface and a row that grows after it mounts all place correctly. Each row is
+// a memoized component: a highlight change re-renders the two rows it moved between.
 import {
   memo,
   useCallback,
@@ -19,6 +21,7 @@ import {
   type Ref,
   type UIEventHandler,
 } from "react";
+import { defaultRangeExtractor, measureElement, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import { cx } from "./cx";
 import { useScrollEdges } from "./scrollEdges";
 import "./popupSurface.css";
@@ -63,8 +66,10 @@ export interface ListboxProps<T> {
 const TYPEAHEAD_RESET_MS = 700;
 /** Up to this many rows all mount (a menu's worth); past it the list windows itself. */
 export const LISTBOX_WINDOW_AFTER = 50;
-/** A row's height before one is measured. */
+/** A row's height before any is measured. */
 const ESTIMATED_ROW_PX = 28;
+/** The viewport before the list has one (the first frame, or a DOM with no layout). */
+const INITIAL_VIEW = { width: 320, height: 400 };
 
 export function Listbox<T>({
   items,
@@ -120,42 +125,57 @@ export function Listbox<T>({
     element?.scrollIntoView?.({ block: "nearest" });
   }, [activeId]);
 
-  // The list's own window: the scroller's offset and height, and a row's measured height.
+  // The list's own window, over measured rows: every mounted row reports its height (fractional,
+  // from one ResizeObserver over the mounted rows only), and a row not yet measured is taken as the
+  // first one measured. The rows stay in the list's flow, with spacers for the rows not mounted.
   const ownWindow = visibleWindow === undefined && items.length > LISTBOX_WINDOW_AFTER;
   const scroller = useRef<HTMLDivElement | null>(null);
-  const [view, setView] = useState({ top: 0, height: 0 });
-  const [rowPx, setRowPx] = useState(0);
-  const readView = useCallback(() => {
+  const [firstRowPx, setFirstRowPx] = useState(0);
+  const [rowGap, setRowGap] = useState(0);
+  const estimate = firstRowPx || ESTIMATED_ROW_PX;
+  const virtualizer = useVirtualizer<HTMLDivElement, Element>({
+    count: ownWindow ? items.length : 0,
+    getScrollElement: () => scroller.current,
+    estimateSize: () => estimate,
+    getItemKey: (index) => (items[index] === undefined ? index : getKey(items[index])),
+    gap: rowGap,
+    initialRect: INITIAL_VIEW,
+    // One viewport of rows each side.
+    overscan: Math.ceil((scroller.current?.clientHeight || INITIAL_VIEW.height) / estimate),
+    // The highlighted row stays mounted wherever the list is scrolled, so aria-activedescendant
+    // always names a row.
+    rangeExtractor: (range: Range) => {
+      const indexes = defaultRangeExtractor(range);
+      if (current >= 0 && current < items.length && !indexes.includes(current)) {
+        indexes.push(current);
+        indexes.sort((a, b) => a - b);
+      }
+      return indexes;
+    },
+    // A DOM with no layout measures 0: keep the estimate there.
+    measureElement: (element, entry, instance) => measureElement(element, entry, instance) || estimate,
+  });
+  useLayoutEffect(() => {
+    if (!ownWindow || firstRowPx > 0) return;
+    const row = scroller.current?.querySelector<HTMLElement>(":scope > [role='option']");
+    const height = row?.getBoundingClientRect().height ?? 0;
+    if (height > 0) setFirstRowPx(height);
     const node = scroller.current;
     if (!node) return;
-    setView((previous) =>
-      previous.top === node.scrollTop && previous.height === node.clientHeight
-        ? previous
-        : { top: node.scrollTop, height: node.clientHeight },
-    );
-  }, []);
-  useLayoutEffect(() => {
-    if (!ownWindow) return;
-    readView();
-    const node = scroller.current;
-    if (!node || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(readView);
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [ownWindow, readView]);
-  useLayoutEffect(() => {
-    if (!ownWindow || rowPx > 0) return;
-    const row = scroller.current?.querySelector<HTMLElement>(":scope > [role='option']");
-    if (row && row.offsetHeight > 0) setRowPx(row.offsetHeight);
-  });
+    // A flex or grid list puts its gap between rows and spacers alike.
+    const gap = Number.parseFloat(getComputedStyle(node).rowGap);
+    if (Number.isFinite(gap) && gap > 0) setRowGap(gap);
+    // Again when the rows change, until one has a height (a list laid out after it mounted).
+  }, [ownWindow, firstRowPx, items]);
   const segments = ownWindow
-    ? listboxSegments(items.length, current, view.top, view.height, rowPx || ESTIMATED_ROW_PX)
+    ? listboxSegments(virtualizer.getVirtualItems(), virtualizer.getTotalSize(), rowGap)
     : visibleWindow
       ? [{ start: visibleWindow.start, end: visibleWindow.end, before: visibleWindow.topSpace }]
       : [{ start: 0, end: items.length, before: 0 }];
   const after = ownWindow
-    ? Math.max(0, items.length - (segments.at(-1)?.end ?? 0)) * (rowPx || ESTIMATED_ROW_PX)
+    ? ((segments.at(-1) as { after?: number } | undefined)?.after ?? 0)
     : (visibleWindow?.bottomSpace ?? 0);
+  const measureRow = ownWindow ? virtualizer.measureElement : undefined;
   const windowed = ownWindow || visibleWindow !== undefined;
   const attachScroller = useCallback(
     (element: HTMLDivElement | null) => {
@@ -225,10 +245,7 @@ export function Listbox<T>({
       aria-busy={ariaBusy || undefined}
       aria-activedescendant={activeId}
       onKeyDown={onKeyDown}
-      onScroll={(event) => {
-        if (ownWindow) readView();
-        onScroll?.(event);
-      }}
+      onScroll={onScroll}
     >
       {/* One flat keyed array: a row that moves between segments keeps its element. */}
       {segments.flatMap((segment, place) => [
@@ -248,6 +265,7 @@ export function Listbox<T>({
               itemAttributes={itemAttributes}
               onHover={hoverRow}
               onOpen={openRow}
+              measure={measureRow}
             />
           );
         }),
@@ -277,6 +295,8 @@ interface ListboxRowProps<T> {
   itemAttributes?(item: T, index: number): Record<string, string | undefined>;
   onHover(index: number): void;
   onOpen(index: number): void;
+  /** Set when the list windows itself: reports the row's height (it carries data-index). */
+  measure?: (element: Element | null) => void;
 }
 
 const ListboxRow = memo(function ListboxRow<T>({
@@ -290,9 +310,12 @@ const ListboxRow = memo(function ListboxRow<T>({
   itemAttributes,
   onHover,
   onOpen,
+  measure,
 }: ListboxRowProps<T>) {
   return (
     <div
+      ref={measure}
+      data-index={measure ? index : undefined}
       id={id}
       className={cx("ui-listbox-row", className)}
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- rows of the listbox above.
@@ -315,29 +338,29 @@ const ListboxRow = memo(function ListboxRow<T>({
   );
 }) as <T>(props: ListboxRowProps<T> & { key?: string }) => ReactNode;
 
-/** The row ranges a self-windowed list mounts, each with the spacer height before it: the rows in
- * view with one viewport of overscan each side, and the highlighted row when it is outside them (so
- * aria-activedescendant names a mounted row), in list order. Before the viewport is measured (no
- * layout yet) a viewport is taken as 400 px. */
+/** The rows a self-windowed list mounts, as ranges of consecutive rows, each with the spacer height
+ * before it, and the spacer after the last: from the virtualizer's mounted rows (their measured
+ * offsets and sizes) and the whole list's height. With a flex or grid `gap`, the list also puts one
+ * gap after each spacer, so a spacer is that much shorter. */
 export function listboxSegments(
-  count: number,
-  highlighted: number,
-  scrollTop: number,
-  viewportPx: number,
-  rowPx: number,
-): { start: number; end: number; before: number }[] {
-  const height = viewportPx > 0 ? viewportPx : 400;
-  const overscan = Math.ceil(height / rowPx);
-  const start = Math.max(0, Math.floor(scrollTop / rowPx) - overscan);
-  const end = Math.min(count, Math.ceil((scrollTop + height) / rowPx) + overscan);
-  if (highlighted < 0 || (highlighted >= start && highlighted < end)) return [{ start, end, before: start * rowPx }];
-  if (highlighted < start)
-    return [
-      { start: highlighted, end: highlighted + 1, before: highlighted * rowPx },
-      { start, end, before: (start - highlighted - 1) * rowPx },
-    ];
-  return [
-    { start, end, before: start * rowPx },
-    { start: highlighted, end: highlighted + 1, before: (highlighted - end) * rowPx },
-  ];
+  rows: readonly { index: number; start: number; end: number }[],
+  total: number,
+  gap = 0,
+): { start: number; end: number; before: number; after?: number }[] {
+  const segments: { start: number; end: number; before: number; after?: number }[] = [];
+  let end = -gap;
+  for (const row of rows) {
+    const last = segments.at(-1);
+    if (last && last.end === row.index) last.end += 1;
+    else
+      segments.push({
+        start: row.index,
+        end: row.index + 1,
+        before: Math.max(0, row.start - end - (last ? 2 : 1) * gap),
+      });
+    end = row.end;
+  }
+  const last = segments.at(-1);
+  if (last) last.after = Math.max(0, total - end - gap);
+  return segments;
 }

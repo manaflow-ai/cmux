@@ -13,6 +13,8 @@ export interface VisibleListControls {
   filter?(): HTMLElement;
   /** Change one item's data (a label), as a live update would. */
   changeOne?(): void;
+  /** The element that takes the list's keys, when it is not the list (a field that keeps focus). */
+  keyTarget?(): HTMLElement;
   /** The element whose width a resize step changes (default: the harness root). */
   resizeTarget?(): HTMLElement;
 }
