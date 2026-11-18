@@ -2574,6 +2574,17 @@ async fn dispatch_request_with_identity(
         }
         method::MUX_PREWARM => {
             let s = |k: &str| params.get(k).and_then(Value::as_str).map(str::to_owned);
+            // A Cloud chat's coming start (cmux#45953): its owner credential, from this machine's
+            // own socket only, as `session/new` takes one; never from an agent's connection.
+            let credential = crate::agent_credentials::requested(Some(&params))?;
+            if credential.is_some() {
+                crate::agent_credentials::admit(conn.origin == Origin::Local, conn.caller())?;
+            }
+            let shape = crate::hub::PrewarmShape {
+                model: s("model").filter(|m| (1..=200).contains(&m.len())),
+                workspace_id: s("workspaceId").filter(|w| (1..=128).contains(&w.len())),
+                credential,
+            };
             let request = crate::hub::PrewarmRequest {
                 harness: s("harness"),
                 preset: s("preset"),
@@ -2584,6 +2595,7 @@ async fn dispatch_request_with_identity(
                 remote: conn.origin.web_class(),
                 trust_gate: super::trust_gate::gated(conn.origin, &params),
                 trust_web: super::trust_gate::for_web(conn.origin, &params),
+                shape,
             };
             heap(|| hub.prewarm(request)).await
         }
