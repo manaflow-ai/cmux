@@ -1104,14 +1104,6 @@ GENERATED_NO_VERDICT = re.compile(
 # refused the merge as the pull request's own. Only the live annotation counts (test_reds.lines_of drops the echoed
 # script, which spells the same words).
 SUMMARY_NO_VERDICT = re.compile(r"^##\[error\]\s*no verdict: ")
-# The iOS App Review gate's agent pass (cmux-next-ios/scripts/app_review_agent_pass.py) ends red with one marker when
-# the Claude CLI's own result showed the API never served it: `agent.api-unavailable {json}`, the result's fields.
-# With zero recorded API usage (duration_api_ms 0 and input_tokens 0) nothing was judged and the red is the shared
-# account's, never the pull request's: gate run 43637095919 (job 132576237860), the account's weekly limit, reddened
-# every app PR. Only that marker, on the agent pass step alone, as the job's only error: failure text that names a
-# rate limit, a marker with API usage, or another red beside it stays the PR's.
-AGENT_PASS_STEP = "Agent reviewer pass"
-AGENT_API_UNAVAILABLE = re.compile(r"^##\[error\]agent\.api-unavailable (\{.*\})$")
 # The same rule's red: `summary red: <what>: <job>: failure; ...`. It names which needs failed, in words every summary
 # shares, so it is never a signature, an error to compare or evidence of any kind (signature drops it): two summaries
 # match on it whichever children failed (cmux#39857 review, 2026-11-09: rust workspaces failing crate-a on the head
@@ -2858,36 +2850,6 @@ def summary_red(log: str) -> str | None:
 def summary_no_verdict(log: str) -> str | None:
     """The line where a summary gate says nothing it summarizes was judged (SUMMARY_NO_VERDICT), if it does."""
     return next((text for text in test_reds.lines_of(log) if SUMMARY_NO_VERDICT.match(text)), None)
-
-
-def agent_api_unavailable(job: dict, log: str) -> str | None:
-    """The evidence of an agent pass the API never served (AGENT_API_UNAVAILABLE) with zero recorded API usage, when
-    that marker is the job's only red: its one failed step is the agent pass and its one live error line (beside the
-    runner's exit line) is the marker. Else None."""
-    failed = [str(step.get("name") or "") for step in job.get("steps") or []  # step-name: classify
-              if step.get("conclusion") == "failure"]
-    if failed != [AGENT_PASS_STEP]:
-        return None
-    errors = [text for text in test_reds.lines_of(log) if text.startswith("##[error]")
-              and not text.startswith("##[error]Process completed with exit code")]
-    if len(errors) != 1 or not (match := AGENT_API_UNAVAILABLE.match(errors[0].rstrip())):
-        return None
-    try:
-        evidence = json.loads(match.group(1).replace("%0A", "\n").replace("%0D", "\r").replace("%25", "%"))
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(evidence, dict):
-        return None
-    api_ms, tokens = evidence.get("duration_api_ms"), evidence.get("input_tokens")
-    if any(not isinstance(value, int) or isinstance(value, bool) or value != 0 for value in (api_ms, tokens)):
-        return None
-    said = ["duration_api_ms=0", "input_tokens=0"]
-    for key in ("api_error_status", "api_error_type", "api_error", "limit"):
-        if isinstance(evidence.get(key), (str, int)) and not isinstance(evidence.get(key), bool):
-            said.append(f"{key}={evidence[key]}")
-    if isinstance(evidence.get("resets"), str):
-        said.append(f"resets {evidence['resets']}")
-    return ", ".join(said)[:300]
 
 
 def generated_no_verdict(log: str) -> str | None:
@@ -7461,9 +7423,6 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
     if name == GENERATED_VERDICT_JOB and (said := generated_no_verdict(head_log)) is not None:
         raise Refused(f"'{name}' gave no generated files verdict ({said[:300]}); "
                       "re-run its prerequisite and this dependent job together")
-    if (said := agent_api_unavailable(job, head_log)) is not None:
-        return Head(f"excused '{name}': not this PR (agent API unavailable): the agent pass's CLI result showed {said} "
-                    f"(job {job.get('id')}); nothing was judged, so rerun it once the account recovers")
     if (said := summary_no_verdict(head_log)) is not None:
         raise Refused(f"'{name}' gave no verdict ({said[:300]}): nothing it summarizes was judged, so it is "
                       "neither a pass nor this PR's own red; re-run it")
