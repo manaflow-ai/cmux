@@ -217,4 +217,66 @@ await requireBrowserLane("transcript-open-history-no-remount-browser.test.ts", a
     expect(seen.frames.at(-1)).toContain("s40");
     await page.close();
   });
+
+  // A chat shorter than the pane loads the same way (Leo: "the correctness of the layout shifts"):
+  // its latest page draws while the read loads, and the read lands with the older rows above. The
+  // rows drawn first hold their pixel on every painted frame; only the read's rows appear, above.
+  test("a short chat's read landing above its first page moves no row drawn already", async () => {
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+    await installPaintedFrames(page);
+    await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
+    await page.waitForFunction(() => "__showLoadingRows" in window);
+
+    const short: Row[] = [
+      row("t1", "user", "Why does the pane open blank after a restart?"),
+      row("t2", "assistant", "The page shows before the daemon has answered the attach."),
+      row("t3", "user", "Can it load faster?"),
+      row("t4", "assistant", "Usually it does: a kept tail draws on the first frame."),
+      row("t5", "user", "And the rest of the chat?"),
+      row("t6", "assistant", "The read lands right after, above the rows drawn."),
+    ];
+    await show(page, [], true);
+    await show(page, short.slice(2), true);
+    await settle(page);
+    // The viewport top of every row drawn, after each painted frame, until the read has settled.
+    const tops = () =>
+      page.evaluate(() => {
+        const out: Record<string, number> = {};
+        for (const node of document.querySelectorAll<HTMLElement>(".acpmux-scroll article.acpmux-row"))
+          out[node.dataset.rowId!] = Math.round(node.getBoundingClientRect().top);
+        return out;
+      });
+    const first = await tops();
+    expect(Object.keys(first).sort()).toEqual(["t3", "t4", "t5", "t6"]);
+    await page.evaluate(() => {
+      const frames: Record<string, number>[] = [];
+      const stopFrames = window.cmuxAfterPaint(() => {
+        const out: Record<string, number> = {};
+        for (const node of document.querySelectorAll<HTMLElement>(".acpmux-scroll article.acpmux-row"))
+          out[node.dataset.rowId!] = Math.round(node.getBoundingClientRect().top);
+        frames.push(out);
+      });
+      (window as unknown as { __stopTops(): unknown }).__stopTops = () => {
+        stopFrames();
+        return frames;
+      };
+    });
+    await show(page, short, false);
+    await settle(page);
+    const frames = await page.evaluate(() =>
+      (window as unknown as { __stopTops(): Record<string, number>[] }).__stopTops(),
+    );
+    expect(frames.length).toBeGreaterThan(0);
+    const moved = frames.flatMap((frame, index) =>
+      Object.entries(first).flatMap(([id, top]) =>
+        frame[id] !== undefined && Math.abs(frame[id]! - top) >= 1
+          ? [`frame ${index}: ${id} ${top} -> ${frame[id]}`]
+          : [],
+      ),
+    );
+    expect(moved).toEqual([]);
+    expect(Object.keys(frames.at(-1)!).sort()).toEqual(["t1", "t2", "t3", "t4", "t5", "t6"]);
+    await page.close();
+  });
 });
