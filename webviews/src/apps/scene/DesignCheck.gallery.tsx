@@ -1,11 +1,13 @@
 // l10n-allow-file: gallery fixture text, not shipped UI.
 // The design check `cmux ext dev` runs on a view's first scene (cmux-tui/src/cli/ext/design.rs),
-// before and after: each example widget (examples/extensions/widget-clock, widget-weather,
-// widget-calendar, widget-todo) at each size as it was written, beside the same widget moved onto
-// the SDK's type roles (TextIn, BigNumber, Headline, Label, Body, Caption, Footnote) and spacing
-// scale (SPACE), each drawn at its tile size with the warnings the check gives under it.
-// fixtures/design-check-scenes.json holds both scenes (the widgets' render exports in the fake
-// host, Monday 2026-11-16 14:05 UTC, widgets.test.ts's fixtures) and the check's findings.
+// before and after, on the four example widgets of the widgets lane (clock, weather, calendar,
+// todo; not in this tree yet). "Before" is each widget at each size as its PR recorded it
+// (webviews/src/apps/scene/fixtures/widget-scenes.json on lane/widgets-weather-time-calendar-todo
+// at 764a2bd624e, verbatim). "After" is the same widget's main.ts moved onto the SDK's type roles
+// (TextIn, BigNumber, Headline, Label, Body, Caption, Footnote) and spacing scale (SPACE),
+// recorded the same way. Each state's warnings are `cmux ext design --widget --json` on that
+// scene, stored with it. Neither the widgets nor their migrated sources are in this tree, so this
+// fixture is the record and is not regenerated from code here.
 import { useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import scenes from "./fixtures/design-check-scenes.json";

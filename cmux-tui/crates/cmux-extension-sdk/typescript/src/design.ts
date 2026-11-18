@@ -118,7 +118,9 @@ export function defineDesign(spec: DesignSpec): DesignSystem {
       const weight = entry.weight ?? "regular"
       if (!WEIGHTS.includes(weight as DesignWeight)) fail(`type.${role}.weight must be one of ${WEIGHTS.join(", ")}`)
       if (entry.monospaced !== undefined && typeof entry.monospaced !== "boolean") fail(`type.${role}.monospaced must be true or false`)
-      type[role] = entry.monospaced ? { size, weight: weight as DesignWeight, monospaced: true } : { size, weight: weight as DesignWeight }
+      const style: DesignType = entry.monospaced ? { size, weight: weight as DesignWeight, monospaced: true } : { size, weight: weight as DesignWeight }
+      // defineProperty, not assignment: a role named "__proto__" stays a role, as `cmux ext dev` reads it.
+      Object.defineProperty(type, role, { value: style, enumerable: true, writable: true, configurable: true })
     }
     const count = Object.keys(type).length
     if (count > MAX_ROLES) fail(`${count} type roles in all; a system has ${MAX_ROLES} at most`)

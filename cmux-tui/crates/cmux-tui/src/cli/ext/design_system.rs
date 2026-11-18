@@ -52,11 +52,12 @@ pub(super) struct Role {
 }
 
 impl Role {
-    /// How a fix names the call that draws this role.
+    /// How a fix names the call that draws this role (a person's role: their `defineDesign` system's
+    /// `text`).
     pub(super) fn call(&self) -> String {
         match self.helper {
             Some(helper) => format!("{helper}(...) ({} pt)", self.size),
-            None => format!("text(\"{}\", ...) ({} pt)", self.name, self.size),
+            None => format!("design.text(\"{}\", ...) ({} pt)", self.name, self.size),
         }
     }
 }
@@ -100,7 +101,11 @@ impl System {
     /// A file that does not read is a `system` finding, and the check uses cmux's system.
     pub(super) fn load(dir: &Path) -> (Self, Option<Finding>) {
         let path = dir.join(FILE);
-        let Ok(text) = std::fs::read_to_string(&path) else { return (Self::cmux(), None) };
+        let text = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return (Self::cmux(), None),
+            Err(e) => return (Self::cmux(), Some(problem_finding(&e.to_string()))),
+        };
         match serde_json::from_str::<Value>(&text)
             .map_err(|e| e.to_string())
             .and_then(|value| Self::from_json(&value))
@@ -131,12 +136,16 @@ impl System {
                     .ok_or_else(|| {
                         format!("type.{name}.size must be a number of points, 9 to 64")
                     })?;
-                let weight = role.get("weight").and_then(Value::as_str).unwrap_or("regular");
-                if !WEIGHTS.contains(&weight) {
-                    return Err(format!(
-                        "type.{name}.weight must be one of {}",
-                        WEIGHTS.join(", ")
-                    ));
+                let weight = match role.get("weight") {
+                    None | Some(Value::Null) => "regular",
+                    Some(weight) => {
+                        weight.as_str().filter(|w| WEIGHTS.contains(w)).ok_or_else(|| {
+                            format!("type.{name}.weight must be one of {}", WEIGHTS.join(", "))
+                        })?
+                    }
+                };
+                if role.get("monospaced").is_some_and(|m| !m.is_boolean()) {
+                    return Err(format!("type.{name}.monospaced must be true or false"));
                 }
                 let role = Role { name: name.clone(), helper: None, size, weight: weight.into() };
                 match system.roles.iter_mut().find(|r| r.name == *name) {
@@ -181,7 +190,9 @@ impl System {
                 match limits.get(key) {
                     None => Ok(None),
                     Some(n) => n
-                        .as_u64()
+                        .as_f64()
+                        .filter(|n| n.fract() == 0.0 && *n >= 0.0)
+                        .map(|n| n as u64)
                         .filter(|n| range.contains(n))
                         .map(|n| Some(n as usize))
                         .ok_or_else(|| {
@@ -216,10 +227,12 @@ impl System {
         roles.iter().take(2).map(|r| r.call()).collect::<Vec<_>>().join(" or ")
     }
 
-    /// The step of the spacing scale nearest `value`.
+    /// The step of the spacing scale nearest `value`: the larger one on a tie, so a gap never
+    /// vanishes (the SDK's viewer rounds the same way).
     pub(super) fn nearest_step(&self, value: f64) -> f64 {
         self.space
             .iter()
+            .rev()
             .min_by(|a, b| (*a - value).abs().total_cmp(&(*b - value).abs()))
             .copied()
             .unwrap_or(0.0)
