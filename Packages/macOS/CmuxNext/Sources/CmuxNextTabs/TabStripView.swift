@@ -162,8 +162,8 @@ public final class TabStripView: NSView {
     let windowVisibility = WindowVisibilityObserver()
     /// In a window and not hidden (`syncShown`).
     private(set) var isShownInWindow = false
-    /// The model changed while the strip was out of sight: it syncs once, at rest, when it shows.
-    var modelChangedWhileHidden = false
+    /// When the strip does not follow its model at once (out of sight, a pane that leaves), and the sync it owes then.
+    let syncHold = TabStripSyncHold()
     /// An appearance or scale change came while hidden; applied when shown.
     private var appearanceIsStale = false
     /// Group chips, bands, drag, and optimistic membership.
@@ -491,8 +491,7 @@ public final class TabStripView: NSView {
             return
         }
         // What changed while out of sight lands at once in its final place: nobody saw it move.
-        if modelChangedWhileHidden {
-            modelChangedWhileHidden = false
+        if syncHold.takeOwedSync() {
             layOutPaneIfOneTabChanged()
             sync(fromModel: true, animating: false)
         }
