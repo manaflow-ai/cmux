@@ -3348,7 +3348,7 @@ def _pins_a_checkout_has(with_: dict) -> tuple[set[str], str]:
     # checkout always has the repository root's files (git sparse-checkout's cone mode), so it has
     # them; a no-cone one has those its patterns match, the last matching pattern winning.
     repository = str(with_.get("repository") or "").strip()
-    if repository not in ("", "${{ github.repository }}"):
+    if repository not in ("", "${{ github.repository }}", "manaflow-ai/cmux"):
         return set(), f"a checkout of {repository}"
     patterns = [line.strip() for line in str(with_.get("sparse-checkout") or "").splitlines() if line.strip()]
     cone = str(with_.get("sparse-checkout-cone-mode", "true")).strip().lower() != "false"
@@ -3362,7 +3362,7 @@ def _pins_a_checkout_has(with_: dict) -> tuple[set[str], str]:
             body = pattern[1:] if negated else pattern
             if body.endswith("/"):
                 continue  # a directory pattern: no root file
-            if fnmatch.fnmatchcase(name, body.lstrip("/")):
+            if fnmatch.fnmatchcase(name, body.lstrip("/").removeprefix("**/")):
                 matched = not negated
         if matched:
             present.add(name)
@@ -3447,10 +3447,16 @@ def _assert_setup_node_reads_a_pin_file(workflows: Path, minimum: int = 100) -> 
                 # A run step that reads a pin unguarded (a job that relays it as an output).
                 directory = str(step.get("working-directory")
                                 or ((job.get("defaults") or {}).get("run") or {}).get("working-directory") or ".")
-                for read in re.findall(r"(?:<|\bcat)\s+(\S*\.node-version(?:-22|-sdk-floor)?)\b", run):
-                    if f"[ -f {read} ]" not in run and not alternate:
-                        has_pin(os.path.normpath(os.path.join(directory, read)),
-                                f"step {step.get('name') or step.get('id')!r}")
+                for read in re.findall(r"(?:<|\bcat)\s*[\"']?(\S*?\.node-version(?:-22|-sdk-floor)?)\b", run):
+                    if f"[ -f {read} ]" in run or f"test -f {read}" in run:
+                        continue  # guarded: a tree without the file takes a fallback
+                    where = f"step {step.get('name') or step.get('id')!r}"
+                    assert not alternate or read.startswith(NODE_PIN_CHECKOUT), (
+                        f"{rel} job {job_name}: {where} reads {read} unguarded from a tree that may "
+                        f"predate it ({alternate}); guard it with [ -f {read} ] and fall back to "
+                        f"web-bundle-key.py's PRE_NODE_VERSION_FILE_NODE ({PRE_NODE})"
+                    )
+                    has_pin(os.path.normpath(os.path.join(directory, read)), where)
                 if uses.startswith("actions/checkout@") and str(with_.get("path") or ".") in (".", "./"):
                     ref = str(with_.get("ref") or "").strip()
                     if ref not in ("", "${{ github.sha }}"):
@@ -3522,6 +3528,9 @@ def test_setup_node_fails_on_a_pin_its_checkouts_cannot_have() -> None:
         "other-repository": (False, job({"uses": checkout, "with": {"repository": "manaflow-ai/cmux-platform"}},
                                         node(".node-version"))),
         "no-checkout": (False, job(node(".node-version"))),
+        "no-cone-any-depth": (True, job(sparse("/scripts/ci/\n**/.node-version\n", False), node(".node-version"))),
+        "run-step-read-after-switch": (False, job(sparse("/*\n", False), {"run": "git checkout --detach HEAD^1"},
+                                                  {"id": "pin", "run": "v=$(cat .node-version)"})),
         "run-step-read": (False, job(sparse("/scripts/ci/\n", False),
                                      {"id": "pin", "run": "echo \"v=$(tr -d '[:space:]' < .node-version)\""})),
     }
@@ -3533,7 +3542,7 @@ def test_setup_node_fails_on_a_pin_its_checkouts_cannot_have() -> None:
                 passed = True
             except AssertionError as error:
                 passed = False
-                assert "cannot contain it" in str(error), (name, str(error))
+                assert "cannot contain it" in str(error) or "may predate it" in str(error), (name, str(error))
             assert passed == ok, f"{name}: the pin check {'failed' if ok else 'passed'}"
 
 
