@@ -162,6 +162,8 @@ final class TabContentCache {
 
     /// The app's grid sender for every terminal it makes (``ResizeCoordinator``).
     let resizes: ResizeCoordinator
+    /// Each guest view by its session, with its tab (`TabContentCache+GuestTerminals`): a second window's view of a terminal.
+    var guestTerminals: [ObjectIdentifier: (tab: String, entry: TerminalEntry)] = [:]
 
     /// - Parameters:
     ///   - fileInput: answers a WebKit browser tab's file input (the App's made-ahead panel; tests pass a stand-in).
@@ -239,7 +241,7 @@ final class TabContentCache {
 
     /// The tab id whose surface is `session`.
     func tabKey(for session: TerminalSession) -> String? {
-        terminals.first { $0.value.session === session }?.key
+        guestTerminals[ObjectIdentifier(session)]?.tab ?? terminals.first { $0.value.session === session }?.key
     }
 
     // MARK: Browsers
@@ -438,6 +440,7 @@ final class TabContentCache {
         if agentDrivenTabs.contains(key) { page.markAgentDriven() } else if page.isAgentDriven { agentDrivenTabs.insert(key) }
         pageRequests.proxiedTabs.adopt(store: (page as? CEFTab)?.machineStore, key: key)
         pageRequests.services?.remoteLocalhost.adoptPage(page, key: key)  // a chat's sign-in page (ChatMachineSignInTab)
+        pageRequests.siteEngines.follow(entry.state, page: page) // browser.siteEngines for the pages it reaches (#45018)
         browsers[key] = entry
         openTabFeed.follow(page, key: key) { [weak self] page in self?.suggestionEngine(forPage: page) }
         (page as? CEFTab)?.onReadyForKeys = { [weak self] in self?.onBrowserReady?(key) } // the page is ready for keys (a restored one: its document loaded)

@@ -41,6 +41,22 @@ import Testing
         #expect(service.macs.map(\.id) == ["mini", "studio"], "the last list's Macs, in list order, no phones")
     }
 
+    /// Leo: "can i screen share to look into the vms y'all are on yet": a Linux desktop that hosts
+    /// (`cmux-rd linux-host`) lists beside the Macs; phones and devices with no platform never do.
+    @Test func theListHoldsMacsAndLinuxDesktopsNeverPhones() throws {
+        let devices = [
+            HubDevice(id: "phone", name: "Phone", platform: .ios, macScreenShared: true, online: true),
+            HubDevice(id: "vm", name: "lane-vm-1", platform: .linux, macScreenShared: true, online: true),
+            HubDevice(id: "unknown", name: "Unknown", platform: nil, macScreenShared: true, online: true),
+            studio(online: false),
+            HubDevice(id: "mini", name: "Mini", platform: .macos, macScreenShared: true, online: true),
+        ]
+        #expect(ScreenSharingService.hosts(devices).map(\.id) == ["vm", "mini", "studio"],
+                "Macs and Linux desktops, in list order (sharing and online first, then by name)")
+        #expect(makeService(try makeStore(holding: devices)).macs.map(\.id) == ["vm", "mini", "studio"],
+                "the last read list's Linux desktops draw in the first frame too")
+    }
+
     /// Another account signed in on this phone (or none resolved yet): nothing of the last one shows.
     @Test func anotherAccountNeverSeesTheLastListsMacs() throws {
         let store = try makeStore(holding: [studio()])
