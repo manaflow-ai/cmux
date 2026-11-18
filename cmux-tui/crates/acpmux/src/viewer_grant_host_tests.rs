@@ -211,8 +211,10 @@ fn the_host_refuses_a_forged_or_copied_grant_end_to_end() {
     assert_eq!(refused(with(ticket("e2e-1"), frame.clone())), "grant.bad_challenge");
     challenge_for(home.path(), "e2e-3");
     assert_eq!(refused(with(ticket("e2e-3"), frame.clone())), "grant.wrong_session");
+    // On another device's ticket: with the registration it names, and its proof alone.
     let other = json!({"host": HOST, "session": "e2e-1", "viewer": "9e1d0c4b-1111-4a2b-8c3d-000000000000", "scope": "view"});
-    assert_eq!(refused(with(other, frame)), "grant.wrong_viewer");
+    assert_eq!(refused(with(other.clone(), frame.clone())), "grant.not_the_viewer");
+    assert_eq!(refused(with(other, json!({"proof": frame["proof"]}))), "grant.wrong_viewer");
     assert_eq!(load(home.path(), Some(ACCOUNT)).grants, book.grants);
 
     let c = challenge_for(home.path(), "e2e-4");
