@@ -44,4 +44,20 @@ rows="$(gate dmg open "$root/a.dmg"; gate app exec "$root/x.app")"
 grep -q '^LP-GATE dmg spctl rc=0 PATH: accepted source=Notarized Developer ID' <<<"$rows" || { echo "launch-premain gate: dmg row: $rows" >&2; exit 1; }
 grep -q -- '--type open --context context:primary-signature' "$root/calls" || { echo "launch-premain gate: open without its context" >&2; exit 1; }
 grep -q -- '--type exec -vv' "$root/calls" || { echo "launch-premain gate: exec assessed with a context (or not at all)" >&2; exit 1; }
+
+# home_keychain: a login keychain in the probe's home (launch-premain.swift's HOME_ROOT/h), made with that home as HOME
+# and CFFIXED_USER_HOME, set as its search list and default, and kept on a second call; main makes it before any
+# launch, as the console user (Keychain Not Found panels on cmux-austin-mini-1, 2026-11-18).
+security() { echo "HOME=$HOME CF=$CFFIXED_USER_HOME $*" >>"$root/sec"; [[ "$1" == create-keychain ]] && : >"${@: -1}"; return 0; }
+kc="$root/h/Library/Keychains/login.keychain-db"
+home_keychain "$root/h" || { echo "launch-premain keychain: home_keychain failed" >&2; exit 1; }
+[[ -e "$kc" ]] || { echo "launch-premain keychain: no login keychain made" >&2; exit 1; }
+for want in "create-keychain -p  $kc" "list-keychains -d user -s $kc" "default-keychain -d user -s $kc" "set-keychain-settings $kc"; do
+  grep -qxF "HOME=$root/h CF=$root/h $want" "$root/sec" || { echo "launch-premain keychain: missing '$want' scoped to the home: $(cat "$root/sec")" >&2; exit 1; }
+done
+: >"$root/sec"
+home_keychain "$root/h" || { echo "launch-premain keychain: second call failed" >&2; exit 1; }
+if grep -q create-keychain "$root/sec"; then echo "launch-premain keychain: recreated an existing keychain" >&2; exit 1; fi
+declare -f main | grep -q 'console-session.sh bash -c .*home_keychain' || { echo "launch-premain keychain: main does not make the home keychain as the console user" >&2; exit 1; }
+declare -f main | awk '/home_keychain/ { k = NR } /launch open prime/ && !p { p = NR } END { exit !(k && p && k < p) }' || { echo "launch-premain keychain: the keychain comes after a launch" >&2; exit 1; }
 echo "launch-premain store: ok"

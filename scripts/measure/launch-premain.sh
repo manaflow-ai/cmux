@@ -37,6 +37,24 @@
 # process is stopped at its main_start mark). Prints LP-RUN per launch (with arm and rep), LP-TABLE at the end.
 set -uo pipefail
 
+# home_keychain HOME: a login keychain in HOME, as a person's home has. Run as the console user (the app's user), so
+# the keychain is the app's own. Without one, the copy's Chromium creates "cmux Safe Storage" through SecurityAgent's
+# "Keychain Not Found" panel (Cancel / Reset To Defaults) that nobody answers: three of them on cmux-austin-mini-1,
+# 2026-11-18, from step-warm's arms h,a,d. Not CMUX_MOCK_KEYCHAIN: the app strips it from an inherited environment
+# (scripts/ci/fresh_home_launch_smoke.py login_keychain, the same fix). Every `security` call runs with HOME and
+# CFFIXED_USER_HOME set to HOME, so the keychain, its search list and the default are that home's; the account's own
+# keychain settings stay as they are. A home that has the keychain keeps it.
+home_keychain() {
+  local home="$1" kc="$1/Library/Keychains/login.keychain-db"
+  mkdir -p "$home/Library/Keychains" || return 1
+  if [[ ! -e "$kc" ]]; then
+    HOME="$home" CFFIXED_USER_HOME="$home" security create-keychain -p "" "$kc" || return 1
+  fi
+  HOME="$home" CFFIXED_USER_HOME="$home" security list-keychains -d user -s "$kc" &&
+    HOME="$home" CFFIXED_USER_HOME="$home" security default-keychain -d user -s "$kc" &&
+    HOME="$home" CFFIXED_USER_HOME="$home" security set-keychain-settings "$kc"
+}
+
 # store_fetch HEX FILE: the fleet artifact store's object sha256:HEX into FILE, through the controller's signed URL
 # (never printed), else its own GET; FILE must hash to HEX.
 store_fetch() {
@@ -104,6 +122,13 @@ main() {
   cmux_signing_runtime_guard || exit 3
   local mount="$out/mnt" found
   mkdir -p "$mount" "$out/copy" "$out/home" && chmod 0777 "$out/home"
+  # The probe's home (launch-premain.swift's HOME_ROOT/h) gets a login keychain before any launch, made as the console
+  # user the app runs as (home_keychain).
+  if GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh bash -c 'source scripts/measure/launch-premain.sh && home_keychain "$1"' bash "$out/home/h" >>"$out/probe.log" 2>&1; then
+    echo "LP home keychain yes"
+  else
+    echo "LP home keychain no (the copy's Chromium may raise Keychain Not Found)"
+  fi
   hdiutil attach "$out/app.dmg" -nobrowse -readonly -mountpoint "$mount" >/dev/null || { echo "LP attach failed"; exit 3; }
   found="$(find "$mount" -maxdepth 1 -name '*.app' | head -1)"
   ditto "$found" "$out/copy/$(basename "$found")" || exit 3
