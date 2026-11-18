@@ -28,6 +28,7 @@ members = [
     "crates/acpmux-book",
     "crates/cmux-coderouter",
     "crates/cmux-history",
+    "crates/acpmux-transcript-search",
     "crates/cmux-imessage",
     "crates/cmux-chat-index",
     "crates/cmux-cloud-cli",
@@ -358,6 +359,7 @@ cmux-flow-trace = { path = "crates/cmux-flow-trace" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-conversation = { path = "crates/cmux-conversation" }
 cmux-history = { path = "crates/cmux-history" }
+acpmux-transcript-search = { path = "crates/acpmux-transcript-search" }
 cmux-tasks = { path = "crates/cmux-tasks" }
 cmux-tasks-core = { path = "crates/cmux-tasks-core" }
 cmux-imessage = { path = "crates/cmux-imessage" }

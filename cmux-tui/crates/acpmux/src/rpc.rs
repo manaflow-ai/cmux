@@ -632,6 +632,9 @@ pub mod method {
     pub const MUX_HISTORY: &str = "_acpmux/history";
     /// One session's messages holding every word of a query, newest first (`session_search.rs`).
     pub const MUX_SESSION_SEARCH: &str = "_acpmux/session_search";
+    /// What was said in the Claude Code and Codex transcripts here (and on peers), newest first
+    /// (`transcript_search.rs`); the local socket, the app and peers only.
+    pub const MUX_TRANSCRIPT_SEARCH: &str = "_acpmux/transcript_search";
     /// Personal stats over every session log (`stats.rs`); the local unix
     /// socket only (the app reaches it there), never a WebSocket origin.
     pub const MUX_STATS: &str = "_acpmux/stats";

@@ -85,6 +85,20 @@ a step out and say so. Ask only about product taste you cannot settle from
 the request or the code (how something should look, read or behave), and ask
 it as that choice, never as a permission.
 
+## Find what was said earlier
+
+To find what you, the person or another agent said earlier, in this chat or
+any other (a Claude desktop or terminal chat too, a subagent, the turns before
+a compaction), use `acpmux search` (the `transcript_search` tool from a chat),
+never a grep over a transcript: one call, newest first, each hit with its
+session, turn, line, time, role and the text around it, unescaped.
+
+```bash
+acpmux search "four agent pages" --session self            # this chat, compacted turns included
+acpmux search "merge_hold" --machine all --since 2d            # every session here and on every peer
+acpmux --json search "root cause" --session coord --role assistant
+```
+
 ## 2. Pick a harness and a model: `-m HARNESS[/MODEL]`
 
 One flag. The head is a family (`claude`, `codex`, `opencode`, `pi`, `omp`, `prime`,

@@ -11,6 +11,7 @@ dependencies = [
  "acpmux-client",
  "acpmux-core",
  "acpmux-hot",
+ "acpmux-transcript-search",
  "aho-corasick",
  "anyhow",
  "arc-swap",
@@ -194,6 +195,16 @@ dependencies = [
  "acpmux",
  "acpmux-build-id",
  "anyhow",
+]
+
+[[package]]
+name = "acpmux-transcript-search"
+version = "0.1.0"
+dependencies = [
+ "memchr",
+ "rusqlite",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]

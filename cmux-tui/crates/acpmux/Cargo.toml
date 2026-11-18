@@ -87,6 +87,8 @@ cmux-cloud-environment.workspace = true
 # The event log's journal (R-DURABILITY S2; always on).
 cmux-journal.workspace = true
 cmux-chat-index.workspace = true
+# `acpmux search`: the Claude Code and Codex transcripts' text index (`transcript_search.rs`).
+acpmux-transcript-search.workspace = true
 cmux-palette-ranker.workspace = true
 cmux-coderouter.workspace = true
 cmux-local-auth.workspace = true

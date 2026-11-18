@@ -1,0 +1,19 @@
+[package]
+name = "acpmux-transcript-search"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Full-text search over Claude Code and Codex transcripts: an incremental SQLite FTS5 trigram index that reads only the bytes a transcript appended since the last read"
+
+[dependencies]
+memchr = { workspace = true }
+rusqlite = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

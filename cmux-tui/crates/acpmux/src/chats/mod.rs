@@ -261,6 +261,26 @@ impl ChatService {
         lock(&self.state).index.get(key).cloned()
     }
 
+    /// The Claude Code `projects` dirs and Codex homes the index found, for the transcript search
+    /// (`crate::transcript_search`).
+    pub fn transcript_roots(&self) -> Vec<(acpmux_transcript_search::Harness, std::path::PathBuf)> {
+        let state = lock(&self.state);
+        state
+            .index
+            .roots()
+            .filter_map(|root| {
+                let harness = match root.harness {
+                    cmux_chat_index::AdapterKind::ClaudeCode => {
+                        acpmux_transcript_search::Harness::Claude
+                    }
+                    cmux_chat_index::AdapterKind::Codex => acpmux_transcript_search::Harness::Codex,
+                    _ => return None,
+                };
+                Some((harness, root.real_path.clone()))
+            })
+            .collect()
+    }
+
     /// The roots, the refused roots with their reasons, and watcher errors.
     pub fn roots_view(&self) -> Value {
         let state = lock(&self.state);
@@ -704,6 +724,9 @@ impl crate::hub::Hub {
             .await
             .map_err(|e| format!("chat index start: {e}"))?;
         let _ = self.chats.set(service.clone());
+        // Every transcript into the search index, then each one the chat index sees change.
+        #[cfg(not(test))]
+        crate::transcript_search::warm(service.clone());
         // Taken under the waiters' lock after the set: a later waiter sees the index.
         let waiters = std::mem::take(&mut *lock(&self.chats_waiters));
         for waiter in waiters {
