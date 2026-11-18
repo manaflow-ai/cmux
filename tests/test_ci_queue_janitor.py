@@ -6121,5 +6121,172 @@ class HolderSweepTests(unittest.TestCase):
         self.assertIn("No concurrency holders found.", text)
 
 
+def stale_pr(number=7, *, state="OPEN", head="aaa", closed_age=None, **kwargs):
+    pr = make_pr(number, state=state, head=head, **kwargs)
+    pr["closedAt"] = iso(closed_age) if closed_age is not None else None
+    return pr
+
+
+class StaleQueuedRunTests(unittest.TestCase):
+    """Category g: a queued pull request run on any runner, of a merged, closed or superseded head, is cancelled.
+
+    Before it, category b cancelled such a run only while it held a macOS job, and decided nothing at all on a sweep
+    whose job listings were truncated, so on 2026-11-18 cmux had 2,500 runs queued on the Blacksmith org cap."""
+
+    WEB = ".github/workflows/ci-web.yml"
+
+    def queued(self, **kwargs):
+        kwargs.setdefault("path", self.WEB)
+        kwargs.setdefault("name", "Web CI")
+        kwargs.setdefault("status", "queued")
+        kwargs.setdefault("age", 120)
+        return make_run(**kwargs)
+
+    def test_verdicts(self):
+        run = self.queued(sha="aaa", prs=(7,))
+        cases = [
+            ("merged after the run was created", [stale_pr(state="MERGED", closed_age=60)], "cancel", "is merged"),
+            ("closed after the run was created", [stale_pr(state="CLOSED", closed_age=60)], "cancel", "is closed"),
+            # A merged pull request's `closed` event runs come after it closed: someone wants them.
+            ("created after the close", [stale_pr(state="MERGED", closed_age=180)], "keep", "after PR #7 closed"),
+            ("closed at an unknown time", [stale_pr(state="CLOSED")], "keep", "unknown"),
+            ("head moved", [stale_pr(head="bbb")], "cancel", "superseded: PR #7 head is now bbb"),
+            ("at the open head", [stale_pr(head="aaa")], "keep", "at PR #7's head"),
+            ("no-janitor", [stale_pr(head="bbb", labels=("no-janitor",))], "keep", "no-janitor"),
+            ("labels unread", [stale_pr(head="bbb", labels_truncated=True)], "keep", "not read in full"),
+            ("more open PRs than read", [stale_pr(head="bbb"), {"number": "?", janitor.OPEN_PRS_UNREAD: True}],
+             "keep", "more open pull requests"),
+            ("no PR", [], "keep", "no pull request"),
+        ]
+        for label, prs, action, note in cases:
+            with self.subTest(label):
+                got = janitor.stale_queued_verdict(run, prs)
+                self.assertEqual(got[0], action, got)
+                self.assertIn(note, got[1])
+        rerun = self.queued(sha="aaa", prs=(7,), attempt=2)
+        self.assertEqual(janitor.stale_queued_verdict(rerun, [stale_pr(head="bbb")])[0], "keep")
+
+    def test_only_queued_unprotected_pull_request_runs_are_candidates(self):
+        old = self.queued(age=300, branch="a")
+        new = self.queued(age=30, branch="b")
+        pending = self.queued(age=60, branch="c", status="pending")
+        left = [
+            self.queued(status="in_progress"),
+            self.queued(age=5),  # its head may be newer than the pull request read
+            self.queued(event="push", branch="lane/x"),
+            self.queued(event="push", branch="main"),
+            self.queued(event="workflow_dispatch", branch="lane/x"),
+            self.queued(event="merge_group", branch="gh-readonly-queue/main/pr-1"),
+            self.queued(event="schedule", branch="main"),
+            self.queued(event="pull_request_target"),
+            self.queued(path=".github/workflows/release.yml", name="Release"),
+        ]
+        got = janitor.stale_queued_candidates([new, *left, old, pending], now=NOW)
+        self.assertEqual([run["id"] for run in got], [old["id"], pending["id"], new["id"]])
+
+    def fake(self, runs, prs):
+        fake = FakeGitHub({run["id"]: dict(run) for run in runs})
+        fake.prs = prs
+        return fake
+
+    def test_pass_cancels_under_its_caps_and_dry_run_sends_nothing(self):
+        merged = self.queued(branch="merged", age=200, prs=(1,))
+        moved = self.queued(branch="moved", age=150, sha="old", prs=(2,))
+        current = self.queued(branch="current", age=100, sha="tip", prs=(3,))
+        late = self.queued(branch="late", age=50, prs=(4,))
+        prs = {"merged": [stale_pr(1, state="MERGED", closed_age=120)], "moved": [stale_pr(2, head="new")],
+               "current": [stale_pr(3, head="tip")], "late": [stale_pr(4, state="CLOSED", closed_age=10)]}
+        runs = [late, current, moved, merged]
+        fake = self.fake(runs, prs)
+        decisions, read, results, failures = janitor.sweep_stale_queued(fake, runs, now=NOW, dry_run=True)
+        self.assertEqual(fake.posts(), [])
+        self.assertEqual([(d.run["id"], d.action) for d in decisions],
+                         [(merged["id"], "cancel"), (moved["id"], "cancel"), (current["id"], "keep"),
+                          (late["id"], "cancel")])
+        text = janitor.render_stale_queued_summary(decisions, results, dry_run=True)
+        self.assertEqual(text.count("| would cancel |"), 3)
+        self.assertIn("1 at PR #N's head", text)
+
+        fake = self.fake(runs, prs)
+        decisions, read, results, failures = janitor.sweep_stale_queued(fake, runs, now=NOW, dry_run=False,
+                                                                        max_cancels=2)
+        self.assertEqual(fake.posts(), [[str(merged["id"]), "cancel"], [str(moved["id"]), "cancel"]])
+        self.assertEqual(results, {merged["id"]: "cancelled", moved["id"]: "cancelled"})
+        self.assertEqual(failures, 0)
+        self.assertEqual(decisions[-1].action, "over cap")
+        self.assertIn("left for the next sweep", janitor.render_stale_queued_summary(decisions, results, dry_run=False))
+
+        # The read budget: the oldest runs' branches first, the rest wait for the next sweep.
+        fake = self.fake(runs, prs)
+        decisions, read, _, _ = janitor.sweep_stale_queued(fake, runs, now=NOW, dry_run=True, max_branches=1)
+        self.assertEqual(sorted(read), ["merged"])
+        self.assertEqual([d.run["id"] for d in decisions], [merged["id"]])
+
+    def test_a_run_that_finished_meanwhile_is_no_failure(self):
+        run = self.queued(branch="merged", prs=(1,))
+        fake = FakeGitHub({run["id"]: dict(run)}, refuse_cancel=[run["id"]])
+        fake.prs = {"merged": [stale_pr(1, state="MERGED", closed_age=60)]}
+        _, _, results, failures = janitor.sweep_stale_queued(fake, [run], now=NOW, dry_run=False)
+        self.assertEqual((results, failures), ({run["id"]: "already finished"}, 0))
+
+    def sweep(self, runs, prs, *args, **patches):
+        patches.setdefault("MAX_JOB_LISTINGS", janitor.MAX_JOB_LISTINGS)
+        fake = self.fake(runs, prs)
+        with tempfile.TemporaryDirectory() as temp:
+            summary = Path(temp) / "summary.md"
+            argv = ["--repo", "manaflow-ai/cmux", "--summary", str(summary),
+                    "--workflows-dir", str(Path(temp) / "none"), *args]
+            with mock.patch.object(janitor, "GitHub", lambda token, repo, fallback_token="": fake), \
+                    mock.patch.dict("os.environ", {"GH_TOKEN": "t"}), \
+                    mock.patch.object(janitor.time, "sleep", lambda _: None), \
+                    mock.patch.object(janitor, "utc_now", lambda: NOW), \
+                    mock.patch.multiple(janitor, **patches), \
+                    mock.patch("builtins.print"):
+                code = janitor.main(argv)
+            return code, fake, summary.read_text()
+
+    def test_a_truncated_sweep_still_cancels_stale_queued_runs_and_lists_none_of_their_jobs(self):
+        merged = self.queued(branch="merged", prs=(1,))
+        current = self.queued(branch="current", sha="tip", prs=(3,))
+        prs = {"merged": [stale_pr(1, state="MERGED", closed_age=60)], "current": [stale_pr(3, head="tip")]}
+        code, fake, text = self.sweep([merged, current], prs, MAX_JOB_LISTINGS=0)
+        self.assertEqual(code, 0, text)
+        self.assertEqual(fake.posts(), [[str(merged["id"]), "cancel"]])
+        self.assertIn("this sweep decided nothing", text)
+        self.assertIn("Queued runs of closed, merged or superseded pull requests", text)
+        self.assertIn(merged["html_url"], text)
+        self.assertIn("| cancelled |", text)
+        self.assertFalse(any(path.endswith(f"/runs/{merged['id']}/jobs?filter=latest&per_page=100&page=1")
+                             for _, path in fake.log))
+
+    def test_a_complete_sweep_reads_each_branch_once_and_category_b_does_not_cancel_twice(self):
+        moved = self.queued(branch="moved", sha="old", prs=(2,), path=".github/workflows/ci.yml", name="CI")
+        prs = {"moved": [stale_pr(2, head="new")]}
+        runs = {moved["id"]: dict(moved)}
+        fake = FakeGitHub(runs, {moved["id"]: mac_jobs(queued=2)})
+        fake.prs = prs
+        with tempfile.TemporaryDirectory() as temp:
+            summary = Path(temp) / "summary.md"
+            argv = ["--repo", "manaflow-ai/cmux", "--summary", str(summary),
+                    "--workflows-dir", str(Path(temp) / "none")]
+            with mock.patch.object(janitor, "GitHub", lambda token, repo, fallback_token="": fake), \
+                    mock.patch.dict("os.environ", {"GH_TOKEN": "t"}), \
+                    mock.patch.object(janitor.time, "sleep", lambda _: None), \
+                    mock.patch.object(janitor, "utc_now", lambda: NOW), \
+                    mock.patch("builtins.print"):
+                code = janitor.main(argv)
+            text = summary.read_text()
+        self.assertEqual(code, 0, text)
+        self.assertEqual(fake.posts(), [[str(moved["id"]), "cancel"]])
+        self.assertEqual(sum(1 for method, path in fake.log if path.endswith("/graphql")), 1)
+
+    def test_dry_run_sweep_cancels_nothing(self):
+        merged = self.queued(branch="merged", prs=(1,))
+        code, fake, text = self.sweep([merged], {"merged": [stale_pr(1, state="MERGED", closed_age=60)]},
+                                      "--dry-run")
+        self.assertEqual((code, fake.posts()), (0, []))
+        self.assertIn("| would cancel |", text)
+
+
 if __name__ == "__main__":
     unittest.main()

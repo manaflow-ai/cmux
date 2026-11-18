@@ -111,6 +111,14 @@ jobs queued on a pool they hold exceeds a threshold:
      only with an App's token (in category e too), sends it to the owned side
      label the rescue watches. A cmux-next pull request run at its open
      head (PR #25446's case) is left to the controller's fall-through.
+  g. queued (never started) pull request runs on any runner, of every
+     workflow, whose pull request is merged or closed (the run created before
+     it closed) or whose head moved past the run (sweep_stale_queued()). It
+     reads the run listing and one batched pull request lookup, no job
+     listing, so it acts before the listings and on a truncated sweep too,
+     under its own read budget (STALE_QUEUED_MAX_BRANCHES) and cancel cap
+     (STALE_QUEUED_MAX_CANCELS), oldest run first; `no-janitor`, a hand
+     re-run and every protected run are left alone.
 
 cmux-next runs follow feat-cmux-next's workflow copy, not main's inert
 registration, so they are listed like any macOS workflow's
@@ -2790,7 +2798,7 @@ def branches_to_resolve(
 
 
 PR_FIELDS = """
-        number state headRefOid url
+        number state headRefOid url closedAt
         headRepositoryOwner { login }
         labels(first: 100) { pageInfo { hasNextPage } nodes { name } }
         files(first: 100) { pageInfo { hasNextPage } nodes { path } }
@@ -2810,7 +2818,7 @@ PR_FIELDS = """
 OPEN_PRS_PER_BRANCH = 20
 OPEN_PRS_UNREAD = "openPullRequestsUnread"
 OPEN_PR_FIELDS = """
-        number state headRefOid url
+        number state headRefOid url closedAt
         headRepositoryOwner { login }
         labels(first: 100) { pageInfo { hasNextPage } nodes { name } }
 """
@@ -3082,6 +3090,183 @@ def orphan_protected_reason(run: Mapping[str, Any]) -> str | None:
 
 
 PULL_REQUEST_EVENTS = ("pull_request", "pull_request_target")
+
+
+# --- category g: queued pull request runs nobody waits on, on any runner -------------------------------------------
+#
+# Category b cancels a closed, merged or superseded pull request's run only while it holds a macOS job, and only once
+# its jobs are listed, which a backed-up queue truncates (MAX_JOB_LISTINGS): then the sweep decides nothing. Every
+# other run of such a head waited for a runner it would never use. A new push cancels the older run of the same pull
+# request only in a workflow whose concurrency group says so, and a closed or merged pull request gets no newer push
+# at all, so on 2026-11-18 cmux had 2,500 runs queued on the Blacksmith org's shared vCPU cap. This pass reads the
+# run listing alone (no job listing), so it acts on every sweep, truncated or not, before the job listings are read:
+# a queued (not started) `pull_request` run is cancelled when its pull request is merged or closed and the run was
+# created before it closed, or when the pull request is open and its head is no longer the run's. The pull request's
+# state comes from the API, not from the run's ref: a merged pull request's `closed` event runs on the base branch's
+# ref, so a concurrency group keyed on that ref never meets the pull request's own runs.
+# Never touched: a run that started (category b and the run's own concurrency group have those), a re-run attempt
+# (someone wants its result), a run at an open
+# pull request's head, a run created at or after its pull request closed (the `closed` event's own runs), any other
+# event (push, schedule, workflow_dispatch, merge_group, release; pull_request_target runs at the base's head), any
+# protected_reason() run (nightly, DEV, promote, release), a pull request labelled `no-janitor` or whose labels were
+# not read in full, and a branch with more open pull requests than were read.
+STALE_QUEUED_EVENT = "pull_request"
+STALE_QUEUED_RUN_STATUSES = frozenset({"queued", "pending", "waiting", "requested"})
+# A run this young may belong to a head GitHub's pull request read has not caught up with yet.
+STALE_QUEUED_MIN_AGE = dt.timedelta(minutes=10)
+# The read budget a sweep: pull request branches looked up (GRAPHQL_BATCH a query, so 4 GraphQL queries), oldest
+# queued run first; the rest are read by the next sweep, which also sees fewer runs.
+STALE_QUEUED_MAX_BRANCHES = 100
+# Cancels a sweep (one POST each), under GitHub's limit on content-creating requests a minute.
+STALE_QUEUED_MAX_CANCELS = 50
+
+
+def stale_queued_candidates(runs: Iterable[Mapping[str, Any]], *, now: dt.datetime) -> list[Mapping[str, Any]]:
+    """Queued pull request runs this pass may judge, oldest first (no I/O)."""
+    found = []
+    for run in runs:
+        if run.get("event") != STALE_QUEUED_EVENT or run.get("status") not in STALE_QUEUED_RUN_STATUSES:
+            continue
+        if not run.get("head_branch") or not run.get("head_sha") or protected_reason(run):
+            continue
+        created = parse_time(run.get("created_at"))
+        if created is None or now - created < STALE_QUEUED_MIN_AGE:
+            continue
+        found.append(run)
+    return sorted(found, key=lambda run: (str(run.get("created_at") or ""), run["id"]))
+
+
+def stale_queued_verdict(run: Mapping[str, Any], prs: Sequence[Mapping[str, Any]]) -> tuple[str, str]:
+    """("cancel", why) for a queued run of a closed, merged or superseded pull request head; else ("keep", why)."""
+    if any(pr.get(OPEN_PRS_UNREAD) for pr in prs):
+        return "keep", "its branch has more open pull requests than were read"
+    pr = resolve_pull_request(run, prs)
+    if pr is None:
+        return "keep", "no pull request resolved for its branch"
+    number = pr.get("number")
+    if JANITOR_OPT_OUT_LABEL in pr_labels(pr):
+        return "keep", f"PR #{number} has `{JANITOR_OPT_OUT_LABEL}`"
+    if int(run.get("run_attempt") or 1) > 1:
+        return "keep", "re-run by hand: someone wants its result"
+    if not labels_complete(pr):
+        return "keep", f"PR #{number}'s labels were not read in full"
+    state = pr.get("state")
+    if state in ("MERGED", "CLOSED"):
+        closed = parse_time(pr.get("closedAt"))
+        created = parse_time(run.get("created_at"))
+        if closed is None or created is None:
+            return "keep", f"PR #{number} is {state.lower()}, but when it closed is unknown"
+        if created >= closed:
+            return "keep", f"created after PR #{number} closed (a run of its `closed` event)"
+        return "cancel", f"PR #{number} is {state.lower()}"
+    if state == "OPEN":
+        head = str(pr.get("headRefOid") or "")
+        if head and head != run.get("head_sha"):
+            return "cancel", f"superseded: PR #{number} head is now {head[:9]}"
+        return "keep", f"at PR #{number}'s head"
+    return "keep", f"PR #{number} state {state!r}"
+
+
+@dataclasses.dataclass
+class StaleQueuedDecision:
+    run: Mapping[str, Any]
+    action: str  # "cancel", "keep" or "over cap"
+    note: str
+
+
+def sweep_stale_queued(
+    github: "GitHub",
+    runs: Sequence[Mapping[str, Any]],
+    *,
+    now: dt.datetime,
+    dry_run: bool,
+    max_branches: int = STALE_QUEUED_MAX_BRANCHES,
+    max_cancels: int = STALE_QUEUED_MAX_CANCELS,
+) -> tuple[list[StaleQueuedDecision], dict[str, list[dict[str, Any]]], dict[int, str], int]:
+    """Category g: (decisions, the pull requests read per branch, {run id: cancel result}, failures).
+
+    One batched GraphQL read for at most `max_branches` branches, then at most `max_cancels` cancels, oldest run
+    first. A failed read raises (the caller decides nothing); a rate limit met while cancelling stops the cancels."""
+    candidates = stale_queued_candidates(runs, now=now)
+    branches: list[str] = []
+    for run in candidates:
+        branch = str(run["head_branch"])
+        if branch not in branches and len(branches) < max_branches:
+            branches.append(branch)
+    if not branches:
+        return [], {}, {}, 0
+    prs_by_branch = github.pull_requests(branches)
+    decisions: list[StaleQueuedDecision] = []
+    results: dict[int, str] = {}
+    failures = 0
+    cancels = 0
+    limited = ""
+    for run in candidates:
+        if str(run["head_branch"]) not in prs_by_branch:
+            continue  # past the read budget: the next sweep reads it
+        action, note = stale_queued_verdict(run, prs_by_branch[str(run["head_branch"])])
+        if action == "cancel" and cancels >= max_cancels:
+            action, note = "over cap", f"{note}; past this sweep's {max_cancels} cancels, the next sweep takes it"
+        decisions.append(StaleQueuedDecision(run, action, note))
+        if action != "cancel":
+            continue
+        cancels += 1
+        if dry_run:
+            continue
+        if limited:
+            results[int(run["id"])] = f"not sent: {limited}"
+            continue
+        try:
+            github.cancel(int(run["id"]))
+            results[int(run["id"])] = "cancelled"
+        except RateLimited as error:
+            # The cancels already sent stay in this sweep's summary; the rest of the sweep meets the limit itself.
+            limited = str(error)
+            github.rate_limited = github.rate_limited or limited
+            results[int(run["id"])] = f"not sent: {limited}"
+            failures += 1
+        except RuntimeError as error:
+            if "(409)" in str(error):
+                results[int(run["id"])] = "already finished"
+            else:
+                results[int(run["id"])] = f"failed: {error}"
+                failures += 1
+    return decisions, prs_by_branch, results, failures
+
+
+def render_stale_queued_summary(decisions: Sequence[StaleQueuedDecision], results: Mapping[int, str], *,
+                                dry_run: bool, error: str = "") -> str:
+    lines = ["", "### Queued runs of closed, merged or superseded pull requests", "",
+             "A queued `pull_request` run on any runner whose pull request is merged or closed (and the run older "
+             "than the close), or whose head is no longer the pull request's (sweep_stale_queued()).", ""]
+    if error:
+        lines.append(f"Not judged this sweep: {error}")
+        return "\n".join(lines) + "\n"
+    acted = [d for d in decisions if d.action in ("cancel", "over cap")]
+    if not acted:
+        lines.append("None waiting.")
+    else:
+        lines.append("| Decision | Run | Workflow | Head | Queued since | Why |")
+        lines.append("| --- | --- | --- | --- | --- | --- |")
+        for decision in acted:
+            run = decision.run
+            if decision.action == "cancel":
+                outcome = "would cancel" if dry_run else results.get(int(run["id"]), "not sent")
+            else:
+                outcome = "left for the next sweep"
+            url = run.get("html_url") or f"run {run.get('id')}"
+            name = str(run.get("name") or run.get("path") or "").replace("|", "\\|")
+            lines.append(f"| {outcome} | {url} | {name} | {str(run.get('head_sha') or '')[:12]} | "
+                         f"{run.get('created_at') or ''} | {decision.note.replace('|', '/')} |")
+    kept: dict[str, int] = {}
+    for decision in decisions:
+        if decision.action == "keep":
+            reason = re.sub(r"#[0-9]+", "#N", decision.note)
+            kept[reason] = kept.get(reason, 0) + 1
+    if kept:
+        lines.append("")
+        lines.append("Left alone: " + "; ".join(f"{count} {reason}" for reason, count in sorted(kept.items())) + ".")
+    return "\n".join(lines) + "\n"
 
 
 # --- superseded delivery runs ----------------------------------------------------------------------------------
@@ -4737,8 +4922,25 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
     now = utc_now()
     linux_only = linux_only_workflow_paths(args.workflows_dir)
     branch_linux_only = branch_linux_only_paths(args.branch_workflows)
+    stale_summary = ""
     try:
         runs = github.in_flight_runs()
+        # Category g first: it needs no job listing, so it acts even on a sweep the listings truncate, and a run it
+        # cancels costs no listing below and leaves every later pass.
+        stale_error = ""
+        try:
+            stale_decisions, stale_prs, stale_results, stale_failures = sweep_stale_queued(
+                github, runs, now=now, dry_run=args.dry_run)
+        except RuntimeError as error:  # a failed read (a rate limit too): nothing decided; the next sweep reads again
+            print(f"queue-janitor: queued runs of stale pull request heads: {error}", file=sys.stderr)
+            if isinstance(error, RateLimited):
+                github.rate_limited = github.rate_limited or str(error)
+            stale_error = str(error)
+            stale_decisions, stale_prs, stale_results, stale_failures = [], {}, {}, 1
+        stale_summary = render_stale_queued_summary(stale_decisions, stale_results, dry_run=args.dry_run,
+                                                    error=stale_error)
+        gone = {run_id for run_id, result in stale_results.items() if result in ("cancelled", "already finished")}
+        runs = [run for run in runs if run["id"] not in gone]
         jobs_by_run, unread, unlisted = read_run_jobs(github, runs, linux_only, now,
                                                       branch_linux_only=branch_linux_only)
         # The runs not listed because their branch's copy of the workflow runs only on Linux (needs_jobs()).
@@ -4799,12 +5001,20 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
                           | {str(h.run["head_branch"]) for h in holders}
                           | {str(run["head_branch"]) for run in superseded if run.get("head_branch")}
                           | set(lost_branches(runs, {**lost, **unclaimed}, pending or [])))
-        prs_by_branch = github.pull_requests(branches) if branches else {}
+        # The branches category g already read are not read again.
+        unread_branches = [branch for branch in branches if branch not in stale_prs]
+        prs_by_branch = {**{branch: stale_prs[branch] for branch in branches if branch in stale_prs},
+                         **(github.pull_requests(unread_branches) if unread_branches else {})}
     except RuntimeError as error:
         print(f"queue-janitor: {error}", file=sys.stderr)
         print(render_rate_limits(github.rate_limits), file=sys.stderr)
         if isinstance(error, RateLimited):
             github.rate_limited = github.rate_limited or str(error)
+        if stale_summary:  # category g's cancels are made; log them
+            print(stale_summary)
+            if args.summary:
+                with args.summary.open("a", encoding="utf-8") as handle:
+                    handle.write(stale_summary)
         return 1
 
     # Categories e and f: is a push or dispatch run's branch live (its head still the run's)? One request a
@@ -4913,12 +5123,12 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
             print(f"::warning title=queue janitor listing truncated::{render_listing(listing)}")
             summary += (f"\n_{render_listing(listing)}: the pool snapshot says `truncated`, and this sweep "
                         "decided nothing._\n")
-        summary += f"\n_{render_rate_limits(github.rate_limits)}_\n"
+        summary = stale_summary + summary + f"\n_{render_rate_limits(github.rate_limits)}_\n"
         print(summary)
         if args.summary:
             with args.summary.open("a", encoding="utf-8") as handle:
                 handle.write(summary)
-        return 0
+        return 1 if stale_failures else 0
 
     plan = build_plan(
         runs, jobs_by_run, prs_by_branch,
@@ -5094,7 +5304,8 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
     superseded_decisions = [*superseded_decisions, *dev_decisions]
     failures += dev_failures
 
-    summary = render_summary(plan, dry_run=args.dry_run, now=now, results=results)
+    failures += stale_failures
+    summary = stale_summary + render_summary(plan, dry_run=args.dry_run, now=now, results=results)
     summary += render_open_head_reruns(open_head_decisions, open_head_results, freed=open_head_freed)
     summary += render_lost_reruns(rerun_decisions, dry_run=args.dry_run, results=rerun_results)
     summary += render_orphan_summary(orphan_decisions, dry_run=args.dry_run, now=now, min_age=orphan_age,
