@@ -1479,8 +1479,12 @@ os.replace(path + ".part", path)
   };
   const DROP_RUNS = 3;
   const DROP_HOST_MS = 50;
-  /// A frame: the chip shows and the prompt is sendable within one (medians over DROP_RUNS).
-  const DROP_FRAME_MS = 16;
+  /// The chip shows and the prompt is sendable within this (medians over DROP_RUNS). The goal is a
+  /// frame (16 ms), but this dev page (development React, a Linux runner) takes about 24 ms from the
+  /// drop event to any chip, even for a file nothing holds (the 1 GB file, the folder): the bound
+  /// sits above that floor and below a tile held for its picture (about 80 ms here). The numbers
+  /// print on every run.
+  const DROP_FRAME_MS = 50;
   /// From Send to the prompt shown as sent (the send's own render, development React): a bound
   /// that only a send held for its file passes.
   const SEND_SHOWN_MS = 100;
