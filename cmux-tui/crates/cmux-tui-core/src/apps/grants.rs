@@ -360,6 +360,45 @@ mod tests {
         assert_eq!(risk("page:write"), Some(cmux_app_manifest::ScopeClass::Sensitive));
     }
 
+    /// The system calendar ops (the Mac app's EventKit): both take `system_calendar:read`, a
+    /// sensitive scope that the Cloud's Google `calendar:read` does not grant;
+    /// `system_calendar.events` is a read that never prompts, and
+    /// `system_calendar.request_access` shows the system prompt, so it is a mutation with a gesture.
+    #[test]
+    fn system_calendar_ops_take_their_own_scope_and_the_prompt_needs_a_gesture() {
+        let table = ScopeTable::get();
+        let window = json!({"days": 7, "limit": 20});
+        assert_eq!(
+            table.check("system_calendar.events", &window, &grant(&["system_calendar:read"])),
+            Decision::Allow(OpClass::Read),
+        );
+        assert_eq!(
+            table.check(
+                "system_calendar.request_access",
+                &json!({}),
+                &grant(&["system_calendar:read"])
+            ),
+            Decision::Allow(OpClass::Mutation),
+        );
+        for op in ["system_calendar.events", "system_calendar.request_access"] {
+            for scopes in [vec![], vec!["calendar:read"], vec!["page:read"], vec!["notes:read"]] {
+                assert!(matches!(
+                    table.check(op, &json!({}), &grant(&scopes)),
+                    Decision::ScopeMissing(_)
+                ));
+            }
+        }
+        assert!(
+            needs_gesture("system_calendar.request_access"),
+            "the system prompt needs a key or a tap"
+        );
+        assert!(!needs_gesture("system_calendar.events"));
+        let risk = |scope: &str| cmux_app_manifest::scope_info(scope).map(|i| i.class);
+        assert_eq!(risk("system_calendar:read"), Some(cmux_app_manifest::ScopeClass::Sensitive));
+        // The Google Calendar family keeps its class.
+        assert_eq!(risk("calendar:read"), Some(cmux_app_manifest::ScopeClass::Standard));
+    }
+
     #[test]
     fn a_toast_needs_no_grant_but_not_a_preview_or_a_stopping_app() {
         let table = ScopeTable::get();

@@ -102,6 +102,8 @@ mod supervisor;
 #[cfg(all(test, unix))]
 mod supervisor_tests;
 #[cfg(unix)]
+mod system_calendar;
+#[cfg(unix)]
 mod terminal_backends;
 #[cfg(unix)]
 mod terminal_links;
