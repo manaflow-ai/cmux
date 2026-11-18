@@ -333,8 +333,11 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const [pending, setPending] = useState<PendingAttachment[]>([]);
   /// The gestures whose files are still read for twins (attachments.ts filesOnce), each with its chat.
   const [twinReads, setTwinReads] = useState<GestureChat[]>([]);
+  /// The same, for `sendWith` (a send's handler), from the committed render.
   const twinReadsRef = useRef(twinReads);
-  twinReadsRef.current = twinReads;
+  useLayoutEffect(() => {
+    twinReadsRef.current = twinReads;
+  }, [twinReads]);
   const pendingRef = useRef<PendingAttachment[]>([]);
   pendingRef.current = pending;
   const [attachError, setAttachError] = useState<string | undefined>();
