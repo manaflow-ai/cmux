@@ -12,6 +12,9 @@ name: cmux web layer (fork)
 #   web-bundles.tar.gz  the archive (web-bundle-archive.py pack)
 #   layer.json          head, base, title, the web ABI, what live_apply.py says
 #                       the change touches, and key = the archive's sha256
+#   profile.json        only when the branch has look/profile.json: the look's
+#                       settings (a cmuxProfile), named in layer.json as
+#                       "profile" with its "profile_sha256"; `use` previews it
 # The cmux CLI reads layer.json, checks the archive against key and the ABI
 # against the app's, the same checks as a pull request's layer.
 
@@ -103,17 +106,22 @@ jobs:
           sha="$(python3 scripts/cmux-next/web-bundle-archive.py pack "$RUNNER_TEMP/web-bundles-out" "$RUNNER_TEMP/layer/web-bundles.tar.gz")"
           [[ "$sha" =~ ^[0-9a-f]{64}$ ]]
           python3 - "$RUNNER_TEMP/layer/layer.json" "$sha" <<'PY'
-          import json, os, sys
+          import hashlib, json, os, sys
           path, sha = sys.argv[1:]
           layer = json.load(open(path))
           layer["key"] = sha
           layer["abi"] = int(json.load(open("webviews/src/web-abi.json"))["abi"])
           layer["run_id"] = int(os.environ["GITHUB_RUN_ID"])
+          if os.path.isfile("look/profile.json"):
+              data = open("look/profile.json", "rb").read()
+              open(os.path.join(os.path.dirname(path), "profile.json"), "wb").write(data)
+              layer["profile"] = "profile.json"
+              layer["profile_sha256"] = hashlib.sha256(data).hexdigest()
           json.dump(layer, open(path, "w"), indent=1, sort_keys=True)
           PY
           cat "$RUNNER_TEMP/layer/layer.json"
 
-      # The archive first and layer.json last, so a reader never sees a key
+      # The archive (and profile.json) first and layer.json last, so a reader never sees a key
       # whose archive is not there yet.
       - name: Publish the release
         env:
@@ -127,5 +135,8 @@ jobs:
               --notes "Try it: cmux customize use $GITHUB_REPOSITORY@$GITHUB_REF_NAME (it runs this fork's code in your cmux)"
           fi
           gh release upload "$tag" -R "$GITHUB_REPOSITORY" --clobber "$RUNNER_TEMP/layer/web-bundles.tar.gz"
+          if [[ -f "$RUNNER_TEMP/layer/profile.json" ]]; then
+            gh release upload "$tag" -R "$GITHUB_REPOSITORY" --clobber "$RUNNER_TEMP/layer/profile.json"
+          fi
           gh release upload "$tag" -R "$GITHUB_REPOSITORY" --clobber "$RUNNER_TEMP/layer/layer.json"
           echo "cmux customize use $GITHUB_REPOSITORY@$GITHUB_REF_NAME" | tee -a "$GITHUB_STEP_SUMMARY"

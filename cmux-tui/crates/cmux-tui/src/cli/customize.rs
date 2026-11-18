@@ -47,9 +47,10 @@ cmux customize: change cmux by asking, watch it change, keep it or put it back.
     branch:NAME | sha:SHA                     a branch's tip or a commit of manaflow-ai/cmux, pushed, no PR
     dir:PATH [--watch]                        your working copy, built here: no push, no CI; --watch
                                               builds and applies it again on every save
-    OWNER/REPO@REF                            a fork's branch, from the layer the fork's own CI published
+    OWNER/REPO@REF                            a fork's branch or a look repo, from the layer its own CI published
                                               (cmux-web-layer-fork.yml): it runs that fork's code in your cmux;
                                               a private one reads with your GitHub sign-in (GH_TOKEN or gh)
+                                              a look's settings (look/profile.json) come too, as a preview
                                               (`library off NAME` puts back what was under any of them)
   cmux customize profiles                     The saved profiles
   cmux customize library [VERB]               Everything you applied, kept as layers: list|status|on|off|order|export|import|remove
