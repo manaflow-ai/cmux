@@ -475,10 +475,11 @@ test("a host that refuses github.status reads as unreachable", async () => {
   }
 });
 
-test("with This Mac picked, a chat that can run on Cloud still offers GitHub, and a repository's pick moves it to Cloud", async () => {
+test("with This Mac picked, a repository's pick keeps the chat on This Mac and starts its clone there at once", async () => {
   const gh = host({
     "github.status": { state: "ready", repos_scope: "all" },
     "github.repos.list": { repos: REPOS, truncated: false },
+    "github.repos.prepare": { dir: "/Users/me/cmux/repos/github.com/acme/api" },
   });
   const modes: string[] = [];
   const { root, picked } = await renderTray(
@@ -488,13 +489,34 @@ test("with This Mac picked, a chat that can run on Cloud still offers GitHub, an
   try {
     await openFolderMenu();
     expect(gh.calls[0]).toEqual(["github.status", {}]);
-    // A folder of this Mac leaves the chat where it is.
+    // A folder of this Mac leaves the chat where it is, and clones nothing.
     await press(option("notes")!);
     expect(modes).toEqual([]);
     await openFolderMenu();
     await press(option("acme/api")!);
     expect(picked).toEqual(["/Users/me/notes", "github:acme/api"]);
-    expect(modes).toEqual(["cloud"]);
+    // Still This Mac (issue: a repository picked here was sent to Cloud), and the clone starts on the pick,
+    // so it runs while the person writes; the start waits for that same clone.
+    expect(modes).toEqual([]);
+    expect(gh.calls.filter(([method]) => method === "github.repos.prepare")).toEqual([
+      ["github.repos.prepare", { cwd: "github:acme/api" }],
+    ]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("on Cloud, a repository's pick asks This Mac for no clone: the machine clones it", async () => {
+  const gh = host({
+    "github.status": { state: "ready", repos_scope: "all" },
+    "github.repos.list": { repos: REPOS, truncated: false },
+  });
+  const { root, picked } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    await press(option("acme/api")!);
+    expect(picked).toEqual(["github:acme/api"]);
+    expect(gh.calls.some(([method]) => method === "github.repos.prepare")).toBe(false);
   } finally {
     await act(async () => root.unmount());
   }

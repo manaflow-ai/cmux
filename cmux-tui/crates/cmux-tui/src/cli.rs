@@ -52,7 +52,7 @@ mod chat_cd;
 #[cfg(unix)]
 mod chat_send;
 #[cfg(unix)]
-mod chat_start;
+pub(crate) mod chat_start;
 #[cfg(unix)]
 mod chief;
 mod chief_target;

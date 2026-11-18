@@ -4,14 +4,17 @@ public import Foundation
 
 /// The new chat folder picker's GitHub section: `github.status {}`, `github.connect {}` and
 /// `github.repos.list {query?}` (``AgentPaneGitHub`` answers them). The section lists the person's
-/// repositories the cmux GitHub App reaches; a chat started in one is a Cloud chat in its clone
-/// (`github:owner/name`, ``AgentPaneGitHubFolder``).
+/// repositories the cmux GitHub App reaches; a chat started in one runs in its clone (`github:owner/name`,
+/// ``AgentPaneGitHubFolder``): on a Cloud machine, the machine's, and on This Mac, one in `~/cmux/repos`, which
+/// `github.repos.prepare {cwd}` starts at the pick (``AgentPaneLocalRepositories``).
 public nonisolated enum AgentPaneGitHubRequest: Equatable, Sendable {
     case status
     case connect
     case repos(query: String?)
+    /// The clone on This Mac of the repository `github:owner/name` names, now: `{dir}` once it is there.
+    case prepare(repository: String)
 
-    public static let methods: Set<String> = ["github.status", "github.connect", "github.repos.list"]
+    public static let methods: Set<String> = ["github.status", "github.connect", "github.repos.list", "github.repos.prepare"]
 
     /// The page's params, checked; nil for anything else. `query` is the picker's search text, or null.
     init?(method: String, params: [String: Any]?) {
@@ -27,6 +30,9 @@ public nonisolated enum AgentPaneGitHubRequest: Equatable, Sendable {
             } else {
                 return nil
             }
+        case "github.repos.prepare":
+            guard let cwd = params?["cwd"] as? String, let repository = AgentPaneGitHubFolder.repository(cwd) else { return nil }
+            self = .prepare(repository: repository)
         default: return nil
         }
     }
@@ -36,6 +42,7 @@ public nonisolated enum AgentPaneGitHubRequest: Equatable, Sendable {
         case .status: "github.status"
         case .connect: "github.connect"
         case .repos: "github.repos.list"
+        case .prepare: "github.repos.prepare"
         }
     }
 
@@ -74,6 +81,15 @@ public nonisolated enum AgentPaneGitHubRequest: Equatable, Sendable {
             case .failure(.unavailable):
                 return AgentPaneReply.failure(code: "github.unavailable", message: AgentPaneModel.gitHubUnavailableMessage)
             }
+        case .prepare(let repository):
+            guard let local = gitHub.local else { return Self.unavailableReply(.unreachable) }
+            do {
+                return AgentPaneReply.success(["dir": try await local.folder(repository)])
+            } catch let refusal as CloudMoveCLI.StartChatRepoRefusal {
+                return AgentPaneReply.failure(code: refusal.code, message: refusal.message)
+            } catch {
+                return AgentPaneReply.failure(code: "repo.clone_failed", message: String(describing: error))
+            }
         }
     }
 
@@ -103,21 +119,24 @@ public struct AgentPaneGitHub {
     public var repos: @MainActor (String?) async -> Result<CloudGitHubRepos, CloudGitHubRepos.Failure>
     /// The sizes the repos list gave, shared by every pane's copy: a Cloud start in a picked repository is sized from them.
     public let sizes: AgentPaneGitHubRepoSizes
+    /// The clones on This Mac of repositories picked for a chat here, shared by every pane; nil where none is made.
+    public let local: AgentPaneLocalRepositories?
 
     public init(status: @escaping @MainActor () async -> CloudGitHubPicker.Status,
                 connect: @escaping @MainActor () async -> AgentPaneGitHubConnect,
                 repos: @escaping @MainActor (String?) async -> Result<CloudGitHubRepos, CloudGitHubRepos.Failure>,
-                sizes: AgentPaneGitHubRepoSizes = AgentPaneGitHubRepoSizes()) {
-        (self.status, self.connect, self.repos, self.sizes) = (status, connect, repos, sizes)
+                sizes: AgentPaneGitHubRepoSizes = AgentPaneGitHubRepoSizes(), local: AgentPaneLocalRepositories? = nil) {
+        (self.status, self.connect, self.repos, self.sizes, self.local) = (status, connect, repos, sizes, local)
     }
 
     /// The App's: `picker` reads and connects as the person in the team a Cloud start's machine is made in, `open`
     /// opens the page its Connect GitHub answers in the person's browser, and a person signed out gets the app's own
     /// cmux sign-in (``CloudAuth/beginSignIn(selectAccount:)``, which joins one already in progress).
-    @MainActor public static func live(_ picker: CloudGitHubPicker, open: @escaping @MainActor (URL) -> Void) -> AgentPaneGitHub {
+    @MainActor public static func live(_ picker: CloudGitHubPicker, local: AgentPaneLocalRepositories?,
+                                       open: @escaping @MainActor (URL) -> Void) -> AgentPaneGitHub {
         AgentPaneGitHub(status: { await picker.status() },
                         connect: { AgentPaneGitHubConnect(await picker.connect(), open: open) { _ = picker.auth.beginSignIn() } },
-                        repos: { await picker.repos(query: $0) })
+                        repos: { await picker.repos(query: $0) }, local: local)
     }
 }
 
@@ -169,7 +188,8 @@ public enum AgentPaneGitHubConnect: Equatable, Sendable {
 }
 
 /// A chat folder that names a GitHub repository instead of a folder on this Mac: `github:owner/name`.
-/// Only a Cloud start takes one (its machine clones the repository); a chat here is refused.
+/// A Cloud start's machine clones it; a chat here starts in its clone in `~/cmux/repos` (``AgentPaneLocalRepositories``),
+/// and only a chat on another computer, or a pane with no clones, is refused.
 public nonisolated struct AgentPaneGitHubFolder {
     public nonisolated init() {}
     public static let prefix = "github:"

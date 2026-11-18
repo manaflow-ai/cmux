@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use super::{Ready, default_dir, ensure, parse, same_remote};
+use super::{GH_FALLBACK, Ready, default_dir, ensure, parse, same_remote};
 
 fn git(dir: &Path, args: &[&str]) {
     let status = Command::new("git")
@@ -219,4 +219,17 @@ fn a_branch_and_a_tag_of_one_name_reuse_what_checkout_picked() {
     git(root.path(), &["clone", "-q", &url, other.to_str().unwrap()]);
     git(&other, &["checkout", "-q", "shadow"]);
     assert_eq!(ensure(&url, Some("shadow"), &other), Ok(Ready::Reused));
+}
+
+#[test]
+fn gh_is_asked_last_on_github_only_and_never_kept() {
+    // Scoped to github.com: git never asks gh for another host's login.
+    assert_eq!(GH_FALLBACK, "credential.https://github.com.helper=!gh auth git-credential");
+    let root = tempfile::tempdir().unwrap();
+    let url = origin(root.path());
+    let dir = root.path().join("cmux/repos/host/owner/name");
+    assert_eq!(ensure(&url, Some("topic"), &dir), Ok(Ready::Cloned));
+    // The helper is the clone's and checkout's alone: nothing of it stays in the clone's config.
+    let config = std::fs::read_to_string(dir.join(".git/config")).unwrap();
+    assert!(!config.contains("helper"), "{config}");
 }

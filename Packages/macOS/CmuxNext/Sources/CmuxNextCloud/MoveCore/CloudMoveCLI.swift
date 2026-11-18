@@ -178,6 +178,28 @@ public nonisolated struct CloudMoveCLI: Sendable {
         }
     }
 
+    /// `cmux link start-chat repo`'s refusal: its code (`repo.clone_failed`, `repo.dir_taken`, ...) and git's words.
+    public nonisolated struct StartChatRepoRefusal: Sendable, Equatable, Error {
+        public var code: String
+        public var message: String
+        public init(code: String, message: String) { (self.code, self.message) = (code, message) }
+    }
+
+    /// `cmux link start-chat repo --repo SPEC`: the folder on This Mac a chat in repository `repo` (`owner/name`) starts in,
+    /// `~/cmux/repos/github.com/OWNER/NAME`, cloned now (blobless, the person's git login, else gh's) or already there.
+    public func startChatRepo(_ repo: String) async throws -> String {
+        struct Call: Encodable { var verb = "start-chat-repo"; var repo: String }
+        struct Reply: Decodable { var ok: Bool; var dir: String?; var error: String?; var error_code: String? }
+        let read = try await run(Call(repo: repo), reading: "reservation", stdin: nil)
+        guard let object = read.object, let reply = try? JSONDecoder().decode(Reply.self, from: object) else {
+            throw StartChatRepoRefusal(code: read.answer.errorCode ?? "repo.clone_failed", message: read.answer.error ?? "")
+        }
+        guard reply.ok, let dir = reply.dir, !dir.isEmpty else {
+            throw StartChatRepoRefusal(code: reply.error_code ?? "repo.clone_failed", message: reply.error ?? "")
+        }
+        return dir
+    }
+
     /// `cmux link start-chat preflight --local FOLDER`, before any machine or lease is made for a start: the refusal of a
     /// folder past the copy's limits, else nil (a pass, and also a check that could not run: the copy counts it again).
     public func startChatPreflight(local: String) async -> StartChatPreflightRefusal? {

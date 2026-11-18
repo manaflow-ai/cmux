@@ -8,6 +8,10 @@
 //! clone of the same repository already in that folder is used as it is, never fetched or checked
 //! out again, so a second chat on it keeps the first one's work. A folder holding anything else is
 //! refused (`repo.dir_taken`), never written into.
+//!
+//! The App clones the same way for a GitHub repository picked on This Mac (`cmux link start-chat
+//! repo`). On github.com, `gh`'s login is the last credential git asks for ([`GH_FALLBACK`]), so
+//! a person signed in to `gh` whose git has no login of its own still clones a private repository.
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
@@ -16,7 +20,7 @@ use cmux_cloud_start_core::machine_repo::{self, Invalid, Repo};
 use serde_json::{Value, json};
 
 /// The repository `spec` names, or why it names none, for the usage error.
-pub(super) fn parse(spec: &str) -> Result<Repo, String> {
+pub(crate) fn parse(spec: &str) -> Result<Repo, String> {
     machine_repo::parse(spec).map_err(|invalid| match invalid {
         Invalid::Unrecognized => format!(
             "--repo {spec}: give OWNER/NAME on GitHub or an https git URL (https://HOST/GROUP/NAME)"
@@ -31,7 +35,7 @@ pub(super) fn parse(spec: &str) -> Result<Repo, String> {
 
 /// Where `repo` is cloned without `--cwd`: `HOME/cmux/repos/HOST/OWNER/NAME`, so two hosts or
 /// owners with the same name never share a folder.
-pub(super) fn default_dir(home: &Path, repo: &Repo) -> PathBuf {
+pub(crate) fn default_dir(home: &Path, repo: &Repo) -> PathBuf {
     let mut dir = home.join("cmux").join("repos").join(&repo.host);
     dir.extend(repo.owner.split('/'));
     dir.join(&repo.name)
@@ -39,7 +43,7 @@ pub(super) fn default_dir(home: &Path, repo: &Repo) -> PathBuf {
 
 /// What [`ensure`] did.
 #[derive(Debug, PartialEq, Eq)]
-pub(super) enum Ready {
+pub(crate) enum Ready {
     Cloned,
     /// A clone of the same repository was already there.
     Reused,
@@ -54,7 +58,7 @@ pub(super) enum Ready {
 /// what it made. A checkout that fails leaves the clone on its default branch, and says so; a
 /// later start at that ref finds it is not there ([`reuse`]) and is refused, never let in on the
 /// wrong commit.
-pub(super) fn ensure(url: &str, reference: Option<&str>, dir: &Path) -> Result<Ready, Value> {
+pub(crate) fn ensure(url: &str, reference: Option<&str>, dir: &Path) -> Result<Ready, Value> {
     if is_nonempty(dir) {
         return reuse(url, reference, dir);
     }
@@ -69,12 +73,13 @@ pub(super) fn ensure(url: &str, reference: Option<&str>, dir: &Path) -> Result<R
     }
     // Blobless: the whole history's commits and trees now, each file's contents when read, so a
     // big repository starts as fast as a small one.
-    let clone = ["clone", "--quiet", "--filter=blob:none", "--", url].map(OsStr::new);
+    let clone = ["-c", GH_FALLBACK, "clone", "--quiet", "--filter=blob:none", "--", url].map(OsStr::new);
     git(None, clone.into_iter().chain([dir.as_os_str()])).map_err(|said| {
         error("repo.clone_failed", format!("git clone {url} failed: {said}"), json!({"url": url}))
     })?;
     if let Some(reference) = reference {
-        git(Some(dir), ["-c", "advice.detachedHead=false", "checkout", "--quiet", reference])
+        // A blobless clone's checkout fetches the files it writes: the same login.
+        git(Some(dir), ["-c", GH_FALLBACK, "-c", "advice.detachedHead=false", "checkout", "--quiet", reference])
             .map_err(|said| {
                 error(
                     "repo.checkout_failed",
@@ -208,6 +213,12 @@ where
     let said = String::from_utf8_lossy(&output.stderr).trim().to_owned();
     Err(if said.is_empty() { format!("exit {}", output.status) } else { said })
 }
+
+/// `gh`'s login as git's last credential on github.com, for the clone and its checkout only: a
+/// `-c` helper comes after the person's own, so their git login wins where they have one; it is
+/// never written to the clone's config, and git asks it for no other host. Without `gh`, or
+/// signed out of it, it answers nothing and git goes on as without it.
+const GH_FALLBACK: &str = "credential.https://github.com.helper=!gh auth git-credential";
 
 fn error(code: &str, message: String, details: Value) -> Value {
     json!({"code": code, "message": message, "details": details, "retryable": false})

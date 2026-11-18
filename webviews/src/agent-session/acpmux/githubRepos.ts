@@ -1,5 +1,5 @@
-// The person's GitHub repositories in the new chat's folder menu, for a Cloud chat (FolderPopover's
-// GitHub part). Three host calls, snake_case on the wire like their neighbours:
+// The person's GitHub repositories in the new chat's folder menu (FolderPopover's GitHub part). Four
+// host calls, snake_case on the wire like their neighbours:
 //   github.status        {}                -> { state: ready | not_connected | unavailable, repos_scope,
 //                                              reason?: signed_out | not_configured | unreachable }
 //   github.connect       {}                -> { opened: true } (the host opens GitHub, or its sign-in, in the
@@ -7,9 +7,13 @@
 //                                              github.signed_out | github.not_configured | github.unavailable |
 //                                              github.connect_failed and a short message
 //   github.repos.list    { query }         -> { repos: [{ full_name, private, default_branch }], truncated }
+//   github.repos.prepare { cwd }           -> { dir } once This Mac has the clone (~/cmux/repos/...);
+//                                              refused with repo.* and git's words
 // A repository picked as the chat's folder is the folder string `github:owner/name`: the composer
-// carries it where a folder path goes (App.tsx `projectDraft`), and the Cloud start sends it as
-// `cloud.startChat {cwd}`; the machine clones it.
+// carries it where a folder path goes (App.tsx `projectDraft`). A Cloud start sends it as
+// `cloud.startChat {cwd}` and the machine clones it; a chat on This Mac starts in the host's clone
+// (`session/new {cwd}` names the repository and the host puts the clone's folder in its place),
+// which the pick starts at once (`onPrepare`), so it clones while the person writes.
 //
 // One small store per page (useSyncExternalStore, as cloudMachines.ts), driven by the menu's own
 // events: opening the menu reads the status, Connect to GitHub opens GitHub and then reads the status
@@ -61,6 +65,9 @@ export type GitHubPicker = {
   /// Read the repositories again for `query` (Enter on a search the loaded page has no match for).
   onSearch(query: string | null): void;
   onRetry(): void;
+  /// A repository picked for a chat on This Mac (`github:owner/name`): the host starts its clone now. Fire and forget:
+  /// the chat's start waits for the same clone and says why if it failed.
+  onPrepare(folder: string): void;
 };
 
 /// A chosen repository as the composer's folder.
@@ -202,6 +209,9 @@ export function createGitHubPicker(
       listeners.add(listener);
       return () => void listeners.delete(listener);
     },
+    prepare(folder: string) {
+      if (githubFolderRepo(folder)) call("github.repos.prepare", { cwd: folder }).catch(() => undefined);
+    },
     open() {
       // A fresh open says nothing of an earlier refusal.
       if (state.connectError !== undefined) set({ connectError: undefined });
@@ -259,5 +269,6 @@ export function useGitHubPicker(store?: GitHubPickerStore): GitHubPicker {
     onConnect: picker.connect,
     onSearch: picker.search,
     onRetry: picker.retry,
+    onPrepare: picker.prepare,
   };
 }
