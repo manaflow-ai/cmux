@@ -33,9 +33,13 @@
 # copy keeps it, and only then is the rest of the bundle signed around the
 # helper's signature and the app sealed. cmux copies the helper out of the app
 # before it runs it, and the helper's own ticket keeps that copy valid offline.
-# The Screen Sharing helper ("<app> Screen Sharing.app",
-# plans/cmux-next/screen-sharing-helper.md), when the app carries it, goes
-# through the same steps after it as its own submission, with no entitlements.
+# The screen sharing executable inside the Computer Use helper
+# (Contents/MacOS/cmux-screen-sharing, one permission identity for screen
+# sharing and computer use) is signed in that pass with the helper's
+# identifier, com.cmuxterm.cua. A separate Screen Sharing helper
+# ("<app> Screen Sharing.app", plans/cmux-next/screen-sharing-helper.md), which
+# only an app packaged before that move carries, goes through the same steps
+# after it as its own submission, with no entitlements.
 # Exit 75: Apple had not answered within the wait (nothing signed after it).
 # stapler validate and the Gatekeeper assessment of the copy run on a Mac
 # (scripts/ci/check-signed-app.sh in the verify job).
@@ -71,6 +75,9 @@ MODE="${CMUX_SIGN_MODE:-all}"
 [[ "$MODE" == all || "$MODE" == helper-first ]] && [[ -z "${CMUX_NEXT_CEF_ON_DEMAND:-}" ]] ||
   { echo "error: CMUX_SIGN_MODE=$MODE and CMUX_NEXT_CEF_ON_DEMAND are not supported here" >&2; exit 2; }
 computer_use="$APP_PATH/Contents/Library/cmux Computer Use.app"
+# The screen sharing executable the Computer Use helper carries (one permission identity for
+# screen sharing and computer use, scripts/cmux-next/bundle-screen-sharing-helper.sh).
+SCREEN_SHARING_IN_HELPER="Contents/MacOS/cmux-screen-sharing"
 # The Screen Sharing helper ("<app> Screen Sharing.app"), when the app carries
 # one: stamped for the app's final bundle id and name first (the nightly-next
 # identity went into Info.plist after the build), as sign-cmux-bundle.sh step 2b.
@@ -287,6 +294,11 @@ if [[ "$MODE" == helper-first ]]; then
     isolate_helper_submission "$hb"
     hargs=(--code-signature-flags runtime)
     [[ -z "$hent" ]] || hargs+=(--entitlements-xml-file "$hent")
+    # The screen sharing executable inside the Computer Use helper takes the helper's identifier
+    # (one permission identity for screen sharing and computer use); unscoped options reach only
+    # the bundle's main executable, so its own identifier would be its file name.
+    [[ -z "${is_macho[$hrel/$SCREEN_SHARING_IN_HELPER]:-}" ]] ||
+      hargs+=(--binary-identifier "$SCREEN_SHARING_IN_HELPER:com.cmuxterm.cua")
     for rel in ${hmachos[@]+"${hmachos[@]}"}; do hargs+=(--code-signature-flags "${rel#"$hrel/"}:runtime"); done
     echo "==> signing nested helper ${hb##*/}"
     run_signer "$R" sign "${identity_args[@]}" "${hargs[@]}" "$hb" > "$work/log" 2>&1 ||
@@ -406,6 +418,10 @@ if [[ "$MODE" == helper-first ]]; then
   for hrel in ${first_rels[@]+"${first_rels[@]}"}; do excludes+=(--exclude "$hrel" --exclude "$hrel/**"); done
 else
   if [[ -d "$computer_use" ]]; then exe_of "$computer_use"; ent["$exe"]="$HELPER_ENTITLEMENTS"; fi
+  # Its screen sharing executable: the helper's identifier, no entitlements (as
+  # sign-cmux-bundle.sh step 2).
+  rel="${computer_use#"$APP_PATH/"}/$SCREEN_SHARING_IN_HELPER"
+  if [[ -n "${is_macho[$rel]:-}" ]]; then ident["$rel"]=com.cmuxterm.cua; clear["$rel"]=1; fi
 fi
 
 # 3. Plugins (--deep, no entitlements).
