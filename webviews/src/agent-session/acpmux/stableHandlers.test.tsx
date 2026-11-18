@@ -2,8 +2,10 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { act, memo } from "react";
 import { createRoot } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { useStableHandlers } from "./stableHandlers";
 import { teardownDom } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { useStableHandlers } = await importWithDom(() => import("./stableHandlers"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "IS_REACT_ACT_ENVIRONMENT"];

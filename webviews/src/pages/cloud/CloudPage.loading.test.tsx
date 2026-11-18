@@ -3,13 +3,7 @@
 import { act } from "react";
 import { afterAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { LOADING_SHOWN_MS } from "../../ui/lasting";
-import { createStrings } from "../shared/i18n";
-import { CloudPage } from "./CloudPage";
 import table from "./generated/strings.json";
-import { MockCloudProvider } from "./mockProvider";
-import { CloudOps } from "./ops";
-import { CloudStore } from "./store";
 import { teardownDom } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
@@ -25,6 +19,12 @@ const replacements = {
 };
 const saved = Object.keys(replacements).map((key) => [key, key in globals, globals[key]] as const);
 Object.assign(globals, replacements);
+const { LOADING_SHOWN_MS } = await import("../../ui/lasting");
+const { createStrings } = await import("../shared/i18n");
+const { CloudPage } = await import("./CloudPage");
+const { MockCloudProvider } = await import("./mockProvider");
+const { CloudOps } = await import("./ops");
+const { CloudStore } = await import("./store");
 const { createRoot } = await import("react-dom/client");
 const strings = createStrings(table);
 const settle = async () => {

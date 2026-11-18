@@ -4,10 +4,12 @@
 // start draws every one again at once as a Not sent row with Retry, Edit and Remove.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { resetKeptTailsForTests } from "./tailCache";
 import type { UnsentPromptRecord, UnsentPromptStore } from "./unsentPrompts";
-import { translate } from "./i18n";
 import { teardownDom } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { resetKeptTailsForTests } = await importWithDom(() => import("./tailCache"));
+const { translate } = await importWithDom(() => import("./i18n"));
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;

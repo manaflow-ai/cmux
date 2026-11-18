@@ -1,7 +1,10 @@
 import { expect, test } from "bun:test";
 import { settleReact } from "../../../test/support/domTeardown";
-import { translate } from "./i18n";
-import { finishedPromptUpload, receivePromptUploadState, type PromptUploadState } from "./promptUploadState";
+import type { PromptUploadState } from "./promptUploadState";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { translate } = await importWithDom(() => import("./i18n"));
+const { finishedPromptUpload, receivePromptUploadState } = await importWithDom(() => import("./promptUploadState"));
 
 const finished = (token: string): PromptUploadState => ({ token, uploadId: "daemon-id", state: "finished", size: 3 });
 const deferred = () => {

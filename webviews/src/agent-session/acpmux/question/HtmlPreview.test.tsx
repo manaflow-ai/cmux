@@ -8,10 +8,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import { previewDocument } from "./htmlPreviewModel";
 import type { AgentQuestion } from "./model";
-import { QuestionCard } from "./QuestionCard";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { previewDocument } = await importWithDom(() => import("./htmlPreviewModel"));
+const { QuestionCard } = await importWithDom(() => import("./QuestionCard"));
 
 const fixture = (name: string): AgentQuestion =>
   JSON.parse(

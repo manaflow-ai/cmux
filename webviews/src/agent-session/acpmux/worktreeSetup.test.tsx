@@ -6,14 +6,13 @@ import { settleReact } from "../../../test/support/domTeardown";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { newWorktree } from "./startFolderModel";
-import {
-  WorktreeSetupLine,
-  followWorktreeSetup,
-  forgetWorktreeSetup,
-  rememberWorktreeSetup,
-  type SetupView,
-} from "./worktreeSetup";
+import type { SetupView } from "./worktreeSetup";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { newWorktree } = await importWithDom(() => import("./startFolderModel"));
+const { WorktreeSetupLine, followWorktreeSetup, forgetWorktreeSetup, rememberWorktreeSetup } = await importWithDom(
+  () => import("./worktreeSetup"),
+);
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

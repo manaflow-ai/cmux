@@ -3,9 +3,12 @@
 // and it didnt do anything".
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { promptRoot } from "./direct";
-import { keptStopStep, useStopThroughReconnect, type KeptStop, type StopView } from "./stopThroughReconnect";
+import type { KeptStop, StopView } from "./stopThroughReconnect";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { promptRoot } = await importWithDom(() => import("./direct"));
+const { keptStopStep, useStopThroughReconnect } = await importWithDom(() => import("./stopThroughReconnect"));
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;

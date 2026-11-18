@@ -1,11 +1,7 @@
 import { act } from "react";
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
-import { MockCloudProgressProvider, SAMPLE_ASKS, sampleState } from "./mockProvider";
-import { CloudProgressStore, elapsedClock, stageKey, stepMarks } from "./store";
-import { CloudProgressOps } from "./types";
 import { teardownDom } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
@@ -26,6 +22,10 @@ const replacements = {
 };
 const saved = Object.keys(replacements).map((key) => [key, key in globals, globals[key]] as const);
 Object.assign(globals, replacements);
+const { createStrings } = await import("../shared/i18n");
+const { MockCloudProgressProvider, SAMPLE_ASKS, sampleState } = await import("./mockProvider");
+const { CloudProgressStore, elapsedClock, stageKey, stepMarks } = await import("./store");
+const { CloudProgressOps } = await import("./types");
 const { createRoot } = await import("react-dom/client");
 const { CloudProgressPage } = await import("./CloudProgressPage");
 const strings = createStrings(table, ["en"]);

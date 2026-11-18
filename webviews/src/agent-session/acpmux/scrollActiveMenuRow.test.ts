@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { scrollActiveMenuRow } from "./scrollActiveMenuRow";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { scrollActiveMenuRow } = await importWithDom(() => import("./scrollActiveMenuRow"));
 
 test("scrolls only the selected option inside its menu, including React ids with colons", () => {
   const dom = new JSDOM('<div id="menu"><div id=":r1:-21"></div></div><div id=":r1:-22"></div>');

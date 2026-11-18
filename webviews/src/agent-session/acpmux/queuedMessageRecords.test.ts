@@ -7,8 +7,10 @@
 // the provenance and `fromAgent` (hub/queue.rs `restore_queue`).
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { mergeQueue, queuedMessage } from "./direct";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { mergeQueue, queuedMessage } = await importWithDom(() => import("./direct"));
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;

@@ -11,8 +11,10 @@ import { JSDOM } from "jsdom";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { AgentQuestion } from "./model";
-import { QuestionCard } from "./QuestionCard";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { QuestionCard } = await importWithDom(() => import("./QuestionCard"));
 
 const FIXTURE = fileURLToPath(
   new URL(

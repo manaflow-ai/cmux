@@ -1,9 +1,7 @@
 import { act } from "react";
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { EnvironmentStore } from "./environmentStore";
 import type { CloudEnvironment, EnvironmentPatch, EnvironmentSection } from "./environmentModel";
-import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import { teardownDom } from "../../../test/support/domTeardown";
 
@@ -27,6 +25,8 @@ const replacements = {
 };
 const saved = Object.keys(replacements).map((key) => [key, key in globals, globals[key]] as const);
 Object.assign(globals, replacements);
+const { EnvironmentStore } = await import("./environmentStore");
+const { createStrings } = await import("../shared/i18n");
 const [{ createRoot }, { EnvironmentSheet }] = await Promise.all([
   import("react-dom/client"),
   import("./EnvironmentSheet"),

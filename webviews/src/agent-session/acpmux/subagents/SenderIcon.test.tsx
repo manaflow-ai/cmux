@@ -5,20 +5,22 @@ import { afterEach, expect, test } from "bun:test";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { badgeCut, badgeGeometry, SenderIcon } from "./SenderIcon";
-import {
+import type { Subagent } from "./subagentFold";
+import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { badgeCut, badgeGeometry, SenderIcon } = await importWithDom(() => import("./SenderIcon"));
+const {
   configureSenderIconLook,
   DEFAULT_SENDER_ICON_LOOK,
   resolveSenderIconLook,
   SENDER_ICON_BADGE_KEY,
   SENDER_ICON_CORNER_KEY,
   SENDER_ICON_LEAD_KEY,
-} from "./senderIconLook";
-import { foreignHarness } from "./agentIdentityModel";
-import { rememberHarnessIcons } from "../../shared/harnessIcons";
-import { SubagentsSection } from "../session-info/SubagentsSection";
-import type { Subagent } from "./subagentFold";
-import { settleReact } from "../../../../test/support/domTeardown";
+} = await importWithDom(() => import("./senderIconLook"));
+const { foreignHarness } = await importWithDom(() => import("./agentIdentityModel"));
+const { rememberHarnessIcons } = await importWithDom(() => import("../../shared/harnessIcons"));
+const { SubagentsSection } = await importWithDom(() => import("../session-info/SubagentsSection"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

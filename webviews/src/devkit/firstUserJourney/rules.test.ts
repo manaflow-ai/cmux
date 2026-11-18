@@ -4,7 +4,10 @@
 // names and stays quiet on the good one beside it, so a red in a run is the page's, not the rule's.
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import {
+import type { ClickEffect } from "./rules";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const {
   consoleErrors,
   deadButton,
   disabledWithoutReason,
@@ -14,8 +17,7 @@ import {
   rawErrorCode,
   rawErrorCodes,
   spinners,
-  type ClickEffect,
-} from "./rules";
+} = await importWithDom(() => import("./rules"));
 
 const body = (html: string) => new JSDOM(`<!doctype html><body>${html}</body>`).window.document.body;
 const none: ClickEffect = {

@@ -8,6 +8,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Strings } from "../shared/i18n";
 import type { HomeMessage, HomeParticipant } from "./types";
+import { importWithDom } from "../../../test/support/importWithDom";
 
 const scope = globalThis as Record<string, unknown>;
 const names = ["window", "document", "navigator", "HTMLElement", "Element", "Node", "getComputedStyle"] as const;
@@ -21,7 +22,7 @@ afterAll(() => {
   delete scope.IS_REACT_ACT_ENVIRONMENT;
 });
 const { createRoot } = await import("react-dom/client");
-const { MessageRow } = await import("./MessageRow");
+const { MessageRow } = await importWithDom(() => import("./MessageRow"));
 
 const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
 const rule = (selector: string) => css.match(new RegExp(`(?:^|\\n)${selector} \\{([^}]*)\\}`))?.[1] ?? "";

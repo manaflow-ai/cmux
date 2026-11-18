@@ -5,8 +5,10 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import type { ComposerAttachment, PromptBlock } from "./attachments";
-import { PROMPT_INLINE_BUDGET, inlineBytes } from "./promptBudget";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { PROMPT_INLINE_BUDGET, inlineBytes } = await importWithDom(() => import("./promptBudget"));
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;

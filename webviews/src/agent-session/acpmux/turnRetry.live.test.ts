@@ -6,11 +6,14 @@
 // model answers the retries' time leaves the "Thinking" clock.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { TURN_RETRY, type AcpmuxRow } from "./model";
-import { THINKING, withRetry } from "./conversation/turns";
-import { retryParts } from "./conversation/thinkingModel";
-import { readTurnRetry } from "./direct";
+import type { AcpmuxRow } from "./model";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { TURN_RETRY } = await importWithDom(() => import("./model"));
+const { THINKING, withRetry } = await importWithDom(() => import("./conversation/turns"));
+const { retryParts } = await importWithDom(() => import("./conversation/thinkingModel"));
+const { readTurnRetry } = await importWithDom(() => import("./direct"));
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;

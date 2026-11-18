@@ -2,7 +2,10 @@
 // the page (Leo, 2026-11-12: "evidently you zoom in and it doesn't really, you know, it doesn't follow").
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { NO_PINCH, readPinch, reportPinch, type Pinch } from "./pinch";
+import type { Pinch } from "./pinch";
+import { importWithDom } from "../../../../../test/support/importWithDom";
+
+const { NO_PINCH, readPinch, reportPinch } = await importWithDom(() => import("./pinch"));
 
 let dom: JSDOM | undefined;
 let stop: (() => void) | undefined;

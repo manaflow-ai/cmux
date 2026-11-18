@@ -7,13 +7,11 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { readFileSync } from "node:fs";
-import { CookieImportCard } from "./CookieImportCard";
-import {
-  APP_COOKIE_IMPORT_LOOK,
-  cookieImportModel,
-  type CookieImportCardModel,
-  type CookieImportCommand,
-} from "./model";
+import type { CookieImportCardModel, CookieImportCommand } from "./model";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { CookieImportCard } = await importWithDom(() => import("./CookieImportCard"));
+const { APP_COOKIE_IMPORT_LOOK, cookieImportModel } = await importWithDom(() => import("./model"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

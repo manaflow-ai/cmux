@@ -4,11 +4,7 @@
 import { act } from "react";
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { createStrings } from "../shared/i18n";
-import { CloudPage } from "./CloudPage";
 import table from "./generated/strings.json";
-import { MockCloudProvider } from "./mockProvider";
-import { CloudStore } from "./store";
 import { teardownDom } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
@@ -31,6 +27,10 @@ const replacements = {
 };
 const saved = Object.keys(replacements).map((key) => [key, key in globals, globals[key]] as const);
 Object.assign(globals, replacements);
+const { createStrings } = await import("../shared/i18n");
+const { CloudPage } = await import("./CloudPage");
+const { MockCloudProvider } = await import("./mockProvider");
+const { CloudStore } = await import("./store");
 // The machine list reveals its selected row; jsdom has no layout to scroll.
 dom.window.HTMLElement.prototype.scrollIntoView = () => undefined;
 const { createRoot } = await import("react-dom/client");

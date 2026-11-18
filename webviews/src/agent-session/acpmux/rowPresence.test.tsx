@@ -5,8 +5,11 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { mergeLeavingRows, useRowPresence, type RowMotion } from "./rowPresence";
+import type { RowMotion } from "./rowPresence";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { mergeLeavingRows, useRowPresence } = await importWithDom(() => import("./rowPresence"));
 
 let dom: JSDOM;
 let root: Root | undefined;

@@ -4,9 +4,11 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { renderToStaticMarkup } from "react-dom/server";
-import { GitHubMarkdown } from "./GitHubMarkdown";
-import { githubHTML, imageSource } from "./githubHTML";
-import { mockBotBodyHTML, mockBotReviewCommentHTML } from "./mockBotComments";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { GitHubMarkdown } = await importWithDom(() => import("./GitHubMarkdown"));
+const { githubHTML, imageSource } = await importWithDom(() => import("./githubHTML"));
+const { mockBotBodyHTML, mockBotReviewCommentHTML } = await importWithDom(() => import("./mockBotComments"));
 
 const scope = globalThis as { DOMParser?: unknown };
 const had = scope.DOMParser;

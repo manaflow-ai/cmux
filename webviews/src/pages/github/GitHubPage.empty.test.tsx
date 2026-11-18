@@ -6,9 +6,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { Strings } from "../shared/i18n";
 import generated from "./generated/strings.json";
-import { GitHubPage } from "./GitHubPage";
 import type { GitHubSnapshot, GitHubStore } from "./store";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { GitHubPage } = await importWithDom(() => import("./GitHubPage"));
 
 const en = (generated as Record<string, Record<string, string>>).en!;
 const strings: Strings = { language: "en", t: (key) => en[key] ?? key, format: (key) => en[key] ?? key };

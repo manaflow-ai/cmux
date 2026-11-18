@@ -2,16 +2,18 @@ import { describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { postNative, setNativeHost } from "./native";
-import {
+import type { StackBox } from "./toastAvoidance";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { postNative, setNativeHost } = await importWithDom(() => import("./native"));
+const {
   bottomStackBox,
   elementBox,
   reportToastAvoidance,
   resendToastAvoidance,
   resetToastAvoidanceReports,
   watchToastAvoidance,
-  type StackBox,
-} from "./toastAvoidance";
+} = await importWithDom(() => import("./toastAvoidance"));
 
 // The composer never moves for a toast (Leo 2026-11-07): the page reports its bottom stack and the
 // host lifts the toasts above it; no toast band reaches the page's layout.

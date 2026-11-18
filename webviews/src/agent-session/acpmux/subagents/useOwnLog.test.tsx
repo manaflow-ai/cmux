@@ -4,8 +4,11 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { useOwnLog, type OwnLogRecord } from "./subagentOwnLog";
+import type { OwnLogRecord } from "./subagentOwnLog";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { useOwnLog } = await importWithDom(() => import("./subagentOwnLog"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

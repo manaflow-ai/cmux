@@ -6,10 +6,13 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { settleReact } from "../../../test/support/domTeardown";
 import { JSDOM } from "jsdom";
-import { promptBlocks, type ComposerAttachment, type PromptBlock } from "./attachments";
-import { PROMPT_INLINE_BUDGET, inlineBytes, uploadsToFit } from "./promptBudget";
-import { uploadForSend } from "./sendUploads";
-import { setNativeHost } from "./native";
+import type { ComposerAttachment, PromptBlock } from "./attachments";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { promptBlocks } = await importWithDom(() => import("./attachments"));
+const { PROMPT_INLINE_BUDGET, inlineBytes, uploadsToFit } = await importWithDom(() => import("./promptBudget"));
+const { uploadForSend } = await importWithDom(() => import("./sendUploads"));
+const { setNativeHost } = await importWithDom(() => import("./native"));
 
 const MIB = 1024 * 1024;
 const pdf = (index: number, bytes = 9 * MIB): ComposerAttachment => ({

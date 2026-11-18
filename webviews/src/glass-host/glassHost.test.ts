@@ -3,13 +3,10 @@
 // refusal and then stays on the page's look, and an attached element follows its own box.
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import {
-  createGlassHost,
-  PHASE_ATTRIBUTE,
-  type GlassHost,
-  type GlassHostWindow,
-  type GlassSurfaceState,
-} from "./index";
+import type { GlassHost, GlassHostWindow, GlassSurfaceState } from "./index";
+import { importWithDom } from "../../test/support/importWithDom";
+
+const { createGlassHost, PHASE_ATTRIBUTE } = await importWithDom(() => import("./index"));
 
 let dom: JSDOM | undefined;
 let host: GlassHost | undefined;

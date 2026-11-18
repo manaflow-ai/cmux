@@ -7,10 +7,12 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { ShareDialogBody } from "./ShareDialog";
-import { translate } from "../i18n";
 import type { ShareView } from "./shareState";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { ShareDialogBody } = await importWithDom(() => import("./ShareDialog"));
+const { translate } = await importWithDom(() => import("../i18n"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

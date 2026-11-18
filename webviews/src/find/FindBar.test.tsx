@@ -3,8 +3,10 @@ import { afterAll, expect, test } from "bun:test";
 import { installDom } from "../pages/settings/testDom";
 import type { DiffViewerLabelResolver } from "../labels";
 import type { FindMatch } from "./model";
-import { FindBar } from "./FindBar";
 import type { DiffFindController } from "./useDiffFind";
+import { importWithDom } from "../../test/support/importWithDom";
+
+const { FindBar } = await importWithDom(() => import("./FindBar"));
 
 const restore = installDom();
 afterAll(() => restore());

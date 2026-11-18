@@ -5,7 +5,9 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { settleReact } from "../../../test/support/domTeardown";
-import { resetKeptTailsForTests } from "./tailCache";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { resetKeptTailsForTests } = await importWithDom(() => import("./tailCache"));
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;

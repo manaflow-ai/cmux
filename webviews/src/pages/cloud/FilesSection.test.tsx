@@ -5,8 +5,10 @@ import { fileURLToPath } from "node:url";
 import type { MachineDetail } from "./detail";
 import type { CloudStore } from "./store";
 import type { Strings } from "../shared/i18n";
-import { FilesSection } from "./FilesSection";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { FilesSection } = await importWithDom(() => import("./FilesSection"));
 
 const dom = new JSDOM("<!doctype html><body></body>", { url: "http://localhost/" });
 const globals = globalThis as Record<string, unknown>;

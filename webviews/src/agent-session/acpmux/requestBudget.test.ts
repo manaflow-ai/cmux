@@ -5,8 +5,12 @@
 // (`REQUEST_WORK_LIMIT`); a request the page stopped waiting for keeps its slot until it is answered.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { BUSY_MAX_MS, busyDelay, countsAgainstBudget, RequestBudget, WORK_LIMIT, waitsForSlot } from "./requestBudget";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { BUSY_MAX_MS, busyDelay, countsAgainstBudget, RequestBudget, WORK_LIMIT, waitsForSlot } = await importWithDom(
+  () => import("./requestBudget"),
+);
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;

@@ -1,12 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
-import { runBoardFixture } from "./fixtures";
-import { RunBoard } from "./RunBoard";
-import { CompareRunBoard } from "./variants/compare/CompareRunBoard";
-import { TimelineRunBoard } from "./variants/timeline/TimelineRunBoard";
-import { RunApiHttpError } from "./runApi";
-import { attachFailureState, attachTicketExpired } from "./runBoardModel";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { runBoardFixture } = await importWithDom(() => import("./fixtures"));
+const { RunBoard } = await importWithDom(() => import("./RunBoard"));
+const { CompareRunBoard } = await importWithDom(() => import("./variants/compare/CompareRunBoard"));
+const { TimelineRunBoard } = await importWithDom(() => import("./variants/timeline/TimelineRunBoard"));
+const { RunApiHttpError } = await importWithDom(() => import("./runApi"));
+const { attachFailureState, attachTicketExpired } = await importWithDom(() => import("./runBoardModel"));
 
 describe("Run board attach bridge", () => {
   test("classifies expired and replayed one-use tickets for clear retry copy", () => {

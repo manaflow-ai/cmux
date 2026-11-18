@@ -6,11 +6,13 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { ComposerQueue } from "./ComposerQueue";
-import { queuedTiles } from "./queuedImagesModel";
 import type { QueueEdit, QueuedPromptImage } from "./model";
-import { framesNote } from "./composer/videoPrompt";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { ComposerQueue } = await importWithDom(() => import("./ComposerQueue"));
+const { queuedTiles } = await importWithDom(() => import("./queuedImagesModel"));
+const { framesNote } = await importWithDom(() => import("./composer/videoPrompt"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

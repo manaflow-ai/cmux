@@ -5,9 +5,12 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { ContextRing } from "../../ComposerPickers";
-import { reportOverlays, type OverlayRect } from "./overlays";
+import type { OverlayRect } from "./overlays";
 import { settleReact } from "../../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../../test/support/importWithDom";
+
+const { ContextRing } = await importWithDom(() => import("../../ComposerPickers"));
+const { reportOverlays } = await importWithDom(() => import("./overlays"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

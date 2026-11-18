@@ -5,8 +5,10 @@
 // (a copy of every pending request per reply). Both made draining N requests cost N².
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { RequestBudget } from "./requestBudget";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { RequestBudget } = await importWithDom(() => import("./requestBudget"));
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;

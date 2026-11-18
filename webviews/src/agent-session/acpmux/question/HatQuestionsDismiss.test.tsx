@@ -6,8 +6,11 @@ import { settleReact } from "../../../../test/support/domTeardown";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { HatQuestions, type HatQuestionActions } from "./HatQuestions";
+import type { HatQuestionActions } from "./HatQuestions";
 import type { HatQuestion } from "./hatModel";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { HatQuestions } = await importWithDom(() => import("./HatQuestions"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

@@ -5,20 +5,17 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { memoryTipHost, type TipHost } from "../../../ui/featureTips/store";
+import type { TipHost } from "../../../ui/featureTips/store";
 import type { AcpmuxRow } from "../model";
 import type { AcpmuxSessionEntry } from "../sessionList";
-import {
-  SHARE_NUDGE_ID,
-  firstReplyCompleted,
-  ownChats,
-  shareNudgeBlocked,
-  useShareNudge,
-  type ShareNudgeChat,
-  type ShareNudgeContext,
-  type ShareNudgeState,
-} from "./shareNudgeModel";
+import type { ShareNudgeChat, ShareNudgeContext, ShareNudgeState } from "./shareNudgeModel";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { memoryTipHost } = await importWithDom(() => import("../../../ui/featureTips/store"));
+const { SHARE_NUDGE_ID, firstReplyCompleted, ownChats, shareNudgeBlocked, useShareNudge } = await importWithDom(
+  () => import("./shareNudgeModel"),
+);
 
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
   id,
