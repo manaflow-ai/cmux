@@ -159,6 +159,19 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
         driver.save("split_resize", {"error": f"unknown gestures {unknown}"})
         return
     split = driver.call("action.run", {"action": "splitRight", "focus": True}, timeout=30)
+    if "error" in split or (split.get("data") or {}).get("not_run"):
+        # A fresh window focuses its chat dock, which never splits ("The agent chat can't be split."): split the
+        # first other pane instead. Before this the chat suite measured no drag (0 moving frames) on such a window.
+        driver.call("debug.motion", {"action": "trace_start", "targets": ["panes"]})
+        time.sleep(0.2)
+        panes = driver.call("debug.motion", {"action": "trace_stop"})
+        last = [sample for sample in panes.get("samples") or [] if sample.get("panes")]
+        for row in (last[-1].get("panes") or []) if last else []:
+            tried = driver.call("action.run", {"action": "splitRight", "target": f"pane:{row[0]}", "focus": True},
+                                timeout=30)
+            if "error" not in tried and not (tried.get("data") or {}).get("not_run"):
+                split = {"refused": split, "split": tried, "pane": row[0]}
+                break
     time.sleep(1.0)
     chat_pane: str | None = None
     if pane == "browser":
@@ -557,7 +570,8 @@ def _summary(measured: list[dict]) -> dict:
 
 def judge(data: dict, refresh: float) -> dict:
     drags = [judge_drag(trace, refresh) for trace in data.get("drags") or []]
-    measured = [drag for drag in drags if "error" not in drag]
+    # A drag in which nothing moved (no split, a missed divider) measured nothing: never a passing "ok".
+    measured = [drag for drag in drags if "error" not in drag and drag.get("moving_frames", 0) > 0]
     if not measured:
         return {"ok": True, "problems": [], "measured": False, "pane": data.get("pane") or "browser",
                 "note": "not measured: " + (data.get("error") or next((drag["error"] for drag in drags), None)
