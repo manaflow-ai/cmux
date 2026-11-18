@@ -239,8 +239,8 @@ jobs:
       # one, and cancel-in-progress would stop uploads), so the run asks here,
       # before it claims its key, and skips its builds and daemon tests when
       # superseded (stale=true; scripts/ci/cmux_tui_superseded_push.py has the
-      # rules). main, feat-cmux-next and next-batch/* pushes, pull request runs
-      # and dispatches are never superseded; any lookup failure keeps the run.
+      # rules). main and next-batch/* pushes, pull request runs and dispatches are never superseded, and a
+      # feat-cmux-next push only yields a key no tip or nightly cut has; any lookup failure keeps the run.
       - name: Check whether a newer push superseded this one
         id: stale
         env:
@@ -250,7 +250,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           # Branch heads are read over git, which spends no REST budget.
           CMUX_TUI_REF_REMOTE: ${{ github.server_url }}/${{ github.repository }}.git
-        run: python3 scripts/ci/cmux_tui_superseded_push.py --event "$EVENT_NAME" --ref "$REF" --sha "$SHA"
+          TREE_YIELD: ${{ vars.TREE_YIELD_SUPERSEDED != '0' }}
+        run: python3 scripts/ci/cmux_tui_superseded_push.py --event "$EVENT_NAME" --ref "$REF" --sha "$SHA" --yield-superseded-tree "${TREE_YIELD:-false}"
 
       # A lane-branch push publishes its tree without the cmux_next_ daemon
       # tests (source.json daemonTests "separate", no daemon-tests marker):

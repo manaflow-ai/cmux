@@ -37,8 +37,8 @@ Superseded means, for a push event only:
     checks read its own head's publication only while that head is open; fleet
     builds request a missing tree themselves (cmux-tui-tree-request.yml), so a
     head nobody opened a pull request for has no reader.
-main, feat-cmux-next and next-batch/* runs gate latest/ and nightly-next
-promotion and are never superseded here, nor is a dispatch, a pull request run,
+main and next-batch/* runs gate latest/ and nightly-next promotion and are
+never superseded here, nor is a dispatch, a pull request run,
 or a pin of anything other than a pull request merge commit (pin-cmux-tui.sh,
 next_batch.py). With --key, a run that another run of the key deferred to
 (a cmux-tui-tree-deferred-<key> artifact, tree-owner-wait) is not superseded:
@@ -55,7 +55,21 @@ commits/{sha}/pulls. Without CMUX_TUI_REF_REMOTE the REST reads are used, as bef
 non-trunk branch the head is read first, so a moved branch is superseded
 without the pull request and dispatch lookups.
 
+A feat-cmux-next push yields (tree-preflight only, --yield-superseded-tree true, the
+TREE_YIELD_SUPERSEDED repository variable, on unless it is 0) when its tree key is neither
+the current feat-cmux-next tip's key nor the key of a nightly cut: nightly-next's head or
+a pending promotion (a nightly.yml run "Promote nightly-next to <sha>" not completed yet).
+On 2026-11-18 109 feat-cmux-next runs from 06:00Z to 11:10Z built 27 keys on a vCPU-capped
+Linux pool, 5 legs of 16 vCPU each, and only 8 keys were cut; a cut waited 9 to 84 min for
+its tree behind builds nothing read. Only the first attempt yields: a re-run (attempt 2+,
+which cmux-tui-tree-request.yml starts for a build that needs the tree) builds. A tree
+already published, a key script that differs between the compared commits, and any read
+failure keep the run. A yielded run claims no key and builds nothing, like any superseded
+push, so it ends a minute after it starts and never reads as an active publisher; a reader
+that still needs its tree requests it (pin-cmux-tui.sh wait_for_tree).
+
 Usage: cmux_tui_superseded_push.py --event E --ref REF --sha SHA [--key KEY --run-id ID]
+       [--yield-superseded-tree true|false]
 Environment: GH_TOKEN (contents, pull-requests and actions read),
 GITHUB_REPOSITORY, GITHUB_API_URL (default https://api.github.com).
 Prints the reason and writes stale=true|false to $GITHUB_OUTPUT. Exits 0.
@@ -75,6 +89,11 @@ import urllib.parse
 import urllib.request
 
 PROTECTED = ("refs/heads/main", "refs/heads/feat-cmux-next")
+FEAT = "refs/heads/feat-cmux-next"
+NIGHTLY = "refs/heads/nightly-next"
+PROMOTE_TITLE = re.compile(r"Promote nightly-next to ([0-9a-f]{40})")
+# The key script whose definition two commits must share for their keys to compare.
+KEY_SCRIPT = "scripts/ci/cmux_tui_tree_key.py"
 PIN_PREFIX = "refs/heads/cmux-tui-pin-"
 # Trunk and integration refs keep the plain moved-branch rule: nightly-next and
 # release-next are promoted only to published feat-cmux-next trees, and a
@@ -239,6 +258,105 @@ def pin_verdict(sha: str) -> tuple[bool, str]:
     return True, f"#{pr.get('number')} moved from {head[:12]} to {pr['head']['sha'][:12]}; its newer merge tree is pinned on its own"
 
 
+def heads(remote: str, *refs: str) -> dict[str, str]:
+    """REF -> head sha for each of REFS that exists, in one git ls-remote."""
+    found = {}
+    for line in ls_remote(remote, *refs).splitlines():
+        head, _, name = line.partition("\t")
+        if name in refs and re.fullmatch(r"[0-9a-f]{40}", head):
+            found[name] = head
+    return found
+
+
+def pending_promotions() -> list[str]:
+    """The commits of nightly.yml promotion runs on main that have not completed: the next cuts."""
+    status, data = api("actions/workflows/nightly.yml/runs?event=workflow_dispatch&branch=main&per_page=30")
+    if status != 200 or not isinstance(data, dict):
+        raise ApiError(f"GET nightly.yml dispatch runs: HTTP {status}")
+    found = []
+    for run in data.get("workflow_runs") or []:
+        match = PROMOTE_TITLE.fullmatch(str(run.get("display_title") or run.get("name") or ""))
+        if match and run.get("status") != "completed":
+            found.append(match.group(1))
+    return found
+
+
+def tree_key_of(sha: str) -> str:
+    try:
+        key = subprocess.run([sys.executable, KEY_SCRIPT, "--version", "v2", sha], capture_output=True, text=True,
+                             timeout=60, check=True).stdout.strip()
+    except (OSError, subprocess.SubprocessError) as error:
+        raise ApiError(f"tree key of {sha[:12]}: {type(error).__name__}") from error
+    if not re.fullmatch(r"[0-9a-f]{40}", key):
+        raise ApiError(f"tree key of {sha[:12]} is not 40-hex")
+    return key
+
+
+def tree_published(key: str) -> bool:
+    """Whether tree KEY's completion manifest is on the CDN (publish-cmux-tui-tree.py writes it last)."""
+    base = os.environ.get("CMUX_TUI_PIN_BASE", "https://files.cmux.com/cmux-tui").rstrip("/")
+    try:
+        result = subprocess.run(["curl", "--head", "--fail", "--silent", "--connect-timeout", "5", "--max-time", "15",
+                                 "-o", "/dev/null", f"{base}/tree/{key}/completion.json?yield=1"], timeout=30)
+    except (OSError, subprocess.SubprocessError) as error:
+        raise ApiError(f"tree {key[:12]} publication: {type(error).__name__}") from error
+    if result.returncode == 22:
+        return False
+    if result.returncode != 0:
+        raise ApiError(f"tree {key[:12]} publication: curl exit {result.returncode}")
+    return True
+
+
+def fetch_commits(remote: str, shas: list[str]) -> None:
+    command = ["git"]
+    token = os.environ.get("GH_TOKEN", "")
+    if token and remote.startswith("https://"):
+        basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+        command += ["-c", f"http.extraHeader=Authorization: Basic {basic}"]
+    command += ["fetch", "-q", "--no-tags", "--no-recurse-submodules", "--no-write-fetch-head", "--depth=1", remote,
+                *shas]
+    try:
+        subprocess.run(command, capture_output=True, timeout=45, check=True)
+    except (OSError, subprocess.SubprocessError) as error:
+        raise ApiError(f"git fetch of the compared commits: {type(error).__name__}") from error
+
+
+def yield_verdict(sha: str) -> tuple[bool, str]:
+    """Whether this feat-cmux-next push's unstarted tree build yields: its key is neither the tip's nor a cut's."""
+    attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1")
+    if attempt not in ("", "1"):
+        return False, f"attempt {attempt} is a re-run (cmux-tui-tree-request.yml asks for one); it builds"
+    remote = os.environ.get("CMUX_TUI_REF_REMOTE", "")
+    if not remote:
+        return False, "no CMUX_TUI_REF_REMOTE to read the feat-cmux-next and nightly-next heads; keeping the run"
+    found = heads(remote, FEAT, NIGHTLY)
+    tip = found.get(FEAT, "")
+    if not tip:
+        raise ApiError("feat-cmux-next has no head")
+    if tip == sha:
+        return False, f"{sha[:12]} is the feat-cmux-next tip"
+    cuts = {name: head for name, head in (("nightly-next", found.get(NIGHTLY, "")),) if head}
+    for pending in pending_promotions():
+        cuts.setdefault(f"pending promotion {pending[:12]}", pending)
+    if sha in cuts.values():
+        return False, f"{sha[:12]} is a nightly cut"
+    key = tree_key_of(sha)
+    if tree_published(key):
+        return False, f"tree {key[:12]} is published; the run only writes this commit's manifest"
+    compared = {"the feat-cmux-next tip": tip, **cuts}
+    fetch_commits(remote, sorted(set(compared.values())))
+    for what, other in compared.items():
+        if subprocess.run(["git", "diff", "--quiet", sha, other, "--", KEY_SCRIPT], capture_output=True,
+                          timeout=30).returncode != 0:
+            return False, f"{what} ({other[:12]}) has another {KEY_SCRIPT}; keys do not compare, keeping the run"
+        if tree_key_of(other) == key:
+            return False, f"tree {key[:12]} is the key of {what} ({other[:12]})"
+    names = ", ".join(f"{what} {other[:12]}" for what, other in compared.items())
+    return True, (f"tree {key[:12]} is neither the feat-cmux-next tip's nor a nightly cut's ({names}); its unstarted "
+                  "build yields to theirs. A build that needs this tree asks cmux-tui-tree-request.yml, whose re-run "
+                  "builds it; TREE_YIELD_SUPERSEDED=0 turns the yield off")
+
+
 def deferred_to(key: str, run_id: str) -> str:
     """A run of the key that deferred to this one, or ""."""
     status, data = api(f"actions/artifacts?name=cmux-tui-tree-deferred-{key}&per_page=100")
@@ -251,9 +369,12 @@ def deferred_to(key: str, run_id: str) -> str:
     return ""
 
 
-def verdict(event: str, ref: str, sha: str, key: str, run_id: str) -> tuple[bool, str]:
+def verdict(event: str, ref: str, sha: str, key: str, run_id: str,
+            yield_superseded_tree: bool = False) -> tuple[bool, str]:
     if event != "push":
         return False, f"a {event} run is never superseded here"
+    if ref == FEAT and yield_superseded_tree:
+        return yield_verdict(sha)
     if ref in PROTECTED or ref.startswith("refs/heads/next-batch/"):
         return False, f"{ref} gates promotion; its runs are kept"
     if needs_open_pull_request(ref):
@@ -281,16 +402,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--sha", required=True)
     parser.add_argument("--key", default="")
     parser.add_argument("--run-id", default="")
+    parser.add_argument("--yield-superseded-tree", default="false",
+                        help="true in tree-preflight unless TREE_YIELD_SUPERSEDED is 0")
     args = parser.parse_args(argv)
     if not re.fullmatch(r"[0-9a-f]{40}", args.sha) or (args.key and not re.fullmatch(r"[0-9a-f]{40}", args.key)):
         print("error: --sha and --key must be 40-hex", file=sys.stderr)
         return 2
     try:
-        stale, reason = verdict(args.event, args.ref, args.sha, args.key, args.run_id)
+        stale, reason = verdict(args.event, args.ref, args.sha, args.key, args.run_id,
+                                args.yield_superseded_tree == "true")
     except (ApiError, KeyError) as error:
         stale, reason = False, f"could not tell ({error}); keeping the run"
         print(f"::warning title=superseded check::{reason}")
-    if stale:
+    if stale and args.ref == FEAT:
+        print(f"::notice title=tree build yielded::{args.sha[:12]} yields: {reason}. This run skips its builds and daemon tests.")
+    elif stale:
         print(f"::notice title=superseded push::{args.sha[:12]} is superseded: {reason}. This run skips its builds and daemon tests.")
     else:
         print(f"Not superseded: {reason}")

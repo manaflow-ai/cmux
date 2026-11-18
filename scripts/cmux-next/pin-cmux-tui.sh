@@ -455,13 +455,8 @@ else:
 # including when the head cannot be read (a failure then stays a failure).
 superseded_by() {
   local sha="$1" state="$2" branch head
-  [[ "$state" == ended\ * ]] || return 0
   # Any other conclusion (failure, timed_out, ...) is a real failure.
-  python3 -c '
-import re, sys
-parts = sys.argv[1][len("ended "):].split(", ")
-sys.exit(0 if parts and all(re.match(r"(cancelled|success): ", p) for p in parts) else 1)
-' "$state" || return 0
+  yielded_runs "$state" || return 0
   [[ "${GITHUB_REF:-}" == refs/heads/* ]] || return 0
   branch="${GITHUB_REF#refs/heads/}"
   head="$(github_get "${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY:-manaflow-ai/cmux}/git/ref/heads/$branch" \
@@ -474,6 +469,35 @@ sys.exit(0 if parts and all(re.match(r"(cancelled|success): ", p) for p in parts
 github_token() {
   if [[ -n "${GH_TOKEN:-}" ]]; then printf '%s\n' "$GH_TOKEN"; return 0; fi
   command -v gh >/dev/null 2>&1 && gh auth token 2>/dev/null
+}
+
+# yielded_runs <state>: 0 when every run in an "ended <runs>" state ended success or
+# cancelled (a superseded or yielded push builds nothing and ends green), 1 otherwise.
+yielded_runs() {
+  [[ "$1" == ended\ * ]] || return 1
+  python3 -c '
+import re, sys
+parts = sys.argv[1][len("ended "):].split(", ")
+sys.exit(0 if parts and all(re.match(r"(cancelled|success): ", p) for p in parts) else 1)
+' "$1"
+}
+
+# request_tree_publish <commit>: asks cmux-tui-tree-request.yml on feat-cmux-next to publish
+# <commit>'s tree (it re-runs the commit's own cmux-tui artifacts run, and a re-run never
+# yields). A feat-cmux-next push whose key is neither the tip's nor a nightly cut's yields
+# its build (scripts/ci/cmux_tui_superseded_push.py), so a dev or dogfood build of that
+# commit asks for the tree instead of failing: the publish is delayed, not lost. Needs a
+# token that may dispatch workflows (GH_TOKEN, else the gh login); CMUX_TUI_TREE_REQUEST=0
+# turns it off. Exit 0 when the dispatch was accepted.
+request_tree_publish() {
+  local sha="$1" token
+  [[ "${CMUX_TUI_TREE_REQUEST:-1}" != 0 && "$sha" =~ ^[0-9a-f]{40}$ ]] || return 1
+  token="$(github_token)" && [[ -n "$token" ]] || return 1
+  curl -fsS --connect-timeout 10 --max-time 30 -X POST -o /dev/null \
+    -H "Authorization: Bearer $token" -H "Accept: application/vnd.github+json" \
+    -H "X-GitHub-Api-Version: 2022-11-28" \
+    "${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY:-manaflow-ai/cmux}/actions/workflows/cmux-tui-tree-request.yml/dispatches" \
+    -d "{\"ref\":\"feat-cmux-next\",\"inputs\":{\"commit\":\"$sha\"}}" 2>/dev/null
 }
 
 # Prints the head_sha of an active (not completed) cmux-tui artifacts run whose
@@ -661,7 +685,9 @@ fail_unpublishable_tree() {
         echo "  no cmux-tui artifacts run exists for $sha." ;;
       *success*)
         echo "  The runs for $sha ended without publishing it: ${state#ended }."
-        echo "  A run that finds a newer branch head skips the build: this commit was superseded." ;;
+        echo "  A run that finds a newer branch head skips the build: this commit was superseded."
+        echo "  A feat-cmux-next push whose tree is neither the tip's nor a nightly cut's yields its build; ask for it:"
+        echo "  gh workflow run cmux-tui-tree-request.yml --repo ${GITHUB_REPOSITORY:-manaflow-ai/cmux} --ref feat-cmux-next -f commit=$sha" ;;
       *)
         echo "  The runs for $sha ended without publishing it: ${state#ended }." ;;
     esac
@@ -759,7 +785,7 @@ wait_for_tree() {
     else echo "cmux-tui run check reads the GitHub API without a token (60 requests an hour per address); a rate limit reads as no run" >&2; fi
   fi
   started="$(date +%s)"
-  local dispatched=false reported=false dispatch_sha
+  local dispatched=false reported=false dispatch_sha requested=false
   # The query string bypasses a cached 404 at the CDN edge.
   until read_tree_digest "$key" "$out" "$legacy"; do
     elapsed=$(( $(date +%s) - started ))
@@ -815,7 +841,14 @@ wait_for_tree() {
           tree_superseded_by="$(superseded_by "$publisher" "$state")"
           [[ -n "$tree_superseded_by" ]] && return 0
         fi
-        fail_unpublishable_tree "$key" "$publisher" "$state" "$elapsed"
+        # A yielded (or superseded) run built nothing: ask for the tree once and wait on for the re-run.
+        if [[ "$requested" == false ]] && (( wait_seconds > 0 )) && yielded_runs "$state" \
+            && request_tree_publish "$publisher"; then
+          requested=true; ended_checks=0
+          echo "next: the cmux-tui artifacts runs for ${publisher:0:12} ended without publishing tree $key (a yielded or superseded push); asked cmux-tui-tree-request.yml to publish it (it re-runs that run); waiting on" >&2
+        else
+          fail_unpublishable_tree "$key" "$publisher" "$state" "$elapsed"
+        fi
       fi
     fi
     if (( wait_seconds == 0 )); then
