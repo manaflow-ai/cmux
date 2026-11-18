@@ -1,6 +1,9 @@
-//! The Git files build.rs watches: a fresh clone of the same commit must have
-//! the same bytes in each (so a restored target/ does not relink acpmux), and
-//! a commit on a packed branch must still change something watched.
+//! acpmux-build-id's build.rs: the Git files it watches must have the same
+//! bytes in a fresh clone of the same commit (so a restored target/ does not
+//! relink acpmux), and a commit on a packed branch must still change something
+//! watched. It lives here, beside the cmux-build-identity script's own checks
+//! and the lint over every build script, so acpmux's test job (which runs every
+//! acpmux-build-id test file) is unchanged.
 
 use std::env;
 use std::fs;
@@ -34,7 +37,7 @@ impl Fixture {
         let executable = root.join(format!("build-script{}", env::consts::EXE_SUFFIX));
         let output = Command::new(env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()))
             .arg("--edition=2024")
-            .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("build.rs"))
+            .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("../acpmux-build-id/build.rs"))
             .arg("-o")
             .arg(&executable)
             .output()

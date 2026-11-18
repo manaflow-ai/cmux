@@ -158,7 +158,8 @@ fn main() {
     // missing path.
     // reftable/tables.list is the ref store of a reftable repository.
     // cmux-build-identity's tests/git_watch_lint.rs keeps every cmux-tui
-    // build script off logs/, index, FETCH_HEAD and ORIG_HEAD.
+    // build script off logs/, index, FETCH_HEAD and ORIG_HEAD; its
+    // tests/acpmux_build_id_git_watch.rs checks this script's watches.
     for path in ["HEAD", "packed-refs", "reftable/tables.list"] {
         if let Some(p) = git_path(path)
             && p.exists()
