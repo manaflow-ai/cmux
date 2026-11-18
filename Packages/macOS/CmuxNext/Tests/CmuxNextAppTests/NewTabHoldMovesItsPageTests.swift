@@ -24,13 +24,21 @@ import Testing
 ///   keeps its page view.
 /// - Row 5: a New Tab key from a terminal tab, while a New Tab tab that the pane does not show has an untouched
 ///   page view: the new tab takes that page view, and none is made.
+/// - Row 6: a New Tab key that the focused page's view saw first does not make that page a touched one: the new
+///   tab has the page view that the pane showed before the key.
+/// - Row 7, what must stay: a New Tab tab in whose page the person typed a letter or clicked keeps its page view
+///   at the next New Tab key.
+/// - Row 8, what must stay: a hover over a New Tab tab with no page view makes none.
 ///
 /// The app is the package's own, with a daemon of this tree and an empty pool of pages made ahead, so each new
 /// page view here is a cold one (the setup of `NewTabPageAtItsFrameTests`). That setup's pane starts with a New
 /// Tab page of its own, so each row starts with one New Tab key: the tab that the pane shows then is one that a
 /// key made, with a page view, whatever the pane had before. A frame is the app's own: a row waits for one by an
 /// event. Each key is the New Tab action's own call (`NewTabPage.open`), each tab switch is the pane's own call
-/// (`select`), each close is the pane's own call (`close`): no row sends a key event.
+/// (`select`), each close is the pane's own call (`close`). Rows 1 to 5 and 8 send no key event. Row 6 sends its New
+/// Tab key as a key-down event: first to the page's view (`AgentPaneView.judge`, which the app's event monitor
+/// calls), then through the key router (`KeyRouter.interceptKeyDown`). Row 7 sends its letter or its click to the
+/// page's view only.
 ///
 /// The measure is the count of distinct page views (`Views`), not the store's count of built pages: that count
 /// has a page that a tab adopts too.
@@ -274,6 +282,125 @@ struct NewTabHoldMovesItsPageTests {
             #expect(tabs.existingView(shown) != nil, "the new tab has no page view, one frame after its key")
             #expect(views.count == made, "the New Tab key made \(views.count - made) page views, want 0: an untouched page view that no pane showed was there")
             #expect(now <= atStart, "the pane's New Tab tabs have \(now) page views after the key, \(atStart) before it: want no more")
+        }
+    }
+
+    /// Gives the web view of `page` the keyboard, as it has after the page's report or after a click in the page.
+    static func keyboard(to page: AgentPaneView, in pane: PaneController) throws -> NSWindow {
+        let window = try #require(pane.view.window, "setup: the pane's view is in no window")
+        try #require(window.makeFirstResponder(page.webView) && window.firstResponder === page.webView,
+                     "setup: the web view of the page did not take the keyboard")
+        return window
+    }
+
+    /// A key-down event of the row for `window`.
+    static func keyDown(_ characters: String, code: UInt16, command: Bool, in window: NSWindow) throws -> NSEvent {
+        let made = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: command ? [.command] : [],
+                                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
+                                    characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)
+        return try #require(made, "setup: no key event could be made")
+    }
+
+    /// Row 6. The page of the shown New Tab tab has the keyboard, and the person presses the New Tab key. The view
+    /// of that page sees the key-down first (the app's event monitor calls `judge` before AppKit gives the event
+    /// on), then the key router takes the key and opens the tab. Want: that key does not make the page a touched
+    /// one: the new tab has the page view that the pane showed before the key, and no page view is made. A hold
+    /// with the page focused is this case at each key.
+    @Test func aNewTabKeyThatThePagesViewSawLeavesThePageUntouched() async throws {
+        try await Self.row("cn-hold-moves-page-mark-key") { services, pane, views, _ in
+            let tabs = services.agentTabs
+            let first = try #require(pane.currentTabKey, "setup: the pane shows no tab")
+            let page = try #require(tabs.existingView(first), "setup: the shown New Tab tab has no page view")
+            let window = try Self.keyboard(to: page, in: pane)
+            let made = views.count, strip = pane.orderedIDs.count
+            let event = try Self.keyDown("t", code: 17, command: true, in: window)
+            page.judge(event, eventWindow: window)
+            let router = services.keyRouter
+            let took = router.dispatchingSynthetic(event) { router.interceptKeyDown(event, in: window) }
+            try #require(took, "setup: the key router passed the New Tab key on")
+            try #require(pane.orderedIDs.count == strip + 1, "setup: the New Tab key added \(pane.orderedIDs.count - strip) tabs to the strip, want 1")
+            await NewTabPageAtItsFrameTests.frame(services)
+            let shown = try #require(pane.currentTabKey, "setup: the pane shows no tab after the New Tab key")
+            try #require(shown != first && tabs.isNewTabPage(shown), "setup: the pane does not show the new tab, one frame after its key")
+            let now = tabs.existingView(shown)
+            _ = views.read(pane, services)
+            print("""
+                NewTabHoldMovesItsPageTests: row 6, a New Tab key that the focused page's view saw first: \(views.count - made) \
+                page views made; the new tab has the page view that the pane showed before the key: \(now === page); the \
+                new tab has a page view: \(now != nil)
+                """)
+            #expect(now === page, "the new tab does not have the page view that the pane showed before the key: the New Tab key made that page a touched one, or no page goes to the tab that is shown next")
+            #expect(views.count == made, "the New Tab key made \(views.count - made) page views, want 0")
+        }
+    }
+
+    /// Row 7, what must stay. The person types a letter in the shown New Tab tab's page, or clicks in it: the view
+    /// of that page sees the event first (`judge`), as in row 6. Then a New Tab key. Want: the tab that the person
+    /// touched keeps its page view, and the new tab has another one or none: a page that the person touched never
+    /// goes to another tab. The row sends the event to the view only: no page gets it, so no page reports it.
+    @Test(arguments: ["a letter", "a click"]) func aNewTabTabThatThePersonTouchedKeepsItsPageView(touch: String) async throws {
+        try await Self.row("cn-hold-moves-page-mark-\(touch == "a letter" ? "letter" : "click")") { services, pane, views, _ in
+            let tabs = services.agentTabs
+            let index = Self.newTabs(of: pane, services).count - 1
+            let first = try #require(pane.currentTabKey, "setup: the pane shows no tab")
+            let page = try #require(tabs.existingView(first), "setup: the shown New Tab tab has no page view")
+            let window = try Self.keyboard(to: page, in: pane)
+            let event: NSEvent
+            if touch == "a letter" {
+                event = try Self.keyDown("a", code: 0, command: false, in: window)
+            } else {
+                let middle = page.webView.convert(CGPoint(x: page.webView.bounds.midX, y: page.webView.bounds.midY), to: nil)
+                let click = NSEvent.mouseEvent(with: .leftMouseDown, location: middle, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                               windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+                event = try #require(click, "setup: no mouse event could be made")
+            }
+            page.judge(event, eventWindow: window)
+            let made = views.count
+            NewTabPage.open(in: pane, seed: nil)
+            await NewTabPageAtItsFrameTests.frame(services)
+            let shown = try #require(pane.currentTabKey, "setup: the pane shows no tab after the New Tab key")
+            try #require(shown != first && tabs.isNewTabPage(shown), "setup: the pane does not show the new tab, one frame after its key")
+            let touched = try #require(Self.newTabs(of: pane, services).dropFirst(index).first, "setup: the pane lost the tab that the person touched")
+            let kept = tabs.existingView(touched), now = tabs.existingView(shown)
+            _ = views.read(pane, services)
+            print("""
+                NewTabHoldMovesItsPageTests: row 7, \(touch) in a New Tab page, then a New Tab key: the touched tab kept its \
+                page view: \(kept === page); the new tab has that page view: \(now === page); \(views.count - made) page views \
+                made
+                """)
+            #expect(kept === page, "the New Tab tab that the person touched (\(touch)) does not have its page view after the next New Tab key")
+            #expect(now !== page, "the new tab has the page view of the tab that the person touched (\(touch))")
+        }
+    }
+
+    /// Row 8, what must stay. 3 New Tab keys in one turn of the main thread: no frame shows the first 2 of their
+    /// tabs, so those have no page view. The pointer rests on each of the 2. Want: the hover makes no page view,
+    /// and the 2 tabs have none after it: a New Tab tab that the person did not touch gets its page view when a pane
+    /// shows it, not before.
+    @Test func aHoverOverANewTabTabWithNoPageViewMakesNone() async throws {
+        try await Self.row("cn-hold-moves-page-hover") { services, pane, views, _ in
+            let tabs = services.agentTabs
+            let before = Self.newTabs(of: pane, services).count
+            for _ in 0..<3 { NewTabPage.open(in: pane, seed: nil) }
+            await NewTabPageAtItsFrameTests.frame(services)
+            let count = Self.newTabs(of: pane, services).count
+            try #require(count == before + 3, "setup: the pane has \(count) New Tab tabs after 3 keys, \(before) before them")
+            _ = views.read(pane, services)
+            // The places of the first 2 of the 3 new tabs in the strip's New Tab tabs: a tab's key can change, its place does not.
+            let places = [before, before + 1]
+            let bare = places.filter { tabs.existingView(Self.newTabs(of: pane, services)[$0]) == nil }
+            try #require(bare.count == 2, "setup: \(2 - bare.count) of the first 2 tabs of 3 keys in one turn have a page view: the row needs tabs with none")
+            let made = views.count
+            for place in bare { pane.loadOnHover(Self.newTabs(of: pane, services)[place]) }
+            await NewTabPageAtItsFrameTests.frame(services)
+            _ = views.read(pane, services)
+            let withPage = bare.filter { tabs.existingView(Self.newTabs(of: pane, services)[$0]) != nil }.count
+            print("""
+                NewTabHoldMovesItsPageTests: row 8, a hover over 2 New Tab tabs with no page view: \(views.count - made) page \
+                views made; \(withPage) of the 2 tabs have a page view after the hover
+                """)
+            #expect(views.count == made, "the hover made \(views.count - made) page views, want 0")
+            #expect(withPage == 0, "\(withPage) of 2 New Tab tabs that no pane shows have a page view after a hover")
         }
     }
 }
