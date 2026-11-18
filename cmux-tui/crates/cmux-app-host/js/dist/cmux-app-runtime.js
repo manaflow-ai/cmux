@@ -47,6 +47,7 @@
     Button: () => Button,
     Capsule: () => Capsule,
     Circle: () => Circle,
+    Composer: () => Composer,
     Divider: () => Divider,
     EmptyState: () => EmptyState,
     ForEach: () => ForEach,
@@ -730,6 +731,9 @@
       this.handlers.tap = fn;
       return this;
     }
+    opens(target) {
+      return this.set("opens", target);
+    }
     contextMenu(items) {
       this.menu = items;
       return this;
@@ -835,6 +839,16 @@
       node.handlers.edit = options.onEdit;
     if (options.onCancel)
       node.handlers.cancel = options.onCancel;
+    return node;
+  }
+  function Composer(options = {}) {
+    const node = new ViewNode("Composer");
+    if (options.prompt !== undefined)
+      node.props.prompt = options.prompt;
+    if (options.placeholder !== undefined)
+      node.props.placeholder = options.placeholder;
+    if (options.cwd !== undefined)
+      node.props.cwd = options.cwd;
     return node;
   }
   function Toggle(value, options = {}) {

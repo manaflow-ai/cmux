@@ -201,7 +201,12 @@ test("a Composer node is where cmux's own composer goes: the slot carries prompt
       {
         mount_id: "m1",
         ops: [
-          { op: "create", id: "c", type: "Composer", props: { prompt: true, cwd: "/projects/atlas", placeholder: "Ask" } },
+          {
+            op: "create",
+            id: "c",
+            type: "Composer",
+            props: { prompt: true, cwd: "/projects/atlas", placeholder: "Ask" },
+          },
           { op: "create", id: "v", type: "VStack", props: {} },
           { op: "children", id: "v", children: ["c"] },
           { op: "root", id: "v" },
@@ -234,7 +239,16 @@ test("a Composer node draws nothing where no host gives a composer", async () =>
   const host = new Host();
   const { container, root } = await render(host);
   await act(async () => {
-    host.scene?.({ mount_id: "m1", ops: [{ op: "create", id: "c", type: "Composer", props: {} }, { op: "root", id: "c" }] }, 1);
+    host.scene?.(
+      {
+        mount_id: "m1",
+        ops: [
+          { op: "create", id: "c", type: "Composer", props: {} },
+          { op: "root", id: "c" },
+        ],
+      },
+      1,
+    );
   });
   expect(container.querySelector(".cmux-app-scene-composer-slot")).toBeNull();
   await act(async () => root.unmount());
@@ -272,7 +286,12 @@ test(".opens(...) taps go to the host's own open path, as the person's click; wi
         {
           mount_id: "m1",
           ops: [
-            { op: "create", id: "a", type: "Row", props: { title: "Atlas", opens: { chat: "chat-atlas" }, onTap: true } },
+            {
+              op: "create",
+              id: "a",
+              type: "Row",
+              props: { title: "Atlas", opens: { chat: "chat-atlas" }, onTap: true },
+            },
             { op: "create", id: "b", type: "Row", props: { title: "Closed", opens: { closed: "closed-7" } } },
             { op: "create", id: "v", type: "VStack", props: {} },
             { op: "children", id: "v", children: ["a", "b"] },
@@ -289,7 +308,12 @@ test(".opens(...) taps go to the host's own open path, as the person's click; wi
   const opened: SceneOpenTarget[] = [];
   await act(async () => {
     root.render(
-      <NewTabAppPage app="local/cards" client={host} onUnavailable={() => undefined} onOpen={(target) => opened.push(target)} />,
+      <NewTabAppPage
+        app="local/cards"
+        client={host}
+        onUnavailable={() => undefined}
+        onOpen={(target) => opened.push(target)}
+      />,
     );
   });
   await scene(host);

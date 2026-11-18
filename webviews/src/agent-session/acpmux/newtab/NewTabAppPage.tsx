@@ -42,7 +42,16 @@ type Props = {
 /// the rest of this page's life, so a reconnect never swaps out a page the person is typing in. It
 /// stays mounted while the page lives, also behind another tab (no visibility listener:
 /// check:switch-fetches).
-export function NewTabAppPage({ app, cwd, onUnavailable, inputToken, onInputReady, client: injected, onComposer, onOpen }: Props) {
+export function NewTabAppPage({
+  app,
+  cwd,
+  onUnavailable,
+  inputToken,
+  onInputReady,
+  client: injected,
+  onComposer,
+  onOpen,
+}: Props) {
   const client = injected === undefined ? (pageHostClient() ?? appPanelsDevClient()) : injected;
   const mount = useMemo(() => new AppSceneMount(client, "newTab", app, cwd ? { cwd } : {}), [client, app, cwd]);
   const status = useSyncExternalStore(mount.store.subscribeStatus, mount.store.getStatus, mount.store.getStatus);

@@ -31,13 +31,23 @@ const screen: ComponentProps<typeof NewTabScreen> = {
 };
 
 const card = (id: string, harness: string, title: string, preview: string, age: string): SceneOp[] => [
-  { op: "create", id, type: "VStack", props: { spacing: 4, padding: 12, background: "secondaryFill", cornerRadius: 12, onTap: true, opens: { chat: id } } },
+  {
+    op: "create",
+    id,
+    type: "VStack",
+    props: { spacing: 4, padding: 12, background: "secondaryFill", cornerRadius: 12, onTap: true, opens: { chat: id } },
+  },
   { op: "create", id: `${id}-meta`, type: "HStack", props: { spacing: 6 } },
   { op: "create", id: `${id}-mark`, type: "Icon", props: { symbol: `harness:${harness}`, size: 14 } },
   { op: "create", id: `${id}-age`, type: "Text", props: { text: age, font: "caption", color: "secondary" } },
   { op: "children", id: `${id}-meta`, children: [`${id}-mark`, `${id}-age`] },
   { op: "create", id: `${id}-title`, type: "Text", props: { text: title, weight: "semibold", lineLimit: 1 } },
-  { op: "create", id: `${id}-preview`, type: "Text", props: { text: preview, font: "caption", color: "secondary", lineLimit: 2 } },
+  {
+    op: "create",
+    id: `${id}-preview`,
+    type: "Text",
+    props: { text: preview, font: "caption", color: "secondary", lineLimit: 2 },
+  },
   { op: "children", id, children: [`${id}-meta`, `${id}-title`, `${id}-preview`] },
 ];
 
@@ -141,7 +151,12 @@ export default componentEntry<{ look?: Look }>({
   ],
   load: async () => LookPage,
   styles: () =>
-    Promise.all([import("../styles.css"), import("./screen.css"), import("./appPage.css"), import("../../../apps/scene/scene.css")]),
+    Promise.all([
+      import("../styles.css"),
+      import("./screen.css"),
+      import("./appPage.css"),
+      import("../../../apps/scene/scene.css"),
+    ]),
   variants: {
     cards: {
       note: "A cards look: cmux's own composer (project and agent chips) at the Composer node, three chat cards with each agent's mark under it.",

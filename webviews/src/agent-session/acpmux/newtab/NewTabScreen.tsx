@@ -430,9 +430,7 @@ export function NewTabScreen(props: Props) {
   /// A dictation session runs: Send ends it and sends (submit).
   const listening = !shell && props.dictation !== undefined && isActive(props.dictation.state);
   const embedCwd = props.embedded?.cwd;
-  const [seeded, setProject] = useState(
-    embedCwd ?? (props.cwd && !isAgentHome(props.cwd) ? props.cwd : undefined),
-  );
+  const [seeded, setProject] = useState(embedCwd ?? (props.cwd && !isAgentHome(props.cwd) ? props.cwd : undefined));
   // A tab with no project of its own (none, the home folder or a private agent-home folder) and no
   // start folder from the host starts on the most recent project (Leo 2026-10-18), until a pick.
   const [picked, setPicked] = useState(false);
