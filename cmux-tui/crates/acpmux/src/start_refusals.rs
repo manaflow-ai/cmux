@@ -116,7 +116,7 @@ fn core<'a>(host: &str, message: &'a str) -> &'a str {
 pub fn line(r: &Refusal, now_ms: u64) -> String {
     let minutes = now_ms.saturating_sub(r.at_ms) / 60_000;
     format!(
-        "its remote chain refused a start at {} ({minutes} min ago; picked last for 30 min, or until \
+        "its remote chain refused a start at {} ({minutes} min ago; ranked after its peers for 30 min, or until \
          a start there works): {}",
         crate::clock_text::iso(r.at_ms),
         r.why
