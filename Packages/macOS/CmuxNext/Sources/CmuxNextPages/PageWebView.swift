@@ -282,9 +282,17 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// ended its hung renderer (``prepareForRendererEnd(notice:)``); nil otherwise.
     var pendingRestartNotice: String?
     /// The restart line's document script for the page's next document
-    /// (``flagRestartForNextDocument()``): its DevTools identifier once Chromium answered, so the
+    /// (``reloadAfterRestartFlag()``): its DevTools identifier once Chromium answered, so the
     /// script comes off once that document loaded. Nil when none was added.
     var restartFlagScript: Task<String?, Never>?
+    /// How long a restarted page's reload waits for Chromium to answer that script's registration
+    /// before it reloads anyway (on ``chromiumClock``). Chromium's browser process answers in
+    /// milliseconds when it can; the wait is short because the chat is down while it runs.
+    var restartFlagWait: Duration = .seconds(1)
+    /// The reload that waits for that answer (``reloadAfterRestartFlag()``); nil when none ran.
+    var restartFlagReload: Task<Void, Never>?
+    /// Why the last restarted reload went without its line in place (the line it logged); nil when it waited for an answer.
+    var restartFlagNote: String?
     /// That script's removal once the restarted document loaded (``clearRestartFlag()``).
     var restartFlagRemoval: Task<Void, Never>?
     /// The page came back after its hung renderer was ended: its host shows the toast, this page's

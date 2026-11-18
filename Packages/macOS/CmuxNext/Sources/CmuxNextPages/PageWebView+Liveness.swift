@@ -91,20 +91,56 @@ extension PageWebView {
     }
 
     /// The watchdog ended this page's renderer and the page reloads: the reload's document gets
-    /// the restart line before any of its own scripts run (a new-document script; the renderer
-    /// is gone, so Chromium hands it to the renderer the reload brings, before that document
-    /// commits). The pane draws it as a row in the chat, so every chat of the ended renderer says
-    /// so, however many share a window's toasts.
-    func flagRestartForNextDocument() {
-        guard let line = pendingRestartNotice, let page = chromiumSession?.page else { return }
+    /// the restart line before any of its own scripts run (a new-document script). The pane draws
+    /// it as a row in the chat, so every chat of the ended renderer says so, however many share a
+    /// window's toasts.
+    ///
+    /// The reload waits for Chromium to answer the script's registration, at most
+    /// ``restartFlagWait``, so a fast navigation cannot reach its first document before the script
+    /// is in place. Without an answer in time, or with a failed one, the page reloads anyway (a
+    /// chat that stays down is worse than one without its line; the toast still says it
+    /// restarted) and the log says why, and when a late answer came. A page with no line to show
+    /// (app health's own restart) reloads at once.
+    func reloadAfterRestartFlag() {
+        guard let line = pendingRestartNotice, let page = chromiumSession?.page else { return reloadPage() }
         let source = Self.restartFlagScript(line: line, restart: UUID().uuidString)
-        // task-owner: the page (`restartFlagScript`); one bounded DevTools call, answered by the next renderer
-        restartFlagScript = Task {
-            guard let answer = try? await page.devTools("Page.addScriptToEvaluateOnNewDocument",
-                                                        params: ["source": source, "runImmediately": true],
-                                                        timeout: .seconds(30)) else { return nil }
-            return ChromiumPageHostWire.object(answer)?["identifier"] as? String
+        let id = descriptor.id
+        let wait = restartFlagWait
+        let asked = ContinuousClock.now
+        let logger = self.logger
+        let reload = RestartFlagReload()
+        // task-owner: the page (`restartFlagScript`); one DevTools call with its own 30 s deadline
+        let added = Task { () -> String? in
+            let answer = try? await page.devTools("Page.addScriptToEvaluateOnNewDocument",
+                                                  params: ["source": source, "runImmediately": true],
+                                                  timeout: .seconds(30))
+            let identifier = answer.flatMap { ChromiumPageHostWire.object($0)?["identifier"] as? String }
+            if reload.timedOut {
+                let after = ContinuousClock.now - asked
+                logger.error("page \(id, privacy: .public) restart line's script answered \(identifier == nil ? "with a failure" : "ok", privacy: .public) \(String(describing: after), privacy: .public) after it was asked, after the reload started")
+            }
+            return identifier
         }
+        restartFlagScript = added
+        // task-owner: the page (`restartFlagReload`); ends within `restartFlagWait`, or with the add's answer
+        restartFlagReload = Task { [weak self] in
+            guard let self else { return }
+            let answered = await self.ended(added, within: wait, owner: "page.restart-flag.wait")
+            if !answered {
+                reload.timedOut = true
+                self.noteRestartFlag("page \(id) restart line's script not answered within \(wait); reloading without waiting (the chat may show only the toast)")
+            } else if await added.value == nil {
+                self.noteRestartFlag("page \(id) restart line's script failed to register; reloading (the chat shows only the toast)")
+            }
+            guard !self.isClosed, self.chromiumSession?.page === page else { return }
+            self.reloadPage()
+        }
+    }
+
+    /// Logs why a restarted page reloaded without its restart line in place, and keeps the line for tests.
+    private func noteRestartFlag(_ line: String) {
+        restartFlagNote = line
+        logger.error("\(line, privacy: .public)")
     }
 
     /// The restarted document loaded: its restart line's script comes off, so no later document
@@ -154,4 +190,11 @@ extension PageWebView {
         let who = logIdentity?() ?? "page \(descriptor.id)"
         return "[\(who) pane=\(healthPartID) \(visible ? "visible" : "hidden") lastMessage=#\(messages.count) \(messages.lastName ?? "none") \(last)]"
     }
+}
+
+/// Whether a restarted page's reload stopped waiting for its restart line's script (the wait ran
+/// out), so a late answer is logged as late.
+@MainActor
+final class RestartFlagReload {
+    var timedOut = false
 }

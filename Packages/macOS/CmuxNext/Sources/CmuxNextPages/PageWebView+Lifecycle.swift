@@ -120,9 +120,9 @@ extension PageWebView {
             // App health ended this renderer to repair the page: bring it back, never the notice.
             rendererRestartPending = false
             logger.error("page \(self.descriptor.id, privacy: .public) renderer restarted by app health; reloading")
-            // The watchdog's end: the new document draws the restart line in the chat itself.
-            flagRestartForNextDocument()
-            return reloadPage()
+            // The watchdog's end: the new document draws the restart line in the chat itself, so
+            // the reload waits (bounded) for Chromium to take that line's script.
+            return reloadAfterRestartFlag()
         }
         healthFeed?.pageCrashed(self)
         // An overlay's document that ended before its page code spoke: every page falls back to the

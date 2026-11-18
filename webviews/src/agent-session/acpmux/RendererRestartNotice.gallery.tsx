@@ -19,11 +19,13 @@ export default componentEntry<Props>({
       // The app's flag as its new-document script sets it (PageWebView+Liveness.swift).
       useLayoutEffect(() => {
         const globals = globalThis as unknown as Record<string, unknown>;
+        // A dismissal holds for the document, and the gallery shows every state in one.
+        store.resetRendererRestart();
         if (line) {
           globals[store.RENDERER_RESTART_GLOBAL] = { line };
           store.bootRendererRestart();
-        } else store.dismissRendererRestart();
-        return store.dismissRendererRestart;
+        }
+        return store.resetRendererRestart;
       }, [line]);
       return (
         <div className="acpmux-shell">
