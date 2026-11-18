@@ -21,6 +21,10 @@
 //! agent with no hook, whose turn starts on its idle prompt, reads `working`
 //! at the first read that matches its working rule: at most one read
 //! interval after the first frame that shows it.
+//!
+//! The last row holds the one exception: a manifest whose idle rule is above
+//! each of its working rules. No working rule can win on that prompt, so
+//! output still starts `working` there.
 
 use std::time::{Duration, Instant};
 
@@ -275,5 +279,28 @@ fn the_start_of_a_turn_is_reported_within_one_read_interval() {
     assert!(
         latency <= READ_INTERVAL_MS,
         "working {latency} ms after the first working frame, over one read interval: {emitted:?}"
+    );
+}
+
+/// Kiro at its empty prompt. Its manifest gives the rule of this placeholder
+/// line a higher priority than each of its working rules.
+const KIRO_IDLE: &str = "Kiro\n\n> ask a question or describe a task\n";
+
+/// Where the idle rule is above each working rule of its manifest, no
+/// working rule can win while that prompt shows. Output is then the only
+/// fact of work on that screen, so it still starts `working` there, and the
+/// read at the end of the output window says `idle` again.
+#[test]
+fn output_still_starts_work_where_the_idle_rule_is_above_each_working_rule() {
+    assert_eq!(read("kiro", KIRO_IDLE), (Some("live_prompt_idle".to_owned()), true));
+    let emitted = drive("kiro", KIRO_IDLE);
+    assert_eq!(
+        emitted,
+        [
+            (0_u64, AgentState::Idle),
+            (OUTPUT_AT_MS, AgentState::Working),
+            (OUTPUT_AT_MS + 300, AgentState::Idle)
+        ],
+        "output on a prompt that no working rule can out-rank did not read as work"
     );
 }
