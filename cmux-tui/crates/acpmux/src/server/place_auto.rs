@@ -16,7 +16,7 @@
 
 use super::Hub;
 use crate::chat_place::{self, Input, Move, Needs, Place, Running};
-use crate::hub::chat_place_bus::{AutoChat, NEEDS_TAG, parse_moved_tag};
+use crate::hub::chat_place_bus::{AutoChat, parse_moved_tag};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -40,7 +40,7 @@ pub(super) struct Chat {
     pub running: Running,
     /// Its id on the joined machine it moved to (`moved_to.sessionId`).
     pub there: Option<String>,
-    /// What its work needs ([`NEEDS_TAG`], else [`folder_needs`]): `rejudge` weighs it per chat.
+    /// What its work needs ([`NEEDS_TAG`](crate::hub::chat_place_bus::NEEDS_TAG), else [`folder_needs`]): `rejudge` weighs it per chat.
     pub needs: Needs,
 }
 
@@ -75,7 +75,7 @@ impl Chat {
     }
 }
 
-/// [`NEEDS_TAG`]'s value (`macos,gpu,build`) as needs; unknown words are ignored.
+/// [`NEEDS_TAG`](crate::hub::chat_place_bus::NEEDS_TAG)'s value (`macos,gpu,build`) as needs; unknown words are ignored.
 pub(super) fn tag_needs(tag: &str) -> Needs {
     let mut needs = Needs::default();
     for word in tag.split(',').map(str::trim) {
@@ -289,7 +289,7 @@ async fn pass(hub: &Arc<Hub>, judge: &mut Rejudger, slept: bool) {
     }
 }
 
-/// Each row's needs: its [`NEEDS_TAG`], else what its folder says ([`folder_needs`], read off the
+/// Each row's needs: its [`NEEDS_TAG`](crate::hub::chat_place_bus::NEEDS_TAG), else what its folder says ([`folder_needs`], read off the
 /// runtime once per folder and kept in `folders`, which keeps only the folders of `rows`).
 async fn chat_needs(rows: &[AutoChat], folders: &mut HashMap<PathBuf, Needs>) -> Vec<Needs> {
     let untagged: Vec<PathBuf> =
