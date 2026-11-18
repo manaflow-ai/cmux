@@ -24,15 +24,11 @@ jobs:
   # that is .github/runners.json's problem, not this workflow's. On
   # manaflow-ai the resolved label is blacksmith-6vcpu-macos-26, exactly what
   # vars.MACOS_RUNNER_IOS holds today. See docs/ci-runner-capability-map.md.
-  runners:
-    uses: ./.github/workflows/resolve-runners.yml
-
   archive:
     name: Archive cmux-next-ios (unsigned, no secrets)
     if: github.event_name == 'push'
-    needs: runners
     # Holds no secret: the capability map's machine, or the macOS pool.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(needs.runners.outputs.map).macos_26_ios || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: blacksmith-6vcpu-macos-26
     timeout-minutes: 120
     outputs:
       sha: ${{ steps.resolve.outputs.sha }}
@@ -176,11 +172,11 @@ jobs:
     environment: release
     name: Upload and validate production App Store build
     if: github.event_name == 'push'
-    needs: [runners, archive]
+    needs: [archive]
     # It holds the App Store Connect key, so the capability map's answer is used only
     # when it is the Blacksmith label: the map reads CMUX_CI_RUNNER_OVERRIDES, which may
     # name any machine (tests/test_ci_fork_runner_routing.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || contains(fromJSON('["blacksmith-6vcpu-macos-26"]'), fromJSON(needs.runners.outputs.map).macos_26_ios) && fromJSON(needs.runners.outputs.map).macos_26_ios || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: blacksmith-6vcpu-macos-26
     timeout-minutes: 90
     env:
       SHA: ${{ needs.archive.outputs.sha }}
