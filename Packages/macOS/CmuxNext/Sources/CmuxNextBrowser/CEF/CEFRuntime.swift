@@ -167,6 +167,8 @@ final class CEFRuntime {
     /// main thread) only once it is open, so a framework mapped early never delays that frame (CMUX-571).
     /// The gate always opens (its 3 s backstop), so a start waits at most until then; nil waits for nothing.
     weak var initializeAfter: FirstFrameGate?
+    /// Launch milestone sink (measurement arm CMUX-571 row C); the App sets it to `DebugTimings.markLaunch`.
+    var launchMark: @Sendable (String) -> Void = { _ in }
     /// Hides or closes top-level Chromium windows that slip through (see
     /// `ChromiumWindowGuard`).
     private(set) lazy var windowGuard: ChromiumWindowGuard = {
@@ -253,9 +255,13 @@ final class CEFRuntime {
         let storage = storage
         let gate = initializeAfter
         let resources = Bundle.main.resourceURL
+        let mark = launchMark
         let task = Task.detached(priority: .utility) { () -> CEFLaunchPrep in
             _ = await CEFRuntime.waitForInitializeGate(gate)
-            return CEFLaunchPrep(preparing: storage, resources: resources)
+            mark("app.r1.cef_prep_start")
+            let prep = CEFLaunchPrep(preparing: storage, resources: resources)
+            mark("app.r1.cef_prep_end")
+            return prep
         }
         launchPrepTask = task
         return task
@@ -295,10 +301,15 @@ final class CEFRuntime {
     private func newLoadTask(_ candidate: CEFRuntimeLayout?, priority: TaskPriority) -> CEFEarlyLoad.LoadTask {
         if let early = earlyLoad?.task(for: candidate) { return early }
         let gate = initializeAfter
+        let mark = launchMark
         return Task.detached(priority: priority) { [libraryLoader] in
             if let candidate { CEFFrameworkPrefetch.readBinary(candidate) }
+            mark("app.r1.cef_read_end")
             if await CEFRuntime.waitForInitializeGate(gate) { await CEFStartSteps.shared.point("map_waited_first_frame") }
-            return libraryLoader(candidate)
+            mark("app.r1.cef_map_start")
+            let loaded = libraryLoader(candidate)
+            mark("app.r1.cef_map_end")
+            return loaded
         }
     }
 
@@ -381,6 +392,7 @@ final class CEFRuntime {
     ) async throws(BrowserEngineError) {
         if let error = startError() { throw error }
         if state == .ready { return }
+        launchMark("app.r1.cef_start_called")
         let task: Task<Result<CEFLoadedLibrary, BootError>, Never>
         if let loadTask {
             task = loadTask
@@ -400,6 +412,7 @@ final class CEFRuntime {
         // Another awaiter finished first, or the app began to quit.
         if let error = startError() { throw error }
         if state == .ready { return }
+        launchMark("app.r1.cef_start_resumed")
         try finishStart(loaded, prep: read, environment: environment, trigger: trigger)
     }
 
@@ -415,6 +428,7 @@ final class CEFRuntime {
     /// that predicts a Chromium tab (the "+" menu or palette entry opening).
     func preload(layout candidate: CEFRuntimeLayout? = CEFRuntimeLayout.locate()) {
         guard state == .idle, loadTask == nil else { return }
+        launchMark("app.r1.cef_preload")
         state = .loading
         preloaded = true
         let task = newLoadTask(candidate, priority: .utility)
@@ -467,7 +481,9 @@ final class CEFRuntime {
             let library = try loaded.get()
             let clock = ContinuousClock()
             let started = clock.now
+            launchMark("app.r1.cef_initialize_begin")
             try CEFStartSteps.shared.initialize { () throws(BootError) in try initialize(library, prep: prep, environment: environment) }
+            launchMark("app.r1.cef_initialize_end")
             state = .ready
             CEFStartSteps.shared.timed("ready_hooks") {
                 startChildMonitor(); windowGuard.start(); ChromiumPageWindowMain.install()

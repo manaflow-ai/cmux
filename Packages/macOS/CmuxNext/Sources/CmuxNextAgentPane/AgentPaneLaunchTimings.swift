@@ -45,5 +45,7 @@ public nonisolated final class AgentPaneLaunchTimings: Sendable {
         }
         receiver?(name, now)
         for listener in listeners { listener(name) }
+        // Measurement arm (CMUX-571 row C): launch-ready keeps app.* marks in a relaunch row.
+        if ["agent_pane.painted", "agent_pane.transport_open", "launch.front_chat_shown"].contains(name) { mark("app.r1." + name) }
     }
 }
