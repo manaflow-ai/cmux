@@ -541,6 +541,10 @@ impl Resolver {
     ) -> Result<Selection, String> {
         let configuration = environment.configuration();
         Environment::parse(&configuration.api_origin)?;
+        // Every selection, including one read back from the state file (a plain
+        // file anyone can write), passes the bundle check that set() and the
+        // launch overrides use: NIGHTLY never takes a tailnet backend from it.
+        self.check_bundle_may_use(&environment)?;
         // These are the only historical defaults with known credential and
         // pairing destinations. Debug/tagged bundles allowed arbitrary old
         // overrides, so they cannot safely adopt unscoped previous state.

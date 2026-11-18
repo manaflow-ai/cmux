@@ -1230,13 +1230,16 @@ ships. `--manual-pairing` hands the phone no code at all.
 ## A tag's own Cloud backend (`review.sh --backend`, DEBUG builds)
 
 The hand-off can point a tag's Mac and phone builds at that tag's own backend stack on the dev VM
-(cmux#45790) instead of the shared dev Workers. Both apps then send the signed-in account's bearer
+(`scripts/cmux-next/cloud-dev-stack.sh`) instead of the shared dev Workers. Both apps then send the signed-in account's bearer
 token to that origin, so the origin is allowlisted in each app, not only in the script:
 
 - **Allowed:** the shared development deployment (`dev`, its API origin, `preview-N`) and a tailnet
   origin, `https://<host>.<tailnet>.ts.net[:port]` (HTTPS only; no path, user, query or IP). Anything
   else is refused and changes nothing (iOS `CloudBackendOverride`, Rust `cmux-cloud-environment`,
-  `review_mac.py backend-check`). A tailnet host is reachable only on the tailnet, under its ACL.
+  `review_mac.py backend-check`). The check accepts any `*.ts.net` name, not only this team's tailnet,
+  and a Tailscale Funnel name is public, so the allowlist is not a network boundary: it limits which
+  kinds of origin a DEBUG build can be pointed at by someone who can already set its launch
+  environment or write its files. Shipped builds never take a tailnet origin from any source.
 - **Phone:** read only in DEBUG builds (Debug, Demo): `ChiefCloudConfig.current` compiles the read
   out of Release, TestFlight and App Store builds, and Production removes the kept value at launch
   (`DeveloperOptions.storedKeys`). The first hand-off launch passes `CMUX_NEXT_CLOUD_BACKEND`; the app
