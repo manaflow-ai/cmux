@@ -10825,6 +10825,9 @@
         "ty": "boolean",
         "nullable": true
       },
+      "/private": {
+        "ty": "boolean"
+      },
       "/profile_id": {
         "ty": "string",
         "nullable": true
