@@ -51,7 +51,7 @@ struct MovedWindowOwnSpaceTests {
                 : (ActionTargetKind.workspace, workspace.id)
             let staying = (services.windows.registry.value.window(source)?.ownedIDs ?? []).filter { $0 != workspace.id }
             #expect(!staying.isEmpty, "the source keeps a workspace of its own")
-            #expect(services.registry.perform(action, invocation: MoveToNewWindowTests.on(kind, target)))
+            #expect(services.registry.perform(ActionID(rawValue: action), invocation: MoveToNewWindowTests.on(kind, target)))
             @MainActor func moved() -> WindowRegistry.Window? {
                 services.windows.registry.value.openWindows.first { $0.id != source }
             }
