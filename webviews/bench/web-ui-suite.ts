@@ -174,6 +174,16 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 180_000,
     ownPart: true,
   },
+  // The markdown page at 10 KB to 50 MB, deep nesting, a 5 MB line and a file appended to 50 times: first-screen
+  // ms per case, and exits 1 when a case's first screen passes 3x the 10 KB one's. Run with
+  // `--only markdown-viewer-stress`.
+  {
+    name: "markdown-viewer-stress",
+    file: "markdown-viewer-stress.bench.ts",
+    args: ["2"],
+    timeoutMs: 900_000,
+    ownPart: true,
+  },
   // The same benches on the god session (bench/godFixture.ts: tens of thousands of rows, MB tool outputs, nested
   // subagents, images, months of history). Their rows carry `god` after the prefix (chat_open.god.compact.latest),
   // so each pairs with its ordinary row; perf-cron.py runs them as a part of their own (web-ui-god), beside the
