@@ -284,13 +284,40 @@ pub fn display_in_use(display: u32) -> bool {
     })
 }
 
-/// `~/.config/systemd/user` (or under `XDG_CONFIG_HOME`).
-fn user_unit_dir() -> Res<PathBuf> {
-    let base = match std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()) {
+/// `$XDG_CONFIG_HOME`, else `~/.config`: the base of the units and of the host's account
+/// (`cmux_hub_host::identity::config_dir`).
+fn config_base() -> Res<PathBuf> {
+    Ok(match std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()) {
         Some(dir) => PathBuf::from(dir),
         None => PathBuf::from(std::env::var_os("HOME").ok_or("HOME is not set")?).join(".config"),
-    };
-    Ok(base.join("systemd").join("user"))
+    })
+}
+
+/// `~/.config/systemd/user` (or under `XDG_CONFIG_HOME`).
+fn user_unit_dir() -> Res<PathBuf> {
+    Ok(config_base()?.join("systemd").join("user"))
+}
+
+/// The drop-in [`host_config_drop_in`] is written to.
+const HOST_CONFIG_DROP_IN: &str = "config-dir.conf";
+
+/// The host unit's drop-in that pins its config directory to the one `enable` wrote the account
+/// to. The user manager's environment is not the shell's that ran `enable` (an `XDG_CONFIG_HOME`
+/// set in a shell profile, or one from the machine's global environment), and a host reading
+/// another directory never comes online ("account.json: Permission denied", or no account).
+pub fn host_config_drop_in(base: &Path) -> Res<String> {
+    let path = base.to_str().ok_or("the config directory is not UTF-8")?;
+    if !base.is_absolute() || path.contains(['\n', '\r']) {
+        return Err(format!("the config directory {path:?} cannot be written in a unit").into());
+    }
+    // A quoted assignment: `\` and `"` escaped for systemd's quoting, `%` for its specifiers.
+    let value = path.replace('\\', "\\\\").replace('"', "\\\"").replace('%', "%%");
+    Ok(format!(
+        "# Written by `cmux-rd linux-host enable`: the host reads its account from the config\n\
+         # directory enable wrote it to, whatever the user manager's environment says.\n\
+         [Service]\n\
+         Environment=\"XDG_CONFIG_HOME={value}\"\n"
+    ))
 }
 
 fn write_if_changed(path: &Path, text: &str) -> Res<()> {
@@ -363,6 +390,10 @@ pub fn install_host(virtual_display: bool) -> Res<()> {
     let dir = user_unit_dir()?;
     let text = if virtual_display { headless_host_unit() } else { HOST_UNIT_TEXT.to_owned() };
     write_if_changed(&dir.join(HOST_UNIT), &text)?;
+    write_if_changed(
+        &dir.join(format!("{HOST_UNIT}.d")).join(HOST_CONFIG_DROP_IN),
+        &host_config_drop_in(&config_base()?)?,
+    )?;
     systemctl(&["daemon-reload"])?;
     // Drops the links of the other unit's [Install], such as graphical-session.target's.
     let _ = systemctl(&["disable", HOST_UNIT]);
@@ -536,6 +567,24 @@ mod tests {
         assert!(unit.contains("\nRestartPreventExitStatus=78\n"));
         // A desktop's host stays part of its session.
         assert!(HOST_UNIT_TEXT.contains("\nRequisite=graphical-session.target\n"));
+    }
+
+    #[test]
+    fn the_host_reads_the_config_directory_enable_wrote_to() {
+        let drop_in = host_config_drop_in(Path::new("/tmp/join/home/.config")).unwrap();
+        assert!(drop_in.contains("\n[Service]\n"), "{drop_in}");
+        assert!(
+            drop_in.ends_with("\nEnvironment=\"XDG_CONFIG_HOME=/tmp/join/home/.config\"\n"),
+            "{drop_in}"
+        );
+        // systemd's quoting and specifiers: the value it reads back is the path.
+        let odd = host_config_drop_in(Path::new(r#"/home/a b/100%"x\y"#)).unwrap();
+        assert!(
+            odd.ends_with("Environment=\"XDG_CONFIG_HOME=/home/a b/100%%\\\"x\\\\y\"\n"),
+            "{odd}"
+        );
+        assert!(host_config_drop_in(Path::new("relative/.config")).is_err());
+        assert!(host_config_drop_in(Path::new("/home/a\nb")).is_err());
     }
 
     #[test]

@@ -201,6 +201,18 @@ struct Stats {
     bytes: u64,
     decode_ms: Vec<f64>,
     started_ns: u64,
+    /// When the first and the newest frame decoded: the time to a picture, and the decode rate.
+    first_decoded_ns: Option<u64>,
+    last_decoded_ns: u64,
+}
+
+impl Stats {
+    /// Frames decoded per second from the first decoded frame to the newest, once two are.
+    fn decoded_fps(&self) -> Option<f64> {
+        let first = self.first_decoded_ns?;
+        let span = self.last_decoded_ns.saturating_sub(first);
+        (self.decoded >= 2 && span > 0).then(|| (self.decoded - 1) as f64 / (span as f64 / 1e9))
+    }
 }
 
 /// Runs the session until it ends: the link's events, the hub's messages and the window's input.
@@ -242,6 +254,8 @@ pub fn run(
         bytes: 0,
         decode_ms: Vec::new(),
         started_ns: now_ns(),
+        first_decoded_ns: None,
+        last_decoded_ns: 0,
     };
     let (mut last_feedback_ns, mut released_since_feedback) = (0u64, false);
     let mut last_input_send_ns = 0u64;
@@ -405,6 +419,8 @@ pub fn run(
             "decode_errors": stats.decode_errors,
             "mbit_per_s": stats.bytes as f64 * 8.0 / secs.max(1e-3) / 1e6,
             "decode_ms": pct(&mut stats.decode_ms),
+            "first_decoded_ms": stats.first_decoded_ns.map(|t| (t - stats.started_ns) as f64 / 1e6),
+            "decoded_fps": stats.decoded_fps(),
             "presented": window_report.presented,
             "replaced_before_present": replaced,
             "present_ms": pct(&mut window_report.present_ms.clone()),
@@ -490,6 +506,12 @@ fn on_datagram(
                         let t1 = now_ns();
                         stats.decode_ms.push((t1 - t0) as f64 / 1e6);
                         stats.decoded += 1;
+                        stats.last_decoded_ns = t1;
+                        if stats.first_decoded_ns.is_none() {
+                            stats.first_decoded_ns = Some(t1);
+                            // A watcher (the share e2e) times the first picture by this line.
+                            eprintln!("First frame decoded");
+                        }
                         if i == last {
                             hand_off(mailbox, current, now, t1);
                             present_waker.wake();
@@ -607,6 +629,27 @@ mod tests {
         assert_eq!((shown.image.y[0], shown.complete_ns, shown.height()), (2, 20, 2));
         assert_eq!(current.y[0], 1, "the replaced buffer comes back for the next decode");
         assert!(slot.ready.is_none());
+    }
+
+    #[test]
+    fn the_decode_rate_runs_from_the_first_decoded_frame() {
+        let mut stats = Stats {
+            frames: 0,
+            decoded: 1,
+            decode_errors: 0,
+            bytes: 0,
+            decode_ms: Vec::new(),
+            started_ns: 0,
+            first_decoded_ns: Some(2_000_000_000),
+            last_decoded_ns: 2_000_000_000,
+        };
+        assert_eq!(stats.decoded_fps(), None, "one frame has no rate");
+        // 31 frames over the 0.5 s after the first: 60 fps, whatever came before the first.
+        stats.decoded = 31;
+        stats.last_decoded_ns = 2_500_000_000;
+        assert_eq!(stats.decoded_fps(), Some(60.0));
+        stats.first_decoded_ns = None;
+        assert_eq!(stats.decoded_fps(), None);
     }
 
     #[test]
