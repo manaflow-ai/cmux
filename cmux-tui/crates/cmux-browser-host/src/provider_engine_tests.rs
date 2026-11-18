@@ -31,6 +31,16 @@ pub(super) struct FakeApp {
 
 impl FakeApp {
     pub(super) fn start(tabs: Vec<TabAnnounce>) -> (FakeApp, Arc<ProviderDriver>) {
+        FakeApp::start_with(tabs, true)
+    }
+
+    /// `honors_incognito`: the app opens `tabs.open {incognito: true}` in the
+    /// session's own in-memory store and says so (`incognito: true` in its
+    /// answer); false plays an older app that ignores the flag.
+    pub(super) fn start_with(
+        tabs: Vec<TabAnnounce>,
+        honors_incognito: bool,
+    ) -> (FakeApp, Arc<ProviderDriver>) {
         let (app, host) = UnixStream::pair().unwrap();
         let provider = ProviderDriver::start(
             host.try_clone().unwrap(),
@@ -76,11 +86,11 @@ impl FakeApp {
                                 break;
                             }
                         }
-                        Some(Frame::Result {
-                            id,
-                            result: Some(json!({"method": method, "targetId": target})),
-                            error: None,
-                        })
+                        let mut result = json!({"method": method, "targetId": target});
+                        if honors_incognito && params["incognito"] == true {
+                            result["incognito"] = Value::Bool(true);
+                        }
+                        Some(Frame::Result { id, result: Some(result), error: None })
                     }
                     Frame::Call { id, method, .. } => Some(Frame::Result {
                         id,
@@ -491,22 +501,6 @@ fn tabs_open_drops_agent_chosen_profile_and_workspace() {
         })
         .unwrap();
     assert_eq!(open, json!({"engine": "cef"}));
-}
-
-/// Private data P1: an incognito tab opens only in a non-persistent store.
-/// The app has no incognito store yet, so the host refuses the call and
-/// never falls back to a persistent tab of the person's profile.
-#[test]
-fn an_incognito_tab_is_refused_when_the_app_has_no_private_store() {
-    let (app, provider) = FakeApp::start(vec![tab("W", "webkit")]);
-    for kind in ["cef", "webkit"] {
-        let session = engine(&provider, kind);
-        let error = session
-            .call("tabs.open", &json!({"url": "https://b.test/", "incognito": true}))
-            .unwrap_err();
-        assert_eq!(error.code, crate::protocol::ErrorCode::Unsupported, "{kind}: {error}");
-    }
-    assert_eq!(calls(&app, "tabs.open"), 0, "a persistent tab was opened instead");
 }
 
 #[test]

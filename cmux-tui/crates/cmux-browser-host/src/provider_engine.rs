@@ -592,3 +592,7 @@ mod input_tests;
 #[cfg(test)]
 #[path = "provider_engine_reaper_tests.rs"]
 mod reaper_tests;
+
+#[cfg(test)]
+#[path = "provider_engine_incognito_tests.rs"]
+mod incognito_tests;
