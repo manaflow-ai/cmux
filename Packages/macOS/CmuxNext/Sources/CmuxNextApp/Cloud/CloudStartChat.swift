@@ -73,6 +73,9 @@ struct CloudStartChat {
             return AgentPaneReply.success(["machine": machine])
         } catch is CloudMoveFolder.Gone { // the card's own words, with no Retry: picking another folder is the way on
             return AgentPaneCloudFolderRefusal.missing.reply
+        } catch let needs as CloudMachineRoute.NeedsConnection { // an unrouted machine and no connection of the chat's own: Set up Cloud, which starts again once one serves
+            guard let family = CloudSetup.family(of: start.harness) else { return AgentPaneReply.failure(code: "cloud_start_failed", message: needs.message, details: nil, retryable: true, origin: "native") }
+            return AgentPaneReply.failure(code: "cloud_setup_required", message: "cloud_setup_required", details: ["family": family, "model": start.model ?? ""], retryable: false, origin: "native")
         } catch is CloudMachineCap.RunHere { // the cap card's Run on This Mac: the page sends it here (cloudRun.ts)
             return AgentPaneReply.failure(code: CloudMachineCap.runHereCode, message: CloudMachineCap.runHereCode)
         } catch let refusal as CloudMoveCLI.StartChatPreflightRefusal { return refusal.reply // the repos inside it, another folder or none; no Retry
