@@ -64,7 +64,8 @@ final class PaneZoomDim {
     }
 
     /// `screen` is about to apply `layout` (`zoomed`: as one zoomed pane); its own layout is still the one before.
-    /// A newer change, or a second zoom key, ends a dim that still shows. An unzoom of a zoom that showed brings its
+    /// A newer change ends a dim that goes after an unzoom. A zoom's dim stays in the turn of a second key, while its
+    /// pane still moves: the pass that shows that key's change ends it. An unzoom of a zoom that showed brings its
     /// own dim, with the frame that shows it. A zoom whose pane can move (``PaneCommitMotion/zooms``) brings its dim
     /// with the frame that begins the move (``panesPlaced(on:)``). A zoom on a canvas (`onCanvas`), of a page that
     /// takes the whole window, or with a root that runs no frames (`waitsForFrame`) moves nothing and brings none:
@@ -83,9 +84,11 @@ final class PaneZoomDim {
             // A zoom while an unzoom's dim still goes takes that dim over from the strength it shows (`come`).
             phase = .off
             remaining = 0
-        } else {
+        } else if phase != .zooming {
             leave()
         }
+        // A second key in a zoom's move changes nothing that shows in its own turn: the pane still moves, so its dim
+        // stays. The pass that shows this change takes the dim away, or lets it go from the strength it shows.
         holeBefore = motion.zooms ? layout.panes.first.flatMap { hole(of: $0, on: screen) } : nil
         returning = back
         if zooming { cameUndimmed = !dimsOthers }
@@ -103,16 +106,23 @@ final class PaneZoomDim {
     /// over the others at its full strength, and goes.
     func panesPlaced(on screen: ScreenContentView) {
         showMarks(on: screen)
+        // A zoom's dim still showed when this pass came: a second key came in the zoom's move.
+        let zoomDimShowed = phase == .zooming
         if let zoom = motion.panesPlaced(on: screen) {
             come(with: zoom, on: screen)
         } else if phase == .off {
             self.view?.removeFromSuperview() // a dim that a zoom took over, when that zoom shows with no move
         }
-        guard let pane = returning else { return }
+        guard let pane = returning else {
+            // The pass ended the zoom's move (a split or a close in it shows in one frame): its dim goes with it.
+            if zoomDimShowed, !motion.inFlight { leave() }
+            return
+        }
         returning = nil
         let fade = self.fade(on: screen)
-        guard fade > 0, let view = place(around: pane, on: screen) else { return }
-        view.fadeOut()
+        guard fade > 0, let view = place(around: pane, on: screen) else { return leave() }
+        // An unzoom in a zoom's move lets that zoom's dim go from the strength it shows: no step up to its full strength.
+        view.fadeOut(continuing: zoomDimShowed)
         phase = .going
         remaining = fade
         screen.context.requestFrames()
@@ -173,6 +183,7 @@ final class PaneZoomDim {
     func end() {
         motion.cancel()
         holeBefore = nil
+        returning = nil
         leave()
     }
 
@@ -184,13 +195,13 @@ final class PaneZoomDim {
         motion.keepsDeparted(on: screen) ? false : screen.context.hideRetiredShown(of: screen.screenID)
     }
 
-    /// Takes the dim away now: its zoom's move ended, a newer change or a second key came, the screen's size changed,
-    /// or the screen goes out of sight. The panes' move goes on: a newer change that moves adds to it.
+    /// Takes the dim away now: its zoom's move ended, its fade is over, a newer change came while it went, the screen's
+    /// size changed, or the screen goes out of sight. The panes' move goes on: a newer change that moves adds to it.
+    /// An unzoom that waits for its frame keeps its dim to come (``returning``): a zoom's move can end in that wait.
     private func leave() {
         view?.removeFromSuperview()
         phase = .off
         remaining = 0
-        returning = nil
     }
 
     /// `screen`'s layout lands now (Reduce Motion turned on, the window out of sight): no motion from here on. The dim

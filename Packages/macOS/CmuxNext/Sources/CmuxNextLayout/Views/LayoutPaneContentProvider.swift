@@ -208,7 +208,7 @@ final class LayoutViewContext {
             // Before it shows again, in this turn: a release held for it ran after its new content, and took it (base order).
             runClosingWork(of: pane, now: true)
             entry.host.isLeaving = false
-            entry.host.chrome.isHidden = entry.host.isHidden
+            entry.host.chrome.isHidden = entry.host.hidesRing // a move still keeps it under the others: no ring in this turn
             // Its ring is placed again by the next overlay sync, whatever it last showed.
             entry.host.overlaySyncKey = nil
             hosts[pane] = entry.host
