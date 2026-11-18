@@ -425,8 +425,8 @@ struct SessionScrollbackCheckpointPersister: Sendable {
     /// disk is unreachable to `loadRecords` when `persist` returns. A capture
     /// still queued can recreate the file afterward: it stays reachable until
     /// the removal's apply drains, a residual crash window sized by the
-    /// remaining backlog — the same wait `queue.sync` put on the caller, now
-    /// off it.
+    /// backlog — unbounded while the queue is stalled, but the same wait
+    /// `queue.sync` put on the caller, now off it.
     /// The serial queue still applies the batch after every earlier queued
     /// write, so the delete reclaims the file and its asides only after they
     /// land. What changes is who waits: the caller no longer sits in
