@@ -353,19 +353,24 @@ fn plan_pins_a_machine_that_exists_and_names_a_new_one_otherwise() {
 
 #[test]
 fn a_copied_folder_keeps_move_to_clouds_name_under_the_sends_place() {
-    // The name `CloudMoveFolder.remoteName` gives: the folder's name and 24 bits of FNV-1a.
-    assert_eq!(remote_name("/Users/me/src/paint"), "paint");
-    assert_eq!(remote_name("/"), "folder");
+    // The name `CloudMoveFolder.remoteName` gives: the folder's name and a 128-bit path digest.
+    let paint = remote_name("/Users/me/src/paint");
+    assert!(paint.starts_with("paint-") && paint.len() == "paint-".len() + 32, "{paint}");
+    assert!(paint[6..].chars().all(|byte| byte.is_ascii_hexdigit()), "{paint}");
+    assert_ne!(paint, remote_name("/Users/other/src/paint"));
+    let folder = remote_name("/");
+    assert!(folder.starts_with("folder-") && folder.len() == "folder-".len() + 32, "{folder}");
+    assert!(remote_name("/tmp/..").starts_with("folder-"));
     let copy = copy_of("/Users/me/src/paint", "web/app");
     let place = copy.fresh_place();
     let send = format!("chats/{}/", copy.key.to_lowercase());
     assert!(place.starts_with(&send) && place.len() == send.len() + 8, "{place}");
     assert_ne!(copy.fresh_place(), place, "each copy gets a folder of its own");
     let (folder, chat) = copy.remote("/home/cmux/work", &place);
-    assert_eq!(folder, format!("/home/cmux/work/{place}/paint"));
-    assert_eq!(chat, format!("/home/cmux/work/{place}/paint/web/app"));
+    assert_eq!(folder, format!("/home/cmux/work/{place}/{paint}"));
+    assert_eq!(chat, format!("/home/cmux/work/{place}/{paint}/web/app"));
     let top = StartCopy { subpath: String::new(), ..copy };
-    assert_eq!(top.remote("/root/work/", &place).1, format!("/root/work/{place}/paint"));
+    assert_eq!(top.remote("/root/work/", &place).1, format!("/root/work/{place}/{paint}"));
 }
 
 fn copy_of(local: &str, subpath: &str) -> StartCopy {

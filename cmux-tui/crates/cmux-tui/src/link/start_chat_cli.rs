@@ -1553,19 +1553,24 @@ fn join(base: &str, name: &str) -> String {
     if base.ends_with('/') { format!("{base}{name}") } else { format!("{base}/{name}") }
 }
 
-/// A copied folder's name on a machine: its own name and a short hash
-/// (32-bit FNV-1a, low 24 bits) of where it is on this Mac, so two folders
-/// with one name never share a copy. The same name Move to Cloud gives
+/// A copied folder's name on a machine: its own name and a 128-bit SHA-256
+/// digest of where it is on this Mac, so distinct folders with one basename
+/// do not share a copy. The same name Move to Cloud gives
 /// (`CloudMoveFolder.remoteName`).
 pub(super) fn remote_name(root: &str) -> String {
-    let mut hash: u32 = 0x811c_9dc5;
-    for byte in root.bytes() {
-        hash ^= u32::from(byte);
-        hash = hash.wrapping_mul(0x0100_0193);
-    }
-    let name = root.trim_end_matches('/').rsplit('/').next().unwrap_or("");
-    let name = if name.is_empty() { "folder" } else { name };
-    format!("{name}-{:06x}", hash & 0x00ff_ffff)
+    use sha2::{Digest as _, Sha256};
+
+    let mut hasher = Sha256::new();
+    hasher.update(root.as_bytes());
+    let digest = hasher.finalize();
+    let suffix: String = digest[..16].iter().map(|byte| format!("{byte:02x}")).collect();
+    let name = root
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .filter(|name| !name.is_empty() && *name != "." && *name != "..")
+        .unwrap_or("folder");
+    format!("{name}-{suffix}")
 }
 
 /// `--flag value` pairs; a flag may repeat (`--work-root`).
