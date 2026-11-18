@@ -601,7 +601,7 @@ public final class MacHomeFeed {
     /// A conversation of the list other than the Mac Chief's, over its own
     /// `chief` channel to this Mac (the channel's filter allows only
     /// conversations between the owner and agents, which is every row). It
-    /// stays open (with its outbox) until the link or the Mac changes; a screen
+    /// stays open until the link or the Mac changes; a screen
     /// showing it then asks again (``sessionEpoch``).
     public func session(for route: MacConversationRoute) async throws -> ChiefSession {
         if let session = sessions[route.conversationID] { return session }
@@ -631,7 +631,7 @@ public final class MacHomeFeed {
                 kept.status = nil
                 session = kept
             } else {
-                session = ChiefSession(backend: backend, identity: identity, outbox: ChiefOutbox(file: nil),
+                session = ChiefSession(backend: backend, identity: identity,
                                        transcripts: transcripts, transcriptKey: transcriptKey(route.conversationID))
             }
             session.macID = macID
@@ -665,7 +665,7 @@ public final class MacHomeFeed {
         let info = ConversationInfo(id: route.conversationID, title: route.title, kind: .direct,
                                     participants: [identity.me, identity.chief])
         let session = ChiefSession(backend: ChiefOfflineBackend(reason: Self.keptReason, info: info), identity: identity,
-                                   outbox: ChiefOutbox(file: nil), transcripts: key == nil ? nil : transcripts, transcriptKey: key)
+                                   transcripts: key == nil ? nil : transcripts, transcriptKey: key)
         session.unavailableTitle = Self.keptTitle
         session.status = Self.keptReason
         session.macID = macID

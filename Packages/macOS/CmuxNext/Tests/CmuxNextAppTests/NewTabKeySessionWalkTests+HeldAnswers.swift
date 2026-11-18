@@ -244,12 +244,13 @@ extension NewTabKeySessionWalkTests {
 
     /// The cost of the kept rows' feed for one title change while no New Tab page is open,
     /// as one print with no bound: (1) the workspaces that the feed's tasks visit (the app's own work counter); (2)
-    /// the time from the change to the feed's next publication of its rows; (3) the time of a copy of the feed's pass.
+    /// the time from the change to the feed's next publication of its rows; (3) the time of a copy of the pass that
+    /// the feed makes over its list at a change of the list (the change of one tab's title makes none).
     ///
     /// For (2) the test starts the app's holder itself, with the list and the rows of the app's wiring and with its
     /// own `changed`, which takes the time of each publication. No page is open, so the app's `changed` has no work
     /// here. The time has the window's own work for the change in it. The change is in the workspace before the
-    /// shown one, so the feed's compares go almost to the end of its list.
+    /// shown one, near the end of the feed's list.
     ///
     /// For (3): the time of (2) has the hops between the app's tasks in it, so the test also runs a copy of the feed's
     /// pass alone (``copyOfTheFeedsPass(_:)``).
@@ -306,10 +307,11 @@ extension NewTabKeySessionWalkTests {
         }
     }
 
-    /// A copy of the feed's pass over its list after one change, 5 times, each with its time by the test's own
-    /// clock: the feed's steps on the same list with each workspace watched (the items of every workspace, 2 compares
+    /// A copy of the pass that the feed made over its list after one change before that change put its one item
+    /// in its place (a change of the list still makes one pass), 5 times, each with its time by the test's own
+    /// clock: the steps on the same list with each workspace watched (the items of every workspace, 2 compares
     /// of the whole list, the compare of the folders). Limit: both lists of the copy are equal, so each compare goes
-    /// to the end (the worst case); the feed's own compares stop at the workspace that changed.
+    /// to the end (the worst case).
     static func copyOfTheFeedsPass(_ services: AppServices) -> (count: Int, times: String, equal: Bool) {
         let holder = services.newTabPlaces
         let models = services.machines.allWorkspaces.map(\.0)
