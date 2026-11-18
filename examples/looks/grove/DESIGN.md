@@ -141,6 +141,21 @@ appearances, and the theme file's contrast guard has nothing to correct.
   corner at the person's own value.
 - An image of its own: a setup holds text files; the wallpaper is a catalog id instead.
 
+- The sidebar hover card: on the current app a `cmux.hovercard/1` card draws only after the
+  built-in card's Show details is clicked (the collapsed card shows tabs only). Grove's card shows
+  there; capture it by hovering a row, then clicking Show details.
+
 ## Visual review
 
-Pending: filled in after captures.
+Verdict, 2026-11-18: **FIX (evidence)**, under the visual-review procedure. There is no real-app
+capture of Grove yet. The Mac capture of this commit built (fleet job ce420ca3a8f21afb8b6f71f6),
+but its display step waited behind 15 older jobs for over 50 minutes and was cancelled. The browser
+look-addons lane did not run on the Linux pool because it had no system Chrome. So the one finding is:
+
+1. Evidence: capture Grove in the real app, light and dark, with the sidebar, an agent chat with a
+   real transcript, and the hover card after Show details, and judge the taste criteria (moss accent
+   weight, how much painting shows through the 0.84 sidebar glass, serif against the humanist sans)
+   from those captures.
+
+The static checks below pass: the contrast table above, `check:look-addons`, and the setup install
+test.

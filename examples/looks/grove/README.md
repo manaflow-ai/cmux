@@ -5,9 +5,7 @@ accent, and frosted morning air in the sidebar over a painted grove. Replies rea
 the chat's controls use a humanist sans. Colors come from moss, lichen, bark, fog and earth pigments,
 and every text color passes 4.5:1 in both appearances ([DESIGN.md](DESIGN.md)).
 
-Screenshots: [light](media/grove-light.png), [dark](media/grove-dark.png),
-[hover card](media/grove-hover-card.png), [demo video](media/grove-demo.mp4) (published with the
-look's pull request).
+Screenshots and a demo video come with the look's pull request.
 
 It is built only from public surfaces, so you can copy any part of it:
 
