@@ -1387,16 +1387,20 @@ mod stable_description_tests {
     /// again. A family that appears or goes away still shows.
     #[test]
     fn the_exec_description_does_not_move_when_a_family_gains_a_tool() {
-        let before = descriptors(&[json!({"name": "app_new_tab"}), json!({"name": "pane_split"})]);
-        let after = descriptors(&[
-            json!({"name": "app_new_tab"}),
-            json!({"name": "app_close_tab"}),
-            json!({"name": "pane_split"}),
-        ]);
+        let before =
+            descriptors(&[json!({"name": "app_new_tab"}), json!({"name": "pane_split"})], false);
+        let after = descriptors(
+            &[
+                json!({"name": "app_new_tab"}),
+                json!({"name": "app_close_tab"}),
+                json!({"name": "pane_split"}),
+            ],
+            false,
+        );
         assert_eq!(before[0]["description"], after[0]["description"]);
         let text = before[0]["description"].as_str().unwrap();
         assert!(text.contains("Families: app, pane."), "{text}");
-        let fewer = descriptors(&[json!({"name": "pane_split"})]);
+        let fewer = descriptors(&[json!({"name": "pane_split"})], false);
         assert!(fewer[0]["description"].as_str().unwrap().contains("Families: pane."));
     }
 }

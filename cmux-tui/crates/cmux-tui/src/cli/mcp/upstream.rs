@@ -626,7 +626,7 @@ impl Upstream {
                     && !own.env.iter().any(|(k, _)| k == label)
                     && let Some(client) = super::chat_tools::client_name()
                 {
-                    own.env.push((label.to_owned(), client));
+                    own.env.push((label.to_owned(), client.to_owned()));
                 }
                 Link::Process(Arc::new(Conn::start(&own, &self.prefix)?))
             }
