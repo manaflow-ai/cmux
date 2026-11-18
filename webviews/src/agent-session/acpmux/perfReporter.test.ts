@@ -128,6 +128,37 @@ describe("while off", () => {
     expect(h.reporter.on).toBe(false);
   });
 
+  test("a quiet page sends an empty report every few seconds and hears an off from another client", async () => {
+    const h = harness();
+    h.reporter.attach(h.send);
+    await flush();
+    h.timers[0]!();
+    expect(h.sent.length).toBe(1);
+    h.advance(5_000);
+    h.answer({ on: false });
+    h.timers[0]!();
+    await flush();
+    expect(h.sent.at(-1)).toMatchObject({ op: "report", spans: [], renders: {}, frames: [], bytes: [] });
+    expect(h.reporter.on).toBe(false);
+  });
+
+  test("a page shown while off asks again, at most every 10 s, and turns on with the watch", async () => {
+    const h = harness();
+    h.answer({ on: false });
+    h.reporter.attach(h.send);
+    await flush();
+    h.reporter.visibilityChanged(true);
+    expect(h.sent.length).toBe(1);
+    h.reporter.visibilityChanged(false);
+    expect(h.sent.length).toBe(1);
+    h.advance(10_000);
+    h.answer({ on: true });
+    h.reporter.visibilityChanged(true);
+    await flush();
+    expect(h.sent.at(-1)).toEqual({ op: "status" });
+    expect(h.reporter.on).toBe(true);
+  });
+
   test("a page measuring for a debug bench stays measuring when the watch goes off", () => {
     const h = harness();
     h.perf.enabled = true;

@@ -45,6 +45,12 @@ export type PerfReport = {
 
 /** How often a report goes while the watch is on. */
 export const REPORT_EVERY_MS = 1_000;
+/** While on, an empty report goes at least this often, so a page with nothing to say still hears an `off`
+ * from another client (`cmux debug perf off`). */
+export const HEARTBEAT_EVERY_MS = 5_000;
+/** While off, a page shown again asks the daemon at most this often whether the watch was turned on
+ * elsewhere (`cmux debug perf on`): one status read, never a timer. */
+export const RECHECK_EVERY_MS = 10_000;
 /** A frame at least this long is reported (the daemon's `frame` budget is 50 ms). */
 export const LONG_FRAME_REPORT_MS = 50;
 /** Held between reports at most, each list; older items go first. */
@@ -268,6 +274,8 @@ export class PerfReporter {
   page = "chat";
   private send: PerfSend | undefined;
   private checked = false;
+  private lastStatusAt = Number.NEGATIVE_INFINITY;
+  private lastSentAt = 0;
   private listeners = new Set<() => void>();
   // While on:
   private timer: unknown;
@@ -297,6 +305,14 @@ export class PerfReporter {
     this.send = send;
     if (this.checked) return;
     this.checked = true;
+    this.askStatus();
+  }
+
+  /** One status read; its answer turns the reporter on or off. */
+  private askStatus(): void {
+    const send = this.send;
+    if (!send) return;
+    this.lastStatusAt = this.env.now();
     void send({ op: "status" }).then(
       (status) => this.setOn(isOn(status)),
       () => undefined,
@@ -360,11 +376,27 @@ export class PerfReporter {
     return empty ? undefined : report;
   }
 
+  /** An empty report: it says nothing, and its answer tells a quiet page that the watch went off. */
+  private heartbeat(): PerfReport {
+    return {
+      op: "report",
+      page: this.page,
+      windowMs: REPORT_EVERY_MS,
+      spans: [],
+      renders: {},
+      frames: [],
+      layoutShifts: [],
+      bytes: [],
+    };
+  }
+
   /** One report; skipped while the last one is still out (its items wait for the next). */
   tick(): void {
     if (!this.on || this.sending || !this.send) return;
-    const report = this.buildReport();
+    const sentAt = this.lastSentAt;
+    const report = this.buildReport() ?? (this.env.now() - sentAt >= HEARTBEAT_EVERY_MS ? this.heartbeat() : undefined);
     if (!report) return;
+    this.lastSentAt = this.env.now();
     this.sending = true;
     void this.send(report).then(
       (answer) => {
@@ -389,6 +421,7 @@ export class PerfReporter {
     this.lastRenders = new Map(perf.renders);
     this.lastWireSeq = wire.entries().at(-1)?.seq ?? 0;
     this.lastReportAt = now();
+    this.lastSentAt = now();
     this.failures = 0;
     this.chatSpanFor = undefined;
     const frames = (entries: PerformanceEntry[]) => {
@@ -476,7 +509,11 @@ export class PerfReporter {
   /// again (a workspace or tab with this chat came forward): time it to its first
   /// frame and to the first SETTLED_FRAMES frames in a row with no transcript replace and no shift.
   visibilityChanged(visible: boolean): void {
-    if (!this.on) return;
+    if (!this.on) {
+      // Off here: the watch may have been turned on by another client since; ask again, at most every RECHECK_EVERY_MS.
+      if (visible && this.checked && this.env.now() - this.lastStatusAt >= RECHECK_EVERY_MS) this.askStatus();
+      return;
+    }
     this.cancelSwitch();
     if (!visible) return;
     const state: Switch = { visible: this.env.now(), quiet: 0, frames: 0 };

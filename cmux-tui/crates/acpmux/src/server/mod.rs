@@ -699,9 +699,6 @@ impl Conn {
         }
         let what = method.map_or(crate::wire_size::What::Reply, crate::wire_size::What::ReplyTo);
         crate::wire_size::observe(what, bytes);
-        if crate::perf_watch::on() {
-            self.perf_bytes(|| what.label(), bytes);
-        }
         // Each client's share of the list it is sent (`list_bytes.rs`), by its name and origin.
         if matches!(method, Some(crate::rpc::method::MUX_WATCH | crate::rpc::method::MUX_SESSIONS))
         {
@@ -713,6 +710,11 @@ impl Conn {
         // client keeps each row with the higher `listSeq` (`hub/row_log.rs`); order does not matter.
         if !queue.push_in(line, outbound::method_lane(method)) {
             return false;
+        }
+        // The perf watch's meter after the queue's lock: its tail-file append is no wait for the queue.
+        drop(queue);
+        if crate::perf_watch::on() {
+            self.perf_bytes(|| what.label(), bytes);
         }
         whole
     }

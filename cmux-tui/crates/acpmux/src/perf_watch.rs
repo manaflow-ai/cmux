@@ -285,12 +285,7 @@ impl Watch {
                 let mut inner = Inner::new();
                 inner.since_ms = self.now();
                 inner.file = file.and_then(|path| {
-                    let opened = std::fs::OpenOptions::new()
-                        .create(true)
-                        .write(true)
-                        .truncate(true)
-                        .open(&path)
-                        .ok()?;
+                    let opened = open_private(&path).ok()?;
                     Some((path, opened, 0))
                 });
                 *guard = Some(inner);
@@ -298,10 +293,11 @@ impl Watch {
         } else {
             *guard = None;
         }
-        drop(guard);
+        // Under the lock: an `on` and an `off` racing cannot leave the flag on with no state.
         if std::ptr::eq(self, global()) {
             ON.store(enable, Ordering::Relaxed);
         }
+        drop(guard);
         self.notify.notify_waiters();
         self.status()
     }
@@ -326,7 +322,7 @@ impl Watch {
         let Some(inner) = guard.as_mut() else { return };
         let second = now / 1000;
         let key = (channel, label.to_owned());
-        if !inner.meter.contains_key(&key) && inner.meter.len() >= METER_KEYS {
+        if !room_for(inner, &key, second) {
             return;
         }
         let meter = inner.meter.entry(key).or_insert_with(Meter::new);
@@ -462,7 +458,7 @@ impl Watch {
         let Some(inner) = guard.as_mut() else { return };
         let second = now / 1000;
         let key = (channel::DISK, "chat log".to_owned());
-        if inner.meter.contains_key(&key) || inner.meter.len() < METER_KEYS {
+        if room_for(inner, &key, second) {
             inner.meter.entry(key).or_insert_with(Meter::new).add(bytes, second);
         }
         let short = short_id(chat);
@@ -684,9 +680,7 @@ impl Watch {
             if *written + line.len() as u64 > FILE_CAP {
                 let old = path.with_extension("jsonl.1");
                 let _ = std::fs::rename(&*path, old);
-                if let Ok(fresh) =
-                    std::fs::OpenOptions::new().create(true).write(true).truncate(true).open(&*path)
-                {
+                if let Ok(fresh) = open_private(&*path) {
                     *file = fresh;
                     *written = 0;
                 }
@@ -794,6 +788,16 @@ fn top_zones(inner: &Inner, now: u64, limit: usize) -> Vec<Value> {
         .collect()
 }
 
+/// Whether `key` has a meter slot: it has one, or there is room, or a label idle for the last
+/// minute gives its slot up (a label can come from a client's name; new ones must not be shut out).
+fn room_for(inner: &mut Inner, key: &(&'static str, String), second: u64) -> bool {
+    if inner.meter.contains_key(key) || inner.meter.len() < METER_KEYS {
+        return true;
+    }
+    inner.meter.retain(|_, meter| meter.minute(second) > 0);
+    inner.meter.len() < METER_KEYS
+}
+
 /// Requests whose answer waits on purpose: never judged against the request budget.
 fn is_long_by_design(method: &str) -> bool {
     use crate::rpc::method;
@@ -801,10 +805,22 @@ fn is_long_by_design(method: &str) -> bool {
         method,
         method::SESSION_PROMPT
             | method::SESSION_NEW
+            | method::SESSION_LOAD
+            | method::SESSION_RESUME
+            | method::MUX_ATTACH
             | method::MUX_WAIT
             | method::MUX_MAIL_WAIT
             | METHOD
     ) || method.contains("wait")
+}
+
+/// The tail file, readable by its owner only: it names chats and clients.
+fn open_private(path: &std::path::Path) -> std::io::Result<std::fs::File> {
+    let mut options = std::fs::OpenOptions::new();
+    options.create(true).write(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options.open(path)
 }
 
 fn round(value: f64) -> f64 {

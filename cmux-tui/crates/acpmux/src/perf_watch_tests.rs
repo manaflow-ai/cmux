@@ -299,3 +299,36 @@ fn the_watch_costs_under_one_percent_of_a_core_while_on() {
     let bound = if cfg!(debug_assertions) { 0.05 } else { 0.01 };
     assert!(share < bound, "{per_send:?} a send is {:.2}% of a core", share * 100.0);
 }
+
+#[test]
+fn a_full_meter_gives_an_idle_label_s_slot_to_a_new_one() {
+    let watch = watch_on();
+    for i in 0..METER_KEYS {
+        watch.bytes(channel::IPC, &format!("old client {i}"), 10);
+    }
+    watch.bytes(channel::IPC, "new client", 10);
+    let labels = |watch: &Watch| -> Vec<String> {
+        watch.snapshot()["meter"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|z| z["label"].as_str().map(str::to_owned))
+            .collect()
+    };
+    assert!(!labels(&watch).contains(&"new client".to_owned()), "every label is still busy");
+    advance(61_000);
+    watch.bytes(channel::IPC, "new client", 10);
+    assert_eq!(labels(&watch), ["new client"]);
+}
+
+#[cfg(unix)]
+#[test]
+fn the_tail_file_is_its_owner_s_only() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let path = dir.path().join("perf-watch.jsonl");
+    let watch = Watch::with_clock(clock);
+    watch.set(true, Some(path.clone()));
+    let mode = std::fs::metadata(&path).map(|m| m.permissions().mode() & 0o777).unwrap_or(0);
+    assert_eq!(mode, 0o600);
+}
