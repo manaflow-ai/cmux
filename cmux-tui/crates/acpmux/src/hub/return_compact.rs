@@ -155,12 +155,16 @@ impl Hub {
             ..PromptOptions::default()
         };
         let (hub, target) = (self.clone(), session.clone());
-        tokio::spawn(async move {
-            let blocks = vec![json!({"type": "text", "text": "/compact"})];
-            if let Err(e) = hub.prompt_with(&target, blocks, "acpmux", false, compact).await {
-                tracing::info!(session = %target.id, error = ?e, "return compaction not run");
-            }
-        });
+        // On the hub's scope: a stopping daemon ends it with the hub.
+        self.scope.spawn_named(
+            "return-compact",
+            Box::pin(async move {
+                let blocks = vec![json!({"type": "text", "text": "/compact"})];
+                if let Err(e) = hub.prompt_with(&target, blocks, "acpmux", false, compact).await {
+                    tracing::info!(session = %target.id, error = ?e, "return compaction not run");
+                }
+            }),
+        );
         match tokio::time::timeout(ACCEPT_WAIT, accepted).await {
             Ok(Ok(started)) => started,
             // Refused (a turn began meanwhile, a gate) or still not taken: the prompt goes as is.
