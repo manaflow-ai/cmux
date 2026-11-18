@@ -1453,7 +1453,7 @@ try {
               callFrames: {
                 functionName: string;
                 url: string;
-                location: { lineNumber: number; columnNumber: number };
+                location: { lineNumber: number; columnNumber?: number };
               }[];
             };
             const paused = new Promise<Paused>((resolve) => pageCdp.once("Debugger.paused", resolve));
@@ -1466,7 +1466,9 @@ try {
             const frames = event.callFrames.slice(0, 12).map((frame) => {
               const file = frame.url.split("/").pop() ?? "";
               const where =
-                frame.url && sources ? sources(file, frame.location.lineNumber, frame.location.columnNumber) : file;
+                frame.url && sources
+                  ? sources(file, frame.location.lineNumber, frame.location.columnNumber ?? 0)
+                  : file;
               return `${frame.functionName || "(anonymous)"} ${where}`;
             });
             console.log(`coordinator: ${label}: page ${index} paused stack ${n + 1}:\n    ${frames.join("\n    ")}`);
