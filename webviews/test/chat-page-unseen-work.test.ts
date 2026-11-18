@@ -188,8 +188,12 @@ function heldImageStrings(root: object, depth = 5): number {
     }
     if (!value || typeof value !== "object" || seen.has(value) || left < 0) return;
     seen.add(value);
-    if (value instanceof Map) for (const [key, item] of value) (visit(key, left - 1), visit(item, left - 1));
-    else if (value instanceof Set || Array.isArray(value)) for (const item of value) visit(item, left - 1);
+    if (value instanceof Map) {
+      for (const [key, item] of value) {
+        visit(key, left - 1);
+        visit(item, left - 1);
+      }
+    } else if (value instanceof Set || Array.isArray(value)) for (const item of value) visit(item, left - 1);
     else for (const key of Object.keys(value)) visit((value as Record<string, unknown>)[key], left - 1);
   };
   visit(root, depth);
