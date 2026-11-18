@@ -96,6 +96,38 @@ function openPanel(runs: Runs, toolCallId: string, command: string) {
   );
 }
 
+/** Asks `runs` whether `command` is worth a bigger machine now and, while the answer is no, again
+ * every {@link RUN_ELSEWHERE_RECHECK_MS}; each answer goes to `onAnswer` and the store. Returns the
+ * stop, which ends the asking and drops a pending answer. */
+function askOffer(runs: Runs, toolCallId: string, command: string, onAnswer: (answer: RunOffer) => void): () => void {
+  let cancelled = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const again = () => {
+    timer = setTimeout(ask, RUN_ELSEWHERE_RECHECK_MS);
+  };
+  const ask = () => {
+    runs.client.offer(command).then(
+      (answer) => {
+        if (cancelled) return;
+        runs.store.setOffer(toolCallId, answer);
+        onAnswer(answer);
+        if (!answer.show && !answer.final) again();
+      },
+      (error: unknown) => {
+        if (cancelled) return;
+        // The host does not relay the run's requests: no row offers it (afterPlanError).
+        if ((error as { code?: unknown } | null)?.code === "transport.method_refused") runs.store.hostRefused();
+        else again();
+      },
+    );
+  };
+  ask();
+  return () => {
+    cancelled = true;
+    clearTimeout(timer);
+  };
+}
+
 /** acpmux's answer to whether row `toolCallId`'s command is worth a bigger machine, asked once the
  * row is `due` and again every {@link RUN_ELSEWHERE_RECHECK_MS} while the answer is no (a build may
  * stop fetching and start to compute). A yes is kept: the chip never comes and goes. The answer
@@ -104,34 +136,9 @@ function useOffer(runs: Runs | undefined, toolCallId: string, command: string | 
   const [offer, setOffer] = useState<RunOffer | undefined>(() => runs?.store.offer(toolCallId));
   useEffect(() => {
     if (!runs || !due || !command) return;
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const again = () => {
-      timer = setTimeout(ask, RUN_ELSEWHERE_RECHECK_MS);
-    };
-    const ask = () => {
-      runs.client.offer(command).then(
-        (answer) => {
-          if (cancelled) return;
-          runs.store.setOffer(toolCallId, answer);
-          setOffer(answer);
-          if (!answer.show && !answer.final) again();
-        },
-        (error: unknown) => {
-          if (cancelled) return;
-          // The host does not relay the run's requests: no row offers it (afterPlanError).
-          if ((error as { code?: unknown } | null)?.code === "transport.method_refused") runs.store.hostRefused();
-          else again();
-        },
-      );
-    };
     const known = runs.store.offer(toolCallId);
     if (known?.show || known?.final) return;
-    ask();
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
+    return askOffer(runs, toolCallId, command, setOffer);
   }, [runs, toolCallId, command, due]);
   return offer;
 }
