@@ -319,7 +319,12 @@ fn serve_until_gone(
             unreachable_since = None;
             backoff = Duration::from_millis(200);
             if let Ok(writer) = reader.get_ref().try_clone() {
-                let _ = answer_asks(reader, writer, listed);
+                // Lines both ways: the Cloud carrier moves whole lines only (`dial`).
+                let _ = answer_asks(
+                    cmux_tui_core::projection::LineReader::new(reader),
+                    cmux_tui_core::projection::LineWriter::new(writer),
+                    listed,
+                );
             }
         }
         let since = *unreachable_since.get_or_insert_with(Instant::now);
@@ -371,11 +376,14 @@ fn dial(
         "name": name,
         "at": at,
         "manifest_bytes": encoded.len(),
+        // Every byte after this line goes as text lines, both ways: the Cloud carrier carries
+        // the dial as a `mux-control` stream, which moves whole lines only.
+        "lines": true,
     });
     let mut bytes = serde_json::to_vec(&line)?;
     bytes.push(b'\n');
     stream.write_all(&bytes)?;
-    stream.write_all(encoded)?;
+    cmux_tui_core::projection::LineWriter::new(&stream).write_all(encoded)?;
     stream.flush()?;
     stream.set_read_timeout(Some(START_WAIT))?;
     let mut reader = BufReader::with_capacity(256 * 1024, stream);

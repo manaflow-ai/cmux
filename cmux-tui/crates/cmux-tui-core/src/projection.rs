@@ -15,6 +15,10 @@
 //!
 //! Served where `fs-v1` is (a Cloud host), on Linux; anywhere else a dial is answered
 //! `projection.unavailable`.
+//!
+//! A dial whose line says `"lines": true` sends every byte after that line, and gets every byte
+//! after its answer, as text lines instead ([`LineReader`], [`LineWriter`]): the Cloud carrier
+//! carries a dial as a `mux-control` stream, which moves whole lines only.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -39,6 +43,101 @@ struct ServeLine {
     at: String,
     #[serde(default)]
     manifest_bytes: u64,
+    /// The bytes after this line, both ways, travel as [`LineWriter`] lines.
+    #[serde(default)]
+    lines: bool,
+}
+
+/// The first byte of every [`LineWriter`] line: never a JSON value's first byte, so a carrier
+/// that sorts lines by their JSON never reads one as a request or a reply.
+const LINE_MARK: u8 = b'~';
+/// The most bytes one [`LineWriter`] line carries (1.4 MB of text, far below the carrier's
+/// 16 MiB line limit).
+const LINE_BYTES: usize = 1024 * 1024;
+
+/// Bytes written as text lines: each `write` of up to [`LINE_BYTES`] becomes one line,
+/// `~` and its base64.
+pub struct LineWriter<W: Write> {
+    inner: W,
+}
+
+impl<W: Write> LineWriter<W> {
+    pub fn new(inner: W) -> Self {
+        Self { inner }
+    }
+}
+
+impl<W: Write> Write for LineWriter<W> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        use base64::Engine as _;
+        let chunk = bytes.get(..bytes.len().min(LINE_BYTES)).unwrap_or_default();
+        if chunk.is_empty() {
+            return Ok(0);
+        }
+        let mut line = Vec::with_capacity(chunk.len() / 3 * 4 + 6);
+        line.push(LINE_MARK);
+        line.extend_from_slice(base64::engine::general_purpose::STANDARD.encode(chunk).as_bytes());
+        line.push(b'\n');
+        self.inner.write_all(&line)?;
+        Ok(chunk.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+/// The bytes of [`LineWriter`] lines read from `inner`.
+pub struct LineReader<R: std::io::BufRead> {
+    inner: R,
+    decoded: Vec<u8>,
+    at: usize,
+}
+
+impl<R: std::io::BufRead> LineReader<R> {
+    pub fn new(inner: R) -> Self {
+        Self { inner, decoded: Vec::new(), at: 0 }
+    }
+}
+
+impl<R: std::io::BufRead> Read for LineReader<R> {
+    fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+        use base64::Engine as _;
+        while self.at >= self.decoded.len() {
+            let mut line = Vec::new();
+            if self.inner.read_until(b'\n', &mut line)? == 0 {
+                return Ok(0);
+            }
+            if line.last() == Some(&b'\n') {
+                line.pop();
+            }
+            let text = match line.split_first() {
+                Some((&LINE_MARK, text)) => text,
+                _ => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "not a projection line",
+                    ));
+                }
+            };
+            self.decoded = base64::engine::general_purpose::STANDARD
+                .decode(text)
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+            self.at = 0;
+        }
+        let rest = self.decoded.get(self.at..).unwrap_or_default();
+        let count = rest.len().min(out.len());
+        out.get_mut(..count)
+            .unwrap_or_default()
+            .copy_from_slice(rest.get(..count).unwrap_or_default());
+        self.at += count;
+        Ok(count)
+    }
+}
+
+/// Whether the dial line `first` asks for [`LineWriter`] lines.
+fn wants_lines(first: &str) -> bool {
+    serde_json::from_str::<ServeLine>(first).is_ok_and(|line| line.lines)
 }
 
 /// `projection.serve` when `line` asks for it, exactly.
@@ -89,13 +188,44 @@ type Refusal = (&'static str, String);
 /// `roots` are the folders a projection may mount below (the daemon's file roots). Returns when
 /// the Mac closes the dial.
 pub fn serve(stream: &UnixStream, first: &str, leftover: Vec<u8>, roots: &[PathBuf]) {
+    let (Ok(reader), Ok(writer)) = (stream.try_clone(), stream.try_clone()) else { return };
+    let _ = stream.set_read_timeout(None);
+    let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(60)));
+    serve_io(reader, writer, first, leftover, roots);
+}
+
+/// [`serve`] on a dial given as its two halves: what the Mac sends (after `first` and
+/// `leftover`) and where its answers go. The Cloud carrier's dials arrive this way, as a line
+/// connection of the local socket (server `fs_wire::serve_local_projection`).
+pub fn serve_io(
+    reader: impl Read,
+    writer: impl Write + Send + 'static,
+    first: &str,
+    leftover: Vec<u8>,
+    roots: &[PathBuf],
+) {
+    let reader = std::io::Cursor::new(leftover).chain(reader);
+    if wants_lines(first) {
+        let reader = LineReader::new(std::io::BufReader::with_capacity(256 * 1024, reader));
+        serve_dial(reader, writer, first, roots, LineWriter::new);
+    } else {
+        serve_dial(reader, writer, first, roots, |writer| writer);
+    }
+}
+
+/// Mounts (or attaches) and answers on `writer`, then serves the projection's asks with
+/// `framed(writer)` until the Mac closes the dial.
+fn serve_dial<R: Read, W: Write + Send + 'static, F: Write + Send + 'static>(
+    mut reader: R,
+    mut writer: W,
+    first: &str,
+    roots: &[PathBuf],
+    framed: impl FnOnce(W) -> F,
+) {
     let id = serde_json::from_str::<Value>(first)
         .ok()
         .and_then(|value| value.get("id").cloned())
         .unwrap_or(Value::Null);
-    let Ok(reader) = stream.try_clone() else { return };
-    let mut reader = std::io::Cursor::new(leftover).chain(reader);
-    let mut writer = stream;
     let projected = match attach(first, &mut reader, roots) {
         Ok((projected, data)) => {
             if send_line(&mut writer, &json!({"id": id, "ok": true, "data": data})).is_err() {
@@ -111,10 +241,7 @@ pub fn serve(stream: &UnixStream, first: &str, leftover: Vec<u8>, roots: &[PathB
             return;
         }
     };
-    let _ = stream.set_read_timeout(None);
-    let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(60)));
-    let Ok(answers_to) = stream.try_clone() else { return };
-    projected.link.serve(reader, answers_to);
+    projected.link.serve(reader, framed(writer));
 }
 
 fn send_line(writer: &mut impl Write, value: &Value) -> std::io::Result<()> {

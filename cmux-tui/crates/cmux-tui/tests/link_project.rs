@@ -186,6 +186,15 @@ struct Start {
     took: Duration,
     answer: Value,
     folder: PathBuf,
+    stderr: String,
+}
+
+impl Start {
+    /// FUSE is here but this host may not mount (a container without the right): the start
+    /// copied for that reason alone.
+    fn could_not_mount(&self) -> bool {
+        self.answer["mode"] != "projected" && self.stderr.contains("mount failed")
+    }
 }
 
 /// `cmux link start-chat copy` of `local`, projection on or off, with `extra` flags.
@@ -236,8 +245,9 @@ fn start_chat(
         "start-chat copy: {stdout}{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
     let folder = PathBuf::from(answer["folder"].as_str().unwrap());
-    Start { key, took, answer, folder }
+    Start { key, took, answer, folder, stderr }
 }
 
 /// The scripted first turn (RFD 0007's bench): `ls` of the folder and a repository, `git status`
@@ -301,6 +311,10 @@ fn a_folder_past_the_limits_is_projected_whole_and_reads_come_from_the_mac() {
     let state = w.home.parent().unwrap().join("state");
     let start = start_chat(&state, &w.socket, &w.local, &w.home.join("work"), true, &[]);
     let folder = &start.folder;
+    if start.could_not_mount() {
+        eprintln!("skipping: this host may not mount FUSE: {}", start.stderr);
+        return;
+    }
     assert_eq!(start.answer["mode"], "projected", "{}", start.answer);
     // One projection per chat, named by its start key: Bring Back finds the chat's edits by it.
     assert_eq!(
@@ -346,6 +360,10 @@ fn the_apps_asking_copy_projects_too() {
     let state = w.home.parent().unwrap().join("state");
     let work = w.home.join("work");
     let start = start_chat(&state, &w.socket, &w.local, &work, true, &["--on-seed-refusal", "ask"]);
+    if start.could_not_mount() {
+        eprintln!("skipping: this host may not mount FUSE: {}", start.stderr);
+        return;
+    }
     assert_eq!(start.answer["mode"], "projected", "{}", start.answer);
     let image = std::fs::metadata(start.folder.join("Downloads/disk.img")).unwrap();
     assert_eq!(image.len(), 21 * 1024 * 1024 * 1024);

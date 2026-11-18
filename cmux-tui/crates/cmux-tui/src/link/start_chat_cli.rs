@@ -1220,7 +1220,13 @@ fn project_first(
         Ok(Ok(answer)) => {
             Some(Ok(json!({"mode": "projected", "projected": answer.get("data").cloned()})))
         }
-        Ok(Err(_)) => None,
+        Ok(Err(why)) => {
+            eprintln!(
+                "cmux link start-chat: {} is not projected ({why:?}); copying it",
+                local.display()
+            );
+            None
+        }
         Err(error) => {
             eprintln!(
                 "cmux link start-chat: projecting {} failed: {error:#}; copying it",
