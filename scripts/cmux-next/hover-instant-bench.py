@@ -442,8 +442,19 @@ def activate():
         if CUA is None and CUA_PATH:
             CUA = CUA or Cua(CUA_PATH)
         if CUA is not None:
-            CUA.call("bring_to_front", {"pid": APP_PID})
-    except (OSError, RuntimeError) as error:
+            try:
+                CUA.call("bring_to_front", {"pid": APP_PID})
+            except RuntimeError as error:
+                # "pid N owns more than one eligible top-level window; provide window_id" (step ccc304db, cmux20,
+                # 2026-11-17): the main window's id, its on-screen window of the main window's size.
+                f = (main_window() or {}).get("frame") or {}
+                ids = [int(w[0]) for w in (line.split() for line in probe("windows", APP_PID).splitlines())
+                       if len(w) == 5 and abs(float(w[3]) - f.get("width", -9)) < 2
+                       and abs(float(w[4]) - f.get("height", -9)) < 2]
+                if "window_id" not in str(error) or not ids:
+                    raise
+                CUA.call("bring_to_front", {"pid": APP_PID, "window_id": ids[0]})
+    except (OSError, RuntimeError, ValueError) as error:
         REPORT.setdefault("activate_error", str(error)[-300:])
     return bool(wait(lambda: (rpc("debug.focus") or {}).get("app_active"), 3))
 
@@ -454,6 +465,32 @@ def pct(values, q):
 
 
 # --- one sample -----------------------------------------------------------------------------------
+def front_owner(point):
+    """(pid, app) of the frontmost normal window at a window point, or None: what a real move there reaches."""
+    at = to_screen(point)
+    words = probe("front", f"{at[0]:.1f}", f"{at[1]:.1f}").split(None, 1)
+    return (int(words[0]), words[1] if len(words) > 1 else "?") if words and words[0].isdigit() else None
+
+
+def reachable(visible):
+    """The rows a real move reaches: another app's window in front of the inactive bench app takes every move under
+    it. Step ccc304db (cmux20-bench, 2026-11-17): the installed cmux NEXT, opened at login, had a window from screen
+    y 273 down in front of the bench app, and the 13 samples on rows below it read no event and no card (2000 ms
+    each on the board) while the rows above read 3 to 36 ms past the delay. A covered row is not the app's cost, so
+    it is left out and named in the cell's `occluded`: the samples take turns on the rows left, and a cell with none
+    left has no samples, which reads unknown, never unmet."""
+    if opts.input != "real":
+        return visible, None
+    covered = lambda: [(r, o) for r in visible if (o := front_owner(r[1])) is not None and o[0] != APP_PID]
+    if covered():
+        activate()
+    hidden = covered()
+    if not hidden:
+        return visible, None
+    keys = {r[0] for r, _ in hidden}
+    return [r for r in visible if r[0] not in keys], {"rows": len(hidden), "by": sorted({o[1] for _, o in hidden})}
+
+
 def row_hovered(key):
     """The sidebar's own hover state of row `key` (debug.sidebar_rows "hovered"): whether the list's tracking area
     got the pointer, apart from the hover card coordinator. None when the row is not listed."""
@@ -614,12 +651,15 @@ try:
         if not fill(count):
             REPORT["notes"].append(f"the app stopped making workspaces before {count}")
             break
-        visible = wait(lambda: rows() if len(rows()) >= 2 else None, 10) or []
+        visible, occluded = reachable(wait(lambda: rows() if len(rows()) >= 2 else None, 10) or [])
+        if occluded:
+            REPORT["notes"].append(f"{count} workspaces: {occluded['rows']} rows under {', '.join(occluded['by'])}")
         runs = [sample(count, i, *visible[i % len(visible)]) for i in range(opts.samples)] if visible else []
         shown = [r["shown_ms"] for r in runs if r["shown_ms"] is not None]
         pending = [r["pending_ms"] for r in runs if r["pending_ms"] is not None]
         after = [r["after_delay_ms"] for r in runs if r["after_delay_ms"] is not None]
-        cell = {"workspaces": count, "rows_visible": len(visible), "samples": len(runs), "shown": len(shown),
+        cell = {"workspaces": count, "rows_visible": len(visible), "occluded": occluded, "samples": len(runs),
+                "shown": len(shown),
                 "shown_p50": pct(shown, 0.5), "shown_p95": pct(shown, 0.95),
                 "pending_p50": pct(pending, 0.5), "pending_p95": pct(pending, 0.95),
                 "delay_ms": DELAY_MS, "after_delay_p50": pct(after, 0.5), "after_delay_p95": pct(after, 0.95),
@@ -628,7 +668,8 @@ try:
         safe_print(f"{count} workspaces: {len(shown)}/{len(runs)} shown, last move to shown p50 {cell['shown_p50']} "
                    f"p95 {cell['shown_p95']} ms, to pending p50 {cell['pending_p50']} ms, past the {DELAY_MS:g} ms "
                    f"delay p50 {cell['after_delay_p50']} p95 {cell['after_delay_p95']} ms", flush=True)
-    status = 0 if REPORT["cells"] and all(c["shown"] for c in REPORT["cells"]) else 1
+    # A cell every row of which is covered has no samples: unknown, which fails nothing (review F1 on #45318).
+    status = 0 if REPORT["cells"] and all(c["shown"] or not c["samples"] for c in REPORT["cells"]) else 1
 finally:
     if CUA is not None:
         CUA.close()

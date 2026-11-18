@@ -1,3 +1,4 @@
+public import CmuxNextCloud
 import Foundation
 
 /// What `cmux cloud start-session` says (``CloudStartSession``, ``CloudStartSessionAsks``): the
@@ -53,6 +54,12 @@ public struct CloudStartSessionStrings {
         String(format: String(localized: "cloud.startSession.needsMachine", defaultValue: "Say which Cloud machine to start %1$@ on: `cmux cloud start-session --target machine:<id> --agent %1$@`, or `--name <name>` to take that machine or create it. `cmux cloud list-machines` lists your machines.", table: "CloudSessions", bundle: .module), agent)
     }
 
+    /// Cloud first use refused the run (``CloudSetup/decide(harness:model:)`` answered setup, as the composer's
+    /// Set up Cloud card): no connection on this Mac or the team serves `agent`'s family, so no machine was taken.
+    public static func setupRequired(agent: String, command: String) -> String {
+        String(format: String(localized: "cloud.startSession.setupRequired", defaultValue: "Nothing on this Mac or your team serves %1$@ in Cloud yet, so no Cloud machine was started. Cloud chats use a connection from Settings > Cloud (Continue with ChatGPT, Set up Claude, or an API key); a Codex or Claude Code sign-in in your terminal serves chats on this Mac only. Connect one, then run `%2$@` again.", table: "CloudSessions", bundle: .module), agent, command)
+    }
+
     public static func noSuchMachine(id: String, agent: String) -> String {
         String(format: String(localized: "cloud.startSession.noSuchMachine", defaultValue: "No Cloud machine `%1$@` is listed on this Mac. `cmux cloud list-machines` lists them, and `cmux cloud start-session --name <name> --agent %2$@` creates one.", table: "CloudSessions", bundle: .module), id, agent)
     }
@@ -88,6 +95,24 @@ public struct CloudStartSessionStrings {
 
     public static func fromFolderSecret(_ folder: String, secret: String) -> String {
         String(format: String(localized: "cloud.startSession.fromFolderSecret", defaultValue: "%1$@ is or holds %2$@, a folder of keys and credentials that is never copied to a Cloud machine. Pass a project folder with --from-folder.", table: "CloudSessions", bundle: .module), folder, secret)
+    }
+
+    /// Why a create was refused for its size (``CloudSizeLocked``), as ``createFailed(_:quoted:agent:reason:)``'s reason: the
+    /// size the folder needs and the plan that includes it; nil when the size it needed is not known.
+    public static func sizeLocked(_ locked: CloudSizeLocked) -> String? {
+        guard let size = locked.needed else { return nil }
+        let (name, cpu, memory) = (size.rawValue, String(size.cpu), String(size.memoryMb / 1024))
+        guard let plan = locked.upgrade else {
+            return String(format: String(localized: "cloud.startSession.sizeLockedNoUpgrade", defaultValue: "this folder needs a %1$@ machine (%2$@ vCPU, %3$@ GB memory), larger than your plan includes", table: "CloudSessions", bundle: .module), name, cpu, memory)
+        }
+        // The words after "cmux": product names, never translated.
+        let words = switch plan {
+        case "max": "Max"
+        case "next_pro": "NEXT Pro"
+        case "next_max": "NEXT Max"
+        default: "Pro"
+        }
+        return String(format: String(localized: "cloud.startSession.sizeLocked", defaultValue: "this folder needs a %1$@ machine (%2$@ vCPU, %3$@ GB memory), which your plan doesn't include. Upgrade to cmux %4$@ to use one", table: "CloudSessions", bundle: .module), name, cpu, memory, words)
     }
 
     /// The machine to create (`--name`) could not be created; `reason` says why. `quoted` is the
@@ -198,32 +223,6 @@ public struct CloudStartSessionStrings {
 
     public static func dialogGone(_ dialog: String) -> String {
         String(format: String(localized: "cloud.startSession.dialogGone", defaultValue: "No Cloud start %1$@ waits for an answer: it was answered, timed out or ended. `cmux agents dialog list` shows what still waits.", table: "CloudSessions", bundle: .module), dialog)
-    }
-
-    public static var loginInvalid: String {
-        String(localized: "cloud.startSession.loginInvalid", defaultValue: "Pass --login as pass (your own login), machine (the machine's own) or none.", table: "CloudSessions", bundle: .module)
-    }
-
-    /// Why a headless start (`cmux cloud start-session`, `start-chat`) fails at once instead of asking about the login
-    /// (the App maps `CloudHarnessLoginDecision.Reason` to it).
-    public enum LoginRefusal: Equatable { case machineLoginMissing, consentFirst, loginNeeded }
-
-    public static func loginRefused(_ reason: LoginRefusal, _ asked: Asked) -> String {
-        let text = switch reason {
-        case .machineLoginMissing: String(localized: "cloud.startSession.machineLoginMissing", defaultValue: "%2$@ on %1$@ has no login of its own, and the login choice is machine. Sign in on the machine, or run it again with --login none.", table: "CloudSessions", bundle: .module)
-        case .consentFirst: String(localized: "cloud.startSession.consentNeeded", defaultValue: "%2$@ on %1$@ waits for your one-time OK to copy your Claude login to your own Cloud machines, which only you can give. Turn on Use My Claude Login on My Own Cloud Machines in Settings > Machines, then run `%3$@` again.", table: "CloudSessions", bundle: .module)
-        case .loginNeeded: String(localized: "cloud.startSession.loginNeeded", defaultValue: "%2$@ on %1$@ isn't signed in: it has no login from you, and you haven't chosen whether your Cloud machines get yours. Run it again with --login none, then sign in to %2$@ in its chat in cmux, or with --login machine to use only a login the machine already has. To give your own login to every later machine, start a session on a Cloud machine in the cmux app once and choose Yes; a --login pass from a terminal or an agent doesn't count as that choice.", table: "CloudSessions", bundle: .module)
-        }
-        return String(format: text, asked.machine, asked.agent, asked.command)
-    }
-
-    /// A start that chose to give the machine this Mac's Codex login, and the login did not arrive (`why`: the
-    /// transfer's fixed text, never provider output). `macSignedIn`: this Mac holds a Codex sign-in to give.
-    public static func codexNotDelivered(_ why: String, macSignedIn: Bool, _ asked: Asked) -> String {
-        let text = macSignedIn
-            ? String(localized: "cloud.startSession.codexNotDelivered", defaultValue: "%2$@ on %1$@ didn't get your Codex sign-in from this Mac (%4$@), so the chat didn't start: without it, its first turn fails on a missing OPENAI_API_KEY. Run `%3$@` again. To use your team's Codex instead, run it with --login none.", table: "CloudSessions", bundle: .module)
-            : String(localized: "cloud.startSession.codexNoMacLogin", defaultValue: "%2$@ on %1$@ has no sign-in, and this Mac has no Codex ChatGPT sign-in to give it (%4$@). Run `codex login` on this Mac, then run `%3$@` again. To use your team's Codex instead, run it with --login none.", table: "CloudSessions", bundle: .module)
-        return String(format: text, asked.machine, asked.agent, asked.command, why)
     }
 
     public static func notInChat(_ asked: Asked) -> String {

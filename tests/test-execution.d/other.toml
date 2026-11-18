@@ -14,6 +14,10 @@ path = "tests/test_appcast_minimum_system_version.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_appcast_require_arm64.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_asc_developer_id_app.py"
 lane = "linux-guard"
 
@@ -499,6 +503,10 @@ path = "tests/test_nushell_shim_path_refront.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_one_permission_identity.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_outbound_hosts.py"
 lane = "linux-guard"
 
@@ -867,6 +875,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ui_review_advisory.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_unittest_shard.py"
+lane = "manual"
+reason = "Run by the lane that changes tests/unittest_shard.py (no new CI tests): python3 -I tests/test_unittest_shard.py; needs only python3."
 
 [[test]]
 path = "tests/test_update_release_tag.py"
