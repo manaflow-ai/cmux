@@ -123,7 +123,7 @@ jobs:
   release-notary:
     name: release-notary guards at the tip
     needs: [portable-placement]
-    if: ${{ !cancelled() }}  # MEASURE: runs on this pull request once for its 4 vCPU minutes; the next commit restores push-only
+    if: ${{ !cancelled() && github.event_name != 'pull_request' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' release-notary ') && needs.portable-placement.outputs.linux_runner || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 15
     permissions:
