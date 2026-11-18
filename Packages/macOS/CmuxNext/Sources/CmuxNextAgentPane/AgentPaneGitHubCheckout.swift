@@ -24,20 +24,20 @@ public import Foundation
     /// A token to clone `owner/name`, or nil.
     public typealias Token = @MainActor (_ repo: String) async -> String?
 
-    public struct GitRun: Sendable, Equatable {
+    public nonisolated struct GitRun: Sendable, Equatable {
         public var status: Int32
         public var stdout: String
         public init(status: Int32, stdout: String) { (self.status, self.stdout) = (status, stdout) }
     }
 
-    public struct Checkout: Sendable, Equatable {
+    public nonisolated struct Checkout: Sendable, Equatable {
         /// The checkout's top folder.
         public var path: String
         /// Cloned now, not found on this Mac.
         public var cloned: Bool
     }
 
-    public enum Failure: Error, Sendable, Equatable {
+    public nonisolated enum Failure: Error, Sendable, Equatable {
         /// git could not clone it: no access with either credential, offline, or git is missing.
         case cloneFailed
         /// Every folder the clone could go in is taken by something else.
