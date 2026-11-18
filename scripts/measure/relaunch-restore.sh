@@ -9,13 +9,17 @@
 #   dmg=build    a tagged app built from this checkout (scripts/reload.sh, config=bench by default: Release
 #                optimization with the debug.* commands; config=Release or config=Debug), so a PR's base and head
 #                are measured by the same harness: one step at each commit, pinned to one worker (--target-worker).
+#   build=SHA    with dmg=build: build the tagged app at SHA (40 hex, a pull request's head or base, fetched when
+#                absent) with that commit's own reload.sh (scripts/measure/app-at-commit.sh), while the check and
+#                everything it runs stay this checkout's. The controller runs this script only at a landed commit, so
+#                this is how an unlanded pair is measured: one step per arm, both at the same landed commit.
 #   fronts=LIST  what each round leaves in front at the quit (the check's --fronts; default terminal,chat)
 # Prints L5-ROUND lines per relaunch and one L5 {json} verdict; keeps l5.json, report.json and app.log in report.tgz.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 3
 out="$PWD/.build/relaunch-restore"
 rm -rf "$out" && mkdir -p "$out"
-dmg=nightly config=bench extra=()
+dmg=nightly config=bench extra=() build_sha=""
 for arg in "$@"; do
   case "$arg" in
     dmg=nightly|dmg=build|dmg=https://*) dmg="${arg#dmg=}" ;;
@@ -23,11 +27,40 @@ for arg in "$@"; do
     budget_ms=*) extra+=(--budget-ms "${arg#budget_ms=}") ;;
     fronts=*) extra+=(--fronts "${arg#fronts=}") ;;
     config=bench|config=Release|config=Debug) config="${arg#config=}" ;;
+    build=*) build_sha="${arg#build=}" ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
+if [[ -n "$build_sha" ]]; then
+  [[ "$build_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "build=$build_sha: want a full 40-hex commit sha" >&2; exit 2; }
+  [[ "$dmg" == build ]] || { echo "build=SHA needs dmg=build (it builds the app at SHA)" >&2; exit 2; }
+fi
 echo "L5 host $(hostname -s) chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername)"
 if [[ "$dmg" == build ]]; then
+  configuration=()
+  case "$config" in
+    bench) configuration=(--config bench) ;;
+    Release) configuration=(--release) ;;
+  esac
+fi
+if [[ -n "$build_sha" ]]; then
+  echo "L5 build $build_sha config $config"
+  echo "L5 driver $(git rev-parse HEAD)"
+  . scripts/measure/app-at-commit.sh
+  # The commit's worktree lives outside $out, so report.tgz holds its build log and not its tree.
+  at_dir="$(mktemp -d)"
+  trap 'rm -rf -- "$at_dir"' EXIT
+  app="$(measure_app_at_commit "$build_sha" l5relaunch "$at_dir/at" --no-global-cli-links ${configuration[@]+"${configuration[@]}"} 2>"$out/reload.log")"
+  build_status=$?
+  if [[ "$build_status" -ne 0 || -z "$app" || ! -d "$app" ]]; then
+    echo "L5 build failed: the build at $build_sha printed no app path" >&2
+    tail -n 60 "$out/reload.log" >&2
+    exit 3
+  fi
+  trap 'python3 scripts/cmux-next/tag_teardown.py "$app" >/dev/null 2>&1; rm -rf -- "$at_dir"' EXIT
+  python3 scripts/ci/relaunch_restore_check.py --app "$app" --out "$out/run" ${extra[@]+"${extra[@]}"} 2>&1 | tee "$out/run.log"
+  rc=${PIPESTATUS[0]}
+elif [[ "$dmg" == build ]]; then
   echo "L5 build $(git rev-parse HEAD) config $config"
   # A fleet step checks out no submodules: the app build needs Ghostty's headers and the ghostty-next tree,
   # and GhosttyKit.xcframework (a prebuilt download), as perf-idle-power.sh fetches them.
@@ -41,11 +74,6 @@ if [[ "$dmg" == build ]]; then
     fi
     ./scripts/download-prebuilt-ghosttykit.sh || exit 3
   fi
-  configuration=()
-  case "$config" in
-    bench) configuration=(--config bench) ;;
-    Release) configuration=(--release) ;;
-  esac
   CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag l5relaunch --no-global-cli-links ${configuration[@]+"${configuration[@]}"} >"$out/reload.log" 2>&1
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then

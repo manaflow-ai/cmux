@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { inlineToken, promptBlocks, type ComposerAttachment } from "./attachments";
+import { setCloudPlanForTest } from "./cloudMachines";
 import type { AcpmuxHostConfig } from "./direct";
 import {
   cloudFolderGrants,
@@ -14,6 +15,8 @@ import {
   cloudStartKeys,
   cloudStartSaid,
   grantedCloudStart,
+  pickedChatCloudCall,
+  pickOnlyNewChat,
   makeCloudSignInRetry,
   newTabProjectPick,
   oneCloudStart,
@@ -306,6 +309,22 @@ test("a Cloud chat copies its project; with none (or home) it starts in the mach
   expect(cloudStartFolder("/Users/me/src/.cmux-chief")).toEqual({ cwd: "/Users/me/src/.cmux-chief" });
 });
 
+test("a start names the plan's largest size the page read, so the host can grow its disk within the plan", async () => {
+  const calls: Record<string, unknown>[] = [];
+  const send = (start: Parameters<typeof startCloudChat>[1]) =>
+    startCloudChat(async (_method, params) => (calls.push(params), {}), start, "00000000-0000-4000-8000-000000000003");
+  setCloudPlanForTest({ state: "active", id: "next_pro", maxSize: "lg" });
+  try {
+    await send({ task: "hi", home: true });
+    await send({ task: "hi", home: true, planMax: "2xl" });
+    setCloudPlanForTest({ state: "none", id: null, maxSize: "lg" });
+    await send({ task: "hi", home: true });
+  } finally {
+    setCloudPlanForTest();
+  }
+  expect(calls.map((params) => params.planMax)).toEqual(["lg", "2xl", undefined]);
+});
+
 test("a start with no project tells the host home, and never names a folder", async () => {
   const calls: Record<string, unknown>[] = [];
   await startCloudChat(
@@ -572,4 +591,58 @@ test("a composer's Cloud start copies only the folder its chip names, never one 
   expect(composerCloudStartFolder({ ...local, cwd: "/Users/me/src/paint/" })).toEqual({ cwd: "/Users/me/src/paint" });
   // A folder on another machine is not this Mac's to copy.
   expect(composerCloudStartFolder({ ...local, peer: "build-box", cwd: "/home/me/api" })).toEqual({ home: true });
+});
+
+// cmux#45946: GPT-6.1 Sol picked on a new chat (a harness switch, no chat yet) with Cloud picked. The pick is
+// no chat starting here: Cloud stays offered, and the start names the pick's local session as the one it replaces.
+test("a new chat that holds only an agent or model pick still offers Cloud", () => {
+  const page = { fresh: true, switching: true, selectionPending: false, quick: false };
+  expect(pickOnlyNewChat(page)).toBe(true);
+  expect(pickOnlyNewChat({ ...page, summarySessionId: "" })).toBe(true);
+  // A chat that opened, a chat being opened, a page with no pick, or the floating chat: not this case.
+  expect(pickOnlyNewChat({ ...page, sessionId: "s1" })).toBe(false);
+  expect(pickOnlyNewChat({ ...page, summarySessionId: "s1" })).toBe(false);
+  expect(pickOnlyNewChat({ ...page, selectionPending: true })).toBe(false);
+  expect(pickOnlyNewChat({ ...page, switching: false })).toBe(false);
+  expect(pickOnlyNewChat({ ...page, fresh: false })).toBe(false);
+  expect(pickOnlyNewChat({ ...page, quick: true })).toBe(false);
+});
+
+test("a Cloud start from a page with a pick names the pick's local session as the chat it replaces", async () => {
+  const calls: { method: string; params: Record<string, unknown> }[] = [];
+  const native = async (method: string, params: Record<string, unknown> = {}) => {
+    calls.push({ method, params });
+    return { ok: true };
+  };
+  const waits: number[] = [];
+  const call = pickedChatCloudCall(native, async (ms) => {
+    waits.push(ms);
+    return "codex-session";
+  });
+  await call("cloud.startChat", { key: "k", task: "1+1", harness: "codex", model: "gpt-6.1-sol" });
+  expect(calls.at(-1)).toEqual({
+    method: "cloud.startChat",
+    params: { key: "k", task: "1+1", harness: "codex", model: "gpt-6.1-sol", replacesChat: "codex-session" },
+  });
+  expect(waits).toHaveLength(1);
+  expect(waits[0]).toBeLessThan(30_000);
+  // An empty local chat's start already names its chat; other calls pass through untouched.
+  await call("cloud.startChat", { key: "k2", replacesChat: "empty-chat" });
+  expect(calls.at(-1)?.params.replacesChat).toBe("empty-chat");
+  await call("cloud.reserve", { composeKey: "c" });
+  expect(calls.at(-1)).toEqual({ method: "cloud.reserve", params: { composeKey: "c" } });
+  expect(waits).toHaveLength(1);
+});
+
+test("a Cloud start from a page with no pick goes as it is", async () => {
+  const calls: Record<string, unknown>[] = [];
+  const call = pickedChatCloudCall(
+    async (_method, params = {}) => {
+      calls.push(params);
+      return { ok: true };
+    },
+    async () => undefined,
+  );
+  await call("cloud.startChat", { key: "k", task: "1+1", home: true });
+  expect(calls).toEqual([{ key: "k", task: "1+1", home: true }]);
 });

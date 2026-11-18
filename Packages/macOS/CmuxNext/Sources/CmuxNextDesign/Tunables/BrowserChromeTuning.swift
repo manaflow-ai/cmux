@@ -68,6 +68,8 @@ public nonisolated struct BrowserChromeTuning {
         let chromeColumn = (tokens.tokens["omnibarChromeColumn"] ?? 0) > 0
         let factor = tokens.uniformScale ?? 1
         let sizeRow = tokens.uniformScale == nil ? row : CGFloat(DensityPreset.referenceTokens.tokens["browserRowHeight"] ?? 28)
+        // A density's own value (the Density Playground's tab close button tokens) wins over Helium's share.
+        if let key = metric.densityKey, let exact = tokens.tokens[key] { return CGFloat(exact) }
         switch metric {
         case .rowHeight, .rowGap: return metric.token.flatMap { tokens.tokens[$0] }.map { CGFloat($0) } ?? 0
         case .closeSize: return half(share(14, of: sizeRow) * factor)
