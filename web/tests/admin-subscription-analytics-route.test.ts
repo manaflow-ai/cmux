@@ -97,14 +97,28 @@ describe("GET /api/admin/subscriptions/analytics", () => {
       appleServerApi: "missing",
       required: true,
       missingEnv: ["APPLE_IAP_KEY_ID", "APPLE_IAP_ISSUER_ID", "APPLE_IAP_PRIVATE_KEY"],
+      appleServerApiProduction: "not_configured",
     });
     const configured = createSubscriptionAnalyticsHandlers({
       load,
       now: () => NOW,
       env: { VERCEL_ENV: "production", APPLE_IAP_KEY_ID: "K", APPLE_IAP_ISSUER_ID: "I", APPLE_IAP_PRIVATE_KEY: "P" },
-    });
+      productionApiAccess: async () => "locked_until_release",
+    } as Parameters<typeof createSubscriptionAnalyticsHandlers>[0]);
     expect((await (await configured.GET(request())).json() as { billingHealth?: unknown }).billingHealth)
-      .toEqual({ appleServerApi: "configured", required: true, missingEnv: [] });
+      .toEqual({ appleServerApi: "configured", required: true, missingEnv: [], appleServerApiProduction: "locked_until_release" });
+    const probeFails = createSubscriptionAnalyticsHandlers({
+      load,
+      now: () => NOW,
+      env: { VERCEL_ENV: "production", APPLE_IAP_KEY_ID: "K", APPLE_IAP_ISSUER_ID: "I", APPLE_IAP_PRIVATE_KEY: "P" },
+      productionApiAccess: async () => {
+        throw new Error("network down");
+      },
+    } as Parameters<typeof createSubscriptionAnalyticsHandlers>[0]);
+    const failed = await probeFails.GET(request());
+    expect(failed.status).toBe(200);
+    expect((await failed.json() as { billingHealth?: { appleServerApiProduction?: unknown } }).billingHealth?.appleServerApiProduction)
+      .toBe("unknown");
   });
 
   test("400 for an invalid filter from an admin", async () => {
