@@ -308,7 +308,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             (item.machineBadge, item.machineName) = services.remoteTerminals.badge(for: tab)
             item.icon = .terminal
         } else if tab.kind != .browser {
-            (item.machineBadge, item.machineName) = (machine, machine.flatMap { _ in services.machines.machineName(daemon.machineID) })
+            item.setMachineBadge(machine, name: machine.flatMap { _ in services.machines.machineName(daemon.machineID) }, cloudChat: tab.agentSession != nil && services.machines.session(daemon.machineID) != nil)
             item.themeBadge = services.themes.badge(forTerminal: TerminalThemeKey(machine: daemon.machineID, tab: tab))
         } else {
             // A browser tab names the machine whose localhost it sees.
