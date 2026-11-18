@@ -127,8 +127,9 @@ def spare_ready():
     return any(s.get("ready") for s in state.get("spares") or [])
 
 
-def launch(app_path, tag):
-    """Starts the tagged app on its debug socket with a scratch config; it quits at exit."""
+def launch(app_path, tag, at_end=None):
+    """Starts the tagged app on its debug socket with a scratch config; it quits at exit. Returns (the process, the
+    quit). `at_end(pid, what the quit did)` is called after the quit at exit."""
     app_path = os.path.abspath(app_path.rstrip("/"))
     binary = next((p for p in sorted(glob.glob(os.path.join(app_path, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
     if not binary:
@@ -147,26 +148,52 @@ def launch(app_path, tag):
     log = open(os.path.join(opts.out, f"app-{tag}.log"), "a")
     process = subprocess.Popen([binary], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
 
+    fact = {}
+
     def quit_app():
-        rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
+        """Quits the app, one time (the exit's call after the screen mode's own call does nothing). Returns what the
+        quit did: the app's answer, whether the process ended in 20 s, whether KILL ended it, its return code."""
+        if fact:
+            return fact
+        fact["ended_before_the_quit"] = process.poll() is not None
+        fact["quit_reply"] = rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
         try:
             process.wait(timeout=20)
+            fact["ended_in_20_s"] = True
         except subprocess.TimeoutExpired:
+            fact["ended_in_20_s"] = False
             os.kill(process.pid, signal.SIGKILL)
+            fact["killed_by_the_driver"] = True
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                pass
+        fact["returncode"] = process.returncode
         cli = os.path.join(app_path, "Contents/Resources/bin/cmux")
         subprocess.run([cli, "server", "stop", "--session", f"cmux-app-{tag}", "--end-terminals"],
                        env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
         if os.path.exists(opts.socket):
             os.remove(opts.socket)
-    atexit.register(quit_app)
+        return fact
+    # `at_end` (the screen mode's): what the launch left is printed at each exit, also at a stop inside this launch.
+    atexit.register(lambda: at_end(process.pid, quit_app()) if at_end else quit_app())
     wait("the tagged app's socket", lambda: os.path.exists(opts.socket) and (rpc("debug.windows") or {}).get("windows"), 120)
     time.sleep(2)  # test harness wait: the first workspace settles
+    return process, quit_app
 
 
+RUN_END = LAUNCH_FAULT = APP = None
 if opts.app:
     if opts.screen:
+        # The record of the bundle's last run goes into the log whole before a thing of it moves (run_end_record.py).
+        import run_end_record  # noqa: E402
+        RUN_END = run_end_record.RunEnd(opts.app)
+        RUN_END.last()
         new_surface_screen.fresh_session(opts.tag, opts.app)  # the tag's saved session of an earlier run is not this run's
-    launch(opts.app, opts.tag)
+        RUN_END.set_aside()  # after fresh_session: it stops the run when an app of the bundle runs now
+    APP = launch(opts.app, opts.tag, RUN_END.own if RUN_END else None)
+    if RUN_END:
+        LAUNCH_FAULT = RUN_END.launch_fault(APP[0].pid)
 failures = []
 if opts.split > 1:
     wait("a ready spare before the splits", spare_ready, 60)
@@ -248,7 +275,20 @@ def terminal_tab():
 if opts.screen:
     # Each key as the screen showed it: a report, with no judgement; the openings below do not run.
     # The exit code says only whether the run went to its last case (a stopped run is not 0): no row is judged.
-    sys.exit(new_surface_screen.Screen(opts, rpc, {"spare_ready": spare_ready, "terminal_tab": terminal_tab, "close_new": close_new}).run()["exit_code"])
+    # A launch of the driver's own that crashed is the exit code 1, after the report is written.
+    screen = new_surface_screen.Screen(opts, rpc, {"spare_ready": spare_ready, "terminal_tab": terminal_tab, "close_new": close_new})
+    screen.launch_fault = LAUNCH_FAULT
+    screen.launch = None if not RUN_END else {"pid": APP[0].pid, "bundle": RUN_END.bundle, "fault": LAUNCH_FAULT}
+    stop = None
+    try:
+        code = screen.run()["exit_code"]
+    except BaseException as error:  # the run's own stop: the app's end record is still printed, then the stop goes on
+        stop = error
+    if RUN_END and RUN_END.own(APP[0].pid, APP[1]()):
+        sys.exit(1)
+    if stop:
+        raise stop
+    sys.exit(code)
 
 for run in range(opts.runs):
     for key in opts.keys.split(","):

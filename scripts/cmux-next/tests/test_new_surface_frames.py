@@ -45,10 +45,13 @@ def row(index, content, outside, blank=False, desync=False, strip=None, start=0.
 AT_ZERO = [{"name": "cmdN.start", "ms": 0.0, "duration_ms": 0.0}, {"name": "newTab.open", "ms": 0.0, "duration_ms": 0.0}]
 
 
-def take(pictures, capture="screencapturekit", spans=None, before=2, **fields):
+def take(pictures, capture="screencapturekit", spans=None, before=2, at_zero=False, **fields):
     """A recording: `before` frames before the reply's zero (the app's rows start at the last one), then one frame
-    of the display for each entry of `pictures` ((content, outside) or a dict of row()'s arguments)."""
-    rows = [row(-index, OLD, ROW_OLD) for index in range(before, 0, -1)]
+    of the display for each entry of `pictures` ((content, outside) or a dict of row()'s arguments). The rows have
+    no frame AT the reply's zero: the step over it is 2 frame times, and a reply whose zero is later than the key
+    (the key's own work) then has a frame with no row after the key. `at_zero`: the display's frame at the zero has
+    its row too (the old picture), so each frame from the key on has one."""
+    rows = [row(-index, OLD, ROW_OLD) for index in range(before, 0, -1)] + ([row(0, OLD, ROW_OLD)] if at_zero else [])
     for index, picture in enumerate(pictures):
         if picture is None:
             continue  # a frame that the recorder did not deliver
@@ -186,7 +189,7 @@ class OneKeyTests(unittest.TestCase):
 
     def test_a_case_and_its_line_name_the_zero_of_its_rows(self):
         marks = nsf.one_key(take([(NEW, ROW_NEW)] * 240), "n", asked_hz=120)
-        sent = nsf.one_key(take([(NEW, ROW_NEW)] * 240, before_send_ms=4.0), "n", asked_hz=120)
+        sent = nsf.one_key(take([(NEW, ROW_NEW)] * 240, before_send_ms=4.0, at_zero=True), "n", asked_hz=120)
         self.assertEqual((marks["invalid"], sent["invalid"]), ([], []))
         case = nsf.summarize([marks, marks])
         self.assertEqual(case.get("zero"), [nsf.ZERO])
@@ -220,14 +223,21 @@ class OneKeyTests(unittest.TestCase):
         pictures = [(OLD, ROW_OLD), None, None, None, None, (NEW, ROW_NEW)] + [(NEW, ROW_NEW)] * 234
         got = nsf.one_key(take(pictures), "n", asked_hz=120)
         self.assertEqual((got["content_first"]["frame"], got["content_first"]["ms"], got["frames_not_delivered"]), (6, 50, 4))
-        # The 4 frames with no row are directly before the first content: the page can have come in one of them.
-        self.assertEqual((got["first_is_final"], got["frames_not_seen_from_content"], got["invalid"]), (None, 4, []))
+        # The 4 frames with no row are directly before the first content: the page can have come in one of them,
+        # 4 frame times before its row at most. The first frame is then no number: the row is INVALID.
+        self.assertEqual((got["first_is_final"], got["frames_not_seen_from_content"]), (None, 4))
+        self.assertEqual(got["invalid"], ["no-row: 4 of the 6 frames from the key to content_first have no row (frames 2, 3, 4, 5; the "
+                                          "longest step between rows 42 ms): content_first can be at most 33.3 ms early"])
 
     def test_a_frame_number_counts_the_frames_before_the_first_row(self):
         # No row for the first 5 frames of the display after the key; the first row has the page.
         got = nsf.one_key(take([None] * 5 + [(NEW, ROW_NEW)] * 235), "n", asked_hz=120)
         self.assertEqual((got["content_first"]["frame"], got["content_first"]["ms"], got["frames_not_delivered"]), (6, 50, 5))
-        self.assertEqual((got["tab"]["frame"], got["final"]["frame"], got["first_is_final"], got["invalid"]), (6, 6, None, []))
+        self.assertEqual((got["tab"]["frame"], got["final"]["frame"], got["first_is_final"]), (6, 6, None))
+        # The frame's number is the display's, and it is no proved first frame: the page can have come in each of the 5.
+        self.assertEqual(got["first_frame_span"], {"frames": 6, "rows": 1, "no_row": 5, "no_row_frames": [1, 2, 3, 4, 5],
+                                                   "longest_gap_ms": 50.0, "early_ms_at_most": 41.7})
+        self.assertEqual([reason.split(":")[0] for reason in got["invalid"]], ["no-row"])
 
     def test_a_frame_with_no_row_after_the_first_content_makes_first_is_final_not_known(self):
         got = nsf.one_key(take([(NEW, ROW_NEW)] * 10 + [None] + [(NEW, ROW_NEW)] * 229), "n", asked_hz=120)
@@ -243,12 +253,16 @@ class OneKeyTests(unittest.TestCase):
         self.assertEqual((got["content_first"]["frame"], got["frames_not_delivered"]), (1, 0))
 
     def test_rows_that_come_slower_than_the_asked_display_are_invalid(self):
-        # A recorder that gives each second frame of a 120 Hz display: its frame numbers would be half of the true ones.
+        # A recorder that gives each second frame of a 120 Hz display. The frame time stays the display's, so the
+        # page's row is frame 2 and frame 1 has no row: the first frame is no number. (The part that moves is this
+        # one row: its step is judged from 4 rows on, in FirstFrameSpanTests.)
         rows = take([(NEW, ROW_NEW)] * 240)
         for frame in rows["frames"]:
             frame["ms"] *= 2
         got = nsf.one_key(rows, "n", asked_hz=120)
-        self.assertEqual([reason.split(":")[0] for reason in got["invalid"]], ["refresh"])
+        self.assertEqual([reason.split(":")[0] for reason in got["invalid"]], ["no-row"])
+        self.assertEqual((got["refresh_ms"], got["content_first"]["frame"], got["content_first"]["ms"]), (round(STEP, 3), 2, 16))
+        self.assertAlmostEqual(got["refresh_measured_ms"], 2 * STEP, delta=0.1)
         self.assertEqual(nsf.one_key(rows, "n")["invalid"], [])  # no asked rate: the rows' own step, with no sign
 
     def test_the_zero_is_the_start_of_the_keys_own_work(self):
@@ -257,17 +271,21 @@ class OneKeyTests(unittest.TestCase):
         marks = [{"name": "cmdN.start", "ms": -33.0, "duration_ms": 33.0}, {"name": "newTab.open", "ms": -20.0, "duration_ms": 9.0}]
         reply = take([(OLD, ROW_OLD)] * 4 + [(NEW, ROW_NEW)] * 236, spans=marks, before=1)
         got = nsf.one_key(reply, "n", asked_hz=120)
-        self.assertEqual((got["key_work_ms"], got["zero"], got["invalid"]), (33.0, nsf.ZERO, []))
+        self.assertEqual((got["key_work_ms"], got["zero"]), (33.0, nsf.ZERO))
         self.assertEqual(got["content_first"], {"frame": 9, "ms": 75.0, "file": "frame-007.png"})
-        # The app's `before` row is 25 ms after the key: frame 3. The 2 frames before it have no row.
+        # The app's `before` row is 25 ms after the key: frame 3. The 2 frames before it (inside the key's own work)
+        # have no row, and this recording has none at the reply's zero (frame 4). No one of them is directly before
+        # the page's row, so the page cannot have come earlier; the row is still INVALID: 3 frames after the key have no row.
         self.assertEqual((got["frames_after_key"], got["frames_not_delivered"], got["first_is_final"]), (241, 3, True))
+        self.assertEqual((got["first_frame_span"]["no_row_frames"], got["first_frame_span"]["early_ms_at_most"]), ([1, 2, 4], 0.0))
+        self.assertEqual([reason.split(":")[0] for reason in got["invalid"]], ["no-row"])
         self.assertEqual(got["pictures"]["before"], "frame-001.png")
         at_zero = nsf.one_key(take([(OLD, ROW_OLD)] * 4 + [(NEW, ROW_NEW)] * 236, before=1), "n", asked_hz=120)
         self.assertEqual((at_zero["key_work_ms"], at_zero["content_first"]["frame"], at_zero["content_first"]["ms"]), (0.0, 5, 42))
 
     def test_the_zero_of_a_new_tab_is_its_earliest_opening_mark(self):
         marks = [{"name": "newTab.open", "ms": -3.0}, {"name": "newTab.take", "ms": -9.0}, {"name": "cmdN.start", "ms": -50.0}]
-        got = nsf.one_key(take([(NEW, STILL)] * 240, spans=marks), "t", asked_hz=120)
+        got = nsf.one_key(take([(NEW, STILL)] * 240, spans=marks, at_zero=True), "t", asked_hz=120)
         self.assertEqual((got["key_work_ms"], got["invalid"]), (9.0, []))
 
     def test_a_second_key_is_counted_from_its_due_time_after_the_first_keys_zero(self):
@@ -287,11 +305,13 @@ class OneKeyTests(unittest.TestCase):
         marks = [{"name": "cmdN.start", "ms": -33.0, "duration_ms": 33.0}]
         reply = take([(OLD, ROW_OLD)] * 4 + [(NEW, ROW_NEW)] * 236, spans=marks, before=1, before_send_ms=40.0)
         got = nsf.one_key(reply, "n", asked_hz=120)
-        self.assertEqual((got["key_work_ms"], got["zero"], got["invalid"]), (40.0, ZERO_SENT, []))
+        self.assertEqual((got["key_work_ms"], got["zero"]), (40.0, ZERO_SENT))
         self.assertEqual(got["content_first"], {"frame": 10, "ms": 82.0, "file": "frame-007.png"})
+        # The 3 frames inside the key's 40 ms and the one at the reply's zero have no row: no proved first frame.
+        self.assertEqual((got["first_frame_span"]["no_row_frames"], [reason.split(":")[0] for reason in got["invalid"]]), ([1, 2, 3, 5], ["no-row"]))
         self.assertNotEqual(ZERO_SENT, nsf.ZERO)
         # The key's send time is the zero also when the spans have no opening mark of the key.
-        bare = nsf.one_key(take([(NEW, ROW_NEW)] * 240, spans=[], before_send_ms=12.5), "n", asked_hz=120)
+        bare = nsf.one_key(take([(NEW, ROW_NEW)] * 240, spans=[], before_send_ms=12.5, at_zero=True), "n", asked_hz=120)
         self.assertEqual((bare["key_work_ms"], bare["zero"], bare["invalid"]), (12.5, ZERO_SENT, []))
         # A reply with no such number (an older build's), or with one that is no time, has the mark's zero.
         for value in (None, True, -1.0, "40"):
@@ -331,7 +351,9 @@ class InputProofTests(unittest.TestCase):
         self.assertEqual(nsf.input_proof("n", 2, 2, 2, self.MARKS), ([], [0.0, 103.0]))
 
     def test_one_wrong_count_is_a_fault(self):
-        self.assertEqual(nsf.input_proof("n", 2, 1, 2, self.MARKS)[0], ["input: 2 keys sent, the app recorded 1 openings"])
+        # The records are a fact by kind (RecordsByKindTests): only a count that 2 keys cannot make is a fault.
+        self.assertEqual(nsf.input_proof("n", 2, 1, 2, self.MARKS)[0], [])
+        self.assertEqual(nsf.input_proof("n", 2, 5, 2, self.MARKS)[0], ["input: 2 keys sent, the app recorded 5 openings (0 to 4 are possible for Cmd-N)"])
         self.assertEqual(nsf.input_proof("n", 2, 2, 1, self.MARKS)[0], ["input: 2 keys sent, 1 more workspaces after them"])
         self.assertEqual(nsf.input_proof("t", 2, 2, 2, self.MARKS)[0], ["input: 2 keys sent, 1 `newTab.open` marks"])
 
@@ -488,8 +510,9 @@ class ScreenTests(unittest.TestCase):
 
     def test_a_key_that_opened_nothing_is_an_invalid_row(self):
         report, _ = self.run_mode(FakeApp(self.folder, [(NEW, ROW_NEW)] * 240, opens=1), keys="n", gaps="100", runs=1)
-        self.assertEqual(report["rows"][0]["invalid"], ["input: 2 keys sent, the app recorded 1 openings",
-                                                        "input: 2 keys sent, 1 more workspaces after them"])
+        # The proof is the count of workspaces (and the marks); 1 record for 2 Cmd-N is a fact and no fault.
+        self.assertEqual(report["rows"][0]["invalid"], ["input: 2 keys sent, 1 more workspaces after them"])
+        self.assertEqual(report["rows"][0]["opening_records"]["keys_with_no_record"], 1)
         self.assertEqual((report["cases"]["cmd-n/100 ms after a key"]["valid"], report["cases"]["cmd-n/100 ms after a key"]["invalid"]), (0, ["input"]))
 
     def test_a_page_in_another_engine_is_an_invalid_row(self):

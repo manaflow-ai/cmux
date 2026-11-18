@@ -18,8 +18,10 @@ after the recording its new tabs close, then that terminal tab. A Cmd-N is press
 app shows; its new workspaces close after the recording. Each row says the count of tabs or workspaces before its
 key.
 
-The proof of the input, in each row: the app's own opening records, the count of tabs (Cmd-T) or workspaces
-(Cmd-N) and the opening marks must each say one opening for each sent key; a row where one does not is INVALID. The
+The proof of the input, in each row: the count of tabs (Cmd-T) or workspaces (Cmd-N) and the opening marks must
+each say one opening for each sent key; a row where one does not is INVALID. The app's own opening records are a
+fact by kind in the row (`opening_records`; new_surface_frames.py `records_fact`): a Cmd-N that takes the
+workspace that the app reserved at idle makes none, and a new tab whose page was not the spare makes two. The
 app keeps only its newest opening records, so the new ones are counted by the list's content, not by its length
 (new_surface_frames.py `opened_since`), and the driver refuses a run of more than 60 openings before its launch (the
 app's list has 64 places: `--runs` 10 with the default keys and gaps is 60). The key goes to the app's key path through `debug.key`'s sender, not
@@ -154,6 +156,21 @@ def fresh_session(tag, app=None):
     bench_launch.start_fresh_state(tag)
 
 
+def holes(row):
+    """The end of a row's printed line: the frames with no row from the key to its first frame, how early that
+    frame can be, the second key's own first frame of a recording of two keys, and the app's opening records.
+    An INVALID row's line so still says how wrong its first frame can be."""
+    span, second, records = row.get("first_frame_span"), row.get("second_first"), row.get("opening_records")
+    said = "" if not span else (f" no_row_to_content_first={span['no_row']}/{span['frames']} longest_gap_ms={span['longest_gap_ms']:g} "
+                                f"early_ms_at_most={span['early_ms_at_most']:g}")
+    if row.get("gap_ms") and "second_first" in row:
+        said += " second_first=" + ("none" if not second else (
+            f"{json.dumps([second['frame'], second['ms']])} after_mark_ms={second['after_mark_ms']:g} "
+            f"second_no_row={second['span']['no_row']}/{second['span']['frames']} second_early_ms_at_most={second['span']['early_ms_at_most']:g} "
+            f"moving_at_the_mark={second['moving_at_the_mark']}"))
+    return said + ("" if not records else f" records={json.dumps(records['spare'])}")
+
+
 class Screen:
     """One run of the mode on a running app. `rpc(method, params, timeout)` is the driver's; `tools` are its own
     steps (`spare_ready`, `terminal_tab`, `close_new`), and `sleep` its pause."""
@@ -162,6 +179,8 @@ class Screen:
         self.opts, self.rpc, self.tools, self.sleep, self.make_session = opts, rpc, tools, sleep, make_session
         self.keep = os.path.join(opts.out, "screen-keep")
         self.rows, self.kept = [], 0
+        # The driver's word about its launch (run_end_record.py): a text makes each row INVALID. `launch`: its facts.
+        self.launch_fault, self.launch = None, None
 
     def workspaces(self):
         snap = self.rpc("snapshot.get", None, 180) or {}
@@ -252,12 +271,13 @@ class Screen:
         row["label"] = label
         opened = frames_of.opened_since(before_opened, records)
         faults, starts = frames_of.input_proof(key, keys_sent, opened, self.count(key) - before_count, reply.get("spans"))
-        row["invalid"] += faults + ([session_fault] if session_fault else [])
+        row["invalid"] += faults + [fault for fault in (session_fault, self.launch_fault) if fault]
         # The marks' times from the row's zero (the reply's own zero is `key_work_ms` after it).
         starts = [round(start + (row.get("key_work_ms") or 0), 1) for start in starts]
+        spare = [bool(record.get("spare")) for record in records[len(records) - opened:]]
         row.update({"keys_sent": keys_sent, "opening_marks_ms": starts, "lead_ms": reply.get("lead_ms"),
                     "second_key_late_ms": round(starts[1] - gap, 1) if gap and len(starts) > 1 else None,
-                    "spare": [bool(record.get("spare")) for record in records[len(records) - opened:]],
+                    "spare": spare, "opening_records": frames_of.records_fact(key, keys_sent, spare),
                     "frame_count": reply.get("frame_count"), "mean_interval_ms": reply.get("mean_interval_ms")})
         # Each measure says its engine: the new page's, read after the recording. A page in another engine is no number.
         row["page_engine"] = bench_page_engine.page_engine(self.rpc("debug.agent_pane", {"action": "engine"}, 20))
@@ -321,6 +341,7 @@ class Screen:
         if opts.build and os.path.exists(opts.build):
             with open(opts.build, encoding="utf-8") as handle:
                 report["build"] = json.load(handle)
+        report["launch"] = self.launch
         report["split"], report["chromium"] = opts.split, bench_page_engine.chromium_word(self.rpc("debug.cef", None, 10))
         print(bench_page_engine.chromium_line("new-surface-screen", report["chromium"]), flush=True)
         report["session"] = self.session()
@@ -338,7 +359,7 @@ class Screen:
                     print(f"{MARK}-ROW {row['label']}: {'INVALID ' + '; '.join(row['invalid']) if row['invalid'] else 'valid'} "
                           f"{json.dumps(said)} first_is_final={row.get('first_is_final')} whole_window={row.get('whole_window')} "
                           f"changes_after_content={row.get('changes_after_content')} "
-                          f"refresh_ms={row.get('refresh_ms')} capture={row.get('capture')}", flush=True)
+                          f"refresh_ms={row.get('refresh_ms')} capture={row.get('capture')}{holes(row)}", flush=True)
                     if row.get("call_went_on"):
                         break
                 report["cases"][case] = frames_of.summarize(rows)
