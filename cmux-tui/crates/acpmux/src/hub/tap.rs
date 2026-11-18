@@ -530,3 +530,7 @@ fn times_request(params: &Value, awaiting_first_delta: &AtomicBool) -> bool {
 #[cfg(test)]
 #[path = "tap_bodies_tests.rs"]
 mod bodies_tests;
+
+#[cfg(test)]
+#[path = "tap_unread_tests.rs"]
+mod unread_tests;
