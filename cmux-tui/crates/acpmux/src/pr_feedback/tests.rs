@@ -3,7 +3,7 @@ use super::*;
 fn run(name: &str, workflow: i64, run: i64, conclusion: &str, job: u64) -> Value {
     json!({
         "__typename": "CheckRun", "name": name, "status": "COMPLETED", "conclusion": conclusion,
-        "detailsUrl": format!("https://github.com/octo/app/actions/runs/{run}/job/{job}"),
+        "databaseId": job,
         "checkSuite": {"workflowRun": {"databaseId": run, "event": "pull_request",
                        "workflow": {"databaseId": workflow, "name": format!("wf{workflow}")}}},
     })
@@ -184,6 +184,10 @@ fn fetch_reads_once_for_both_kinds_and_keeps_a_finished_jobs_tail() {
     assert_eq!(checks["empty"], json!(false));
     assert_eq!(checks["checks"]["onBase"], json!(["lint"]));
     assert_eq!(checks["checks"]["own"][0]["step"], json!("Run tests"));
+    assert_eq!(
+        checks["checks"]["own"][0]["url"],
+        json!("https://github.com/octo/app/actions/runs/10/job/100")
+    );
     assert!(checks["draft"].as_str().unwrap().contains("Failing step: Run tests"));
     let comments = fetch(&ctx, None, "7", Some("octo/app"), Kind::Comments).unwrap();
     assert_eq!(comments["comments"]["resolved"], json!(1));
