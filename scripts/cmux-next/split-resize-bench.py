@@ -102,6 +102,18 @@ def measure(pane: str, folder: Path) -> dict:
         print(f"[{pane}] failed: {error!r}")
     finally:
         app.stop()
+    # What the harness did, in the report the step returns (the folder stays on the worker): the split, the pane it
+    # opened, and each drag's mouse replies and first and last divider samples. A drag that moved nothing says why.
+    try:
+        data = json.loads((folder / "split_resize.json").read_text())
+        report["harness"] = {
+            "split": data.get("split"), "opened": data.get("opened"), "chat_pane": data.get("chat_pane"),
+            "error": data.get("error"), "rest": data.get("rest"),
+            "drags": [{"gesture": d.get("gesture"), "acted": d.get("acted"),
+                       "first": (d.get("samples") or [None])[0], "last": (d.get("samples") or [None])[-1]}
+                      for d in (data.get("drags") or [])[:3]]}
+    except (OSError, ValueError) as error:
+        report["harness"] = {"unread": repr(error)}
     return report
 
 
