@@ -13,6 +13,10 @@ Script paths are relative to the repository root. Team members: shared build fle
 
 ## Finishing a task
 
+This section is for the classic iPhone app in `ios/`. The cmux-next iPhone app (`cmux-next-ios/`)
+has its own hand-off command, new and still under end-to-end verification:
+[cmux-next-ios/AGENTS.md](../cmux-next-ios/AGENTS.md#hand-off-command-under-verification).
+
 Every agent report for an app change ends with a hand-off the person can review on their
 iPhone, with simulator evidence from the fleet, from one command run at the pushed head:
 
