@@ -250,7 +250,6 @@ public final class RemoteDesktopPane {
         view.toolbar.onSelectMode = { [weak self] mode in self?.selectMode(mode) }
         view.toolbar.onSelectQuality = { [weak self] preset in
             guard let self else { return }
-            if let pick = handlers.pickQuality { return pick(preset) }
             selectQuality(preset)
         }
         view.toolbar.onSelectDisplay = { [weak self] in self?.handlers.selectDisplay($0) }

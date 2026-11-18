@@ -159,7 +159,6 @@ final class CEFDevToolsDivider: NSView {
     /// menu and the palette run one handler; a tab with no host yet moves its own DevTools.
     private func run(_ command: WebDevToolsCommand) {
         guard let tab = devTools?.tab else { return }
-        if let delegate = tab.delegate { return delegate.browserTab(tab, didRequest: .devTools(command)) }
         if let placement = command.placement { devTools?.perform(placement) }
     }
 }
