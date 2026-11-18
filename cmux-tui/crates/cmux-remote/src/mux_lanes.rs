@@ -252,6 +252,10 @@ pub(crate) fn classify_client_line(line: &[u8]) -> Lane {
             | "ids" | "list-agents" | "pane-neighbor" | "process-info" | "terminal-ports"
             | "terminal-resources" | "subscribe" | "resolve-terminal",
         ) => Lane::Control,
+        // A projection's dial (`projection-v1`): its line, then its manifest and the Mac's
+        // answers as non-JSON lines, which go on the control lane; the line goes with them so
+        // the manifest never overtakes it.
+        Some("projection.serve") => Lane::Control,
         // Mutations default to one ordered lane with compact PTY input. This
         // keeps a later close, move, focus, resize, or configuration change
         // from overtaking input already accepted from the local mux client.

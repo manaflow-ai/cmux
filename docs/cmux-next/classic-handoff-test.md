@@ -5,7 +5,7 @@ normal in-app update installs the cmux-next release candidate. Nobody else is af
 feed is not touched, and no shipped build reads the test feed.
 
 Test feed: `https://github.com/manaflow-ai/cmux-next-handoff-test/releases/latest/download/appcast.xml`
-(release `rc8-b115`: cmux-next 1.0.0, build 115, Developer ID signed and notarized; Apple silicon only).
+(release `rc9-b116`: cmux-next 1.0.0, build 116, Developer ID signed and notarized; Apple silicon only).
 
 ## Switch on
 
@@ -37,7 +37,7 @@ work, and macOS may ask once for keychain access or a permission. Your data is n
 
 ## What to check after the update
 
-1. About cmux shows version 1.0.0 (build 115). The app is still `/Applications/cmux.app`.
+1. About cmux shows version 1.0.0 (build 116). The app is still `/Applications/cmux.app`.
 2. cmux asks "Import your classic cmux workspaces?" with the count of workspaces and browser tabs. After
    Import, a toast says "Workspaces from classic cmux are open." Check your windows, workspaces, groups
    (name, color, collapsed), pins, colors, splits and tab names; terminals open in their folders.
@@ -57,5 +57,6 @@ work, and macOS may ask once for keychain access or a permission. Your data is n
     which has only classic 0.65.2.2 (a lower build), so it never offers a downgrade.
 
 Recordings of the lab runs are on the
-[rc7-b114](https://github.com/manaflow-ai/cmux-next-handoff-test/releases/tag/rc7-b114) and
-[rc8-b115](https://github.com/manaflow-ai/cmux-next-handoff-test/releases/tag/rc8-b115) releases.
+[rc7-b114](https://github.com/manaflow-ai/cmux-next-handoff-test/releases/tag/rc7-b114),
+[rc8-b115](https://github.com/manaflow-ai/cmux-next-handoff-test/releases/tag/rc8-b115) and
+[rc9-b116](https://github.com/manaflow-ai/cmux-next-handoff-test/releases/tag/rc9-b116) releases.
