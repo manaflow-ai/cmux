@@ -1653,7 +1653,11 @@ jobs:
             # the job's share (CMUX_CI_CPU_BUDGET on a mini) does not start them last.
             [script-tests]
             # The pre-push gate refuses a push that adds a violation and names the commit in CI.
-            python3 tests/test_cmux_next_prepush_gate.py
+            # Its 145 cases in four parts (tests/unittest_shard.py): one command, it outlasted every other by 2x.
+            python3 tests/test_cmux_next_prepush_gate.py --shard 1/4
+            python3 tests/test_cmux_next_prepush_gate.py --shard 2/4
+            python3 tests/test_cmux_next_prepush_gate.py --shard 3/4
+            python3 tests/test_cmux_next_prepush_gate.py --shard 4/4
             # A production journey workflow change needs its main twin (#43870); it ran nowhere before.
             python3 tests/test_cmux_next_prepush_main_twin.py
             # hot-apply.py's plan, apply and rollback (about four minutes, so it starts early). It ran nowhere
