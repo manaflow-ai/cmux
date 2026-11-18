@@ -7,13 +7,13 @@
 // node draws without it rather than throwing.
 const glass = (node, level) => (typeof node.glass === "function" ? node.glass(level) : node)
 
-// A filled tonal chip: the selected tone under caption text, a soft 8 pt corner, on chip glass.
-function chip(text, tone = "selected") {
-  return glass(
-    Text(text).font("caption").weight("medium").lineLimit(1).paddingHorizontal(8).paddingVertical(3).background(tone).cornerRadius(8),
-    "chip",
-  )
-}
+// Two kinds of chip, both caption text with a soft 8 pt corner. A state chip floats on the App's chip
+// glass (`.glass` replaces `.background` where the App has it, so an older cmux shows the tonal fill);
+// a place chip is a filled tonal container in the theme's `selected` tone.
+const pad = (node) =>
+  node.font("caption").weight("medium").lineLimit(1).paddingHorizontal(8).paddingVertical(3).cornerRadius(8)
+const stateChip = (text) => glass(pad(Text(text)).background("selected"), "chip")
+const placeChip = (text) => pad(Text(text)).background("selected")
 
 const fact = (card, kind) => card.facts.find((f) => f.kind === kind)
 
@@ -29,12 +29,12 @@ function renderCard(ctx) {
     HStack({ spacing: 8 }, [
       Text(card.title).font("headline").lineLimit(2),
       Spacer(),
-      card.status ? chip(card.status) : Text(card.age ?? "").font("caption").secondary(),
+      card.status ? stateChip(card.status) : Text(card.age ?? "").font("caption").secondary(),
     ]),
     waiting ? Text(waiting.text).color("accent").weight("medium").lineLimit(3) : null,
     task ? Text(task.text).lineLimit(3) : null,
     reply ? Text(reply.text).secondary().lineLimit(2) : null,
-    where.length ? HStack({ spacing: 4 }, where.map((f) => chip(f.text))) : null,
+    where.length ? HStack({ spacing: 4 }, where.map((f) => placeChip(f.text))) : null,
   ])
 }
 
