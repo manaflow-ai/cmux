@@ -20,22 +20,46 @@ function shot(turn: number): string {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
+/// Each prompt with a screenshot sent beside it, and its answer after a screenshot the agent took (a
+/// tool row whose small image opens a hover preview, conversation/ToolVisualPreview.tsx).
 export function imageRows(count: number): AcpmuxRow[] {
-  return syntheticRows(count).map((row, index) =>
-    row.kind === "user"
-      ? {
-          ...row,
-          images: [
-            {
-              id: `fixture-shot-${index}`,
-              mimeType: "image/svg+xml",
-              name: "Screenshot.png",
-              width: WIDTH,
-              height: HEIGHT,
-              src: shot(index),
-            },
-          ],
-        }
-      : row,
-  );
+  return syntheticRows(count).flatMap((row, index): AcpmuxRow[] => {
+    if (row.kind !== "user") return [row];
+    const prompt: AcpmuxRow = {
+      ...row,
+      images: [
+        {
+          id: `fixture-shot-${index}`,
+          mimeType: "image/svg+xml",
+          name: "Screenshot.png",
+          width: WIDTH,
+          height: HEIGHT,
+          src: shot(index),
+        },
+      ],
+    };
+    const took: AcpmuxRow = {
+      id: `fixture-screenshot-${index}`,
+      version: 1,
+      at: row.at + 500,
+      kind: "activity",
+      toolCount: 1,
+      items: [
+        {
+          kind: "tool",
+          text: "Take a screenshot",
+          tool: {
+            id: `fixture-screenshot-tool-${index}`,
+            title: "Take a screenshot",
+            kind: "other",
+            status: "completed",
+            startedAt: row.at + 500,
+            endedAt: row.at + 900,
+            images: [shot(index + 1)],
+          },
+        },
+      ],
+    };
+    return [prompt, took];
+  });
 }
