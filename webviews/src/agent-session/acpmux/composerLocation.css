@@ -167,8 +167,10 @@
 }
 @media (hover: hover) and (pointer: fine) {
   /* A location control is a text/icon affordance.  Its transparent hit area must not turn
-     into a full rounded pill on hover; the open state above remains the persistent menu cue. */
-  .acpmux-location-button.ui-ghost:hover {
+     into a full rounded pill on hover; the open state above remains the persistent menu cue, the
+     pointer over it or not (Lawrence 2026-11-17: this rule outranked it, so an open chip's pill
+     flickered off and on as the pointer crossed it; test/menu-hover-snap.test.ts). */
+  .acpmux-location-button.ui-ghost:hover:not([aria-expanded="true"], [data-popup-open]) {
     background: transparent;
     color: var(--agent-text);
   }

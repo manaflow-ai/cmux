@@ -25,7 +25,7 @@ public struct WindowDockActions {
     }
 
     /// A link clicked in the Chief (the open-workspace indicator: a workspace, tab or subagent link, or a subagent
-    /// pill): with `home.chiefDock.openBeside` on, `frame` (the window showing Home) arms its Chief panel, so the
+    /// pill): with `home.chiefDock.openBeside` on (off by default, cmux#45889: a link opens only its target), `frame` (the window showing Home) arms its Chief panel, so the
     /// workspace the link shows opens with the Chief floating over it (user 2026-11-06), the workspace's layout
     /// untouched. Only this path opens the panel by itself: a workspace opened any other way shows no Chief. A link
     /// that shows nothing else in this window (a tab right of Home, another window) leaves the arm to lapse.
