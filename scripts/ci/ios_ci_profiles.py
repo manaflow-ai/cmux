@@ -48,12 +48,19 @@ def fail(msg: str) -> None:
     sys.exit(1)
 
 
-def asc(*args: str) -> dict:
-    proc = subprocess.run(["asc", *args, "--output", "json"], capture_output=True, text=True)
+def asc_run(*args: str) -> str:
+    """Run asc. Only call shapes the repo's other asc callers use
+    (.github/scripts/install-app-store-provisioning-profile.sh): full JSON, filtered
+    here, no --fields and no list filter but the type, since the runner's asc may predate them."""
+    proc = subprocess.run(["asc", *args], capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(f"asc {' '.join(args[:2])} failed: {proc.stderr.strip()[-600:]}")
+    return proc.stdout
+
+
+def asc(*args: str) -> dict:
     # asc may append warnings after the document.
-    return json.JSONDecoder().raw_decode(proc.stdout.lstrip())[0]
+    return json.JSONDecoder().raw_decode(asc_run(*args, "--output", "json").lstrip())[0]
 
 
 def keychain_identities(keychain: str) -> list[str]:
@@ -62,6 +69,76 @@ def keychain_identities(keychain: str) -> list[str]:
         capture_output=True, text=True, check=True,
     ).stdout
     return sorted({m.group(1) for m in re.finditer(r"\b([0-9A-F]{40})\b", out)})
+
+
+def keychain_certificate(keychain: str, identity: str) -> bytes:
+    """The DER certificate in the keychain whose SHA-1 is identity."""
+    out = subprocess.run(
+        ["security", "find-certificate", "-a", "-Z", "-p", keychain],
+        capture_output=True, text=True, check=True,
+    ).stdout
+    for pem in re.findall(r"-----BEGIN CERTIFICATE-----(.*?)-----END CERTIFICATE-----", out, re.S):
+        der = base64.b64decode("".join(pem.split()))
+        if hashlib.sha1(der).hexdigest().upper() == identity:
+            return der
+    return b""
+
+
+def _der(buf: bytes, i: int) -> tuple[int, int, int]:
+    """(tag, start of contents, end of contents) of the DER element at i."""
+    tag, n = buf[i], buf[i + 1]
+    i += 2
+    if n & 0x80:
+        k = n & 0x7F
+        n = int.from_bytes(buf[i:i + k], "big")
+        i += k
+    return tag, i, i + n
+
+
+def certificate_serial(der: bytes) -> str:
+    """The certificate's serial number as upper-case hex, as App Store Connect's
+    serialNumber spells it (no leading zeros), or empty when der is not a certificate."""
+    try:
+        _, cert, _ = _der(der, 0)          # Certificate
+        _, i, _ = _der(der, cert)          # tbsCertificate
+        tag, start, end = _der(der, i)
+        if tag == 0xA0:                    # [0] version
+            tag, start, end = _der(der, end)
+        if tag != 0x02:
+            return ""
+        return der[start:end].hex().upper().lstrip("0") or "0"
+    except IndexError:
+        return ""
+
+
+def _norm(value) -> str:
+    return "".join(ch for ch in str(value).upper() if ch.isalnum()).lstrip("0")
+
+
+def certificate_id(certs: dict, identity: str, serial: str) -> str:
+    """The App Store Connect id of CI's certificate: its certificateContent's SHA-1 is
+    identity, or (when the listing has no content) its serialNumber is serial."""
+    for c in certs.get("data", []):
+        a = c.get("attributes", {})
+        content = a.get("certificateContent")
+        if content and hashlib.sha1(base64.b64decode(content)).hexdigest().upper() == identity:
+            return c["id"]
+        if serial and a.get("serialNumber") and _norm(a["serialNumber"]) == _norm(serial):
+            return c["id"]
+    return ""
+
+
+def profile_content(p: dict, out_dir: Path) -> str:
+    """A listed profile's base64 content: from the listing, else `asc profiles download`."""
+    content = p.get("attributes", {}).get("profileContent")
+    if content:
+        return content
+    dest = out_dir / f"download-{p['id']}.mobileprovision"
+    asc_run("profiles", "download", "--id", p["id"], "--output", str(dest))
+    try:
+        return base64.b64encode(dest.read_bytes()).decode()
+    finally:
+        dest.unlink(missing_ok=True)
 
 
 def decode_profile(content_b64: str) -> dict:
@@ -130,40 +207,36 @@ def main() -> int:
     env_lines: list[str] = []
 
     try:
-        certs = asc("certificates", "list", "--paginate",
-                    "--fields", "certificateType,displayName,expirationDate,certificateContent")
-        cert_id = next(
-            (c["id"] for c in certs.get("data", [])
-             if c["attributes"].get("certificateContent")
-             and hashlib.sha1(base64.b64decode(c["attributes"]["certificateContent"])).hexdigest().upper() == identity),
-            "",
-        )
+        certs = asc("certificates", "list", "--certificate-type", "IOS_DISTRIBUTION,DISTRIBUTION", "--paginate")
+        cert_id = certificate_id(certs, identity, certificate_serial(keychain_certificate(args.keychain, identity)))
         if not cert_id:
             fail(f"CI's certificate {identity} is not an active certificate in App Store Connect (revoked or expired). "
                  "An Admin creates an Apple Distribution certificate and replaces IOS_DISTRIBUTION_CERTIFICATE_BASE64 / _PASSWORD "
                  "in the release environment; this step then makes the profiles for it.")
         bundles = asc("bundle-ids", "list", "--paginate")
+        profiles = asc("profiles", "list", "--profile-type", "IOS_APP_STORE", "--paginate")
         bundle_ids = {b["attributes"]["identifier"]: b["id"] for b in bundles.get("data", [])}
 
         for bid, name, env_name, base in targets:
             team_bundle = f"{args.team}.{bid}"
             if bid not in bundle_ids:
                 fail(f"no App ID {bid} in App Store Connect")
-            found = asc("profiles", "list", "--paginate", "--name", name, "--profile-type", "IOS_APP_STORE",
-                        "--fields", "name,profileState,profileContent,expirationDate")
             chosen, stale = None, []
-            for p in found.get("data", []):
-                a = p["attributes"]
+            for p in profiles.get("data", []):
+                a = p.get("attributes", {})
                 if a.get("name") != name:
                     continue
-                if a.get("profileState") != "ACTIVE" or not a.get("profileContent"):
+                if a.get("profileState") != "ACTIVE":
                     stale.append((p["id"], a.get("profileState", "?")))
                     continue
-                why = usable(decode_profile(a["profileContent"]), identity, team_bundle, args.min_days)
+                if chosen is not None:
+                    continue
+                content = profile_content(p, out_dir)
+                why = usable(decode_profile(content), identity, team_bundle, args.min_days)
                 if why:
                     stale.append((p["id"], why))
-                elif chosen is None:
-                    chosen = a["profileContent"]
+                else:
+                    chosen = content
             if chosen is None and not args.regenerate:
                 stale_list = "; ".join(f"{pid} {why}" for pid, why in stale) or "none exists"
                 fail(f"no usable \"{name}\" App Store profile ({stale_list}), and regeneration is off "
@@ -177,8 +250,7 @@ def main() -> int:
                 created = asc("profiles", "create", "--name", name, "--profile-type", "IOS_APP_STORE",
                               "--bundle", bundle_ids[bid], "--certificate", cert_id)
                 pid = created["data"]["id"]
-                chosen = created["data"]["attributes"].get("profileContent") or asc(
-                    "profiles", "list", "--id", pid, "--fields", "profileContent")["data"][0]["attributes"]["profileContent"]
+                chosen = profile_content(created["data"], out_dir)
                 print(f"::notice::Regenerated \"{name}\" ({pid}) for CI's certificate {identity}")
             p = decode_profile(chosen)
             why = usable(p, identity, team_bundle, 0)
