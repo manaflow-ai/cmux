@@ -278,3 +278,79 @@ test("Bookmarks: Show in Folder after a search reveals its folder far down the t
   await settle();
   inView(far.title);
 });
+
+test("Bookmarks: Show in Folder for a folder 3 levels deep in collapsed folders far down opens them and reveals it", async () => {
+  // 1,000 bookmarks: the bar holds 996 folders; the last but two holds Outer > Middle > Inner, all
+  // three collapsed, and Inner holds the target folder with one bookmark in it.
+  const flat = N - 4;
+  const node = (id: string, parent: string, index: number, title: string): Bookmark => ({
+    id,
+    browser_profile_id: "default",
+    parent,
+    kind: "folder",
+    index,
+    title,
+    created_ms: 0,
+  });
+  const folders = Array.from({ length: flat }, (_, at) => node(`folder-${at}`, "bar", at, key(at)));
+  const outer = folders[flat - 3]!;
+  const middle = node("middle", outer.id, 0, "Middle");
+  const inner = node("inner", middle.id, 0, "Inner");
+  const target = node("target", inner.id, 0, "Target");
+  const page: Bookmark = { ...node("page", target.id, 0, "Saved page"), kind: "url", url: "https://saved.example/" };
+  const all = [...folders, middle, inner, target, page];
+  expect(all.length).toBe(N);
+  const store = new BookmarksStore(new MockBookmarksProvider(all), { newKey: () => "k" });
+  host = dom.window.document.getElementById("root")!;
+  root = createRoot(host);
+  await act(async () => {
+    root!.render(
+      <UiProvider container={host} dir="ltr">
+        <BookmarksPage store={store} strings={createStrings(bookmarkStrings, ["en"])} />
+      </UiProvider>,
+    );
+  });
+  await act(async () => store.start());
+  await settle();
+  await act(async () => {
+    for (const folder of [outer, middle, inner]) store.setCollapsed(folder.id, true);
+  });
+  await settle();
+  const element = host.querySelector<HTMLElement>('[role="tree"]')!;
+  const at = (name: string) =>
+    [...element.querySelectorAll<HTMLElement>('[role="treeitem"]')].find((row) => row.textContent === name);
+  expect(at(inner.title)).toBeUndefined();
+  // Show in Folder on a search result.
+  await act(async () => store.setText("target"));
+  await settle();
+  let updates = 0;
+  const stop = store.subscribe(() => (updates += 1));
+  await act(async () => store.reveal(target.id));
+  stop();
+  await settle();
+  // The ancestors open in the one update that selects it.
+  expect(updates).toBe(1);
+  // The tree lists the target under its folder, and selects that folder (the one the list shows)
+  // and scrolls it into view.
+  expect(at(target.title)).toBeDefined();
+  const shown = at(inner.title);
+  expect(shown?.getAttribute("aria-selected")).toBe("true");
+  expect(element.getAttribute("aria-activedescendant")).toBe(shown!.id);
+  const top = Number(shown!.dataset.index) * ROW;
+  expect(top).toBeGreaterThan(VIEWPORT);
+  expect(top).toBeGreaterThanOrEqual(element.scrollTop);
+  expect(top + ROW).toBeLessThanOrEqual(element.scrollTop + VIEWPORT);
+  // The list shows the folder's contents with the target selected.
+  const listed = [...host.querySelectorAll<HTMLElement>('[role="grid"] [role="row"]')].find((row) =>
+    row.textContent?.includes(target.title),
+  );
+  expect(listed?.getAttribute("aria-selected")).toBe("true");
+  // Still about one viewport each side of 23 lines, not the 1,000.
+  expect(element.querySelectorAll('[role="treeitem"]').length).toBeLessThanOrEqual(70);
+  const snap = store.getSnapshot();
+  expect(snap.folder).toBe(inner.id);
+  expect(snap.selection).toEqual([target.id]);
+  expect(
+    [outer, middle, inner].filter((folder) => snap.collapsed.has(folder.id)).map((folder) => folder.title),
+  ).toEqual([]);
+});
