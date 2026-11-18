@@ -1092,8 +1092,8 @@ ask for, so it can put overflow back while every Blacksmith label is stalled.
 That label is literal: the watch holds the `GLAEDA_ROUTE_APP_KEY` token that
 writes repository variables, so no variable (not `CI_CONTROL_RUNNER`) may move
 it to a reused machine, where the key could outlive the job, and it may not
-write its own runner. The owned pool has four runners online and the watch only
-checks out workflows and runs Python; it needs no Linux build dependencies.
+write its own runner. The watch only checks out workflows and runs Python; it
+needs no Linux build dependencies.
 The group stays one fixed group (two watches must never interleave the
 switch's writes); a watch that starts decides within `CI_CLOUD_PROBE_MINUTES`
 and force-cancels its own run, so it never holds the group for long.
