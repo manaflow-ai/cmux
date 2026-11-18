@@ -11,7 +11,7 @@ import Testing
     final class Catcher: NSPanel, UnderOverlayWindow {}
 
     /// One stacking at the test point.
-    struct Stacking: CustomTestStringConvertible, Sendable {
+    nonisolated struct Stacking: CustomTestStringConvertible, Sendable {
         enum CatcherState: Sendable { case none, shown, parked }
         enum Pages: Sendable { case none, one, two }
         var dialog: Bool
@@ -25,7 +25,7 @@ import Testing
             "dialog \(dialog), catcher \(catcher), occluder \(occluder), pages \(pages), page above catcher \(pageAboveCatcher)"
         }
 
-        static var all: [Stacking] {
+        nonisolated static var all: [Stacking] {
             var all: [Stacking] = []
             for dialog in [false, true] {
                 for catcher in [CatcherState.none, .shown, .parked] {
