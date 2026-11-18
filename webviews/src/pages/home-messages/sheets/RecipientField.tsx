@@ -338,12 +338,16 @@ function SuggestionList({
   // binary searches, not a walk from the first row.
   const start = Math.min(rows.length, firstAtLeast(tops, scrollTop - overscan, 1) - 1);
   const end = Math.max(start, Math.min(rows.length, firstAtLeast(tops, scrollTop + height + overscan, 0)));
+  // Each row as drawn, its line with it: the object it was when the list was last built while its
+  // content holds, so the row components see the same props and a contact that changes re-renders
+  // its own row only.
+  const shown = useMemo(() => keepShownRows(rows, lines), [rows, lines]);
   // A row's key is its place, read from a map made once per list (not a search per row).
-  const keys = useMemo(() => new Map(rows.map((row, index) => [row, String(index)])), [rows]);
+  const keys = useMemo(() => new Map(shown.map((item, index) => [item, String(index)])), [shown]);
   return (
     <Listbox
       id={id}
-      items={rows}
+      items={shown}
       listRef={list}
       className="hm-suggestions-list"
       rowClassName="hm-suggestion-row"
@@ -353,21 +357,59 @@ function SuggestionList({
       onActiveIndexChange={(index) => {
         if (rows[index] && isSelectable(rows[index]!)) onHighlight(index);
       }}
-      getKey={(row) => keys.get(row) ?? ""}
+      getKey={(item) => keys.get(item) ?? ""}
       getItemId={(_, index) => `${id}-${index}`}
-      textValue={(row) => (row.kind === "recipient" ? recipientLabel(row.recipient) : "")}
-      itemAttributes={(row, index) => ({
+      textValue={({ row }) => (row.kind === "recipient" ? recipientLabel(row.recipient) : "")}
+      itemAttributes={({ row, line }) => ({
         "aria-disabled": row.kind === "header" ? "true" : undefined,
-        "aria-label":
-          row.kind === "header" ? row.title : rowName(row, strings) + (lines.get(index) ? `, ${lines.get(index)}` : ""),
+        "aria-label": row.kind === "header" ? row.title : rowName(row, strings) + (line ? `, ${line}` : ""),
         "data-kind": row.kind === "header" ? "header" : "row",
       })}
-      renderItem={(row, index) => <SuggestionRowView row={row} line={lines.get(index)} strings={strings} />}
-      onOpen={onPick}
+      renderItem={({ row, line }) => <SuggestionRowView row={row} line={line} strings={strings} />}
+      onOpen={({ row }) => onPick(row)}
       window={{ start, end, topSpace: tops[start]!, bottomSpace: total - tops[end]! }}
       onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
     />
   );
+}
+
+/** A suggestion row as the list draws it: the row and the line under its name. */
+type ShownRow = { row: SuggestionRow; line?: string };
+
+/** The shown rows of the list built last, by their content. */
+let lastShown = new Map<string, ShownRow>();
+
+/** `rows` with their lines, each the same object as in the list built last when its row and line
+ * read the same (contacts arrive as new objects on any change). Two rows alike get two objects. */
+function keepShownRows(rows: readonly SuggestionRow[], lines: ReadonlyMap<number, string>): ShownRow[] {
+  const next = new Map<string, ShownRow>();
+  const shown = rows.map((row, index) => {
+    const line = lines.get(index);
+    const content = `${rowContent(row)}\u0000${line ?? ""}`;
+    const item = (!next.has(content) && lastShown.get(content)) || { row, line };
+    if (!next.has(content)) next.set(content, item);
+    return item;
+  });
+  lastShown = next;
+  return shown;
+}
+
+/** Everything a row draws from, as one string. */
+function rowContent(row: SuggestionRow): string {
+  switch (row.kind) {
+    case "header":
+      return `header\u0000${row.title}`;
+    case "recipient": {
+      const { recipient } = row;
+      return recipient.kind === "contact"
+        ? `contact\u0000${recipient.contact.id}\u0000${recipient.contact.name}\u0000${recipient.contact.source}`
+        : `address\u0000${recipient.address.kind}\u0000${recipient.address.value}`;
+    }
+    case "inviteToTeam":
+      return `inviteToTeam\u0000${row.address.kind}\u0000${row.address.value}\u0000${row.team}`;
+    default:
+      return row.kind;
+  }
 }
 
 /** The first index from `from` whose top is at least `value` (`tops.length` when none). */
