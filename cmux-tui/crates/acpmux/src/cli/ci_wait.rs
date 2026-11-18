@@ -202,14 +202,10 @@ impl Cache {
         Some((entry["etag"].as_str()?.to_owned(), entry["body"].clone()))
     }
 
+    /// Owner-only (an answer may be a private repository's), written whole through `home_fs`.
     pub fn put(&self, url: &str, etag: &str, body: &Value) {
-        let path = self.path(url);
-        let _ = std::fs::create_dir_all(&self.dir);
-        let tmp = path.with_extension(format!("{}.tmp", std::process::id()));
         let entry = json!({"etag": etag, "body": body});
-        if std::fs::write(&tmp, entry.to_string()).is_ok() {
-            let _ = std::fs::rename(&tmp, &path);
-        }
+        let _ = crate::home_fs::write_json_private(&self.path(url), entry.to_string().as_bytes());
     }
 }
 
