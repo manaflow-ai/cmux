@@ -67,6 +67,10 @@ except ImportError:  # a copy of this script outside scripts/: the same helper (
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+try:
+    from ci_process_tree import run_bounded  # noqa: E402  (a timeout stops the command's whole tree)
+except ImportError:  # a copy of this script outside scripts/ci: subprocess.run, which stops only the command
+    run_bounded = subprocess.run
 
 SCROLLBACK_LINES = 2000
 POLL_S = 0.05
@@ -293,13 +297,28 @@ def daemon_status(inst: Instance) -> dict | None:
         env = {"HOME": inst.home, "CFFIXED_USER_HOME": inst.home, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                "ACPMUX_HOME": str(acp_home)}
         try:
-            done = subprocess.run([acpmux, "status", "--json"], env=env, cwd=inst.home, capture_output=True, text=True,
-                                  timeout=30)
-            answer = json.loads(done.stdout.strip().splitlines()[-1]) if done.returncode == 0 and done.stdout.strip() else None
-        except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+            done = run_bounded([acpmux, "status", "--json"], env=env, cwd=inst.home, capture_output=True, text=True,
+                               timeout=30)
+            answer = status_json(done.stdout) if done.returncode == 0 else None
+        except (OSError, subprocess.SubprocessError):
             answer = None
         if isinstance(answer, dict):
             return unwrap(answer)
+    return None
+
+
+def status_json(text: str) -> dict | None:
+    """`acpmux status --json`'s answer: one JSON document, which it prints indented over many lines (the last
+    line alone is `}`). A line of output before it (a notice) is skipped: the answer is the first `{` line on."""
+    lines = (text or "").splitlines()
+    for start, line in enumerate(lines):
+        if not line.startswith("{"):
+            continue
+        try:
+            answer = json.loads("\n".join(lines[start:]))
+        except ValueError:
+            continue
+        return answer if isinstance(answer, dict) else None
     return None
 
 

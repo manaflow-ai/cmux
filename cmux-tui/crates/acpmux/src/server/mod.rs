@@ -1941,13 +1941,11 @@ async fn serve_connection_from(
                     } else {
                         dual_requests::finish(first, None);
                     }
-                    // When this daemon first answered, and first sent a shown chat's rows, after its
-                    // start: kept the first time only (`gauges.rs`).
-                    if answered {
-                        crate::gauges::global().mark("first answer");
-                        if shown_attach {
-                            crate::gauges::global().mark("first attach answered");
-                        }
+                    // When this daemon first answered (an error is an answer too), and first sent a
+                    // shown chat's rows, after its start: kept the first time only (`gauges.rs`).
+                    crate::gauges::global().mark("first answer");
+                    if answered && shown_attach {
+                        crate::gauges::global().mark("first attach answered");
                     }
                     // A Mac that lends GitHub counts from here: its watch answer is queued, so
                     // no action reaches it before the answer that opens its side.
