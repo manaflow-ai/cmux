@@ -6,7 +6,7 @@
 // each, with their live state, an unread dot, how many messages wait for them and what a working
 // one does now; a click opens its chat beside this one (`onOpenSession`). After them, the other
 // chats the agent started (`sessions`, session-info/ChildSessionRows.tsx), each opening its chat.
-import { useContext, useState } from "react";
+import { useContext } from "react";
 
 import { formatDuration } from "../conversation/turns";
 import { AgentLine } from "../subagents/AgentLine";
@@ -36,8 +36,6 @@ import { agentTone } from "../subagents/agentTones";
 import { useSenderIconLook } from "../subagents/senderIconLook";
 import { orderedSubagents } from "./subagentOrder";
 import { subagentStatus, subagentStateText, SUBSESSION_STATUS } from "./subagentStatusListModel";
-import { heightAbove, useFoldMotion } from "../session-info/foldMotion";
-import { SUBAGENTS_SHOWN } from "../session-info/subagentsSectionModel";
 import { WindowedRows } from "../session-info/WindowedRows";
 
 const ROW_ICON = rowIconSize(12);
@@ -103,16 +101,11 @@ export function SubagentStatusList({
     agents.filter((agent) => subagentStatus(agent, waiting) === "running").length +
     subsessions.filter((session) => session.state === "working" || sessionRetry(session).kind === "retrying").length +
     sessions.filter((child) => sessionStatus(child) === "running").length;
-  // The first SUBAGENTS_SHOWN lines, attention first, then "Show N more" for the rest, as Session Info's
-  // Subagents section caps its list: a coordinator's card listed every subagent its chat ever ran
-  // (chat-100k-flat CASES=coordinator: 280 card elements at 2k records, 2,386 at 20k). Opened, the rest
-  // draw only as they scroll into view (WindowedRows), and the list grows and shrinks in one motion with
-  // what is under it (foldMotion.ts).
-  const [more, setMore] = useState(false);
-  const moreFold = useFoldMotion<HTMLUListElement>(more, (list) => heightAbove(list, list.children[SUBAGENTS_SHOWN]));
+  // Every subagent, drawn only as far as the card's body (a scroller) shows and a few past it, over a box
+  // as tall as the rest that its scroll reaches; the rest draw as it scrolls to them (WindowedRows). A
+  // coordinator's card drew every subagent its chat ever ran (chat-100k-flat CASES=coordinator: 2,386
+  // card body elements at 20k records, 11,772 at 100k).
   const lines = ordered(agents, waiting);
-  const hidden = lines.length - SUBAGENTS_SHOWN;
-  const shown = hidden > 0 && !moreFold.drawn ? lines.slice(0, SUBAGENTS_SHOWN) : lines;
   const agentRow = ({ agent, depth }: { agent: Subagent; depth: number }) => {
     const status = subagentStatus(agent, waiting);
     return (
@@ -160,21 +153,12 @@ export function SubagentStatusList({
           heading
         )}
       </h3>
-      {/* The subagents' list, then the rest's: two lists with no margin or padding draw as one. */}
-      <ul ref={moreFold.ref} className="acpmux-summary-list">
+      {/* The subagents' list, then the rest's: two lists with no margin or padding draw as one, and the
+          windowed rows' box ends their own list (WindowedRows reads its last row as the list's). */}
+      <ul className="acpmux-summary-list">
         {agents.length === 0 && stack.length > 0 && <SubagentStack subagents={stack} />}
-        <WindowedRows items={shown} render={agentRow} />
+        <WindowedRows items={lines} render={agentRow} />
       </ul>
-      {hidden > 0 && (
-        <button
-          type="button"
-          className="acpmux-summary-more"
-          aria-expanded={more}
-          onClick={() => moreFold.toggle(!more, setMore)}
-        >
-          {more ? t("sessionInfo.subagents.less") : t("sessionInfo.subagents.more", { n: hidden })}
-        </button>
-      )}
       <ul className="acpmux-summary-list">
         {subsessions.map((session) => (
           <li key={`session:${session.sessionId}`}>

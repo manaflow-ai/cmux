@@ -61,8 +61,6 @@
 .acpmux-summary-add:hover{background:var(--acpmux-menu-hover);color:var(--agent-text)}
 .acpmux-summary-add:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
 .acpmux-summary-list{margin:0;padding:0;list-style:none}
-/* The subagents' Show more / Show less (SubagentStatusList.tsx, foldMotion.ts) clips the rows it opens onto or closes over while it moves. */
-.acpmux-summary-list[data-folding]{overflow:clip}
 .acpmux-summary-row{display:flex;align-items:center;gap:var(--ds-space-2);width:100%;height:28px;padding:0 var(--ds-space-2);box-sizing:border-box;border:0;border-radius:var(--ds-radius-control);background:none;color:inherit;font:inherit;text-align:left;text-decoration:none}
 .acpmux-summary-row>svg{flex:none;color:var(--agent-muted)}
 .acpmux-summary-text{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}

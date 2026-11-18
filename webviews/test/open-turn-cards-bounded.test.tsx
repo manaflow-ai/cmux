@@ -382,10 +382,10 @@ test("a long run cut into parts draws as the one row did", async () => {
   );
 });
 
-// The summary card's Subagents section listed every subagent the chat ever ran (chat-100k-flat CASES=coordinator: 280
-// card elements at 2k records, 2,386 at 20k). It shows the first few, attention first, and "Show N more" for the rest,
-// which draws them as they scroll into view; nothing is lost.
-test("the summary card lists a bounded number of subagents, the rest one click away", async () => {
+// The summary card's Subagents section drew every subagent the chat ever ran (chat-100k-flat CASES=coordinator: 2,386
+// card body elements at 20k records, 11,772 at 100k). Its body is a scroller: it mounts only the rows that body shows
+// and a few past it, over a box as tall as the rest, and draws the rest as it scrolls to them; nothing is lost.
+test("the summary card mounts only the subagents its body shows, and scrolls to the last", async () => {
   const { SubagentStatusList } = await import("../src/agent-session/acpmux/summary/SubagentStatusList");
   type Agents = Parameters<typeof SubagentStatusList>[0]["agents"];
   const agents = (n: number): Agents =>
@@ -397,31 +397,59 @@ test("the summary card lists a bounded number of subagents, the rest one click a
       startedAt: 1_700_000_000_000 + index * 1_000,
       ...(index % 4 === 0 ? {} : { endedAt: 1_700_000_000_000 + index * 1_000 + 500 }),
     }));
+  // The card's body, 400px tall, scrolls; a list row is 28px (summary.css .acpmux-summary-row), laid out from the
+  // body's scroll. jsdom has no layout, so this test lays out the body and its list's rows itself.
+  const BODY = 400;
+  const ROW = 28;
+  const proto = dom.window.HTMLElement.prototype;
+  const laidOut = proto.getBoundingClientRect;
+  let body: HTMLElement | null = null;
+  proto.getBoundingClientRect = function (this: HTMLElement) {
+    const rect = (top: number, height: number) =>
+      ({ x: 0, y: top, top, left: 0, right: 288, bottom: top + height, width: 288, height, toJSON() {} }) as DOMRect;
+    if (this === body) return rect(0, BODY);
+    const list = this.parentElement;
+    if (body && this.tagName === "LI" && list?.classList.contains("acpmux-summary-list") && body.contains(list))
+      return rect(Array.prototype.indexOf.call(list.children, this) * ROW - body.scrollTop, ROW);
+    return laidOut.call(this);
+  };
   const host = dom.window.document.getElementById("root")!;
   const lines = () => host.querySelectorAll(".acpmux-summary-agents .acpmux-agent-line").length;
   const drawn: Record<number, { lines: number; elements: number }> = {};
-  for (const n of [40, 400]) {
-    const root = createRoot(host);
-    try {
-      await act(async () =>
-        root.render(<SubagentStatusList agents={agents(n)} waiting={new Set()} onOpen={() => {}} />),
-      );
-      drawn[n] = { lines: lines(), elements: host.getElementsByTagName("*").length };
-      const more = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-summary-more")].find((button) =>
-        /more/.test(button.textContent ?? ""),
-      );
-      expect(more?.textContent).toBe(`Show ${n - drawn[n]!.lines} more`);
-      // Opened, the rest draw (as many as the window shows at once, the others as it scrolls), and it closes again.
-      await act(async () => more!.click());
-      expect(lines()).toBeGreaterThan(drawn[n]!.lines);
-      expect(more!.getAttribute("aria-expanded")).toBe("true");
-      await act(async () => more!.click());
-      expect(lines()).toBe(drawn[n]!.lines);
-    } finally {
-      await act(async () => root.unmount());
+  try {
+    for (const n of [40, 400]) {
+      const root = createRoot(host);
+      try {
+        await act(async () =>
+          root.render(
+            <div className="acpmux-summary-card__body" style={{ overflowY: "auto" }} ref={(node) => void (body = node)}>
+              <SubagentStatusList agents={agents(n)} waiting={new Set()} onOpen={() => {}} />
+            </div>,
+          ),
+        );
+        drawn[n] = { lines: lines(), elements: host.getElementsByTagName("*").length };
+        expect(host.querySelector(".acpmux-summary-more")).toBeNull();
+        const spacer = host.querySelector<HTMLElement>("[data-rows-rest]");
+        if (lines() < n) {
+          // The rest's box is as tall as their rows, so the body's scroll takes its whole height at once.
+          expect(spacer?.style.height).toBe(`${(n - lines()) * ROW}px`);
+          // Scrolled to the end, the body draws its last subagent.
+          body!.scrollTop = n * ROW - BODY;
+          await act(async () => void body!.dispatchEvent(new dom.window.Event("scroll")));
+          expect(await settle(() => lines() === n, 5_000)).toBe(true);
+          expect(host.querySelector("[data-rows-rest]")).toBeNull();
+        }
+        expect(host.textContent).toContain(`reviewer-${n - 1}`);
+      } finally {
+        await act(async () => root.unmount());
+        body = null;
+      }
     }
+  } finally {
+    proto.getBoundingClientRect = laidOut;
   }
   console.log(`summary-subagents 40=${JSON.stringify(drawn[40])} 400=${JSON.stringify(drawn[400])}`);
-  expect(drawn[40]!.lines).toBeLessThanOrEqual(8);
-  expect(drawn[400]!.elements).toBe(drawn[40]!.elements);
+  // As many as a window shows and the overscan (WindowedRows firstRowCount), whatever the chat ran.
+  expect(drawn[400]!.lines).toBeLessThanOrEqual(48);
+  expect(drawn[400]!.elements).toBeLessThanOrEqual(drawn[40]!.elements + 2);
 });
