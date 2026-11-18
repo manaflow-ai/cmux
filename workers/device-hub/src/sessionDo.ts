@@ -14,7 +14,8 @@ interface Meta {
   started?: boolean;
 }
 
-const RELAYED = new Set(["offer", "answer", "candidate", "bye"]);
+// grant-challenge and grant-proof: a viewer's Touch ID grant for a consent-gated host (CMUX-572, acpmux viewer_grant).
+const RELAYED = new Set(["offer", "answer", "candidate", "bye", "grant-challenge", "grant-proof"]);
 const MAX_MESSAGE = 64 * 1024;
 const MAX_QUEUE = 256;
 

@@ -2181,6 +2181,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/viewer_grant_challenge",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/viewer_grant_admit",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/viewer_grant_revoke",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/machine_routes",
       "params": true,
       "result": true

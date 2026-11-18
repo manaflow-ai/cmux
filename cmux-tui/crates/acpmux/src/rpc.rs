@@ -895,6 +895,10 @@ pub mod method {
     pub const MUX_MACHINE_CONSENT_SET: &str = "_acpmux/machine_consent_set";
     pub const MUX_MACHINE_CONSENT_REFUSED: &str = "_acpmux/machine_consent_refused";
     pub const MUX_MACHINE_CONSENT_GET: &str = "_acpmux/machine_consent_get";
+    /// Viewer Touch ID grants (`viewer_grant_host.rs`): the person's app, local socket only.
+    pub const MUX_VIEWER_GRANT_CHALLENGE: &str = "_acpmux/viewer_grant_challenge";
+    pub const MUX_VIEWER_GRANT_ADMIT: &str = "_acpmux/viewer_grant_admit";
+    pub const MUX_VIEWER_GRANT_REVOKE: &str = "_acpmux/viewer_grant_revoke";
     /// The share host's status (`share_host/`): `{}` -> `acpmux.share-host.status/1`, what
     /// `acpmux share-host status` prints. Local socket only.
     pub const MUX_SHARE_HOST_STATUS: &str = "_acpmux/share_host_status";

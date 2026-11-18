@@ -66,6 +66,20 @@ describe("tickets", () => {
 });
 
 describe("signaling relay", () => {
+  // CMUX-572: a consent-gated host challenges the viewer, and the viewer's Touch ID key answers.
+  it("relays the viewer grant challenge and proof verbatim, both ways", async () => {
+    const { host, viewer } = await setup();
+    const { vt, ht } = await approvedSession(host, viewer);
+    const v = (await viewer.signal(vt)).peer!;
+    const h = (await host.signal(ht)).peer!;
+    const challenge = { type: "grant-challenge", challenge: "Y2hhbGxlbmdl", scope: "view" };
+    h.send(challenge);
+    expect(await v.next((f) => f.type === "grant-challenge")).toEqual(challenge);
+    const proof = { type: "grant-proof", proof: { v: "cmux.viewer-proof.v1", signature: "c2ln" }, registration: { key: "a2V5" } };
+    v.send(proof);
+    expect(await h.next((f) => f.type === "grant-proof")).toEqual(proof);
+  });
+
   it("relays offer, answer and candidates verbatim, marks the session live, and ends on bye", async () => {
     const { host, viewer } = await setup();
     const { sid, vt, ht } = await approvedSession(host, viewer);

@@ -28,9 +28,14 @@ public protocol ScreenSignalSocket: Sendable {
 /// socket closed. The ticket admits once, so ordinary tickets have no new
 /// signaling after a closed socket; a peer connection already open outlives it.
 /// A reattach ticket is a separate, short-lived admission for the same pair.
-// crash-allow: `socket` and `closed` are read and written only under `lock`; every other field is a `let`.
+// crash-allow: `socket`, `closed` and `grantHandler` are read and written only under `lock`; every other field is a `let`.
 public final class TicketSignaling: ScreenSignaling, @unchecked Sendable {
-    // @unchecked: `socket` and `opened` are behind `lock`.
+    // @unchecked: `socket`, `opened` and `grantHandler` are behind `lock`.
+
+    /// The viewer grant frames (CMUX-572, acpmux `viewer_grant`): the host's challenge and the
+    /// viewer's signed proof, relayed by the Session DO. They are never screen signals: a frame of
+    /// these types goes to ``setGrantHandler(_:)`` only.
+    public static let grantTypes: Set<String> = ["grant-challenge", "grant-proof"]
 
     /// What the ticket's (unverified, server-signed) payload says; the Session DO checks it.
     public struct Ticket: Sendable, Equatable {
@@ -78,6 +83,21 @@ public final class TicketSignaling: ScreenSignaling, @unchecked Sendable {
     private let lock = NSLock()
     private var socket: (any ScreenSignalSocket)?
     private var closed = false
+    private var grantHandler: (@Sendable (String) -> Void)?
+
+    /// Where grant frames from the peer go (the raw JSON text), from now on.
+    public func setGrantHandler(_ handler: (@Sendable (String) -> Void)?) {
+        lock.withLock { grantHandler = handler }
+    }
+
+    /// Sends one grant frame (JSON text whose `type` is in ``grantTypes``) once the socket is open.
+    public func sendGrantFrame(_ text: String) async throws {
+        guard let type = (try? JSONDecoder().decode(Frame.self, from: Data(text.utf8)))?.type, Self.grantTypes.contains(type) else {
+            throw VNCWebRTCError.signaling("not a grant frame")
+        }
+        guard let socket = lock.withLock({ socket }) else { throw VNCWebRTCError.signaling("the session socket is not open") }
+        try await socket.send(text)
+    }
 
     /// `jws` and `signalURL` come from the hub's `session.ticket` push;
     /// `expectedPeerKey` (the push's `peer.signingKey`) must match the
@@ -166,6 +186,9 @@ public final class TicketSignaling: ScreenSignaling, @unchecked Sendable {
             return .candidate(ScreenICECandidate(candidate: candidate, sdpMid: message.sdpMid, sdpMLineIndex: message.sdpMLineIndex))
         case "bye": return .bye
         case "peer-joined": return .peerJoined
+        case let type where Self.grantTypes.contains(type):
+            lock.withLock { grantHandler }?(text)
+            return nil
         default: return nil
         }
     }

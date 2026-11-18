@@ -249,6 +249,9 @@ pub(super) async fn dispatch(
             | method::MUX_MACHINE_CONSENT_SET
             | method::MUX_MACHINE_CONSENT_REFUSED
             | method::MUX_MACHINE_CONSENT_GET
+            | method::MUX_VIEWER_GRANT_CHALLENGE
+            | method::MUX_VIEWER_GRANT_ADMIT
+            | method::MUX_VIEWER_GRANT_REVOKE
             | method::MUX_PAIR_SET
             | method::MUX_PAIR_REDEEM
             | method::MUX_MACHINE_ENROLL
@@ -278,6 +281,9 @@ pub(super) async fn dispatch(
             }
         }
         method::MUX_MACHINE_CONSENT_GET => Ok(crate::cli::cloud_join::consent_status_for(params)),
+        method::MUX_VIEWER_GRANT_CHALLENGE
+        | method::MUX_VIEWER_GRANT_ADMIT
+        | method::MUX_VIEWER_GRANT_REVOKE => viewer_grant(conn, m, params),
         method::MUX_MACHINE_ENROLL => super::machine_enroll::enroll(hub, conn, params).await,
         method::MUX_MACHINE_LEAVE_IF_AUTO => {
             super::machine_enroll::leave_if_auto(hub, conn, params).await
@@ -285,6 +291,34 @@ pub(super) async fn dispatch(
         method::MUX_MACHINE_SIGNED_IN => super::sign_in_follow::signed_in(hub, conn, params).await,
         _ => issue(hub, conn, params),
     })
+}
+
+/// The viewer grant gate (`viewer_grant_host.rs`): only the person's own app, which passes the
+/// ticket as the hub delivered it. A refusal answers `{admitted: false, code, message}`.
+fn viewer_grant(conn: &Conn, m: &str, params: &Value) -> Result<Value, RpcError> {
+    if !conn.is_person() || conn.origin != Origin::Local || conn.origin.web_class() {
+        return Err(crate::hub::person::person_required(
+            "answering this Mac's screen consent; use the local cmux app",
+        ));
+    }
+    let home = crate::config::home();
+    let account = crate::machine_record::machine_user_id();
+    let answer = match m {
+        method::MUX_VIEWER_GRANT_CHALLENGE => {
+            crate::viewer_grant_host::challenge(&home, account.as_deref(), params)
+        }
+        method::MUX_VIEWER_GRANT_ADMIT => {
+            crate::viewer_grant_host::admit(&home, account.as_deref(), params)
+        }
+        _ => crate::viewer_grant_host::revoke(&home, account.as_deref(), params),
+    };
+    Ok(answer.unwrap_or_else(|refused| {
+        let mut value = refused.json();
+        if let Some(object) = value.as_object_mut() {
+            object.insert("admitted".into(), json!(false));
+        }
+        value
+    }))
 }
 
 /// A same-user shell/PTY cannot prove the app's person key. Both grants and

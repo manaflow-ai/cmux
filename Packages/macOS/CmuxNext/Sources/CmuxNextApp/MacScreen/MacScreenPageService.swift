@@ -158,13 +158,12 @@ extension AppServices {
     static func makeMacScreenPages(_ services: AppServices) -> MacScreenPages {
         let pages = MacScreenPages(store: .forApplication(bundleIdentifier: services.environment.launch.bundleID), work: services.work)
         pages.useActions(of: services.registry, isPersonEvent: services.personInput.isPerson)
-        // SECURITY: a joined Mac serves only what its person allowed here (with the model gone, nothing),
-        // and a session stops once that no longer allows it.
+        // SECURITY: a joined Mac serves only what its person allowed here (with the model gone, nothing), or a viewer's
+        // Touch ID grant acpmux verified (CMUX-572), and a session its consent served stops once that no longer allows it.
         let consent = services.joinConsent
-        pages.hubHost.consentGate = { [weak consent] ticket in await consent?.macScreenGate(ticket) ?? false }
-        consent.changed = { [weak consent, weak host = pages.hubHost] in
-            host?.consentChanged { consent?.macScreenPermits($0) ?? false }
-        }
+        pages.useConsent(gate: { [weak consent] ticket in await consent?.macScreenGate(ticket) ?? false }, grant: { [weak consent] in await consent?.viewerGrant($0, $1) },
+                         bundleIdentifier: services.environment.launch.bundleID, loginKeychain: services.loginKeychain)
+        consent.changed = { [weak consent, weak host = pages.hubHost] in host?.consentChanged { consent?.macScreenPermits($0) ?? false } }
         return pages
     }
 

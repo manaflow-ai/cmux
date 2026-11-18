@@ -131,6 +131,15 @@ pub const CAPABILITIES: &[Capability] = &[
         id: "machine-consent-v1",
         wire: &[method::MUX_MACHINE_CONSENT_SET, method::MUX_MACHINE_CONSENT_GET],
     },
+    // A viewer's Touch ID grant answers this Mac's consent gate (`viewer_grant_host.rs`).
+    Capability {
+        id: "viewer-grant-v1",
+        wire: &[
+            method::MUX_VIEWER_GRANT_CHALLENGE,
+            method::MUX_VIEWER_GRANT_ADMIT,
+            method::MUX_VIEWER_GRANT_REVOKE,
+        ],
+    },
     // Signing in enrolls this machine on the hub; signing out leaves only that join
     // (`server/machine_enroll.rs`). A literal id, which the app's reference check reads.
     Capability {

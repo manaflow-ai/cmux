@@ -23,6 +23,8 @@ public final class MacScreenHubHost {
         public var scope: SessionScope
         /// The viewer's data channel opened: it sees (and, Full Control, controls) the screen.
         public var connected: Bool
+        /// Served on the viewer's Touch ID grant (CMUX-572), not on this Mac's consent: a consent change leaves it.
+        public var byGrant = false
     }
 
     public private(set) var session: Session?
@@ -50,6 +52,10 @@ public final class MacScreenHubHost {
     /// apply to Mac Screen since the app serves it), read when the ticket arrives; a refused ticket is
     /// ended unserved. Nil: every ticket serves at once.
     @ObservationIgnored public var consentGate: (@MainActor (SessionTicket) async -> Bool)?
+    /// CMUX-572: a ticket ``consentGate`` refuses is served gated instead, when this is set: acpmux
+    /// admits the viewer's Touch ID grant before any screen signal leaves (``MacScreenGrantGatedSignaling``),
+    /// or the session ends unserved. Nil: a refused ticket ends, as before.
+    @ObservationIgnored public var viewerGrant: MacScreenViewerGrantGate?
     /// Tickets whose consent read is in flight, by arrival; an end or Stop Sharing meanwhile drops them.
     @ObservationIgnored private var awaitingConsent: [String: Int] = [:]
     /// The arrival number of the last ticket, and of the last one served: an older ticket whose read
@@ -115,7 +121,8 @@ public final class MacScreenHubHost {
             // Only this delivery's own entry: a newer delivery of the same session replaced it, and answers itself.
             guard let self, awaitingConsent[ticket.sessionId] == arrival, let hub = hub() else { return }
             awaitingConsent.removeValue(forKey: ticket.sessionId)
-            guard allowed else {
+            let grant = allowed ? nil : viewerGrant
+            guard allowed || grant != nil else {
                 logger.info("session ticket refused: this Mac's consent does not allow it")
                 end(ticket.sessionId, reason: .failed, hub: hub)
                 return
@@ -126,30 +133,40 @@ public final class MacScreenHubHost {
                 return
             }
             servedArrival = arrival
-            start(ticket)
+            start(ticket, grant: grant)
         }
     }
 
     /// This Mac's consent changed: a session it no longer allows (its scope) stops now.
     public func consentChanged(allows: (SessionScope) -> Bool) {
-        guard let current = session, !allows(current.scope) else { return }
+        guard let current = session, !current.byGrant, !allows(current.scope) else { return }
         logger.info("serving stopped: this Mac's consent no longer allows the session")
         // Closes here at once; the hub hears it after (a hub that does not answer never keeps it serving).
         stopSession(reason: .hostStopped, immediately: true)
     }
 
-    private func start(_ ticket: SessionTicket) {
+    private func start(_ ticket: SessionTicket, grant: MacScreenViewerGrantGate? = nil) {
         guard let hub = hub() else { return }
         if let current = session, current.id != ticket.sessionId {
             // One viewer at a time: the newer session wins.
             closeLocal()
             end(current.id, reason: .replaced, hub: hub)
         }
-        let signaling: any ScreenSignaling
+        var signaling: any ScreenSignaling
         do { signaling = try makeSignaling(ticket, hub) } catch {
             logger.error("session ticket refused: \(String(describing: error), privacy: .public)")
             end(ticket.sessionId, reason: .failed, hub: hub)
             return
+        }
+        if let grant {
+            // SECURITY: a gated ticket never serves on a signaling that cannot carry the grant frames.
+            guard let channel = signaling as? any MacScreenGrantChannel else {
+                logger.info("session ticket refused: its signaling cannot carry a viewer grant")
+                end(ticket.sessionId, reason: .failed, hub: hub)
+                return
+            }
+            logger.info("session ticket gated on the viewer's grant")
+            signaling = MacScreenGrantGatedSignaling(inner: channel, ticket: ticket, gate: grant)
         }
         let host = makeHost(MacScreenRdHost.Session(id: ticket.sessionId, name: MacScreenShareHost.computerName, viewerID: ticket.peer.id, viewOnly: ticket.scope == .view,
                                                     servers: MacScreenRdServers(hub.iceServers(for: ticket).map(\.config))))
@@ -157,7 +174,7 @@ public final class MacScreenHubHost {
         host.onEvent = { event in sink.yield(event) }
         self.host = host
         session = Session(id: ticket.sessionId, viewerID: ticket.peer.id, viewerName: ticket.peer.name, scope: ticket.scope,
-                          connected: false)
+                          connected: false, byGrant: grant != nil)
         let id = ticket.sessionId
         eventTask = Task { [weak self, weak host] in
             for await event in events {
