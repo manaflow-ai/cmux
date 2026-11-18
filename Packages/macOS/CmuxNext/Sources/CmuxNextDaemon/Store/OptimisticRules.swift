@@ -37,7 +37,9 @@ import Foundation
     static func split(_ screen: ScreenModel, target: PaneID, direction: SplitDirection, ratio: Double, leaf: PaneID,
                       splitID: String, column: ProvisionalColumn?, row: ProvisionalRow?, around: SplitID?, before: Bool) -> Placed? {
         let layout = screen.layout, columns = screen.columns
-        let spots = findSpots(layout, columns, holding: target, match: around.map(Match.split) ?? .leaf(target))
+        // A plain split looks for the split `around` when it wraps one; New Column and New Row always the target's leaf.
+        let wraps = column == nil && row == nil ? around : nil
+        let spots = findSpots(layout, columns, holding: target, match: wraps.map(Match.split) ?? .leaf(target))
         // Each kind sends only the facts its rule reads, so no walk runs that no rule needs.
         var facts = Facts(leafPlaced: layout.contains(pane: leaf), columns: columns.count, panes: screen.panes.count)
         if column == nil {
