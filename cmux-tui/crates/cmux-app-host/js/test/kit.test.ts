@@ -166,16 +166,23 @@ describe("the template folders (skills/cmux-customization/templates)", () => {
   const tap = (host: FakeHost, mount: string, type: string, title: string, payload: unknown = { gesture: "g1" }) =>
     host.dispatch(mount, host.findNode(mount, (n) => n.type === type && (n.props.title ?? n.props.label) === title)!, "tap", payload)
 
-  test("starter: a click redraws its text and Say hi toasts", async () => {
+  test("starter: a lead line over task rows; a tap toggles one, More clears done and says hi", async () => {
     const host = new FakeHost(load("starter"), declared("starter"))
     host.handlers["toast.show"] = ok()
     expect(host.mount("m", "renderSection")).toBe("")
-    tap(host, "m", "Button", "Click")
+    expect(titles(host, "m", "Text")).toContain("2 left today")
+    expect(titles(host, "m", "Row")).toContain("Answer the design thread")
+    tap(host, "m", "Row", "Answer the design thread")
     await host.settle()
-    expect(titles(host, "m", "Text")).toContain("Clicked 1 times")
-    tap(host, "m", "Button", "Say hi")
+    expect(titles(host, "m", "Text")).toContain("1 left today")
+    const more = host.findNode("m", (n) => n.type === "Menu" && n.props.title === "More")!
+    host.dispatch("m", more, "menu", { path: [2], gesture: "g1" })
     await host.settle()
     expect(host.calls.find((c) => c.name === "toast.show")?.params).toEqual({ title: "Hi from my section", tone: "success" })
+    host.dispatch("m", more, "menu", { path: [0], gesture: "g2" })
+    await host.settle()
+    expect(titles(host, "m", "Row")).not.toContain("Answer the design thread")
+    expect(titles(host, "m", "Row")).toContain("Write the release notes")
   })
 
   test("sidebar-section: the focused workspace's tabs, read again on a tab change, a click focuses", async () => {

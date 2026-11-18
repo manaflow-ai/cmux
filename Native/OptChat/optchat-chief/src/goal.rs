@@ -1,18 +1,33 @@
-//! A subagent works under Claude Code's `/goal` until its task is done
-//! (user, 2026-11-10: "you should have opus 5.5 set goal/loop so it doesn't
-//! stop until it's all done").
+//! A subagent works under a goal until its task is done (user, 2026-11-10:
+//! "you should have opus 5.5 set goal/loop so it doesn't stop until it's
+//! all done").
 //!
-//! `/goal <condition>` (Claude Code 2.1.322) adds a session Stop hook: after
-//! each would-be stop a separate check reads the conversation and, while the
-//! condition does not hold, makes Claude keep working in the same turn. The
-//! command also starts a turn whose directive is the condition. So a
-//! subagent's start is two prompts: its view and task with "reply `ready`",
-//! then `/goal` naming that task as the thing to finish. The second is the
-//! prompt the Chief follows; its end is the subagent's report.
+//! The goal is the hook Claude Code's `/goal <condition>` adds (2.1.325): a
+//! Stop hook of type `prompt`, which at each would-be stop asks a model
+//! whether the condition holds and, while it does not, makes Claude go on
+//! in the same turn. The Chief sets it with the session: acpmux's
+//! `stopCondition` (`SessionSpec::stop_condition`) gives Claude Code that
+//! hook at every start, a resume or respawn too. So a subagent's start is
+//! one prompt, its view and task (with [`note_block`] naming the bar), and
+//! its first turn is the work.
 //!
-//! On by default for a Claude subagent on this Mac; cmux-next.json
-//! `chief.subagentGoal: false` turns it off (a codex subagent or one on a
-//! peer never gets it: neither runs this Claude Code command).
+//! Until 2026-11-18 the start was two prompts: the view and task with
+//! an order to reply only `ready`, then `/goal` (a slash command
+//! runs only as a whole message, its condition the rest of that message,
+//! so the task could not ride along; sent back to back, acpmux ran the
+//! short `/goal` first, a1141). The `ready` turn read the whole context for
+//! nothing: 95 starts from Nov 12 to 18, median 65.6k input tokens and
+//! 3.5 s each (user, 2026-11-18: "why wasn't it just one prompt?").
+//!
+//! A Codex subagent gets the same condition: acpmux sets it as Codex's own
+//! goal (codex-acp `_session/goal`) beside its first prompt, and Codex starts
+//! its next turns itself until it marks the goal complete. Its report waits
+//! for a turn end with the goal no longer active
+//! (`brain/children.rs` `goal_goes_on`).
+//!
+//! On by default for a Claude or Codex subagent on this Mac; cmux-next.json
+//! `chief.subagentGoal: false` turns it off (one on a peer never gets it:
+//! the peer's acpmux may not know `stopCondition`).
 
 use serde_json::{Value, json};
 
@@ -23,7 +38,8 @@ pub const SETTING: &str = "chief.subagentGoal";
 /// engine names one.
 pub const MODEL: &str = "claude-opus-5-5";
 
-/// Claude Code's cap on a goal condition (2.1.322 `Qon`).
+/// Claude Code's cap on a goal condition (2.1.325 `mmn`; acpmux refuses a
+/// longer `stopCondition`).
 pub const CONDITION_LIMIT: usize = 4000;
 
 /// When the subagent may stop: the task is done and landed, or only the
@@ -47,24 +63,14 @@ pub fn on(user: Option<&Value>) -> bool {
         .unwrap_or(true)
 }
 
-/// The prompt that sets the goal and starts the work.
-pub fn command() -> String {
-    format!("/goal {CONDITION}")
-}
-
-/// The marker in a hold prompt's id (`optchat-sub:<id>:task:<ms>`).
+/// The marker in a hold prompt's id (`optchat-sub:<id>:task:<ms>`), which
+/// a subagent started before the one-prompt start still has in its log.
 const HOLD_MARK: &str = ":task:";
 
-/// The id of subagent `id`'s hold prompt (its view and task with "reply
-/// `ready`"), made at `ms`.
-pub fn hold_prompt_id(id: &str, ms: u64) -> String {
-    format!("{}sub:{id}{HOLD_MARK}{ms}", crate::subagents::PROMPT_PREFIX)
-}
-
-/// Whether `prompt_id` is a subagent's hold prompt: its turn only answers
-/// `ready`, so it is never the subagent's report (user 2026-11-12, msg
-/// 30563: that `ready` reached the Chief as "[a1145] ready" and moved the
-/// agent's Home pill off the Chief's reply, marked done).
+/// Whether `prompt_id` is the hold prompt of a subagent started before the
+/// one-prompt start: its turn only answered `ready`, so it is never the
+/// subagent's report (user 2026-11-12, msg 30563: that `ready` reached the
+/// Chief as "[a1145] ready"). No new subagent has one.
 pub fn is_hold_prompt(prompt_id: Option<&str>) -> bool {
     prompt_id.is_some_and(|p| {
         p.strip_prefix(crate::subagents::PROMPT_PREFIX)
@@ -73,11 +79,13 @@ pub fn is_hold_prompt(prompt_id: Option<&str>) -> bool {
     })
 }
 
-/// The block after the task in the first prompt: wait for the goal.
-pub fn hold_block() -> Value {
+/// The block after the task in a goal subagent's one prompt: the bar its
+/// session's Stop hook holds it to, so it works toward it from the start.
+pub fn note_block() -> Value {
     json!({
         "type": "text",
-        "text": "Do not start yet: reply only `ready`. The next message sets your goal \
-                 (/goal) and starts the work on this task.",
+        "text": format!(
+            "You work under a goal: every would-be stop is checked, and you go back to work until this holds. {CONDITION}"
+        ),
     })
 }

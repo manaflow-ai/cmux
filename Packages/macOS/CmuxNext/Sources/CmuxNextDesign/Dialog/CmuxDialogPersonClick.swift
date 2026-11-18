@@ -59,28 +59,44 @@ public final class CmuxDialogPersonClick {
     /// mouse-down's when a button took the mouse-up in its tracking loop there. A drag or pressure change
     /// while the button is held keeps it; any other event clears it.
     public func dispatch(_ event: NSEvent, allow: @MainActor () -> NSControl?, in windowNumber: Int, _ body: () -> Void) -> Bool {
+        dispatch(event, allows: { allow().map { [$0] } ?? [] }, in: windowNumber, body) != nil
+    }
+
+    /// ``dispatch(_:allow:in:_:)`` for a prompt with several ways to allow (a device asking to control this Mac:
+    /// Allow Once, Always Allow View Only, Always Allow Full Control): returns the one of `allows()` the person's
+    /// click ended on, nil for none.
+    public func dispatch(_ event: NSEvent, allows: @MainActor () -> [NSControl], in windowNumber: Int,
+                         _ body: () -> Void) -> NSControl? {
         switch event.type {
         case .leftMouseDown:
             personDown = nil
-            if let control = allow(), control.isEnabled, isPersonEvent(event) {
+            if isPersonEvent(event), let control = allows().first(where: { $0.isEnabled && Self.hit($0, event) }) {
                 if settled(event) { personDown = (event: event, allow: control) }
                 // Only the person's own: another process's clicks never hold the person's Allow off.
                 lastDown = event.timestamp
+            } else if isPersonEvent(event), allows().contains(where: \.isEnabled) {
+                lastDown = event.timestamp
             }
             body()
-            guard let up = eventInHand(), up.type == .leftMouseUp else { return false }
-            return endClick(up, allow: allow(), in: windowNumber)
+            guard let up = eventInHand(), up.type == .leftMouseUp else { return nil }
+            return endClick(up, allows: allows(), in: windowNumber)
         case .leftMouseDragged, .pressure:
             body()
-            return false
+            return nil
         case .leftMouseUp:
             body()
-            return endClick(event, allow: allow(), in: windowNumber)
+            return endClick(event, allows: allows(), in: windowNumber)
         default:
             personDown = nil
             body()
-            return false
+            return nil
         }
+    }
+
+    /// Whether `event` falls on `control`: of several Allows, the one the mouse-down is on holds it (a click
+    /// begun off every Allow holds none, as ``takePersonClick(on:up:in:)`` would refuse it).
+    private static func hit(_ control: NSControl, _ event: NSEvent) -> Bool {
+        control.bounds.contains(control.convert(event.locationInWindow, from: nil))
     }
 
     /// Whether a mouse-down came late enough to be aimed at the prompt (Chrome's
@@ -93,10 +109,10 @@ public final class CmuxDialogPersonClick {
         return lastDown.map { down.timestamp >= $0 + activationDelay } ?? true
     }
 
-    private func endClick(_ up: NSEvent, allow: NSControl?, in windowNumber: Int) -> Bool {
+    private func endClick(_ up: NSEvent, allows: [NSControl], in windowNumber: Int) -> NSControl? {
         defer { personDown = nil }
-        guard let allow, allow.isEnabled else { return false }
-        return takePersonClick(on: allow, up: up, in: windowNumber)
+        guard let held = personDown?.allow as? NSControl, allows.contains(where: { $0 === held }), held.isEnabled else { return nil }
+        return takePersonClick(on: held, up: up, in: windowNumber) ? held : nil
     }
 
     /// SECURITY: whether `up` ends a click on `button` that is the person's own, taken once: this holds the

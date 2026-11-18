@@ -535,6 +535,10 @@ pub struct SubRecord {
     /// yet: tells wait in the inbox so they never arrive before the task.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub awaiting_task: bool,
+    /// Idle with its goal still going on (Codex runs its next turns itself,
+    /// goal.rs): the tick reads it again until it reports.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub goal_held: bool,
 }
 
 /// How many tell keys a subagent keeps for dedupe.
