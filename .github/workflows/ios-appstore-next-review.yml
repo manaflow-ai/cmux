@@ -356,6 +356,10 @@ jobs:
       - name: Ensure bundle ids, capabilities and App Store profiles
         run: |
           set -euo pipefail
+          # ASC refuses ?limit on this relationship (400); fixed on feat-cmux-next by the
+          # asc_ensure_signing capabilities-limit PR, patched here for this one-off run.
+          sed -i '' 's|bundleIdCapabilities?limit=200"|bundleIdCapabilities"|' cmux-next-ios/scripts/asc_ensure_signing.py
+          ! grep -q 'bundleIdCapabilities?limit' cmux-next-ios/scripts/asc_ensure_signing.py
           PROFILE_DIR="$RUNNER_TEMP/appstoreconnect/profiles"
           python3 -I cmux-next-ios/scripts/asc_ensure_signing.py \
             --bundle-id com.cmux.app \
