@@ -7,7 +7,6 @@ nonisolated enum AddMachineStrings {
         String(localized: key, defaultValue: value, table: "AddMachine", bundle: .module)
     }
 
-    static var personOnly: String { s("addMachine.personOnly", "Only a click or key in the card adds or checks a machine.") }
     static var peerConnectFailed: String { s("addMachine.peerConnectFailed", "The app could not connect to it over ssh.") }
 
     /// A step's name; a step this build does not know shows by its raw name.
