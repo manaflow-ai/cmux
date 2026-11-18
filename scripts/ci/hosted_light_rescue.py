@@ -1331,7 +1331,7 @@ def budget_short(client: Any, lines: list[str]) -> bool:
 
 
 def backlog_sweep(client: Any, *, now: dt.datetime, dry_run: bool, declared: Sequence[str] | None,
-                  actions: int = BACKLOG_ACTIONS, since: dt.datetime | None = None,
+                  actions: int = BACKLOG_ACTIONS, since: dt.datetime | None = None, run_ids: Sequence[int] = (),
                   echo: Callable[[str], None] | None = None, sleep: Callable[[float], None] = time.sleep,
                   clock: Callable[[], float] = time.monotonic) -> tuple[list[str], dict[str, int]]:
     """One bounded backlog pass. Returns its log lines (the journal last) and counts (cancelled, recovered, ...).
@@ -1358,7 +1358,7 @@ def backlog_sweep(client: Any, *, now: dt.datetime, dry_run: bool, declared: Seq
         backlog_recover(client, journal, now=now, dry_run=dry_run, lines=lines, counts=counts)
     try:
         backlog_scan(client, journal, now=now, dry_run=dry_run, declared=declared, actions=actions, lines=lines,
-                     counts=counts, hold=hold)
+                     counts=counts, hold=hold, run_ids=run_ids)
     except Exception as error:  # noqa: BLE001 - the journal below still goes out for the next pass
         lines.append(f"the pass stopped early ({error})")
     counts["pending"] = len(journal or {})
@@ -1374,13 +1374,51 @@ def backlog_sweep(client: Any, *, now: dt.datetime, dry_run: bool, declared: Seq
 
 def backlog_scan(client: Any, journal: dict[int, Journalled] | None, *, now: dt.datetime, dry_run: bool,
                  declared: Sequence[str] | None, actions: int, lines: list[str], counts: dict[str, int],
-                 hold: str = "") -> None:
-    """Find stalled runs and cancel them: a current-head one into the journal, a superseded one for good."""
+                 hold: str = "", run_ids: Sequence[int] = ()) -> None:
+    """Find stalled runs and cancel them: a current-head one into the journal, a superseded one for good. With
+    `run_ids`, only those runs are read (one call each), under the same rules, instead of the listings."""
     start, end = now - BACKLOG_WINDOW, now - BACKLOG_STALL
     minute_pass_from = now - WINDOW
     repo = getattr(client, "repo", "")
     listed: dict[int, Mapping[str, Any]] = {}
-    for status in ("queued", "in_progress"):
+
+    def eligible(run: Any) -> str:
+        """Why the backlog rules leave `run` alone, or "" when it is a candidate."""
+        created = parse_time(run.get("created_at")) if isinstance(run, Mapping) else None
+        workflow = workflow_file(run) if isinstance(run, Mapping) else None
+        if not isinstance(run, Mapping) or not isinstance(run.get("id"), int) or created is None:
+            return "not a run"
+        if run.get("event") not in BACKLOG_EVENTS:
+            return f"a {run.get('event')} run, not a pull request's"
+        if workflow is None or workflow in EXCLUDED_WORKFLOWS:
+            return f"workflow {workflow} is never touched"
+        if repo and str((run.get("head_repository") or {}).get("full_name") or "") != repo:
+            return "a fork's run"
+        if run.get("run_attempt") != 1:
+            return f"attempt {run.get('run_attempt')}, not 1"
+        if run.get("status") not in IN_FLIGHT:
+            return f"{run.get('status')}, not queued or in progress"
+        if not (start <= created <= end):
+            return f"created {run.get('created_at')}, outside {int(BACKLOG_STALL.total_seconds() // 60)} min to 24 h ago"
+        # The minute pass owns a declared workflow's run under WINDOW old; unread declarations leave every run under
+        # WINDOW to it.
+        if created >= minute_pass_from and (declared is None or workflow in declared):
+            return "the minute pass's run"
+        return ""
+
+    if run_ids:
+        for run_id in run_ids:
+            try:
+                run = client.request("GET", f"/actions/runs/{run_id}")
+            except Exception as error:  # noqa: BLE001
+                lines.append(f"run {run_id}: could not read ({error}); left alone")
+                continue
+            why = eligible(run)
+            if why:
+                lines.append(f"run {run_id}: {why}; left alone")
+                continue
+            listed[run["id"]] = {**run, "_workflow": workflow_file(run)}
+    for status in () if run_ids else ("queued", "in_progress"):
         for event in BACKLOG_EVENTS:
             try:
                 rows = backlog_oldest(client, status, event, start, end, BACKLOG_READS)
@@ -1388,18 +1426,8 @@ def backlog_scan(client: Any, journal: dict[int, Journalled] | None, *, now: dt.
                 lines.append(f"could not list {status} {event} runs ({error})")
                 continue
             for run in rows:
-                created = parse_time(run.get("created_at")) if isinstance(run, Mapping) else None
-                workflow = workflow_file(run)
-                if (not isinstance(run.get("id"), int) or created is None or not (start <= created <= end)
-                        or run.get("event") not in BACKLOG_EVENTS or run.get("run_attempt") != 1
-                        or run.get("status") not in IN_FLIGHT or workflow is None or workflow in EXCLUDED_WORKFLOWS
-                        or (repo and str((run.get("head_repository") or {}).get("full_name") or "") != repo)):
-                    continue
-                # The minute pass owns a declared workflow's run under WINDOW old; unread declarations leave every
-                # run under WINDOW to it.
-                if created >= minute_pass_from and (declared is None or workflow in declared):
-                    continue
-                listed[run["id"]] = {**run, "_workflow": workflow}
+                if not eligible(run):
+                    listed[run["id"]] = {**run, "_workflow": workflow_file(run)}
     # Queued runs first (nothing of theirs started), then the rest; oldest first within each.
     order = sorted(listed.values(), key=lambda run: (run.get("status") != "queued",) + run_key(run))
     counts["candidates"] = len(order)
@@ -1424,6 +1452,9 @@ def backlog_scan(client: Any, journal: dict[int, Journalled] | None, *, now: dt.
             counts["read"] += 1
             rescue_it, stuck = backlog_verdict(client.jobs(run["id"]), now)
             if not rescue_it:
+                if run_ids:
+                    lines.append(f"{where}: not every unfinished job has waited {int(BACKLOG_STALL.total_seconds() // 60)}"
+                                 f" min on hosted Ubuntu with no runner; left alone")
                 continue
             counts["stalled"] += 1
             head = backlog_head(client, run)
@@ -1551,6 +1582,11 @@ def backlog_main(args: argparse.Namespace, env: Mapping[str, str], repo: str, *,
                   f"every run under {int(WINDOW.total_seconds() // 60)} min is left to the minute pass")
     raw = (env.get("BACKLOG_ACTIONS") or "").strip()
     actions = int(raw) if raw.isdigit() else BACKLOG_ACTIONS
+    raw_ids = (args.run_ids or env.get("BACKLOG_RUN_IDS") or "").strip()
+    run_ids = [int(part) for part in re.split(r"[\s,]+", raw_ids) if part.isdigit()]
+    if raw_ids and not run_ids:
+        print(f"::warning title=Hosted backlog rescue::no run id in {raw_ids!r}; nothing to do")
+        return 0
     raw_since = (args.recover_since or env.get("BACKLOG_RECOVER_SINCE") or "").strip()
     since = parse_time(raw_since) if raw_since else None
     if raw_since and since is None:
@@ -1567,7 +1603,7 @@ def backlog_main(args: argparse.Namespace, env: Mapping[str, str], repo: str, *,
         else:
             client = GitHub(bot or workflow, repo, bot or workflow)
     lines, _ = backlog_sweep(client, now=now, dry_run=args.dry_run, declared=declared, actions=actions, since=since,
-                             echo=lambda line: print(line, flush=True), sleep=sleep)
+                             run_ids=run_ids, echo=lambda line: print(line, flush=True), sleep=sleep)
     summary = env.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as handle:
@@ -1590,6 +1626,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                         help="with --backlog: the .github directory whose declared workflows the minute pass owns")
     parser.add_argument("--workflows", type=Path, default=None,
                         help="the .github/workflows directory whose callers of reusable declared workflows are listed too")
+    parser.add_argument("--run-ids", default=None,
+                        help="with --backlog: act on exactly these runs (comma-separated ids) under the pass's rules, "
+                             "instead of listing the queue")
     parser.add_argument("--recover-since", default=None,
                         help="with --backlog: read every earlier pass's journal back to this UTC time (ISO 8601), "
                              "not just the newest, and re-run what they left")
