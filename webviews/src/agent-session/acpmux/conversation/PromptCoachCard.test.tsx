@@ -5,9 +5,11 @@ import { afterEach, expect, test } from "bun:test";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { PromptCoachCard } from "./PromptCoachCard";
-import { coachLines, COACH_MAX_LINES, promptCoachFromRecord } from "./promptCoach";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { PromptCoachCard } = await importWithDom(() => import("./PromptCoachCard"));
+const { coachLines, COACH_MAX_LINES, promptCoachFromRecord } = await importWithDom(() => import("./promptCoach"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

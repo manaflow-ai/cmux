@@ -7,7 +7,9 @@ import { settleReact } from "../../../../test/support/domTeardown";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { RunScroll } from "./RunScroll";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { RunScroll } = await importWithDom(() => import("./RunScroll"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

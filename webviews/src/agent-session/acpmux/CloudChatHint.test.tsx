@@ -9,10 +9,15 @@ import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { readFileSync } from "node:fs";
-import { memoryTipHost, type TipHost } from "../../ui/featureTips/store";
-import { CloudChatHint } from "./CloudChatHint";
-import { installPageKey, pageIsKey, watchPageKey } from "./pageKey";
-import {
+import type { TipHost } from "../../ui/featureTips/store";
+import type { CloudChatHintState } from "./cloudChatHintModel";
+import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { memoryTipHost } = await importWithDom(() => import("../../ui/featureTips/store"));
+const { CloudChatHint } = await importWithDom(() => import("./CloudChatHint"));
+const { installPageKey, pageIsKey, watchPageKey } = await importWithDom(() => import("./pageKey"));
+const {
   CLOUD_CHAT_HINT_ID,
   cloudChatHintDue,
   cloudChatHintRecord,
@@ -20,9 +25,7 @@ import {
   cloudChatHintShown,
   useCloudChatHint,
   useCloudChatHintClaim,
-  type CloudChatHintState,
-} from "./cloudChatHintModel";
-import { settleReact } from "../../../test/support/domTeardown";
+} = await importWithDom(() => import("./cloudChatHintModel"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

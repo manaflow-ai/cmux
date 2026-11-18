@@ -6,9 +6,11 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AttachmentSource } from "../attachments";
-import { SourceBadge } from "./SourceBadge";
-import { ICON_RETRY_MS, resetSourceIcons, withSourceLabel } from "./sourceBadgeModel";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { SourceBadge } = await importWithDom(() => import("./SourceBadge"));
+const { ICON_RETRY_MS, resetSourceIcons, withSourceLabel } = await importWithDom(() => import("./sourceBadgeModel"));
 
 const PNG = "data:image/png;base64,iVBORw0KGgo=";
 const chrome: AttachmentSource = { name: "Google Chrome", bundleId: "com.google.Chrome", site: "github.com" };

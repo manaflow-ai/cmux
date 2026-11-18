@@ -5,9 +5,11 @@ import { settleReact } from "../../../test/support/domTeardown";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { AddAccountDialog } from "./AddAccountDialog";
-import { accountIdFor } from "./addAccountDialogModel";
 import type { NewChatAccount } from "./chatAccounts";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { AddAccountDialog } = await importWithDom(() => import("./AddAccountDialog"));
+const { accountIdFor } = await importWithDom(() => import("./addAccountDialogModel"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

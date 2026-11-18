@@ -6,10 +6,12 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { translate } from "../i18n";
-import { RepoRecoveryCard } from "./RepoRecoveryCard";
 import type { RepoRecovery } from "./repoRecoveryCardModel";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { translate } = await importWithDom(() => import("../i18n"));
+const { RepoRecoveryCard } = await importWithDom(() => import("./RepoRecoveryCard"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

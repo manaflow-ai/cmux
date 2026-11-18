@@ -6,10 +6,12 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { readFileSync } from "node:fs";
-import { Notice, NoticeSlot } from "./NoticeSlot";
-import { RulesNotice } from "./RulesNotice";
-import { forumRules } from "./rulesNoticeModel";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { Notice, NoticeSlot } = await importWithDom(() => import("./NoticeSlot"));
+const { RulesNotice } = await importWithDom(() => import("./RulesNotice"));
+const { forumRules } = await importWithDom(() => import("./rulesNoticeModel"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

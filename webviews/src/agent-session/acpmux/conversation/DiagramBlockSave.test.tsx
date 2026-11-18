@@ -6,9 +6,11 @@ import { settleReact } from "../../../../test/support/domTeardown";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import * as clipboard from "./clipboard";
-import * as diagrams from "../../../pages/markdown/diagrams";
-import { setNativeHost } from "../native";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const clipboard = await importWithDom(() => import("./clipboard"));
+const diagrams = await importWithDom(() => import("../../../pages/markdown/diagrams"));
+const { setNativeHost } = await importWithDom(() => import("../native"));
 
 type Call = { method: string; params: Record<string, unknown> };
 const calls: Call[] = [];
@@ -39,7 +41,7 @@ await mock.module("../../../pages/markdown/diagrams", () => ({
 }));
 const copied: string[] = [];
 await mock.module("./clipboard", () => ({ ...clipboard, copyText: async (text: string) => void copied.push(text) }));
-const { DiagramBlock } = await import("./DiagramBlock");
+const { DiagramBlock } = await importWithDom(() => import("./DiagramBlock"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

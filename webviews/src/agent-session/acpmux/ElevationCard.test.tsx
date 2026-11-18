@@ -4,8 +4,10 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { commandLine, ElevationCard } from "./ElevationCard";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { commandLine, ElevationCard } = await importWithDom(() => import("./ElevationCard"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

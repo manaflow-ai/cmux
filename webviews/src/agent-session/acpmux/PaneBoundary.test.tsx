@@ -2,8 +2,10 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { PaneBoundary } from "./PaneBoundary";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { PaneBoundary } = await importWithDom(() => import("./PaneBoundary"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

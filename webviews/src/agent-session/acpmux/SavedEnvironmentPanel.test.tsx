@@ -2,9 +2,11 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { UiProvider } from "../../ui/UiProvider";
-import { SavedEnvironmentPanel } from "./SavedEnvironmentPanel";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { UiProvider } = await importWithDom(() => import("../../ui/UiProvider"));
+const { SavedEnvironmentPanel } = await importWithDom(() => import("./SavedEnvironmentPanel"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

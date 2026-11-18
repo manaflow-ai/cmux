@@ -3,8 +3,12 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import React from "react";
-import { ACTIVATION_SETTLE_MS, shouldBlurComposerOnPress, useComposerKeyboard } from "./composerFocus";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { ACTIVATION_SETTLE_MS, shouldBlurComposerOnPress, useComposerKeyboard } = await importWithDom(
+  () => import("./composerFocus"),
+);
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

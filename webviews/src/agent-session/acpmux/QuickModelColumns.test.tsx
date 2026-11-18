@@ -6,10 +6,15 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { ChatAccounts, NewChatAccount } from "./chatAccounts";
 import type { QuickFamily, QuickModel } from "./quickModelMenuModel";
-import { authText, type SessionAuth } from "./sessionAuth";
-import { translate } from "./i18n";
+import type { SessionAuth } from "./sessionAuth";
 import { settleReact } from "../../../test/support/domTeardown";
-import { modelMenuHeight, modelMenuWidth, setModelMenuHeight, setModelMenuWidth } from "./modelMenuWidth";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { authText } = await importWithDom(() => import("./sessionAuth"));
+const { translate } = await importWithDom(() => import("./i18n"));
+const { modelMenuHeight, modelMenuWidth, setModelMenuHeight, setModelMenuWidth } = await importWithDom(
+  () => import("./modelMenuWidth"),
+);
 
 let QuickModelColumns: typeof import("./QuickModelColumns").QuickModelColumns;
 

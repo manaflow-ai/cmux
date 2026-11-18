@@ -5,10 +5,12 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { NoticeSlot } from "./NoticeSlot";
-import { PaneNotices } from "./PaneNotices";
-import { paneNotices, readPaneNotices, setPaneNotices } from "./paneNoticeStore";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { NoticeSlot } = await importWithDom(() => import("./NoticeSlot"));
+const { PaneNotices } = await importWithDom(() => import("./PaneNotices"));
+const { paneNotices, readPaneNotices, setPaneNotices } = await importWithDom(() => import("./paneNoticeStore"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

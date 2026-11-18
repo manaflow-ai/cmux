@@ -6,7 +6,9 @@ import { settleReact } from "../../../../test/support/domTeardown";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { ArtifactPanel } from "./ArtifactPanel";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { ArtifactPanel } = await importWithDom(() => import("./ArtifactPanel"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

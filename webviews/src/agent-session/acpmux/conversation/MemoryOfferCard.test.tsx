@@ -5,9 +5,13 @@ import { afterEach, expect, test } from "bun:test";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { MemoryOfferCard } from "./MemoryOfferCard";
-import { memoryOfferFromRecord, memoryRequestFailed, settleMemoryOffer } from "./memoryInbox";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { MemoryOfferCard } = await importWithDom(() => import("./MemoryOfferCard"));
+const { memoryOfferFromRecord, memoryRequestFailed, settleMemoryOffer } = await importWithDom(
+  () => import("./memoryInbox"),
+);
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

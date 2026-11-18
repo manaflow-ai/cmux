@@ -6,10 +6,15 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { bundledIconPack, resolveIcon } from "./icons/iconPack";
-import { MentionMenu } from "./MentionMenu";
 import { type MentionState } from "./mentionMenuModel";
-import {
+import type { MentionItem } from "./mentionItems";
+import type { AcpmuxSessionEntry } from "./sessionList";
+import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { bundledIconPack, resolveIcon } = await importWithDom(() => import("./icons/iconPack"));
+const { MentionMenu } = await importWithDom(() => import("./MentionMenu"));
+const {
   fuzzyIndices,
   guestMention,
   loadRecentMentionPaths,
@@ -18,10 +23,7 @@ import {
   mentionSelection,
   recentMentionScope,
   rememberMentionPath,
-  type MentionItem,
-} from "./mentionItems";
-import type { AcpmuxSessionEntry } from "./sessionList";
-import { settleReact } from "../../../test/support/domTeardown";
+} = await importWithDom(() => import("./mentionItems"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

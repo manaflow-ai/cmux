@@ -1,8 +1,10 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import type { AcpmuxSnapshot } from "./model";
-import { autoResumeAttempt } from "./autoResumeStatus";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { autoResumeAttempt } = await importWithDom(() => import("./autoResumeStatus"));
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;

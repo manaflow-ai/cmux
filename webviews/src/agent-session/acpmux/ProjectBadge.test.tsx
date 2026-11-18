@@ -6,10 +6,12 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { ProjectBadge } from "./ProjectBadge";
-import { GLYPHS } from "./projectGlyphs";
-import { setProjectIconHost } from "./projectIcon";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { ProjectBadge } = await importWithDom(() => import("./ProjectBadge"));
+const { GLYPHS } = await importWithDom(() => import("./projectGlyphs"));
+const { setProjectIconHost } = await importWithDom(() => import("./projectIcon"));
 
 const ICON = "data:image/png;base64,iVBORw0KGgo=";
 

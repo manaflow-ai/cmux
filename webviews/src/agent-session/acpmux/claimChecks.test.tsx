@@ -5,11 +5,13 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { settleReact } from "../../../test/support/domTeardown";
 import { JSDOM } from "jsdom";
 import { renderToStaticMarkup } from "react-dom/server";
-import { Markdown } from "./conversation/Markdown";
-import { splitClaims } from "./conversation/claimMarks";
-import { TurnActionsContext } from "./conversation/turnActions";
-import { readClaims } from "./direct";
 import type { ClaimCheck } from "./model";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { Markdown } = await importWithDom(() => import("./conversation/Markdown"));
+const { splitClaims } = await importWithDom(() => import("./conversation/claimMarks"));
+const { TurnActionsContext } = await importWithDom(() => import("./conversation/turnActions"));
+const { readClaims } = await importWithDom(() => import("./direct"));
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;

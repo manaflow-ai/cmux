@@ -4,8 +4,10 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { TaskGoal } from "./goal";
-import { TaskGoalStrip } from "./TaskGoalStrip";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { TaskGoalStrip } = await importWithDom(() => import("./TaskGoalStrip"));
 
 const never = async () => {
   throw new Error("a loop has no command");

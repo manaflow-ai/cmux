@@ -3,8 +3,10 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../model";
-import { usePromptHistory } from "./promptHistory";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { usePromptHistory } = await importWithDom(() => import("./promptHistory"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

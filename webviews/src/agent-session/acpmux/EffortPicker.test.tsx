@@ -6,10 +6,12 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { EffortPicker } from "./EffortPicker";
-import { reasoningChoices } from "./composerPickerModel";
-import { STRING_TABLES, translate } from "./i18n";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { EffortPicker } = await importWithDom(() => import("./EffortPicker"));
+const { reasoningChoices } = await importWithDom(() => import("./composerPickerModel"));
+const { STRING_TABLES, translate } = await importWithDom(() => import("./i18n"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

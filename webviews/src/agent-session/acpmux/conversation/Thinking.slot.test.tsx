@@ -6,12 +6,14 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { Thinking } from "./Thinking";
-import { ShimmerText } from "./ShimmerText";
-import { configureThemeSlots } from "../../../slots/registry";
-import { THINKING_INDICATOR_VARIANTS } from "../../../slots/thinkingIndicator";
-import { LONG_THINK_MS } from "../../../slots/thinkingIndicator/CountingDots";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { Thinking } = await importWithDom(() => import("./Thinking"));
+const { ShimmerText } = await importWithDom(() => import("./ShimmerText"));
+const { configureThemeSlots } = await importWithDom(() => import("../../../slots/registry"));
+const { THINKING_INDICATOR_VARIANTS } = await importWithDom(() => import("../../../slots/thinkingIndicator"));
+const { LONG_THINK_MS } = await importWithDom(() => import("../../../slots/thinkingIndicator/CountingDots"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

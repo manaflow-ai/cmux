@@ -5,11 +5,14 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { HarnessHealthNotice } from "./HarnessHealthNotice";
 import { type HarnessHealth } from "./harnessHealthNoticeModel";
-import { Notice, NoticeSlot } from "./NoticeSlot";
-import { type NoticeTier, topNotice } from "./noticeSlotModel";
+import type { NoticeTier } from "./noticeSlotModel";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { HarnessHealthNotice } = await importWithDom(() => import("./HarnessHealthNotice"));
+const { Notice, NoticeSlot } = await importWithDom(() => import("./NoticeSlot"));
+const { topNotice } = await importWithDom(() => import("./noticeSlotModel"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

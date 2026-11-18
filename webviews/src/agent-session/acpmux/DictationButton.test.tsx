@@ -2,11 +2,13 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { DictationButton } from "./DictationButton";
-import { DictationCancelButton } from "./DictationListening";
 import type { Dictation } from "./dictation";
-import { SHORTCUT_ACTIONS, ShortcutsContext } from "./shortcuts";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { DictationButton } = await importWithDom(() => import("./DictationButton"));
+const { DictationCancelButton } = await importWithDom(() => import("./DictationListening"));
+const { SHORTCUT_ACTIONS, ShortcutsContext } = await importWithDom(() => import("./shortcuts"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

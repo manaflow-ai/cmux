@@ -5,8 +5,10 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { NewTabFolderAsk } from "./NewTabFolderAsk";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { NewTabFolderAsk } = await importWithDom(() => import("./NewTabFolderAsk"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

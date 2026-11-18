@@ -6,14 +6,11 @@ import { settleReact } from "../../../../test/support/domTeardown";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { SelectionReplyChip } from "./SelectionReply";
-import {
-  configureSelectionReply,
-  quoteMarkdown,
-  selectionReplyPlace,
-  setQuoteReplySink,
-  selectionReplyTarget,
-} from "./selectionReplyModel";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { SelectionReplyChip } = await importWithDom(() => import("./SelectionReply"));
+const { configureSelectionReply, quoteMarkdown, selectionReplyPlace, setQuoteReplySink, selectionReplyTarget } =
+  await importWithDom(() => import("./selectionReplyModel"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

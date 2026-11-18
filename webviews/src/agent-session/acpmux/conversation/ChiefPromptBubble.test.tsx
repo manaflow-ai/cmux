@@ -5,8 +5,10 @@ import { afterEach, expect, test } from "bun:test";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { ChiefPromptBubble } from "./ChiefPromptBubble";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { ChiefPromptBubble } = await importWithDom(() => import("./ChiefPromptBubble"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

@@ -3,10 +3,12 @@ import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { currentLanguage, setPaneLanguage } from "../i18n";
-import { DateLine } from "./DateLine";
-import { timestampText } from "./timestamps";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { currentLanguage, setPaneLanguage } = await importWithDom(() => import("../i18n"));
+const { DateLine } = await importWithDom(() => import("./DateLine"));
+const { timestampText } = await importWithDom(() => import("./timestamps"));
 
 const now = new Date(2026, 9, 29, 12).getTime();
 const cases = [0, 1, 10];

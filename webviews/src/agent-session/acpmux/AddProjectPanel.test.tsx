@@ -2,8 +2,10 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { AddProjectPanel } from "./AddProjectPanel";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { AddProjectPanel } = await importWithDom(() => import("./AddProjectPanel"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

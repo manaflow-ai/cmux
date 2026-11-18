@@ -7,7 +7,9 @@ import { settleReact } from "../../../../test/support/domTeardown";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import * as highlight from "./shellHighlight";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const highlight = await importWithDom(() => import("./shellHighlight"));
 
 const realTokens = highlight.shellTokens;
 // mock.module replaces the module for the rest of the bun process: the real one goes back after this file.
@@ -23,9 +25,9 @@ await mock.module("./shellHighlight", () => ({
     return realTokens(command);
   },
 }));
-const { ShellBlock } = await import("./ShellBlock");
-const { Lines } = await import("./BlockParts");
-const { OUTPUT_LINE_WINDOW } = await import("./blockPartsModel");
+const { ShellBlock } = await importWithDom(() => import("./ShellBlock"));
+const { Lines } = await importWithDom(() => import("./BlockParts"));
+const { OUTPUT_LINE_WINDOW } = await importWithDom(() => import("./blockPartsModel"));
 
 const { shellTokens, MAX_HIGHLIGHTED_COMMAND } = highlight;
 

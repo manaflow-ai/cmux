@@ -4,9 +4,11 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../model";
-import { DispatchCard } from "./DispatchCard";
-import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { DispatchCard } = await importWithDom(() => import("./DispatchCard"));
+const { resetTranscriptDisclosure } = await importWithDom(() => import("./transcriptDisclosureModel"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
