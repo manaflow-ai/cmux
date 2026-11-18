@@ -1,9 +1,10 @@
 public import AppKit
 public import CmuxNextDesign
 import QuartzCore
+import CmuxVisibleRows
 
-/// The vertical tab list's rows on scrolling layers. The content is cut into bands one row pitch tall, aligned to the rows, each a layer drawn once from what lies in it. A scroll moves
-/// the bands' container (the render server moves the pixels) and draws only the bands it reveals; a row's change
+/// The vertical tab list's rows on scrolling layers. The content is cut into bands one row pitch tall, aligned to the
+/// rows, each a layer drawn once from what lies in it. A scroll moves the bands' container (the render server moves the pixels) and draws only the bands it reveals; a row's change
 /// redraws its band. Bands out of view go, a few parked for the next scroll.
 @MainActor final class VerticalTabBands {
     /// Holds the bands in content coordinates; its bounds origin is the scroll.
@@ -16,10 +17,12 @@ import QuartzCore
     private(set) var shown: [Int: CALayer] = [:]
     private var parked: [CALayer] = []
     private var dirty: Set<Int> = []
-    /// A band's height (a row and its spacing) and where band 0 starts, the first row's top.
-    private(set) var pitch: CGFloat = 0
-    private(set) var origin: CGFloat = 0
+    /// A band's height (a row and its spacing) and where band 0 starts, the first row's top (`VisibleBands`, the
+    /// reveal math with no AppKit).
+    private(set) var geometry = VisibleBands(pitch: 1, origin: 0)
     private(set) var width: CGFloat = 0
+    /// The bands `shown` covers, as `VisibleBands.shown` gave them.
+    private var shownRange: ClosedRange<Int>?
     /// Bands kept for reuse at most.
     static let parkLimit = 4
 
@@ -39,32 +42,35 @@ import QuartzCore
 
     /// The bands' geometry for a layout; a change drops every band's drawing (each draws again where it is).
     func setGeometry(pitch: CGFloat, origin: CGFloat, width: CGFloat) {
-        let pitch = max(1, pitch)
-        guard pitch != self.pitch || origin != self.origin || width != self.width else { return }
-        (self.pitch, self.origin, self.width) = (pitch, origin, width)
+        let geometry = VisibleBands(pitch: Double(pitch), origin: Double(origin))
+        guard geometry != self.geometry || width != self.width else { return }
+        (self.geometry, self.width) = (geometry, width)
         for layer in shown.values { park(layer) }
         shown = [:]
+        shownRange = nil
         dirty = []
     }
 
     /// The band content y falls in.
-    func band(_ y: CGFloat) -> Int { Int(((y - origin) / pitch).rounded(.down)) }
+    func band(_ y: CGFloat) -> Int { geometry.band(Double(y)) }
 
     /// Band `index`'s rect in content coordinates.
-    func rect(_ index: Int) -> CGRect { CGRect(x: 0, y: origin + CGFloat(index) * pitch, width: width, height: pitch) }
+    func rect(_ index: Int) -> CGRect {
+        let span = geometry.span(index)
+        return CGRect(x: 0, y: span.lowerBound, width: width, height: span.upperBound - span.lowerBound)
+    }
 
-    /// Shows the bands of content `minY..<maxY` and one more each side, within `0..<contentHeight`; a band it adds is
-    /// to draw (`takeDirty`), one it leaves goes.
+    /// Shows the bands of content `minY..<maxY` and one more each side, within `0..<contentHeight`: the ones the move
+    /// reveals are made and to draw (`takeDirty`), the ones it leaves go (`VisibleBands.revealed`, `VisibleWindow.change`).
     func show(minY: CGFloat, maxY: CGFloat, contentHeight: CGFloat) {
-        let first = max(band(0), band(minY) - 1), last = min(band(max(0, contentHeight - 0.5)), band(max(minY, maxY - 0.5)) + 1)
-        let range = maxY > minY && contentHeight > 0 && first <= last ? first...last : nil
-        for (index, layer) in shown where range?.contains(index) != true {
+        let range = geometry.shown(minY: Double(minY), maxY: Double(maxY), contentHeight: Double(contentHeight))
+        let left = shownRange.map { old in range.map { VisibleWindow.change(from: Range(old), to: Range($0)).dropped } ?? [Range(old)] } ?? []
+        for index in left.joined() {
+            guard let layer = shown.removeValue(forKey: index) else { continue }
             park(layer)
-            shown[index] = nil
             dirty.remove(index)
         }
-        guard let range else { return }
-        for index in range where shown[index] == nil {
+        for index in VisibleBands.revealed(from: shownRange, to: range).joined() where shown[index] == nil {
             let layer = parked.popLast() ?? Self.makeBand()
             layer.isHidden = false
             layer.frame = rect(index)
@@ -72,18 +78,15 @@ import QuartzCore
             shown[index] = layer
             dirty.insert(index)
         }
+        shownRange = range
     }
 
     /// Marks the shown bands of content `minY..<maxY` to draw; true when one shows.
     @discardableResult
     func markDirty(minY: CGFloat, maxY: CGFloat) -> Bool {
-        guard maxY > minY else { return false }
-        var any = false
-        for index in band(minY)...max(band(minY), band(maxY - 0.5)) where shown[index] != nil {
-            dirty.insert(index)
-            any = true
-        }
-        return any
+        guard let touched = geometry.touching(minY: Double(minY), maxY: Double(maxY), in: shownRange) else { return false }
+        dirty.formUnion(touched)
+        return true
     }
 
     /// Marks every shown band to draw (a layout, a theme, a scale).
