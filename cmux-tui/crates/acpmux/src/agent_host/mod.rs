@@ -293,7 +293,7 @@ pub struct OrphanExit {
     /// The MCP servers the harness's configs named just before it started, as the daemon read
     /// them (`LaunchServers::read`): never read again, so a config edited later changes nothing.
     #[serde(default)]
-    pub servers: Vec<crate::hub::Sidecar>,
+    pub servers: Vec<crate::sidecar_census::Sidecar>,
     /// The harness's `PATH`, for the servers its sessions name by command.
     #[serde(default)]
     pub path: String,
@@ -334,7 +334,7 @@ fn suggestions_default() -> bool {
 impl SpawnSpec {
     /// The session's caller token in the harness env, which the host keeps in its record.
     pub fn caller_token(&self) -> Option<String> {
-        let key = crate::hub::person::CALLER_TOKEN_ENV;
+        let key = crate::person_tokens::CALLER_TOKEN_ENV;
         self.env.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone())
     }
 }
@@ -368,6 +368,12 @@ pub struct HostRecord {
     pub protocol_max: u16,
     pub host_build: String,
     pub socket: PathBuf,
+    /// The host runs Claude Code's translator (`SpawnSpec::translator`), which registers the
+    /// `cmux-repo-sync` PreToolUse callback for every tool, as a direct one does
+    /// (`hub/repo_sync.rs`). False for a host of an older build: its chat waits for the whole
+    /// checkout, as before.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub claude_translator: bool,
 }
 
 /// A record file that this build cannot read, and what it could parse.

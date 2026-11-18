@@ -6,13 +6,16 @@
 pub(crate) mod capture;
 #[cfg(feature = "bench")]
 pub(crate) mod cpu;
+pub(crate) mod cursor;
 mod input;
 mod keys;
 #[cfg(feature = "bench")]
 pub(crate) mod observe;
+#[cfg(feature = "bench")]
+pub(crate) mod synthetic;
 mod sys;
 
-use crate::desktop::Desktop;
+use crate::desktop::{Desktop, FrameSource, Halves};
 use crate::stream::SessionCfg;
 use crate::Res;
 use capture::Capture;
@@ -37,52 +40,66 @@ fn encoder_fps(width: u32, height: u32, fps: u32) -> u32 {
     fps.min(limit as u32)
 }
 
+/// The loop thread's half: the capture's damage, CGEvent input, and the cursor.
 pub struct MacDesktop {
     capture: Capture,
-    /// The frame [`Desktop::capture`] picked and its damage, for the next encode.
+    injector: Injector,
+    /// The cursor as metadata (cap `cursor`): the pictures leave it out.
+    cursor: Option<cursor::CursorReader>,
+}
+
+/// The encode thread's half: picks the newest captured frame and encodes it with VideoToolbox.
+pub struct MacFrames {
+    frames: capture::Frames,
+    size: (u32, u32),
+    /// The frame [`FrameSource::capture`] picked and its damage, for the next encode.
     picked: Option<(capture::PixelBuffer, Rect)>,
     /// The picked frame's display and arrival times (measurement only).
     picked_times: Option<(u64, u64)>,
     encoder: VideoToolbox,
-    injector: Injector,
     name: String,
     #[cfg(feature = "bench")]
     quality: Option<crate::eval::Quality>,
 }
 
-impl MacDesktop {
-    pub fn open(cfg: &SessionCfg) -> Res<Self> {
-        if cfg.codec != "videotoolbox" {
-            return Err(format!(
-                "codec {} is not available on a macOS host (it encodes captured surfaces with videotoolbox)",
-                cfg.codec
-            )
-            .into());
-        }
-        let capture = Capture::start(&cfg.display, cfg.max_fps, cfg.max_width)?;
-        capture.wait_first_frame(FIRST_FRAME_TIMEOUT_NS)?;
-        let (width, height) = capture.size();
-        let encoder = VideoToolbox::new(
-            width,
-            height,
-            encoder_fps(width, height, cfg.max_fps),
-            cfg.start_kbps,
-            cfg.profile == "baseline",
-        )?;
-        let name =
-            format!("{} from screencapturekit iosurface", cmux_encode::H264Encoder::name(&encoder));
-        let injector = Injector::new(capture.bounds(), (width, height))?;
-        Ok(Self {
-            capture,
-            picked: None,
-            picked_times: None,
-            encoder,
-            injector,
-            name,
-            #[cfg(feature = "bench")]
-            quality: crate::eval::Quality::from_env(),
-        })
+/// Starts the display's capture and opens both halves of the session's desktop.
+/// `cursor_metadata`: capture without the cursor and report it through `Desktop::cursor`.
+pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
+    if cfg.codec != "videotoolbox" {
+        return Err(format!(
+            "codec {} is not available on a macOS host (it encodes captured surfaces with videotoolbox)",
+            cfg.codec
+        )
+        .into());
     }
+    let cursor_metadata = cursor_metadata && cursor::available();
+    let capture =
+        Capture::start_for_session(&cfg.display, cfg.max_fps, cfg.max_width, !cursor_metadata)?;
+    capture.wait_first_frame(FIRST_FRAME_TIMEOUT_NS)?;
+    let (width, height) = capture.size();
+    let encoder = VideoToolbox::new(
+        width,
+        height,
+        encoder_fps(width, height, cfg.max_fps),
+        cfg.start_kbps,
+        cfg.profile == "baseline",
+    )?;
+    let name =
+        format!("{} from screencapturekit iosurface", cmux_encode::H264Encoder::name(&encoder));
+    let injector = Injector::new(capture.bounds(), (width, height))?;
+    let frames = MacFrames {
+        frames: capture.frames(),
+        size: (width, height),
+        picked: None,
+        picked_times: None,
+        encoder,
+        name,
+        #[cfg(feature = "bench")]
+        quality: crate::eval::Quality::from_env(),
+    };
+    let cursor =
+        cursor_metadata.then(|| cursor::CursorReader::new(capture.bounds(), (width, height)));
+    Ok((Box::new(MacDesktop { capture, injector, cursor }), Box::new(frames)))
 }
 
 impl Desktop for MacDesktop {
@@ -99,9 +116,25 @@ impl Desktop for MacDesktop {
         Ok(())
     }
 
+    fn inject(&mut self, event: &InputEvent) -> Res<()> {
+        self.injector.apply(event);
+        Ok(())
+    }
+
+    fn release_all(&mut self) -> Res<()> {
+        self.injector.release_all();
+        Ok(())
+    }
+
+    fn cursor(&mut self) -> Option<crate::cursor::CursorSample> {
+        self.cursor.as_mut()?.sample()
+    }
+}
+
+impl FrameSource for MacFrames {
     /// Picks the newest complete frame; ScreenCaptureKit already holds the pixels.
     fn capture(&mut self, damage: Rect) -> Res<()> {
-        let (frame, times) = self.capture.newest().ok_or("no captured frame yet")?;
+        let (frame, times) = self.frames.newest().ok_or("no captured frame yet")?;
         self.picked = Some((frame, damage));
         self.picked_times = times;
         Ok(())
@@ -112,7 +145,7 @@ impl Desktop for MacDesktop {
     }
 
     fn encode(&mut self, force_idr: bool, pts_us: i64, out: &mut Vec<u8>) -> Res<bool> {
-        let (width, height) = self.capture.size();
+        let (width, height) = self.size;
         let (frame, damage) = self.picked.take().ok_or("encode before capture")?;
         let surface = frame.io_surface().ok_or("the captured frame has no IOSurface")?;
         // SAFETY: `frame` holds the pixel buffer and with it the IOSurface until this
@@ -144,15 +177,5 @@ impl Desktop for MacDesktop {
 
     fn encoder_name(&self) -> String {
         self.name.clone()
-    }
-
-    fn inject(&mut self, event: &InputEvent) -> Res<()> {
-        self.injector.apply(event);
-        Ok(())
-    }
-
-    fn release_all(&mut self) -> Res<()> {
-        self.injector.release_all();
-        Ok(())
     }
 }

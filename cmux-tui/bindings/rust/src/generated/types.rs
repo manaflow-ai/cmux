@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 725fa410d325b6f72dc8197af87afb7d4791516dc430f5cbcc939b945e0dcfc5.
+// cmux-tui mux protocol 12, IR 025cbb0172e56aa5d02e44c8fa0baaff67cfb3074e6ac2812b0d2c73ccd1d5b8.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1532,6 +1532,15 @@ pub struct ReattachViewResult {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct RemoteHostAppPermissions {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub accessibility: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub screen_recording: Optional<bool>,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RemoteHostAppResult {
     pub host_pid: u32,
@@ -2462,6 +2471,9 @@ pub struct SurfaceResult {
     pub terminal_incarnation: Optional<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub terminal_resource_id: Option<String>,
+    /// The transaction of a new-tab request, when it sent one.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub transaction: Option<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub workspace_id: Option<String>,
 }
@@ -2591,6 +2603,26 @@ pub struct TabGroupRun {
     pub surfaces: Vec<Id>,
     #[serde(flatten)]
     pub additional: BTreeMap<String, serde_json::Value>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct TabPlace {
+    /// Right after this tab of pane.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub after: Optional<Id>,
+    /// Right after the tab of an earlier create request of this connection for pane: the transaction of that request (1 to 128 printable ASCII). That tab does not have to be there yet.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub after_creation: Optional<String>,
+    /// Right before this tab of pane.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub before: Optional<Id>,
+    /// true: the tab joins the tab group of the tab that after, after_creation or before names. Refused with start.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub joins: Optional<bool>,
+    /// true: the first tab after the pinned tabs.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub start: Optional<bool>,
 }
 
 #[rustfmt::skip]

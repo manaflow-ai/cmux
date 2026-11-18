@@ -305,7 +305,7 @@ impl GitPlan {
 
 /// The machine's HEAD: its branch (None when detached) and commit (None on
 /// a branch with no commit).
-fn machine_head(
+pub(super) fn machine_head(
     remote: &mut Remote,
     remote_git: &str,
 ) -> anyhow::Result<(Option<String>, Option<String>)> {

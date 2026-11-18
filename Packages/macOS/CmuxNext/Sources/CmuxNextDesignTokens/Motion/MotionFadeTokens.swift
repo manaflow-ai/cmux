@@ -60,10 +60,22 @@ public nonisolated enum MotionFade: String, Sendable, CaseIterable {
     /// it grows to full size from an accent tint, one shot, under 350 ms at normal speed
     /// (`MotionGate.settleAnimation`). Snaps under Reduce Motion.
     case settle
+    /// The omnibox suggestion card fading in as it opens and out as it closes, the bar's card top with it (Helium's
+    /// `OmniboxPopupViewViews` widget fade, 82 ms; Lucas 2026-11-14).
+    case omniboxPopup
 
     /// Seconds at `MotionSpeed.fast` (`MotionTunables`; overridable in
     /// Debug Settings).
     public var baseDuration: TimeInterval { MotionTunables.fades[self]?.value ?? MotionScale.quick }
+
+    /// A long fade that no one waits for, so not a transition: it is off the motion scale and the
+    /// speed scales it with no cap (`MotionPolicy.cap`; MotionScaleTests says why for each).
+    public var isAmbient: Bool {
+        switch self {
+        case .focusFlash, .wallpaper, .highlight, .hibernateRing: true
+        default: false
+        }
+    }
 }
 
 /// Repeating indicators. These show state, so speed does not scale them;

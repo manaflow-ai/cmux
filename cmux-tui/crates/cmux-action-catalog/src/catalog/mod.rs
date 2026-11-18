@@ -30,6 +30,7 @@ mod chrome_style;
 mod cloud;
 mod cloud_port;
 mod cloud_session;
+mod cloud_team;
 mod cmux_remote;
 mod density;
 mod divider;
@@ -143,6 +144,7 @@ pub static GROUPS: &[&[Action]] = &[
     account::ACTIONS,
     remote::ACTIONS,
     cloud_session::ACTIONS,
+    cloud_team::ACTIONS,
     machine_icon::ACTIONS,
     settings::ACTIONS,
     help_link::ACTIONS,

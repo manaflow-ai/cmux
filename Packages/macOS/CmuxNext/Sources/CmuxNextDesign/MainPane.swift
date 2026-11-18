@@ -135,7 +135,7 @@ extension Metrics {
     /// `windowCornerRadius` is 0), so the card never rounds more than the window it sits in.
     public static func chromeRowConcentricCardRadius(windowCornerRadius: CGFloat) -> CGFloat {
         let window = windowCornerRadius > 0 ? windowCornerRadius : standardWindowCornerRadius
-        return min(chromeRowCornerRadius(height: tabHeight) + tabStripCardInset, window)
+        return min(chromeTabCornerRadius + tabStripCardInset, window)
     }
 
     /// The radius of a card `edgeInset` points inside a window whose corners have

@@ -226,7 +226,24 @@ tmp="$(mktemp -d "${TMPDIR:-/tmp}/cmux-join.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
 trap 'exit 130' HUP INT TERM
 
-fetch() { curl --proto '=https' --tlsv1.2 -fsSL "$1" -o "$2"; }
+# A transport failure (a reset, a timeout, DNS: curl's 5 6 7 18 28 35 52 55
+# 56) is retried, 4 tries with waits of 2, 8 and 20 s: a 23 s network blip
+# failed a whole join (run 44192875334). An HTTP status the server sent
+# (curl's 22) is an answer, not a blip: no retry. Not --retry-all-errors: it
+# needs curl 7.71.
+fetch() {
+  for fetch_wait in 2 8 20 ''; do
+    fetch_rc=0
+    curl --proto '=https' --tlsv1.2 -fsSL "$1" -o "$2" || fetch_rc=$?
+    case "$fetch_rc" in
+      0) return 0 ;;
+      5 | 6 | 7 | 18 | 28 | 35 | 52 | 55 | 56) [ -n "$fetch_wait" ] || return "$fetch_rc" ;;
+      *) return "$fetch_rc" ;;
+    esac
+    say "the network dropped $1 (curl exit $fetch_rc); retrying in $fetch_wait s"
+    sleep "$fetch_wait"
+  done
+}
 
 # The value of "name": "<hex>" in a JSON file, pretty or not.
 json_hex() {

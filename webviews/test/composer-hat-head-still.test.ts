@@ -18,6 +18,7 @@ import { SCROLLER_ROOT_CSS } from "../src/scrollers";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { openRunningTray } from "./support/openRunningTray";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { RUNNING_TRAY_LIST_LINE } from "../src/agent-session/acpmux/subagents/subagentSelectors";
 
 await requireBrowserLane("composer-hat-head-still.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -48,33 +49,36 @@ await requireBrowserLane("composer-hat-head-still.test.ts", async () => {
 
   /** The header's icons, relative to the hat's top-right corner (the hat grows upward as it opens). */
   const measure = (page: Page) =>
-    page.evaluate(() => {
-      const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
-      const edge = tray.getBoundingClientRect();
-      const rel = (node: Element | null): Rect | null => {
-        if (!node) return null;
-        const rect = node.getBoundingClientRect();
-        return {
-          left: rect.left - edge.right,
-          right: rect.right - edge.right,
-          top: rect.top - edge.top,
-          bottom: rect.bottom - edge.top,
+    page.evaluate(
+      ({ RUNNING_TRAY_LIST_LINE }) => {
+        const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
+        const edge = tray.getBoundingClientRect();
+        const rel = (node: Element | null): Rect | null => {
+          if (!node) return null;
+          const rect = node.getBoundingClientRect();
+          return {
+            left: rect.left - edge.right,
+            right: rect.right - edge.right,
+            top: rect.top - edge.top,
+            bottom: rect.bottom - edge.top,
+          };
         };
-      };
-      const head = tray.querySelector(".acpmux-running-tray__head")!;
-      const list = tray.querySelector<HTMLElement>(".acpmux-running-tray__list");
-      return {
-        trayRight: edge.right,
-        head: rel(head)!,
-        panel: rel(tray.querySelector(".acpmux-running-tray__open > svg"))!,
-        chevron: rel(tray.querySelector(".acpmux-running-tray__chevron > svg"))!,
-        gutter: list ? list.offsetWidth - list.clientWidth : 0,
-        lines: [...tray.querySelectorAll(".acpmux-running-tray__list .acpmux-agent-line")].map((line) => ({
-          stop: rel(line.querySelector(".acpmux-agent-line__stop-track")),
-          chevron: rel(line.querySelector(".acpmux-agent-line__chevron > svg")),
-        })),
-      };
-    });
+        const head = tray.querySelector(".acpmux-running-tray__head")!;
+        const list = tray.querySelector<HTMLElement>(".acpmux-running-tray__list");
+        return {
+          trayRight: edge.right,
+          head: rel(head)!,
+          panel: rel(tray.querySelector(".acpmux-running-tray__open > svg"))!,
+          chevron: rel(tray.querySelector(".acpmux-running-tray__chevron > svg"))!,
+          gutter: list ? list.offsetWidth - list.clientWidth : 0,
+          lines: [...tray.querySelectorAll(RUNNING_TRAY_LIST_LINE)].map((line) => ({
+            stop: rel(line.querySelector(".acpmux-agent-line__stop-track")),
+            chevron: rel(line.querySelector(".acpmux-agent-line__chevron > svg")),
+          })),
+        };
+      },
+      { RUNNING_TRAY_LIST_LINE },
+    );
 
   const center = (rect: Rect) => (rect.left + rect.right) / 2;
 
