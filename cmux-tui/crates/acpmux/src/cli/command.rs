@@ -25,15 +25,6 @@ pub enum Command {
     /// Run a task on several models in separate worktrees and compare the reviewer's winner.
     #[command(subcommand)]
     Race(crate::cli::race::RaceCmd),
-    /// Own one dedicated Codex sign-in over private stdin/stdout pipes.
-    #[cfg(unix)]
-    #[command(hide = true)]
-    CodexAuthBroker {
-        #[arg(long)]
-        home: PathBuf,
-        #[arg(long)]
-        codex: PathBuf,
-    },
     /// `gh` for an agent on a machine the person added: the GitHub broker's actions, run by the
     /// Mac that lends this machine its login (`cli/gh_shim.rs`).
     #[command(hide = true, disable_help_flag = true)]
@@ -178,6 +169,10 @@ pub enum Command {
     /// Print the protocol capability ids this build serves, one per line (`--json`: an object).
     /// Needs no daemon: the app bundle records them for the web agent pane.
     Capabilities,
+    /// How this Cloud machine's agents reach models (base URLs, placeholder keys) and whether it
+    /// holds any provider login. Names and verdicts only, never a value. Needs no daemon.
+    #[command(name = "machine-auth")]
+    MachineAuth,
     /// Show or set presets: `preset`, `preset deepseek harness=opencode model=opencode-go/deepseek-v4-pro effort=low`,
     /// `preset omx harness=codex 'env.CODEX_HOME=${cwd}/.codex'`. `key=` clears one key; `--clear` removes the preset.
     #[command(alias = "presets")]
@@ -465,6 +460,9 @@ pub enum Command {
     /// This machine as a hand of a Cloud Chief: pair, run, status.
     #[command(subcommand)]
     Hand(crate::hand::HandCmd),
+    /// This Mac's share host: the daemon serves screen shares with no app running. status, on, off.
+    #[command(subcommand)]
+    ShareHost(crate::share_host::cli::ShareHostCmd),
     /// The daemon: run, status, start, restart, shutdown (also stop), config, harnesses, reload, models, schema.
     #[command(subcommand, alias = "d")]
     Daemon(DaemonCmd),
@@ -713,8 +711,12 @@ pub enum Command {
         /// `permissions.default=yolo` (yolo, standard, ask or default) for the
         /// permission mode every new chat starts in, `permissions.codex=ask` for
         /// one harness, `session.memory_mb=6144`, `session.swap_mb=2048`,
-        /// `session.tasks_max=8192`, `session.sessions_tasks_max=131072` or
-        /// `session.cpu_class=normal`).
+        /// `session.tasks_max=8192`, `session.sessions_tasks_max=131072`,
+        /// `session.cpu_class=normal` or `remote_daemon=127.0.0.1:PORT`). A value the
+        /// daemon would refuse to start with is refused and config.json is left as it was:
+        /// `transport.wireguard=true` needs `transport.wireguardStatic` in config.json first.
+        /// The hub carrier (`cmux remote ... --via-machine`) needs no setting here: a joined
+        /// machine runs it on its node key.
         #[arg(long, value_name = "KEY=VALUE")]
         set: Option<String>,
     },

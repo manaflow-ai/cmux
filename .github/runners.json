@@ -255,6 +255,7 @@
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
     },
     "app-ffi-release.yml#build": "apple-app-build",
+    "billing.yml#ios-billing": "apple-ios",
     "auth-refresh-tests.yml#auth-refresh-tests": {
       "class": "apple-swift-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
@@ -333,6 +334,14 @@
       "picker_followup": "runs-on is the build-fleet gateway runner, which only hands the simulator step to the controller with cmux-ci run"
     },
     "cmux-next-media.yml#tour": "apple-gui",
+    "cmux-next-hot-verify.yml#look": {
+      "class": "apple-gui",
+      "picker_followup": "runs-on is the build-fleet gateway runner, which only hands the hot-verify step to the controller with cmux-ci run"
+    },
+    "cmux-next-tab-switch.yml#frames": {
+      "class": "apple-gui",
+      "picker_followup": "runs-on is the build-fleet gateway runner, which only hands the display measure to the controller with cmux-ci run"
+    },
     "cmux-next-perf-bench.yml#bench": {
       "class": "apple-gui",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
@@ -391,6 +400,10 @@
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly (#43255 put the side label before the off-switch's Blacksmith fallback); take the label from a placement job"
     },
     "cmux-tui-build-package.yml#build": "rust-darwin-release-build",
+    "cmux-tui-team-signed.yml#sign": {
+      "class": "apple-signing-release",
+      "picker_followup": "runs-on names a literal Blacksmith macOS label, as the keychain guard's rule 7 asks of a signer holding release-next's identity; take it from a picker job's output once signers may take one"
+    },
     "cmux-rd-windows.yml#live-macos-viewer": {
       "class": "macos-runtime-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly (#43255 put the side label before the off-switch's Blacksmith fallback); take the label from a placement job"
@@ -427,7 +440,7 @@
     "ios-internal-nightly.yml#archive": "apple-ios",
     "ios-review-gate.yml#reviewer-path": {
       "class": "apple-ios",
-      "picker_followup": "holds the agent pass's Claude token and runs its CLI on the Mac, so it stays on the ephemeral Blacksmith macOS 26 pool; an owned route needs a picker that keeps credentialed jobs off persistent machines"
+      "picker_followup": "holds no secret since the agent reviewer pass was removed; it stays on the ephemeral Blacksmith macOS 26 pool until a picker job routes it to an owned Mac"
     },
     "ios-review-gate.yml#asc-validate": {
       "class": "apple-ios",
@@ -471,6 +484,7 @@
     "nightly.yml#report-visual-gate-nightly": {"class": "portable-checks"},
     "nightly.yml#report-nightly-failure": {"class": "portable-checks"},
     "nightly.yml#republish-nightly-next": {"class": "portable-checks"},
+    "nightly.yml#runner-preflight": {"class": "portable-checks"},
     "nightly.yml#decide": {"class": "portable-checks"},
     "nightly.yml#await-release-surface-ack": {"class": "portable-checks"},
     "nightly.yml#pick-nightly-sign-runner": {"class": "portable-checks"},
@@ -595,23 +609,11 @@
   },
   "hosted_light_jobs": {
     "$comment": [
+      "Empty: every light job runs on Blacksmith (or placement onto owned capacity) on every attempt, never GitHub-hosted Ubuntu (Lawrence: Blacksmith for all CI; GitHub-hosted left them queued for hours on cmux#45735, 2026-11-18). Fork pull requests keep their own routes.",
       "allowed_secrets names every secret each job may reference, including inherited workflow env; omitted means none.",
       "Nightly jobs never use GitHub-hosted runners: they run only on our own Mac minis (tests/test_nightly_owned_minis_only.py).",
       "The route still prefers a verified fleet reservation and measured Blacksmith overflow; this table never permits release/signing operations, credentialed visual-gate routing or artifact publication on hosted Ubuntu."
-    ],
-    "cmux-next-fast-gates.yml#resolve": {"class": "portable-checks", "reason": "resolver: names the head and base, 10 s of work (run 41389051872)"},
-    "cmux-next-fast-gates.yml#post": {"class": "portable-checks", "reason": "report step: posts the cmux-next/fast-gates status"},
-    "ci.yml#changes": {"class": "portable-checks", "reason": "CI router: change classification and runner picks, 11 s of work (run 41385632466)", "allowed_secrets": ["GLAEDA_ROUTE_APP_KEY"]},
-    "pr-red-checks-comment.yml#comment": {"class": "portable-checks", "reason": "report step: edits the PR's red-checks comment, 3-9 s of work (runs 41393817927, 41393826242, 41394534282)"},
-    "ci-guards.yml#guard-status": {"class": "portable-checks", "reason": "report step: rolls up the guard job results, 2 s of work (runs 41393826242, 41393801145)"},
-    "pr-checks.yml#size": {"class": "portable-checks", "reason": "report step: one GraphQL read and a size warning, 4 s of work (runs 41394557472, 41394554327)"},
-    "pr-checks.yml#ui-review": {"class": "portable-checks", "reason": "report step: one file-list read and an advisory warning, 4 s of work (run 41394554327)"},
-    "web-validation.yml#web-validation": {"class": "portable-checks", "reason": "status rollup: accepts selected web results"},
-    "cmux-next.yml#path_route": {"class": "portable-checks", "reason": "router: classifies the PR's paths and probes the published tree, 32-51 s of work (runs 41394344151, 41393817927)"},
-    "cmux-next.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap: starts independently of the labels it validates"},
-    "ci-web.yml#web-subarea-scope": {"class": "portable-checks", "reason": "router: classifies the webview subareas and hands the shards their duration manifest, 29 s of work (run 41762274751)"},
-    "ci-web.yml#webviews-test-durations": {"class": "portable-checks", "reason": "bookkeeping: merges and saves the shard duration manifest beside web-subarea-scope's restore, 5 s of work (run 41761413284)"},
-    "resolve-runners.yml#resolve": {"class": "portable-checks", "reason": "resolver: prints the runner capability map, 5 s of work (run 41762274751)"}
+    ]
   },
   "light_fit": {
     "$comment": [
@@ -635,15 +637,9 @@
   },
   "portable_light_jobs": {
     "$comment": [
-      "Secretless placement bootstraps are admitted as light jobs so their short runner-state read cannot queue behind the paid overflow.",
-      "They fail open to the workflow's existing hosted or Blacksmith fallback when CI_RUNNER_STATE is stale or unavailable."
-    ],
-    "pr-red-checks-comment.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"},
-    "ci-guards.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap after guard completion"},
-    "pr-checks.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"},
-    "cmux-next-fast-gates.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"},
-    "web-validation.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"},
-    "ci.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"}
+      "Empty: the placement bootstraps run on the Blacksmith pool (RUNNER_POOLS.linux_2) on every attempt, never GitHub-hosted Ubuntu (Lawrence: Blacksmith for all CI).",
+      "GitHub-hosted Ubuntu left them queued for hours with no runner (cmux#45735, 2026-11-18), so they are no longer hosted exceptions."
+    ]
   },
   "linux_sizes": {
     "$comment": [
@@ -700,6 +696,7 @@
       "cmux-tui-artifacts.yml#mark-tree-commits": {"size": 4, "failover": 8, "measured": {"32": [357.5, 0.85, 1.03], "4": [111.5, 0.79, 0.92]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
       "cmux-tui-artifacts.yml#notify-unpublished-tree": {"size": 4, "failover": 8, "measured": {"32": [159.5, 0.16, 0.13], "2": [234.5, 0.17, 0.15]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
       "cmux-tui-artifacts.yml#point-feat-channel": {"size": 4, "failover": 8, "measured": {"32": [344.5, 0.22, 0.22], "4": [116.5, 0.24, 0.43]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
+      "cmux-tui-artifacts.yml#point-windows-channel": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: reads one completion record and uploads one channel file; the same shape as point-feat-channel (not measured yet)"},
       "cmux-tui-artifacts.yml#point-machine-channel": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: downloads four published binaries, signs and uploads one file; the same shape as point-feat-channel (not measured yet)"},
       "cmux-tui-artifacts.yml#point-machine-channel-early": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: uploads four Linux binaries from this run's artifacts, reads them back, signs and uploads one file; the same shape as point-machine-channel (not measured yet)"},
       "cmux-tui-artifacts.yml#publish": {"size": 8, "failover": 16, "measured": {"32": [584.5, 2.33, 7.55], "4": [129.5, 4.72, 8.13]}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits"},
@@ -707,6 +704,7 @@
       "cmux-tui-artifacts.yml#publish-tree": {"size": 4, "failover": 8, "measured": {"32": [548.0, 1.18, 1.48], "4": [108.0, 2.13, 2.67]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
       "cmux-tui-artifacts.yml#publish-tree-tested": {"size": 4, "failover": 8, "measured": {"32": [86.0, 0.25, 0.32], "4": [27.0, 0.24, 0.4]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
       "cmux-tui-artifacts.yml#publish-tree-windows": {"size": 8, "failover": 16, "measured": {"32": [472.0, 1.85, 3.63], "4": [102.5, 3.12, 4.08]}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits"},
+      "cmux-tui-artifacts.yml#request-team-signed-tree": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: one public read and at most one workflow dispatch; the same shape as point-feat-channel (not measured yet)"},
       "cmux-tui-artifacts.yml#publish-windows": {"size": 8, "failover": 16, "measured": {"32": [503.0, 1.86, 2.45], "4": [109.5, 8.17, 11.33]}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits"},
       "cmux-tui-artifacts.yml#reject-untrusted-pin-ref": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class); no runs in the window"},
       "cmux-tui-artifacts.yml#request-image-roll": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: dispatches one workflow run; the same shape as request-nightly-next (not measured yet)"},
@@ -714,6 +712,7 @@
       "cmux-tui-artifacts.yml#rerun-deferred-commits": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: reads and writes a few small CDN objects; the same shape as mark-tree-commits (not measured yet)"},
       "cmux-tui-artifacts.yml#sentry-dsyms": {"size": 4, "failover": 8, "measured": {"32": [456.5, 0.12, 0.12], "4": [280.5, 0.11, 0.12]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
       "cmux-tui-artifacts.yml#sweep-commit-manifests": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: a shallow fetch and about 40 small CDN reads; the same shape as mark-tree-commits (not measured yet)"},
+      "cmux-tui-artifacts.yml#sweep-pending-tree-notify": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: a sparse checkout and a few artifact and run-list reads; the same shape as sweep-commit-manifests (not measured yet)"},
       "cmux-tui-artifacts.yml#tree-owner-wait": {"size": 4, "failover": 8, "measured": {"32": [718.0, 0.12, 0.12], "16": [0.5, 0.07, 0.07], "4": [486.0, 0.12, 0.12]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
       "cmux-tui-artifacts.yml#verify-cdn-publication": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: reads and writes a few small CDN objects; the same shape as mark-tree-commits (not measured yet)"},
       "cmux-tui-artifacts.yml#tree-preflight": {"size": 4, "failover": 8, "measured": {"32": [2362.5, 0.57, 0.68], "16": [0.5, 0.4, 0.4], "4": [1485.5, 0.52, 0.62]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
@@ -727,7 +726,7 @@
       "cmux-tui-spec.yml#acpmux-protocol-ir": {"size": 8, "failover": 16, "measured": {"32": [623.0, 1.21, 1.85]}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits"},
       "cmux-tui-spec.yml#acpmux-tests": {"size": 8, "failover": 16, "measured": {"32": [206.0, 2.07, 4.18]}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits"},
       "cmux-tui-spec.yml#api-compat": {"size": 4, "failover": 8, "measured": {"16": [601.5, 0.72, 0.82]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
-      "cmux-tui-spec.yml#clippy": {"size": 8, "failover": 16, "measured": {"32": [643.0, 3.19, 3.97]}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits"},
+      "cmux-tui-spec.yml#clippy": {"size": 8, "pool": "linux_8", "measured": {"32": [643.0, 3.19, 3.97]}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits"},
       "cmux-tui-testbox-warmup.yml#cmux-tui-rust": {"size": 32, "measured": {}, "why_32": "a Blacksmith Testbox: the VM agents sync a worktree onto for whole-workspace cargo runs (dispatch-only, held 10-60 min); scripts/blacksmith-testbox-setup-identity.py records the label"},
       "cmux-tui-windows-check.yml#windows-gnu-check": {"size": 8, "failover": 16, "measured": {"32": [121.0, 2.47, 2.78]}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits"},
       "cmux-tui.yml#bindings-e2e": {"size": 8, "failover": 16, "measured": {"32": [3.0, 3.78, 4.4]}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits"},

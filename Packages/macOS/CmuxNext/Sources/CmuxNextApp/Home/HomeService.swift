@@ -85,6 +85,7 @@ final class HomeService {
     /// The latest `ensure_home`; only it clears `homeEnsureInFlight`.
     @ObservationIgnored var homeEnsureGeneration = 0
     @ObservationIgnored var homeWorkspaceTask: Task<Void, Never>?
+    @ObservationIgnored let ensureOwner = HomeEnsureOwnerWait() // the ensure whose Chief tab step is on the owner
     /// The last step the home workspace setup reached, for `debug.home`.
     @ObservationIgnored var homeWorkspaceStep = "not started"
     /// The chief tab creation's idempotency key (one per creation).
@@ -278,8 +279,8 @@ final class HomeService {
                 // after a stop: start the host now if it does not run.
                 if homeWasOpened { homeDidOpen(asked: false) }
                 // The Chief tab may wait on this owner (a local Chief with history
-                // takes it back from a placed chief): check it again now.
-                if let local = services.machines.local.connection,
+                // takes it back from a placed chief): check it again now, unless the running ensure waits for this owner (CMUX-571).
+                if let local = services.machines.local.connection, !ensureOwner.follows(current: homeEnsureGeneration, connected: connection),
                    services.machines.local.supports(DaemonCapability.workspaceKind.rawValue) {
                     ensureHomeWorkspace(local)
                 }

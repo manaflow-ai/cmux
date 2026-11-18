@@ -326,3 +326,67 @@ async fn configured_tokens_reach_the_peer_over_the_link_while_ssh_is_down() {
     assert_eq!(opened.presented.as_deref(), Some("peer-token"));
     peer.stop();
 }
+
+/// Relay first, measured on the race itself (paused clock): a black-holed WireGuard endpoint
+/// and an ssh that never logs in, beside a hub relay that opens in 66 ms (its warm open).
+/// Before, the relay was dialed last, two staggers after the dead paths; now it leads and the
+/// remembered path starts beside it, so the black hole costs nothing.
+#[tokio::test(start_paused = true)]
+async fn relay_first_a_black_holed_direct_path_costs_no_more_than_the_relay_open() {
+    const RELAY_OPEN: Duration = Duration::from_millis(66);
+    let started = tokio::time::Instant::now();
+    let before = race(
+        vec![(Via::Wireguard, dead()), (Via::Ssh, dead()), (Via::Hub, after(66, Ok("hub")))],
+        STAGGER,
+    )
+    .await
+    .unwrap();
+    let before_ms = started.elapsed();
+    assert_eq!(before.0, Via::Hub);
+    let started = tokio::time::Instant::now();
+    let now = race_together(
+        vec![(Via::Hub, after(66, Ok("hub"))), (Via::Wireguard, dead()), (Via::Ssh, dead())],
+        2,
+        STAGGER,
+    )
+    .await
+    .unwrap();
+    let after_ms = started.elapsed();
+    assert_eq!(now.0, Via::Hub);
+    eprintln!(
+        "first byte with a black-holed WireGuard endpoint: {} ms direct first, {} ms relay first \
+         (relay open {} ms)",
+        before_ms.as_millis(),
+        after_ms.as_millis(),
+        RELAY_OPEN.as_millis()
+    );
+    assert_eq!(before_ms, 2 * STAGGER + RELAY_OPEN);
+    assert_eq!(after_ms, RELAY_OPEN, "the black hole cost first-byte time");
+}
+
+/// Relay first, the remembered direct path starts beside the relay: when it answers first it
+/// carries, and no later path is dialed at all.
+#[tokio::test(start_paused = true)]
+async fn relay_first_a_live_remembered_path_still_wins_when_it_answers_first() {
+    let ssh_started = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = ssh_started.clone();
+    let ssh: Dial = Box::pin(async move {
+        flag.store(true, Ordering::SeqCst);
+        Ok("ssh")
+    });
+    let started = tokio::time::Instant::now();
+    let (via, _, _) = race_together(
+        vec![
+            (Via::Hub, after(66, Ok("hub"))),
+            (Via::Wireguard, after(8, Ok("wireguard"))),
+            (Via::Ssh, ssh),
+        ],
+        2,
+        STAGGER,
+    )
+    .await
+    .unwrap();
+    assert_eq!(via, Via::Wireguard);
+    assert_eq!(started.elapsed(), Duration::from_millis(8));
+    assert!(!ssh_started.load(Ordering::SeqCst));
+}

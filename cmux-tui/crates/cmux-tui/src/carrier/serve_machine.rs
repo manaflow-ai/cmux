@@ -57,6 +57,7 @@ pub(crate) enum LinkError {
     InvalidAnswer(String),
     NotUp { state: String },
     Failed { code: String, message: String },
+    HelperRefused { code: String, message: String },
     Unsupported,
 }
 
@@ -85,10 +86,18 @@ impl LinkError {
 
     /// `carrier serve`'s refusal before its ready line, after which it exits:
     /// a path it could not claim (`bad_request` naming `socket`) is another
-    /// cmux serving the machine; any other step keeps the dial's wording.
+    /// cmux serving the machine; `handshake` (no device key) is the helper
+    /// refusing to start, which no new serve fixes; any other step keeps the
+    /// dial's wording.
     pub(crate) fn serve_start(code: &str, detail: Option<&str>, socket: &str) -> Self {
         if code == "bad_request" && detail.is_some_and(|detail| detail.contains(socket)) {
             return socket_taken();
+        }
+        if code == "handshake" {
+            return Self::HelperRefused {
+                code: code.to_owned(),
+                message: detail.map(|detail| format!("{code}: {detail}")).unwrap_or_default(),
+            };
         }
         Self::of_step(code, detail)
     }

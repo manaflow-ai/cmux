@@ -87,16 +87,22 @@
   .wn-copy-version { transition: none; }
 }
 .wn-card-close {
+  /* In the card's corner, concentric with it (Lawrence 2026-11-15: the x was not concentric with the card's
+     corner): its center on the corner's center, the same inset from the top and the side (at least 2px), its hover
+     the card's corner less that inset. */
+  --wn-close-half: 9px; /* half the x's side */
+  --wn-card-corner: var(--cmux-sidebar-card-radius, 10px);
+  --concentric-padding: max(2px, calc(var(--wn-card-corner) - var(--wn-close-half)));
   position: absolute;
-  top: 7px;
-  right: 8px;
+  top: var(--concentric-padding);
+  right: var(--concentric-padding);
   display: grid;
   place-items: center;
   width: 18px;
   height: 18px;
   padding: 0;
   border: 0;
-  border-radius: 9px;
+  border-radius: min(var(--wn-close-half), calc(var(--wn-card-corner) - var(--concentric-padding)));
   background: transparent;
   color: var(--page-text-3);
   cursor: default;
