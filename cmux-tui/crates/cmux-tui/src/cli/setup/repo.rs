@@ -309,7 +309,17 @@ fn fetch_from(reference: &Reference, url: &str, config: &[&str]) -> Result<Check
         .and_then(|_| run(&["remote", "add", "origin", url]))
         .and_then(|_| run(fetch_args))
         .and_then(|_| match &sparse {
-            Some(folder) => run(&["sparse-checkout", "set", "--no-cone", folder]),
+            // The setting and pattern file every git with partial clone reads
+            // (`sparse-checkout set --no-cone` needs 2.35).
+            Some(folder) => run(&["config", "core.sparseCheckout", "true"]).and_then(|_| {
+                let info = checkout.dir.join(".git/info");
+                std::fs::create_dir_all(&info)
+                    .and_then(|()| {
+                        std::fs::write(info.join("sparse-checkout"), format!("{folder}\n"))
+                    })
+                    .map(|()| String::new())
+                    .map_err(|error| format!("sparse-checkout: {error}"))
+            }),
             None => Ok(String::new()),
         })
         .and_then(|_| run(&["-c", "advice.detachedHead=false", "checkout", "-q", "FETCH_HEAD"]))
