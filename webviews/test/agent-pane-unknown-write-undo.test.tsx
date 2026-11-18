@@ -9,18 +9,12 @@
 // beside it, so a reader could take Undo to restore the whole turn.
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
-import {
-  FOLDER,
-  NOTES,
-  PLAN,
-  SETUP,
-  activity,
-  checkpoint,
-  editedCard,
-  translatorWrite,
-  useDom,
-} from "./support/unknownWrite";
 import type { TurnCheckpointLoad } from "../src/agent-session/acpmux/changes/turnCheckpoint";
+import { importWithDom } from "./support/importWithDom";
+
+const { FOLDER, NOTES, PLAN, SETUP, activity, checkpoint, editedCard, translatorWrite, useDom } = await importWithDom(
+  () => import("./support/unknownWrite"),
+);
 
 const dom = useDom();
 let asked: string[][] = [];
