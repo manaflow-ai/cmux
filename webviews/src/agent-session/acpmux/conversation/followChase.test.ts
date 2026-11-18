@@ -2,7 +2,7 @@
 // within the speed limit, never past its rest, and the frame loop ends at rest. The live browser
 // behaviour at 120 Hz is in test/send-stream-motion.test.ts.
 import { expect, test } from "bun:test";
-import { MOTION_SEND_CURVE } from "../../../motion/scale.generated";
+import { MOTION_SEND_CURVE, MOTION_SETTLE, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
 import { bezierAt } from "../../../ui/cubicBezier";
 import { currentChatMetrics } from "../chatDisplay";
 import {
@@ -472,7 +472,7 @@ test("in the earlier looks a row that arrived holds all of its move back, and is
 /// The product's send step is 0 (Leo, 2026-11-11: "that slow settle animation is just so bad. Like,
 /// just do it."): a send lands at once. These read the rise a page that sets its own send clock (the
 /// galleries) still plays, on the 180 ms it had.
-const GALLERY_SEND_MS = 180;
+const GALLERY_SEND_MS = 180; // motion-allow: a gallery's own send clock, not the scale's (send is 0)
 const GALLERY_SEND = `${GALLERY_SEND_MS}ms`;
 
 test.each([60, 100])("a send's %d px rise plays on the bubble's send clock and rests with it", (px) => {
@@ -561,8 +561,8 @@ test("the reply draining while the turn's end fold plays: each frame of the two 
   const clock = node.ownerDocument.timeline as unknown as { currentTime: number };
   const start = clock.currentTime;
   const span = 43;
-  const easing = "cubic-bezier(0.16, 1, 0.3, 1)";
-  const duration = 180;
+  const easing = MOTION_SETTLE;
+  const duration = MOTION_SETTLE_MS;
   const fold = {
     playState: "running",
     startTime: start,

@@ -285,6 +285,37 @@ class SignAppTest(unittest.TestCase):
         verified = {c["argv"][-1] for c in self.calls("signer", "verify")}
         self.assertEqual(verified, {str(self.app / rel) for rel in MACHOS | {PAYLOAD}})
 
+    def test_share_extension_is_stamped_and_sandboxed(self) -> None:
+        """The Share extension (bundle-share-extension.sh) takes the app's final id and name, and
+        the App Sandbox: macOS loads no unsandboxed app extension, so clearing it would drop the
+        Share menu's item."""
+        share = "Contents/PlugIns/CmuxShare.appex/Contents/MacOS/CmuxShare"
+        write(self.app / share, b"\xcf\xfa\xed\xfe" + share.encode() + b"ENTITLED")
+        write(self.app / "Contents/PlugIns/CmuxShare.appex/Contents/Info.plist",
+              plistlib.dumps({"CFBundleExecutable": "CmuxShare", "CFBundleIdentifier": "stale.share"}), 0o644)
+        info = self.app / "Contents/Info.plist"
+        info.write_bytes(plistlib.dumps({"CFBundleExecutable": "cmux", "CFBundleIdentifier": BUNDLE_ID,
+                                         "CFBundleName": "cmux NEXT DEV"}))
+        self.run_script()
+        [sign] = self.signs(self.app)
+        self.assertEqual(plistlib.loads(sign["entitlements"][share].encode()),
+                         {"com.apple.security.app-sandbox": True})
+        stamped = plistlib.loads((self.app / "Contents/PlugIns/CmuxShare.appex/Contents/Info.plist").read_bytes())
+        self.assertEqual((stamped["CFBundleIdentifier"], stamped["CFBundleDisplayName"]),
+                         (f"{BUNDLE_ID}.share", "cmux NEXT DEV Chat"))
+        self.assertEqual(stamped["NSExtension"]["NSExtensionPointIdentifier"], "com.apple.share-services")
+
+    def test_the_screen_sharing_executable_takes_the_computer_use_identity(self) -> None:
+        # One permission identity for screen sharing and computer use: the executable inside the
+        # Computer Use helper is signed with the helper's identifier and no entitlements.
+        nested = "Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-screen-sharing"
+        write(self.app / nested, b"\xcf\xfa\xed\xfe" + nested.encode() + b"ENTITLED")
+        self.run_script()
+        [sign] = self.signs(self.app)
+        self.assertIn(f"{nested}:com.cmuxterm.cua", options(sign["argv"], "--binary-identifier"))
+        self.assertEqual(plistlib.loads(sign["entitlements"][nested].encode()), {})
+        self.assertIn(f"{nested}:runtime", options(sign["argv"], "--code-signature-flags"))
+
     def test_bundle_is_prepared_before_it_is_signed(self) -> None:
         self.run_script()
         [sign] = self.signs(self.app)
@@ -429,6 +460,18 @@ class HelperFirstTest(SignAppTest):
         for call in self.calls():
             self.assertNotIn(self.env["ASC_API_KEY_P8_BASE64"], " ".join(call["argv"]))
         self.assertEqual({c["notary_key_env"] for c in self.calls("signer")}, {False})
+
+    def test_the_screen_sharing_executable_is_notarized_inside_the_helper(self) -> None:
+        nested = "Contents/MacOS/cmux-screen-sharing"
+        write(self.app / CU / nested, b"\xcf\xfa\xed\xfe" + nested.encode())
+        self.run_script()
+        [alone] = self.signs(self.app / CU)
+        self.assertEqual(options(alone["argv"], "--binary-identifier"), [f"{nested}:com.cmuxterm.cua"])
+        self.assertIn(f"{nested}:runtime", options(alone["argv"], "--code-signature-flags"))
+        self.assertEqual(alone["entitlements"], {"": HELPER_TEXT})
+
+    def test_the_screen_sharing_executable_takes_the_computer_use_identity(self) -> None:
+        pass  # helper-first signs it with the helper, above
 
     def test_a_ticket_that_misses_a_slice_stops_before_anything_else(self) -> None:
         for env, stops_after in (({"FAKE_TICKET": "ab" * 20}, "notary-log"), ({"FAKE_STAPLED": "cd" * 20}, "staple"),

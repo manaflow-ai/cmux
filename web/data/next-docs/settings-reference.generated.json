@@ -347,6 +347,14 @@
           "group": "Guidance and Skills"
         },
         {
+          "key": "agents.mcpServers.enabled",
+          "title": "Saved Servers in Agent Chats",
+          "help": "New chats can use the servers listed above.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Agent Chats"
+        },
+        {
           "key": "agents.modelRouter.model",
           "title": "cmux Model Router Model",
           "help": "The model new cmux model router chats start on.",
@@ -5987,7 +5995,7 @@
           "title": "Show Chief When Opening Workspaces",
           "help": "Links in the Chief open their workspace with the Chief over it. Esc hides it.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Chief Dock"
         },
         {
@@ -6696,14 +6704,6 @@
       "id": "advanced",
       "title": "Advanced",
       "rows": [
-        {
-          "key": "customize.fromTheApp",
-          "title": "Customize From the Window",
-          "help": "Hold Option over a part of the window to see what changes it, and right-click it for Customize…. Turn this off to hide both.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Labs"
-        },
         {
           "key": "developerTools.appPages",
           "title": "Developer Tools for cmux Pages",

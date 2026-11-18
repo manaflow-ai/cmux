@@ -77,7 +77,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var homeFeedInChief = HomeFeedRowsSetting.fallback
     /// `home.chiefDock.edge`: the window edge the Chief docks to (``ChiefDockSetting``); `left` when unset.
     public var chiefDockEdge = ChiefDockSetting.edgeDefault
-    /// `home.chiefDock.openBeside`: a link clicked in the Chief opens its workspace with the Chief floating over it; on when unset.
+    /// `home.chiefDock.openBeside`: a link clicked in the Chief opens its workspace with the Chief floating over it; off when unset (cmux#45889).
     public var chiefDockOpenBeside = ChiefDockSetting.openBesideDefault
     /// `home.chiefPanel.style`: how the floating Chief looks (``ChiefDockSetting``); `composeBar` when unset.
     public var chiefPanelStyle = ChiefDockSetting.styleDefault
