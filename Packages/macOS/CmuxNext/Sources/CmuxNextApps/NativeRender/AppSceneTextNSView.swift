@@ -14,6 +14,10 @@ final class AppSceneTextNSView: AppSceneNodeNSView {
 
     override func configure(_ node: AppSceneNode) {
         super.configure(node)
+        // With an `animation`, a new text or color crossfades in place (a label's color is no layer property).
+        if let motion = changeMotion, previousNode?.props["text"] != node.props["text"] || previousNode?.props["color"] != node.props["color"] {
+            Motion.appScenes.sceneCrossfade(motion, on: label.layer, in: window)
+        }
         label.stringValue = node.string("text") ?? ""
         label.font = Self.font(node)
         let lines = node.number("lineLimit").map { max(1, Int($0)) } ?? 0
