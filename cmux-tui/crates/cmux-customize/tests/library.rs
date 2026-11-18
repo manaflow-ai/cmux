@@ -575,3 +575,116 @@ fn a_profile_entry_says_what_the_profile_says_it_is() {
     use_and_apply(&customize, &bare, 20);
     assert_eq!(customize.library().unwrap().entries[0].description, "profile bare");
 }
+
+/// A whole app as a profile carries it: `apps/NAME/cmux-app.json` and its
+/// script, plus `extra` files.
+fn app_profile(
+    profile_name: &str,
+    app: &str,
+    title: &str,
+    extra: &[(&str, &str)],
+) -> cmux_customize::profile::Profile {
+    let manifest = serde_json::json!({
+        "manifestVersion": 2, "id": format!("local/{app}"), "name": title, "version": "1.0.0",
+        "description": "A view", "engines": {"cmux": "^2.0"},
+        "runtime": {"main": "main.js"}, "files": ["main.js"],
+        "implements": {"cmux.section/1": {"export": "render", "title": title}}
+    });
+    let mut files = serde_json::Map::new();
+    files.insert(format!("apps/{app}/cmux-app.json"), serde_json::json!(format!("{manifest:#}\n")));
+    files.insert(
+        format!("apps/{app}/main.js"),
+        serde_json::json!(format!(
+            "var __cmuxAppExports = {{ render() {{ return {title:?}; }} }};\n"
+        )),
+    );
+    for (path, text) in extra {
+        files.insert(format!("apps/{app}/{path}"), serde_json::json!(text));
+    }
+    profile(serde_json::json!({ "cmuxProfile": 1, "name": profile_name, "files": files }))
+}
+
+/// Views layers stack one app at a time: two layers with two apps are both
+/// on with no conflict (the `customize/` folder is one app, so any two views
+/// layers met there whole); a third with the same app wins that folder
+/// whole, and off brings the lower one's whole folder back and takes away a
+/// file only the higher one had; off of the last takes the folder away.
+#[test]
+fn views_layers_stack_one_app_folder_at_a_time() {
+    let home = Home::new();
+    home.write("cmux-next.json", PLAIN);
+    let customize = home.customize();
+    let clock = use_and_apply(
+        &customize,
+        &app_profile("clock-view", "clock", "Clock", &[("face.css", "a{}\n")]),
+        10,
+    );
+    let notes = use_and_apply(&customize, &app_profile("notes-view", "notes", "Notes", &[]), 20);
+    assert!(home.read("apps/clock/main.js").unwrap().contains("Clock"));
+    assert!(home.read("apps/notes/main.js").unwrap().contains("Notes"));
+    let listing = customize.library().unwrap();
+    assert!(listing.conflicts.is_empty(), "{:?}", listing.conflicts);
+
+    let clock2 = use_and_apply(
+        &customize,
+        &app_profile("clock-v2", "clock", "Clock 2", &[("v2.js", "1;\n")]),
+        30,
+    );
+    let listing = customize.library().unwrap();
+    assert_eq!(listing.conflicts.len(), 1, "{:?}", listing.conflicts);
+    let conflict = &listing.conflicts[0];
+    assert_eq!((conflict.kind, conflict.key.as_str()), ("app", "apps/clock"));
+    assert_eq!(
+        (conflict.winner.as_str(), conflict.losers.as_slice()),
+        (clock2.as_str(), std::slice::from_ref(&clock))
+    );
+
+    customize.library_set_on(&clock2, false, "cli", 40).unwrap();
+    assert!(home.read("apps/clock/main.js").unwrap().contains("\"Clock\""));
+    assert_eq!(
+        home.read("apps/clock/face.css").as_deref(),
+        Some("a{}\n"),
+        "the lower app comes back whole"
+    );
+    assert_eq!(home.read("apps/clock/v2.js"), None, "a file only the higher one had goes");
+
+    customize.library_set_on(&clock, false, "cli", 50).unwrap();
+    assert!(!home.config("apps/clock").exists(), "off removes the app folder exactly");
+    assert!(home.read("apps/notes/cmux-app.json").is_some());
+    customize.library_set_on(&notes, false, "cli", 60).unwrap();
+    assert!(!home.config("apps").exists(), "and the apps folder the library made");
+}
+
+/// A bad manifest is refused whole before a byte is written: an id that is
+/// not `local/<its folder>`, or a script it names that is not there.
+#[test]
+fn an_app_with_a_bad_manifest_writes_nothing() {
+    let home = Home::new();
+    home.write("cmux-next.json", PLAIN);
+    let customize = home.customize();
+    let mut wrong_id = app_profile("wrong", "clock", "Clock", &[]);
+    let manifest = wrong_id.files.get_mut("apps/clock/cmux-app.json").unwrap();
+    *manifest = manifest.replace("local/clock", "local/other");
+    let mut no_script = app_profile("noscript", "clock", "Clock", &[]);
+    no_script.files.remove("apps/clock/main.js");
+    let mut not_a_manifest = app_profile("broken", "clock", "Clock", &[]);
+    not_a_manifest
+        .files
+        .insert("apps/clock/cmux-app.json".to_owned(), "{ \"id\": \"local/clock\" }".to_owned());
+    for (profile, why) in
+        [(wrong_id, "is \"local/clock\""), (no_script, "not in the folder"), (not_a_manifest, "")]
+    {
+        match customize.preview_profile(&profile, "cli", 10) {
+            Err(Error::Invalid(problems)) => {
+                assert!(
+                    problems
+                        .iter()
+                        .any(|p| p.path == "apps/clock/cmux-app.json" && p.message.contains(why)),
+                    "{problems:?}"
+                );
+            }
+            other => panic!("{} was taken: {other:?}", profile.name),
+        }
+        assert!(!home.config("apps").exists(), "{} wrote something", profile.name);
+    }
+}

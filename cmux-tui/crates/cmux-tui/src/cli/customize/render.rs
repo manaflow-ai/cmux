@@ -188,6 +188,14 @@ impl Answer {
                         "saved to your library as {name} (`cmux customize library`)\n"
                     ));
                 }
+                for change in &applied.changes {
+                    if change.kind != cmux_customize::ChangeKind::Removed
+                        && cmux_customize::is_manifest(&change.path)
+                        && let Some(name) = cmux_customize::app_of(&change.path)
+                    {
+                        out.push_str(&install_line(name));
+                    }
+                }
                 out.push_str("  cmux customize rollback        go back to how it was\n");
                 out.push_str(
                     "  cmux customize save NAME       keep this setup as a profile you can share\n",
@@ -542,4 +550,12 @@ fn schema_lines(out: &mut String, schema: &Schema, only: Option<Section>) {
     out.push_str(
         "Next:\n  cmux customize schema settings --json   every key with its JSON Schema, range and default\n  cmux customize schema --typescript       the same as TypeScript types (cmux-extension-sdk/customize)\n  cmux customize 'make the sidebar compact'   ask an agent to change it\n",
     );
+}
+
+/// How an app a customization put on disk gets its scopes: it loads as a
+/// preview until it is installed from its card, as `cmux ext dev` leaves one.
+pub(super) fn install_line(name: &str) -> String {
+    format!(
+        "  cmux apps install local/{name}   app {name} loads as a preview until you install it (its card asks for its scopes)\n"
+    )
 }

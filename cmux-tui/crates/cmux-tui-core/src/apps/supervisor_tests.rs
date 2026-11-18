@@ -388,6 +388,7 @@ fn fixture_safe(defaults: &[&str], idle: Duration, root: TempDir, safe_mode_env:
                 // `CMUX_APPS_DIRS`; empty until a test writes an app there.
                 extra: vec![root.0.join("extra")],
                 local: Some(state.join("apps/local")),
+                apps: None,
                 customize: None,
                 defaults: Some(defaults.iter().map(|s| s.to_string()).collect()),
             },
@@ -989,6 +990,7 @@ fn the_shipped_first_party_directory_is_the_default_set() {
         bundled: vec![],
         extra: vec![],
         local: None,
+        apps: None,
         customize: None,
         defaults: None,
     });
@@ -1004,6 +1006,7 @@ fn the_shipped_first_party_directory_is_the_default_set() {
         bundled: vec![],
         extra: vec![],
         local: None,
+        apps: None,
         customize: None,
         defaults: Some(vec![]),
     });
@@ -1044,6 +1047,7 @@ fn every_bundled_first_party_app_loads_and_is_installed_by_default() {
                 bundled: vec![],
                 extra: vec![],
                 local: None,
+                apps: None,
                 customize: None,
                 defaults: None,
             },
@@ -1061,6 +1065,7 @@ fn every_bundled_first_party_app_loads_and_is_installed_by_default() {
         bundled: vec![],
         extra: vec![],
         local: None,
+        apps: None,
         customize: None,
         defaults: None,
     });
