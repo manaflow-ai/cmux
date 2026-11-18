@@ -516,9 +516,10 @@ pub(super) fn ended_replies(events: &[AcpmuxEvent]) -> (Vec<String>, Option<u64>
         for output in folder.apply(event) {
             match output {
                 TurnOutput::Started { .. } => cuts.clear(),
-                // A `/goal` subagent's hold turn only says `ready` (goal.rs):
-                // its run goes on in the goal turn, so it neither reports nor
-                // ends. One that was stopped or failed gets no goal turn: it ends.
+                // The hold turn of a subagent started before the one-prompt
+                // start (goal.rs) only said `ready`: its run went on in the
+                // goal turn, so it neither reports nor ends. One that was
+                // stopped or failed got no goal turn: it ends.
                 TurnOutput::Ended {
                     turn, error: None, ..
                 } if !stopped && crate::goal::is_hold_prompt(turn.prompt_id.as_deref()) => {
