@@ -20,7 +20,7 @@
           },
           "help": {
             "key": "settings.agents.cacheCompact.enabled.help",
-            "text": "When a Claude chat sits idle, compact it while its prompt cache is still warm, so the next message doesn't reread the whole context uncached. Costs one model call per compaction, read from the cache."
+            "text": "Compacts an idle Claude chat while its cache is warm, so the next message costs less."
           },
           "kind": "toggle",
           "default": false,

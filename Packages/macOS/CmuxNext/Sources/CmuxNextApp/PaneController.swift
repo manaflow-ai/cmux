@@ -52,7 +52,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     private(set) var stripSelection: String?
     private var sentFocusPane: FocusTopology.Pane? // this pane's topology part as last sent (I4)
     private var presentedReport = PresentedContentReport() // what this pane last reported as presented to focus
-    private(set) var appliedRecordTabs: [String] = [] // the record's tab ids at the last apply: a record that differs is a stale strip (`stripIsStale`)
+    private(set) var appliedRecordTabs: [String] = [] // the record's tab ids at the last apply: a record that differs is a stale strip (`stripIsStale`); only a tab of that record can leave by a move (a mirror's close is a close)
     private var remapsViewedTab = false // a newly selected tab lost its attention dot: map the strip once, after the apply
     /// Its workspace draws nothing (`WorkspaceContentController.drawsNothing`): no strip observation runs and
     /// no content is shown; `resume` maps the strip once and shows the selection then (PL-script A2).
@@ -63,7 +63,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         didSet {
             guard presentsPage != oldValue else { return }
             view.hidesStrip = snapshotHidesStrip || presentsPage
-            if presentsPage { workspace?.presentedPane = layoutPaneID } else if workspace?.presentedPane == layoutPaneID { workspace?.presentedPane = nil }
+            if presentsPage { workspace?.presentedPane = layoutPaneID; syncStripFromStore() } else if workspace?.presentedPane == layoutPaneID { workspace?.presentedPane = nil }
         }
     }
     private var snapshotHidesStrip = false // the last snapshot's own choice, kept under `presentsPage`
@@ -86,7 +86,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         var generation: String?
         var hidesStrip = false // PaneTabBarChoices: only the person's Hide Tab Bar
         var fullWidthTab = false // PaneFullWidthTabs: the strip shows only the selected tab
-        var zoomed = false // the pane fills its screen (Toggle Pane Zoom): the selected tab shows the zoom indicator
+        var zoomed = false // the store's zoom of the pane (Toggle Pane Zoom); the zoom marks follow the layout (TabStripModel.zoomsSelected)
         var verticalTabs: PaneVerticalTabs? // WorkspaceVerticalTabs: a list instead of the strip; nil shows the strip
         /// `pinned-dock-v1`: the pane is in a pinned column (the Home dock): its first tab
         /// shows no close button.
@@ -99,11 +99,11 @@ final class PaneController: SurfacePresenter, PresentablePane {
     struct Spare {
         let stripModel = TabStripModel()
         let view: PaneContentView
+        let toolbarView = PaneToolbarView() // its toolbar's buttons: 15 of 102 samples of Cmd-,'s key turn (2026-11-17)
         init(services: AppServices) {
             view = PaneContentView(stripModel: stripModel)
             (view.stripView.previewProvider, view.stripView.resourceSource) = (services.previews, services.resources)
-            // The + stays a plain default-tab action, with hold/right-click for the type menu; its chevron opens that menu.
-            (view.stripView.opensNewTabMenuOnPress, view.stripView.showsNewTabMenuButton) = (false, true)
+            (view.stripView.opensNewTabMenuOnPress, view.stripView.showsNewTabMenuButton) = (false, true) // the + stays a plain default-tab action (hold/right-click: the type menu); its chevron opens that menu
         }
     }
 
@@ -308,7 +308,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             (item.machineBadge, item.machineName) = services.remoteTerminals.badge(for: tab)
             item.icon = .terminal
         } else if tab.kind != .browser {
-            (item.machineBadge, item.machineName) = (machine, machine.flatMap { _ in services.machines.machineName(daemon.machineID) })
+            item.setMachineBadge(machine, name: machine.flatMap { _ in services.machines.machineName(daemon.machineID) }, cloudChat: tab.agentSession != nil && services.machines.session(daemon.machineID) != nil)
             item.themeBadge = services.themes.badge(forTerminal: TerminalThemeKey(machine: daemon.machineID, tab: tab))
         } else {
             // A browser tab names the machine whose localhost it sees.
@@ -345,15 +345,15 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// Pushes daemon truth (a New Tab page's replacement in its slot: NewTabSuccession) into the strip. `force` resets optimistic strip state after a rejected command.
     func apply(_ reported: Snapshot, force: Bool = false) {
         let snapshot = NewTabSuccession.order(reported, in: self)
-        appliedRecordTabs = pane.tabs.map(\.id)
+        let was = appliedRecordTabs; appliedRecordTabs = pane.tabs.map(\.id)
         if force { view.stripView.discardPendingReorder() }
         snapshotHidesStrip = snapshot.hidesStrip
         view.showStrip(hidden: snapshot.hidesStrip || presentsPage, vertical: presentsPage ? nil : snapshot.verticalTabs)
         if stripModel.showsSelectedFullWidth != snapshot.fullWidthTab { stripModel.showsSelectedFullWidth = snapshot.fullWidthTab }
-        if stripModel.zoomsSelected != snapshot.zoomed { stripModel.zoomsSelected = snapshot.zoomed; view.needsLayout = true } // the indicator (PaneContentView+ZoomIndicator)
+        if presentsPage, stripModel.zoomsSelected != snapshot.zoomed { stripModel.zoomsSelected = snapshot.zoomed; view.needsLayout = true } // only under a page's fullscreen (TabStripModel.zoomsSelected)
         if stripModel.groups != snapshot.groups { stripModel.groups = snapshot.groups }
         if stripModel.tabs != snapshot.items {
-            stripModel.tabs = snapshot.items
+            stripModel.take(snapshot.items) { id in was.contains(id.rawValue) && daemon.store.tab(id: id.rawValue).flatMap(daemon.store.pane(holding:)).map { $0.id != pane.id } ?? false }
             noteNeighbors()  // a reorder, close or new tab moves the neighbors
         }
         if stripModel.showsNewTabButton != snapshot.takesNewTabs { stripModel.showsNewTabButton = snapshot.takesNewTabs }
