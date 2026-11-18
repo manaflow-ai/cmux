@@ -720,9 +720,11 @@ impl WorkspaceRegistry {
                 }
             }
         }
-        let stated = stated.expect("the fold holds a value that no record it folded states");
-        assert!(held.is(&stated), "the fold holds another value of {resource} {id} than {stated}");
-        Some(Some(stated))
+        assert!(
+            stated.as_ref().is_some_and(|stated| held.is(stated)),
+            "the fold holds another value of {resource} {id} than the records it folded state: {stated:?}"
+        );
+        Some(stated)
     }
 }
 
