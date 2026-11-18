@@ -2060,6 +2060,75 @@
             "softer",
             "frame"
           ]
+        },
+        {
+          "key": "appearance.cornerFlush",
+          "note": "How the selected tab meets the content card (CornerFlush, CmuxNextDesign). A missing key is the default, flush with no goo, drawn only over the stock chrome (CornerFlush.defaultFits); a set value draws over any chrome, as a Debug Settings pick of chrome.cornerFlush does, which still overrides it in DEV and NIGHTLY. Compact density keeps the pill under every value. Leo 2026-11-13: \"lawrence wanted no goo by default\"; Leo 2026-11-18: the gooey look is a toggle a theme or a setup can pick.",
+          "title": {
+            "key": "settings.appearance.cornerFlush",
+            "text": "Selected Tab Shape"
+          },
+          "help": {
+            "key": "settings.appearance.cornerFlush.help",
+            "text": "How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water."
+          },
+          "summary": {
+            "key": "settings.appearance.cornerFlush.summary",
+            "text": "Pill, flush or goo for the selected tab"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.cornerFlush.off",
+                "text": "Pill"
+              }
+            },
+            {
+              "value": "flush",
+              "title": {
+                "key": "settings.choice.cornerFlush.flush",
+                "text": "Flush"
+              }
+            },
+            {
+              "value": "flush-tight",
+              "swift_case": "tight",
+              "title": {
+                "key": "settings.choice.cornerFlush.tight",
+                "text": "Flush, Tight to the Sidebar"
+              }
+            },
+            {
+              "value": "flush-goo",
+              "swift_case": "goo",
+              "title": {
+                "key": "settings.choice.cornerFlush.goo",
+                "text": "Goo"
+              }
+            }
+          ],
+          "default": "flush",
+          "keywords": [
+            "corner",
+            "flush",
+            "goo",
+            "gooey",
+            "folder tab",
+            "fillet",
+            "pill",
+            "selected tab",
+            "tab shape",
+            "card",
+            "material"
+          ],
+          "swift_enum": {
+            "name": "CornerFlush",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": "CornerFlushSetting"
         }
       ]
     },
