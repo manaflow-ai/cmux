@@ -98,6 +98,22 @@ test("Dismiss takes the line away for the rest of the document", async () => {
   expect(container.querySelector("[data-renderer-restart]")).toBeNull();
 });
 
+// Architect review of #46474 (F2): Dismiss cleared only the global, so the app's script coming late
+// (it sets the global again and calls the hook) brought back a line the person had dismissed.
+test("a dismissed line stays hidden when the app's script comes late", async () => {
+  const container = installDom();
+  scope[RENDERER_RESTART_GLOBAL] = { line: LINE };
+  bootAndPaint(container);
+  const button = container.querySelector<HTMLButtonElement>("[data-renderer-restart] button")!;
+  await act(async () => button.click());
+  expect(container.querySelector("[data-renderer-restart]")).toBeNull();
+  scope[RENDERER_RESTART_GLOBAL] = { line: LINE };
+  await act(async () => (scope[RENDERER_RESTART_CHANGED] as () => void)());
+  expect(container.querySelector("[data-renderer-restart]")).toBeNull();
+  await act(async () => bootRendererRestart());
+  expect(container.querySelector("[data-renderer-restart]")).toBeNull();
+});
+
 test("a flag that comes after the pane started still draws the line", async () => {
   const container = installDom();
   delete scope[RENDERER_RESTART_GLOBAL];

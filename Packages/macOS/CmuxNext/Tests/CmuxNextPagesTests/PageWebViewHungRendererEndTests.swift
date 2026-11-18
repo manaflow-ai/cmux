@@ -80,6 +80,8 @@ struct PageWebViewHungRendererEndTests {
         // Chromium reports the renderer gone to both tabs: each reloads in a new renderer, no notice.
         loopingPage.onEvent?(.crashed)
         idlePage.onEvent?(.crashed)
+        // Each reload waits for the restart line's script to be taken (answered here at once).
+        for view in [looping, idle] { await view.restartFlagReload?.value }
         #expect(loopingPage.reloads == 1 && idlePage.reloads == 1, "a chat of the ended renderer did not reload")
         #expect(crashNotices == 0, "an ended renderer showed the crash notice instead of reloading")
         #expect(looping.showsChromium && idle.showsChromium, "a chat fell back to WebKit")
@@ -122,6 +124,7 @@ struct PageWebViewHungRendererEndTests {
         #expect(PageWebView.endHungRenderer(of: [looping], notice: "restarted") == 4242)
         loopingPage.onEvent?(.crashed)
         bootingPage.onEvent?(.crashed)
+        for view in [looping, booting] { await view.restartFlagReload?.value }
         #expect(bootingPage.reloads == 1, "a booting chat of the ended renderer did not reload")
         #expect(crashNotices["boot"] == nil, "a booting chat of the ended renderer showed the crash notice")
         booting.documentFinished()
@@ -155,7 +158,7 @@ struct PageWebViewHungRendererEndTests {
         // The feed passes four; the fifth is still booting in the same renderer.
         #expect(PageWebView.endHungRenderer(of: chats.prefix(4).map(\.0), notice: line) != nil)
         for (_, page) in chats { page.onEvent?(.crashed) }
-        for (view, _) in chats { _ = await view.restartFlagScript?.value }
+        for (view, _) in chats { await view.restartFlagReload?.value }
 
         for ((view, page), before) in zip(chats, setupAdds) {
             let adds = page.calls.filter { $0.method == addScript }
@@ -179,6 +182,67 @@ struct PageWebViewHungRendererEndTests {
         #expect(other.restartFlagScript == nil && otherPage.calls.filter { $0.method == addScript }.count == otherAdds)
         for (view, _) in chats { view.close() }
         other.close()
+    }
+
+    /// Architect review of #46474 (F1): the reload ran at once while the restart line's script was
+    /// still being registered, so a fast navigation could reach its first document without the
+    /// line. The reload now waits for Chromium's answer to that registration.
+    @Test func theReloadWaitsForTheRestartLineScriptToBeTaken() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let (view, page) = try await chat(hosting, session: "s-wait", renderer: newRenderer())
+        let addScript = "Page.addScriptToEvaluateOnNewDocument"
+        page.held = [addScript]
+
+        #expect(PageWebView.endHungRenderer(of: [view], notice: "restarted") != nil)
+        page.onEvent?(.crashed)
+        for _ in 0..<20 { await Task.yield() }
+        #expect(page.calls.last { $0.method == addScript }?.params["source"] as? String != nil, "the restart line's script was not asked for")
+        #expect(page.reloads == 0, "the page reloaded before Chromium took the restart line's script")
+
+        page.release(addScript)
+        await view.restartFlagReload?.value
+        #expect(page.reloads == 1, "the page did not reload once the script was taken")
+        #expect(view.restartFlagNote == nil)
+        view.close()
+    }
+
+    /// F1's bound: when the registration is never answered in time, the page reloads anyway (a chat
+    /// that stays down is worse than one without its line) and the log says why.
+    @Test func anUnansweredRegistrationStillReloadsAndLogsWhy() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let (view, page) = try await chat(hosting, session: "s-late", renderer: newRenderer())
+        let addScript = "Page.addScriptToEvaluateOnNewDocument"
+        page.held = [addScript]
+        // The wait runs out at once.
+        view.chromiumClock = PageTestClock.immediate
+
+        #expect(PageWebView.endHungRenderer(of: [view], notice: "restarted") != nil)
+        page.onEvent?(.crashed)
+        await view.restartFlagReload?.value
+        #expect(page.reloads == 1, "an unanswered registration kept the chat from reloading")
+        #expect(view.restartFlagNote?.contains("not answered within") == true, "the reload without the script logged no reason")
+
+        // The late answer still lets the script come off once the document loaded.
+        page.release(addScript)
+        _ = await view.restartFlagScript?.value
+        view.close()
+    }
+
+    /// A registration Chromium refused: the page reloads at once and the log says the chat shows only the toast.
+    @Test func aFailedRegistrationReloadsAndLogsWhy() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let (view, page) = try await chat(hosting, session: "s-fail", renderer: newRenderer())
+        page.answer = { method, _ in method == "Page.addScriptToEvaluateOnNewDocument" ? "{}" : nil }
+
+        #expect(PageWebView.endHungRenderer(of: [view], notice: "restarted") != nil)
+        page.onEvent?(.crashed)
+        await view.restartFlagReload?.value
+        #expect(page.reloads == 1)
+        #expect(view.restartFlagNote?.contains("failed to register") == true)
+        view.close()
     }
 
     /// Don't Show Again on the restart toast was saved under the agent pane's old toast id
