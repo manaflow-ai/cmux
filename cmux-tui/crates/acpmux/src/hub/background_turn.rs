@@ -389,6 +389,31 @@ mod tests {
         assert_eq!(ended[0]["quiet"], false);
     }
 
+    /// Codex (codex-acp) runs turns acpmux never prompted too: the next turn toward an active goal
+    /// (`_session/goal`). It sends no Claude `result`; its thread going idle
+    /// (`_meta.codex.threadStatus.type: "idle"`) ends the turn, so the bracket closes there
+    /// (measured on codex-acp 1.10.0: the goal's turn stayed "started" forever).
+    #[test]
+    fn a_codex_turn_ends_when_its_thread_goes_idle() {
+        let mut b = BackgroundTurns::default();
+        let status = |t: &str| {
+            json!({"sessionUpdate": "session_info_update",
+                   "_meta": {"codex": {"threadStatus": {"type": t}}}})
+        };
+        assert_eq!(b.on_update(&status("active"), false, 3), None);
+        let started = b.on_update(&chunk("m1", "REPORTED work-done"), false, 4);
+        assert_eq!(started, Some(json!({"state": "started", "id": "bg-4", "trigger": "system"})));
+        assert_eq!(
+            b.on_update(&status("idle"), false, 9),
+            Some(json!({"state": "ended", "id": "bg-4", "trigger": "system",
+                        "quiet": true, "reason": "result"}))
+        );
+        // Idle with none running, or while acpmux's own turn runs, ends nothing.
+        assert_eq!(b.on_update(&status("idle"), false, 10), None);
+        b.on_update(&chunk("m2", "more"), false, 11);
+        assert_eq!(b.on_update(&status("idle"), true, 12), None);
+    }
+
     #[test]
     fn a_task_notification_turn_names_its_cause() {
         let mut b = BackgroundTurns::default();

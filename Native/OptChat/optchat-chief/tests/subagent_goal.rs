@@ -244,21 +244,22 @@ fn subagent_goal_a_codex_subagent_reports_only_once_its_goal_is_not_active() {
         h.log()
     );
 
-    // Codex's own next turn ends with the goal complete: now it reports.
+    // Codex's own next turn, as acpmux logs it (codex-acp 1.10.0, live): a `background_turn`
+    // bracket with no turn end and no status change (the session stays ready), the goal marked
+    // complete inside it. No idle comes; the tick reads it and reports its words.
     h.agents.append_events(
         &session,
         vec![
-            json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+            json!({"dir": "mux", "kind": "background_turn", "msg": {"state": "started", "id": "bg-9", "trigger": "system"}}),
             update(
                 "agent_message_chunk",
                 json!({"content": {"type": "text", "text": "REPORTED work-done"}}),
             ),
             goal_update("complete"),
-            json!({"dir": "mux", "kind": "turn_end", "msg": {}}),
+            json!({"dir": "mux", "kind": "background_turn", "msg": {"state": "ended", "id": "bg-9", "trigger": "system", "quiet": true, "reason": "result"}}),
         ],
     );
-    h.brain
-        .step(Input::from(AgentEvent::SessionChanged(idle(&session))));
+    h.brain.step(Input::SubTick);
     drain(&mut h);
     let status = h.brain.state().sub("a1").map(|(_, s)| s.status);
     assert!(
@@ -266,13 +267,13 @@ fn subagent_goal_a_codex_subagent_reports_only_once_its_goal_is_not_active() {
         "{status:?}: {:?}",
         h.log()
     );
-    assert!(
-        h.log()
-            .iter()
-            .any(|(_, t)| t.contains("REPORTED work-done")),
-        "{:?}",
-        h.log()
-    );
+    let reports: Vec<_> = h
+        .log()
+        .into_iter()
+        .filter(|(_, t)| t.starts_with("[a1]"))
+        .collect();
+    assert_eq!(reports.len(), 1, "one report: {reports:?}");
+    assert!(reports[0].1.contains("REPORTED work-done"), "{reports:?}");
 }
 
 #[test]
