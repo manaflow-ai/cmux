@@ -1903,6 +1903,7 @@ name = "cmux-projfs"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-file-lock",
  "fuser",
  "libc",
  "serde_json",

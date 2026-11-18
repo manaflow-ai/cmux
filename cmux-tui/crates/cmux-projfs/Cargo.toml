@@ -24,4 +24,5 @@ zstd.workspace = true
 # The FUSE lower layer exists only on the Cloud machine. Without default
 # features fuser mounts through the setuid `fusermount3` and links no libfuse.
 [target.'cfg(target_os = "linux")'.dependencies]
+cmux-file-lock.workspace = true
 fuser = { version = "0.18", default-features = false }
