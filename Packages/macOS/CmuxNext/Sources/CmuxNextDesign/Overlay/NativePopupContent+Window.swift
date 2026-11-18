@@ -6,82 +6,155 @@ struct NativePopupMountedRow {
     let row: NativePopupRow
     let view: NSView
     let hasIconColumn: Bool
+    /// A rail column's tab, not a row.
+    var tab = false
 }
 
-/// The plain list's geometry (no columns, no placed rail), known before any row view exists:
-/// the rail column, the rows and the footer, each a run of rows from its own top
-/// (``RowOffsets``, CmuxVisibleRows), so the rows in a band are a binary search per part.
+/// A run of rows' geometry, known before any row view exists. Each part (a rail column, the rows,
+/// the footer) is a run of rows from its own top (``RowOffsets``, CmuxVisibleRows), so the rows
+/// in a band are a binary search per part.
 struct NativePopupWindowLayout {
     struct Part {
         var start: Int
-        var top: CGFloat
         var offsets: RowOffsets
+        /// The part's top and leading edge in its document (a placed rail's are set by its layout).
+        var y: CGFloat = 0
+        var x: CGFloat = 0
+        /// A fixed width (the plain list's rail column); 0: to the document's trailing inset.
+        var width: CGFloat = 0
         var range: Range<Int> { start..<(start + offsets.count) }
     }
 
     var parts: [Part] = []
-    var railCount = 0
-    var railWidth: CGFloat = 0
     var hasIconColumn = false
+    /// Each row a centered square tab of the row height, a gap after it (a rail column).
+    var tabs = false
+    /// The plain list's height, insets included.
     var height: CGFloat = 0
 
-    init(_ model: NativePopupModel, rows: [NativePopupRow]) {
+    /// A row's height before its view exists. `footer`: the plain list's footer, whose text
+    /// fields keep the row height.
+    static func height(of row: NativePopupRow, footer: Bool = false) -> CGFloat {
+        if row.kind == .slider, let descriptor = row.slider { return NativePopupSliderView.preferredHeight(for: descriptor) }
+        return row.kind == .separator ? 9 : !footer && row.kind == .textField ? 32
+            : row.description?.isEmpty == false ? 44 : PopupStyle.standard.rowHeight
+    }
+
+    /// Appends `rows` as a part; returns its length.
+    @discardableResult
+    mutating func append(_ rows: [NativePopupRow], y: CGFloat = 0, x: CGFloat = 0, width: CGFloat = 0,
+                         height: (NativePopupRow) -> CGFloat) -> CGFloat {
+        let offsets = RowOffsets(heights: rows.map { Double(height($0)) })
+        parts.append(Part(start: parts.last?.range.upperBound ?? 0, offsets: offsets, y: y, x: x, width: width))
+        return CGFloat(offsets.length)
+    }
+
+    /// The length of part `index`.
+    func length(of index: Int) -> CGFloat {
+        parts.indices.contains(index) ? CGFloat(parts[index].offsets.length) : 0
+    }
+
+    /// The plain list: the rail column, the rows under the title and search, then the footer.
+    static func plain(_ model: NativePopupModel) -> Self {
+        var layout = Self()
         let inset = PopupStyle.standard.padding
         let rail = model.rail ?? []
-        railCount = rail.count
-        railWidth = rail.isEmpty ? 0 : CGFloat(model.railWidth ?? 48)
-        hasIconColumn = rows.contains { $0.icon != nil }
-        func slider(_ row: NativePopupRow) -> CGFloat? {
-            row.kind == .slider ? row.slider.map(NativePopupSliderView.preferredHeight(for:)) : nil
+        let railWidth: CGFloat = rail.isEmpty ? 0 : CGFloat(model.railWidth ?? 48)
+        layout.hasIconColumn = (rail + model.rows + (model.footer ?? [])).contains { $0.icon != nil }
+        let railLength = layout.append(rail, y: inset, x: inset, width: railWidth) { row in
+            row.kind == .slider ? height(of: row) : 40
         }
-        var built: [Part] = []
-        func add(_ rows: [NativePopupRow], top: CGFloat, height: (NativePopupRow) -> CGFloat) -> CGFloat {
-            let offsets = RowOffsets(heights: rows.map { Double(height($0)) })
-            built.append(Part(start: built.last.map(\.range.upperBound) ?? 0, top: top, offsets: offsets))
-            return CGFloat(offsets.length)
-        }
-        let railLength = add(rail, top: inset) { slider($0) ?? 40 }
         var y = inset
         if model.title?.isEmpty == false { y += 24 }
         if model.search != nil { y += 34 }
-        y += add(model.rows, top: y) { row in
-            slider(row) ?? (row.kind == .separator ? 9 : row.kind == .textField ? 32
-                : row.description?.isEmpty == false ? 44 : PopupStyle.standard.rowHeight)
-        }
+        y += layout.append(model.rows, y: y, x: inset + railWidth) { height(of: $0) }
         y = max(y, inset + railLength)
-        y += add(model.footer ?? [], top: y) { row in
-            slider(row) ?? (row.kind == .separator ? 9 : row.description?.isEmpty == false ? 44 : PopupStyle.standard.rowHeight)
-        }
-        height = y + inset
-        parts = built
+        y += layout.append(model.footer ?? [], y: y, x: inset + railWidth) { height(of: $0, footer: true) }
+        layout.height = y + inset
+        return layout
     }
 
-    /// The row at `index` in a list `width` wide.
-    func frame(_ index: Int, width: CGFloat) -> NSRect {
+    /// A placed rail's list: the rows, then the footer; ``NativePopupContent/layoutPlacedRail``
+    /// places both parts under the rail.
+    static func placed(_ model: NativePopupModel) -> Self {
+        var layout = Self()
+        let rows = model.rows + (model.footer ?? [])
+        layout.hasIconColumn = rows.contains { $0.icon != nil }
+        layout.append(model.rows) { height(of: $0) }
+        layout.append(model.footer ?? [], x: PopupStyle.standard.padding) { height(of: $0) }
+        return layout
+    }
+
+    /// One column's rows, or its tabs (a rail column).
+    static func column(_ column: NativePopupColumn) -> Self {
+        var layout = Self()
         let inset = PopupStyle.standard.padding
+        layout.tabs = column.rail == true
+        layout.hasIconColumn = !layout.tabs && column.rows.contains { $0.icon != nil }
+        let tabs = layout.tabs
+        layout.append(column.rows, y: inset, x: inset) { row in
+            tabs ? PopupStyle.standard.rowHeight + Metrics.space1 : height(of: row)
+        }
+        return layout
+    }
+
+    /// The row at `index` in a document `width` wide.
+    func frame(_ index: Int, width: CGFloat) -> NSRect {
         guard let part = parts.first(where: { $0.range.contains(index) }) else { return .zero }
-        let y = part.top + CGFloat(part.offsets.tops[index - part.start])
-        let height = CGFloat(part.offsets.heights[index - part.start])
-        if index < railCount { return NSRect(x: inset, y: y, width: railWidth, height: height) }
-        let x = inset + railWidth
-        return NSRect(x: x, y: y, width: max(0, width - x - inset), height: height)
+        let y = part.y + CGFloat(part.offsets.tops[index - part.start])
+        if tabs {
+            let side = PopupStyle.standard.rowHeight
+            return NSRect(x: (width - side) / 2, y: y, width: side, height: side)
+        }
+        let rowWidth = part.width > 0 ? part.width : max(0, width - part.x - PopupStyle.standard.padding)
+        return NSRect(x: part.x, y: y, width: rowWidth, height: CGFloat(part.offsets.heights[index - part.start]))
     }
 
     /// The rows that meet `band`, in display order.
     func indices(in band: NSRect) -> [Int] {
         parts.flatMap { part in
-            let local = RowBand(minY: Double(band.minY), maxY: Double(band.maxY)).relative(to: Double(part.top))
+            let local = RowBand(minY: Double(band.minY), maxY: Double(band.maxY)).relative(to: Double(part.y))
             return part.offsets.rows(from: local.minY, to: local.maxY).map { $0 + part.start }
         }
     }
 }
 
-/// The plain list draws only the rows in and around its viewport (one viewport above and below),
-/// keeps an equal row's view across updates, and moves the highlight on the two rows involved.
-extension NativePopupContent {
+/// One run of rows drawn by band in one scrolling document: the popup's own list (the plain list,
+/// a placed rail's list) or one column.
+@MainActor
+final class NativePopupRowWindow {
+    weak var document: NSView?
+    var layout: NativePopupWindowLayout
+    var rows: [NativePopupRow]
+    let index: [String: Int]
 
+    init(document: NSView, layout: NativePopupWindowLayout, rows: [NativePopupRow]) {
+        self.document = document
+        self.layout = layout
+        self.rows = rows
+        index = Dictionary(rows.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// The band rows are drawn in: the document's viewport and one viewport each side; the whole
+    /// document when nothing scrolls it.
+    var band: NSRect {
+        guard let document else { return .zero }
+        guard let scroll = document.enclosingScrollView, scroll.documentView === document else { return document.bounds }
+        let visible = scroll.documentVisibleRect
+        let band = RowBand(viewportTop: Double(visible.minY), height: Double(visible.height))
+        return NSRect(x: visible.minX, y: CGFloat(band.minY), width: visible.width, height: CGFloat(band.maxY - band.minY))
+    }
+
+    func frame(_ index: Int) -> NSRect { layout.frame(index, width: document?.bounds.width ?? 0) }
+}
+
+/// Every list in the popup draws only the rows in and around its viewport (one viewport above and
+/// below), keeps an equal row's view across updates, and moves the highlight on the two rows
+/// involved. A few rows outside any list (a column layout's spanning rows and footer, its search
+/// accessory, a placed rail's tabs) are always drawn.
+extension NativePopupContent {
     /// Indexes the shown rows after a rebuild: their places, the rows the keys move among, the
-    /// rail tabs Return reaches, and the digit keys.
+    /// rail tabs Return reaches, the digit keys, and each column's rows.
     func indexRows(_ model: NativePopupModel) {
         shownIndex = Dictionary(shownRows.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
         let rail = Set((model.rail ?? []).map(\.id))
@@ -92,6 +165,19 @@ extension NativePopupContent {
         railRowIDs = Set(shownRows.filter { $0.disabled != true && rail.contains($0.id) }.map(\.id))
         shortcutRows = [:]
         for row in listRows { if let key = row.shortcut, shortcutRows[key] == nil { shortcutRows[key] = row.id } }
+        columnOf = [:]
+        for (index, column) in (model.columns ?? []).enumerated() { for row in column.rows { columnOf[row.id] = index } }
+        columnListRows = (model.columns ?? []).map { $0.rows.filter { listIndex[$0.id] != nil } }
+        columnListPosition = [:]
+        for rows in columnListRows { for (position, row) in rows.enumerated() { columnListPosition[row.id] = position } }
+        listWork.walked(shownRows.count)
+    }
+
+    /// Draws `rows` by band in `document`, with `layout`'s geometry.
+    func addWindow(_ document: NSView, layout: NativePopupWindowLayout, rows: [NativePopupRow]) {
+        let window = NativePopupRowWindow(document: document, layout: layout, rows: rows)
+        for row in rows { windowOf[row.id] = rowWindows.count }
+        rowWindows.append(window)
     }
 
     /// The row `id` names when a click or Return reaches it: a list row or a rail tab.
@@ -103,59 +189,73 @@ extension NativePopupContent {
     /// The list row `id` names (Up, Down, digits and typeahead reach it).
     func listRow(_ id: String?) -> NativePopupRow? { id.flatMap { listIndex[$0] }.map { listRows[$0] } }
 
-    /// The band rows are drawn in: the viewport and one viewport each side; the whole list when
-    /// nothing scrolls it.
-    var windowBand: NSRect {
-        guard let scroll = enclosingScrollView, scroll.documentView === self else { return bounds }
-        let visible = scroll.documentVisibleRect
-        let band = RowBand(viewportTop: Double(visible.minY), height: Double(visible.height))
-        return NSRect(x: visible.minX, y: CGFloat(band.minY), width: visible.width, height: CGFloat(band.maxY - band.minY))
-    }
-
-    /// Mounts the rows in the band, drops the rows that left it (never the one with the keys or a
-    /// slider AppKit is tracking), and keeps the views of rows that did not change.
+    /// Mounts each list's rows in its band, drops the rows that left it (never the one with the
+    /// keys or a slider AppKit is tracking), and keeps the views of rows that did not change.
     func realizeVisibleRows() {
-        guard let layout = windowLayout, !isRealizing else { return }
+        guard !rowWindows.isEmpty, !isRealizing else { return }
         isRealizing = true
         defer { isRealizing = false }
-        var wanted = Set(layout.indices(in: windowBand).map { shownRows[$0].id })
-        for (id, mount) in mounted where !wanted.contains(id) && isPinned(mount) { wanted.insert(id) }
-        for (id, mount) in reusable where !wanted.contains(id) && shownIndex[id] != nil && isPinned(mount) { wanted.insert(id) }
-        for (id, mount) in mounted where !wanted.contains(id) { forget(mount); mounted[id] = nil }
-        for index in wanted.compactMap({ shownIndex[$0] }).sorted() where mounted[shownRows[index].id] == nil { mount(index) }
+        for (number, window) in rowWindows.enumerated() {
+            var wanted = Set(window.layout.indices(in: window.band).map { window.rows[$0].id })
+            for (id, mount) in mounted where windowOf[id] == number && !wanted.contains(id) && isPinned(mount) { wanted.insert(id) }
+            for (id, mount) in reusable where windowOf[id] == number && !wanted.contains(id) && isPinned(mount) { wanted.insert(id) }
+            for (id, mount) in mounted where windowOf[id] == number && !wanted.contains(id) { forget(mount); mounted[id] = nil }
+            for index in wanted.compactMap({ window.index[$0] }).sorted() where mounted[window.rows[index].id] == nil {
+                mount(window.rows[index].id)
+            }
+            orderRows(number)
+        }
         for mount in reusable.values { forget(mount) }
         reusable = [:]
-        orderRows()
     }
 
     /// Lays out the mounted rows; a row whose frame did not change is not touched.
     func placeMountedRows() {
-        guard let layout = windowLayout else { return }
-        for (id, mount) in mounted { if let index = shownIndex[id] { place(mount.view, layout.frame(index, width: bounds.width)) } }
+        for (id, mount) in mounted {
+            guard let number = windowOf[id], let index = rowWindows[number].index[id] else { continue }
+            place(mount.view, rowWindows[number].frame(index))
+        }
     }
 
+    /// The view of list row `id`, made (or taken back from the last rebuild) if it has none.
     @discardableResult
-    func mount(_ index: Int) -> NSView? {
-        guard let layout = windowLayout, shownRows.indices.contains(index) else { return nil }
-        let row = shownRows[index]
-        if let view = mounted[row.id]?.view { return view }
+    func mount(_ id: String) -> NSView? {
+        if let view = mounted[id]?.view { return view }
+        guard let number = windowOf[id], let index = rowWindows[number].index[id],
+              let document = rowWindows[number].document else { return nil }
+        let window = rowWindows[number]
+        let row = window.rows[index]
+        let hasIcons = window.layout.hasIconColumn
         let entry: NativePopupMountedRow
-        let old = reusable.removeValue(forKey: row.id)
-        if let old, old.row == row, old.hasIconColumn == layout.hasIconColumn {
+        let old = reusable.removeValue(forKey: id)
+        if let old, old.row == row, old.hasIconColumn == hasIcons, old.tab == window.layout.tabs {
             entry = old
+            if old.view.superview !== document { document.addSubview(old.view) }
         } else {
             if let old { forget(old) }
             let start = targets.count
-            let view = makeRow(row, hasIconColumn: layout.hasIconColumn)
-            rowTargets[row.id] = Array(targets[start...])
+            let view = window.layout.tabs ? makeColumnTab(row) : makeRow(row, hasIconColumn: hasIcons)
+            rowTargets[id] = Array(targets[start...])
             targets.removeSubrange(start...)
-            highlight(view, row.id == selected)
-            addSubview(view)
-            entry = NativePopupMountedRow(row: row, view: view, hasIconColumn: layout.hasIconColumn)
+            highlight(view, id == selected)
+            document.addSubview(view)
+            entry = NativePopupMountedRow(row: row, view: view, hasIconColumn: hasIcons, tab: window.layout.tabs)
         }
-        mounted[row.id] = entry
-        place(entry.view, layout.frame(index, width: bounds.width))
+        mounted[id] = entry
+        place(entry.view, window.frame(index))
         return entry.view
+    }
+
+    /// A rail column's tab (the model picker's harnesses).
+    func makeColumnTab(_ row: NativePopupRow) -> NSView {
+        listWork.configured()
+        let tab = NativePopupRailTab(row: row, placement: .symbols)
+        tab.showsAccentBar = false
+        tab.onActivate = { [weak self, weak tab] in
+            guard let self, let tab else { return }
+            activate(row, view: tab)
+        }
+        return tab
     }
 
     /// Drops a row's view and what it registered (its fields, controls and their targets).
@@ -193,12 +293,19 @@ extension NativePopupContent {
         return false
     }
 
-    /// Keeps the subviews in reading order (title, search, rows top to bottom) for accessibility;
-    /// reorders only when a mount or a rebuild changed it.
-    func orderRows() {
-        let rows = mounted.compactMap { id, mount in shownIndex[id].map { ($0, mount.view) } }.sorted { $0.0 < $1.0 }.map(\.1)
-        let desired = [title, search].compactMap(\.self) + rows
-        if subviews.count != desired.count || !zip(subviews, desired).allSatisfy({ $0 === $1 }) { subviews = desired }
+    /// Keeps a list's document in reading order for accessibility: what is not a list row where it
+    /// is (the title, the search field, a rail), then the list's rows top to bottom. Reorders only
+    /// when a mount or a rebuild changed it.
+    func orderRows(_ number: Int) {
+        guard rowWindows.indices.contains(number), let document = rowWindows[number].document else { return }
+        let window = rowWindows[number]
+        let rows = mounted.compactMap { id, mount in windowOf[id] == number ? window.index[id].map { ($0, mount.view) } : nil }
+            .sorted { $0.0 < $1.0 }.map(\.1)
+        let listed = Set(rows.map(ObjectIdentifier.init))
+        let desired = document.subviews.filter { !listed.contains(ObjectIdentifier($0)) } + rows
+        if !zip(document.subviews, desired).allSatisfy({ $0 === $1 }) || document.subviews.count != desired.count {
+            document.subviews = desired
+        }
     }
 }
 

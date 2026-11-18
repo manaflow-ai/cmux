@@ -19,5 +19,9 @@ public enum VisibleRowsBaseline {
             + "reads every row (macOS NativePopupContent.update; fix: row deltas on the popup wire)", only: "items walked"),
         "page menu": Known("rows are windowed and kept by index, but the page sends every item each time, so the diff "
             + "reads every item (macOS WebPopupRows.update; fix: item deltas on the popup wire)", only: "items walked"),
+        "page popup columns": Known("columns are windowed and kept by id, but the page sends the whole model each revision, so "
+            + "the diff reads every row (macOS NativePopupContent.update; fix: row deltas on the popup wire)", only: "items walked"),
+        "page popup placed rail": Known("the list is windowed and kept by id, but the page sends the whole model each revision, "
+            + "so the diff reads every row (macOS NativePopupContent.update; fix: row deltas on the popup wire)", only: "items walked"),
     ]
 }

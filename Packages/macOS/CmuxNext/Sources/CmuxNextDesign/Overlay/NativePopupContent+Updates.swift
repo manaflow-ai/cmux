@@ -38,6 +38,9 @@ extension NativePopupContent {
         rowViews = rowViews.map { (byID[$0.0.id] ?? $0.0, $0.1) }
         shownRows = shownRows.map { byID[$0.id] ?? $0 }
         listRows = listRows.map { byID[$0.id] ?? $0 }
+        columnListRows = columnListRows.map { $0.map { byID[$0.id] ?? $0 } }
+        // An undrawn row draws the echoed value when it comes into view.
+        for window in rowWindows { window.rows = window.rows.map { byID[$0.id] ?? $0 } }
         return true
     }
 

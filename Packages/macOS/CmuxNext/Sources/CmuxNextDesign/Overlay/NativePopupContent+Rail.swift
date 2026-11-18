@@ -5,6 +5,7 @@ import AppKit
 /// marks and which one is checked; this only lays them out.
 extension NativePopupContent {
     func makeRailTab(_ row: NativePopupRow, placement: NativePopupRailPlacement) -> NSView {
+        listWork.configured()
         let tab = NativePopupRailTab(row: row, placement: placement)
         tab.onActivate = { [weak self, weak tab] in
             guard let self, let tab else { return }
@@ -35,7 +36,6 @@ extension NativePopupContent {
         } else {
             for (row, view) in rowViews where rail.contains(row.id) { addSubview(view) }
         }
-        for (row, view) in rowViews where !rail.contains(row.id) { addSubview(view) }
     }
 
     /// Lays out the title, the search field across the top, the rail in its placement, the list
@@ -44,7 +44,6 @@ extension NativePopupContent {
         let inset = PopupStyle.standard.padding
         let width = bounds.width
         let rail = railIDs
-        let footer = Set((model?.footer ?? []).map(\.id))
         let hairline = max(Metrics.lineWidth(0.5), 0)
         var y = inset
         if let title { title.frame = NSRect(x: inset + 7, y: y, width: max(0, width - inset * 2 - 14), height: 24); y += 24 }
@@ -86,23 +85,17 @@ extension NativePopupContent {
             railBottom = tabY + Metrics.space1
             bodyX = column + hairline + inset
         }
-        let bodyWidth = max(0, width - bodyX - inset)
-        var rowY = listTop
-        for (row, view) in rowViews where !rail.contains(row.id) && !footer.contains(row.id) {
-            let height = rowHeight(row, view: view)
-            view.frame = NSRect(x: bodyX, y: rowY, width: bodyWidth, height: height)
-            rowY += height
-        }
+        // The list (drawn by band, NativePopupContent+Window): its rows, then the footer.
+        guard let list = rowWindows.first else { return railBottom + inset }
+        list.layout.parts[0].y = listTop
+        list.layout.parts[0].x = bodyX
+        let rowY = listTop + list.layout.length(of: 0)
         if placement == .left || placement == .compact {
             let column = bodyX - inset - hairline
             railDivider?.frame = NSRect(x: column, y: y, width: hairline, height: max(rowY, railBottom) - y)
         }
-        var bottom = max(rowY, railBottom)
-        for (row, view) in rowViews where footer.contains(row.id) {
-            let height = rowHeight(row, view: view)
-            view.frame = NSRect(x: inset, y: bottom, width: max(0, width - inset * 2), height: height)
-            bottom += height
-        }
+        list.layout.parts[1].y = max(rowY, railBottom)
+        let bottom = list.layout.parts[1].y + list.layout.length(of: 1)
         // The checked tab stays in view in a strip past its row limit, once per change of tab.
         let checked = tabs.first { $0.isSelected }
         if checked?.row.id != lastCheckedRail {
@@ -110,11 +103,6 @@ extension NativePopupContent {
             if let checked, checked.superview !== self { checked.scrollToVisible(checked.bounds) }
         }
         return bottom + inset
-    }
-
-    private func rowHeight(_ row: NativePopupRow, view: NSView) -> CGFloat {
-        (view as? NativePopupSliderView)?.preferredHeight
-            ?? (row.kind == .separator ? 9 : row.kind == .textField ? 32 : row.description?.isEmpty == false ? 44 : PopupStyle.standard.rowHeight)
     }
 }
 
