@@ -76,6 +76,7 @@ on:
       # Inputs of the jobs scripts/ci/affected_jobs.py routes by the crate graph, outside the globs above
       # (`affected_jobs.py check` keeps this whole; `affected_jobs.py paths --workflow` lists them all).
       - ".github/actions/ghostty-zig-packages/**"
+      - ".github/actions/zig-global-cache/**"
       - ".github/workflows/nightly.yml"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneCloudFolder.swift"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Resources/browser-sources.json"
@@ -90,6 +91,7 @@ on:
       - "backend/packages/home-core/conformance/conversation-import-cases.json"
       - "design/agent-icons/manifest.json"
       - "docs/chief-setup-prompts.md"
+      - "docs/cmux-next/customize-recipes.md"
       - "docs/cmux-next/sidebar-customization/**"
       - "docs/remote-agents-and-cloud.md"
       - "examples/extensions/web-pane/**"
@@ -140,6 +142,10 @@ on:
       - "skills/cmux-customization/references/examples.md"
       - "skills/cmux-customization/references/local-app-views.md"
       - "skills/cmux-customization/references/viewer-types.md"
+      - "skills/cmux-customization/templates/clock-weather/cmux-app.json"
+      - "skills/cmux-customization/templates/clock-weather/main.js"
+      - "skills/cmux-customization/templates/my-prs/cmux-app.json"
+      - "skills/cmux-customization/templates/my-prs/main.js"
       - "skills/cmux-live/SKILL.md"
       - "skills/cmux/SKILL.md"
       - "webviews/src/agent-session/acpmux/rows/parity/parity.changes.jsonl"
@@ -219,6 +225,7 @@ on:
       # Inputs of the jobs scripts/ci/affected_jobs.py routes by the crate graph, outside the globs above
       # (`affected_jobs.py check` keeps this whole; `affected_jobs.py paths --workflow` lists them all).
       - ".github/actions/ghostty-zig-packages/**"
+      - ".github/actions/zig-global-cache/**"
       - ".github/workflows/nightly.yml"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneCloudFolder.swift"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Resources/browser-sources.json"
@@ -233,6 +240,7 @@ on:
       - "backend/packages/home-core/conformance/conversation-import-cases.json"
       - "design/agent-icons/manifest.json"
       - "docs/chief-setup-prompts.md"
+      - "docs/cmux-next/customize-recipes.md"
       - "docs/cmux-next/sidebar-customization/**"
       - "docs/remote-agents-and-cloud.md"
       - "examples/extensions/web-pane/**"
@@ -283,6 +291,10 @@ on:
       - "skills/cmux-customization/references/examples.md"
       - "skills/cmux-customization/references/local-app-views.md"
       - "skills/cmux-customization/references/viewer-types.md"
+      - "skills/cmux-customization/templates/clock-weather/cmux-app.json"
+      - "skills/cmux-customization/templates/clock-weather/main.js"
+      - "skills/cmux-customization/templates/my-prs/cmux-app.json"
+      - "skills/cmux-customization/templates/my-prs/main.js"
       - "skills/cmux-live/SKILL.md"
       - "skills/cmux/SKILL.md"
       - "webviews/src/agent-session/acpmux/rows/parity/parity.changes.jsonl"
