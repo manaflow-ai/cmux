@@ -128,6 +128,18 @@ GHOST_GIVE_UP_AGE = dt.timedelta(hours=72)
 # a sweep spends on runs GitHub refuses to cancel.
 DEFAULT_MAX_ORPHAN_CANCELS = 5
 MAX_ORPHAN_CANCELS_LIMIT = 10
+# Linux-only workflows (linux_only_workflow_paths) hold no macOS pool, so the backlog pass never reads their jobs. Their
+# lost assignments still clog the Linux labels: 2026-11-18, ubuntu-24.04 held 2,399 queued jobs, the oldest 20 h,
+# while newer jobs there started, and no sweep saw them. The Linux orphan pass reads the jobs of the oldest such runs
+# past the orphan age, LINUX_JOB_READS a sweep (one call each), and cancels their lost assignments under its own cap,
+# with find_orphans' evidence and orphan_protected_reason's protections unchanged.
+DEFAULT_LINUX_JOB_READS = 30
+LINUX_JOB_READS_LIMIT = 60
+DEFAULT_MAX_LINUX_ORPHAN_CANCELS = 20
+MAX_LINUX_ORPHAN_CANCELS_LIMIT = 40
+# The run list is newest first and stops at MAX_RUN_PAGES, so at a backlog of thousands the oldest runs, the likely
+# orphans, were never listed. One more queued listing, created before the orphan age, reaches them.
+OLD_RUN_PAGES = 3
 # How long to let a cancel settle before checking whether it took.
 ORPHAN_RECHECK_SECONDS = 20
 # An orphan is never cancelled from a release pipeline or the merge queue: a
@@ -259,6 +271,25 @@ def linux_only_workflow_paths(workflows_dir: Path) -> frozenset[str]:
         if not workflow_may_use_macos(text):
             paths.add(f".github/workflows/{path.name}")
     return frozenset(paths)
+
+
+def linux_orphan_reads(
+    runs: Sequence[Mapping[str, Any]],
+    linux_only_paths: frozenset[str],
+    *,
+    min_age: dt.timedelta,
+    budget: int,
+    now: dt.datetime,
+) -> list[Mapping[str, Any]]:
+    """The Linux-only runs whose jobs the Linux orphan pass reads: in flight, older than MIN_AGE, not protected,
+    oldest first, at most BUDGET. A younger one cannot hold an orphan; a protected one would only be reported."""
+    picked = []
+    for run in runs:
+        created = parse_time(run.get("created_at"))
+        if (run.get("path") in linux_only_paths and run.get("status") in IN_FLIGHT_RUN_STATUSES
+                and created is not None and now - created >= min_age and orphan_protected_reason(run) is None):
+            picked.append((created, run["id"], run))
+    return [run for _, _, run in sorted(picked, key=lambda item: (item[0], item[1]))[:budget]]
 
 
 def needs_jobs(run: Mapping[str, Any], linux_only_paths: frozenset[str], now: dt.datetime) -> bool:
@@ -1466,11 +1497,17 @@ class GitHub:
         if found:
             self.rate_limits[found[0]] = found[1]
 
-    def in_flight_runs(self) -> list[dict[str, Any]]:
+    def in_flight_runs(self, created_before: dt.datetime | None = None) -> list[dict[str, Any]]:
+        """In-flight runs, newest first per status, MAX_RUN_PAGES each; with CREATED_BEFORE, also the queued runs
+        created before it (OLD_RUN_PAGES), which a backlog of thousands pushes past the newest pages."""
         runs: dict[int, dict[str, Any]] = {}
-        for status in IN_FLIGHT_RUN_STATUSES:
-            for page in range(1, MAX_RUN_PAGES + 1):
-                query = urllib.parse.urlencode({"status": status, "per_page": 100, "page": page})
+        listings = [({"status": status}, MAX_RUN_PAGES) for status in IN_FLIGHT_RUN_STATUSES]
+        if created_before is not None:
+            listings.append(({"status": "queued", "created": "<" + created_before.strftime("%Y-%m-%dT%H:%M:%SZ")},
+                             OLD_RUN_PAGES))
+        for filters, pages in listings:
+            for page in range(1, pages + 1):
+                query = urllib.parse.urlencode({**filters, "per_page": 100, "page": page})
                 payload = self.request("GET", f"/repos/{self.repo}/actions/runs?{query}")
                 batch = payload.get("workflow_runs") or []
                 for run in batch:
@@ -1543,6 +1580,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--pull-request-policy", default=os.environ.get("CI_PULL_REQUEST_SUITE", ""))
     parser.add_argument("--orphan-minutes", type=int, default=None)
     parser.add_argument("--max-orphan-cancels", type=int, default=None)
+    parser.add_argument("--linux-job-reads", type=int, default=None)
+    parser.add_argument("--max-linux-orphan-cancels", type=int, default=None)
     parser.add_argument("--workflows-dir", type=Path,
                         default=Path(__file__).resolve().parents[2] / ".github" / "workflows")
     parser.add_argument("--pool-load", type=Path, default=(
@@ -1577,18 +1616,38 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"queue-janitor: orphan minutes must be >= {MIN_ORPHAN_MINUTES} and max orphan cancels "
               f"within 0..{MAX_ORPHAN_CANCELS_LIMIT}", file=sys.stderr)
         return 2
+    try:
+        linux_job_reads = (args.linux_job_reads if args.linux_job_reads is not None
+                           else env_int("LINUX_JOB_READS", DEFAULT_LINUX_JOB_READS))
+        max_linux_orphan_cancels = (args.max_linux_orphan_cancels if args.max_linux_orphan_cancels is not None
+                                    else env_int("MAX_LINUX_ORPHAN_CANCELS", DEFAULT_MAX_LINUX_ORPHAN_CANCELS))
+    except ValueError:
+        print("queue-janitor: LINUX_JOB_READS and MAX_LINUX_ORPHAN_CANCELS must be integers", file=sys.stderr)
+        return 2
+    if not 0 <= linux_job_reads <= LINUX_JOB_READS_LIMIT or not 0 <= max_linux_orphan_cancels <= MAX_LINUX_ORPHAN_CANCELS_LIMIT:
+        print(f"queue-janitor: linux job reads must be within 0..{LINUX_JOB_READS_LIMIT} and max linux orphan "
+              f"cancels within 0..{MAX_LINUX_ORPHAN_CANCELS_LIMIT}", file=sys.stderr)
+        return 2
     orphan_age = dt.timedelta(minutes=orphan_minutes)
 
     github = GitHub(token, args.repo)
     now = utc_now()
     linux_only = linux_only_workflow_paths(args.workflows_dir)
     try:
-        runs = github.in_flight_runs()
+        runs = github.in_flight_runs(created_before=now - orphan_age if linux_job_reads else None)
         jobs_by_run = {run["id"]: github.jobs(run["id"]) for run in runs if needs_jobs(run, linux_only, now)}
+        # The Linux orphan pass: the oldest Linux-only runs' jobs, read only to find lost assignments. They join
+        # the orphan search, never the macOS backlog plan, whose pools they do not hold.
+        linux_jobs = {run["id"]: github.jobs(run["id"])
+                      for run in linux_orphan_reads(runs, linux_only, min_age=orphan_age, budget=linux_job_reads,
+                                                    now=now)}
         # Orphans read only what is already fetched; their PR branches join
         # the one batched GraphQL lookup for the no-janitor label.
-        orphans = find_orphans(runs, jobs_by_run, min_age=orphan_age, now=now)
-        branches = sorted(set(branches_to_resolve(runs, jobs_by_run)) | set(orphan_branches(orphans, now)))
+        found = find_orphans(runs, {**jobs_by_run, **linux_jobs}, min_age=orphan_age, now=now)
+        orphans = [orphan for orphan in found if orphan.run["id"] not in linux_jobs]
+        linux_orphans = [orphan for orphan in found if orphan.run["id"] in linux_jobs]
+        orphans_all = orphans + linux_orphans
+        branches = sorted(set(branches_to_resolve(runs, jobs_by_run)) | set(orphan_branches(orphans_all, now)))
         prs_by_branch = github.pull_requests(branches) if branches else {}
     except RuntimeError as error:
         print(f"queue-janitor: {error}", file=sys.stderr)
@@ -1650,6 +1709,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         orphans, prs_by_branch, max_cancels=max_orphan_cancels,
         exclude_ids={candidate.run["id"] for candidate in plan.to_cancel()}, now=now,
     )
+    # The Linux-only runs' orphans under their own cap, with the same protections and order.
+    orphan_decisions += build_orphan_plan(
+        linux_orphans, prs_by_branch, max_cancels=max_linux_orphan_cancels, exclude_ids=set(), now=now,
+    )
     orphan_results: dict[int, str] = {}
     if not args.dry_run:
         orphan_results, orphan_failures = cancel_orphans(github, orphan_decisions)
@@ -1659,7 +1722,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     summary += render_orphan_summary(orphan_decisions, dry_run=args.dry_run, now=now, min_age=orphan_age,
                                      results=orphan_results)
     summary += f"\n_{len(runs)} in-flight runs, {len(jobs_by_run)} job listings, {len(branches)} PR branches, " \
-               f"{len(orphans)} orphans, {github.calls} API calls._\n"
+               f"{len(orphans)} orphans, {len(linux_jobs)} Linux job listings, " \
+               f"{len(linux_orphans)} Linux orphans, {github.calls} API calls._\n"
     summary += f"\n_{render_rate_limits(github.rate_limits)}_\n"
     print(summary)
     if args.summary:

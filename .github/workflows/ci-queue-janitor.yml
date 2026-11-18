@@ -21,7 +21,11 @@ name: CI queue janitor
 # job queued with no runner for CI_JANITOR_ORPHAN_MINUTES (default 120) while
 # a newer job on the same labels got one, or a run still queued after a day.
 # These are lost runner assignments, not demand, so no queue threshold gates
-# them; release, tag and merge-queue orphans are only reported.
+# them; release, tag and merge-queue orphans are only reported. Linux-only
+# workflows get the same pass: the jobs of their oldest runs past the orphan
+# age (LINUX_JOB_READS a sweep) are read, and their lost assignments are
+# cancelled under their own cap (MAX_LINUX_ORPHAN_CANCELS); nightly, DEV and
+# promote runs are never read or cancelled.
 #
 # Each sweep also publishes the per-pool macOS queue it saw as the
 # `macos-pool-load` artifact, which pull request CI reads to overflow off a

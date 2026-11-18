@@ -759,6 +759,76 @@ def orphan_plan(orphans, prs=None, *, max_cancels=5, exclude=()):
     return janitor.build_orphan_plan(orphans, prs or {}, max_cancels=max_cancels, exclude_ids=set(exclude), now=NOW)
 
 
+class LinuxOrphanTests(unittest.TestCase):
+    """2026-11-18: ubuntu-24.04 held 2,399 queued jobs, the oldest 20 h, while newer jobs there started; the jobs of
+    a Linux-only workflow were never read, so no sweep saw one."""
+
+    LINUX_ONLY = frozenset({".github/workflows/pr-checks.yml"})
+
+    def test_reads_the_oldest_linux_only_runs_past_the_orphan_age_within_the_budget(self):
+        old = [make_run(status="queued", age=600 - n, path=".github/workflows/pr-checks.yml") for n in range(5)]
+        young = make_run(status="queued", age=30, path=".github/workflows/pr-checks.yml")
+        mac = make_run(status="queued", age=900)
+        nightly = make_run(status="queued", age=900, event="schedule", branch="main",
+                           path=".github/workflows/nightly-linux.yml", name="nightly")
+        picked = janitor.linux_orphan_reads([young, mac, nightly, *reversed(old)],
+                                            self.LINUX_ONLY | {nightly["path"]},
+                                            min_age=dt.timedelta(minutes=120), budget=3, now=NOW)
+        self.assertEqual([run["id"] for run in picked], [run["id"] for run in old[:3]])
+
+    def test_a_linux_lost_assignment_is_cancelled_only_with_a_newer_served_job(self):
+        stuck = make_run(status="queued", age=600, path=".github/workflows/pr-checks.yml")
+        other = make_run(status="in_progress", age=20)
+        jobs = {stuck["id"]: [orphan_job(age=590, name="title", label="ubuntu-24.04")],
+                other["id"]: [served_job(age=15, label="ubuntu-24.04")]}
+        orphans = find(janitor.linux_orphan_reads([stuck, other], self.LINUX_ONLY, min_age=dt.timedelta(minutes=120),
+                                                  budget=10, now=NOW) + [other], jobs)
+        self.assertEqual([o.run["id"] for o in orphans], [stuck["id"]])
+        self.assertIn("newer job(s) on `ubuntu-24.04` got one", orphans[0].evidence)
+        # A backed-up label that started nothing newer is not orphaned before the ghost age.
+        del jobs[other["id"]]
+        self.assertEqual(find([stuck], jobs), [])
+
+    def test_a_delivery_run_is_never_read_or_cancelled(self):
+        for run in (make_run(status="queued", age=600, event="schedule", branch="main",
+                             path=".github/workflows/nightly-next.yml", name="nightly-next"),
+                    make_run(status="queued", age=600, event="workflow_dispatch", branch="feat-cmux-next",
+                             path=".github/workflows/cmux-next-dev-daily.yml", name="dev daily"),
+                    make_run(status="queued", age=600, event="workflow_dispatch", branch="feat-cmux-next",
+                             path=".github/workflows/promote-nightly.yml", name="promote"),
+                    make_run(status="queued", age=600, event="release", branch="v1",
+                             path=".github/workflows/release.yml", name="release")):
+            self.assertEqual(janitor.linux_orphan_reads([run], frozenset({run["path"]}),
+                                                        min_age=dt.timedelta(minutes=120), budget=10, now=NOW), [],
+                             run["path"])
+
+    def test_the_linux_cap_is_its_own(self):
+        runs = [make_run(status="queued", age=600 - n, path=".github/workflows/pr-checks.yml") for n in range(4)]
+        served = make_run(status="in_progress", age=20)
+        jobs = {run["id"]: [orphan_job(age=590, label="ubuntu-24.04")] for run in runs}
+        jobs[served["id"]] = [served_job(age=10, label="ubuntu-24.04")]
+        plan = orphan_plan(find(runs + [served], jobs), max_cancels=3)
+        self.assertEqual([d.action for d in plan], ["cancel", "cancel", "cancel", "skip"])
+
+    def test_the_old_queued_listing_asks_for_runs_created_before_the_orphan_age(self):
+        asked = []
+
+        class Fake(janitor.GitHub):
+            def __init__(self):
+                self.repo = "manaflow-ai/cmux"
+
+            def request(self, method, path, body=None):
+                asked.append(path)
+                return {"workflow_runs": []}
+
+        Fake().in_flight_runs(created_before=NOW - dt.timedelta(minutes=120))
+        self.assertTrue(any("created=%3C2026-09-22T15%3A00%3A00Z" in path and "status=queued" in path
+                            for path in asked), asked)
+        asked.clear()
+        Fake().in_flight_runs()
+        self.assertFalse(any("created=" in path for path in asked))
+
+
 class OrphanDetectionTests(unittest.TestCase):
     def test_lost_assignment_is_an_orphan(self):
         # PR #13988: macOS jobs cancelled, the Linux ci-status job queued for
