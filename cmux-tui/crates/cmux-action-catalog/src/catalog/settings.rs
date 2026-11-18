@@ -350,10 +350,12 @@ pub static ACTIONS: &[Action] = &[
         symbol: "arrow.uturn.backward.circle",
         surfaces: PALETTE | MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), mcp_exemption: Some("systemChange"), ..SurfacePlan::DEFAULT },
+        // Not destructive: it quits into the build this Mac kept, and updating again undoes it
+        // (terminals and agents keep running), so a pick runs it. `--confirm` is still taken and
+        // changes nothing, for scripts written when it asked.
         arguments: &[args::CONFIRM.optional()],
         cli_name: "settings rollback-update",
         main_menu: Some("app"),
-        is_destructive: true,
         ..Action::DEFAULT
     },
     Action {

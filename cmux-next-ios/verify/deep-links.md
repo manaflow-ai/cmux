@@ -27,7 +27,7 @@ The grammar is the Mac's (`Packages/macOS/CmuxNext/Sources/CmuxNextActions/DeepL
 
 ## Universal links: the server change still needed
 
-The app claims these domains (`App/CmuxMobileApp-Simulator.entitlements`, simulator builds only for now):
+The app claims these domains in simulator builds (`App/CmuxMobileApp-Simulator.entitlements`) and, once their profile carries the Associated Domains capability, in the App Store distribution builds (TestFlight, TestFlightStaging, AppStore: `App/CmuxMobileApp-TestFlight-Links*.entitlements`, picked by `CMUX_MOBILE_ASSOCIATED_DOMAINS=YES`):
 
 - `applinks:cmux.com`
 - `applinks:www.cmux.com`
@@ -62,11 +62,11 @@ Where each host serves it:
 - **cmux.com**: a route handler at `web/app/.well-known/apple-app-site-association/route.ts`. Add `.well-known` to the `web/proxy.ts` matcher's exclusions so the locale proxy does not redirect it. Also add a `/link/[kind]/[id]` fallback page that hands off to `cmux://<kind>/<id>`, as `/deeplink/agent` does. The site deploys from `main` only.
 - **cloud-api(-staging).cmux.dev**: a `GET /.well-known/apple-app-site-association` route in `backend/apps/api/src/index.ts`, next to the `/g/` page.
 
-Add the App Store app's id (`7WLXT3NR37.com.cmux.app`) to `appIDs` when cmux-next ships under it. Then, for device builds:
+cmux-next ships under the App Store app, so `appIDs` also lists `7WLXT3NR37.com.cmux.app`. Then, for device builds:
 
-1. Turn on the Associated Domains capability for `dev.cmux.app.internal`. As of 2026-10-27 it has `IN_APP_PURCHASE`, `PUSH_NOTIFICATIONS`, `USERNOTIFICATIONS_TIMESENSITIVE` and `APPLE_ID_AUTH`.
-2. Regenerate the "cmux Internal Distribution" profiles.
-3. Add the same `com.apple.developer.associated-domains` array to the TestFlight and Production entitlements.
+1. Turn on the Associated Domains capability for `dev.cmux.app.internal` and `com.cmux.app`. As of 2026-10-27 `dev.cmux.app.internal` has `IN_APP_PURCHASE`, `PUSH_NOTIFICATIONS`, `USERNOTIFICATIONS_TIMESENSITIVE` and `APPLE_ID_AUTH`. Turning on a capability invalidates the App ID's existing profiles.
+2. Regenerate their App Store profiles ("cmux Internal Distribution", its CI copy in the release environment's `IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64`, and "cmux App Store CI").
+3. Nothing else: `scripts/testflight-build.sh` reads the profile and, when it carries Associated Domains, builds with `CMUX_MOBILE_ASSOCIATED_DOMAINS=YES` and signs the domains in (the `--from-archive` signing too). Until then it signs without them and warns, so a profile without Associated Domains never breaks a build. (Time Sensitive notifications, by contrast, are required: the script refuses a profile without them.) The INTERNAL nightly signs with the script on `rc/cnx-ios-builder`, so this takes effect there after that branch is fast-forwarded.
 
 ## Legal and support links
 

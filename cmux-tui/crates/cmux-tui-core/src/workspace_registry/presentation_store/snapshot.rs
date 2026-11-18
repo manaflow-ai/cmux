@@ -134,9 +134,7 @@ impl WorkspaceRegistry {
 
 /// The live terminals recovered from orphaned hosts (`workspace-recovered-v1`): rows whose launch
 /// spec is the recovered one (`mux/orphan_hosts.rs`), not tombstoned or deleted.
-fn read_recovered_terminals(
-    connection: &rusqlite::Connection,
-) -> anyhow::Result<std::collections::HashSet<String>> {
+fn read_recovered_terminals(connection: &Connection) -> anyhow::Result<HashSet<String>> {
     let mut statement = connection.prepare(
         "SELECT terminal_id FROM terminal_hosts
          WHERE deleted_revision IS NULL AND lifecycle != 'tombstoned'

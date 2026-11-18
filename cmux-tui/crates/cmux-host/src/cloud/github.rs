@@ -142,6 +142,17 @@ pub fn configure_url(url: &str) -> bool {
         })
 }
 
+/// Why a `policy.denied` refused a repository (the API's `DenyReason`, backend github-tokens.ts):
+/// only these pass to the machine's git and gh, which name the fix for each.
+pub const DENY_REASONS: [&str; 6] = [
+    "owner_not_connected",
+    "connection_other_owner",
+    "repo_not_granted",
+    "repo_not_allowed",
+    "permissions_not_granted",
+    "workflows_not_allowed",
+];
+
 /// A refusal reply (`ok: false`) with the API's error code and message.
 pub fn refusal(code: &str, message: &str) -> Value {
     json!({ "ok": false, "error": { "code": code, "message": message } })
@@ -202,6 +213,12 @@ pub fn reply_for(ask: &TokenAsk, answer: &Answer) -> Value {
             // The page that grants the repository to the app, when the API names one.
             if let Some(url) = error.field("configure_url").as_str().filter(|u| configure_url(u)) {
                 refused.insert("configure_url".to_owned(), json!(url));
+            }
+            // Why a policy refusal refused, when it is one the machine knows.
+            if let Some(reason) =
+                error.field("reason").as_str().filter(|r| DENY_REASONS.contains(r))
+            {
+                refused.insert("reason".to_owned(), json!(reason));
             }
             out.insert("error".to_owned(), Value::Object(refused));
             let retry = body.field("retry_after").as_u64().or(error.field("retry_after").as_u64());
