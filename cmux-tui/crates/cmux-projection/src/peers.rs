@@ -24,7 +24,7 @@ use std::io::{BufRead as _, BufReader, Write as _};
 use std::net::{TcpListener, TcpStream};
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use sha1::{Digest as _, Sha1};
@@ -364,23 +364,27 @@ pub fn requested_id(line: &str) -> Option<&str> {
 /// HTTP/1.1 keep-alive, nothing else.
 pub fn serve(git_dir: &Path, listen: &str, limits: SeedLimits) -> anyhow::Result<()> {
     let listener = TcpListener::bind(listen)?;
-    let bucket = Arc::new(Mutex::new(Bucket::new(limits.rate, Instant::now())));
-    let active = Arc::new(AtomicUsize::new(0));
-    for stream in listener.incoming() {
-        let Ok(mut stream) = stream else { continue };
-        let _ = stream.set_nodelay(true);
-        if active.load(Ordering::Relaxed) >= limits.conns || load_per_core() > limits.load_per_core
-        {
-            let _ = respond(&mut stream, "503 Service Unavailable", b"busy\n", true);
-            continue;
+    let bucket = Mutex::new(Bucket::new(limits.rate, Instant::now()));
+    let active = AtomicUsize::new(0);
+    // Each connection is a thread of this scope, so none outlives the seed.
+    std::thread::scope(|scope| {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            let _ = stream.set_nodelay(true);
+            if active.load(Ordering::Relaxed) >= limits.conns
+                || load_per_core() > limits.load_per_core
+            {
+                let _ = respond(&mut stream, "503 Service Unavailable", b"busy\n", true);
+                continue;
+            }
+            active.fetch_add(1, Ordering::Relaxed);
+            let (bucket, active) = (&bucket, &active);
+            scope.spawn(move || {
+                let _ = connection(git_dir, stream, bucket);
+                active.fetch_sub(1, Ordering::Relaxed);
+            });
         }
-        active.fetch_add(1, Ordering::Relaxed);
-        let (git_dir, bucket, active) = (git_dir.to_owned(), bucket.clone(), active.clone());
-        std::thread::spawn(move || {
-            let _ = connection(&git_dir, stream, &bucket);
-            active.fetch_sub(1, Ordering::Relaxed);
-        });
-    }
+    });
     Ok(())
 }
 

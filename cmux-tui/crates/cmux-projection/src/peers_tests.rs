@@ -1,7 +1,7 @@
 use super::*;
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 /// A network of fixed answers by URL, recording what was asked.
 struct Fake {
