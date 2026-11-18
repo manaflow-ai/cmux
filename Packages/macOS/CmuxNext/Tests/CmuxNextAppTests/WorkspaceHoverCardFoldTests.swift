@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 import CmuxNextTestSupport
+import CmuxNextWakeups
 import Testing
 
 /// Lawrence 2026-11-17 (msg 38370, a recording of a sidebar workspace card's Show details and Hide details): "fix
@@ -48,6 +49,12 @@ import Testing
         return Fixture(parent: parent, panel: panel, card: card)
     }
 
+    /// Presses Show details or Hide details and delivers the card window's next frame, whose start runs the press.
+    private static func press(_ f: Fixture) {
+        f.card.detailsToggle.performClick(nil)
+        FrameScheduler.forWindow(f.panel).frameDidFire()
+    }
+
     /// Ends the resize in flight where it was going (the window's clock would after its last frame).
     private static func settle(_ panel: HoverCardPanel) {
         guard let generation = panel.activeMorph?.generation else { return }
@@ -61,7 +68,7 @@ import Testing
         defer { f.tearDown() }
         let collapsed = f.surface.size
 
-        f.card.detailsToggle.performClick(nil)
+        Self.press(f)
         try #require(f.panel.activeMorph != nil, "Show details did not resize the card on its spring")
         // The first frame shows the card at the size it had: its surface (so its rim and corners) is that size,
         // not a larger card cut by a mask whose moving edge has no rim.
@@ -81,12 +88,12 @@ import Testing
         defer { Motion.reduceMotionOverride = nil }
         let f = try Self.fixture()
         defer { f.tearDown() }
-        f.card.detailsToggle.performClick(nil)
+        Self.press(f)
         Self.settle(f.panel)
         let expanded = f.surface.size
         let expandedBody = f.card.frame.size
 
-        f.card.detailsToggle.performClick(nil)
+        Self.press(f)
         try #require(f.panel.activeMorph != nil, "Hide details did not fold the card on its spring")
         // The card starts folding from its expanded size with the rows it showed still laid out under it.
         #expect(abs(f.surface.height - expanded.height) < 0.5, "the card's surface is \(f.surface.height) pt as the fold starts, not \(expanded.height)")
@@ -128,18 +135,45 @@ import Testing
         let f = try Self.fixture()
         defer { f.tearDown() }
 
-        let show = Self.sizes(of: f) { f.card.detailsToggle.performClick(nil) }
+        let show = Self.sizes(of: f) { Self.press(f) }
         try #require(f.panel.activeMorph != nil)
         #expect(show.surface.allSatisfy { abs($0.height - f.shown.height) < 0.5 && abs($0.width - f.shown.width) < 0.5 },
                 "Show details laid the card out at \(show.surface) before showing it at \(f.shown)")
         #expect(show.windowResizes <= 1, "Show details resized the card's window \(show.windowResizes) times")
         Self.settle(f.panel)
 
-        let hide = Self.sizes(of: f) { f.card.detailsToggle.performClick(nil) }
+        let hide = Self.sizes(of: f) { Self.press(f) }
         try #require(f.panel.activeMorph != nil)
         #expect(hide.surface.allSatisfy { abs($0.height - f.shown.height) < 0.5 && abs($0.width - f.shown.width) < 0.5 },
                 "Hide details laid the card out at \(hide.surface) before showing it at \(f.shown)")
         #expect(hide.windowResizes == 0, "Hide details resized the card's window \(hide.windowResizes) times: the fold holds the frame it had")
+    }
+
+    /// Lawrence 2026-11-18 (msg 38370 follow-up): the press of Show details or Hide details skipped a display frame
+    /// on 36 to 37 of 40 presses (cmux-lawrence-2, 120 Hz): the card's layout, measure and first resize frame ran in
+    /// the press, at any point of a frame, and crossed its end. The press now runs at the start of the card window's
+    /// next frame, where that work fits; the press itself changes nothing.
+    @Test func aDetailsPressRunsAtTheStartOfTheNextFrameNotInThePress() throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let f = try Self.fixture()
+        defer { f.tearDown() }
+        let collapsed = f.surface.size
+
+        f.card.detailsToggle.performClick(nil)
+        #expect(f.panel.activeMorph == nil, "Show details resized the card inside the press")
+        #expect(!f.card.isDetailsExpanded && f.surface.size == collapsed, "Show details changed the card inside the press")
+        FrameScheduler.forWindow(f.panel).frameDidFire()
+        #expect(f.card.isDetailsExpanded, "the next frame did not run the press")
+        #expect(f.panel.activeMorph != nil, "the next frame did not start the card's resize")
+        Self.settle(f.panel)
+
+        // Two presses before one frame: the card stays as it is.
+        let expanded = f.surface.size
+        f.card.detailsToggle.performClick(nil)
+        f.card.detailsToggle.performClick(nil)
+        FrameScheduler.forWindow(f.panel).frameDidFire()
+        #expect(f.card.isDetailsExpanded && f.panel.activeMorph == nil && f.surface.size == expanded)
     }
 
     @Test func underReduceMotionDetailsChangeTheCardAtOnce() throws {
@@ -148,10 +182,10 @@ import Testing
         let f = try Self.fixture()
         defer { f.tearDown() }
         let collapsed = f.surface.size
-        f.card.detailsToggle.performClick(nil)
+        Self.press(f)
         #expect(f.panel.activeMorph == nil)
         #expect(f.surface.height > collapsed.height + 20)
-        f.card.detailsToggle.performClick(nil)
+        Self.press(f)
         #expect(f.panel.activeMorph == nil)
         #expect(abs(f.surface.height - collapsed.height) < 0.5)
         #expect(abs(f.card.frame.height - f.surface.height) < 0.5)

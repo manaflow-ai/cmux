@@ -414,6 +414,9 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     /// The detail rows are laid out: expanded, or folding from expanded.
     private var showsDetails: Bool { detailsExpanded || holdingFold }
     var onDetailsChanged: (() -> Void)?
+    /// Presses of Show details or Hide details not run yet: they run at the start of the card window's next frame.
+    private var pendingDetailsPresses = 0
+    private lazy var detailsPressFrame = DetailsPressFrame(card: self)
     /// The scrollable history of prompts, waits and finished turns (u3320).
     let timeline = WorkspaceHoverCardTimelineView()
     /// The card's widest; the full history layout widens it.
@@ -482,7 +485,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         statsLabel.lineBreakMode = .byTruncatingTail
         timeline.isHidden = true
         detailsToggle.title = Strings.showDetails
-        detailsToggle.onPress = { [weak self] in self?.toggleDetails() }
+        detailsToggle.onPress = { [weak self] in self?.pressDetails() }
 
         // Every icon sits on one column at the leading inset, its text beside it (the fact rows'
         // grid), so the kind icon leads the name instead of floating after it.
@@ -702,6 +705,26 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         updateDetailsVisibility()
     }
 
+    /// A press of Show details or Hide details runs at the start of the card window's next frame, as Android runs input
+    /// (Choreographer's input callbacks) and Chrome its continuous input: the card's layout, its measure and the first
+    /// frame of its resize are a few ms of main-thread work, and run at once from a press that came at any point in a
+    /// frame they crossed its end on most presses (36 to 37 of 40 on cmux-lawrence-2 at 120 Hz, Lawrence 2026-11-18:
+    /// a display frame skipped). At the frame's start they fit in it. The card shows the change on the same frame it did
+    /// when the work crossed that end. Reduce Motion, speed off or a card in no window: at once.
+    private func pressDetails() {
+        pendingDetailsPresses += 1
+        guard let window, Motion.hoverCards.animatesMovement(in: window) else { return runPendingDetailsPresses() }
+        MotionClock.forWindow(window).run(detailsPressFrame, trace: "hoverCard.detailsPress")
+    }
+
+    /// Runs the presses not run yet (the frame's start; tests call it after a press). Two presses before one frame
+    /// change nothing.
+    func runPendingDetailsPresses() {
+        let presses = pendingDetailsPresses
+        pendingDetailsPresses = 0
+        if presses % 2 == 1 { toggleDetails() }
+    }
+
     private func toggleDetails() {
         detailsExpanded.toggle()
         foldPending = !detailsExpanded
@@ -715,6 +738,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     }
 
     func resetDetails() {
+        pendingDetailsPresses = 0
         detailsExpanded = false
         foldPending = false
         holdingFold = false
@@ -982,4 +1006,16 @@ extension WorkspaceHoverCardView {
         super.viewDidChangeEffectiveAppearance()
         performWithTheme { hostLabel.textColor = hostColor }
     }
+}
+
+/// The start of the card window's next frame, for a press of Show details or Hide details
+/// (``WorkspaceHoverCardView/runPendingDetailsPresses()``): one step, then rest.
+private final class DetailsPressFrame: MotionAnimating {
+    weak var card: WorkspaceHoverCardView?
+    init(card: WorkspaceHoverCardView) { self.card = card }
+    func motionStep(_ dt: Double) -> Bool {
+        card?.runPendingDetailsPresses()
+        return false
+    }
+    func motionSettle() { card?.runPendingDetailsPresses() }
 }
