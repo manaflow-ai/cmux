@@ -6178,11 +6178,11 @@ class StaleQueuedRunTests(unittest.TestCase):
             self.queued(event="workflow_dispatch", branch="lane/x"),
             self.queued(event="merge_group", branch="gh-readonly-queue/main/pr-1"),
             self.queued(event="schedule", branch="main"),
-            self.queued(event="pull_request_target"),
             self.queued(path=".github/workflows/release.yml", name="Release"),
         ]
-        got = janitor.stale_queued_candidates([new, *left, old, pending], now=NOW)
-        self.assertEqual([run["id"] for run in got], [old["id"], pending["id"], new["id"]])
+        target = self.queued(age=40, branch="d", event="pull_request_target", path=".github/workflows/cla.yml")
+        got = janitor.stale_queued_candidates([new, *left, old, pending, target], now=NOW)
+        self.assertEqual([run["id"] for run in got], [old["id"], pending["id"], target["id"], new["id"]])
 
     def fake(self, runs, prs):
         fake = FakeGitHub({run["id"]: dict(run) for run in runs})
@@ -6209,7 +6209,7 @@ class StaleQueuedRunTests(unittest.TestCase):
 
         fake = self.fake(runs, prs)
         decisions, read, results, failures = janitor.sweep_stale_queued(fake, runs, now=NOW, dry_run=False,
-                                                                        max_cancels=2)
+                                                                        max_cancels=2, sleep=lambda _: None)
         self.assertEqual(fake.posts(), [[str(merged["id"]), "cancel"], [str(moved["id"]), "cancel"]])
         self.assertEqual(results, {merged["id"]: "cancelled", moved["id"]: "cancelled"})
         self.assertEqual(failures, 0)
@@ -6226,8 +6226,63 @@ class StaleQueuedRunTests(unittest.TestCase):
         run = self.queued(branch="merged", prs=(1,))
         fake = FakeGitHub({run["id"]: dict(run)}, refuse_cancel=[run["id"]])
         fake.prs = {"merged": [stale_pr(1, state="MERGED", closed_age=60)]}
-        _, _, results, failures = janitor.sweep_stale_queued(fake, [run], now=NOW, dry_run=False)
+        _, _, results, failures = janitor.sweep_stale_queued(fake, [run], now=NOW, dry_run=False,
+                                                             sleep=lambda _: None)
         self.assertEqual((results, failures), ({run["id"]: "already finished"}, 0))
+
+    def test_pull_request_target_runs_follow_the_same_rules_and_exempt_workflows_only_the_closed_one(self):
+        for path, prs, action in (
+                (".github/workflows/thunderdome-label.yml", [stale_pr(head="bbb")], "cancel"),
+                (".github/workflows/thunderdome-label.yml", [stale_pr(state="MERGED", closed_age=60)], "cancel"),
+                (".github/workflows/cla.yml", [stale_pr(head="bbb")], "keep"),
+                (".github/workflows/cla.yml", [stale_pr(state="CLOSED", closed_age=60)], "cancel"),
+                (".github/workflows/backend-migrations.yml", [stale_pr(head="bbb")], "keep"),
+                (".github/workflows/backend-migrations.yml", [stale_pr(state="MERGED", closed_age=60)], "cancel")):
+            for event in janitor.PULL_REQUEST_EVENTS:
+                with self.subTest(path=path, event=event, state=prs[0]["state"]):
+                    run = self.queued(event=event, path=path, sha="aaa", prs=(7,))
+                    self.assertEqual(janitor.stale_queued_verdict(run, prs)[0], action)
+        self.assertEqual(janitor.SUPERSEDE_EXEMPT_WORKFLOWS, frozenset({
+            "cmux-next-batch.yml", "cla.yml", "cla-policy-guard.yml", "backend-migrations.yml", "backend.yml",
+            "repair-nightly-appcast-content-types.yml"}))
+
+    def test_a_holder_a_plain_cancel_leaves_queued_is_force_cancelled(self):
+        # Run 44350589342: #46312's old head's Web validation, an `if: always()` job still queued after the cancel,
+        # holding the group its current head's run 44386728755 waited on.
+        holder = self.queued(branch="moved", sha="330db608", prs=(46312,))
+        fake = FakeGitHub({holder["id"]: dict(holder)}, ignore_cancel=[holder["id"]])
+        fake.prs = {"moved": [stale_pr(46312, head="new")]}
+        slept = []
+        decisions, _, results, failures = janitor.sweep_stale_queued(fake, [holder], now=NOW, dry_run=False,
+                                                                     sleep=slept.append)
+        self.assertEqual(fake.posts(), [[str(holder["id"]), "cancel"], [str(holder["id"]), "force-cancel"]])
+        self.assertEqual(slept, [janitor.ORPHAN_RECHECK_SECONDS])
+        self.assertEqual(results[holder["id"]], "force-cancelled (cancel left it queued)")
+        self.assertEqual(failures, 0)
+        self.assertTrue(janitor.stale_queued_gone(results[holder["id"]]))
+        text = janitor.render_stale_queued_summary(decisions, results, dry_run=False)
+        self.assertIn("| force-cancelled (cancel left it queued) |", text)
+
+    def test_a_run_github_marks_cancelled_but_still_queued_is_force_cancelled_at_once(self):
+        holder = self.queued(branch="moved", sha="330db608", prs=(46312,))
+        holder["conclusion"] = "cancelled"
+        fake = FakeGitHub({holder["id"]: dict(holder)})
+        fake.prs = {"moved": [stale_pr(46312, head="new")]}
+        slept = []
+        _, _, results, failures = janitor.sweep_stale_queued(fake, [holder], now=NOW, dry_run=False,
+                                                             sleep=slept.append)
+        self.assertEqual(fake.posts(), [[str(holder["id"]), "force-cancel"]])
+        self.assertEqual((slept, failures), ([], 0))
+        self.assertTrue(results[holder["id"]].startswith("force-cancelled"))
+
+    def test_a_refused_force_cancel_is_reported_stuck(self):
+        holder = self.queued(branch="moved", sha="330db608", prs=(46312,))
+        fake = FakeGitHub({holder["id"]: dict(holder)}, ignore_cancel=[holder["id"]], refuse_force=[holder["id"]])
+        fake.prs = {"moved": [stale_pr(46312, head="new")]}
+        _, _, results, failures = janitor.sweep_stale_queued(fake, [holder], now=NOW, dry_run=False,
+                                                             sleep=lambda _: None)
+        self.assertTrue(results[holder["id"]].startswith("stuck"), results)
+        self.assertEqual(failures, 1)
 
     def sweep(self, runs, prs, *args, **patches):
         patches.setdefault("MAX_JOB_LISTINGS", janitor.MAX_JOB_LISTINGS)

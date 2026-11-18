@@ -12,7 +12,9 @@ name: CI queue janitor
 # cancelled for being doomed.
 # Before any of that, every sweep cancels queued (never started) pull request
 # runs on any runner, of every workflow, whose pull request is merged or closed
-# (the run created before it closed) or whose head moved past them. It reads
+# (the run created before it closed) or whose head moved past them, and
+# force-cancels one a plain cancel leaves queued (an `if: always()` job holding
+# its pull request's concurrency group). It reads
 # no job listing, so it acts even when the listings are truncated, with its own
 # read budget and cancel cap (queue_janitor.sweep_stale_queued()).
 # Main and feat-cmux-next pushes, merge groups, main schedules/dispatches,
