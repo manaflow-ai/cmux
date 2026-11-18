@@ -802,7 +802,7 @@ final class ShellModel {
     /// Message Chief's Send: to the Chief of the Mac this phone shows (Chief follows it).
     func sendToChief(_ text: String) {
         guard live != nil else {
-            ChiefSources.shared.mac.send(text: text)
+            ChiefSources.shared.mac.sendKeepingDraft(text: text)
             messagingChiefText = nil
             return
         }
@@ -819,7 +819,7 @@ final class ShellModel {
         // One send at a time: Send waits while the phone switches to the subject's Mac.
         guard !sendingToChief else { return }
         guard let live else {
-            ChiefSources.shared.mac.send(text: text)
+            ChiefSources.shared.mac.sendKeepingDraft(text: text)
             messagingChief = nil
             messagingChiefText = nil
             return
