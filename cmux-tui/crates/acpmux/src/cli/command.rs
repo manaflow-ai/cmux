@@ -440,18 +440,15 @@ pub enum Command {
     /// Every chat on this device, from every harness: list, open, roots. Also `cmux chats …`.
     #[command(subcommand)]
     Chats(crate::cli::chats::ChatsCmd),
-    /// Background processes agents left running (dev servers, watchers):
-    /// list, show (everything one printed, live with --follow), kill,
-    /// background (Ctrl-B: move a chat's running work there).
+    /// Background processes agents left running (dev servers, watchers): list, show (everything
+    /// one printed, live with --follow), kill, background (Ctrl-B: move a chat's running work there).
     #[command(subcommand, alias = "ps")]
     Process(crate::cli::process::ProcessCmd),
-    /// This machine's git worktrees, cleaned up after the agents that made
-    /// them: list, clean (archive work only there, then remove), restore,
-    /// archives.
+    /// This machine's git worktrees, cleaned up after the agents that made them: list, clean
+    /// (archive work only there, then remove), restore, archives.
     #[command(subcommand, alias = "wt")]
     Worktree(crate::cli::worktree::WorktreeCmd),
-    /// GitHub CI: wait for a pull request's checks or a workflow run with reads that cost no
-    /// API quota while nothing changes, instead of a sleep loop around gh.
+    /// GitHub CI: wait for checks or a run with reads that cost no quota while nothing changes.
     #[command(subcommand)]
     Ci(crate::cli::ci_wait::CiCmd),
     /// The cmux app's sidebar groups: ls, move a session's workspace into one,
@@ -853,9 +850,8 @@ pub enum HarnessCmd {
         /// Replace an existing file.
         #[arg(long)]
         force: bool,
-        /// ID is an ACP Registry agent (`cmux harness registry`): write a
-        /// profile that starts it at the registry's pinned version (its
-        /// installed program, else npx, else uvx).
+        /// ID is an ACP Registry agent (`cmux harness registry`): write a profile that starts it
+        /// at the registry's pinned version (its installed program, else npx, else uvx).
         #[arg(long, conflicts_with_all = ["command", "example"])]
         registry: bool,
         /// The icon cmux shows for it: one emoji, an SF Symbol name (hammer.fill), an agent
@@ -1706,9 +1702,7 @@ mod help_contract_tests {
             let mut rest = line;
             while let Some(open) = rest.find('`') {
                 let after_open = &rest[open + 1..];
-                let Some(close) = after_open.find('`') else {
-                    break;
-                };
+                let Some(close) = after_open.find('`') else { break };
                 let snippet = &after_open[..close];
                 if snippet.trim_start() == binary
                     || snippet.trim_start().starts_with(&format!("{binary} "))
