@@ -73,12 +73,14 @@ final class NewTabInputCoordinator {
 
         /// Whether the opening still owns the window's keys: its pane, in its window, shows its New
         /// Tab page (or, until the page shows, the tab it showed before). An incoming page's hold
-        /// owns them until its readiness, its creation's end or its limit.
+        /// owns them until its readiness, its creation's end or its limit. After the page showed, the tab that the
+        /// pane showed before is not the opening's, also when it is a New Tab page: the person went back to it.
         var owns: Bool {
             guard let window else { return false }
             if incoming != nil { return true }
             guard let pane, pane.view.window === window, !pane.view.isHiddenOrHasHiddenAncestor else { return false }
             guard let key = pane.currentTabKey else { return !shown || pane.stripModel.selectedID.map { pane.services.agentTabs.isNewTabPage($0.rawValue) } == true } // or its page waits for its frame (`PaneController.apply`)
+            if shown, let opened, key == opened || key == pane.services.agentTabs.resolve(opened) { return false } // also by the store's id of a tab that the daemon made since
             if pane.services.agentTabs.isNewTabPage(key) || LocalPageTab.page(of: key) == .nativeNewTab { return true }
             return !shown && key == opened
         }
