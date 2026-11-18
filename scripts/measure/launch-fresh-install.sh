@@ -13,6 +13,12 @@
 #   m   the same quarantined DMG, the app opened from the mounted volume
 #   p   as n, then the updater pre-warm's first step run on the copy before the open (its executable with
 #       --cmux-prewarm-launch, StagedUpdatePrewarm: exec and dyld, then exit), as an installer of ours could run it
+#   s   as n, the executable started directly (posix_spawn, suspended) and stopped at main: spawn_ms is the kernel's
+#       exec of the image (its signature and policy check), resume_to_main is dyld, the frameworks it links and
+#       initializers. Splits a new copy's wait between exec and dyld with no root and no prompt.
+#   x   as n, but the first thing run on the new copy is the exec of a small separately signed bundle inside it (the
+#       smallest Chromium helper app's executable, spawned suspended and killed): spawn_ms says whether a nested
+#       bundle's first exec pays only its own check or the whole app's, which is what a small stub bundle would pay
 # Every launch gets a new DMG file (q, m) or a new copy (n) and a new quarantine event, so no row reuses a check.
 # Per launch, ms from the open request: the system's "downloaded from the Internet" prompt on screen and gone (its Open
 # pressed by the console's CuaDriver at once, so a person's reading time is not in the row), the process start, `main`
@@ -48,7 +54,7 @@ main() {
     esac
   done
   [[ "$reps" =~ ^([1-9]|1[0-2])$ ]] || { echo "reps= must be 1 to 12" >&2; exit 2; }
-  [[ "$rows" =~ ^[nqmp](,[nqmp])*$ ]] || { echo "rows= takes n,q,m,p" >&2; exit 2; }
+  [[ "$rows" =~ ^[nqmpsx](,[nqmpsx])*$ ]] || { echo "rows= takes n,q,m,p,s,x" >&2; exit 2; }
   echo "LF host $(hostname -s) chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername)"
   sudo -n true 2>/dev/null && echo "LF root yes" || echo "LF root no (trace=1 needs it for fs_usage)"
   xcrun swiftc -O -o "$out/launch-premain" scripts/measure/launch-premain.swift >"$out/swiftc.log" 2>&1 \
@@ -103,12 +109,16 @@ def med(vals):
     vals = [v for v in vals if isinstance(v, (int, float))]
     return {"median": round(statistics.median(vals), 1), "min": min(vals), "max": max(vals), "n": len(vals)} if vals else None
 for name in dict.fromkeys(r["row"] for r in rows):
-    runs = [r for r in rows if r["row"] == name and r.get("rep") != "T" and r.get("mode") == "first"]
+    runs = [r for r in rows if r["row"] == name and r.get("rep") != "T" and r.get("mode") in ("first", "exec", "spawn")]
     table = {"row": name, "n": len(runs), "errors": sum(1 for r in runs if r.get("error")),
              "translocated": sum(1 for r in runs if r.get("translocated")),
-             "prompted": sum(1 for r in runs if isinstance(r.get("prompt"), (int, float)))}
+             "prompted": sum(1 for r in runs if isinstance(r.get("prompt"), (int, float))),
+             # Launches that started with an unanswered prompt of an earlier launch on screen, and that left one.
+             "prompts_before": sum(1 for r in runs if r.get("prompts_before")),
+             "prompt_left": sum(1 for r in runs if r.get("prompt_left"))}
     for key in ("prompt", "prompt_gone", "start", "main", "window", "usable", "main_start",
-                "syspolicyd_ms", "xprotect_ms", "amfid_ms", "trustd_ms", "mount_ms", "prepare_checker_ms", "prewarm_ms"):
+                "syspolicyd_ms", "xprotect_ms", "amfid_ms", "trustd_ms", "mount_ms", "prepare_checker_ms", "prewarm_ms",
+                "spawn_ms", "resume_to_main", "request_to_start"):
         table[key] = med([r.get(key) for r in runs])
     # The prompt's dwell (on screen to dismissed) is a person's click, not ours to cut: window, usable and main are
     # reported as measured above and again with the dwell subtracted (*_less_dwell; equal to the measured value when
@@ -128,7 +138,7 @@ PY
   exit "$rc"
 }
 
-console() { GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh "$@"; }
+# console CMD...: launch-premain.sh's (sourced above), as is fresh_keychain.
 
 # The fleet's dialog alarm (cmuxterm-hq, "expected dialogs") pages for every system prompt on a fleet Mac's screen
 # unless a live job declared it: one marker per run, <owner>-<pid>.json, written atomically, its expiry at most 2 h
@@ -178,20 +188,6 @@ prompts() {
 # from before it), and name any keychain or password panel on screen (never pressed): LF-PROMPT lines.
 sweep_prompts() { prompts press "$1" "${PROMPT_BASELINE:-}" "$2" 2>>"${OUT:-/tmp}/prompts.log"; return 0; }
 
-# fresh_keychain HOME: a login keychain in the launch's empty home, as a person's home has. Without one, the app's
-# Chromium makes "cmux Safe Storage" through a "Keychain Not Found" SecurityAgent panel nobody answers (one was left
-# on screen after the job). CMUX_MOCK_KEYCHAIN is no way out: the app drops it from an inherited environment
-# (fresh_home_launch_smoke.py login_keychain, which this follows). Every call has the home's own HOME and
-# CFFIXED_USER_HOME, so the console user's own keychains and search list are untouched.
-fresh_keychain() {
-  local home="$1" keychain="$1/Library/Keychains/login.keychain-db" step
-  console /bin/mkdir -p "$home/Library/Keychains"
-  for step in "create-keychain -p ''" "list-keychains -d user -s" "default-keychain -d user -s" "set-keychain-settings"; do
-    console /usr/bin/env HOME="$home" CFFIXED_USER_HOME="$home" /bin/sh -c "exec /usr/bin/security $step \"\$0\"" "$keychain" \
-      >>"$OUT/keychain.log" 2>&1 || { echo "LF keychain: security ${step%% *} failed in $home; a Keychain panel may show"; return 1; }
-  done
-}
-
 # quarantine FILE: a quarantine attribute as a browser's download writes it (flags 0083, now, the agent, a new event).
 quarantine() {
   xattr -w com.apple.quarantine "0083;$(printf '%x' "$(date +%s)");Safari;$(uuidgen)" "$1"
@@ -230,7 +226,7 @@ first() {
   cp "$OUT/app.dmg" "$dmgfile" || return 1
   local mounted_by=hdiutil mount_ms=null t_mount prewarm_ms=null cpu_prepare
   cpu_prepare="$(checker_cpu)"
-  if [[ "$name" == n || "$name" == p ]]; then
+  if [[ "$name" == n || "$name" == p || "$name" == s || "$name" == x ]]; then
     hdiutil attach "$dmgfile" -nobrowse -readonly -mountpoint "$mount" >/dev/null || { echo "LF attach failed $tag"; return 1; }
   else
     # A quarantined DMG opened as a double-click opens it (DiskImageMounter, its own check of the image), else hdiutil.
@@ -257,7 +253,7 @@ first() {
   fi
   local found; found="$(find "$mount" -maxdepth 1 -name '*.app' | head -1)"
   case "$name" in
-    n|p) dir="$OUT/copy-$tag"; mkdir -p "$dir"; ditto "$found" "$dir/$(basename "$found")" && copied_by=ditto
+    n|p|s|x) dir="$OUT/copy-$tag"; mkdir -p "$dir"; ditto "$found" "$dir/$(basename "$found")" && copied_by=ditto
        app="$dir/$(basename "$found")" ;;
     q) dir="$APPS/cmux-fresh-install-$RUN_ID-$tag"
        console /bin/mkdir -p "$dir"
@@ -288,17 +284,33 @@ first() {
   local cpu_before trace_pid="" t0
   cpu_before="$(checker_cpu)"
   if [[ "$rep" == T ]] && sudo -n true 2>/dev/null; then
-    sudo -n /bin/sh -c 'exec /usr/bin/fs_usage -w -t 20 -f filesys -f exec >"$0" 2>&1' "$OUT/fs-$tag.txt" &
+    # fs_usage itself under sudo (a fleet host's sudoers allows /usr/bin/fs_usage, not a shell); the redirect stays in
+    # this unprivileged shell. -t 70 ends it after the launch's 60 s bound; the plain kill below ends it sooner (sudo
+    # runs with this user's real uid, so it takes the signal and passes it to fs_usage).
+    # shellcheck disable=SC2024
+    sudo -n /usr/bin/fs_usage -w -t 70 -f filesys -f exec >"$OUT/fs-$tag.txt" 2>&1 &
     trace_pid=$!
     sleep 1
   fi
   # The probe makes $OUT/home-$tag/h the app's HOME (launch-premain.swift environment).
   fresh_keychain "$OUT/home-$tag/h"
   t0="$(date '+%Y-%m-%d %H:%M:%S')"
-  line="$(console /usr/bin/env LF_CUA="$CUA" "$OUT/launch-premain" first "$app" "$OUT/home-$tag" "$tag" 3 2>>"$OUT/probe.log" | grep '^LP-RUN ')" || rc=1
+  if [[ "$name" == x ]]; then
+    local helper
+    helper="$(find "$app/Contents/Frameworks" -maxdepth 1 -name '* Helper*.app' | while read -r h; do
+      e="$h/Contents/MacOS/$(basename "$h" .app)"; [[ -x "$e" ]] && echo "$(stat -f %z "$e") $e"; done | sort -n | head -1 | cut -d' ' -f2-)"
+    line="$(console "$OUT/launch-premain" spawn "$helper" "$tag" 2>>"$OUT/probe.log" | grep '^LP-RUN ')" || rc=1
+  elif [[ "$name" == s ]]; then
+    # The hold file exists before the spawn: the probe resumes the suspended child as soon as it has its pid.
+    touch "$OUT/hold-$tag" && chmod 0666 "$OUT/hold-$tag"
+    line="$(console "$OUT/launch-premain" exec "$app" "$OUT/home-$tag" "$tag" "$OUT/hold-$tag" 2>>"$OUT/probe.log" | grep '^LP-RUN ')" || rc=1
+    rm -f "$OUT/hold-$tag"
+  else
+    line="$(console /usr/bin/env LF_CUA="$CUA" "$OUT/launch-premain" first "$app" "$OUT/home-$tag" "$tag" 3 2>>"$OUT/probe.log" | grep '^LP-RUN ')" || rc=1
+  fi
   local cpu_after; cpu_after="$(checker_cpu)"
   after="$(qattr "$app")"
-  [[ -n "$trace_pid" ]] && { sudo -n kill -INT "$trace_pid" 2>/dev/null; wait "$trace_pid" 2>/dev/null; }
+  [[ -n "$trace_pid" ]] && { kill -INT "$trace_pid" 2>/dev/null; wait "$trace_pid" 2>/dev/null; }
   [[ "$rep" == T ]] && log show --start "$t0" --style compact \
     --predicate 'process == "syspolicyd" OR process == "XprotectService" OR process == "amfid" OR sender == "AppleSystemPolicy" OR sender == "AppleMobileFileIntegrity"' \
     >"$OUT/log-$tag.txt" 2>&1
@@ -331,7 +343,7 @@ print(json.dumps(r, sort_keys=True))' "$name" "$rep" "$copied_by" "$cpu_before" 
   [[ "$rep" == T ]] && trace_row "$tag" "$app" "$json"
   # Only what this launch made: the copy (or the mount) and its DMG file.
   case "$name" in
-    n|p) rm -rf "$OUT/copy-$tag" ;;
+    n|p|s|x) rm -rf "$OUT/copy-$tag" ;;
     q) console /bin/rm -rf "$dir" ;;
     m) hdiutil detach "$mount" >/dev/null 2>&1 || hdiutil detach -force "$mount" >/dev/null 2>&1 ;;
   esac
