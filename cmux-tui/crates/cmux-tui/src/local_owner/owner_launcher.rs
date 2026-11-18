@@ -24,8 +24,10 @@ pub(super) fn owner_launcher<'a>(
     launcher: Option<&'a OsStr>,
     is_file: impl Fn(&Path) -> bool,
 ) -> Option<&'a Path> {
-    let _ = (program, &is_file, embedded_helper);
-    launcher.map(Path::new).filter(|launcher| launcher.is_absolute())
+    launcher
+        .map(Path::new)
+        .filter(|launcher| embedded_helper(program).is_some_and(|helper| helper == *launcher))
+        .filter(|launcher| is_file(launcher))
 }
 
 /// The helper's path in the outermost app bundle holding `program`; nil outside an app.

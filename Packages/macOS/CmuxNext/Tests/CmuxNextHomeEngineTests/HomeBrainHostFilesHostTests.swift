@@ -29,6 +29,27 @@ struct HomeBrainHostFilesHostTests {
         #expect(hosted.prefix(2) == plain.prefix(2), "the same launch shell, so $! is still the pid Home watches")
     }
 
+    /// `resolve` is where the app's brain host gets the helper: what it resolves reaches the argv,
+    /// and a build that resolves none (every shipped build) launches exactly as before.
+    @Test func resolveRunsTheHostUnderWhatTheBuildResolves() throws {
+        let home = ChiefHome(root: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString), isolated: true)
+        let environment = ["CMUX_NEXT_MUX_HOST": "/bin/sh"]
+        let files = try #require(FilesHost(bundleURL: URL(fileURLWithPath: "/App/cmux DEV one.app", isDirectory: true),
+                                           bundleIdentifier: "com.cmuxterm.app.debug.one", environment: [:],
+                                           isDebugBuild: true, isExecutable: { _ in true }))
+        var asked: [[String: String]] = []
+        let hosted = try #require(HomeBrainHost.resolve(daemonSocket: "/tmp/d.sock", controlSocket: "/tmp/c.sock", home: home,
+                                                        environment: environment, bundledBinDirectory: nil, bundledChiefAllowed: false,
+                                                        filesHost: { asked.append($0); return files }))
+        #expect(asked == [environment], "the build's environment decides, so CMUX_NEXT_FILES_HOST=0 reaches it")
+        #expect(Array(hosted.arguments.dropFirst(3).prefix(4)) == [files.executable.path, "run", "--", "/bin/sh"])
+
+        let plain = try #require(HomeBrainHost.resolve(daemonSocket: "/tmp/d.sock", controlSocket: "/tmp/c.sock", home: home,
+                                                       environment: environment, bundledBinDirectory: nil, bundledChiefAllowed: false,
+                                                       filesHost: { _ in nil }))
+        #expect(Array(plain.arguments.dropFirst(3).prefix(2)) == ["/bin/sh", "host"])
+    }
+
     /// A Release compile resolves no helper, so the brain host's argv is exactly as before.
     @Test func withoutTheHelperTheArgvIsUnchanged() {
         let arguments = Self.host(filesHost: nil).arguments

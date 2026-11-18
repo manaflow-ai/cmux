@@ -81,7 +81,8 @@ public nonisolated struct HomeBrainHost: Sendable {
                         environment: [String: String] = ProcessInfo.processInfo.environment,
                         bundledBinDirectory: URL? = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true),
                         bundledChiefAllowed: Bool = HomeBrainHost.bundledChiefAllowed(bundleID: Bundle.main.bundleIdentifier,
-                                                                                      isDebugBuild: DevTools.isDebugBuild)) -> HomeBrainHost? {
+                                                                                      isDebugBuild: DevTools.isDebugBuild),
+                        filesHost: ([String: String]) -> FilesHost? = { FilesHost.current(environment: $0) }) -> HomeBrainHost? {
         if AcpmuxEnvironment.agentLaunchDisabled(environment) { return nil }
         let override = environment["CMUX_NEXT_MUX_HOST"].flatMap { $0.isEmpty ? nil : $0 }
         let bundled = bundledChiefAllowed ? bundledBinDirectory?.appendingPathComponent(bundledChiefName).path : nil
@@ -101,7 +102,7 @@ public nonisolated struct HomeBrainHost: Sendable {
                                  acpmux: AcpmuxEnvironment.resolve(build: usesAppAcpmux ? appBuild : nil, bundledBinDirectory: bundledBinDirectory,
                                                                    environment: acpmuxEnvironment))
         host.usesAppAcpmux = usesAppAcpmux
-        host.filesHost = FilesHost.current(environment: environment)
+        host.filesHost = filesHost(environment)
         return host
     }
 

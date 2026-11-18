@@ -111,6 +111,10 @@ Store. Two independent gates, with no override:
 Staging (`com.cmuxterm.app.staging`) does not count as dev: it is a shipping channel (the classic
 migration lists it with stable, NIGHTLY and RC). In a Release build `CMUX_TUI_OWNER_LAUNCHER` is
 never set, so `server ensure` spawns the owner exactly as before, and acpmux's argv is unchanged.
+cmux-tui also refuses the variable unless it names the helper embedded in the owner's own app
+(`<app>/Contents/Library/cmux Files (dev).app/Contents/MacOS/cmux-files-host`) and that file is
+there (`local_owner/owner_launcher.rs`), so a shipped app, which has no such file, starts the
+owner directly even when the variable reaches it.
 iOS never embeds it (macOS only). `tests/test_files_host_dev_only.py` runs the real embed script
 for every shipped configuration and bundle id and fails if any would embed it; run it yourself
 after changing the phase, `FilesHost` or the pin (it is not a CI gate).
