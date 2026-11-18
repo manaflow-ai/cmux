@@ -46,7 +46,7 @@ final class PaneZoomDim {
     /// a page had the whole window since, and the pane's own state wrote its marks in that time.
     private var owesMarks = true
     private weak var view: PaneZoomDimView?
-    /// The panes' move at a split: it hears what this object hears, and its time is counted with the dim's.
+    /// The panes' move at a split and a close: it hears what this object hears, and its time is counted with the dim's.
     let motion = PaneCommitMotion()
 
     /// The longest the dim's time may be, whatever the pane veil's fade is. A zoom shows in the frame after the one in
@@ -187,10 +187,17 @@ final class PaneZoomDim {
     }
 
     /// Ends the dim and the panes' move now: the screen's size changed, the screen goes out of sight, or no motion
-    /// goes on from here.
+    /// goes on from here. A change that still waits for its frame then shows with no move.
     func end() {
-        motion.finish()
+        motion.cancel()
         leave()
+    }
+
+    /// The pass that shows `screen`'s change begins: the panes that the change took out hide, their rings with them
+    /// (`LayoutViewContext.hideRetiredShown(of:)`). A close that moves its panes keeps them to the end of its motion,
+    /// under the panes that take their room (``PaneCommitMotion/keepsDeparted(on:)``). Returns whether any hid now.
+    func hidesDeparted(of screen: ScreenContentView) -> Bool {
+        motion.keepsDeparted(on: screen) ? false : screen.context.hideRetiredShown(of: screen.screenID)
     }
 
     /// Takes the dim away now: its zoom shows, a newer change or a second key came, the screen's size changed, or the
@@ -214,7 +221,7 @@ final class PaneZoomDim {
 
     /// The dim goes (it fades out after an unzoom showed): it keeps the frames coming until it left. It is no motion
     /// of the layout: no pane moves, and what waits for the layout to land does not wait for it.
-    /// The panes' move at a split keeps the frames coming too, until its time is spent.
+    /// The panes' move at a split or a close keeps the frames coming too, until its time is spent.
     var goes: Bool { phase == .going || motion.inFlight }
 
     /// One frame tick of the dim's time, and of the panes' move. A dim that goes leaves when its time is spent.

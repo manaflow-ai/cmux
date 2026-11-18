@@ -3,7 +3,7 @@ import CmuxNextDesign
 
 /// The panes' move at a layout change that is one commit, for one screen.
 ///
-/// A split shows in one commit: the frame that shows it has each pane and its content at the place and size of the
+/// A split or a close shows in one commit: the frame that shows it has each pane and its content at the place and size of the
 /// layout after it, and no later frame lays a pane out (`ScreenContentView+SnapFrame`). This object makes that frame
 /// the start of a move: each pane host whose rect changed gets animations of its layer's `position` and
 /// `bounds.size` that add to the layer's value, from where the pane showed to zero, so the pane's clip goes from its
@@ -14,6 +14,8 @@ import CmuxNextDesign
 ///   so the two panes' edges go together.
 /// - A pane that gets smaller shows its own ground beside its content until its edge is there (`PaneCommitMotion+Layers`).
 /// - A pane's ring and the dividers get the same move.
+/// - A pane that a close took out does not move: it stays as it shows, under the panes that take its room, and hides
+///   in the frame that ends the motion (``keepsDeparted(on:)``).
 /// - A second act while the panes move adds its own move: each pane goes on from where it shows, with no jump.
 /// - Only content that rides moves (`NSView.paneRidesCommitMotion`): an act that changes a pane with another kind
 ///   of content shows in one frame, whole.
@@ -23,24 +25,26 @@ import CmuxNextDesign
 ///
 /// The moves run on the render server. This object counts their time in the layout's frame ticks (``step(_:)``): it
 /// has no timer, and the tick in which the time is spent takes the moves away. The screen's ``PaneZoomDim`` owns
-/// one and tells it what happens; it keeps no reference to the screen.
+/// one and tells it what happens; it keeps no strong reference to the screen.
 @MainActor
 final class PaneCommitMotion {
     /// A change whose panes move.
     enum Act {
         /// Panes came and none left.
         case split
+        /// Panes left and none came.
+        case close
 
         var spring: MotionSpring {
             switch self {
             case .split: .split
+            case .close: .paneClose
             }
         }
 
         /// The act that takes a screen from the panes `old` to the panes `new`; nil: the change shows in one frame.
         init?(from old: Set<PaneID>, to new: Set<PaneID>) {
-            guard new.isStrictSuperset(of: old) else { return nil }
-            self = .split
+            if new.isStrictSuperset(of: old) { self = .split } else if old.isStrictSuperset(of: new) { self = .close } else { return nil }
         }
     }
 
@@ -80,6 +84,13 @@ final class PaneCommitMotion {
     var grounds: [ObjectIdentifier: (layer: CALayer, extent: CGSize)] = [:]
     /// The contents that keep their own old picture until the motion's end (``PaneCommitMotionHolding``), by pane host.
     var holds: [ObjectIdentifier: any PaneCommitMotionHolding] = [:]
+    /// The hosts of the panes that a close took out, under every other pane until the motion's end, each with the
+    /// `zPosition` that its layer had.
+    var under: [(host: PaneHostView, z: CGFloat)] = []
+    /// Hides the panes that a close took out (``keepsDeparted(on:)``); ``finish()`` runs it.
+    private var departs: (@MainActor () -> Void)?
+    /// The pass that shows a close began and did not place its panes yet: what the close took out still shows.
+    private var passBegan = false
 
     /// A pane still moves: the frames go on until the motion's time is spent.
     var inFlight: Bool { remaining > 0 }
@@ -113,6 +124,20 @@ final class PaneCommitMotion {
         }
     }
 
+    /// The pass that shows `screen`'s change begins, before it places the panes. Whether the panes that the change
+    /// took out stay on the screen: at a close that can move they do, as they show, so the panes that take their room
+    /// grow over them and not over the window's backdrop. ``finish()`` hides them: at the motion's end, or in this
+    /// same pass when the close shows in one frame after all.
+    func keepsDeparted(on screen: ScreenContentView) -> Bool {
+        guard armed?.act == .close, moves(on: screen) else { return false }
+        passBegan = true
+        departs = { [weak screen] in
+            guard let screen, screen.context.hideRetiredShown(of: screen.screenID) else { return }
+            screen.context.afterCommit { [weak screen] in screen?.releaseDeparted() }
+        }
+        return true
+    }
+
     private static func shown(_ views: [NSView]) -> [ObjectIdentifier: CGRect] {
         var frames: [ObjectIdentifier: CGRect] = [:]
         for view in views where !view.isHidden && view.alphaValue > 0 {
@@ -126,6 +151,7 @@ final class PaneCommitMotion {
     func panesPlaced(on screen: ScreenContentView) {
         guard let armed else { return }
         self.armed = nil
+        passBegan = false
         guard let act = armed.act, moves(on: screen) else { return finish() }
         var staying: [Change] = [], coming: [PaneHostView] = []
         for pane in screen.paneFrames.keys {
@@ -144,10 +170,15 @@ final class PaneCommitMotion {
             changes.append(Change(host: host, old: old, new: new, comes: true))
         }
         let time = Motion.panes.spring(act.spring).settlingTime(within: Self.rest)
-        guard !changes.isEmpty, time > 0, riders.allSatisfy({ $0.content.paneRidesCommitMotion }) else { return finish() }
+        // A close moves when each pane that it took out still shows on this screen: a pane that went to another screen
+        // would leave the window's backdrop where its neighbours grow.
+        let leaving = act == .close ? screen.subviews.compactMap { $0 as? PaneHostView }.filter { $0.isLeaving && !$0.isHidden } : []
+        let covered = act != .close || Set(leaving.map(\.pane)).isSuperset(of: armed.panes.subtracting(screen.layout.panes))
+        guard !changes.isEmpty, time > 0, covered, riders.allSatisfy({ $0.content.paneRidesCommitMotion }) else { return finish() }
         serial += 1
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        keepUnder(leaving)
         for change in changes {
             guard let layer = change.host.layer else { continue }
             move(layer, act.spring, origin: change.origin, size: change.size)
@@ -196,21 +227,35 @@ final class PaneCommitMotion {
         if remaining <= PaneZoomDim.spent { finish() }
     }
 
-    /// Ends the motion now: each pane, ring and divider shows at its place, and the ground strips go. The motion's
-    /// time is spent, a change that shows in one frame shows, the screen's size changed, the screen goes out of
-    /// sight, or panes stopped animating.
+    /// No change that waits for its frame moves from here, and the motion ends now (``finish()``): the screen's size
+    /// changed, the screen goes out of sight or away, or panes stopped animating. What the screen showed before the
+    /// change is not where its panes show now.
+    func cancel() {
+        armed?.act = nil
+        finish()
+    }
+
+    /// Ends the motion now: each pane, ring and divider shows at its place, the ground strips go, and the panes that
+    /// a close took out hide. The motion's time is spent, or a change that shows in one frame shows.
     func finish() {
         remaining = 0
         let held = Array(holds.values)
         holds = [:]
         for holder in held { holder.endPaneCommitMotionHold() }
-        guard !moved.isEmpty || !grounds.isEmpty else { return }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        for (layer, key) in moved { layer.removeAnimation(forKey: key) }
-        moved = []
-        for ground in grounds.values { Self.strips(of: ground.layer).forEach { $0.removeFromSuperlayer() } }
-        grounds = [:]
-        CATransaction.commit()
+        if !moved.isEmpty || !grounds.isEmpty || !under.isEmpty {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            for (layer, key) in moved { layer.removeAnimation(forKey: key) }
+            moved = []
+            for ground in grounds.values { Self.strips(of: ground.layer).forEach { $0.removeFromSuperlayer() } }
+            grounds = [:]
+            for (host, z) in under { host.layer?.zPosition = z }
+            under = []
+            CATransaction.commit()
+        }
+        // Between the begin of a close's pass and its panes' placement, what it took out shows.
+        guard !passBegan, let departs else { return }
+        self.departs = nil
+        departs()
     }
 }

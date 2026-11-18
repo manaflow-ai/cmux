@@ -193,7 +193,7 @@ extension ScreenContentView {
         }
         guard !frameInput.snapDeparted.isEmpty else { return }
         frameInput.snapDeparted = []
-        guard context.hideRetiredShown(of: screenID) else { return }
+        guard zoomDim.hidesDeparted(of: self) else { return }
         context.afterCommit { [weak self] in self?.releaseDeparted() }
     }
 

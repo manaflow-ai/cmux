@@ -270,7 +270,7 @@ extension ScreenContentView {
             if let area = shownArea { pointerClip = pointerClip.map { $0.intersection(area) } ?? area }
             view.cursorClip = pointerClip
         }
-        zoomDim.panesPlaced(on: self) // panes and dividers are placed: an unzoom's dim shows and goes, a split's panes move
+        zoomDim.panesPlaced(on: self) // panes and dividers are placed: an unzoom's dim shows and goes, a split's and a close's panes move
         // A pan with the finger down is layout motion too (hasMotion leaves user gestures out): motion-time content
         // (divider catcher panels, page windows) waits for the landing. The landing frame's advanceFrame clears it.
         let gesturing = isUserScrolling || rowScrolls.values.contains(where: \.state.isGestureActive)
