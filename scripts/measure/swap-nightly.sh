@@ -40,6 +40,10 @@ swap_nightly() {
         || { echo "LR swap refused: download of $url failed"; return 3; }
       hex="$(shasum -a 256 "$cache/dl.dmg" | cut -d' ' -f1)"
       mv -f "$cache/dl.dmg" "$cache/$hex.dmg"; echo "$url" >"$cache/$hex.url"
+      # The host keeps its three newest nightlies (about 250 MB each) for sha256: reruns.
+      local old
+      # shellcheck disable=SC2012 # the cache names are sha256 hex
+      for old in $(ls -t "$cache"/*.dmg 2>/dev/null | tail -n +4); do rm -f "$old" "${old%.dmg}.url"; done
       ;;
     *) echo "LR swap refused: nightly= takes https://... or sha256:HEX"; return 3 ;;
   esac
