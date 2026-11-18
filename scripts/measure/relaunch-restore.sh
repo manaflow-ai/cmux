@@ -61,10 +61,15 @@ if [[ -n "$base_sha$head_sha" ]]; then
   . scripts/measure/app-at-commit.sh
   at_dir="$(mktemp -d)"
   trap 'rm -rf -- "$at_dir"' EXIT
-  base_app="$(measure_app_at_commit "$base_sha" l5b "$at_dir/base" --no-global-cli-links ${configuration[@]+"${configuration[@]}"} 2>"$out/reload-base.log")" \
-    && [[ -d "$base_app" ]] || { echo "L5 build failed: base $base_sha printed no app path" >&2; tail -n 60 "$out/reload-base.log" >&2; exit 3; }
-  head_app="$(measure_app_at_commit "$head_sha" l5h "$at_dir/head" --no-global-cli-links ${configuration[@]+"${configuration[@]}"} 2>"$out/reload-head.log")" \
-    && [[ -d "$head_app" ]] || { echo "L5 build failed: head $head_sha printed no app path" >&2; tail -n 60 "$out/reload-head.log" >&2; python3 scripts/cmux-next/tag_teardown.py "$base_app" >/dev/null 2>&1; exit 3; }
+  base_app="$(measure_app_at_commit "$base_sha" l5b "$at_dir/base" --no-global-cli-links ${configuration[@]+"${configuration[@]}"} 2>"$out/reload-base.log")"
+  if [[ $? -ne 0 || ! -d "$base_app" ]]; then
+    echo "L5 build failed: base $base_sha printed no app path" >&2; tail -n 60 "$out/reload-base.log" >&2; exit 3
+  fi
+  head_app="$(measure_app_at_commit "$head_sha" l5h "$at_dir/head" --no-global-cli-links ${configuration[@]+"${configuration[@]}"} 2>"$out/reload-head.log")"
+  if [[ $? -ne 0 || ! -d "$head_app" ]]; then
+    echo "L5 build failed: head $head_sha printed no app path" >&2; tail -n 60 "$out/reload-head.log" >&2
+    python3 scripts/cmux-next/tag_teardown.py "$base_app" >/dev/null 2>&1; exit 3
+  fi
   [[ "$base_app" != "$head_app" ]] || { echo "L5 base and head built to one path: $base_app" >&2; exit 3; }
   trap 'python3 scripts/cmux-next/tag_teardown.py "$base_app" >/dev/null 2>&1; python3 scripts/cmux-next/tag_teardown.py "$head_app" >/dev/null 2>&1; rm -rf -- "$at_dir"' EXIT
   for ((i = 1; i <= pair_rounds; i++)); do
