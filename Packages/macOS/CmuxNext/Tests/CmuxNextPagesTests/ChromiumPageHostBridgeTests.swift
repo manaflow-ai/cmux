@@ -133,4 +133,202 @@ struct ChromiumPageHostBridgeTests {
         #expect(calls[2].1["name"] as? String == ChromiumPageHostBridge.bindingName)
         #expect(calls[4].1["source"] as? String == "one()")
     }
+
+    // MARK: Runtime domain around navigations
+
+    /// The methods of the calls `act` makes the page get, once there are `count` of them.
+    private func calls(_ page: FakeChromiumPage, count: Int, _ act: () -> Void) async -> [String]? {
+        let before = page.calls.count
+        return await PageTestWait.value("\(count) calls") { done in
+            page.onCall = { if page.calls.count == before + count { done(page.calls[before...].map(\.method)) } }
+            act()
+        }
+    }
+
+    /// The setup leaves the Runtime domain on for the first document; its commit turns it off and adds
+    /// the binding again. Measured (headless Chromium 157, cold, n=12): the chat page's modules evaluated
+    /// in 116 ms with the domain on and 44 ms with it off from the commit, and the binding was there at
+    /// document start either way.
+    @Test func theFirstDocumentsCommitTurnsTheRuntimeDomainOff() async throws {
+        let page = FakeChromiumPage()
+        let bridge = ChromiumPageHostBridge(page: page, fireAndForget: ["cmuxPagePainted"])
+        try await bridge.setUp(documentScripts: ["one()"])
+        #expect(page.calls.map(\.method) == ChromiumPageHostBridge.setupCalls(handlers: ["cmuxPagePainted"], documentScripts: ["one()"]).map(\.0))
+        #expect(bridge.runtimeEnabled)
+        let sent = await calls(page, count: 2) { bridge.documentCommitted() }
+        #expect(sent == ["Runtime.disable", "Runtime.addBinding"])
+        #expect(page.calls.last?.params["name"] as? String == ChromiumPageHostBridge.bindingName)
+        #expect(!bridge.runtimeEnabled)
+    }
+
+    /// A reload and a navigation the app starts each turn the Runtime domain on (and add the binding,
+    /// which `Runtime.disable` dropped) before the page navigates, and their commits turn it off again:
+    /// every navigation follows enable, navigate, commit, disable. Measured: with the domain off at a
+    /// reload the binding never reached the new document; turned on (with the binding) before the reload,
+    /// it was there at document start and the reload evaluated as fast as before (39 ms).
+    @Test func everyNavigationTurnsTheRuntimeDomainOnFirstAndItsCommitTurnsItOff() async throws {
+        let page = FakeChromiumPage()
+        let bridge = ChromiumPageHostBridge(page: page)
+        try await bridge.setUp(documentScripts: [])
+        var sequence: [String] = []
+        page.onCall = {
+            guard let method = page.calls.last?.method, ["Runtime.enable", "Runtime.disable", "Runtime.addBinding"].contains(method) else { return }
+            sequence.append(method)
+        }
+        page.onNavigate = { sequence.append("navigate") }
+        let url = URL(string: "cmux-page://test.plain/index.html")!
+
+        // First load: the setup turned the domain on, so it loads at once.
+        bridge.navigate { page.load(url) }
+        #expect(sequence == ["navigate"])
+        await committed(bridge, page, sequence: { sequence })
+
+        // Reload.
+        let reloaded: Bool? = await PageTestWait.value("reload") { done in
+            page.onNavigate = { sequence.append("navigate"); done(true) }
+            bridge.navigate { page.reload() }
+        }
+        #expect(reloaded == true)
+        await committed(bridge, page, sequence: { sequence })
+
+        // Navigation to another document of the page.
+        let navigated: Bool? = await PageTestWait.value("navigation") { done in
+            page.onNavigate = { sequence.append("navigate"); done(true) }
+            bridge.navigate { page.load(url.appending(path: "other.html")) }
+        }
+        #expect(navigated == true)
+        await committed(bridge, page, sequence: { sequence })
+
+        let turn = ["Runtime.disable", "Runtime.addBinding"]
+        let start = ["Runtime.enable", "Runtime.addBinding", "navigate"]
+        #expect(sequence == ["navigate"] + turn + start + turn + start + turn)
+        #expect(page.reloads == 1)
+        #expect(page.loaded.count == 2)
+    }
+
+    /// Commits the document and waits until its calls went out.
+    private func committed(_ bridge: ChromiumPageHostBridge, _ page: FakeChromiumPage, sequence: @escaping () -> [String]) async {
+        let count = sequence().count
+        let done: Bool? = await PageTestWait.value("commit") { done in
+            let previous = page.onCall
+            page.onCall = {
+                previous?()
+                if sequence().count == count + 2 { done(true) }
+            }
+            bridge.documentCommitted()
+        }
+        #expect(done == true)
+        #expect(!bridge.runtimeEnabled)
+    }
+
+    /// Two navigations asked for while the domain turns on run in the order asked, both after it is on.
+    @Test func navigationsAskedWhileTheDomainTurnsOnRunInOrder() async throws {
+        let page = FakeChromiumPage()
+        let bridge = ChromiumPageHostBridge(page: page)
+        try await bridge.setUp(documentScripts: [])
+        bridge.documentCommitted()
+        var order: [String] = []
+        let ran: [String]? = await PageTestWait.value("navigations") { done in
+            bridge.navigate {
+                order.append("first after \(page.calls.filter { $0.method == "Runtime.enable" }.count) enables")
+            }
+            bridge.navigate {
+                order.append("second")
+                done(order)
+            }
+        }
+        #expect(ran == ["first after 2 enables", "second"])
+        #expect(bridge.runtimeEnabled)
+    }
+
+    /// A document the page navigated to by itself (the domain was off: no `navigate` turned it on)
+    /// still gets the binding with its commit, and no `Runtime.disable` is sent for it. Measured:
+    /// `Runtime.addBinding` with the domain off put the binding in the new document 18 ms after its
+    /// navigation started, and calls from it arrived (12/12).
+    @Test func aDocumentThePageOpenedItselfGetsTheBindingWithItsCommit() async throws {
+        let page = FakeChromiumPage()
+        let bridge = ChromiumPageHostBridge(page: page)
+        try await bridge.setUp(documentScripts: [])
+        #expect(await calls(page, count: 2) { bridge.documentCommitted() } == ["Runtime.disable", "Runtime.addBinding"])
+        // The page's own navigation commits: the domain is off already.
+        #expect(await calls(page, count: 1) { bridge.documentCommitted() } == ["Runtime.addBinding"])
+        #expect(page.calls.last?.params["name"] as? String == ChromiumPageHostBridge.bindingName)
+        #expect(!bridge.runtimeEnabled)
+    }
+
+    /// After the renderer ended, a navigation (the crash path's reload) runs at once: a DevTools call
+    /// would wait for the renderer that only this navigation brings.
+    @Test func aNavigationAfterTheRendererEndedDoesNotWaitForIt() async throws {
+        let page = FakeChromiumPage()
+        let bridge = ChromiumPageHostBridge(page: page)
+        try await bridge.setUp(documentScripts: [])
+        #expect(await calls(page, count: 2) { bridge.documentCommitted() } != nil)
+        bridge.rendererEnded()
+        let before = page.calls.count
+        var ran = false
+        bridge.navigate { ran = true }
+        #expect(ran)
+        #expect(page.calls.count == before, "no Runtime call waits on the gone renderer")
+        // The new renderer's document commits: the binding comes with it, and the next navigation
+        // turns the domain on first again.
+        #expect(await calls(page, count: 1) { bridge.documentCommitted() } == ["Runtime.addBinding"])
+        let next: [String]? = await PageTestWait.value("navigation") { done in
+            bridge.navigate { done(Array(page.calls[(before + 1)...].map(\.method))) }
+        }
+        #expect(next == ["Runtime.enable", "Runtime.addBinding"])
+    }
+
+    // MARK: Page script queue
+
+    /// The page script's queue against a binding that appears late: the 400 retries (2 s) run out with
+    /// messages queued, and a later send starts them again, so every message goes out once the binding
+    /// exists. Before, only a send that found the queue empty restarted the retries, so once they ran
+    /// out every later message waited for good.
+    @Test func aSendAfterTheRetriesRanOutStartsThemAgain() throws {
+        let context = try #require(JSContext())
+        context.evaluateScript("""
+        var timers = [];
+        globalThis.setTimeout = (callback) => { timers.push(callback); return timers.length; };
+        // Runs every timer pending now and those they set, up to `limit`.
+        var runTimers = (limit) => { let ran = 0; while (timers.length && ran < limit) { timers.shift()(); ran += 1; } return ran; };
+        var sent = [];
+        """)
+        context.evaluateScript(ChromiumPageHostBridge.pageScript(handlers: ["cmuxPagePainted"]))
+        let post = "globalThis.webkit.messageHandlers.cmuxPagePainted.postMessage"
+        context.evaluateScript("\(post)(1); \(post)(2);")
+        #expect(context.evaluateScript("timers.length").toInt32() == 1, "one retry pending for both sends")
+        #expect(context.evaluateScript("runTimers(1000)").toInt32() == 400, "the retries run out after 400")
+        #expect(context.evaluateScript("timers.length").toInt32() == 0)
+        // A third and a fourth send, still with no binding: the retries start again, once.
+        context.evaluateScript("\(post)(3); \(post)(4);")
+        #expect(context.evaluateScript("timers.length").toInt32() == 1)
+        // The binding appears: the next retry sends everything, in order.
+        context.evaluateScript("globalThis.\(ChromiumPageHostBridge.bindingName) = (text) => sent.push(JSON.parse(text).body);")
+        context.evaluateScript("runTimers(1000)")
+        #expect(context.evaluateScript("sent.join(',')").toString() == "1,2,3,4")
+        #expect(context.evaluateScript("timers.length").toInt32() == 0, "no retry left once the queue is empty")
+        // With the binding there, a send goes out at once and sets no timer.
+        context.evaluateScript("\(post)(5)")
+        #expect(context.evaluateScript("sent.join(',')").toString() == "1,2,3,4,5")
+        #expect(context.evaluateScript("timers.length").toInt32() == 0)
+    }
+
+    /// A message sent while the binding exists goes out at once, before any queued retry, and the
+    /// retry that finds the queue empty stops.
+    @Test func aBindingThatAppearsBetweenRetriesTakesTheQueueAtTheNextSend() throws {
+        let context = try #require(JSContext())
+        context.evaluateScript("""
+        var timers = [];
+        globalThis.setTimeout = (callback) => { timers.push(callback); return timers.length; };
+        var sent = [];
+        """)
+        context.evaluateScript(ChromiumPageHostBridge.pageScript(handlers: ["cmuxPagePainted"]))
+        let post = "globalThis.webkit.messageHandlers.cmuxPagePainted.postMessage"
+        context.evaluateScript("\(post)(1)")
+        context.evaluateScript("globalThis.\(ChromiumPageHostBridge.bindingName) = (text) => sent.push(JSON.parse(text).body);")
+        context.evaluateScript("\(post)(2)")
+        #expect(context.evaluateScript("sent.join(',')").toString() == "1,2")
+        context.evaluateScript("timers.shift()()")
+        #expect(context.evaluateScript("timers.length").toInt32() == 0)
+    }
 }
