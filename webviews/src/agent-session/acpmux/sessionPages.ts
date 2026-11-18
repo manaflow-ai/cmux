@@ -142,11 +142,57 @@ export class SessionPager<S extends Summary> {
   private reading?: Cursor;
   private listedAt = 0;
 
-  /** `held`: the rows the client holds now, which a follow lays its changes over. */
+  /**
+   * Rows of peer batches (`_acpmux/peer_rows_changed`, acpmux hub/list_guard.rs
+   * `send_remote_batch`) that no list or follow read here holds yet: the position before the
+   * first (`after`) and the last (`through`). acpmux sends a batch, in place of a `session_changed`
+   * per row, only to a client whose `initialize` asked (`peerRowBatches`): a peer's list of 400
+   * rows was 400 notices ahead of every reply on the connection. The cursor stays at most `after`
+   * until a read holds them, so a follow from it reads them.
+   */
+  private owed?: { after: number; through: number };
+
+  /** `held`: the rows the client holds now, which a follow lays its changes over. `readOwed`: asks
+   *  for a list read (`first`), called when peer batch rows are owed and no read is out for them. */
   constructor(
     private readonly request: Request,
     private readonly held: () => S[] = () => [],
+    private readonly readOwed: () => void = () => {},
   ) {}
+
+  /** One peer's rows changed at once (`_acpmux/peer_rows_changed {afterSeq, listSeq}`): read them
+   *  with the next follow. One with no positions asks for a read all the same. */
+  peerRowsChanged(afterSeq: unknown, listSeq: unknown): void {
+    if (
+      typeof afterSeq === "number" &&
+      Number.isSafeInteger(afterSeq) &&
+      typeof listSeq === "number" &&
+      Number.isSafeInteger(listSeq)
+    ) {
+      this.owed = this.owed
+        ? { after: Math.min(this.owed.after, afterSeq), through: Math.max(this.owed.through, listSeq) }
+        : { after: afterSeq, through: listSeq };
+      this.keepBelowOwed();
+    }
+    if (!this.loading) this.readOwed();
+  }
+
+  /** The cursor, and the position of the list being read, kept at most the owed rows' `after`. */
+  private keepBelowOwed(): void {
+    const owed = this.owed;
+    if (!owed) return;
+    if (this.cursor && this.cursor.seq > owed.after) this.cursor = { ...this.cursor, seq: owed.after };
+    if (this.reading && this.reading.seq > owed.after) this.reading = { ...this.reading, seq: owed.after };
+  }
+
+  /** A reply current to `seq` of a read of the rows changed after `from` (0: a whole list) holds the
+   *  owed rows up to `seq` when it started at or below them; none are owed once that reaches the last. */
+  private readOwedTo(from: number, seq: number): void {
+    const owed = this.owed;
+    if (!owed || from > owed.after) return;
+    const after = Math.max(owed.after, seq);
+    this.owed = after < owed.through ? { after, through: owed.through } : undefined;
+  }
 
   /** Turns the watch on and answers its first page, or undefined when a newer list started meanwhile.
    *  With a cursor (`follows`) it answers the held rows with every change since laid over them, as
@@ -162,6 +208,8 @@ export class SessionPager<S extends Summary> {
     // notice is kept (and one older than the reply dropped then, `listedFrom`).
     this.listedAt = 0;
     const from = this.follows ? this.cursor : undefined;
+    // The position the follow out now reads after, for the peer rows owed (`readOwedTo`).
+    let asked = from?.seq ?? 0;
     const params = from ? { enabled: true, afterSeq: from.seq, listEpoch: from.epoch } : {};
     let reply = await this.request("_acpmux/watch", { enabled: true, limit: SESSION_PAGE, ...params });
     if (run !== this.run) return undefined;
@@ -172,9 +220,10 @@ export class SessionPager<S extends Summary> {
     let list = this.held();
     for (;;) {
       list = this.applyFollow(list, reply);
-      this.listedFrom(reply);
+      this.listedFrom(reply, asked);
       const at = cursorOf(reply);
       if (reply.more !== true || at === undefined) break;
+      asked = at.seq;
       reply = await this.request("_acpmux/watch", {
         enabled: true,
         limit: SESSION_PAGE,
@@ -211,12 +260,14 @@ export class SessionPager<S extends Summary> {
   }
 
   /** A list reply current to its `listSeq`: the list being read is, and a change kept while it was
-   *  out with a lower position is in it already (a newer row than the change's), so it is dropped. */
-  private listedFrom(reply: any): void {
+   *  out with a lower position is in it already (a newer row than the change's), so it is dropped.
+   *  `asked`: the position a follow read after (a whole list holds every row). */
+  private listedFrom(reply: any, asked = 0): void {
     // A list read anew replaces the rows held: until it is whole, there is nothing to follow from.
     if (reply?.follow !== true) this.cursor = undefined;
     const at = cursorOf(reply);
     if (!at) return;
+    this.readOwedTo(reply?.follow === true ? asked : 0, at.seq);
     this.listedAt = at.seq;
     let seq = at.seq;
     for (const [sessionId, changedAt] of this.changedAt) {
@@ -229,6 +280,7 @@ export class SessionPager<S extends Summary> {
       this.changedAt.delete(sessionId);
     }
     this.reading = { epoch: at.epoch, seq };
+    this.keepBelowOwed();
   }
 
   /**
@@ -241,6 +293,7 @@ export class SessionPager<S extends Summary> {
     if (listSeq < this.listedAt) return false;
     if (this.cursor && !this.loading && listSeq > this.cursor.seq) this.cursor = { ...this.cursor, seq: listSeq };
     if (this.reading && listSeq > this.reading.seq) this.reading = { ...this.reading, seq: listSeq };
+    this.keepBelowOwed();
     return true;
   }
 
@@ -336,8 +389,11 @@ export class SessionPager<S extends Summary> {
     // Held whole now: a reconnect or a lag follows from here. A list with no position (an older
     // acpmux) leaves none, and the next one is read whole as before.
     this.cursor = this.reading;
+    this.keepBelowOwed();
     // A whole-list read still out keeps them until it lands (`settledWhole`).
     if (this.wholeReads === 0) this.forget();
+    // Peer batch rows that came after this list was read: the next follow reads them.
+    if (this.owed) this.readOwed();
   }
 
   /** `list` with every change since the list started laid over it, newest first as acpmux sorts. */

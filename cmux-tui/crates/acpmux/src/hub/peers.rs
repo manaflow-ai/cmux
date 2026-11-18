@@ -108,6 +108,36 @@ pub(crate) const PEER_PERMISSION_PENDING: &str = "peer_permission_pending";
 /// reading one of that peer's chats here reads it again from its last record.
 pub(crate) const PEER_LAGGED: &str = "peer_lagged";
 
+/// The event that tells watchers one of `peer`'s rows appeared, changed (`status`) or left
+/// (`purged`); None for a summary with no `sessionId`.
+fn remote_row_event(peer: &str, summary: Value, kind: &str) -> Option<HubEvent> {
+    let id = summary.get("sessionId").and_then(Value::as_str).map(str::to_owned)?;
+    Some(HubEvent {
+        session_id: id,
+        record: Arc::new(EventRecord {
+            seq: 0,
+            at: now_ms(),
+            dir: "peer".into(),
+            kind: kind.into(),
+            msg: Value::Null,
+            host_seq: None,
+        }),
+        remote: Some(RemoteRef { peer: peer.to_owned(), summary }),
+        update_line: Default::default(),
+        row: Default::default(),
+        list_seq: 0,
+        peer_batch: false,
+    })
+}
+/// The record kind of the event that closes one peer's batch of row changes
+/// (`Events::send_remote_batch`): a watcher with `peerRowBatches` hears it as
+/// `_acpmux/peer_rows_changed`, every other connection not at all. Never stored, and no row.
+pub(crate) const PEER_ROWS_CHANGED: &str = "peer_rows_changed";
+/// More rows than this changed by one peer at once are sent as a batch. The god start (26 peers
+/// of 400 rows each, `tests/god_daemon.rs`) queued 10,400 `session_changed` ahead of a client's
+/// attach replies, 1.33 MB per peer list; a peer's few live changes stay one notice each.
+const PEER_ROW_BATCH_MIN: usize = 32;
+
 /// Removes peer `name`'s rows from `map`, answering their summaries (for the purge notices).
 fn take_peer_rows(map: &mut super::remote_rows::RemoteRows, name: &str) -> Vec<Value> {
     map.take_peer(name).into_iter().map(|(_, r)| r.summary.value()).collect()
@@ -353,9 +383,7 @@ impl Hub {
                 // The lease lock is held here and this peer has no cache. Avoid taking the
                 // per-peer writer, whose workers take the lease lock while saving.
                 let gone = take_peer_rows(&mut self.remote_sessions.write(), name);
-                for summary in gone {
-                    self.announce_remote(name, summary, "purged");
-                }
+                self.announce_remote_rows(name, gone.into_iter().map(|s| (s, "purged")));
             }
             self.start_peer(name, &pc)
         };
@@ -546,9 +574,7 @@ impl Hub {
         };
         self.peer_cache_writers.lock().unwrap_or_else(|e| e.into_inner()).remove(name);
         // A late notice of it finds it gone. Clients watching the list drop its rows.
-        for summary in gone {
-            self.announce_remote(name, summary, "purged");
-        }
+        self.announce_remote_rows(name, gone.into_iter().map(|s| (s, "purged")));
         cfg.peers.remove(name);
         if let Err(e) = cfg.save() {
             tracing::warn!("save config failed: {e}");
@@ -589,9 +615,7 @@ impl Hub {
             (gone, generation)
         };
         // Clients watching the list drop these rows.
-        for summary in &gone {
-            self.announce_remote(name, summary.clone(), "purged");
-        }
+        self.announce_remote_rows(name, gone.iter().map(|s| (s.clone(), "purged")));
         if !gone.is_empty()
             && let Some(generation) = generation
         {
@@ -732,24 +756,33 @@ impl Hub {
 
     /// Tell watching clients that a peer session appeared, changed or left.
     pub(super) fn announce_remote(&self, peer: &str, summary: Value, kind: &str) {
-        let Some(id) = summary.get("sessionId").and_then(Value::as_str).map(str::to_owned) else {
+        if let Some(event) = remote_row_event(peer, summary, kind) {
+            let _ = self.events.send_remote(event);
+        }
+    }
+
+    /// Tells watching clients that many of `peer`'s rows changed at once (`rows`: each summary
+    /// and its kind, `status` or `purged`). Up to [`PEER_ROW_BATCH_MIN`] rows, each is announced
+    /// on its own ([`Self::announce_remote`]). More are one batch (`Events::send_remote_batch`):
+    /// every row is still stamped and sent, so a client that did not ask for batches hears each
+    /// row's `session_changed` as before, byte for byte; one that did hears one
+    /// `_acpmux/peer_rows_changed` and follows the list from its cursor (`row_log.rs`).
+    pub(super) fn announce_remote_rows(
+        &self,
+        peer: &str,
+        rows: impl IntoIterator<Item = (Value, &'static str)>,
+    ) {
+        let events: Vec<HubEvent> = rows
+            .into_iter()
+            .filter_map(|(summary, kind)| remote_row_event(peer, summary, kind))
+            .collect();
+        if events.len() <= PEER_ROW_BATCH_MIN {
+            for event in events {
+                let _ = self.events.send_remote(event);
+            }
             return;
-        };
-        let _ = self.events.send_remote(HubEvent {
-            session_id: id,
-            record: Arc::new(EventRecord {
-                seq: 0,
-                at: now_ms(),
-                dir: "peer".into(),
-                kind: kind.into(),
-                msg: Value::Null,
-                host_seq: None,
-            }),
-            remote: Some(RemoteRef { peer: peer.to_owned(), summary }),
-            update_line: Default::default(),
-            row: Default::default(),
-            list_seq: 0,
-        });
+        }
+        self.events.send_remote_batch(peer, events);
     }
 
     /// The row transition after a continuous outage's grace has elapsed.
@@ -775,9 +808,7 @@ impl Hub {
         if !changed.is_empty() {
             self.save_peer_cache(peer, generation, true);
         }
-        for summary in changed {
-            self.announce_remote(peer, summary, "status");
-        }
+        self.announce_remote_rows(peer, changed.into_iter().map(|s| (s, "status")));
     }
 
     #[cfg(test)]
@@ -803,9 +834,7 @@ impl Hub {
         if !changed.is_empty() {
             self.save_peer_cache(peer, generation, true);
         }
-        for summary in changed {
-            self.announce_remote(peer, summary, "status");
-        }
+        self.announce_remote_rows(peer, changed.into_iter().map(|s| (s, "status")));
     }
 
     /// Peer `peer`'s whole list after a follow (`PeerNotice::SessionsPatch`), as the peer would
@@ -1003,13 +1032,12 @@ impl Hub {
                     // notice. The throttle admits one snapshot per interval; disconnect/drop
                     // paths still call with `now = true` for the final state.
                     self.save_peer_cache(&peer, generation, false);
-                    // Each summary parsed as it is announced, one at a time.
-                    for (_, row) in changed {
-                        self.announce_remote(&peer, row.summary.value(), "status");
-                    }
-                    for row in gone {
-                        self.announce_remote(&peer, row.summary.value(), "purged");
-                    }
+                    // A list that changed many rows (a first list: every row) is one batch for the
+                    // watchers that asked for batches (`announce_remote_rows`).
+                    let changed =
+                        changed.into_iter().map(|(_, row)| (row.summary.value(), "status"));
+                    let gone = gone.into_iter().map(|row| (row.summary.value(), "purged"));
+                    self.announce_remote_rows(&peer, changed.chain(gone));
                     // Its live asks that came before this list.
                     self.release_held_peer_asks(&peer, generation);
                 }
@@ -1063,6 +1091,7 @@ impl Hub {
                             update_line: Default::default(),
                             row: Default::default(),
                             list_seq: 0,
+                            peer_batch: false,
                         });
                         return;
                     }
@@ -1127,6 +1156,7 @@ impl Hub {
                         update_line: Default::default(),
                         row: Default::default(),
                         list_seq: 0,
+                        peer_batch: false,
                     });
                     // The rest of its live asks that came before the session was listed, after
                     // the row.
@@ -1160,6 +1190,7 @@ impl Hub {
                         update_line: Default::default(),
                         row: Default::default(),
                         list_seq: 0,
+                        peer_batch: false,
                     });
                 }
                 PeerNotice::Notification { method: m, params, link } if m == "_acpmux/lagged" => {
@@ -1187,6 +1218,7 @@ impl Hub {
                             update_line: Default::default(),
                             row: Default::default(),
                             list_seq: 0,
+                            peer_batch: false,
                         });
                     }
                 }
@@ -1344,6 +1376,7 @@ impl Hub {
                         update_line: Default::default(),
                         row: Default::default(),
                         list_seq: 0,
+                        peer_batch: false,
                     });
                 }
             }

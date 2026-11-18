@@ -18,7 +18,10 @@
 //!   (`attachNoticesAheadMax`), and their bytes per list (`noticeBytesPerPeerList`). The peers'
 //!   proxies carry no link until the client watches, and a change of one peer row after the
 //!   attaches ends the window ([`flood_end`]). `attachUs` waits on these notices: with none ahead
-//!   an attach takes about 1 ms;
+//!   an attach takes about 1 ms. With `ACPMUX_GOD_PEER_ROW_BATCHES=1` the client asks for peer
+//!   row batches (`peerRowBatches`): each peer's list is one `_acpmux/peer_rows_changed`
+//!   (`batchNotices`, counted in `attachNoticesAhead`), and once the window ends the client reads
+//!   the rows with one paged follow of the list (`catchUp`, [`catch_up`]);
 //! - `scrollPageUs`: the pane's scroll up through the god chat, [`ROUNDS`] older pages
 //!   (`_acpmux/events` before the oldest seq held, 400 records, 128 KiB); `deepScrollUs`: a jump
 //!   to the middle of its history, [`DEEP_ROUNDS`] times;
@@ -60,6 +63,8 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_GOD_DHAT_TOP",
     // A control artifact for differential runs; the child still uses the hermetic environment.
     "ACPMUX_GOD_DAEMON_BIN",
+    // `1`: the test client asks for peer row batches (`peerRowBatches`, `run_with`).
+    "ACPMUX_GOD_PEER_ROW_BATCHES",
     // The churn lab's knobs (`whole_lists_of_a_peer_that_cannot_follow_under_churn`).
     "ACPMUX_CHURN_ROWS",
     "ACPMUX_CHURN_SECS",
@@ -257,17 +262,24 @@ struct Rpc {
     /// ([`MARKER_KINDS`]): how many, their bytes, and how many of each peer; and the events
     /// dropped.
     flood: Flood,
+    /// The `_acpmux/peer_rows_changed` notices read, as they came: what a client that asked for
+    /// batches follows the list for ([`catch_up`]).
+    batch_notes: Vec<Value>,
 }
 
 /// `_acpmux/session_changed` notices of peer rows (`peer` set) a client read, and the hub events
 /// its connection's fan-out dropped instead (`_acpmux/lagged`'s `dropped`): the hub's broadcast
-/// holds 8,192 events, and 26 lists of 400 rows announced at once overrun it.
+/// holds 8,192 events, and 26 lists of 400 rows announced at once overrun it. A client that asked
+/// for peer row batches (`peerRowBatches`) reads one `_acpmux/peer_rows_changed` per list instead
+/// (`batches`).
 #[derive(Clone, Default)]
 struct Flood {
     notices: u64,
     bytes: u64,
     by_peer: BTreeMap<String, u64>,
     dropped: u64,
+    batches: u64,
+    batch_bytes: u64,
 }
 
 impl Flood {
@@ -284,18 +296,21 @@ impl Flood {
             bytes: self.bytes - before.bytes,
             by_peer,
             dropped: self.dropped - before.dropped,
+            batches: self.batches - before.batches,
+            batch_bytes: self.batch_bytes - before.batch_bytes,
         }
     }
 
-    /// Every flood notice queued for the client: those it read and those its fan-out dropped.
+    /// Every flood notice queued for the client: those it read and those its fan-out dropped,
+    /// a batch's one notice included.
     fn queued(&self) -> u64 {
-        self.notices + self.dropped
+        self.notices + self.dropped + self.batches
     }
 
-    /// Their bytes: those read, and the dropped ones at the mean of the ones read.
+    /// Their bytes: those read, and the dropped ones at the mean of the row notices read.
     fn queued_bytes(&self) -> u64 {
         let mean = self.bytes as f64 / self.notices.max(1) as f64;
-        (self.bytes as f64 + mean * self.dropped as f64).round() as u64
+        (self.bytes as f64 + mean * self.dropped as f64).round() as u64 + self.batch_bytes
     }
 }
 
@@ -333,6 +348,7 @@ impl Rpc {
             read_bytes: 0,
             longest_line: 0,
             flood: Flood::default(),
+            batch_notes: vec![],
         }
     }
 
@@ -392,6 +408,13 @@ impl Rpc {
         }
         if v["method"] == "_acpmux/lagged" {
             self.flood.dropped += v["params"]["dropped"].as_u64().unwrap_or(0);
+        }
+        if v["method"] == "_acpmux/peer_rows_changed" {
+            self.flood.batches += 1;
+            self.flood.batch_bytes += line.len() as u64;
+            let peer = v["params"]["peer"].as_str().unwrap_or_default().to_owned();
+            *self.flood.by_peer.entry(peer).or_default() += 1;
+            self.batch_notes.push(v["params"].clone());
         }
         Ok(v)
     }
@@ -694,7 +717,8 @@ fn flood_json(window: &Result<Flood, Value>, lists: u64) -> Value {
     let Ok(w) = window else {
         return json!({"attachNoticesAhead": null, "attachNoticesAheadMax": null,
                       "noticeBytes": null, "noticeBytesPerPeerList": null, "peerLists": lists,
-                      "noticesRead": null, "noticesDropped": null,
+                      "noticesRead": null, "noticesDropped": null, "rowNotices": null,
+                      "batchNotices": null,
                       "floodError": window.as_ref().err()});
     };
     let bytes = w.queued_bytes();
@@ -706,7 +730,65 @@ fn flood_json(window: &Result<Flood, Value>, lists: u64) -> Value {
         "peerLists": lists,
         "noticesRead": w.notices,
         "noticesDropped": w.dropped,
+        // Peer rows told one notice each (read or dropped), and peer lists told as one batch.
+        "rowNotices": w.notices + w.dropped,
+        "batchNotices": w.batches,
         "floodError": null,
+    })
+}
+
+/// What a client that asked for peer row batches does with the `_acpmux/peer_rows_changed` it
+/// read: one follow of the list (`_acpmux/watch {afterSeq, listEpoch}`, `hub/row_log.rs`) from
+/// below every batch (`cursor`, the watch reply's position, or a batch's `afterSeq` if lower), read
+/// page by page while acpmux says `more`. Its numbers: the peer rows it read (by peer and id), the
+/// fewest and most of one peer, the follow pages, their bytes and the time they took.
+fn catch_up(rpc: &mut Rpc, cursor: Option<(u64, String)>) -> Value {
+    let Some((seq, epoch)) = cursor else {
+        return json!({"error": "the watch's reply named no list position"});
+    };
+    let after = rpc.batch_notes.iter().filter_map(|b| b["afterSeq"].as_u64()).fold(seq, u64::min);
+    let started = Instant::now();
+    let bytes_before = rpc.read_bytes;
+    let mut rows: std::collections::BTreeSet<(String, String)> = Default::default();
+    let (mut at, mut pages) = (after, 0u64);
+    loop {
+        pages += 1;
+        let reply = match rpc
+            .call("_acpmux/watch", json!({"enabled": true, "afterSeq": at, "listEpoch": epoch}))
+        {
+            Ok(reply) => reply,
+            Err(e) => return json!({"error": e, "pages": pages}),
+        };
+        if reply["follow"] != true {
+            return json!({"error": "acpmux could not follow the cursor", "reply": reply["reset"]});
+        }
+        for row in reply["sessions"].as_array().into_iter().flatten() {
+            if let (Some(peer), Some(id)) = (row["peer"].as_str(), row["sessionId"].as_str()) {
+                rows.insert((peer.to_owned(), id.to_owned()));
+            }
+        }
+        let Some(next) = reply["listSeq"].as_u64() else {
+            return json!({"error": "a follow named no list position", "pages": pages});
+        };
+        at = next;
+        if reply["more"] != true {
+            break;
+        }
+    }
+    rpc.notes.clear();
+    let mut by_peer: BTreeMap<&str, u64> = BTreeMap::new();
+    for (peer, _) in &rows {
+        *by_peer.entry(peer.as_str()).or_default() += 1;
+    }
+    json!({
+        "rows": rows.len(),
+        "peers": by_peer.len(),
+        "fewestRowsOfAPeer": by_peer.values().min(),
+        "mostRowsOfAPeer": by_peer.values().max(),
+        "pages": pages,
+        "bytes": rpc.read_bytes - bytes_before,
+        "ms": ms(started),
+        "error": null,
     })
 }
 
@@ -786,8 +868,17 @@ fn attach_rounds(rpc: &mut Rpc, god: &str) -> Attaches {
     a
 }
 
-/// One home's run: its numbers, and its heap profile's path when one was asked for.
+/// One home's run: its numbers, and its heap profile's path when one was asked for. The client
+/// asks for peer row batches when `ACPMUX_GOD_PEER_ROW_BATCHES=1` ([`run_with`]).
 async fn run(shape: Shape, dhat: bool) -> Value {
+    let batches = std::env::var("ACPMUX_GOD_PEER_ROW_BATCHES").is_ok_and(|v| v == "1");
+    run_with(shape, dhat, batches).await
+}
+
+/// [`run`], its client asking for peer row batches (`initialize` `_meta.acpmux.peerRowBatches`)
+/// when `batches`: each peer's list then reaches it as one `_acpmux/peer_rows_changed`, and once
+/// the attach-flood window ends it reads the rows with a follow of the list ([`catch_up`]).
+async fn run_with(shape: Shape, dhat: bool, batches: bool) -> Value {
     let scratch = std::env::temp_dir().join(format!("god-{}-{}", shape.name, std::process::id()));
     let _ = std::fs::remove_dir_all(&scratch);
     std::fs::create_dir_all(&scratch).unwrap();
@@ -816,9 +907,18 @@ async fn run(shape: Shape, dhat: bool) -> Value {
         let ready_ms = ms(daemon.spawned);
         let socket_connect_us = daemon.socket_connect_us;
         let mut rpc = Rpc::connect(&daemon.socket);
-        rpc.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "god-bench"}}))
-            .unwrap();
+        let meta = if batches { json!({"acpmux": {"peerRowBatches": true}}) } else { json!({}) };
+        rpc.call(
+            "initialize",
+            json!({"protocolVersion": 1, "clientInfo": {"name": "god-bench"}, "_meta": meta}),
+        )
+        .unwrap();
         let list = rpc.call("_acpmux/watch", json!({"enabled": true}));
+        // The list position the watch's reply is current to: a batch client follows from it.
+        let list_cursor = list
+            .as_ref()
+            .ok()
+            .and_then(|l| l["listSeq"].as_u64().zip(l["listEpoch"].as_str().map(str::to_owned)));
         let first_list_ms = ms(daemon.spawned);
         let listed =
             list.as_ref().map(|l| l["sessions"].as_array().map_or(0, Vec::len)).unwrap_or(0);
@@ -835,7 +935,9 @@ async fn run(shape: Shape, dhat: bool) -> Value {
             None => Err(json!("no peer to mark the window's end")),
         };
         let lists = cutter.iter().map(Proxy::carried).sum::<u64>();
-        let flood = flood_json(&window, lists);
+        let mut flood = flood_json(&window, lists);
+        flood["peerRowBatches"] = json!(batches);
+        flood["catchUp"] = if batches { catch_up(&mut rpc, list_cursor) } else { Value::Null };
 
         // The pane's scroll up: each page the one before the oldest record held. At the chat's
         // start it begins again from the attach's page, so a short chat gives as many pages.
@@ -1313,10 +1415,12 @@ async fn the_attach_flood_is_one_notice_per_peer_row() {
     let god = Shape::god();
     let shape =
         Shape { name: "flood", peers: god.peers, peer_rows: god.peer_rows, ..Shape::small() };
-    let result = run(shape.clone(), false).await;
+    // A client that does not ask for peer row batches, as every one before them: unchanged.
+    let result = run_with(shape.clone(), false, false).await;
     let line = flood_line(&result);
     println!("GOD-FLOOD {line}");
     let (peers, rows) = (shape.peers as u64, shape.peer_rows as u64);
+    assert_eq!(line["batchNotices"], json!(0), "no batch for a client that did not ask: {line}");
     assert_eq!(line["floodError"], Value::Null, "{line}");
     assert_eq!(line["peerLists"], json!(peers), "one list per peer: {line}");
     assert_eq!(line["attachNoticesAhead"], json!(peers * rows), "one notice per row: {line}");
@@ -1328,6 +1432,52 @@ async fn the_attach_flood_is_one_notice_per_peer_row() {
         (1_317_426..=1_344_040).contains(&per_list),
         "a list's notices are {per_list} bytes, not 1,330,733 (1%): {line}"
     );
+}
+
+/// The god home's peers (26 x 400 rows) over a small home, the client asking for peer row
+/// batches: run once, read by the two tests below.
+static BATCH_RUN: tokio::sync::OnceCell<Value> = tokio::sync::OnceCell::const_new();
+
+async fn batch_run() -> Value {
+    let god = Shape::god();
+    // Its own name: the scratch folder is the shape's, and the tests run side by side.
+    let shape = Shape {
+        name: "flood-batches",
+        peers: god.peers,
+        peer_rows: god.peer_rows,
+        ..Shape::small()
+    };
+    let result = BATCH_RUN.get_or_init(|| run_with(shape, false, true)).await;
+    flood_line(result)
+}
+
+/// The attach flood of a client that asked for peer row batches, pinned: each peer's list
+/// reaches it as one `_acpmux/peer_rows_changed` ahead of the attaches, and no peer row as its own
+/// `session_changed` (read or dropped). 26 notices where the client before them had 10,400.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_attach_flood_is_one_batch_notice_per_peer_list() {
+    let line = batch_run().await;
+    println!("GOD-FLOOD {line}");
+    let god = Shape::god();
+    assert_eq!(line["floodError"], Value::Null, "{line}");
+    assert_eq!(line["peerLists"], json!(god.peers), "one list per peer: {line}");
+    assert_eq!(line["rowNotices"], json!(0), "no row's own notice: {line}");
+    assert_eq!(line["batchNotices"], json!(god.peers), "one batch per list: {line}");
+    assert_eq!(line["attachNoticesAhead"], json!(god.peers), "one notice per list: {line}");
+    assert_eq!(line["attachNoticesAheadMax"], json!(1), "one notice per list: {line}");
+}
+
+/// A client that asked for peer row batches still holds every peer row: one follow of the list
+/// from below the batches, paged, reads all 10,400 rows (400 of each of 26 peers).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_batch_client_reads_every_peer_row_with_one_follow() {
+    let line = batch_run().await;
+    let god = Shape::god();
+    let caught = &line["catchUp"];
+    assert_eq!(caught["error"], Value::Null, "{line}");
+    assert_eq!(caught["rows"], json!(god.peers * god.peer_rows), "every peer row: {line}");
+    assert_eq!(caught["peers"], json!(god.peers), "{line}");
+    assert_eq!(caught["fewestRowsOfAPeer"], json!(god.peer_rows), "each peer's rows: {line}");
 }
 
 /// CI's Linux budget check uses the same harness and the small shape. It keeps the full god bench

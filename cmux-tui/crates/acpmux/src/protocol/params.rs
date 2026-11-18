@@ -123,6 +123,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "parent",
     "peer",
     "peerHops",
+    "peerRowBatches",
     "personDecision",
     "personKey",
     "personStop",

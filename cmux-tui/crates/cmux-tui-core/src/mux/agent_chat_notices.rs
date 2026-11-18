@@ -737,6 +737,50 @@ fn follows(initialized: &Value) -> bool {
         .is_some_and(|ids| ids.iter().any(|id| id == ACPMUX_LIST_FOLLOW))
 }
 
+/// The rows of the peer batches (`_acpmux/peer_rows_changed`, acpmux `hub/list_guard.rs`
+/// `send_remote_batch`) no list or follow read on this connection holds yet: the position before
+/// the first of them (`after`) and the last (`through`). acpmux sends a batch only to a client
+/// that asked in its `initialize` (`peerRowBatches`), in place of a `session_changed` per row: a
+/// peer's list of 400 rows was 400 notices ahead of every reply on the connection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct OwedRows {
+    after: u64,
+    through: u64,
+}
+
+impl OwedRows {
+    /// The rows owed once the batch `params` came too.
+    fn with(owed: Option<Self>, params: &Value) -> Option<Self> {
+        let (Some(after), Some(through)) =
+            (params["afterSeq"].as_u64(), params["listSeq"].as_u64())
+        else {
+            return owed;
+        };
+        Some(match owed {
+            Some(o) => Self { after: o.after.min(after), through: o.through.max(through) },
+            None => Self { after, through },
+        })
+    }
+
+    /// The rows owed after a reply current to `seq` came in, for a read of the rows changed after
+    /// `from` (0 for a whole list): it holds the owed rows up to `seq` as they are now when it
+    /// started at or below them, and none are owed once that reaches the last.
+    fn after_read(owed: Option<Self>, from: u64, seq: u64) -> Option<Self> {
+        match owed {
+            Some(o) if from <= o.after => {
+                let after = o.after.max(seq);
+                (after < o.through).then_some(Self { after, through: o.through })
+            }
+            other => other,
+        }
+    }
+
+    /// A cursor position kept below the rows owed, so a follow from it reads them.
+    fn cap(owed: Option<Self>, seq: u64) -> u64 {
+        owed.map_or(seq, |o| seq.min(o.after))
+    }
+}
+
 /// Whether a `session_changed` is older than what the watch holds: its list position is lower
 /// than the one the row came with, or than `floor`, the position of the list or follow last read
 /// on this connection. That reply holds every change up to it, a chat's removal too, so a late
@@ -771,11 +815,13 @@ fn read_watch(
     let mut writer = stream.try_clone()?;
     // `observer`: this connection only watches, so it keeps no acpmux daemon whose app has quit
     // (acpmux `daemon/unused_exit.rs`); this daemon outlives the app while it holds shells.
+    // `peerRowBatches`: a peer's list comes as one `_acpmux/peer_rows_changed`, read by a follow
+    // ([`OwedRows`]); an acpmux before it ignores the key and sends each row.
     let initialize = json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
         "protocolVersion": 1,
         "clientInfo": {"name": "cmux-tui-agent-chat-notices", "version": "1"},
         "clientCapabilities": {},
-        "_meta": {"acpmux": {"observer": true}},
+        "_meta": {"acpmux": {"observer": true, "peerRowBatches": true}},
     }});
     // A cursor is only kept from an acpmux that follows; one that no longer does ignores it.
     let watch = watch_request(2, cursor.as_ref());
@@ -810,6 +856,10 @@ fn read_watch(
     let mut gate = false;
     // acpmux dropped pushes while a list or follow was out: follow again once it is in.
     let mut relist = false;
+    // Peer batch rows no read on this connection holds yet.
+    let mut owed: Option<OwedRows> = None;
+    // The cursor the read out now follows from (0: a whole list), for [`OwedRows::after_read`].
+    let mut asked_from = cursor.as_ref().map_or(0, |at| at.seq);
     loop {
         // A whole line however long: acpmux sends none past its largest message.
         let mut line = Vec::new();
@@ -850,6 +900,10 @@ fn read_watch(
                         capable = true;
                         list_seq = seq;
                         gate = true;
+                        // A whole list (also a follow acpmux reset) holds every row as of `seq`.
+                        owed =
+                            OwedRows::after_read(owed, if followed { asked_from } else { 0 }, seq);
+                        let seq = OwedRows::cap(owed, seq);
                         let at = ListCursor { epoch: epoch.to_owned(), seq };
                         if followed {
                             // A follow's rows are applied whole, in order, up to `seq`.
@@ -930,6 +984,7 @@ fn read_watch(
                 if result["more"] == true
                     && let Some(at) = cursor.as_ref()
                 {
+                    asked_from = at.seq;
                     page = Some(ask_follow(&mut writer, &mut last_id, at)?);
                     continue;
                 }
@@ -961,7 +1016,10 @@ fn read_watch(
                         unlisted.clear();
                         mux.change_chats(super::chat_index::Chats::end);
                         whole.get_or_insert_with(Instant::now);
-                        *cursor = pending.take();
+                        // Kept below the peer rows no read holds yet ([`OwedRows`]).
+                        *cursor = pending
+                            .take()
+                            .map(|at| ListCursor { seq: OwedRows::cap(owed, at.seq), ..at });
                         None
                     }
                     _ => {
@@ -972,11 +1030,28 @@ fn read_watch(
                 };
             }
             if page.is_none()
-                && std::mem::take(&mut relist)
+                && (std::mem::take(&mut relist) | owed.is_some())
                 && let Some(at) = cursor.as_ref()
             {
+                asked_from = at.seq;
                 page = Some(ask_follow(&mut writer, &mut last_id, at)?);
                 page_is_watch = true;
+            }
+        } else if message["method"] == "_acpmux/peer_rows_changed" {
+            // One peer's rows changed at once (its list), told once instead of row by row: the
+            // watch follows its cursor for them, kept below them until a read holds them.
+            owed = OwedRows::with(owed, &message["params"]);
+            for at in [cursor.as_mut(), pending.as_mut()].into_iter().flatten() {
+                at.seq = OwedRows::cap(owed, at.seq);
+            }
+            match (page, cursor.as_ref()) {
+                (None, Some(at)) => {
+                    asked_from = at.seq;
+                    page = Some(ask_follow(&mut writer, &mut last_id, at)?);
+                    page_is_watch = true;
+                }
+                // A list or follow is out: the follow after it reads them (`owed`).
+                _ => {}
             }
         } else if message["method"] == "_acpmux/lagged" && message["params"]["watch"] == true {
             // acpmux dropped pushes this watch needed. Before it could follow, the watch read on
@@ -986,6 +1061,7 @@ fn read_watch(
             }
             match (page, cursor.as_ref()) {
                 (None, Some(at)) => {
+                    asked_from = at.seq;
                     page = Some(ask_follow(&mut writer, &mut last_id, at)?);
                     page_is_watch = true;
                 }
@@ -1012,7 +1088,7 @@ fn read_watch(
                 if page.is_none()
                     && let (Some(at), Some(seq)) = (cursor.as_mut(), params["listSeq"].as_u64())
                 {
-                    at.seq = at.seq.max(seq);
+                    at.seq = OwedRows::cap(owed, at.seq.max(seq));
                 }
                 mux.change_chats(|chats| chats.push(params));
             }
@@ -1695,6 +1771,104 @@ mod tests {
         known.sort();
         assert_eq!(known, ["chat-2", "chat-3"]);
         assert_eq!(cursor, cursor_at(9));
+    }
+
+    /// `_acpmux/peer_rows_changed` (a peer's list of `listSeq - afterSeq` rows, in place of a
+    /// `session_changed` per row) as acpmux sends it to a watch that asked for batches.
+    fn peer_batch(after: u64, through: u64) -> String {
+        format!(
+            "{}\n",
+            json!({"jsonrpc": "2.0", "method": "_acpmux/peer_rows_changed", "params": {
+                "peer": "vm", "count": through - after, "afterSeq": after, "listSeq": through}})
+        )
+    }
+
+    /// A local chat's `session_changed` at list position `seq`.
+    fn local_push(session: &str, seq: u64) -> String {
+        format!(
+            "{}\n",
+            json!({"jsonrpc": "2.0", "method": "_acpmux/session_changed", "params": {
+                "sessionId": session, "kind": "updated", "session": local(session), "listSeq": seq}})
+        )
+    }
+
+    /// The `afterSeq` of every watch the client asked, in order.
+    fn follows_asked(requests: &[Value]) -> Vec<Value> {
+        requests
+            .iter()
+            .filter(|r| r["method"] == "_acpmux/watch")
+            .map(|r| r["params"]["afterSeq"].clone())
+            .collect()
+    }
+
+    /// The watch asks acpmux for peer batches, and a batch is read by one follow from below its
+    /// rows, though a push after it is newer than every one of them: its rows are never skipped.
+    #[test]
+    fn a_peer_batch_is_read_by_a_follow_from_below_its_rows() {
+        let mux = test_mux("notices-peer-batch");
+        let mut chats = held(&["chat-1"], 4);
+        let mut cursor = cursor_at(5);
+        let peer_row = json!({"sessionId": "p1", "peer": "vm", "title": "p1", "indicator": "idle"});
+        let (client, serve) = fake_acpmux(vec![
+            format!(
+                "{}{}{}{}",
+                initialized(true),
+                follow_reply(2, &[], &[], 5, false),
+                peer_batch(5, 405),
+                local_push("chat-1", 406),
+            ),
+            follow_reply(3, &[peer_row], &[], 406, false),
+        ]);
+        let _ = follow(&Arc::downgrade(&mux), client, &mut chats, &mut cursor);
+        let requests = serve.join().expect("the fake acpmux");
+        assert_eq!(requests[0]["params"]["_meta"]["acpmux"]["peerRowBatches"], true);
+        assert_eq!(follows_asked(&requests), [json!(5), json!(5)], "{requests:?}");
+        assert_eq!(cursor, cursor_at(406));
+    }
+
+    /// A batch that comes while a follow older than it is out is read by the follow after it,
+    /// from below its rows, not from the older follow's position.
+    #[test]
+    fn a_peer_batch_during_an_older_follow_is_read_after_it() {
+        let mux = test_mux("notices-peer-batch-during");
+        let mut chats = held(&["chat-1"], 4);
+        let mut cursor = cursor_at(5);
+        let (client, serve) = fake_acpmux(vec![
+            format!(
+                "{}{}{}",
+                initialized(true),
+                peer_batch(5, 405),
+                follow_reply(2, &[local("chat-2")], &[], 6, false),
+            ),
+            follow_reply(3, &[], &[], 405, false),
+        ]);
+        let _ = follow(&Arc::downgrade(&mux), client, &mut chats, &mut cursor);
+        let requests = serve.join().expect("the fake acpmux");
+        assert_eq!(follows_asked(&requests), [json!(5), json!(6)], "{requests:?}");
+        assert_eq!(cursor, cursor_at(405));
+    }
+
+    /// A follow of a batch cut at its size (`more`) goes on from where it was cut, and ends once
+    /// it reaches the batch's last row: the cap below the batch never makes it read a page twice.
+    #[test]
+    fn a_cut_follow_of_a_peer_batch_goes_on_and_ends() {
+        let mux = test_mux("notices-peer-batch-cut");
+        let mut chats = held(&["chat-1"], 4);
+        let mut cursor = cursor_at(5);
+        let (client, serve) = fake_acpmux(vec![
+            format!(
+                "{}{}{}",
+                initialized(true),
+                follow_reply(2, &[], &[], 5, false),
+                peer_batch(5, 405)
+            ),
+            follow_reply(3, &[], &[], 200, true),
+            follow_reply(4, &[], &[], 405, false),
+        ]);
+        let _ = follow(&Arc::downgrade(&mux), client, &mut chats, &mut cursor);
+        let requests = serve.join().expect("the fake acpmux");
+        assert_eq!(follows_asked(&requests), [json!(5), json!(5), json!(200)], "{requests:?}");
+        assert_eq!(cursor, cursor_at(405));
     }
 
     /// A cursor acpmux cannot follow (another run) is answered with the list's first page and

@@ -34,6 +34,12 @@ pub const HOLD_ATTACH: &str = "attach-hold-v1";
 /// `closedListed` (`server/requests/info.rs` `rows`).
 pub const INFO_ROWS: &str = "info-rows-v1";
 
+/// A client that sends `initialize` with `_meta.acpmux.peerRowBatches: true` hears a burst of one
+/// peer's rows (more than 32, a peer's list) as one `_acpmux/peer_rows_changed`, and follows the
+/// list for them (`hub/list_guard.rs` `send_remote_batch`). Every other client hears each row's
+/// `_acpmux/session_changed`, as before.
+pub const PEER_ROW_BATCHES: &str = "peer-row-batches-v1";
+
 pub struct Capability {
     pub id: &'static str,
     pub wire: &'static [&'static str],
@@ -115,6 +121,10 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability {
         id: crate::hub::row_log::CAPABILITY,
         wire: &[method::MUX_WATCH, method::MUX_SESSION_CHANGED],
+    },
+    Capability {
+        id: PEER_ROW_BATCHES,
+        wire: &[method::INITIALIZE, method::MUX_WATCH, method::MUX_PEER_ROWS_CHANGED],
     },
     Capability { id: "machine.join.stdin.v1", wire: &[] },
     // `acpmux machine vault pull|status|forget` (crate::vault): the CLI, which

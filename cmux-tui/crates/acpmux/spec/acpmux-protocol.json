@@ -2286,6 +2286,13 @@
     },
     {
       "kind": "notification",
+      "name": "_acpmux/peer_rows_changed",
+      "params": {
+        "$ref": "#/types/PeerRowsChanged"
+      }
+    },
+    {
+      "kind": "notification",
       "name": "_acpmux/permission_pending",
       "params": {
         "$ref": "#/types/PermissionPending"
@@ -2402,6 +2409,7 @@
         "parent": true,
         "peer": true,
         "peerHops": true,
+        "peerRowBatches": true,
         "personDecision": true,
         "personKey": true,
         "personStop": true,
@@ -4437,6 +4445,36 @@
         "name": true,
         "wait": true
       },
+      "type": "object"
+    },
+    "PeerRowsChanged": {
+      "description": "To a watcher that asked for batches (`initialize` `_meta.acpmux.peerRowBatches`), in place of\none `_acpmux/session_changed` per row: `count` rows of `peer` changed or left at once (a peer's\nlist). Their list positions are consecutive, after `afterSeq` and up to `listSeq`; a client\nreads them with `_acpmux/watch {afterSeq, listEpoch}` from a cursor no higher than `afterSeq`,\nand keeps its cursor at most `afterSeq` until a list or follow current to `listSeq` is in.",
+      "properties": {
+        "afterSeq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "listSeq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "peer": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "peer",
+        "count",
+        "afterSeq",
+        "listSeq"
+      ],
       "type": "object"
     },
     "PeerSnapshotParams": {

@@ -197,6 +197,10 @@ pub struct Conn {
     created: StdMutex<std::collections::VecDeque<String>>,
     watch_all: AtomicBool,
     watch_tools: AtomicBool,
+    /// The client asked, in its `initialize` (`_meta.acpmux.peerRowBatches`), to hear a burst of
+    /// one peer's rows as one `_acpmux/peer_rows_changed` (`Events::send_remote_batch`) and
+    /// follow the list for them, not one `session_changed` per row.
+    peer_row_batches: AtomicBool,
     watch_inventory: StdMutex<bool>,
     /// The unix socket peer's audit token, read at accept (macOS); what
     /// `_acpmux/person_enroll` checks. None for WebSocket connections.
@@ -1685,6 +1689,7 @@ async fn serve_connection_from(
         created: StdMutex::default(),
         watch_all: AtomicBool::new(false),
         watch_tools: AtomicBool::new(false),
+        peer_row_batches: AtomicBool::new(false),
         watch_inventory: StdMutex::new(false),
         peer,
         socket_peer,
@@ -2121,6 +2126,21 @@ async fn refuse_unauthenticated(
 
 /// Turn a hub record into client notifications for one connection.
 fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
+    // The close of one peer's batch of rows (`hub/list_guard.rs` `send_remote_batch`): only a
+    // watcher that asked for batches hears it, in place of the rows' `session_changed`.
+    if ev.record.kind == crate::hub::PEER_ROWS_CHANGED {
+        if let Some(remote) = &ev.remote
+            && conn.peer_row_batches.load(Ordering::SeqCst)
+            && conn.watch_all.load(Ordering::SeqCst)
+            && !view::a_link(conn)
+        {
+            let mut params = ev.record.msg.clone();
+            params.set("peer", json!(remote.peer));
+            params.set("listSeq", json!(ev.list_seq));
+            conn.send(&Message::notification(method::MUX_PEER_ROWS_CHANGED, params));
+        }
+        return;
+    }
     conn.controls.event(hub, conn, &ev);
     if ev.record.kind == crate::hub::PEER_LAGGED {
         if conn.sub_opts(&ev.session_id).is_some() {
@@ -2285,8 +2305,12 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             // daemon's link hears no change of a row this daemon mirrors: the link drops every
             // such row (`peer.rs` `watch_sessions`), so each change of one peer's row went out on
             // every other peer's link for nothing (24 copies of every change with one daemon's
-            // 25 peers, 2026-10-30), and the row's origin hears it from its own.
-            if rec.dir == "peer" && !view::a_link(conn) {
+            // 25 peers, 2026-10-30), and the row's origin hears it from its own. A row of a batch
+            // reaches a watcher that asked for batches as the batch's one notice, unless this
+            // connection attached the row's chat (`send_remote_batch`, `peer_rows_changed`).
+            let batched =
+                ev.peer_batch && !attached && conn.peer_row_batches.load(Ordering::SeqCst);
+            if rec.dir == "peer" && !view::a_link(conn) && !batched {
                 let sid = remote
                     .summary
                     .get("sessionId")

@@ -65,7 +65,7 @@ pub(super) fn start(
                         match rx.try_recv() {
                             Ok(ev) => send_event(&hub, &conn, ev),
                             Err(broadcast::error::TryRecvError::Lagged(n)) => conn.send(
-                                &Message::notification("_acpmux/lagged", json!({"dropped": n})),
+                                &Message::notification("_acpmux/lagged", lagged(&conn, n)),
                             ),
                             Err(_) => break,
                         }
@@ -138,7 +138,7 @@ pub(super) fn start(
                 Ok(ev) => send_event(&hub, &conn, ev),
                 Err(broadcast::error::RecvError::Lagged(n)) => {
                     conn.controls.resync(&conn, "lagged");
-                    conn.send(&Message::notification("_acpmux/lagged", json!({"dropped": n})));
+                    conn.send(&Message::notification("_acpmux/lagged", lagged(&conn, n)));
                 }
                 Err(broadcast::error::RecvError::Closed) => break,
             }
@@ -187,4 +187,14 @@ pub(super) mod tests {
             panic!("fan-out test panic for {session}");
         }
     }
+}
+
+/// `_acpmux/lagged` for `dropped` hub events this connection's fan-out fell behind on. A watcher
+/// that asked for peer row batches is told its watch lost notices too (`watch: true`): it follows
+/// the list from its cursor for them, a batch's close among them (`peer_rows_changed`). Every
+/// other connection gets the note as before.
+fn lagged(conn: &Conn, dropped: u64) -> serde_json::Value {
+    let watch =
+        conn.peer_row_batches.load(Ordering::SeqCst) && conn.watch_all.load(Ordering::SeqCst);
+    if watch { json!({"dropped": dropped, "watch": true}) } else { json!({"dropped": dropped}) }
 }
