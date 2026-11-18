@@ -136,7 +136,10 @@ fn cell(before: Before, sign_in_works: bool, stop_works: bool) {
         assert!(!stop_works, "{tag}: the records still name p:a: {calls:?}");
         let joined = machine::Joined::load(&dir).unwrap();
         let joined = joined.unwrap_or_else(|| panic!("{tag}: a person's p:a kept"));
-        assert!(super::current_join(&dir, &joined).is_err(), "{tag}: a host starts as p:a");
+        assert!(
+            super::current_join(&dir, &origin, &joined).is_err(),
+            "{tag}: a host starts as p:a"
+        );
     }
     // SameJoin's identity is the current join's: a host that serves on after a failed teardown
     // (the hub down, the stop failed) still serves the current join. Any other stops itself.
