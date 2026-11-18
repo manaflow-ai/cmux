@@ -190,11 +190,6 @@ public protocol TerminalSession: AnyObject {
     /// terminal as it is now (one replay). Sessions that cannot stop their
     /// output ignore it.
     func setStreaming(_ streaming: Bool)
-    /// The app is leaving for the background or coming back with its claim
-    /// kept: a claimed size is reported again now, so the Mac's size lease
-    /// runs from this moment (its 45 s match the phone's background grace).
-    /// Sessions without a Mac ignore it.
-    func renewSizeClaim()
     /// The person tapped or typed in the terminal: on a Mac terminal this
     /// view becomes the active device for the Mac's sizing policy (sessions
     /// rate-limit it themselves). Sessions without a Mac ignore it.
@@ -241,8 +236,6 @@ extension TerminalSession {
     public func setClaimsSize(_ claims: Bool) {}
 
     public func setStreaming(_ streaming: Bool) {}
-
-    public func renewSizeClaim() {}
 
     public func noteInteraction() {}
 

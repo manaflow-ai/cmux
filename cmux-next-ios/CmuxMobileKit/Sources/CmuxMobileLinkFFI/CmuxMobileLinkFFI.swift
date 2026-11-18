@@ -3505,6 +3505,7 @@ public func FfiConverterTypeTerminalChatPairing_lower(_ value: TerminalChatPairi
     return FfiConverterTypeTerminalChatPairing.lower(value)
 }
 
+
 /**
  * A terminal page's states. Times are milliseconds since the state began,
  * on one monotonic clock Swift picks.
@@ -3664,6 +3665,7 @@ public func FfiConverterTypeTerminalStreamPlan_lift(_ buf: RustBuffer) throws ->
 public func FfiConverterTypeTerminalStreamPlan_lower(_ value: TerminalStreamPlan) -> RustBuffer {
     return FfiConverterTypeTerminalStreamPlan.lower(value)
 }
+
 
 /**
  * One step of a dial, `millis` after `connect` was called.
