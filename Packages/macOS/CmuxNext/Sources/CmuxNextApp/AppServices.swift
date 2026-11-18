@@ -12,6 +12,7 @@ import CmuxNextBrowserHistory
 import CmuxNextChiefPetWiring
 import CmuxNextChromiumWarmup
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextCompat
 public import CmuxNextComputerUse
 import CmuxNextControl
@@ -93,7 +94,7 @@ final class AppServices {
     private(set) lazy var agentGit = AgentPaneGitLinks(machines: machines)
     let machines: MachineRegistry
     /// The names sidebar rows keep while their front tab's is briefly unknown (`WorkspaceAutoNameWiring`).
-    let autoNameHold = WorkspaceAutoNameHold()
+    let autoNameHold = WorkspaceAutoNameHold(), cloudStartTitles = AgentCloudStartTitles() // and the titles of Cloud chat starts
     /// The machine of the action being run, while its handler runs (`ActionRouting`); `activeDaemon` prefers it.
     var routedDaemon: DaemonService?
     /// Brings a window forward for a jump (`revealTab`, a `cmux://` link).
@@ -130,12 +131,14 @@ final class AppServices {
         auth: cloud.auth, local: daemon, approvalHolds: cloud.approvalHolds,
         appActive: { [weak self] in self?.appActiveSource() ?? false }
     )  // first read in init (no IUO)
+    /// The team's Cloud workspaces and chats (lane D): the Team section, `cmux cloud team-*`, links and the publisher.
+    private(set) lazy var cloudTeam = CloudTeamFeature(host: self)
     var showcase = ShowcaseState()
     /// SSH machines (Connect to Machine…); `serverReach`: paired servers' Chief sessions in the sidebar.
     private(set) lazy var ssh: SSHService = SSHService(machines: machines, bundleID: environment.launch.bundleID, mainWork: mainWork)  // first read in init (no IUO)
     private(set) lazy var serverReach = ServerReachService.app(services: self)
     /// Add Machine and Check Machine (plans/cmux-next/add-machine-DESIGN.md); each machine's last check.
-    private(set) lazy var addMachine = AddMachineCard(services: .app(self), panel: { [weak self] in self?.serverMenuBar.cardPanel() })
+    private(set) lazy var addMachine = AddMachineCard(services: .app(self))
     /// Add Device and Settings > Devices (plans/cmux-next/add-device-DESIGN.md): one entry, one list, one remove.
     private(set) lazy var addDevice = AddDeviceCard(services: .app(self))
     private(set) lazy var devices = DeviceDirectory.app(self)
@@ -152,7 +155,7 @@ final class AppServices {
         var joinedMachines: MachineJoinService?
         /// `debug.join_consent`: the join status the app reads (``JoinConsentServices/app(_:)``), and its person line.
         var joinStatus: JoinStatus?
-        let joinLine = DebugJoinConsent.FixtureLine()
+        let joinLine = JoinConsentFixtureLine()
         /// `debug.object_menu`: the tab or pane menu it opened last; nil after a workspace menu.
         weak var objectMenu: NSMenu?
     }
@@ -199,7 +202,7 @@ final class AppServices {
                                                                  activeWindow: { [weak self] in self?.windows.active?.window })
     private(set) lazy var updateSheet: UpdateSheetController = UpdateSheetController(source: UpdateSheetModel(service: updater, openLink: { LinkRouter.shared.open($0) }))  // first read in init (no IUO)
     /// cmux.json controller; set by `AppDelegate` once it starts. Agent tabs made before it (by launch's action bindings) follow it from here.
-    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { cloud.codexBroker.consent = CloudStartChat.codexConsent(self); onboarding.followImportSetting(settings); madeAgentTabs?.follow(settings); browserHost?.follow(settings); cloud.hostReplica.follow(settings, local: machines.local, account: { [cloud] in cloud.auth.isSignedIn && cloud.mayCallCloud && !cloud.policyDisabled ? cloud.auth.user?.id : nil }) } } }
+    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { onboarding.followImportSetting(settings); madeAgentTabs?.follow(settings); browserHost?.follow(settings); cloud.hostReplica.follow(settings, local: machines.local, account: { [cloud] in cloud.auth.isSignedIn && cloud.mayCallCloud && !cloud.policyDisabled ? cloud.auth.user?.id : nil }) } } }
     /// Writes the palette shortcut recorder's edits (the recorder holds it weakly).
     var paletteShortcutEditor: PaletteShortcutEditor?
     /// Where Chromium comes from: embedded, or downloaded on first use (bundle-size-DESIGN.md section 6).
@@ -366,8 +369,8 @@ final class AppServices {
     let workspaceVerticalTabs = WorkspaceVerticalTabs()
     /// Pane controller mounts and releases in any window (`PaneMounts`).
     let paneMounts = PaneMounts()
-    /// The new tab screen's Search | Ask mode and last agent, and what `!` typed ahead.
-    let newTabChoices = NewTabChoiceMemory()
+    /// The new tab screen's Search | Ask mode and last agent, and what `!` typed ahead; every workspace's rows for its bar (`NewTabPlacesFeed`).
+    let newTabChoices = NewTabChoiceMemory(); let newTabPlaces: NewTabPlacesKept
     /// The models picked per harness in the Chief card's Model menu (its Recent section).
     let chiefModelRecents = HomeChiefModelRecents(defaults: .standard)
     /// Where this Mac's Chief runs and its running move (the Home header's location chip, the Chief
@@ -541,7 +544,7 @@ final class AppServices {
     /// (plans/cmux-next/hovercards.md).
     let hoverCards = HoverCardCoordinator()
     let overlayProcess = PageOverlayProcess() // the overlay pages' one web content process, handed to each page's owner
-    private(set) lazy var healthFeeds = AppHealthFeeds(daemon: daemon, stateDirectory: environment.daemonStateDirectory, work: work, overlayProcess: overlayProcess) // app health (CmuxNextAppHealth)
+    private(set) lazy var healthFeeds = AppHealthFeeds(daemon: daemon, stateDirectory: environment.daemonStateDirectory, work: work) // app health (CmuxNextAppHealth)
     let toasts = CmuxToastOverlayHost(drawing: .shared) // the shared center's toasts draw as native views on the window's overlay
     /// Refusal messages for keyboard and menu runs.
     let refusalHUD = RefusalHUD()
@@ -581,12 +584,12 @@ final class AppServices {
          launchReveal: LaunchReveal = .shared, agentPaneEnvironment: [String: String]? = nil,
          work: BackgroundWork = BackgroundWork(), mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil), peerApprover: AgentPanePeerApprover? = nil,
-         agentPaneStateFiles: AgentPaneStateFiles = AgentPaneStateFiles()) {
+         agentPaneStateFiles: AgentPaneStateFiles = AgentPaneStateFiles(), newTabPlaceSource: @escaping @MainActor (WorkspaceModel) -> NewTabPlaces.Source = { NewTabPlaces.Source($0) }) {
         self.work = work
         bundledCLI = BundledExecutable.cli(resources: Bundle.main.resourceURL, work: work)
         (iphone, browserStores) = (IPhoneHostService(loginKeychain: loginKeychain, appearance: ThemeScope.app), .application(loginKeychain: loginKeychain))
         (self.launchImages, self.relaunchWake, self.keyWindowSource, self.appActiveSource, self.peerApprover, self.heldKeyReplay) = (launchImages, relaunchWake, keyWindowSource, appActiveSource, peerApprover, heldKeyReplay)
-        self.agentPaneStateFiles = agentPaneStateFiles
+        (self.agentPaneStateFiles, self.newTabPlaces) = (agentPaneStateFiles, NewTabPlacesKept(home: NSHomeDirectory(), source: newTabPlaceSource))
         agentPaneStateLoss = AgentPaneStateLoss(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
         // Before the updater's What's New tracker writes its record: an install that ran before
@@ -919,7 +922,7 @@ extension AppServices {
     func paidPlanUpgrade() -> PaidPlanUpgrade {
         let client = cloud.isSignedIn ? accounts.client : nil
         return PaidPlanUpgrade(checkout: client.map(PaidPlanUpgrade.cmuxComCheckout), open: { LinkRouter.shared.open($0) },
-                               scheme: cloud.configuration.callbackScheme, onboarding: PaidPlanOnboarding(defaults: .standard), pricing: StaticURL.pricing.url)
+                               scheme: cloud.configuration.callbackScheme, onboarding: PaidPlanOnboarding(defaults: .standard), pricing: StaticURL.pricing.url, web: cloud.configuration.authWebOrigin)
     }
 
     /// The welcome card for a plan the Cloud list read (shown once, after an upgrade).
