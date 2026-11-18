@@ -51,7 +51,7 @@
   background: transparent;
   color: var(--page-text-2);
   padding: 0 4px;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-control);
   cursor: default;
   font-size: var(--text-caption);
   font-weight: var(--weight-regular);

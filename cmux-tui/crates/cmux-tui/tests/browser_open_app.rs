@@ -27,8 +27,11 @@ const SHOWN_TAB: &str = "tab_44444444444444444444444444444444";
 const CALLER_TERMINAL: &str = "term_55555555555555555555555555555555";
 const CALLER_TAB: &str = "tab_66666666666666666666666666666666";
 const NEW_TAB: &str = "tab_77777777777777777777777777777777";
+/// The pane of the column right of the caller (`AppMode::RightColumn`).
+const RIGHT_PANE: &str = "pane_99999999999999999999999999999999";
 const NEW_BROWSER: &str = "browser_88888888888888888888888888888888";
 const URL: &str = "http://127.0.0.1:8765/opener-a.html";
+const OTHER_MACHINE: &str = "machine_99999999999999999999999999999999";
 const HOME_REFUSAL: &str = "openBrowser unavailable: This page has no tabs.";
 static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
 
@@ -114,6 +117,43 @@ fn an_app_that_places_terminals_gets_the_caller_and_no_target() {
             run.daemon
         );
     }
+}
+
+#[test]
+fn a_browser_with_no_place_opens_in_the_column_right_of_its_caller() {
+    // Lawrence 2026-11-15: an agent's `cmux browser open`, run in a terminal
+    // with a column on its right, put the page as a tab over that terminal.
+    // The CLI names the column's pane, for an agent chat and for a terminal.
+    for caller in [Caller::Terminal(CALLER_TERMINAL), Caller::Agent] {
+        let run =
+            Run::app(AppMode::RightColumn).cli_as(&["--json", "browser", "open", URL], caller);
+        assert!(run.output.status.success(), "{}", run.stderr());
+        let [call] = run.runs()[..] else { panic!("one app run expected: {:?}", run.app) };
+        assert_eq!(call["params"]["target"], format!("tab:{SHOWN_TAB}"), "{call}");
+        let lookup = run
+            .daemon
+            .iter()
+            .find(|r| r["operation"] == "tab.get" && r["params"]["pane"] == RIGHT_PANE)
+            .unwrap_or_else(|| panic!("no tab.get of the right column's pane: {:?}", run.daemon));
+        assert_eq!(lookup["params"]["workspace"], WORKSPACE, "{lookup}");
+    }
+}
+
+#[test]
+fn an_agent_the_app_cannot_place_is_refused_and_opens_nothing() {
+    // user, 2026-11-18: the app's `caller_unavailable` refusal became a tab on
+    // the daemon's default pane, the focused workspace (Home).
+    let run =
+        Run::app(AppMode::UnplacedAgent).cli_as(&["--json", "browser", "open", URL], Caller::Agent);
+    assert!(!run.output.status.success(), "an unplaced agent's browser opened");
+    assert!(run.stderr().contains("caller_unavailable"), "{}", run.stderr());
+    let [call] = run.runs()[..] else { panic!("one refused app run expected: {:?}", run.app) };
+    assert!(call["params"].get("target").is_none(), "{call}");
+    assert!(
+        !run.daemon.iter().any(|r| r["operation"] == "tab.get" && r["params"]["tab"] == "current"),
+        "the daemon's default pane was read: {:?}",
+        run.daemon
+    );
 }
 
 #[test]
@@ -261,8 +301,11 @@ fn another_machines_browser_tab_stays_with_its_daemon() {
     for (with_app, caller) in
         [(true, None), (true, Some(CALLER_TERMINAL)), (false, Some(CALLER_TERMINAL))]
     {
+        // A `machine_…` id is the daemon's own word for a paired machine; any
+        // other word makes the CLI ask the app whether it is a Cloud VM
+        // (cloud_route.rs), which is not a placement request.
         let run = Run::new(with_app)
-            .cli(&["--json", "--machine", "m_remote", "browser", "open", URL], caller);
+            .cli(&["--json", "--machine", OTHER_MACHINE, "browser", "open", URL], caller);
         assert!(run.output.status.success(), "{}", run.stderr());
         assert_eq!(run.daemon_operations(), vec!["tab.create_browser".to_string()]);
         let params = &run.daemon[0]["params"];
@@ -394,6 +437,19 @@ enum AppMode {
     /// `PlacesTerminals`, with the window on a page: openBrowser with no
     /// target is refused.
     PlacesTerminalsOnPage,
+    /// `Workspace`, and a column (`RIGHT_PANE`) is right of the caller.
+    RightColumn,
+    /// The app shows the agent nowhere: `system.identify` finds no caller
+    /// and an untargeted openBrowser is refused with `caller_unavailable`.
+    UnplacedAgent,
+}
+
+/// Who runs the command.
+#[derive(Clone, Copy)]
+enum Caller {
+    Terminal(&'static str),
+    /// An agent chat (`CMUX_AGENT_SESSION`), with no terminal.
+    Agent,
 }
 
 struct Finished {
@@ -435,7 +491,18 @@ impl Run {
         Self { dir, app }
     }
 
+    fn cli_as(self, args: &[&str], caller: Caller) -> Finished {
+        match caller {
+            Caller::Terminal(terminal) => self.run(args, Some(terminal), false),
+            Caller::Agent => self.run(args, None, true),
+        }
+    }
+
     fn cli(self, args: &[&str], caller_terminal: Option<&str>) -> Finished {
+        self.run(args, caller_terminal, false)
+    }
+
+    fn run(self, args: &[&str], caller_terminal: Option<&str>, agent: bool) -> Finished {
         let daemon_socket = self.dir.join("mux.sock");
         let app_socket = self.dir.join("app.sock");
         let daemon = fake_daemon(&daemon_socket);
@@ -457,6 +524,9 @@ impl Run {
             .env_remove("CMUX_TUI_TERMINAL_ID");
         if let Some(terminal) = caller_terminal {
             command.env("CMUX_TUI_TERMINAL_ID", terminal);
+        }
+        if agent {
+            command.env("CMUX_AGENT_SESSION", "acp_agent_session_a");
         }
         let output = command.output().unwrap();
         done.store(true, Ordering::Relaxed);
@@ -573,10 +643,24 @@ fn app_response(mode: AppMode, request: &Value) -> Value {
         if matches!(mode, AppMode::PlacesTerminals | AppMode::PlacesTerminalsOnPage) {
             identity["caller_placement"] = json!(2);
         }
+        if matches!(mode, AppMode::RightColumn) {
+            identity["beside"] = json!({"pane": RIGHT_PANE, "placement": "existing_column",
+                "panes": [{"id": RIGHT_PANE, "kinds": ["terminal"]}]});
+        }
+        if matches!(mode, AppMode::UnplacedAgent) {
+            identity = json!({"caller": {"is_caller": true,
+                "agent_session": params["caller"]["agent_session"], "found": false}});
+        }
         return json!({"id": request["id"], "ok": true, "result": identity});
     }
+    if matches!(mode, AppMode::UnplacedAgent) && params.get("target").is_none() {
+        return json!({"id": request["id"], "ok": false, "error": {"code": "caller_unavailable",
+            "message": "The caller's chat or terminal is no longer available",
+            "data": {"not_run": true, "state": "rejected"}}});
+    }
     let refused = match mode {
-        AppMode::Workspace | AppMode::PlacesTerminals => false,
+        AppMode::Workspace | AppMode::PlacesTerminals | AppMode::RightColumn => false,
+        AppMode::UnplacedAgent => false,
         AppMode::Home | AppMode::HomeNoReveal | AppMode::PlacesTerminalsOnPage => {
             params["action"] == "openBrowser" && params.get("target").is_none()
         }

@@ -14,14 +14,23 @@
 //!   on the existing. you only need the rightmost botom auto split when
 //!   there's a terminal that gets opened when there's already a browser, and
 //!   vice versa"), the app's RightColumnPlacement rule.
+//! - A browser created with no place (`cmux browser open URL`, `cmux tab
+//!   create browser`, `cmux browser profile open`) by anyone, an agent or a
+//!   person's terminal, is a tab in the column right of the caller when there
+//!   is one (the pane holding a browser, else the lowest), never a split
+//!   below it and never over an agent's terminal (Lawrence 2026-11-15).
 //! - A cmux terminal (`CMUX_TUI_TERMINAL_ID`): an app that places terminal
 //!   callers ([`app_places_terminals`]) answers the same `beside` for it (the
 //!   column right of a terminal that runs an agent, the terminal's own pane
 //!   for a plain one). With an older app, or none, the terminal's own pane,
 //!   found from the daemon.
-//! - An agent chat the app cannot place: the workspace its environment names
-//!   (`CMUX_WORKSPACE_ID`), when the request's session has it.
-//! - No caller, a caller that cannot be found, or a request to another
+//! - An agent chat no tab shows: the workspace its session runs in
+//!   (`CMUX_WORKSPACE_ID`). The app that owns the daemon resolves that key
+//!   (the caller names it, app.rs `caller_from`); in a session no app owns,
+//!   the CLI reads it from the daemon. An agent the owning app cannot place
+//!   at all is refused (`caller_unavailable`): its tabs never go to the
+//!   focused workspace or Home (Lawrence 2026-11-18).
+//! - No caller, a terminal that cannot be found, or a request to another
 //!   session or machine: the daemon's default.
 //!
 //! A retry never makes a second surface. The placement is decided again on
@@ -63,31 +72,17 @@ pub(super) fn names_no_place(params: &Map<String, Value>) -> bool {
     PARENTS.iter().all(|key| params.get(*key).is_none())
 }
 
-/// The kind of tab a creation makes, for the column's same-kind rule.
+/// The kind of tab a creation makes: each has its own rule for the column
+/// right of the caller ([`placement`], [`browser_placement`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Kind {
     Terminal,
     Browser,
 }
 
-impl Kind {
-    /// The word the app's `beside.panes[].kinds` uses for it.
-    fn word(self) -> &'static str {
-        match self {
-            Self::Terminal => "terminal",
-            Self::Browser => "browser",
-        }
-    }
-}
-
-/// The placement `identity` (the app's `system.identify` answer) gives a new
-/// terminal, or `None` when the app does not place the caller.
+/// The placement `identity` (the app's `system.identify` answer) gives, or
+/// `None` when the app does not place the caller.
 pub(super) fn placement(identity: &Value) -> Option<Placement> {
-    placement_of(identity, Kind::Terminal)
-}
-
-/// [`placement`] for a new tab of `kind`.
-pub(super) fn placement_of(identity: &Value, kind: Kind) -> Option<Placement> {
     let caller = identity.get("caller")?;
     if caller.get("found").and_then(Value::as_bool) == Some(false) {
         return None;
@@ -96,8 +91,7 @@ pub(super) fn placement_of(identity: &Value, kind: Kind) -> Option<Placement> {
     let beside = identity.get("beside");
     if let Some(pane) = beside.and_then(|beside| beside.get("pane")).and_then(Value::as_str) {
         // `panes`: the whole column, top to bottom, with the kinds each holds (an app
-        // that does not list it keeps the first pane, as before). A plain terminal's
-        // `own_pane` answer lists none: the tab goes into that pane.
+        // that does not list it keeps the first pane, as before).
         let column: Vec<(&str, bool)> = beside
             .and_then(|beside| beside.get("panes"))
             .and_then(Value::as_array)
@@ -106,11 +100,11 @@ pub(super) fn placement_of(identity: &Value, kind: Kind) -> Option<Placement> {
                     .iter()
                     .filter_map(|entry| {
                         let id = entry.get("id").and_then(Value::as_str)?;
-                        let same = entry
+                        let terminal = entry
                             .get("kinds")
                             .and_then(Value::as_array)
-                            .is_some_and(|kinds| kinds.iter().any(|held| held == kind.word()));
-                        Some((id, same))
+                            .is_some_and(|kinds| kinds.iter().any(|kind| kind == "terminal"));
+                        Some((id, terminal))
                     })
                     .collect()
             })
@@ -118,7 +112,7 @@ pub(super) fn placement_of(identity: &Value, kind: Kind) -> Option<Placement> {
         let chosen = match column.as_slice() {
             [] => Placement::Pane { workspace, pane: pane.to_owned() },
             panes => {
-                if let Some((same, _)) = panes.iter().rev().find(|(_, same)| *same) {
+                if let Some((same, _)) = panes.iter().rev().find(|(_, terminal)| *terminal) {
                     Placement::Pane { workspace, pane: (*same).to_owned() }
                 } else if let [(only, _)] = panes {
                     Placement::SplitBelow { workspace, pane: (*only).to_owned() }
@@ -132,6 +126,70 @@ pub(super) fn placement_of(identity: &Value, kind: Kind) -> Option<Placement> {
     }
     let chat_pane = caller.get("pane").and_then(Value::as_str)?.to_owned();
     Some(Placement::NewColumn { workspace, chat_pane })
+}
+
+/// Where a browser tab created with no place goes (`cmux browser open URL`,
+/// `cmux tab create browser`), from the app's identity answer: a tab in the
+/// existing column right of the caller, in the pane there that already holds
+/// a browser, else the column's lowest pane, never a split below it and never
+/// the caller's own pane (Lawrence 2026-11-15: an agent's `cmux browser open`
+/// of its page put the tab over the terminal it ran in, "i expected it to just
+/// open in the right side"). `None` with no column on the right: the creation
+/// keeps the daemon's default (a split would make a terminal pane first).
+pub(super) fn browser_placement(identity: &Value) -> Option<Placement> {
+    let caller = identity.get("caller")?;
+    if caller.get("found").and_then(Value::as_bool) == Some(false) {
+        return None;
+    }
+    let workspace = caller.get("workspace").and_then(Value::as_str)?.to_owned();
+    let beside = identity.get("beside")?;
+    let pane = beside.get("pane").and_then(Value::as_str)?;
+    let column: Vec<(&str, bool)> = beside
+        .get("panes")
+        .and_then(Value::as_array)
+        .map(|panes| {
+            panes
+                .iter()
+                .filter_map(|entry| {
+                    let id = entry.get("id").and_then(Value::as_str)?;
+                    let browser = entry
+                        .get("kinds")
+                        .and_then(Value::as_array)
+                        .is_some_and(|kinds| kinds.iter().any(|kind| kind == "browser"));
+                    Some((id, browser))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let chosen = column
+        .iter()
+        .rev()
+        .find(|(_, browser)| *browser)
+        .or(column.last())
+        .map_or(pane, |(id, _)| *id);
+    Some(Placement::Pane { workspace, pane: chosen.to_owned() })
+}
+
+/// A new column right of the caller's pane, for a caller the app places
+/// and that has no column there yet.
+fn new_column(identity: &Value) -> Option<Placement> {
+    let caller = identity.get("caller")?;
+    if caller.get("found").and_then(Value::as_bool) == Some(false) {
+        return None;
+    }
+    let workspace = caller.get("workspace").and_then(Value::as_str)?.to_owned();
+    let chat_pane = caller.get("pane").and_then(Value::as_str)?.to_owned();
+    Some(Placement::NewColumn { workspace, chat_pane })
+}
+
+/// The placement `identity` gives a new tab of `kind` whose pane this CLI
+/// makes itself when there is none (a terminal, a profile browser tab): the
+/// kind's rule for the column right of the caller, else a new column.
+pub(super) fn placement_of(identity: &Value, kind: Kind) -> Option<Placement> {
+    match kind {
+        Kind::Terminal => placement(identity),
+        Kind::Browser => browser_placement(identity).or_else(|| new_column(identity)),
+    }
 }
 
 /// Who runs the command, from its environment.
@@ -203,14 +261,17 @@ pub(super) fn app_places_terminals(identity: &Value) -> bool {
 }
 
 /// Where the owning app puts a new tab of `kind` that `caller` creates with
-/// no place: a chat is always placed by the app; a terminal only by an app
-/// that places terminals. `None`: the caller's own pane, found from the
-/// daemon ([`fill_place`]).
+/// no place. A chat is always placed by the app; a terminal only by an app
+/// that places terminals, except that a browser tab goes to the column right
+/// of any caller that has one ([`browser_placement`]). `None`: the caller's
+/// own pane, found from the daemon ([`fill_place`]).
 pub(super) fn app_placement(identity: &Value, caller: &Caller, kind: Kind) -> Option<Placement> {
-    if !caller.is_chat() && !app_places_terminals(identity) {
-        return None;
+    let placed_by_app = caller.is_chat() || app_places_terminals(identity);
+    match kind {
+        Kind::Terminal => placed_by_app.then(|| placement(identity)).flatten(),
+        Kind::Browser => browser_placement(identity)
+            .or_else(|| placed_by_app.then(|| new_column(identity)).flatten()),
     }
-    placement_of(identity, kind)
 }
 
 /// The caller's own workspace, screen, pane, tab and terminal from the app's
@@ -533,6 +594,44 @@ mod tests {
             placement(&identity(beside)),
             Some(Placement::Pane { workspace: "ws_a".into(), pane: "pane_b".into() })
         );
+    }
+
+    #[test]
+    fn a_browser_with_no_place_is_a_tab_in_the_column_right_of_the_caller() {
+        let lone = json!({"pane": "pane_web", "placement": "existing_column", "panes": [
+            {"id": "pane_web", "kinds": ["browser"]},
+        ]});
+        assert_eq!(
+            browser_placement(&identity(lone)),
+            Some(Placement::Pane { workspace: "ws_a".into(), pane: "pane_web".into() })
+        );
+        let terminal = json!({"pane": "pane_term", "placement": "existing_column", "panes": [
+            {"id": "pane_term", "kinds": ["terminal"]},
+        ]});
+        assert_eq!(
+            browser_placement(&identity(terminal)),
+            Some(Placement::Pane { workspace: "ws_a".into(), pane: "pane_term".into() }),
+            "a browser beside a lone terminal pane is a tab there, never a split below it"
+        );
+        let column = json!({"pane": "pane_web", "placement": "existing_column", "panes": [
+            {"id": "pane_web", "kinds": ["browser"]}, {"id": "pane_md", "kinds": []},
+        ]});
+        assert_eq!(
+            browser_placement(&identity(column)),
+            Some(Placement::Pane { workspace: "ws_a".into(), pane: "pane_web".into() })
+        );
+        let mixed = json!({"pane": "pane_a", "placement": "existing_column", "panes": [
+            {"id": "pane_a", "kinds": ["terminal"]}, {"id": "pane_b", "kinds": []},
+        ]});
+        assert_eq!(
+            browser_placement(&identity(mixed)),
+            Some(Placement::Pane { workspace: "ws_a".into(), pane: "pane_b".into() })
+        );
+        assert_eq!(
+            browser_placement(&identity(json!({"pane": null, "placement": "new_column"}))),
+            None
+        );
+        assert_eq!(browser_placement(&json!({"caller": {"found": false}, "beside": null})), None);
     }
 
     #[test]

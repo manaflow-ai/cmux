@@ -4,6 +4,8 @@
 // year's). Leo, 2026-11-08: "the timestamps for the agent and then the timestamps for the user, they
 // need to be congruent ... The agent in ours only has the exact timestamp. But the exact timestamp
 // should be, like, shown on hover". Every row's hover row is shown here, so both ages read at once.
+// A turn's footer draws no age now (Codex parity, 2026-11-11 standup): the answer rows here show
+// their buttons only, and a prompt keeps its age; a reply's own row (ReplyActions) keeps its age.
 // The placement variants compare where the age sits against the buttons: `mirrored` is what ships
 // (the buttons on the message's own edge, the age past them on the inner side, in both rows); the
 // others restyle the same rows for comparison only.
@@ -56,9 +58,8 @@ const restyle =
     style.dataset.galleryMessageTimes = "";
     style.textContent = css;
     ctx.document.head.append(style);
-    await ctx.waitFor(
-      () => ctx.document.querySelector("time.cv-turn-time") && ctx.document.querySelector("time.cv-user__time"),
-    );
+    // The prompt's age draws; the turn's footer has none to wait for.
+    await ctx.waitFor(() => ctx.document.querySelector("time.cv-user__time"));
   };
 
 export default agentPaneEntry({
@@ -98,7 +99,7 @@ export default agentPaneEntry({
       snapshot: ages(),
     },
     "answer-hover": {
-      note: "Play: point at the latest reply; its row shows Copy, Pin, Read aloud and its age, 'just now', after the buttons.",
+      note: "Play: point at the latest reply; its row shows Copy, Pin and Read aloud, and no age (Codex parity).",
       snapshot: ages(),
       play: async (ctx) => ctx.hover({ text: "Pushed to the branch." }),
     },

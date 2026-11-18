@@ -16,8 +16,6 @@ extension SettingsSchema {
         "cloud.agentsStartWithoutAsking": .userOnly,
         // Turn checkpoints save the person's whole Cloud machine to their snapshot storage after every turn: only the person turns that on.
         "cloud.turnCheckpoints": .userOnly,
-        // The person's consent to copy their own Claude login to their own Cloud machines: only theirs to give.
-        "cloud.useMyClaudeLoginOnMyCloudMachines": .privacy, "cloud.useMyCodexLoginOnMyCloudMachines": .privacy,
         "agents.chats.roots": .privacy, "agents.chats.discovery": .privacy,
         "agentPane.scrollToBottomOnSend": .userOnly,
         "agents.chats.enabled": .privacy,
@@ -151,14 +149,14 @@ extension SettingsSchema {
         // Whether and how often a failed turn is sent again spends the person's usage: their call, as `sessions.resumeAgents` is.
         "agents.autoRetry.enabled": .userOnly, "agents.autoRetry.intervalSeconds": .userOnly,
         "agents.autoRetry.attempts": .userOnly,
+        // Whether new chats get the person's saved MCP servers opens their connected services (Linear, Slack and others) to agents: the person's call.
+        "agents.mcpServers.enabled": .network,
         // Compacting on a timer spends the person's usage (one model call each): their call.
         "agents.cacheCompact.enabled": .userOnly, "agents.cacheCompact.minContextPercent": .userOnly,
         // Which folders an agent may open without asking is the person's call: an agent must not widen what it may open without asking.
         "agents.trust.autoTrust": .userOnly, "agents.trust.projectRoots": .userOnly, "agents.trust.ownOrgs": .userOnly,
         // Which hosts an ssh:// link from another app connects to without asking: only the person trusts a host, so a page or an agent cannot add one and skip the confirmation.
         "ssh.linkAllowedHosts": .network,
-        // What reaches this Mac from outside and what leaves it: only the person opens phone access.
-        "phone.allowConnections": .network, "phone.startSessions": .network,
         "phone.keepAwake": .userOnly,
         // Workspace names leave this Mac for the Cloud service: only the person turns it on.
         "phone.cloudReplica": .privacy, "phone.cloudDesktop": .privacy,
@@ -170,8 +168,8 @@ extension SettingsSchema {
         "macScreen.systemShortcuts": .userOnly,
         // cmux Remote: the person's call.
         "remote.endSharingOnQuit": .userOnly,
-        // Spends about 2 to 3 times the data on every remote connection; only the person turns it on.
-        "remote.ultraMode": .userOnly,
+        // Always spends about 2 to 3 times the data on every remote connection, and Off gives up loss protection; only the person picks it.
+        "remote.ultra": .userOnly,
         // Changes how this Mac's Mac Screen streams leave the network; only the person sets it.
         "macScreen.debug.relayOnly": .userOnly,
         // Chooses the server this Mac registers its device keys with; only the person sets it.
@@ -198,6 +196,6 @@ extension SettingsSchema {
         "browser.passwords.offerToSave": .privacy, "browser.passwords.generate": .privacy,
         "browser.passwords.allowExport": .privacy,
         // The person decides whether cmux reads verification emails.
-        "browser.verificationAutofill.enabled": .privacy,
+        "browser.verificationAutofill.enabled": .privacy, "browser.verificationAutofill.accounts": .privacy,
     ]
 }

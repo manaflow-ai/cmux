@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from "react";
 import { usePopupHost } from "./UiProvider";
 import type { NativePopupTransport } from "./nativePopup";
 import type { NativePopupEvent } from "./popupProtocol";
+import { onVisualViewport, visualViewportScale } from "./visualViewportBox";
 
 export interface PopupItem {
   id: string;
@@ -317,14 +318,18 @@ export function useEscapingPopup(
       const at = anchorRef.current();
       if (!at) return null;
       const { items, highlighted } = popupItems(element, kind, active);
-      const box = at.getBoundingClientRect();
+      // Where the anchor shows under a trackpad pinch, so the App's popup opens beside it.
+      // A virtual anchor (a pointer, a plain box) has no document: the page's own window.
+      const view = ("ownerDocument" in at ? (at as Element).ownerDocument?.defaultView : undefined) ?? window;
+      const box = onVisualViewport(at.getBoundingClientRect(), view);
       return {
         items,
         highlighted,
         anchor: { left: box.left, top: box.top, right: box.right, bottom: box.bottom },
         side,
         align,
-        width: kind === "tooltip" ? textWidth(element) : element.getBoundingClientRect().width,
+        width:
+          (kind === "tooltip" ? textWidth(element) : element.getBoundingClientRect().width) * visualViewportScale(view),
         kind,
       };
     };

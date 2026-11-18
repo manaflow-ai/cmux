@@ -18,7 +18,7 @@ final class WorkspaceHoverCardDisclosure: NSView {
     private let chevron = NSImageView()
     private let label = ChromeLabel(labelWithString: "")
     /// The hover and pressed fill, wider than the view by the rows' outset.
-    private let fillLayer = CALayer()
+    let fillLayer = CALayer()
     private var tracking: NSTrackingArea?
     private var isHovered = false { didSet { paint() } }
     private var pressed = false { didSet { paint() } }
@@ -44,7 +44,7 @@ final class WorkspaceHoverCardDisclosure: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         fillLayer.cornerRadius = SidebarDensityTokens.rowCornerRadius
-        fillLayer.cornerCurve = .continuous
+        fillLayer.cornerCurve = Metrics.tabCornerCurve // one curve with the rows and tabs (`TabCornerCurve`)
         layer?.masksToBounds = false
         layer?.addSublayer(fillLayer)
         chevron.imageScaling = .scaleProportionallyDown

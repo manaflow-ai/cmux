@@ -1,8 +1,5 @@
 // l10n-allow-file: test fixtures.
-// A finished Codex turn's header, as Codex's own (Leo, 2026-11-02: "i assume the x previous messages
-// are when there's a mix and the worked for is if it's one contiguous thing ... let's follow those"):
-// work with the agent's messages between it reads "N previous messages", work alone "Worked for".
-// A Claude turn folds under "Worked for" with no message count (ChatGPT's header, turnFoldStyle.ts).
+// Finished Codex and Claude work folds read Worked for, including commentary between calls.
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
 import { WORKED, turnView, workedLabel } from "./turns";
@@ -48,7 +45,7 @@ test("one stretch of work reads Worked for", () => {
   expect(workedLabel(t, row!)).toBe("Worked for 1m");
 });
 
-test("work with the agent's messages between it reads N previous messages", () => {
+test("work with commentary between calls keeps the Worked for header", () => {
   const row = header([
     prompt,
     work("w1", 1_000, 2),
@@ -57,9 +54,8 @@ test("work with the agent's messages between it reads N previous messages", () =
     say("a", 50_000, "Done."),
     end,
   ]);
-  // Five calls and the one message between them; the answer stays below the header.
-  expect(row?.previous).toBe(6);
-  expect(workedLabel(t, row!)).toBe("6 previous messages");
+  expect(row?.previous).toBeUndefined();
+  expect(workedLabel(t, row!)).toBe("Worked for 1m");
 });
 
 test("a Claude turn reads Worked for, never a message count", () => {
@@ -76,7 +72,7 @@ test("a Claude turn reads Worked for, never a message count", () => {
   expect(workedLabel(t, row!)).toBe("Worked for 1m");
 });
 
-test("a message joining the fold redraws the header: its count is part of the row's version", () => {
+test("commentary joining the fold stays available when the unchanged header opens", () => {
   const before = header([prompt, work("w1", 1_000, 2), work("w2", 20_000, 3), say("a", 50_000, "Done."), end]);
   const after = header([
     prompt,
@@ -87,6 +83,20 @@ test("a message joining the fold redraws the header: its count is part of the ro
     end,
   ]);
   expect(before?.previous).toBeUndefined();
-  expect(after?.previous).toBe(6);
-  expect(after?.version).not.toBe(before?.version);
+  expect(after?.previous).toBeUndefined();
+  expect(workedLabel(t, after!)).toBe("Worked for 1m");
+  expect(after?.version).toBe(before?.version);
+  const open = turnView(
+    [
+      prompt,
+      work("w1", 1_000, 2),
+      say("n1", 10_000, "Found the cause in the parser."),
+      work("w2", 20_000, 3),
+      say("a", 50_000, "Done."),
+      end,
+    ],
+    new Set([after!.id]),
+    { now: 70_000, agentFamily: "codex" },
+  );
+  expect(open.find((row) => row.id === "n1")?.text).toBe("Found the cause in the parser.");
 });

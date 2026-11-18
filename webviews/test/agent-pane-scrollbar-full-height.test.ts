@@ -24,6 +24,7 @@ import { installPaintedFrames } from "./support/paintedFrames";
 import { papercutPane } from "./support/papercutChat";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { JUMP_LATEST, JUMP_LATEST_SHOWN } from "../src/agent-session/acpmux/transcriptSelectors";
 
 await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () => {
   /// Pins the composer dock to its push arm (composer/dockMotion.experiment.ts): these cases measure the
@@ -326,7 +327,10 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
       return frames;
     });
     const grown = await measure(page);
-    expect(grown.cardHeight - before.cardHeight).toBeGreaterThan(80);
+    // The card grew by several lines (60 px, as the other growing cases here hold it). In the Codex
+    // look, the default since cmux#42247, this prompt grows the card from 96 to 176 px, exactly the
+    // 80 px that a bound of "more than 80" read as red on every run.
+    expect(grown.cardHeight - before.cardHeight).toBeGreaterThan(60);
     // No painted frame moved the offset, or changed the scroller's height or its content's, which
     // move and resize the scrollbar's thumb.
     expect(frames.length).toBeGreaterThan(5);
@@ -618,9 +622,9 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     const before = await measure(page);
     await growWhileScrolledUp(page);
     const start = await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop);
-    await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]").waitFor();
+    await page.locator(JUMP_LATEST_SHOWN).waitFor();
     await startFrames(page);
-    await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)").click();
+    await page.locator(JUMP_LATEST).click();
     await page.waitForFunction(() => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= 1;

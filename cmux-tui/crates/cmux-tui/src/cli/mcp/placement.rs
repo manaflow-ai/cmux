@@ -159,9 +159,11 @@ impl<B: Backend> Server<B> {
         Ok(Cow::Borrowed(arguments))
     }
 
-    /// The place of the workspace an agent chat's environment names
-    /// (`CMUX_WORKSPACE_ID`), when this session has it: the workspace and,
-    /// while it has them, its active screen, pane and tab.
+    /// In a session no app owns: the place of the workspace an agent chat's
+    /// session runs in (`CMUX_WORKSPACE_ID`), when this session has it: the
+    /// workspace and, while it has them, its active screen, pane and tab
+    /// (resolve/caller.rs `workspace_key_path` is the CLI's read of it). With
+    /// an owning app, the app resolves that key (app.rs `caller_from`).
     fn workspace_key_place(&self) -> Option<Map<String, Value>> {
         let key = self.backend.caller_workspace_key()?;
         let ask = |tool: &str, arguments: Map<String, Value>| {
@@ -365,26 +367,18 @@ impl<B: Backend> Server<B> {
         }
         let caller = if caller_scope::wants_caller(params) {
             match self.backend.identity() {
-                // The app answers an agent session it has no chat for
-                // with `found: false` and no workspace: the workspace the
-                // chat's environment names stands in, when this session has it.
+                // The app answers an agent session it shows nowhere (no chat
+                // tab, and the workspace its session runs in is not open)
+                // with `found: false` and no workspace.
                 Ok(Some(identity)) => {
                     let caller = identity.get("caller").cloned().unwrap_or(Value::Null);
                     if !caller_scope::is_placed(&caller) {
-                        match self.workspace_key_place() {
-                            Some(place) => Some(Value::Object(place)),
-                            None => {
-                                return Err(caller_scope::unresolved(
-                                    "the app does not know this chat",
-                                ));
-                            }
-                        }
-                    } else {
-                        if browser {
-                            crate::cli::caller_browser::apply(params, &identity)?;
-                        }
-                        Some(caller)
+                        return Err(caller_scope::unresolved("the app does not know this chat"));
                     }
+                    if browser {
+                        crate::cli::caller_browser::apply(params, &identity)?;
+                    }
+                    Some(caller)
                 }
                 Ok(None) => None,
                 // No app (a cmux TUI or Cloud session): the daemon knows the

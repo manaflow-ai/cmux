@@ -3,6 +3,7 @@
 // page keeps no optimistic copy except the text being typed in the search field. React reads it
 // through `useSyncExternalStore` (no effects).
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { userMessage } from "../shared/userMessage";
 import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
 import { CLIPBOARD_WRITE, DebugTunablesOps, type DebugSettingsState, type TunableValue } from "./types";
 
@@ -190,6 +191,7 @@ export class DebugSettingsStore {
 }
 
 function failure(error: unknown): Partial<DebugSettingsSnapshot> {
-  if (isPageError(error) && error.code === LINK_CLOSED) return { connection: "disconnected", error: error.message };
-  return { error: error instanceof Error ? error.message : String(error) };
+  if (isPageError(error) && error.code === LINK_CLOSED)
+    return { connection: "disconnected", error: userMessage(error) };
+  return { error: userMessage(error) };
 }

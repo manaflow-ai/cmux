@@ -139,6 +139,44 @@ def sidebar_rows(report, count):
     return out
 
 
+def sidebar_row_mismatch(report, sidebar_count, count):
+    """The incomplete record when the sidebar probe listed another row count than `count`, else None. It names the
+    workspaces whose create failed (sidebar-stress-bench.py `create_failures`), so a short list says why."""
+    size = ((report if isinstance(report, dict) else {}).get("sizes") or {}).get(str(sidebar_count)) or {}
+    measured = size.get("rows_listed")
+    # A workspace the probe pinned outside a group is a tile over the list, not a row (bench_launch.pinned_tiles).
+    tiles = size.get("pinned_tiles") if isinstance(size.get("pinned_tiles"), int) else 0
+    if not isinstance(measured, int) or measured + tiles == count:
+        return None
+    record = {"workspaces": count, "probe": "sidebar", "expected_rows": count, "measured_rows": measured, "pinned_tiles": tiles}
+    if isinstance(size.get("create_failures"), list):
+        record["create_failures"] = size["create_failures"][:5]
+        record["create_failure_count"] = len(size["create_failures"])
+    # The topology's count and the workspaces no row lists (sidebar-stress-bench.py): a row the list leaves out,
+    # or a topology that holds fewer workspaces than the expectation.
+    for key in ("topology_workspaces", "unlisted", "unlisted_names"):
+        if key in size:
+            record[key] = size[key]
+    return record
+
+
+def typing_reason(report, lines=6):
+    """Why a typing report gave no `type` row (typing_rows wants a phase whose every key closed a frame record):
+    each phase's keys, complete records and stalled keys, the probe's setup and its last log lines. The probe
+    exits 0 when no key reached a frame, so without this the record says only `"missing": ["type"]` (cmux#24569)."""
+    report = report if isinstance(report, dict) else {}
+    reason = {}
+    phases = [p for p in report.get("phases") or [] if isinstance(p, dict)]
+    if phases:
+        reason["phases"] = [{key: p.get(key) for key in ("phase", "keys", "complete", "stalled_keys")} for p in phases]
+    if isinstance(report.get("setup"), dict):
+        reason["setup"] = report["setup"]
+    log = [line for line in report.get("log") or [] if isinstance(line, str)]
+    if log:
+        reason["log_tail"] = [line[:300] for line in log[-lines:]]
+    return reason
+
+
 def typing_rows(report, count):
     # automation-typing-bench reports a phase for the seeded workspace count.  Prefer automation
     # (load) and fall back to light so older reports remain consumable.
@@ -265,6 +303,23 @@ def read_report(path):
         return {}
 
 
+def probe_reason(report_path, log_path, lines=8):
+    """Why a probe exited without measuring: its report's own `invalid` / `launch_error` and the last lines of its log,
+    so an incomplete record names the cause instead of only an exit code (cmux#24569)."""
+    reason = {}
+    report = read_report(pathlib.Path(report_path))
+    for key in ("invalid", "launch_error", "error"):
+        if report.get(key):
+            reason[key] = report[key]
+    try:
+        tail = pathlib.Path(log_path).read_text(errors="replace").splitlines()[-lines:]
+    except OSError:
+        tail = []
+    if tail:
+        reason["log_tail"] = [line[:300] for line in tail]
+    return reason
+
+
 def run_app(opts):
     reports, failures = {}, []
     for count in COUNTS:
@@ -280,7 +335,8 @@ def run_app(opts):
                           "--out", str(instant), "--json", str(instant / "report.json")], root, probe_timeout)
         if code != 0 or not (instant / "report.json").exists():
             failures.append({"workspaces": count, "probe": "instant", "exit": code,
-                             "report": str(instant / "report.json")})
+                             "report": str(instant / "report.json"),
+                             **probe_reason(instant / "report.json", root / "instant-new-surfaces-bench.log")})
         sidebar = root / "sidebar"
         # sidebar-stress-bench starts with one workspace before grow(size). Ask it to grow size-1 so
         # its measured topology is exactly the headline count rather than count+1. A one-row list
@@ -296,7 +352,8 @@ def run_app(opts):
                              probe_timeout)
             if code != 0 or not (sidebar / "results.json").exists():
                 failures.append({"workspaces": count, "probe": "sidebar", "exit": code,
-                                 "report": str(sidebar / "results.json")})
+                                 "report": str(sidebar / "results.json"),
+                                 **probe_reason(sidebar / "results.json", root / "sidebar-stress-bench.log")})
             sidebar_report = read_report(sidebar / "results.json")
         typing = root / "typing"
         # Keep the typing workload invariant across topology sizes. The typing workspace is the
@@ -309,7 +366,8 @@ def run_app(opts):
                          probe_timeout)
         if code != 0 or not (typing / "report.json").exists():
             failures.append({"workspaces": count, "probe": "typing", "exit": code,
-                             "report": str(typing / "report.json")})
+                             "report": str(typing / "report.json"),
+                             **probe_reason(typing / "report.json", root / "automation-typing-bench.log")})
         reports[count] = {"instant": read_report(instant / "report.json"),
                           "sidebar": sidebar_report,
                           "typing": read_report(typing / "report.json"),
@@ -339,11 +397,16 @@ def run_app(opts):
         for probe, got, names in zip(("instant", "sidebar", "typing"), probes, expected):
             missing = [name for name in names if name not in got]
             if missing:
-                failures.append({"workspaces": count, "probe": probe, "missing": missing})
-        measured = ((reports[count]["sidebar"].get("sizes") or {}).get(str(sidebar_count)) or {}).get("rows_listed")
-        if isinstance(measured, int) and measured != count:
-            failures.append({"workspaces": count, "probe": "sidebar", "expected_rows": count,
-                             "measured_rows": measured})
+                record = {"workspaces": count, "probe": probe, "missing": missing}
+                size_entry = (reports[count]["sidebar"].get("sizes") or {}).get(str(sidebar_count)) or {}
+                if probe == "sidebar" and isinstance(size_entry.get("switch"), dict) and size_entry["switch"].get("error"):
+                    record["switch_error"] = size_entry["switch"]  # the scenario's own reason (sidebar-stress-bench.py)
+                if probe == "typing":
+                    record.update(typing_reason(reports[count]["typing"]))
+                failures.append(record)
+        mismatch = sidebar_row_mismatch(reports[count]["sidebar"], sidebar_count, count)
+        if mismatch:
+            failures.append(mismatch)
         reports[count]["invalid_probes"] = sorted({failure.get("probe") for failure in failures[failure_start:]
                                                     if failure.get("probe")})
         # Preserve completed topology reports if the outer cron budget interrupts a later probe.

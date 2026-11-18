@@ -51,47 +51,60 @@ fn unregistered_terminal(terminal: &str) -> Failure {
 }
 
 /// The caller's workspace, screen, pane, tab and terminal ids, keyed by
-/// scope, or `None` when nothing names a caller. An agent session's chat and
-/// a Chief turn's Home chat are placed by the app that owns this daemon,
-/// which reports the place in `system.identify`; a terminal caller (or an
-/// agent session no app places) is followed up from its terminal in the
-/// daemon. An agent session neither places falls back to the workspace its
-/// environment names (`CMUX_WORKSPACE_ID`), when this session has it, with
-/// that workspace's active screen, pane and tab.
+/// scope, or `None` when nothing names a caller.
+///
+/// - An agent session's chat and a Chief turn's Home chat are placed by the
+///   app that owns this daemon, which reports the place in
+///   `system.identify`. The caller names the workspace its session runs in
+///   (`CMUX_WORKSPACE_ID`, app.rs `caller_from`), so the app also places an
+///   agent whose chat no tab shows, in that workspace.
+/// - An agent the owning app cannot place at all is refused
+///   ([`unplaced_agent_failure`]), unless it runs in a cmux terminal, which
+///   then places it. Its `current` and its creations never go to the focused
+///   workspace or Home (user, 2026-11-18).
+/// - A terminal caller is followed up from its terminal in the daemon.
+/// - In a session no app owns (a plain cmux-tui session, a Cloud machine)
+///   an agent with no terminal is placed in the workspace its session runs
+///   in, read from the daemon by the same key ([`workspace_key_path`]): the
+///   same workspace the app would choose.
 pub(super) fn caller_path(
     reader: &mut Reader,
     route: &Map<String, Value>,
     socket: &SocketRoute<'_>,
 ) -> Result<Option<Map<String, Value>>, Failure> {
     let caller = crate::cli::beside::Caller::of_process();
-    let mut failure = None;
     #[cfg(unix)]
     if caller.is_chat() {
-        match agent_caller_path(socket) {
+        match agent_caller_path(socket, &caller) {
             Ok(Some(path)) => return Ok(Some(path)),
-            Ok(None) => {}
-            Err(unanswered) => failure = Some(unanswered),
+            // An unplaced agent in a cmux terminal is still placed by its terminal.
+            Err(failure) if !(unplaced_agent(&failure) && caller.terminal.is_some()) => {
+                return Err(failure);
+            }
+            _ => {}
         }
     }
     if let Some(terminal) = &caller.terminal {
-        match registered_caller_path(reader, route, terminal, socket) {
-            Ok(path) => return Ok(Some(path)),
-            Err(missing) => failure = failure.or(Some(missing)),
-        }
+        return registered_caller_path(reader, route, terminal, socket).map(Some);
     }
-    if let Some(key) = caller.fallback_workspace_key()
+    #[cfg(unix)]
+    let owned = socket.has_owner();
+    #[cfg(not(unix))]
+    let owned = false;
+    if !owned
+        && let Some(key) = caller.fallback_workspace_key()
         && let Some(path) = workspace_key_path(reader, route, key)
     {
         return Ok(Some(path));
     }
-    failure.map_or(Ok(None), Err)
+    Ok(None)
 }
 
 /// The place of the workspace whose key is `key` in the request's session:
 /// the workspace and, while it has them, its active screen, pane and tab.
 /// `None` when the session has no such workspace (the key of another
 /// session, or a workspace that was closed).
-pub(in crate::cli) fn workspace_key_path(
+fn workspace_key_path(
     reader: &mut Reader,
     route: &Map<String, Value>,
     key: &str,
@@ -119,44 +132,74 @@ pub(in crate::cli) fn workspace_key_path(
 /// Puts the caller's own place into a creation that names none
 /// (beside.rs `creation_scopes`): a tab in the caller's pane, a pane on its
 /// screen, a screen or a link in its workspace, never the daemon's active
-/// one, which follows the person's focus. A caller that cannot be found, no
-/// caller, and a request to another session or machine keep the daemon's
-/// default (which can create a workspace in an empty session, so the request
-/// then still names no place). A Chief turn's pane, screen and link keep
-/// the daemon's default too (beside.rs `Caller::creation_scopes`). Returns
-/// whether `plan` changed.
+/// one, which follows the person's focus. `Ok(true)` when `plan` changed.
+///
+/// No caller, a terminal that cannot be found, and a request to another
+/// session or machine keep the daemon's default (which can create a
+/// workspace in an empty session, so the request then still names no place).
+/// A Chief turn's pane, screen and link keep the daemon's default too
+/// (beside.rs `Caller::creation_scopes`). An agent the owning app cannot
+/// place is refused (`Err`): the daemon's default is the focused workspace.
 pub(in crate::cli) fn place_creation(
     reader: &mut Reader,
     plan: &mut RequestPlan,
     caller_route: bool,
     socket: &SocketRoute<'_>,
-) -> bool {
+) -> Result<bool, Failure> {
     let crate::cli::command::WireOperation::Typed(operation) = &plan.operation else {
-        return false;
+        return Ok(false);
     };
     let caller = crate::cli::beside::Caller::of_process();
-    let Some(scopes) = caller.creation_scopes(*operation) else { return false };
-    let Some(params) = plan.params.as_object_mut() else { return false };
+    let Some(scopes) = caller.creation_scopes(*operation) else { return Ok(false) };
+    let Some(params) = plan.params.as_object_mut() else { return Ok(false) };
     if !caller_route || !this_machine(params) || !crate::cli::beside::names_no_place(params) {
-        return false;
+        return Ok(false);
     }
     let route = route(params);
     match caller_path(reader, &route, socket) {
-        Ok(Some(path)) => crate::cli::beside::fill_place(params, scopes, &path),
-        Ok(None) | Err(_) => false,
+        Ok(Some(path)) => Ok(crate::cli::beside::fill_place(params, scopes, &path)),
+        Err(failure) if unplaced_agent(&failure) => Err(failure),
+        Ok(None) | Err(_) => Ok(false),
     }
 }
 
 /// The app's `caller` from `system.identify`. `None` when no app owns this
-/// daemon, as on a Cloud machine, or the app does not place the caller.
+/// daemon, as on a Cloud machine, or the app has no place for a Chief turn.
+/// An agent (not a Chief turn) the app shows nowhere is an error
+/// ([`unplaced_agent_failure`]).
 #[cfg(unix)]
-fn agent_caller_path(socket: &SocketRoute<'_>) -> Result<Option<Map<String, Value>>, Failure> {
+fn agent_caller_path(
+    socket: &SocketRoute<'_>,
+    caller: &crate::cli::beside::Caller,
+) -> Result<Option<Map<String, Value>>, Failure> {
     match socket.app_answer() {
         None => Ok(None),
-        Some(AppAnswer::Identity(identity)) => Ok(crate::cli::beside::caller_path(identity)),
+        Some(AppAnswer::Identity(identity)) => match crate::cli::beside::caller_path(identity) {
+            Some(path) => Ok(Some(path)),
+            // An agent (not a Chief turn) the app shows nowhere: neither a chat
+            // tab nor its session's workspace (`CMUX_WORKSPACE_ID`) is open.
+            None if caller.home_chat => Ok(None),
+            None => Err(unplaced_agent_failure()),
+        },
         Some(AppAnswer::Unreachable(message)) => Err(Failure::Transport(message.clone())),
         Some(AppAnswer::Refused(error)) => Err(Failure::Resource(error.clone())),
     }
+}
+
+/// The app shows neither the agent's chat nor its session's workspace.
+pub(super) fn unplaced_agent_failure() -> Failure {
+    Failure::Resource(json!({
+        "code": "caller_unavailable",
+        "message": "cmux shows neither this agent's chat nor the workspace its session runs in \
+                    (CMUX_WORKSPACE_ID); name a workspace by id: cmux workspace <workspace> …",
+        "retryable": false,
+    }))
+}
+
+/// Whether `failure` is [`unplaced_agent_failure`], which `current` and a
+/// creation with no place never turn into the focused object.
+pub(super) fn unplaced_agent(failure: &Failure) -> bool {
+    matches!(failure, Failure::Resource(error) if error["code"] == "caller_unavailable")
 }
 
 /// The app's `system.identify` answer for this caller (agent session, Chief

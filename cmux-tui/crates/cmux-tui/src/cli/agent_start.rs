@@ -270,9 +270,14 @@ pub(in crate::cli) struct Env {
     /// Where the agent chat (or Chief turn) that runs the command is, from
     /// the app that owns the session: a chat has no terminal of its own.
     pub chat: Option<placement::ChatPlace>,
-    /// The workspace key an agent chat's environment names
-    /// (`CMUX_WORKSPACE_ID`), for a chat no app places.
+    /// The key of the workspace an agent chat's session runs in
+    /// (`CMUX_WORKSPACE_ID`), in a session no app owns. With an owning app
+    /// the app resolves it (`chat`).
     pub workspace_key: Option<String>,
+    /// The app that owns the session shows this agent nowhere (no chat tab,
+    /// and its session's workspace is not open): it has no place of its own,
+    /// and the focused pane is never its place (resolve/caller.rs).
+    pub unplaced_agent: bool,
     pub cwd: Option<String>,
     pub shell: String,
     pub default_launcher: Option<String>,
@@ -284,19 +289,25 @@ impl Env {
         let caller = super::beside::Caller::of_process();
         let this_machine = global.machine.as_deref().is_none_or(|machine| machine == "current");
         let own_session = wire::routes_to_caller_session(global) && this_machine;
-        let chat = (own_session && caller.is_chat())
+        // The app that owns the session places a chat: (its place, whether
+        // an app owns the session, whether that app answered).
+        let (chat, owned, answered) = (own_session && caller.is_chat())
             .then(|| {
                 let (socket, derived) = wire::resolve_socket_with_origin(global).ok()?;
                 let route = super::resolve::SocketRoute::new(&socket, derived, global);
-                route.identity().and_then(placement::ChatPlace::from_identity)
+                let identity = route.identity();
+                let chat = identity.and_then(placement::ChatPlace::from_identity);
+                Some((chat, route.has_owner(), identity.is_some()))
             })
-            .flatten();
+            .flatten()
+            .unwrap_or((None, false, false));
         Self {
             caller_terminal: caller.terminal.clone().filter(|_| own_session),
+            unplaced_agent: answered && chat.is_none() && !caller.home_chat,
             chat,
             workspace_key: caller
                 .fallback_workspace_key()
-                .filter(|_| own_session)
+                .filter(|_| own_session && !owned)
                 .map(str::to_owned),
             cwd: std::env::current_dir().ok().map(|dir| dir.display().to_string()),
             shell: launch::shell_from(var("SHELL").as_deref()),
@@ -693,7 +704,7 @@ pub(in crate::cli) fn resume_launch(
                 .default_launcher
                 .clone()
                 .filter(|launcher| launch::harness_of(launcher).as_deref() == Some(harness))
-                .unwrap_or_else(|| harness.to_owned());
+                .unwrap_or_else(|| launch::default_program(harness).to_owned());
             Launch { shell: env.shell.clone(), launcher, args: options.args.clone() }
         }
     };

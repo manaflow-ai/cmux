@@ -341,6 +341,8 @@ impl Mux {
                     let target = &mut projected.workspaces[workspace].screens[screen];
                     let before = target.layout_snapshot_for_coalescing_change(coalesce);
                     apply_column_dock(&mut target.layout_columns, column, dock)?;
+                    // `floating-panes-v1`: a floating pane of a column that docks is tiled.
+                    target.settle_floating_panes();
                     target.record_prepared_layout_change(before, Vec::new(), coalesce);
                     let outcome = ColumnDockOutcome {
                         screen: target.id,
@@ -354,8 +356,9 @@ impl Mux {
                         .get(&pane)
                         .cloned()
                         .context("dock column pane has no public identity")?;
-                    let projection = self.resource_effect_projection_locked(
+                    let projection = self.changed_state_projection_locked(
                         registry,
+                        state,
                         &mut projected,
                         serde_json::json!({"pane": pane_id}),
                     )?;
@@ -366,7 +369,8 @@ impl Mux {
                         projection.changes,
                         move |state| *state = projected,
                     )
-                    .projected(projection.restates_all))
+                    .projected(projection.restates_all)
+                    .restating(projection.restated))
                 },
             )
             .map_err(|error| {

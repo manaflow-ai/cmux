@@ -381,7 +381,7 @@ final class TopHomePageView: NSView {
             return
         }
         shown = id
-        host?.removeFromSuperview()
+        host?.removeFromSuperview(); DebugTimings.markLaunch("home.page_host_made")
         let view = HomeHostView(services: services, conversation: id.rawValue)
         view.isHidden = isComposingNewMessage
         view.frame = transcriptColumn.bounds
@@ -415,13 +415,13 @@ final class TopHomePageView: NSView {
     }
 
     /// A permalink: its conversation, and its message's thread at its branch (any depth).
-    func show(_ link: HomeDockSelection) { show(ConversationID(link.conversation)); if let m = link.message, let host { HomePageTab.transcript(in: host)?.reveal(message: m) } }
+    func show(_ link: HomeDockSelection) { show(ConversationID(link.conversation)); if let m = link.message, let host { HomeNativeTranscriptView.first(in: host)?.reveal(message: m) } }
 
     /// Home's primary input (the message box; To: on the New Message page) takes the keyboard:
     /// the message box at once or, while the shown conversation's first page loads, once it exists.
     func focusPrimaryInput() {
         if isComposingNewMessage {
-            if let target = newMessage?.focusTarget { window?.makeFirstResponder(target) }
+            if let target = newMessage?.focusTarget { FocusRoute(.system, "Home's new message field").moveKeyboard(in: window, to: target) }
             return
         }
         host?.takeKeyboardOnOpen()
@@ -449,7 +449,7 @@ final class TopHomePageView: NSView {
         list.select(HomeSidebarView.draftRowID)
         page.needsLayout = true
         page.layoutSubtreeIfNeeded()
-        window?.makeFirstResponder(page.focusTarget)
+        FocusRoute(.system, "Home's primary input").moveKeyboard(in: window, to: page.focusTarget)
     }
 
     private func makeNewMessage(_ services: AppServices) -> HomeNewMessageView {

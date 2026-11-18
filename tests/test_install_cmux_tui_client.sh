@@ -564,11 +564,33 @@ grep -q '^lipo -create .*cmux-tui-app-host-aarch64-apple-darwin' "$EVENTS"
 # signed), so a lipo'd companion is signed ad hoc as a whole; unsigned, the
 # tagged build's check-bundled-browser-host.sh refuses bin/cmux-browser-host.
 grep -q '^codesign --force --sign - .*/AppHostUniversal.app/Contents/Resources/bin/cmux-app-host$' "$EVENTS"
+# Off main the build publishes no Intel Mac slice: an arm64 install still takes
+# the arm64 companion and fetches nothing x86_64.
+cat > "$SERVE/manifest.json" <<JSON
+{"commit":"$COMMIT","binaries":{"cmux-tui-aarch64-apple-darwin":"$ARM_SHA","cmux-tui-aarch64-unknown-linux-musl":"$ARM_SHA","cmux-tui-x86_64-unknown-linux-musl":"$ARM_SHA","cmux-tui-app-host-aarch64-apple-darwin":"$APP_HOST_ARM_SHA"}}
+JSON
+: > "$EVENTS"
+install_remote "$TEST_DIR/AppHostArmOnly.app" --arch arm64 > "$TEST_DIR/app-host-arm-only.log" 2>&1
+cmp "$SERVE/cmux-tui-app-host-aarch64-apple-darwin" "$TEST_DIR/AppHostArmOnly.app/Contents/Resources/bin/cmux-app-host"
+if grep -q 'x86_64-apple-darwin' "$EVENTS"; then
+  echo "FAIL: an arm64 install fetched an Intel Mac slice" >&2; exit 1
+fi
+echo "PASS: an arm64 install takes its companions from a build without Intel Mac slices"
 printf '%s\n' "$MANIFEST_WITHOUT_APP_HOST" > "$SERVE/manifest.json"
 install_remote "$APP_HOST_APP" --arch arm64 > "$TEST_DIR/app-host-gone.log" 2>&1
 [ ! -e "$APP_HOST_APP/Contents/Resources/bin/cmux-app-host" ]
 grep -q 'publishes no cmux-app-host' "$TEST_DIR/app-host-gone.log"
 echo "PASS: the app host installs from the same build and a build without one removes it"
+
+# --require-companions (the nightly bundle) makes a companion the build lacks
+# fail the install, so a nightly without bin/cmux-app-host never publishes.
+printf '%s\n' "$MANIFEST_WITHOUT_APP_HOST" > "$SERVE/manifest.json"
+if install_remote "$TEST_DIR/RequireCompanions.app" --arch arm64 --require-companions > "$TEST_DIR/require-companions.log" 2>&1; then
+  echo "FAIL: --require-companions accepted a build with no app host" >&2; exit 1
+fi
+grep -q 'publishes no cmux-app-host for arm64' "$TEST_DIR/require-companions.log"
+[ ! -e "$TEST_DIR/RequireCompanions.app/Contents/Resources/bin/cmux-app-host" ]
+echo "PASS: --require-companions refuses a build without the app host"
 
 # The Cloud app server (cmux/cloud) installs beside the app host as bin/cmux-cloud the
 # same way; a wrong sha256 is refused and leaves no binary; a build without it removes it.

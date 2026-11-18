@@ -86,6 +86,19 @@ names) with `tab`, `url`, `confirm` (the tab still asks for Connect),
 stream's state, mode and frame counts). It carries no credential and no
 screen content. Connect and Take over stay the person's clicks in the pane.
 
+`app mac-screens [--tab <tab>]` works with every build: it reads the app's
+`mac_screen.state`, one row per Mac Screen tab showing one of your devices
+(or the one `--tab` names) with `tab`, `device_id`, `device`, `phase`
+(`connecting`, `connected`, `failed`, `ended`, null with no session),
+`connected`, `has_frame`, `path`, `connect_started_at` (ISO 8601) and
+`first_frame_ms` (connect start to the first decoded frame on screen), `fps`,
+`target_fps`, `rtt_ms`, `frames_decoded`, `frames_dropped` (frames the other
+Mac numbered that never showed), `frame`, and `rtt_ms_window`,
+`frame_interval_ms` and `present_ms` (decoded to shown) as `{count, p50, p95,
+max}` over the last 60 round trips and 120 frames. It is read-only: it never
+connects, disconnects or sends input, and carries no credential or screen
+content.
+
 `app chat perf --tab <tab> [--seconds <1-60>]` works with every build: the
 app's `agent.chat.perf` runs the chat page's own capture for that many
 seconds (default 5) and returns `{tab, seconds, duration_ms, measured,
@@ -199,7 +212,7 @@ daemon inject, so no flags are needed.
 | `CMUX_TUI_TERMINAL_ID` | The caller's terminal (`term_…`). `cmux notify` and `agent hook emit` default to it, `current` and `caller` selectors resolve to its tab, pane, screen and workspace, and a creation that names no place opens there. |
 | `CMUX_AGENT_SESSION` | The caller's agent chat (acpmux sets it for the agent and its cmux MCP server). The app that owns the daemon says where the chat is. |
 | `CMUX_CALLER_HOME_CHAT` | `1` for a Chief turn: its place is the Home chat of the app that owns the daemon. |
-| `CMUX_WORKSPACE_ID` | The key of the workspace an agent chat works in. Used only as a fallback place for an agent chat the app cannot find, and only when the request's session has that workspace. Do not pass it as `--workspace`: it can be stale. |
+| `CMUX_WORKSPACE_ID` | The key of the workspace an agent's session runs in. The caller of an agent names it, and cmux places an agent whose chat no tab shows in that workspace (the app that owns the daemon; in a session no app owns, the CLI, when the request's session has that workspace). Do not pass it as `--workspace`: it can be stale. |
 | `ACPMUX_HOME` | acpmux state directory. Wins over the tag rule. |
 
 App socket order: `--app-socket`, then `CMUX_SOCKET_PATH`/`CMUX_BUNDLE_ID`/`CMUX_TAG`,
@@ -252,7 +265,7 @@ one the person has focused. This holds for the CLI and for the MCP server:
 
 | Command (no `--workspace`, `--screen`, `--pane`) | Agent chat or Chief turn | cmux terminal |
 | --- | --- | --- |
-| `tab create terminal`, `browser open`, `tab create browser`, `browser profile open`, `open <url>`, `open <file>` | Beside the chat: the column right of it, made when missing. | Beside the terminal when it runs an agent; else a tab in the terminal's own pane. |
+| `tab create terminal`, `browser open`, `tab create browser`, `browser profile open`, `open <url>`, `open <file>` | Beside the chat: the column right of it, made when missing. | Beside the terminal when it runs an agent; else a tab in the terminal's own pane. A browser tab goes to the column right of the terminal when there is one. |
 | `pane create` | The chat's screen (a Chief turn: the daemon's default). | The terminal's screen. |
 | `screen create`, `workspace open-url` | The chat's workspace (a Chief turn: the daemon's default). | The terminal's workspace. |
 | `agent start`, `agent resume`, `terminal <t> resume` (no `--pane`, no `--split`) | Beside the chat. | A split right of the terminal's pane. |
@@ -266,8 +279,13 @@ Rules:
   `system.identify` reports `caller_placement` 2 or more. With an older app, or
   with no app (a plain cmux-tui session, a Cloud machine), the tab opens in the
   terminal's own pane.
-- An agent chat the app cannot find falls back to the workspace
-  `CMUX_WORKSPACE_ID` names, when the request's session has it.
+- An agent whose chat no tab shows is placed in the workspace its session
+  runs in (`CMUX_WORKSPACE_ID`, which its caller names). An agent the app
+  cannot place at all (no chat tab, and that workspace is not open) is refused
+  with `caller_unavailable`: its `current` and its creations never go to the
+  focused workspace or Home. An agent that runs in a cmux terminal is placed by
+  that terminal. In a session no app owns, an agent with no terminal whose key
+  names no workspace of the session keeps the daemon's default.
 - With no caller (a shell outside cmux), a caller terminal the daemon no longer
   shows, or a request to another session or machine (`--socket`, `--machine`,
   `--session` naming another session), the daemon's default applies: its active

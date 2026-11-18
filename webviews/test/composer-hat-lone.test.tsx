@@ -106,10 +106,9 @@ describe("one item heads the hat", () => {
       expect(head!.getAttribute("aria-expanded")).toBe("true");
       const line = view.line();
       expect(line).not.toBeNull();
-      // The line expands in place too; its detail's Open chat opens it (Leo, 2026-11-07).
+      // The line inside opens the subagent's chat: since #42247 a subagent row opens it directly, with
+      // no detail to expand first (TrayLineDetail.tsx keeps that for command and session lines).
       await act(async () => line!.click());
-      expect(view.opened).toEqual([]);
-      await act(async () => view.host.querySelector<HTMLButtonElement>("[data-line-detail] button")!.click());
       expect(view.opened).toEqual(["a1"]);
     } finally {
       await view.done();

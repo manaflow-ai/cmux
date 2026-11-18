@@ -422,17 +422,17 @@ async fn an_idle_chat_waits_for_its_cut_turns_continuation_before_its_inbox() {
     let session = hub.resolve("inbox-wait").unwrap();
     let due = now_ms().saturating_sub(FLUSH_MS + 1);
     let blocked = item("p1", "t", "other", PromptClass::Block, due, "blocked on review");
-    session.inbox.lock().unwrap().items.push(blocked);
+    session.inbox().items.push(blocked);
     hub.set_ending_for_test(&session, Some("cut"));
     hub.inbox_review(&session);
     {
-        let inbox = session.inbox.lock().unwrap();
+        let inbox = session.inbox();
         assert!(inbox.in_flight.is_none(), "no notice while the continuation may fire");
         assert!(inbox.timer.is_some(), "looked at again on its timer");
     }
     hub.set_ending_for_test(&session, None);
     hub.inbox_review(&session);
-    assert!(session.inbox.lock().unwrap().in_flight.is_some(), "it goes in once nothing waits");
+    assert!(session.inbox().in_flight.is_some(), "it goes in once nothing waits");
 }
 
 /// The inbox goes in as soon as a continuation can no longer fire, however it went: a turn's end
@@ -454,7 +454,7 @@ async fn a_turn_that_ends_with_no_continuation_lets_the_inbox_in_at_once() {
         let session = hub.resolve("inbox-ended").unwrap();
         let due = now_ms().saturating_sub(FLUSH_MS + 1);
         let blocked = item("p1", "t", "other", PromptClass::Block, due, "blocked on review");
-        session.inbox.lock().unwrap().items.push(blocked);
+        session.inbox().items.push(blocked);
         // A notice went in, or was tried: a hub with no agent refuses it at once, so `in_flight`
         // alone may come and go between two looks (`notice_done`).
         let tried = |inbox: &Inbox| {
@@ -465,7 +465,7 @@ async fn a_turn_that_ends_with_no_continuation_lets_the_inbox_in_at_once() {
         // The turn's end, as `finish_turn` runs it: marked ending, then the inbox reviewed.
         hub.set_ending_for_test(&session, Some("t1"));
         hub.inbox_review(&session);
-        assert!(!tried(&session.inbox.lock().unwrap()), "not while it may continue");
+        assert!(!tried(&session.inbox()), "not while it may continue");
         if stop {
             hub.stop_auto_resume(&session);
         } else {
@@ -473,7 +473,7 @@ async fn a_turn_that_ends_with_no_continuation_lets_the_inbox_in_at_once() {
             hub.schedule_auto_resume(&session, "t1", None);
         }
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
-        while !tried(&session.inbox.lock().unwrap()) {
+        while !tried(&session.inbox()) {
             assert!(tokio::time::Instant::now() < deadline, "held past the settle (stop: {stop})");
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
@@ -504,7 +504,7 @@ fn running(session: &Session) {
 
 /// The ids the notice in flight carries, sorted; none when no notice went.
 fn carried(session: &Session) -> Option<Vec<String>> {
-    let inbox = session.inbox.lock().unwrap();
+    let inbox = session.inbox();
     inbox.in_flight.as_ref().map(|(_, ids)| {
         let mut ids = ids.clone();
         ids.sort();
@@ -521,20 +521,20 @@ async fn fyis_alone_steer_into_a_running_turn_only_at_their_flush() {
     let (hub, session) = hub_with_chat("fyi-steer");
     running(&session);
     let fresh = item("f1", "t", "ci", PromptClass::Fyi, now_ms(), "CI is slow");
-    session.inbox.lock().unwrap().items.push(fresh);
+    session.inbox().items.push(fresh);
     hub.inbox_review(&session);
     assert_eq!(carried(&session), None, "no steer before the flush");
     {
-        let inbox = session.inbox.lock().unwrap();
+        let inbox = session.inbox();
         assert!(inbox.timer.is_some(), "the flush is timed");
         assert!(inbox.items.iter().all(|i| !i.noticed), "it waits, new");
     }
 
     // The flush's deadline: the timer's review steers it in.
-    session.inbox.lock().unwrap().items[0].at = now_ms().saturating_sub(FLUSH_MS + 1);
+    session.inbox().items[0].at = now_ms().saturating_sub(FLUSH_MS + 1);
     hub.inbox_review(&session);
     assert_eq!(carried(&session), Some(vec!["f1".to_owned()]), "steered in at its flush");
-    assert!(session.inbox.lock().unwrap().timer.is_none(), "the delivery ends the timer");
+    assert!(session.inbox().timer.is_none(), "the delivery ends the timer");
 }
 
 /// A message that is no FYI steers into the running turn at once, and carries the FYIs that
@@ -545,11 +545,11 @@ async fn a_message_that_is_no_fyi_steers_in_and_carries_the_waiting_fyis() {
         let (hub, session) = hub_with_chat("fyi-carried");
         running(&session);
         let fyi = item("f1", "t", "ci", PromptClass::Fyi, now_ms(), "CI is slow");
-        session.inbox.lock().unwrap().items.push(fyi);
+        session.inbox().items.push(fyi);
         hub.inbox_review(&session);
         assert_eq!(carried(&session), None, "the FYI waits ({class:?})");
         let other = item("r1", "t2", "lane-b", class, now_ms(), "done with #9");
-        session.inbox.lock().unwrap().items.push(other);
+        session.inbox().items.push(other);
         hub.inbox_review(&session);
         let both = Some(vec!["f1".to_owned(), "r1".to_owned()]);
         assert_eq!(carried(&session), both, "one steer carries both ({class:?})");
@@ -563,26 +563,26 @@ async fn a_message_that_is_no_fyi_steers_in_and_carries_the_waiting_fyis() {
 async fn fyis_alone_the_persons_turn_held_back_wait_for_their_flush() {
     let (hub, session) = hub_with_chat("fyi-held");
     {
-        let mut inbox = session.inbox.lock().unwrap();
+        let mut inbox = session.inbox();
         inbox.items.push(item("f1", "t", "ci", PromptClass::Fyi, now_ms(), "CI is slow"));
         inbox.held_by_person = true;
     }
     hub.inbox_review(&session);
     assert_eq!(carried(&session), None, "no turn of its own before the flush");
     {
-        let inbox = session.inbox.lock().unwrap();
+        let inbox = session.inbox();
         assert!(inbox.timer.is_some(), "the flush is timed");
         assert!(!inbox.held_by_person, "the hold lets go of FYIs alone");
     }
     assert!(!turn_coming(&session), "no turn comes for FYIs alone");
-    session.inbox.lock().unwrap().items[0].at = now_ms().saturating_sub(FLUSH_MS + 1);
+    session.inbox().items[0].at = now_ms().saturating_sub(FLUSH_MS + 1);
     hub.inbox_review(&session);
     assert_eq!(carried(&session), Some(vec!["f1".to_owned()]), "a turn at its flush");
 
     // A result the person's turn held back (it wakes no one here) is due at once, as before.
     let (hub, session) = hub_with_chat("result-held");
     {
-        let mut inbox = session.inbox.lock().unwrap();
+        let mut inbox = session.inbox();
         inbox.items.push(item("r1", "t", "lane-b", PromptClass::Result, now_ms(), "done"));
         inbox.held_by_person = true;
     }
@@ -598,18 +598,18 @@ async fn a_waiting_fyi_strands_in_a_running_turn_unless_a_notice_comes() {
     let (_hub, session) = hub_with_chat("fyi-strand");
     running(&session);
     let meta = session.meta();
-    let strands = |class| would_strand(&session, &session.inbox.lock().unwrap(), &meta, class);
+    let strands = |class| would_strand(&session, &session.inbox(), &meta, class);
     assert!(strands(PromptClass::Fyi), "an FYI alone waits for the flush");
     assert!(!strands(PromptClass::Result), "a result steers in");
     let other = item("r1", "t", "lane-b", PromptClass::Result, now_ms(), "done");
-    session.inbox.lock().unwrap().items.push(other);
+    session.inbox().items.push(other);
     assert!(!strands(PromptClass::Fyi), "it goes with the result's notice");
 
     // A first work's hold brings no notice sooner for FYIs alone (router review of #38603, F1).
     let (_hub, session) = hub_with_chat("fyi-first");
-    session.inbox.lock().unwrap().first = Some("p-first".to_owned());
+    session.inbox().first = Some("p-first".to_owned());
     let meta = session.meta();
-    let strands = |class| would_strand(&session, &session.inbox.lock().unwrap(), &meta, class);
+    let strands = |class| would_strand(&session, &session.inbox(), &meta, class);
     assert!(strands(PromptClass::Fyi), "an FYI waits past the first work too");
     assert!(!strands(PromptClass::Result), "the first work's turn brings a result");
 }
@@ -907,7 +907,7 @@ async fn an_opened_thread_names_its_senders_plainly_for_the_transcript() {
     let declared = crate::prompt_provenance::named_sender("dot", "inbox-open");
     let mut message = item("p1", "declared:dot", "dot", PromptClass::Result, 1, "hello");
     message.sender = crate::prompt_provenance::sender_record(Some(&declared), None, None);
-    session.inbox.lock().unwrap().items.push(message);
+    session.inbox().items.push(message);
     let thread = hub.inbox_thread(&session, "declared:dot", false);
     let m = &thread["messages"][0];
     assert_eq!(m["fromName"], "dot", "{thread}");

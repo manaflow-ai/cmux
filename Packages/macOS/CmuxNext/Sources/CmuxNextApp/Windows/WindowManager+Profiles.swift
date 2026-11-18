@@ -39,6 +39,9 @@ extension WindowManager {
                 visible = adoptable
             }
         }
+        // Workspaces of the space that another open window owns show here too, as the same workspaces (a shared space):
+        // the window never makes a new one beside them. They are listed once the window is in the space (`spaceDidChange`).
+        if visible.isEmpty { visible = sharedWorkspaces(in: profile, for: state.id, registry: registry.value) }
         guard !visible.isEmpty else {
             // Nothing to show there yet: the window enters the profile with
             // a new workspace (no empty window, REWRITE.md round 1). It is
@@ -113,17 +116,17 @@ extension WindowManager {
         if incognito { throw ActionFailure.invalidTarget(RefusalStrings.incognitoMismatch) }
         let machines = services.machines
         let sources = value.windows.filter { $0.id != state.id && !value.isIncognito($0.id) && incognitoSpaces[$0.id] == nil }
-        // Only workspaces whose space is known move (one no session reports yet shows in every space); any Home stays.
-        let moving = sources.flatMap { WindowProfiles.visible($0.workspaceIDs, profile: profile, machines: machines) }
-            .filter { WindowProfiles.qualified($0, machines: machines) != nil && !isAnyHome($0) }
-        try refuseClosingCreating(sources.filter { !Set($0.workspaceIDs).isDisjoint(with: moving) }.map(\.id))
+        // Only a window's own workspaces (never its guests, another window's) whose space is known move (one no session reports yet shows in every space); any Home stays.
+        let moving = sources.flatMap { WindowProfiles.visible($0.ownedIDs, profile: profile, machines: machines) }.filter { WindowProfiles.qualified($0, machines: machines) != nil && !isAnyHome($0) }
+        let givers = sources.filter { !Set($0.ownedIDs).isDisjoint(with: moving) }.map(\.id) // left owning nothing they close; open, they stop viewing shared spaces until they enter one (`gatherSources`)
+        try refuseClosingCreating(givers)
         // A CLI or MCP run without focus permission leaves this window's view alone (as `RoomHandlers.startNewSpace`).
         let mayShow = ActionRunScope.viewChangeAllowed()
         guard !moving.isEmpty else {
             if mayShow { switchProfile(profile, in: state, keepingHomes: true) } // another window's Home stays there
             return
         }
-        try refuseLocalTabs([state.id] + sources.filter { !Set($0.workspaceIDs).isDisjoint(with: moving) }.map(\.id))
+        try refuseLocalTabs([state.id] + givers)
         // A window already on the space keeps its selection; else the space's last shown workspace.
         var preferred: [String: [String]] = [:]
         if state.profileID != profile, mayShow {
@@ -131,7 +134,7 @@ extension WindowManager {
             preferred[state.id] = lastShown(in: profile, recency: value.recency, here: state).filter(candidates.contains)
             state.enterProfile(profile)
         }
-        transition(select: preferred, gesture: true) { $0.move(moving, to: state.id) }
+        registry.gather(into: state.id, from: givers) { transition(select: preferred, gesture: true) { $0.gather(moving, to: state.id, from: givers) } }
         recordSaver.stateDidChange(state)
     }
 
@@ -142,8 +145,8 @@ extension WindowManager {
         guard value.window(state.id) != nil else { throw ActionFailure.invalidTarget(RefusalStrings.windowNotReady) }
         if value.isIncognito(state.id) || incognitoSpaces[state.id] != nil { throw ActionFailure.invalidTarget(RefusalStrings.incognitoMismatch) }
         let sources = value.openWindows.filter { $0.id != state.id && !value.isIncognito($0.id) && incognitoSpaces[$0.id] == nil }
-        // Only reported workspaces move; a Home and one not reported yet stay in their window, which closes.
-        let moving = sources.flatMap(\.workspaceIDs).filter { services.workspace(id: $0).map { !$0.isAnyHome } == true }
+        // Only reported workspaces of the sources' own move (a guest is another window's); a Home and one not reported yet stay in their window, which closes.
+        let moving = sources.flatMap(\.ownedIDs).filter { services.workspace(id: $0).map { !$0.isAnyHome } == true }
         guard !sources.isEmpty else { return }
         try refuseClosingCreating(sources.map(\.id))
         try refuseLocalTabs((moving.isEmpty ? [] : [state.id]) + sources.map(\.id))
@@ -222,24 +225,24 @@ extension WindowManager: SpaceWindowSource {
 enum WindowOwnSpace {
     /// Window `id` (normal, no Home, spaces on the home daemon) shows a space another open window shows.
     static func shares(_ id: String, in windows: WindowManager) -> Bool {
-        let value = windows.registry.value, local = windows.services.machines.local, members = windows.registry.members(of: id)
+        let value = windows.registry.value, local = windows.services.machines.local, members = value.window(id)?.ownedIDs ?? []
         guard let state = windows.states[id], value.window(id)?.isOpen == true, !value.isIncognito(id), windows.incognitoSpaces[id] == nil,
               local.supports(DaemonCapability.profiles.rawValue), local.store.personal.isLoaded, !members.isEmpty,
               !members.contains(where: { windows.services.workspace(id: $0)?.isAnyHome == true }) else { return false }
         return value.openWindows.contains { $0.id != id && windows.states[$0.id]?.profileID == state.profileID }
     }
-    /// When it shares one, window `id` gets a new space (as New Space) with its workspaces pinned there once reported.
+    /// When it shares one, window `id` gets a new space (as New Space) with its own workspaces, never its guests, pinned there once reported.
     static func give(_ id: String, in windows: WindowManager) {
         guard shares(id, in: windows), let state = windows.states[id], let connection = windows.services.machines.local.connection else { return }
-        let machines = windows.services.machines, store = machines.local.store, logger = windows.services.daemon.logger, connected = store.connectionState
-        let ids = WindowProfiles.visible(windows.registry.members(of: id), profile: state.profileID, machines: machines)
-        let space = ProfileID.generate(), name = RoomStrings.defaultName(store.profileIDs.count + 1), browser = store.profile(state.profileID)?.browserProfileID, color = GroupColor.automatic(used: Set(store.profiles.compactMap(\.color))) ?? .grey
+        let machines = windows.services.machines, store = machines.local.store, logger = windows.services.daemon.logger, connected = store.connectionState, ids = WindowProfiles.visible(windows.registry.value.window(id)?.ownedIDs ?? [], profile: state.profileID, machines: machines)
+        windows.registry.holdOwnSpace(id); windows.spaceDidChange() // it lists only what moved, and falls back to its space once pinned (#45984)
+        let space = ProfileID.generate(), name = RoomStrings.defaultName(store.profileIDs.count + 1), browser = store.profile(state.profileID)?.browserProfileID, color = GroupColor.automatic(after: store.profiles.compactMap(\.color))
         Task { do {
                 _ = try await connection.createProfile(name: name, id: space, color: color.rawValue, browserProfileID: browser)
                 let reported = { ids.compactMap { WindowProfiles.qualified($0, machines: machines) } } // one made for the move may not be yet
                 let waiting = Task { await store.mirrored(profile: space); for await done in ObservationStream({ reported().count == ids.count || store.connectionState != connected }) where done { break } }
                 let bound = DemandTimer(owner: "WindowOwnSpace.give"); bound.schedule(after: .seconds(10)) { waiting.cancel() }; await waiting.value; bound.cancel() // a reconnect or 10 s
                 for workspace in reported() { try await connection.pinWorkspace(session: workspace.session, key: WorkspaceKey(rawValue: workspace.key), to: space) }
-            } catch { logger.error("own space for a new window failed: \(String(describing: error), privacy: .public)") } }
+            } catch { logger.error("own space for a new window failed: \(String(describing: error), privacy: .public)"); windows.registry.spaceEntered(id); windows.spaceDidChange() } } // a view of its space again
     }
 }

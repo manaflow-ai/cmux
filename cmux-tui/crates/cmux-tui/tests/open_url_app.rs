@@ -219,12 +219,25 @@ fn open_of_a_file_names_the_agent_chat_so_the_app_places_it_beside_the_chat() {
     let [call] = run.app.as_slice() else { panic!("one app call expected: {:?}", run.app) };
     assert_eq!(call["params"]["caller"], json!({"home_chat": true}), "{call}");
 
-    // A person's terminal is named by `terminal_id` alone.
+    // An agent names the workspace its session runs in, where the app opens
+    // the file when no tab shows its chat.
+    let keyed = [("CMUX_AGENT_SESSION", AGENT_SESSION), ("CMUX_WORKSPACE_ID", "W-1")];
+    let run = run_as(&["open", "notes.md"], &keyed, Some(&project), App::Current);
+    assert!(run.output.status.success(), "{}", run.stderr());
+    let [call] = run.app.as_slice() else { panic!("one app call expected: {:?}", run.app) };
+    assert_eq!(
+        call["params"]["caller"],
+        json!({"agent_session": AGENT_SESSION, "workspace": "W-1"}),
+        "{call}"
+    );
+
+    // A terminal is the caller too: the app places an agent's terminal
+    // beside it and a plain terminal's file in its own pane.
     let person = [("CMUX_TUI_TERMINAL_ID", CALLER_TERMINAL)];
     let run = run_as(&["open", "notes.md"], &person, Some(&project), App::Current);
     assert!(run.output.status.success(), "{}", run.stderr());
     let [call] = run.app.as_slice() else { panic!("one app call expected: {:?}", run.app) };
-    assert!(call["params"].get("caller").is_none(), "{call}");
+    assert_eq!(call["params"]["caller"], json!({"terminal_id": CALLER_TERMINAL}), "{call}");
     assert_eq!(call["params"]["terminal_id"], CALLER_TERMINAL, "{call}");
     let _ = std::fs::remove_dir_all(&project);
 }
@@ -352,6 +365,7 @@ fn run_with(
         .env_remove("CMUX_FOCUS_NEW")
         .env_remove("CMUX_AGENT_SESSION")
         .env_remove("CMUX_CALLER_HOME_CHAT")
+        .env_remove("CMUX_WORKSPACE_ID")
         .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

@@ -58,7 +58,7 @@ final class WorkspaceTabHoverCardRow: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = SidebarDensityTokens.rowCornerRadius
-        layer?.cornerCurve = .continuous
+        layer?.cornerCurve = Metrics.tabCornerCurve // one curve with the rows and tabs (`TabCornerCurve`)
         icon.imageScaling = .scaleProportionallyDown
         title.lineBreakMode = .byTruncatingTail
         // The line fits itself (`WorkspaceTabHoverCardLine.detail(fitting:font:)`): the place shortens first, and
@@ -98,6 +98,8 @@ final class WorkspaceTabHoverCardRow: NSView {
         let side = WorkspaceHoverCardView.iconSize
         favicon = tab.favicon
         icon.image = tab.favicon.map(faviconImage)
+            // A cmux page's own icon (a Cloud desktop's cloud), as its workspace row draws it (`WorkspaceIcon.page`).
+            ?? tab.pageIcon.map { NSImage.icon($0, size: side) }
             // A site with no favicon (yet): the workspace rows' placeholder globe (`WorkspaceIcon.pagePlaceholder`).
             ?? (tab.host != nil ? NSImage.icon(symbol: WorkspaceIcon.pagePlaceholderSymbol, size: side) : nil)
             ?? tab.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: side) }

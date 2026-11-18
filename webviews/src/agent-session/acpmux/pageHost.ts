@@ -1,7 +1,6 @@
 // The agent pane on the shared page host (`cmux-page://cmux.agent/`, CmuxNextAgentPane
 // AgentPageProvider): the old `agentSession` methods become `cmux.agent.*` pane-protocol calls, and
 // the scripts the old host evaluated become events of the stream `cmux.agent.host.events`.
-import { setOutsideDictation, setOutsideLevel } from "./outsideDictation";
 import { deliverHandoffFailure } from "./dictation";
 import { createPageClient, isPageError, RECEIVE_NAME, type PageClient } from "../../pages/shared/pageClient";
 import { installNativeMenu } from "../../ui/nativeMenu";
@@ -113,6 +112,9 @@ export function applyHostEvent(event: HostEvent): void {
     case "imessage.changed":
       window.dispatchEvent(new Event("cmux-imessage-changed"));
       return;
+    case "github.changed":
+      window.dispatchEvent(new Event("cmux-github-changed"));
+      return;
     case "sessionInfoHost":
       return setNativeSessionInfoHost(event.value);
     case "sessionInfoAction":
@@ -197,12 +199,6 @@ export function applyHostEvent(event: HostEvent): void {
       return setFloatingState(event.value);
     case "dictation":
       return bridge?.dictation?.(value);
-    case "micActivity":
-      // Another app's use of the microphone (outsideDictation.ts), while a composer watches.
-      return setOutsideDictation(event.value);
-    case "micLevel":
-      // Its input level, about 12 a second, only while the host meters it (outsideDictation.ts).
-      return setOutsideLevel(event.value);
     case "dictationHandoff":
       return deliverHandoffFailure(event.value);
     case "designSelection":

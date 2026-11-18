@@ -1,0 +1,10 @@
+/* A start line that opens on a name ("{name} started working") starts that name's words on the
+   column every iconed row's words share (transcript-status-text-column.test.ts,
+   transcript-row-alignment.test.ts): the chip's inline inset hangs into the gap after the icon, as a
+   received line's sender does (AgentTag.css .cv-received__from). */
+.cv-subagent-started .cv-agent-tag.cv-subagent-started__lead.is-open {
+  margin-inline-start: calc(-1 * var(--ds-space-1));
+}
+.cv-subagent-started .cv-agent-tag.cv-subagent-started__lead.is-plain {
+  margin-inline-start: calc(-1 * var(--cv-disclosure-gap));
+}

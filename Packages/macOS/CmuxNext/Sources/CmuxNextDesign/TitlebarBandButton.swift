@@ -80,6 +80,9 @@ public final class TitlebarBandButton: ClickableButton {
     override public func layout() {
         super.layout()
         renderSymbol()
+        // The hover fill is the button's own layer, rounded by the tab's ratio on its own height, so it keeps one
+        // shape at every density (Lucas 2026-11-15: the tab's radius on a smaller button went nearly round at Spacious).
+        layer?.cornerRadius = Metrics.buttonCornerRadius(proportionalTo: bounds.height)
         let size = min(Metrics.space3, bounds.height)
         badgeLabel.frame = NSRect(x: bounds.maxX - size, y: bounds.maxY - size, width: size, height: size)
     }
@@ -93,7 +96,9 @@ public final class TitlebarBandButton: ClickableButton {
         return Self.side + Metrics.space2 + textWidth + Metrics.space2 + badgeClearance
     }
 
-    private func renderSymbol() {
+    /// Draws the glyph at the current density's size, once per size. `layout()` runs it; a container that measures the
+    /// image (the toolbar band's slots) runs it first, since its own layout comes before this button's.
+    public func renderSymbol() {
         let size = symbolPointSize?() ?? Metrics.toolbarSymbolPointSize
         guard size != renderedIconSize else { return }
         renderedIconSize = size

@@ -658,6 +658,45 @@ fn an_mcp_retry_with_the_same_key_opens_no_second_terminal() {
     assert_eq!(tabs_and_panes(server, &column), before, "the retry opened something");
 }
 
+/// user, 2026-11-18: an agent the app shows nowhere (no chat tab, and the
+/// workspace its session runs in is not open) made its tabs in the focused
+/// workspace, Home. It is refused; the daemon's default is never its place.
+#[test]
+fn an_agent_the_app_cannot_place_is_refused_never_sent_to_the_focused_workspace() {
+    let split = caller_in_alpha_beta_focused("place-unplaced");
+    let Split { server, terminal, pane, .. } = &split;
+    let app = FakeApp::start(
+        server,
+        "app-unplaced",
+        json!({"caller": {"is_caller": true, "agent_session": AGENT_SESSION, "found": false}}),
+    );
+    let agent = Who::agent().with_app(&app);
+    let count = |kind: &str| state_cli_topology(server)[kind].as_array().map_or(0, Vec::len);
+    let before = (count("tabs"), count("panes"), count("screens"));
+    for args in [
+        &["tab", "create", "terminal"][..],
+        &["pane", "create"][..],
+        &["screen", "create"][..],
+        &["workspace", "current", "show"][..],
+        &["agent", "start", "worker", "--cmd", "sleep 600", "--no-wait", "--no-focus"][..],
+    ] {
+        let refused = output(server, &agent, &[], args);
+        let printed = format!(
+            "{}{}",
+            String::from_utf8_lossy(&refused.stdout),
+            String::from_utf8_lossy(&refused.stderr)
+        );
+        assert!(!refused.status.success(), "{args:?} ran: {printed}");
+        assert!(printed.contains("caller_unavailable"), "{args:?}: {printed}");
+    }
+    assert_eq!((count("tabs"), count("panes"), count("screens")), before, "something was made");
+
+    // The same agent in a cmux terminal is placed by that terminal.
+    let in_terminal = Who { terminal: Some(terminal), ..Who::agent() }.with_app(&app);
+    let created = run(server, &in_terminal, &["tab", "create", "terminal"]);
+    assert_eq!(created_pane(&created), pane, "{created}");
+}
+
 /// A Chief turn's own place is the Home workspace, which the app draws as a
 /// page: a pane or a screen made there may never be seen. They keep the
 /// daemon's default; only its tabs go beside the Home chat.

@@ -11,7 +11,7 @@ description = "OS primitives of the cmux-tui daemon: paths, users and peers, the
 workspace = true
 
 [features]
-# Test seams (the process scope's final-scan gate), for dev-dependencies only.
+# Test seams (the process scope's final-scan gate) and `read_timeout_or_ended`, for dev-dependencies only.
 test-support = []
 
 [dependencies]

@@ -30,6 +30,18 @@ const SESSION_JOURNAL_PROTOCOL_MAXIMUM: u64 = cmux_tui_core::server::PROTOCOL_VE
 /// it twice (plans/cmux-next/state-ownership.md, section 4). Streams are never
 /// resent. `mutation.outcome_unknown` is printed only after the last try.
 pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
+    // `--machine <Cloud VM>`: the whole request goes to the VM's daemon over the app's link
+    // (cloud_route.rs); the local daemon has no such machine.
+    #[cfg(unix)]
+    let global = match super::cloud_route::route(&global, &plan) {
+        Some(super::cloud_route::Route::Link { socket, .. }) => {
+            super::cloud_route::routed(&global, &socket)
+        }
+        Some(super::cloud_route::Route::Refused(error)) => {
+            return print_local_error(&error, global.output, 1);
+        }
+        Some(super::cloud_route::Route::Local) | None => global,
+    };
     if !plan.stream
         && plan.operation.class() == OperationClass::Mutation
         && plan.idempotency_key.is_none()
@@ -186,19 +198,24 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
         &plan,
         &request,
         &mut reader,
-        &socket,
+        &route,
         caller_route,
         &key_report,
     ) {
         return code;
     }
     // Any other creation with no place acts in the caller's own (beside.rs).
-    if super::resolve::place_creation(&mut reader, &mut plan, caller_route, &route) {
-        request.set("params", plan.params.clone());
-        encoded = match encode_request(&request) {
-            Ok(encoded) => encoded,
-            Err(code) => return code,
-        };
+    match super::resolve::place_creation(&mut reader, &mut plan, caller_route, &route) {
+        Ok(true) => {
+            request.set("params", plan.params.clone());
+            encoded = match encode_request(&request) {
+                Ok(encoded) => encoded,
+                Err(code) => return code,
+            };
+        }
+        Ok(false) => {}
+        // An agent cmux cannot place: refused, never the focused workspace.
+        Err(failure) => return failure.report(global.output),
     }
     if notify_desktop::drop_unsupported(&mut reader, &socket, &mut request)
         | workspace_created_by::drop_unsupported(&mut reader, &socket, &mut request)
@@ -672,15 +689,19 @@ fn run_response(
                         }
                         WireOperation::Raw { .. } => result,
                     };
-                    // The app's Cloud machines and the team's joined machines join the
-                    // daemon's machine list.
+                    // The app's Cloud machines, the team's joined machines and the machines
+                    // acpmux reaches itself join the daemon's machine list: each is a
+                    // `cmux chat --on` target.
                     #[cfg(unix)]
                     let result = match &plan.operation {
                         WireOperation::Typed(
                             cmux_tui_core::resource::ResourceOperation::MachineList,
-                        ) => super::machine_join::merge(
+                        ) => super::machine_join::merge_peers(
                             global,
-                            super::cloud_machines::merge(global, result),
+                            super::machine_join::merge(
+                                global,
+                                super::cloud_machines::merge(global, result),
+                            ),
                         ),
                         // The app's Cloud machines' workspaces join the daemon's list.
                         WireOperation::Typed(

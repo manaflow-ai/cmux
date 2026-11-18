@@ -15,9 +15,9 @@
 //!    app that places terminal callers (beside the terminal when it runs an
 //!    agent, its own pane otherwise; should that app refuse the run, the
 //!    terminal's own pane); an older app gets the terminal's own tab as the
-//!    target, so the tab opens in the terminal's pane. An agent
-//!    chat the app does not know: the workspace its environment names
-//!    (`CMUX_WORKSPACE_ID`);
+//!    target, so the tab opens in the terminal's pane. An agent chat no tab
+//!    shows: the app opens the tab in the workspace its session runs in
+//!    (`CMUX_WORKSPACE_ID`, which the caller names), else refuses the run;
 //! 3. else, with no caller, the focused pane of the app's front window (no
 //!    target: the app resolves it). The daemon's shared active pane is only
 //!    the default for a CLI with no app, which keeps the old daemon path;
@@ -95,17 +95,17 @@ pub(super) fn run_in_app(
     plan: &RequestPlan,
     request: &Value,
     reader: &mut Reader,
-    daemon_socket: &Path,
+    session: &super::resolve::SocketRoute<'_>,
     caller_route: bool,
     key_report: &super::wire::KeyReport,
 ) -> Option<i32> {
     if !applies(plan) {
         return None;
     }
-    let mut app = owning_app(global, daemon_socket)?;
+    let mut app = owning_app(global, session.path)?;
     let key = request.get("idempotency_key").and_then(Value::as_str);
     let _ = reader.get_mut().set_read_timeout(super::wire::response_read_timeout(plan, true));
-    Some(match open(reader, &mut app, plan, caller_route, key) {
+    Some(match open(reader, &mut app, plan, session, caller_route, key) {
         Ok(result) => {
             key_report.succeeded();
             super::wire::print_result(global, plan, result)
@@ -127,9 +127,6 @@ struct Target {
     /// The tab whose pane gets the new tab; `None` leaves the place to the
     /// app, which reads the caller the run names.
     tab: Option<String>,
-    /// The `caller` that replaces the environment's (`app::with_caller`);
-    /// `None` keeps that one.
-    caller: Option<Value>,
     /// The caller's own terminal when the app places it (`tab` is `None`):
     /// should the app refuse the run, the tab opens in this terminal's pane,
     /// never in the daemon's default pane, which follows the person's focus.
@@ -149,29 +146,24 @@ fn terminal_tab(
 }
 
 /// Where a browser tab with no named place goes for the caller of a request
-/// to its own session (beside.rs). An agent's chat and a Chief turn: the app
-/// places the tab beside the chat. A terminal, with an app that places
-/// terminals: beside it or in its own pane, as the app decides.
-fn caller_target(reader: &mut Reader, app: &mut UnixStream, route: &Map<String, Value>) -> Target {
+/// to its own session (beside.rs). An agent's chat and a Chief turn: the run
+/// names the caller (with the workspace its session runs in, app.rs
+/// `caller_from`) and no target; the app places the tab beside the chat,
+/// else in that workspace, else refuses it. A terminal, with an app that
+/// places terminals: beside it or in its own pane, as the app decides.
+fn caller_target(
+    reader: &mut Reader,
+    session: &super::resolve::SocketRoute<'_>,
+    route: &Map<String, Value>,
+) -> Target {
     let caller = super::beside::Caller::of_process();
-    let mut identity = || {
-        super::app::request(app, "system.identify", json!({}), super::app::READ_TIMEOUT).ok()?.ok()
-    };
     if caller.is_chat() {
-        // A chat the app does not know: the workspace its environment names,
-        // never the focused pane. The run then names no caller, which the
-        // app would refuse as unknown.
-        if let Some(key) = caller.fallback_workspace_key()
-            && identity().is_some_and(|identity| super::beside::caller_path(&identity).is_none())
-            && let Some(tab) = super::resolve::workspace_key_path(reader, route, key)
-                .and_then(|path| path.get("tab").and_then(Value::as_str).map(str::to_owned))
-        {
-            return Target { tab: Some(tab), caller: Some(Value::Null), own_terminal: None };
-        }
         return Target::default();
     }
     let Some(terminal) = caller.terminal else { return Target::default() };
-    if identity().is_some_and(|identity| super::beside::app_places_terminals(&identity)) {
+    // The app's answer about this caller, asked once per request (the send
+    // step read it for the column right of the caller, beside/cli.rs).
+    if session.identity().is_some_and(super::beside::app_places_terminals) {
         return Target { own_terminal: Some(terminal), ..Target::default() };
     }
     // An older app opens a run with no target in the focused pane: name the
@@ -200,20 +192,20 @@ pub(super) fn open_in_app(
     global: &GlobalArgs,
     plan: &RequestPlan,
     reader: &mut Reader,
-    daemon_socket: &Path,
+    session: &super::resolve::SocketRoute<'_>,
     key: Option<&str>,
 ) -> Option<Result<Value, Failure>> {
     if !applies(plan) {
         return None;
     }
-    let mut app = owning_app(global, daemon_socket)?;
+    let mut app = owning_app(global, session.path)?;
     // The caller's session: no session named, by the server's options or
     // by the call (a named session is in `global.session` or the plan).
     let named = plan.params.get("session").and_then(Value::as_str);
     let caller_route = super::wire::routes_to_caller_session(global)
         && named.is_none_or(|session| session == "current");
     let _ = reader.get_mut().set_read_timeout(super::wire::response_read_timeout(plan, true));
-    Some(open(reader, &mut app, plan, caller_route, key))
+    Some(open(reader, &mut app, plan, session, caller_route, key))
 }
 
 /// Opens the browser tab through the app and returns the daemon's created
@@ -224,6 +216,7 @@ pub(super) fn open(
     reader: &mut Reader,
     app: &mut UnixStream,
     plan: &RequestPlan,
+    session: &super::resolve::SocketRoute<'_>,
     caller_route: bool,
     key: Option<&str>,
 ) -> Result<Value, Failure> {
@@ -235,17 +228,16 @@ pub(super) fn open(
     let url = params.get("url").and_then(Value::as_str).unwrap_or_default();
     // `--engine` (`webkit` or `cef`); absent: the app's `browser.defaultEngine`.
     let engine = params.get("engine").and_then(Value::as_str);
-    let Target { tab: target, caller, own_terminal } = match named_pane_tab(reader, &route, params)?
-    {
+    let Target { tab: target, own_terminal } = match named_pane_tab(reader, &route, params)? {
         Some(selector) => {
             let tab = read(reader, ResourceOperation::TabGet, selector)?;
             Target { tab: Some(string_field(&tab, "id", "tab")?), ..Target::default() }
         }
-        None if caller_route => caller_target(reader, app, &route),
+        None if caller_route => caller_target(reader, session, &route),
         None => Target::default(),
     };
     // A request for another session never names the caller's terminal.
-    let caller = if caller_route { caller } else { Some(other_session_caller()) };
+    let caller = (!caller_route).then(other_session_caller);
     let key = match key {
         Some(key) => key.to_owned(),
         None => super::command::random_prefixed("mutation")
@@ -254,8 +246,10 @@ pub(super) fn open(
     let opened = run_open(app, url, engine, target.as_deref(), caller.as_ref(), &key);
     let (reply, tab, on_default_pane) = match opened {
         // The app ran nothing: its window shows a page (no focused pane to
-        // open in), or it does not place the caller's terminal.
-        Err(failure) if target.is_none() && never_ran(&failure) => {
+        // open in). A caller the app cannot place is refused for good
+        // (`opens_on_default_pane`): an agent's tab never opens in the
+        // focused workspace or Home.
+        Err(failure) if target.is_none() && opens_on_default_pane(&failure) => {
             let fallback = match &own_terminal {
                 // The terminal's own pane, never the daemon's default one,
                 // which follows the person's focus.
@@ -349,6 +343,15 @@ pub(super) fn never_ran(failure: &Failure) -> bool {
     let Failure::Resource(error) = failure else { return false };
     let details = &error["details"];
     error["code"] == "unavailable" || details["not_run"] == true || details["state"] == "not_run"
+}
+
+/// Whether an untargeted run the app refused opens on the daemon's default
+/// pane instead (the window shows a page, so there is no focused pane). A
+/// caller the app cannot place (`caller_unavailable`) never does: the default
+/// pane is the focused workspace, Home, not the agent's own (user, 2026-11-18).
+pub(super) fn opens_on_default_pane(failure: &Failure) -> bool {
+    never_ran(failure)
+        && !matches!(failure, Failure::Resource(error) if error["code"] == "caller_unavailable")
 }
 
 /// The `tab.get` selector for the shown tab of the daemon's default pane

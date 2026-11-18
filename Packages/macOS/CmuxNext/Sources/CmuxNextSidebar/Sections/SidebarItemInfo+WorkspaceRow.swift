@@ -16,7 +16,9 @@ extension SidebarItemInfo {
         case .favicon(let image)?:
             self.init(title: row.title, symbol: WorkspaceIcon.pagePlaceholderSymbol, color: color)
             favicon = image
-        case .pagePlaceholder?: self.init(title: row.title, symbol: WorkspaceIcon.pagePlaceholderSymbol, color: color)
+        // The browser tab's own globe until the favicon loads, as the tab draws it.
+        case .pagePlaceholder?: self.init(title: row.title, symbol: WorkspaceIcon.pagePlaceholderSymbol, icon: WorkspaceIcon.pagePlaceholderIcon, color: color)
+        case .page(let name)?: self.init(title: row.title, symbol: WorkspaceIcon.pagePlaceholderSymbol, icon: name, color: color)
         case .swatch?, nil:
             // A color shows as the list row's dot before the title (SidebarItemRowView); no color, the title alone.
             self.init(title: row.title, symbol: "textformat", color: row.icon == nil ? nil : color)

@@ -3,7 +3,8 @@
 //! - No `--pane` and no `--split`: split the caller's pane to the right. An
 //!   agent chat or a Chief turn has no terminal: its new agent goes beside
 //!   its chat, where the owning app's `beside` answer says (cli/beside.rs),
-//!   and a chat no app places uses the workspace its environment names
+//!   an agent the owning app cannot place is refused, and in a session no
+//!   app owns a chat uses the workspace its session runs in
 //!   (`CMUX_WORKSPACE_ID`). Only a shell outside cmux gets the focused pane.
 //!   `resume` without either reopens the agent in the pane of its exited
 //!   tab instead.
@@ -83,8 +84,9 @@ impl ChatPlace {
 /// The pane a start (or a resume told `--pane` or `--split`) opens in, and
 /// how. The caller's own pane, for no `--pane`, `current` and `caller`, is
 /// its terminal's pane; a chat's is where the app places it (with neither
-/// flag, beside the chat); a chat no app places uses the workspace its
-/// environment names. Only then the focused pane ([`target_pane`]).
+/// flag, beside the chat). An agent the owning app cannot place is refused;
+/// in a session no app owns, a chat uses the workspace its session runs in.
+/// Only then the focused pane ([`target_pane`]).
 pub(in crate::cli) fn target(
     snapshot: &Value,
     options: &Options,
@@ -97,9 +99,10 @@ pub(in crate::cli) fn target(
     if !matches!(selector, None | Some("current" | "caller")) {
         return fallback();
     }
-    // The same order as a `current` selector (resolve.rs `caller_path`):
-    // the chat the app places, the caller's terminal, the workspace the
-    // chat's environment names.
+    // The same order as a `current` selector (resolve/caller.rs
+    // `caller_path`): the chat the app places, the caller's terminal, an
+    // agent the app cannot place (refused), and in a session no app owns the
+    // workspace the chat's session runs in.
     if let Some(chat) = &env.chat {
         if selector.is_none() && options.split.is_none() {
             return Ok(chat.beside.clone());
@@ -112,12 +115,23 @@ pub(in crate::cli) fn target(
         .caller_terminal
         .as_deref()
         .is_some_and(|terminal| pane_of_terminal(snapshot, terminal).is_some());
-    if !in_terminal
-        && let Some(pane) = env
-            .workspace_key
-            .as_deref()
-            .and_then(|key| beside::workspace_of_key(&snapshot["workspaces"], key))
-            .and_then(|workspace| pane_of_workspace(snapshot, &workspace))
+    if in_terminal {
+        return fallback();
+    }
+    if env.unplaced_agent {
+        return Err(Failure::local(
+            "caller_unavailable",
+            "cmux shows neither this agent's chat nor the workspace its session runs in \
+             (CMUX_WORKSPACE_ID); name the pane: --pane <pane>",
+            json!({}),
+            1,
+        ));
+    }
+    if let Some(pane) = env
+        .workspace_key
+        .as_deref()
+        .and_then(|key| beside::workspace_of_key(&snapshot["workspaces"], key))
+        .and_then(|workspace| pane_of_workspace(snapshot, &workspace))
     {
         return Ok((pane, options.placement()));
     }

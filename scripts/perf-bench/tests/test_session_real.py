@@ -3,7 +3,7 @@
 a non-zero exit when its result has failures. Each test fails on the file before its fix (7aba9c3c61b4).
 Run: python3 -I scripts/perf-bench/tests/test_session_real.py
 The same tests on another copy of the tool: SESSION_REAL_FILE=<path> python3 -I scripts/perf-bench/tests/test_session_real.py"""
-import argparse, importlib.util, json, os, shutil, signal, sys, tempfile, types, unittest, warnings
+import argparse, contextlib, importlib.util, io, json, os, shutil, signal, sys, tempfile, types, unittest, warnings
 
 warnings.simplefilter("ignore", ResourceWarning)
 
@@ -181,8 +181,11 @@ class LaunchEnd(Home):
 
         fake = types.ModuleType("bench_launch")
         fake.BenchApp = BenchApp
+        # The module that was there comes back after the test: another test file of the same run may have the real
+        # one (parity_appclock.py imports it), and a plain pop would take that away too.
+        real = sys.modules.get("bench_launch")
         sys.modules["bench_launch"] = fake
-        self.addCleanup(sys.modules.pop, "bench_launch", None)
+        self.addCleanup(lambda: sys.modules.pop("bench_launch", None) if real is None else sys.modules.__setitem__("bench_launch", real))
         self.patch("teardown_module", lambda: types.SimpleNamespace(TagTeardown=Teardown))
         self.patch("state_root", lambda home=None: os.path.join(self.home, "Library/Application Support/cmux-next/tags"))
         self.patch("app_counts", lambda sock: {"loaded": True, "workspaces": 3})
@@ -212,6 +215,27 @@ class LaunchEnd(Home):
                                  "install", "stop", "second teardown", "uninstall"])
         self.assertIn("the teardown failed", str(error))
         self.assertTrue(any("the quit of the app" in line for line in result["failures"]))
+
+    def test_the_launch_modules_stand_in_goes_and_a_module_that_was_there_comes_back(self):
+        """Another test file of the same run may hold the real `bench_launch` (parity_appclock.py imports it): the
+        stand-in of this class must not take it out of `sys.modules`."""
+        there = sys.modules.get("bench_launch")
+        self.addCleanup(lambda: sys.modules.pop("bench_launch", None) if there is None else sys.modules.__setitem__("bench_launch", there))
+        def quit_by_signal():
+            raise SystemExit(128 + signal.SIGTERM)
+
+        for before in (types.ModuleType("bench_launch"), None):
+            sys.modules.pop("bench_launch", None)
+            if before is not None:
+                sys.modules["bench_launch"] = before
+            case = LaunchEnd("test_a_signal_exit_in_the_quit_does_not_skip_the_uninstall")
+            case.setUp()
+            try:
+                case.launch(quit_by_signal)
+                self.assertIsNot(sys.modules.get("bench_launch"), before, "the stand-in is in place for the launch")
+            finally:
+                case.doCleanups()
+            self.assertIs(sys.modules.get("bench_launch"), before)
 
     def test_a_signal_exit_in_the_quit_does_not_skip_the_uninstall(self):
         def stop():
@@ -732,6 +756,62 @@ class BuildFailure(unittest.TestCase):
         daemon, asked, killed, did = self.run_end(False, after)
         self.assertEqual(daemon.signals, ["TERM"])
         self.assertEqual(killed, [(400, signal.SIGTERM)])
+
+
+class TimerKeyChanges(unittest.TestCase):
+    """A workspace switch row carries the app's count of key window changes of that switch (`debug.workspace_switch
+    {action: start, key_changes: true}`: 2 between two page workspaces, where Chromium makes none on a tab switch).
+    An app that has no such count gives none."""
+
+    def setUp(self):
+        sleep = m.time.sleep
+        m.time.sleep = lambda seconds: None
+        self.addCleanup(setattr, m.time, "sleep", sleep)
+
+    def timed(self, switches):
+        sent = []
+        driver = object.__new__(m.AppDriver)
+        driver.unusable = []
+
+        def rpc(method, params=None, timeout=60):
+            sent.append((method, params))
+            if method == "debug.workspace_switch" and (params or {}).get("action") == "stop":
+                return {"recording": False, "switches": switches, "confirms_ms": [4.0]}
+            return {}
+
+        driver.rpc = rpc
+        return driver.timed("goToWorkspace", timer="debug.workspace_switch", workspace="ws_1"), sent
+
+    def test_the_timer_is_asked_for_the_count_and_the_row_carries_it(self):
+        row, sent = self.timed([{"commit_ms": 17.5, "late_vsyncs": 0, "at_ms": 101.0, "key_changes": 2, "key_become": 1, "key_resign": 1, "key_marks_full": 0}])
+        self.assertIn(("debug.workspace_switch", {"action": "start", "key_changes": True}), sent)
+        self.assertEqual((row["timer_key_changes"], row["timer_commit_ms"], row["error"]), (2, 17.5, None))
+
+    def test_a_switch_with_no_key_change_counts_zero_not_none(self):
+        row, _ = self.timed([{"commit_ms": 9.0, "late_vsyncs": 0, "at_ms": 101.0, "key_changes": 0, "key_become": 0, "key_resign": 0}])
+        self.assertEqual(row["timer_key_changes"], 0)
+
+    def test_an_app_with_no_count_gives_none_and_keeps_its_times(self):
+        row, _ = self.timed([{"commit_ms": 17.5, "late_vsyncs": 1}])
+        self.assertEqual((row["timer_key_changes"], row["timer_commit_ms"], row["timer_late_vsyncs"]), (None, 17.5, 1))
+
+    def test_a_recording_whose_marks_filled_the_ring_gives_no_count(self):
+        row, _ = self.timed([{"commit_ms": 17.5, "at_ms": 101.0, "key_changes": 1, "key_become": 1, "key_resign": 0, "key_marks_full": 1}])
+        self.assertEqual((row["timer_key_changes"], row["timer_commit_ms"]), (None, 17.5))
+
+    def test_the_rows_of_the_timer_are_found_with_other_lists_in_the_answer(self):
+        row, _ = self.timed([{"commit_ms": 12.0, "key_changes": 1}])
+        self.assertEqual(row["timer_commit_ms"], 12.0)  # `confirms_ms` (a list of numbers) is not the rows
+
+    def test_the_row_summary_has_the_spread_of_the_count(self):
+        rows = [self.timed([{"commit_ms": 10.0 + i, "key_changes": count}])[0] for i, count in enumerate((2, 2, 0, 2))]
+        with contextlib.redirect_stdout(io.StringIO()) as printed:
+            out = m.summarize("workspace_switch_warm", rows)
+        self.assertEqual(out["timer_key_changes"], {"n": 4, "p50": 2, "p95": 2, "max": 2})
+        self.assertEqual(json.loads(printed.getvalue().split("SESSION-REAL-ROW ", 1)[1])["timer_key_changes"]["p50"], 2)
+        old = [self.timed([{"commit_ms": 10.0}])[0]]
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(m.summarize("workspace_switch_warm", old)["timer_key_changes"], {"n": 0})
 
 
 if __name__ == "__main__":

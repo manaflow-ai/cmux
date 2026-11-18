@@ -20,4 +20,9 @@ public protocol TerminalFindTarget: AnyObject {
     var isSelectionPinned: Bool { get }
     /// Gives the keyboard back to the terminal.
     func focusTerminal()
+    /// Shows the find bar now, in the event that opened it, building it on
+    /// first use. The bar takes the keyboard before this returns when the
+    /// controller asked for focus, so the key typed right after Cmd-F lands
+    /// in the field and not in the terminal.
+    func showFindBar()
 }

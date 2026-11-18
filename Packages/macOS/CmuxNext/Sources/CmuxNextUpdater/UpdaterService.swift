@@ -109,6 +109,8 @@ public final class UpdaterService {
     /// What's New after an update (WHATS-NEW-AFTER-UPDATE): the bundled
     /// documents and this feed's nightly digests. The App loads it at launch.
     public let whatsNew: WhatsNewCenter
+    /// The one-time ask to star cmux on GitHub, in the tip card's slot (``StarPromptCenter``).
+    public let starPrompt: StarPromptCenter
     /// Where a staged update is recorded for the next build's What's New (nil: not recorded).
     @ObservationIgnored let lastUpdates: WhatsNewLastUpdateStore?
     /// The record last written, so an unchanged one is not written again.
@@ -136,6 +138,12 @@ public final class UpdaterService {
     public internal(set) var stagedVersion: String?
     public internal(set) var stagedNotes: ReleaseNotes?
     @ObservationIgnored var stagedNotesTask: (build: String, task: Task<Void, Never>)?
+    /// The staged build whose first launch was pre-warmed (``prewarmStagedUpdate()``, once per build).
+    @ObservationIgnored var prewarmedBuild: String?
+    /// The last skipped pre-warm's build and reason (``prewarmStagedUpdate()``), logged once.
+    @ObservationIgnored var prewarmSkipLogged: String?
+    /// Replaces a staged build's pre-warm (``StagedUpdatePrewarm/perform(work:processes:timeout:marker:progress:)``) in tests; returns its log line.
+    @ObservationIgnored var prewarmRunner: (@Sendable (StagedUpdatePrewarm) async -> String)?
     /// This build's own verified notes, read once when the Updated card has
     /// no change list of its record (``loadCurrentBuildNotesIfNeeded()``).
     public internal(set) var currentBuildNotes: ReleaseNotes?
@@ -304,6 +312,7 @@ public final class UpdaterService {
         self.switcher = switcher
         let lastUpdates = recordsUpdates ? WhatsNewLastUpdateStore.app(bundleIdentifier: identity.bundleIdentifier) : nil
         self.lastUpdates = lastUpdates
+        starPrompt = StarPromptCenter(defaults: defaults, now: now)
         whatsNew = WhatsNewCenter(currentVersion: identity.shortVersion, currentBuild: identity.build, defaults: defaults,
                                   sources: Self.whatsNewSources(identity: identity), lastUpdates: lastUpdates)
         // On disk too (``UpdateLogFile``): unified logging kept none of a nightly's updater lines.
@@ -499,9 +508,10 @@ public final class UpdaterService {
                 self?.log.append("probe \(result.outcome.kind) feed=\(result.feedURL) items=\(result.itemCount)")
                 failure = nil
             } catch {
-                let reason = String(describing: error)
+                // The sheet and the indicator show plain words; the log keeps the error.
+                let reason = UpdateFailureText.plain(error)
                 self?.lastProbeError = reason
-                self?.log.append("probe failed: \(reason)")
+                self?.log.append("probe failed: \(String(describing: error))")
                 failure = reason
             }
             self?.isProbing = false
@@ -589,9 +599,9 @@ public final class UpdaterService {
                 let outcome = try await switcher.switchTo(target) { phase in sink.yield(phase) }
                 self?.log.append("channel switch to \(target.rawValue): \(outcome)")
             } catch {
-                failure = String(describing: error)
+                failure = UpdateFailureText.plain(error)
                 self?.channelSwitchError = failure
-                self?.log.append("channel switch to \(target.rawValue) failed: \(failure ?? "")")
+                self?.log.append("channel switch to \(target.rawValue) failed: \(String(describing: error))")
             }
             sink.finish()
             await applier.value

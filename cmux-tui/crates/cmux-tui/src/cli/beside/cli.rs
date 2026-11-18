@@ -2,9 +2,12 @@
 //! browser profile open` with no `--workspace`, `--screen` or `--pane`, run
 //! by a caller the owning app places (an agent chat, a Chief turn, or a
 //! terminal with an app that places terminals). The tab goes where the app's
-//! `beside` answer says, on the request's own connection. Every other
-//! no-place creation, and a caller the app does not place, gets the caller's
-//! own place from the daemon after this step (resolve.rs `place_creation`).
+//! `beside` answer says, on the request's own connection. `cmux browser
+//! open` and `cmux tab create browser` with no place, run by anyone, name the
+//! pane of the column right of the caller when there is one; the app then
+//! opens the tab there (frontend_browser.rs). Every other no-place creation,
+//! and a caller the app does not place, gets the caller's own place from the
+//! daemon after this step (resolve.rs `place_creation`).
 
 use std::io::BufReader;
 
@@ -13,9 +16,9 @@ use cmux_tui_core::resource::ResourceOperation;
 use serde_json::{Map, Value, json};
 
 use super::{
-    Caller, Earlier, Kind, Placement, app_placement, correlated, correlation_key,
-    creation_lookup_params, earlier_creation, names_no_place, rename_params, split_below_params,
-    split_params,
+    Caller, Earlier, Kind, Placement, app_placement, browser_placement, correlated,
+    correlation_key, creation_lookup_params, earlier_creation, names_no_place, rename_params,
+    split_below_params, split_params,
 };
 use crate::cli::GlobalArgs;
 use crate::cli::command::{RequestPlan, WireOperation};
@@ -36,7 +39,8 @@ enum Outcome {
     Answered(i32),
 }
 
-/// The kind of tab `plan` creates, when the app's `beside` answer places it.
+/// The kind of tab `plan` creates, when this step opens it itself where the
+/// app's `beside` answer says.
 fn beside_kind(plan: &RequestPlan) -> Option<Kind> {
     match plan.operation {
         WireOperation::Typed(ResourceOperation::TabCreateTerminal) => Some(Kind::Terminal),
@@ -83,16 +87,32 @@ fn apply(
     route: &SocketRoute<'_>,
     idempotency_key: Option<&str>,
 ) -> Outcome {
-    let Some(kind) = beside_kind(plan) else { return Outcome::Unchanged };
+    let app_browser =
+        matches!(plan.operation, WireOperation::Typed(ResourceOperation::TabCreateBrowser));
+    let kind = beside_kind(plan);
     let caller = Caller::of_process();
     let Some(params) = plan.params.as_object() else { return Outcome::Unchanged };
-    if !caller.is_known()
+    if !(app_browser || kind.is_some())
+        || !caller.is_known()
         || !names_no_place(params)
         || !resolve::this_machine(params)
         || !route.has_owner()
     {
         return Outcome::Unchanged;
     }
+    let Some(kind) = kind else {
+        // A browser tab the app renders: only an existing column is named
+        // here; with none, the app run places the tab by its caller.
+        let placed = route.identity().and_then(browser_placement);
+        let (Some(Placement::Pane { workspace, pane }), Some(params)) =
+            (placed, plan.params.as_object_mut())
+        else {
+            return Outcome::Unchanged;
+        };
+        params.insert("workspace".into(), json!(workspace));
+        params.insert("pane".into(), json!(pane));
+        return Outcome::Placed;
+    };
     let correlation = correlation_key(params, idempotency_key).map(str::to_owned);
     // An earlier try of this request may have opened the tab already, in a
     // place this try would no longer choose: answer with that tab.

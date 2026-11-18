@@ -6,7 +6,7 @@ chat tab carries no `selected` key (ControlTabInfo.json; only a page tab does). 
 52cb2a00728943743154aa7b, 2026-11-02: "the measured workspace's last pane ... shows no terminal").
 The fake pane below has the real shape: `selected_tab` on the pane, no `selected` on its tabs.
 Run: python3 -I scripts/cmux-next/tests/test_sidebar_churn_typed_terminal.py"""
-import importlib.util, io, os, sys, tempfile, unittest
+import importlib.util, io, os, subprocess, sys, tempfile, unittest
 from contextlib import redirect_stdout
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -88,6 +88,22 @@ class TypedTerminalTests(unittest.TestCase):
         with redirect_stdout(io.StringIO()), self.assertRaises(SystemExit) as stop:
             churn.typed_terminal(builder, "ws", builder.panes(builder.workspace("ws"))[-1])
         self.assertIn("does not show terminal t1", str(stop.exception))
+
+
+class CreatedIdTests(unittest.TestCase):
+    """`cmux workspace create` prints a record, never a bare id (the CLI's human printer): the bench took the whole
+    record as the workspace's id."""
+
+    RECORD = ("generation          6bb23239-bcb6-4f7c-b635-3c4adc97d70f\nreplayed            false\n"
+              "revision            29\nvalue.kind          terminal\nvalue.pane_id       pane_0a\n"
+              "value.workspace_id  ws_0b\n")
+
+    def test_the_id_of_a_made_workspace_is_the_records_workspace_id_row(self):
+        self.assertEqual(churn.created_id(subprocess.CompletedProcess([], 0, self.RECORD, "")), "ws_0b")
+
+    def test_an_answer_with_no_workspace_id_row_gives_no_id(self):
+        for text in ("", "made\n", "error: the daemon did not answer\n"):
+            self.assertIsNone(churn.created_id(subprocess.CompletedProcess([], 1, text, "")), text)
 
 
 if __name__ == "__main__":

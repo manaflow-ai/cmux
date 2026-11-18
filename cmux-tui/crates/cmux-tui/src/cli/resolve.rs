@@ -23,9 +23,9 @@ mod caller;
 #[cfg(unix)]
 use caller::caller_identity;
 pub(super) use caller::place_creation;
-#[cfg(unix)]
-pub(super) use caller::workspace_key_path;
-use caller::{caller_path, registered_caller_workspace};
+#[cfg(test)]
+use caller::unplaced_agent_failure;
+use caller::{caller_path, registered_caller_workspace, unplaced_agent};
 
 type Reader = BufReader<Box<dyn transport::Stream>>;
 
@@ -458,8 +458,10 @@ fn caller_scopes(
                     .into(),
             ));
         }
-        Err(failure) if explicit => return Err(failure),
-        // A caller that cannot be found leaves `current` the focused object.
+        Err(failure) if explicit || unplaced_agent(&failure) => return Err(failure),
+        // A caller that cannot be found leaves `current` the focused object,
+        // except an agent the app cannot place: its tabs never go to the
+        // focused workspace, Home (user, 2026-11-18).
         Ok(None) | Err(_) => return Ok(()),
     };
     // An explicit id or name below a `current` keeps that `current` the
@@ -862,6 +864,20 @@ mod tests {
         let mut params = caller.as_object().unwrap().clone();
         let lost = || Err(Failure::Transport("app did not answer".into()));
         assert!(caller_scopes(&mut params, true, lost).is_err());
+    }
+
+    /// An agent the app shows nowhere (no chat tab, no open workspace for its
+    /// session) is refused: its `current` never becomes the focused workspace,
+    /// Home (user, 2026-11-18).
+    #[test]
+    fn an_agent_the_app_cannot_place_never_takes_the_focused_workspace() {
+        let current = json!({"workspace": "current", "pane": "current"});
+        let mut params = current.as_object().unwrap().clone();
+        let unplaced = || Err(unplaced_agent_failure());
+        let Err(Failure::Resource(error)) = caller_scopes(&mut params, true, unplaced) else {
+            panic!("an unplaced agent must be refused");
+        };
+        assert_eq!(error["code"], "caller_unavailable");
     }
 
     #[test]

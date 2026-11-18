@@ -135,7 +135,7 @@ extension Metrics {
     /// `windowCornerRadius` is 0), so the card never rounds more than the window it sits in.
     public static func chromeRowConcentricCardRadius(windowCornerRadius: CGFloat) -> CGFloat {
         let window = windowCornerRadius > 0 ? windowCornerRadius : standardWindowCornerRadius
-        return min(chromeRowCornerRadius(height: tabHeight) + tabStripCardInset, window)
+        return min(chromeTabCornerRadius + tabStripCardInset, window)
     }
 
     /// The radius of a card `edgeInset` points inside a window whose corners have
@@ -179,13 +179,14 @@ extension Metrics {
     /// clears it at a title area contrast of 0.5; under it the tab keeps the selection fill.
     public static let folderTabMinimumShade: CGFloat = 0.011
 
-    /// How strongly the tab row's divider draws (a share of `Palette.separator`): the line takes over from the
-    /// tone as `appearance.titleAreaContrast` drops, so the tab row stays marked at any contrast. 0 at a
-    /// contrast of 1 or more (the shipped look, no line), 1 at a contrast of 0 (one colour: the line and the
-    /// selected tab's pill are the only separation). Leo, 2026-11-12: "THERE IS THE DIVIDER THERE ARE WAYS TO
-    /// MAKE THE 'BACKGROUND' LESS CONTRAST THAN IT DOES NOW".
+    /// How strongly the tab row's divider draws (a share of `Palette.separator`); 0, no line, unless Debug Settings
+    /// turns it on (``ChromeTunables/tabRowDivider``, off by default: Lawrence, 2026-11-15, "we still have the line
+    /// below tabs which is very bad"). On, the line takes over from the tone as `appearance.titleAreaContrast` drops:
+    /// 0 at a contrast of 1 or more, 1 at a contrast of 0 (Leo, 2026-11-12: "THERE IS THE DIVIDER"). Every tab row
+    /// line reads it: the window's (`MainPaneChromeShadeView`) and a lower strip's in-card one.
     public static var tabRowDividerStrength: CGFloat {
-        min(1, max(0, 1 - titleAreaShadeScale))
+        guard ChromeTunables.tabRowDivider.value else { return 0 }
+        return min(1, max(0, 1 - titleAreaShadeScale))
     }
 
     /// The share of ``mainPaneChromeShadeBase(isDark:)`` the chrome draws. On the default flush corner's frame

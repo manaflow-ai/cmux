@@ -283,11 +283,12 @@ fn holder_command(opts: &SurfaceOptions) -> HolderCommand {
     HolderCommand { spawn_argv, argv: launch.command, env, cwd }
 }
 
-/// The holder child's environment: the daemon's own, then the terminal
-/// identity, then the launch's injected values, less
-/// [`cmux_pty::UNSET_IN_TERMINAL_CHILDREN`]. The holder gets
-/// the whole environment spelled out, so the removal happens here rather than
-/// through `PtyCommand::env_remove` as on the other two child paths.
+/// The holder child's environment: the daemon's own, then `TERM` and
+/// `COLORTERM`, then the launch's injected values, then
+/// [`cmux_pty::TERMINAL_IDENTITY`], less the keys
+/// [`crate::shell_integration::keys_to_unset_in_child`] names. The holder gets
+/// the whole environment spelled out, so this happens here rather than
+/// through `PtyCommand` as on the other child paths.
 fn holder_environment(
     launch: &crate::shell_integration::ShellLaunch,
     opts: &SurfaceOptions,
@@ -300,6 +301,9 @@ fn holder_environment(
         if !crate::login_shell::is_marker(key) {
             env.insert(key.into(), value.into());
         }
+    }
+    for (key, value) in cmux_pty::TERMINAL_IDENTITY {
+        env.insert(key.into(), value.into());
     }
     for key in crate::shell_integration::keys_to_unset_in_child(&launch.env) {
         env.remove(OsStr::new(key));
@@ -343,18 +347,31 @@ mod tests {
         );
     }
 
+    /// `echo $TERM_PROGRAM` in a cmux terminal says `cmux`, with cmux's own
+    /// version, whatever Ghostty identity the daemon inherited (a Cloud
+    /// daemon starts with `TERM_PROGRAM=ghostty` and a Ghostty version) or an
+    /// older app passed in the launch env.
     #[test]
-    fn inherited_terminal_version_is_not_kept_for_holder_children() {
+    fn holder_children_identify_as_cmux() {
         let launch = crate::shell_integration::ShellLaunch {
             command: vec!["/bin/zsh".to_string()],
-            env: vec![("TERM_PROGRAM_VERSION".to_string(), "1.3.2".to_string())],
+            env: vec![
+                ("TERM_PROGRAM".to_string(), "ghostty".to_string()),
+                ("TERM_PROGRAM_VERSION".to_string(), "1.3.2".to_string()),
+            ],
         };
-        let inherited =
-            BTreeMap::from([(OsString::from("TERM_PROGRAM_VERSION"), OsString::from("1.3.2"))]);
+        let inherited = BTreeMap::from([
+            (OsString::from("TERM_PROGRAM"), OsString::from("ghostty")),
+            (OsString::from("TERM_PROGRAM_VERSION"), OsString::from("1.3.2")),
+        ]);
 
         let environment = holder_environment(&launch, &SurfaceOptions::default(), inherited);
 
-        assert!(!environment.contains_key(OsStr::new("TERM_PROGRAM_VERSION")));
+        assert_eq!(environment.get(OsStr::new("TERM_PROGRAM")), Some(&OsString::from("cmux")));
+        assert_eq!(
+            environment.get(OsStr::new("TERM_PROGRAM_VERSION")),
+            Some(&OsString::from(env!("CARGO_PKG_VERSION")))
+        );
         assert_eq!(environment.get(OsStr::new("COLORTERM")), Some(&OsString::from("truecolor")));
     }
 }

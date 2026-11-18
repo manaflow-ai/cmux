@@ -3,6 +3,7 @@ import React, { Fragment, useCallback, useContext, useId, useLayoutEffect, useMe
 import { AgentMark } from "../shared/AgentMark";
 import type { ChatAccountList } from "./chatAccounts";
 import { AddAccountDialog } from "./AddAccountDialog";
+import { ClaudeConnectRow } from "./ClaudeConnectRow";
 import { isModelRouterKind } from "./routerKinds";
 import { SearchIcon } from "./ComposerPickers";
 import { reasoningChoices } from "./composerPickerModel";
@@ -14,6 +15,7 @@ import { useT } from "./i18n";
 import { useChatDisplay } from "./chatDisplay";
 import { resolveHarnessPlacement } from "../../ui/harnessPlacement";
 import { CHAT_COLUMN } from "./modelPickerLayout";
+import { HarnessUpdatesSection } from "./HarnessUpdates";
 import { useOpenSide } from "../../ui/openSide";
 import { OnNewTab } from "./newTabComposer";
 import { useScrollEdges } from "../../ui/scrollEdges";
@@ -817,6 +819,20 @@ export function QuickModelMenu({
         modelRows
       ) : (
         <>
+          {shown?.connect && (
+            // The Claude section's Connect row (ClaudeConnectRow.tsx): the whole row opens the dialog.
+            <MenuItem
+              className="acpmux-quick-item acpmux-quick-connect"
+              disabled={shown.connect.connected}
+              onSelect={() => shown.connect?.onConnect()}
+            >
+              <ClaudeConnectRow
+                name={shown.name}
+                {...(shown.mark ? { mark: shown.mark } : {})}
+                connected={shown.connect.connected}
+              />
+            </MenuItem>
+          )}
           {modelRows}
           {inlineMore && shown && shown.more.length > 0 && (
             <MenuItem
@@ -1060,19 +1076,23 @@ export function QuickModelMenu({
         <MenuPopup
           scroll={families === undefined}
           footer={
-            menu.update && (
-              <div className="acpmux-quick-update">
-                <span>{menu.update.text}</span>
-                <MenuItem
-                  className="acpmux-quick-update-action"
-                  onSelect={() => {
-                    menu.update?.run();
-                    onOpenChange(false);
-                  }}
-                >
-                  {t("harness.update")}
-                </MenuItem>
-              </div>
+            menu.updates ? (
+              <HarnessUpdatesSection updates={menu.updates} onOwnUpdate={() => onOpenChange(false)} />
+            ) : (
+              menu.update && (
+                <div className="acpmux-quick-update">
+                  <span>{menu.update.text}</span>
+                  <MenuItem
+                    className="acpmux-quick-update-action"
+                    onSelect={() => {
+                      menu.update?.run();
+                      onOpenChange(false);
+                    }}
+                  >
+                    {t("harness.update")}
+                  </MenuItem>
+                </div>
+              )
             )
           }
           side={side}

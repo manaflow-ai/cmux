@@ -99,7 +99,8 @@ final class CEFHostView: NSView {
     override func viewWillStartLiveResize() {
         super.viewWillStartLiveResize()
         liveResizeWillStart?()
-        layerHosting.windowLiveResize(active: true)
+        // Only a resize a person drags (a mouse button down) detaches the page; a display change also starts one.
+        layerHosting.windowLiveResize(active: true, byPerson: NSEvent.pressedMouseButtons != 0)
         updateBackground()
     }
 
@@ -107,6 +108,14 @@ final class CEFHostView: NSView {
         super.viewDidEndLiveResize()
         layerHosting.windowLiveResize(active: false)
         updateBackground()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let wasEmpty = bounds.isEmpty
+        super.setFrameSize(newSize)
+        // After super: the fork's tracker resized the page window in the frame notice, so its compositor has the new
+        // size the window's resize fence asks for (fork API 32, ``CEFLayerHosting/pageViewResized()``).
+        if !wasEmpty, newSize.width > 0, newSize.height > 0 { layerHosting.pageViewResized() }
     }
 
     /// Once the page's own background is known (`pageBackdrop`) the page area takes it, so the gap beside a page that is
