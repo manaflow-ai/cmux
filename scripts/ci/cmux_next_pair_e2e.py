@@ -191,6 +191,8 @@ def main():
     ap = argparse.ArgumentParser()
     for flag in ("--mac-app", "--ios-app", "--sims", "--udid", "--bundle-id", "--work", "--out", "--summary"):
         ap.add_argument(flag, required=True)
+    ap.add_argument("--new-chat", action="store_true",
+                    help="after the upload leg: a Mac New chat with no session starts from the phone's first send")
     a = ap.parse_args()
     # The theme leg runs on a tree that carries its Ghostty config (a demo branch adds it; the step
     # takes no argument for it): the Mac runs that config, and once paired the phone opens that
@@ -301,6 +303,7 @@ def main():
     teardown = TagTeardown(a.mac_app)
     teardown.install()
     streams, app, paired, url, uploaded = [], None, None, None, not probe
+    new_chat_ok = not a.new_chat
     # The discovery leg: the phone's Allow request reaches the running Mac in seconds, and a Mac
     # restart with a second identity key beside its Keychain key heals with no action on the phone.
     # CMUX_PAIR_E2E_DISCOVERY=0 leaves it out (a ref before it).
@@ -441,6 +444,9 @@ def main():
                 # page's MacName: the probe waits for a link to that name (since 2026-10-29 it never matched).
                 uploaded, line = upload_leg(simctl, a.udid, a.bundle_id, phone_env, upload_root, RIG_MAC_NAME)
                 note(f"- upload: {line}")
+            if paired and a.new_chat:
+                new_chat_ok, line = new_chat_leg(simctl, a.udid, a.bundle_id, phone_env, rpc, tag, screens, a.out)
+                note(f"- new chat from the phone: {line}")
             if discovery and paired:  # last: it quits and restarts the Mac
                 app, restart_ok = discovery_restart(app, exe, env, a.out, support, status, phone_log, streams,
                                                     phone_shot, note)
@@ -484,7 +490,170 @@ def main():
     if discovery:
         note(f"- discovery: Allow request {'PASS' if ask_ok else 'FAIL'}, restart with a split identity "
              f"{'PASS' if restart_ok else 'FAIL'}")
-    return 0 if paired and uploaded and cloud_ok and ask_ok and restart_ok else 1
+    return 0 if paired and uploaded and new_chat_ok and cloud_ok and ask_ok and restart_ok else 1
+
+
+
+NEW_CHAT_PROMPT = "What does the README say?"  # the DEBUG demo `live`'s first send (DemoDriver.live)
+NOT_STARTED = re.compile(r"hasn.t started in this tab", re.I)
+
+
+def snapshot_tabs(rpc):
+    """Every tab of the Mac's `snapshot.get`: (workspace id, pane id, tab)."""
+    snap = rpc("snapshot.get")
+    snap = snap.get("topology") or snap
+    return [(ws.get("id"), pane.get("id"), tab) for ws in snap.get("workspaces") or []
+            for screen in ws.get("screens") or [] for pane in screen.get("panes") or [] for tab in pane.get("tabs") or []]
+
+
+def daemon_conversation(tag, surface):
+    """The tab's `conversation` as the Mac's daemon lists it (`list-workspaces` on a connection that
+    echoes `agent-session-tabs-v1`), or None: its `agent_session.host` is what the phone's start checks."""
+    temp = os.environ.get("TMPDIR") or subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True,
+                                                      text=True).stdout.strip()
+    folder = os.path.join(temp, f"cmux-tui-{os.getuid()}")
+    for path in sorted(glob.glob(os.path.join(folder, f"*{tag}*"))):
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+                conn.settimeout(20)
+                conn.connect(path)
+                f = conn.makefile("rwb")
+                reply = {}
+                for n, request in enumerate(({"cmd": "set-client-info", "name": "pair-e2e", "kind": "frontend",
+                                              "capabilities": ["agent-session-tabs-v1"]}, {"cmd": "list-workspaces"})):
+                    f.write((json.dumps(dict(request, id=n + 1)) + "\n").encode())
+                    f.flush()
+                    while True:  # replies come in order; events carry no id
+                        line = f.readline()
+                        reply = json.loads(line) if line else {}
+                        if not line or reply.get("id") == n + 1:
+                            break
+            for ws in (reply.get("data") or {}).get("workspaces") or []:
+                for screen in ws.get("screens") or []:
+                    for pane in screen.get("panes") or []:
+                        for tab in pane.get("tabs") or []:
+                            ids = {tab.get("surface"), tab.get("id"), tab.get("tab_resource_id"), tab.get("surface_id")}
+                            if surface in ids:
+                                return tab.get("conversation") or (tab.get("extra") or {}).get("conversation") or {"tab": tab}
+        except (OSError, ValueError):
+            continue
+    return None
+
+
+def screen_text(paths):
+    """{path: [line, ...]}: the text Vision reads on each screenshot (scripts/ci/screen_text.swift)."""
+    if not paths:
+        return {}
+    try:
+        run = subprocess.run(["xcrun", "swift", os.path.join(ROOT, "scripts/ci/screen_text.swift"), *paths],
+                             capture_output=True, text=True, timeout=900)
+        return json.loads(run.stdout)
+    except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+        return {p: [f"<no text: {type(error).__name__}>"] for p in paths}
+
+
+def new_chat_leg(simctl, udid, bundle_id, phone_env, rpc, tag, screens, out):
+    """A New chat the Mac opened with no session yet starts from the phone's first message (PR #46294).
+
+    The Mac runs its own New chat (`palette.newAgentChat`) in a new workspace, so the tab is this Mac's
+    (`install:` host) with no session. The phone opens it and sends its first message through the chat's
+    own store (DEBUG demo `live`: the workspace with an agent tab, on that tab, then
+    `AgentChatStore.send(prompt:)`, what the composer's Send runs). The phone is recorded and shot every
+    ~2 s; the Mac must then list the tab bound to a session, a shot must show the message, and none may
+    show the old "hasn't started in this tab" notice (Vision reads each shot). (passed, summary line)."""
+    before = {t.get("id") for _, _, t in snapshot_tabs(rpc)}
+    made = rpc("action.run", {"action": "workspace.newAtBottom", "focus": True})
+    fresh = wait_for(lambda: [p for w, p, t in snapshot_tabs(rpc) if t.get("id") not in before], 30, every=0.5)
+    pane = fresh[0] if fresh else None
+    opened = rpc("action.run", {"action": "palette.newAgentChat", "target": f"pane:{pane}", "focus": True}) if pane else {"error": "no pane"}
+    if opened.get("error"):
+        opened = rpc("action.run", {"action": "palette.newAgentChat", "focus": True})
+
+    def new_agent_tab():
+        tabs = [(w, p, t) for w, p, t in snapshot_tabs(rpc) if t.get("id") not in before and t.get("kind") != "terminal"]
+        return tabs[0] if tabs else None
+
+    found = wait_for(new_agent_tab, 30, every=0.5)
+    if not found:
+        return False, f"FAIL: the Mac's New chat made no tab (new workspace {made}, newAgentChat {opened})"
+    ws_id, pane_id, tab = found
+    conversation = daemon_conversation(tag, tab.get("surface")) or {}
+    host = (conversation.get("agent_session") or {}).get("host")
+    with open(os.path.join(out, "new-chat-mac-tab.json"), "w") as f:
+        json.dump({"tab": tab, "workspace": ws_id, "pane": pane_id, "conversation": conversation}, f, indent=2)
+    started_unbound = tab.get("agent_session") is None
+    shot = rpc("debug.window_snapshot", {"path": os.path.join(screens, "new-chat-mac-before.png")}, timeout=60)
+
+    # The phone: recorded from launch, a shot about every 2 s while it opens the tab and sends.
+    subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True)
+    video = os.path.join(out, "new-chat-phone.mp4")
+    recorder = subprocess.Popen(simctl + ["io", udid, "recordVideo", "--codec", "h264", "--force", video],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    shots, bound_at, session = [], None, None
+    try:
+        time.sleep(2)  # bounded: recordVideo starts writing
+        t0 = time.monotonic()
+        subprocess.run(simctl + ["launch", udid, bundle_id, "-cmux-mobile-no-restore", "-cmux-mobile-demo", "live"],
+                       env=phone_env, check=True, capture_output=True)
+        # The demo opens the tab about 12 s after the link is up and sends 4 s later; it leaves for the
+        # Feed about 20 s after that. Up to 150 s of shots, ending 40 s after the Mac lists the binding.
+        while time.monotonic() - t0 < 150:
+            path = os.path.join(screens, f"new-chat-phone-{len(shots):03d}.png")
+            subprocess.run(simctl + ["io", udid, "screenshot", path], capture_output=True)
+            shots.append((time.monotonic() - t0, path))
+            if session is None:
+                now = next((t for _, _, t in snapshot_tabs(rpc) if t.get("id") == tab.get("id")), {})
+                if now.get("agent_session"):
+                    session, bound_at = now["agent_session"], time.monotonic() - t0
+            if bound_at is not None and time.monotonic() - t0 > bound_at + 40:
+                break
+            time.sleep(1)
+    finally:
+        recorder.send_signal(2)  # recordVideo finishes the file on SIGINT
+        try:
+            recorder.wait(30)
+        except subprocess.TimeoutExpired:
+            recorder.kill()
+    subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True)
+    rpc("debug.window_snapshot", {"path": os.path.join(screens, "new-chat-mac-after.png")}, timeout=60)
+    after_conversation = daemon_conversation(tag, tab.get("surface")) or {}
+    mac_chat = rpc("debug.agent_pane", {"action": "chat_state"}, timeout=60)
+    with open(os.path.join(out, "new-chat-mac-after.json"), "w") as f:
+        json.dump({"conversation": after_conversation, "chat_state": mac_chat}, f, indent=2)
+
+    texts = screen_text([p for _, p in shots])
+    with open(os.path.join(out, "new-chat-phone-text.json"), "w") as f:
+        json.dump(texts, f, indent=1)
+    banner = [os.path.basename(p) for _, p in shots if any(NOT_STARTED.search(line) for line in texts.get(p, []))]
+    sent = [p for _, p in shots if any("README say" in line for line in texts.get(p, []))]
+    title = tab.get("title") or "\0"
+    unsent = [p for _, p in shots if p not in sent and (not sent or p < sent[0])
+              and any(title in line for line in texts.get(p, []))]
+    # The named captures: the open tab before its first send, the first shot with the message, the last one.
+    for name, path in (("new-chat-phone-before", unsent[-1] if unsent else None),
+                       ("new-chat-phone-sent", sent[0] if sent else None),
+                       ("new-chat-phone-turn", sent[-1] if sent else None)):
+        if path:
+            shutil.copyfile(path, os.path.join(screens, f"{name}.png"))
+    # The burst stays as every 5th shot (the video has the rest), so the archive stays small.
+    for n, (_, path) in enumerate(shots):
+        if n % 5:
+            os.unlink(path)
+    turn =[line for line in texts.get(sent[-1], []) if line.strip()] if sent else []
+    checks = {
+        "the Mac's tab started with no session": started_unbound,
+        "its host is this Mac's install (or unread)": host is None or host.startswith("install:"),
+        "the Mac lists the tab bound to a session after the phone's send": session is not None,
+        "a phone shot shows the sent message": bool(sent),
+        "no phone shot shows \"hasn't started in this tab\"": not banner,
+    }
+    failed = [name for name, ok in checks.items() if not ok]
+    return not failed, (f"{'PASSED' if not failed else 'FAIL: ' + '; '.join(failed)}; tab {tab.get('id')} "
+                        f"({tab.get('kind')}, {tab.get('title')!r}, host {host or 'unread'}), session "
+                        f"{session or 'none'}{f' {bound_at:.0f} s after launch' if bound_at is not None else ''}; "
+                        f"{len(shots)} shots, {len(sent)} show the message, banner on {banner or 'none'}; "
+                        f"Mac snapshot {'ok' if not shot.get('error') else shot.get('error')}; last screen text: "
+                        f"{' | '.join(turn)[-600:]!r}; video new-chat-phone.mp4")
 
 
 ASKS = re.compile(r"phone (\w+) asks to pair: (\w+)")
