@@ -1,0 +1,30 @@
+/* The Liquid Glass Parity page (main.tsx): nothing but the surfaces, at the boxes the App sends,
+   over no background of its own, so every pixel outside a surface is the App's backdrop. */
+html,
+body {
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
+}
+#root {
+  position: fixed;
+  inset: 0;
+}
+.glass-parity-surface.glass-parity-surface {
+  position: absolute;
+  box-sizing: border-box;
+  inset: auto;
+  margin: 0;
+  max-width: none;
+  padding: var(--ds-space-2) var(--ds-space-3);
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-ui, -apple-system, system-ui);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  /* The App's native column draws the same text in the same ink (GlassParityNativeCell). */
+  color: var(--cmux-text, CanvasText);
+}
+.glass-parity-detail {
+  color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 62%, transparent));
+}
