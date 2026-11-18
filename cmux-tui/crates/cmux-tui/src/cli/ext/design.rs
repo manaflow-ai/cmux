@@ -3,44 +3,26 @@
 //! model can apply as written (RFD: cmuxterm-hq docs/rfd, "bad-design-proof UI primitives").
 //!
 //! The checks read the scene, not the source, so they hold for any way the view was built:
-//! - `type-size`: a point size that is not on the type scale (`TYPE_ROLES`).
+//! - `type-size`: a point size that is not one of the system's type roles.
 //! - `type-style`: an Apple text style name the web and macOS renderers draw at different sizes.
-//! - `type-roles`: more than `MAX_TYPE_ROLES` text styles in one view.
-//! - `spacing`: a gap or padding that is not on the spacing scale (`SPACING`).
+//! - `type-roles`: (widgets) more text styles in one tile than the system allows (4 in cmux's).
+//!   A pane or a specimen page may show more; a glanceable tile reads with few.
+//! - `spacing`: a gap or padding that is not on the system's spacing scale.
 //! - `color`: a raw hex color, or a color name no renderer knows (it draws nothing).
-//! - `accents`: more than `MAX_ACCENTS` accent colors in one view.
+//! - `accents`: more accent colors in one view than the system allows (2 in cmux's).
 //! - `contrast`: a hex text color below the WCAG minimum on its background, or on cmux's
 //!   light or dark surface when it sits on the theme's.
-//! - `line-limit`: a widget's Text with no line limit, which overflows a small tile.
+//! - `line-limit`: (widgets) a Text with no line limit, which overflows a small tile.
 //!
+//! The system is cmux's, or the folder's own `cmux-design.json` over it (`design_system.rs`).
 //! Findings warn; they never fail the load. `ext dev --once --json` lists them as `design`.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Value, json};
 
+use super::design_system::System;
 use super::scene::{self, Node};
-
-/// The type scale's roles: name, the SDK helper that draws it (`widget.ts`, `TYPE_ROLES`),
-/// point size, weight. Apple's widget text styles, and the sizes the web scene renders.
-pub(super) const TYPE_ROLES: [(&str, &str, f64, &str); 7] = [
-    ("numeral", "BigNumber", 34.0, "semibold"),
-    ("heading", "Heading", 20.0, "semibold"),
-    ("title", "Headline", 15.0, "semibold"),
-    ("label", "Label", 13.0, "semibold"),
-    ("body", "Body", 13.0, "regular"),
-    ("caption", "Caption", 12.0, "regular"),
-    ("footnote", "Footnote", 11.0, "regular"),
-];
-
-/// The spacing scale, in points (the SDK's `SPACE`): a 4 pt grid with 2 and 6 for tight rows.
-pub(super) const SPACING: [f64; 11] = [0.0, 2.0, 4.0, 6.0, 8.0, 12.0, 16.0, 20.0, 24.0, 32.0, 48.0];
-
-/// Text styles one view may use: a value, a heading, body and a caption.
-pub(super) const MAX_TYPE_ROLES: usize = 4;
-
-/// Accent colors one view may use (the theme accent counts as one).
-pub(super) const MAX_ACCENTS: usize = 2;
 
 /// Findings printed at most; past it one line says how many more.
 const MAX_FINDINGS: usize = 20;
@@ -119,8 +101,14 @@ impl Surface {
     }
 }
 
-/// The design findings for the scene `batches` build, most important first.
+/// The design findings for the scene `batches` build against cmux's system.
 pub(super) fn check(batches: &[&Value], surface: Surface) -> Vec<Finding> {
+    check_in(batches, surface, &System::cmux())
+}
+
+/// The design findings for the scene `batches` build against `system`: node findings in
+/// outline order, then the per-view counts (`type-roles`, `accents`).
+pub(super) fn check_in(batches: &[&Value], surface: Surface, system: &System) -> Vec<Finding> {
     let (root, nodes) = scene::apply(batches);
     let Some(root) = root else { return Vec::new() };
     let mut findings = Findings::default();
@@ -137,14 +125,19 @@ pub(super) fn check(batches: &[&Value], surface: Surface) -> Vec<Finding> {
         if !seen.insert(id) {
             continue;
         }
-        let behind = match node.props.get("background").and_then(Value::as_str).and_then(hex) {
+        let background = node.props.get("background").and_then(Value::as_str);
+        let behind = match background.and_then(hex) {
             Some((rgb, alpha)) if alpha >= 1.0 => vec![("its background".to_string(), rgb)],
+            // A theme color behind the text (an accent pill, a badge): its value is the theme's,
+            // so a hex text color on it cannot be measured here; the `color` check still names it.
+            None if background.is_some_and(|b| b != "clear") => Vec::new(),
             Some((rgb, alpha)) => behind
                 .iter()
                 .map(|(name, under)| {
                     let mixed = std::array::from_fn(|i| rgb[i] * alpha + under[i] * (1.0 - alpha));
+                    let under = name.strip_prefix("its tinted background over ").unwrap_or(name);
                     (
-                        format!("its tinted background over {}", name.trim_start_matches("its ")),
+                        format!("its tinted background over {}", under.trim_start_matches("its ")),
                         mixed,
                     )
                 })
@@ -152,30 +145,32 @@ pub(super) fn check(batches: &[&Value], surface: Surface) -> Vec<Finding> {
             None => behind,
         };
         if node.kind == "Text" {
-            text(node, &behind, surface, &mut findings, &mut styles);
+            text(node, &behind, surface, system, &mut findings, &mut styles);
         }
-        spacing(node, &mut findings);
+        spacing(node, system, &mut findings);
         colors(node, &mut findings, &mut accents);
         stack.extend(node.children.iter().rev().map(|child| (child.clone(), behind.clone())));
     }
-    if styles.len() > MAX_TYPE_ROLES {
+    let max_roles = system.max_roles;
+    if surface == Surface::Widget && styles.len() > max_roles {
         findings.add(
             "type-roles",
             None,
             format!(
-                "{} text styles in one view ({}); a glanceable view reads with {MAX_TYPE_ROLES} at most",
+                "{} text styles in one view ({}); a glanceable view reads with {max_roles} at most",
                 styles.len(),
                 styles.iter().cloned().collect::<Vec<_>>().join(", ")
             ),
-            "keep one value (BigNumber), one heading (Headline), Body and Caption; drop the rest".into(),
+            "keep one value (BigNumber), one heading (WidgetTitle or Headline), Body and Caption; drop the rest".into(),
         );
     }
-    if accents.len() > MAX_ACCENTS {
+    let max_accents = system.max_accents;
+    if accents.len() > max_accents {
         findings.add(
             "accents",
             None,
             format!(
-                "{} accent colors in one view ({}); more than {MAX_ACCENTS} reads as noise",
+                "{} accent colors in one view ({}); more than {max_accents} reads as noise",
                 accents.len(),
                 accents.iter().cloned().collect::<Vec<_>>().join(", ")
             ),
@@ -212,7 +207,12 @@ pub(super) fn scenes_in(file: &str, value: &Value) -> Vec<(String, Value)> {
 
 /// `ext design FILE... [--widget] [--json]`: each recorded scene's findings. Exit 0 when none
 /// warns, 1 when one does, 4 when a file does not read as scenes.
-pub(super) fn run(files: &[std::path::PathBuf], surface: Surface, json_out: bool) -> i32 {
+pub(super) fn run(
+    files: &[std::path::PathBuf],
+    surface: Surface,
+    system: &System,
+    json_out: bool,
+) -> i32 {
     let mut reports = Vec::new();
     for path in files {
         let name = path.display().to_string();
@@ -231,7 +231,11 @@ pub(super) fn run(files: &[std::path::PathBuf], surface: Surface, json_out: bool
             return super::exit::MANIFEST_INVALID;
         }
         for (scene, ops) in scenes {
-            reports.push((scene, check(&[&ops], surface)));
+            if scene::apply(&[&ops]).0.is_none() {
+                eprintln!("cmux: {scene}: the ops name no root, so there is no scene to check");
+                return super::exit::MANIFEST_INVALID;
+            }
+            reports.push((scene, check_in(&[&ops], surface, system)));
         }
     }
     let warned = reports.iter().filter(|(_, findings)| !findings.is_empty()).count();
@@ -290,24 +294,6 @@ fn number(value: Option<&Value>) -> Option<f64> {
     value.and_then(Value::as_f64).filter(|n| n.is_finite())
 }
 
-/// The type role a point size and weight are, if any.
-fn role_of(size: f64, weight: &str) -> Option<&'static str> {
-    let weight = if weight.is_empty() { "regular" } else { weight };
-    TYPE_ROLES.iter().find(|(_, _, s, w)| *s == size && *w == weight).map(|(name, _, _, _)| *name)
-}
-
-/// The nearest roles to an off-scale size, as the fix names them.
-fn nearest_roles(size: f64) -> String {
-    let mut roles: Vec<_> = TYPE_ROLES.iter().collect();
-    roles.sort_by(|a, b| (a.2 - size).abs().total_cmp(&(b.2 - size).abs()));
-    roles
-        .iter()
-        .take(2)
-        .map(|(_, helper, s, _)| format!("{helper}(...) ({s} pt)"))
-        .collect::<Vec<_>>()
-        .join(" or ")
-}
-
 /// What a node's text sits on: each candidate's name and color.
 type Behind = Vec<(String, [f64; 3])>;
 
@@ -315,6 +301,7 @@ fn text(
     node: &Node,
     behind: &Behind,
     surface: Surface,
+    system: &System,
     findings: &mut Findings,
     styles: &mut BTreeSet<String>,
 ) {
@@ -325,16 +312,16 @@ fn text(
         Some(Value::Number(_)) => {
             let points = number(font).unwrap_or(13.0);
             size = points;
-            if !TYPE_ROLES.iter().any(|(_, _, s, _)| *s == points) {
+            if !system.has_size(points) {
                 findings.add(
                     "type-size",
                     Some(node),
                     format!("font size {points} is not on the type scale"),
-                    format!("use {}", nearest_roles(points)),
+                    format!("use {}", system.nearest_roles(points)),
                 );
             }
-            styles.insert(match role_of(points, weight) {
-                Some(role) => role.to_string(),
+            styles.insert(match system.role_of(points, weight) {
+                Some(role) => role.name.clone(),
                 None => format!("{points} {}", if weight.is_empty() { "regular" } else { weight }),
             });
         }
@@ -359,12 +346,14 @@ fn text(
             ));
         }
     }
-    if let Some((color, _)) = node.props.get("color").and_then(Value::as_str).and_then(hex) {
+    if let Some((color, alpha)) = node.props.get("color").and_then(Value::as_str).and_then(hex) {
         let bold = matches!(weight, "semibold" | "bold" | "heavy" | "black");
         let large = size >= 18.0 || (bold && size >= 14.0);
         let floor = if large { 3.0 } else { 4.5 };
         for (what, bg) in behind {
-            let ratio = contrast(color, *bg);
+            // A translucent text color shows its background through: measure what is drawn.
+            let drawn = std::array::from_fn(|i| color[i] * alpha + bg[i] * (1.0 - alpha));
+            let ratio = contrast(drawn, *bg);
             if ratio < floor {
                 findings.add(
                     "contrast",
@@ -385,7 +374,7 @@ fn text(
     }
 }
 
-fn spacing(node: &Node, findings: &mut Findings) {
+fn spacing(node: &Node, system: &System, findings: &mut Findings) {
     let mut values: Vec<(&str, f64)> = Vec::new();
     for key in ["spacing", "padding", "paddingHorizontal", "paddingVertical"] {
         match node.props.get(key) {
@@ -397,19 +386,15 @@ fn spacing(node: &Node, findings: &mut Findings) {
         }
     }
     for (key, value) in values {
-        if SPACING.contains(&value) {
+        if system.space.contains(&value) {
             continue;
         }
-        let near = SPACING
-            .iter()
-            .min_by(|a, b| (*a - value).abs().total_cmp(&(*b - value).abs()))
-            .copied()
-            .unwrap_or(0.0);
+        let near = system.nearest_step(value);
         findings.add(
             "spacing",
             Some(node),
             format!("{key} {value} is not on the spacing scale"),
-            format!("use {near} (SPACE: 0 2 4 6 8 12 16 20 24 32 48)"),
+            format!("use {near} ({})", system.scale_text()),
         );
     }
 }

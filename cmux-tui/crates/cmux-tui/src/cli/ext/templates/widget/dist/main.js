@@ -2430,8 +2430,8 @@
     const view = (options.size === undefined ? role : role.font(options.size)).contentTransition("numericText");
     return options.tint ? view.color(options.tint) : view;
   }
-  function Caption(text) {
-    return TextIn("caption", text).color("secondary");
+  function Caption(text, options = {}) {
+    return TextIn("caption", text, options).color("secondary");
   }
   var API_VERSION = scopes_default.apiVersion;
   var g = globalThis;
