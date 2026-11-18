@@ -1,0 +1,37 @@
+/* A started chat's folder in the composer's quiet row (ChatFolderChip.tsx, cmux#46201). It stands
+   right after the mode chip (the same order, later in the row) and takes the row's free middle, as
+   the machine link does, so the model chip and the ring keep their place at the row's end. A long
+   folder name is cut at its end before any other control moves. Doubled class: the bar sets every
+   other row item to flex: none (composerLocation.css), which would keep the name from shrinking. */
+.acpmux-composer.acpmux-composer .acpmux-composer-foot > .acpmux-chat-folder {
+  order: -2;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-inline-end: auto;
+}
+.acpmux-composer-foot:has(> .acpmux-chat-folder) .acpmux-access,
+.acpmux-composer-foot:has(> .acpmux-machine-link) > .acpmux-chat-folder {
+  margin-inline-end: 0;
+}
+.acpmux-chat-folder {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  min-height: var(--grid-composer-quiet-row-height, 28px);
+  padding-inline: var(--acpmux-row-inset, 8px);
+  color: var(--agent-muted);
+  font-size: var(--text-control);
+  line-height: 16px;
+  white-space: nowrap;
+}
+.acpmux-chat-folder-icon {
+  display: inline-flex;
+  flex: none;
+  opacity: 0.8;
+}
+.acpmux-chat-folder-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
