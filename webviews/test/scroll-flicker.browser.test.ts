@@ -373,7 +373,15 @@ await requireBrowserLane("scroll-flicker.browser.test.ts", async () => {
         expect(seeded.error).toBeUndefined();
         const scroller = page.locator(".acpmux-scroll").first();
         const view = (await scroller.boundingBox())!;
-        await page.waitForTimeout(1500);
+        // The seeded chat sits at its latest row and the composer is drawn before the first notch.
+        await page.waitForFunction(() => {
+          const node = document.querySelector<HTMLElement>(".acpmux-scroll");
+          return (
+            !!node &&
+            node.scrollHeight - node.clientHeight - node.scrollTop <= 2 &&
+            !!document.querySelector("form.acpmux-composer")
+          );
+        });
         if (OUT) await page.screenshot({ path: path.join(OUT, `transcript-${engine}-start.png`) });
         await startRecorder(page, {
           parts: { composer: "form.acpmux-composer" },
