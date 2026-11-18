@@ -425,7 +425,7 @@ try {
           api: name === "chief-inspector" ? chiefData : null,
         });
         try {
-          const fragment = name === "server-cards" ? "#/pair-invite" : "";
+          const fragment = name === "server-cards" ? "#/add-machine" : "";
           await page.goto(`http://${variant}.${name}.localhost:${port}/?mock${fragment}`, {
             waitUntil: "commit",
             timeout: 30000,

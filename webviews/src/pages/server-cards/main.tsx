@@ -1,5 +1,5 @@
 // Boots the server card page (`cmux-page://cmux.server-cards/#/<card>`). In the app the host
-// installs the `cmuxPage` bridge; in the browser dev loop (`/server-cards/?mock#/pair-invite`) the
+// installs the `cmuxPage` bridge; in the browser dev loop (`/server-cards/?mock#/add-machine`) the
 // mock host stands in.
 import "../shared/desktop";
 import "../shared/transientMaterial";
@@ -17,7 +17,7 @@ import "./add-machine/addMachine.css";
 export function mountServerCards(root: HTMLElement, client: PageClient | null = defaultClient()): void {
   const strings = createStrings(table);
   document.documentElement.lang = strings.language;
-  document.title = strings.t("pairInvite.title");
+  document.title = strings.t("addMachine.title");
   createRoot(root).render(<ServerCardsPage client={client} strings={strings} />);
 }
 

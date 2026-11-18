@@ -517,8 +517,6 @@
    "src/pages/server-cards/host.ts::react-doctor/effect-needs-cleanup": 1,
    "src/pages/server-cards/host.ts::react-doctor/no-ref-current-in-render": 2,
    "src/pages/server-cards/host.ts::react-hooks-js/refs": 2,
-   "src/pages/server-cards/pairInvite/PairInviteCard.tsx::react-doctor/no-ref-current-in-render": 2,
-   "src/pages/server-cards/pairInvite/PairInviteCard.tsx::react-hooks-js/refs": 2,
    "src/pages/server-cards/server/ServerViews.tsx::react-doctor/no-ref-current-in-render": 1,
    "src/pages/server-cards/server/ServerViews.tsx::react-hooks-js/refs": 1,
    "src/pages/settings/components/AgentIntegrations.tsx::react-hooks-js/todo": 1,

@@ -27,8 +27,11 @@ final class ServerMenuBarController: NSObject {
     /// The model's page provider; its model's source runs while `running` (`hide()` stops it).
     private var provider: ServerPageProvider?
     private var running = false
-    /// The floating web cards (Add Server, Pair Another Machine, Add Machine), made on the first opening and kept warm.
+    /// The floating web cards (Add Server, Add Machine), made on the first opening and kept warm.
     private var cards: WebCardPanel?
+    /// The native Pair Another Machine card, made on its first opening (nil without the App's services).
+    private lazy var invite: PairInviteDialog? = makeInvite()
+    private let makeInvite: @MainActor () -> PairInviteDialog?
     /// Makes the web card panel with this item's own cards (Add Server): nil without the App's
     /// services (previews and tests).
     private let makeCards: @MainActor (_ cards: [any WebCard]) -> WebCardPanel?
@@ -41,9 +44,10 @@ final class ServerMenuBarController: NSObject {
 
     init(makeSource: @escaping @MainActor () -> (any ServerSource)? = { MockServerSource(scenario: .healthyMac) },
          makeCards: @escaping @MainActor (_ cards: [any WebCard]) -> WebCardPanel? = { _ in nil },
-         qr: @escaping (String) -> String? = { _ in nil }) {
+         makeInvite: @escaping @MainActor () -> PairInviteDialog? = { nil }, qr: @escaping (String) -> String? = { _ in nil }) {
         self.makeSource = makeSource
         self.makeCards = makeCards
+        self.makeInvite = makeInvite
         self.qr = qr
         super.init()
     }
@@ -68,6 +72,7 @@ final class ServerMenuBarController: NSObject {
     func hide() {
         popover?.close()
         cards.take()?.dismiss()
+        invite?.close()
         if running { provider?.model.stop() }
         running = false
         if let item { NSStatusBar.system.removeStatusItem(item) }
@@ -97,18 +102,13 @@ final class ServerMenuBarController: NSObject {
         panel.present(card: ServerPageProvider.route, over: Self.frontWindow(), takeKeys: code == nil)
     }
 
-    /// Shows the Pair Another Machine card near the top center of the front cmux window, with the
-    /// keys, and mints a new invite (a card still showing a live one keeps it). Opened by a person
-    /// only: the palette's person-only action and Add Device's hand-off.
-    func openInvite() {
-        guard let panel = currentProvider().flatMap(currentCards) else {
-            return Self.logger.fault("pair invite card: no card page (the App's services are gone)")
-        }
-        panel.present(card: PairInviteCardProvider.route, over: Self.frontWindow(), takeKeys: true)
-    }
+    /// Shows the native Pair Another Machine card top center over the front cmux window, with the keys, and mints a
+    /// new invite (a card still showing a live one keeps it). Opened by a person only: the palette's person-only
+    /// action and Add Device's hand-off.
+    func openInvite() { invite?.open(over: Self.frontWindow()) }
 
-    /// The web card panel (Add Server, Pair Another Machine, Add Machine), made on its first use and
-    /// kept warm. It carries Add Server's provider, so the model starts with it as it does for the invite.
+    /// The web card panel (Add Server, Add Machine), made on its first use and kept warm. It carries Add
+    /// Server's provider, so the model starts with it.
     func cardPanel() -> WebCardPanel? {
         currentProvider().flatMap(currentCards)
     }

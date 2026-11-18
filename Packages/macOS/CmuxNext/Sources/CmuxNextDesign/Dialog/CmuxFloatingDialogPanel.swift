@@ -29,6 +29,11 @@ open class CmuxFloatingDialogPanel: NSPanel {
     public var hidesWhenInactive = false
     /// Called when the card goes away (answered, Escape, or the person worked elsewhere).
     public var onHide: (@MainActor () -> Void)?
+    /// SECURITY: answers the card's ``CmuxDialogButton/personOnly`` buttons (Confirm on a pairing card): only the
+    /// person's own click on one, read from this panel's dispatch (``CmuxDialogPersonClick``), calls
+    /// ``onPersonPress`` with its id. Nil: the card has none.
+    public var personOnlyClick: CmuxDialogPersonClick?
+    public var onPersonPress: (@MainActor (String) -> Void)?
 
     /// The view shown now (the card, or a host's view that holds one); nil while none is.
     public private(set) var hosted: NSView?
@@ -190,7 +195,13 @@ open class CmuxFloatingDialogPanel: NSPanel {
             route.makeKey(self)
             route.moveKeyboard(in: self, to: view)
         }
-        super.sendEvent(event)
+        guard let personOnlyClick else { return super.sendEvent(event) }
+        let allows: @MainActor () -> [NSControl] = { [weak self] in
+            guard let card = self?.dialogView else { return [] }
+            return card.spec.buttons.filter(\.personOnly).compactMap { card.buttonView($0.id) }
+        }
+        let control = personOnlyClick.dispatch(event, allows: allows, in: windowNumber) { super.sendEvent(event) }
+        if let id = (control as? CmuxDialogButtonView)?.button.id { onPersonPress?(id) }
     }
 }
 

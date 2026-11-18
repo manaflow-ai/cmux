@@ -66,6 +66,7 @@ public final class CmuxDialogButtonView: ClickableButton {
         wantsLayer = true
         self.target = target
         self.action = action
+        isEnabled = button.isEnabled
         identifier = NSUserInterfaceItemIdentifier("cmux.dialog.button.\(button.id)")
         setAccessibilityLabel(button.title)
         // VoiceOver reads the key after the title; the label stays the title (automation finds it).

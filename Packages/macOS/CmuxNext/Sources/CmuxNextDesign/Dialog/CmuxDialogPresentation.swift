@@ -85,7 +85,7 @@ public final class CmuxDialogPresentation {
     /// The person pressed button `id` with these field values; false when the dialog has no such button.
     @discardableResult
     public func press(_ id: String, values edits: [String: CmuxDialogValue] = [:]) -> Bool {
-        guard spec.buttons.contains(where: { $0.id == id }) else { return false }
+        guard spec.buttons.contains(where: { $0.id == id }) || spec.fields.contains(where: { $0.actionIDs.contains(id) }) else { return false }
         edited(edits)
         onPress?(id)
         return true
@@ -163,7 +163,7 @@ public final class CmuxDialogPresentation {
                 let enabled = options.filter(\.isEnabled)
                 values[id] = .text(selected.flatMap { s in enabled.first { $0.value == s }?.value } ?? enabled.first?.value ?? "")
             case .check(let id, _, let on): values[id] = .bool(on)
-            case .preview, .code: break
+            case .preview, .code, .copyLine, .pairingCode, .progress, .note: break
             }
         }
         return values
