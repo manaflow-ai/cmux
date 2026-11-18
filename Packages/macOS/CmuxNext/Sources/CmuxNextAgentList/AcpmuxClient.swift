@@ -12,6 +12,8 @@ public nonisolated final class AcpmuxClient: @unchecked Sendable {
     }
 
     public static let expectedABIVersion = UInt32(ACPMUX_CLIENT_ABI_VERSION)
+    /// The ABI's code for a request the core refused (`ACPMUX_CLIENT_ERR_INVALID`).
+    public static let refusedCode = Int32(ACPMUX_CLIENT_ERR_INVALID)
     private let queue = DispatchQueue(label: "cmux.acpmux-client", qos: .utility) // qos-allow: serialized C calls are background transport work
     private var handle: UnsafeMutableRawPointer?
     private var sendHandler: (@Sendable (Data) -> Void)?
@@ -92,6 +94,11 @@ public nonisolated final class AcpmuxClient: @unchecked Sendable {
     @discardableResult public func unsubscribe(_ request: Data) -> Int32 { mutate(request) { handle, p, n in acpmux_client_unsubscribe(handle, p, n) } }
     @discardableResult public func page(_ request: Data) -> Int32 { mutate(request) { handle, p, n in acpmux_client_page(handle, p, n) } }
     public func subscribeChat(_ request: Data) -> Data? { call(request) { handle, p, n, out in acpmux_client_subscribe_chat(handle, p, n, out) } }
+    /// ``subscribeChat(_:)``'s ABI code: 0 when the core took the sub, ``refusedCode`` when it
+    /// refused the request, and another code for no handle or a panic in the core.
+    public func subscribeChatCode(_ request: Data) -> Int32 {
+        coded(request) { handle, p, n, out in acpmux_client_subscribe_chat(handle, p, n, out) }.code
+    }
     @discardableResult public func chatPage(_ request: Data) -> Int32 { mutate(request) { handle, p, n in acpmux_client_chat_page(handle, p, n) } }
     public func chatBlob(_ request: Data) -> Data? { call(request) { handle, p, n, out in acpmux_client_chat_blob(handle, p, n, out) } }
 
@@ -104,8 +111,12 @@ public nonisolated final class AcpmuxClient: @unchecked Sendable {
     }
 
     private func call(_ request: Data, _ invoke: (UnsafeMutableRawPointer, UnsafePointer<UInt8>?, Int, UnsafeMutablePointer<AcpmuxClientBytes>) -> Int32) -> Data? {
+        coded(request, invoke).response
+    }
+
+    private func coded(_ request: Data, _ invoke: (UnsafeMutableRawPointer, UnsafePointer<UInt8>?, Int, UnsafeMutablePointer<AcpmuxClientBytes>) -> Int32) -> (response: Data?, code: Int32) {
         queue.blockingSync {
-            guard let handle else { return nil }
+            guard let handle else { return (nil, Int32(ACPMUX_CLIENT_ERR_UNKNOWN)) }
             return request.withUnsafeBytes { raw in
                 var bytes = AcpmuxClientBytes(ptr: nil, len: 0)
                 let result = invoke(handle, raw.bindMemory(to: UInt8.self).baseAddress, request.count, &bytes)
@@ -121,7 +132,7 @@ public nonisolated final class AcpmuxClient: @unchecked Sendable {
                     response = nil
                 }
                 flushSend()
-                return response
+                return (response, result)
             }
         }
     }

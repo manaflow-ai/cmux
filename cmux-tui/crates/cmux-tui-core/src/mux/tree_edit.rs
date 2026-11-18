@@ -21,7 +21,7 @@ pub(super) fn restore_focus_identity(state: &mut State, focus: Option<FocusIdent
     };
     state.workspaces[workspace_index].active_screen = screen_index;
     if state.workspaces[workspace_index].screens[screen_index].root.contains(pane_id) {
-        state.workspaces[workspace_index].screens[screen_index].active_pane = pane_id;
+        state.workspaces[workspace_index].screens[screen_index].set_active_pane(pane_id);
     }
 }
 
@@ -579,6 +579,13 @@ pub(super) fn remove_surface(
         );
         pane.active_tab =
             pick.and_then(|pick| pane.tabs.iter().position(|id| *id == pick)).unwrap_or(0);
+        // A tab that still launches can have its slot next to the closed
+        // tab: the list of the creations keeps the active tab for it, while
+        // the active tab of the pane stays where this close puts it.
+        let then =
+            tab_strip::place_list::ActiveNow { tab: pane.active_surface(), at: pane.active_at };
+        let was_active = selected == Some(target);
+        state.tab_places.lock().tab_closes(pane_id, &old_order, target, was_active, then);
         fence_layout_undo_for_tab_membership(state, &[pane_id]);
         return (removed, false);
     }
@@ -607,7 +614,7 @@ pub(super) fn remove_surface(
             None
         };
         if let Some(next) = next_active {
-            state.workspaces[wi].screens[si].active_pane = next;
+            state.workspaces[wi].screens[si].set_active_pane(next);
         }
         stamp_changed_active_pane(mux, state, previous_active);
         return (removed, true);
@@ -653,7 +660,7 @@ pub(super) fn collapse_empty_pane(mux: &Mux, state: &mut State, pane_id: PaneId)
             None
         };
         if let Some(next) = next_active {
-            state.workspaces[wi].screens[si].active_pane = next;
+            state.workspaces[wi].screens[si].set_active_pane(next);
         }
     } else {
         let ws = &mut state.workspaces[wi];
@@ -732,7 +739,7 @@ pub(super) fn move_tab_in_state(
         let ws = &mut state.workspaces[wi];
         ws.active_screen = si;
         let screen = &mut ws.screens[si];
-        screen.active_pane = target_pane;
+        screen.set_active_pane(target_pane);
         Some((ws.id, screen.id))
     } else {
         None

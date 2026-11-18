@@ -45,9 +45,12 @@ public final class KeptTerminalChats {
         self.now = now
     }
 
+    /// The parts joined by `|`, each escaped (`\` to `\\`, `|` to `\|`) so an id that holds a `|`
+    /// never makes two keys one. Ids without either character keep the key they had on disk.
     public static func key(_ parts: String...) -> String? {
         guard parts.allSatisfy({ !$0.isEmpty }) else { return nil }
-        return parts.joined(separator: "|")
+        return parts.map { $0.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "|", with: "\\|") }
+            .joined(separator: "|")
     }
 
     /// Reads the file once, off the main thread. Later calls wait for the same read.

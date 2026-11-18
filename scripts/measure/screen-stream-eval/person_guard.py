@@ -4,7 +4,11 @@ An Apple Screen Sharing run on an owner's own Mac took focus with AppleScript, h
 window he could not quit (2026-11-16). Such targets now run only on dedicated fleet Macs, or on an
 unknown Mac nobody has touched for a while. There is no override: a person's Mac is refused.
 
-  python3 -I person_guard.py check TARGETS_CSV   (exit 0 allowed, 2 refused with one stderr line)
+  python3 -I person_guard.py check TARGETS_CSV [viewer]   (exit 0 allowed, 2 refused with one stderr line)
+
+`viewer` says this Mac only views (viewer-of=). apple-rfb's viewer is a headless protocol client
+that opens no window and posts nothing on the Mac it runs on, so it may view from a person's Mac;
+its input lands on the host Mac, which is checked like any other.
 """
 import glob
 import json
@@ -20,9 +24,11 @@ IDLE_REQUIRED_S = 600
 NEXT_STEP = 'run it with the viewer and host on dedicated fleet Macs (README.md, "Two Macs")'
 
 
-def opens_windows(target):
-    # Every Apple viewer variant (apple-high, apple-standard, a future apple-rfb) and Moonlight
-    # drive a GUI viewer; cmux's own viewers and capture probes do not.
+def opens_windows(target, viewer=False):
+    # Every Apple viewer variant and Moonlight drive a GUI viewer; cmux's own viewers and capture
+    # probes do not. apple-rfb posts RFB input to the host's screen, so only its viewer is headless.
+    if target == "apple-rfb" and viewer:
+        return False
     return target.startswith("apple") or target == "moonlight"
 
 
@@ -85,9 +91,9 @@ def idle_seconds(ioreg_output):
     return min(values) / 1e9 if values else None
 
 
-def decide(targets, names, machines, idle_s):
+def decide(targets, names, machines, idle_s, viewer=False):
     """(None, None) when allowed, else (target, reason) for the first refused target."""
-    gui = [t for t in targets if opens_windows(t)]
+    gui = [t for t in targets if opens_windows(t, viewer)]
     if not gui:
         return None, None
     matches = match_entries(machines, names) if machines else []
@@ -109,27 +115,28 @@ def message(target, host, reason):
     return f"screen-stream-eval: refused: {target} opens windows or posts input, and {host} is {reason}; next: {NEXT_STEP}"
 
 
-def check(targets_csv, env_path, home, run=_run):
+def check(targets_csv, env_path, home, run=_run, viewer=False):
     targets = [t for t in targets_csv.split(",") if t]
-    if not any(opens_windows(t) for t in targets):
+    if not any(opens_windows(t, viewer) for t in targets):
         return None
     names = local_names(run)
     machines = load_registry(find_registry(env_path, home))
     # ioreg only when the registry does not decide, so a known Mac pays nothing for it.
     known = machines and match_entries(machines, names)
     idle_s = None if known else idle_seconds(run(["ioreg", "-c", "IOHIDSystem", "-d", "4"]))
-    target, reason = decide(targets, names, machines, idle_s)
+    target, reason = decide(targets, names, machines, idle_s, viewer)
     if target is None:
         return None
     return message(target, names[0] if names else "this Mac", reason)
 
 
 def main(argv):
-    if len(argv) != 3 or argv[1] != "check":
-        print("usage: person_guard.py check TARGETS_CSV", file=sys.stderr)
+    if len(argv) not in (3, 4) or argv[1] != "check" or argv[3:] not in ([], ["viewer"]):
+        print("usage: person_guard.py check TARGETS_CSV [viewer]", file=sys.stderr)
         return 2
     # The account's real home: a CI step's $HOME is scratch and would hide the registry.
-    refusal = check(argv[2], os.environ.get("CMUX_FLEET_REGISTRY", ""), pwd.getpwuid(os.getuid()).pw_dir)
+    refusal = check(argv[2], os.environ.get("CMUX_FLEET_REGISTRY", ""), pwd.getpwuid(os.getuid()).pw_dir,
+                    viewer=len(argv) == 4)
     if refusal:
         print(refusal, file=sys.stderr)
         return 2
