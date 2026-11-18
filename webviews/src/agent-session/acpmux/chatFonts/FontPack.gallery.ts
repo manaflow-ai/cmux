@@ -22,6 +22,9 @@ export const FOLIO_PACK: Record<string, unknown> = {
   "agentPane.display.code.family": "Folio Mono",
   "agentPane.display.font.size": 15,
   "agentPane.display.font.lineHeight": 1.6,
+  // Folio Mono's x-height is far above Folio Serif's: at 0.8 of the text size its lowercase sits level
+  // with the serif's.
+  "agentPane.display.code.scale": 0.8,
   [CHAT_FONT_FACES_KEY]: { "Folio Sans": folioSans, "Folio Serif": folioSerif, "Folio Mono": folioMono },
 };
 
@@ -78,17 +81,71 @@ const transcript = chat([
   summary(4, { status: "completed", toolCount: 1, durationMs: 18_000 }),
 ]);
 
+/// A reply with everything prose carries (headings, inline code, bold, italic, a fenced block, a
+/// list, a table), shown from its top: the stage is tall enough for all of it.
+export const RICH_REPLY = [
+  "## Why the retry test flakes",
+  "",
+  "The test used **real timers**, so on a loaded runner the third attempt landed *after* the assertion. Locally the machine is idle and `retry()` finishes in time, so the race never shows.",
+  "",
+  "### The fix",
+  "",
+  "`retry()` now takes the `sleep` it waits with, and the test passes a fake one. The backoff and the error it gives up with are *unchanged*:",
+  "",
+  "```ts",
+  "const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));",
+  "",
+  "export async function retry<T>(run: () => Promise<T>, wait = sleep): Promise<T> {",
+  "  for (let attempt = 0; ; attempt++) {",
+  "    try {",
+  "      return await run();",
+  "    } catch (error) {",
+  "      if (attempt === 2) throw error;",
+  "    }",
+  "    await wait(200 * 2 ** attempt);",
+  "  }",
+  "}",
+  "```",
+  "",
+  "- Backoff is 200, 400 and 800 ms; the jitter stays within 10%.",
+  "- A retried `POST` sends the same idempotency key.",
+  "- The upload queue calls the shared `retry()` too.",
+  "",
+  "| Run | Real timers | Fake timers |",
+  "| --- | --- | --- |",
+  "| Local | 12 / 12 | 12 / 12 |",
+  "| CI | 9 / 12 | 12 / 12 |",
+  "",
+  "All 12 tests pass, three times in a row.",
+].join("\n");
+
+export const richChat = chat([
+  user("Why does the retry test fail on CI but pass locally?", 3),
+  assistant(RICH_REPLY, 2),
+  summary(2, { status: "completed", toolCount: 2, durationMs: 32_000 }),
+]);
+
 const DRAFT = "Yes, open it. Keep the **4xx** rule in its own commit and name `retry()` in the title.";
 
 /// The pack's faces load after the display push: the stage waits for them, so no capture shows the
 /// fallback.
-const packLoaded: Play = async (ctx) => {
+export const packLoaded: Play = async (ctx) => {
   await ctx.waitFor(
     () =>
       ["Folio Sans", "Folio Serif", "Folio Mono"].every((family) => ctx.document.fonts.check(`15px "${family}"`)) &&
       ctx.document.fonts.status === "loaded",
   );
 };
+
+/// The rich reply alone, from its top, pack off or on.
+const real = (pack: boolean): AgentPaneVariant => ({
+  note: `${pack ? "Font pack on" : "Font pack off"}: one reply with headings, inline code, a code block, a list and a table, from its top.`,
+  snapshot: richChat,
+  ready: { cwd: CWD },
+  display: pack ? FOLIO_PACK : {},
+  height: 1700,
+  ...(pack && { play: packLoaded }),
+});
 
 const variant = (pack: boolean, composer: boolean): AgentPaneVariant => ({
   note: `${pack ? "Font pack on: Folio Sans chrome, Folio Serif replies, Folio Mono code, 15px on 1.6" : "Font pack off: the default chat"}${composer ? ", the composer with a draft" : ", a long transcript"}.`,
@@ -112,5 +169,7 @@ export default agentPaneEntry({
     on: variant(true, false),
     "composer-off": variant(false, true),
     "composer-on": variant(true, true),
+    "real-off": real(false),
+    "real-on": real(true),
   },
 });
