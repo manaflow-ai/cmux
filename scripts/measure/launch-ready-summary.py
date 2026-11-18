@@ -17,8 +17,12 @@ home if they were prev on home is fine"). Each case's expectation is one entry o
 front=home|tab seeds the priming launch's front; every measured launch is then judged against that front.
 A front's compare key: Home when Home is in front (`home`, or topPage "home", or the focused tab's page "home-dock"),
 else (workspace, tab): the front window's shown workspace key and its focused pane's selected tab id.
-Prints an LR-FAIL row per launch that did not land where it should. A launch whose launch before left no readable
-front cannot be judged against it: LR-SKIP, outside N/M, not an LR-FAIL. The stress3 seed quits the app itself, so its
+kept, cold and foreign judge every launch after the priming one (or the stress3 seed), the preruns included, against
+that launch's front; a prerun that changed it fails the arm. With that front unreadable the arm is not judged
+(LR-REOPENED SIDE not-judged: ...), never compared with the launch before instead.
+Prints an LR-FAIL row per launch that did not land where it should, and LR-SAME-FRONT: ok only when every arm was
+judged and none failed, else invalid with the arms that were not judged or failed. In case=update, a launch whose
+launch before left no readable front cannot be judged against it: LR-SKIP, outside N/M, not an LR-FAIL. The stress3 seed quits the app itself, so its
 probe reads no front; --out DIR reads the one the seed wrote just before (DIR/seed-SIDE.front.json).
 """
 import argparse
@@ -108,6 +112,21 @@ def judge(row, expect, prev):
     return "opened " + json.dumps(front, sort_keys=True) + " after " + json.dumps(prev, sort_keys=True)
 
 
+# The cases whose every launch must show the priming launch's front (or the stress3 seed's); case=update's old copy
+# sets the front its new copy must reopen, so it keeps comparing with the launch before.
+PRIME_ANCHORED = ("kept", "cold", "foreign")
+# The launches between the priming one and a measured one: the full-settle preruns (prerun=) and case=update's old copy.
+PRERUNS = ("full", "old")
+
+
+def judge_against_anchor(row, expect, anchor, anchor_drew_home):
+    """judge() against the priming launch's front; when that front is Home, Home's page must draw too."""
+    reason = judge(row, expect, anchor)
+    if reason is None and is_home(anchor) and anchor_drew_home and "home.first_page" not in (row.get("marks") or {}):
+        return "Home in front but Home's page did not draw (home.first_page), as the priming launch's did"
+    return reason and reason + " (judged against the priming launch's front)"
+
+
 def fill_seed_fronts(rows, out):
     """The stress3 seed quits the app itself, so its probe read no front; the seed wrote the one it left just before."""
     for r in rows:
@@ -135,18 +154,40 @@ def summarize(rows, case="kept", seeded=""):
         for name in sorted(names, key=lambda n: statistics.median([r["marks"][n] for r in done if n in r["marks"]])):
             med[name] = round(statistics.median([r["marks"][name] for r in done if name in r["marks"]]), 1)
         failed, prev, prev_label, measured, usable, anchor, skipped = [], None, None, 0, 0, None, 0
+        drifted, anchor_drew_home, not_judged = [], False, None
         if seeded:  # front=: the priming launch's front is the front every measured launch must reopen
             prime = next((r for r in own if r["label"] == "prime"), {})
             anchor = prime.get("front")
             if not anchor or "error" in anchor or key(anchor)[0] != ("home" if seeded == "home" else "tab"):
                 print("LR-FAIL", side, "prime", f"front={seeded} not seeded: front " + json.dumps(anchor, sort_keys=True), flush=True)
                 failed.append("prime")
+        # kept, cold, foreign: nothing between launches moves the front, so every launch after the priming one (or the
+        # stress3 seed, which sets its own) must show that front: the preruns too, which used to be skipped while still
+        # moving `prev`, so a change at prime -> full1 read as N/N reopened (cmux#44491's lost Home front). A launch
+        # that changed it fails the arm even when a later one changes it back. With that front unreadable the arm is
+        # not judged at all: comparing with the launch before instead is the same blind spot.
+        anchored = not seeded and case in PRIME_ANCHORED
         for r in own:
+            if anchored and r["label"] in ("prime", "seed"):
+                front = r.get("front")
+                if not front or "error" in front:
+                    not_judged = f"{r['label']} front unreadable: " + str((front or {}).get("error") or "none read")
+                    anchor = None
+                else:
+                    anchor, not_judged = front, None
+                anchor_drew_home = "home.first_page" in (r.get("marks") or {})
+            elif anchored and anchor is not None and r["label"].startswith(PRERUNS):
+                reason = judge_against_anchor(r, expect, anchor, anchor_drew_home)
+                if reason:
+                    print("LR-FAIL", side, r["label"], reason, flush=True)
+                    drifted.append(r["label"])
             if r["label"].startswith("run"):
                 measured += 1
                 usable += "window_usable" in (r.get("marks") or {})
                 front, before = r.get("front"), None if case == "fresh" else (anchor if seeded else prev)
-                if (expect != "home" and not seeded and not r.get("cross_arm") and front and "error" not in front
+                if anchored:
+                    reason = None if not_judged else judge_against_anchor(r, expect, anchor, anchor_drew_home)
+                elif (expect != "home" and not seeded and not r.get("cross_arm") and front and "error" not in front
                         and (not before or "error" in before)):
                     skipped, reason = skipped + 1, None
                     print("LR-SKIP", side, r["label"], f"{prev_label or 'the launch before'} left no readable front:",
@@ -160,6 +201,11 @@ def summarize(rows, case="kept", seeded=""):
         runs = [r for r in own if r["label"].startswith("run")]
         reopened = measured - sum(1 for label in failed if label != "prime")
         med["reopened"] = f"{reopened - skipped}/{measured - skipped}" + (f" ({skipped} skipped)" if skipped else "")
+        if drifted:  # the arm fails: a prerun left the prime's front, whatever the measured launches read
+            med["reopened"] += " (front changed at " + ",".join(drifted) + ")"
+            failed.extend(drifted)
+        if not_judged:
+            med["reopened"] = "not-judged: " + not_judged
         med["usable"] = f"{usable}/{measured}"
         surfaces = Counter(first_surface(r) for r in runs)
         first = surfaces.most_common(1)[0][0] if surfaces else "none"
@@ -170,11 +216,19 @@ def summarize(rows, case="kept", seeded=""):
         print("LR-USABLE", side, med["usable"], flush=True)
         mix = ",".join(f"{k}:{v}" for k, v in sorted(surfaces.items()))
         print("LR-SURFACE", side, f"first={first} home_page_drawn={drawn}/{measured} mix={mix}", flush=True)
-        result[side] = {"failed": failed, "surface": first}
+        result[side] = {"failed": failed, "surface": first, "judged": not not_judged}
     # An A/B whose arms first showed different surfaces times different work: not like for like.
     firsts = {side: data["surface"] for side, data in result.items()}
     if len(set(firsts.values())) > 1:
         print("LR-SURFACE-DIFF", " ".join(f"{s} first={f}" for s, f in firsts.items()) + ": not like for like", flush=True)
+    # Whether this run may be quoted as "every launch reopened the same front": every arm judged and none failed.
+    unjudged = [s for s, data in result.items() if not data["judged"]]
+    moved = [s for s, data in result.items() if data["judged"] and data["failed"]]
+    if unjudged or moved:
+        print("LR-SAME-FRONT invalid: " + "; ".join([f"{s} not judged" for s in unjudged] +
+                                                    [f"{s} failed {','.join(result[s]['failed'])}" for s in moved]), flush=True)
+    else:
+        print("LR-SAME-FRONT ok: " + ", ".join(result), flush=True)
     return result
 
 

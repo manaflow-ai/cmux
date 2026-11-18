@@ -132,13 +132,40 @@ class ReopenTests(unittest.TestCase):
         result, _ = run([row("head", "prime", TAB), row("head", "run1", TAB, TAB_MARKS, "tabs", cross_arm={"x": 1})])
         self.assertEqual(result["head"]["failed"], ["run1"])
 
-    def test_no_readable_front_before_is_a_skip_outside_n_of_m(self):
+    def test_unreadable_prime_front_leaves_a_kept_arm_not_judged(self):
+        # Comparing with the launch before instead would be the blind spot the prime anchor closes.
         rows = [row("head", "prime", {"error": "no reply"}), row("head", "run1", TAB, TAB_MARKS, "tabs"),
                 row("head", "run2", TAB, TAB_MARKS, "tabs")]
         result, lines = run(rows)
+        self.assertFalse(result["head"]["judged"])
+        self.assertIn("LR-REOPENED head not-judged: prime front unreadable: no reply case=kept", lines)
+        self.assertIn("LR-SAME-FRONT invalid: head not judged", lines)
+        self.assertFalse(any(l.startswith("LR-SKIP") for l in lines))
+
+    def test_unreadable_seed_front_leaves_the_arm_not_judged(self):
+        rows = [row("head", "prime", TAB), row("head", "seed", {"error": "quit by the seed"}),
+                row("head", "run1", TAB, TAB_MARKS, "tabs")]
+        result, lines = run(rows)
+        self.assertFalse(result["head"]["judged"])
+        self.assertIn("LR-REOPENED head not-judged: seed front unreadable: quit by the seed case=kept", lines)
+
+    def test_case_update_keeps_the_skip_for_an_unreadable_launch_before(self):
+        rows = [row("head", "prime", TAB), row("head", "old1", {"error": "no reply"}),
+                row("head", "run1", TAB, TAB_MARKS, "tabs")]
+        result, lines = run(rows, "update")
         self.assertEqual(result["head"]["failed"], [])
-        self.assertIn("LR-REOPENED head 1/1 (1 skipped) case=kept", lines)
-        self.assertTrue(any(l.startswith("LR-SKIP head run1 prime left no readable front: no reply") for l in lines))
+        self.assertIn("LR-REOPENED head 0/0 (1 skipped) case=update", lines)
+        self.assertTrue(any(l.startswith("LR-SKIP head run1 old1 left no readable front: no reply") for l in lines))
+
+    def test_same_front_ok_only_when_every_arm_is_judged_and_clean(self):
+        clean = [row("base", "prime", TAB), row("base", "run1", TAB, TAB_MARKS, "tabs"),
+                 row("head", "prime", TAB), row("head", "run1", TAB, TAB_MARKS, "tabs")]
+        _, lines = run(clean)
+        self.assertIn("LR-SAME-FRONT ok: base, head", lines)
+        moved = clean[:2] + [row("head", "prime", TAB), row("head", "full1", OTHER_TAB),
+                             row("head", "run1", TAB, TAB_MARKS, "tabs")]
+        _, lines = run(moved)
+        self.assertIn("LR-SAME-FRONT invalid: head failed full1", lines)
 
     def test_the_stress3_seeds_own_front_file_fills_its_row(self):
         import json
