@@ -157,7 +157,7 @@ await requireBrowserLane("new-chat-start-no-shift.test.ts", async () => {
 
   /// Types PROMPT on a New Tab page, presses Return, and records the parts' boxes on every painted
   /// frame for `ms`, starting with the frame at rest before Return.
-  async function startFromNewTab(ms: number): Promise<LayoutFrame[]> {
+  async function startFromNewTab(ms: number, look: "claude" | "codex"): Promise<LayoutFrame[]> {
     const page = await browser!.newPage({ viewport: { width: 1000, height: 760 } });
     await installPaintedFrames(page);
     await installLayoutBoxes(page);
@@ -172,9 +172,11 @@ await requireBrowserLane("new-chat-start-no-shift.test.ts", async () => {
       lastPicks: { global: { harness: "claude", model: "claude-opus-5-5" }, folders: [] },
     };
     await page.addInitScript(
-      ({ endpoint, context, catalog }) => {
+      ({ endpoint, context, catalog, look }) => {
         const w = window as unknown as Record<string, unknown>;
         w.__cmuxNewTabContext = context;
+        // The chat's composer look the person picked (this launch's copy; the stand-in host sends none).
+        localStorage.setItem("cmux.composer.look", look);
         localStorage.setItem("cmux.acpmux.harnessCatalog.v1", JSON.stringify({ catalog, at: Date.now() - 60_000 }));
         const reply = (value: unknown) => Promise.resolve({ ok: true, value });
         w.webkit = {
@@ -206,7 +208,7 @@ await requireBrowserLane("new-chat-start-no-shift.test.ts", async () => {
           },
         };
       },
-      { endpoint, context, catalog },
+      { endpoint, context, catalog, look },
     );
     await page.goto(`http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/`);
     const field = page.locator('.nt-field [contenteditable="true"]').first();
@@ -242,61 +244,66 @@ await requireBrowserLane("new-chat-start-no-shift.test.ts", async () => {
       { timeout: ms + 30_000 },
     );
     const frames = await page.evaluate(() => (window as unknown as { startFrames: LayoutFrame[] }).startFrames);
+    console.log("PROBE", look, JSON.stringify(await page.evaluate(() => (window as unknown as Record<string, unknown>).__cmuxGlideProbe)));
     await page.close();
     return frames;
   }
 
-  test("a new chat started from New Tab keeps the composer and the sent prompt still, frame to frame", async () => {
-    const frames = await startFromNewTab(START_MS + 1_500);
-    // Every frame where a part's box changed, so a failure names what moved and when.
-    let last = "";
-    for (const [index, frame] of frames.entries()) {
-      const now = JSON.stringify(frame.boxes);
-      if (now !== last) console.log(`frame ${index} at ${frame.at.toFixed(0)} ms: ${now}`);
-      last = now;
-    }
-    console.log(describeLayoutShifts(findLayoutShifts(frames, Object.keys(PARTS), 1)).join("\n") || "no shifts");
-    // The field's offset inside the card the person sees.
-    const fieldInCard = (frame: LayoutFrame) =>
-      frame.boxes.typing && frame.boxes.card ? frame.boxes.typing.y - frame.boxes.card.y : undefined;
-    const fieldLeftInCard = (frame: LayoutFrame) =>
-      frame.boxes.typing && frame.boxes.card ? frame.boxes.typing.x - frame.boxes.card.x : undefined;
-    const checks: [string, TeleportOptions][] = [
-      ["box", {}],
-      ["typing", {}],
-      ["card", { measure: "top" }],
-      ["card", { measure: "left" }],
-      ["card", { measure: "width" }],
-      ["card", { measure: "height" }],
-      ["fieldInCard", { measure: fieldInCard }],
-      ["fieldLeftInCard", { measure: fieldLeftInCard }],
-    ];
-    for (const [part, options] of checks)
-      console.log(describeTeleport(findTeleport(frames, part, options)).join("\n") || `${part}: no teleport`);
-    // The frame where the chat's composer takes over from New Tab's draws the card, its size and the
-    // field where New Tab left them: the handover itself moves nothing.
-    const handover = frames.findIndex(
-      (frame, index) => index > 0 && frame.boxes.composer && !frame.boxes.newTabComposer,
-    );
-    const atHandover: [string, TeleportMeasure][] = [
-      ["card", "top"],
-      ["card", "left"],
-      ["card", "width"],
-      ["card", "height"],
-      ["typing", "top"],
-      ["typing", "left"],
-      ["fieldInCard", fieldInCard],
-      ["fieldLeftInCard", fieldLeftInCard],
-    ];
-    console.log(
-      describeJumps(findJumpsAt(frames, handover, atHandover, 1.5)).join("\n") || `handover frame ${handover}: no jump`,
-    );
-    // The box, its card and its field go from New Tab's place and size to the dock's by moving, not
-    // in one frame (Leo, 2026-11-17: "chats settle with no unnecessary layout shifts after they start").
-    expect(handover).toBeGreaterThan(0);
-    expectNoJumpAt(frames, handover, atHandover, 1.5);
-    for (const [part, options] of checks) expectNoTeleport(frames, part, options);
-    // The sent prompt's row never jumps once it drew.
-    expectNoLayoutShift(frames, ["prompt"], 1);
-  });
+  // Both looks: New Tab's composer is always Claude's, the chat's is the one picked (Claude by default),
+  // and each card and field differs in height and inset (Claude's card is 48 px, New Tab's 50.8 px).
+  for (const look of ["claude", "codex"] as const) {
+    test(`a new chat started from New Tab keeps the composer and the sent prompt still (${look})`, async () => {
+      const frames = await startFromNewTab(START_MS + 1_500, look);
+      // Every frame where a part's box changed, so a failure names what moved and when.
+      let last = "";
+      for (const [index, frame] of frames.entries()) {
+        const now = JSON.stringify(frame.boxes);
+        if (now !== last) console.log(`frame ${index} at ${frame.at.toFixed(0)} ms: ${now}`);
+        last = now;
+      }
+      console.log(describeLayoutShifts(findLayoutShifts(frames, Object.keys(PARTS), 1)).join("\n") || "no shifts");
+      // The field's offset inside the card the person sees.
+      const fieldInCard = (frame: LayoutFrame) =>
+        frame.boxes.typing && frame.boxes.card ? frame.boxes.typing.y - frame.boxes.card.y : undefined;
+      const fieldLeftInCard = (frame: LayoutFrame) =>
+        frame.boxes.typing && frame.boxes.card ? frame.boxes.typing.x - frame.boxes.card.x : undefined;
+      const checks: [string, TeleportOptions][] = [
+        ["box", {}],
+        ["typing", {}],
+        ["card", { measure: "top" }],
+        ["card", { measure: "left" }],
+        ["card", { measure: "width" }],
+        ["card", { measure: "height" }],
+        ["fieldInCard", { measure: fieldInCard }],
+        ["fieldLeftInCard", { measure: fieldLeftInCard }],
+      ];
+      for (const [part, options] of checks)
+        console.log(describeTeleport(findTeleport(frames, part, options)).join("\n") || `${part}: no teleport`);
+      // The frame where the chat's composer takes over from New Tab's draws the card, its size and the
+      // field where New Tab left them: the handover itself moves nothing.
+      const handover = frames.findIndex(
+        (frame, index) => index > 0 && frame.boxes.composer && !frame.boxes.newTabComposer,
+      );
+      const atHandover: [string, TeleportMeasure][] = [
+        ["card", "top"],
+        ["card", "left"],
+        ["card", "width"],
+        ["card", "height"],
+        ["typing", "top"],
+        ["typing", "left"],
+        ["fieldInCard", fieldInCard],
+        ["fieldLeftInCard", fieldLeftInCard],
+      ];
+      console.log(
+        describeJumps(findJumpsAt(frames, handover, atHandover, 1.5)).join("\n") || `handover frame ${handover}: no jump`,
+      );
+      // The box, its card and its field go from New Tab's place and size to the dock's by moving, not
+      // in one frame (Leo, 2026-11-17: "chats settle with no unnecessary layout shifts after they start").
+      expect(handover).toBeGreaterThan(0);
+      expectNoJumpAt(frames, handover, atHandover, 1.5);
+      for (const [part, options] of checks) expectNoTeleport(frames, part, options);
+      // The sent prompt's row never jumps once it drew.
+      expectNoLayoutShift(frames, ["prompt"], 1);
+    });
+  }
 });

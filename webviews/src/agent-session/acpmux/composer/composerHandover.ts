@@ -9,8 +9,8 @@
 // the moves are what differs between the two surfaces:
 // - the card: New Tab's sits under its location strip, so the chat's whole composer glides from New
 //   Tab's card top, not from its strip;
-// - the card's height: New Tab's quiet row sits under its card and the chat's inside it, so the chat's
-//   card opens from New Tab's height (a clip from the bottom, no relayout);
+// - the card's height: the two cards differ (Codex's chat card is taller than New Tab's, Claude's is
+//   shorter: 48 px against 50.8), so the chat's card morphs from New Tab's height to its own either way;
 // - the field: New Tab's leads with the input glyph, so the chat's field slides in from where New
 //   Tab's text stood.
 // No new element draws: the same card and field move.
@@ -59,6 +59,40 @@ function moveMs(element: Element): number {
   return token.endsWith("ms") ? ms : token.endsWith("s") ? ms * 1000 : Number.isFinite(ms) ? ms : 0;
 }
 
+/// The chat's card goes from New Tab's height FROM to its own TO. A taller card opens with a clip from
+/// the bottom (no relayout). A shorter one starts drawn at New Tab's height and closes to its own: a
+/// negative bottom margin of the difference keeps its footprint at its own height, so nothing around
+/// it relays out and its top stays where New Tab's was.
+function morphCardHeight(cardElement: HTMLElement, from: number, to: number, timing: KeyframeAnimationOptions): void {
+  const style = getComputedStyle(cardElement);
+  const radius = style.borderBottomLeftRadius || "0px";
+  const hidden = to - from;
+  if (hidden >= 1) {
+    cardElement.animate(
+      [{ clipPath: `inset(0 0 ${hidden}px 0 round ${radius})` }, { clipPath: `inset(0 0 0 0 round ${radius})` }],
+      timing,
+    );
+    return;
+  }
+  if (hidden > -1) return;
+  // `height` is the content box unless the card says border-box.
+  const edges =
+    style.boxSizing === "border-box"
+      ? 0
+      : ["paddingTop", "paddingBottom", "borderTopWidth", "borderBottomWidth"].reduce(
+          (sum, key) => sum + (Number.parseFloat(style[key as "paddingTop"]) || 0),
+          0,
+        );
+  const margin = Number.parseFloat(style.marginBottom) || 0;
+  cardElement.animate(
+    [
+      { height: `${from - edges}px`, marginBottom: `${margin + hidden}px` },
+      { height: `${to - edges}px`, marginBottom: `${margin}px` },
+    ],
+    timing,
+  );
+}
+
 /** Called once as the chat's composer mounts: settles it from New Tab's held places, if they are fresh. */
 export function glideComposerFromHeld(form: HTMLElement | null): void {
   const from = held;
@@ -73,21 +107,20 @@ export function glideComposerFromHeld(form: HTMLElement | null): void {
   const fieldElement = first(form, CHAT_FIELD) as HTMLElement | null;
   const field = place(fieldElement);
   if (!card) return;
+  (window as unknown as Record<string, unknown>).__cmuxGlideProbe = {
+    from,
+    card,
+    field,
+    fieldTag: fieldElement ? `${fieldElement.tagName}.${fieldElement.className}` : null,
+  };
   const timing: KeyframeAnimationOptions = {
     duration,
     easing: mode === "full" ? springEasing(MOTION_SPRING, MOTION_EASE_OUT, form.ownerDocument) : MOTION_EASE_OUT,
   };
   const dy = from.card.top - card.top;
   if (Math.abs(dy) >= 1) form.animate([{ transform: `translateY(${dy}px)` }, { transform: "none" }], timing);
-  // The card opens from New Tab's height to its own.
-  const hidden = card.height - from.card.height;
-  if (cardElement && hidden >= 1) {
-    const radius = getComputedStyle(cardElement).borderBottomLeftRadius || "0px";
-    cardElement.animate(
-      [{ clipPath: `inset(0 0 ${hidden}px 0 round ${radius})` }, { clipPath: `inset(0 0 0 0 round ${radius})` }],
-      timing,
-    );
-  }
+  // The card morphs from New Tab's height to its own, taller or shorter.
+  if (cardElement) morphCardHeight(cardElement, from.card.height, card.height, timing);
   // The field slides from where New Tab's text stood inside its card.
   if (fieldElement && field && from.field) {
     const fx = from.field.left - field.left;
