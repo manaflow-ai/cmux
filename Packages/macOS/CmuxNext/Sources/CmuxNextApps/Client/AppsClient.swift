@@ -196,6 +196,10 @@ public final class AppsClient {
             }
         case let .log(app, level, message, date):
             appendLog(app, level: level, message: message, date: date)
+        case .widgetsChanged, .widgetHealth:
+            // The pages that show widgets follow these (AppsPanelsPageProvider); a widget's mount
+            // keeps its scene and status here.
+            break
         }
         eventListeners.removeAll { $0.owner.object == nil }
         for entry in eventListeners { entry.listener(event) }

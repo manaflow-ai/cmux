@@ -67,6 +67,7 @@ import { ChatCards } from "./ChatCards";
 import { ClosedList } from "./ClosedList";
 import { OpenTabsList } from "./OpenTabsList";
 import { NowPlayingPlayer } from "./NowPlayingPlayer";
+import { NewTabWidgets } from "./NewTabWidgets";
 import { type NowPlayingCommand } from "./nowPlayingPlayerModel";
 import { ArrowUpIcon } from "../ComposerPickers";
 import { Spinner } from "../conversation/icons";
@@ -2529,8 +2530,11 @@ export function NewTabScreen(props: Props) {
       <SuggestionsCard attention={needsYou} onOpen={openCard} />
     </div>
   );
+  // The person's widgets (cmux.widget/1): nothing at all until a widget app is installed.
+  const widgetGrid = !allChats && <NewTabWidgets />;
   const playerAndLists = (
     <>
+      {widgetGrid}
       {!allChats && <NowPlayingPlayer {...(props.onNowPlaying ? { onCommand: props.onNowPlaying } : {})} />}
       {lists}
     </>
@@ -2569,6 +2573,7 @@ export function NewTabScreen(props: Props) {
           {starters}
           {props.notice}
           {environmentPanel}
+          {widgetGrid}
           {!allChats && <NowPlayingPlayer {...(props.onNowPlaying ? { onCommand: props.onNowPlaying } : {})} />}
           {lists}
         </>
