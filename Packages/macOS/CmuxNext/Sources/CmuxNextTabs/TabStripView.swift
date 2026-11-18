@@ -76,7 +76,7 @@ public final class TabStripView: NSView {
     /// The + button's offset after the last tab's slot: the last pill to the button is `Metrics.tabStripEndGap`, the
     /// strip's leading gap, at every density; the slot's trailing inset and the button's own leading inset (a
     /// `tabBackgroundInset` each) count toward it, so this can be negative where a density spaces its tabs wider.
-    var newTabLeadingGap: CGFloat { Metrics.tabStripEndGap - 2 * metrics.tabBackgroundInset }
+    var newTabLeadingGap: CGFloat { metrics.endGap(scale: window?.backingScaleFactor ?? 2) - 2 * metrics.tabBackgroundInset }
     var newTabControlsWidth: CGFloat {
         guard showsTypeChooser else { return metrics.newTabButtonWidth }
         // Circles: the ⌄ takes the +'s square, so both circles are one diameter. Split: classic's narrower segment.
@@ -595,8 +595,9 @@ public final class TabStripView: NSView {
         super.layout()
         glassView?.frame = bounds
         if glassView == nil { contentView.frame = bounds }
-        let padding = metrics.stripHorizontalPadding
-        // One gap before the first tab at every density and corner style (`Metrics.tabStripEndGap`).
+        // One gap before the first tab and after the last, the pill's top gap on this screen's pixel grid
+        // (`Metrics.tabStripEndGap`, `TabStripMetrics.endGap(scale:)`).
+        let padding = metrics.endGap(scale: window?.backingScaleFactor ?? 2)
         let leading = padding
         windowControlsInset = computeWindowControlsInset()
         appliedTabTop = computeTabTop()

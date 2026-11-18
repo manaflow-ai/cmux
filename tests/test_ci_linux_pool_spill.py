@@ -21,6 +21,7 @@ import linux_pool_spill as spill  # noqa: E402
 POLICY_ROOT = os.environ.get("RUNNER_POOL_POLICY_ROOT")
 NOW = dt.datetime(2026, 11, 2, 4, 40, tzinfo=dt.timezone.utc)
 FOUR, SIXTEEN = "blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"
+HOSTED = "ubuntu-24.04"
 LINUX = [FOUR, SIXTEEN]
 BACKED_UP = {FOUR: {"queued": 300, "running": 400, "waited": 200},
              SIXTEEN: {"queued": 2, "running": 100, "waited": 0}, spill.COMPLETE: False}
@@ -111,6 +112,68 @@ class SpillChoice(unittest.TestCase):
                 self.assertFalse(spill.valid_spill(bad, LINUX))
 
 
+class HostedValve(unittest.TestCase):
+    """The hosted-first release valve: hosted light jobs leave a saturated GitHub-hosted queue on attempt 1.
+
+    2026-11-18 01:40-02:10Z: jobs that finished on GitHub-hosted had waited a median 10,768 s; 2 vCPU, 23 s."""
+
+    @staticmethod
+    def load(waited, queued=None, complete=False):
+        return {HOSTED: {"queued": waited if queued is None else queued, "running": 20, "waited": waited},
+                spill.COMPLETE: complete}
+
+    def test_a_backed_up_hosted_queue_opens_it_and_a_short_one_or_no_sample_does_not(self):
+        since, lines = spill.valve_choice(None, self.load(spill.VALVE_ON_WAITED), now=NOW)
+        self.assertEqual(since, spill.iso(NOW))
+        self.assertTrue(any("saturated" in line and "linux_2" in line for line in lines))
+        self.assertEqual(spill.valve_choice(None, self.load(spill.VALVE_ON_WAITED - 1), now=NOW), (None, []))
+        self.assertEqual(spill.valve_choice(None, None, now=NOW), (None, []))
+        # A Blacksmith backlog is the spill's business, never the valve's.
+        self.assertEqual(spill.valve_choice(None, BACKED_UP, now=NOW), (None, []))
+
+    def test_it_holds_then_closes_on_a_drain(self):
+        opened = spill.iso(NOW)
+        drained = self.load(spill.VALVE_OFF_WAITED, queued=4)
+        early = NOW + spill.VALVE_MIN_HOLD - dt.timedelta(minutes=1)
+        self.assertEqual(spill.valve_choice(opened, drained, now=early), (opened, []))
+        at = NOW + spill.VALVE_MIN_HOLD
+        self.assertEqual(spill.valve_choice(opened, None, now=at), (opened, []))
+        self.assertEqual(spill.valve_choice(opened, self.load(spill.VALVE_OFF_WAITED + 1), now=at), (opened, []))
+        since, lines = spill.valve_choice(opened, drained, now=at)
+        self.assertIsNone(since)
+        self.assertTrue(any("drained" in line for line in lines))
+        # A sample with no hosted job at all is a drain too: nothing waits there.
+        self.assertIsNone(spill.valve_choice(opened, {spill.COMPLETE: False}, now=at)[0])
+
+    def test_an_unreadable_mark_is_closed(self):
+        self.assertEqual(spill.valve_choice("yesterday", None, now=NOW), (None, []))
+        self.assertEqual(spill.valve_choice(True, self.load(0), now=NOW), (None, []))
+
+    def test_apply_carries_and_sets_the_mark_beside_mains_value(self):
+        class Policy:
+            DEAD_KEY = "_dead"
+
+            @staticmethod
+            def parse_value(raw, pools):
+                value = json.loads(raw)
+                return {key: value[key] for key in ("linux", "linux_2", "_dead") if key in value}, []
+
+            @staticmethod
+            def members(spec):
+                return spec["members"]
+
+        pools = {"linux": {"members": LINUX}, "linux_2": {"members": ["blacksmith-2vcpu-ubuntu-2404"]}}
+        raw = json.dumps({"linux": FOUR, "linux_2": "blacksmith-2vcpu-ubuntu-2404", "_dead": {}})
+        value, lines = spill.apply(Policy, raw, None, pools, self.load(40), now=NOW)
+        self.assertEqual(value[spill.VALVE_KEY], spill.iso(NOW))
+        self.assertEqual(value["linux"], FOUR)
+        held = json.dumps(json.loads(raw) | {spill.VALVE_KEY: spill.iso(NOW)})
+        value, _ = spill.apply(Policy, held, raw, pools, None, now=NOW + dt.timedelta(minutes=10))
+        self.assertEqual(value[spill.VALVE_KEY], spill.iso(NOW))
+        value, _ = spill.apply(Policy, held, None, pools, self.load(0), now=NOW + spill.VALVE_MIN_HOLD)
+        self.assertNotIn(spill.VALVE_KEY, value)
+
+
 class ServedMarks(unittest.TestCase):
     """2026-11-17: the probe marked 4 and 16 vCPU dead at 21:48Z and 21:54Z while the sample counted 20 and 7
     running there; the janitor snapshot that would have said so was over an hour old."""
@@ -169,9 +232,11 @@ class SampleLoad(unittest.TestCase):
             3: [{"status": "queued", "labels": [FOUR], "created_at": ago(60 * 24)}]}
 
     def test_counts_per_linux_label_over_recent_runs(self):
+        # GitHub-hosted Ubuntu is counted beside the Blacksmith sizes, for the hosted-first valve; macOS is not.
         load = spill.sample_load(Client(self.RUNS, self.JOBS), now=NOW)
         self.assertEqual(load, {FOUR: {"queued": 2, "running": 1, "waited": 1},
-                                SIXTEEN: {"queued": 1, "running": 0, "waited": 1}, spill.COMPLETE: True})
+                                SIXTEEN: {"queued": 1, "running": 0, "waited": 1},
+                                HOSTED: {"queued": 1, "running": 0, "waited": 1}, spill.COMPLETE: True})
 
     def test_a_capped_or_partly_unread_sample_is_incomplete_and_an_unread_listing_is_none(self):
         crowded = self.RUNS + [{"id": 9, "status": "in_progress", "created_at": ago(15)}]
@@ -278,6 +343,24 @@ class WithMainPolicy(unittest.TestCase):
         self.assertEqual(json.loads(switch.variables["RUNNER_POOLS"])["linux"], FOUR)
         self.assertNotIn("_spill", json.loads(switch.variables["RUNNER_POOLS"]))
         self.assertEqual(switch.variables["LINUX_RUNNER"], FOUR)
+
+    def test_the_valve_opens_holds_and_mains_check_accepts_it(self):
+        start = self.policy.render({"linux": FOUR, "_dead": {}, "_updated": ago(60)})
+        switch = self.Switch({"RUNNER_POOLS": start, "LINUX_RUNNER": FOUR, "CI_CLOUD_OVERFLOW_SAVED": ""})
+        jobs = [{"status": "queued", "labels": [HOSTED], "created_at": ago(10)} for _ in range(30)]
+        hosted = Client([{"id": 1, "status": "in_progress", "created_at": ago(10)}], {1: jobs})
+        self.assertEqual(self.run_pass(switch, hosted, NOW), 0)
+        value = json.loads(switch.variables["RUNNER_POOLS"])
+        self.assertEqual(value[spill.VALVE_KEY], spill.iso(NOW))
+        self.assertEqual(value["linux"], FOUR)
+        check = {"RUNNER_POOLS": switch.variables["RUNNER_POOLS"], "LINUX_RUNNER": FOUR, "CI_CLOUD_OVERFLOW_SAVED": ""}
+        self.assertEqual(self.policy.main(["--check"], check, now=NOW), 0)
+        # main's policy alone drops the key; the pass carries it, so a steady pass writes nothing.
+        switch.writes.clear()
+        self.assertEqual(self.run_pass(switch, hosted, NOW + dt.timedelta(minutes=10)), 0)
+        self.assertEqual(switch.writes, [])
+        self.assertEqual(self.run_pass(switch, Client([], {}), NOW + spill.VALVE_MIN_HOLD), 0)
+        self.assertNotIn(spill.VALVE_KEY, json.loads(switch.variables["RUNNER_POOLS"]))
 
     def test_a_dead_member_is_still_mains_call(self):
         start = self.policy.render({"linux": FOUR, "_dead": {FOUR: spill.iso(NOW)}, "_updated": ago(60)})
