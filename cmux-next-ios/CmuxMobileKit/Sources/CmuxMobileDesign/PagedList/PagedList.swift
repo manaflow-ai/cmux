@@ -308,12 +308,36 @@ struct PagedListEdgeView: View {
     let retry: @MainActor () async -> Void
 
     var body: some View {
+        let framed = states
+            .padding(.horizontal, 16)
+            .frame(maxWidth: .infinity, minHeight: 52)
+        Group {
+            if spins {
+                // The spinner is a UIKit view with nothing for VoiceOver: the edge itself is the
+                // element, so it is read ("Loading more") and found by its identifier.
+                framed
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(Text("Loading more"))
+            } else {
+                framed.accessibilityElement(children: .contain)
+            }
+        }
+        .accessibilityIdentifier("\(identifier).\(end == .older ? "edge" : "newer").\(stateName)")
+    }
+
+    private var spins: Bool {
+        switch edge {
+        case .more, .loading: true
+        case .failed, .end: false
+        }
+    }
+
+    @ViewBuilder private var states: some View {
         Group {
             switch edge {
             case .more, .loading:
                 CmuxSpinner()
                     .controlSize(.small)
-                    .accessibilityLabel(Text("Loading more"))
             case .failed(let message):
                 VStack(spacing: 6) {
                     Text(message)
@@ -334,10 +358,6 @@ struct PagedListEdgeView: View {
                 }
             }
         }
-        .padding(.horizontal, 16)
-        .frame(maxWidth: .infinity, minHeight: 52)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("\(identifier).\(end == .older ? "edge" : "newer").\(stateName)")
     }
 
     private var stateName: String {
