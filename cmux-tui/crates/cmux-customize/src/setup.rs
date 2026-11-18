@@ -657,6 +657,7 @@ impl Customize {
         self.check_setup(setup)?;
         self.ensure_baseline(now_ms)?;
         let _lock = self.store().lock()?;
+        self.keep_hand_edits_locked(now_ms)?;
         let before = self.current_generation()?;
         let installed = self.install_setup_locked(setup, label, origin, now_ms);
         if installed.is_err()
@@ -687,6 +688,7 @@ impl Customize {
         self.no_preview_open()?;
         self.ensure_baseline(now_ms)?;
         let _lock = self.store().lock()?;
+        self.keep_hand_edits_locked(now_ms)?;
         let before = self.current_generation()?;
         let library = self.library_snapshot()?;
         let replaced = self.remove_setup_locked(old, origin, now_ms).and_then(|_| {

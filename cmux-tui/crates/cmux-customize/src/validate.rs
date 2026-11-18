@@ -99,6 +99,20 @@ pub fn problems(files: &BTreeMap<String, Vec<u8>>) -> Vec<Problem> {
     found
 }
 
+/// The problems in `now` that `before` did not already have (the same file
+/// and the same message; a line may move). A change is refused only for what
+/// it breaks, never for a value the person's own file already held: a value an
+/// older build wrote (classic's `workspaceColors.indicatorStyle: "solidFill"`,
+/// which the app still reads as `fill`) made every `cmux setup install` refuse
+/// a look that never touched it (cmux#46049, in Leo's NIGHTLY).
+pub fn introduced(now: Vec<Problem>, before: &[Problem]) -> Vec<Problem> {
+    now.into_iter()
+        .filter(|problem| {
+            !before.iter().any(|old| old.path == problem.path && old.message == problem.message)
+        })
+        .collect()
+}
+
 fn is_text_path(path: &str) -> bool {
     [".json", ".js", ".ts", ".css", ".md", ".txt"].iter().any(|ending| path.ends_with(ending))
 }

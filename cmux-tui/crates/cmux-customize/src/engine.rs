@@ -232,11 +232,15 @@ impl Customize {
         let mut index = self.store.index()?;
         let draft = self.store.draft()?;
         let scan = tree::scan(&self.roots)?;
-        let problems = validate::problems(&self.live_bytes(&scan.tree)?);
+        let base = self.current_tree(&index)?;
+        // What the applied generation already held is not this apply's to fix.
+        let problems = validate::introduced(
+            validate::problems(&self.live_bytes(&scan.tree)?),
+            &validate::problems(&self.stored_bytes(&base)?),
+        );
         if !problems.is_empty() {
             return Err(Error::Invalid(problems));
         }
-        let base = self.current_tree(&index)?;
         let changed = changes(&base, &scan.tree, draft.as_ref());
         if let Some(current) = index.current().filter(|_| changed.is_empty()).cloned() {
             self.store.put_draft(None)?;
@@ -262,6 +266,23 @@ impl Customize {
         // written never fails the apply it follows.
         let library = self.remember_locked(&generation, draft.as_ref(), now_ms).ok().flatten();
         Ok(Applied { generation, recorded: true, changes: changed, library })
+    }
+
+    /// Records what is live as a by-hand generation when it differs from the
+    /// current one, for a caller that holds the lock. A step that later puts
+    /// "what was live" back (a failed install's all or nothing) then puts back
+    /// these edits, not the generation before them: a refused Studio install in
+    /// Leo's NIGHTLY put back a three-day-old baseline and took his themes, his
+    /// sidebar view and his wallpaper with it (cmux#46049; they were kept only
+    /// as a discarded generation).
+    pub(crate) fn keep_hand_edits_locked(&self, now_ms: u64) -> Result<(), Error> {
+        let mut index = self.store.index()?;
+        let scan = tree::scan(&self.roots)?;
+        if index.current.is_some() && scan.tree != self.current_tree(&index)? {
+            let tree = self.capture()?;
+            self.record(&mut index, Kind::ByHand, &tree, "user", "changes made by hand", now_ms)?;
+        }
+        Ok(())
     }
 
     pub(crate) fn current_generation(&self) -> Result<Option<u32>, Error> {
@@ -326,6 +347,15 @@ impl Customize {
             Some(n) => self.store.tree(n),
             None => Ok(Tree::new()),
         }
+    }
+
+    /// A recorded tree's files, from the store.
+    fn stored_bytes(&self, tree: &Tree) -> io::Result<BTreeMap<String, Vec<u8>>> {
+        let mut files = BTreeMap::new();
+        for (path, entry) in tree {
+            files.insert(path.clone(), self.store.object(&entry.sha)?);
+        }
+        Ok(files)
     }
 
     fn live_bytes(&self, tree: &Tree) -> io::Result<BTreeMap<String, Vec<u8>>> {
