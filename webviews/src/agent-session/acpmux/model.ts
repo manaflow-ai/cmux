@@ -1760,7 +1760,9 @@ const TOOL_ROW_PT = TRANSCRIPT_LINE_ROW;
 /// The room around "Worked for"'s rule (Lucas, 2026-11-07; Leo, 2026-11-09): 4 under its words, 8 over the next row,
 /// conversation.css `.cv-worked.has-divider.is-toggle`; no stack gap follows (MARK_WORKED).
 const WORKED_GAP_PT = gridLength("gap-foot") + gridLength("gap");
-const toolRowHeight = () => TOOL_ROW_PT * chromeScale;
+/// `--cv-tool-row-height` is 22px at every Interface Size (conversation.css `:root`), so the row is too: scaled
+/// with the grid, a closed group's line was placed 22 × (scale − 1) px too tall at a larger Interface Size.
+const toolRowHeight = () => TOOL_ROW_PT;
 const TOOL_RUN_BOTTOM = 0;
 /// A one-line row that is not a tool run (`isLineRow`) draws one tool row's line, as a one-call run
 /// does (#29965; Leo, 2026-11-01: "doesn't make sense for these to be spaced differently"). On the
@@ -2039,44 +2041,85 @@ function openEditsBody(
   );
 }
 
-/// One changed file's diff card (EditDiff.tsx, conversation.css `.cv-edit-diff`): 4px above and 8px
-/// below it, its 32px head, and its body: the edits' 18px rows, with the 24px separator Pierre draws
-/// before a hunk that skips lines of the file (EditDiffLoading.tsx `editParts`, whose placeholder is
-/// drawn at the rendered diff's height), and the scrollbar lane under unwrapped rows (`diffLane`).
-/// Past PREVIEW_LINES rows the body is cut to that many and the lane (`--cv-block-cut`). An edit with
-/// no line changes is its note. Wrapped (a prose file, by default), a row takes as many lines as its
-/// text needs at the card's width.
-const DIFF_ROW = 18;
-const DIFF_SEPARATOR = 24;
-const DIFF_CUT_LANE = 6;
-const DIFF_EMPTY = 34;
+/// One changed file's diff card (EditDiff.tsx, conversation.css `.cv-edit-diff`), at the lengths the card draws
+/// with (conversation/editDiffBox.ts, at the chat's text and code size and the Interface Size): the room above and
+/// below it, its head, and its body: the edits' rows, with the separator Pierre draws before a hunk that skips
+/// lines of the file (EditDiffLoading.tsx `editParts`, whose placeholder is drawn at the rendered diff's height),
+/// and the scrollbar lane under unwrapped rows (`diffLane`). Past PREVIEW_LINES rows the body is cut to that many
+/// and the lane (`--cv-block-cut`). An edit with no line changes is its note. Wrapped (a prose file, by default), a
+/// row takes as many lines as its text needs at the card's width.
 function editDiffHeight(file: TurnFile, width: number): number {
+  const box = editDiffBox(drawnFontSize(chatDisplay()), chatCodeBlock(), chromeScale);
   const wrap = blockWrapOf(fileBlockKind(file.path));
-  // A monospace cell is about 0.6 of the 12px font; the number column and the card's sides take ~10 cells.
-  const perLine = Math.max(20, Math.floor(width / 7.2) - 10);
+  // The card is as wide as the group's body, inside its icon column (conversation.css `.cv-tool-group`).
+  const card = width - gridLength("icon-box") * chromeScale;
   let rows = 0;
   let body = 0;
   for (const edit of file.edits) {
     if (!edit.hunks.length) {
-      body += DIFF_EMPTY;
+      body += box.empty;
       continue;
     }
+    // Wrapped, a row's room: the card less the number column (or the unnumbered indicator lane) and the
+    // row's hanging indent (sideways.ts PIERRE_BLOCK_CSS), in monospace cells.
+    const room = wrap ? wrapRoom(edit, card, box.code) : undefined;
     let lastEnd = 0;
     for (const hunk of edit.hunks) {
       const kept = hunk.lines.filter((line) => line.type !== "del");
       const start = kept[0]?.newLine ?? Math.max(0, (hunk.lines.find((line) => line.type !== "add")?.oldLine ?? 1) - 1);
-      if (start - 1 - lastEnd > 0) body += DIFF_SEPARATOR;
+      if (start - 1 - lastEnd > 0) body += box.separator;
       lastEnd = start + kept.length - 1;
       for (const line of hunk.lines) {
-        const lines = wrap ? Math.max(1, Math.ceil(line.text.length / perLine)) : 1;
+        const lines = room ? wrappedRows(line.text, room.first, room.rest) : 1;
         rows += lines;
-        body += lines * DIFF_ROW;
+        body += lines * box.row;
       }
     }
   }
-  if (rows > PREVIEW_LINES) body = PREVIEW_LINES * DIFF_ROW + (wrap ? 0 : DIFF_CUT_LANE);
-  else if (!wrap) body += diffLane();
-  return 4 + 32 + body + 8;
+  if (rows > PREVIEW_LINES) body = PREVIEW_LINES * box.row + (wrap ? 0 : EDIT_DIFF_LANE);
+  else if (!wrap && rows) body += diffLane();
+  return box.margins + box.head + body;
+}
+
+/// A wrapped diff row's room in monospace cells (a cell is 0.602 of the code's size, Menlo's and SF Mono's advance): the card's width less
+/// Pierre's number column (its digits, 4 at least, 3ch of padding and a 2px divider; EditDiffLoading.tsx draws the
+/// same) or, unnumbered, its 6px indicator lane, then the row's 1ch end padding and its hanging indent: 2ch on its
+/// first line, 4ch under it (sideways.ts PIERRE_BLOCK_CSS).
+function wrapRoom(edit: TurnFile["edits"][number], card: number, code: number): { first: number; rest: number } {
+  const cell = code * 0.602;
+  let digits = 4;
+  for (const hunk of edit.hunks)
+    for (const line of hunk.lines)
+      digits = Math.max(digits, String(Math.max(line.newLine ?? 0, line.oldLine ?? 0)).length);
+  const lead = edit.numbered ? (digits + 3) * cell + 2 : 6;
+  const cells = (card - lead) / cell - 1;
+  return { first: Math.max(8, Math.floor(cells - 2)), rest: Math.max(8, Math.floor(cells - 4)) };
+}
+
+/// How many lines `text` takes wrapped as `pre-wrap` with `break-word` does: whole words while they fit, a word
+/// longer than a line broken where the line ends; `first` cells on its first line, `rest` on the others.
+function wrappedRows(text: string, first: number, rest: number): number {
+  let rows = 1;
+  let room = first;
+  let used = 0;
+  for (const word of text.split(" ")) {
+    let left = word.length;
+    if (used > 0 && used + 1 + left <= room) {
+      used += 1 + left;
+      continue;
+    }
+    if (used > 0) {
+      rows += 1;
+      room = rest;
+    }
+    while (left > room) {
+      left -= room;
+      rows += 1;
+      room = rest;
+    }
+    used = left;
+  }
+  return rows;
 }
 
 /// The scrollbar lane under an unwrapped diff's rows (conversation.css `.cv-edit-diff__body` `--cv-lane`,
@@ -2086,19 +2129,24 @@ function editDiffHeight(file: TurnFile, width: number): number {
 let diffLaneRead: number | undefined;
 function diffLane(): number {
   if (diffLaneRead !== undefined) return diffLaneRead;
-  if (typeof document === "undefined" || !document.body) return DIFF_CUT_LANE;
+  if (typeof document === "undefined" || !document.body) return EDIT_DIFF_LANE;
+  // The card's own lengths (EditDiff.tsx `EDIT_DIFF_VARS`) around its body, as it draws.
+  const card = document.createElement("div");
+  card.className = "cv-edit-diff";
+  card.style.cssText = "position:absolute;left:-1000px;top:0;width:100px;visibility:hidden";
+  for (const [name, value] of Object.entries(EDIT_DIFF_VARS)) card.style.setProperty(name, value);
   const body = document.createElement("div");
   body.className = "cv-edit-diff__body";
-  body.style.cssText = "position:absolute;left:-1000px;top:0;width:100px;visibility:hidden";
   const lines = document.createElement("div");
   lines.className = "cv-edit-diff__loading-lines";
   body.append(lines);
-  document.body.append(body);
+  card.append(body);
+  document.body.append(card);
   const styled = (document.defaultView?.getComputedStyle(body).getPropertyValue("--cv-lane").trim() ?? "") !== "";
   const laid = lines.offsetWidth > 0;
   const lane = lines.offsetHeight - lines.clientHeight;
-  body.remove();
-  if (!styled || !laid) return DIFF_CUT_LANE;
+  card.remove();
+  if (!styled || !laid) return EDIT_DIFF_LANE;
   return (diffLaneRead = lane);
 }
 
@@ -4226,7 +4274,15 @@ import { recapHeight } from "./conversation/recapPoints";
 import { lastBlockBoundary } from "./conversation/incrementalMarkdown";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { chatColumn, type ChatColumn } from "./chatWidth";
-import { chatDensityTextScale, currentChatMetrics, promptCoachEnabled } from "./chatDisplay";
+import {
+  chatCodeBlock,
+  chatDensityTextScale,
+  chatDisplay,
+  currentChatMetrics,
+  drawnFontSize,
+  promptCoachEnabled,
+} from "./chatDisplay";
+import { EDIT_DIFF_LANE, EDIT_DIFF_VARS, editDiffBox } from "./conversation/editDiffBox";
 import { messageOpened } from "./conversation/incomingOpened";
 import { inboxThreadKey } from "./conversation/inboxNotice";
 import { foldsThreads, inboxNoticeLook } from "./conversation/inboxNoticeLook";

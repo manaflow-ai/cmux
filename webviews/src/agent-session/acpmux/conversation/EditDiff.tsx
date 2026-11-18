@@ -4,7 +4,17 @@
 // hanging indent; code keeps its lines whole, its right edge fading while more lies past it. The
 // changes view (changes/EditBlock.tsx) draws the same edits at full size.
 import { cornerAction } from "./cornerActions";
-import { lazy, Suspense, useContext, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
+import {
+  lazy,
+  Suspense,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentType,
+  type CSSProperties,
+} from "react";
 import { editPatch, type TurnFile } from "../diff";
 import { copyTextResult } from "./clipboard";
 import { Copy } from "./icons";
@@ -15,6 +25,7 @@ import { usePreview, useSidewaysRef } from "./blockPartsModel";
 import { FindReveal, foldFind } from "./chatFind";
 import { useMoreBelowOn } from "./moreBelow";
 import { EditDiffLoading } from "./EditDiffLoading";
+import { EDIT_DIFF_VARS } from "./editDiffBox";
 import { useDiffPainted } from "./editDiffLoadingModel";
 import { loadEditDiffHunks } from "./editDiffModel";
 const EditDiffHunks = lazy(() => loadEditDiffHunks().then((module) => ({ default: module.EditDiffHunks })));
@@ -85,7 +96,7 @@ export function EditDiffFrame({
   const painted = useDiffPainted(hunks);
   useMoreBelowOn(body, painted);
   return (
-    <div className="cv-edit-diff" data-wrap={wrap}>
+    <div className="cv-edit-diff" data-wrap={wrap} style={EDIT_DIFF_VARS as CSSProperties}>
       <div className="cv-edit-diff__header">
         <span className="cv-edit-diff__name" data-path={file.path}>
           {name}
