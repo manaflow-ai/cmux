@@ -347,35 +347,44 @@ fn template_scene(kind: &str) -> Result<Value, String> {
     Ok(Value::Array(ops))
 }
 
+/// One node of a scene `scene_tree` builds: its type, props and child ids.
+#[derive(Default)]
+struct TreeNode {
+    kind: String,
+    props: serde_json::Map<String, Value>,
+    children: Vec<String>,
+}
+
 /// The tree a list of scene ops leaves, from its root: `{type, props, children}`, ids dropped,
 /// so two hosts that batch the same scene differently compare equal.
 fn scene_tree(ops: &Value) -> Value {
-    let mut nodes: std::collections::HashMap<
-        String,
-        (String, serde_json::Map<String, Value>, Vec<String>),
-    > = Default::default();
+    let mut nodes: std::collections::HashMap<String, TreeNode> = Default::default();
     let mut root = None;
     for op in ops.as_array().into_iter().flatten() {
         let id = op["id"].as_str().unwrap_or_default().to_string();
         match op["op"].as_str() {
             Some("create") => {
-                let props = op["props"].as_object().cloned().unwrap_or_default();
-                nodes.insert(id, (op["type"].as_str().unwrap_or_default().into(), props, vec![]));
+                let node = TreeNode {
+                    kind: op["type"].as_str().unwrap_or_default().into(),
+                    props: op["props"].as_object().cloned().unwrap_or_default(),
+                    children: vec![],
+                };
+                nodes.insert(id, node);
             }
             Some("update") => {
                 if let Some(node) = nodes.get_mut(&id) {
                     for (key, value) in op["props"].as_object().into_iter().flatten() {
                         if value.is_null() {
-                            node.1.remove(key);
+                            node.props.remove(key);
                         } else {
-                            node.1.insert(key.clone(), value.clone());
+                            node.props.insert(key.clone(), value.clone());
                         }
                     }
                 }
             }
             Some("children") => {
                 if let Some(node) = nodes.get_mut(&id) {
-                    node.2 = op["children"]
+                    node.children = op["children"]
                         .as_array()
                         .into_iter()
                         .flatten()
@@ -390,16 +399,10 @@ fn scene_tree(ops: &Value) -> Value {
             _ => {}
         }
     }
-    fn walk(
-        id: &str,
-        nodes: &std::collections::HashMap<
-            String,
-            (String, serde_json::Map<String, Value>, Vec<String>),
-        >,
-    ) -> Value {
-        let Some((kind, props, children)) = nodes.get(id) else { return Value::Null };
-        let children: Vec<Value> = children.iter().map(|c| walk(c, nodes)).collect();
-        json!({"type": kind, "props": props, "children": children})
+    fn walk(id: &str, nodes: &std::collections::HashMap<String, TreeNode>) -> Value {
+        let Some(node) = nodes.get(id) else { return Value::Null };
+        let children: Vec<Value> = node.children.iter().map(|c| walk(c, nodes)).collect();
+        json!({"type": node.kind, "props": node.props, "children": children})
     }
     root.map(|id| walk(&id, &nodes)).unwrap_or(Value::Null)
 }
