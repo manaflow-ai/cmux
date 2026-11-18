@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 use cmux_customize::profile::Profile;
 use cmux_customize::{Customize, Roots};
-use cmux_customize_recipes::{find, guide, problems, write_all, Group, GUIDE, GUIDE_DIR, RECIPES};
+use cmux_customize_recipes::{GUIDE, GUIDE_DIR, Group, RECIPES, find, guide, problems, write_all};
 
 #[test]
 fn every_shipped_recipe_names_only_keys_the_schema_has() {

@@ -19,8 +19,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use cmux_config::Schema;
-use cmux_customize::profile::{valid_name, Profile};
 use cmux_customize::Part;
+use cmux_customize::profile::{Profile, valid_name};
 
 /// Where a guide groups a recipe.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
