@@ -91,7 +91,13 @@ import { useCountedRender } from "./perfRender";
 import { drewStreamingRow, useStreamingRow } from "./streamingRow";
 import { rowsWithLiveOutput, useLiveToolRow } from "./liveToolOutput";
 import { followTrace } from "./followTrace";
-import { FIELD_GROWTH_EVENT, growthTranslate, type FieldGrowthEvent } from "./composer/fieldGrowthEvent";
+import {
+  FIELD_GROWTH_EVENT,
+  growthTranslate,
+  type FieldGrowthDetail,
+  type FieldGrowthEvent,
+} from "./composer/fieldGrowthEvent";
+import { layoutWatch } from "./layoutWatch";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { holdOlderScrollTarget, noteOlderScrollTarget } from "./conversation/olderScrollTarget";
@@ -228,6 +234,30 @@ import {
 } from "./virtualTranscriptModel";
 import { focusRoute } from "../../ui/focusRoute";
 import { continuesLiveResize, LIVE_RESIZE_MS, stepLiveResize } from "./conversation/liveResizeStep";
+
+/// The prompt field's growth rise of the rows (composer/fieldGrowth.ts). The growth's room is state the
+/// transcript renders once after the frame the growth starts in, never synchronously (in the key's task
+/// or the frame's callbacks): that frame still draws the rows where they were, and the field at its old height (its motion's
+/// first frame). `pending` is the rise the commit that renders that room starts, from where the rows
+/// were drawn to their new place, on the field's own curve and clock. Transcript motion model rule 4:
+/// one owner (the list), declared with `layoutWatch.expect`.
+type GrowthRise = {
+  move?: Animation;
+  pending?: {
+    detail: FieldGrowthDetail;
+    /// The rows' top as drawn when the growth started, less the running rise's part of it.
+    top: number;
+    /// The room and card that commit renders: an earlier commit without them starts nothing.
+    space: number;
+    card: number;
+  };
+};
+
+/// The rows' drawn vertical translate (a running rise's, composited), 0 with none.
+function drawnTranslateY(rows: HTMLElement): number {
+  const value = getComputedStyle(rows).translate;
+  return value && value !== "none" ? Number.parseFloat(value.split(" ")[1] ?? "") || 0 : 0;
+}
 
 /// The live line's box and gap in a run as custom properties on the scroller (transcriptGrid.ts transcriptLiveVars):
 /// conversation.css sizes the line with them. Constant, so the scroller's per-scroll restyle never changes them.
@@ -1950,6 +1980,9 @@ function TranscriptView({
   followChase.current ??= createFollowChase(slimFollow ? "blocks" : followArm);
   /// Freezes the composer growth's rise of the rows where it is painted (the dock's effect sets it).
   const freezeGrowthRise = useRef<() => void>(() => {});
+  /// The composer growth's rise of the rows (the dock's effect starts the growth): the running move,
+  /// and the one the next commit that takes the growth's room starts (`GrowthRise`).
+  const growthRise = useRef<GrowthRise>({});
   // `scroll` events also fire for layout-driven writes to scrollTop. Keep the user's intent in a
   // ref so those events cannot turn a pinned transcript into a one-frame jump when the composer
   // stack changes height.
@@ -2403,28 +2436,32 @@ function TranscriptView({
     };
     dock.addEventListener("click", toggled, { capture: true });
     // The prompt field's growth motion (composer/fieldGrowth.ts), while it runs: the field and the
-    // height it lands on, and the rows' own move on its curve. The stack is measured as it will be
-    // once the field lands (its drawn height plus what the field has yet to grow), so the motion's
-    // frames render nothing here: the room takes the end height once, as the motion starts, and the
-    // rows go home on the compositor with the field.
+    // height it lands on. The stack is measured as it will be once the field lands (its drawn height
+    // plus what the field has yet to grow), so the motion's frames render nothing here: the room takes
+    // the end height once, as the motion starts, and the rows go home on the compositor with the field.
+    // The list is the motion's one owner (transcript motion model rule 4): it declares it
+    // (`layoutWatch.expect`), renders its room in one ordinary render after the frame it starts in
+    // (never `flushSync`: a line wrap drew the whole transcript synchronously in the key's task, before
+    // its frame could paint), and the commit that renders it starts the rows' rise
+    // (`growthRise`, the layout effect after the placement pass).
     let growth: { field: HTMLElement; to: number } | undefined;
-    let rowsMove: Animation | undefined;
+    // The growth whose room is not asked for yet: the rows' top as drawn when it started.
+    let rising: { detail: FieldGrowthDetail; top: number } | undefined;
+    // The stack's sizes last asked of the render: an ask not rendered yet is not asked again.
+    const asked = { space: 0, height: 0, card: 0 };
     // The reader's input wins over the rise: the rows freeze where they are painted (the rise's part
     // handed to the follow chase, held as it holds), and the card grows on over them, as `cardHold`
     // does. Played on, the rise moved the rows while the reader scrolled up. Two style reads, on input
     // only while a rise plays.
     freezeGrowthRise.current = () => {
       const rows = thread.current;
-      const move = rowsMove;
+      const rise = growthRise.current;
+      const move = rise.move;
       if (!rows || !move || move.playState === "finished" || move.playState === "idle") return;
-      const drawnY = () => {
-        const value = getComputedStyle(rows).translate;
-        return value && value !== "none" ? Number.parseFloat(value.split(" ")[1] ?? "") || 0 : 0;
-      };
-      const before = drawnY();
+      const before = drawnTranslateY(rows);
       move.cancel();
-      rowsMove = undefined;
-      followChase.current?.carry(rows, before - drawnY());
+      rise.move = undefined;
+      followChase.current?.carry(rows, before - drawnTranslateY(rows));
     };
     /// What the field has yet to grow (px), 0 once it rests (and the growth is over).
     const toGrow = () => {
@@ -2433,8 +2470,8 @@ function TranscriptView({
         return growth.to - growth.field.getBoundingClientRect().height;
       growth = undefined;
       // A motion cut short (Reduce Motion turned on, the chat left) lands the rows with the field.
-      rowsMove?.cancel();
-      rowsMove = undefined;
+      growthRise.current.move?.cancel();
+      growthRise.current = {};
       return 0;
     };
     const take = () => {
@@ -2450,47 +2487,49 @@ function TranscriptView({
       dockNoticeRef.current = nextNotice;
       // A tray that went holds nothing: the room is the stack's again.
       if (nextTray <= 0) trayToggled.current = false;
-      if (
-        Math.abs(next - dockSpaceRef.current) >= 0.5 ||
-        Math.abs(nextHeight - dockHeightRef.current) >= 0.5 ||
-        Math.abs(nextCard - dockCardRef.current) >= 0.5 ||
-        noticeChanged
-      )
-        flushSync(() => {
-          setDockSpace(next);
-          setDockHeight(nextHeight);
-          setDockCard(nextCard);
-          setDockTray(nextTray);
-          setDockNotice(nextNotice);
-        });
+      const changed =
+        Math.abs(next - asked.space) >= 0.5 ||
+        Math.abs(nextHeight - asked.height) >= 0.5 ||
+        Math.abs(nextCard - asked.card) >= 0.5 ||
+        noticeChanged;
+      if (!changed) return;
+      asked.space = next;
+      asked.height = nextHeight;
+      asked.card = nextCard;
+      const set = () => {
+        setDockSpace(next);
+        setDockHeight(nextHeight);
+        setDockCard(nextCard);
+        setDockTray(nextTray);
+        setDockNotice(nextNotice);
+      };
+      if (!growth) {
+        // Any other change of the stack (a queue card, the tray, the host's line) before this frame paints.
+        flushSync(set);
+        return;
+      }
+      if (rising) growthRise.current.pending = { ...rising, space: next, card: nextCard };
+      rising = undefined;
+      set();
     };
     const observer = new ResizeObserver(take);
-    // perf-hot: one render and two layout reads per growth (not per frame) composer-field-growth
+    // perf-hot: two layout reads per growth (not per frame, not per key), no synchronous render composer-field-growth
     const grew = (event: Event) => {
       const { detail, target } = event as FieldGrowthEvent;
       if (!(target instanceof HTMLElement)) return;
       growth = { field: target, to: detail.to };
-      // After the edit's own task (ProseMirror's update, the composer's render), before the frame.
+      const rows = thread.current;
+      rising = rows ? { detail, top: rows.getBoundingClientRect().top - drawnTranslateY(rows) } : undefined;
+      layoutWatch.expect("composer-growth", {
+        rows: rows ? [rows, dock] : [dock],
+        ms: detail.duration,
+      });
+      // In the frame's animation callbacks (the field's growth starts there), before its layout and paint.
       queueMicrotask(() => {
-        const rows = thread.current;
-        if (!rows || growth?.field !== target) return;
-        const before = rows.getBoundingClientRect().top;
-        rowsMove?.cancel();
-        rowsMove = undefined;
+        if (growth?.field !== target) return;
         take();
-        // Where the rows now lie against where they were drawn: they start there and go home.
-        const delta = before - rows.getBoundingClientRect().top;
-        if (Math.abs(delta) < 0.5) return;
-        const move = rows.animate(growthTranslate(detail, delta), {
-          duration: detail.duration,
-          easing: detail.progress ? "linear" : detail.easing,
-          composite: "add",
-        });
-        if (detail.animation.startTime !== null) move.startTime = detail.animation.startTime;
-        rowsMove = move;
-        move.addEventListener("finish", () => {
-          if (rowsMove === move) rowsMove = undefined;
-        });
+        // Nothing to render (the room held, scrolled up): nothing rises.
+        rising = undefined;
       });
     };
     dock.addEventListener(FIELD_GROWTH_EVENT, grew);
@@ -2498,9 +2537,12 @@ function TranscriptView({
     noteQueue();
     const space = over();
     const fullHeight = height();
+    asked.space = space;
+    asked.height = fullHeight;
+    asked.card = card(space);
     setDockSpace(space);
     setDockHeight(fullHeight);
-    setDockCard(card(space));
+    setDockCard(asked.card);
     setDockTray(tray(space));
     dockNoticeRef.current = notice(space);
     setDockNotice(dockNoticeRef.current);
@@ -2508,7 +2550,8 @@ function TranscriptView({
       observer.disconnect();
       dock.removeEventListener("click", toggled, { capture: true });
       dock.removeEventListener(FIELD_GROWTH_EVENT, grew);
-      rowsMove?.cancel();
+      growthRise.current.move?.cancel();
+      growthRise.current = {};
       freezeGrowthRise.current = () => {};
     };
   }, [dock, noteQueue]);
@@ -5254,6 +5297,37 @@ function TranscriptView({
     minimapPlaced.current?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
   }, [layout, rows, range.first, height, width, dockSpace, room, lift, sessionId, followResume]);
+  // The composer growth's rise (`growthRise`), in the commit that renders its room, after the
+  // placement pass above: the rows start where they were drawn (the running rise's part with them)
+  // and go home on the field's curve and clock, on the compositor. A commit without that room (one
+  // the stream made first) leaves it for the next.
+  useLayoutEffect(() => {
+    const rise = growthRise.current;
+    const pending = rise.pending;
+    if (!pending) return;
+    if (Math.abs(dockSpaceRef.current - pending.space) >= 0.5 || Math.abs(dockCardRef.current - pending.card) >= 0.5)
+      return;
+    rise.pending = undefined;
+    const rows = thread.current;
+    const { detail } = pending;
+    const state = detail.animation.playState;
+    if (!rows || state === "finished" || state === "idle") return;
+    const drawnRise = drawnTranslateY(rows);
+    rise.move?.cancel();
+    rise.move = undefined;
+    const delta = pending.top + drawnRise - rows.getBoundingClientRect().top;
+    if (Math.abs(delta) < 0.5) return;
+    const move = rows.animate(growthTranslate(detail, delta), {
+      duration: detail.duration,
+      easing: detail.progress ? "linear" : detail.easing,
+      composite: "add",
+    });
+    if (detail.animation.startTime !== null) move.startTime = detail.animation.startTime;
+    rise.move = move;
+    move.addEventListener("finish", () => {
+      if (rise.move === move) rise.move = undefined;
+    });
+  });
   // The turn that just ended folds from the rows drawn then to the rows placed now (turnEndFold.ts).
   useLayoutEffect(() => {
     const capture = turnEndCapture.current;
