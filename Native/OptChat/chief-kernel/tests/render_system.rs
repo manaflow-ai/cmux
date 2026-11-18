@@ -10,12 +10,29 @@ const PERSON: &str = "- Replies: short.\n- Default project is cmux-next.";
 const AGENTS: &str = "Extra instructions from AGENTS.md.";
 const CHANNELS: &str = "## Channels\n\nYou take part in group conversations.";
 
+fn golden_path(name: &str) -> String {
+    format!("{}/tests/golden/{name}.txt", env!("CARGO_MANIFEST_DIR"))
+}
+
 fn golden(name: &str) -> String {
-    std::fs::read_to_string(format!(
-        "{}/tests/golden/{name}.txt",
-        env!("CARGO_MANIFEST_DIR")
-    ))
-    .unwrap()
+    std::fs::read_to_string(golden_path(name)).unwrap()
+}
+
+/// `actual` matches golden file `name`. With `CHIEF_UPDATE_GOLDEN=1` it rewrites the file
+/// instead: after a prompt change, run
+/// `CHIEF_UPDATE_GOLDEN=1 cargo test -p chief-kernel --test render_system` and review the
+/// golden diff; never edit the files by hand.
+fn check_golden(name: &str, actual: String) {
+    if std::env::var("CHIEF_UPDATE_GOLDEN").is_ok_and(|flag| flag == "1") {
+        std::fs::write(golden_path(name), &actual).unwrap();
+        return;
+    }
+    assert_eq!(
+        actual,
+        golden(name),
+        "golden {name} differs; rewrite it with CHIEF_UPDATE_GOLDEN=1 \
+         cargo test -p chief-kernel --test render_system"
+    );
 }
 
 fn record() -> serde_json::Value {
@@ -27,9 +44,9 @@ fn record() -> serde_json::Value {
 fn an_mcp_engine_gets_todays_text() {
     let profile = json!({"person": PERSON}).to_string();
     let tools = json!({"mode": "mcp"}).to_string();
-    assert_eq!(
+    check_golden(
+        "mcp-plain",
         render_system(&profile, "claude", &tools).unwrap(),
-        golden("mcp-plain")
     );
 }
 
@@ -39,18 +56,18 @@ fn every_part_of_the_profile_lands_in_the_hosts_order() {
         json!({"person": PERSON, "instructions": AGENTS, "channels": CHANNELS, "record": record()})
             .to_string();
     let tools = json!({"mode": "mcp", "profile_tool": true, "chiefs_tool": true}).to_string();
-    assert_eq!(
+    check_golden(
+        "mcp-everything",
         render_system(&profile, "claude", &tools).unwrap(),
-        golden("mcp-everything")
     );
 }
 
 #[test]
 fn a_configured_coordinator_contact_is_in_the_prompt() {
     let profile = json!({"contact": "test-host/coordinator"}).to_string();
-    assert_eq!(
+    check_golden(
+        "mcp-contact",
         render_system(&profile, "claude", r#"{"mode": "mcp"}"#).unwrap(),
-        golden("mcp-contact")
     );
 }
 
@@ -58,17 +75,17 @@ fn a_configured_coordinator_contact_is_in_the_prompt() {
 fn a_cli_engine_names_the_launcher() {
     let profile = json!({"person": PERSON}).to_string();
     let tools = json!({"mode": "cli", "chief": "/h/optchat/bin/chief"}).to_string();
-    assert_eq!(
+    check_golden(
+        "cli-plain",
         render_system(&profile, "codex", &tools).unwrap(),
-        golden("cli-plain")
     );
     let profile =
         json!({"person": PERSON, "instructions": AGENTS, "channels": CHANNELS, "record": record()})
             .to_string();
     let tools = json!({"mode": "cli", "chief": "/h/optchat/bin/chief", "profile_tool": true, "chiefs_tool": true}).to_string();
-    assert_eq!(
+    check_golden(
+        "cli-everything",
         render_system(&profile, "muse", &tools).unwrap(),
-        golden("cli-everything")
     );
 }
 
@@ -76,18 +93,18 @@ fn a_cli_engine_names_the_launcher() {
 fn pi_durable_names_its_tools_as_the_mcp_engines_do() {
     // The Durable Object offers the same short tool names (spawn, send, zoom ...).
     let profile = json!({"person": PERSON}).to_string();
-    assert_eq!(
+    check_golden(
+        "mcp-plain",
         render_system(&profile, "pi-durable", "{}").unwrap(),
-        golden("mcp-plain")
     );
 }
 
 #[test]
 fn an_empty_profile_and_the_plain_default_record_add_nothing() {
     let profile = json!({"record": {"display_name": "Chief", "is_default": true}}).to_string();
-    assert_eq!(
+    check_golden(
+        "mcp-no-user",
         render_system(&profile, "claude", "{}").unwrap(),
-        golden("mcp-no-user")
     );
 }
 
@@ -157,12 +174,12 @@ fn the_cloud_section_carries_the_owner_rule() {
 
 #[test]
 fn the_cloud_section_is_stable_bytes() {
-    assert_eq!(
+    check_golden(
+        "cloud-plain",
         cloud(&[
-            "send", "reply", "react", "stop", "spawn", "tell", "sleep", "zoom", "date"
+            "send", "reply", "react", "stop", "spawn", "tell", "sleep", "zoom", "date",
         ])
         .unwrap(),
-        golden("cloud-plain")
     );
 }
 

@@ -9,6 +9,10 @@
 #   base=SHA     with dmg=build: SHA built too, its runs interleaved with this checkout's (base 1, head 1, ...)
 #   head=SHA     with dmg=build: build SHA as the head instead of this checkout (a pull request's head: the controller
 #                runs this script only at a commit of feat-cmux-next, so an A/B of a PR names it here)
+#   dmg=swap     each side a clone of ONE signed nightly with only its executable and resource bundles built Release at
+#                the side's commit (head=, else this checkout; base= too when given, or base=nightly for the nightly's
+#                own binary), every side re-sealed ad hoc the same way (scripts/measure/swap-nightly.sh). Refused, exit 3,
+#                when a commit changes what a swap cannot carry. nightly=URL|sha256:HEX pins that nightly (default newest)
 #   runs=N       measured relaunches per side (1 to 10, default 5), after one priming launch
 #   session=stress3  before the measured relaunches, each side's home gets a 3-window, 60-workspace session: one more
 #                launch after the priming one, in which launch-ready-seed.py opens 3 windows, makes 60 workspaces across
@@ -31,6 +35,12 @@
 #   copy=fresh   each measured launch is the first exec of a new copy: just before it, the side's copy is deleted and
 #                copied again from the DMG's (new files at the same path, the same code signature), as an update in
 #                place leaves it. The home stays. Default copy=same: every launch runs the one copy.
+#   engines=E[,E2]  with a DMG (not dmg=build): one side per engine (chromium or webkit), named for it, each a copy of the
+#                one DMG whose home has its own settings file, cmux-next.json with browser.defaultEngine=E (the app reads
+#                it through CMUX_NEXT_CONFIG_FILE). engines=chromium,webkit interleaves Chromium as launch has it now with
+#                Chromium not started at launch (AppDelegate starts it only for the chromium engine). After each launch
+#                launch-ready-cef.py adds Chromium's start from the app's log (cef.ready, cef.initialize_start,
+#                cef.initialize_dur, cef.load_dur, cef.map_dur, cef_started): a release build serves no debug.cef.
 #   late=MS      a third side, late: its own copy of the head's DMG and its own home, interleaved after head, whose measured
 #                launches wait MS ms (0 to 10000) between the previous launch's quit and their open request. It tells a
 #                head cost that comes from overlapping the quit before it from one the head pays anyway. Default 0.
@@ -76,7 +86,7 @@ set -uo pipefail
 
 main() {
   cd "$(dirname "$0")/../.." || exit 3
-  local out="$PWD/.build/launch-ready" dmg=nightly base="" headsha="" runs=5 profile=0 session=small prerun=0 copy=same machines=0 late=0 arg rc=0 i side
+  local out="$PWD/.build/launch-ready" dmg=nightly nightly="" base="" headsha="" runs=5 profile=0 session=small prerun=0 copy=same machines=0 late=0 engines="" arg rc=0 i side
 
   local preflight=1 preflight_cpu=30
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
@@ -88,7 +98,8 @@ main() {
   trap 'rm -rf "$LR_SOCKETS"; defaults_restore "$out" || exit 4' EXIT
   for arg in "$@"; do
     case "$arg" in
-      dmg=nightly|dmg=build|dmg=https://*) dmg="${arg#dmg=}" ;;
+      dmg=nightly|dmg=build|dmg=swap|dmg=https://*) dmg="${arg#dmg=}" ;;
+      nightly=https://*|nightly=sha256:*) nightly="${arg#nightly=}" ;;
       base=*) base="${arg#base=}" ;;
       head=*) headsha="${arg#head=}" ;;
       runs=*) runs="${arg#runs=}" ;;
@@ -104,6 +115,7 @@ main() {
       copy=same|copy=fresh) copy="${arg#copy=}" ;;
       late=*) late="${arg#late=}" ;;
       machines=*) machines="${arg#machines=}" ;;
+      engines=*) engines="${arg#engines=}" ;;
       preflight=0|preflight=1) preflight="${arg#preflight=}" ;;
       preflight_cpu=*) preflight_cpu="${arg#preflight_cpu=}" ;;
       *) echo "unknown argument: $arg" >&2; exit 2 ;;
@@ -117,8 +129,12 @@ main() {
   [[ "$prerun" =~ ^[0-9]+$ && "$prerun" -le 600 ]] || { echo "prerun= takes 0 to 600 seconds" >&2; exit 2; }
   [[ "$late" =~ ^[0-9]+$ && "$late" -le 10000 ]] || { echo "late= takes 0 to 10000 ms" >&2; exit 2; }
   LR_LATE="$late"
-  [[ -z "$base" || ( "$dmg" == build && "$base" =~ ^[0-9a-f]{40}$ ) ]] || { echo "base= takes a 40-hex commit, with dmg=build" >&2; exit 2; }
-  [[ -z "$headsha" || ( "$dmg" == build && "$headsha" =~ ^[0-9a-f]{40}$ ) ]] || { echo "head= takes a 40-hex commit, with dmg=build" >&2; exit 2; }
+  [[ -z "$base" || ( "$dmg" =~ ^(build|swap)$ && "$base" =~ ^[0-9a-f]{40}$ ) || "$dmg:$base" == swap:nightly ]] \
+    || { echo "base= takes a 40-hex commit, with dmg=build or dmg=swap (or nightly, with dmg=swap)" >&2; exit 2; }
+  [[ -z "$headsha" || ( "$dmg" =~ ^(build|swap)$ && "$headsha" =~ ^[0-9a-f]{40}$ ) ]] || { echo "head= takes a 40-hex commit, with dmg=build or dmg=swap" >&2; exit 2; }
+  [[ -z "$engines" || "$late" == 0 ]] || { echo "engines= takes no late= (the late side would have no engine of its own)" >&2; exit 2; }
+  [[ -z "$engines" || ( ! "$dmg" =~ ^(build|swap)$ && "$engines" =~ ^(chromium|webkit)(,(chromium|webkit))?$ && "$engines" != chromium,chromium && "$engines" != webkit,webkit ) ]] \
+    || { echo "engines= takes chromium, webkit or both (comma), with a DMG (not dmg=build or dmg=swap)" >&2; exit 2; }
   case_args_ok "$base" "$session" || exit 2
   if [[ "$LR_SNAPSHOT" == unknown ]]; then LR_FRONT=tab; fi # the workspace closed is the priming launch's front tab's
   echo "LR state $LR_STATE"
@@ -135,9 +151,21 @@ main() {
 
   cp scripts/measure/launch-ready-summary.py "$out/summary.py"
   cp scripts/ci/fresh_home_launch_smoke.py "$out/fresh_home_launch_smoke.py"
-  echo "LR session $session prerun $prerun copy $copy machines $machines"
+  cp scripts/measure/launch-ready-cef.py "$out/cef.py"
+  echo "LR session $session prerun $prerun copy $copy machines $machines engines ${engines:-none}"
   local sides=(head)
-  if [[ "$dmg" == build ]]; then
+  if [[ -n "$engines" ]]; then
+    IFS=, read -r -a sides <<<"$engines"
+    for side in "${sides[@]}"; do
+      mkdir -p "$out/home-$side" && chmod 0777 "$out/home-$side"
+      printf '{"browser": {"defaultEngine": "%s"}}\n' "$side" >"$out/home-$side/cmux-next.json" && chmod 0666 "$out/home-$side/cmux-next.json" || exit 3
+    done
+  fi
+  if [[ "$dmg" == swap ]]; then
+    source scripts/measure/swap-nightly.sh
+    swap_nightly "$out" "$nightly" ${base:+base="$base"} head="${headsha:-$(git rev-parse HEAD)}" || exit 3
+    [[ -z "$base" ]] || sides=(base head)
+  elif [[ "$dmg" == build ]]; then
     # nightly-fresh-launch.sh's build_dmg, without running its main. From a file: macOS's bash 3.2 sources nothing
     # from a process substitution.
     sed '/^main "\$@"; exit \$?$/d' scripts/measure/nightly-fresh-launch.sh >"$out/nightly-fresh-launch-lib.sh"
@@ -178,13 +206,18 @@ main() {
   if [[ "$preflight" == 1 ]]; then bash "$out/preflight.sh" "$preflight_cpu" || { echo "LR-FAIL hot host: a system indexer above ${preflight_cpu}% CPU or cmux-ci's noisy mark (preflight=0 skips this check)"; exit 5; }; fi
   for side in "${sides[@]}"; do
     local mount="$out/mnt-$side" image="$side"
-    [[ "$side" != late ]] || image=head # the late side runs the head's build
+    [[ "$side" != late && -z "$engines" ]] || image=head # the late side, and every engines= side, runs the head's DMG
     mkdir -p "$mount" "$out/$side"
-    hdiutil attach "$out/$image.dmg" -nobrowse -readonly -mountpoint "$mount" >/dev/null || { echo "LR attach $side failed"; exit 3; }
-    local found; found="$(find "$mount" -maxdepth 1 -name '*.app' | head -1)"
+    local found
+    if [[ "$dmg" == swap ]]; then
+      found="$(find "$out/swap-$image" -maxdepth 1 -name '*.app' | head -1)" # swap_nightly's sealed copy
+    else
+      hdiutil attach "$out/$image.dmg" -nobrowse -readonly -mountpoint "$mount" >/dev/null || { echo "LR attach $side failed"; exit 3; }
+      found="$(find "$mount" -maxdepth 1 -name '*.app' | head -1)"
+    fi
     ditto "$found" "$out/$side/$(basename "$found")" || exit 3
     if [[ "$copy" == fresh || "$LR_CASE" == update ]]; then mkdir -p "$out/$side-dmg" && ditto "$found" "$out/$side-dmg/$(basename "$found")" || exit 3; fi
-    hdiutil detach "$mount" >/dev/null || hdiutil detach -force "$mount" >/dev/null
+    [[ "$dmg" == swap ]] || hdiutil detach "$mount" >/dev/null || hdiutil detach -force "$mount" >/dev/null
     local info="$out/$side/$(basename "$found")/Contents/Info.plist"
     [[ -f "$info" ]] || { echo "LR-FAIL $side $(basename "$found") has no Contents/Info.plist"; exit 3; }
     echo "LR app $side $(basename "$found") $(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$info" 2>/dev/null)"
@@ -230,10 +263,14 @@ probe() {
     [[ "${PIPESTATUS[0]}" == 0 ]] || { echo "LR-FAIL $side $label no sidebar snapshot to seed machines into"; return 1; }
   fi
   quiesce "$app" "$side" "$label"
-  # state=bare: the launch finds an empty home (launch-ready.swift makes its folders again) and empty defaults (no
-  # defaults.plist, so the load leaves the side's domain clear). Only this run's own home is removed; a daemon the
-  # last launch kept has its socket in the removed home and ends with the others at the end.
-  if [[ "$LR_STATE" == bare ]]; then rm -rf "$out/home-$side/h" "$out/home-$side/t" "$out/home-$side/defaults.plist"; fi
+  # state=bare: the launch finds no daemon (the ones the last launch kept end first, as daemon=cold ends them: a kept
+  # daemon survived the emptied home, and the next launch's ensure found it, so it never showed Home's first page), an
+  # empty home (launch-ready.swift makes its folders again) and empty defaults (no defaults.plist, so the load leaves
+  # the side's domain clear). Only this run's own copy's processes and home.
+  if [[ "$LR_STATE" == bare ]]; then
+    cold_daemon "$out" "$side" "$label" | sed 's/^LR-COLD /LR-BARE-STOP /'
+    rm -rf "$out/home-$side/h" "$out/home-$side/t" "$out/home-$side/defaults.plist"
+  fi
   side_defaults "$out" load "$app" "$out/home-$side/defaults.plist" \
     || { echo "LR-FAIL $side $label defaults not loaded"; return 1; }
   # daemon=cold: a measured launch finds no daemon running.
@@ -265,6 +302,11 @@ probe() {
     kill -INT "$recorder" 2>/dev/null; wait "$recorder" 2>/dev/null
   fi
   [[ -n "$line" ]] || { echo "LR-RUN $side $label no result"; return 1; }
+  # engines=: Chromium's start, from the app's log, added to the row's marks (launch-ready-cef.py).
+  if [[ -f "$out/home-$side/cmux-next.json" ]]; then
+    local withcef
+    withcef="$(echo "${line#LR-RUN }" | python3 -I "$out/cef.py" 2>>"$out/cef.log")" && [[ -n "$withcef" ]] && line="LR-RUN $withcef"
+  fi
   echo "$line" | sed "s/^LR-RUN /LR-RUN $side /"
   echo "LR-LOAD $side $label load_1m=$load"
   echo "${line#LR-RUN }" | python3 -I -c 'import json,sys; r=json.load(sys.stdin); r["side"]=sys.argv[1]; r["load_1m"]=float(sys.argv[2]) if sys.argv[2] else None; r.update({"cross_arm": json.loads(sys.argv[3])} if sys.argv[3] else {}); print(json.dumps(r))' "$side" "$load" "$cross" >>"$out/runs.jsonl"

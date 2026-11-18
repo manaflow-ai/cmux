@@ -740,3 +740,26 @@ fn leased_desktops_are_off_until_the_env_names_a_binary_and_owned_by_the_session
     assert_eq!(owners, [&("DESKTOP_LEASE_OWNER".to_owned(), "s2".to_owned())]);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// The person's saved MCP servers reach every chat as one upstream of `cmux`
+/// (`optchat-chief integrations serve`, tool `mcp_servers`), with the chat's session id so the
+/// server shows only the servers the person's scope gives it; cmux.json turns it off.
+#[test]
+fn a_chat_gets_the_saved_mcp_servers_with_its_session() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("acpmux-saved-mcp-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let chief = root.join("optchat-chief");
+    std::fs::write(&chief, "#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(&chief, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let name = super::SAVED_SERVERS_NAME;
+    let on = resolve(&memory_inputs(&root, None)).for_session("s1");
+    let server = on.servers.iter().find(|s| s.name == name).expect("the saved servers");
+    assert_eq!(server.command, chief);
+    assert_eq!(server.args, ["integrations", "serve"]);
+    assert_eq!(server.env, [(super::AGENT_SESSION_ENV.to_owned(), "s1".to_owned())]);
+    let off =
+        resolve(&memory_inputs(&root, Some(r#"{"agents":{"mcpServers":{"enabled":false}}}"#)));
+    assert!(off.servers.iter().all(|s| s.name != name), "{:?}", off.servers);
+    let _ = std::fs::remove_dir_all(&root);
+}
