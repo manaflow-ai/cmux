@@ -27,8 +27,10 @@ jobs:
   archive:
     name: Archive cmux-next-ios (unsigned, no secrets)
     if: github.event_name == 'push'
-    # Holds no secret: the capability map's machine, or the macOS pool.
-    runs-on: blacksmith-6vcpu-macos-26
+    # Holds no secret. macOS 27: App Store Connect warns (ITMS-90725) that from
+    # April 2027 uploads must be built with the iOS 27 SDK, which only Xcode 27
+    # carries; Blacksmith's macOS 26 image tops out at Xcode 26.6 (iOS 26.5 SDK).
+    runs-on: blacksmith-6vcpu-macos-27
     timeout-minutes: 120
     outputs:
       sha: ${{ steps.resolve.outputs.sha }}
@@ -99,8 +101,26 @@ jobs:
       - name: Fetch shared-package upstream branches
         run: git fetch --no-tags origin feat-cmux-next-tabs-kit:refs/remotes/origin/feat-cmux-next-tabs-kit feat-imsg-parity-gui:refs/remotes/origin/feat-imsg-parity-gui
 
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
+      # The app source pins macOS 27 runners to Xcode 26.6, which this image may
+      # not carry and which builds with the iOS 26.5 SDK. Pin the newest
+      # installed Xcode 27 explicitly; select-ci-xcode.sh fails if it is absent.
+      - name: Select Xcode 27 (iOS 27 SDK)
+        run: |
+          set -euo pipefail
+          best="" best_v=""
+          for app in /Applications/Xcode*.app; do
+            [ -d "$app/Contents/Developer" ] || continue
+            v="$(DEVELOPER_DIR="$app/Contents/Developer" xcodebuild -version 2>/dev/null | awk 'NR==1{print $2}')"
+            case "$v" in 27|27.*) ;; *) continue ;; esac
+            if [ -z "$best_v" ] || [ "$(printf '%s\n%s\n' "$best_v" "$v" | sort -V | tail -1)" = "$v" ]; then
+              best="$app" best_v="$v"
+            fi
+          done
+          [ -n "$best" ] || { echo "::error::no Xcode 27 on this runner"; ls -d /Applications/Xcode*.app >&2 || true; exit 1; }
+          CMUX_CI_DEVELOPER_DIR="$best/Contents/Developer" ./scripts/select-ci-xcode.sh
+          sdk="$(DEVELOPER_DIR="$best/Contents/Developer" xcrun --sdk iphoneos --show-sdk-version)"
+          case "$sdk" in 27|27.*) ;; *) echo "::error::$best has iOS SDK $sdk, need 27+"; exit 1 ;; esac
+          echo "Archiving with Xcode $best_v, iOS SDK $sdk" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Tools (xcodegen, Rust)
         run: |
@@ -130,6 +150,12 @@ jobs:
           cmux-next-ios/scripts/testflight-build.sh "${ARGS[@]}"
           out="$(find "$root" -maxdepth 1 -type d -name "*-${SHA:0:10}-testflight" -print0 | xargs -0 ls -td | head -1)"
           app="$out/CmuxMobileApp.xcarchive/Products/Applications/CmuxMobileApp.app"
+          # ITMS-90725: App Store Connect reads the SDK from DTSDKName.
+          dtsdk="$(plutil -extract DTSDKName raw -o - "$app/Info.plist")"
+          case "$dtsdk" in iphoneos27*|iphoneos2[89]*|iphoneos[3-9][0-9]*) ;; *)
+            echo "::error::archive built with $dtsdk; App Store uploads need the iOS 27 SDK (ITMS-90725)"; exit 1 ;;
+          esac
+          echo "- SDK: \`$dtsdk\`, $(plutil -extract DTXcodeBuild raw -o - "$app/Info.plist")" >> "$GITHUB_STEP_SUMMARY"
           # App Review needs iPad screenshots only for an app that runs on iPad.
           if plutil -extract UIDeviceFamily json -o - "$app/Info.plist" | grep -q 2; then
             echo "ipad=true" >> "$GITHUB_OUTPUT"
