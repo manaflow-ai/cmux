@@ -1731,7 +1731,7 @@ fn start(
     let memory_editor = crate::inspect::edit::Editor::open(chat.clone(), &paths.root);
     // The MCP hub (mcp_hub): servers the Chief adds itself; a task's result
     // and a subscribed event reach the brain as a note, as a peer Chief's do.
-    let mcp_hub = crate::mcp_hub::McpHub::new(
+    let mcp_hub = crate::mcp_hub::McpHub::new_for(
         paths.root.join("mcp"),
         // One store of connections for the machine: every Chief home and
         // acpmux's connect card (mcp_hub::store).
@@ -1746,6 +1746,8 @@ fn start(
                     .send(Input::PeerChiefNote { text });
             })
         },
+        // It sees the servers the person's scope on the connect card gives this Chief.
+        crate::mcp_hub::Viewer::Chief(crate::paths::home_id(home)),
     );
     mcp_hub.start();
     crate::tools::serve_all(
