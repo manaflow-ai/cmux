@@ -40,6 +40,7 @@ import CmuxNextPopups
 import CmuxNextBrowserImport
 import CmuxNextPhone
 import CmuxNextPhoneAccess
+import CmuxNextQuit
 import CmuxNextServer
 import CmuxNextSettings
 import CmuxNextSidebar
@@ -460,6 +461,7 @@ final class AppServices {
         return AppProcessRoot.shared.services === self && self.windows.controllers.isEmpty && !self.quit.isQuitting
             && self.settings?.snapshot.hideDockIconWithoutWindows ?? CmuxConfigSnapshot.hideDockIconWithoutWindowsDefault
     }, menuBarItemShown: { [weak self] in self?.menuBarExtra.isShown ?? false })
+    private(set) lazy var backgroundReady = BackgroundReadyController(host: self)  // `app.backgroundReady`: a Quit that keeps cmux running hidden
     /// The cmux menu bar item (`app.showMenuBarIcon`): account, agents, help, community, updates, logs, Quit.
     private(set) lazy var menuBarExtra = MenuBarExtra(registry: registry, icon: MenuBarIcon().image(), host: self)
     /// First-run onboarding, browser import and default-app claims.

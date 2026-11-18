@@ -122,6 +122,8 @@ public nonisolated struct MenuBarMenuState: Sendable, Hashable {
     public var updateReady: Bool
     /// Show/Hide All Windows' system-wide key is on (`app.globalHotKey`): Open cmux shows it.
     public var showsGlobalKey: Bool
+    /// `app.backgroundReady` is on: Quit Completely follows Quit.
+    public var quitCompletely: Bool
 
     /// - Parameters:
     ///   - account: The signed-in account, nil when signed out.
@@ -133,9 +135,10 @@ public nonisolated struct MenuBarMenuState: Sendable, Hashable {
     ///   - unread: The Unread list; empty hides the section.
     ///   - running: The Running list; empty hides the section.
     ///   - keepingAwake: cmux keeps the Mac awake; nil hides the line.
+    ///   - quitCompletely: Quit Completely follows Quit (`app.backgroundReady` on).
     public init(account: Account? = nil, agentsWorking: Int = 0, agentsNeedingInput: Int = 0,
                 updateReady: Bool = false, showsGlobalKey: Bool = false, computerUse: ComputerUse? = nil,
-                unread: Chats = Chats(), running: Chats = Chats(), keepingAwake: KeepingAwake? = nil) {
+                unread: Chats = Chats(), running: Chats = Chats(), keepingAwake: KeepingAwake? = nil, quitCompletely: Bool = false) {
         self.computerUse = computerUse
         self.keepingAwake = keepingAwake
         self.unread = unread
@@ -145,5 +148,6 @@ public nonisolated struct MenuBarMenuState: Sendable, Hashable {
         self.agentsNeedingInput = agentsNeedingInput
         self.updateReady = updateReady
         self.showsGlobalKey = showsGlobalKey
+        self.quitCompletely = quitCompletely
     }
 }

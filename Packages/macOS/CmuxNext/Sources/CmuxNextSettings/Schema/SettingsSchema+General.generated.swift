@@ -68,6 +68,13 @@ extension CmuxConfigSnapshot {
     public nonisolated static let showMenuBarIconDefault = true
 }
 
+extension BackgroundReadySetting {
+    /// `app.backgroundReady`: Leo 2026-11-17 (ask-b2b0f899c1): "how can we improve those? startup in background maybe?" Off when unset or invalid; off changes nothing. The decisions are cmux-background-ready's (Rust); the value string goes to it as is.
+    public nonisolated static let configPath = ["app", "backgroundReady"]
+    public nonisolated static let fallback = "off"
+    public nonisolated static let values = ["off", "afterQuit", "afterQuitAndLogin"]
+}
+
 extension QuitBehaviorSetting {
     /// `app.quitBehavior`.
     public nonisolated static let configPath = ["app", "quitBehavior"]
@@ -293,80 +300,6 @@ nonisolated enum GeneralSettingsSchema {
                 kind: .number(SettingNumber(ClosedHistoryRetentionSetting.maxAgeDaysRange, step: 1, unit: .days)),
                 default: .number(ClosedHistoryRetentionSetting.maxAgeDaysDefault),
                 keywords: ["history", "recently closed", "reopen", "retention", "delete", "privacy", "days"]
-            ),
-        ]
-    }
-}
-
-extension GeneralSettingsSchema {
-    static var window: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.window", "Window")
-        return [
-            SettingDescriptor(
-                WindowTitlebarSetting.configPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.window.titlebar", "Titlebar"),
-                help: SettingsText.keyed("settings.window.titlebar.help", "Minimal has no titlebar strip; the top row moves the window."),
-                kind: .choice([
-                    SettingChoice(TitlebarStyle.minimal.rawValue, SettingsText.keyed("settings.choice.minimal", "Minimal")),
-                    SettingChoice(TitlebarStyle.standard.rawValue, SettingsText.keyed("settings.choice.standard", "Standard")),
-                ]),
-                default: .string(WindowTitlebarSetting.fallback.rawValue),
-                keywords: ["traffic lights", "title"]
-            ),
-            SettingDescriptor(
-                TitlebarButtonsSetting.configPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.window.titlebarButtons", "Titlebar Buttons"),
-                help: SettingsText.keyed("settings.window.titlebarButtons.help", "With the sidebar hidden, On Hover shows its buttons only over the top row."),
-                kind: .choice([
-                    SettingChoice(TitlebarButtonsMode.hover.rawValue, SettingsText.keyed("settings.choice.onHover", "On Hover")),
-                    SettingChoice(TitlebarButtonsMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
-                ]),
-                default: .string(TitlebarButtonsSetting.fallback.rawValue),
-                keywords: ["titlebar", "buttons", "back", "forward", "hover", "hide", "traffic lights", "toolbar"]
-            ),
-            SettingDescriptor(
-                CmuxConfigSnapshot.globalHotKeyPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.app.globalHotKey", "Global Hot Key"),
-                help: SettingsText.keyed("settings.app.globalHotKey.help", "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front."),
-                summary: SettingsText.keyed("settings.app.globalHotKey.summary", "Show or hide all windows from any app"),
-                kind: .toggle,
-                default: .bool(CmuxConfigSnapshot.globalHotKeyDefault),
-                keywords: ["global", "hotkey", "hot key", "summon", "show", "hide", "windows", "system-wide"]
-            ),
-            SettingDescriptor(
-                CmuxConfigSnapshot.startAgentGlobalHotKeyPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.app.startAgentGlobalHotKey", "Start Agent from Any App"),
-                help: SettingsText.keyed("settings.app.startAgentGlobalHotKey.help", "⌃⌥⌘Space starts an agent while another app is in front."),
-                kind: .toggle,
-                default: .bool(CmuxConfigSnapshot.startAgentGlobalHotKeyDefault),
-                keywords: ["global", "hotkey", "hot key", "summon", "start agent", "agent", "quick", "chat", "launcher", "system-wide"]
-            ),
-            SettingDescriptor(
-                CmuxConfigSnapshot.hideDockIconWithoutWindowsPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.app.hideDockIconWithoutWindows", "Hide Dock Icon When No Windows Are Open"),
-                help: SettingsText.keyed("settings.app.hideDockIconWithoutWindows.help", "cmux stays in the menu bar until a window opens."),
-                kind: .toggle,
-                default: .bool(CmuxConfigSnapshot.hideDockIconWithoutWindowsDefault),
-                keywords: ["dock", "icon", "menu bar", "background", "app switcher", "command tab", "accessory", "windows"]
-            ),
-            SettingDescriptor(
-                CmuxConfigSnapshot.showMenuBarIconPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.app.showMenuBarIcon", "Show Menu Bar Icon"),
-                kind: .toggle,
-                default: .bool(CmuxConfigSnapshot.showMenuBarIconDefault),
-                keywords: ["menu bar", "status item", "menubar", "tray", "icon", "raycast", "extra", "discord", "logs"]
             ),
         ]
     }

@@ -7,6 +7,7 @@ import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextHomeEngine
+import CmuxNextQuit
 import CmuxNextSettings
 import CmuxNextTerminal
 import os
@@ -94,6 +95,7 @@ final class QuitCoordinator {
         SheetDismissal.endAll()
         let origin = origins.consume(appleEventReason: NSAppleEventManager.shared().quitReason)
         let behavior = services.settings?.snapshot.quitBehavior ?? QuitBehaviorSetting.fallback
+        let completely = services.backgroundReady.quitBegan()  // `app.backgroundReady`: Quit Completely, or any quit while hidden
         logger.notice("quit origin=\(String(describing: origin), privacy: .public) behavior=\(behavior.rawValue, privacy: .public)")
         // [services]: the quit task pins the app's services until it ends (cx-6so P1b).
         Task { @MainActor [services] in
@@ -104,6 +106,14 @@ final class QuitCoordinator {
                 sender.reply(toApplicationShouldTerminate: false)
                 quitRefused()
                 return
+            }
+            // `app.backgroundReady` (off by default, then never a stay): cmux keeps running hidden instead.
+            if services.backgroundReady.staysHidden(after: origin, completely: completely) {
+                await services.backgroundReady.hide(choice: choice)  // the saves that end nothing; no deadline, updater, crash-recovery or end step
+                isQuitting = false
+                sender.reply(toApplicationShouldTerminate: false)
+                quitRefused()
+                return services.backgroundReady.exitIfUpdateStaged()  // staged already: quit for good, so Sparkle installs it
             }
             await complete(choice, sender)
         }

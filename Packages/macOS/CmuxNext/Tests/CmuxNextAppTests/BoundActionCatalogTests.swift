@@ -20,6 +20,9 @@ struct BoundActionCatalogTests {
         // which adds these rows to the Rust catalog: until it lands and re-pins, they do nothing.
         "macScreen.viewOnly", "macScreen.fullControl", "macScreen.fullScreen", "macScreen.sendSwitchApp",
         "macScreen.sendSpotlight", "macScreen.reconnect", "macScreen.stopAllViewing",
+        // Quit Completely (`app.backgroundReady`, ask-b2b0f899c1): its Rust catalog row rides the
+        // cmux-background-ready re-pin.
+        "quitCompletely",
     ]
 
     @Test func everyBoundActionIsInTheCatalog() {
