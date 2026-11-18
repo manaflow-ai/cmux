@@ -38,6 +38,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `launch-ready.swift` | Swift probe that launches one app copy like the Dock and records every mark. | CMUX-629 | 2026-11-15 | active |
 | `launch-premain.sh` | What makes a launch reach `main` 600 to 1170 ms late: arms after a 60 s run, page cache, purge, another app, sampled (launch bench mode=premain). | CMUX-629 | 2026-11-17 | active |
 | `launch-premain.swift` | Probe for launch-premain.sh: open or exec one launch, pageins, CPU and the executable's residency at `main`. | CMUX-629 | 2026-11-17 | active |
+| `launch-reboot.sh` | The first launch after a reboot, with and without a post-login pre-read of the app's binaries (row F, background-ready-copy): one phase per step, before (shutdown -r) and after (noread, read, residency). | row F | 2026-11-18 | active |
 | `launch-capture-probe.sh` | Launch image sources with no Screen Recording grant: TCC rows and prompts, the window composite and Chromium page image against the screen, ms and main-thread stall per source. | ask-b2b0f899c1 | 2026-11-17 | active |
 | `launch-capture-probe.py` | Python driver for launch-capture-probe.sh. | ask-b2b0f899c1 | 2026-11-17 | active |
 | `launch-ready-profile.py` | Main-thread Time Profiler summary of one launch-ready launch. | - | 2026-11-15 | active |
@@ -53,15 +54,17 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `stable-next-smoke.sh` | Fresh-home launch smoke of the NEXT Stable build on a console worker. | - | 2026-10-30 | active |
 | `daemon-registry-start.sh` | Start time of the cmux-tui daemon on a large registry. | - | 2026-11-13 | active |
 | `daemon-registry-start.py` | Python driver for daemon-registry-start.sh. | - | 2026-11-13 | active |
+| `daemon-stop-swap.sh` | The cmux-tui daemon's stop under load at two commits: stops with a thread that did not end, stop and next start times. | PL-daemon | 2026-11-18 | active |
 
 ## Input and latency
 
 | name | what it measures | ticket / owner | last touched | status |
 |---|---|---|---|---|
-| `instant-new-surfaces.sh` | Key to visible frame for Cmd-N, Cmd-T, Cmd-D, Cmd-Shift-D. | - | 2026-10-27 | active |
+| `instant-new-surfaces.sh` | Key to visible frame for Cmd-N, Cmd-T, Cmd-D, Cmd-Shift-D. With `--bench=cmd-n-paint --screen`: one Cmd-T and one Cmd-N from the screen's own frames, alone and 100 ms after another key, in a session of many workspaces (the frame of the tab or row, of the page's first content and of the last change; a report with the kept pictures, no judgement). | - | 2026-11-18 | active |
 | `new-terminal-100x.sh` | New terminal, split and workspace latency through the cmux-tui daemon. | - | 2026-11-07 | active |
 | `held-new-tab.sh` | Held Cmd-T with Cmd-W now and then, in a session of many workspaces. | - | 2026-11-15 | active |
 | `held-new-tab.py` | Python driver for held-new-tab.sh. | - | 2026-11-16 | active |
+| `recent-pages.py` | Recent pages with site icons for a bench session (`held-new-tab.py --recent-sites N --recent-pages M`): loopback sites with one 64 x 64 icon each, the visits through one Chromium tab of the app, and the read of the app's own list of recent pages. Not a step's script: held-new-tab.py loads it. | - | 2026-11-18 | active |
 | `build-flags.py` | The form of a tagged reload's build, from the reload's own log: its `bench configuration` line, the optimization settings, the count of Swift compile lines with each -O level (held-new-tab.sh and pane-motion-films.sh call it). | - | 2026-11-17 | active |
 | `burst-bench.sh` | Bursts of Cmd-W, Cmd-D and Cmd-Shift-D: per-press input to next commit. | PL-burst | 2026-10-27 | active |
 | `palette-open.sh` | Command palette open time, per stage, from several page types. | - | 2026-10-27 | active |
@@ -186,6 +189,8 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `cef-app-size.sh` | Installed-size proof for CEF binary with V8 snapshots. | CMUX-570 | 2026-11-14 | active |
 | `cef-snapshot-resources.py` | Pairs a CEF binary with its generated V8 snapshots. | CMUX-570 | 2026-11-14 | active |
 | `clear-cache-look.sh` | Clear Browsing Data's cache option on a real Chromium engine: a service worker's Cache Storage before and after (correctness). | - | 2026-11-17 | active |
+| `floating-pane-look.sh` | Pictures of a floating pane with the Debug Settings knob `Background opacity` at 1 and below 1: a terminal pane and a page pane, with a background picture and without (a look for a person; judges nothing). | - | 2026-11-18 | active |
+| `floating-pane-look-daemon.sh` | The daemon calls of floating-pane-look.sh against a `cmux-tui` daemon alone, with no app and no display (a check of the look's driver before its display step). | - | 2026-11-18 | active |
 
 ## Build and dev loop
 
