@@ -14,7 +14,7 @@ import Testing
             (name: "sidebar.pendingRow.show", milliseconds: 16),
             (name: "sidebar.pendingRow.render", milliseconds: 32),
         ]
-        #expect(BenchSpanSum.mainThread(spans) == 10)
+        #expect(BenchSpanSum(spans).mainThread == 10)
     }
 
     @Test func aNameThatOnlyHoldsTheWordIsInTheSum() {
@@ -22,11 +22,11 @@ import Testing
             (name: "window.sidebar.toggle", milliseconds: 3),
             (name: "sidebars", milliseconds: 5),
         ]
-        #expect(BenchSpanSum.mainThread(spans) == 8)
+        #expect(BenchSpanSum(spans).mainThread == 8)
     }
 
     @Test func noSpanGivesZero() {
-        #expect(BenchSpanSum.mainThread([]) == 0)
+        #expect(BenchSpanSum([]).mainThread == 0)
     }
 }
 #endif
