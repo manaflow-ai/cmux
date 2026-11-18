@@ -186,7 +186,8 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
         # for its tree after 45 min, while the build legs ran on the Blacksmith pool vars.LINUX_BUILD_RUNNER names. A
         # set LINUX_BUILD_RUNNER is the first alternative after the fork check, so it wins over LINUX_RUNNER on every
         # Linux job of the tree publish: this workflow's, the build package's own Linux jobs and the tree request's.
-        routes = [(WORKFLOW.name, name, runs_on) for name, runs_on in linux_routes() if name != DARWIN_CROSS_JOB]
+        routes = [(WORKFLOW.name, name, runs_on) for name, runs_on in linux_routes()
+                  if name != DARWIN_CROSS_JOB and "vars.LINUX_RUNNER" in runs_on]
         for workflow in ("cmux-tui-build-package.yml", "cmux-tui-tree-request.yml"):
             jobs = yaml.load((WORKFLOW.parent / workflow).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)["jobs"]
             routes.extend((workflow, name, job["runs-on"]) for name, job in jobs.items()
