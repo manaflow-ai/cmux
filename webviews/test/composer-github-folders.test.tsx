@@ -219,6 +219,64 @@ test("a new Cloud chat with no folder draws no line under the folder menu's acti
   }
 });
 
+/// Nothing with text follows the pinned actions in the folder menu, and `line` comes before them.
+function expectAboveActions(line: Element | null) {
+  const menu = doc().querySelector(".acpmux-folder-popover")!;
+  const pinned = menu.querySelector(".ui-combobox-pinned")!;
+  expect(line).not.toBeNull();
+  expect(pinned).not.toBeNull();
+  expect(line!.compareDocumentPosition(pinned) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  const after = [...menu.querySelectorAll("*")].filter(
+    (element) =>
+      !pinned.contains(element) &&
+      pinned.compareDocumentPosition(element) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING &&
+      element.textContent?.trim(),
+  );
+  expect(after.map((element) => element.textContent)).toEqual([]);
+}
+
+test("a Cloud chat with no folders and GitHub not connected: the empty line sits over the actions, nothing under them", async () => {
+  const gh = host({ "github.status": { state: "not_connected", repos_scope: null } });
+  const { root } = await renderTray(
+    {
+      summary: { sessionId: "", cwd: "" },
+      projectChoices: [],
+      onBrowseProject: () => undefined,
+      onNoProject: () => {},
+    },
+    gh.store,
+  );
+  try {
+    await openFolderMenu();
+    const empty = doc().querySelector(".acpmux-folder-popover .acpmux-location-empty");
+    expect(empty?.textContent).toBe("No recent folders");
+    expect(option(CONNECT)!.closest(".ui-combobox-pinned")).not.toBeNull();
+    expectAboveActions(empty);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("words that match no folder: the empty line sits over the actions", async () => {
+  const gh = host({ "github.status": { state: "not_connected", repos_scope: null } });
+  const { root } = await renderTray({ onBrowseProject: () => undefined }, gh.store);
+  try {
+    await openFolderMenu();
+    const field = doc().querySelector<HTMLInputElement>(".acpmux-location-search")!;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
+      setter.call(field, "zzzz");
+      field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+    await settle();
+    const empty = doc().querySelector(".acpmux-folder-popover .acpmux-location-empty");
+    expect(empty?.textContent).toBe("No matching folders");
+    expectAboveActions(empty);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test("with the page's own key state, coming back to the window after Connect to GitHub reads the status", async () => {
   // The real pageKey.ts wiring, not a test seam: the window's blur (GitHub opened in the browser)
   // and focus (the person is back) re-read github.status with the menu still open.
@@ -284,6 +342,15 @@ test("ready: the repositories are listed, and a pick is the folder github:owner/
     expect(api.querySelector("[data-section]")?.getAttribute("data-section")).toBe("GitHub");
     expect(api.querySelector(".acpmux-location-lock")?.textContent).toBe("Private");
     expect(option("acme/web")!.querySelector(".acpmux-location-lock")).toBeNull();
+    // The folders after the repositories have their own heading, apart from the GitHub group.
+    const headings = [...doc().querySelectorAll(".ui-combobox-scroll [data-section]")].map((row) =>
+      row.getAttribute("data-section"),
+    );
+    expect(headings).toEqual(["GitHub", "This Mac"]);
+    const firstFolder = [...doc().querySelectorAll(".ui-combobox-scroll [role=option]")].find(
+      (item) => !item.querySelector("[data-github]"),
+    );
+    expect(firstFolder?.querySelector("[data-section]")?.getAttribute("data-section")).toBe("This Mac");
     // Connected: the way to the installation's page on GitHub shows whatever the scope.
     expect(option("Choose more repositories…")).toBeDefined();
     await press(api);
@@ -351,11 +418,13 @@ test("another repos.list failure shows one line with Retry, which reads again", 
     "github.status": { state: "ready", repos_scope: "all" },
     "github.repos.list": { error: new Error("GitHub did not answer") },
   });
-  const { root } = await renderTray({}, gh.store);
+  const { root } = await renderTray({ onBrowseProject: () => undefined }, gh.store);
   try {
     await openFolderMenu();
     const line = doc().querySelector(".acpmux-github-error");
     expect(line?.textContent).toContain("GitHub did not answer");
+    // With the list, over the actions.
+    expectAboveActions(line);
     gh.answers["github.repos.list"] = { repos: REPOS, truncated: false };
     await press(button("Retry")!);
     expect(gh.calls.at(-1)).toEqual(["github.repos.list", { query: null }]);
@@ -378,6 +447,10 @@ test("before the status answers, the Connect to GitHub row is there and says it 
     await openFolderMenu();
     expect(calls).toEqual(["github.status"]);
     expect(detail(option(CONNECT))).toBe("Checking GitHub…");
+    // Informational until the status answers: a click asks nothing.
+    await press(option(CONNECT)!);
+    expect(calls).toEqual(["github.status"]);
+    expect(option(CONNECT)).toBeDefined();
     await act(async () => answer({ state: "unavailable", repos_scope: null, reason: "unreachable" }));
     await settle();
     expect(detail(option(CONNECT))).toBeUndefined();

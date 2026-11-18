@@ -34,6 +34,10 @@ export interface ComboboxProps {
    * `pinnedPlacement: "bottom"` under the list (the arrows reach them after the last row either way). */
   pinnedSuggestions?: readonly string[];
   pinnedPlacement?: "top" | "bottom";
+  /** A line in the list's place (a list's "nothing here yet" or its load error): with
+   * `pinnedSuggestions`, after the scrolling rows and before bottom-pinned actions, so it never lands
+   * under them; without, after the list. Not a row: the arrows never reach it. */
+  listEnd?: ReactNode;
   /** The text changed (typing, completion): compute new suggestions. */
   onQuery(value: string): void;
   /** Return: the highlighted suggestion, else the text. */
@@ -99,6 +103,7 @@ export function Combobox({
   suggestions,
   pinnedSuggestions,
   pinnedPlacement = "top",
+  listEnd,
   onQuery,
   onSubmit,
   onCancel,
@@ -484,6 +489,7 @@ export function Combobox({
       ) : (
         <Autocomplete.Collection>{(item: string, index: number) => renderOption(item, index)}</Autocomplete.Collection>
       )}
+      {hasPinned && listEnd}
       {hasPinned && pinnedPlacement === "bottom" && pinnedRows}
       {disabledSuggestions.map((item) => (
         <li
@@ -503,6 +509,16 @@ export function Combobox({
       ))}
     </Autocomplete.List>
   );
+  // With no pinned actions there is nothing to keep it over: it follows the list.
+  const listed =
+    hasPinned || listEnd === undefined ? (
+      list
+    ) : (
+      <>
+        {list}
+        {listEnd}
+      </>
+    );
   const nativeOnly = nativePopup.available && native !== undefined;
   const root = (
     <Autocomplete.Root
@@ -544,7 +560,7 @@ export function Combobox({
       />
       {!nativeOnly &&
         (inline ? (
-          list
+          listed
         ) : (
           <Autocomplete.Portal container={container}>
             <Autocomplete.Positioner className="ui-positioner" sideOffset={2} align="start">
@@ -554,7 +570,7 @@ export function Combobox({
                 data-host-glass="menu"
                 data-host-glass-cover=""
               >
-                {list}
+                {listed}
               </Autocomplete.Popup>
             </Autocomplete.Positioner>
           </Autocomplete.Portal>

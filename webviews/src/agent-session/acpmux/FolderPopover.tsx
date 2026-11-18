@@ -10,7 +10,7 @@ import type { ExtraFolderRows } from "./extraFolders";
 import { GitHubMark, LockIcon } from "./GitHubIcons";
 import { githubFolder, githubFolderRepo, matchingRepos, type GitHubPicker } from "./githubRepos";
 import { translate as t } from "./i18n";
-import { useLocationOpener, useLocationPopover } from "./locationPopover";
+import { FOLDER_MENU_LIST_CAP, useLocationOpener, useLocationPopover } from "./locationPopover";
 import { ProjectBadge } from "./ProjectBadge";
 import { projectSuffixes } from "./projectSuffix";
 import { folderRepo, groupByRepo, isMainCheckout, shownRepoRows, worktreeName, type ProjectRepo } from "./projectRepos";
@@ -27,7 +27,9 @@ export type FolderChoice = { id: string; label: string; repo?: ProjectRepo };
 /// them). The current folder is checked. The actions are fixed under the scrolling folders, each with
 /// its glyph in the folders' icon column (Leo, 2026-11-06: "it's just folder / that's your project"):
 /// Add folder…, the GitHub row, Add another folder…, New Worktree, New Project and No folder last,
-/// where the host offers them. Nothing sits under the actions.
+/// where the host offers them. The empty line (no folders yet, or none match the words) and the
+/// repositories' load error sit in the list's place, over the actions (Combobox `listEnd`); only the
+/// extra folders a chat already has (ExtraFolderList) are listed under them.
 /// A folder is the one thing the menu picks (Leo, 2026-11-06: "what even is the deal with add
 /// project? ... why not just add fodler? what's special about project?"): Add folder… is the host's
 /// folder panel, and a folder picked there is listed with the others from then on. The shared
@@ -44,7 +46,9 @@ export type FolderChoice = { id: string; label: string; repo?: ProjectRepo };
 /// Connect to GitHub, which one click connects in place: the host opens the install page, or sign-in when signed out, the menu
 /// stays open and lists the repositories once the status says ready. Its second line is a refusal (a
 /// click tries again), the wait for the browser, or why it can't connect yet. It never picks a folder.
-/// Before the first status read answers the row says it is checking, so GitHub is never missing.
+/// Before the first status read answers the row says it is checking, so GitHub is never missing; a
+/// click on it then does nothing. With the repositories listed first, the folders after them are
+/// headed This Mac, so they never read as part of the GitHub group.
 export function FolderPopover({
   label,
   menu,
@@ -97,7 +101,17 @@ export function FolderPopover({
   const trigger = useRef<HTMLButtonElement>(null);
   // Escape (not a blur) closes back to the strip's control.
   const escaped = useRef(false);
-  const { control, anchor, open, setOpen: setPopoverOpen, side, flip } = useLocationPopover();
+  // Its side is chosen for its own taller list, not the shared location list's.
+  const {
+    control,
+    anchor,
+    open,
+    setOpen: setPopoverOpen,
+    side,
+    flip,
+  } = useLocationPopover({
+    listCap: FOLDER_MENU_LIST_CAP,
+  });
   const setOpen = (next: boolean) => {
     if (next) {
       setHighlightAuto(true);
@@ -229,22 +243,16 @@ export function FolderPopover({
   };
   const submit = (value: string) => {
     // Connect to GitHub connects from the row in one click (the host opens the install page, or
-    // sign-in), the menu still open; a click while it waits opens the page again.
+    // sign-in), the menu still open; a click while it waits opens the page again. Until the status
+    // answers the row only says it is checking: a click then does nothing.
     if (value === GITHUB_ADD) {
-      github?.onConnect();
+      if (githubStatus !== undefined) github?.onConnect();
       return;
     }
     // Return on words no loaded repository matches: ask GitHub for them (the loaded page may be
-    // only the first of the person's repositories).
-    // Choose more repositories… is then the only row, highlighted by the typing, not by the person.
-    if (
-      githubReady &&
-      typed &&
-      !typedPath &&
-      repos.length === 0 &&
-      github?.state.truncated &&
-      (value === query || (value === GITHUB_MORE && highlightAuto))
-    ) {
+    // only the first of the person's repositories). The field's words arrive as the value: with
+    // words typed, the Combobox never submits a pinned row it highlighted by itself.
+    if (githubReady && typed && !typedPath && repos.length === 0 && github?.state.truncated && value === query) {
       github.onSearch(typed);
       return;
     }
@@ -272,9 +280,12 @@ export function FolderPopover({
       if (folder !== current) onPick(folder);
     } else if (value && value !== current && (shown.has(value) || value === typedPath)) onPick(value);
   };
+  // Under the repositories (a Cloud chat) the folders are headed This Mac, apart from the GitHub group.
+  const firstFolder = githubFirst && githubRows.length > 0 ? (shown.keys().next().value ?? typedPath) : undefined;
   const row = (value: string) => {
     // The GitHub group's heading sits over its first row (composerLocation.css `data-section`).
-    const section = value === githubRows[0] ? t("cloudRepository.github") : undefined;
+    const section =
+      value === githubRows[0] ? t("cloudRepository.github") : value === firstFolder ? t("composer.thisMac") : undefined;
     if (value === GITHUB_ADD) {
       const reason = githubStatus === "unavailable" ? github?.state.status?.reason : undefined;
       // The host's refusal, else the wait for the browser, else why it can't connect yet.
@@ -358,7 +369,7 @@ export function FolderPopover({
     const place = shown.get(value);
     if (!place)
       return (
-        <span className="acpmux-location-row">
+        <span className="acpmux-location-row" data-section={section}>
           <span className="acpmux-menu-label">{t("project.usePath", { path: value })}</span>
         </span>
       );
@@ -394,6 +405,7 @@ export function FolderPopover({
         className="acpmux-location-row"
         // tooltip-allow: the row shows the folder's name; the tooltip is its full path
         title={folder.id}
+        data-section={section}
         data-current={folder.id === current ? "" : undefined}
         data-expanded={others > 0 && !typed ? String(open) : undefined}
       >
@@ -530,18 +542,25 @@ export function FolderPopover({
           inline
           // Thousands of projects (Leo 2026-11-04): only the rows in view mount.
           virtualRows={{ estimate: 28 }}
+          // The empty line and the repositories' load error sit in the list's place, over the actions.
+          listEnd={
+            <>
+              {shown.size === 0 && !typedPath && githubRows.length === 0 && (
+                <div className="acpmux-location-empty">
+                  {t(typed ? "composer.folderNone" : "composer.folderNoneYet")}
+                </div>
+              )}
+              {github?.state.error !== undefined && githubStatus === "ready" && (
+                <div className="acpmux-location-empty acpmux-github-error" role="alert">
+                  <span className="acpmux-github-error-text">{github.state.error}</span>
+                  <Button variant="ghost" size="sm" onClick={() => github.onRetry()}>
+                    {t("project.retry")}
+                  </Button>
+                </div>
+              )}
+            </>
+          }
         />
-        {shown.size === 0 && !typedPath && githubRows.length === 0 && (
-          <div className="acpmux-location-empty">{t(typed ? "composer.folderNone" : "composer.folderNoneYet")}</div>
-        )}
-        {github?.state.error !== undefined && githubStatus === "ready" && (
-          <div className="acpmux-location-empty acpmux-github-error" role="alert">
-            <span className="acpmux-github-error-text">{github.state.error}</span>
-            <Button variant="ghost" size="sm" onClick={() => github.onRetry()}>
-              {t("project.retry")}
-            </Button>
-          </div>
-        )}
         {extra && !addingExtra && <ExtraFolderList folders={extra.folders} onRemove={extra.onRemove} />}
       </Popover>
     </span>

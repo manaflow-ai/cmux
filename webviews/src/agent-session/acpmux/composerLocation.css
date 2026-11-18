@@ -1174,10 +1174,14 @@
 /* The folder popover (FolderPopover.tsx): the search field, the scrolling folders (and a Cloud chat's
    GitHub repositories), then the fixed actions under a rule. A row is its check, its project's badge
    and its name, with a short suffix only when another project shares the name; the full path is its
-   tooltip. Nothing sits under the actions. */
+   tooltip. The empty line and the repositories' load error sit in the list's place over the actions;
+   only the chat's extra folders (ExtraFolderList) are listed under them. */
+/* The environment picker (EnvironmentPicker.tsx) carries this class too and keeps its own sizes
+   (its rules near the end of the file). */
 .acpmux-menu.acpmux-location-menu.acpmux-folder-popover {
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   /* Wide enough that a repository, its branch and a GitHub owner/name read whole (the 240 to 360 px
      menu cut them off); like a desktop project picker, never a skinny list. Both widths follow Text Size as its names do (--ui-px, ui/popupSurface.css), and a narrow pane
      keeps its 16 px margins. */
@@ -1186,8 +1190,9 @@
   /* Tall enough for about fifteen folders over the actions, but it fits the room on its side (Base
      UI's --available-height), so it never covers its control, and a short pane. */
   max-height: min(560px, calc(100dvh - 36px), var(--available-height, 560px));
-  overflow: hidden;
 }
+/* The empty line and the error keep their height as the list gives up room. */
+.acpmux-folder-popover .ui-combobox-pinned-list > .acpmux-location-empty { flex: none; }
 .acpmux-folder-popover .ui-combobox-pinned-list { flex: 1; min-height: 0; }
 /* Its list takes the menu's height, not the shared location list's 260 px cap: the menu's own
    max-height bounds it, and the list gives up room first (flex, min-height 0). The designed scroll
@@ -1697,6 +1702,11 @@
    200 px, so This Mac, Cloud and Remote (its longest row now This Mac with its ⌥⌘ digit) are no
    wider than their fullest row needs (gallery invariants.ts `menu-fit`). */
 .acpmux-menu.acpmux-location-menu.acpmux-env-popover { min-width: 200px; }
+/* Nor does it take the folder menu's larger frame (380 to 560 wide, 560 tall): its own sizes. */
+.acpmux-menu.acpmux-location-menu.acpmux-folder-popover.acpmux-env-popover {
+  max-width: min(calc(360 * var(--ui-px, 1px)), calc(100vw - 32px));
+  max-height: min(360px, calc(100dvh - 36px), var(--available-height, 360px));
+}
 /* Its rows as the model picker's and every other menu's (design/menus.md, popupSurface.css): the
    neutral menu wash (--acpmux-menu-hover, as .acpmux-quick-item), no accent tint and no focus bar,
    inset 5 from the popup's edges at radius 5, the icon at the shared 15 leading. The highlight is
@@ -1809,10 +1819,11 @@
 }
 /* The plain Computer menu (ComposerContext LocationPicker) heads its machines' sections. */
 .acpmux-location-menu .acpmux-menu-item:has(> .acpmux-location-name[data-section]),
-.acpmux-location-menu .acpmux-menu-item:has(> [data-github][data-section]) { position: relative; margin-top: 20px; }
+.acpmux-location-menu .acpmux-menu-item:has(> .acpmux-location-row[data-section]) { position: relative; margin-top: 20px; }
 .acpmux-location-menu .acpmux-menu-item:has(> .acpmux-location-name[data-first-section]) { margin-top: 18px; }
+/* The folder popover's GitHub group, and with it first (a Cloud chat) This Mac over the folders after it. */
 .acpmux-location-name[data-section]::before,
-.acpmux-location-row[data-github][data-section]::before {
+.acpmux-location-row[data-section]::before {
   content: attr(data-section);
   position: absolute;
   top: -17px;

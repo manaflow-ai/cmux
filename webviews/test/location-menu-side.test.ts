@@ -3,7 +3,11 @@
 // side, so the menu never covers its own control and a second press on it still closes the menu.
 // The browser play `agent-pane.composer-context-away` checks the same rule on rendered menus.
 import { expect, test } from "bun:test";
-import { locationMenuSide } from "../src/agent-session/acpmux/locationPopover";
+import {
+  FOLDER_MENU_LIST_CAP,
+  locationMenuHeights,
+  locationMenuSide,
+} from "../src/agent-session/acpmux/locationPopover";
 
 const VIEWPORT = 560;
 
@@ -39,6 +43,14 @@ test("a composer high on the page with no room above opens down instead of cover
 test("outside a composer the menu prefers below when the full menu fits", () => {
   expect(locationMenuSide(control(140), 900)).toBe("bottom");
   expect(locationMenuSide(control(700), 900)).toBe("top");
+});
+
+test("the folder menu's taller list picks its side by its own height, the shared cap stays for the others", () => {
+  // About 370 px below and 490 above: the shared menu (320) fits below, the folder menu (500) does not.
+  expect(locationMenuSide(control(500), 900)).toBe("bottom");
+  expect(locationMenuSide(control(500), 900, FOLDER_MENU_LIST_CAP)).toBe("top");
+  expect(locationMenuHeights(1, FOLDER_MENU_LIST_CAP)).toEqual({ tallest: 500, shortest: 220 });
+  expect(locationMenuHeights(1)).toEqual({ tallest: 320, shortest: 220 });
 });
 
 test("no control gives no side", () => {
