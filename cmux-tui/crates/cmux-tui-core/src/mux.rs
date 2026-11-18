@@ -3397,17 +3397,21 @@ impl Mux {
                 registry.interrupted_resource_workspaces()?,
             )
         };
-        anyhow::ensure!(
-            recoveries.len() <= 1,
-            "multiple interrupted resource creations cannot be recovered atomically"
-        );
+        if recoveries.len() > 1 {
+            return Err(crate::workspace_registry::UnrecoverableInterruptedCreations {
+                message: "multiple interrupted resource creations cannot be recovered atomically",
+            }
+            .into());
+        }
         if staged.is_empty() {
             return Ok(());
         }
-        anyhow::ensure!(
-            staged.len() == 1,
-            "multiple interrupted workspace creations cannot be recovered atomically"
-        );
+        if staged.len() != 1 {
+            return Err(crate::workspace_registry::UnrecoverableInterruptedCreations {
+                message: "multiple interrupted workspace creations cannot be recovered atomically",
+            }
+            .into());
+        }
         let active_workspace = staged
             .last()
             .map(|(_, workspace)| workspace.id)
