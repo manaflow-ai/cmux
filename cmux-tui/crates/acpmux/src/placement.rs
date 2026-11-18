@@ -550,9 +550,15 @@ struct Weighed {
 }
 
 impl Weighed {
-    /// A reading shows it below its lane cap (`Lanes::cap`), whatever its RAM or CPU.
+    /// It has a reading and is not shown at or over its lane cap (`Lanes::cap`), whatever its
+    /// RAM or CPU. A host with no cap configured, or whose reading has no live count, counts as
+    /// under it: a host we can read goes ahead of one we cannot.
     fn under_cap(&self) -> bool {
-        matches!((self.lanes.cap(), self.live), (Some(cap), Some(live)) if (live as f64) < cap)
+        !self.unknown
+            && match (self.lanes.cap(), self.live) {
+                (Some(cap), Some(live)) => (live as f64) < cap,
+                _ => true,
+            }
     }
 }
 

@@ -57,7 +57,6 @@ async fn this_machine(hub: &Hub) -> Candidate {
         health: super::peer_status::host_health(hub, Origin::Peer).await,
         health_at: Some(crate::store::now_ms()),
         via_hub: false,
-        via_hub: false,
     }
 }
 

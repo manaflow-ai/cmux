@@ -655,3 +655,18 @@ fn the_lane_cap_is_lane_places_headroom_max_lanes_else_max_lanes() {
     let v = place(&[c("big", Value::Null), short], Some(&reg), Work::Agent);
     assert_eq!(v["pick"], "light", "{v:#}");
 }
+
+#[test]
+fn a_read_host_with_no_cap_or_no_live_count_still_goes_ahead_of_an_unread_one() {
+    // laptop is out of RAM (no room). Without max_lanes, or with no live count in its reading,
+    // nothing shows it at its cap: a host we can read beats one we cannot.
+    let mut reg = registry();
+    reg["machines"]["laptop"]["lanes"].as_object_mut().unwrap().remove("max_lanes");
+    let short = c("laptop", health(12.5, 8, 1.0, 300.0, 9));
+    let v = place(&[c("big", Value::Null), short], Some(&reg), Work::Agent);
+    assert_eq!((&v["pick"], &v["overloaded"]), (&json!("laptop"), &json!(true)), "{v:#}");
+    let mut no_live = health(12.5, 8, 1.0, 300.0, 0);
+    no_live.as_object_mut().unwrap().remove("liveSessions");
+    let v = place(&[c("big", Value::Null), c("laptop", no_live)], Some(&registry()), Work::Agent);
+    assert_eq!(v["pick"], "laptop", "{v:#}");
+}
