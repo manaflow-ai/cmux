@@ -51,7 +51,8 @@ free_kb() {
 largest_registry_kb() {
   largest=0
   for db in "$state"/sessions/*/workspace-registry.sqlite3; do
-    [ -f "$db" ] || continue
+    # A symlinked registry must not size root-owned growth.
+    [ -f "$db" ] && [ ! -L "$db" ] || continue
     bytes=$(wc -c < "$db" | tr -d ' ')
     case "$bytes" in ""|*[!0-9]*) continue ;; esac
     kb=$(((bytes + 1023) / 1024))

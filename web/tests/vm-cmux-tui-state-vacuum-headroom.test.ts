@@ -125,6 +125,8 @@ describe("cmux-tui state image keeps room for a registry VACUUM", () => {
       });
       expect(result.status).toBe(0);
       expect(result.imageBytes).toBe(2 * GIB);
+      expect(result.stderr).toContain("insufficient root headroom");
+      expect(result.stderr).toContain("no room to grow for a registry VACUUM");
     },
     TEST_TIMEOUT_MS,
   );
@@ -140,6 +142,8 @@ describe("cmux-tui state image keeps room for a registry VACUUM", () => {
       });
       expect(result.status).toBe(0);
       expect(result.imageBytes).toBe(8 * GIB);
+      expect(result.stderr).toContain("reached its 8589934592-byte cap");
+      expect(result.stderr).toContain("no room to grow for a registry VACUUM");
     },
     TEST_TIMEOUT_MS,
   );
