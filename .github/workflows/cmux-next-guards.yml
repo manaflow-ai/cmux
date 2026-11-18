@@ -117,13 +117,14 @@ jobs:
   # per core: the ghostty-next init first, then the rest in parallel, each in its own RUNNER_TEMP and session. In
   # the matrix leg, one after another, the 124 steps took 915 s on 4 vCPU and the 15-minute job ended cancelled
   # with no verdict on every push sampled (runs 44105922962, 44107327387, 44109411155, 44110521024). Each red
-  # step is named on a `guard red step (tip): STEP` line. It takes the runner the matrix leg took: fleet Linux
-  # or a free mini (portable-placement), else the 4 vCPU Linux pool.
+  # step is named on a `guard red step (tip): STEP` line. Linux only: fleet Linux (portable-placement), else the
+  # 4 vCPU Linux pool. Never a mini, as for the guard group: on cmux13 (run 44211360475) 12 of its steps went red
+  # for the mini alone (no node, no Linux tools), where every step finished in 230 s.
   release-notary:
     name: release-notary guards at the tip
     needs: [portable-placement]
     if: ${{ !cancelled() }}  # MEASURE: runs on this pull request once for its 4 vCPU minutes; the next commit restores push-only
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' release-notary ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' release-notary ') && needs.portable-placement.outputs.mini_runner || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' release-notary ') && needs.portable-placement.outputs.linux_runner || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 15
     permissions:
       contents: read
