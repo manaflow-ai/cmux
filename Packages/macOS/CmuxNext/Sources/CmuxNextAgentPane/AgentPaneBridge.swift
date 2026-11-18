@@ -147,6 +147,8 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             view.announceSessionInfo()
             view.model.readAloud?.push(to: view)
             view.pushPaneNotices()
+            // Its bridge is installed now: an unseen page hears it again (``AgentPageSeenSignal``).
+            view.shownPushes.seen.pageLoaded(view)
         }
         return view.model
     }

@@ -34,4 +34,19 @@ import CmuxNextCompat
         super.viewDidHide()
         onChange?()
     }
+
+    /// `pane` moved to another superview (``AgentPaneView/viewDidMoveToSuperview()``): every probe in
+    /// it and in its page hears it. A move within one window (Cmd-T adopting the parked New Tab spare
+    /// into a pane, a parked painted page shown) sends no window move, and leaving the parking is
+    /// what makes such a page seen (``NSView/nobodySees(painted:)``): its held frames, pushes and
+    /// seen signal go in the turn of the move.
+    static func superviewMoved(in pane: NSView) {
+        for child in pane.subviews {
+            if let probe = child as? AgentPaneVisibilityProbe {
+                probe.onChange?()
+                continue
+            }
+            for grandchild in child.subviews { (grandchild as? AgentPaneVisibilityProbe)?.onChange?() }
+        }
+    }
 }

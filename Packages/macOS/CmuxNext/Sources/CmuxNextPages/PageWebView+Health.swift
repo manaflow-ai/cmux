@@ -43,11 +43,11 @@ extension PageWebView {
     }
 
     /// Whether the person can see the page now: in a window that is on screen (not occluded, not in
-    /// the Dock) and under no hidden ancestor. A page that cannot be seen stops its heartbeat (the
-    /// document is hidden), so health never times it.
+    /// the Dock), under no hidden ancestor and not parked once painted (``NSView/nobodySees(painted:)``).
+    /// A page that cannot be seen stops its heartbeat (the document is hidden), so health never times it.
     public var isShownForHealth: Bool {
-        guard let window, !isHiddenOrHasHiddenAncestor, !isParkedSpare else { return false }
-        return window.isVisible && !window.isMiniaturized && window.occlusionState.contains(.visible)
+        guard let window, !isParkedSpare, !isUnseen else { return false }
+        return window.isVisible && !window.isMiniaturized
     }
 
     /// App health's `reloadPage`: the page saves its scroll and draft (`cmux.page.save_state`, waited
