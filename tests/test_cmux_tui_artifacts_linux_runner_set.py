@@ -187,7 +187,7 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
     def test_the_gate_runner_moves_every_linux_job_and_nothing_else(self) -> None:
         # 2026-11-18: the tree preflight sat queued 35+ min on Blacksmith 8 vCPU, so no tree
         # published and every NEXT nightly failed. CMUX_TUI_GATE_RUNNER moves only this
-        # workflow's Linux jobs; a non-Blacksmith LINUX_RUNNER still wins, and a fork ignores it.
+        # workflow's Linux jobs; it wins over LINUX_RUNNER (whose failover moves all of CI), and a fork ignores it.
         # The Darwin cross-compile shadow (compare only) keeps its own LINUX_RUNNER_DARWIN_CROSS knob.
         # The resolver also models the variable unset, so the job's own Blacksmith set stays allowed.
         for name, runs_on in linux_routes():
@@ -202,8 +202,8 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
                     else:
                         self.assertIn(GATE, labels)
             with self.subTest(job=name, linux_runner=POOL):
-                if name != "cmux-next-daemon-tests":
-                    self.assertIn(POOL, resolved(runs_on, "manaflow-ai", POOL, "", "", gate=GATE))
+                if name not in UNGATED_JOBS:
+                    self.assertIn(GATE, resolved(runs_on, "manaflow-ai", POOL, "", "", gate=GATE))
             with self.subTest(job=name, fork=True):
                 self.assertEqual(resolved(runs_on, "someone-else", "", "", "", gate=GATE), {"ubuntu-24.04"})
 
