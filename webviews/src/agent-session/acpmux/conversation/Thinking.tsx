@@ -13,7 +13,7 @@
 // like, shrinks the thing, the circle into the Thinking... portion afterwards which is cute"), and
 // when an ask opens under a line already drawn, the dot grows in the same way (Leo, 2026-11-08: "I
 // mostly just meant the yellow circle thing. I thought that was cute").
-import { type RefObject, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type RefObject, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { useT } from "../i18n";
 import { agentStartLook } from "./agentStart.experiment";
@@ -135,23 +135,79 @@ function useRoll(key: string | undefined, label: string, lead: Roll["lead"], tai
   return roll;
 }
 
+/// Whether the live line may lay out otherwise than at the last layout read of it (`useRollOutWidth`,
+/// `useCountGlide`): its text changed, or its own box did (the column's width, the text size; a
+/// `ResizeObserver`). The line commits again with every streamed token of the reply above it, and
+/// almost every such commit draws the same words and counts. A box read there laid the page out in
+/// the middle of the commit, for an answer the last read already had (bench/transcript-replay.bench.ts
+/// PAIRED=1 PROFILE=1 put the page's layout of a streamed token in this effect). Reading the text is
+/// no layout read. With no ResizeObserver every commit counts as a change, as before.
+export class LineLayoutWatch {
+  private node: Element | undefined;
+  private text: string | undefined;
+  private resized = false;
+  private observer: ResizeObserver | undefined;
+
+  /// True when `node` may lay out otherwise than at the last call that returned true.
+  changed(node: HTMLElement): boolean {
+    const text = node.textContent ?? "";
+    if (this.observer && node === this.node && text === this.text && !this.resized) return false;
+    if (node !== this.node) this.watch(node);
+    this.node = node;
+    this.text = text;
+    this.resized = false;
+    return true;
+  }
+
+  /// Lets the line go (its unmount): the next `changed` watches it again.
+  stop(): void {
+    this.observer?.disconnect();
+    this.observer = undefined;
+    this.node = undefined;
+  }
+
+  private watch(node: HTMLElement): void {
+    this.observer?.disconnect();
+    this.observer = undefined;
+    const Observer = node.ownerDocument.defaultView?.ResizeObserver;
+    if (typeof Observer !== "function") return;
+    // Every report counts, the first (the box as it is when watched) too: one read more per line.
+    this.observer = new Observer(() => {
+      this.resized = true;
+    });
+    this.observer.observe(node);
+  }
+}
+
+/// A `LineLayoutWatch` for the life of the line.
+function useLineLayoutWatch(): LineLayoutWatch {
+  const [watch] = useState(() => new LineLayoutWatch());
+  useEffect(() => () => watch.stop(), [watch]);
+  return watch;
+}
+
 /// The old words roll out as they were drawn (review of cmux#41078): cut at the width the words had
 /// (ellipsis and all), their time and counts from where they sat, never the full words running their
-/// tail on past it. The width as last committed, one read of the line's own box a commit, set on the
-/// roll's copies in the commit that makes them, before paint; refs only in the effect.
+/// tail on past it. The width as last drawn, read again only in a commit that may lay the line out
+/// otherwise (`LineLayoutWatch`), set on the roll's copies in the commit that makes them, before paint;
+/// refs only in the effect.
 function useRollOutWidth(line: RefObject<HTMLDivElement | null>, turns: number) {
   const drawn = useRef<{ turns: number; width?: number }>({ turns });
+  const watch = useLineLayoutWatch();
   useLayoutEffect(() => {
     const node = line.current;
     if (!node) return;
     const last = drawn.current;
-    if (turns !== last.turns && last.width !== undefined) {
+    const rolled = turns !== last.turns;
+    if (rolled && last.width !== undefined) {
       const px = `${last.width}px`;
       const words = node.querySelector<HTMLElement>(":scope .cv-roll-out");
       const tail = node.querySelector<HTMLElement>(":scope .cv-roll-out__tail");
       if (words) words.style.width = px;
       if (tail) tail.style.left = px;
     }
+    // The watch is asked first, so it takes in this commit's text even when the line rolled.
+    if (!watch.changed(node) && !rolled) return;
     const width = node.querySelector<HTMLElement>("output.cv-thinking")?.getBoundingClientRect().width;
     drawn.current = { turns, width: width && width > 0 ? width : undefined };
   });
@@ -161,12 +217,15 @@ function useRollOutWidth(line: RefObject<HTMLDivElement | null>, turns: number) 
 /// is so borked and unintegrated"): a count that moves sideways while the line does not roll (its
 /// time grows a digit, its words change width under one key) slides from where it was drawn on the
 /// arrival step, transform only, so it never jumps a frame. A roll moves it with the words instead
-/// (`useRoll`), and the gates that stop the roll stop this too.
+/// (`useRoll`), and the gates that stop the roll stop this too. A commit that lays the line out as the
+/// last one did (`LineLayoutWatch`) moves no count, and reads none.
 function useCountGlide(line: RefObject<HTMLDivElement | null>, turns: number) {
   const drawn = useRef<{ turns: number; lefts: number[] }>({ turns, lefts: [] });
+  const watch = useLineLayoutWatch();
   useLayoutEffect(() => {
     const node = line.current;
     if (!node) return;
+    if (!watch.changed(node) && turns === drawn.current.turns) return;
     const counts = [...node.querySelectorAll<HTMLElement>(":scope > .cv-worked__count")];
     const lefts = counts.map((count) => count.offsetLeft);
     const before = drawn.current;

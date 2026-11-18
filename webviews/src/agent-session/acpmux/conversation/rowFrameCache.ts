@@ -43,7 +43,7 @@ type Entry = {
   inputs: RowFrameInputs;
   /// The row window's first index and its rows (`rowPropsWindow`), compared by identity.
   first: number;
-  window: readonly (AcpmuxRow | undefined)[];
+  window: (AcpmuxRow | undefined)[];
   element: ReactElement;
 };
 
@@ -59,7 +59,10 @@ const sameList = (a: readonly unknown[], b: readonly unknown[]) =>
 /// in view (a god chat's short turns mount about 60 rows, a long-turn chat about 30).
 ///
 /// A render calls `begin`, then `take` for each mounted row (and `put` when `take` misses), then
-/// `end`. It holds only the rows mounted in the last render. `take` allocates nothing.
+/// `end`. It holds only the rows mounted in the last render. Nothing here allocates once the rows in
+/// view are drawn: the two maps swap at `end` and are cleared, not made again, and `put` draws a row
+/// again into the entry it had (its inputs and its row window rewritten in place), so a streamed token
+/// makes no garbage per mounted row (a god chat mounts about 60).
 export class RowFrameCache {
   private entries = new Map<string, Entry>();
   private kept = new Map<string, Entry>();
@@ -89,7 +92,7 @@ export class RowFrameCache {
   begin(shared: readonly unknown[]): void {
     if (!sameList(shared, this.shared)) this.entries.clear();
     this.shared = shared;
-    this.kept = new Map();
+    this.kept.clear();
   }
 
   /// The element kept for `key` when `rows` and `scratch` are what it was drawn from, else undefined.
@@ -107,14 +110,23 @@ export class RowFrameCache {
   /// Keeps `element`, drawn from `scratch` and `rows[first..last]`, for `key`.
   put(key: string, rows: readonly AcpmuxRow[], first: number, last: number, element: ReactElement): ReactElement {
     this.derived += 1;
-    const window: (AcpmuxRow | undefined)[] = [];
+    // The entry the row had, drawn again in place; a row new to the view gets one.
+    const entry = this.entries.get(key) ?? { inputs: { ...this.scratch }, first, window: [], element };
+    Object.assign(entry.inputs, this.scratch);
+    entry.first = first;
+    entry.element = element;
+    const window = entry.window;
+    window.length = 0;
     for (let at = first; at <= last; at += 1) window.push(rows[at]);
-    this.kept.set(key, { inputs: { ...this.scratch }, first, window, element });
+    this.kept.set(key, entry);
     return element;
   }
 
-  /// Ends a render: rows not mounted in it are let go.
+  /// Ends a render: rows not mounted in it are let go. The maps swap, and the old one is emptied for the next render.
   end(): void {
-    this.entries = this.kept;
+    const drawn = this.kept;
+    this.kept = this.entries;
+    this.entries = drawn;
+    this.kept.clear();
   }
 }

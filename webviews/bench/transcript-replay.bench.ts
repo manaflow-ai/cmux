@@ -474,7 +474,7 @@ type BurstResult = {
   /// KB allocated per record by each function (ALLOC=1, `allocKb`): the garbage a record makes, which the GC rows pay for.
   allocKb?: Map<string, number>;
   /// What the page held when the burst ended: its elements, the transcript rows mounted and the animations running.
-  dom?: { elements: number; mounted: number; animations: number };
+  dom?: { elements: number; mounted: number; inView: number; animations: number };
   /// PROBE=1: what one record cost besides time (foldFrameReport.ts): geometry reads from script, the
   /// layouts script forced, transcript rows React drew again, and the most layout objects and restyled
   /// elements one pass touched. Work per update that follows the rows in view shows here.
@@ -493,6 +493,18 @@ const domSize = (page: Page) =>
   page.evaluate(() => ({
     elements: document.getElementsByTagName("*").length,
     mounted: document.querySelectorAll("[data-row-id]").length,
+    // The mounted rows the view shows: what a streamed update's own work should scale with, not `mounted`.
+    inView: (() => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+      if (!scroller) return 0;
+      const view = scroller.getBoundingClientRect();
+      let count = 0;
+      for (const row of scroller.querySelectorAll<HTMLElement>("[data-row-id]")) {
+        const box = row.getBoundingClientRect();
+        if (box.height > 0 && box.bottom > view.top && box.top < view.bottom) count += 1;
+      }
+      return count;
+    })(),
     animations: document.getAnimations().length,
   }));
 type CpuProfile = {
@@ -1117,7 +1129,15 @@ if (import.meta.main) {
             `heap +${live.heapMb} MB idle ${live.idleMsPerS} ms/s`,
         );
         for (const burst of live.bursts)
-          console.log(`  ${log.name} ${burst.kind} at ${burst.rows} rows: ${burst.msPerRecord} ms per record`);
+          console.log(
+            `  ${log.name} ${burst.kind} at ${burst.rows} rows: ${burst.msPerRecord} ms per record` +
+              (burst.dom ? ` (${burst.dom.elements} elements, ${burst.dom.mounted} rows mounted)` : "") +
+              (burst.probe
+                ? ` probe per record: reads ${burst.probe.reads} forced ${burst.probe.forced} row renders ` +
+                  `${burst.probe.rowRenders} content renders ${burst.probe.contentRenders}; most layout objects ` +
+                  `${burst.probe.layoutObjects} restyled ${burst.probe.styled}`
+                : ""),
+          );
       }
       if (PROFILE) for (const line of pairedProfile(godLive, smallLive)) console.log(line);
       for (const each of judge([], [godLive], "god").rows) scaledPerfRow(printRow, "god")(each);
@@ -1154,7 +1174,7 @@ if (import.meta.main) {
           console.log(
             `  ${burst.kind} at ${burst.rows} rows: ${burst.msPerRecord} ms per record` +
               (burst.dom
-                ? ` (${burst.dom.elements} elements, ${burst.dom.mounted} rows mounted, ${burst.dom.animations} animations)`
+                ? ` (${burst.dom.elements} elements, ${burst.dom.mounted} rows mounted, ${burst.dom.inView} in view, ${burst.dom.animations} animations)`
                 : "") +
               (burst.probe
                 ? ` probe per record: reads ${burst.probe.reads} forced ${burst.probe.forced} row renders ` +

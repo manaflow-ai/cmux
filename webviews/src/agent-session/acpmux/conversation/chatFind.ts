@@ -7,6 +7,7 @@
 import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { commandFolder } from "./commandFolder";
+import { keptPrefix } from "./prefixFlatMap";
 import { execParts, execText, execView, isCmuxExec } from "./cmuxExec";
 import { cleanText, mcpCall, mcpOutputResult, prettyOutput, type McpCall } from "./mcpCalls";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
@@ -244,7 +245,7 @@ export function findMatchesIncremental(
   const same = previous?.needle === needle && previous.look === key;
   let prefix = 0;
   if (same) {
-    while (prefix < rows.length && prefix < previous.rows.length && rows[prefix] === previous.rows[prefix]) prefix += 1;
+    prefix = keptPrefix(previous.rows, rows);
   }
 
   if (same && prefix === rows.length && rows.length === previous.rows.length) {

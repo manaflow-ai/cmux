@@ -76,6 +76,7 @@ import {
 import { createFollowGlide, followRoom } from "./conversation/followGlide";
 import { createTailGlide, type PlacedRows, type TailGlide } from "./conversation/tailGlide";
 import { finishCarry, notePinPass, pinLiveLine, refreshPinned } from "./conversation/pinnedLiveLine";
+import { indexRowsById, mountedRow, rowDomId } from "./conversation/mountedRow";
 import {
   createFollowChase,
   type FollowChase,
@@ -84,6 +85,7 @@ import {
   sendMotionMs,
 } from "./conversation/followChase";
 import { shareFrameBudget, type FrameBudget, rowsMoved } from "./conversation/frameBudget";
+import { keptPrefix } from "./conversation/prefixFlatMap";
 import { followMotion } from "./conversation/followMotion.experiment";
 import { composerDockMotion } from "./composer/dockMotion.experiment";
 import { acpmuxPerf, type MountedSpan } from "./perf";
@@ -799,8 +801,6 @@ const isStepAt = (rows: readonly AcpmuxRow[], index: number) => {
   const row = rows[index];
   return isStepRow(row) || (row?.below === true && isLiveStep(row, prevDrawnRow(rows, index)));
 };
-
-const rowDomId = (id: string) => `acpmux-row-${encodeURIComponent(id)}`;
 
 const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string | undefined => {
   const ids: string[] = [];
@@ -2173,8 +2173,7 @@ function TranscriptView({
     for (let index = shown.length - 1; index >= Math.max(0, shown.length - 6); index -= 1) {
       const row = shown[index]!;
       if (row.kind !== "assistant") continue;
-      const name = typeof CSS === "undefined" ? row.id.replace(/["\\]/g, "\\$&") : CSS.escape(row.id);
-      const node = thread.current?.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${name}"]`);
+      const node = thread.current ? mountedRow(thread.current, row.id) : null;
       return node ? { id: row.id, height: node.offsetHeight } : undefined;
     }
     return undefined;
@@ -2207,8 +2206,7 @@ function TranscriptView({
   ) => {
     const chase = followChase.current!;
     const rowTop = (id: string) => {
-      const name = typeof CSS === "undefined" ? id.replace(/["\\]/g, "\\$&") : CSS.escape(id);
-      const row = thread.current?.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${name}"]`);
+      const row = thread.current ? mountedRow(thread.current, id) : null;
       return row ? row.getBoundingClientRect().top - chase.outstanding() : undefined;
     };
     const before = chaseAnchor.current;
@@ -2800,9 +2798,10 @@ function TranscriptView({
   // Scroll frames render the same rows: only a new row list can bring new rows.
   else if (knownFor.current !== rows) {
     // Rows before the first one that changed were all there last time.
+    // What the rows' maker said it kept, else one walk every pass over the same two snapshots shares
+    // (prefixFlatMap.ts `keptPrefix`): a walk here per token read a god chat's 35,000 rows.
     const previous = knownFor.current ?? [];
-    let from = 0;
-    while (from < rows.length && from < previous.length && rows[from] === previous[from]) from += 1;
+    const from = keptPrefix(previous, rows);
     rowsChange.current = { base: previous, rows, from };
     // A page of older history lands above the first row that was already there (a date divider
     // moves up to the page's first turn, so the first known row, not the first row): those rows never
@@ -2868,9 +2867,7 @@ function TranscriptView({
   const committedRows = useRef<{ drawn: ChatRows; rows: readonly AcpmuxRow[] } | undefined>(undefined);
   useLayoutEffect(() => {
     const last = committedRows.current?.drawn === chatRowsDrawn ? committedRows.current.rows : NO_ROWS;
-    let from = 0;
-    while (from < rows.length && from < last.length && rows[from] === last[from]) from += 1;
-    for (let index = from; index < rows.length; index += 1) chatRowsDrawn.add(drawnKey(rows[index]!));
+    for (let index = keptPrefix(last, rows); index < rows.length; index += 1) chatRowsDrawn.add(drawnKey(rows[index]!));
     committedRows.current = { drawn: chatRowsDrawn, rows };
   }, [rows, chatRowsDrawn]);
   const onEntered = useCallback((id: string) => void enteringRows.current.delete(id), []);
@@ -3669,6 +3666,11 @@ function TranscriptView({
     });
   }, []);
   const thread = useRef<HTMLDivElement>(null);
+  // The thread's rows carry their DOM id (`RowFrame`): a pass finds a row by it, not by a query over
+  // every mounted row (conversation/mountedRow.ts).
+  useLayoutEffect(() => {
+    if (thread.current) indexRowsById(thread.current);
+  }, []);
   /// A turn's end folds its work in one motion (turnEndFold.ts): the rows drawn when it ended are
   /// read here, in the render that ends it, before its rows replace them; the fold plays once they
   /// are placed (the layout effect after the placement pass). It reads in render because the
@@ -4043,8 +4045,7 @@ function TranscriptView({
       !last.partial &&
       drawn.size > 0
     ) {
-      const limit = Math.min(rows.length, last.rows.length);
-      while (kept < limit && rows[kept] === last.rows[kept]) kept += 1;
+      kept = keptPrefix(last.rows, rows);
       // A row after the kept ones can give the last kept reply its own action row (a steer or a
       // message after it): that reply is placed again, as layoutConversation estimates it again.
       let reply = kept - 1;
@@ -6846,8 +6847,7 @@ function TranscriptView({
     markedTurn.current = null;
     const host = thread.current;
     if (id === undefined || !host) return;
-    const name = typeof CSS === "undefined" ? id.replace(/["\\]/g, "\\$&") : CSS.escape(id);
-    const row = host.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${name}"]`);
+    const row = mountedRow(host, id);
     row?.setAttribute("data-turn-revealed", "");
     markedTurn.current = row;
   }, []);
