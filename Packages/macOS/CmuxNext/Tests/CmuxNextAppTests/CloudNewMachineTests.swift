@@ -151,14 +151,19 @@ struct CloudNewMachineTests {
 
     // MARK: The bootstrap
 
+    /// The bootstrap's writes between two execs come at once: kept under a lock, read by path.
     nonisolated final class FakeMachine: @unchecked Sendable {
-        var writes: [(String, Data, Int)] = []
+        private let lock = NSLock()
+        private var written: [String: (data: Data, mode: Int)] = [:]
         var commands: [String] = []
         var startAnswer = CloudExecResult(exitCode: 0, stdout: "started\n", stderr: "")
 
+        var paths: Set<String> { lock.withLock { Set(written.keys) } }
+        func write(_ path: String) -> (data: Data, mode: Int)? { lock.withLock { written[path] } }
+
         var machine: CloudMachineBootstrap.Machine {
             CloudMachineBootstrap.Machine(
-                write: { path, data, mode in self.writes.append((path, data, mode)) },
+                write: { path, data, mode in self.lock.withLock { self.written[path] = (data, mode) } },
                 exec: { command in
                     self.commands.append(command)
                     // The start is the exec that launches the runner; the prepare answers nothing.
@@ -184,11 +189,17 @@ struct CloudNewMachineTests {
         let outcome = await script.start(name: "lane-vm-1", on: fake.machine, startID: "0f-1")
         #expect(outcome == CloudMachineBootstrap.Outcome(status: "started"))
         let staged = CloudMachineBootstrap.directory + "/in-0f-1"
-        #expect(fake.writes.map(\.0) == ["\(staged)/script", "\(staged)/env", "\(staged)/run", "\(staged)/repo.json", "\(staged)/repo"])
-        #expect(fake.writes.map(\.2) == [0o700, 0o600, 0o700, 0o644, 0o700])
-        #expect(fake.writes[3].1 == Data("null\n".utf8), "no repo: no earlier start's record is left")
-        #expect(fake.writes[4].1 == CloudMachineBootstrap.noScript, "and no earlier start's step")
-        #expect(String(decoding: fake.writes[1].1, as: UTF8.self).contains("export LANE_VM_NAME='lane-vm-1'"))
+        let modes = ["script": 0o700, "env": 0o600, "run": 0o700, "repo.json": 0o644, "repo": 0o700]
+        #expect(fake.paths == Set(modes.keys.map { "\(staged)/\($0)" }))
+        for (name, mode) in modes {
+            let written = fake.write("\(staged)/\(name)").map(\.mode)
+            #expect(written == mode, Comment(rawValue: name))
+        }
+        let record = fake.write("\(staged)/repo.json").map(\.data), step = fake.write("\(staged)/repo").map(\.data)
+        #expect(record == Data("null\n".utf8), "no repo: no earlier start's record is left")
+        #expect(step == CloudMachineBootstrap.noScript, "and no earlier start's step")
+        let env = String(decoding: fake.write("\(staged)/env").map(\.data) ?? Data(), as: UTF8.self)
+        #expect(env.contains("export LANE_VM_NAME='lane-vm-1'"))
         #expect(fake.commands.count == 2 && fake.commands.allSatisfy { $0.contains("s=\(staged);") }, "the prepare, then the start, of this start's folder")
     }
 

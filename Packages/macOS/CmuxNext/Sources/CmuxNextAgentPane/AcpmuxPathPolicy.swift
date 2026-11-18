@@ -1,4 +1,5 @@
 import Darwin
+import CmuxNextCloud
 public import Foundation
 
 /// Limits every path a page frame names (`params.cwd`, `params.path`) to the pane's workspace
@@ -24,17 +25,20 @@ nonisolated enum AcpmuxPathPolicy {
         /// Whether ``outsidePath`` is the user's home folder or above it: never a root by a plain
         /// click (cx-nn3e); the pane asks about it first (`workspace.useFolder`).
         public var outsideIsHomeOrAbove = false
-        /// Why, as a code the page words (``AgentPaneGitHubFolder/cloudOnlyReason``); nil for most refusals.
+        /// Why, as a code the page words (``AgentPaneGitHubFolder/cloudOnlyReason``, a clone's `repo.*`); nil for most refusals.
         public var reason: String?
+        /// The words the person reads with ``reason`` when the host has them (git's, for a clone that failed).
+        public var message: String?
 
         public init(error: AgentPaneTransportError, requestID: String?, method: String?, outsidePath: String? = nil,
-                    outsideIsHomeOrAbove: Bool = false, reason: String? = nil) {
+                    outsideIsHomeOrAbove: Bool = false, reason: String? = nil, message: String? = nil) {
             self.error = error
             self.requestID = requestID
             self.method = method
             self.outsidePath = outsidePath
             self.outsideIsHomeOrAbove = outsideIsHomeOrAbove
             self.reason = reason
+            self.message = message
         }
 
         public static func == (lhs: Refusal, rhs: Refusal) -> Bool {
@@ -65,9 +69,12 @@ nonisolated enum AcpmuxPathPolicy {
         /// The pane's cmux workspace key, from the host (never the page): a local `session/new`
         /// carries it as `_meta.acpmux.workspaceId` (``stampWorkspace(_:id:)``).
         public var workspaceID: String?
+        /// The clones a `session/new` here in a GitHub repository (`github:owner/name`) starts in; nil refuses one.
+        public var localRepositories: AgentPaneLocalRepositories? = nil
 
         public init(roots: [String], gestureRoots: [String] = [], fillCwd: String? = nil, agentHome: AgentHomeFill? = nil,
-                    home: String? = nil, granted: [String] = [], workspaceID: String? = nil) {
+                    home: String? = nil, granted: [String] = [], workspaceID: String? = nil,
+                    localRepositories: AgentPaneLocalRepositories? = nil) {
             self.roots = roots
             self.gestureRoots = gestureRoots
             self.fillCwd = fillCwd
@@ -75,6 +82,7 @@ nonisolated enum AcpmuxPathPolicy {
             self.home = home
             self.granted = granted
             self.workspaceID = workspaceID
+            self.localRepositories = localRepositories
         }
     }
 
@@ -86,7 +94,46 @@ nonisolated enum AcpmuxPathPolicy {
 
     /// `text` checked against `scope`, or the refusal. Off the main actor: it touches the disk.
     @concurrent public static func check(_ text: String, scope: Scope) async -> Result<Checked, Refusal> {
-        checkNow(text, scope: scope)
+        guard let repositories = scope.localRepositories, let start = LocalRepositoryStart(text) else { return checkNow(text, scope: scope) }
+        // A chat here in a GitHub repository starts in its clone, made now or already in flight since the pick: its
+        // folder is the `cwd`, a root as the host made it (the person picked the repository; nothing of the page's).
+        do {
+            let folder = try await repositories.folder(start.repository)
+            var scope = scope
+            scope.granted.append(folder)
+            return checkNow(start.text(cwd: folder), scope: scope)
+        } catch {
+            let refusal = error as? CloudMoveCLI.StartChatRepoRefusal
+            return .failure(Refusal(error: .pathInvalid, requestID: start.requestID, method: "session/new",
+                                    reason: refusal?.code ?? "repo.clone_failed", message: refusal?.message ?? String(describing: error)))
+        }
+    }
+
+    /// A `session/new` on This Mac that names a GitHub repository (`cwd` `github:owner/name`): the repository, and the
+    /// frame to send once its clone is there. Nil for any other frame, a start on another computer included (its
+    /// `github:` folder is refused, as before: that computer has no clone of this Mac's).
+    struct LocalRepositoryStart {
+        var object: [String: Any]
+        var repository: String
+        var requestID: String?
+
+        init?(_ text: String) {
+            guard text.contains(AgentPaneGitHubFolder.prefix),
+                  let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
+                  object["method"] as? String == "session/new", let params = object["params"] as? [String: Any],
+                  let cwd = params["cwd"] as? String, let repository = AgentPaneGitHubFolder.repository(cwd),
+                  !startsOnPeer((params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]) else { return nil }
+            (self.object, self.repository, self.requestID) = (object, repository, object["id"].flatMap(AcpmuxPaneMethods.rawID))
+        }
+
+        /// The frame with `cwd` in place of the repository.
+        func text(cwd: String) -> String {
+            var object = object, params = object["params"] as? [String: Any] ?? [:]
+            params["cwd"] = cwd
+            object["params"] = params
+            guard let data = try? JSONSerialization.data(withJSONObject: object) else { return "" }
+            return String(decoding: data, as: UTF8.self)
+        }
     }
 
     /// The frame with only trusted `roots` (tests and callers without a scope).

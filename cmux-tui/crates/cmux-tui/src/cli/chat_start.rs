@@ -51,7 +51,7 @@ use super::cloud_start_chat::{self, Machine};
 use super::{GlobalArgs, OutputMode, UsageError};
 use cmux_cloud_start_core::machine_repo::Repo;
 
-mod local_repo;
+pub(crate) mod local_repo;
 
 /// This command's flags that take the next word as their value.
 const TAKES_VALUE: &[&str] = &[

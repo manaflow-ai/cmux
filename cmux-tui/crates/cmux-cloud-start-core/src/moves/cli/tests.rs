@@ -415,6 +415,10 @@ fn each_verb_carries_its_arguments() {
         ["link", "start-chat", "preflight", "--local", "/Users/me/Projects"]
     );
     assert_eq!(preflight.timeout_seconds, Some(START_CHAT_PREFLIGHT_TIMEOUT_SECONDS));
+    // A repository picked on This Mac: cloned there, with a clone's whole time.
+    let repo = call(json!({"verb": "start-chat-repo", "repo": "acme/api"}));
+    assert_eq!(repo.args, ["link", "start-chat", "repo", "--repo", "acme/api"]);
+    assert_eq!(repo.timeout_seconds, None);
     // A plan reaches the platform and a copy moves the folder: they keep the default.
     assert_eq!(call(json!({"verb": "start-chat-plan", "request": "{}"})).timeout_seconds, None);
     assert_eq!(

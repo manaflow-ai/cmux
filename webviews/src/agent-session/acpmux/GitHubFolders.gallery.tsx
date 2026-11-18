@@ -23,6 +23,7 @@ function picker(state: Partial<GitHubPickerState>): GitHubPicker {
     onRetry: () => {
       document.documentElement.dataset.galleryGitHub = "retry";
     },
+    onPrepare: () => undefined,
   };
 }
 

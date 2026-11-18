@@ -25,12 +25,29 @@ struct CloudMachineRepoTests {
         #expect(request?.repo == CloudMachineRepo(owner: "o", name: "r", ref: "main"))
     }
 
+    /// A machine whose writes may come at once (``CloudMachineBootstrap``'s writes between two execs do): each is kept
+    /// under a lock, with how many were in flight together and how many had finished when each exec ran.
     nonisolated final class FakeMachine: @unchecked Sendable {
-        var writes: [String] = []
-        var data: [Data] = []
+        private let lock = NSLock()
+        private var written: [String: Data] = [:]
+        private var inFlight = 0
+        private(set) var mostAtOnce = 0
+        private(set) var writtenAtExec: [Int] = []
+        /// Each write waits this long, so writes that overlap are seen overlapping.
+        var writeDelay: Duration = .zero
+
+        var writes: Set<String> { lock.withLock { Set(written.keys) } }
+        func data(_ path: String) -> Data? { lock.withLock { written[path] } }
+
         var machine: CloudMachineBootstrap.Machine {
-            CloudMachineBootstrap.Machine(write: { path, data, _ in self.writes.append(path); self.data.append(data) },
-                                          exec: { _ in CloudExecResult(exitCode: 0, stdout: "started\n", stderr: "") })
+            CloudMachineBootstrap.Machine(write: { path, data, _ in
+                self.lock.withLock { self.inFlight += 1; self.mostAtOnce = max(self.mostAtOnce, self.inFlight) }
+                if self.writeDelay > .zero { try await Task.sleep(for: self.writeDelay) }
+                self.lock.withLock { self.inFlight -= 1; self.written[path] = data }
+            }, exec: { _ in
+                self.lock.withLock { self.writtenAtExec.append(self.written.count) }
+                return CloudExecResult(exitCode: 0, stdout: "started\n", stderr: "")
+            })
         }
     }
 
@@ -42,8 +59,22 @@ struct CloudMachineRepoTests {
         #expect(await bootstrap.start(name: nil, on: fake.machine, startID: "ab").status == "started")
         let staged = CloudMachineBootstrap.directory + "/in-ab"
         #expect(fake.writes == ["\(staged)/script", "\(staged)/env", "\(staged)/run", "\(staged)/repo.json", "\(staged)/repo"])
-        #expect(fake.data.last == Data(CloudMachineRepo(owner: "o", name: "r").step.utf8))
+        let step = fake.data("\(staged)/repo")
+        #expect(step == Data(CloudMachineRepo(owner: "o", name: "r").step.utf8))
         #expect(try await CloudMachineRequest().loadScript(work: BackgroundWork()) == nil)
+    }
+
+    /// A repository's start uploads five files between its prepare and its start: one round trip's wait for all of
+    /// them, not five in a row, and the start runs only once every one is there.
+    @Test func theStartsFilesGoAtOnceAndAllBeforeItRuns() async throws {
+        let request = CloudMachineRequest(repo: CloudMachineRepo(owner: "o", name: "r"))
+        let bootstrap = try #require(try await request.loadScript(work: BackgroundWork()))
+        let fake = FakeMachine()
+        fake.writeDelay = .milliseconds(50)
+        #expect(await bootstrap.start(name: nil, on: fake.machine, startID: "ab").status == "started")
+        #expect(fake.mostAtOnce == 5)
+        // The prepare before any write; the start after all five.
+        #expect(fake.writtenAtExec == [0, 5])
     }
 
     @MainActor @Test func aRetryStartsABootstrapThatHasNotStartedOrFailed() {

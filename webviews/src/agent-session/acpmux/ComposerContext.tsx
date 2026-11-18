@@ -738,8 +738,9 @@ export function ComposerContext({
     folderPicks.current += 1;
     setBrowseError(undefined);
     onCloudMachinePicked?.(undefined);
-    // A GitHub repository runs on Cloud: its pick with This Mac still picked moves the new chat there.
-    if (githubFolderRepo(cwd) && runMode && runMode.mode !== "cloud" && !started && !readOnly) runMode.onMode("cloud");
+    // A GitHub repository runs where the chat runs: on Cloud the machine clones it at the start; on This Mac the host
+    // clones it into ~/cmux/repos now, while the person writes, and the start waits for that same clone.
+    if (githubFolderRepo(cwd) && runMode?.mode !== "cloud" && !started && !readOnly) github?.onPrepare(cwd);
     onProject?.(cwd);
     const environment = savedRows && savedFolders.find((candidate) => normalizeCwd(candidate.folder) === cwd);
     if (environment) savedRows.onPick(environment.id);

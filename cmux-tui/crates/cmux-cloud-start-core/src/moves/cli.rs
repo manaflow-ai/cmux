@@ -504,6 +504,11 @@ pub enum Call {
     StartChatPreflight {
         local: String,
     },
+    /// `link start-chat repo --repo SPEC`: a clone on This Mac of a repository the composer listed,
+    /// for a chat that starts there; the answer object names its `dir`.
+    StartChatRepo {
+        repo: String,
+    },
     /// `link start-chat copy`: with `store` (the access token on stdin) through the content-addressed store.
     StartChatCopy {
         key: String,
@@ -770,6 +775,12 @@ pub fn invocation(call: &Call) -> Invocation {
         }
         // The count stops at the copy's limits (seconds on a huge folder); past this the start goes on
         // and the copy's own count refuses it.
+        // A clone's own time: as long as any run may take.
+        Call::StartChatRepo { repo } => Invocation {
+            args: words(&["link", "start-chat", "repo", "--repo", repo]),
+            timeout_seconds: None,
+            min_timeout_seconds: None,
+        },
         Call::StartChatPreflight { local } => Invocation {
             args: words(&["link", "start-chat", "preflight", "--local", local]),
             timeout_seconds: Some(START_CHAT_PREFLIGHT_TIMEOUT_SECONDS),

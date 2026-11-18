@@ -90,6 +90,7 @@ cmux link start-chat strand --key KEY --account ACCOUNT --machine ID\n       \
 cmux link start-chat ensure --workspace ID --key KEY [--repo OWNER/NAME] [--project-key KEY] [--ref REF] [--environment env_ID] [--platform URL] (the cmux credential on stdin)\n       \
 cmux link start-chat import --entries JSON\n       \
 cmux link start-chat preflight --local FOLDER\n       \
+cmux link start-chat repo --repo OWNER/NAME|URL[@REF]\n       \
 cmux link start-chat reserve|release|warm-spare --request JSON (the session credential, then the install token, on stdin), wait-copy --machine ID --provider P\n       \
 cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH... [--acpmux-home PATH] [--store PLATFORM|default] [--on-seed-refusal copy|ask] (with --store, the cmux credential on stdin)\n       \
 cmux link start-chat trust --folder FOLDER --acpmux-home PATH";
@@ -185,6 +186,7 @@ pub(super) fn run(args: &[String]) -> i32 {
         }),
         "import" => flags.one("--entries").map(|entries| import(&ledger, entries)),
         "preflight" => flags.one("--local").map(preflight::run),
+        "repo" => flags.one("--repo").map(repo),
         "trust" => trust::cli(&flags),
         "ensure" => Ensure::of(&flags).map(|ensure| ensure.run(&mut std::io::stdin().lock())),
         "reserve" => {
@@ -243,6 +245,33 @@ pub(super) fn valid_key(key: &str) -> bool {
             8 | 13 | 18 | 23 => char == '-',
             _ => char.is_ascii_hexdigit(),
         })
+}
+
+/// `repo --repo SPEC`: a clone of the repository on This Mac, for a chat the composer starts there
+/// in a GitHub repository it listed: `~/cmux/repos/HOST/OWNER/NAME`, cloned now with the person's
+/// own git login (else `gh`'s), or the clone already there (`cmux chat --repo`'s
+/// [`local_repo::ensure`]). Answers the folder and whether it was `cloned` or `reused`.
+fn repo(spec: &str) -> Value {
+    use crate::cli::chat_start::local_repo;
+    let repo = match local_repo::parse(spec.trim()) {
+        Ok(repo) => repo,
+        Err(why) => return refused("repo.invalid", why),
+    };
+    let Some(home) = std::env::var_os("HOME").filter(|home| !home.is_empty()) else {
+        return refused("repo.no_home", "HOME is not set, so there is no ~/cmux/repos to clone into");
+    };
+    let dir = local_repo::default_dir(Path::new(&home), &repo);
+    match local_repo::ensure(&repo.url(), repo.r#ref.as_deref(), &dir) {
+        Ok(ready) => json!({
+            "ok": true,
+            "dir": dir,
+            "ready": if ready == local_repo::Ready::Cloned { "cloned" } else { "reused" },
+        }),
+        Err(error) => refused(
+            error["code"].as_str().unwrap_or("repo.clone_failed"),
+            error["message"].as_str().unwrap_or("the clone failed"),
+        ),
+    }
 }
 
 fn refused(code: &str, error: impl std::fmt::Display) -> Value {

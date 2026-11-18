@@ -11,14 +11,24 @@ import Testing
 /// (`machine_config`, with their tests); these check the app's side.
 @MainActor @Suite
 struct CloudMachineConfigTests {
+    /// The writes between two execs come at once (``CloudMachineBootstrap``): kept under a lock, in the order of their
+    /// files' kinds (the applier, the toml, the pending record), which is how the assertions read them.
     nonisolated final class Recorder: @unchecked Sendable {
-        var writes: [(path: String, data: Data, mode: Int)] = []
+        private let lock = NSLock()
+        private var written: [(path: String, data: Data, mode: Int)] = []
         var commands: [String] = []
         var startAnswer = CloudExecResult(exitCode: 0, stdout: "started\n", stderr: "")
 
+        var writes: [(path: String, data: Data, mode: Int)] {
+            let order = [".apply", ".toml", ".pending"]
+            return lock.withLock { written }.sorted { a, b in
+                (order.firstIndex { a.path.hasSuffix($0) } ?? order.count) < (order.firstIndex { b.path.hasSuffix($0) } ?? order.count)
+            }
+        }
+
         var machine: CloudMachineBootstrap.Machine {
             CloudMachineBootstrap.Machine(
-                write: { self.writes.append(($0, $1, $2)) },
+                write: { path, data, mode in self.lock.withLock { self.written.append((path, data, mode)) } },
                 exec: { command in
                     self.commands.append(command)
                     return command.contains("echo started") ? self.startAnswer : CloudExecResult(exitCode: 0, stdout: "", stderr: "")
