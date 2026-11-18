@@ -9,7 +9,13 @@
 // duration, a missed chunk's repair, a fork's check and the host's newest-seq comparison).
 import { expect, test } from "bun:test";
 import type { EventRecord } from "../src/agent-session/acpmux/direct";
-import { KEPT_EVENTS, keptEvents, packStreamed, unpackStreamed } from "../src/agent-session/acpmux/tailCache";
+import {
+  KEPT_EVENTS,
+  hostTailOf,
+  keptEvents,
+  packStreamed,
+  unpackStreamed,
+} from "../src/agent-session/acpmux/tailCache";
 
 const START = Date.UTC(2026, 10, 9, 9, 0, 0);
 const SESSION = "0190a000-0000-7000-8000-00000000c0a2";
@@ -31,6 +37,35 @@ const chunk = (seq: number, text: string, messageId?: string, kind = "agent_mess
     at,
   );
 const prompt = (seq: number, text: string) => record(seq, "user_message", { text }, "mux");
+
+test("repeated command catalogs do not displace the cached reply", () => {
+  const events = [prompt(1, "Check the build"), chunk(2, "The build passed.", "reply")];
+  for (let seq = 3; seq <= 7; seq += 1)
+    events.push(
+      record(seq, "available_commands_update", {
+        method: "session/update",
+        params: {
+          sessionId: SESSION,
+          update: {
+            sessionUpdate: "available_commands_update",
+            availableCommands: [{ name: "review", description: `${seq}: ${"command description ".repeat(4000)}` }],
+          },
+        },
+      }),
+    );
+  const tail = hostTailOf({
+    events,
+    summary: { sessionId: SESSION },
+    turnOpener: undefined,
+    historyExhausted: true,
+    queue: [],
+    configSeq: 0,
+    usageFromSeq: 0,
+  });
+  const kept = unpackStreamed(tail!.events);
+  expect(kept.find((event) => event.seq === 2)).toEqual(events[1]);
+  expect(kept.filter((event) => event.kind === "available_commands_update").map((event) => event.seq)).toEqual([7]);
+});
 
 /// `turns` turns, each a prompt, 40 thinking chunks and a five-chunk reply.
 function chat(turns: number): EventRecord[] {
