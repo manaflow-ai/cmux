@@ -1760,6 +1760,7 @@ async fn dispatch_request_with_identity(
             }
             let disallowed_tools = disallowed_tools(meta)?;
             let additional_directories = crate::hub::additional_dirs::requested(&params).await?;
+            let stop_condition = crate::hub::stop_condition::requested(meta)?;
             // Its parent is the session this connection proved it runs in (`hub/lineage.rs`):
             // an agent's `acpmux new`. An adopted chat or an ephemeral run is nobody's child.
             let parent_ask = crate::hub::lineage::parent_ask(meta)?;
@@ -1827,6 +1828,7 @@ async fn dispatch_request_with_identity(
                 disallowed_tools,
                 checked_cwd: None,
                 additional_directories,
+                stop_condition,
                 person: person_asks(conn),
                 wait_start: asks_to_wait_on_its_harness(conn, &params),
                 // Purged by its creator right after its work (the Chief compactor's nodes): its
@@ -1896,6 +1898,11 @@ async fn dispatch_request_with_identity(
                 summary.set("admission", w);
             }
             successor::warn(hub, succ.as_ref(), &s, &mut summary).await;
+            // The stop condition it keeps (`hub/stop_condition.rs`): a caller that asked for one
+            // and does not see it here knows its agent can stop at any turn end.
+            if meta.stop_condition.is_some() {
+                summary.set(crate::hub::stop_condition::FIELD, Value::Bool(true));
+            }
             Ok(json!({
                 "sessionId": s.id,
                 "modes": meta.modes,
