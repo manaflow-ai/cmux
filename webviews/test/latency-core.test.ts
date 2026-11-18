@@ -109,7 +109,7 @@ test("post-response frame work and queued Long Tasks entries survive until final
     h.frame();
     expect(h.probe.state).toBe("input");
     h.advance(80);
-    h.records.push({ entryType: "longtask", startTime: 116.7, duration: 80 } as PerformanceEntry);
+    h.records.push({ entryType: "longtask", startTime: 116.7, duration: 80 } as PerformanceEntry); // motion-allow: a long-task entry's length, not motion
     h.flushTasks();
     expect(h.probe.result()?.paint).toBeCloseTo(96.7);
     expect(h.probe.result()?.maxFrameGap).toBeCloseTo(96.7);
