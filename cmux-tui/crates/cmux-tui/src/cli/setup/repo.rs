@@ -22,11 +22,14 @@ use serde_json::{Value, json};
 
 use super::super::{GlobalArgs, OutputMode, wire};
 
-pub(super) const VERBS: &[&str] = &["install", "update", "remove", "export", "installed"];
+pub(super) const VERBS: &[&str] = &["install", "update", "remove", "export", "installed", "check"];
 
 pub(super) const HELP: &str = "\
 Setups: a whole cmux customization in one git repo (theme, sidebar, shortcuts, views, actions, extensions).
 
+  cmux setup check DIR [--owner OWNER] [--strict]    Check a setup folder the way install would, offline: every
+                                                     problem at once, nothing installed (exit 0 ok, 1 errors, 2 usage;
+                                                     --strict: warnings fail too)
   cmux setup install HOST/OWNER/REPO[@REF] [--yes]   Fetch it at one commit, show what it changes, apply it
   cmux setup update [REPO|ID] [--yes]                Move an installed setup to its ref's newest commit
   cmux setup remove [REPO|ID]                        Put back what you had: its layer, actions and extensions
@@ -36,6 +39,12 @@ Setups: a whole cmux customization in one git repo (theme, sidebar, shortcuts, v
 
 A setup repo has cmux-setup.json at its root; its page is cmux.com/setups/OWNER/REPO.
 --yes skips the question (needed with --json or without a terminal). Every verb takes --json.
+
+check reads only DIR (no daemon, no network, not your own customization) and runs every check install
+runs, plus the theme reader on themes/*.json and the app manifest validator on customize/cmux-app.json.
+With --json it prints {schema_version, setup_id, ok, findings: [{severity, code, path, key?, line?,
+message, fix?}]}; severity is error (install refuses it) or warning. --owner is the repo's owner for
+the id rule (default: the owner `repository` names, else the id's own).
 ";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,6 +54,7 @@ pub(super) enum Request {
     Remove { which: Option<String> },
     Installed,
     Export { dir: PathBuf, header: ExportHeader },
+    Check { dir: PathBuf, owner: Option<String>, strict: bool },
 }
 
 pub(super) fn parse(args: &[String]) -> Result<Request, String> {
@@ -64,6 +74,30 @@ pub(super) fn parse(args: &[String]) -> Result<Request, String> {
             Some(reference) => Ok(Request::Install { reference, yes }),
             None => Err("cmux setup install needs a repo: HOST/OWNER/REPO[@REF]".to_owned()),
         },
+        "check" if !yes => {
+            let (mut dir, mut owner, mut strict) = (None, None, false);
+            let mut iter = rest.iter();
+            while let Some(word) = iter.next() {
+                match word.as_str() {
+                    "--strict" => strict = true,
+                    "--owner" => {
+                        owner = Some(
+                            iter.next()
+                                .filter(|value| !value.starts_with('-'))
+                                .cloned()
+                                .ok_or("cmux setup check: --owner needs a value")?,
+                        );
+                    }
+                    other if other.starts_with('-') => {
+                        return Err(format!("cmux setup check: unknown option {other:?}"));
+                    }
+                    other if dir.is_none() => dir = Some(PathBuf::from(other)),
+                    other => return Err(format!("cmux setup check: unexpected {other:?}")),
+                }
+            }
+            let dir = dir.ok_or("cmux setup check needs the setup folder: cmux setup check DIR")?;
+            Ok(Request::Check { dir, owner, strict })
+        }
         "update" => Ok(Request::Update { which: one(&words)?, yes }),
         "remove" if !yes => Ok(Request::Remove { which: one(&words)? }),
         "installed" if rest.is_empty() => Ok(Request::Installed),
@@ -115,6 +149,10 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         Ok(request) => request,
         Err(message) => return failure(global.output, "usage.invalid", &message, Value::Null, 2),
     };
+    // Reads only the folder: never the person's customization.
+    if let Request::Check { dir, owner, strict } = &request {
+        return check(global.output, dir, owner.as_deref(), *strict);
+    }
     let customize = match Customize::from_env() {
         Ok(customize) => customize,
         Err(error) => {
@@ -134,6 +172,7 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
             customize.setups().map(|setups| json!({"setups": setups})).map_err(Failure::from)
         }
         Request::Export { dir, header } => export(&customize, &dir, &header),
+        Request::Check { .. } => unreachable_check(),
     };
     match answer {
         Ok(value) => {
@@ -148,6 +187,76 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
             failure(global.output, code, &message, details, 1)
         }
     }
+}
+
+fn unreachable_check() -> Result<Value, Failure> {
+    Err(refused("setup.check", "cmux setup check runs before the customization is read"))
+}
+
+/// `cmux setup check DIR`: the report, and its exit code (1 on an error, or
+/// with `strict` a warning).
+pub(super) fn check(output: OutputMode, dir: &Path, owner: Option<&str>, strict: bool) -> i32 {
+    let options =
+        setup::CheckOptions { owner, running: running_version(), history: &setup::NoHistory };
+    let report = setup::check_dir(dir, &options);
+    let exit = check_exit(&report, strict);
+    if output == OutputMode::Human {
+        println!("{}", check_text(&report, dir, strict));
+        return exit;
+    }
+    let value = serde_json::to_value(&report).unwrap_or(Value::Null);
+    match wire::print_local_success(&value, output) {
+        0 => exit,
+        code => code,
+    }
+}
+
+pub(super) fn check_exit(report: &setup::Report, strict: bool) -> i32 {
+    i32::from(report.errors() > 0 || (strict && report.warnings() > 0))
+}
+
+/// The report as a person reads it: one block per finding, like a compiler.
+pub(super) fn check_text(report: &setup::Report, dir: &Path, strict: bool) -> String {
+    // Every string comes from the folder: shown inert.
+    let value = inert(&serde_json::to_value(report).unwrap_or(Value::Null));
+    let mut lines = Vec::new();
+    for finding in value["findings"].as_array().into_iter().flatten() {
+        let text = |key: &str| finding[key].as_str().unwrap_or_default().to_owned();
+        let mut place = text("path");
+        if let Some(line) = finding["line"].as_u64() {
+            place.push_str(&format!(":{line}"));
+        }
+        if let Some(key) = finding["key"].as_str() {
+            place.push_str(&format!(" ({key})"));
+        }
+        lines.push(format!("{}[{}] {place}: {}", text("severity"), text("code"), text("message")));
+        if let Some(fix) = finding["fix"].as_str() {
+            lines.push(format!("  fix: {fix}"));
+        }
+    }
+    for skipped in value["skipped"].as_array().into_iter().flatten() {
+        lines.push(format!("note: not checked: {}", skipped["why"].as_str().unwrap_or_default()));
+    }
+    let name = value["setup_id"].as_str().map_or_else(|| dir.display().to_string(), str::to_owned);
+    let (errors, warnings) = (report.errors(), report.warnings());
+    let count = |n: usize, what: &str| format!("{n} {what}{}", if n == 1 { "" } else { "s" });
+    lines.push(if errors > 0 {
+        format!(
+            "{name}: {}, {}. cmux setup install would refuse it.",
+            count(errors, "error"),
+            count(warnings, "warning")
+        )
+    } else if strict && warnings > 0 {
+        format!("{name}: {} (--strict).", count(warnings, "warning"))
+    } else if warnings > 0 {
+        format!(
+            "{name}: no errors, {}. cmux setup install would take it.",
+            count(warnings, "warning")
+        )
+    } else {
+        format!("{name}: no problems. cmux setup install would take it.")
+    });
+    lines.join("\n")
 }
 
 fn failure(output: OutputMode, code: &str, message: &str, details: Value, exit: i32) -> i32 {

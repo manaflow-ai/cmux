@@ -265,3 +265,60 @@ fn the_card_shows_repo_text_inert() {
     assert!(text.contains("hi\u{fffd}31m"), "{text}");
     assert_eq!(inert(&json!({"k\n": ["\u{1b}x"]})), json!({"k\u{fffd}": ["\u{fffd}x"]}));
 }
+
+#[test]
+fn check_takes_a_folder_and_its_flags() {
+    assert_eq!(
+        parse(&words(&["check", "out", "--strict", "--owner", "leo"])),
+        Ok(Request::Check { dir: "out".into(), owner: Some("leo".to_owned()), strict: true })
+    );
+    assert_eq!(
+        parse(&words(&["check", "."])),
+        Ok(Request::Check { dir: ".".into(), owner: None, strict: false })
+    );
+    for bad in [
+        &["check"][..],
+        &["check", "a", "b"],
+        &["check", "a", "--owner"],
+        &["check", "a", "--fix"],
+        &["check", "a", "--yes"],
+    ] {
+        assert!(parse(&words(bad)).is_err(), "{bad:?}");
+    }
+}
+
+#[test]
+fn check_reports_every_problem_and_exits_by_severity() {
+    let root = tempfile::tempdir().unwrap();
+    let world = world(root.path());
+    let report = |dir: &Path| {
+        cmux_customize::setup::check_dir(
+            dir,
+            &cmux_customize::setup::CheckOptions {
+                owner: None,
+                running: "0.0.0",
+                history: &cmux_customize::setup::NoHistory,
+            },
+        )
+    };
+    // The sample installs, so it checks clean.
+    let clean = report(&world.repo);
+    assert_eq!(clean.findings, Vec::new());
+    assert_eq!(super::check_exit(&clean, true), 0);
+    assert!(super::check_text(&clean, &world.repo, false).ends_with("would take it."));
+    // Two mistakes: both are named, and install would refuse.
+    fs::write(
+        world.repo.join("cmux-setup.json"),
+        SETUP.replace("appearance.themeFile", "appearance.themeFiel"),
+    )
+    .unwrap();
+    fs::write(world.repo.join("themes/sample-dusk.json"), "{ \"name\": ").unwrap();
+    let broken = report(&world.repo);
+    assert_eq!(broken.errors(), 2, "{:?}", broken.findings);
+    assert_eq!(super::check_exit(&broken, false), 1);
+    let text = super::check_text(&broken, &world.repo, false);
+    assert!(text.contains("error[setting.unknown]"), "{text}");
+    assert!(text.contains("fix: did you mean appearance.themeFile?"), "{text}");
+    assert!(text.contains("error[file.invalid] themes/sample-dusk.json"), "{text}");
+    assert!(text.contains("2 errors, 0 warnings"), "{text}");
+}
