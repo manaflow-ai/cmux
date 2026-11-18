@@ -9,6 +9,11 @@
 # Each extra SHA is one more side, in a worktree of its own like BASE's: `god-ratio-ab.sh B 8 B` is an A/A run (the
 # same code twice), `god-ratio-ab.sh B 8 S1 S2` measures each commit of a stack beside the checkout. BASE `-` measures
 # this checkout only.
+# A fleet job (`cmux-ci test`) holds only the PR head, at depth 1, with no remote: a BASE SHA cannot be fetched there.
+# BASE `files` builds the base side from this checkout's HEAD with BASE_FILES laid over it, the base versions of the
+# files the PR changed, which `--pack BASE` prints (base64 of a tar; a file the PR added is removed):
+#   cmux-ci test --setup playwright -- env BASE_FILES="$(bash webviews/bench/god-ratio-ab.sh --pack <base sha>)" \
+#     CLOCK=cpu bash webviews/bench/god-ratio-ab.sh files 7
 # What makes one run decide a 0.1x change. Run one after the other, a round's god / small ratio swung 0.5x to 1.9x
 # on the same code (8-round A/A, run 43714459962, CPU clock or wall): the shared runner runs at one speed for one
 # replay and up to twice as slow for the next, minutes apart. So:
@@ -22,6 +27,24 @@
 # median checkpoint). CLOCK=cpu passes on to the bench (CPU time, not wall). Each run's log goes to OUT (default
 # $FAST_CHECKS_OUT). The checkout itself is never touched.
 set -euo pipefail
+# `--pack BASE`: BASE's version of every file that differs between BASE and HEAD, and the list of those BASE lacks.
+if [ "${1:-}" = --pack ]; then
+  pack="$(mktemp -d)"
+  trap 'rm -rf "$pack"' EXIT
+  root="$(git rev-parse --show-toplevel)"
+  git -C "$root" diff --name-only --no-renames "${2:?usage: god-ratio-ab.sh --pack BASE}" HEAD | while read -r file; do
+    if git -C "$root" cat-file -e "$2:$file" 2>/dev/null; then
+      mkdir -p "$pack/files/$(dirname "$file")"
+      git -C "$root" show "$2:$file" >"$pack/files/$file"
+    else
+      echo "$file" >>"$pack/added"
+    fi
+  done
+  touch "$pack/added"
+  mkdir -p "$pack/files"
+  tar -C "$pack" -cz files added | base64 -w0
+  exit
+fi
 base="${1:?usage: god-ratio-ab.sh BASE [rounds] [SHA...]}"
 rounds="${2:-8}"
 shift 2 2>/dev/null || shift $#
@@ -38,13 +61,26 @@ trees=()
 trap 'for t in "${trees[@]}"; do git -C "$here" worktree remove --force "$t" 2>/dev/null || true; done' EXIT
 # `side NAME SHA`: a detached worktree of SHA with this checkout's bench and node_modules, measured as side NAME.
 side() {
-  local name="$1" sha="$2" depth=() tree
-  # A fetch here never turns a full clone shallow: --depth only when the checkout already is one.
-  [ "$(git rev-parse --is-shallow-repository)" = true ] && depth=(--depth=1)
-  sha="$(git rev-parse --verify -q "$sha^{commit}" || { git fetch -q "${depth[@]}" origin "$sha" && git rev-parse "$sha^{commit}"; })"
+  local name="$1" sha="$2" depth=() tree overlay=""
+  if [ "$sha" = files ]; then
+    # HEAD with BASE_FILES laid over it (`--pack`, above).
+    overlay="$(mktemp -d)"
+    base64 -d <<<"${BASE_FILES:?BASE files needs BASE_FILES (god-ratio-ab.sh --pack BASE)}" | tar -C "$overlay" -xz
+    sha="$(git rev-parse HEAD)"
+  else
+    # A fetch here never turns a full clone shallow: --depth only when the checkout already is one.
+    [ "$(git rev-parse --is-shallow-repository)" = true ] && depth=(--depth=1)
+    sha="$(git rev-parse --verify -q "$sha^{commit}" || { git fetch -q "${depth[@]}" origin "$sha" && git rev-parse "$sha^{commit}"; })"
+  fi
   tree="$(mktemp -d)/$name"
   trees+=("$tree")
   git worktree add -q --detach "$tree" "$sha"
+  if [ -n "$overlay" ]; then
+    [ -d "$overlay/files" ] && cp -R "$overlay/files/." "$tree/"
+    while read -r file; do [ -n "$file" ] && rm -f "$tree/$file"; done <"$overlay/added"
+    echo "=== side $name: HEAD with $(find "$overlay/files" -type f 2>/dev/null | wc -l) base files laid over it, $(grep -c . "$overlay/added" || true) added files removed"
+    rm -rf "$overlay"
+  fi
   rm -rf "$tree/$rel/bench"
   cp -R "$here/bench" "$tree/$rel/bench"
   ln -s "$here/node_modules" "$tree/$rel/node_modules"
