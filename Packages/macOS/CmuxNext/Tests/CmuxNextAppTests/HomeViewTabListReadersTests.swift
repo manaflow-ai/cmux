@@ -307,10 +307,10 @@ struct HomeViewTabListReadersTests {
             #expect(armed == session.changed, "with \(size) workspaces \(armed) observations of the agents woke for \(session.changed) changed workspaces")
             // The streams of the view's own file, in the view's own counter: no new tab ran one of them.
             let (before, after) = (Self.sum(session.streamsBefore), Self.sum(session.streamsAfter))
-            print("HomeViewTabListReadersTests: row 1: \(size) workspaces: the wakes of the streams of the view's file \(before) -> \(after); "
-                + "each place: \(Self.text(session.streamsBefore)) -> \(Self.text(session.streamsAfter))")
-            #expect(after == before, "with \(size) workspaces the new tabs woke a stream of the view's file: \(before) -> \(after) wakes, "
-                + "\(Self.text(session.streamsBefore)) -> \(Self.text(session.streamsAfter))")
+            let places = "\(Self.text(session.streamsBefore)) -> \(Self.text(session.streamsAfter))"
+            print("HomeViewTabListReadersTests: row 1: \(size) workspaces: the wakes of the streams of the view's file \(before) -> \(after); each place: \(places)")
+            // One literal: an expectation's comment is not a sum of two strings.
+            #expect(after == before, "with \(size) workspaces the new tabs woke a stream of the view's file: \(before) -> \(after) wakes, \(places)")
         }
     }
 
