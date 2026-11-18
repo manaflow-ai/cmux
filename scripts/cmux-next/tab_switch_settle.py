@@ -21,7 +21,8 @@ TILE_CHANGE_SHARE of its pixels differ (quantized gray, as the judge's). Two thi
                  how much of the window that was. A change of more than half the window there is the tail of the
                  action before, not the load: it stays in.
   blinks         a change of at most BLINK_TILES tiles back to a picture each of them already showed since the mark
-                 (a terminal cursor blinking).
+                 (a terminal cursor blinking), or of at most OSCILLATION_TILES tiles that each went back to an earlier
+                 picture OSCILLATION_RETURNS times (a cursor and a caret blinking together).
 
 Oddity kinds (oddities()), each with the frame index after the mark it is first seen at:
   placement             the tab strip (or the sidebar, for a workspace) first changed away from where it ends changing:
@@ -46,6 +47,9 @@ QUIET_MS = 300.0
 TILE = 16
 TILE_CHANGE_SHARE = 0.02
 BLINK_TILES = 2
+OSCILLATION_RETURNS = 2
+OSCILLATION_TILES = 12
+OSCILLATION_STATES = 3
 AMBIENT_S = 0.5
 AMBIENT_MAX_SHARE = 0.5
 STATES_PER_TILE = 8
@@ -133,7 +137,8 @@ def settle(frames, mark, w, h, frame_ms, end=None, ambient_tiles=(), quiet_ms=QU
     skip = set(ambient_tiles)
     prev = before[0][1].translate(judge.QUANT)
     seen = {}  # tile -> its pictures since the mark (the one before the mark first)
-    real = []
+    steps = []  # (frame index, changed tiles, whether every one went back to a picture it showed)
+    returns = {}  # tile -> how often it went back to a picture it showed
     for i, (t, g) in enumerate(after):
         q = g.translate(judge.QUANT)
         changed = changed_tiles(prev, q, w, h, tile) - skip
@@ -142,15 +147,25 @@ def settle(frames, mark, w, h, frame_ms, end=None, ambient_tiles=(), quiet_ms=QU
             for k in changed:
                 states = seen.setdefault(k, [tile_bytes(prev, w, h, k, tile)])
                 now = tile_bytes(q, w, h, k, tile)
-                if not any(judge.diff_share(now, s) <= TILE_CHANGE_SHARE for s in states):
+                if any(judge.diff_share(now, s) <= TILE_CHANGE_SHARE for s in states):
+                    returns[k] = returns.get(k, 0) + 1
+                else:
                     revisit = False
                     states.append(now)
                     del states[:-STATES_PER_TILE]
-            if len(changed) <= BLINK_TILES and revisit:
-                out["blinks"] += 1
-            else:
-                real.append(i)
+            steps.append((i, changed, revisit))
         prev = q
+    # A tile that went back to an earlier picture OSCILLATION_RETURNS times or more, among at most OSCILLATION_STATES
+    # pictures (the one before the action, then off and on), blinks: a terminal cursor and a composer caret at once,
+    # more than BLINK_TILES tiles (cmux21, 2026-11-18). A change of only such tiles is a blink, its first showing
+    # included. A tile cycling through more pictures (a running animation) still counts.
+    oscillating = {k for k, n in returns.items() if n >= OSCILLATION_RETURNS and len(seen[k]) <= OSCILLATION_STATES}
+    real = []
+    for i, changed, revisit in steps:
+        if (len(changed) <= BLINK_TILES and revisit) or (len(changed) <= OSCILLATION_TILES and changed <= oscillating):
+            out["blinks"] += 1
+        else:
+            real.append(i)
     out["change_frames"] = real[:60]
     if not real:
         out["settle_note"] = "nothing in the window changed after the action"
