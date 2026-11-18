@@ -7,6 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import slotsSchema from "../../../schemas/theme/slots.json";
 import {
+  configureSettingsSlots,
   configureThemeSlots,
   defineSlot,
   registerSlotVariant,
@@ -22,6 +23,7 @@ import {
   THINKING_INDICATOR_VARIANTS,
 } from "./thinkingIndicator";
 import { applyAgentTheme } from "../agent-session/shared/theme";
+import { setChatDisplay } from "../agent-session/acpmux/chatDisplay";
 import { settleReact } from "../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
@@ -203,4 +205,23 @@ test("a slot commits only when its selection changes, never on its own", () => {
   expect(commits).toBe(mounted + 1);
   act(() => configureThemeSlots({ "chat.thinkingIndicator": "pulse" }));
   expect(commits).toBe(mounted + 1);
+});
+
+test("the slot settings (a theme file's `slots`) reach the chat in its display event, one slot at a time", () => {
+  act(() => root!.render(<Slot slot={slot} props={props} />));
+  expect(drawn()).toBe("default");
+  act(() => setChatDisplay({ "appearance.slots.chat.thinkingIndicator": "pulse", "agentPane.display.width": 900 }));
+  expect(drawn()).toBe("pulse");
+  // The setting wins over the host theme push; the push still picks a slot the settings leave out.
+  act(() => applyAgentTheme(theme({ "chat.thinkingIndicator": "blocks" })));
+  expect(drawn()).toBe("pulse");
+  // A variant this page has not registered draws the default for that slot only.
+  act(() => setChatDisplay({ "appearance.slots.chat.thinkingIndicator": "sparkles" }));
+  expect(drawn()).toBe("blocks");
+  act(() => configureThemeSlots(undefined));
+  expect(drawn()).toBe("default");
+  act(() => setChatDisplay({}));
+  expect(selectedSlotVariant(slot, { settings: { "chat.thinkingIndicator": "caret" } })).toBe("caret");
+  act(() => configureSettingsSlots({ "appearance.slots.chat.thinkingIndicator": "caret", other: "pulse" }));
+  expect(drawn()).toBe("caret");
 });

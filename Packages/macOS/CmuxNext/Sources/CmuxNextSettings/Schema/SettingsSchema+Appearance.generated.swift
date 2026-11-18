@@ -44,6 +44,14 @@ extension AccentSetting {
 extension ThemeFileSetting {
     /// `appearance.themeFile`.
     public nonisolated static let configPath = ["appearance", "themeFile"]
+    /// `appearance.slots.chat.thinkingIndicator`: The theme slot chat.thinkingIndicator (schemas/theme/slots.json): the variant the agent chat's live line draws while a turn thinks. A theme file writes it as "slots": {"chat.thinkingIndicator": "pulse"}. The choices are the slot's variants in slots.json order (cmux-config theme_file tests hold the two equal); the chat page (webviews src/slots/registry.ts) draws the default for a variant it has not registered.
+    public nonisolated static let thinkingIndicatorSlotPath = ["appearance", "slots", "chat", "thinkingIndicator"]
+    public nonisolated static let thinkingIndicatorSlotDefault = "default"
+    public nonisolated static let thinkingIndicatorSlotValues = ["default", "counting-dots", "pulse", "caret", "blocks"]
+    /// `appearance.slots.chat.jumpToBottom`: The theme slot chat.jumpToBottom (schemas/theme/slots.json): the mark inside the agent chat's Jump to latest button. A theme file writes it as "slots": {"chat.jumpToBottom": "bob"}. The choices are the slot's variants in slots.json order (cmux-config theme_file tests hold the two equal).
+    public nonisolated static let jumpToBottomSlotPath = ["appearance", "slots", "chat", "jumpToBottom"]
+    public nonisolated static let jumpToBottomSlotDefault = "default"
+    public nonisolated static let jumpToBottomSlotValues = ["default", "nudge", "bob", "cascade"]
 }
 
 extension HighlightColorSetting {

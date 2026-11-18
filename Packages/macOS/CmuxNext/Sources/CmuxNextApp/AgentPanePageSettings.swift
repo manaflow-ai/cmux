@@ -85,7 +85,7 @@ final class AgentPanePageSettings {
                 fileRoot: settings.fileRoot,
                 managedHarnessPlacement: settings.managedKeys["agentPane.display.harnessPlacement"].flatMap { _ in
                     settings.snapshot.root.value(at: ["agentPane", "display", "harnessPlacement"])
-                }
+                }, effectiveRoot: settings.snapshot.root
             ) }) {
                 guard let self, value != display else { continue }
                 display = value

@@ -100,6 +100,37 @@ extension AppearanceSettingsSchema {
                 keywords: ["theme file", "rice", "ricing", "dotfile", "dotfiles", "look", "config", "themes folder", "json"]
             ),
             SettingDescriptor(
+                ThemeFileSetting.thinkingIndicatorSlotPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.slots.thinkingIndicator", "Thinking Indicator"),
+                help: SettingsText.keyed("settings.appearance.slots.thinkingIndicator.help", "How the agent chat shows a turn is thinking before it names a step."),
+                kind: .choice([
+                    SettingChoice("default", SettingsText.keyed("settings.choice.shimmer", "Shimmer")),
+                    SettingChoice("counting-dots", SettingsText.keyed("settings.choice.countingDots", "Counting Dots")),
+                    SettingChoice("pulse", SettingsText.keyed("settings.choice.pulse", "Pulse")),
+                    SettingChoice("caret", SettingsText.keyed("settings.choice.caret", "Caret")),
+                    SettingChoice("blocks", SettingsText.keyed("settings.choice.blocks", "Blocks")),
+                ]),
+                default: .string(ThemeFileSetting.thinkingIndicatorSlotDefault),
+                keywords: ["theme slot", "slot", "thinking", "indicator", "working", "spinner", "animation", "agent chat"]
+            ),
+            SettingDescriptor(
+                ThemeFileSetting.jumpToBottomSlotPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.slots.jumpToBottom", "Jump to Latest Arrow"),
+                help: SettingsText.keyed("settings.appearance.slots.jumpToBottom.help", "How the arrow on the agent chat's Jump to Latest button moves."),
+                kind: .choice([
+                    SettingChoice("default", SettingsText.keyed("settings.choice.arrow", "Arrow")),
+                    SettingChoice("nudge", SettingsText.keyed("settings.choice.nudge", "Nudge")),
+                    SettingChoice("bob", SettingsText.keyed("settings.choice.bob", "Bob")),
+                    SettingChoice("cascade", SettingsText.keyed("settings.choice.cascade", "Cascade")),
+                ]),
+                default: .string(ThemeFileSetting.jumpToBottomSlotDefault),
+                keywords: ["theme slot", "slot", "jump to latest", "scroll to bottom", "arrow", "animation", "agent chat"]
+            ),
+            SettingDescriptor(
                 HighlightColorSetting.configPath,
                 section: .appearance,
                 group: group,
@@ -323,44 +354,6 @@ extension AppearanceSettingsSchema {
                 kind: .toggle,
                 default: .bool(WallpaperTintSetting.fallback),
                 keywords: ["wallpaper", "desktop", "tint", "tinting", "glass", "color", "colour", "space", "background"]
-            ),
-        ]
-    }
-}
-
-extension AppearanceSettingsSchema {
-    static var tuning: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.appearanceTuning", "Appearance Tuning")
-        return [
-            SettingDescriptor(
-                AppearanceTuningSetting.glassTransparencyPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.glassTransparency", "Glass Transparency"),
-                help: SettingsText.keyed("settings.appearance.glassTransparency.help", "How much of the desktop or wallpaper shows through the glass."),
-                kind: .number(SettingNumber(AppearanceTuningSetting.glassTransparencyRange, step: 0.05, unit: .fraction)),
-                default: .number(AppearanceTuningSetting.glassTransparencyDefault),
-                keywords: ["glass", "transparency", "alpha", "clear"]
-            ).hiddenFromSettingsPage("duplicates appearance.backgroundOpacity; the key still loads"),
-            SettingDescriptor(
-                AppearanceTuningSetting.huePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.hue", "Hue"),
-                help: SettingsText.keyed("settings.appearance.hue.help", "Shift the tint color around the hue wheel."),
-                kind: .number(SettingNumber(AppearanceTuningSetting.hueRange, step: 0.05, unit: .fraction, placeholder: AppearanceTuningSetting.huePlaceholder)),
-                default: .number(AppearanceTuningSetting.hueDefault),
-                keywords: ["tint", "color", "colour"]
-            ),
-            SettingDescriptor(
-                AppearanceTuningSetting.saturationPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.saturation", "Saturation"),
-                help: SettingsText.keyed("settings.appearance.saturation.help", "Increase or reduce the tint color intensity."),
-                kind: .number(SettingNumber(AppearanceTuningSetting.saturationRange, step: 0.05, unit: .fraction, placeholder: AppearanceTuningSetting.saturationPlaceholder)),
-                default: .number(AppearanceTuningSetting.saturationDefault),
-                keywords: ["tint", "color", "colour", "intensity"]
             ),
         ]
     }

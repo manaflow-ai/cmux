@@ -25,6 +25,7 @@ import {
   type ChatUiFont,
 } from "./chatUiFont";
 import { configureStatusVerbs } from "./statusVerbs";
+import { configureSettingsSlots } from "../../slots/registry";
 import { isUnreadBannerMode, type UnreadBannerMode } from "./conversation/unreadState";
 
 /// An arm of the thread minimap experiment (`off`, `full`, `compact`, whatever its definition lists).
@@ -366,6 +367,8 @@ export function setChatDisplay(value: unknown): void {
   raw = (value && typeof value === "object" && !Array.isArray(value) ? { ...(value as Values) } : {}) as Values;
   configureStatusVerbs(raw);
   configureSenderIconLook(raw);
+  // `appearance.slots.*`: the variant each theme slot draws (a theme file's `"slots"`; slots/registry.ts).
+  configureSettingsSlots(raw);
   const next = resolveChatDisplay(raw);
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
   const pinnedPlan = raw[PINNED_PLAN_KEY] === true;
