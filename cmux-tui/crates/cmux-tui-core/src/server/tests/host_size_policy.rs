@@ -477,3 +477,181 @@ fn host_policy_a_person_split_shrinks_the_mac_pane_at_once() {
     rig.claim(&mac, (39, 26));
     assert_eq!(rig.grid(), (54, 26));
 }
+
+/// A second column right of the rig's pane, made by the daemon (not an
+/// agent): the panes of the two columns.
+fn two_columns(rig: &Rig) -> (PaneId, PaneId) {
+    two_columns_of(rig, &rig.surface)
+}
+
+/// As [`two_columns`], in the workspace of `surface`.
+fn two_columns_of(rig: &Rig, surface: &crate::Surface) -> (PaneId, PaneId) {
+    let first = rig.mux.with_state(|state| state.pane_of(surface.id).unwrap());
+    let right = rig.mux.new_pane_right(first, 0.5, Some((38, 22))).unwrap();
+    let right = rig.mux.with_state(|state| state.pane_of(right.id).unwrap());
+    (first, right)
+}
+
+fn column_widths(rig: &Rig) -> Vec<f32> {
+    rig.mux.with_state(|state| {
+        state.workspaces[0].screens[0].layout_columns.iter().map(|column| column.width).collect()
+    })
+}
+
+/// `set-layout-sizes` of `actor`: the widths of the two columns as one
+/// change.
+fn batch(
+    rig: &Rig,
+    actor: &crate::Actor,
+    columns: (PaneId, PaneId),
+    widths: (f32, f32),
+) -> Result<(), crate::mux::LayoutSizesError> {
+    rig.mux.set_layout_sizes_in_transaction_checked_as(
+        actor,
+        &[
+            crate::mux::LayoutSizeValue::PaneWidth { pane: columns.0, width: widths.0 },
+            crate::mux::LayoutSizeValue::PaneWidth { pane: columns.1, width: widths.1 },
+        ],
+        7,
+        1,
+    )
+}
+
+/// The rig with two columns, this Mac's view and a phone that sets the grid.
+fn two_column_rig(name: &str) -> (Rig, (PaneId, PaneId), View, View) {
+    let rig = rig(name);
+    let columns = two_columns(&rig);
+    let mac = rig.mac((120, 40));
+    let phone = rig.phone("p1", (54, 40));
+    assert_eq!(rig.grid(), (54, 40), "the start: the phone sets the grid");
+    (rig, columns, mac, phone)
+}
+
+/// An agent that narrows the Mac pane with one batch is an agent's layout
+/// change as much as its split is: the phone's grid stays.
+#[test]
+fn host_policy_an_agent_batch_resize_does_not_shrink_the_grid() {
+    let (rig, columns, mac, _phone) = two_column_rig("batch-agent");
+    batch(&rig, &agent(), columns, (0.4, 0.6)).unwrap();
+    assert_eq!(column_widths(&rig), vec![0.4, 0.6], "the batch did not set the widths");
+    // The app reports the pane's new size.
+    rig.claim(&mac, (39, 26));
+    assert_eq!(rig.grid(), (54, 40), "the agent's batch does not count");
+}
+
+/// The same change as two single commands of the agent: the grid stays.
+#[test]
+fn host_policy_an_agent_width_command_does_not_shrink_the_grid() {
+    let (rig, columns, mac, _phone) = two_column_rig("batch-singles");
+    rig.mux.set_viewport_pane_width_checked_as(&agent(), columns.0, 0.4).unwrap();
+    rig.mux.set_viewport_pane_width_checked_as(&agent(), columns.1, 0.6).unwrap();
+    let widths = column_widths(&rig);
+    assert!(
+        (widths[0] - 0.4).abs() < 1e-6 && (widths[1] - 0.6).abs() < 1e-6,
+        "the commands did not set the widths: {widths:?}"
+    );
+    rig.claim(&mac, (39, 26));
+    assert_eq!(rig.grid(), (54, 40), "the agent's width commands do not count");
+}
+
+#[test]
+fn host_policy_a_person_batch_resize_shrinks_the_mac_pane_at_once() {
+    let (rig, columns, mac, _phone) = two_column_rig("batch-person");
+    let person = crate::Actor::Frontend { install_id: "signed_app".into() };
+    batch(&rig, &person, columns, (0.4, 0.6)).unwrap();
+    rig.claim(&mac, (39, 26));
+    assert_eq!(rig.grid(), (54, 26));
+}
+
+/// A batch that the daemon refuses changed no pane: a smaller report after
+/// it is the person's own and counts at once.
+#[test]
+fn host_policy_an_agent_batch_that_is_refused_holds_nothing() {
+    let (rig, columns, mac, _phone) = two_column_rig("batch-refused");
+    let before = column_widths(&rig);
+    let error = batch(&rig, &agent(), columns, (0.4, 1.5)).unwrap_err();
+    assert_eq!(error.index(), Some(1), "{error}");
+    assert_eq!(column_widths(&rig), before, "a refused batch changed a width");
+    rig.claim(&mac, (39, 26));
+    assert_eq!(rig.grid(), (54, 26), "a refused batch held the Mac view's report");
+}
+
+/// A batch of the widths the columns have changes nothing and holds nothing.
+#[test]
+fn host_policy_an_agent_batch_that_changes_nothing_holds_nothing() {
+    let (rig, columns, mac, _phone) = two_column_rig("batch-same");
+    let now = column_widths(&rig);
+    batch(&rig, &agent(), columns, (now[0], now[1])).unwrap();
+    assert_eq!(column_widths(&rig), now, "a batch of the same widths changed a width");
+    rig.claim(&mac, (39, 26));
+    assert_eq!(rig.grid(), (54, 26), "a batch that changed nothing held the Mac view's report");
+}
+
+/// An agent changes the layout, then sends a batch that is refused, before
+/// the app's report of the first change arrives: that report is still the
+/// agent's and does not count.
+#[test]
+fn host_policy_an_agent_refused_batch_keeps_the_hold_of_its_earlier_change() {
+    let (rig, columns, mac, _phone) = two_column_rig("batch-later-no");
+    rig.mux.set_viewport_pane_width_checked_as(&agent(), columns.0, 0.4).unwrap();
+    assert!(batch(&rig, &agent(), columns, (0.3, 1.5)).is_err(), "a width of 1.5 was taken");
+    rig.claim(&mac, (39, 26));
+    assert_eq!(rig.grid(), (54, 40), "a refused batch ended the hold of the earlier change");
+}
+
+/// As above, with a later batch that changes nothing.
+#[test]
+fn host_policy_an_agent_unchanged_batch_keeps_the_hold_of_its_earlier_change() {
+    let (rig, columns, mac, _phone) = two_column_rig("batch-later-same");
+    rig.mux.set_viewport_pane_width_checked_as(&agent(), columns.0, 0.4).unwrap();
+    let now = column_widths(&rig);
+    batch(&rig, &agent(), columns, (now[0], now[1])).unwrap();
+    rig.claim(&mac, (39, 26));
+    assert_eq!(rig.grid(), (54, 40), "an unchanged batch ended the hold of the earlier change");
+}
+
+/// The rig with a second workspace, this Mac's view of the first one and a
+/// phone that sets the grid.
+fn two_workspace_rig(name: &str) -> (Rig, Arc<crate::Surface>, View, View) {
+    let rig = rig(name);
+    let other = rig.mux.new_workspace(None, Some((100, 30))).unwrap();
+    let mac = rig.mac((120, 40));
+    let phone = rig.phone("p1", (54, 40));
+    assert_eq!(rig.grid(), (54, 40), "the start: the phone sets the grid");
+    (rig, other, mac, phone)
+}
+
+/// An agent changes this workspace's layout, then another workspace's,
+/// before the app's report of the first change arrives: that report is still
+/// the agent's and does not count.
+#[test]
+fn host_policy_an_agent_change_in_another_workspace_keeps_the_hold_of_this_one() {
+    let (rig, other, mac, _phone) = two_workspace_rig("agent-elsewhere");
+    split_beside(&rig, &agent());
+    let pane = rig.mux.with_state(|state| state.pane_of(other.id).unwrap());
+    rig.mux.split_as(&agent(), pane, SplitDir::Right, None).unwrap();
+    rig.claim(&mac, (39, 26));
+    assert_eq!(rig.grid(), (54, 40), "a change in another workspace ended this one's hold");
+}
+
+/// As above, with a batch in the other workspace as the later change.
+#[test]
+fn host_policy_an_agent_batch_in_another_workspace_keeps_the_hold_of_this_one() {
+    let (rig, other, mac, _phone) = two_workspace_rig("batch-elsewhere");
+    let columns = two_columns_of(&rig, &other);
+    split_beside(&rig, &agent());
+    batch(&rig, &agent(), columns, (0.4, 0.6)).unwrap();
+    rig.claim(&mac, (39, 26));
+    assert_eq!(rig.grid(), (54, 40), "a batch in another workspace ended this one's hold");
+}
+
+/// An agent's change in another workspace alone holds nothing here: a
+/// smaller report of this workspace's view is the person's own.
+#[test]
+fn host_policy_an_agent_change_in_another_workspace_holds_nothing_here() {
+    let (rig, other, mac, _phone) = two_workspace_rig("agent-elsewhere-only");
+    let pane = rig.mux.with_state(|state| state.pane_of(other.id).unwrap());
+    rig.mux.split_as(&agent(), pane, SplitDir::Right, None).unwrap();
+    rig.claim(&mac, (39, 26));
+    assert_eq!(rig.grid(), (54, 26), "a change in another workspace held this one's view");
+}
