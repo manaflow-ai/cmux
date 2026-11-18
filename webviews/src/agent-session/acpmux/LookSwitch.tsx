@@ -8,7 +8,13 @@
 // they are not drawn: there they stand aside (`data-crowded`, hidden) until the middle clears, as
 // Codex's look hid them in a row too narrow for them (#28901).
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
-import { COMPOSER_LOOK_NAMES, COMPOSER_LOOKS, setComposerLook, useComposerLook } from "./composerLook";
+import {
+  COMPOSER_LOOK_NAMES,
+  COMPOSER_LOOKS,
+  PINNED_COMPOSER_LOOK,
+  setComposerLook,
+  useComposerLook,
+} from "./composerLook";
 import { useT } from "./i18n";
 import { DotSwitch } from "./newtab/StyleSwitch";
 
@@ -17,6 +23,8 @@ export function LookSwitch({ onDone }: { onDone(): void }) {
   const look = useComposerLook();
   const slot = useRef<HTMLSpanElement>(null);
   const crowded = useCrowded(slot, look);
+  // A pinned look (the Codex app look) has nothing to switch to.
+  if (PINNED_COMPOSER_LOOK) return null;
   return (
     <span ref={slot} className="acpmux-look-slot" data-crowded={crowded ? "" : undefined}>
       <DotSwitch

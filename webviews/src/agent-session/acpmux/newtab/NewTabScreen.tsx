@@ -2568,7 +2568,13 @@ export function NewTabScreen(props: Props) {
         <>
           {/* Minimal keeps the old greeting's room over the composer, empty, so the composer sits
                 where it always sat (screen.css .nt-composer-room). */}
-          {minimal && <div className="nt-composer-room" />}
+          {/* The Codex app look (look/README.md) says "Let's build" in that room, as the Codex app's
+                new thread does (look/codexLook.css). */}
+          {minimal && (
+            <div className="nt-composer-room">
+              <h1 className="nt-codex-hello">{nt("codexHello")}</h1>
+            </div>
+          )}
           {composerCard}
           {starters}
           {props.notice}

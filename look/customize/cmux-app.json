@@ -1,0 +1,24 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": "My views",
+  "version": "1.0.0",
+  "description": "The Codex app's sidebar: New thread, Automations and Skills on top, then your threads under their project folders with how long ago each moved.",
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "main.js" },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderThreads",
+      "title": "Threads",
+      "symbol": "bubble.left.and.bubble.right",
+      "options": { "defaultRegion": "middle", "maxRows": 50 }
+    }
+  },
+  "scopes": {
+    "agent_chat:read": "Read your agent chats: title, state, folder and times.",
+    "workspace:read": "Know which workspace is open, to mark its thread.",
+    "workspace:write": "Show a thread's workspace when you click it.",
+    "actions:run": "Start a thread, open Automations and Skills, and open a thread that has no workspace."
+  }
+}

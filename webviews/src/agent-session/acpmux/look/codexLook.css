@@ -1,0 +1,131 @@
+/* The Codex app look (look/README.md, look/PARTS.md): the chat and New Tab as the Codex desktop
+   app draws them. Loaded last (dev.tsx), so it restyles cmux's own rules without touching them.
+   Colors, radii and shadows only: no rule here changes a row's measured height (model.ts), so the
+   transcript's virtual placement holds. Light and dark follow the theme (shared/theme.ts sets the
+   root's color-scheme), with light-dark() picking the Codex app's light values or a dark twin. */
+
+/* The prompt: a right-aligned light gray pill, 20 px corners, no rim. */
+.acpmux-shell .cv-user__bubble,
+.acpmux-shell .cv-user__edit {
+  --glass-tint: light-dark(#f2f2f2, color-mix(in srgb, var(--agent-text) 10%, transparent));
+  /* glass-opaque-allow: the Reduce Transparency fill only */
+  --glass-opaque: light-dark(#f2f2f2, color-mix(in srgb, var(--agent-text) 10%, var(--glass-surface)));
+  --glass-edge: transparent;
+  --glass-rim: 0;
+  border-radius: 20px;
+}
+
+/* The reply is plain text on the page; inline code is a light gray chip; links are blue with no
+   underline until hovered. */
+.acpmux-shell {
+  --cv-code-bg: light-dark(#f0f0f0, color-mix(in srgb, var(--agent-text) 10%, transparent));
+  --agent-link: light-dark(#0a74e8, #5aa9ff);
+}
+.acpmux-shell .cv-code {
+  --cv-code-radius: 6px;
+}
+.acpmux-shell .cv-link {
+  text-decoration-color: transparent;
+}
+.acpmux-shell .cv-link:hover {
+  text-decoration-color: currentColor;
+}
+
+/* The composer: a white box, 24 px corners, a hairline and a soft shadow, on the chat and on New
+   Tab alike. */
+.acpmux-composer[data-composer-look="codex"],
+.acpmux-newtab-card {
+  --grid-composer-radius: 24px;
+  --acpmux-composer-radius: 24px;
+}
+.acpmux-shell {
+  --acpmux-composer-bg: light-dark(#ffffff, color-mix(in srgb, var(--agent-text) 6%, var(--agent-page-bg)));
+  --acpmux-composer-edge: light-dark(#e3e3e3, color-mix(in srgb, var(--agent-text) 14%, transparent));
+}
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box {
+  box-shadow:
+    0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge),
+    0 4px 16px light-dark(rgb(0 0 0 / 6%), rgb(0 0 0 / 30%));
+}
+
+/* Send: a dark round button with a white arrow; gray while there is nothing to send. */
+.acpmux-composer[data-composer-look="codex"] .acpmux-send {
+  background: color-mix(in srgb, var(--agent-text) 45%, transparent);
+  color: var(--agent-page-bg);
+}
+.acpmux-composer[data-composer-look="codex"] .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, :disabled) {
+  background: var(--agent-text);
+  color: var(--agent-page-bg);
+}
+.acpmux-composer[data-composer-look="codex"] .acpmux-send.acpmux-cancel:not([data-escape-armed]) {
+  background: var(--agent-text);
+  color: var(--agent-page-bg);
+}
+@media (hover: hover) and (pointer: fine) {
+  .acpmux-composer[data-composer-look="codex"] .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, :disabled):hover {
+    background: color-mix(in srgb, var(--agent-text) 82%, var(--agent-page-bg));
+  }
+}
+
+/* Scroll to bottom: a white disc with a gray hairline and a soft shadow, the arrow in the text color. */
+:root .acpmux-shell .acpmux-jump-latest {
+  --glass-tint: light-dark(#ffffff, var(--agent-page-bg));
+  --glass-edge: light-dark(#e3e3e3, color-mix(in srgb, var(--agent-text) 18%, transparent));
+  --glass-backdrop: none;
+  width: 36px;
+  height: 36px;
+}
+
+/* The row in the box: the mode, then the model and its effort right after + on the left, as the
+   Codex app's "Custom Medium ⌄"; the context ring, the mic and Send on the right. Order only, so a
+   look switch remounts nothing. */
+.acpmux-composer[data-composer-look="codex"] .acpmux-composer-foot {
+  justify-content: flex-start;
+}
+.acpmux-composer[data-composer-look="codex"] .acpmux-composer-foot .acpmux-access {
+  order: -3;
+  margin-inline-end: 0;
+}
+.acpmux-composer[data-composer-look="codex"] .acpmux-composer-foot :is(.acpmux-model, .acpmux-effort) {
+  order: -2;
+}
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box > .acpmux-chrome-area > .acpmux-composer-foot .acpmux-context {
+  order: 0;
+  margin-inline-start: auto;
+}
+
+/* New Tab: "Let's build" over the composer, the Codex app's new thread heading, and the project
+   and computer strip under the box, where the Codex app puts "Local ⌄". */
+.nt-screen[data-minimal] .nt-composer-room {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  height: auto;
+  padding-bottom: calc(var(--ds-space-6, 24px) * var(--nt-density, 1));
+}
+.nt-codex-hello {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: calc(28px * var(--nt-density, 1));
+  font-weight: var(--weight-medium, 500);
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--agent-text);
+}
+.nt-composer > .nt-above {
+  order: 3;
+  margin-top: calc(var(--ds-space-2, 8px) * var(--nt-density, 1));
+  margin-bottom: 0;
+}
+.nt-composer .nt-box {
+  box-shadow:
+    0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge),
+    0 4px 16px light-dark(rgb(0 0 0 / 6%), rgb(0 0 0 / 30%));
+}
+
+/* The title bar: the chat's title, then its project in gray (ThreadTitle.tsx). */
+.acpmux-thread-title-project {
+  margin-inline-start: 8px;
+  color: var(--agent-muted);
+  font-weight: var(--weight-regular, 400);
+}

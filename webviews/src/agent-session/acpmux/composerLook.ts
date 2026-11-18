@@ -28,6 +28,11 @@ export const COMPOSER_LOOK_NAMES: Readonly<Record<ComposerLook, string>> = {
 
 /// New viewers use Codex's look across agent families; explicit choices remain saved.
 export const DEFAULT_COMPOSER_LOOK: ComposerLook = "codex";
+
+/// The Codex app look (look/README.md) pins Codex's composer in every chat and on New Tab: the
+/// look dots are not drawn and a saved Claude choice does not apply. Undefined is cmux's own
+/// behavior, the two dots and New Tab in Claude's look.
+export const PINNED_COMPOSER_LOOK: ComposerLook | undefined = "codex";
 const KEY = "cmux.composer.look";
 
 function parse(value: unknown): ComposerLook {
@@ -50,7 +55,7 @@ export function savedComposerLook(): ComposerLook {
 }
 
 function current(): ComposerLook {
-  return shown ?? savedComposerLook();
+  return shown ?? PINNED_COMPOSER_LOOK ?? savedComposerLook();
 }
 
 function subscribe(listener: () => void) {
@@ -88,5 +93,6 @@ export function setComposerLook(look: ComposerLook, { remember = true }: { remem
 export function useComposerLook(): ComposerLook {
   const onNewTab = useContext(OnNewTab);
   const look = useSyncExternalStore(subscribe, current, current);
+  if (PINNED_COMPOSER_LOOK && !shown) return PINNED_COMPOSER_LOOK;
   return onNewTab ? "claude" : look;
 }
