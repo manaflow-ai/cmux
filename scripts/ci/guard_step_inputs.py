@@ -62,8 +62,8 @@ CODE_SUFFIXES = (".py", ".sh", ".bash", ".js", ".mjs", ".cjs", ".ts", ".mts", ".
 JS_SUFFIXES = (".js", ".mjs", ".cjs", ".ts", ".mts", ".cts", ".tsx")
 # A source with any of these reads git history, the index or the base: its inputs cannot be read from text.
 GIT_OR_BASE = re.compile(
-    r"ls-files|ls-tree|\bgit\s+(-C\s+\S+\s+)?(grep|log|diff|show|blame|rev-list|cat-file)\b"
-    r"|[\"']git[\"'],\s*([\"']-C[\"'],\s*[^,]+,\s*)?[\"'](grep|log|diff|show|blame|rev-list|cat-file|merge-base)[\"']"
+    r"ls-files|ls-tree|write-tree|\bgit\s+(-C\s+\S+\s+)?(grep|log|diff|show|blame|rev-list|cat-file|archive|worktree|stash)\b"
+    r"|[\"']git[\"'],\s*([\"']-C[\"'],\s*[^,]+,\s*)?[\"'](grep|log|diff|show|blame|rev-list|cat-file|merge-base|archive|worktree|stash)[\"']"
     r"|merge-base|HEAD\^|HEAD~|GITHUB_BASE|BASE_SHA|BASE_REF|GITHUB_EVENT_PATH"
 )
 # A shell or JavaScript source with any of these walks folders its text may not name. A Python source's walks
@@ -81,9 +81,14 @@ REPO_ROOT, OTHER, UNKNOWN = "repo", "other", None
 EXEC_CALLEES = ("subprocess.", "os.system", "os.exec", "os.spawn", "os.posix_spawn", "runpy.", "run_path",
                 "spec_from_file_location", "SourceFileLoader", "check_output", "check_call", "Popen")
 COMMAND_HEADS = {"sys.executable", "python3", "python", "bash", "sh", "node", "bun", "zsh"}
+# A tool a Python source starts that reads files of its own choosing (a Makefile's recipes, a package.json's
+# scripts, a crate graph): what it reads is not in the source's text.
+TOOL_HEADS = {"make", "gmake", "cargo", "rustc", "swift", "swiftc", "xcodebuild", "npm", "npx", "pnpm", "yarn", "bun",
+              "bunx", "deno", "tsc", "go", "zig", "cmake", "ninja", "just", "gradle", "pytest"}
 JOINS = {"os.path.join", "Path", "pathlib.Path", "PurePath"}
 PATH_TOKEN = re.compile(r"[A-Za-z0-9_.@+${}*-]+(?:/[A-Za-z0-9_.@+${}*<>-]*)+|[A-Za-z0-9_.-]+\.[A-Za-z0-9]{1,8}\b")
 JS_IMPORT = re.compile(r"""(?:\bfrom\s+|\bimport\s*\(\s*|\brequire\s*\(\s*|^\s*import\s+)["']([^"']+)["']""", re.M)
+JS_JOIN = re.compile(r"\b(?:path\.)?(?:join|resolve)\(([^()]*)\)")
 GLOB_CHARS = re.compile(r"[*?\[{$<]")
 # A command a step may be made of and still have its inputs read: the runner, then files and flags.
 RUNNERS = (
@@ -123,6 +128,8 @@ class Tree:
         self.files = set(git("ls-files", "-z", root=root).split("\0")) - {""}
         self.folders = {str(Path(f).parent) for f in self.files} - {"."}
         self.folders |= {str(p) for f in list(self.folders) for p in Path(f).parents} - {"."}
+        stages = git("ls-files", "-s", "-z", root=root).split("\0")
+        self.submodules = {e.split("\t", 1)[1] for e in stages if e.startswith("160000 ")}
         self.by_stem: dict[str, list[str]] = {}
         for f in self.files:
             if f.endswith(".py"):
@@ -155,6 +162,8 @@ class Tree:
             candidate = os.path.normpath(os.path.join(start, token)) if start else os.path.normpath(token)
             if candidate.startswith("..") or candidate == ".":
                 continue
+            # a path inside a submodule: a pointer bump changes only the submodule's own entry
+            inputs.files.update(m for m in self.submodules if candidate.startswith(m + "/"))
             if candidate in self.files or candidate in changed:
                 inputs.files.add(candidate)
             elif candidate in self.folders or any(c.startswith(candidate + "/") for c in changed):
@@ -234,7 +243,7 @@ class Tree:
         """Add what a Python file imports, names and walks; return why it reads the whole tree, or ""."""
         try:
             tree = ast.parse(text)
-        except SyntaxError:
+        except (SyntaxError, ValueError, RecursionError):
             return f"{path} does not parse"
         for node in ast.walk(tree):  # docstrings name paths; they read none
             body = getattr(node, "body", None)
@@ -275,13 +284,15 @@ class Tree:
                 if place and place[0] == REPO_ROOT and place[1]:
                     self.place(place[1], "", named, changed)
                 elif place is UNKNOWN and isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
-                    if source.where(node.left) == (REPO_ROOT, ""):  # ROOT / name: a file of the root named at runtime
+                    if source.rooted(node):  # ROOT / name / ...: a file of the root named at runtime
                         return f"{path}:{node.lineno} reads {ast.unparse(node)[:50]!r}, a tree file it names at runtime"
                 elif place is UNKNOWN and isinstance(node, ast.Call) and dotted(node.func) in JOINS and len(node.args) > 1:
                     # os.path.join(root, "cmux-tui", "Cargo.toml") with an unknown root: the constant tail, from the root
                     tail = [a.value for a in node.args[1:] if isinstance(a, ast.Constant) and isinstance(a.value, str)]
                     if len(tail) == len(node.args) - 1:
                         self.place("/".join(tail), "", named, changed)
+                    elif source.rooted(node.args[0]):  # os.path.join(ROOT, name, ...): named at runtime
+                        return f"{path}:{node.lineno} reads {ast.unparse(node)[:50]!r}, a tree file it names at runtime"
         executed = self.executed(source, nodes, changed)
         if executed.whole:
             return executed.whole
@@ -317,7 +328,10 @@ class Tree:
                          if isinstance(n, ast.Constant) and isinstance(n.value, str) and n.value.isidentifier())
         for name in names:
             parts = name.split(".")
-            if parts[0] in stdlib:
+            if parts[0] in stdlib:  # unless a tree file on its search path shadows it
+                found.files.update(c for f in search for c in (os.path.join(f, parts[0] + ".py"),
+                                                               os.path.join(f, parts[0], "__init__.py"))
+                                   if c in self.files or c in changed)
                 continue
             found.modules.add(parts[-1])
             hits = self.module_files(parts, search)
@@ -340,6 +354,16 @@ class Tree:
                     dotted(e) in COMMAND_HEADS or (isinstance(e, ast.Constant) and e.value in COMMAND_HEADS) for e in node.elts):
                 commands.append(node)
         found = Inputs()
+        for command in commands:
+            head = command.elts[0] if isinstance(command, (ast.List, ast.Tuple)) and command.elts else (
+                command.args[0] if isinstance(command, ast.Call) and command.args else None)
+            if isinstance(head, (ast.List, ast.Tuple)) and head.elts:  # subprocess.run(["make", ...])
+                head = head.elts[0]
+            word = head.value.split()[0] if (isinstance(head, ast.Constant) and isinstance(head.value, str)
+                                             and head.value.split()) else ""
+            if word.rsplit("/", 1)[-1] in TOOL_HEADS:
+                found.whole = f"{source.path}:{command.lineno} starts {word!r}, which reads files its text does not name"
+                return found
         for node in nodes:
             why = runs_built_code(node)
             if why:
@@ -378,6 +402,20 @@ class Tree:
                     break
         return hits
 
+    @functools.lru_cache(maxsize=None)
+    def js_packages(self) -> dict[str, str]:
+        """The tree's own JavaScript packages, by name: an import of one reads its folder."""
+        packages: dict[str, str] = {}
+        for f in self.files:
+            if f.endswith("package.json") and "/node_modules/" not in f:
+                try:
+                    name = json.loads(self.read(f) or "{}").get("name")
+                except (ValueError, AttributeError):
+                    continue
+                if isinstance(name, str):
+                    packages[name] = str(Path(f).parent)
+        return packages
+
     def javascript(self, path: str, text: str, found: Inputs) -> None:
         folder = Path(path).parent
         for spec in JS_IMPORT.findall(text):
@@ -387,6 +425,29 @@ class Tree:
             for candidate in [target] + [target + s for s in JS_SUFFIXES + (".json",)] + [f"{target}/index{s}" for s in JS_SUFFIXES]:
                 if candidate in self.files:
                     found.files.add(candidate)
+        for call in JS_JOIN.finditer(text):  # path.join(here, "..", "web", "fix", "data.json")
+            args = [a.strip() for a in call.group(1).split(",")]
+            literal = [a[1:-1] for a in args if len(a) > 1 and a[0] == a[-1] and a[0] in "\"'"]
+            parts = literal[1:] if len(literal) < len(args) else literal  # the first may be a folder: __dirname
+            if len(literal) < len(args) - 1:
+                found.whole = f"{path} builds a path at runtime ({call.group(0)[:50]!r})"
+                return
+            if parts:
+                target = os.path.normpath(folder / "/".join(parts))
+                for candidate in (target, "/".join(p for p in parts if p not in ("..", "."))):
+                    if candidate in self.files:
+                        found.files.add(candidate)
+                    elif candidate in self.folders:
+                        found.folders.add(candidate)
+        for spec in JS_IMPORT.findall(text):  # a workspace package is its folder; an alias may be any folder
+            if spec.startswith((".", "node:")):
+                continue
+            name = "/".join(spec.split("/")[:2]) if spec.startswith("@") else spec.split("/")[0]
+            if name in self.js_packages():
+                found.folders.add(self.js_packages()[name])
+            elif spec.startswith(("@/", "~/", "#", "$")):
+                found.whole = f"{path} imports {spec!r} through an alias its text does not resolve"
+                return
         for parent in [folder, *folder.parents]:  # its package and lockfile: a dependency bump
             for name in ("package.json", "bun.lock", "tsconfig.json"):
                 candidate = str(parent / name) if str(parent) != "." else name
@@ -504,6 +565,19 @@ class PythonSource:
             # A step runs from the tree's root, so a relative path is a tree path.
             return (OTHER, "") if node.value.startswith(("/", "~")) else join("", node.value)
         return UNKNOWN
+
+    def rooted(self, node: ast.AST) -> bool:
+        """Whether an unknown path is built on the tree's root: `ROOT / d / "index.md"` reads a root folder named at
+        runtime, so any root path may be read."""
+        while True:
+            if self.where(node) == (REPO_ROOT, ""):
+                return True
+            if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+                node = node.left
+            elif isinstance(node, ast.Call) and node.args and dotted(node.func) in JOINS:
+                node = node.args[0]
+            else:
+                return False
 
     def walks(self, nodes: list[ast.AST]) -> tuple[set[str], str]:
         """The tree folders this file walks, or why one of its walks may cover more than it names."""
@@ -802,7 +876,8 @@ def escapes(inputs: Inputs, trace: str, root: Path) -> list[str]:
     return sorted(found)
 
 
-GIT_READS = {"ls-files", "ls-tree", "grep", "log", "diff", "show", "blame", "rev-list", "cat-file", "merge-base"}
+GIT_READS = {"ls-files", "ls-tree", "grep", "log", "diff", "show", "blame", "rev-list", "cat-file", "merge-base",
+             "archive", "worktree", "stash", "write-tree"}
 
 
 def verify(tree: Tree, steps: list[tuple[str, str, str | None]], jobs: int, names: set[str]) -> int:

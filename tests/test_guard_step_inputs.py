@@ -76,6 +76,32 @@ FILES = {
         SCRIPT = (Path(__file__).resolve().parents[1] / "config" / "a.json").read_text()
         subprocess.run(["bash", "-c", SCRIPT], check=True)
     """,
+    # A read of a root folder named at runtime: any root path may be read.
+    "tests/test_h.py": """
+        from pathlib import Path
+        ROOT = Path(__file__).resolve().parents[1]
+        for d in ("docs", "plans"):
+            print((ROOT / d / "index.md").read_text())
+    """,
+    # A JavaScript test that reads a file it joins from segments.
+    "tests/test_i.test.mjs": """
+        import { readFileSync } from "node:fs";
+        import path from "node:path";
+        readFileSync(path.join(import.meta.dirname, "..", "web", "fix", "data.json"));
+    """,
+    "web/fix/data.json": "{}\n",
+    # A test whose json import a tree file next to it would shadow.
+    "tests/test_j.py": "import json\nprint(json.dumps({}))\n",
+    # A test that starts make, whose Makefile runs scripts no text here names.
+    "tests/test_k.py": """
+        import subprocess
+        subprocess.run(["make", "check"], check=True)
+    """,
+    # A test that names a file inside a submodule: a pointer bump changes only the submodule's entry.
+    "tests/test_l.py": """
+        from pathlib import Path
+        print((Path(__file__).resolve().parents[1] / "vendor/sub/build.zig.zon").exists())
+    """,
     "unrelated.txt": "x\n",
 }
 
@@ -89,6 +115,11 @@ STEPS = [
     ("piped", "python3 tests/test_a.py | tee out.log", None),
     ("two", "python3 tests/test_d.py && python3 tests/test_e.py", None),
     ("G", "python3 tests/test_g.py", None),
+    ("H", "python3 tests/test_h.py", None),
+    ("I", "node --test tests/test_i.test.mjs", None),
+    ("J", "python3 tests/test_j.py", None),
+    ("K", "python3 tests/test_k.py", None),
+    ("L", "python3 tests/test_l.py", None),
 ]
 
 
@@ -102,6 +133,7 @@ class GuardStepInputs(unittest.TestCase):
             (root / path).write_text(textwrap.dedent(body).lstrip())
         subprocess.run(["git", "init", "-q"], cwd=root, check=True)
         subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+        subprocess.run(["git", "update-index", "--add", "--cacheinfo", f"160000,{'1' * 40},vendor/sub"], cwd=root, check=True)
         cls.tree = g.Tree(root)
 
     @classmethod
@@ -112,7 +144,21 @@ class GuardStepInputs(unittest.TestCase):
         return set(g.select(self.tree, STEPS, sorted(changed)))
 
     def test_an_unrelated_change_runs_only_the_steps_whose_inputs_cannot_be_read(self):
-        self.assertEqual(self.picked("unrelated.txt"), {"B", "F", "G", "piped"})
+        self.assertEqual(self.picked("unrelated.txt"), {"B", "F", "G", "H", "K", "piped"})
+
+    def test_a_path_built_on_the_root_at_runtime_or_a_tool_run_reads_the_whole_tree(self):
+        self.assertIn("names at runtime", g.step_inputs(self.tree, STEPS[9][1], None, frozenset()).whole)
+        self.assertIn("starts 'make'", g.step_inputs(self.tree, STEPS[12][1], None, frozenset()).whole)
+
+    def test_a_javascript_path_joined_from_segments_reaches_its_test(self):
+        self.assertIn("I", self.picked("web/fix/data.json"))
+
+    def test_a_new_file_that_shadows_a_standard_module_reaches_its_test(self):
+        self.assertIn("J", self.picked("tests/json.py"))
+        self.assertNotIn("J", self.picked("scripts/json.py"))
+
+    def test_a_submodule_bump_reaches_a_test_naming_a_path_inside_it(self):
+        self.assertIn("L", self.picked("vendor/sub"))
 
     def test_a_module_imported_through_sys_path_reaches_its_test(self):
         self.assertIn("A", self.picked("scripts/ci/helper.py"))
