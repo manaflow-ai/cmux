@@ -6905,6 +6905,11 @@ function TranscriptView({
     keptFrom.current = id;
     onKeepFrom(id, row?.at);
   };
+  // Set in render, as `followRef` and `motionScroll` are: the placement pass and the send effect run before any layout
+  // effect declared here and turn following on (`follow(true, "session" | "send")`), so a ref set in a layout effect
+  // still held the last render's rows and layout there (a row of the chat switched away from, or none on a first
+  // open) when the client was told the row to keep from.
+  keepFromNow.current = () => keepFromInView(ref.current);
   const checkOlder = () => {
     const node = ref.current;
     keepFromInView(node);
@@ -6958,7 +6963,6 @@ function TranscriptView({
   };
   useLayoutEffect(() => {
     checkOlderNow.current = checkOlder;
-    keepFromNow.current = () => keepFromInView(ref.current);
   });
   useLayoutEffect(() => {
     olderScrollTarget.current = undefined;
