@@ -128,7 +128,7 @@ class WiringTest(unittest.TestCase):
     def test_the_build_seeds_from_the_bundle_before_cloning(self) -> None:
         text = BUILD.read_text()
         self.assertLess(text.index('git clone --quiet --no-checkout "$CMUX_CUA_SOURCE_BUNDLE"'),
-                        text.index('git clone "$CMUX_CUA_REPO_URL" "$TMPDIR_CLONE"'))
+                        text.index('fetch --quiet --depth 1 origin "$CMUX_CUA_PINNED_SHA"'))
 
     def test_the_publisher_refuses_a_signed_helper(self) -> None:
         self.assertIn("Signature=adhoc", PUBLISH.read_text())
