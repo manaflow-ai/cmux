@@ -216,10 +216,13 @@ try:
                 tab = tab_of_terminal(term) or {}
                 say("mark", json.dumps(cli_json("tab", tab.get("id", term), "update", "--marked-unread", "true"))[:200])
             else:
-                say("split", json.dumps(cli_json("pane", pane, "split", "--right", "--focus"))[:200])
+                styles = opts.set == "styles"
+                split = cli_json("pane", pane, "split", "--right", *([] if styles else ["--focus"]))
+                say("split", json.dumps(split)[:200])
                 time.sleep(1.0)  # capture harness: the split lands and its prompt draws
-                # The first pane, now unfocused, marked unread: its ring shows beside the focused new pane.
-                tab = tab_of_terminal(term) or {}
+                # content: the first pane, now unfocused, marked unread: its ring shows beside the focused new pane.
+                # styles: the new trailing pane, unfocused, marked unread: its ring meets the window's (or card's) corner.
+                tab = tab_of_terminal((find_key(split, "terminal_id") or find_key(split, "content_id") or find_key(split, "pane_id")) if styles else term) or {}
                 say("mark", json.dumps(cli_json("tab", tab.get("id", term), "update", "--marked-unread", "true"))[:200])
             wait(lambda: rings(), 5)
             time.sleep(1.2)  # capture harness: the ring's entrance ends
