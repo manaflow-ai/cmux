@@ -52,14 +52,22 @@ public final class HarnessIconBook {
     }
 
     /// Takes the icons of one `_acpmux/harnesses` reply; observers hear only a change.
-    /// - Parameter reply: The decoded reply.
-    public func apply(harnessesReply reply: [String: Any]) {
-        let next = HarnessIcons(harnessesReply: reply)
+    /// - Parameter next: The reply's icons, decoded off the main actor (``decode(_:using:)``).
+    public func apply(_ next: HarnessIcons) {
         if next != icons { icons = next }
     }
 
     func resolveEnvironment() async -> AcpmuxEnvironment? {
         try? await work.run(.userVisible, mayBlock: .files, environment)
+    }
+
+    /// Decodes a reply on the CPU lane: image icons are inline base64, so parsing the reply on the
+    /// main actor stalled it (hang-watch 8a1dbcadaa, cmuxterm-hq#11534).
+    /// - Parameters:
+    ///   - data: The reply's JSON bytes.
+    ///   - decode: The decoder (tests pass one that records its thread).
+    func decode(_ data: Data, using decode: @escaping @Sendable (Data) -> HarnessIcons? = { HarnessIcons(harnessesReplyData: $0) }) async -> HarnessIcons? {
+        (try? await work.run(.userVisible, mayBlock: .cpu) { decode(data) }) ?? nil
     }
 
     private func follow() async {
@@ -80,9 +88,8 @@ public final class HarnessIconBook {
     }
 
     private func refresh(_ environment: AcpmuxEnvironment) async -> Bool {
-        guard let data = try? await environment.harness(.list),
-              let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
-        apply(harnessesReply: reply)
+        guard let data = try? await environment.harness(.list), let next = await decode(data) else { return false }
+        apply(next)
         return true
     }
 

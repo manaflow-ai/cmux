@@ -2,3 +2,24 @@
 .context-ring-gallery--standard .acpmux-context-ring svg { width: 14px; height: 14px; }
 .context-ring-gallery--minimal .acpmux-context-ring { width: 18px; height: 18px; }
 .context-ring-gallery--minimal .acpmux-context-ring svg { width: 10px; height: 10px; }
+
+/* The real card portals outside the trigger. Gallery-only selectors reach that portal;
+   production geometry, hover behavior, text and accessibility fallbacks remain unchanged. */
+:root:has(.context-ring-gallery[data-context-material="before"]) .acpmux-context-card.ui-glass {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-menu-tint), transparent);
+  --glass-backdrop: var(--ds-glass-menu-blur);
+  --host-glass-fill: color-mix(in srgb, var(--glass-surface) var(--ds-glass-menu-veil, 40%), transparent);
+}
+:root:has(.context-ring-gallery[data-context-material="quieter"]) .acpmux-context-card.ui-glass {
+  --ds-transient-web-tint: 70%;
+  --ds-transient-host-veil: 0.3;
+}
+:root:has(.context-ring-gallery[data-context-material="denser"]) .acpmux-context-card.ui-glass {
+  --ds-transient-web-tint: 86%;
+  --ds-transient-host-veil: 0.5;
+}
+/* Before mode must also retain the existing lens route when that mode is selected. */
+:root[data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]):has(.context-ring-gallery[data-context-material="before"]) .acpmux-context-card.ui-glass {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-lens-tint), transparent);
+  --glass-backdrop: var(--ds-glass-lens-blur);
+}

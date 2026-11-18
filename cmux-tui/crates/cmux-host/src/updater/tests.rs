@@ -398,6 +398,35 @@ fn state_and_pending_round_trip() {
     assert_eq!(load_pending(&paths), None);
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn restart_reads_the_running_cmux_units_from_systemd() {
+    let listed = "cmux-host.service loaded active running cmux host\n\
+                  cmux-app-server@a.service loaded active running app\n\
+                  cmux-host.service loaded active running cmux host\n\
+                  ssh.service loaded active running OpenSSH\n\
+                  \n";
+    assert_eq!(
+        role::running_units(listed),
+        vec!["cmux-host.service".to_owned(), "cmux-app-server@a.service".to_owned()]
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn restart_picks_units_whose_exec_start_runs_cmux_tui() {
+    assert!(role::starts_cmux_tui(
+        "{ path=/home/cmux/.cmux/bin/cmux-tui ; argv[]=/home/cmux/.cmux/bin/cmux-tui host app-server a ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }"
+    ));
+    assert!(!role::starts_cmux_tui(
+        "{ path=/usr/bin/cmux-tui-hook ; argv[]=/usr/bin/cmux-tui-hook ; ignore_errors=no }"
+    ));
+    assert!(!role::starts_cmux_tui(
+        "{ path=/bin/sh ; argv[]=/bin/sh -c cmux-tui ; ignore_errors=no }"
+    ));
+    assert!(!role::starts_cmux_tui(""));
+}
+
 // `role` is Linux only (updater/mod.rs), the tests module every unix: on macOS this did not compile.
 #[cfg(target_os = "linux")]
 #[test]
@@ -901,12 +930,12 @@ fn the_health_timeout_rollback_waits_for_carrier_sessions() {
     let (tx, rx_checks) = std::sync::mpsc::channel();
     tx.send(role::Msg::Check).unwrap();
     tx.send(role::Msg::Check).unwrap();
-    assert!(role::timeout_rollback_waits(&mut carrier, &rx_checks), "it rolls back once idle");
+    assert!(resolve::timeout_rollback_waits(&mut carrier, &rx_checks), "it rolls back once idle");
     assert!(looks.is_empty(), "it looked until the sessions left");
 
     let mut attached = || Some("1 carrier session(s) attached".to_owned());
     tx.send(role::Msg::Stop).unwrap();
-    assert!(!role::timeout_rollback_waits(&mut attached, &rx_checks), "a stop ends the wait");
+    assert!(!resolve::timeout_rollback_waits(&mut attached, &rx_checks), "a stop ends the wait");
 }
 
 /// Review F2 of #38326: the guard's rollback waits for carrier sessions too,
@@ -923,7 +952,7 @@ fn the_guard_rollback_waits_for_carrier_sessions_up_to_the_bound() {
     let mut hold = carrier::CarrierHold::default();
     let mut carrier = || hold.look(clock.get(), Ok(vec!["stuck/session".to_owned()])).busy;
     let mut slept = Duration::ZERO;
-    role::guard_rollback_waits(&mut carrier, |d| {
+    resolve::guard_rollback_waits(&mut carrier, |d| {
         slept += d;
         clock.set(clock.get() + d);
     });
@@ -932,7 +961,7 @@ fn the_guard_rollback_waits_for_carrier_sessions_up_to_the_bound() {
 
     let mut idle = || None;
     let mut slept = Duration::ZERO;
-    role::guard_rollback_waits(&mut idle, |d| slept += d);
+    resolve::guard_rollback_waits(&mut idle, |d| slept += d);
     assert_eq!(slept, Duration::ZERO, "no session, no wait");
 }
 
@@ -2529,4 +2558,130 @@ fn first_ready_cost_from_the_production_channel() {
         pct(&mut current, 50),
         pct(&mut current, 90),
     );
+}
+
+/// Leo's item 1 ("no first-boot self-update"): "A spare whose services are restarting is not
+/// claimable." An update's flip, inside the gate, sends its `stopping` report before it
+/// restarts the services, and a report that fails or never answers still restarts them, within
+/// the report's bound (2026-11-15 04:23Z: a warm spare flipped at 04:23:23Z, was claimed 41 s
+/// later, and its chat never connected).
+#[cfg(target_os = "linux")]
+#[test]
+fn a_flip_reports_stopping_before_it_restarts_the_services() {
+    use std::cell::RefCell;
+    use std::time::{Duration, Instant};
+
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let steps = RefCell::new(Vec::new());
+    let (gated, _) = role::flip_in_gate(
+        &paths,
+        || T0_MS,
+        gate::Honor::All,
+        || Ok(Vec::new()),
+        || false,
+        |inside| {
+            steps.borrow_mut().push("flip");
+            inside.flip_restart_queued(T0_MS, FLIP_OFFSET_NS);
+            role::report_then_restart(
+                || {
+                    steps.borrow_mut().push("stopping");
+                    Ok(())
+                },
+                || steps.borrow_mut().push("restart"),
+            );
+            Ok::<(), ()>(())
+        },
+    );
+    assert!(matches!(gated, role::Gated::Flipped), "{gated:?}");
+    assert_eq!(*steps.borrow(), ["flip", "stopping", "restart"], "the stopping report goes first");
+
+    // A refused report is logged, and the services restart anyway.
+    let restarted = RefCell::new(false);
+    role::report_then_restart(|| Err("HTTP 503".to_owned()), || *restarted.borrow_mut() = true);
+    assert!(*restarted.borrow(), "a failed stopping report stopped the restart");
+
+    // A report that never answers holds the restart for its bound, no longer.
+    let (_hang, hung) = std::sync::mpsc::channel::<()>();
+    let started = Instant::now();
+    let restarted = RefCell::new(false);
+    role::report_then_restart(
+        || {
+            crate::cloud::role::within(Duration::from_millis(200), move || {
+                let _ = hung.recv();
+                Ok(())
+            })
+        },
+        || *restarted.borrow_mut() = true,
+    );
+    assert!(*restarted.borrow(), "a hung stopping report stopped the restart");
+    assert!(started.elapsed() < Duration::from_secs(2), "the restart waited past the bound");
+    assert_eq!(crate::cloud::role::STOPPING_REPORT_BOUND, Duration::from_secs(2));
+}
+
+/// The real [`role::restart_after_flip`] (the restart every flip, `adopt` and rollback run),
+/// driven inside the gate as the check's flip runs it: its stopping report goes out first, then
+/// the restarts of what runs the old binary. Its two effects are the test's record
+/// (`role::after_flip`), so a body that skips the report fails here.
+#[cfg(target_os = "linux")]
+#[test]
+fn restart_after_flip_sends_the_stopping_report_before_the_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let old = role::store_binary(OLD_TUI);
+    role::after_flip::CALLS.with(|c| c.borrow_mut().clear());
+    let (gated, _) = role::flip_in_gate(
+        &paths,
+        || T0_MS,
+        gate::Honor::All,
+        || Ok(Vec::new()),
+        || false,
+        |inside| {
+            inside.flip_restart_queued(T0_MS, FLIP_OFFSET_NS);
+            role::restart_after_flip(&paths, &old);
+            Ok::<(), ()>(())
+        },
+    );
+    assert!(matches!(gated, role::Gated::Flipped), "{gated:?}");
+    let calls = role::after_flip::CALLS.with(|c| c.borrow().clone());
+    assert_eq!(
+        calls,
+        [format!("stopping {}", paths.at("/").display()), format!("restart {}", old.display())],
+        "restart_after_flip must report stopping, then restart"
+    );
+}
+
+/// The app's own pinned build (`cmux host update install`): installed over another
+/// build, left alone when the profile already links it, never older than the last build
+/// applied here, never one rolled back here.
+#[test]
+fn a_pinned_build_installs_only_when_new_newer_and_never_rolled_back() {
+    let pinned =
+        Pinned { sha256: "a".repeat(64), size: 10, commit: "c".repeat(40), committed_at: 2_000 };
+    let state = State { applied_committed_at: 1_000, ..State::default() };
+    assert_eq!(pinned_decision(&"b".repeat(64), &state, &pinned), None, "another build: update");
+    assert_eq!(pinned_decision(&pinned.sha256, &state, &pinned), Some(Decision::Current));
+    let newer = State { applied_committed_at: 3_000, ..State::default() };
+    assert_eq!(pinned_decision(&"b".repeat(64), &newer, &pinned), Some(Decision::Older));
+    let rolled = State { rolled_back: vec![pinned.sha256.clone()], ..State::default() };
+    assert_eq!(pinned_decision(&"b".repeat(64), &rolled, &pinned), Some(Decision::RolledBack));
+}
+
+/// The plan for a pinned build changes only cmux-tui: the profile keeps its hook.
+#[test]
+fn a_pinned_build_replaces_only_cmux_tui() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = image(dir.path());
+    let pinned =
+        Pinned { sha256: "a".repeat(64), size: 10, commit: "c".repeat(40), committed_at: 2_000 };
+    let Ok(Decision::Update(plan)) = decide_pinned(&paths, &State::default(), &pinned) else {
+        panic!("an update")
+    };
+    assert_eq!(plan.replacements(), vec![(OLD_TUI.to_owned(), pinned.sha256.clone())]);
+    assert_eq!(plan.cmux_tui_hook.sha256, OLD_HOOK);
+    assert_eq!((plan.from, plan.to), (1, 2));
+    let current = Pinned { sha256: OLD_TUI.to_owned(), ..pinned.clone() };
+    assert_eq!(decide_pinned(&paths, &State::default(), &current), Ok(Decision::Current));
+    let no_commit = Pinned { commit: "x".into(), ..pinned };
+    assert!(decide_pinned(&paths, &State::default(), &no_commit).is_err());
 }

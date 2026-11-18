@@ -118,7 +118,7 @@ struct ChiefCallsPage: View {
                 } label: {
                     Image(systemName: "doc.on.clipboard")
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.cmuxPressFillTinted)
                 .accessibilityLabel("Paste")
                 .accessibilityIdentifier("settings.chiefCalls.paste")
             }
@@ -128,7 +128,7 @@ struct ChiefCallsPage: View {
                         replacing = false
                         draft = ""
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.cmuxPressFillTinted)
                 }
                 Spacer()
                 if keys.isChecking {

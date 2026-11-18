@@ -1,0 +1,21 @@
+[package]
+name = "cmux-customize-recipes"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Ready-made customizations for cmux (a compact sidebar, a font, a PR widget, a tiling look, pane keys, ...): profile files the cmux-customize engine previews as a draft, checked against the settings schema."
+
+[lints]
+workspace = true
+
+[dependencies]
+cmux-config.workspace = true
+cmux-customize.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+cmux-action-catalog.workspace = true
+tempfile = "3"

@@ -7,7 +7,8 @@ import CmuxNextWindowRules
 /// Native bindings for rows in an agent chat's header and "..." menu.
 /// Every binding resolves the focused pane at run time, then calls the page or
 /// host path used by the existing menu. This keeps a stale palette invocation
-/// from acting on another chat after a session switch.
+/// from acting on another chat after a session switch. A row that cannot run on its chat is disabled
+/// (`ActionRegistry.gate(_:onRefusalOf:)` on the same lookup); its shortcut does nothing (Leo 2026-11-17).
 enum AgentChatMenuHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         bindPageCommands(into: registry, context: context)
@@ -20,18 +21,19 @@ enum AgentChatMenuHandlers {
         for row in WindowRules.chatAgentTables?.pageCommands ?? [] {
             guard let command = pageCommand(row.command) else { continue }
             let id = ActionID(rawValue: row.action)
+            // The started chat the row acts on, else nil after refusing with why; also gates the row.
+            let target: @MainActor (ActionInvocation) -> AgentPaneView? = { invocation in
+                chatView(id, context, invocation).flatMap { row.refusesRemote && $0.model.remoteChat ? context.registry.refuse(.remote, id) : $0 }
+            }
             registry.bind(id, run: { invocation in
                 // `focuses` descriptors grant view-change permission through the task-local
                 // ActionRunScope for CLI/MCP runs; the raw invocation remains automation-scoped.
                 guard ActionRunScope.viewChangeAllowed() else {
                     return context.registry.refuse(.needsFocus, id)
                 }
-                guard let view = chatView(id, context, invocation) else { return }
-                if row.refusesRemote, view.model.remoteChat {
-                    return context.registry.refuse(.remote, id)
-                }
-                command(view)
+                if let view = target(invocation) { command(view) }
             })
+            registry.gate(id) { _ = target($0) }
         }
     }
 
@@ -52,10 +54,10 @@ enum AgentChatMenuHandlers {
     private static func bindMarkUnread(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("agentPane.markUnread", run: { invocation in
             guard let (tab, pane) = context.daemonTab(invocation), let session = tab.agentSession?.session,
-                  !tab.showsUnread, let view = context.services.agentTabs.existingView(tab.id),
-                  view.model.sessionId == session else {
+                  let view = context.services.agentTabs.existingView(tab.id), view.model.sessionId == session else {
                 return context.registry.refuse(.noChat, "agentPane.markUnread")
             }
+            if tab.showsUnread { return } // already unread: nothing to do, nothing to say
             let daemon = context.services.daemon(for: pane)
             let mark = AgentChatMarkUnread(
                 acpmux: {
@@ -99,6 +101,8 @@ enum AgentChatMenuHandlers {
                   let cwd = localFolder("agentPane.openCwdInTerminal", context, invocation, shellOn: pane) else { return }
             pane.newTerminalTab(cwd: cwd)
         })
+        registry.gate("agentPane.revealCwdInFinder") { _ = localFolder("agentPane.revealCwdInFinder", context, $0) }
+        registry.gate("agentPane.openCwdInTerminal") { run in _ = context.paneController(run).flatMap { localFolder("agentPane.openCwdInTerminal", context, run, shellOn: $0) } }
     }
 
     private static func chatView(_ id: ActionID, _ context: AppActionContext, _ invocation: ActionInvocation) -> AgentPaneView? {

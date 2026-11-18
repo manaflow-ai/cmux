@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHomeEngine
 import CmuxNextSettings
 import Foundation
 
@@ -42,6 +43,8 @@ struct AppCrashReporting: Sendable {
     /// The app's acpmux daemon's panic log (`$ACPMUX_HOME/panics.jsonl`); nil outside the app
     /// process or with no acpmux.
     let acpmuxPanics: OwnerPanicForwarder?
+    /// This build's Chief host's panic log (`<mux home>/optchat/panics.jsonl`); nil outside the app process.
+    let chiefPanics: OwnerPanicForwarder?
 
     init(environment: AppEnvironment) {
         reporter = CrashReporter.forThisLaunch(bundleID: environment.launch.bundleID)
@@ -49,6 +52,7 @@ struct AppCrashReporting: Sendable {
             forwarder = nil
             ownerPanics = nil
             acpmuxPanics = nil
+            chiefPanics = nil
             return
         }
         let sends = reporter.start()
@@ -58,28 +62,22 @@ struct AppCrashReporting: Sendable {
             bundlePath: Bundle.main.bundlePath, mainExecutable: Bundle.main.executablePath, sends: sends)
         forwarder.start()
         self.forwarder = forwarder
-        let ownerPanics = OwnerPanicForwarder(
-            log: OwnerPanicForwarder.log(stateRoot: Self.ownerStateRoot(stateDirectory: environment.daemonStateDirectory),
-                                         session: environment.daemonSession),
-            stateFile: AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID)
-                .appending(path: "owner-panic-forwarder.json"),
-            sends: sends)
-        ownerPanics.start()
-        self.ownerPanics = ownerPanics
+        let state = AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID)
+        ownerPanics = .started(log: OwnerPanicForwarder.log(stateRoot: Self.ownerStateRoot(stateDirectory: environment.daemonStateDirectory),
+                                                            session: environment.daemonSession),
+                               stateDirectory: state, stateName: "owner-panic-forwarder.json", sends: sends)
         // A panic in a daemon request task ends only that task: before this log, the
         // 2026-10-14 sort panic reached only daemon.log.
-        if let home = Self.acpmuxHome(environment: environment) {
-            let acpmuxPanics = OwnerPanicForwarder(
-                log: RustPanicSource.acpmuxLog(acpmuxHome: home),
-                stateFile: AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID)
-                    .appending(path: "acpmux-panic-forwarder.json"),
-                sends: sends, source: .acpmux)
-            acpmuxPanics.start()
-            self.acpmuxPanics = acpmuxPanics
-        } else {
-            acpmuxPanics = nil
+        acpmuxPanics = Self.acpmuxHome(environment: environment).map {
+            .started(log: RustPanicSource.acpmuxLog(acpmuxHome: $0), stateDirectory: state,
+                     stateName: "acpmux-panic-forwarder.json", sends: sends, source: .acpmux)
         }
+        // The Chief host outlives the app; its panics wait in its log for the next launch.
+        chiefPanics = .started(log: RustPanicSource.chiefLog(muxHome: HomeBrainHost.muxHome(tag: environment.tag)),
+                               stateDirectory: state, stateName: "chief-panic-forwarder.json", sends: sends, source: .chief)
         Self.installLayoutPassGuard(reporter: reporter)
+        UncaughtExceptionRecorder.reportLostExecutors { [reporter] message, name, frames in reporter.captureNonFatal(
+            message, type: "SwiftExecutorLost", fingerprint: ["swift-executor-lost", name], extra: ["throw": frames]) }
     }
 
     /// A layout feedback loop (one view laid out more than
