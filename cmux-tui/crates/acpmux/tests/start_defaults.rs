@@ -456,3 +456,70 @@ async fn a_catalog_default_the_harness_does_not_offer_is_not_used() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The user's setup (2026-11-17): Codex's config.toml names gpt-6.1-sol, and its ChatGPT sign-in is
+/// not served that model, so every first turn failed with the backend's 400 `model_not_found`
+/// ("The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account."), and every
+/// new chat started on the config's model again. The refusal moves the chat to a model its sign-in
+/// can use, its `turn_result` says which, pickers mark the refused model, and the next new chat
+/// starts on the one it can use.
+#[tokio::test]
+async fn a_model_the_chatgpt_sign_in_refuses_moves_the_chat_and_the_next_one_off_it() {
+    let (dir, calls) =
+        home_with_harness_config("chatgpt-refused", Some("model = \"gpt-6.1-sol\"\n"), None);
+    let mut config: Value =
+        serde_json::from_slice(&std::fs::read(dir.join("config.json")).unwrap()).unwrap();
+    config["harnesses"]["codex"]["env"]["FAKE_MODELS"] = json!("gpt-6.1-sol,gpt-5.6-sol");
+    std::fs::write(dir.join("config.json"), serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    let daemon = hub(&dir);
+    let mut app = client(&daemon);
+
+    let chat = app.new_chat("codex").await;
+    assert_eq!(take_calls(&calls), set("gpt-6.1-sol", "medium"));
+    // The prompt fails: answered with the backend's refusal, not a result.
+    app.2 += 1;
+    let id = app.2;
+    let prompt = json!({"sessionId": chat, "prompt": [{"type": "text", "text": "refuse-model"}]});
+    app.0.send(Message::request(id, "session/prompt", prompt).to_line()).await.unwrap();
+    loop {
+        let line =
+            tokio::time::timeout(Duration::from_secs(20), app.1.recv()).await.unwrap().unwrap();
+        let v: Value = serde_json::from_str(&line).unwrap();
+        if v.get("id") == Some(&json!(id)) {
+            assert!(v.get("error").is_some(), "{v}");
+            break;
+        }
+    }
+    // The chat runs a model its sign-in can use from its next prompt.
+    assert_eq!(take_calls(&calls), vec![("model".to_owned(), "gpt-5.6-sol".to_owned())]);
+    let events = app.call("_acpmux/events", json!({"sessionId": chat, "limit": 500})).await;
+    let result = events["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .rev()
+        .find(|e| e["kind"] == "turn_result")
+        .cloned()
+        .unwrap_or_else(|| panic!("no turn_result: {events}"));
+    assert_eq!(result["msg"]["errorCode"], "model_unavailable", "{result}");
+    assert_eq!(result["msg"]["modelFallback"]["model"], "gpt-5.6-sol", "{result}");
+    assert_eq!(result["msg"]["modelFallback"]["from"], "gpt-6.1-sol", "{result}");
+
+    // Pickers mark the refused model with the backend's words.
+    let models = app.call("_acpmux/models", json!({})).await;
+    let codex = models["harnesses"].as_array().unwrap().iter().find(|h| h["harness"] == "codex");
+    let sol = codex.and_then(|h| h["models"].as_array()?.iter().find(|m| m["id"] == "gpt-6.1-sol"));
+    assert!(
+        sol.is_some_and(|m| m["unavailable"]
+            .as_str()
+            .is_some_and(|r| r.contains("ChatGPT account"))),
+        "{models}"
+    );
+
+    // The next new chat starts on the model the sign-in can use, not the config's.
+    app.new_chat("codex").await;
+    assert_eq!(take_calls(&calls), set("gpt-5.6-sol", "medium"));
+    let harnesses = app.call("_acpmux/harnesses", json!({})).await;
+    assert_eq!(harnesses["harnesses"]["codex"]["start"]["model"], "gpt-5.6-sol");
+    let _ = std::fs::remove_dir_all(&dir);
+}

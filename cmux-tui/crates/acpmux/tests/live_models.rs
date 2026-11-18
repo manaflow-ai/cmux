@@ -114,6 +114,63 @@ async fn codex_lists_every_page_without_hidden_models_and_the_default_first() {
     assert_eq!(catalog[0]["serviceTiers"], serde_json::json!(astra.service_tiers));
 }
 
+/// The user's setup: Codex's config.toml names a model catalog of its own (`model_catalog_json`),
+/// so `model/list` answers with that catalog (gpt-6.1-sol, gpt-6-astra) whatever the sign-in, and
+/// the ChatGPT sign-in is served gpt-6-astra only (Codex's copy of the backend's answer,
+/// `models_cache.json`). The live list marks gpt-6.1-sol unavailable, so no picker offers it and
+/// no chat starts on it; the served model stays as it was.
+#[tokio::test]
+async fn a_chatgpt_sign_in_marks_the_catalog_models_its_backend_does_not_serve() {
+    let cwd = scratch("codex-chatgpt");
+    let home = cwd.join("codex-home");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(
+        home.join("config.toml"),
+        "model = \"gpt-6.1-sol\"\nmodel_catalog_json = \"/x/model_catalog.json\"\n",
+    )
+    .unwrap();
+    // A ChatGPT sign-in whose token names no account: nothing is asked of the backend.
+    std::fs::write(
+        home.join("auth.json"),
+        r#"{"auth_mode": "chatgpt", "OPENAI_API_KEY": null, "tokens": {"access_token": "x"}}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        home.join("models_cache.json"),
+        r#"{"client_version": "0.147.0", "models": [{"slug": "gpt-6-astra"}, {"slug": "codex-auto-review"}]}"#,
+    )
+    .unwrap();
+    let codex_home = home.display().to_string();
+    let models = probe(
+        Cli::Codex,
+        &fake("fake_codex_app_server.py"),
+        &env(&[("CODEX_HOME", &codex_home)]),
+        &cwd,
+        DEADLINE,
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e:#}"));
+    let listed = serde_json::to_value(&models).unwrap();
+    let row = |id: &str| listed.as_array().unwrap().iter().find(|m| m["id"] == id).unwrap().clone();
+    assert!(row("gpt-6.1-sol")["unavailable"].is_string(), "{listed}");
+    assert!(row("gpt-6-astra").get("unavailable").is_none(), "{listed}");
+
+    // An API key sign-in is served whatever its catalog lists: nothing is marked.
+    std::fs::write(home.join("auth.json"), r#"{"auth_mode": "apikey", "OPENAI_API_KEY": "sk-x"}"#)
+        .unwrap();
+    let models = probe(
+        Cli::Codex,
+        &fake("fake_codex_app_server.py"),
+        &env(&[("CODEX_HOME", &codex_home)]),
+        &cwd,
+        DEADLINE,
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e:#}"));
+    let listed = serde_json::to_value(&models).unwrap();
+    assert!(!listed.to_string().contains("unavailable"), "{listed}");
+}
+
 #[tokio::test]
 async fn a_signed_out_codex_reports_why() {
     let cwd = scratch("codex-unauth");

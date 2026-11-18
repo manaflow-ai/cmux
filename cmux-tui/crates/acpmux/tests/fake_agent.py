@@ -1524,6 +1524,13 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "working"}})
         time.sleep(3600)
         return
+    # "refuse-model": the ChatGPT Codex backend refuses the session's model for its ChatGPT
+    # sign-in (HTTP 400 model_not_found), and the turn fails with that body, as Codex ends it.
+    if text == "refuse-model":
+        body = {"type": "error", "status": 400, "error": {"type": "invalid_request_error", "code": "model_not_found",
+                "message": "The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account."}}
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "unexpected status 400 Bad Request: " + json.dumps(body)}})
+        return
     # "refuse": the backend refuses the request; the agent streams its error object as the reply.
     if text == "refuse":
         err = {"type": "error", "error": {"message": "Image web search is not supported by the backend.", "code": "unsupported_parameter"}, "status": 400}
