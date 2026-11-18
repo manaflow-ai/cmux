@@ -53,6 +53,7 @@ import type { ServerWebSocket } from "bun";
 import type { CDPSession, Page } from "playwright";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 import { chromium } from "./browsers";
+import { CoordinatorTurn } from "./coordinatorTurn";
 import { newestPage } from "./daemonPage";
 import { takeSnapshot } from "./heapProbe";
 import { printRetainers, type Retainers } from "./heapRetainers";
@@ -108,11 +109,37 @@ const SETTLE_MAX_S = Number(process.env.SETTLE_MAX_S ?? 180);
 const heapDropped = (before: number, after: number) => before - after > Math.max(0.02 * before, 2);
 // A grown-many run's rows carry their own prefix: the perf cron stores them from a part of their own.
 const ROW = CASES === "grown-many" ? "chat_100k_flat.grown_many" : "chat_100k_flat";
-if (!["all", "main", "grown-many", "running", "long", "long-many"].includes(CASES)) {
-  console.error("chat-100k-flat: CASES is all, main, grown-many, running, long or long-many");
+if (!["all", "main", "grown-many", "running", "long", "long-many", "coordinator"].includes(CASES)) {
+  console.error("chat-100k-flat: CASES is all, main, grown-many, running, long, long-many or coordinator");
   process.exit(2);
 }
 const GROW_OPEN = process.env.GROW_OPEN === "1";
+// CASES=coordinator (a launch of its own; the other cases' rows and ratios are not taken): a renderer that held two
+// shown chat pages, a coordinator chat and a running turn's live line, sat at 100 % of a core on one main-thread
+// loop and grew ~120 MB a minute. Two pages, both shown, share one renderer: (a) a coordinator chat that opens on
+// HISTORY_ROWS rows of history and then takes ROWS records live into one turn that never ends, started TURN_AGE_S
+// seconds ago (coordinatorTurn.ts: long markdown replies, large tool outputs, subagent runs, agent-to-agent sends and
+// messages, permission asks), at RATE records a second; (b) a one-turn chat whose open turn runs one command and takes
+// a reply chunk a second, started TURN_AGE_S ago too. At each of CHECKPOINTS (records streamed into (a)) the stream
+// stops for PROBE_S seconds of idle (b still trickles), and after the last for TAIL_S. Every SAMPLE_S seconds it
+// prints one line of the time series: records, the renderers' CPU and their main thread's (% of a core), the JS heap
+// and the renderers' Pss. An idle probe whose main thread stays at or over RUNAWAY_PCT (80) % of a core is a
+// runaway: its CPU profile (and PROFILE=DIR keeps it) and five paused JS stacks name what runs, and the run stops
+// after it unless RUNAWAY_STOP=0. The series also goes to $FAST_CHECKS_OUT/coordinator-series.json when set.
+const COORDINATOR = CASES === "coordinator";
+const HISTORY_ROWS = Number(process.env.HISTORY_ROWS ?? 20_000);
+const TURN_AGE_S = Number(process.env.TURN_AGE_S ?? 7_800);
+const RATE = Number(process.env.RATE ?? 150);
+const SAMPLE_S = Number(process.env.SAMPLE_S ?? 10);
+const PROBE_S = Number(process.env.PROBE_S ?? 30);
+const TAIL_S = Number(process.env.TAIL_S ?? 120);
+const RUNAWAY_PCT = Number(process.env.RUNAWAY_PCT ?? 80);
+const RUNAWAY_STOP = process.env.RUNAWAY_STOP !== "0";
+const CHECKPOINTS = (process.env.CHECKPOINTS ?? "2000,5000,10000,20000,50000,100000,200000,300000")
+  .split(",")
+  .map(Number)
+  .filter((n) => n > 0 && n <= ROWS);
+if (COORDINATOR && CHECKPOINTS.at(-1) !== ROWS) CHECKPOINTS.push(ROWS);
 const HEAP_SNAPSHOT = process.env.HEAP_SNAPSHOT;
 const HEAP_RETAINERS = process.env.HEAP_RETAINERS === "1";
 const retainerBase = new Map<number, Retainers>();
@@ -278,11 +305,16 @@ try {
   await build({
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
     // HEAP_RETAINERS: names as written, so a holder reads as its source's (the minified build's are two letters).
-    build: { outDir: out, emptyOutDir: true, sourcemap: PAINT, ...(HEAP_RETAINERS ? { minify: false } : {}) },
+    build: {
+      outDir: out,
+      emptyOutDir: true,
+      sourcemap: PAINT || COORDINATOR,
+      ...(HEAP_RETAINERS ? { minify: false } : {}),
+    },
     logLevel: "error",
   });
   // The paint windows name the sites that ask for frames by their source (the build's maps; PAINT above).
-  const sources = PAINT ? sourceMapper(out) : undefined;
+  const sources = PAINT || COORDINATOR ? sourceMapper(out) : undefined;
   const statics = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -296,7 +328,8 @@ try {
   releases.push(() => statics.stop(true));
 
   const small = template(1);
-  const long = template(Math.floor(ROWS / 2));
+  // CASES=coordinator streams ROWS records live and opens a history of its own (HISTORY_ROWS), not this one.
+  const long = COORDINATOR ? small : template(Math.floor(ROWS / 2));
   console.log(
     `chat-100k-flat: ${ROWS} rows (${long.turns} turns, ${long.events.length} records) vs 1 turn; x1 and x${CHATS}; ` +
       `idle ${IDLE_S}s, streaming ${STREAM_S}s at ${TPS}/s; ${HIDDEN ? "all but the newest chat hidden" : "every chat shown"}`,
@@ -1153,12 +1186,405 @@ try {
     }
   };
 
-  console.log("launch | renderers | idle CPU % | streaming CPU % | renderer MB");
+  // CASES=coordinator (above, by COORDINATOR): two shown pages in one renderer, a coordinator chat streaming into a
+  // turn that never ends and a running turn's live line, read as a time series for a loop or heap that runs away.
+  const runCoordinator = async () => {
+    const coordinator = sessionId(0);
+    const liveLine = sessionId(1);
+    const history = template(Math.max(1, Math.floor(HISTORY_ROWS / 2)));
+    const chats = new Map<string, Template>([
+      [coordinator, history],
+      [liveLine, small],
+    ]);
+    const sessions = [...chats].map(([id, chat], index) => ({
+      ...chat.session,
+      sessionId: id,
+      title: index === 0 ? "Coordinator" : "Live line",
+      status: "ready",
+    }));
+    const streamed = new Map<string, Rec[]>([...chats.keys()].map((id) => [id, []]));
+    const lastSeq = new Map([...chats].map(([id, chat]) => [id, chat.events.at(-1)?.seq ?? 0]));
+    const recordsOf = (id: string) => [...chats.get(id)!.events, ...streamed.get(id)!];
+    const summaryOf = (id: string) => ({ ...sessions.find((s) => s.sessionId === id)!, lastSeq: lastSeq.get(id)! });
+    const sockets = new Map<string, ServerWebSocket<undefined>>();
+    const daemon = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch(request, server) {
+        return server.upgrade(request, { data: undefined }) ? undefined : new Response("acpmux", { status: 426 });
+      },
+      websocket: {
+        message(ws, raw) {
+          const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, unknown> };
+          if (message.id === undefined) return;
+          const params = message.params ?? {};
+          const id = String(params.sessionId ?? coordinator);
+          let result: unknown = null;
+          if (message.method === "initialize")
+            result = { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
+          else if (message.method === "_acpmux/watch")
+            result = { sessions: sessions.map((s) => summaryOf(s.sessionId)) };
+          else if (message.method === "_acpmux/attach" && chats.has(id)) {
+            sockets.set(id, ws);
+            const { page, hasMore } = newestPage(recordsOf(id), {
+              limit: Number(params.limit ?? 400),
+              maxBytes: params.maxBytes,
+            });
+            result = { session: summaryOf(id), lastSeq: lastSeq.get(id), events: rekey(page, id), hasMore };
+          } else if (message.method === "_acpmux/events" && chats.has(id)) {
+            const records = recordsOf(id);
+            if (params.promptIndex === true) {
+              const before = params.beforeSeq === undefined ? Infinity : Number(params.beforeSeq);
+              const prompts = records.filter((record) => record.kind === "user_message" && record.seq < before);
+              result = { events: rekey(prompts, id), hasMore: false, lastSeq: lastSeq.get(id) };
+            } else if (params.beforeSeq !== undefined) {
+              const { page, hasMore } = newestPage(records, {
+                limit: Number(params.limit ?? 400),
+                beforeSeq: Number(params.beforeSeq),
+                maxBytes: params.maxBytes,
+              });
+              result = { events: rekey(page, id), hasMore, lastSeq: lastSeq.get(id) };
+            } else {
+              const after = Number(params.afterSeq ?? Infinity);
+              const events = records.filter((record) => record.seq > after).slice(0, 5_000);
+              result = { events: rekey(events, id), hasMore: false, lastSeq: lastSeq.get(id) };
+            }
+          }
+          ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+        },
+      },
+    });
+    releases.push(() => daemon.stop(true));
+    const notify = (id: string, method: string, params: unknown) =>
+      sockets.get(id)?.send(JSON.stringify({ jsonrpc: "2.0", method, params }));
+    const emit = (id: string, [dir, kind, msg]: [string, string, Record<string, unknown>], at = Date.now()) => {
+      const seq = lastSeq.get(id)! + 1;
+      lastSeq.set(id, seq);
+      const record: Rec = { sessionId: id, seq, at, dir, kind, msg };
+      streamed.get(id)!.push(record);
+      notify(id, "_acpmux/event", record);
+    };
+    const turnStart = Date.now() - TURN_AGE_S * 1000;
+    const run = (id: string, prompt: string) => {
+      const session = sessions.find((s) => s.sessionId === id)!;
+      Object.assign(session, {
+        status: "running",
+        turn: { turnId: `turn-${id}`, promptId: `p-${id}`, startedAt: turnStart, prompt },
+      });
+      notify(id, "_acpmux/session_changed", {
+        sessionId: id,
+        session: summaryOf(id),
+        kind: "status",
+        seq: lastSeq.get(id),
+      });
+    };
+
+    const server = await chromium.launchServer({
+      headless: true,
+      args: ["--process-per-site", "--js-flags=--expose-gc"],
+    });
+    releases.push(() => server.close());
+    const root = server.process().pid!;
+    const browser = await chromium.connect(server.wsEndpoint());
+    const context = await browser.newContext({ viewport: { width: 1200, height: 800 } });
+    const origin = `http://127.0.0.1:${statics.port}`;
+    const pages: { page: Page; cdp: CDPSession }[] = [];
+    for (const [id, chat] of chats) {
+      const page = await context.newPage();
+      await page.goto(
+        `${origin}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${id}`,
+      );
+      await page.waitForFunction((text) => document.body.textContent?.includes(text), `Answer ${chat.turns}:`, {
+        timeout: 180_000,
+        polling: "raf",
+      });
+      pages.push({ page, cdp: await context.newCDPSession(page) });
+    }
+    console.log(
+      `coordinator: ${HISTORY_ROWS} rows of history, then ${ROWS} records live at ${RATE}/s into a turn started ` +
+        `${TURN_AGE_S} s ago; a live-line chat beside it; both shown; checkpoints ${CHECKPOINTS.join(", ")}`,
+    );
+
+    // The open turns: the coordinator's, and the live line's one running command and its chunk a second.
+    const turn = new CoordinatorTurn();
+    for (const record of turn.start()) emit(coordinator, record, turnStart);
+    run(coordinator, "Coordinate the lanes until every ask is landed");
+    emit(liveLine, ["mux", "user_message", { text: "Wait on the run" }], turnStart);
+    emit(liveLine, ["mux", "turn_started", {}], turnStart);
+    run(liveLine, "Wait on the run");
+    const liveUpdate = (u: Record<string, unknown>): [string, string, Record<string, unknown>] => [
+      "in",
+      String(u.sessionUpdate),
+      { method: "session/update", params: { sessionId: "agent-1", update: u } },
+    ];
+    emit(
+      liveLine,
+      liveUpdate({
+        sessionUpdate: "tool_call",
+        toolCallId: "live-wait",
+        title: "glaeda-gh wait run 1 --timeout 10800",
+        kind: "execute",
+        status: "in_progress",
+        rawInput: { command: "glaeda-gh wait run 1 --timeout 10800" },
+      }),
+      turnStart,
+    );
+    let running = true;
+    const trickle = (async () => {
+      for (let n = 0; running; n++) {
+        emit(
+          liveLine,
+          liveUpdate({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `still waiting ${n}. ` } }),
+        );
+        // fixed-wait: the live line's own pacing, a chunk a second.
+        await Bun.sleep(1000);
+      }
+    })();
+
+    // The time series: every SAMPLE_S seconds, records, CPU (all renderer threads, and the main thread) and memory.
+    // A CDP call's answer, or undefined when none came in `ms` (a main thread stuck in a loop answers late or never)
+    // or it failed.
+    const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T | undefined> => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const late = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("no answer")), ms);
+      });
+      return Promise.race([promise, late])
+        .catch(() => undefined)
+        .finally(() => clearTimeout(timer));
+    };
+    const mainTicks = (pids: number[]) => {
+      let ticks = 0;
+      for (const pid of pids) {
+        let tasks: string[] = [];
+        try {
+          tasks = fs.readdirSync(`/proc/${pid}/task`);
+        } catch {
+          continue;
+        }
+        for (const task of tasks) {
+          try {
+            if (fs.readFileSync(`/proc/${pid}/task/${task}/comm`, "utf8").trim() !== "CrRendererMain") continue;
+            const fields = fs.readFileSync(`/proc/${pid}/task/${task}/stat`, "utf8");
+            const rest = fields.slice(fields.lastIndexOf(")") + 2).split(" ");
+            ticks += Number(rest[11]) + Number(rest[12]);
+          } catch {
+            // Gone.
+          }
+        }
+      }
+      return ticks;
+    };
+    const heapMB = async () => {
+      const usage = await withTimeout(
+        pages[0]!.cdp.send("Runtime.getHeapUsage") as Promise<{ usedSize: number }>,
+        5000,
+      );
+      return usage ? usage.usedSize / 2 ** 20 : Number.NaN;
+    };
+    type Sample = { t: number; phase: string; records: number; cpu: number; main: number; heap: number; pss: number };
+    const series: Sample[] = [];
+    const began = performance.now();
+    let phase = "load";
+    let records = 0;
+    let last = { at: performance.now(), cpu: cpuTicks(renderers(root)), main: mainTicks(renderers(root)) };
+    const sample = async () => {
+      const pids = renderers(root);
+      const now = { at: performance.now(), cpu: cpuTicks(pids), main: mainTicks(pids) };
+      const s = (now.at - last.at) / 1000;
+      const row: Sample = {
+        t: Math.round((now.at - began) / 1000),
+        phase,
+        records,
+        cpu: ((now.cpu - last.cpu) / TICK_HZ / s) * 100,
+        main: ((now.main - last.main) / TICK_HZ / s) * 100,
+        heap: await heapMB(),
+        pss: pids.reduce((sum, pid) => sum + pssMB(pid), 0),
+      };
+      last = now;
+      series.push(row);
+      console.log(
+        `coordinator t=${String(row.t).padStart(5)}s ${row.phase.padEnd(12)} records ${String(row.records).padStart(7)} ` +
+          `cpu ${row.cpu.toFixed(1).padStart(6)} % main ${row.main.toFixed(1).padStart(6)} % ` +
+          `heap ${row.heap.toFixed(0).padStart(5)} MB pss ${row.pss.toFixed(0).padStart(5)} MB`,
+      );
+      return row;
+    };
+    let sampling = true;
+    const sampler = (async () => {
+      while (sampling) {
+        // fixed-wait: the series' own period.
+        await Bun.sleep(SAMPLE_S * 1000);
+        if (sampling) await sample();
+      }
+    })();
+
+    // What runs when the main thread stays busy while idle: a CPU profile, then paused JS stacks on each page.
+    const diagnose = async (label: string) => {
+      const { cdp } = pages[0]!;
+      try {
+        await withTimeout(cdp.send("Profiler.enable"), 20_000);
+        await withTimeout(cdp.send("Profiler.start"), 20_000);
+        // fixed-wait: the profile's window.
+        await Bun.sleep(10_000);
+        const stopped = await withTimeout(cdp.send("Profiler.stop") as Promise<{ profile: CpuProfile }>, 60_000);
+        if (!stopped) console.log(`coordinator: ${label}: Profiler.stop sent no answer in 60 s`);
+        else {
+          const dir = PROFILE ?? process.env.FAST_CHECKS_OUT;
+          if (dir) {
+            fs.mkdirSync(dir, { recursive: true });
+            fs.writeFileSync(path.join(dir, `coordinator-${label}.cpuprofile`), JSON.stringify(stopped.profile));
+          }
+          printTop(`coordinator: ${label}: profile, self ms over 10 s:`, selfTimes(stopped.profile, sources), 30);
+          printTop(`coordinator: ${label}: profile, ms by entry:`, entryTimes(stopped.profile, sources), 15);
+        }
+      } catch (error) {
+        console.log(`coordinator: ${label}: no profile (${String(error).slice(0, 200)})`);
+      }
+      for (const [index, { cdp: pageCdp }] of pages.entries()) {
+        try {
+          const enabled = await withTimeout(pageCdp.send("Debugger.enable"), 20_000);
+          if (!enabled) {
+            console.log(`coordinator: ${label}: page ${index}: Debugger.enable sent no answer in 20 s`);
+            continue;
+          }
+          for (let n = 0; n < 5; n++) {
+            type Paused = {
+              callFrames: {
+                functionName: string;
+                url: string;
+                location: { lineNumber: number; columnNumber: number };
+              }[];
+            };
+            const paused = new Promise<Paused>((resolve) => pageCdp.once("Debugger.paused", resolve));
+            await withTimeout(pageCdp.send("Debugger.pause"), 5000);
+            const event = await withTimeout(paused, 5000);
+            if (!event) {
+              console.log(`coordinator: ${label}: page ${index}: no pause in 5 s (no script ran on it)`);
+              break;
+            }
+            const frames = event.callFrames.slice(0, 12).map((frame) => {
+              const file = frame.url.split("/").pop() ?? "";
+              const where =
+                frame.url && sources ? sources(file, frame.location.lineNumber, frame.location.columnNumber) : file;
+              return `${frame.functionName || "(anonymous)"} ${where}`;
+            });
+            console.log(`coordinator: ${label}: page ${index} paused stack ${n + 1}:\n    ${frames.join("\n    ")}`);
+            await withTimeout(pageCdp.send("Debugger.resume"), 5000);
+            // fixed-wait: spaces the stacks, so each is a different moment of the loop.
+            await Bun.sleep(700);
+          }
+          await withTimeout(pageCdp.send("Debugger.disable"), 5000);
+        } catch (error) {
+          console.log(`coordinator: ${label}: page ${index}: no stack (${String(error).slice(0, 200)})`);
+        }
+      }
+    };
+
+    // Idle (no record into the coordinator; the live line still trickles) for `seconds`, then on until a sample's
+    // main thread is under RUNAWAY_PCT, for at most 120 s more (a backlog's drain); a main thread still busy then
+    // is a runaway.
+    const idle = async (label: string, seconds: number) => {
+      phase = label;
+      const from = series.length;
+      // fixed-wait: the probe's window, sampled by the series.
+      await Bun.sleep(seconds * 1000);
+      const busy = () => {
+        const probe = series.slice(from);
+        return probe.length >= 2 && probe.slice(-2).every((row) => row.main >= RUNAWAY_PCT);
+      };
+      const deadline = performance.now() + 120_000;
+      // fixed-wait: one series period, so the next sample says whether the main thread is still busy.
+      while (busy() && performance.now() < deadline) await Bun.sleep(SAMPLE_S * 1000);
+      const probe = series.slice(from);
+      const gc = await withTimeout(pages[0]!.cdp.send("HeapProfiler.collectGarbage"), 30_000);
+      const heapAfterGc = gc === undefined ? Number.NaN : await heapMB();
+      const meanMain = probe.reduce((sum, row) => sum + row.main, 0) / Math.max(1, probe.length);
+      console.log(
+        `coordinator: ${label}: ${records} records; idle main thread ${probe.map((row) => row.main.toFixed(0)).join(", ")} % ` +
+          `(mean ${meanMain.toFixed(1)}); heap after a collection ${heapAfterGc.toFixed(1)} MB; pss ${probe.at(-1)?.pss.toFixed(0)} MB`,
+      );
+      return { label, records, meanMain, heapAfterGc, pss: probe.at(-1)?.pss ?? Number.NaN, runaway: busy() };
+    };
+
+    const probes: Awaited<ReturnType<typeof idle>>[] = [];
+    probes.push(await idle("idle@0", PROBE_S));
+    let pending: [string, string, Record<string, unknown>][] = [];
+    let step = 0;
+    let runaway = probes[0]!.runaway ? probes[0]! : undefined;
+    for (const checkpoint of runaway ? [] : CHECKPOINTS) {
+      phase = `stream`;
+      const segmentFrom = performance.now();
+      const segmentRecords = records;
+      while (records < checkpoint) {
+        const due = Math.min(
+          checkpoint,
+          segmentRecords + Math.floor(((performance.now() - segmentFrom) / 1000) * RATE) + 1,
+        );
+        for (; records < due; records++) {
+          if (!pending.length) pending = turn.step(++step);
+          emit(coordinator, pending.shift()!);
+        }
+        // fixed-wait: the stream's own pacing.
+        await Bun.sleep(50);
+      }
+      const probe = await idle(`idle@${checkpoint}`, PROBE_S);
+      probes.push(probe);
+      if (probe.runaway) {
+        runaway = probe;
+        await diagnose(probe.label);
+        if (RUNAWAY_STOP) break;
+      }
+    }
+    if (!runaway || !RUNAWAY_STOP) {
+      const tail = await idle(`tail@${records}`, TAIL_S);
+      probes.push(tail);
+      if (tail.runaway && !runaway) {
+        runaway = tail;
+        await diagnose(tail.label);
+      }
+    }
+    running = false;
+    sampling = false;
+    await trickle;
+    await sampler;
+    console.log("coordinator: probe | records | idle main % (mean) | heap after GC MB | pss MB | runaway");
+    for (const probe of probes)
+      console.log(
+        `coordinator: ${probe.label} | ${probe.records} | ${probe.meanMain.toFixed(1)} | ${probe.heapAfterGc.toFixed(1)} | ` +
+          `${probe.pss.toFixed(0)} | ${probe.runaway ? "YES" : "no"}`,
+      );
+    console.log(
+      runaway
+        ? `coordinator: RUNAWAY at ${runaway.label}: the main thread stayed at or over ${RUNAWAY_PCT} % idle`
+        : `coordinator: no runaway up to ${records} records in ${((performance.now() - began) / 1000).toFixed(0)} s`,
+    );
+    const maxIdleMain = Math.max(...probes.map((probe) => probe.meanMain));
+    perfRow({
+      name: "chat_100k_flat.coordinator.idle_main_pct_max",
+      p50: maxIdleMain,
+      p95: maxIdleMain,
+      unit: "pct",
+      clock: "cpu",
+    });
+    const heapEnd = probes.at(-1)!.heapAfterGc;
+    perfRow({ name: "chat_100k_flat.coordinator.heap_after_gc_mb", p50: heapEnd, p95: heapEnd, unit: "MB" });
+    if (process.env.FAST_CHECKS_OUT) {
+      fs.mkdirSync(process.env.FAST_CHECKS_OUT, { recursive: true });
+      fs.writeFileSync(
+        path.join(process.env.FAST_CHECKS_OUT, "coordinator-series.json"),
+        JSON.stringify({ series, probes, rate: RATE, historyRows: HISTORY_ROWS, turnAgeS: TURN_AGE_S }, null, 1),
+      );
+    }
+  };
+  if (COORDINATOR) await runCoordinator();
+
+  if (!COORDINATOR) console.log("launch | renderers | idle CPU % | streaming CPU % | renderer MB");
   // CASES=main runs every case but grown xN; CASES=grown-many runs only empty xN and grown xN (20 chats taking 100k rows
   // each live takes about 28 minutes on a 4-vCPU runner, so the perf cron runs it as a part of its own); CASES=all
   // runs every case. The grown-many max is chat_100k_flat.grown_many.ratio_max, and the goal reads the worse of the two.
   const pairs: [string, Launch, Launch][] = [];
-  if (CASES !== "grown-many" && CASES !== "long-many") {
+  if (CASES !== "grown-many" && CASES !== "long-many" && !COORDINATOR) {
     const emptyOne = await runLaunch("empty_x1", small, 1);
     if (CASES !== "running") {
       const longOne = await runLaunch("long_x1", long, 1, { profile: PROFILE, match: emptyOne });
@@ -1187,7 +1613,7 @@ try {
   // chosen: alternating long and empty windows in one launch (a launch is one renderer and V8 isolate, so the two
   // would share a heap and its collections), or a floor on the xN denominator (empty xN idles at 1.7-3.3 %, so a
   // floor that steadied the ratio would sit on the values it compares and hide a real difference).
-  const emptyMany = CASES === "running" ? undefined : await runLaunch(`empty_x${CHATS}`, small, CHATS);
+  const emptyMany = CASES === "running" || COORDINATOR ? undefined : await runLaunch(`empty_x${CHATS}`, small, CHATS);
   const many: [string, Launch][] = [];
   if (emptyMany && CASES !== "grown-many")
     many.push([
@@ -1217,43 +1643,53 @@ try {
     );
     for (const [label, big] of many) pairs.push([label, big, base]);
   }
-  const cpuRatio = (a: number, b: number) => Math.max(a, CPU_FLOOR_PCT) / Math.max(b, CPU_FLOOR_PCT);
-  const ratios: [string, number][] = [];
-  for (const [label, big, base] of pairs) {
-    ratios.push([`${label}.idle_cpu_ratio`, cpuRatio(big.idlePct, base.idlePct)]);
-    ratios.push([`${label}.stream_cpu_ratio`, cpuRatio(big.streamPct, base.streamPct)]);
-    ratios.push([`${label}.renderer_mb_ratio`, big.mb / base.mb]);
+  // CASES=coordinator takes no pairs: its series and probes are its rows (runCoordinator).
+  if (pairs.length) {
+    const cpuRatio = (a: number, b: number) => Math.max(a, CPU_FLOOR_PCT) / Math.max(b, CPU_FLOOR_PCT);
+    const ratios: [string, number][] = [];
+    for (const [label, big, base] of pairs) {
+      ratios.push([`${label}.idle_cpu_ratio`, cpuRatio(big.idlePct, base.idlePct)]);
+      ratios.push([`${label}.stream_cpu_ratio`, cpuRatio(big.streamPct, base.streamPct)]);
+      ratios.push([`${label}.renderer_mb_ratio`, big.mb / base.mb]);
+    }
+    for (const [name, value] of ratios) {
+      console.log(`chat-100k-flat: ${name} ${value.toFixed(2)}x`);
+      perfRow({ name: `${ROW}.${name}`, p50: value, p95: value, unit: "x", target: 1.2, floor: 0.05 });
+    }
+    // The JS heap's long/empty ratios: where a renderer MB ratio comes from, read beside ratio_max, never in it.
+    for (const [label, big, base] of pairs) {
+      const value = big.heapMb / base.heapMb;
+      console.log(`chat-100k-flat: ${label}.heap_mb_ratio ${value.toFixed(2)}x`);
+      perfRow({ name: `${ROW}.${label}.heap_mb_ratio`, p50: value, p95: value, unit: "x" });
+    }
+    const [worst, max] = ratios.reduce((a, b) => (b[1] > a[1] ? b : a));
+    console.log(`chat-100k-flat: worst ratio ${max.toFixed(2)}x (${worst}); target 1.2x`);
+    const maxRow = `${ROW}.ratio_max`;
+    perfRow({ name: maxRow, p50: max, p95: max, unit: "x", target: 1.2, floor: 0.05 });
+    // The longest CPU settle of a long, grown or running launch, beside the empty launches' own: a number of its own,
+    // read against its own target in the goal record, never in ratio_max.
+    const [slowest, settleMax] = pairs
+      .map(([label, big]) => [label, big.settleS] as [string, number])
+      .reduce((a, b) => (b[1] > a[1] ? b : a));
+    const emptySettle = Math.max(...pairs.map(([, , base]) => base.settleS));
+    const cappedLaunches = [...new Set(pairs.flatMap(([, big, base]) => [big, base]))].filter((l) => l.capped);
+    console.log(
+      `chat-100k-flat: longest CPU settle ${settleMax.toFixed(1)} s (${slowest}); empty ${emptySettle.toFixed(1)} s` +
+        (cappedLaunches.length
+          ? `; hit the ${SETTLE_MAX_S} s cap: ${cappedLaunches.map((l) => l.name).join(", ")}`
+          : ""),
+    );
+    perfRow({
+      name: `${ROW}.cpu_settle_capped`,
+      p50: cappedLaunches.length,
+      p95: cappedLaunches.length,
+      unit: "count",
+    });
+    perfRow({ name: `${ROW}.cpu_settle_s_max`, p50: settleMax, p95: settleMax, unit: "s" });
+    // What a long chat adds to the empty chats' own settle, the number the goal reads (target 2 s).
+    const excess = Math.max(0, settleMax - emptySettle);
+    perfRow({ name: `${ROW}.cpu_settle_excess_s`, p50: excess, p95: excess, unit: "s", target: 2 });
   }
-  for (const [name, value] of ratios) {
-    console.log(`chat-100k-flat: ${name} ${value.toFixed(2)}x`);
-    perfRow({ name: `${ROW}.${name}`, p50: value, p95: value, unit: "x", target: 1.2, floor: 0.05 });
-  }
-  // The JS heap's long/empty ratios: where a renderer MB ratio comes from, read beside ratio_max, never in it.
-  for (const [label, big, base] of pairs) {
-    const value = big.heapMb / base.heapMb;
-    console.log(`chat-100k-flat: ${label}.heap_mb_ratio ${value.toFixed(2)}x`);
-    perfRow({ name: `${ROW}.${label}.heap_mb_ratio`, p50: value, p95: value, unit: "x" });
-  }
-  const [worst, max] = ratios.reduce((a, b) => (b[1] > a[1] ? b : a));
-  console.log(`chat-100k-flat: worst ratio ${max.toFixed(2)}x (${worst}); target 1.2x`);
-  const maxRow = `${ROW}.ratio_max`;
-  perfRow({ name: maxRow, p50: max, p95: max, unit: "x", target: 1.2, floor: 0.05 });
-  // The longest CPU settle of a long, grown or running launch, beside the empty launches' own: a number of its own,
-  // read against its own target in the goal record, never in ratio_max.
-  const [slowest, settleMax] = pairs
-    .map(([label, big]) => [label, big.settleS] as [string, number])
-    .reduce((a, b) => (b[1] > a[1] ? b : a));
-  const emptySettle = Math.max(...pairs.map(([, , base]) => base.settleS));
-  const cappedLaunches = [...new Set(pairs.flatMap(([, big, base]) => [big, base]))].filter((l) => l.capped);
-  console.log(
-    `chat-100k-flat: longest CPU settle ${settleMax.toFixed(1)} s (${slowest}); empty ${emptySettle.toFixed(1)} s` +
-      (cappedLaunches.length ? `; hit the ${SETTLE_MAX_S} s cap: ${cappedLaunches.map((l) => l.name).join(", ")}` : ""),
-  );
-  perfRow({ name: `${ROW}.cpu_settle_capped`, p50: cappedLaunches.length, p95: cappedLaunches.length, unit: "count" });
-  perfRow({ name: `${ROW}.cpu_settle_s_max`, p50: settleMax, p95: settleMax, unit: "s" });
-  // What a long chat adds to the empty chats' own settle, the number the goal reads (target 2 s).
-  const excess = Math.max(0, settleMax - emptySettle);
-  perfRow({ name: `${ROW}.cpu_settle_excess_s`, p50: excess, p95: excess, unit: "s", target: 2 });
 } finally {
   await release();
 }
