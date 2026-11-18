@@ -7,23 +7,23 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act, memo } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { TranscriptDisclosureProvider } from "../src/agent-session/acpmux/conversation/transcriptDisclosure";
-import {
-  resetTranscriptDisclosure,
-  useTranscriptDisclosure,
-  useTranscriptViewContext,
-  viewChat,
-} from "../src/agent-session/acpmux/conversation/transcriptDisclosureModel";
-import {
-  makeTranscriptViewDefault,
-  resetTranscriptViews,
-  setTranscriptView,
-  transcriptViewOf,
-} from "../src/agent-session/acpmux/conversation/transcriptView";
-import { chatDisplayValues, setChatDisplay, TRANSCRIPT_VIEW_KEY } from "../src/agent-session/acpmux/chatDisplay";
-import { transcriptViewRow } from "../src/agent-session/acpmux/header/transcriptViewRow";
-import { translate } from "../src/agent-session/acpmux/i18n";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { TranscriptDisclosureProvider } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/transcriptDisclosure"),
+);
+const { resetTranscriptDisclosure, useTranscriptDisclosure, useTranscriptViewContext, viewChat } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel"),
+);
+const { makeTranscriptViewDefault, resetTranscriptViews, setTranscriptView, transcriptViewOf } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/transcriptView"),
+);
+const { chatDisplayValues, setChatDisplay, TRANSCRIPT_VIEW_KEY } = await importWithDom(
+  () => import("../src/agent-session/acpmux/chatDisplay"),
+);
+const { transcriptViewRow } = await importWithDom(() => import("../src/agent-session/acpmux/header/transcriptViewRow"));
+const { translate } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

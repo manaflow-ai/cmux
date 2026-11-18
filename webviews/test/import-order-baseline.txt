@@ -14,36 +14,7 @@ test/composer-folderless-cloud-chip.test.tsx
 test/pickers-last-known.test.tsx
 test/sidebar-chats-page.test.tsx
 test/stash-page.test.tsx
-test/transcript-older-history-ahead.test.tsx
-test/transcript-older-history-at-top.test.tsx
-test/transcript-older-history-once.test.tsx
-test/transcript-older-history-retry.test.tsx
-test/transcript-range-content.test.tsx
-test/transcript-reader-end-follows.test.tsx
-test/transcript-row-content-memo.test.tsx
-test/transcript-scroll-restore.test.tsx
-test/transcript-steer-continuous.test.tsx
-test/transcript-switch-back.test.tsx
-test/transcript-view.test.tsx
-test/transcript-viewport-resize.test.tsx
-test/transcript-working-line.test.tsx
-test/tray-exit-fold-once.test.ts
-test/turn-error-card.test.tsx
-test/turn-retry.test.tsx
-test/updated-card-drag.test.tsx
-test/updated-card-hover-preview.test.tsx
-test/updated-notes-icons-copy.test.tsx
-test/visual-media-board.test.tsx
-test/web-result-cards.test.tsx
-test/web-sources-follow-ups.test.tsx
-test/web-swap-reload.test.tsx
-test/whats-new-density.test.tsx
-test/whats-new-happy-news.test.tsx
-test/whats-new-install.test.tsx
-test/whats-new-sheet-dense.test.tsx
 test/workflow-tasks.test.tsx
-test/workflow-transcript.test.ts
-test/workflow-view.test.tsx
 
 # src/
 src/agent-session/acpmux/AddAccountDialog.test.tsx
