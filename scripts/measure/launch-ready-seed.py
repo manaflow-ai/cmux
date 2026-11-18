@@ -51,9 +51,9 @@ def wait(check, seconds, step=0.1):
 
 
 class Seed:
-    def __init__(self, path, windows, workspaces):
-        self.path, self.count, self.total = path, windows, workspaces
-        self.row = {"windows_asked": windows, "workspaces_asked": workspaces}
+    def __init__(self, path, windows, workspaces, front="home"):
+        self.path, self.count, self.total, self.front = path, windows, workspaces, front
+        self.row = {"windows_asked": windows, "workspaces_asked": workspaces, "front_asked": front}
         self.keys = {}
 
     def topology(self):
@@ -89,6 +89,19 @@ class Seed:
             raise RuntimeError(f"{name}{' ' + target if target else ''}: {str(reply['error'])[:200]}")
         return reply if isinstance(reply, dict) else {}
 
+    def close(self, key):
+        """Closes the workspace whose model key (or id) is KEY and waits until the topology no longer lists it."""
+        def find():
+            return next((w.get("id") for w in self.topology().get("workspaces") or []
+                         if key in (w.get("key"), w.get("id"))), None)
+        workspace = find()
+        if not workspace:
+            raise RuntimeError(f"no workspace with key {key} to close")
+        self.action("closeWorkspace", target=f"workspace:{workspace}")
+        if not wait(lambda: find() is None, 10):
+            raise RuntimeError(f"workspace {key} ({workspace}) still listed 10 s after closeWorkspace")
+        self.row.update(closed=workspace, workspaces_left=len(self.topology().get("workspaces") or []))
+
     def build(self):
         """Raises RuntimeError naming the step that failed."""
         windows = self.window_ids()
@@ -114,7 +127,8 @@ class Seed:
                 if not wait(lambda: workspace in self.members(window), 10):
                     raise RuntimeError(f"workspace {workspace} is not in window {window} 10 s after the move")
             ours[window].add(workspace)
-        self.action("home.show")
+        if self.front == "home":  # --front tab: the last workspace's terminal tab stays in front
+            self.action("home.show")
         final = self.topology()
         listed = {w.get("id"): set(w.get("workspaces") or []) for w in final.get("windows") or []}
         mine = set().union(*ours.values())
@@ -137,14 +151,25 @@ def main(argv=None):
     parser.add_argument("--windows", type=int, default=3)
     parser.add_argument("--workspaces", type=int, default=60)
     parser.add_argument("--front-out", help="write the front just before the quit here (launch-ready.swift's shape)")
+    # launch-ready.sh front=home|tab: the front the session is left on, and --stay leaves the app running (the probe
+    # quits it after reading that front).
+    parser.add_argument("--front", choices=["home", "tab"], default="home")
+    parser.add_argument("--stay", action="store_true")
+    # launch-ready.sh snapshot=unknown: close the workspace with this model key (closeWorkspace), and nothing else.
+    parser.add_argument("--close-workspace", default="")
     args = parser.parse_args(argv)
     started = time.monotonic()
-    seed, code = Seed(args.socket, args.windows, args.workspaces), 0
+    seed, code = Seed(args.socket, args.windows, args.workspaces, args.front), 0
+    if args.close_workspace:
+        seed.row = {"close_asked": args.close_workspace}
     if not wait(lambda: seed.topology().get("loaded") and seed.topology().get("windows"), 120, 0.25):
         seed.row["error"], code = "the control socket never answered with a loaded topology and a window in 120 s", 2
     else:
         try:
-            seed.build()
+            if args.close_workspace:
+                seed.close(args.close_workspace)
+            else:
+                seed.build()
         except RuntimeError as error:
             seed.row["error"], code = str(error), 1
         finally:
@@ -153,9 +178,12 @@ def main(argv=None):
             if args.front_out:
                 with open(args.front_out, "w") as out:
                     json.dump(seed.front(), out)
-            # The app may end before it answers; then the reply is a read error, not a refused quit.
-            reply = rpc(args.socket, "action.run", {"action": "quitKeepSessions", "origin": "script"}, timeout=20)
-            seed.row["quit"] = str(reply["error"])[:200] if isinstance(reply, dict) and reply.get("error") else "ok"
+            if args.stay:
+                seed.row["quit"] = "stay"
+            else:
+                # The app may end before it answers; then the reply is a read error, not a refused quit.
+                reply = rpc(args.socket, "action.run", {"action": "quitKeepSessions", "origin": "script"}, timeout=20)
+                seed.row["quit"] = str(reply["error"])[:200] if isinstance(reply, dict) and reply.get("error") else "ok"
     seed.row["seed_ms"] = round((time.monotonic() - started) * 1000)
     print("LR-SEED " + json.dumps(seed.row, sort_keys=True), flush=True)
     return code
