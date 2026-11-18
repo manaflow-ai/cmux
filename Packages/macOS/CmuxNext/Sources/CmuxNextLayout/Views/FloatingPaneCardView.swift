@@ -155,8 +155,9 @@ final class FloatingPaneCardView: NSView {
         if solidUnder !== solid {
             solidUnder?.hasSolidGroundUnder = false
             solidUnder = solid
-            solid?.hasSolidGroundUnder = true
         }
+        // In each pass: a host that another screen placed between two passes lost the mark there (`PaneHostView`).
+        solid?.hasSolidGroundUnder = true
     }
 
     /// Paints the shadow, the material, the ground, the tint, the rim and the grip for the card's size, corners and
