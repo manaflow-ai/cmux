@@ -242,13 +242,19 @@ fn resolve_within(
         "codex-mcp-get-stderr",
         child.stderr.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>),
     );
-    let group = child.id() as libc::pid_t;
     // Unreaped until after the group kill below, so the group id cannot name another process.
     let exited = child.exited_within(timeout);
     // Whatever it started and left running ends with it, so no process outlives the question
-    // and nothing it left holds the output open. SAFETY: a signal to the process group this call
-    // started, whose leader is not yet reaped; no memory is touched.
-    unsafe { libc::kill(-group, libc::SIGKILL) };
+    // and nothing it left holds the output open.
+    #[cfg(unix)]
+    {
+        let group = child.id() as libc::pid_t;
+        // SAFETY: a signal to the process group this call started, whose leader is not yet
+        // reaped; no memory is touched.
+        unsafe { libc::kill(-group, libc::SIGKILL) };
+    }
+    #[cfg(not(unix))]
+    let _ = child.kill();
     // The reap. A child still running at the deadline was just killed, so this returns at once.
     let status = child.wait();
     let status = match (exited, status) {
