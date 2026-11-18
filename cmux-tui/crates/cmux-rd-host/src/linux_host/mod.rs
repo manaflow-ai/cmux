@@ -1227,6 +1227,44 @@ mod tests {
         assert_eq!(enable(&["--view-only"]), LocalConsent { view: true, full: false });
     }
 
+    /// A person's own `enable` on a joined machine would make the host theirs until the next
+    /// daemon start signs them out again: refused before any token is read, the join kept.
+    #[test]
+    fn a_person_cannot_sign_in_over_a_join() {
+        let dir = consent_dir("person-over-join");
+        let home = dir.join("acpmux-home");
+        identity::private_dir(&home).unwrap();
+        identity::write_private(
+            &home.join(machine::CREDENTIAL_FILE),
+            br#"{"credential":"cmm_b","name":"lane-vm"}"#,
+        )
+        .unwrap();
+        Device::generate("lane-vm").unwrap().save(&dir).unwrap();
+        Account { hub: DEFAULT_HUB.into(), user_id: "p:b".into(), anchored_until: 0 }
+            .save(&dir)
+            .unwrap();
+        machine::Joined { acpmux_home: home.clone() }.save(&dir).unwrap();
+        let token = dir.join("token");
+        identity::write_private(&token, b"person-token").unwrap();
+        let args = Args::parse(&[
+            "enable".into(),
+            "--stack-token-file".into(),
+            token.display().to_string(),
+        ])
+        .unwrap();
+        let Err(e) = sign_in_and_register(&args, &dir) else { panic!("signed in over the join") };
+        assert_eq!(
+            e.to_string(),
+            "this machine is joined to p:b; run `acpmux machine leave` first"
+        );
+        assert_eq!(
+            machine::Joined::load(&dir).unwrap(),
+            Some(machine::Joined { acpmux_home: home.clone() })
+        );
+        assert_eq!(Account::load(&dir).unwrap().unwrap().user_id, "p:b");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn the_join_takes_no_account_token() {
         // No person's credential lands on a joined machine: a token on any flag is refused before
