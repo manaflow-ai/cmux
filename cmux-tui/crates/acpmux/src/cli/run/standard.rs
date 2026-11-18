@@ -35,6 +35,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Process(..)
             | Command::Worktree(..)
             | Command::Group(..)
+            | Command::ShareHost(..)
             | Command::Attach { .. }
             | Command::ResumeHere { .. }
             | Command::Tail { .. }
@@ -636,7 +637,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if args.detach || json_out {
                 return Ok(());
             }
-            crate::tui::run(client, Some(route_id.to_owned())).await
+            crate::tui_entry::run(client, Some(route_id.to_owned())).await
         }
         Command::Send {
             session,
@@ -692,6 +693,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 .filter(|_| relay.relay.is_some())
                 .map(crate::prompt_provenance::relayed_label)
                 .filter(|label| !label.is_empty());
+            // A Claude Code chat acpmux did not start, sending as no one: nothing can reply to it
+            // until it registers, so the send starts that (`cli/reply_address.rs`).
+            let auto_register =
+                crate::cli::reply_address::of_this_process(from.is_some() || relayed.is_some());
             // The harness or app it runs in says where it came from: provenance beside the prompt,
             // self-reported (Leo, 2026-11-07: "ACPMux should also auto-detect that you sent it
             // from...").
@@ -813,6 +818,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     if announce && let Some(shown) = sender.shown {
                         eprintln!("sending as {shown}");
                     }
+                }
+                if let Some(want) = &auto_register {
+                    crate::cli::reply_address::start(&client, want, deadline).await;
                 }
                 // Any size and number: inline when they fit one message with the text, else uploaded
                 // to the chat first and named by reference (`attach.rs`).
@@ -1066,6 +1074,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         Command::Process(cmd) => crate::cli::process::run(cmd, json_out).await,
         Command::Worktree(cmd) => crate::cli::worktree::run(cmd, json_out),
         Command::Group(cmd) => crate::cli::group::run(cmd, json_out).await,
+        Command::ShareHost(cmd) => crate::share_host::cli::run(cmd, json_out).await,
         Command::Attach { session, plain } => {
             let client = connect(true).await?;
             let id = match &session {
@@ -1076,7 +1085,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 let id = id.ok_or_else(|| anyhow!("--plain needs a session"))?;
                 return plain_attach(client, &id).await;
             }
-            crate::tui::run(client, id).await
+            crate::tui_entry::run(client, id).await
         }
         Command::ResumeHere { session, print } => {
             crate::cli::resume_here::run(connect(true).await?, &session, print, json_out).await
@@ -1087,12 +1096,20 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         Command::Info { session, fields } => {
             let client = connect(true).await?;
-            let id = resolve_id(&client, &session).await?;
-            let v = crate::cli::slow_notice::noted(
-                "the session's details",
-                client.request(method::MUX_INFO, json!({"sessionId": id})),
-            )
-            .await?;
+            let v = match resolve_id(&client, &session).await {
+                Ok(id) => {
+                    crate::cli::slow_notice::noted(
+                        "the session's details",
+                        client.request(method::MUX_INFO, json!({"sessionId": id})),
+                    )
+                    .await?
+                }
+                // A row only the send relay lists: its details are the relay's row, `via: relay`.
+                Err(e) => match crate::cli::send_relay::relayed_row(&e) {
+                    Some(row) => row.clone(),
+                    None => return Err(e),
+                },
+            };
             if let Some(fields) = fields {
                 return super::fanout::print_info_fields(&v, &fields, json_out);
             }

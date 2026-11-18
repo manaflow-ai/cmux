@@ -7,6 +7,7 @@ extension AgentPaneModel {
     func markPainted() {
         guard !hasPainted else { return }
         hasPainted = true
+        openWaits.paint(chat: sessionId != nil, fromKeptTail: paintedFromKeptTail)
         let waiters = paintWaiters
         paintWaiters = []
         for waiter in waiters { waiter() }

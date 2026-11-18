@@ -99,6 +99,9 @@ mod questions;
 mod queue_admission;
 #[path = "hub_integration/restart.rs"]
 mod restart;
+#[cfg(unix)]
+#[path = "hub_integration/resume_here_ask.rs"]
+mod resume_here_ask;
 #[path = "hub_integration/run_parent.rs"]
 mod run_parent;
 #[path = "hub_integration/secrets.rs"]
@@ -1198,7 +1201,8 @@ async fn family_defaults_presets_and_the_target_grammar() {
         )
         .await
         .unwrap_err();
-    assert!(err.contains("cannot be enforced"), "{err}");
+    // Refused at its first start, it names the one fix (the start's flag, or the chat's policy).
+    assert!(err.contains("approve-all`") && !err.contains("did not start"), "{err}");
     let list = c.request(method::MUX_PRESETS, json!({})).await.unwrap();
     assert_eq!(list["presets"][0]["name"], "fast");
 }

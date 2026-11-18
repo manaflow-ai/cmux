@@ -29,7 +29,8 @@ fn the_rust_table_is_the_runtimes_own_tables() {
     );
     for e in EVENTS {
         assert_eq!(events[e.name]["reads"], e.reads, "{}", e.name);
-        assert_eq!(scopes["ops"][e.reads]["scope"], e.scope, "{}", e.name);
+        let scope = events[e.name].get("scope").unwrap_or(&scopes["ops"][e.reads]["scope"]);
+        assert_eq!(scope, e.scope, "{}", e.name);
     }
     assert_eq!(event("workspace.changed").map(|e| e.scope), Some("workspace:read"));
     let signals = json(host.join("generated/signals.json"));
@@ -70,6 +71,8 @@ fn listening_asks_for_the_events_scope_once_and_refuses_an_unknown_stream() {
     for stream in ["settings.changed", "theme.changed"] {
         assert_eq!(event(stream).map(|e| e.scope), Some("settings:read"), "{stream}");
     }
+    // The Cloud's GitHub webhooks: heard with the GitHub read grant, not any integration's.
+    assert_eq!(event("github.changed").map(|e| e.scope), Some("integration:github:read"));
 }
 
 /// The example extension's manifest, made with the builder: the places, scopes and activation

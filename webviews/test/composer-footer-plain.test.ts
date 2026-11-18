@@ -21,6 +21,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { MODEL_PICKER, PLUS_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 type Chip = {
   name: string;
@@ -58,8 +59,11 @@ type Row = {
 };
 
 await requireBrowserLane("composer-footer-plain.test.ts", async () => {
+  /** The composer's pickers, passed into the page function that measures the row. */
+  type Pickers = { MODEL_PICKER: string; PLUS_PICKER: string };
+  const PICKERS: Pickers = { MODEL_PICKER, PLUS_PICKER };
   /** Runs in the page: the footer's chips and every control's box. */
-  function measure(): Row {
+  function measure({ MODEL_PICKER, PLUS_PICKER }: Pickers): Row {
     // The chips stay in the quiet row under the box in either look (ComposerFoot.tsx).
     const bar =
       document.querySelector<HTMLElement>(".acpmux-composer-foot") ??
@@ -109,12 +113,9 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
     const boxRect = bar.closest(".acpmux-composer")?.querySelector(".acpmux-composer-box")?.getBoundingClientRect();
     const access = bar.querySelector<HTMLElement>(".acpmux-access");
     const modeStart = parseFloat(access ? getComputedStyle(access).marginInlineStart : "0") || 0;
-    const chips = [
-      ...read("model", ".acpmux-model .acpmux-picker-button", false),
-      ...read("mode", ".acpmux-access-trigger"),
-    ];
+    const chips = [...read("model", MODEL_PICKER, false), ...read("mode", ".acpmux-access-trigger")];
     const boxes = [
-      ...read("plus", ".acpmux-composer-plus .acpmux-picker-button"),
+      ...read("plus", PLUS_PICKER),
       ...chips,
       ...read("mic", ".acpmux-mic"),
       ...read("send", ".acpmux-send"),
@@ -220,10 +221,10 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
     const page = await open(300, "light");
     await plain(page, false);
     await settle(page);
-    const before = await page.evaluate(measure);
+    const before = await page.evaluate(measure, PICKERS);
     await plain(page, true);
     await settle(page);
-    const after = await page.evaluate(measure);
+    const after = await page.evaluate(measure, PICKERS);
     const problems = overlaps(after);
     await page.close();
     expect(before.look).toBe("");
@@ -260,9 +261,9 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
         const page = await open(width, scheme);
         // The plain look is the default (#22050, DEFAULT_COMPOSER.plainFooter); the host's
         // `composer` event turns it off.
-        const initial = await page.evaluate(measure);
+        const initial = await page.evaluate(measure, PICKERS);
         await plain(page, false);
-        const row = await page.evaluate(measure);
+        const row = await page.evaluate(measure, PICKERS);
         await page.close();
         console.log(
           JSON.stringify({
@@ -297,11 +298,11 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
       test(`at ${width} px (${scheme}): on, plain text at rest, same labels, no overlap`, async () => {
         const page = await open(width, scheme);
         await plain(page, false);
-        const before = await page.evaluate(measure);
+        const before = await page.evaluate(measure, PICKERS);
         await plain(page, true);
-        const row = await page.evaluate(measure);
+        const row = await page.evaluate(measure, PICKERS);
         await plain(page, false);
-        const back = await page.evaluate(measure);
+        const back = await page.evaluate(measure, PICKERS);
         await page.close();
         console.log(
           JSON.stringify({
@@ -349,10 +350,11 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
       test(`at ${width} px (${scheme}): on, hover, keyboard focus and an open menu draw the wash`, async () => {
         const page = await open(width, scheme);
         await plain(page, true);
-        const wash = async (name: string) => (await page.evaluate(measure)).chips.find((each) => each.name === name)!;
+        const wash = async (name: string) =>
+          (await page.evaluate(measure, PICKERS)).chips.find((each) => each.name === name)!;
         const problems: string[] = [];
         for (const [name, selector] of [
-          ["model", ".acpmux-model .acpmux-picker-button"],
+          ["model", MODEL_PICKER],
           ["mode", ".acpmux-access-trigger"],
         ] as const) {
           await page.hover(selector);

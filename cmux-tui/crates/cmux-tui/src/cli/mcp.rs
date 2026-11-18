@@ -32,6 +32,7 @@ mod config;
 mod cua_recovery;
 mod customize_library_tool;
 mod customize_tools;
+mod device_tools;
 mod keybinding_tools;
 mod keys_tools;
 mod live_code_tools;
@@ -39,6 +40,7 @@ mod live_file;
 mod messages;
 mod open_tool;
 mod placement;
+mod pptx_view;
 mod remote_tools;
 mod render_tool;
 mod schema;
@@ -710,6 +712,8 @@ pub(super) struct Server<B> {
     typed: std::cell::RefCell<std::collections::HashMap<(Option<String>, String), String>>,
     /// The files `open {live}` reloads on change, started with the first.
     live_files: std::cell::RefCell<Option<live_file::Watches>>,
+    /// The decks `open` previews, served on loopback, started with the first.
+    decks: std::cell::RefCell<Option<pptx_view::Decks>>,
 }
 
 impl<B: Backend> Server<B> {
@@ -732,6 +736,7 @@ impl<B: Backend> Server<B> {
             call_meta: None,
             typed: std::cell::RefCell::default(),
             live_files: std::cell::RefCell::default(),
+            decks: std::cell::RefCell::default(),
             notes: None,
             renders: std::collections::HashSet::new(),
         }
@@ -1108,6 +1113,9 @@ impl<B: Backend> Server<B> {
             return Ok(result);
         }
         if let Some(result) = customize_tools::call(&self.backend, name, &arguments) {
+            return Ok(result);
+        }
+        if let Some(result) = device_tools::call(name, &arguments) {
             return Ok(result);
         }
         if let Some(tool) = remote_tools::find(name) {

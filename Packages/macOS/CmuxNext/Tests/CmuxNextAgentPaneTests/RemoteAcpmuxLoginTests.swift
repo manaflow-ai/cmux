@@ -49,6 +49,11 @@ import Testing
 
     typealias Frames = RemoteAcpmuxObserverTests.Frames
 
+    /// The steps a new chat's machine sign-in received, as `op field=value ...`.
+    nonisolated final class Calls: Sendable {
+        let list = Mutex<[String]>([])
+    }
+
     static func wire(_ client: FakeClient) async throws -> (RemoteAcpmuxWire, Frames) {
         let frames = Frames()
         let wire = RemoteAcpmuxWire(client: client, session: "sub")
@@ -121,6 +126,47 @@ import Testing
             "finish code=wrong login_id=login_1",
             "start agent=claude",
         ])
+    }
+
+    /// hq#11225: a new chat whose start was refused because its agent is not signed in on its
+    /// machine has no session; its `initialize` names `agent_login_machine` where that machine's
+    /// daemon signs the agent in without one (`agent-session-login-machine-v1`), and a step that
+    /// names no chat goes there. A step naming a chat goes nowhere, and without the daemon's
+    /// support the feature is absent and every step is refused.
+    @Test func aNewChatSignsItsAgentInOnItsMachineBeforeItHasASession() async throws {
+        let start: RemoteAcpmuxWire.Start = { _, _, _ in throw CancellationError() }
+        for served in [true, false] {
+            let calls = Calls()
+            let machineLogin: RemoteAcpmuxWire.MachineLogin = { op, fields in
+                calls.list.withLock { $0.append(([op] + fields.keys.sorted().map { "\($0)=\(fields[$0]!)" }).joined(separator: " ")) }
+                return op == "start"
+                    ? Data(#"{"loginId":"login_1","url":"https://cursor.com/loginDeepControl","needsCode":false}"#.utf8)
+                    : Data(#"{"signedIn":true}"#.utf8)
+            }
+            let frames = Frames()
+            let wire = RemoteAcpmuxWire(start: start, servesLogin: true, machineLogin: served ? machineLogin : nil)
+            try await wire.open(onFrame: { frames.append($0) }, onClose: { _, _ in })
+            wire.send(#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}}"#) { _ in }
+            for frame in [
+                #"{"jsonrpc":"2.0","id":2,"method":"_acpmux/agent_login/start","params":{"agent":"cursor"}}"#,
+                #"{"jsonrpc":"2.0","id":3,"method":"_acpmux/agent_login/finish","params":{"loginId":"login_1"}}"#,
+                #"{"jsonrpc":"2.0","id":4,"method":"_acpmux/agent_login/start","params":{"agent":"cursor","sessionId":"acp_other"}}"#,
+            ] {
+                wire.send(frame) { _ in }
+            }
+            try await Self.waitUntil { (1...4).allSatisfy { frames.reply($0) != nil } }
+            let acpmux = ((frames.reply(1)?["result"] as? [String: Any])?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
+            #expect(((acpmux?["features"] as? [String])?.contains("agent_login_machine") ?? false) == served)
+            if served {
+                #expect((frames.reply(2)?["result"] as? [String: Any])?["loginId"] as? String == "login_1")
+                #expect((frames.reply(3)?["result"] as? [String: Any])?["signedIn"] as? Bool == true)
+                #expect(calls.list.withLock { $0 }.sorted() == ["finish login_id=login_1", "start agent=cursor"])
+            } else {
+                for id in 2...3 { #expect(Self.error(frames, id)?["code"] as? String == RemoteAcpmuxWire.unsupported) }
+                #expect(calls.list.withLock { $0 }.isEmpty)
+            }
+            #expect(Self.error(frames, 4)?["code"] as? String == RemoteAcpmuxWire.unsupported)
+        }
     }
 
     @Test func anObserverNeverSignsIn() async throws {

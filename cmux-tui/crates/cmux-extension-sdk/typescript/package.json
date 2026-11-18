@@ -15,6 +15,7 @@
   "exports": {
     ".": { "types": "./src/index.ts", "default": "./src/index.ts" },
     "./testing": { "types": "./src/testing.ts", "default": "./src/testing.ts" },
+    "./web": { "types": "./src/web.ts", "default": "./src/web.ts" },
     "./customize": { "types": "./src/generated/customize.ts" }
   },
   "files": ["src/", "runtime-files.json", "README.md"],

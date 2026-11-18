@@ -1037,6 +1037,104 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
         self.assertIn("CMUX_SWIFT_TEST_SUITES names Zulu", completed.stdout)
         self.assertEqual(len(calls), 1, calls)
 
+    # Test sources for the pre-build name scan: every way a suite's name reaches
+    # the source that a declaration regex could miss.
+    SUITE_SOURCES = {
+        "Tests/ExampleTests/AlphaTests.swift": "import Testing\n@Suite struct Alpha {\n  @Test func one() {}\n}\n",
+        # Attributes on their own lines, a display name, a trait, a global actor.
+        "Tests/ExampleTests/BravoTests.swift": (
+            "import Testing\n"
+            "@Suite(\n"
+            "    \"Bravo display name\",\n"
+            "    .serialized\n"
+            ")\n"
+            "@MainActor\n"
+            "final class Bravo {\n"
+            "  @Test func one() {}\n"
+            "}\n"
+        ),
+        "Tests/ExampleTests/CharlieTests.swift": "import XCTest\nfinal class Charlie: XCTestCase {\n  func testOne() {}\n}\n",
+        # A nested suite, and a suite whose tests live in an extension of it.
+        "Tests/ExampleTests/Nested.swift": (
+            "import Testing\n"
+            "enum Outer {}\n"
+            "extension Outer {\n"
+            "  @Suite(\"Inner\") struct Inner {\n"
+            "    @Test func one() {}\n"
+            "  }\n"
+            "}\n"
+            "extension Delta {\n"
+            "  @Test func one() {}\n"
+            "}\n"
+        ),
+    }
+
+    def _sources_run(self, only: str, other_package_suite: str = "") -> tuple[subprocess.CompletedProcess[str], list[str]]:
+        """A package under Packages/ with test sources; another package beside it
+        declares other_package_suite in its own tests."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = pathlib.Path(temp_dir)
+            self._write_fake_swift(temp, "print('Test run with 1 test passed after 0.001 seconds.')\n")
+            package = temp / "Packages" / "macOS" / "ExampleTests"
+            for relative, text in self.SUITE_SOURCES.items():
+                (package / relative).parent.mkdir(parents=True, exist_ok=True)
+                (package / relative).write_text(text, encoding="utf-8")
+            if other_package_suite:
+                other = temp / "Packages" / "macOS" / "OtherKit"
+                (other / "Tests" / "OtherKitTests").mkdir(parents=True)
+                (other / "Package.swift").write_text("// OtherKit\n", encoding="utf-8")
+                (other / "Tests" / "OtherKitTests" / "Suite.swift").write_text(
+                    f"import Testing\n@Suite\nstruct {other_package_suite} {{}}\n", encoding="utf-8")
+            env = self._jobs_env(temp, ["Alpha", "Bravo", "Charlie", "Inner", "Delta"], "2")
+            env["CMUX_SWIFT_TEST_SUITES"] = only
+            completed = run_runner(package, env)
+            calls_path = temp / "calls.txt"
+            calls = calls_path.read_text(encoding="utf-8").splitlines() if calls_path.exists() else []
+            return completed, calls
+
+    def test_a_name_no_test_source_mentions_is_refused_before_the_build(self) -> None:
+        """A typo cost a whole build (11 and 58 minutes on the fleet, 2026-11-16)
+        before the check after `swift test list` refused it. Now no swift build
+        or list runs: the fake records every such call."""
+        for only in ("Zulu", "Alpha,Zulu", "ExampleTests.Zulu", "Alph"):
+            with self.subTest(only=only):
+                completed, calls = self._sources_run(only)
+                self.assertEqual(completed.returncode, 2, completed.stdout)
+                bad = only.split(",")[-1]
+                self.assertIn(f"CMUX_SWIFT_TEST_SUITES names {bad}, which is not a suite of", completed.stdout)
+                self.assertEqual(calls, [], completed.stdout)
+                self.assertNotIn("ci-phase build-and-list", completed.stdout)
+
+    def test_a_refused_name_says_which_package_has_it(self) -> None:
+        completed, calls = self._sources_run("MacScreenHubTests", other_package_suite="MacScreenHubTests")
+        self.assertEqual(completed.returncode, 2, completed.stdout)
+        self.assertIn("MacScreenHubTests is in Packages/macOS/OtherKit", completed.stdout)
+        self.assertEqual(calls, [], completed.stdout)
+
+    def test_names_the_test_sources_declare_pass_the_scan(self) -> None:
+        """Bare and Target.Suite names, a multi-line attribute, an XCTest class, a
+        nested suite with a display name and a suite extended elsewhere all pass
+        the scan and run after the build."""
+        for only, ran in (
+            ("Alpha", ["Alpha"]),
+            ("ExampleTests.Alpha", ["Alpha"]),
+            ("Bravo", ["Bravo"]),
+            ("Charlie,Inner,Delta", ["Charlie", "Delta", "Inner"]),
+        ):
+            with self.subTest(only=only):
+                completed, calls = self._sources_run(only)
+                self.assertEqual(completed.returncode, 0, completed.stdout)
+                self.assertIn("test list", calls[0])
+                self.assertEqual(
+                    sorted(next(s for s in ran if f".{s}/" in call) for call in calls[1:]), ran, completed.stdout)
+
+    def test_a_package_without_test_sources_leaves_the_names_to_the_build(self) -> None:
+        """No source to scan: the scan cannot tell, so the build and its list decide."""
+        completed, calls = self._suites_run("Zulu", ["Alpha"])
+        self.assertEqual(completed.returncode, 2, completed.stdout)
+        self.assertIn("CMUX_SWIFT_TEST_SUITES names Zulu", completed.stdout)
+        self.assertIn("test list", calls[0])
+
     def test_an_invalid_suite_list_is_refused_before_the_build(self) -> None:
         for only in ("Alpha;rm", ",Alpha", "Alpha,", "Al pha", "^Alpha/"):
             with self.subTest(only=only):

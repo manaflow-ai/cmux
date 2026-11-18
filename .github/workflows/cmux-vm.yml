@@ -104,6 +104,11 @@
 #                         a deploy-staging job of a push or dispatch run on feat-cmux-next or main whose log shows its
 #                         journey made the machine and its cleanup delete failed) then
 #                         deletes exactly those, each only when proven, listed and eligible, logged before the delete.
+#   db-fault-staging      the staging database fault switch (src/db/fault.ts): sets the staging Worker's
+#                         CMUX_VM_DB_FAULT to db_fault, a latency or stall on a share of queries inside a window
+#                         of at most an hour, or `off`. The Worker turns it off at the window's end by itself;
+#                         no other environment reads it. For the Cloud chaos suite's database-stall scenario
+#                         (cmuxterm-hq tools/cloud-chaos). Environment cmux-vm-staging, so any ref can run it.
 
 name: cmux VM
 
@@ -134,7 +139,7 @@ on:
       action:
         description: Manual action
         type: choice
-        options: [cloudflare-preflight, hyperdrive-ensure, deploy-staging, deploy-production, smoke-production, migrate-staging, migrate-production, tail-production, sweep-orphans-production, journey-machines-staging, db-connections-staging]
+        options: [cloudflare-preflight, hyperdrive-ensure, deploy-staging, deploy-production, smoke-production, migrate-staging, migrate-production, tail-production, sweep-orphans-production, journey-machines-staging, db-connections-staging, db-fault-staging]
         default: cloudflare-preflight
       environment:
         description: Environment for hyperdrive-ensure
@@ -157,6 +162,10 @@ on:
         description: journey-machines-staging only, at most 5 vm_ID@JOB_ID to delete (JOB_ID the deploy-staging job that leaked it), comma separated; empty lists only
         type: string
         default: ""
+      db_fault:
+        description: db-fault-staging only, the fault as JSON ({"mode":"latency"|"stall","ms","share","from","until"}, epoch ms, window at most 1 h) or off
+        type: string
+        default: "off"
       tail_minutes:
         description: tail-production only, minutes to stream the production Worker's events (at most 25)
         type: string
@@ -498,6 +507,10 @@ jobs:
     needs: [check, migrate-staging]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 45
+    # The after-deploy journey's verdict, for journey-proof-staging.
+    outputs:
+      verdict: ${{ steps.journey-after.outputs.verdict }}
+      verdict_at: ${{ steps.journey-after.outputs.verdict_at }}
     environment: cmux-vm-staging
     concurrency:
       group: cmux-vm-deploy-staging${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'cmux-vm-breaking-change-ok' && format('-label-{0}', github.run_id) || '' }}
@@ -629,6 +642,7 @@ jobs:
       # A step green before the deploy and red after it (exit 3) rolls the Worker back to the recorded
       # version; a red that was already red before is reported in the summary and does not.
       - name: Cloud journey after the deploy; roll back on a new red
+        id: journey-after
         if: ${{ steps.gate.outputs.enabled == 'true' && steps.deploy.outcome == 'success' }}
         env:
           JOURNEY_PHASE: after
@@ -908,6 +922,9 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # The full lifecycle journey's waits; cloud-journey-prod.yml allows the same.
     timeout-minutes: 30
+    outputs:
+      verdict: ${{ steps.journey.outputs.verdict }}
+      verdict_at: ${{ steps.journey.outputs.verdict_at }}
     environment:
       name: cmux-next-cloud-journey
       deployment: false
@@ -925,6 +942,7 @@ jobs:
         with:
           bun-version: "1.4.4"
       - name: Cloud journey (prod, after the deploy)
+        id: journey
         env:
           JOURNEY_MODEL: stub
           TARGET: prod
@@ -932,6 +950,56 @@ jobs:
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
         run: bash scripts/cmux-next/cloud-journey-ci.sh
+
+  # Each after-deploy verdict of this run, on the branch cloud-journey-proofs (cloud-journey-proof-record.sh), so
+  # NOW's cloud_deploy_gate reads it with git when GitHub's API refuses its run lists (2026-11-15 08:38-08:42Z).
+  # One job per environment, so neither proof waits for the other deploy chain. Their own jobs: the write token
+  # never meets the deploy jobs' secrets or third-party steps.
+  journey-proof-staging:
+    needs: deploy-staging
+    if: >-
+      !cancelled() && github.ref == 'refs/heads/feat-cmux-next' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      needs.deploy-staging.outputs.verdict != ''
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/cmux-next/cloud-journey-proof-record.sh
+          sparse-checkout-cone-mode: false
+      - name: Record the staging journey proof
+        env:
+          TOKEN: ${{ github.token }}
+          VERDICT: ${{ needs.deploy-staging.outputs.verdict }}
+          VERDICT_AT: ${{ needs.deploy-staging.outputs.verdict_at }}
+        run: bash scripts/cmux-next/cloud-journey-proof-record.sh staging "$VERDICT" "$VERDICT_AT"
+
+  journey-proof-production:
+    needs: journey-production
+    if: >-
+      !cancelled() && github.ref == 'refs/heads/feat-cmux-next' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      needs.journey-production.outputs.verdict != ''
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/cmux-next/cloud-journey-proof-record.sh
+          sparse-checkout-cone-mode: false
+      - name: Record the production journey proof
+        env:
+          TOKEN: ${{ github.token }}
+          VERDICT: ${{ needs.journey-production.outputs.verdict }}
+          VERDICT_AT: ${{ needs.journey-production.outputs.verdict_at }}
+        run: bash scripts/cmux-next/cloud-journey-proof-record.sh production "$VERDICT" "$VERDICT_AT"
 
   smoke-production:
     # After deploy-production, or alone (action smoke-production: the live version, no deploy, no rollback).
@@ -1047,6 +1115,9 @@ jobs:
   #             Otherwise it dispatches deploy-production again, at most ROLLBACK_DEPLOYS deploys in all, then
   #             records rollback_failed and comments on the cloud-image-roll issue. It never lands another
   #             rollback commit, so a rollback cannot loop.
+  # When cmux-vm-production has CMUX_VM_DEPLOY_ENABLED != 1, the image roll is
+  # committed to cmux-platform/main and its settle job owns rollback. This job
+  # still starts so the environment switch is observable, then does no work.
   image-roll-settle:
     needs: [deploy-production, smoke-production]
     if: >-
@@ -1064,16 +1135,30 @@ jobs:
       contents: write
       issues: write
     steps:
+      - id: deploy-mode
+        working-directory: .
+        env:
+          ENABLED: ${{ vars.CMUX_VM_DEPLOY_ENABLED }}
+        run: |
+          if [ "$ENABLED" = 1 ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Image roll settle skipped: cmux-platform owns deploy and settle while CMUX_VM_DEPLOY_ENABLED is not 1."
+          fi
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: steps.deploy-mode.outputs.enabled == 'true'
         with:
           persist-credentials: false
           ref: feat-cmux-next
           fetch-depth: 50
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: steps.deploy-mode.outputs.enabled == 'true'
         with:
           bun-version: "1.4.4"
       - name: Read the roll
         id: roll
+        if: steps.deploy-mode.outputs.enabled == 'true'
         env:
           EVENT: ${{ github.event_name }}
           MESSAGE: ${{ github.event.head_commit.message }}
@@ -1109,7 +1194,7 @@ jobs:
           echo "Image ${kind} ${run} (${image}): ${outcome}. $(jq -r .reason "$RUNNER_TEMP/settle.json")." | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Mint the push token
         id: push-token
-        if: steps.roll.outputs.outcome == 'rollback'
+        if: steps.deploy-mode.outputs.enabled == 'true' && steps.roll.outputs.outcome == 'rollback'
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           app-id: ${{ secrets.CMUX_PR_AUTOFIX_APP_ID }}
@@ -1119,7 +1204,7 @@ jobs:
           permission-contents: write
       - name: Roll the image back
         id: rollback
-        if: steps.roll.outputs.outcome == 'rollback'
+        if: steps.deploy-mode.outputs.enabled == 'true' && steps.roll.outputs.outcome == 'rollback'
         env:
           TOKEN: ${{ steps.push-token.outputs.token }}
           IMAGE: ${{ steps.roll.outputs.image }}
@@ -1143,7 +1228,7 @@ jobs:
       # settle that deploy the same way, with the next attempt number.
       - name: Deploy the rollback again
         id: retry
-        if: steps.roll.outputs.outcome == 'retry'
+        if: steps.deploy-mode.outputs.enabled == 'true' && steps.roll.outputs.outcome == 'retry'
         env:
           GH_TOKEN: ${{ github.token }}
           IMAGE: ${{ steps.roll.outputs.image }}
@@ -1155,7 +1240,7 @@ jobs:
             -f image_rollback="$IMAGE" -f image_roll_run="$ROLL" -f image_rollback_attempt="$NEXT"
           echo "::warning title=Image rollback::${IMAGE}'s rollback is not verified yet; production deploy ${NEXT} dispatched"
       - name: Record the production smoke and any rollback
-        if: always() && steps.roll.outputs.run != ''
+        if: always() && steps.deploy-mode.outputs.enabled == 'true' && steps.roll.outputs.run != ''
         env:
           TOKEN: ${{ github.token }}
           GH_TOKEN: ${{ github.token }}
@@ -1481,6 +1566,39 @@ jobs:
           WAIT: ${{ inputs.dry_run && '0' || '300' }}
           CMUX_VM_DATABASE_URL: ${{ secrets.CMUX_VM_DATABASE_URL }}
         run: bun db-connections.ts "$MODE" --url-env CMUX_VM_DATABASE_URL --wait-seconds "$WAIT"
+
+  db-fault-staging:
+    # The staging database fault switch (src/db/fault.ts). Writes only the staging Worker's CMUX_VM_DB_FAULT; a value
+    # the Worker's own parser refuses is never written, so a run either sets a fault that ends at its `until` or `off`.
+    name: staging database fault switch
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'db-fault-staging'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
+    environment: cmux-vm-staging
+    concurrency:
+      group: cmux-vm-db-fault-staging
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: workers/cmux-vm
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - run: bun install --frozen-lockfile
+      - name: Check the value with the Worker's parser
+        env:
+          DB_FAULT: ${{ inputs.db_fault }}
+        run: bun scripts/db-fault.ts check | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Set it on the staging Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DB_FAULT: ${{ inputs.db_fault }}
+        run: printf '%s' "$DB_FAULT" | bunx wrangler secret put CMUX_VM_DB_FAULT --env staging
 
   migrate-staging:
     # Staging cmux_vm migrations (release-rails.md, "Staging migrations from CI"): every push to feat-cmux-next

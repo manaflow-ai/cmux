@@ -25,7 +25,9 @@ Where things are:\n\
 - {settings}: {settings_file} (`cmux settings list` shows every key; `cmux settings set KEY VALUE` writes one)\n\
 - {keys}: {config}/keybindings.json\n\
 - {themes}: {config}/themes/NAME.json\n\
-- {views}: {views_dir}/ (place a section with `cmux apps place 'local/customize#cmux.section/1'`)\n\
+- {views}: {views_dir}/ (place a section with `cmux apps place 'local/customize#cmux.section/1'`; \
+a whole New Tab page (`cmux.newtab/1`) shows only once picked: `cmux settings set tabs.newTabApp local/customize`, \
+and only on the web New Tab page, so `tabs.nativeNewTabPage` must be false)\n\
 - {styles}: {config}/agent-pane/theme.css\n\
 - {automations}: make and change them with `cmux automation create|update …` (`cmux automation --help`)\n\
 \n\

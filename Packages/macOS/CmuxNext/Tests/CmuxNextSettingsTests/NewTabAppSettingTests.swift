@@ -18,8 +18,11 @@ import Testing
 
     @Test func refusesWhatIsNoAppID() throws {
         let descriptor = try #require(SettingsSchema.descriptor(for: ["tabs", "newTabApp"]))
-        #expect(descriptor.accepts(.string("manaflow-ai/launcher")))
-        for bad in ["", "launcher", "a/b/c", "/b", "a/", "a b/c"] {
+        for good in ["manaflow-ai/launcher", "local/web-pane", "0x/a-b"] {
+            #expect(descriptor.accepts(.string(good)), "\(good)")
+        }
+        // The manifest id pattern (cmux-app.schema.json `properties.id.pattern`): lowercase only.
+        for bad in ["", "launcher", "a/b/c", "/b", "a/", "a b/c", "Foo/Bar", "local/Web", "-a/b"] {
             #expect(!descriptor.accepts(.string(bad)), "\(bad)")
         }
         #expect(!descriptor.accepts(.bool(true)))

@@ -41,8 +41,13 @@ events/*.ndjson in 19 segments, 1.46 MB per simulated hour flat from the first h
 1.01x); the empty chat 32 KB, 0 B/h; ratio 374x against the 4 KiB/h floor. Nothing ever shrank it (0 falls;
 retention skips it as `open`). The daemon's journal/*.seg grew 67 MB beside it, ledger/turns.jsonl 4 MB.
 
+Hot bytes are the chat's folder minus cold-segments/ (`store/cold_segments.rs`, where sealed segments move
+compressed when agents.chats.coldSegments is on); total bytes count both. --cold-segments turns that setting on
+for both daemons (in their own CMUX_NEXT_CONFIG_FILE); without it the daemon's default applies.
+
 Output: CHATDISK lines, CHATDISK-FILES lines (the files that grow, ids folded to *), PERF_ROW lines
-chat_disk.growth_ratio (x, target 1.2), chat_disk.long_mb_at_100k (MB), chat_disk.long_mb_per_hour,
+chat_disk.hot_growth_ratio (x, target 1.2: hot bytes, the goal's row), chat_disk.growth_ratio (x, every
+byte), chat_disk.long_hot_mb_per_hour, chat_disk.long_mb_at_100k (MB), chat_disk.long_mb_per_hour,
 chat_disk.empty_mb_per_hour, chat_disk.late_over_early_slope, and --out JSON with every sample.
 Measurement only: it signals and reads only the processes it started.
 
@@ -160,7 +165,7 @@ def file_groups(path):
 
 def chat_parts(chat_dir):
     """The chat's session dir by part: events/ (its .ndjson segments, the rest of events/), session.json, other."""
-    parts = {"events_ndjson": 0, "events_other": 0, "session_json": 0, "other": 0, "segments": 0}
+    parts = {"events_ndjson": 0, "events_other": 0, "session_json": 0, "cold": 0, "other": 0, "segments": 0}
     for base, _, files in os.walk(chat_dir):
         rel_base = os.path.relpath(base, chat_dir)
         for name in files:
@@ -174,11 +179,14 @@ def chat_parts(chat_dir):
                 parts["segments"] += 1
             elif top == "events":
                 parts["events_other"] += size
+            elif top == "cold-segments":
+                parts["cold"] += size
             elif rel_base == "." and name == "session.json":
                 parts["session_json"] += size
             else:
                 parts["other"] += size
     parts["total"] = sum(v for k, v in parts.items() if k != "segments")
+    parts["hot"] = parts["total"] - parts["cold"]
     return parts
 
 
@@ -239,6 +247,11 @@ class Daemon:
                    XDG_STATE_HOME=os.path.join(home, ".local/state"), XDG_DATA_HOME=os.path.join(home, ".local/share"),
                    XDG_CACHE_HOME=os.path.join(home, ".cache"), ACPMUX_HOME=self.home, ACPMUX_SOCKET=self.sock,
                    ACPMUX_UNUSED_EXIT_SECS="0", ACPMUX_SESSION_CPU_CLASS="normal")
+        if getattr(self.args, "cold_segments", False):
+            settings = os.path.join(self.root, "cmux-next.json")
+            with open(settings, "w") as f:
+                json.dump({"agents.chats.coldSegments": True}, f)
+            env.update(CMUX_NEXT_CONFIG_FILE=settings)
         return env
 
     def start(self):
@@ -341,6 +354,7 @@ def main():
     p.add_argument("--root-dir", default=None)
     p.add_argument("--out")
     p.add_argument("--keep", action="store_true")
+    p.add_argument("--cold-segments", action="store_true", help="agents.chats.coldSegments on for both daemons")
     args = p.parse_args()
     if args.agent:
         return run_agent()
@@ -413,6 +427,9 @@ def main():
     end = samples[-1]
     denom = max(empty_slope, FLOOR_BYTES_PER_HOUR)
     ratio = long_slope / denom
+    long_hot_slope = slope(hrs, [s["long"]["chat"]["hot"] for s in steady])
+    empty_hot_slope = slope(hrs, [s["empty"]["chat"]["hot"] for s in steady])
+    hot_ratio = long_hot_slope / max(empty_hot_slope, FLOOR_BYTES_PER_HOUR)
     mb = 1048576.0
     print(f"CHATDISK rate {args.turn_secs:g} s/turn, {ROWS_PER_TURN} rows/turn, {turns} turns = {end['rows']} rows = "
           f"{end['sim_hours']:.1f} simulated hours in {result['wall_s']:.0f} s wall", flush=True)
@@ -430,7 +447,12 @@ def main():
           f"chat bytes {result['after_close_dry_run']['chat']['total'] / mb:.1f} MB", flush=True)
     for key, size in sorted(result["files"].items(), key=lambda kv: -kv[1])[:8]:
         print(f"CHATDISK-FILES {size / mb:.2f} MB {key}", flush=True)
-    perf_row("chat_disk.growth_ratio", ratio, "x", target=1.2)
+    print(f"CHATDISK hot (all but cold-segments/, cold segments {'on' if args.cold_segments else 'default'}): "
+          f"long chat {long_hot_slope / mb:.3f} MB/h, {end['long']['chat']['hot'] / mb:.2f} MB at the end; empty chat "
+          f"{empty_hot_slope:.0f} B/h; ratio {hot_ratio:.1f}x", flush=True)
+    perf_row("chat_disk.hot_growth_ratio", hot_ratio, "x", target=1.2)
+    perf_row("chat_disk.long_hot_mb_per_hour", long_hot_slope / mb, "MB/h")
+    perf_row("chat_disk.growth_ratio", ratio, "x")
     perf_row("chat_disk.long_mb_at_100k", end["long"]["chat"]["total"] / mb, "MB")
     perf_row("chat_disk.long_mb_per_hour", long_slope / mb, "MB/h")
     perf_row("chat_disk.empty_mb_per_hour", empty_slope / mb, "MB/h")

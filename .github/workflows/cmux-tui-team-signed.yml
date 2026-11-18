@@ -1,0 +1,248 @@
+name: cmux-tui Team-signed tree
+
+# Signs one feat-cmux-next commit's darwin cmux-tui tree build (bin/cmux and its companions) with the
+# Developer ID identity the NEXT nightly signs with, and publishes the signed set beside the ad-hoc
+# one: files.cmux.com/cmux-tui/tree/<key>/team-signed/ (scripts/ci/cmux_tui_team_sign.py has the
+# layout). hot-apply.py takes it for a Team-signed app (a NIGHTLY), whose daemon proves the app only
+# when it is signed by the app's team (cmuxterm-hq#11364: an ad-hoc daemon swapped into a NIGHTLY
+# broke Cloud). The ad-hoc tree stays as it is for Linux, the SSH installer, tests and DEV apps.
+#
+# The identity lives in the release-next environment, whose deployment branch policy allows only
+# branch nightly-next, so this runs as a workflow_dispatch on ref nightly-next: nightly-next's own
+# copy of this file and its scripts run (nightly-next is a promoted feat-cmux-next tip). Nothing here
+# runs code from the commit it signs while a secret is in reach: plan reads the commit's tree key on
+# Linux with no secret, sign takes the published bytes as data (the same bytes, by the same checks,
+# that the NEXT nightly bundles and signs: pin-cmux-tui.sh tree mode), and publish uploads on Linux.
+#
+# cmux-tui-artifacts.yml dispatches it after a feat-cmux-next push publishes (or finds) its tree
+# (request-team-signed-tree). It gates nothing: no merge, nightly or publish waits on it. By hand:
+#   gh workflow run cmux-tui-team-signed.yml --repo manaflow-ai/cmux --ref nightly-next -f commit=<40-hex sha>
+
+on:
+  # GitHub dispatches only a workflow it knows, and it learns a file that is not on the default branch
+  # from a run. A push that changes this file starts one run whose jobs skip, and that registers it.
+  push:
+    branches: [feat-cmux-next]
+    paths: [.github/workflows/cmux-tui-team-signed.yml]
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: "Full 40-hex feat-cmux-next commit whose darwin tree build to sign"
+        required: true
+        type: string
+      key:
+        description: "Optional: the commit's tree key, which names the concurrency group (checked against the commit)"
+        required: false
+        default: ""
+        type: string
+
+# One run per tree key (the requester passes it; a dispatch by hand without it groups by commit), so a
+# burst of pushes of one key signs once: GitHub keeps one pending run per group, and that run then
+# finds the set published. Two runs that do sign one key at once publish their files under their own
+# sha256, and the first completion.json to land names one whole set.
+concurrency:
+  group: cmux-tui-team-signed-${{ inputs.key || inputs.commit || github.sha }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  plan:
+    name: plan Team-signed tree
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/nightly-next'
+    # No environment and no secrets: it reads the commit's tree key (the commit's own key script, as
+    # cmux-tui-artifacts.yml's tree-preflight does) and two public URLs.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      key: ${{ steps.plan.outputs.key }}
+      needed: ${{ steps.plan.outputs.needed }}
+    steps:
+      - name: Check the commit
+        env:
+          COMMIT: ${{ inputs.commit }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::commit must be a full 40-hex sha, not '$COMMIT'"; exit 1; }
+          # On feat-cmux-next: the commit is feat-cmux-next's head or behind it.
+          status="$(gh api "repos/$REPO/compare/$COMMIT...feat-cmux-next" --jq .status)"
+          case "$status" in
+            identical|ahead) echo "$COMMIT is on feat-cmux-next ($status)" ;;
+            *) echo "::error::$COMMIT is not on feat-cmux-next (compare: $status); only a merged commit's tree is Team-signed"; exit 1 ;;
+          esac
+
+      - name: Checkout the commit (its tree key script)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.commit }}
+          path: source
+          fetch-depth: 1
+
+      - name: Checkout this workflow's tools
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: tools
+          sparse-checkout: scripts/ci
+
+      - name: Read the tree key and whether its Team-signed set is published
+        id: plan
+        env:
+          KEY_INPUT: ${{ inputs.key }}
+        run: |
+          set -euo pipefail
+          key="$(python3 source/scripts/ci/cmux_tui_tree_key.py --version v2 HEAD)"
+          if [[ -n "$KEY_INPUT" && "$KEY_INPUT" != "$key" ]]; then
+            echo "::error::the key input $KEY_INPUT is not the commit's tree key $key"; exit 1
+          fi
+          python3 tools/scripts/ci/cmux_tui_team_sign.py plan "$key" | tee -a "$GITHUB_OUTPUT"
+
+  sign:
+    name: sign Team-signed tree
+    needs: plan
+    if: needs.plan.outputs.needed == 'true'
+    # The NEXT nightly's signing identity: release-next, the environment nightly.yml's
+    # build-sign-notarize-nightly takes for the nightly-next track. A deployment, as there: its
+    # branch policy is what keeps the identity on nightly-next.
+    environment: release-next
+    # A literal ephemeral label (tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py rule 7):
+    # the release signers' ephemeral macOS runner. It never takes a fleet Mac from the nightly.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout this workflow's signing tools
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          sparse-checkout: |
+            scripts
+            cmux-helper.entitlements
+          sparse-checkout-cone-mode: false
+
+      # Before any secret: an owned Mac must be held whole (an ephemeral runner passes).
+      - name: Claim the whole Mac for signing
+        run: ./scripts/ci/signing-runner-claim.sh
+
+      - name: Fetch the published darwin build, checked
+        env:
+          KEY: ${{ needs.plan.outputs.key }}
+        run: python3 scripts/ci/cmux_tui_team_sign.py fetch "$KEY" team-signed
+
+      - name: Import the Developer ID certificate
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: ./scripts/ci/signing-keychain.sh create
+
+      # sign-cmux-bundle-helpers.sh's helper signature: hardened runtime, a timestamp,
+      # cmux-helper.entitlements, the file's own name as its identifier. No signed file runs.
+      - name: Sign each file as the nightly signs its helpers
+        id: signed
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          [[ -n "$APPLE_SIGNING_IDENTITY" ]] || { echo "::error::release-next has no APPLE_SIGNING_IDENTITY"; exit 1; }
+          team=""
+          for file in team-signed/*; do
+            [[ "$file" == *.json ]] && continue
+            /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" \
+              --entitlements cmux-helper.entitlements "$file"
+            /usr/bin/codesign --verify --strict --verbose=2 "$file"
+            got="$(/usr/bin/codesign -dv "$file" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
+            [[ "$got" =~ ^[A-Z0-9]{10}$ ]] || { echo "::error::$file has no Team ID after signing ('$got')"; exit 1; }
+            [[ -z "$team" || "$got" == "$team" ]] || { echo "::error::$file is signed by $got, another file by $team"; exit 1; }
+            team="$got"
+          done
+          if [[ -n "${APPLE_TEAM_ID:-}" && "$team" != "$APPLE_TEAM_ID" ]]; then
+            echo "::error::signed by team $team, but release-next's APPLE_TEAM_ID is another"; exit 1
+          fi
+          echo "team=$team" >> "$GITHUB_OUTPUT"
+
+      - name: Delete the signing keychain
+        if: always()
+        run: ./scripts/ci/signing-keychain.sh delete
+
+      - name: Write the Team-signed completion
+        env:
+          KEY: ${{ needs.plan.outputs.key }}
+          TEAM: ${{ steps.signed.outputs.team }}
+          COMMIT: ${{ inputs.commit }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python3 scripts/ci/cmux_tui_team_sign.py manifest "$KEY" team-signed --team "$TEAM" --commit "$COMMIT" --run-url "$RUN_URL"
+
+      - name: Upload the signed set
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-tui-team-signed-${{ needs.plan.outputs.key }}
+          path: team-signed
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    name: publish Team-signed tree
+    needs: [plan, sign]
+    # R2 credentials, as cmux-tui-artifacts.yml's publish-tree has them.
+    environment:
+      name: artifacts
+      deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout this workflow's tools
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          sparse-checkout: scripts/ci
+
+      - name: Download the signed set
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-tui-team-signed-${{ needs.plan.outputs.key }}
+          path: team-signed
+
+      - name: Check the signed set
+        run: python3 scripts/ci/cmux_tui_team_sign.py verify team-signed
+
+      # Write-once: the signed files by their own sha256, then completion.json. A completion.json
+      # another run of the same key wrote first (exit 3) stands; that run's files are its own.
+      - name: Upload the signed set, completion.json last
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/cmux_tui_team_sign.py objects team-signed > objects.txt
+          while read -r object file; do
+            type=application/octet-stream
+            [[ "$file" == *.json ]] && type="application/json; charset=utf-8"
+            status=0
+            python3 scripts/ci/upload-r2-object.py --write-once --conflict-exit-code 3 \
+              --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries --key "$object" --file "$file" \
+              --content-type "$type" --cache-control "public, max-age=31536000, immutable" || status=$?
+            if [[ "$status" == 3 && "$file" == *completion.json ]]; then
+              echo "::notice title=Team-signed tree already published::another run published $object first; its set stands"
+            elif [[ "$status" != 0 ]]; then
+              exit "$status"
+            fi
+          done < objects.txt
+          {
+            echo "### Team-signed tree"
+            echo
+            echo "https://files.cmux.com/$(tail -1 objects.txt | cut -d' ' -f1)"
+          } >> "$GITHUB_STEP_SUMMARY"

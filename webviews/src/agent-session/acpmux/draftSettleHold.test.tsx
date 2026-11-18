@@ -4,6 +4,7 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import { teardownDom } from "../../../test/support/domTeardown";
 import { DRAFT_SETTLE_HOLD_MS, useDraftWaitOver } from "./draftSettleHold";
 
 let root: Root | undefined;
@@ -11,16 +12,15 @@ let dom: JSDOM | undefined;
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
-  for (const [key, value] of saved) {
-    // A global the file added (`document`, `IS_REACT_ACT_ENVIRONMENT`) goes away, not left as undefined.
-    if (value === undefined) delete scope[key];
-    else scope[key] = value;
-  }
+  // A global the file added (`document`, `IS_REACT_ACT_ENVIRONMENT`) goes away, not left as undefined.
+  await teardownDom(
+    [...saved].map(([key, value]) => [key, value !== undefined, value] as const),
+    { window: dom?.window, scope },
+  );
   saved.clear();
-  dom?.window.close();
   dom = undefined;
 });
 
@@ -56,7 +56,7 @@ function harness() {
     advance: (ms: number) =>
       act(() => {
         now += ms;
-        for (const [id, timer] of [...timers]) {
+        for (const [id, timer] of Array.from(timers)) {
           if (timer.at > now) continue;
           timers.delete(id);
           timer.run();

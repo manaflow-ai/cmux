@@ -16,6 +16,8 @@ cmux-theme-tokens.workspace = true
 base64.workspace = true
 notify.workspace = true
 plist = "1"
+# The app manifest schema's id pattern (tabs.newTabApp, schema/app_id.rs).
+regex.workspace = true
 serde.workspace = true
 # raw_value: the embedded settings schema keeps each row as a slice of its text.
 serde_json = { workspace = true, features = ["raw_value"] }

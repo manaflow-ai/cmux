@@ -16,7 +16,7 @@ final class SidebarPriorityPanelView: NSView {
     private let header = SidebarSectionHeaderView()
     private let count = ChromeLabel(labelWithString: "")
     private let empty = ChromeLabel(labelWithString: Strings.priorityEmpty)
-    private let scroll = NSScrollView()
+    private let scroll = OverlayScrollView()
     private let clip = ScrollReportingClipView()
     private lazy var fade = ScrollEdgeFadeView(scrollView: scroll)
     private let document = FlippedDocument()

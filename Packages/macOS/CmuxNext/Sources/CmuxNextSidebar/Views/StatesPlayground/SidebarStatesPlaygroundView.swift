@@ -9,7 +9,7 @@ final class SidebarStatesPlaygroundView: NSView {
     /// The sections other packages draw (the Home filter), each as its own sheets below the favicon styles sheets.
     private let sections: [SidebarStatesPlaygroundSection]
     private let redraw = NSButton()
-    private let scroll = NSScrollView()
+    private let scroll = OverlayScrollView()
     private let document = FlippedDocument()
     /// The sheets, light then dark.
     private(set) var sheets: [SidebarStatesPlaygroundAppearance: SidebarStatesPlaygroundSheetView] = [:]

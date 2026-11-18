@@ -57,7 +57,7 @@
   display: inline-flex;
   flex: none;
   align-items: center;
-  padding: 0 2px;
+  padding: 0 var(--grid-half-step);
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 46%, transparent));
   font-size: var(--text-content);
 }

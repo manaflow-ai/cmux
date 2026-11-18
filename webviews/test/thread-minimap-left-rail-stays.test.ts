@@ -25,6 +25,11 @@ import { sessionInfoPushAlways, papercutPane } from "./support/papercutChat";
 import { railPlacement } from "../src/agent-session/acpmux/threadMinimap/model";
 import { sessionInfoStage } from "../src/agent-session/acpmux/session-info/sessionInfoModel";
 import { SESSION_INFO_WIDTH } from "../src/agent-session/acpmux/session-info/sessionInfoState";
+import {
+  SESSION_INFO,
+  SESSION_INFO_SHOWN,
+  SESSION_INFO_TOGGLE,
+} from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -67,7 +72,7 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
         window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
       ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }),
     );
-    const toggle = page.locator("button.acpmux-session-info-toggle");
+    const toggle = page.locator(SESSION_INFO_TOGGLE);
     await toggle.waitFor({ timeout: 10_000 });
     return toggle;
   };
@@ -75,14 +80,14 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
     const toggle = await showToggle(page);
     // Pressed while it shows; a pane that waits for the person (SessionInfo.tsx sessionInfoFits) has it closed already.
     if ((await toggle.getAttribute("aria-pressed")) === "true") await toggle.click({ force: true });
-    await page.locator("aside.acpmux-session-info").waitFor({ state: "detached", timeout: 5_000 });
+    await page.locator(SESSION_INFO).waitFor({ state: "detached", timeout: 5_000 });
     await settle(page);
   };
   const openSessionInfo = async (page: Page, push: boolean) => {
     if (push) await sessionInfoPushAlways(page);
     const toggle = await showToggle(page);
-    if ((await page.locator("aside.acpmux-session-info").count()) === 0) await toggle.click({ force: true });
-    await page.locator('aside.acpmux-session-info[data-presence="shown"]').waitFor({ timeout: 10_000 });
+    if ((await page.locator(SESSION_INFO).count()) === 0) await toggle.click({ force: true });
+    await page.locator(SESSION_INFO_SHOWN).waitFor({ timeout: 10_000 });
     await settle(page);
   };
   /// The pane-edge inset useRailPlacement gives the default `tight` gutter: the spacing tokens it reads
@@ -111,30 +116,33 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
     }, side);
   /// Where the rail draws, against the pane and the transcript's column (its rows' left edge).
   const rail = (page: Page) =>
-    page.evaluate(() => {
-      const nav = document.querySelector(".acpmux-minimap__rail:not(.acpmux-scrollmap)");
-      const shell = document.querySelector(".acpmux-shell")!.getBoundingClientRect();
-      const scroller = document.querySelector(".acpmux-scroll")!.getBoundingClientRect();
-      const rows = [...document.querySelectorAll(".acpmux-row")].map((row) => row.getBoundingClientRect().left);
-      const column = Math.min(...rows);
-      // Session Info's stage as the page chose it (SessionInfo.tsx sessionInfoStage, with the chat's
-      // measured overflow), not one this file computes.
-      const placement = document.querySelector("aside.acpmux-session-info")?.getAttribute("data-placement") ?? null;
-      if (!nav) return { shown: false as const, placement };
-      const box = nav.getBoundingClientRect();
-      // A tick's resting bar, as drawn.
-      const bar = nav.querySelector(".acpmux-minimap__bar")!.getBoundingClientRect();
-      return {
-        shown: true as const,
-        scrollbarPinned: Math.abs(scroller.right - shell.right) < 1,
-        placement,
-        left: Math.round(box.left),
-        occluded: nav.hasAttribute("data-occluded"),
-        insidePane: box.left >= shell.left - 0.5 && box.right <= shell.right + 0.5 && bar.width > 0,
-        clearOfColumn: box.right <= column + 0.5,
-        distance: Math.round((column - box.right) * 10) / 10,
-      };
-    });
+    page.evaluate(
+      ({ SESSION_INFO }) => {
+        const nav = document.querySelector(".acpmux-minimap__rail:not(.acpmux-scrollmap)");
+        const shell = document.querySelector(".acpmux-shell")!.getBoundingClientRect();
+        const scroller = document.querySelector(".acpmux-scroll")!.getBoundingClientRect();
+        const rows = [...document.querySelectorAll(".acpmux-row")].map((row) => row.getBoundingClientRect().left);
+        const column = Math.min(...rows);
+        // Session Info's stage as the page chose it (SessionInfo.tsx sessionInfoStage, with the chat's
+        // measured overflow), not one this file computes.
+        const placement = document.querySelector(SESSION_INFO)?.getAttribute("data-placement") ?? null;
+        if (!nav) return { shown: false as const, placement };
+        const box = nav.getBoundingClientRect();
+        // A tick's resting bar, as drawn.
+        const bar = nav.querySelector(".acpmux-minimap__bar")!.getBoundingClientRect();
+        return {
+          shown: true as const,
+          scrollbarPinned: Math.abs(scroller.right - shell.right) < 1,
+          placement,
+          left: Math.round(box.left),
+          occluded: nav.hasAttribute("data-occluded"),
+          insidePane: box.left >= shell.left - 0.5 && box.right <= shell.right + 0.5 && bar.width > 0,
+          clearOfColumn: box.right <= column + 0.5,
+          distance: Math.round((column - box.right) * 10) / 10,
+        };
+      },
+      { SESSION_INFO },
+    );
 
   for (const name of browsers.keys())
     for (const width of [1600, 1100, 1200, 800, 780, 760])
@@ -213,11 +221,10 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
             });
             Object.assign(window, { railCardFrames: { samples, stop } });
           });
-          const toggle = () =>
-            page.locator("button.acpmux-session-info-toggle").evaluate((node) => (node as HTMLElement).click());
+          const toggle = () => page.locator(SESSION_INFO_TOGGLE).evaluate((node) => (node as HTMLElement).click());
           for (const open of [true, false, true]) {
             await toggle();
-            await page.locator("aside.acpmux-session-info").waitFor({ state: open ? "visible" : "detached" });
+            await page.locator(SESSION_INFO).waitFor({ state: open ? "visible" : "detached" });
             await settle(page);
             await page.evaluate(() => window.cmuxPaintFrame());
           }

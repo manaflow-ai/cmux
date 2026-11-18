@@ -38,6 +38,8 @@ nonisolated public struct PaletteSearchEntry: Sendable, Hashable {
     public var suggestedSectionIndex: Int?
     /// `PaletteItem.handles`.
     public var handles: [String] = []
+    /// `PaletteItem.aliases`.
+    public var aliases: [String] = []
 
     public init(
         title: String,
@@ -121,5 +123,6 @@ extension PaletteSearchEntry {
         hasShortcut = !keycaps.isEmpty
         suggestedRank = item.suggestedRank
         handles = item.handles
+        aliases = item.aliases
     }
 }

@@ -10,6 +10,7 @@
 //! each other cannot ask back and forth.
 
 use super::Origin;
+use super::host_power;
 use crate::hub::Hub;
 use crate::rpc::RpcError;
 use cmux_json::JsonSet as _;
@@ -58,6 +59,11 @@ pub(crate) async fn host_health_with(
         "build": crate::hub::build(),
         "os": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
+        // What kind of device this is (`cmux-device-kind`: `mac-mini`, `linux-server`), so every
+        // view of a machine draws its own glyph; read once per process.
+        "device": cmux_device_kind::this_device().kind.as_str(),
+        // The SF Symbol that kind draws, so a native view names it without a table of its own.
+        "deviceSymbol": cmux_device_kind::this_device().kind.symbol(),
         "cpus": std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1),
         "liveSessions": hub.live_session_count(),
         "uptimeSecs": crate::store::now_ms().saturating_sub(hub.started_at) / 1000,
@@ -88,6 +94,13 @@ pub(crate) async fn host_health_with(
     if let Some((used, total)) = swap() {
         v.set("swap", json!({"usedBytes": used, "totalBytes": total}));
     }
+    // Power and network for Auto chat placement (`host_power.rs`): a closed lid, a low battery
+    // or a network that is down change where a chat runs. A debug override can stand in for each.
+    let assume = host_power::assumed(crate::store::now_ms());
+    if let Some(power) = host_power::power_json(host_power::power().await, assume.as_ref()) {
+        v.set("power", power);
+    }
+    v.set("network", host_power::network_json(host_power::network_up(), assume.as_ref()));
     v.set(
         "pressure",
         PRESSURE_KEYS.iter().filter_map(|k| Some((*k, pressure.get(*k)?.clone()))).collect(),

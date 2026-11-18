@@ -25,6 +25,8 @@ mod tier;
 
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, PoisonError};
 
 fn null_as_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
 where
@@ -73,6 +75,11 @@ pub struct Entry {
     /// of them, or its digits (`612`), ranks the row first, above every text match.
     #[serde(default, deserialize_with = "null_as_default")]
     pub handles: Vec<String>,
+    /// Phrases that name this row (the catalog's built-in aliases, `palette::ALIASES`): a query
+    /// that is one of them, ignoring case and spacing, ranks the row like the user's own
+    /// `palette.aliases` match does, first among enabled rows after a handle.
+    #[serde(default, deserialize_with = "null_as_default")]
+    pub aliases: Vec<String>,
 }
 
 /// One frecency record.
@@ -208,6 +215,9 @@ struct Installed {
     version: i64,
     entries: Vec<Entry>,
     prepared: rank::Prepared,
+    /// The candidate rows of the latest queries, so a keystroke that extends the query scores
+    /// only the rows the shorter query could still lead to.
+    narrowing: Mutex<rank::Narrowing>,
 }
 
 /// A ranker that holds one snapshot of entries and one usage history, so a keystroke sends
@@ -216,6 +226,8 @@ struct Installed {
 pub struct Ranker {
     installed: Option<Installed>,
     history: Option<(i64, Frecency)>,
+    /// Rows scored since the ranker was made ([`Ranker::rows_scored`]).
+    rows_scored: AtomicUsize,
 }
 
 impl Ranker {
@@ -226,7 +238,8 @@ impl Ranker {
     /// Holds `entries` for `version`; later requests for that version carry no entries.
     pub fn install(&mut self, version: i64, entries: Vec<Entry>) {
         let prepared = rank::Prepared::new(&entries);
-        self.installed = Some(Installed { version, entries, prepared });
+        self.installed =
+            Some(Installed { version, entries, prepared, narrowing: Mutex::default() });
     }
 
     /// Holds `history` for `revision`; later requests name the revision and carry no history.
@@ -236,7 +249,42 @@ impl Ranker {
 
     /// Ranks one request: its own entries, or the installed ones of its version, with its own
     /// history, or the installed one of its history revision.
+    ///
+    /// A keystroke that extends the installed entries' previous query scores only the rows that
+    /// query could still lead to ([`rank::Narrowing`]); the answer is the same.
     pub fn rank(&self, request: &RankRequest) -> Result<Vec<RankedSection>, RankError> {
+        self.rank_with(request, true)
+    }
+
+    /// [`Ranker::rank`] with every row scored again: the reference a keystroke's answer must
+    /// equal.
+    pub fn rank_full(&self, request: &RankRequest) -> Result<Vec<RankedSection>, RankError> {
+        self.rank_with(request, false)
+    }
+
+    /// The rows this ranker has scored (matched against a query) since it was made: the work a
+    /// keystroke costs, counted rather than timed.
+    pub fn rows_scored(&self) -> usize {
+        self.rows_scored.load(Ordering::Relaxed)
+    }
+
+    fn rank_with(
+        &self,
+        request: &RankRequest,
+        narrows: bool,
+    ) -> Result<Vec<RankedSection>, RankError> {
+        let mut work = 0;
+        let answer = self.answer(request, narrows, &mut work);
+        self.rows_scored.fetch_add(work, Ordering::Relaxed);
+        answer
+    }
+
+    fn answer(
+        &self,
+        request: &RankRequest,
+        narrows: bool,
+        work: &mut usize,
+    ) -> Result<Vec<RankedSection>, RankError> {
         let store = match (request.frecency.as_ref(), request.history_revision) {
             (Some(frecency), _) => Some(frecency),
             (None, Some(revision)) => match &self.history {
@@ -246,12 +294,23 @@ impl Ranker {
             (None, None) => None,
         };
         if let Some(entries) = request.entries.as_deref() {
-            return Ok(rank_entries(request, entries, None, store).sections);
+            return Ok(rank_entries(request, entries, None, store, None, work).sections);
         }
         match &self.installed {
             Some(installed) if Some(installed.version) == request.version => {
-                Ok(rank_entries(request, &installed.entries, Some(&installed.prepared), store)
-                    .sections)
+                // A panic mid-keystroke leaves every kept step whole (a step is kept only once
+                // complete), so a poisoned lock is still sound.
+                let mut narrowing = narrows
+                    .then(|| installed.narrowing.lock().unwrap_or_else(PoisonError::into_inner));
+                Ok(rank_entries(
+                    request,
+                    &installed.entries,
+                    Some(&installed.prepared),
+                    store,
+                    narrowing.as_deref_mut(),
+                    work,
+                )
+                .sections)
             }
             _ => Err(RankError::NotInstalled(request.version)),
         }
@@ -263,6 +322,8 @@ fn rank_entries(
     entries: &[Entry],
     prepared: Option<&rank::Prepared>,
     store: Option<&Frecency>,
+    narrowing: Option<&mut rank::Narrowing>,
+    work: &mut usize,
 ) -> RankAnswer {
     if request.operation == "rankEmpty" {
         return RankAnswer {
@@ -271,8 +332,8 @@ fn rank_entries(
         };
     }
     match prepared {
-        Some(prepared) => rank::rank(request, entries, prepared, store),
-        None => rank::rank(request, entries, &rank::Prepared::new(entries), store),
+        Some(prepared) => rank::rank(request, entries, prepared, store, narrowing, work),
+        None => rank::rank(request, entries, &rank::Prepared::new(entries), store, None, work),
     }
 }
 
@@ -288,5 +349,7 @@ pub fn rank_request_answer(request: &RankRequest) -> RankAnswer {
         request.entries.as_deref().unwrap_or_default(),
         None,
         request.frecency.as_ref(),
+        None,
+        &mut 0,
     )
 }
