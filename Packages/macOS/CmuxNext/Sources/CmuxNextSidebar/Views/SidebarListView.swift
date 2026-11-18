@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextWakeups
 import QuartzCore
@@ -30,6 +31,8 @@ final class SidebarListView: NSView {
     /// Each layout `apply` draws, in order (a test records every frame the list shows, a one-hop glitch too).
     var onApply: ((SidebarLayout) -> Void)?
     var rowViews: [SidebarRowKey: SidebarRowView] = [:]
+    /// The rows this list configured, laid out and walked (the visible-rows contract, `SidebarListView+VisibleRows`).
+    let listWork = ListWorkMeter()
     var workspaces: [WorkspaceID: SidebarWorkspace] = [:]
     var groups: [GroupID: SidebarGroup] = [:]
     /// What placed groups draw in under the gradient palette (`SidebarGroup.drawnTints`), set with `groups`; empty

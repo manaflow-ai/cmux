@@ -146,8 +146,8 @@ import PackageDescription
 //   CmuxNextCrashReporting -> Compat, Wakeups, CmuxSentryReporting, Sentry (crash and exception reports
 //     to Sentry: consent, channel environment, release, scrubbing; the run marker's background file
 //     writer, RunMarkerFile; no UI, no daemon; cx-urd.58)
-//   CmuxNextTestSupport -> system frameworks only (helpers test targets share, under Tests/; no
-//     product links it)
+//   CmuxNextTestSupport -> Compat, system frameworks (helpers test targets share, under Tests/, and
+//     the visible-rows contract over Compat's ListWorkMeter; no product links it)
 //   CmuxNextSessionTransfer -> Design, Settings (Move Sessions from Another cmux Build: the
 //     transferable session and peer values, the picker and the toast text; no AppKit, no daemon;
 //     the App's SessionTransferService discovers peers and moves sessions; cx-yxmkh)
@@ -2598,9 +2598,13 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // Helpers test targets share, linked into no product: FrameBudgetCalibration, which
         // scales a main-thread frame budget to the runner a suite runs on. CmuxNextTestExitTrace
         // holds the window census `.closesItsWindows` reads, so every target that has the trait links it.
+        // VisibleRowsContract reads a list's ListWorkMeter (CmuxNextCompat).
         .target(
             name: "CmuxNextTestSupport",
-            dependencies: ["CmuxNextTestExitTrace"],
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
+                "CmuxNextTestExitTrace",
+            ],
             path: "Tests/CmuxNextTestSupport",
             swiftSettings: uiSwiftSettings
         ),
