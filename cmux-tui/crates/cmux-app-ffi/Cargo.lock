@@ -127,6 +127,7 @@ dependencies = [
  "cbindgen",
  "cmux-action-catalog",
  "cmux-agent-pane-policy",
+ "cmux-background-ready",
  "cmux-cookie-sync",
  "cmux-daemon-conn-core",
  "cmux-daemon-launch-core",
@@ -139,6 +140,10 @@ dependencies = [
  "cmux-sdk-ffi",
  "cmux-terminal-prediction",
 ]
+
+[[package]]
+name = "cmux-background-ready"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-bookmarks-core"
