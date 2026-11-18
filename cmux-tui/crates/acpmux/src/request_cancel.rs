@@ -62,11 +62,12 @@ pub fn named_id(params: &Value) -> Option<&Value> {
 /// stack the two overflowed a 2 MiB tokio worker (`tests/request_stack.rs`). The request's cancel
 /// goes with it: dropped for any reason, this aborts the task, and after a client's cancel what
 /// the task waited on reads [`requested`] true, as it would have in the request's own task.
-pub async fn on_own_task<F>(fut: F) -> Result<F::Output, tokio::task::JoinError>
-where
-    F: Future + Send + 'static,
-    F::Output: Send + 'static,
-{
+///
+/// `fut` is a boxed `dyn Future + Send`: the request it serves is the one awaiting it, so its
+/// future type contains itself, and the compiler proves it `Send` only at this coercion.
+pub async fn on_own_task<T: Send + 'static>(
+    fut: std::pin::Pin<Box<dyn Future<Output = T> + Send>>,
+) -> Result<T, tokio::task::JoinError> {
     struct AbortOnDrop<T>(tokio::task::JoinHandle<T>);
     impl<T> Drop for AbortOnDrop<T> {
         fn drop(&mut self) {

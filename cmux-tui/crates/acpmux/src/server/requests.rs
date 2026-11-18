@@ -695,9 +695,9 @@ async fn dispatch_brief(
     // On a task of its own (`request_cancel::on_own_task`): served on this stack, the nested
     // session/new overflowed a 2 MiB worker.
     let (task_hub, task_conn) = (hub.clone(), conn.clone());
-    let made = crate::request_cancel::on_own_task(async move {
+    let made = crate::request_cancel::on_own_task(Box::pin(async move {
         dispatch_request(&task_hub, &task_conn, method::SESSION_NEW, new_params, None).await
-    })
+    }))
     .await
     .unwrap_or_else(|e| Err(RpcError::internal(format!("dispatch session/new: {e}"))));
     let created = match made {

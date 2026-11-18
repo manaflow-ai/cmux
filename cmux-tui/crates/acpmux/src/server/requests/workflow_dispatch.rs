@@ -326,7 +326,7 @@ pub(super) async fn local(
             // (`request_cancel::on_own_task`): on this stack it overflows a 2 MiB worker.
             let (task_hub, task_conn, fixed) =
                 (hub.clone(), conn.clone(), identity.session_id.clone());
-            crate::request_cancel::on_own_task(async move {
+            crate::request_cancel::on_own_task(Box::pin(async move {
                 dispatch_request_with_identity(
                     &task_hub,
                     &task_conn,
@@ -336,7 +336,7 @@ pub(super) async fn local(
                     Some(fixed),
                 )
                 .await
-            })
+            }))
             .await
             .map_err(|e| RpcError::internal(format!("durable dispatch session/new: {e}")))??;
             hub.resolve(&identity.session_id)?
