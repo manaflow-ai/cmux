@@ -50,17 +50,16 @@ export function mountSidebarChats(
     });
   };
 
+  // Made once: the memoized rows keep them across blocks (`send` reads the block drawn at the click).
+  const onOpen = (chat: string) => send(SidebarChatsOps.open, { chat });
+  const onFold = () => send(SidebarChatsOps.fold, {});
+  const onMore = () => send(SidebarChatsOps.more, {});
+  const onMenu = (chat: string, point: { x: number; y: number }) => send(SidebarChatsOps.menu, { chat, point });
+
   const render = () => {
     reactRoot.render(
       block ? (
-        <SidebarChats
-          block={block}
-          strings={strings}
-          onOpen={(chat) => send(SidebarChatsOps.open, { chat })}
-          onFold={() => send(SidebarChatsOps.fold, {})}
-          onMore={() => send(SidebarChatsOps.more, {})}
-          onMenu={(chat, point) => send(SidebarChatsOps.menu, { chat, point })}
-        />
+        <SidebarChats block={block} strings={strings} onOpen={onOpen} onFold={onFold} onMore={onMore} onMenu={onMenu} />
       ) : null,
     );
   };
