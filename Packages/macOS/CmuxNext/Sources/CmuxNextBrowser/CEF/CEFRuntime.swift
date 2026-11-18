@@ -225,24 +225,25 @@ final class CEFRuntime {
     /// put the first frame 17 ms later. ``start(layout:environment:trigger:)`` awaits it before `CefInitialize`:
     /// the profile root exists, the last run's log is kept (``CEFProfileStorage/prepareForLaunch()``), and the
     /// person's own uBlock Origin is looked up (``CEFBuiltInExtensions/personAdBlocker(profiles:fileManager:)``
-    /// reads and parses each profile's preference files). The value is that lookup. Once per runtime.
+    /// reads and parses each profile's preference files), and so is the built-in one's manifest (``CEFLaunchPrep``).
+    /// Once per runtime.
     /// task-owner: launchPrepTask (start awaits it); ends when the reads end.
     @discardableResult
-    func beginLaunchPrep() -> Task<Int?, Never> {
+    func beginLaunchPrep() -> Task<CEFLaunchPrep, Never> {
         if let launchPrepTask { return launchPrepTask }
         let storage = storage
         let gate = initializeAfter
-        let task = Task.detached(priority: .utility) { () -> Int? in
+        let resources = Bundle.main.resourceURL
+        let task = Task.detached(priority: .utility) { () -> CEFLaunchPrep in
             _ = await CEFRuntime.waitForInitializeGate(gate)
-            storage.prepareForLaunch()
-            return CEFBuiltInExtensions.personAdBlocker(profiles: storage.root)
+            return CEFLaunchPrep(preparing: storage, resources: resources)
         }
         launchPrepTask = task
         return task
     }
 
     /// The launch prep (``beginLaunchPrep()``).
-    private(set) var launchPrepTask: Task<Int?, Never>?
+    private(set) var launchPrepTask: Task<CEFLaunchPrep, Never>?
 
     /// Takes the engine's early load (`CEFEngine.beginEarlyLoad`).
     func adopt(earlyLoad: CEFEarlyLoad) {
@@ -374,12 +375,12 @@ final class CEFRuntime {
         // raises its priority to this task's.
         let loaded = await task.value
         if let outcome = await keychain.value { logger.notice("keychain item: \(String(describing: outcome), privacy: .public)") }
-        let person = await prep.value
+        let read = await prep.value
         if await Self.waitForInitializeGate(initializeAfter) { CEFStartSteps.shared.point("first_frame_waited") }
         // Another awaiter finished first, or the app began to quit.
         if let error = startError() { throw error }
         if state == .ready { return }
-        try finishStart(loaded, person: person, environment: environment, trigger: trigger)
+        try finishStart(loaded, prep: read, environment: environment, trigger: trigger)
     }
 
     /// Returns once `gate` is open (at once when it is nil or already open); true when it waited.
@@ -414,18 +415,18 @@ final class CEFRuntime {
     ) throws(BrowserEngineError) {
         if let error = startError() { throw error }
         if state == .ready { return }
-        // No preload ran its prep (``beginLaunchPrep()``), so this start does the same reads on the spot, and records
-        // them as the prep so a later start does not rotate the log a second time.
-        let person: Int?
+        // With no preload, no prep ran (``beginLaunchPrep()``): this start does it on the spot and records it as the
+        // prep, so a later start does not rotate the log a second time. After a preload it only reads; a prep still
+        // waiting on the first frame would rotate the log under Chromium (the debug window has no caller today).
+        let prep: CEFLaunchPrep
         if launchPrepTask == nil {
-            storage.prepareForLaunch()
-            let read = CEFBuiltInExtensions.personAdBlocker(profiles: storage.root)
+            let read = CEFLaunchPrep(preparing: storage, resources: Bundle.main.resourceURL)
             launchPrepTask = Task { read }
-            person = read
+            prep = read
         } else {
-            person = CEFBuiltInExtensions.personAdBlocker(profiles: storage.root)
+            prep = CEFLaunchPrep(reading: storage, resources: Bundle.main.resourceURL)
         }
-        try finishStart(Self.loadLibrary(candidate), person: person, environment: environment, trigger: "debugWindow")
+        try finishStart(Self.loadLibrary(candidate), prep: prep, environment: environment, trigger: "debugWindow")
     }
 
     private func startError() -> BrowserEngineError? {
@@ -438,7 +439,7 @@ final class CEFRuntime {
 
     private func finishStart(
         _ loaded: Result<CEFLoadedLibrary, BootError>,
-        person: Int?,
+        prep: CEFLaunchPrep,
         environment: [String: String],
         trigger: String
     ) throws(BrowserEngineError) {
@@ -446,7 +447,7 @@ final class CEFRuntime {
             let library = try loaded.get()
             let clock = ContinuousClock()
             let started = clock.now
-            try CEFStartSteps.shared.initialize { () throws(BootError) in try initialize(library, person: person, environment: environment) }
+            try CEFStartSteps.shared.initialize { () throws(BootError) in try initialize(library, prep: prep, environment: environment) }
             state = .ready
             CEFStartSteps.shared.timed("ready_hooks") {
                 startChildMonitor(); windowGuard.start(); ChromiumPageWindowMain.install()
@@ -566,7 +567,7 @@ final class CEFRuntime {
     }
 
     /// The main-thread part: NSApp check, message pump, `CefInitialize`.
-    private func initialize(_ library: CEFLoadedLibrary, person: Int?, environment: [String: String]) throws(BootError) {
+    private func initialize(_ library: CEFLoadedLibrary, prep: CEFLaunchPrep, environment: [String: String]) throws(BootError) {
         let shim = library.shim
         let layout = library.layout
         // The app's NSApplication subclass must conform (CmuxApplication);
@@ -583,9 +584,10 @@ final class CEFRuntime {
         self.pump = pump
         pump.start()
 
-        // The profile root and the kept log, and the person's ad blocker (`person`), were read ahead off the main thread.
-        let builtInPlan = CEFBuiltInExtensions(adBlockerEnabled: builtInAdBlockerSetting())
-            .plan(resources: Bundle.main.resourceURL, person: person, fileExists: { FileManager.checked.fileExists(atPath: $0) })
+        // The profile root, the kept log, the person's ad blocker and the built-in manifest were read ahead off the
+        // main thread (`prep`): no disk read here.
+        let builtInPlan = prep.plan(CEFBuiltInExtensions(adBlockerEnabled: builtInAdBlockerSetting()),
+                                    resources: Bundle.main.resourceURL)
         var switchSet = CEFSwitches.current(
             forkAPIVersion: shim.forkAPIVersion(), rendererPaths: CEFForkFeatures(shim).rendererPaths,
             bundleIdentifier: Bundle.main.bundleIdentifier,

@@ -65,4 +65,26 @@ extension CEFLaunchPrepOffMainTests {
         #expect(FileManager.default.fileExists(atPath: storage.previousLogFile.path), "the blocking start kept the last run's log")
         #expect(runtime.launchPrepTask != nil, "a later start reuses the prep, not a second log rotation")
     }
+
+    /// The built-in ad blocker's manifest is read by the prep, and the plan from it matches the plan read from disk,
+    /// with and without the manifest, so `CefInitialize`'s main-thread turn reads no file for it (CMUX-571).
+    @Test func thePrepReadsTheBuiltInManifest() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "cef-launch-prep-manifest-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let storage = CEFProfileStorage(root: root.appending(path: "Chromium"))
+        let resources = root.appending(path: "Resources", directoryHint: .isDirectory)
+        let extensions = CEFBuiltInExtensions(adBlockerEnabled: true)
+
+        let without = CEFLaunchPrep(preparing: storage, resources: resources)
+        #expect(!without.builtInManifest)
+        #expect(without.plan(extensions, resources: resources) == extensions.plan(resources: resources, profiles: storage.root))
+
+        let manifest = CEFBuiltInExtensions.adBlockerManifest(resources: resources)
+        try FileManager.default.createDirectory(at: manifest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: manifest)
+        let with = CEFLaunchPrep(reading: storage, resources: resources)
+        #expect(with.builtInManifest)
+        #expect(with.plan(extensions, resources: resources) == extensions.plan(resources: resources, profiles: storage.root))
+        #expect(with.plan(extensions, resources: resources).folders.count == 1)
+    }
 }
