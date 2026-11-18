@@ -32,6 +32,8 @@ export function SettledShelf({
 }) {
   const t = useT();
   const [open, setOpen] = useState(initiallyOpen);
+  // The ages are read as of when the shelf opened: a render reads no clock.
+  const [now, setNow] = useState(() => Date.now());
   if (total === 0) return null;
   const label = t("settle.shelf");
   return (
@@ -40,7 +42,10 @@ export function SettledShelf({
         type="button"
         className="acpmux-home-row acpmux-settled-toggle"
         aria-expanded={open}
-        onClick={() => setOpen((shown) => !shown)}
+        onClick={() => {
+          setNow(Date.now());
+          setOpen((shown) => !shown);
+        }}
       >
         <ShelfChevron open={open} />
         <span className="acpmux-settled-label">{label}</span>
@@ -52,6 +57,7 @@ export function SettledShelf({
             <SettledRow
               key={`${entry.peer ?? ""}:${entry.sessionId}`}
               entry={entry}
+              now={now}
               onSelect={onSelect}
               onUnsettle={holds(entry) ? onUnsettle : undefined}
             />
@@ -64,17 +70,19 @@ export function SettledShelf({
 
 function SettledRow({
   entry,
+  now,
   onSelect,
   onUnsettle,
 }: {
   entry: AcpmuxSessionEntry;
+  now: number;
   onSelect: (sessionId: string) => void;
   onUnsettle?: (entry: AcpmuxSessionEntry) => void;
 }) {
   const t = useT();
   const title = entry.displayTitle ?? entry.title ?? entry.name ?? entry.sessionId;
-  const reason = settleReasonText(entry, Date.now(), t);
-  const when = age(activityTime(entry), Date.now(), t);
+  const reason = settleReasonText(entry, now, t);
+  const when = age(activityTime(entry), now, t);
   return (
     <li className="acpmux-settled-row">
       <button type="button" className="acpmux-home-row" {...pressToOpen(() => onSelect(entry.sessionId))}>
