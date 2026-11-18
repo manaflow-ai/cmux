@@ -1181,9 +1181,14 @@ pub(super) async fn request_on_own_task(
         params: Value,
         fixed_id: Option<String>,
     ) -> tokio::task::JoinHandle<Result<Value, RpcError>> {
-        tokio::spawn(crate::request_cancel::carried(async move {
-            dispatch_request_with_identity(&hub, &conn, m, params, None, fixed_id).await
-        }))
+        // The connection's scope owns it, as it owns the request that asked (`conn-request`).
+        let owner = conn.clone();
+        owner.scope.spawn_named(
+            "conn-inner-request",
+            crate::request_cancel::carried(async move {
+                dispatch_request_with_identity(&hub, &conn, m, params, None, fixed_id).await
+            }),
+        )
     }
     let task = spawn(hub.clone(), conn.clone(), m, params, fixed_id);
     let _abort = AbortOnDrop(task.abort_handle());
