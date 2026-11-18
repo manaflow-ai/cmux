@@ -20,9 +20,11 @@ import { UiSurfaceCard } from "./UiSurfaceCard";
 
 const client: UiSurfaceClient = {
   uiSurfaceAction: async ({ actionId, values }) => pendingFor(actionId, values),
-  uiSurfaceConfirm: async () => ({ ok: true }),
+  uiSurfaceConfirm: async () => ({ sent: "agent" }),
   uiSurfaceCancel: async () => ({ ok: true }),
   uiSurfaceBridge: async () => ({}),
+  openLink: () => undefined,
+  draft: () => undefined,
 };
 
 /// A golden file's surfaces (`{sample, surfaces: [...]}`), read as the page reads a row's.

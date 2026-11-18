@@ -72,7 +72,7 @@ async function render(node: ReactNode): Promise<HTMLElement> {
 }
 
 type Call = [string, Record<string, unknown>];
-function recordingClient(calls: Call[]): UiSurfaceClient {
+function recordingClient(calls: Call[], confirmed: unknown = { sent: "agent" }): UiSurfaceClient {
   return {
     uiSurfaceAction: async (params) => {
       calls.push(["action", params]);
@@ -80,7 +80,7 @@ function recordingClient(calls: Call[]): UiSurfaceClient {
     },
     uiSurfaceConfirm: async (params) => {
       calls.push(["confirm", params]);
-      return { ok: true };
+      return confirmed;
     },
     uiSurfaceCancel: async (params) => {
       calls.push(["cancel", params]);
@@ -90,6 +90,8 @@ function recordingClient(calls: Call[]): UiSurfaceClient {
       calls.push(["bridge", params]);
       return {};
     },
+    openLink: (url) => calls.push(["open", { url }]),
+    draft: (text) => calls.push(["draft", { text }]),
   };
 }
 
@@ -155,7 +157,11 @@ test("a press asks acpmux with the field values; Return confirms the host's requ
   // Nothing sent yet: only the action asked.
   expect(calls.filter(([kind]) => kind === "confirm")).toEqual([]);
   await key(strip.querySelector("[data-uis-confirm]")!, "Enter");
-  expect(calls.at(-1)).toEqual(["confirm", { surfaceId: "refine", requestId: "r-a-apply" }]);
+  // The values go with Confirm too: acpmux refuses it as stale when they changed what it sends.
+  expect(calls.at(-1)).toEqual([
+    "confirm",
+    { surfaceId: "refine", requestId: "r-a-apply", values: { "/filters/maxPrice": 600, "/filters/stops": "any" } },
+  ]);
   expect(container.querySelector(".uis-confirm")).toBeNull();
 });
 
@@ -269,4 +275,41 @@ test("the MCP App bridge forwards everything and posts host notifications only a
   expect(framedHtml("<p>x</p>", `default-src 'none'; "x"`)).toBe(
     `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; &quot;x&quot;"><p>x</p>`,
   );
+});
+
+test("a confirmed link opens only an https URL acpmux returned", async () => {
+  for (const [openUrl, opened] of [
+    ["https://example.com/book", true],
+    ["javascript:alert(1)", false],
+  ] as const) {
+    const calls: Call[] = [];
+    const container = await render(
+      <UiSurfaceCard surface={approvalFull} client={recordingClient(calls, { sent: "link", openUrl })} />,
+    );
+    await click(button(container, "Approve"));
+    await click(container.querySelector("[data-uis-confirm]")!);
+    expect(calls.filter(([kind]) => kind === "open")).toEqual(opened ? [["open", { url: openUrl }]] : []);
+  }
+});
+
+test("the bridge hands a view's Pending and draft to the card, never sending them itself", async () => {
+  const pendings: unknown[] = [];
+  const drafts: string[] = [];
+  const posted: unknown[] = [];
+  const bridge = createFrameBridge({
+    forward: async () => ({
+      pending: { requestId: "r1", actionId: "ui/message", summary: "Send to the agent", sends: [], target: "agent" },
+      draft: "Book the 9:40",
+    }),
+    post: (message) => posted.push(message),
+    onHeight: () => {},
+    onBlocked: () => {},
+    host: { onPending: (pending) => pendings.push(pending), onDraft: (text) => drafts.push(text) },
+  });
+  bridge.receive({ jsonrpc: "2.0", id: 3, method: "ui/message", params: {} });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(pendings).toHaveLength(1);
+  expect((pendings[0] as { requestId: string }).requestId).toBe("r1");
+  expect(drafts).toEqual(["Book the 9:40"]);
+  expect(posted).toEqual([]);
 });

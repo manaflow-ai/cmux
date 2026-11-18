@@ -9,6 +9,7 @@
 // view's own request (its `ui/initialize`) is an answer, not a host message, and goes at once.
 import { useEffect, useRef, useState } from "react";
 import { renderFrameCSS } from "../conversation/renderBase";
+import { readUiSurfacePending, type UiSurfacePending } from "./model";
 
 export const MCP_APP_INITIALIZED = "ui/notifications/initialized";
 /// Rust clamps a view's size to this range (DESIGN "MCP Apps bridge"); the page's default height.
@@ -28,18 +29,33 @@ export function isJsonRpc(data: unknown): data is JsonRpc {
 ///   notify  host notifications for the view (`ui/notifications/tool-input`, `tool-result`)
 ///   height  the view's size, already clamped by Rust
 ///   blocked plain text the card shows: the message was refused
-export type BridgeAnswer = { reply?: unknown; notify?: unknown[]; height?: number; blocked?: string };
+///   pending a confirm strip Rust wrote for what the view asked to send (nothing sent yet)
+///   draft   composer text the view offered; the person presses Send
+export type BridgeAnswer = {
+  reply?: unknown;
+  notify?: unknown[];
+  height?: number;
+  blocked?: string;
+  pending?: UiSurfacePending;
+  draft?: string;
+};
 
 export function readBridgeAnswer(value: unknown): BridgeAnswer {
   if (typeof value !== "object" || value === null) return {};
   const answer = value as Record<string, unknown>;
+  const pending = readUiSurfacePending(answer.pending);
   return {
     ...(isJsonRpc(answer.reply) ? { reply: answer.reply } : {}),
     ...(Array.isArray(answer.notify) ? { notify: answer.notify.filter(isJsonRpc) } : {}),
     ...(typeof answer.height === "number" && Number.isFinite(answer.height) ? { height: answer.height } : {}),
     ...(typeof answer.blocked === "string" && answer.blocked ? { blocked: answer.blocked } : {}),
+    ...(pending ? { pending } : {}),
+    ...(typeof answer.draft === "string" && answer.draft ? { draft: answer.draft } : {}),
   };
 }
+
+/// What the card does with a view's asks beyond the frame itself.
+export type FrameHost = { onPending(pending: UiSurfacePending): void; onDraft(text: string): void };
 
 /// The bridge's state machine, apart from the DOM: `receive` takes one message from the view.
 export function createFrameBridge(options: {
@@ -47,6 +63,7 @@ export function createFrameBridge(options: {
   post(message: unknown): void;
   onHeight(height: number): void;
   onBlocked(reason: string): void;
+  host?: FrameHost;
 }) {
   let initialized = false;
   let closed = false;
@@ -76,6 +93,8 @@ export function createFrameBridge(options: {
           if (answer.notify?.length) notify(answer.notify);
           if (answer.height !== undefined) options.onHeight(answer.height);
           if (answer.blocked) options.onBlocked(answer.blocked);
+          if (answer.pending) options.host?.onPending(answer.pending);
+          if (answer.draft) options.host?.onDraft(answer.draft);
         },
         (error: unknown) => {
           if (closed) return;
@@ -116,8 +135,13 @@ export function useSurfaceFrame(
   csp: string | undefined,
   initialHeight: number | undefined,
   forward: (message: unknown) => Promise<unknown>,
+  host?: FrameHost,
+  /// Set while mounted: posts a message (a confirmed action's `reply`) to the view.
+  post?: { current: ((message: unknown) => void) | null },
 ) {
   const frame = useRef<HTMLIFrameElement>(null);
+  const hostRef = useRef(host);
+  hostRef.current = host;
   const [height, setHeight] = useState(() =>
     Math.min(FRAME_MAX_HEIGHT, Math.max(FRAME_MIN_HEIGHT, initialHeight ?? FRAME_DEFAULT_HEIGHT)),
   );
@@ -131,7 +155,15 @@ export function useSurfaceFrame(
       post: (message) => target()?.postMessage(message, "*"),
       onHeight: (next) => setHeight(Math.min(FRAME_MAX_HEIGHT, Math.max(FRAME_MIN_HEIGHT, Math.ceil(next)))),
       onBlocked: setBlocked,
+      host: {
+        onPending: (pending) => hostRef.current?.onPending(pending),
+        onDraft: (text) => hostRef.current?.onDraft(text),
+      },
     });
+    const postToView = (message: unknown) => {
+      if (isJsonRpc(message)) target()?.postMessage(message, "*");
+    };
+    if (post) post.current = postToView;
     const source = framedHtml(html, csp);
     const onMessage = (event: MessageEvent) => {
       const view = target();
@@ -146,8 +178,9 @@ export function useSurfaceFrame(
     addEventListener("message", onMessage);
     return () => {
       bridge.close();
+      if (post?.current === postToView) post.current = null;
       removeEventListener("message", onMessage);
     };
-  }, [html, csp]);
+  }, [html, csp, post]);
   return { frame, height, blocked };
 }

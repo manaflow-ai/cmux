@@ -9386,8 +9386,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               actionId: String(actionId),
               values: values && typeof values === "object" ? (values as Record<string, unknown>) : {},
             }),
-          "chat.uiSurface.confirm": async ({ surfaceId, requestId }) =>
-            client.uiSurfaceConfirm({ surfaceId: String(surfaceId), requestId: String(requestId) }),
+          "chat.uiSurface.confirm": async ({ surfaceId, requestId, values }) =>
+            client.uiSurfaceConfirm({
+              surfaceId: String(surfaceId),
+              requestId: String(requestId),
+              ...(values && typeof values === "object" ? { values: values as Record<string, unknown> } : {}),
+            }),
           "chat.uiSurface.cancel": async ({ surfaceId, requestId }) =>
             client.uiSurfaceCancel({ surfaceId: String(surfaceId), requestId: String(requestId) }),
           "chat.uiSurface.bridge": async ({ surfaceId, message }) =>

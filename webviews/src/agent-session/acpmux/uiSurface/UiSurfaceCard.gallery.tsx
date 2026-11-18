@@ -36,9 +36,11 @@ import { UiSurfaceCard } from "./UiSurfaceCard";
 const galleryClient: UiSurfaceClient = {
   uiSurfaceAction: ({ actionId, values }) =>
     new Promise((resolve) => setTimeout(() => resolve(pendingFor(actionId, values)), 120)),
-  uiSurfaceConfirm: () => new Promise((resolve) => setTimeout(() => resolve({ ok: true }), 120)),
+  uiSurfaceConfirm: () => new Promise((resolve) => setTimeout(() => resolve({ sent: "agent" }), 120)),
   uiSurfaceCancel: async () => ({ ok: true }),
   uiSurfaceBridge: async () => ({}),
+  openLink: () => undefined,
+  draft: () => undefined,
 };
 
 const permissionState: PermissionClientState = {

@@ -25,7 +25,7 @@ import { useT } from "../i18n";
 import { AlertCircle, Spinner } from "../conversation/icons";
 import { ranRenders } from "../conversation/renderFrame";
 import { canRender, RENDER_FRAME_URL } from "../conversation/renderCardModel";
-import { UiSurfaceClientContext, type UiSurfaceClient } from "./actions";
+import { readConfirmAnswer, UiSurfaceClientContext, type UiSurfaceClient } from "./actions";
 import { useSurfaceFrame } from "./frameBridge";
 import {
   initialValues,
@@ -89,6 +89,8 @@ export const UiSurfaceCard = memo(function UiSurfaceCard({ surface, client: give
   const pending = answer ?? carried;
   const pendingRef = useRef(pending);
   pendingRef.current = pending;
+  // An MCP App view's post, while its frame is mounted (FrameView).
+  const viewPost = useRef<((message: unknown) => void) | null>(null);
 
   const cancel = useCallback(() => {
     const current = pendingRef.current;
@@ -126,19 +128,23 @@ export const UiSurfaceCard = memo(function UiSurfaceCard({ surface, client: give
     const current = pendingRef.current;
     if (!current || sending) return;
     setSending(true);
-    client.uiSurfaceConfirm({ surfaceId, requestId: current.requestId }).then(
-      () => {
+    client.uiSurfaceConfirm({ surfaceId, requestId: current.requestId, values: values.snapshot() }).then(
+      (raw) => {
         setSending(false);
         setAnswer(null);
         setClosed(current.requestId);
         setAnswered((done) => new Set([...done, current.actionId]));
+        // `tool` and `link` carry the view's reply to its own request; `link` opens a checked URL.
+        const result = readConfirmAnswer(raw);
+        if (result.reply !== undefined) viewPost.current?.(result.reply);
+        if (result.openUrl) client.openLink(result.openUrl);
       },
       (error: unknown) => {
         setSending(false);
         setFailure(error instanceof Error ? error.message : String(error));
       },
     );
-  }, [client, sending, surfaceId]);
+  }, [client, sending, surfaceId, values]);
 
   const actions = useMemo<SurfaceActions>(
     () => ({
@@ -234,7 +240,7 @@ export const UiSurfaceCard = memo(function UiSurfaceCard({ surface, client: give
         <SurfaceActionsContext.Provider value={actions}>
           {/* A page with no render frame (the dev server, the gallery) draws Rust's fallback root instead. */}
           {surface.frame && canRender() ? (
-            <FrameView surface={surface} client={client} />
+            <FrameView surface={surface} client={client} post={viewPost} onPending={setAnswer} />
           ) : (
             root && (
               <div className="uis-body">
@@ -283,7 +289,17 @@ export const UiSurfaceCard = memo(function UiSurfaceCard({ surface, client: give
 
 /// An MCP App view: Run first (the frame shares the pane's web process, as a render card's does),
 /// then the view in the render frame, its messages forwarded to acpmux (frameBridge.ts).
-function FrameView({ surface, client }: { surface: UiSurface; client: UiSurfaceClient }) {
+function FrameView({
+  surface,
+  client,
+  post,
+  onPending,
+}: {
+  surface: UiSurface;
+  client: UiSurfaceClient;
+  post: { current: ((message: unknown) => void) | null };
+  onPending: (pending: UiSurfacePending) => void;
+}) {
   const t = useT();
   const frameSpec = surface.frame!;
   const [running, setRunning] = useState(() => ranRenders.has(frameSpec.html));
@@ -291,7 +307,17 @@ function FrameView({ surface, client }: { surface: UiSurface; client: UiSurfaceC
     (message: unknown) => client.uiSurfaceBridge({ surfaceId: surface.surfaceId, message }),
     [client, surface.surfaceId],
   );
-  const { frame, height, blocked } = useSurfaceFrame(frameSpec.html, frameSpec.csp, frameSpec.height, forward);
+  // A view's `ui/message` or `ui/open-link` comes back as Rust's Pending, shown in the card's strip;
+  // its offered text (`draft`) goes to the composer, never sent by the page.
+  const host = useMemo(() => ({ onPending, onDraft: (text: string) => client.draft(text) }), [client, onPending]);
+  const { frame, height, blocked } = useSurfaceFrame(
+    frameSpec.html,
+    frameSpec.csp,
+    frameSpec.height,
+    forward,
+    host,
+    post,
+  );
   return (
     <div className="uis-frame">
       {running ? (

@@ -14658,7 +14658,11 @@ export class AcpmuxDirectClient {
     return this.request("_acpmux/ui_surface_action", { ...params, sessionId: this.actingSessionId });
   }
   /// Confirm on a surface's pending strip: the only call that sends anything to the agent or a tool.
-  uiSurfaceConfirm(params: { surfaceId: string; requestId: string }): Promise<unknown> {
+  uiSurfaceConfirm(params: {
+    surfaceId: string;
+    requestId: string;
+    values?: Record<string, unknown>;
+  }): Promise<unknown> {
     return this.request("_acpmux/ui_surface_confirm", { ...params, sessionId: this.actingSessionId });
   }
   /// Cancel on a surface's pending strip (or a changed value): acpmux drops the request.
