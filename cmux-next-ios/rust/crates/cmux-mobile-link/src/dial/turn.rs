@@ -345,6 +345,21 @@ impl TurnCarrier {
     /// blocked), then, if UDP gives nothing, a stream (TLS on 443 first).
     /// `None` when there is no server or every allocation failed in time.
     pub async fn allocate(options: &DialOptions) -> Option<Self> {
+        Self::allocate_with(options, None).await
+    }
+
+    /// [`Self::allocate`], told by the STUN wait running beside it whether
+    /// UDP looks blocked (`udp_silent` true: STUN asked, nothing came back
+    /// in [`super::wireguard::STUN_SILENT`]). On such a network the stream
+    /// allocation starts then instead of after its whole stagger, and UDP
+    /// gets no grace once the stream is ready: waiting out UDP there held
+    /// every dial on a network that drops UDP (a hotel, a guest network)
+    /// about 1.5 s before TURN over TLS.
+    pub(crate) async fn allocate_with(
+        options: &DialOptions,
+        udp_silent: Option<watch::Receiver<bool>>,
+    ) -> Option<Self> {
+        let silent_now = || udp_silent.as_ref().is_some_and(|silent| *silent.borrow());
         let (udp, stream) = turn_servers(&options.ice_servers);
         let udp = udp.filter(|_| !options.block_udp);
         let tried_udp = udp.is_some();
@@ -356,9 +371,23 @@ impl TurnCarrier {
         };
         let stream_attempt = |delay: Duration| {
             let stream = stream.clone();
+            let mut silent = udp_silent.clone();
             async move {
                 let server = stream?;
-                tokio::time::sleep(delay).await;
+                let udp_blocked = async {
+                    let blocked = match silent.as_mut() {
+                        Some(silent) => silent.wait_for(|silent| *silent).await.map(|_| ()).is_ok(),
+                        None => false,
+                    };
+                    if !blocked {
+                        // No STUN beside this, or it ended with UDP answering.
+                        std::future::pending::<()>().await;
+                    }
+                };
+                tokio::select! {
+                    () = tokio::time::sleep(delay) => {}
+                    () = udp_blocked => {}
+                }
                 bounded(STREAM_WAIT, Self::allocate_on(server, options)).await
             }
         };
@@ -373,11 +402,14 @@ impl TurnCarrier {
             udp = &mut udp => match udp {
                 Some(carrier) => Some(carrier),
                 // UDP failed: the stream need not wait out its stagger, and
-                // one already under way goes on.
-                None if started.elapsed() >= STREAM_STAGGER => staggered.await,
+                // one already under way (its stagger over, or cut short
+                // because UDP looked blocked) goes on.
+                None if started.elapsed() >= STREAM_STAGGER || silent_now() => staggered.await,
                 None => stream_attempt(Duration::ZERO).await,
             },
             stream = &mut staggered => match stream {
+                // UDP looks blocked: its allocation would only run out its wait.
+                Some(carrier) if silent_now() => Some(carrier),
                 Some(carrier) => match tokio::time::timeout(UDP_GRACE, &mut udp).await {
                     Ok(Some(udp)) => Some(udp),
                     _ => Some(carrier),

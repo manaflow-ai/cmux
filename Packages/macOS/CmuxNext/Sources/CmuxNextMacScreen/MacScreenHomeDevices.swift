@@ -60,9 +60,13 @@ struct MacScreenHomeSnapshot: Equatable {
         var session: MacScreenHubHost.Session?
         var lastError: String?
         var showFirstUse: Bool
+        /// The app the permission rows name (``MacScreenShareHost/grantHolderName``).
+        var grantHolderName: String?
 
         init(isSharing: Bool, busy: Bool, screenRecordingGranted: Bool, accessibilityGranted: Bool,
-             session: MacScreenHubHost.Session? = nil, lastError: String? = nil, showFirstUse: Bool = false) {
+             session: MacScreenHubHost.Session? = nil, lastError: String? = nil, showFirstUse: Bool = false,
+             grantHolderName: String? = nil) {
+            self.grantHolderName = grantHolderName
             self.isSharing = isSharing
             self.busy = busy
             self.screenRecordingGranted = screenRecordingGranted
@@ -126,7 +130,8 @@ struct MacScreenHomeSnapshot: Equatable {
                                       screenRecordingGranted: home.host.screenRecordingGranted,
                                       accessibilityGranted: home.host.accessibilityGranted,
                                       session: hubHost.session, lastError: hubHost.lastError,
-                                      showFirstUse: Self.showsFirstUse(store: source.store, isSharing: hubHost.isSharing))
+                                      showFirstUse: Self.showsFirstUse(store: source.store, isSharing: hubHost.isSharing),
+                                      grantHolderName: home.host.grantHolderName)
                 }
             } else {
                 devices = source.box.startupMessage.map(Devices.note) ?? Self.setupDevices(configured: source.box.configured,
