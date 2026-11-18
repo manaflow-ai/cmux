@@ -361,9 +361,19 @@ jobs:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
 
+      # A persistent self-hosted runner (the owned GCP build lanes) reuses the workspace. After an
+      # earlier job's sparse checkout, actions/checkout's `sparse-checkout disable` leaves stale index
+      # stat data and its `checkout --force` stops at "not uptodate; will not remove from working
+      # tree" with HEAD already at the requested commit but files missing (run 44395720799: no
+      # scripts/ci/init-submodule.sh, no .github/actions/zig-global-cache). Writing every tracked
+      # file of HEAD again repairs it; an ephemeral runner starts clean and skips this.
       - name: Init ghostty submodule
         shell: bash
         run: |
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ "$RUNNER_OS" = Linux ]; then
+            git sparse-checkout disable 2>/dev/null || true
+            git reset -q --hard HEAD
+          fi
           bash scripts/ci/init-submodule.sh ghostty
           bash scripts/ci/init-submodule.sh ghostty-next
 
