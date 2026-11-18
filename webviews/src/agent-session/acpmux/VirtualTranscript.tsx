@@ -5301,6 +5301,7 @@ function TranscriptView({
     [sessionId],
   );
   // What this pass gave the room of the tray's open list (`trayHold`), and the rows it measured.
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- runs after every commit on purpose (it stores what this pass gave the room); its one setState call is guarded by the compare with noticeBase.
   useLayoutEffect(() => {
     foldBase.current = trayBase;
     cardBase.current = dockCard - cardHold;
