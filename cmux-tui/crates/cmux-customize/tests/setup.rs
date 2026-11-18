@@ -539,7 +539,9 @@ fn two_looks_and_your_edits_stack_and_removing_one_leaves_the_rest_byte_for_byte
     home.write("customize/main.js", "// my sidebar\n");
     home.write(
         "customize/cmux-app.json",
-        "{ \"manifestVersion\": 2, \"id\": \"local/customize\", \"name\": \"Mine\" }\n",
+        r#"{"manifestVersion": 2, "id": "local/customize", "name": "Mine", "version": "1.0.0",
+            "description": "My views", "engines": {"cmux": "^2.0"}, "runtime": {"main": "main.js"},
+            "files": ["main.js"]}"#,
     );
     home.write("themes/mine.json", "{ \"name\": \"mine\" }\n");
     customize.apply(None, "cli", 1).unwrap();
