@@ -174,7 +174,22 @@ await requireBrowserLane("chat-drive-browser.test.ts", async () => {
         expect(await hoveredStyle(page, TOOL_SCREENSHOT, 0)).toBe("yes");
         const before = await scrollTop(page);
         const ticks = 3;
-        for (let tick = 0; tick < ticks; tick += 1) await page.mouse.wheel(0, -40);
+        // `mouse.wheel` returns before the page has the event (Chromium's last tick lands a moment later),
+        // so each tick goes once the page has the last, as the host's own ticks do. This window capture
+        // listener runs in the same dispatch as the drive's, after it.
+        await page.evaluate(() => {
+          const counted = window as unknown as { driveTestWheels: number };
+          counted.driveTestWheels = 0;
+          window.addEventListener("wheel", () => (counted.driveTestWheels += 1), { capture: true, passive: true });
+        });
+        for (let tick = 1; tick <= ticks; tick += 1) {
+          await page.mouse.wheel(0, -40);
+          await page.waitForFunction(
+            (tick) => (window as unknown as { driveTestWheels: number }).driveTestWheels >= tick,
+            tick,
+            { timeout: 5_000 },
+          );
+        }
         await page.waitForFunction((before) => document.querySelector(".acpmux-scroll")!.scrollTop !== before, before, {
           timeout: 5_000,
         });
