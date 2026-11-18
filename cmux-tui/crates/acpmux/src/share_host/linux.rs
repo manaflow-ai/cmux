@@ -21,7 +21,8 @@ use cmux_hub_host::identity;
 use serde_json::{Value, json};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -135,8 +136,13 @@ pub(crate) struct After {
 }
 
 /// After `outcome`, cancelled or not, with the join it ran for still `current` or not.
-pub(crate) fn after_enable(outcome: &Outcome, _cancelled: bool, _current: bool) -> After {
-    After { save_mark: matches!(outcome, Outcome::SetUp(_)), stop_host: false }
+/// Only an enable that finished for the join still current, uncancelled, keeps its host: any
+/// other may have started the unit for a join that is gone, so the unit is stopped (cmux-rd's
+/// `run` would also refuse to serve it).
+pub(crate) fn after_enable(outcome: &Outcome, cancelled: bool, current: bool) -> After {
+    let finished = matches!(outcome, Outcome::SetUp(_));
+    let superseded = cancelled || !current || matches!(outcome, Outcome::Cancelled);
+    After { save_mark: finished && !superseded, stop_host: superseded }
 }
 
 /// One line of cmux-rd's output, made plain and short for a log line.
@@ -190,7 +196,7 @@ pub(crate) fn run_enable(
     acpmux_home: &Path,
     env: &[(&'static str, OsString)],
     wait: Duration,
-    _cancel: &AtomicBool,
+    cancel: &AtomicBool,
 ) -> Outcome {
     let spawned = cmux_process::Command::new(rd)
         .args(args)
@@ -207,21 +213,34 @@ pub(crate) fn run_enable(
     };
     let stdout = read_pipe(child.stdout.take());
     let stderr = read_pipe(child.stderr.take());
-    match child.wait_timeout(wait) {
-        Ok(Some(status)) => {
-            // A process it left holding a pipe does not hold up the answer.
-            let text = |rx: mpsc::Receiver<String>| {
-                rx.recv_timeout(Duration::from_secs(5)).unwrap_or_default()
-            };
-            outcome(status.success(), &text(stdout), &text(stderr))
-        }
-        Ok(None) => {
+    // Waited in short slices so a cancel ends it at once, not at `wait`.
+    let deadline = std::time::Instant::now() + wait;
+    loop {
+        if cancel.load(Ordering::SeqCst) {
             drop(child);
-            Outcome::TimedOut
+            return Outcome::Cancelled;
         }
-        Err(e) => Outcome::Failed(format!("waiting for cmux-rd: {e}")),
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() {
+            drop(child);
+            return Outcome::TimedOut;
+        }
+        match child.wait_timeout(left.min(CANCEL_CHECK)) {
+            Ok(Some(status)) => {
+                // A process it left holding a pipe does not hold up the answer.
+                let text = |rx: mpsc::Receiver<String>| {
+                    rx.recv_timeout(Duration::from_secs(5)).unwrap_or_default()
+                };
+                return outcome(status.success(), &text(stdout), &text(stderr));
+            }
+            Ok(None) => {}
+            Err(e) => return Outcome::Failed(format!("waiting for cmux-rd: {e}")),
+        }
     }
 }
+
+/// How often a running enable looks at its cancel flag.
+const CANCEL_CHECK: Duration = Duration::from_millis(200);
 
 /// The join a host was set up for: the machine id and its credential's generation.
 pub(crate) fn mark_of(credential: &crate::machine_record::MachineCredential) -> Value {
@@ -340,10 +359,20 @@ pub(crate) fn start(scope: &cmux_scope::Scope) {
     );
     super::state::linux(status_json("setting_up", "cmux-rd linux-host enable runs", &rd, &hub));
     scope.spawn_named("share-host-linux", async move {
+        // The thread outlives an aborted task: dropping this cancels its enable (stopped with
+        // its process group), and nothing it set up is kept (review F2 of #45369).
+        struct CancelOnDrop(Arc<AtomicBool>);
+        impl Drop for CancelOnDrop {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::SeqCst);
+            }
+        }
+        let cancel = Arc::new(AtomicBool::new(false));
+        let _cancel_on_drop = CancelOnDrop(cancel.clone());
         let (done, ended) = tokio::sync::oneshot::channel::<()>();
         let spawned =
             std::thread::Builder::new().name("share-host-linux".into()).spawn(move || {
-                set_up(&home, &folder, &mark, &rd, &hub, &env);
+                set_up(&home, &folder, &mark, &rd, &hub, &env, &cancel);
                 let _ = done.send(());
             });
         match spawned {
@@ -364,6 +393,7 @@ fn set_up(
     rd: &Path,
     hub: &str,
     env: &[(&'static str, OsString)],
+    cancel: &AtomicBool,
 ) {
     if marked(folder, mark) && host_active(env) {
         tracing::info!("{}: cmux-rd's host already runs for this join", super::LOG);
@@ -371,12 +401,21 @@ fn set_up(
         super::state::linux(status_json("already_set_up", &detail, rd, hub));
         return;
     }
-    let outcome =
-        run_enable(rd, &enable_args(hub), home, env, ENABLE_WAIT, &AtomicBool::new(false));
-    if let Outcome::SetUp(_) = outcome
+    let outcome = run_enable(rd, &enable_args(hub), home, env, ENABLE_WAIT, cancel);
+    // The join it ran for, read again now: a leave or a new join may have come meanwhile.
+    let current = super::joined().is_ok_and(|(credential, _)| &mark_of(&credential) == mark);
+    let after = after_enable(&outcome, cancel.load(Ordering::SeqCst), current);
+    if after.save_mark
         && let Err(e) = save_mark(folder, mark)
     {
         tracing::warn!("{}: {}: {e}", super::LOG, folder.join(MARK).display());
+    }
+    if after.stop_host {
+        let stopped = stop_host();
+        tracing::info!(
+            "{}: the enable's join is gone or it was cancelled; host unit stopped: {stopped}",
+            super::LOG
+        );
     }
     match &outcome {
         Outcome::SetUp(line) => tracing::info!("{}: cmux-rd's host is set up: {line}", super::LOG),
