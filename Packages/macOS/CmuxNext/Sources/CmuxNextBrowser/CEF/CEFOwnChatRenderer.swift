@@ -9,10 +9,11 @@ import Foundation
 /// mostly idle.
 ///
 /// The most recently focused agent chat is named to the shim (`cmux_shim_page_own_renderer`), which answers
-/// that browser's chat document with `Cross-Origin-Opener-Policy: same-origin` and `Origin-Agent-Cluster: ?1`
-/// (`OwnRendererHeaders`, cmux_page_path.h). Chromium keys a site's one renderer by the whole site info,
-/// which includes the opt-in origin isolation, so that document runs in the site's isolated renderer: one
-/// more renderer, never more, however many documents were ever answered so. The rest keep sharing.
+/// that browser's chat document with `Cross-Origin-Opener-Policy: same-origin` and
+/// `Cross-Origin-Embedder-Policy: credentialless` (`OwnRendererHeaders`, cmux_page_path.h). Chromium keys a
+/// site's one renderer by the whole site info, which includes cross-origin isolation, so that document runs
+/// in the site's isolated renderer: one more renderer, never more, however many documents were ever answered
+/// so. The rest keep sharing. (Not `Origin-Agent-Cluster`: on a cmux-page origin it hits a Chromium CHECK.)
 ///
 /// A document cannot move between renderers, so the choice takes effect on the chat's next load: a new
 /// chat, a restore, a reload or a hibernated chat waking up. Focus moving to a chat already loaded does not
