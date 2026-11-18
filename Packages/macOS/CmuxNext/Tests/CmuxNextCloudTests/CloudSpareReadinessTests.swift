@@ -127,7 +127,7 @@ import Testing
         let (gate, open) = AsyncStream.makeStream(of: Void.self)
         world.gate = gate
         readiness.prime("vm_spare", team: "team_a")
-        _ = await world.made.first(where: { _ in true })
+        _ = await world.made.nextElement()
         // The claim's session comes first: it takes the serve and connects on it itself.
         #expect(readiness.link(for: "vm_spare", team: "team_a") != nil)
         open.yield()
@@ -143,7 +143,7 @@ import Testing
         readiness.prime("vm_spare", team: "team_a")
         await readiness.settled("vm_spare")
         #expect(readiness.link(for: "vm_spare", team: "team_b") == nil)
-        #expect(await world.ended.first(where: { _ in true }) == "vm_spare")
+        #expect(await world.ended.nextElement() == "vm_spare")
     }
 
     @Test func aLinkPastItsKeepIsEndedNotTaken() async {
@@ -155,7 +155,7 @@ import Testing
         clock = clock.advanced(by: CloudSpareReadiness.linkKept)
         #expect(!readiness.holdsLink("vm_spare"))
         #expect(readiness.link(for: "vm_spare", team: "team_a") == nil)
-        #expect(await world.ended.first(where: { _ in true }) == "vm_spare")
+        #expect(await world.ended.nextElement() == "vm_spare")
     }
 
     @Test func aLinkOfAnEndedAccountIsEndedNotTaken() async {
@@ -164,7 +164,7 @@ import Testing
         readiness.prime("vm_spare", team: "team_a")
         await readiness.settled("vm_spare")
         #expect(readiness.link(for: "vm_spare", team: "team_a") == nil)
-        #expect(await world.ended.first(where: { _ in true }) == "vm_spare")
+        #expect(await world.ended.nextElement() == "vm_spare")
     }
 
     @Test func aLinkThatDoesNotComeUpIsEndedAndNotKept() async {
@@ -173,7 +173,7 @@ import Testing
         readiness.prime("vm_spare", team: "team_a")
         await readiness.settled("vm_spare")
         #expect(!readiness.holdsLink("vm_spare"))
-        #expect(await world.ended.first(where: { _ in true }) == "vm_spare")
+        #expect(await world.ended.nextElement() == "vm_spare")
     }
 
     @Test func aSignOutLeavesNoLinkToTake() async {
@@ -182,7 +182,7 @@ import Testing
         await readiness.settled("vm_spare")
         world.scope = ["user_a", "team_b"]
         #expect(readiness.link(for: "vm_spare", team: "team_a") == nil)
-        #expect(await world.ended.first(where: { _ in true }) == "vm_spare")
+        #expect(await world.ended.nextElement() == "vm_spare")
     }
 
     /// What `CloudService` runs when the account or team changes, the person signs out or Cloud is turned off: the held
@@ -193,7 +193,7 @@ import Testing
         await readiness.settled("vm_spare")
         #expect(readiness.holdsLink("vm_spare"))
         readiness.reset()
-        #expect(await world.ended.first(where: { _ in true }) == "vm_spare")
+        #expect(await world.ended.nextElement() == "vm_spare")
         #expect(!readiness.holdsLink("vm_spare"))
         #expect(!readiness.isKeyed("vm_spare", scope: ["user_a", "team_a"], instance: "run-1"))
         #expect(readiness.link(for: "vm_spare", team: "team_a") == nil)
@@ -248,5 +248,14 @@ import Testing
         }
         #expect(answer == 7)
         #expect(began == ["name:chats"])
+    }
+}
+
+extension AsyncStream {
+    /// The stream's next element (nil once it ends). `first(where: { _ in true })` sent its closure across isolation,
+    /// which Swift 6.2 refuses in this MainActor suite ("sending value of non-Sendable type ... risks causing data races").
+    fileprivate func nextElement() async -> Element? {
+        for await element in self { return element }
+        return nil
     }
 }
