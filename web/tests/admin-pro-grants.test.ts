@@ -505,6 +505,16 @@ describe("classic and cmux NEXT grant slots", () => {
     }
   });
 
+  test("a NEXT write mirrors over an empty or whitespace classic key, which classic reads as unset", async () => {
+    for (const empty of ["", "   "]) {
+      const target = fakeUser({ id: "u1", clientReadOnlyMetadata: { cmuxVmPlan: empty } });
+      expect(adminUserRow(target, noStripe)).toMatchObject({ manualPlanId: null, nextManualPlanId: null });
+      await write(target, { plan: "next_pro" });
+      expect(target.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: "next_pro", cmuxNextVmPlan: "next_pro" });
+      expect(adminUserRow(target, noStripe)).toMatchObject({ manualPlanId: null, nextManualPlanId: "next_pro" });
+    }
+  });
+
   test("when the keys disagree the new key wins and the next write repairs the mirror", async () => {
     const target = fakeUser({ id: "u1", clientReadOnlyMetadata: { cmuxVmPlan: "next_pro", cmuxNextVmPlan: "next_max" } });
     expect(adminUserRow(target, noStripe)).toMatchObject({ manualPlanId: null, nextManualPlanId: "next_max" });

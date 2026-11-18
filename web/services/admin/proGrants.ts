@@ -528,10 +528,13 @@ export function writeGrantSlot(
   server[CLASSIC_GRANT_AUDIT_KEY] = grant;
 }
 
-/** Whether `cmuxVmPlan` holds a classic grant or restriction (any value that is not a NEXT id). */
+/**
+ * Whether `cmuxVmPlan` holds a classic grant or restriction, as the classic
+ * readers see it: an absent, empty or whitespace value and a NEXT id are all
+ * "unset", so a NEXT grant is still mirrored over them.
+ */
 function holdsClassicValue(client: Record<string, unknown>): boolean {
-  const value = client.cmuxVmPlan;
-  return value !== undefined && value !== null && nextPlanId(value) === null;
+  return classicManualVmPlanOverride(client) !== null;
 }
 
 function parseGrantRecord(record: unknown): AdminPlanGrantRecord | null {
