@@ -379,7 +379,7 @@ mod care_tests {
         assert_eq!(gone.reason, "everything pushed; idle 25 h");
         // Its recorded process runs.
         let running = worktree(Facts {
-            owner: Some(crate::inventory::Owner { runs: true, ..owner.clone() }),
+            owner: Some(crate::inventory::Owner { runs: true, ..owner }),
             ..pushed(25)
         });
         let v = at(&running, &[], &[]);
