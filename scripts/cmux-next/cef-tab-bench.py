@@ -66,7 +66,7 @@ parser.add_argument("--arms", default="warm,quick,cold",
 parser.add_argument("--budget-ms", type=float, default=10.0, help="visible p95 target (reported, not enforced)")
 parser.add_argument("--tunable", action="append", default=[], metavar="KEY=JSON",
                     help="a Debug Settings value for this run (repeatable), e.g. browserPage.sparePage=true: the arms of an A/B")
-parser.add_argument("--type", default="exa",
+parser.add_argument("--type", default="qwz",
                     help="characters typed at once after each blank Cmd-Shift-L, through the real key path: focus_ms (the omnibar edits, as "
                          "first responder), typed_ms (it shows them) and typed_text (a key lost or typed twice); empty: none")
 parser.add_argument("--out", default="/tmp")
