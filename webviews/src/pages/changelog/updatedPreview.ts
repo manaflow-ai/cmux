@@ -74,6 +74,7 @@ export const PREVIEW_DWELL_MS: number = HOVER_INTENT.cardDwell;
 export const PREVIEW_GRACE_MS: number = HOVER_INTENT.cardGrace;
 /** How long the preview's close runs before the card hands its room back (the card's own curve,
     `--wn-preview-motion` in updateSurfaces.css); a pointer back on it within that reopens at once. */
+// motion-allow: the card's fixed preview curve (updateSurfaces.css --wn-preview-motion)
 export const PREVIEW_CLOSE_MS = 180;
 
 /** The update's changes as the preview lists them: the notes of every build the update spans (each

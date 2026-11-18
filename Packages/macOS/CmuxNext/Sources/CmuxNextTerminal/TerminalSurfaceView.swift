@@ -316,6 +316,7 @@ public final class TerminalSurfaceView: NSView {
             updateContentScale()
             // A view that joins a pane on a layout spring sends the grid the spring rests at, once; its first
             // report (held while it was not shown) would be a size no frame rests at.
+            if pendingForcedReport, isInPaneMotion { geometry.forceNextReport() } // a join's final grid carries it
             let joined = isInPaneMotion && joinPaneMotion()
             updateSurfaceSize(forceReport: pendingForcedReport && !joined, justShown: true)
             pendingForcedReport = false

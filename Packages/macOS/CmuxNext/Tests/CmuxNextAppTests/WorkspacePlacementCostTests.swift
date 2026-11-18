@@ -7,7 +7,7 @@ import CmuxNextLayout
 import Foundation
 import Testing
 
-/// WORKSPACE LIST 800 (SESSION 800, 2026-11-10): in the person's session (826 workspaces) each new workspace blocked
+/// WORKSPACE LIST 800 (SESSION 800, 2026-11-10): in a large session (826 workspaces) each new workspace blocked
 /// the main thread two times for about 110 ms; at 60 workspaces nothing blocked. One sample of 20 new workspaces at
 /// 826 had 76 samples in `WindowManager.applyPendingPlacements`, 53 of them in `SidebarBridge.place`: after the
 /// document took the move, `resync()` mapped EVERY row of the window from its store again, with no row feed.
