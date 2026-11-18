@@ -91,6 +91,8 @@ export async function open120Hz(
       // (composerStates.css), and the motion contract hung in "settle after typing" until its
       // 180 s limit (run 43399332571).
       "--disable-features=CompositeClipPathAnimation,CompositeBGColorAnimation",
+      // DIAGNOSTIC (comes out before land): extra switches for a bisect of Chromium 158's hang.
+      ...(process.env.CMUX_FRAMES120_ARGS ?? "").split(" ").filter(Boolean),
     ],
   });
   let browser: Browser | undefined;
@@ -122,19 +124,19 @@ export async function open120Hz(
     /// `__frameIdle`, absent until the page loaded it); a second at most, so a page that never answers
     /// still draws.
     const pumped = { asked: 0, drawn: 0, idleTimeouts: 0, slowestMs: 0, drawnAt: performance.now() };
-    const pageIdle = () =>
-      Promise.race([
-        cdp
-          .send("Runtime.evaluate", { expression: "globalThis.__frameIdle?.()", awaitPromise: true } as never)
-          .catch(() => undefined),
-        // fixed-wait: the most a frame waits for the page's own work before it is drawn anyway
-        new Promise((resolve) =>
-          setTimeout(() => {
-            pumped.idleTimeouts += 1;
-            resolve(undefined);
-          }, 1000),
+    const pageIdle = async () => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const answered = await Promise.race([
+        cdp.send("Runtime.evaluate", { expression: "globalThis.__frameIdle?.()", awaitPromise: true } as never).then(
+          () => true,
+          () => true,
         ),
+        // fixed-wait: the most a frame waits for the page's own work before it is drawn anyway
+        new Promise<boolean>((resolve) => (timer = setTimeout(() => resolve(false), 1000))),
       ]);
+      clearTimeout(timer);
+      if (!answered) pumped.idleTimeouts += 1;
+    };
     const pump = (async () => {
       let next = performance.now();
       /// `clock: "frames"`: the next frame's time on the renderer's clock, one slot after the last.
