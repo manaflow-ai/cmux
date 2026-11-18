@@ -25,8 +25,9 @@ import Testing
         let store = TunableStore.shared
         store.register([CornerFlush.tunable.descriptor])
         if !store.isActive { store.activate(file: nil) }
-        let saved = store.set(CornerFlush.tunable.key, nil)
-        defer { _ = store.set(CornerFlush.tunable.key, saved) }
+        let saved = store.override(CornerFlush.tunable.key)
+        store.set(CornerFlush.tunable.key, nil)
+        defer { store.set(CornerFlush.tunable.key, saved) }
         return try body()
     }
 
