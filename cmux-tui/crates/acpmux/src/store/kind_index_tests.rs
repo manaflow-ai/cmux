@@ -757,7 +757,7 @@ fn resend_scale_bench() {
     let turns = env("ACPMUX_RESEND_BENCH_TURNS", 11_000);
     let append = |id: &str, seq: &mut u64, turn: u64| {
         let mut kinds = vec!["queued", "user_message", "turn_started"];
-        if turn % 3 == 0 {
+        if turn.is_multiple_of(3) {
             kinds.extend(["inbox", "inbox_noticed"]);
         }
         kinds.extend(std::iter::repeat_n("tool_call_update", 38));
