@@ -1901,7 +1901,7 @@ function foldedRunSteps(row: AcpmuxRow, groups: readonly ToolGroup[], width: num
 /// gap, held inside the fold (conversation.css `.cv-tools > * + .cv-fold::before`), over its steps,
 /// which the default arm keeps to a 56-unit (224px) scroll box (RunScroll.tsx `.cv-run-scroll`).
 const RUN_SCROLL_UNITS = 56;
-function openRunBody(steps: number): number {
+export function openRunBody(steps: number): number {
   const base = gridLength("base") * chromeScale;
   return base + (experimentArm(runScroll) === "box" ? Math.min(steps, RUN_SCROLL_UNITS * base) : steps);
 }
