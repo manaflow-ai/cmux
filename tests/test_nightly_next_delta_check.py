@@ -91,6 +91,51 @@ expect(status == 1, "the detector fails a delta R2 does not serve")
 status, lines = mod.check(feed("").encode(), 250, 1, served.get)
 expect(status == 0 and "notice" in lines[0], "a newer build on the feed owns its deltas: notice, not red")
 
+# keep-item: generate_appcast's items for the earlier archives go; the new build's item keeps its deltas.
+with tempfile.TemporaryDirectory() as tmp:
+    path = Path(tmp) / "appcast-arm64.xml"
+    path.write_text(feed(TWO), encoding="utf-8")
+    expect(mod.keep_item(path, 300) == 1, "keep-item drops the one earlier item")
+    text = path.read_text(encoding="utf-8")
+    expect("<sparkle:version>200</sparkle:version>" not in text and "300-200.delta" in text,
+           "keep-item keeps only build 300's item, with its deltas")
+    expect(mod.newest_item(text.encode()) is not None, "keep-item leaves a parsable feed")
+
+# merge: the tail's older bases join the live item; a base the live item lists stays as published.
+live = feed(f"\n            <sparkle:deltas>{delta(R2, 200, 13614990)}\n            </sparkle:deltas>")
+generated = feed(f"\n            <sparkle:deltas>{delta(GH, 200, 99)}{delta(GH, 50, 34367026)}\n            </sparkle:deltas>")
+merged, added = mod.merge(live, generated, 300)
+expect(added == ["50"], f"merge adds only the new base: {added}")
+expect('length="13614990"' in merged and 'length="99"' not in merged, "merge keeps the published nearest delta")
+item = mod.newest_item(merged.encode())
+expect(len(item.findall(f"{mod.S}deltas/enclosure")) == 2, "the merged item lists both deltas")
+merged, added = mod.merge(feed(""), generated, 300)
+expect(len(mod.newest_item(merged.encode()).findall(f"{mod.S}deltas/enclosure")) == 2,
+       "merge adds a sparkle:deltas to a live item without one")
+
+# The bases: the live feed's builds and the builds its newest item's deltas start from.
+prev_spec = importlib.util.spec_from_file_location("previous", ROOT / "scripts/ci/nightly_next_previous_dmgs.py")
+previous = importlib.util.module_from_spec(prev_spec)
+prev_spec.loader.exec_module(previous)
+expect(previous.earlier_builds(feed(TWO).encode(), 400) == [300, 200, 100],
+       "the bases are the feed's items and their deltas' sources, newest first")
+expect(previous.earlier_builds(feed(TWO).encode(), 300) == [200, 100], "only builds below the new one")
+
+nearest = (ROOT / "scripts/ci/nightly-steps/appcast-with-nearest-deltas.sh").read_text(encoding="utf-8")
+expect("keep-item" in nearest and "full_only" in nearest and 'NIGHTLY_NEXT_NEAREST_DELTA_BASES:-3' in nearest,
+       "the publication builds deltas from the 3 nearest builds, keeps its own item, falls back to full-only")
+workflow = WORKFLOW.read_text(encoding="utf-8")
+expect("appcast-with-nearest-deltas.sh" in workflow and "Check the published feed offers deltas" in workflow,
+       "nightly-next-one builds the nearest deltas and the detector runs after the feed write")
+download = (ROOT / "scripts/ci/nightly-steps/publish-next-download.sh").read_text(encoding="utf-8")
+expect(".delta" in download and "prune" in download, "the publication uploads its deltas to R2 before the feed")
+one_job = (ROOT / "scripts/ci/nightly-steps/one-job.sh").read_text(encoding="utf-8")
+expect('-"$NIGHTLY_BUILD"-*.delta' in one_job, "one-job.sh hands on only this build's deltas")
+expect("RECENT_BASES=0" in (ROOT / "scripts/ci/generate-nightly-deltas.sh").read_text(encoding="utf-8"),
+       "the nightly-next tail builds only the older bases")
+sparkle = (ROOT / "scripts/sparkle_generate_appcast.sh").read_text(encoding="utf-8")
+expect("SPARKLE_TOOLS_CACHE_DIR" in sparkle, "the Sparkle tools are cached on the Mac")
+
 upload = UPLOAD.read_text(encoding="utf-8")
 expect('if ! python3 "$r2" upload' in upload, "one failed R2 upload must not drop every delta")
 prune_at, write_at, check_at = (upload.find('"$check" prune'), upload.find("write-feed"), upload.find('"$check" check'))

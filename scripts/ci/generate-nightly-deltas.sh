@@ -30,6 +30,11 @@ OUT_DIR="$3"
 : "${CHANNEL_RELEASE_TAG:?}" "${CHANNEL_DMG_PREFIX:?}" "${NIGHTLY_VARIANT:?}" "${NIGHTLY_BUILD:?}"
 RECENT_BASES=3
 OLDER_BASE_HOURS=(24 72)
+# nightly-next ships the deltas from its 3 nearest builds with the build (appcast-with-nearest-deltas.sh,
+# hq#13299); this tail adds only the ~1 and ~3 day bases, merged into the live item by the republish.
+if [[ "$CHANNEL_RELEASE_TAG" == nightly-next ]]; then
+  RECENT_BASES=0
+fi
 
 scripts_dir="$(cd "$(dirname "$0")/.." && pwd)"
 feed="$(basename "$FULL_FEED")"

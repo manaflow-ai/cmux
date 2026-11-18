@@ -20,8 +20,19 @@ check --feed-url URL --build N [--min-deltas 1] [--full-length BYTES]
     beside the full archive's. Exit 1 on a missing or unserved delta, so the publish that wrote the feed
     fails red; exit 0 with a notice when a newer build already serves (its own tail owns its deltas).
 
+keep-item FEED --build N
+    nightly-next-one's appcast step: generate_appcast writes one item per archive it was given, the earlier
+    builds' too. Keeps only build N's item (with its sparkle:deltas); the feed write merges the live items.
+
+merge LIVE GENERATED --build N --out PATH
+    The tail (older bases, ~1 and ~3 days): adds GENERATED's delta enclosures for build N to LIVE's item for
+    build N, skipping a sparkle:deltaFrom LIVE already lists, so the nearest deltas the publication shipped
+    stay byte for byte. Exit 1 when LIVE has no item for build N.
+
 usage: nightly_next_delta_check.py prune FEED --base URL
        nightly_next_delta_check.py check --feed-url URL --build N [--min-deltas 1]
+       nightly_next_delta_check.py keep-item FEED --build N
+       nightly_next_delta_check.py merge LIVE GENERATED --build N --out PATH
 """
 from __future__ import annotations
 
@@ -62,6 +73,52 @@ def prune(feed: Path, base: str) -> tuple[list[str], list[str]]:
 
     feed.write_text(DELTAS_BLOCK.sub(block, text), encoding="utf-8")
     return kept, dropped
+
+
+ITEM = re.compile(r"[ \t]*<item>.*?</item>[ \t]*\n?", re.S)
+ITEM_VERSION = re.compile(r"<sparkle:version>\s*(\d+)\s*</sparkle:version>")
+DELTA_FROM = re.compile(r'sparkle:deltaFrom="(\d+)"')
+
+
+def _item_for(text: str, build: int) -> re.Match | None:
+    return next((m for m in ITEM.finditer(text)
+                 if (v := ITEM_VERSION.search(m.group(0))) and int(v.group(1)) == build), None)
+
+
+def keep_item(feed: Path, build: int) -> int:
+    text = feed.read_text(encoding="utf-8")
+    ours = _item_for(text, build)
+    if ours is None:
+        raise SystemExit(f"{feed}: no item for build {build}")
+    others = [m for m in ITEM.finditer(text) if m.start() != ours.start()]
+    for match in reversed(others):
+        text = text[:match.start()] + text[match.end():]
+    feed.write_text(text, encoding="utf-8")
+    return len(others)
+
+
+def merge(live: str, generated: str, build: int) -> tuple[str, list[str]]:
+    ours, theirs = _item_for(live, build), _item_for(generated, build)
+    if ours is None:
+        raise SystemExit(f"the live feed has no item for build {build}")
+    if theirs is None:
+        return live, []
+    have = set(DELTA_FROM.findall(ours.group(0)))
+    block = DELTAS_BLOCK.search(theirs.group(0))
+    new = DELTA_ENCLOSURE.findall(block.group(2)) if block else []
+    new = [e for e in new if (m := DELTA_FROM.search(e)) and m.group(1) not in have]
+    if not new:
+        return live, []
+    item = ours.group(0)
+    existing = DELTAS_BLOCK.search(item)
+    if existing:
+        item = item[:existing.end(2)] + "".join(new) + item[existing.end(2):]
+    else:
+        close = item.rindex("</item>")
+        item = (item[:close] + "    <sparkle:deltas>" + "".join(new) + "\n            </sparkle:deltas>\n        "
+                + item[close:])
+    added = [DELTA_FROM.search(e).group(1) for e in new]
+    return live[:ours.start()] + item + live[ours.end():], added
 
 
 def newest_item(xml: bytes) -> ET.Element | None:
@@ -136,7 +193,25 @@ def main(argv: list[str]) -> int:
     ch.add_argument("--feed-url", required=True)
     ch.add_argument("--build", type=int, required=True)
     ch.add_argument("--min-deltas", type=int, default=1)
+    ki = sub.add_parser("keep-item")
+    ki.add_argument("feed", type=Path)
+    ki.add_argument("--build", type=int, required=True)
+    mg = sub.add_parser("merge")
+    mg.add_argument("live", type=Path)
+    mg.add_argument("generated", type=Path)
+    mg.add_argument("--build", type=int, required=True)
+    mg.add_argument("--out", type=Path, required=True)
     args = parser.parse_args(argv)
+    if args.command == "keep-item":
+        dropped = keep_item(args.feed, args.build)
+        print(f"{args.feed.name}: kept build {args.build}'s item, dropped {dropped} earlier item(s)")
+        return 0
+    if args.command == "merge":
+        text, added = merge(args.live.read_text(encoding="utf-8"), args.generated.read_text(encoding="utf-8"),
+                            args.build)
+        args.out.write_text(text, encoding="utf-8")
+        print(f"build {args.build}: added deltas from {', '.join(added) or 'no new base'} to the live item")
+        return 0
     if args.command == "prune":
         kept, dropped = prune(args.feed, args.base if args.base.endswith("/") else args.base + "/")
         for url in dropped:

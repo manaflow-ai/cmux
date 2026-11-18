@@ -18,6 +18,13 @@ if ! python3 "$r2" upload "${files[@]}"; then
 fi
 for feed in nightly-deltas/appcast*.xml; do
   [ -f "$feed" ] || continue
+  # The tail's deltas (the ~1 and ~3 day bases) join the live item, whose nearest deltas the publication
+  # shipped (hq#13299): the live bytes stay, only enclosures for new bases are added.
+  live="$(mktemp)"
+  curl -fsSL --retry 3 --retry-all-errors -A "cmux-delta-publisher/1" -H "Cache-Control: no-cache" \
+    -o "$live" "${CHANNEL_FEED_BASE%/}/$(basename "$feed")"
+  python3 "$check" merge "$live" "$feed" --build "$NIGHTLY_BUILD" --out "$feed"
+  rm -f "$live"
   python3 "$r2" rewrite --feed "$feed" --if-public
   python3 "$check" prune "$feed" --base "$CHANNEL_FEED_BASE/"
   python3 .publish-tooling/scripts/ci/nightly-next-guard.py appcast "$feed"
