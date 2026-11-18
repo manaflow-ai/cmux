@@ -94,7 +94,8 @@ describe("history backfill while Production is locked until release", () => {
     }
     // The Sandbox history is still read and its cursor moves.
     const sandbox = result.sources.find((source) => source.bundleId === BUNDLE && source.environment === "Sandbox");
-    expect(sandbox).toMatchObject({ error: null, complete: true, locked: false });
+    expect(sandbox).toMatchObject({ error: null, locked: false });
+    expect(sandbox!.pages).toBeGreaterThan(0);
     expect(await f.store.notificationHistoryCursor(BUNDLE, "Sandbox")).not.toBeNull();
     expect(logged(errors, "apple_iap.history_backfill_failed")).toBe(false);
   });
@@ -104,8 +105,11 @@ describe("history backfill while Production is locked until release", () => {
     await backfillAppleNotifications(f.deps());
     f.serverApi = f.statusApi(async () => null);
     const result = await backfillAppleNotifications(f.deps());
-    expect(result.sources.every((source) => source.complete && !source.locked)).toBe(true);
-    expect(await f.store.notificationHistoryCursor(BUNDLE, "Production")).not.toBeNull();
+    expect(result.failures).toBe(0);
+    expect(result.sources.every((source) => !source.locked && source.pages > 0)).toBe(true);
+    // The first Production window starts at Apple's retention limit, as it would have without the lock.
+    expect((await f.store.notificationHistoryCursor(BUNDLE, "Production"))?.nextStartAt.getTime())
+      .toBeGreaterThan(NOW.getTime() - 179 * DAY);
   });
 
   test("a key the Sandbox refuses too is a loud failure", async () => {
