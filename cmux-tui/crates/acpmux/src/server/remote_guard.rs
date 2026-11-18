@@ -96,6 +96,21 @@ use peer_folder::{
     configured_web_roots, cwd_refused, guarded_roots, make_inside_root, outside_told,
 };
 
+/// Whether a refused `session/new`'s harness is Claude Code, which runs only in a checkout or a
+/// scratch folder (`hub/remote_cwd.rs`): the folder its refusal suggests must be one too. Asked
+/// only on a refusal; a start that does not resolve counts as not.
+async fn needs_checkout(hub: &std::sync::Arc<crate::hub::Hub>, params: &Value) -> bool {
+    let pick = |key: &str| {
+        params
+            .pointer("/_meta/acpmux")
+            .and_then(|m| m.get(key))
+            .or_else(|| params.get(key))
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    };
+    hub.remote_new_needs_checkout(pick("harness"), pick("preset"), pick("model")).await
+}
+
 /// Whether a session method acpmux does not handle itself goes on to the
 /// harness from `origin`: anything from the unix socket, and from the app only
 /// the stop of a running background subagent (no params that spawn or read).
@@ -517,14 +532,16 @@ async fn check_inner(
                     match make_inside_root(cwd, roots, deferred.is_none()).await {
                         Ok(made) => made,
                         Err(Some(e)) => return Err(e),
-                        Err(None) => return Err(outside_told(cwd, &told).await),
+                        Err(None) => {
+                            return Err(outside_told(cwd, &told, needs_checkout(hub, params)).await);
+                        }
                     }
                 }
                 None => return Err(cwd_refused(cwd).await),
             };
             if let Some(canonical) = canonical {
                 if !inside(&canonical) {
-                    return Err(outside_told(cwd, &told).await);
+                    return Err(outside_told(cwd, &told, needs_checkout(hub, params)).await);
                 }
                 params.set("cwd", Value::String(canonical));
             }

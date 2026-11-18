@@ -18,7 +18,12 @@
 //! the scratch the remote sandbox (`remote_sandbox::refused_folder`) also
 //! accepts; it refuses top-level dot folders in the home directory, so
 //! `~/.cache` is no scratch here. Anything else is refused with the cause and
-//! both ways out.
+//! the ways out that pass the remote guard too: a checkout, or no folder at all
+//! (a peer's folderless start gets its own scratch folder,
+//! `remote_guard.rs` `peer_scratch`). A named folder under the temporary folder is
+//! no way out to name: the guard admits it only where `webRoots` holds that folder,
+//! which a lane host's does not (it refused the `/tmp/<lane>-tmp` this message once
+//! named, so the two refusals sent a start back and forth).
 //!
 //! Checked when the session is created, on the machine it runs on (the only
 //! one that can read the folder). A session that already exists is never
@@ -58,22 +63,22 @@ pub(super) fn check(cwd: &Path, tmp: &Path) -> Result<(), RpcError> {
     if in_work_tree(&real) || scratch(&real, &tmp) {
         return Ok(());
     }
-    let suggestion = format!(
-        "a checkout, or a scratch folder named after the lane such as {}",
-        tmp.join("<lane>-tmp").display()
-    );
     Err(RpcError::invalid_params(format!(
         "a remote Claude session needs a git checkout or a scratch folder as its working folder: \
          Claude creates empty placeholder files (package.json, lockfiles, .env*) in its working \
-         folder, and {} isn't a checkout. Start it in {suggestion}.",
+         folder, and {} isn't a checkout. Start it in a checkout, or with no folder (`--cwd` left \
+         out): a session another of your machines starts then gets a scratch folder of its own.",
         cwd.display()
     ))
-    .with_data(json!({"reason": "remote.cwd_not_checkout", "cwd": cwd})))
+    .with_data(json!({"reason": NOT_CHECKOUT, "cwd": cwd})))
 }
+
+/// Why a new remote Claude session's folder was refused (`check`), in `data.reason`.
+pub(crate) const NOT_CHECKOUT: &str = "remote.cwd_not_checkout";
 
 /// Whether `dir` or a folder above it holds `.git` (a folder, or the file a
 /// linked worktree or submodule has).
-fn in_work_tree(dir: &Path) -> bool {
+pub(crate) fn in_work_tree(dir: &Path) -> bool {
     dir.ancestors().any(|d| d.join(".git").symlink_metadata().is_ok())
 }
 
@@ -124,7 +129,10 @@ mod tests {
             "Claude creates empty placeholder files (package.json, lockfiles, .env*) in its working folder"
         ));
         assert!(err.message.contains(&format!("{} isn't a checkout", projects.display())));
-        assert!(err.message.contains(&f.tmp.join("<lane>-tmp").display().to_string()));
+        // Its ways out are ones the remote guard admits on any host: a checkout or no folder,
+        // never a named folder under the temporary folder, which a host's webRoots refuses.
+        assert!(err.message.contains("with no folder"), "{}", err.message);
+        assert!(!err.message.contains(&f.tmp.display().to_string()), "{}", err.message);
         assert_eq!(err.data.unwrap()["reason"], "remote.cwd_not_checkout");
         assert!(check(&f.home, &f.tmp).is_err());
     }

@@ -369,7 +369,7 @@ mod processes;
 mod pull_requests;
 pub(crate) mod purge_tombstones;
 pub(crate) use crate::questions;
-mod remote_cwd;
+pub(crate) mod remote_cwd;
 mod remote_floor;
 pub(crate) mod remote_sandbox;
 mod review_brief;

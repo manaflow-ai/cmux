@@ -132,6 +132,21 @@ impl Hub {
             self.resolve_new(&cfg, harness, &preset, model.as_deref(), true, cwd.as_deref())?;
         Ok(crate::web_modes::remote_start_for_config(&cfg, &resolved.agent, &resolved.profile))
     }
+
+    /// Whether a remote `session/new` naming `harness`, `preset` and `model` resolves to Claude
+    /// Code, whose folder must be a checkout or a scratch folder (`remote_cwd.rs`). False when it
+    /// does not resolve: the start is refused for that later, with its own cause.
+    pub(crate) async fn remote_new_needs_checkout(
+        &self,
+        harness: Option<String>,
+        preset: Option<String>,
+        model: Option<String>,
+    ) -> bool {
+        self.rediscover_head(harness.as_deref(), preset.as_deref()).await;
+        let cfg = self.config.read().await;
+        self.resolve_new(&cfg, harness, &preset, model.as_deref(), true, None)
+            .is_ok_and(|r| r.profile.kind == crate::config::HarnessKind::ClaudeStdio)
+    }
 }
 
 /// A remote request never chooses argv[0] with cwd/model expansion or the

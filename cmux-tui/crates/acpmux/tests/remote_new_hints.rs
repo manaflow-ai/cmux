@@ -36,7 +36,11 @@ fn scratch(tag: &str) -> PathBuf {
 /// A hub whose only remote folder root is `root`.
 fn hub(root: &Path) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+        "harnesses": {
+            "fake": {"argv": ["python3", FAKE]},
+            // Claude Code's protocol: its remote start runs only in a checkout or a scratch folder.
+            "claude-like": {"kind": "claude-stdio", "argv": ["python3", FAKE]},
+        },
         "defaultHarness": "fake",
         "webRoots": [root],
         "webAskingModes": {"fake": ["normal", "strict"]},
@@ -140,6 +144,42 @@ async fn each_remote_new_refusal_names_its_reason_and_a_peer_hears_the_allowed_r
     assert_eq!(r["error"]["data"]["tryCwd"], json!(root), "{r}");
     let message = r["error"]["message"].as_str().unwrap();
     assert!(message.contains(&root.to_string_lossy().into_owned()), "{message}");
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&outside);
+}
+
+#[tokio::test]
+async fn a_claude_start_outside_the_roots_is_told_only_a_folder_that_is_a_checkout() {
+    // A Claude Code start runs only in a checkout or a scratch folder (`hub/remote_cwd.rs`): a
+    // folder the roots refusal suggests must pass that check too, or the two refusals send the
+    // start back and forth (a lane host's roots refused `/tmp/<lane>-tmp`, which the checkout
+    // check named, and the roots check named `ROOT/<lane>-tmp`, which is no checkout).
+    let root = scratch("claude");
+    let outside = scratch("claude-outside");
+    let hub = hub(&root);
+    let mut peer = C::open(&hub, Origin::Peer);
+    let claude = || new(json!({"harness": "claude-like"}), Some(&outside));
+    let r = peer.call(method::SESSION_NEW, claude()).await;
+    assert_eq!(reason(&r), "remote.cwd_outside_roots", "{r}");
+    assert!(r["error"]["data"].get("tryCwd").is_none(), "no checkout to name: {r}");
+    let message = r["error"]["message"].as_str().unwrap();
+    assert!(message.contains("with no folder at all"), "{message}");
+    // ROOT/<leaf> that is a checkout is named.
+    let leaf = root.join(outside.file_name().unwrap());
+    std::fs::create_dir_all(leaf.join(".git")).unwrap();
+    let r = peer.call(method::SESSION_NEW, claude()).await;
+    assert_eq!(r["error"]["data"]["tryCwd"], json!(leaf), "{r}");
+    // Another harness is still told ROOT/<leaf> whatever it holds.
+    std::fs::remove_dir_all(leaf.join(".git")).unwrap();
+    let r = peer.call(method::SESSION_NEW, new(json!({}), Some(&outside))).await;
+    assert_eq!(r["error"]["data"]["tryCwd"], json!(leaf), "{r}");
+    // And the folderless start it is told instead works: a scratch folder of its own.
+    let r = peer.call(method::SESSION_NEW, new(json!({"harness": "claude-like"}), None)).await;
+    assert!(r.get("error").is_none_or(|e| e["data"]["reason"] != "remote.cwd_not_checkout"), "{r}");
+    assert!(
+        r.get("error").is_none_or(|e| e["data"]["reason"] != "remote.cwd_outside_roots"),
+        "{r}"
+    );
     let _ = std::fs::remove_dir_all(&root);
     let _ = std::fs::remove_dir_all(&outside);
 }
