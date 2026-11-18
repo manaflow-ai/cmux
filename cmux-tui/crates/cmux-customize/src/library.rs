@@ -47,6 +47,7 @@ use crate::tree::{self, Part, SETTINGS, Tree};
 use crate::{Customize, Error, validate};
 
 pub mod code;
+pub mod expire;
 pub mod keys;
 pub mod overlay;
 mod put;
@@ -55,6 +56,7 @@ mod text;
 
 use code::WebTarget;
 pub use code::{CodeKind, CodeLayer, WEB_KEY, WebBase};
+pub use expire::{Expired, Expiring, Expiry};
 use keys::KEYBINDINGS;
 pub use overlay::Overlay;
 pub use recover::{ActiveLayer, Layers, Recovered};
@@ -101,6 +103,10 @@ pub struct Entry {
     /// The generation it was saved from (local only).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generation: Option<u32>,
+    /// When it was last turned on (local only): a code entry on longer than
+    /// [`expire::MAX_AGE_MS`] expires ([`expire`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_ms: Option<u64>,
     /// Code not in your build (`source` "pr", "branch", "sha", "dir", "fork"): its web part is the
     /// stack key `code:web` ([`code`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -415,6 +421,7 @@ impl Customize {
         {
             let mut entry = library.entries.remove(at);
             entry.on = true;
+            entry.on_ms = Some(now_ms);
             let name = entry.name().to_owned();
             library.entries.insert(0, entry);
             self.write_library(&mut library)?;
@@ -445,6 +452,7 @@ impl Customize {
                 profile,
                 added_ms: Some(now_ms),
                 generation: Some(generation.n),
+                on_ms: Some(now_ms),
                 code: None,
             },
         );
@@ -461,7 +469,7 @@ impl Customize {
         now_ms: u64,
     ) -> Result<Changed, Error> {
         let label = format!("library: {} {name}", if on { "on" } else { "off" });
-        self.library_change(&label, origin, now_ms, |library| {
+        let change = self.library_change(&label, origin, now_ms, |library| {
             let entry = find(&mut library.entries, name)?;
             if on && let Some(code) = entry.code.as_ref().filter(|code| !code.has_web()) {
                 return Err(Error::Library(format!(
@@ -470,8 +478,16 @@ impl Customize {
                 )));
             }
             entry.on = on;
+            if on {
+                entry.on_ms = Some(now_ms);
+            }
             Ok(())
-        })
+        })?;
+        if on {
+            // Turned on again by hand: it is no longer an expired one.
+            self.forget_expired(name);
+        }
+        Ok(change)
     }
 
     /// Puts code layer `layer` on top of the library as entry
@@ -529,6 +545,7 @@ impl Customize {
                     profile,
                     added_ms,
                     generation: None,
+                    on_ms: layer.has_web().then_some(now_ms),
                     code: Some(layer),
                 },
             );
@@ -640,7 +657,7 @@ impl Customize {
             .entries
             .into_iter()
             .filter(|entry| !only_on || entry.on)
-            .map(|entry| Entry { added_ms: None, generation: None, ..entry })
+            .map(|entry| Entry { added_ms: None, generation: None, on_ms: None, ..entry })
             .collect();
         Ok(Collection {
             version: COLLECTION_VERSION,
@@ -711,6 +728,7 @@ impl Customize {
                     profile,
                     added_ms: Some(now_ms),
                     generation: None,
+                    on_ms: (turn_on && entry.on).then_some(now_ms),
                     code: entry.code.clone(),
                 });
             }
@@ -758,6 +776,7 @@ impl Customize {
                     profile,
                     added_ms: None,
                     generation: None,
+                    on_ms: None,
                     code: None,
                 }],
             });
