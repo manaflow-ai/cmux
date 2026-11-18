@@ -145,8 +145,8 @@ async fn the_last_attempt_may_connect_slowly_past_the_attempt_timeout() {
     assert_eq!(took, 8800);
 }
 
-/// Every attempt black-holed: six sockets at most, and the last waits until the caller's own
-/// budget (the relay's 10 s connect) ends the connect.
+/// Every attempt black-holed: six sockets at most, and the caller's own budget (the relay's 10 s
+/// connect), shorter than the last attempt's bound, ends the connect.
 #[tokio::test(start_paused = true)]
 async fn every_attempt_black_holed_ends_at_the_caller_s_budget() {
     let began = Instant::now();
@@ -157,9 +157,22 @@ async fn every_attempt_black_holed_ends_at_the_caller_s_budget() {
         std::future::pending::<io::Result<()>>()
     });
     let outcome = tokio::time::timeout(Duration::from_secs(10), hedged).await;
-    assert!(outcome.is_err(), "the last attempt is ended by the caller's budget only");
+    assert!(outcome.is_err(), "the caller's 10 s ends the connect before the last attempt's 8 s");
     assert_eq!(began.elapsed(), Duration::from_secs(10));
     assert_eq!(starts.lock().unwrap().len(), 6, "at most max_attempts sockets");
+}
+
+/// A caller with no budget of its own (the direct TCP dialer): every attempt black-holed still
+/// ends, when the last one's 8 s run out, not at the operating system's connect timeout.
+#[tokio::test(start_paused = true)]
+async fn every_attempt_black_holed_ends_at_the_last_attempt_s_bound_without_a_caller_budget() {
+    let (result, starts, took) = run(&["a", "b"], vec![Plan::Never; 6], HedgePolicy::INTERNET).await;
+    let error = result.unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+    assert_eq!(error.to_string(), "no answer within 8000 ms");
+    assert_eq!(starts.len(), 6);
+    // The sixth starts at 3800 ms and gets 8 s.
+    assert_eq!(took, 11_800);
 }
 
 #[tokio::test(start_paused = true)]

@@ -15,10 +15,14 @@
 //! others are dropped, which closes their sockets. Only the connect is hedged:
 //! nothing has been written on any of them yet.
 //!
-//! The last attempt has no timeout of its own: on a saturated uplink where every
-//! connect takes longer than [`HedgePolicy::attempt_timeout`], it still connects
-//! slowly inside the caller's own budget (the relay's 10 s connect) instead of
-//! failing where a plain connect used to succeed.
+//! The last attempt gets the longer [`HedgePolicy::last_attempt_timeout`]: on a
+//! saturated uplink where every connect takes longer than
+//! [`HedgePolicy::attempt_timeout`], it still connects slowly instead of failing
+//! where a plain connect used to succeed. It is still bounded, because a caller
+//! with no budget of its own (the direct TCP dialer under the terminal client)
+//! would otherwise wait out the operating system's connect timeout, over a
+//! minute, on a black-holed address. A caller with a shorter budget (the relay's
+//! 10 s connect) ends the connect first.
 
 use std::future::Future;
 use std::io;
@@ -34,8 +38,11 @@ pub struct HedgePolicy {
     /// How long the newest attempt has alone before the next one starts.
     pub stagger: Duration,
     /// How long one attempt but the last may take to connect before it is
-    /// dropped. The last runs until it answers or the caller's budget ends.
+    /// dropped.
     pub attempt_timeout: Duration,
+    /// How long the last attempt may take to connect, unless the caller's own
+    /// budget ends the connect first.
+    pub last_attempt_timeout: Duration,
     /// Attempts in flight at once.
     pub max_in_flight: usize,
     /// Attempts in all; the last one's failure is the answer once they ran out.
@@ -44,12 +51,14 @@ pub struct HedgePolicy {
 
 impl HedgePolicy {
     /// For a host that connects in 10 to 50 ms: a second socket after 400 ms,
-    /// at most three at a time, each but the last given 3 s, six in all (the
-    /// sixth starts after about 4 s when every one is black-holed, and has the
-    /// rest of the relay's 10 s connect budget).
+    /// at most three at a time, each but the last given 3 s, six in all. When
+    /// every one is black-holed the sixth starts after about 3.8 s and gets 8 s,
+    /// so a connect with no other budget fails after about 11.8 s; the relay's
+    /// 10 s connect budget ends sooner.
     pub const INTERNET: Self = Self {
         stagger: Duration::from_millis(400),
         attempt_timeout: Duration::from_secs(3),
+        last_attempt_timeout: Duration::from_secs(8),
         max_in_flight: 3,
         max_attempts: 6,
     };
@@ -58,7 +67,8 @@ impl HedgePolicy {
 /// Connects to one of `targets` through `connect`, hedged by `policy`
 /// (module docs). Attempt `n` dials `targets[n % targets.len()]`. The error
 /// is the last attempt's (an attempt that ran out of time is `TimedOut`). The
-/// final attempt is not timed out here: the caller bounds the whole connect.
+/// final attempt gets [`HedgePolicy::last_attempt_timeout`] instead of
+/// [`HedgePolicy::attempt_timeout`].
 pub async fn connect<A, T, F, Fut>(
     targets: &[A],
     policy: HedgePolicy,
@@ -83,10 +93,13 @@ where
         if may_launch && (running.is_empty() || Instant::now() >= next_launch) {
             let target = targets[launched % targets.len()].clone();
             let attempt = connect(target);
-            // The last attempt may connect slowly: only the caller's budget ends it.
-            let timeout = (launched + 1 < max_attempts).then_some(policy.attempt_timeout);
+            // The last attempt may connect slowly, within its own longer bound.
+            let timeout = if launched + 1 < max_attempts {
+                policy.attempt_timeout
+            } else {
+                policy.last_attempt_timeout
+            };
             running.push(async move {
-                let Some(timeout) = timeout else { return attempt.await };
                 match tokio::time::timeout(timeout, attempt).await {
                     Ok(result) => result,
                     Err(_) => Err(io::Error::new(
