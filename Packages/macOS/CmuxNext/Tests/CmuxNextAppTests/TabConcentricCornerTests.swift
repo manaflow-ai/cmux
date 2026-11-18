@@ -104,7 +104,8 @@ import Testing
         let leading = scene.pill.minX - scene.card.minX
         // Lucas 2026-11-15: the first pill keeps the strip's one end gap at every density (`Metrics.tabStripEndGap`).
         let stripLeading = scene.strip.convert(scene.strip.bounds, to: scene.host).minX - scene.card.minX
-        #expect(abs(leading - stripLeading - Metrics.tabStripEndGap) <= 0.01, "\(style) \(density): the pill is \(leading) pt from the side")
+        let endGap = TabStripMetrics().endGap(scale: scene.window.backingScaleFactor)
+        #expect(abs(leading - stripLeading - endGap) <= 0.01, "\(style) \(density): the pill is \(leading) pt from the side")
         let cell = try #require(scene.firstCell)
         let radius = cell.backgroundLayer.cornerRadius
         var concentric = min(max(0, cardRadius - inset), Metrics.tabHeight / 2)
