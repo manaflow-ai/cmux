@@ -26,7 +26,7 @@ struct LivePasswordCSVGuidePresenter: PasswordCSVGuidePresenting {
 
     func chooseSource() async -> PasswordCSVSource? {
         let options = PasswordCSVSource.allCases.map { CmuxDialogOption(label: PasswordCSVGuideStrings.name($0), value: $0.rawValue) }
-        let spec = CmuxDialogSpec(
+        let spec = CmuxDialogSpec(usesTransientMaterial: true,
             title: PasswordCSVGuideStrings.sourceTitle, lines: [PasswordCSVGuideStrings.sourceMessage],
             fields: [.choice(id: Self.sourceField, label: PasswordCSVGuideStrings.sourceLabel, options: options,
                              selected: PasswordCSVSource.apple.rawValue)],
@@ -42,7 +42,7 @@ struct LivePasswordCSVGuidePresenter: PasswordCSVGuidePresenting {
         var buttons = [CmuxDialogButton(id: "cancel", title: PasswordCSVGuideStrings.cancel, role: .cancel)]
         if source == .apple { buttons.append(CmuxDialogButton(id: "open", title: PasswordCSVGuideStrings.openPasswords, role: .normal)) }
         buttons.append(CmuxDialogButton(id: "choose", title: PasswordCSVGuideStrings.chooseFile, role: .default))
-        let spec = CmuxDialogSpec(title: PasswordCSVGuideStrings.stepsTitle(source), lines: PasswordCSVGuideStrings.steps(source),
+        let spec = CmuxDialogSpec(usesTransientMaterial: true, title: PasswordCSVGuideStrings.stepsTitle(source), lines: PasswordCSVGuideStrings.steps(source),
                                   buttons: buttons, identifier: "cmux.dialog.passwordCSV.steps")
         let answer = await CmuxDialogCenter.shared.present(spec, in: scope)
         switch answer.isDismissal ? "cancel" : answer.button {

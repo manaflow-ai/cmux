@@ -78,8 +78,13 @@ export interface PolicyConfig {
  */
 export const NO_VM_COUNT_CAP = Number.MAX_SAFE_INTEGER;
 export const DEFAULT_MAX_VMS = NO_VM_COUNT_CAP;
-/** Dev/test tenants (every tenant off production) keep a small cap so a leaked test loop stops early. */
-export const DEFAULT_DEV_TEST_MAX_VMS = 20;
+/**
+ * Dev/test tenants (every tenant off production) keep a cap so a leaked test loop stops early. It is NEXT Max's
+ * machines kept (cmux-platform Plan.ts `next_max.max_machines`, paused ones too), the largest plan count, so on
+ * development the team's plan is the stop and never this cap: at 20 it refused a company or NEXT Pro team holding
+ * 20 machines, most of them paused, below its plan's 100 or 50 (manaflow-ai/cmux#45885).
+ */
+export const DEFAULT_DEV_TEST_MAX_VMS = 300;
 /** Warm-start pools keep many snapshots per team; snapshots cost storage, not compute. */
 export const DEFAULT_MAX_SNAPSHOTS = 100;
 export const DEFAULT_RATE_PER_MINUTE: Readonly<Record<RateClass, number>> = { read: 600, write: 60, exec: 300, files: 300 };

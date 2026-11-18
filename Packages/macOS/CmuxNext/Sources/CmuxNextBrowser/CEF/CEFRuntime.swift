@@ -100,6 +100,9 @@ final class CEFRuntime {
     /// The pane host that last showed a tab: where tabs from windows cmux
     /// does not host go.
     weak var lastShownHost: CEFPaneHost?
+    /// The last shown pane of a regular profile's web tabs (`CEFPaneHost.hostsExtensionWindows`): an
+    /// extension's popup window opens over it (`popupWindowOpener`).
+    weak var lastShownWebHost: CEFPaneHost?
     /// Off-the-record context keys created this launch, by profile.
     var offTheRecordContexts: [BrowserProfileID: Set<String>] = [:]
     /// Extension mirrors by profile.
@@ -163,6 +166,7 @@ final class CEFRuntime {
     private(set) lazy var windowGuard: ChromiumWindowGuard = {
         let guard_ = ChromiumWindowGuard(logger: logger) { [weak self] window in self?.isPlacedDevToolsWindow(window) ?? false }
         guard_.onBecameKey = { [weak self] window in self?.keyReturn.windowBecameKey(window) }
+        guard_.onOcclusionChanged = { window in ChromiumPageWindowVisibility.parentOcclusionChanged(window) }
         return guard_
     }()
     /// The one display-change observer (`CEFLayerHosting.displaysChanged` caps each resize wait). Made when CEF is ready.
@@ -182,6 +186,9 @@ final class CEFRuntime {
     private(set) var loadTask: Task<Result<CEFLoadedLibrary, BootError>, Never>?
     /// The keychain step of the first start (``CEFKeychainMigration``), off the main thread beside the framework load.
     private var keychainTask: Task<CEFKeychainMigration.Outcome?, Never>?
+    /// Whether the running Chromium keeps its key in the mock keychain (a public constant): set when it starts,
+    /// after the keychain item step, so it says what Chromium uses, not what the bundle suggests. Nil before.
+    private(set) var chromiumUsesMockKeychain: Bool?
     private(set) var preloaded = false
     /// The preload finished mapping the framework (CEF not started yet).
     private(set) var libraryLoaded = false
@@ -220,7 +227,6 @@ final class CEFRuntime {
         self.earlyLoad = earlyLoad
     }
 
-    /// The load to await for `candidate`: the early load of that layout when one began, else a new load at `priority`.
     /// Prepares cmux's own Safe Storage item before `CefInitialize` (``CEFKeychainMigration``): never a prompt, and
     /// nothing at all in a build on the mock keychain or with memory-only stores.
     private func beginKeychainStep(environment: [String: String]) -> Task<CEFKeychainMigration.Outcome?, Never> {
@@ -237,9 +243,21 @@ final class CEFRuntime {
         return task
     }
 
+    /// The load to await for `candidate`: the early load of that layout when one began, else a new load at `priority`.
+    ///
+    /// The new load reads the framework binary into the file cache at once (no lock), then maps it only once
+    /// ``initializeAfter`` is open. The map holds dyld's loader lock for seconds on a loaded Mac, and while the
+    /// first window builds the main thread takes that lock for each AppKit class it makes first
+    /// (`+[NSView clipsToBounds]` asks dyld for the linked SDK): Leo's NIGHTLY held the main thread 3.5 s in
+    /// `SidebarRailCardView.init`'s first `NSStackView` while launch's preload mapped (hq#12524).
     private func newLoadTask(_ candidate: CEFRuntimeLayout?, priority: TaskPriority) -> CEFEarlyLoad.LoadTask {
         if let early = earlyLoad?.task(for: candidate) { return early }
-        return Task.detached(priority: priority) { [libraryLoader] in libraryLoader(candidate) }
+        let gate = initializeAfter
+        return Task.detached(priority: priority) { [libraryLoader] in
+            if let candidate { CEFFrameworkPrefetch.readBinary(candidate) }
+            if await CEFRuntime.waitForInitializeGate(gate) { await CEFStartSteps.shared.point("map_waited_first_frame") }
+            return libraryLoader(candidate)
+        }
     }
 
     /// Takes the engine's stores and sign-in tabs (the process has one Chromium, so the App's one
@@ -544,6 +562,7 @@ final class CEFRuntime {
         if !Self.applyKeychainItem(keychainItem, to: &switchSet, set: shim.setKeychainItem), !switchSet.useMockKeychain {
             logger.error("keychain item refused")
         }
+        chromiumUsesMockKeychain = switchSet.useMockKeychain
         noteStartupProfile(switchSet)
         builtInAdBlockerLoaded = !switchSet.builtInExtensions.isEmpty
         logger.notice("built-in extensions: \(switchSet.builtInExtensions.count, privacy: .public)")

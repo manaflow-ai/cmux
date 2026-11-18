@@ -52358,54 +52358,77 @@
           "order" : 8
         },
         {
-          "enabled_when" : "can_perform",
-          "id" : "cloudMove",
-          "kind" : "action",
+          "children" : [
+            {
+              "enabled_when" : "can_perform",
+              "id" : "cloudMove",
+              "kind" : "action",
+              "order" : 0,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : "cloud",
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "cloudBringBack",
+              "kind" : "action",
+              "order" : 1,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : "cloud",
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "cloudTransferLocal",
+              "kind" : "action",
+              "order" : 2,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : "cloud",
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "cloudMoveToMachine",
+              "kind" : "action",
+              "order" : 3,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : "cloud",
+                "requires" : [
+
+                ]
+              }
+            }
+          ],
+          "folder" : "move",
+          "kind" : "folder",
           "order" : 9,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : "cloud",
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "enabled_when" : "can_perform",
-          "id" : "cloudBringBack",
-          "kind" : "action",
-          "order" : 10,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : "cloud",
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "enabled_when" : "can_perform",
-          "id" : "cloudMoveToMachine",
-          "kind" : "action",
-          "order" : 11,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : "cloud",
-            "requires" : [
-
-            ]
-          }
+          "title" : "Move",
+          "title_key" : "menu.folder.move",
+          "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 12
+          "order" : 10
         },
         {
           "enabled_when" : "can_perform",
           "id" : "agentPaneZoomIn",
           "kind" : "action",
           "label" : "Zoom In",
-          "order" : 13,
+          "order" : 11,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -52419,7 +52442,7 @@
           "id" : "agentPaneZoomOut",
           "kind" : "action",
           "label" : "Zoom Out",
-          "order" : 14,
+          "order" : 12,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -52433,7 +52456,7 @@
           "id" : "agentPaneZoomReset",
           "kind" : "action",
           "label" : "Actual Size",
-          "order" : 15,
+          "order" : 13,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -52444,14 +52467,14 @@
         },
         {
           "kind" : "separator",
-          "order" : 16
+          "order" : 14
         },
         {
           "enabled_when" : "can_perform",
           "id" : "find",
           "kind" : "action",
           "label" : "Find in Chat…",
-          "order" : 17,
+          "order" : 15,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -52462,13 +52485,13 @@
         },
         {
           "kind" : "separator",
-          "order" : 18
+          "order" : 16
         },
         {
           "enabled_when" : "can_perform",
           "id" : "agentChat.copyIdentifier",
           "kind" : "action",
-          "order" : 19,
+          "order" : 17,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -52509,7 +52532,7 @@
           ],
           "folder" : "tools",
           "kind" : "folder",
-          "order" : 20,
+          "order" : 18,
           "title" : "Tools",
           "title_key" : "menu.folder.tools",
           "title_table" : "Localizable"
@@ -59585,12 +59608,12 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.copyPaneID",
+              "id" : "cloud.team.copyLink",
               "kind" : "action",
               "order" : 3,
               "visible_when" : {
                 "debug_only" : false,
-                "feature" : null,
+                "feature" : "cloud",
                 "requires" : [
 
                 ]
@@ -59598,7 +59621,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.copyIdentifiers",
+              "id" : "palette.copyPaneID",
               "kind" : "action",
               "order" : 4,
               "visible_when" : {
@@ -59611,9 +59634,22 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "agentChat.copyIdentifier",
+              "id" : "palette.copyIdentifiers",
               "kind" : "action",
               "order" : 5,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "agentChat.copyIdentifier",
+              "kind" : "action",
+              "order" : 6,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -62667,6 +62703,19 @@
 
                 ]
               }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "cloud.team.copyLink",
+              "kind" : "action",
+              "order" : 2,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : "cloud",
+                "requires" : [
+
+                ]
+              }
             }
           ],
           "folder" : "copy",
@@ -63275,14 +63324,40 @@
                   }
                 },
                 {
+                  "enabled_when" : "can_perform",
+                  "id" : "cloud.team.follow",
+                  "kind" : "action",
+                  "order" : 20,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : "cloud",
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "cloud.team.unfollow",
+                  "kind" : "action",
+                  "order" : 21,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : "cloud",
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
                   "kind" : "separator",
-                  "order" : 20
+                  "order" : 22
                 },
                 {
                   "enabled_when" : "can_perform",
                   "id" : "reconnectWorkspace",
                   "kind" : "action",
-                  "order" : 21,
+                  "order" : 23,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -63295,7 +63370,7 @@
                   "enabled_when" : "can_perform",
                   "id" : "disconnectWorkspace",
                   "kind" : "action",
-                  "order" : 22,
+                  "order" : 24,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
