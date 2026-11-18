@@ -40,7 +40,10 @@ afterAll(async () => {
   await teardownDom(saved, { scope });
 });
 
-const task = () => new Promise<void>((resolve) => setTimeout(resolve, 30));
+// Yields whole tasks (setTimeout 0 runs after React's scheduler task) until `drew()` holds, at most 200.
+const drawnBy = async (drew: () => boolean) => {
+  for (let i = 0; i < 200 && !drew(); i += 1) await new Promise<void>((resolve) => setTimeout(resolve, 0));
+};
 const microtasks = async () => {
   for (let i = 0; i < 20; i += 1) await Promise.resolve();
 };
@@ -56,7 +59,7 @@ test("a streamed frame's draw of the reply's row runs in a task a key can go bef
   }
   root = createRoot(host);
   root.render(<Transcript />);
-  await task();
+  await drawnBy(() => drawn.length > 0);
   expect(drawn.at(-1)).toBeUndefined();
 
   const row = (text: string, version: number) =>
@@ -70,13 +73,13 @@ test("a streamed frame's draw of the reply's row runs in a task a key can go bef
     await microtasks();
     // Base: the store's sync render already drew the frame here, in the microtask after the frame.
     expect(drawn.at(-1)).not.toBe(text);
-    await task();
+    await drawnBy(() => drawn.at(-1) === text);
     expect(drawn.at(-1)).toBe(text);
     expect(host.textContent).toBe(text);
   }
 
   // The pane's own redraw clears the store; the row then draws from the pane's rows again.
   streamingRow.clear();
-  await task();
+  await drawnBy(() => drawn.at(-1) === undefined);
   expect(drawn.at(-1)).toBeUndefined();
 });
