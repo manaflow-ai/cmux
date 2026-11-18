@@ -154,7 +154,7 @@ final class SidebarChatHistoryHost: NSView {
 
     /// The part of the block on screen now: from the top of the list's visible rect in the block, for its height;
     /// height 0 when none of the block shows.
-    var currentSlice: PageVisibleSlices.Slice { slice.current }
+    var currentSlice: PageVisibleSlices.Slice? { slice.current }
 
     /// Sends the slice on the next display frame (the latest wins).
     func needsSlice() { slice.needsSlice() }

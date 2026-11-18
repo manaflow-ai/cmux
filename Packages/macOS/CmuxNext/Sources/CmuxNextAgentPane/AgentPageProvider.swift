@@ -17,6 +17,7 @@ public extension PageDescriptor {
     /// bundle images under `__appbundle/` (``AppsPanelsPageProvider``).
     static let agent = PageDescriptor(
         id: "cmux.agent", resource: "agent-pane", namespaces: [AgentPageOps.namespace, AppsPanelsPageProvider.namespace],
+        nativeOps: [PageVisibleSlices.stream],
         csp: PageCSP(connect: ["'none'"],
                      frame: [AgentPaneRenderFrame.source, "cmux-page://cmux.agent/__artifact", "http://localhost:*", "http://127.0.0.1:*", "https://localhost:*", "https://127.0.0.1:*"],
                      media: ["'self'"],

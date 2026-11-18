@@ -1,3 +1,4 @@
+public import AppKit
 public import CmuxNextApps
 public import CmuxNextPages
 public import CmuxNextSettings
@@ -38,6 +39,13 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
     /// Each mount's scene revision: the ops batches sent for it, resets included (status events do not count). A
     /// mount's `cmux.page.visibleSlice` echoes it (``sceneRevision(mountID:)``).
     private var sceneRevisions: [String: Int] = [:]
+    /// The page's visible-slice stream: one surface per mount (surface = mount id, revision = its scene revision).
+    public let slices = PageVisibleSlices()
+    /// The native view that draws `mountID`'s scene, as tall as it (a host that sizes a page frame per mount from
+    /// ``onLayout``). Nil: the page scrolls the mount itself, and no slice is sent for it (the page draws it whole).
+    public var mountView: (@MainActor (_ mountID: String) -> NSView?)?
+    /// Each mount's slice, from its mount to its unmount.
+    private var sliceTrackers: [String: PageVisibleSliceTracker] = [:]
     /// Each mount's status watch (``follow(_:)``).
     private var statusWatches: [String: Task<Void, Never>] = [:]
     /// Runs when a mount's reported height changes. No host reads it yet; the sidebar and hover
@@ -49,6 +57,17 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
 
     /// The route a page that may mount Session Info sections (the App Store page) adds.
     public static func route(_ client: AppsClient) -> PageRoute { PageRoute(prefix: namespace, provider: AppsPanelsPageProvider(client: client)) }
+
+    /// This provider's routes: the panel ops and streams, and its mounts' visible slices (a page whose descriptor
+    /// lists ``PageVisibleSlices/stream``).
+    public var routes: [PageRoute] { [PageRoute(prefix: Self.namespace, provider: self), slices.route] }
+
+    /// `mountID`'s view moved or scrolled: its slice goes out on the next display frame.
+    public func needsSlice(mountID: String) { sliceTrackers[mountID]?.needsSlice() }
+
+    /// Sends `mountID`'s slice now when it changed (a host already in its frame); returns whether it did.
+    @discardableResult
+    public func sendSliceNow(mountID: String) -> Bool { sliceTrackers[mountID]?.sendNow() ?? false }
 
     public init(client: AppsClient) {
         self.client = client
@@ -63,6 +82,8 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
         statuses.removeAll()
         heights.removeAll()
         sceneRevisions.removeAll()
+        for tracker in sliceTrackers.values { tracker.stop() }
+        sliceTrackers.removeAll()
         for watch in statusWatches.values { watch.cancel() }
         statusWatches.removeAll()
         sceneListeners.removeAll()
@@ -117,6 +138,7 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
             sceneListeners[id] = (mountID, onEvent)
             if let mountID, let ops = unheard.removeValue(forKey: mountID) {
                 onEvent(sceneJSON(mountID: mountID, revision: nextSceneRevision(mountID), ops: ops, reset: true))
+                needsSlice(mountID: mountID)
             }
             // The page subscribes after `mount` answers: it hears where the mount is now.
             if let mountID, let mount = mounts[mountID] {
@@ -146,6 +168,10 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
         mounts[mount.id] = mount
         statuses[mount.id] = mount.model.status
         follow(mount)
+        let mountID = mount.id
+        sliceTrackers[mountID] = PageVisibleSliceTracker(surface: mountID, slices: slices, view: { [weak self] in self?.mountView?(mountID) },
+                                                         measure: { [weak self] in self?.mountView?(mountID).map(PageVisibleSliceTracker.visiblePart(of:)) },
+                                                         revision: { [weak self] in self?.sceneRevisions[mountID] ?? 0 })
         var reply: [String: JSONValue] = ["mount_id": .string(mount.id)]
         if servesBundleImages, mount.bundleDirectory != nil { reply["asset_base"] = .string("/\(Self.bundlePrefix)/\(mount.id)/") }
         return .object(reply)
@@ -166,6 +192,7 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
             throw PageError.invalidParams("mount_id and a height of 0 or more are required")
         }
         guard mounts[mountID] != nil else { throw PageError(code: "cmux.apps.panels.not_found", message: "No such mount") }
+        needsSlice(mountID: mountID)
         guard heights[mountID] != height else { return .object([:]) }
         heights[mountID] = height
         onLayout?(mountID, height)
@@ -204,6 +231,7 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
         statuses.removeValue(forKey: mountID)
         heights.removeValue(forKey: mountID)
         sceneRevisions.removeValue(forKey: mountID)
+        sliceTrackers.removeValue(forKey: mountID)?.stop()
         statusWatches.removeValue(forKey: mountID)?.cancel()
         client.unmount(mount)
         return .object([:])
@@ -220,6 +248,7 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
             }
             let data = sceneJSON(mountID: mountID, revision: nextSceneRevision(mountID), ops: ops, reset: reset)
             for listener in listeners { listener.callback(data) }
+            needsSlice(mountID: mountID)
         case .changed:
             for listener in changedListeners.values { listener(.null) }
         default:
@@ -238,6 +267,7 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
     private func publishStatus(_ mountID: String, _ status: AppSceneModel.Status) {
         guard mounts[mountID] != nil, statuses[mountID] != status else { return }
         statuses[mountID] = status
+        if status == .ready { needsSlice(mountID: mountID) }
         let listeners = sceneListeners.values.filter { $0.mountID == nil || $0.mountID == mountID }
         // No subscriber yet: the page hears the status current when it subscribes.
         guard !listeners.isEmpty else { return }
