@@ -781,7 +781,11 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                 # token, as cloud_overflow_switch.GitHub does for a refused read.
                 try:
                     snapshot = fallback.snapshot(now=now)
-                    print(f"::notice title=Runner pools::janitor snapshot read with the fallback token ({error})")
+                    if snapshot is None:
+                        print(f"::warning title=Runner pools::no janitor snapshot ({error}; fallback: no trusted "
+                              "snapshot); judging on the probe alone")
+                    else:
+                        print(f"::notice title=Runner pools::janitor snapshot read with the fallback token ({error})")
                 except Exception as second:  # noqa: BLE001 - as above
                     print(f"::warning title=Runner pools::no janitor snapshot ({error}; fallback: {second}); "
                           "judging on the probe alone")
