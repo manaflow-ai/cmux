@@ -197,15 +197,16 @@ final class SidebarPriorityPanelView: NSView {
         guard moves else {
             // Each row at its place, whole. Set through the animator, the frame replaces a move still in
             // flight (as `RowMotion` does), which a plain set would not stop.
+            let landing = (targets + opening).filter { !Self.landed($0.0, at: $0.1) }
             Motion.withoutAnimation {
-                for (row, frame) in targets + opening where !Self.landed(row, at: frame) {
+                for (row, frame) in landing {
                     row.animator().frame = frame
                     row.animator().alphaValue = 1
                     row.clipsToBounds = false
-                    row.slot = frame
-                    counts.framed += 1
                 }
             }
+            for (row, frame) in landing { row.slot = frame }
+            counts.framed += landing.count
             for row in closing + leaving.map(\.0) { row.removeFromSuperview() }
             closing = []
             opensUntil = [:]
