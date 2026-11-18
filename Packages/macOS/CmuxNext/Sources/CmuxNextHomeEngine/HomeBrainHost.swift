@@ -36,6 +36,10 @@ public nonisolated struct HomeBrainHost: Sendable {
     /// Starts the app's own acpmux when none runs (the local pane host's prewarm), before a host
     /// that only waits for it launches. Nil: nothing to start.
     public var ensureAppAcpmux: (@Sendable () async -> Void)?
+    /// "cmux Files (dev)" in a DEV build that embeds it (docs/cmux-files-host.md): the host and the
+    /// agents it starts then answer to that helper for Files and Folders, shared by every DEV build,
+    /// as the app's own acpmux does. Nil in every other build, which runs the host as before.
+    var filesHost: FilesHost?
 
     /// The OptChat Chief's file name in the app's Contents/Resources/bin.
     static let bundledChiefName = "optchat-chief"
@@ -97,6 +101,7 @@ public nonisolated struct HomeBrainHost: Sendable {
                                  acpmux: AcpmuxEnvironment.resolve(build: usesAppAcpmux ? appBuild : nil, bundledBinDirectory: bundledBinDirectory,
                                                                    environment: acpmuxEnvironment))
         host.usesAppAcpmux = usesAppAcpmux
+        host.filesHost = FilesHost.current(environment: environment)
         return host
     }
 
@@ -107,10 +112,12 @@ public nonisolated struct HomeBrainHost: Sendable {
         ChiefHome.resolve(tag: tag, environment: environment, userHome: userHome).muxHome
     }
 
-    /// The shell prints the host's pid, so Home watches that process's exit.
+    /// The shell prints the host's pid (with the helper, its launcher's, which forwards signals and
+    /// exits with the host's status), so Home watches that process's exit.
     var arguments: [String] {
-        ["-c", #"set -m; "$@" >>"$MUX_HOST_LOG" 2>&1 </dev/null & echo "$!""#, "mux-host-launch",
-         executable.path, "host", "--daemon-socket", daemonSocket, "--mux-home", muxHome.path]
+        ["-c", #"set -m; "$@" >>"$MUX_HOST_LOG" 2>&1 </dev/null & echo "$!""#, "mux-host-launch"]
+            + (filesHost?.arguments(running: executable.path) ?? [executable.path])
+            + ["host", "--daemon-socket", daemonSocket, "--mux-home", muxHome.path]
     }
 
     var childEnvironment: [String: String] {

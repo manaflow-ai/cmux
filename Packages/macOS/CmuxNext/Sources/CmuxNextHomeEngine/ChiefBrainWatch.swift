@@ -256,7 +256,7 @@ public final class ChiefBrainWatch {
             // host must not outlive it.
             // concurrency-allow: one small stat after a restart
             let shutdown = FileManager.default.fileExists(atPath: home.shutdownMarker.path)
-            if stopped || shutdown, let next, isChiefHost(next) {
+            if stopped || shutdown, let next, isChiefHost(next) || ChiefHostStop.isFilesHostLauncher(next) {
                 kill(next, SIGTERM)
                 return
             }

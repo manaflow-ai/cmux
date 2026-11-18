@@ -18,7 +18,8 @@ build embeds it, looks for it or spawns differently (see "Production").
 | --- | --- | --- | --- |
 | A terminal's shell and what runs in it (`ls ~/Downloads`, `cd ~/Desktop`, a CLI agent) | app runs `cmux-tui server ensure`; it spawns the owner with `setsid` (`local_owner.rs` `spawn_detached_owner`). `setsid` changes the session, not responsibility | the DEV app (per tag) | cmux Files (dev) |
 | Agents of the agent pane (acpmux and the Claude Code, Codex or other agent processes it starts) | app `posix_spawn`s `/bin/sh -c 'set -m; … &'` (`AcpmuxDaemonLauncher`); launchd adopts the daemon, responsibility stays | the DEV app | cmux Files (dev) |
-| The Chief home's conversation owner and its brains | `DaemonLauncher.forChief`, same `server ensure` path | the DEV app that started it | cmux Files (dev) |
+| The Chief home's conversation owner | `DaemonLauncher.forChief`, same `server ensure` path | the DEV app that started it | cmux Files (dev) |
+| The Chief's brain host (`optchat-chief host`) and the acpmux and agents it starts | `HomeBrainHost` `posix_spawn`s `/bin/sh -c 'set -m; "$@" … &'`, like acpmux | the DEV app | cmux Files (dev) |
 | The app itself: Files pane listing (`DirectoryLister`), Quick Look, icons, drag and drop, folder picker | in process | the DEV app | unchanged (see "What still asks") |
 | Chromium downloads into `~/Downloads` | the Chromium host is spawned without a disclaim on purpose (camera, microphone, location name cmux; `cef-helper-app-DESIGN.md` row 7) | the DEV app | unchanged |
 | Computer Use, Screen Sharing workers | already their own identities (cmux Remote, `docs/cmux-remote.md`) | cmux Remote | unchanged |

@@ -20,6 +20,8 @@ public nonisolated struct FilesHost: Sendable, Equatable {
     public static let switchKey = "CMUX_NEXT_FILES_HOST"
     /// The embedded executable, relative to the app bundle (cmux-files-host `EMBEDDED_EXECUTABLE`).
     public static let embeddedExecutable = "Contents/Library/cmux Files (dev).app/Contents/MacOS/cmux-files-host"
+    /// The helper's executable name (cmux-files-host `EXECUTABLE`), as `proc_pidpath` ends.
+    public static let executableName = "cmux-files-host"
     static let developmentBundlePrefix = "com.cmuxterm.app.debug"
 
     /// Whether this compile is a Debug build. Release configurations compile it to `false`, so a

@@ -35,4 +35,18 @@ struct HomeBrainHostFilesHostTests {
         #expect(Array(arguments.dropFirst(2)) == ["mux-host-launch", "/App/cmux DEV one.app/Contents/Resources/bin/optchat-chief",
                                                   "host", "--daemon-socket", "/tmp/d.sock", "--mux-home", "/Home/mux"])
     }
+
+    /// The pid the launch shell prints is the launcher's; a quit during the start stops it (it
+    /// forwards SIGTERM). Only the helper's executable of this user's processes counts.
+    @Test func theHelpersLauncherIsStoppable() {
+        let files = "/App/cmux DEV one.app/" + FilesHost.embeddedExecutable
+        #expect(ChiefHostStop.isFilesHostLauncher(path: files, processName: "cmux-files-host"))
+        #expect(ChiefHostStop.isFilesHostLauncher(
+            path: "/Users/me/Library/Application Support/cmux/files-host/app/0123/cmux Files (dev).app/Contents/MacOS/cmux-files-host",
+            processName: "cmux-files-host"))
+        #expect(!ChiefHostStop.isFilesHostLauncher(path: files, processName: nil), "another user's process")
+        #expect(!ChiefHostStop.isFilesHostLauncher(path: nil, processName: "cmux-files-host"))
+        #expect(!ChiefHostStop.isFilesHostLauncher(path: "/App/x.app/Contents/Resources/bin/cmux-tui", processName: "cmux-tui"))
+        #expect(!ChiefHostStop.isFilesHostLauncher(getpid()), "this test process")
+    }
 }
