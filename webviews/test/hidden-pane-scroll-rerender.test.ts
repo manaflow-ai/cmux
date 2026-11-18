@@ -131,7 +131,8 @@ await requireBrowserLane("hidden-pane-scroll-rerender.test.ts", async () => {
       .evaluate((node) => node.scrollTop);
     for (let notch = 0; notch < 120; notch += 1) {
       await shown.mouse.wheel(0, Math.floor(notch / 30) % 2 === 0 ? -60 : 60);
-      await shown.waitForTimeout(16);
+      // One notch a frame, as a trackpad's stream sends them: the next notch waits for this one's frame.
+      await shown.evaluate(() => new Promise((done) => requestAnimationFrame(() => done(null))));
     }
     const after = await shown
       .locator(".acpmux-scroll")
