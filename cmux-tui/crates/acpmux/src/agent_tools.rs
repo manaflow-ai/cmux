@@ -75,7 +75,8 @@ use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
 
 pub mod claude_plugin_dirs;
-mod cua_helper;
+mod cmux_mcp;
+pub(crate) mod cua_helper;
 pub mod project_mcp;
 
 pub use claude_plugin_dirs::{CLAUDE_PLUGIN_DIRS_ENV, without_cmux_tui_plugins};
@@ -838,7 +839,7 @@ fn resolve_with_cua_helper(
                 .collect(),
         });
     }
-    if let Some(cmux) = executable("cmux")
+    if let Some(cmux) = executable("cmux").filter(|cmux| cmux_mcp::serves_mcp(cmux))
         && !inputs.cmux_json.as_deref().is_some_and(mcp_disabled)
     {
         servers.push(McpServer {
