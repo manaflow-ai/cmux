@@ -163,8 +163,8 @@ test("while searching, a bookmark another writer renamed renders its one result 
   const { provider, store } = await mount();
   await act(async () => {
     store.setText("saved page");
-    await wait(50);
   });
+  await advance(50);
   expect(store.getSnapshot().results?.length).toBeGreaterThan(0);
   expect(shownRows().has("bm_long_3")).toBe(true);
   const renders = await counted(async () => {
