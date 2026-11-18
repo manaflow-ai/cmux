@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 @testable import CmuxNextApp
+import CmuxNextAppCore
 import CmuxNextCloud
 @testable import CmuxNextDaemon
 import CmuxNextSidebar
@@ -26,6 +27,16 @@ struct CloudSectionNewWorkspaceTests {
         // Cloud off by policy: the app lists no daemon for the machine, and the old rule decides, as before.
         #expect(rules.newWorkspace(machine: false, group: false, localWindow: true, windowDaemon: true, cloudMachine: true)
                 == rules.newWorkspace(machine: false, group: false, localWindow: true, windowDaemon: true))
+    }
+
+    /// The seed a Cloud section's new workspace starts with picks Cloud; any other section's is the plain New Tab page.
+    @Test func theSidebarSpawnCarriesTheCloudPick() {
+        let cloud = WorkspaceSpawn.sidebarNew(at: nil, picksCloud: true)
+        #expect(cloud.firstChat?.picksCloud == true)
+        #expect(cloud.firstChat?.cwd == nil, "no folder: a send with no project starts a no-folder Cloud chat")
+        #expect(cloud.opensNewTabPage)
+        let plain = WorkspaceSpawn.sidebarNew(at: nil, picksCloud: false)
+        #expect(plain.firstChat == nil && plain.opensNewTabPage)
     }
 
     /// The bridge, end to end on this Mac's real daemon: the Cloud machine's section opens a workspace here, its one tab a
@@ -54,13 +65,16 @@ struct CloudSectionNewWorkspaceTests {
         let made = await RapidWorkspaceCreateTests.wait(within: .seconds(10)) { store.workspaces.contains { !before.contains($0.id) } }
         let workspace = store.workspaces.first { !before.contains($0.id) }
         let tab = workspace?.screens.flatMap(\.panes).flatMap(\.tabs).first
-        let seed = await tab.flatMap { tabs.seeds[AgentTabKey(machine: services.daemon.machineID, key: $0.id)] }?.peek()
+        // A chat, not the New Tab page: the page once built (it takes its seed, and its handshake clears the Cloud pick:
+        // `AgentPaneSeedSource.take`), else the held entries. The seed itself: `theSidebarSpawnCarriesTheCloudPick`.
+        let scoped = tab.map { AgentTabKey(machine: services.daemon.machineID, key: $0.id) }
+        let isChat = scoped.map { key in tabs.views[key].map { $0.model.newTab == nil } ?? (tabs.seeds[key] != nil && tabs.newTabPages[key] == nil) }
         let cloudAfter = cloud.daemon.store.workspaces.map(\.id)
         await launched.stop()
 
         #expect(made, "no workspace opened on this Mac")
         #expect(tab?.kind == .conversation, "the new workspace's tab is \(String(describing: tab?.kind)), not a chat")
-        #expect(seed?.picksCloud == true, "its composer does not have Cloud picked")
+        #expect(isChat == true, "it opened the New Tab page, not a chat seeded with the Cloud pick")
         #expect(cloudAfter == cloudBefore, "the Cloud machine got a workspace: \(cloudAfter)")
         #expect(newTabs.isEmpty, "it ran Cmd-N's New Workspace instead")
     }
