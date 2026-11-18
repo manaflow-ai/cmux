@@ -191,10 +191,15 @@ struct CloudNewMachineTests {
         let staged = CloudMachineBootstrap.directory + "/in-0f-1"
         let modes = ["script": 0o700, "env": 0o600, "run": 0o700, "repo.json": 0o644, "repo": 0o700]
         #expect(fake.paths == Set(modes.keys.map { "\(staged)/\($0)" }))
-        for (name, mode) in modes { #expect(fake.write("\(staged)/\(name)")?.mode == mode, "\(name)") }
-        #expect(fake.write("\(staged)/repo.json")?.data == Data("null\n".utf8), "no repo: no earlier start's record is left")
-        #expect(fake.write("\(staged)/repo")?.data == CloudMachineBootstrap.noScript, "and no earlier start's step")
-        #expect(String(decoding: fake.write("\(staged)/env")?.data ?? Data(), as: UTF8.self).contains("export LANE_VM_NAME='lane-vm-1'"))
+        for (name, mode) in modes {
+            let written = fake.write("\(staged)/\(name)").map(\.mode)
+            #expect(written == mode, Comment(rawValue: name))
+        }
+        let record = fake.write("\(staged)/repo.json").map(\.data), step = fake.write("\(staged)/repo").map(\.data)
+        #expect(record == Data("null\n".utf8), "no repo: no earlier start's record is left")
+        #expect(step == CloudMachineBootstrap.noScript, "and no earlier start's step")
+        let env = String(decoding: fake.write("\(staged)/env").map(\.data) ?? Data(), as: UTF8.self)
+        #expect(env.contains("export LANE_VM_NAME='lane-vm-1'"))
         #expect(fake.commands.count == 2 && fake.commands.allSatisfy { $0.contains("s=\(staged);") }, "the prepare, then the start, of this start's folder")
     }
 

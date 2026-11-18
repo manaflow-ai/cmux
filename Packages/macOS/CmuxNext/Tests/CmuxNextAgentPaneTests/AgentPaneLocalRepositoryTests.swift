@@ -94,7 +94,8 @@ struct AgentPaneLocalRepositoryTests {
         #expect(refusal.error == .pathInvalid)
         #expect(refusal.method == "session/new")
         #expect(refusal.reason == "repo.clone_failed")
-        #expect(refusal.message?.contains("Repository not found") == true)
+        let message = refusal.message ?? ""
+        #expect(message.contains("Repository not found"))
         // Not remembered: the next start (or pick) clones again.
         _ = try await scope.localRepositories?.folder("acme/api")
         #expect(await clones.runs == ["acme/api", "acme/api"])
@@ -127,7 +128,8 @@ struct AgentPaneLocalRepositoryTests {
         let request = try #require(AgentPaneGitHubRequest(method: "github.repos.prepare", params: ["cwd": "github:acme/api"]))
         let reply = await request.reply(gitHub) { false }
         #expect(reply["ok"] as? Bool == true)
-        #expect((reply["value"] as? [String: Any])?["dir"] as? String == "/tmp/cmux/repos/github.com/acme/api")
+        let dir = (reply["value"] as? [String: Any])?["dir"] as? String
+        #expect(dir == "/tmp/cmux/repos/github.com/acme/api")
         // Only a repository folder: anything else is no request.
         #expect(AgentPaneGitHubRequest(method: "github.repos.prepare", params: ["cwd": "/Users/me/api"]) == nil)
     }

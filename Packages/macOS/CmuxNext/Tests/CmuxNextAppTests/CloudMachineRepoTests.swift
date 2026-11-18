@@ -59,7 +59,8 @@ struct CloudMachineRepoTests {
         #expect(await bootstrap.start(name: nil, on: fake.machine, startID: "ab").status == "started")
         let staged = CloudMachineBootstrap.directory + "/in-ab"
         #expect(fake.writes == ["\(staged)/script", "\(staged)/env", "\(staged)/run", "\(staged)/repo.json", "\(staged)/repo"])
-        #expect(fake.data("\(staged)/repo") == Data(CloudMachineRepo(owner: "o", name: "r").step.utf8))
+        let step = fake.data("\(staged)/repo")
+        #expect(step == Data(CloudMachineRepo(owner: "o", name: "r").step.utf8))
         #expect(try await CloudMachineRequest().loadScript(work: BackgroundWork()) == nil)
     }
 
