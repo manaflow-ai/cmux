@@ -43,7 +43,16 @@ import {
 import { openDeclarations } from "../layout/motionContract";
 import { judgeMotion, type JudgeFrame, type MotionVerdict } from "../layout/motionJudge";
 
-export { BOTTOM_FOLD, TRACK_SELECTOR, bottomFoldOf, sampleBoxes } from "../layout/boxSample";
+export {
+  BOTTOM_FOLD,
+  PIN_LIVE,
+  TRACK_SELECTOR,
+  TURN_END_FOLDING,
+  bottomFoldOf,
+  insetCrop,
+  sampleBoxes,
+  shownBox,
+} from "../layout/boxSample";
 export type { Box, BoxFrame, BoxSample, StepTargets } from "../layout/boxSample";
 
 export type BoxMove = { label: string; frame: number; dx: number; dy: number };
