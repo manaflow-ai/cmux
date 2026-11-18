@@ -1,7 +1,13 @@
 import { CLOUD_SETUP_REQUIRED, readCloudSetupNeed, type CloudSetupNeed } from "./cloudSetup";
 import type { CloudStartAnswer } from "./cloudRun";
 import { cloudPlanTeamRefusal, type CloudPlanTeamRefusal } from "./cloudPlanTeams";
-import { cloudSizeLocked, cloudSizeLockedMessage, type CloudSizeLocked } from "./cloudPlans";
+import {
+  cloudPlansNamed,
+  cloudSizeLocked,
+  cloudSizeLockedMessage,
+  type CloudPlanId,
+  type CloudSizeLocked,
+} from "./cloudPlans";
 import { translate } from "./i18n";
 import { errorMessage } from "./transportErrors";
 import { sliceWhole } from "../../ui/wholeChars";
@@ -46,6 +52,9 @@ export type CloudStartProgress = {
   /// A plan refusal in a team (`cloud_plan_required` with the host's teams): the card says "This team
   /// has no Cloud plan", names the team and offers the person's own (cloudPlanTeams.ts).
   planTeam?: CloudPlanTeamRefusal;
+  /// The plans a `cloud_plan_required` refusal named for the pricing card (cloudPlans.ts `cloudPlansNamed`); none
+  /// named: the card offers cmux NEXT's own.
+  plans?: CloudPlanId[];
   /// The start waits on the person's browser sign-in (`cloud.signIn`): the card says so, not "starting".
   signingIn?: true;
   /// No connection serves the picker's model (`cloud_setup_required`): the chat shows Set up Cloud
@@ -563,7 +572,7 @@ export function cloudStartEnded(
   // size in plain words and the plan that includes it; Retry stays, for after an upgrade.
   const locked = answer.code === "cloud_size_locked" ? cloudSizeLocked(answer.details) : undefined;
   if (locked) {
-    const { signingIn: _s, ask: _a, planTeam: _p, stalled: _st, ...rest } = current;
+    const { signingIn: _s, ask: _a, planTeam: _p, plans: _pl, stalled: _st, ...rest } = current;
     return {
       ...rest,
       state: "failed",
@@ -575,7 +584,7 @@ export function cloudStartEnded(
   }
   // A folder too big to copy (the host's check before any machine): no step ran, no Retry, the folder's way on instead.
   if (answer.code === "cloud_folder_too_big") {
-    const { signingIn: _s, ask: _a, retryable: _r, planTeam: _p, stalled: _st, ...rest } = current;
+    const { signingIn: _s, ask: _a, retryable: _r, planTeam: _p, plans: _pl, stalled: _st, ...rest } = current;
     const tooBig = cloudFolderTooBig(answer.details);
     return {
       ...rest,
@@ -594,12 +603,14 @@ export function cloudStartEnded(
     signingIn: _signingIn,
     ask: _ask,
     planTeam: _planTeam,
+    plans: _plans,
     stalled: _stalled,
     cloudSetup: _cloudSetup,
     sizeLocked: _sizeLocked,
     ...ended
   } = current;
   const planTeam = answer.code === "cloud_plan_required" ? cloudPlanTeamRefusal(answer.details) : undefined;
+  const plans = answer.code === "cloud_plan_required" ? cloudPlansNamed(answer.details) : undefined;
   const cloudSetup = answer.code === CLOUD_SETUP_REQUIRED ? readCloudSetupNeed(answer.details) : undefined;
   return {
     ...ended,
@@ -609,6 +620,7 @@ export function cloudStartEnded(
     ...(refusedHere ? { refusedHere } : {}),
     ...(answer.retryable ? { retryable: true } : {}),
     ...(planTeam ? { planTeam } : {}),
+    ...(plans ? { plans } : {}),
     ...(cloudSetup ? { cloudSetup } : {}),
   };
 }

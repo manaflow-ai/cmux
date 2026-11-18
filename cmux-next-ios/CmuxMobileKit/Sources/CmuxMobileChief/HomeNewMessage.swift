@@ -269,7 +269,7 @@ public final class HomeNewMessage {
             dismissSheet { [context] in
                 context.open(.cloud(cloud))
                 // People, not a Chief: no Chief alert permission prompt.
-                session?.send(message, asksForAlerts: false)
+                session?.sendKeepingDraft(message, asksForAlerts: false)
             }
             return
         }
@@ -282,16 +282,16 @@ public final class HomeNewMessage {
                 if session.conversationID == nil || ChiefSession.conversationOnScreen != session.conversationID {
                     context.open(.chief(place))
                 }
-                session.send(message)
+                session.sendKeepingDraft(message)
             case let .cloudChief(agent, conversation):
                 let cloud = CloudConversationRoute(conversationID: conversation, title: entry.contact.name, chief: agent)
                 context.open(.cloud(cloud))
-                context.sources.cloudConversation(cloud)?.send(message)
+                context.sources.cloudConversation(cloud)?.sendKeepingDraft(message)
             case let .macChief(mac):
                 context.open(.mac(mac))
                 // The channel opened before the sheet went (``HomeNewMessageDirectory/prepare``): this answers at once.
                 // task-owner: the opened conversation's session, then the first message; ends with the send
-                Task { [feed = context.feed] in (try? await feed.session(for: mac))?.send(message) }
+                Task { [feed = context.feed] in (try? await feed.session(for: mac))?.sendKeepingDraft(message) }
             case let .agentTab(destination):
                 ChiefComposer.send(message, to: destination, store: context.store, open: context.open)
             case .teammate, .address:
