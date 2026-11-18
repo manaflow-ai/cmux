@@ -82,8 +82,32 @@ export function hostErrorShows(
 /// instead of hours later.
 export const REFUSED_RETRY_MAX_MS = 30_000;
 
-export function nextRetryDelay(delay: number, recovering: boolean): number {
-  return Math.min(delay * 2, recovering ? 2_000 : REFUSED_RETRY_MAX_MS);
+/// A chat on screen asks again within 500 ms for the first 10 s of a recovery (a daemon restart or
+/// handoff usually ends sooner), so it is back within half a second of acpmux answering instead of up
+/// to 2 s later. Asking is one connect from the app's host (`acpmux-bridge`, Swift
+/// AgentPaneTransport); a hidden chat, or a recovery past 10 s, keeps 2 s.
+///
+/// A page that opens its own WebSocket (`browserSocket`: the dev slot's `acpmux-websocket`) keeps 2 s
+/// too: Chromium holds back each of a renderer's WebSocket opens by 1-5 s × 2^min(failed, 16) / 65536
+/// (network WebSocketPerProcessThrottler, failures counted over 2-4 min), so ~25 refused opens in 10 s
+/// delay the one that would succeed by 1-5 s (first-load bench, 10 s drop: 791 -> 2618 ms).
+export const QUICK_RETRY_MAX_MS = 500;
+export const QUICK_RETRY_WINDOW_MS = 10_000;
+
+export function quickRetry({
+  shown,
+  failingForMs,
+  browserSocket = false,
+}: {
+  shown: boolean;
+  failingForMs: number;
+  browserSocket?: boolean;
+}): boolean {
+  return shown && !browserSocket && failingForMs < QUICK_RETRY_WINDOW_MS;
+}
+
+export function nextRetryDelay(delay: number, recovering: boolean, quick = false): number {
+  return Math.min(delay * 2, recovering ? (quick ? QUICK_RETRY_MAX_MS : 2_000) : REFUSED_RETRY_MAX_MS);
 }
 
 /// The first wait before a reconnect.

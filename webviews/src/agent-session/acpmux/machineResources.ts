@@ -1,6 +1,9 @@
 /** The cached one-minute host reading acpmux keeps on each peer. */
 export type MachineResources = {
   ramFreeGB: number;
+  /// The one-minute load, to one decimal (`coresBusy` is it rounded), for the machine card's Load
+  /// row; absent from a reading made by hand (a fixture).
+  load1?: number;
   coresBusy: number;
   cores: number;
   busy: boolean;
@@ -42,6 +45,7 @@ export function peerResourcesFromStatus(status: unknown): Record<string, Machine
       : [];
     resources[name] = {
       ramFreeGB: Math.round((freeBytes / 1e9) * 10) / 10,
+      load1: Math.round(load * 10) / 10,
       coresBusy: Math.round(load),
       cores: Math.round(cores),
       busy: load >= (finiteNumber(pressure.load_limit) ?? cores),

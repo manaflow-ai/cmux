@@ -155,12 +155,13 @@ export const BENCHES: readonly Bench[] = [
     ownPart: true,
   },
   // Its 20 chats grown live to 100k rows each (about 28 minutes on a 4-vCPU runner): perf-cron.py's web-ui-flat-grown
-  // part, under that part's 30-minute run cap.
+  // part, under that part's 30-minute run cap. Its windows are 5 s (three of each kind, as in the main part) so the
+  // repeats fit under that cap.
   {
     name: "chat-100k-flat-grown",
     file: "chat-100k-flat.bench.ts",
     args: ["100000", "20"],
-    env: { CASES: "grown-many" },
+    env: { CASES: "grown-many", IDLE_S: "5", STREAM_S: "5" },
     timeoutMs: 1_770_000,
     ownPart: true,
   },
@@ -171,6 +172,16 @@ export const BENCHES: readonly Bench[] = [
     file: "extension-parity.bench.ts",
     args: ["3", "200"],
     timeoutMs: 180_000,
+    ownPart: true,
+  },
+  // The markdown page at 10 KB to 50 MB, deep nesting, a 5 MB line and a file appended to 50 times: first-screen
+  // ms per case, and exits 1 when a case's first screen passes 3x the 10 KB one's. Run with
+  // `--only markdown-viewer-stress`.
+  {
+    name: "markdown-viewer-stress",
+    file: "markdown-viewer-stress.bench.ts",
+    args: ["2"],
+    timeoutMs: 900_000,
     ownPart: true,
   },
   // The same benches on the god session (bench/godFixture.ts: tens of thousands of rows, MB tool outputs, nested

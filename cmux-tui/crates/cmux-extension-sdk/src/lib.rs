@@ -19,6 +19,20 @@ mod api {
 }
 
 pub use api::{API_VERSION, EVENTS, RUNTIME_VERSION, SIGNALS};
+
+/// Everything a person or an agent can customize, as Rust tables written at build time from
+/// the one source `cmux customize schema` prints (`cmux_customize::schema`): every setting
+/// ([`customize::SETTINGS`], one constant per key in [`customize::keys`], so a key that does
+/// not exist does not compile), what a theme file holds and the theme tokens, the view slots
+/// and the extension points. [`customize::TYPESCRIPT`] is the TypeScript package's
+/// `cmux-extension-sdk/customize`, written from the same schema.
+pub mod customize {
+    include!(concat!(env!("OUT_DIR"), "/customize.rs"));
+
+    /// The TypeScript types of the same schema (`typescript/src/generated/customize.ts`).
+    pub const TYPESCRIPT: &str = include_str!(concat!(env!("OUT_DIR"), "/customize.ts"));
+}
+
 pub use cmux_app_manifest::{Issue, PackageReport, Severity, is_valid};
 
 use serde_json::{Map, Value, json};
@@ -168,6 +182,34 @@ impl Manifest {
     /// the person names the extension in `tabs.newTabApp`; otherwise cmux draws its own page.
     pub fn new_tab(self, export: &str, title: &str, symbol: &str) -> Self {
         self.implement("cmux.newtab/1", export, title, symbol, None)
+    }
+
+    /// A widget (`cmux.widget/1`) drawn by the script's `export`: a glanceable tile the person
+    /// places on the New Tab page or in the sidebar from Edit Widgets > Add Widget. `sizes` are
+    /// the sizes it draws (small 1x1, medium 2x1, large 2x2 tiles; the first is the default),
+    /// `every_seconds` how often cmux ticks its `now()` clock (at least 60, only while shown;
+    /// `None` for a widget that never ticks) and
+    /// `places` where it may go (empty means both).
+    pub fn widget(
+        self,
+        export: &str,
+        title: &str,
+        symbol: &str,
+        sizes: &[&str],
+        every_seconds: Option<u32>,
+        places: &[&str],
+    ) -> Self {
+        let mut options = Map::new();
+        if !sizes.is_empty() {
+            options.insert("sizes".into(), json!(sizes));
+        }
+        if let Some(every) = every_seconds {
+            options.insert("refresh".into(), json!({ "everySeconds": every }));
+        }
+        if !places.is_empty() {
+            options.insert("places".into(), json!(places));
+        }
+        self.implement("cmux.widget/1", export, title, symbol, Some(Value::Object(options)))
     }
 
     /// Appends `entry` to the list `list` in the options of the data-only place `interface`

@@ -45,6 +45,9 @@ jobs:
       - name: A build on a stale committed generated file fails and writes no tracked file
         run: bash scripts/cmux-next/tests/web-bundles-readonly-sources.test.sh
 
+      - name: A report run hands every builder its metafile paths
+        run: bash scripts/cmux-next/tests/web-bundles-report-env.test.sh
+
       - name: Build the web bundles twice and compare
         run: |
           set -euo pipefail
