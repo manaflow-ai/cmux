@@ -457,8 +457,8 @@ else:
 # Prints how the active cmux-tui artifacts runs of commit <sha> are doing, one line,
 # from their jobs, so a waiter follows the run's live state instead of only "active":
 #   building             a run is making progress: nothing below holds for it
-#   failed <job>: <url>  every active run has a failed build or publish job, so none
-#                        publishes the tree (the deferred runs re-run once it ends)
+#   failed <job>: <url>  every active run has a failed build or publish job on its last
+#                        retry attempt, so none publishes the tree
 #   stalled <what>       every active run is stuck: a job (or the run itself, with no
 #                        jobs yet) has waited for a runner longer than
 #                        CMUX_TUI_TREE_RUNNER_STALL_SECONDS (default 900)
@@ -496,8 +496,14 @@ for r in runs:
 import datetime, json, os, re, sys
 jobs_dir, now, stall, web = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]
 runs = {str(r.get("id")): r for r in json.load(open(os.path.join(jobs_dir, "runs.json")))["workflow_runs"] if isinstance(r, dict)}
-# Jobs whose failure means the run publishes no tree: the builds and the publish.
+# Jobs whose failure means the run publishes no tree: the builds and the publish. The
+# primary macOS leg is left out: build-darwin-fallback rebuilds it when it fails.
 REQUIRED = re.compile(r"^(build(-linux|-darwin-fallback)?( / |$)|publish (to R2|tree-addressed))")
+DARWIN_PRIMARY = re.compile(r"^build / .*-apple-darwin")
+# cmux-tui-artifacts-retry re-runs a failed run's failed jobs until attempt MAX_ATTEMPTS
+# (scripts/ci/cmux_tui_artifacts_retry.py): before the last attempt a failure is not final
+# (tree 453a2f94 published on such a retry, 2026-11-18).
+MAX_ATTEMPTS = 3
 def age(stamp):
     if not stamp:
         return 0
@@ -508,11 +514,14 @@ for run_id in sorted(os.listdir(os.path.join(jobs_dir, "jobs"))):
     run = runs.get(run_id, {})
     jobs = json.load(open(os.path.join(jobs_dir, "jobs", run_id)))["jobs"]
     url = run.get("html_url") or f"{web}/actions/runs/{run_id}"
-    bad = [j for j in jobs if j.get("conclusion") in ("failure", "timed_out", "cancelled") and REQUIRED.match(j.get("name", ""))]
-    if bad:
+    bad = [j for j in jobs if j.get("conclusion") in ("failure", "timed_out", "cancelled")
+           and REQUIRED.match(j.get("name", "")) and not DARWIN_PRIMARY.match(j.get("name", ""))]
+    if bad and int(run.get("run_attempt") or 1) >= MAX_ATTEMPTS:
         failed.append(f"{bad[0]['name']}: {url}")
         continue
-    waiting = [j for j in jobs if j.get("status") in ("queued", "waiting", "pending") and not j.get("runner_name")]
+    # Only a build or publish job holds the tree back; a shadow or upload job may queue.
+    waiting = [j for j in jobs if j.get("status") in ("queued", "waiting", "pending") and not j.get("runner_name")
+               and REQUIRED.match(j.get("name", ""))]
     late = [j for j in waiting if age(j.get("created_at")) >= stall]
     if late:
         j = max(late, key=lambda j: age(j.get("created_at")))

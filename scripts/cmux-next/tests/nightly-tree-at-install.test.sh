@@ -150,11 +150,24 @@ rm -f "$runs_dir/runs-$own"
 # Job times are relative to the fake clock, which earlier cases advanced: ago <seconds>.
 ago() { date -u -d "@$(( $(awk '{ printf "%d", $1 }' "$FAKE_CLOCK_FILE") - $1 ))" +%Y-%m-%dT%H:%M:%SZ; }
 jobs_file() { mkdir -p "$TMP/api/repos/o/r/actions/runs/$1"; printf '%s\n' "$2" > "$TMP/api/repos/o/r/actions/runs/$1/jobs"; }
-own_run() { printf '%s\n' "{\"total_count\":1,\"workflow_runs\":[{\"id\":$2,\"status\":\"in_progress\",\"head_sha\":\"$1\",\"head_branch\":\"feat-cmux-next\",\"created_at\":\"2023-11-14T22:00:00Z\"}]}" > "$runs_dir/runs-$1"; }
-reset_cdn; set_runs "$no_runs"; own_run "$own" 3
-jobs_file 3 '{"jobs":[{"name":"build / build aarch64-apple-darwin","status":"in_progress","runner_name":"mac-1","created_at":"2023-11-14T22:00:00Z"},{"name":"build-linux / build aarch64-unknown-linux-musl","status":"completed","conclusion":"failure","runner_name":"bs-1","created_at":"2023-11-14T22:00:00Z"}]}'
+# own_run <commit> <run id> [attempt]: an in-progress artifacts run of <commit>.
+own_run() { printf '%s\n' "{\"total_count\":1,\"workflow_runs\":[{\"id\":$2,\"status\":\"in_progress\",\"run_attempt\":${3:-1},\"head_sha\":\"$1\",\"head_branch\":\"feat-cmux-next\",\"created_at\":\"2023-11-14T22:00:00Z\"}]}" > "$runs_dir/runs-$1"; }
+failed_jobs='{"jobs":[{"name":"build / build aarch64-apple-darwin","status":"in_progress","runner_name":"mac-1","created_at":"2023-11-14T22:00:00Z"},{"name":"build-linux / build aarch64-unknown-linux-musl","status":"completed","conclusion":"failure","runner_name":"bs-1","created_at":"2023-11-14T22:00:00Z"}]}'
+reset_cdn; set_runs "$no_runs"; own_run "$own" 3 3; jobs_file 3 "$failed_jobs"
 client "$own" "$app"
-check '[[ $status == 1 && $took -ge 120 && $took -lt 300 ]] && grep -q "making progress" "$TMP/err" && grep -q "failed build-linux" "$TMP/err"' "a publisher whose build failed fails fast, not at the limit (took $took s)"
+check '[[ $status == 1 && $took -ge 120 && $took -lt 300 ]] && grep -q "making progress" "$TMP/err" && grep -q "failed build-linux" "$TMP/err"' "a publisher whose build failed on its last attempt fails fast, not at the limit (took $took s)"
+
+# Before the last attempt cmux-tui-artifacts-retry re-runs the failed job (tree 453a2f94
+# published on such a retry): the wait goes on.
+reset_cdn; set_runs "$no_runs"; own_run "$own" 7 1; jobs_file 7 "$failed_jobs"
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 600 ]] && grep -q "is building tree" "$TMP/err"' "a failed build that a retry will re-run keeps the wait (took $took s)"
+
+# A failed primary macOS leg is rebuilt by build-darwin-fallback: not final either.
+reset_cdn; set_runs "$no_runs"; own_run "$own" 8 3
+jobs_file 8 '{"jobs":[{"name":"build / build aarch64-apple-darwin","status":"completed","conclusion":"failure","runner_name":"mac-1","created_at":"2023-11-14T22:00:00Z"}]}'
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 600 ]] && grep -q "is building tree" "$TMP/err"' "a failed primary macOS leg (the fallback rebuilds it) keeps the wait (took $took s)"
 
 reset_cdn; set_runs "$no_runs"; own_run "$own" 4
 jobs_file 4 '{"jobs":[{"name":"build / build aarch64-apple-darwin","status":"in_progress","runner_name":"mac-1","created_at":"'"$(ago 1000)"'"},{"name":"build / build aarch64-unknown-linux-musl","status":"queued","runner_name":null,"labels":["blacksmith-16vcpu-ubuntu-2404"],"created_at":"'"$(ago 1000)"'"}]}'
@@ -166,8 +179,14 @@ jobs_file 5 '{"jobs":[{"name":"build / build aarch64-unknown-linux-musl","status
 client "$own" "$app"
 check '[[ $status == 1 && $took -ge 600 ]] && grep -q "is building tree" "$TMP/err"' "a build queued under the stall bound keeps the wait (took $took s)"
 
+# A job that does not hold the tree back (a shadow) may queue past the bound.
+reset_cdn; set_runs "$no_runs"; own_run "$own" 9
+jobs_file 9 '{"jobs":[{"name":"build / build aarch64-unknown-linux-musl","status":"in_progress","runner_name":"bs-2","created_at":"'"$(ago 1000)"'"},{"name":"macOS cross-compile shadow (Linux, compare only)","status":"queued","runner_name":null,"labels":["blacksmith-16vcpu-ubuntu-2404"],"created_at":"'"$(ago 1000)"'"}]}'
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 600 ]] && grep -q "is building tree" "$TMP/err"' "a queued job that holds no tree back keeps the wait (took $took s)"
+
 # The failed owner is passed over for another same-key run that is building.
-reset_cdn; own_run "$own" 3
+reset_cdn; own_run "$own" 3 3
 set_runs "{\"total_count\":2,\"workflow_runs\":[{\"id\":3,\"status\":\"in_progress\",\"head_sha\":\"$own\",\"head_branch\":\"feat-cmux-next\"},{\"id\":6,\"status\":\"in_progress\",\"head_sha\":\"$app\",\"head_branch\":\"feat-cmux-next\"}]}"
 own_run "$app" 6
 client "$own"
