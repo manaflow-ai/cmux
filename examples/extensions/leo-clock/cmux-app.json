@@ -1,0 +1,41 @@
+{
+  "$schema": "../../../cmux-tui/crates/cmux-app-host/schema/v2/cmux-app.schema.json",
+  "manifestVersion": 2,
+  "id": "local/leo-clock",
+  "name": { "en": "Leo clock" },
+  "version": "1.0.0",
+  "description": { "en": "An example extension from the Leo collection: a big animated clock as your New Tab page, and a world clock in the sidebar." },
+  "publisher": { "name": "cmux examples", "url": "https://cmux.com" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": { "symbol": "clock" },
+  "categories": ["sidebar"],
+  "keywords": ["clock", "new tab", "time zones", "animation", "example"],
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "implements": {
+    "cmux.newtab/1": {
+      "export": "renderNewTab",
+      "title": { "en": "Leo clock" },
+      "symbol": "clock"
+    },
+    "cmux.section/1": {
+      "export": "renderWorldClock",
+      "title": { "en": "World clock" },
+      "symbol": "globe",
+      "options": { "defaultRegion": "bottom", "maxRows": 8 }
+    }
+  },
+  "scopes": {},
+  "settings": {
+    "type": "object",
+    "properties": {
+      "variant": { "type": "string", "title": "Design variant", "enum": ["analog", "flip", "ring"], "default": "analog" },
+      "zones": { "type": "string", "title": "Time zones", "description": "IANA names separated by commas, for example Europe/London, Asia/Tokyo.", "default": "America/Los_Angeles, America/New_York, Europe/London, Asia/Tokyo" },
+      "hour12": { "type": "boolean", "title": "12-hour clock", "default": false },
+      "name": { "type": "string", "title": "Your name, for the greeting", "default": "" }
+    }
+  },
+  "activation": ["onInterface:cmux.newtab/1", "onInterface:cmux.section/1"],
+  "files": ["dist/"]
+}

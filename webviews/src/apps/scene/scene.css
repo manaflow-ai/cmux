@@ -312,3 +312,193 @@
 .cmux-app-scene-switch {
   flex: none;
 }
+
+/* Motion (cmux-app-host js/ABI.md "Motion"). Loops are CSS animations on `transform` (or opacity),
+   which compose with the node's own `rotate`, `scale` and `translate`, so the compositor runs them
+   and no script ticks; `--scene-loop-period` is the app's period after ui.animationSpeed and
+   `--scene-loop-amount` scales the amplitude. Reduce Motion and the app's motion switch stop them. */
+.cmux-app-scene-node[data-loop] {
+  --scene-loop-ease: cubic-bezier(0.42, 0, 0.58, 1);
+  --scene-bounce-up: cubic-bezier(0.2, 0.6, 0.35, 1);
+  --scene-bounce-down: cubic-bezier(0.65, 0, 0.8, 0.4);
+  animation-duration: var(--scene-loop-period);
+  animation-iteration-count: infinite;
+  animation-timing-function: var(--scene-loop-ease);
+}
+.cmux-app-scene-node[data-loop="pulse"] {
+  animation-name: cmux-app-scene-pulse;
+}
+.cmux-app-scene-node[data-loop="breathe"] {
+  animation-name: cmux-app-scene-breathe;
+}
+.cmux-app-scene-node[data-loop="spin"] {
+  animation-name: cmux-app-scene-spin;
+  animation-timing-function: linear;
+}
+.cmux-app-scene-node[data-loop="float"] {
+  animation-name: cmux-app-scene-float;
+}
+.cmux-app-scene-node[data-loop="wiggle"] {
+  animation-name: cmux-app-scene-wiggle;
+}
+.cmux-app-scene-node[data-loop="bounce"] {
+  animation-name: cmux-app-scene-bounce;
+}
+.cmux-app-scene-node[data-loop="shimmer"] {
+  position: relative;
+  overflow: hidden;
+  animation: none;
+}
+.cmux-app-scene-node[data-loop="shimmer"]::after {
+  --scene-shimmer-band: color-mix(in srgb, var(--agent-text) 22%, transparent);
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(100deg, transparent 30%, var(--scene-shimmer-band) 50%, transparent 70%);
+  pointer-events: none;
+  animation: cmux-app-scene-shimmer var(--scene-loop-period) linear infinite;
+}
+@keyframes cmux-app-scene-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(calc(1 + 0.06 * var(--scene-loop-amount)));
+  }
+}
+@keyframes cmux-app-scene-breathe {
+  0%,
+  100% {
+    opacity: var(--scene-opacity, 1);
+  }
+  50% {
+    opacity: calc(var(--scene-opacity, 1) * (1 - 0.4 * var(--scene-loop-amount)));
+  }
+}
+@keyframes cmux-app-scene-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(var(--scene-loop-turn));
+  }
+}
+@keyframes cmux-app-scene-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(calc(-4px * var(--scene-loop-amount)));
+  }
+}
+@keyframes cmux-app-scene-wiggle {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(calc(6deg * var(--scene-loop-amount)));
+  }
+  75% {
+    transform: rotate(calc(-6deg * var(--scene-loop-amount)));
+  }
+}
+/* Up on an ease-out, down on an ease-in: a ball's hop. */
+@keyframes cmux-app-scene-bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+    animation-timing-function: var(--scene-bounce-up);
+  }
+  50% {
+    transform: translateY(calc(-8px * var(--scene-loop-amount)));
+    animation-timing-function: var(--scene-bounce-down);
+  }
+}
+@keyframes cmux-app-scene-shimmer {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cmux-app-scene-node[data-loop] {
+    animation: none;
+  }
+  .cmux-app-scene-node[data-loop="shimmer"]::after {
+    content: none;
+  }
+}
+:root:is(
+    [data-cmux-motion="off"],
+    [data-cmux-motion="reduced"],
+    [data-agent-motion="off"],
+    [data-agent-motion="reduced"]
+  )
+  .cmux-app-scene-node[data-loop] {
+  animation: none;
+}
+:root:is(
+    [data-cmux-motion="off"],
+    [data-cmux-motion="reduced"],
+    [data-agent-motion="off"],
+    [data-agent-motion="reduced"]
+  )
+  .cmux-app-scene-node[data-loop="shimmer"]::after {
+  content: none;
+}
+/* A node the app removed, kept on screen while its exit transition runs. */
+.cmux-app-scene-node[data-exiting] {
+  pointer-events: none;
+}
+
+/* A stroked shape with `trim`, or a gradient stroke: drawn as SVG over the node's box. */
+.cmux-app-scene-node:has(> .cmux-app-scene-shape-svg) {
+  position: relative;
+}
+.cmux-app-scene-shape-svg {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+
+/* `Particles`: one canvas filling the node's frame, behind its later ZStack siblings, no input. */
+.cmux-app-scene-particles {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  pointer-events: none;
+  align-self: stretch;
+  justify-self: stretch;
+}
+.cmux-app-scene-particles-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* An animated ProgressView: the bar as a track and a fill the value scales, so a value change runs
+   on the node's `animation` like every other prop. */
+.cmux-app-scene-progress-track {
+  position: relative;
+  width: 100%;
+  height: var(--grid-base);
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--agent-control);
+}
+.cmux-app-scene-progress-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--agent-text);
+  transform-origin: left center;
+}

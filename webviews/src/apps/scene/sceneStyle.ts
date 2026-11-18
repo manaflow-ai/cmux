@@ -1,6 +1,8 @@
 import type { CSSProperties } from "react";
 import type { SceneProps } from "./store";
 
+const clamp = (value: number, low: number, high: number) => Math.min(Math.max(value, low), high);
+
 export const sceneText = (value: unknown): string =>
   typeof value === "string" || typeof value === "number" ? String(value) : "";
 export const sceneNumber = (value: unknown): number | undefined =>
@@ -77,8 +79,22 @@ export function sceneStyle(props: SceneProps): SceneStyle {
   }
   style.opacity =
     sceneNumber(props.opacity) === undefined ? undefined : Math.max(0, Math.min(1, props.opacity as number));
+  // The node's own transform as the individual properties, so a value animation (`rotate` 350 to
+  // 370 degrees turns 20, not back 340) and a loop or transition (`transform`) compose.
   const rotation = sceneNumber(props.rotation);
-  if (rotation !== undefined) style.transform = `rotate(${rotation}deg)`;
+  if (rotation !== undefined) style.rotate = `${rotation}deg`;
+  const scale = sceneNumber(props.scale);
+  if (scale !== undefined) style.scale = String(Math.max(0, scale));
+  style.translate = offsetTranslate(props.offset);
+  const blur = sceneNumber(props.blur);
+  const glow = glowFilter(props.glow);
+  // An animated node keeps both functions so a blur or glow change interpolates (same filter list).
+  if (props.animation !== undefined && (blur !== undefined || props.glow !== undefined)) {
+    style.filter = `blur(${Math.max(0, blur ?? 0)}px) ${glow ?? "drop-shadow(0 0 0px transparent)"}`;
+  } else if (blur !== undefined || glow) {
+    style.filter = [blur !== undefined ? `blur(${Math.max(0, blur)}px)` : "", glow ?? ""].filter(Boolean).join(" ");
+  }
+  style.backgroundImage = gradientImage(props.gradient);
   style.backgroundColor = sceneColor(props.background);
   style.color = sceneColor(props.color);
   style.borderRadius = sceneNumber(props.cornerRadius);
@@ -114,4 +130,33 @@ export function textStyle(props: SceneProps): CSSProperties {
           }
         : { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }),
   };
+}
+
+/** `glow` as a CSS `drop-shadow()`, which follows the node's own shape (text, a circle, a capsule). */
+export function glowFilter(value: unknown): string | undefined {
+  const glow = sceneRecord(value);
+  const color = sceneColor(glow.color);
+  const radius = sceneNumber(glow.radius);
+  if (!color || radius === undefined) return undefined;
+  const opacity = clamp(sceneNumber(glow.opacity) ?? 1, 0, 1);
+  const ink = opacity >= 1 ? color : `color-mix(in srgb, ${color} ${Math.round(opacity * 100)}%, transparent)`;
+  return `drop-shadow(0 0 ${clamp(radius, 0, 200)}px ${ink})`;
+}
+
+/** `gradient` as a CSS `linear-gradient()`: the contract's 0 degrees runs left to right, 90 top to bottom. */
+export function gradientImage(value: unknown): string | undefined {
+  const gradient = sceneRecord(value);
+  const colors = Array.isArray(gradient.colors) ? gradient.colors.map(sceneColor).filter((c): c is string => !!c) : [];
+  if (colors.length === 0) return undefined;
+  const stops = colors.length === 1 ? [colors[0], colors[0]] : colors.slice(0, 16);
+  const angle = (sceneNumber(gradient.angle) ?? 90) + 90;
+  return `linear-gradient(${angle}deg, ${stops.join(", ")})`;
+}
+
+/** The `offset` prop as a CSS `translate`. */
+export function offsetTranslate(value: unknown): string | undefined {
+  const offset = sceneRecord(value);
+  const x = sceneNumber(offset.x) ?? 0;
+  const y = sceneNumber(offset.y) ?? 0;
+  return x === 0 && y === 0 && !("x" in offset || "y" in offset) ? undefined : `${x}px ${y}px`;
 }
