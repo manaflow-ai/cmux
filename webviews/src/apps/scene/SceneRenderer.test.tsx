@@ -246,6 +246,8 @@ test("a disabled container suppresses descendant row input; unknown symbols use 
   expect(calls).toEqual([]);
   expect(button.querySelector("svg")?.getAttribute("data-icon")).toBe("icon.missing");
   expect(appSceneIcon("not.a.real.sf.symbol")).toBe("icon.missing");
+  expect(appSceneIcon("sparkles")).toBe("task.ai");
+  expect(appSceneIcon("star.fill")).toBe("browser.omnibox.star.active");
 });
 
 test("a context menu leaf dispatches its real nested index path, including dividers", async () => {

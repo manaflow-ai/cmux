@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>scene ZStack harness</title>
+  </head>
+  <body>
+    <!-- A ZStack as an app's stage draws it: a Particles field, then a ForEach (in a Group) whose keyed
+         card is leaving while the next one enters. -->
+    <div data-testid="stack" class="cmux-app-scene-node cmux-app-scene-zstack" style="width: 400px; height: 300px">
+      <div data-testid="field" class="cmux-app-scene-node cmux-app-scene-particles">
+        <canvas class="cmux-app-scene-particles-canvas"></canvas>
+      </div>
+      <div class="cmux-app-scene-node cmux-app-scene-group">
+        <div class="cmux-app-scene-node cmux-app-scene-foreach">
+          <div
+            data-testid="leaving"
+            class="cmux-app-scene-node cmux-app-scene-vstack"
+            style="width: 180px; height: 250px"
+          ></div>
+          <div
+            data-testid="entering"
+            class="cmux-app-scene-node cmux-app-scene-vstack"
+            style="width: 180px; height: 250px"
+          ></div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="./scene-zstack.harness.ts"></script>
+  </body>
+</html>
