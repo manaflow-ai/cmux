@@ -16,18 +16,18 @@ import { useLayoutEffect, useRef } from "react";
 import { declareMove } from "../layout/motionContract";
 import "./SplitEdge.css";
 
-/** The longest a one-off split resize (a pane opening or closing beside another, a double-click reset)
- *  stays declared when frames do not come (a hidden page). */
+/** How long a one-off split resize (a pane opening or closing beside another, a double-click reset) is
+ *  declared: the frames that lay it out and the judge's read of them, with room for slow frames. Ending
+ *  it two frames later was too early: a busy page's judge read the laid-out frame after it ended. */
 const SPLIT_RESIZE_MS = 300;
 
 /**
  * Declares the resize a split makes when a pane opens or closes beside another, or its width is put
- * back (schemas/layout-motion/contract.json `resize`): every box moves once, to its new place, in the
- * next frame. It ends as the frame after that starts, so nothing that moves later hides under it.
+ * back (schemas/layout-motion/contract.json `resize`): every box moves once, to its new place. `once`
+ * keeps it honest: a second move of a box in the window (a bounce) stays undeclared.
  */
 export function declareSplitResize(by: string): void {
-  const end = declareMove({ event: "resize", scope: "all", once: true, by }, { ms: SPLIT_RESIZE_MS });
-  if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => requestAnimationFrame(end));
+  declareMove({ event: "resize", scope: "all", once: true, by }, { ms: SPLIT_RESIZE_MS });
 }
 
 /**
