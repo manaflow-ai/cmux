@@ -83,7 +83,7 @@ final class PaneOverlayView: NSView {
     /// rounded clip (``setClipCorners(_:)``).
     private(set) var areaIsSquare = false
     /// Floating panes: the dim covers the whole rounded card, tabs included
-    /// (``setShape(padding:cornerRadius:bands:wholeCard:)``).
+    /// (``setShape(padding:cornerRadius:bands:wholeCard:clip:)``).
     private var wholeCard = false
     private var focusRing = FocusRingSettings()
     private var ringAlphaOverride: CGFloat?
