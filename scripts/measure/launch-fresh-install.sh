@@ -215,7 +215,11 @@ first() {
   local cpu_before trace_pid="" t0
   cpu_before="$(checker_cpu)"
   if [[ "$rep" == T ]] && sudo -n true 2>/dev/null; then
-    sudo -n /bin/sh -c 'exec /usr/bin/fs_usage -w -t 20 -f filesys -f exec >"$0" 2>&1' "$OUT/fs-$tag.txt" &
+    # fs_usage itself under sudo (a fleet host's sudoers allows /usr/bin/fs_usage, not a shell); the redirect stays in
+    # this unprivileged shell. -t 70 ends it after the launch's 60 s bound; the plain kill below ends it sooner (sudo
+    # runs with this user's real uid, so it takes the signal and passes it to fs_usage).
+    # shellcheck disable=SC2024
+    sudo -n /usr/bin/fs_usage -w -t 70 -f filesys -f exec >"$OUT/fs-$tag.txt" 2>&1 &
     trace_pid=$!
     sleep 1
   fi
@@ -235,7 +239,7 @@ first() {
   fi
   local cpu_after; cpu_after="$(checker_cpu)"
   after="$(qattr "$app")"
-  [[ -n "$trace_pid" ]] && { sudo -n kill -INT "$trace_pid" 2>/dev/null; wait "$trace_pid" 2>/dev/null; }
+  [[ -n "$trace_pid" ]] && { kill -INT "$trace_pid" 2>/dev/null; wait "$trace_pid" 2>/dev/null; }
   [[ "$rep" == T ]] && log show --start "$t0" --style compact \
     --predicate 'process == "syspolicyd" OR process == "XprotectService" OR process == "amfid" OR sender == "AppleSystemPolicy" OR sender == "AppleMobileFileIntegrity"' \
     >"$OUT/log-$tag.txt" 2>&1
