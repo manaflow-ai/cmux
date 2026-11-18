@@ -98,7 +98,8 @@ async fn refresh_before(client: &mut Client) -> Read {
     let (mut reply, bytes) = call_sized(client, method::MUX_WATCH, json!({"enabled": true})).await;
     read.add(&reply, bytes);
     while let Some(cursor) = cursor_of(&reply) {
-        let (page, bytes) = call_sized(client, method::MUX_SESSIONS, json!({"cursor": cursor})).await;
+        let (page, bytes) =
+            call_sized(client, method::MUX_SESSIONS, json!({"cursor": cursor})).await;
         read.add(&page, bytes);
         reply = page;
     }
