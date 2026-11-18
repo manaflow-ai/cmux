@@ -47,8 +47,10 @@ final class PaneZoomDim {
     private var owesMarks = true
     private weak var view: PaneZoomDimView?
 
-    /// The longest the dim's fade may take, whatever the animation speed. With the frames a layout change may wait for
-    /// its panes after it, a zoom shows inside 300 ms.
+    /// The longest the dim's time may be, whatever the pane veil's fade is. A zoom shows in the frame after the one in
+    /// which that time is spent, or at most three frames later when a pane's content is late
+    /// (``ScreenContentView/commitBound``). The dim's layer fades for the veil's whole time: with a veil fade above
+    /// this time, an unzoom's dim leaves before its fade is at its end.
     static let longest: TimeInterval = 0.25
     /// A time with less than this left is spent: a fade of a whole number of frames ends on its last frame.
     static let spent: TimeInterval = 1e-6
