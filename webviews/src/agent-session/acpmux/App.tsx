@@ -758,6 +758,8 @@ import { PaneNotices } from "./PaneNotices";
 import { PlanScopeDriftNotice } from "./PlanScopeDriftNotice";
 import { dismissPlanScopeDrift, keepPlanScopeArea } from "./planScopeDriftStore";
 import { setPaneNotices } from "./paneNoticeStore";
+import { RendererRestartNotice } from "./RendererRestartNotice";
+import { dismissRendererRestart } from "./rendererRestartStore";
 import { chiefOf, isTakenOver, managedBy, managerDrivingUntil, takeOverManaged } from "./managedBy";
 import { bridgeGone } from "./watchBannerModel";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
@@ -12445,6 +12447,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     !reviewing && (
       <>
         <PaneNotices onAction={(id) => void callNative("pane.noticeAction", { id }).catch(() => undefined)} />
+        <RendererRestartNotice />
         <PlanScopeDriftNotice sessionId={snapshot.sessionId} />
         <Notice id="dictation" tier="error" when={dictation.notice?.message}>
           <DictationNotice dictation={dictation} />
@@ -12762,6 +12765,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               // The Trust continuation uses ComposerHandle.send(force), but never bypasses auth.
               if (authBlock) return false;
               if (sandboxHoldsChat && !sandboxDraftMoved) return false;
+              // The watchdog's restart line said its piece: the person carries on.
+              dismissRendererRestart();
               if (cloudPicked) {
                 // The project picked for this chat, else the folder the chip names, copied to the machine; none: the
                 // machine's own folder (composerCloudStartFolder). Never the tab's inherited folder, which no chip shows.

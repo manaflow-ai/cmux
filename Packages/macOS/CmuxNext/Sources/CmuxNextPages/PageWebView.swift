@@ -281,6 +281,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The line the host shows once the page's new document loads after the liveness watchdog
     /// ended its hung renderer (``prepareForRendererEnd(notice:)``); nil otherwise.
     var pendingRestartNotice: String?
+    /// The restart line's document script for the page's next document
+    /// (``flagRestartForNextDocument()``): its DevTools identifier once Chromium answered, so the
+    /// script comes off once that document loaded. Nil when none was added.
+    var restartFlagScript: Task<String?, Never>?
+    /// That script's removal once the restarted document loaded (``clearRestartFlag()``).
+    var restartFlagRemoval: Task<Void, Never>?
     /// The page came back after its hung renderer was ended: its host shows the toast, this page's
     /// own (``rendererRestartedToast(_:)``: one line saying the page was restarted and why). Never silent.
     public var onRendererRestarted: ((CmuxToast) -> Void)?
