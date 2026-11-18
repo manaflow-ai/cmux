@@ -1864,14 +1864,22 @@ impl std::fmt::Display for TooBig {
 
 impl std::error::Error for TooBig {}
 
-/// What a copy of `local` (`cmux link sync push`, by its rules) would send:
-/// its files and their bytes.
+/// What a chat's copy of `local` will send (`cmux link sync push`, by its rules and its limits, as `push_inner`
+/// lists it): its files and their bytes. A folder past the limits counts only its first pass, `.git` left out; an
+/// `--allow-large` folder counts whole. The listing is the copy's own, bounded at its file limit ([`size_cap`]), and
+/// a folder sent whole is summed from it with no file opened again (`link start-chat preflight`, a seed's refusal).
 pub(super) fn copy_estimate(local: &Path) -> anyhow::Result<(u64, u64)> {
     let local =
         std::fs::canonicalize(local).with_context(|| format!("cannot open {}", local.display()))?;
-    let set = local::collect(&local, local::Rules::Copy, None)?;
-    let bytes = set.files.values().map(|file| size(file).unwrap_or(0)).fold(0, u64::saturating_add);
-    Ok((u64::try_from(set.files.len()).unwrap_or(u64::MAX), bytes))
+    let cap = (!size_cap::allowed(&local)).then(size_cap::Cap::new);
+    let set = local::collect(&local, local::Rules::Copy, cap)?;
+    let files = u64::try_from(set.files.len()).unwrap_or(u64::MAX);
+    // A first pass (its cap taken: at most `FIRST_FILES` files) or an `--allow-large` folder is summed file by file.
+    let bytes = match &set.cap {
+        Some(cap) => cap.bytes(),
+        None => set.files.values().map(|file| size(file).unwrap_or(0)).fold(0, u64::saturating_add),
+    };
+    Ok((files, bytes))
 }
 
 /// "1 file", "36,796 files".

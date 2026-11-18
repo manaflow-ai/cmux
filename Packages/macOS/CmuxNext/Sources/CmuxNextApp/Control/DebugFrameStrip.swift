@@ -100,7 +100,7 @@ enum DebugFrameStrip {
 
 extension WorkspaceContentController {
     /// The shown panes in the window, whose content areas a frame strip judges for blank frames.
-    var shownPanes: [PaneController] { layoutModel.screens.flatMap(\.layout.panes).compactMap { panes[$0] }.filter { $0.view.window != nil && !$0.view.isHiddenOrHasHiddenAncestor } }
+    var shownPanes: [PaneController] { layoutModel.screens.flatMap(\.panes).compactMap { panes[$0] }.filter { $0.view.window != nil && !$0.view.isHiddenOrHasHiddenAncestor } }
     /// The shown pane whose right edge is farthest right in the window (the right column's), for a frame strip of a
     /// right-side open that may leave the focus in the chat.
     var rightmostPane: PaneController? {
