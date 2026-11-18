@@ -24,6 +24,13 @@ PR. A transient one is retried once after a backoff first; a weekly or other
 usage limit is not, since a minute cannot clear it. It prints one
 `::error::agent.api-unavailable {json}` marker with the CLI's fields, which
 scripts/ci/base_red_excuse.py excuses when the recorded API usage was zero.
+
+The Debug build signs in a mock account, which has no billing model, so the
+app is launched with the DEBUG billing demo (CMUX_MOBILE_BILLING_DEMO=free,
+CmuxMobileShell/BillingDemo.swift): Settings > Plan then shows the real plans
+screen over an in-memory server and App Store, as a production account's
+would. simctl passes a SIMCTL_CHILD_ variable to every launch it makes, the
+agent's relaunches included.
 """
 
 from __future__ import annotations
@@ -40,6 +47,9 @@ import sys
 import time
 from pathlib import Path
 
+# BillingDemo's state with the Free plan and the Go, Pro and Max offers.
+BILLING_DEMO_STATE = "free"
+
 # The launch the XCUITest walk makes (AppReviewGateUITests.launch, signed
 # out), kept equal to it by tests/test_ios_app_review_gate.py: the Debug
 # build's mock account (CMUX_MOBILE_MOCK_AUTH) stands in for the demo
@@ -49,7 +59,9 @@ from pathlib import Path
 REVIEW_LAUNCH_ARGS = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-cmux-mobile-no-restore"]
 # Every launch: simctl passes a SIMCTL_CHILD_ variable to each app it
 # launches, the agent's relaunches included.
-REVIEW_ENV = {"CMUX_MOBILE_MOCK_AUTH": "1"}
+# The agent pass also turns on the DEBUG billing demo (module docstring), so
+# Settings > Plan shows the plans screen; the XCUITest walk does not need it.
+REVIEW_ENV = {"CMUX_MOBILE_MOCK_AUTH": "1", "CMUX_MOBILE_BILLING_DEMO": BILLING_DEMO_STATE}
 # The first launch only, so a relaunch keeps a signed-in reviewer signed in.
 FIRST_LAUNCH_ENV = {"CMUX_MOBILE_CLEAR_AUTH": "1"}
 # The code the mock account's email sign-in accepts (CmuxMobileAuthModel),
@@ -102,7 +114,11 @@ by email, as the instructions do. A relaunch starts the sample account
 signed in, even after a sign-out; that is this build, not a bug. Walk
 sign-in, the first-run setup it leads to, Home, Chief
 (open it and send a message; a reply should come), Workspaces, Feed and
-Settings (every row and page). Open Settings > Account and tap Delete
+Settings (every row and page), including Settings > Plan: the plans screen
+with cmux Go, Pro and Max, Subscribe, Restore Purchases and the renewal terms.
+This build sells through a simulated App Store with sample prices: buy one
+plan and restore, judge whether a reviewer could find and understand the
+subscriptions, and do not judge the sample prices. Open Settings > Account and tap Delete
 Account to see that it asks first, then cancel: never confirm a deletion or
 sign out until everything else is done. Last, sign out and check that Apple,
 Google and GitHub each sign in too.
@@ -112,8 +128,9 @@ ends, no button that does nothing), 2.3 (accurate), 4.0 (design:
 truncation, overlapping text, layout glitches, inconsistent styling,
 confusing copy), 4.8 (Sign in with Apple offered beside Google and GitHub),
 5.1 (permissions explained before the prompt; account deletion in the app).
-The app sells nothing, so there are no purchases to find. Also anything that
-would embarrass the team.
+3.1.1 and 3.1.2 (subscriptions: Restore Purchases, the auto-renewal terms,
+Terms of Use and Privacy Policy links, nothing that sends you outside the app
+to pay). Also anything that would embarrass the team.
 
 When done, write ONLY a JSON array to {findings} where each item is
 {{"severity": "blocker"|"warning"|"info", "guideline": "2.1(a)",

@@ -131,7 +131,7 @@ public final class RemoteBrowserNativeUI: NSObject {
         default:
             buttons = [.cancel(cancel), .ok(ok)]
         }
-        return CmuxDialogSpec(title: dialog.origin, lines: dialog.message.isEmpty ? [] : [dialog.message], fields: fields,
+        return CmuxDialogSpec(usesTransientMaterial: true, title: dialog.origin, lines: dialog.message.isEmpty ? [] : [dialog.message], fields: fields,
                               buttons: buttons, identifier: "cmux.remoteBrowser.dialog")
     }
 
