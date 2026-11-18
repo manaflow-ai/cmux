@@ -2,16 +2,22 @@ public import CmuxNextActions
 public import CmuxNextCloud
 public import Foundation
 
-/// The new chat folder picker's GitHub section: `github.status {}`, `github.connect {}` and
-/// `github.repos.list {query?}` (``AgentPaneGitHub`` answers them). The section lists the person's
-/// repositories the cmux GitHub App reaches; a chat started in one is a Cloud chat in its clone
-/// (`github:owner/name`, ``AgentPaneGitHubFolder``).
+/// The new chat folder picker's GitHub section: `github.status {}`, `github.connect {}`,
+/// `github.repos.list {query?}` and `github.repos.checkout {repo, candidates?}` (``AgentPaneGitHub`` answers
+/// them). The section lists the person's repositories the cmux GitHub App reaches; a Cloud chat started in one
+/// runs in the machine's clone (`github:owner/name`, ``AgentPaneGitHubFolder``), and a chat on this Mac in this
+/// Mac's checkout of it, cloned first when there is none (``AgentPaneGitHubCheckout``).
 public nonisolated enum AgentPaneGitHubRequest: Equatable, Sendable {
     case status
     case connect
     case repos(query: String?)
+    /// `repo` (`owner/name`) as a folder on this Mac: one of `candidates` (the folders the page knows for it)
+    /// or the default clone folder when one is a checkout of it, else a new clone there.
+    /// The pane model answers it (``AgentPaneGitWriteReply/gitHubCheckout(repo:candidates:key:in:)``): it ends in the chat's
+    /// worktree of that checkout, as New Worktree's `git.worktree.create` does, on the same click.
+    case checkout(repo: String, candidates: [String], key: String)
 
-    public static let methods: Set<String> = ["github.status", "github.connect", "github.repos.list"]
+    public static let methods: Set<String> = ["github.status", "github.connect", "github.repos.list", "github.repos.checkout"]
 
     /// The page's params, checked; nil for anything else. `query` is the picker's search text, or null.
     init?(method: String, params: [String: Any]?) {
@@ -27,6 +33,20 @@ public nonisolated enum AgentPaneGitHubRequest: Equatable, Sendable {
             } else {
                 return nil
             }
+        case "github.repos.checkout":
+            guard let repo = params?["repo"] as? String, CloudGitHubRepos.isFullName(repo),
+                  let key = params?["idempotency_key"] as? String, AgentPaneGitWrite.isKey(key) else { return nil }
+            var candidates: [String] = []
+            switch params?["candidates"] {
+            case nil, is NSNull: break
+            case let list as [Any]:
+                for item in list.prefix(AgentPaneGitHubCheckout.maximumCandidates) {
+                    guard let path = item as? String, path.hasPrefix("/"), !path.contains("\0"), path.utf8.count <= 4096 else { return nil }
+                    candidates.append(path)
+                }
+            default: return nil
+            }
+            self = .checkout(repo: repo, candidates: candidates, key: key)
         default: return nil
         }
     }
@@ -36,6 +56,7 @@ public nonisolated enum AgentPaneGitHubRequest: Equatable, Sendable {
         case .status: "github.status"
         case .connect: "github.connect"
         case .repos: "github.repos.list"
+        case .checkout: "github.repos.checkout"
         }
     }
 
@@ -74,6 +95,9 @@ public nonisolated enum AgentPaneGitHubRequest: Equatable, Sendable {
             case .failure(.unavailable):
                 return AgentPaneReply.failure(code: "github.unavailable", message: AgentPaneModel.gitHubUnavailableMessage)
             }
+        case .checkout:
+            // The pane model answers it with the chat's worktree (``AgentPaneGitWriteReply``).
+            return AgentPaneModel.unsupported(method)
         }
     }
 
@@ -103,12 +127,15 @@ public struct AgentPaneGitHub {
     public var repos: @MainActor (String?) async -> Result<CloudGitHubRepos, CloudGitHubRepos.Failure>
     /// The sizes the repos list gave, shared by every pane's copy: a Cloud start in a picked repository is sized from them.
     public let sizes: AgentPaneGitHubRepoSizes
+    /// A picked repository's checkout on this Mac, for a chat here (nil: none offered, the page keeps it a Cloud pick).
+    public let checkout: AgentPaneGitHubCheckout?
 
     public init(status: @escaping @MainActor () async -> CloudGitHubPicker.Status,
                 connect: @escaping @MainActor () async -> AgentPaneGitHubConnect,
                 repos: @escaping @MainActor (String?) async -> Result<CloudGitHubRepos, CloudGitHubRepos.Failure>,
-                sizes: AgentPaneGitHubRepoSizes = AgentPaneGitHubRepoSizes()) {
-        (self.status, self.connect, self.repos, self.sizes) = (status, connect, repos, sizes)
+                sizes: AgentPaneGitHubRepoSizes = AgentPaneGitHubRepoSizes(),
+                checkout: AgentPaneGitHubCheckout? = nil) {
+        (self.status, self.connect, self.repos, self.sizes, self.checkout) = (status, connect, repos, sizes, checkout)
     }
 
     /// The App's: `picker` reads and connects as the person in the team a Cloud start's machine is made in, `open`
@@ -117,7 +144,8 @@ public struct AgentPaneGitHub {
     @MainActor public static func live(_ picker: CloudGitHubPicker, open: @escaping @MainActor (URL) -> Void) -> AgentPaneGitHub {
         AgentPaneGitHub(status: { await picker.status() },
                         connect: { AgentPaneGitHubConnect(await picker.connect(), open: open) { _ = picker.auth.beginSignIn() } },
-                        repos: { await picker.repos(query: $0) })
+                        repos: { await picker.repos(query: $0) },
+                        checkout: AgentPaneGitHubCheckout { await picker.cloneToken(repo: $0)?.token })
     }
 }
 
