@@ -88,17 +88,28 @@ for i in "${!commands[@]}"; do
 done
 # fits USED I: group I+1 fits beside running groups weighing USED GB.
 fits() { [[ -z "$mem_kb" ]] || ((($1 + weights[$2]) * 1048576 <= mem_kb)); }
-# How many start at once: the job split assumes that many share the cores.
+# How many start at once, for the log.
 first=0 used=0
 for i in "${!commands[@]}"; do
   if ((first == 0)) || fits "$used" "$i"; then
     first=$((first + 1)) used=$((used + weights[i]))
   fi
 done
-echo "cargo groups: $groups, $first at first ($cores vCPU, $(gb "${mem_kb:-0}") GB; GB a group: ${weights[*]})"
+# The most groups that can ever run together: the lightest ones, as many as
+# fit. The job split is sized for that, not for the first admission: on 16 GB
+# with weights 13 2 2 2 13 2 two start, but once group 1 ends four 2 GB groups
+# run at once, and a split sized for two gave each of them every core (review
+# of #46436, F1).
+peak=0 used=0
+while read -r w; do
+  if ((peak == 0)) || [[ -z "$mem_kb" ]] || (((used + w) * 1048576 <= mem_kb)); then
+    peak=$((peak + 1)) used=$((used + w))
+  fi
+done < <(printf '%s\n' "${weights[@]}" | sort -n)
+echo "cargo groups: $groups, $first at first, at most $peak at once ($cores vCPU, $(gb "${mem_kb:-0}") GB; GB a group: ${weights[*]})"
 
 if [[ -z "${CARGO_BUILD_JOBS:-}" ]]; then
-  slots=$first
+  slots=$peak
   jobs=$(((2 * cores + slots - 1) / slots))
   ((jobs <= cores)) || jobs=$cores
   ((jobs >= 1)) || jobs=1
