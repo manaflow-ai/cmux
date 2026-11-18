@@ -56,6 +56,7 @@ pub mod output;
 pub mod pairing;
 pub mod peer_status;
 pub mod place;
+pub mod pr_wait;
 pub mod process;
 pub mod race;
 pub(crate) mod reply_address;

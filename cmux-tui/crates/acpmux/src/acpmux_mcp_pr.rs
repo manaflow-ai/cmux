@@ -48,13 +48,13 @@ pub(super) fn tool() -> Value {
 
 /// Which pull request a call names: what gh is given for it, and the repo when a URL names one.
 #[derive(Debug, PartialEq)]
-pub(super) struct Target {
+pub(crate) struct Target {
     pub selector: String,
     pub repo: Option<String>,
 }
 
 /// `pr` and `repo` as gh takes them, or why they are refused.
-pub(super) fn target(args: &Value) -> Result<Target, String> {
+pub(crate) fn target(args: &Value) -> Result<Target, String> {
     let repo = arg(args, "repo").map(str::to_owned);
     if let Some(repo) = &repo
         && !valid_repo(repo)
@@ -274,7 +274,7 @@ fn plural(n: usize, one: &str) -> String {
 
 /// The result of `pr_state` for `gh pr view --json` output: the text (outcome line first) and
 /// the `structuredContent`.
-pub(super) fn pr_state(pr: &Value) -> (String, Value) {
+pub(crate) fn pr_state(pr: &Value) -> (String, Value) {
     let s = |k: &str| text_or_empty(pr, k);
     let number = field(pr, "number").as_u64().unwrap_or(0);
     let head = s("headRefOid").to_lowercase();
