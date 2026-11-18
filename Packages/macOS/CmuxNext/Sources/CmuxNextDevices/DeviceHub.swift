@@ -123,9 +123,10 @@ public final class DeviceHub {
     struct DeviceListKey: Equatable { var thisID: String, name: String, devices: [HubDevice] }
     @ObservationIgnored private var deviceListCache: (key: DeviceListKey, list: DeviceList)?
 
-    /// What `viewer` may do on `host`'s screen; `ask` when no permission is stored.
+    /// What `viewer` may do on `host`'s screen; `full` when no permission is stored (the hub's default
+    /// for the account's own devices, PROTOCOL.md).
     public func scope(host: String, viewer: String) -> DeviceScope {
-        permissions[host]?.first { $0.viewerId == viewer }?.scope ?? .ask
+        permissions[host]?.first { $0.viewerId == viewer }?.scope ?? .full
     }
 
     // MARK: Lifecycle

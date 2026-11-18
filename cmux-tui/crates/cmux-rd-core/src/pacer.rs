@@ -173,6 +173,36 @@ impl Pacer {
         self.repairs_queued = 0;
         self.budget_bytes = 0.0;
     }
+
+    /// The queued frame datagrams, in send order (to decide what an outage end drops,
+    /// D12). Repairs are left out: they resend frames that already left, and a
+    /// tail-loss probe of a one-datagram frame would otherwise read as that whole
+    /// frame unstarted.
+    pub fn queued(&self) -> impl Iterator<Item = &[u8]> {
+        self.queue.iter().skip(self.repairs_queued).map(Vec::as_slice)
+    }
+
+    /// Takes the queued frame datagrams `stale` picks, in order, so the caller can
+    /// retire them (an outage ended and they are stale, D12); the rest, and every
+    /// queued repair, keep their place and pacing. When nothing is left the next
+    /// frame pushed goes at once.
+    pub fn take_where(&mut self, mut stale: impl FnMut(&[u8]) -> bool) -> Vec<Vec<u8>> {
+        let mut taken = Vec::new();
+        let mut kept = VecDeque::with_capacity(self.queue.len());
+        for (i, d) in self.queue.drain(..).enumerate() {
+            if i >= self.repairs_queued && stale(&d) {
+                self.queued_bytes -= d.len();
+                taken.push(d);
+            } else {
+                kept.push_back(d);
+            }
+        }
+        self.queue = kept;
+        if self.queue.is_empty() {
+            self.budget_bytes = 0.0;
+        }
+        taken
+    }
 }
 
 #[cfg(test)]
@@ -247,6 +277,27 @@ mod tests {
         assert!(last <= 8_400, "repairs and the frame behind them took {last} us");
     }
 
+    /// D12 with D6: an outage-end drop sees and takes only queued frame datagrams. A
+    /// queued repair (a NACK answer or tail-loss probe of a frame that already left)
+    /// is neither a candidate nor taken, stays ahead of the frames and still counts as
+    /// a repair, so the frames left keep their send times.
+    #[test]
+    fn an_outage_drop_leaves_queued_repairs_alone() {
+        let mut p = Pacer::new();
+        p.push_frame(frame(100), 10_000_000, 16_667, 0);
+        let first = p.due(0).len();
+        p.take_frame_datagrams_sent();
+        p.push_repair(vec![vec![0xee; 1152], vec![0xaa; 1152]], 10_000_000, 1_000);
+        p.push_frame(vec![vec![0xee; 1152]; 10], 10_000_000, 16_667, 1_000);
+        assert_eq!(p.queued().count(), 100 - first + 10, "repairs are not candidates");
+        let stale = p.take_where(|d| d[0] == 0xee);
+        assert_eq!(stale.len(), 10, "only the queued frame's datagrams");
+        let sent = drain(&mut p, 1_000);
+        assert_eq!(sent.len(), 2 + 100 - first);
+        assert_eq!((sent[0].1[0], sent[1].1[0]), (0xee, 0xaa), "repairs still first");
+        assert_eq!(p.take_frame_datagrams_sent(), 100 - first);
+    }
+
     #[test]
     fn a_repair_on_an_idle_pacer_goes_at_once() {
         let mut p = Pacer::new();
@@ -281,6 +332,35 @@ mod tests {
         let rest = drain(&mut p, 1_000);
         assert_eq!(first + rest.len(), 101);
         assert_eq!(rest.last().unwrap().1[0], 0xee);
+    }
+
+    #[test]
+    fn taking_the_whole_queue_leaves_an_idle_pacer_that_sends_the_next_frame_at_once() {
+        let mut p = Pacer::new();
+        p.push_frame(frame(100), 10_000_000, 16_667, 0);
+        let first = p.due(0).len();
+        assert_eq!(p.queued().count(), 100 - first);
+        let stale = p.take_where(|_| true);
+        assert_eq!(first + stale.len(), 100);
+        assert_eq!(stale[0][0], first as u8, "the unsent tail, in order");
+        assert!(p.is_empty());
+        assert_eq!(p.queued_bytes(), 0);
+        assert_eq!(p.next_deadline_us(), None);
+        p.push_frame(frame(2), 10_000_000, 16_667, 1_000);
+        assert_eq!(p.due(1_000).len(), 2, "the newest frame is not paced behind the stale one");
+    }
+
+    #[test]
+    fn taking_part_of_the_queue_keeps_the_rest_in_order() {
+        let mut p = Pacer::new();
+        p.push_frame(frame(10), 10_000_000, 16_667, 0);
+        p.push_frame(vec![vec![0xee; 1200]; 5], 10_000_000, 16_667, 0);
+        let first = p.due(0).len();
+        let stale = p.take_where(|d| d[0] == 0xee);
+        assert_eq!(stale.len(), 5);
+        assert_eq!(p.queued_bytes(), (10 - first) * 1152);
+        let rest: Vec<u8> = p.queued().map(|d| d[0]).collect();
+        assert_eq!(rest, (first as u8..10).collect::<Vec<_>>());
     }
 
     #[test]
