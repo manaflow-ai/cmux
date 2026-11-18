@@ -72,6 +72,30 @@ class GateLimitUnderLoadTest(unittest.TestCase):
     def test_the_limit_never_passes_its_ceiling(self):
         self.assertEqual(self.gate.loaded_limit(600.0, 770.0, 18), self.gate.GATE_LIMIT_MAX_SECONDS)
 
+    def test_a_check_on_a_loaded_host_gets_its_timeout_times_the_load_per_core(self):
+        # A 2 s command under run()'s 1 s timeout on a host at 10 runnable processes per core: slow, not hung.
+        cpus = os.cpu_count() or 1
+        real = os.getloadavg
+        os.getloadavg = lambda: (10.0 * cpus, 0.0, 0.0)
+        try:
+            self.assertEqual(self.gate.loaded_timeout(30), 300.0)
+            code, _ = self.gate.run([sys.executable, "-c", "import time; time.sleep(2)"], Path(tempfile.gettempdir()),
+                                    timeout=1)
+        finally:
+            os.getloadavg = real
+        self.assertEqual(code, 0)
+
+    def test_a_check_on_an_idle_host_keeps_its_timeout(self):
+        real = os.getloadavg
+        os.getloadavg = lambda: (0.0, 0.0, 0.0)
+        try:
+            self.assertEqual(self.gate.loaded_timeout(30), 30)
+            code, out = self.gate.run([sys.executable, "-c", "import time; time.sleep(5)"], Path(tempfile.gettempdir()),
+                                      timeout=1)
+        finally:
+            os.getloadavg = real
+        self.assertEqual((code, out), (124, "timed out after 1s"))
+
     def test_a_set_limit_is_used_as_given(self):
         old = os.environ.get("CMUX_NEXT_GATE_LIMIT_SECONDS")
         os.environ["CMUX_NEXT_GATE_LIMIT_SECONDS"] = "2"

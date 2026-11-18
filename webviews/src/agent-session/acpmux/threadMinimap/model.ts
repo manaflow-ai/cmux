@@ -101,7 +101,11 @@ export function railPlacement(
 /// density"). A `fit` arm keeps that maximum as a slot and draws the ticks at the 10 px pitch in a rail
 /// as tall as they are inside it. `fit` says where the rail sits in its slot: at the slot's top it only
 /// grows down, so it never shifts as a chat grows (Leo, 2026-11-03: "i just don't like it when the
-/// thing shifts"). `fit-480` ships; the gallery compares the arms.
+/// thing shifts"). `fit-480` shipped that, but a chat short of 48 prompts then drew its rail above the
+/// view's middle. `fit-480-center` ships: the rail's middle is
+/// always the view's middle (Lucas, 2026-11-17: "the timeline ... is always vertically aligned, and is
+/// on the vertical center of the screen"); each new prompt grows it half a row at each end. The
+/// gallery compares the arms.
 export type RailHeightConfig = {
   initial: number;
   maxRows: number;
@@ -126,7 +130,7 @@ export const RAIL_HEIGHTS = {
   "initial-480-max-full": { initial: 480, maxRows: 200, maxShare: 1 },
 } as const satisfies Record<string, RailHeightConfig>;
 export type RailHeightArm = keyof typeof RAIL_HEIGHTS;
-export const DEFAULT_RAIL_HEIGHT: RailHeightArm = "fit-480";
+export const DEFAULT_RAIL_HEIGHT: RailHeightArm = "fit-480-center";
 /// The fisheye by row distance from the hovered (or scrubbed) row: 26, 20, 14, 10, then 6 px.
 const PROGRESS = [1, 0.7, 0.4, 0.2] as const;
 /// Space kept free above and below the card inside the transcript's viewport.
@@ -377,19 +381,21 @@ export function railSlot(config: RailHeightConfig, viewportHeight: number, foot 
     : config.initial;
 }
 
-/// The top of a rail `height` tall: a `fit` arm's rail sits in its slot, placed as the slot of its
-/// full height would be (railTop), so the rows it adds never move it; every other rail is its box.
+/// The top of a rail `height` tall: a `top` or `bottom` fit arm's rail sits at that end of its slot,
+/// placed as the slot of its full height would be (railTop), so the rows it adds never move that end.
+/// A `center` one, and every other rail, is centered on the view itself (railTop): its middle stays
+/// the view's middle, and it moves off it only as little as it takes to stay in the room.
 export function railFitTop(
   height: number,
   viewportHeight: number,
   foot = viewportHeight,
   config: RailHeightConfig = RAIL_HEIGHTS[DEFAULT_RAIL_HEIGHT],
 ): number {
-  if (!config.fixed || !config.fit) return railTop(height, viewportHeight, foot);
+  if (!config.fixed || !config.fit || config.fit === "center") return railTop(height, viewportHeight, foot);
   const slot = railSlot(config, viewportHeight, foot);
   const top = railTop(slot, viewportHeight, foot);
   const spare = Math.max(0, slot - height);
-  return config.fit === "top" ? top : config.fit === "bottom" ? top + spare : top + Math.round(spare / 2);
+  return config.fit === "top" ? top : top + spare;
 }
 
 /// The rail's top in the transcript's viewport: centered on it, as the Codex rail is, then moved as

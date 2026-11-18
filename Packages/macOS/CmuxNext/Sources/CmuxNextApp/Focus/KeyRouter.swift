@@ -36,7 +36,7 @@ import CmuxNextFocus
 /// in the window hook (`ShellWindow.performKeyEquivalent`), and the whole
 /// dispatcher in Chromium's pre-key hook (`CEFTab.keyRouter`); a decided key
 /// runs nothing there, so nothing runs twice.
-final class KeyRouter: BrowserKeyRouting {
+final class KeyRouter: BrowserKeyRouting, ParkedTypingRouter {
     unowned let registry: ActionRegistry
     weak var services: AppServices?
     /// A key that is not a Command or Control chord goes on to `window`'s
@@ -221,7 +221,10 @@ final class KeyRouter: BrowserKeyRouting {
         // Browser focus mode: Esc Esc leaves it (the first Escape still reaches the page).
         if routesFocusModeEscape(event, in: window) { return true }
         let isChord = Self.isChord(event.modifierFlags)
-        if isChord { dropTypeAhead() }
+        if isChord {
+            parkedTyping.keyEndsQueue(event, text: typeAhead.text, for: typeAhead.surface) // before the drop: a New Tab key parks this text
+            dropTypeAhead()
+        }
         guard chords.isPending || isChord else {
             if routesBareKey(event, in: window) { return true }
             if typesAhead(event, in: window) || typesIntoPrimaryInput(event, in: window) { return true }
@@ -339,6 +342,7 @@ final class KeyRouter: BrowserKeyRouting {
     var typeAhead = TypeAheadQueue()
     var typeAheadFocus: TypeAheadWait?
     var deliveringTypeAhead: String?
+    lazy var parkedTyping = ParkedTyping(router: self) // text for a New Tab page that its pane no longer shows
     var typeAheadTail = TypeAheadTail<HeldTypeAheadKey>() // Return and the keys after it, waiting behind a page's queued text
     /// The New Tab action owns this buffer before a cold page has a readiness object.
     lazy var newTabInputCoordinator = NewTabInputCoordinator(router: self)
@@ -428,7 +432,7 @@ final class KeyRouter: BrowserKeyRouting {
         case .dismissed:
             // A window or navigation shortcut after the leader runs as itself (Cmd-W closes the tab); a stray key
             // and Escape are consumed, as before.
-            return Self.decidesAfterChord(event, resolved: registry.resolveShortcut(for: event)) ? nil : true
+            return LeaderLayer.decidesAfterChord(event, resolved: registry.resolveShortcut(for: event)) ? nil : true
         case .run(let id, let argument, let arguments):
             lastInterception = (id, controller.state.id, true)
             let ran = RegistryKeyBindings(registry).run(KeyBinding(keys: [], command: id, argument: argument, arguments: arguments), keyContext: bits)
@@ -437,17 +441,9 @@ final class KeyRouter: BrowserKeyRouting {
         case .mismatch:
             // A window or navigation shortcut after a prefix it does not complete runs as itself: Cmd-W after an
             // armed chord prefix went to the page (or terminal) instead of closing the tab.
-            if Self.decidesAfterChord(event, resolved: registry.resolveShortcut(for: event)) { return nil }
+            if LeaderLayer.decidesAfterChord(event, resolved: registry.resolveShortcut(for: event)) { return nil }
             if !Self.isChord(event.modifierFlags) { onTyping?(window) }
             return false
         }
-    }
-
-    /// Whether a key that ended an armed chord without completing it is decided as a shortcut of its own (nil from
-    /// ``routeChord``): a Command or Control chord bound to a system or navigation action, other than the leader
-    /// prefix itself (a second Cmd-J still dismisses the leader). Content shortcuts and typing keep going to the view.
-    static func decidesAfterChord(_ event: NSEvent, resolved: (id: ActionID, argument: String?, tier: ActionKeyTier)?) -> Bool {
-        guard isChord(event.modifierFlags), let resolved, resolved.tier != .content else { return false }
-        return !ActionRegistry.shortcuts(for: event).contains(LeaderLayer.prefix)
     }
 }
