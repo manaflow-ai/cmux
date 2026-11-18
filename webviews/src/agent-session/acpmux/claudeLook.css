@@ -2,7 +2,7 @@
    Colours come from the look's theme (look/profile.json: the warm near-black page, the clay
    accent #d97757); this sheet sets shapes, weights and the few fixed marks the app draws in clay. */
 :root {
-  --claude-clay: #d97757;
+  --claude-clay: #d97757; /* colour-allow: the reference app's own token, which this look carries */
   --claude-chip: color-mix(in srgb, var(--agent-text, #ececea) 9%, transparent);
 }
 
