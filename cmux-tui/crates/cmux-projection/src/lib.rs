@@ -9,6 +9,8 @@
 pub mod link;
 pub mod manifest;
 pub mod overlay;
+pub mod reap;
+pub mod state;
 pub mod wire;
 
 #[cfg(target_os = "linux")]

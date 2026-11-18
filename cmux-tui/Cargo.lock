@@ -1907,6 +1907,7 @@ dependencies = [
  "fuser",
  "libc",
  "serde",
+ "serde_json",
  "tempfile",
  "zstd",
 ]

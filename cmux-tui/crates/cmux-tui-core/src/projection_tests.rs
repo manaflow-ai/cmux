@@ -7,6 +7,11 @@ fn only_a_projection_serve_line_is_a_projection_frame() {
         Some(SERVE)
     );
     assert_eq!(frame_command(r#"{"id":1,"cmd":"fs.read","path":"projection.serve"}"#), None);
+    for op in [MARK, BROUGHT_BACK, RELEASE] {
+        let line = json!({"id": 1, "cmd": op, "name": "a"}).to_string();
+        assert_eq!(frame_command(&line), Some(op));
+    }
+    assert_eq!(frame_command(r#"{"id":1,"cmd":"projection.unmount","name":"a"}"#), None);
     assert_eq!(
         frame_command(r#"{"id":1,"cmd":"projection.serve","protocol":"x","name":"a","at":"/x"}"#),
         None
