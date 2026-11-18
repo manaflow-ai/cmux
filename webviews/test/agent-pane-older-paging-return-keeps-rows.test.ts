@@ -129,9 +129,23 @@ await requireBrowserLane("agent-pane-older-paging-return-keeps-rows.test.ts", as
     // The rows the reader sees at the latest row, before scrolling away: those the client holds under their own id.
     const settle = () =>
       page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-    await settle();
-    await page.waitForTimeout(300);
-    await settle();
+    // The transcript's layout stopped changing: its height and row count held for 10 frames in a row.
+    const quiet = () =>
+      page.waitForFunction(
+        () => {
+          const w = window as any;
+          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+          if (!scroller) return false;
+          const shape = `${scroller.scrollHeight}:${scroller.querySelectorAll(".acpmux-row").length}`;
+          w.__returnQuiet =
+            w.__returnQuiet?.shape === shape ? { shape, frames: w.__returnQuiet.frames + 1 } : { shape, frames: 0 };
+          return w.__returnQuiet.frames >= 10;
+        },
+        null,
+        { polling: "raf", timeout: 10_000 },
+      );
+    // The streamed turn's 40 chunks and lines are drawn.
+    await quiet();
     const inView = () =>
       page.evaluate(() => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
@@ -214,9 +228,9 @@ await requireBrowserLane("agent-pane-older-paging-return-keeps-rows.test.ts", as
       if (await page.evaluate(() => (window as any).__returnAtBack !== undefined)) break;
     }
     const back = (await page.evaluate(() => (window as any).__returnAtBack)) as Record<string, unknown> | undefined;
-    await settle();
-    await page.waitForTimeout(300);
-    await settle();
+    // Following is on again, and the turn end's rows (and any shed they bring) are drawn.
+    await page.waitForFunction(() => (window as any).__returnClient.following === true, null, { timeout: 10_000 });
+    await quiet();
     const shed = (await page.evaluate(
       (ids) => {
         const client = (window as any).__returnClient;
