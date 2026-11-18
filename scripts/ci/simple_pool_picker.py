@@ -591,12 +591,31 @@ def blacksmith_dead(snapshot: Mapping[str, Any] | None, label: str, now: Any = N
 
 
 def dead_macos_26(snapshot: Mapping[str, Any] | None, now: Any = None) -> set[str]:
-    """The Blacksmith macOS 26 labels (BLACKSMITH's first two) the snapshot shows dead (blacksmith_dead()), or none
-    when it shows both dead: with no label showing life it says nothing to choose by. A dead label counts as
-    stalled (Pool.stalled): the stall rule alone reads a dead label whose queue was cleared as free slots."""
+    """The Blacksmith macOS 26 labels (BLACKSMITH's first two) the snapshot shows dead (blacksmith_dead()). A dead
+    label counts as stalled (Pool.stalled): the stall rule alone reads a dead label whose queue was cleared as free
+    slots.
+
+    While one label shows life, the other's showing nothing is enough. With both showing nothing, an idle healthy
+    label looks dead too (blacksmith_dead()), so only a label holding a job left waiting (stuck_queue()) is dead:
+    in a quiet hour both labels stay usable, and with both labels stuck every job stays on the owned route. Until
+    2026-11-17 both dead read as none dead, and a dead label's free-looking slots took jobs and the retry label."""
     labels = set(BLACKSMITH[:2])
     out = {label for label in labels if blacksmith_dead(snapshot, label, now)}
-    return set() if out >= labels else out
+    return out if out < labels else {label for label in out if stuck_queue(snapshot, label)}
+
+
+def stuck_queue(snapshot: Mapping[str, Any] | None, label: str) -> bool:
+    """Whether the snapshot shows `label` holding a queued job that waited BLACKSMITH_STALL_MINUTES when the
+    snapshot was made (its own figure, not aged by now: the wait it saw went unserved then). A job queued a minute
+    before the snapshot says nothing yet; a moving label starts one in a few minutes."""
+    pools = snapshot.get("pools") if isinstance(snapshot, Mapping) else None
+    entry = pools.get(label) if isinstance(pools, Mapping) else None
+    if not isinstance(entry, Mapping):
+        return False
+    try:
+        return int(entry.get("queued", 0)) > 0 and float(entry.get("oldest_queued_minutes", 0)) >= BLACKSMITH_STALL_MINUTES
+    except (TypeError, ValueError):
+        return False
 
 
 def blacksmith_stalled(queued: int, oldest_queued_minutes: float, age: float = 0.0) -> bool:
