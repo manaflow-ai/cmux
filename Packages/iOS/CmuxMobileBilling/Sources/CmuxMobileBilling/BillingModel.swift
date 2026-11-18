@@ -119,6 +119,9 @@ public final class BillingModel {
             "billing_period": .string(offer.billingPeriod.rawValue),
         ]
         capture(.purchaseStarted, properties)
+        // The plans screen shows a restore result ahead of the purchase result,
+        // so a finished restore must not outlive this newer purchase or its failure.
+        if restore != .restoring { restore = .idle }
         guard let account = account.account else {
             fail(.invalidResponse, properties: properties)
             return
