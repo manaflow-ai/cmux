@@ -136,6 +136,10 @@
     --surface-glass: var(--surface-popup);
   }
 }
+/* Liquid Glass off (appearance.liquidGlass): the same solid surface. */
+:root[data-glass="off"] .settings {
+  --surface-glass: var(--surface-popup);
+}
 
 .jump-bar {
   position: sticky;

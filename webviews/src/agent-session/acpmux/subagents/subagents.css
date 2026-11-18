@@ -2233,7 +2233,7 @@ button.cv-subagent > :last-child {
   font-variant-numeric: tabular-nums;
 }
 @media not (prefers-reduced-transparency: reduce) {
-  :root:not([data-reduce-transparency])
+  :root:not([data-reduce-transparency], [data-glass="off"])
     .acpmux-tray-pull
     + .acpmux-composer:not(:has(> .acpmux-composer-queue, > .acpmux-composer-strip, > .acpmux-composer-strip-placeholder, > .acpmux-composer-remote-note))
     > .acpmux-composer-box::before {

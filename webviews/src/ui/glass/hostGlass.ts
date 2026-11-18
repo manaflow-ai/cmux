@@ -44,7 +44,7 @@
 // again, and so does a trackpad pinch (the visual viewport's resize and scroll), since each box is sent
 // where it shows on the zoomed screen (ui/visualViewportBox.ts). Nothing runs while no marked surface is
 // mounted, and the App's answer is the only other work.
-import { LENS_ATTRIBUTE, LIVE_BACKGROUND_ATTRIBUTE } from "./glassState";
+import { GLASS_ATTRIBUTE, GLASS_OFF, LENS_ATTRIBUTE, LIVE_BACKGROUND_ATTRIBUTE } from "./glassState";
 import { onVisualViewport, visualViewportScale } from "../visualViewportBox";
 import { attachSeeThroughBlur, type CoveredCandidates, type SeeThroughOptions } from "./seeThroughBlur";
 
@@ -95,12 +95,13 @@ const round = (value: number) => Math.round(value * 100) / 100;
 
 /** Whether the App's glass can show under this page now: a see-through Chromium page (WebKit's own
  * backdrop already takes in the window glass), outside the lens and the live background (whose
- * canvases cover what is under the page) and Reduce Transparency (every glass is opaque there). */
+ * canvases cover what is under the page), Reduce Transparency and Liquid Glass off (every glass is
+ * opaque there). */
 export function hostGlassApplies(doc: Document): boolean {
   const root = doc.documentElement;
   if (!root.hasAttribute(SEE_THROUGH_ATTRIBUTE) || root.hasAttribute(LENS_ATTRIBUTE)) return false;
   if (root.hasAttribute(LIVE_BACKGROUND_ATTRIBUTE)) return false;
-  if (root.hasAttribute("data-reduce-transparency")) return false;
+  if (root.hasAttribute("data-reduce-transparency") || root.getAttribute(GLASS_ATTRIBUTE) === GLASS_OFF) return false;
   const css = doc.defaultView?.CSS;
   return !(css?.supports?.("-webkit-backdrop-filter", "none") ?? true);
 }
@@ -411,6 +412,7 @@ export function reportHostGlass(
       LENS_ATTRIBUTE,
       LIVE_BACKGROUND_ATTRIBUTE,
       "data-reduce-transparency",
+      GLASS_ATTRIBUTE,
       HOST_GLASS_ENDING_ATTRIBUTE,
     ],
   });

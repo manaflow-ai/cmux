@@ -51,12 +51,12 @@
    F1 of #37743): not under Reduce Transparency, and not over a see-through window under Lens or
    Spectrum, which keep the lens's own rim. */
 @media not (prefers-reduced-transparency: reduce) {
-  :where(:root:not([data-reduce-transparency]), :root:not([data-reduce-transparency]) [data-composer-material]) {
+  :where(:root:not([data-reduce-transparency], [data-glass="off"]), :root:not([data-reduce-transparency], [data-glass="off"]) [data-composer-material]) {
     --composer-material-depth: var(--glass-material-depth-composer);
   }
   :where(
-      :root:not([data-reduce-transparency]):not([data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"])),
-      :root:not([data-reduce-transparency]):not([data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]))
+      :root:not([data-reduce-transparency], [data-glass="off"]):not([data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"])),
+      :root:not([data-reduce-transparency], [data-glass="off"]):not([data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]))
         [data-composer-material]
     ) {
     --composer-material-rim: var(--glass-material-rim);
