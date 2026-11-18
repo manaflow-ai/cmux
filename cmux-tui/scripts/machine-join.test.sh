@@ -123,7 +123,7 @@ case "\$url" in
   *) exit 6 ;;
 esac
 case "\$url" in
-  */tree/*)
+  */tree/*/cmux-tui-acpmux-*)
     if [ -s "\$JT_LOG/curl-fails" ]; then
       code="\$("$(command -v head)" -n 1 "\$JT_LOG/curl-fails")"
       "$(command -v sed)" 1d "\$JT_LOG/curl-fails" >"\$JT_LOG/curl-fails.next"
@@ -489,7 +489,7 @@ suite() {
   check "one line per retry" test "$(grep -c 'retrying in' "$d/out")" = 2
   check "the retry line names the curl exit" out_has "(curl exit 56); retrying in 2 s"
   check "waits 2 s, then 8 s" test "$(grep '^sleep' "$d/log/argv" | tr '\n' ' ')" = "sleep 2 sleep 8 "
-  check "three tries of the download" test "$(grep -c '^curl .*tree/' "$d/log/argv")" = 3
+  check "three tries of the download" test "$(grep -c '^curl .*tree/.*/cmux-tui-acpmux-' "$d/log/argv")" = 3
   check "acpmux installed" installed
   check "the token reaches acpmux on stdin, once" token_on_stdin_once
   check "no token in output" no_token_in_output
@@ -498,7 +498,7 @@ suite() {
   printf '56\n7\n28\n35\n' >"$d/log/curl-fails"
   run_join env
   check "four transport failures: exit 1 (got $rc)" rc_is 1
-  check "it stops after four tries" test "$(grep -c '^curl .*tree/' "$d/log/argv")" = 4
+  check "it stops after four tries" test "$(grep -c '^curl .*tree/.*/cmux-tui-acpmux-' "$d/log/argv")" = 4
   check "waits 2, 8 and 20 s" test "$(grep '^sleep' "$d/log/argv" | tr '\n' ' ')" = "sleep 2 sleep 8 sleep 20 "
   check "it says the download failed" out_has "cannot download acpmux for x86_64-unknown-linux-musl"
   check "nothing installed" eval '! installed'
@@ -508,7 +508,7 @@ suite() {
   printf '22\n' >"$d/log/curl-fails"
   run_join env
   check "an HTTP status: exit 1 (got $rc)" rc_is 1
-  check "an HTTP status is not retried" test "$(grep -c '^curl .*tree/' "$d/log/argv")" = 1
+  check "an HTTP status is not retried" test "$(grep -c '^curl .*tree/.*/cmux-tui-acpmux-' "$d/log/argv")" = 1
   check "no wait" eval '! grep -q "^sleep" "$d/log/argv"'
   check "no retry line" eval '! out_has "retrying in"'
   check "nothing redeemed" no_redeem
@@ -518,7 +518,7 @@ suite() {
   run_join env
   check "mismatch fails (got $rc)" rc_is 1
   check "mismatch says so" out_has "checksum verification failed for acpmux"
-  check "a mismatch is not retried" test "$(grep -c '^curl .*tree/' "$d/log/argv")" = 1
+  check "a mismatch is not retried" test "$(grep -c '^curl .*tree/.*/cmux-tui-acpmux-' "$d/log/argv")" = 1
   check "nothing installed" eval '! installed'
   check "nothing redeemed" no_redeem
 
