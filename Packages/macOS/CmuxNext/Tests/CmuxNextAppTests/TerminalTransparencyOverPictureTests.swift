@@ -152,26 +152,42 @@ import Testing
     }
 
     /// The user's own terminal color (`appearance.surfaces.terminal`) more opaque than the window: the terminal shows
-    /// that color at its own opacity over the picture, once (`w` of the window's tint under it is compensated).
+    /// that color at its own opacity over the picture, once; the window's tint under it is compensated
+    /// (`SurfaceBackgrounds.fill(for:tokens:windowTint:overSheet:)`). Painted as a plain `color.withAlpha` over the
+    /// tint, a 0.85 terminal over a 0.7 window showed the picture at 4.5 %, not 15 %.
     @Test(arguments: [cases[0], cases[1]])
     func aCustomTerminalColorOverAPictureShowsAtItsOwnOpacity(_ item: Case) async throws {
         try await Self.inCase(item, selection: .art(.vanGoghStarryNight)) { _ in
-            let color = ThemeRGB(hex: 0x1E3A5F)
+            // A color the compensation can reach on this theme's sheet (dark on dark, light on light).
+            let color = item.dark ? ThemeRGB(hex: 0x1E3A5F) : ThemeRGB(hex: 0xF0E6C8)
+            let picture = ChromeLayerColorTests.pictureStandIn
             let original = ThemeScope.app.surfaceBackgrounds
             defer { ThemeScope.app.setSurfaceBackgrounds(original) }
             let (window, root) = ChromeLayerColorTests.openRoot(dark: item.dark)
             defer { window.close() }
             let host = Self.terminal(in: root)
             ThemeScope.app.setWindowBackdropTint(0.7)
-            for own in [0.95, 1.0] {
+            for own in [0.85, 0.98, 1.0] {
                 ThemeScope.app.setSurfaceBackgrounds(SurfaceBackgrounds(overrides: [.terminal: SurfaceBackground(color: color, opacity: own)]))
                 root.themeDidChange()
                 await ChromeLayerColorTests.settle(root) { !root.backdropView.artView.isHidden }
-                let expected = color.withAlpha(own).composited(over: ChromeLayerColorTests.pictureStandIn.withAlpha(1))
+                let expected = color.withAlpha(own).composited(over: picture.withAlpha(1))
                 let got = Self.under(host, in: root)
                 #expect(Self.close(got, expected),
                         "\(item.name): terminal color at \(own) over a window at 0.7: \(Self.bytes(got)), expected \(Self.bytes(expected))")
             }
+            // A color the tint cannot be cancelled for (dark on a light sheet, light on a dark one): its own share
+            // (opacity * color) stays exact and only the picture's share shrinks, so what is left over is the gray
+            // picture alone, equal in every channel and at most (1 - opacity) of it; the hue never drifts.
+            let far = item.dark ? ThemeRGB(hex: 0xF0E6C8) : ThemeRGB(hex: 0x1E3A5F)
+            let own = 0.85
+            ThemeScope.app.setSurfaceBackgrounds(SurfaceBackgrounds(overrides: [.terminal: SurfaceBackground(color: far, opacity: own)]))
+            root.themeDidChange()
+            let got = Self.under(host, in: root)
+            let rest = [got.red - own * far.red, got.green - own * far.green, got.blue - own * far.blue].map { $0 * 255 }
+            #expect(rest.allSatisfy { $0 >= -1.5 && $0 <= (1 - own) * picture.red * 255 + 1.5 }
+                    && (rest.max()! - rest.min()!) <= 2,
+                    "\(item.name): the far color at \(own) shows \(Self.bytes(got)): beyond \(own) x \(Self.bytes(far)) it leaves \(rest), not one gray share of the picture")
         }
     }
 }

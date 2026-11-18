@@ -65,6 +65,9 @@ import Testing
         background-image-opacity = \(imageOpacity)
 
         """.write(to: file, atomically: true, encoding: .utf8)
+        // cmux's load of the user's config records its values globally: put them back for the suites after.
+        let (recorded, seeThrough) = (GhosttyConfigBackground.loaded, GhosttyRuntime.seeThroughLoaded)
+        defer { GhosttyConfigBackground.loaded = recorded; GhosttyRuntime.seeThroughLoaded = seeThrough }
         var diagnostics: [String] = []
         var opacity = 1.0
         let config = try #require(GhosttyRuntime.loadConfig(diagnostics: &diagnostics, opacity: &opacity, configFile: file.path),
