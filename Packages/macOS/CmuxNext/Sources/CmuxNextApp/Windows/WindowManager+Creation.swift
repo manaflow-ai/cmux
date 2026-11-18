@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 
@@ -28,11 +29,11 @@ extension WindowManager {
 
     /// New workspace, on the New Tab page, in `state`'s window when it is
     /// open, else in a new window (the app has no open window: Dock, CLI, menu).
-    /// `slot` places it in that window's sidebar once it is reported.
-    func newWorkspace(in state: WindowState?, on daemon: DaemonService? = nil, at slot: WorkspaceSlot? = nil) {
+    /// `slot` places it in that window's sidebar once it is reported; `picksCloud`: its composer has Cloud picked (cmux#46021).
+    func newWorkspace(in state: WindowState?, on daemon: DaemonService? = nil, at slot: WorkspaceSlot? = nil, picksCloud: Bool = false) {
         let target = targetWindow(preferring: state?.id)
         var spawn = WorkspaceSpawn(newTabPage: true)
-        spawn.slot = slot
+        (spawn.slot, spawn.firstChat) = (slot, picksCloud ? .picksCloud(handoff: nil) : nil)
         Task { [services] in
             do {
                 _ = try await createWorkspace(spawn, on: daemon, into: target)
