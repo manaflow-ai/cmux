@@ -179,7 +179,10 @@ public final class SettingsMcpServers: PageProvider {
     private func environment() async -> [String: String] {
         if resolvedHome == nil { resolvedHome = .some(await home()) }
         guard let home = resolvedHome ?? nil else { return [:] }
-        return ["ACPMUX_HOME": home.path(percentEncoded: false)]
+        // A folder URL's path ends in `/`; the home is named without it, as acpmux names it.
+        var path = home.path(percentEncoded: false)
+        while path.count > 1, path.hasSuffix("/") { path.removeLast() }
+        return ["ACPMUX_HOME": path]
     }
 
     private func set(_ name: String, _ change: (inout Row) -> Void) {
