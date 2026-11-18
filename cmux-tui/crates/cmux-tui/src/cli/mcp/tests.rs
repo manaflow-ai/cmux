@@ -957,6 +957,8 @@ fn json_rpc_lifecycle_and_errors() {
         "window_list",
         "agents_snapshot",
         "app_new_window",
+        "device_setup",
+        "device_start",
     ] {
         assert!(names.contains(expected), "missing {expected}");
     }
@@ -2444,5 +2446,43 @@ fn a_terminal_named_by_its_tab_through_terminal() {
     assert_eq!(
         last["request"]["params"]["terminal"], "term_00000000000000000000000000000abc",
         "{last}"
+    );
+}
+
+/// `device_setup` and `device_start` are listed, say they grant nobody access, and refuse wrong
+/// arguments before running anything.
+#[test]
+fn device_tools_are_listed_and_check_their_arguments() {
+    let mut server = Server::new(Fake::default(), None);
+    let listed =
+        server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
+    let tools = listed["result"]["tools"].as_array().cloned().unwrap();
+    for name in [device_tools::SETUP, device_tools::START] {
+        let tool = tools.iter().find(|t| t["name"] == name).unwrap_or_else(|| panic!("{name}"));
+        let description = tool["description"].as_str().unwrap();
+        assert!(description.contains("grants nobody access"), "{description}");
+    }
+    for (name, arguments) in [
+        (device_tools::SETUP, json!({})),
+        (device_tools::SETUP, json!({"device": "studio-mac", "all": true})),
+        (device_tools::SETUP, json!({"device": "--all"})),
+        (device_tools::START, json!({})),
+    ] {
+        let answer = server
+            .handle(&json!({"jsonrpc": "2.0", "id": "c", "method": "tools/call",
+                            "params": {"name": name, "arguments": arguments}}))
+            .unwrap();
+        assert_eq!(answer["result"]["isError"], true, "{name} {arguments}: {answer}");
+    }
+    let words =
+        |name: &str, arguments: Value| device_tools::words(name, arguments.as_object().unwrap());
+    assert_eq!(
+        words(device_tools::SETUP, json!({"device": "studio-mac"})).unwrap(),
+        ["setup", "studio-mac"]
+    );
+    assert_eq!(words(device_tools::SETUP, json!({"all": true})).unwrap(), ["setup", "--all"]);
+    assert_eq!(
+        words(device_tools::START, json!({"device": "studio-mac"})).unwrap(),
+        ["start", "studio-mac"]
     );
 }

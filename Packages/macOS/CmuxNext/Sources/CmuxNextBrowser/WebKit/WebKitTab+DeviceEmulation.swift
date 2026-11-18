@@ -10,7 +10,8 @@ import WebKit
 /// `screen.*` and orientation, and a foldable's hinge.
 extension WebKitTab: BrowserEmulating {
     public func applyEmulation(_ emulation: BrowserEmulation?) {
-        guard emulation != deviceEmulation else { return }
+        // WebKit raises on a suspended page's user agent change; a page that cannot run keeps its emulation.
+        guard emulation != deviceEmulation, resumeIfSuspended() else { return }
         if deviceEmulation == nil, emulation != nil { userAgentBeforeEmulation = webView.customUserAgent }
         deviceEmulation = emulation
         let container = contentView as? WebKitPageContainer

@@ -315,6 +315,7 @@ extension CloudLinkError {
         case "invalid_answer": self = .invalidAnswer(text("detail"))
         case "not_up": self = .notUp(state: text("state"))
         case "failed": self = .failed(code: text("code"), message: text("message"))
+        case "helper_refused": self = .helperRefused(code: text("code"), message: text("message"))
         case "unsupported": self = .unsupported
         default: return nil
         }
@@ -331,6 +332,7 @@ extension CloudLinkError {
         case .invalidAnswer(let detail): ["kind": "invalid_answer", "detail": detail]
         case .notUp(let state): ["kind": "not_up", "state": state]
         case .failed(let code, let message): ["kind": "failed", "code": code, "message": message]
+        case .helperRefused(let code, let message): ["kind": "helper_refused", "code": code, "message": message]
         case .unsupported: ["kind": "unsupported"]
         }
     }

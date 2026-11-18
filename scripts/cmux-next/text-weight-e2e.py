@@ -9,10 +9,11 @@ both classes next to a stock NSTextField (same text, font, color; 4 inks x 3 fon
 and a light theme, as the window server shows them. Each value must be within 1% of stock.
 
 appearance.fontSmoothing (ProcessFontSmoothing), the way a person changes it: the app launches
-with no saved value and the default ("antialiased"); the settings file then changes to "system"
-while it runs (the app's saved AppleFontSmoothing must go), and the app quits and launches again.
-Both launches hold the 1% parity, and the stock label itself must draw thinner under the default
-than under "system", unless the Mac turned smoothing off for every app.
+on "antialiased" (it must save AppleFontSmoothing 0 before AppKit reads it); the settings file
+then changes while it runs to "auto" (the saved value must go, so the Mac's choice applies) and to
+"subpixel" (smoothing must be saved on), and the app quits and launches again. Both launches hold
+the 1% parity, and the stock label must draw thinner under "antialiased" than under "subpixel".
+Then each mode is written while the app is not running: the next launch must draw it at once.
 
 Usage (nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA):
   text-weight-e2e.py --app "$NX_APP" --tag "$NX_APP_TAG" --out "$NX_ARTIFACTS" [--tolerance 0.01]
@@ -139,8 +140,8 @@ def weights(label):
 try:
     # A first launch: nothing saved yet, so the launch read's write is what AppKit reads.
     subprocess.run(["defaults", "delete", BUNDLE_ID, "AppleFontSmoothing"], capture_output=True)
-    write_config(None)
-    app = launch(None)
+    write_config("antialiased")
+    app = launch("antialiased")
     try:
         thin = weights("antialiased")
         # ChromeLabel is its own view (cx-8w027.26): it must lay out, draw (cacheDisplay and layer
@@ -157,33 +158,55 @@ try:
             check(parity.get("checked", 0) > 0 and count == 0,
                   f"label parity: {count} mismatch(es) in {parity.get('checked')} checks vs stock NSTextField")
         # The real chrome (sidebar rows, tab titles) for a look: text upright and in place.
-        shot = rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "window.png")})
-        check(isinstance(shot, dict) and "error" not in shot, f"debug.window_snapshot wrote window.png ({shot})")
-        check(saved_smoothing() == "0", f"the default launch saved AppleFontSmoothing 0 ({saved_smoothing()})")
+        shot = rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "window-antialiased.png")})
+        check(isinstance(shot, dict) and "error" not in shot, f"debug.window_snapshot wrote window-antialiased.png ({shot})")
+        check(saved_smoothing() == "0", f"the antialiased launch saved AppleFontSmoothing 0 ({saved_smoothing()})")
         # Settings writes the file; the running app saves the new value for its next launch.
-        write_config("system")
+        write_config("auto")
         check(wait(lambda: saved_smoothing() is None, 30) is not None,
-              f"after the change to system the saved AppleFontSmoothing is gone ({saved_smoothing()})")
+              f"after the change to auto the saved AppleFontSmoothing is gone ({saved_smoothing()})")
+        write_config("subpixel")
+        on = wait(lambda: saved_smoothing() not in (None, "0") and saved_smoothing(), 30)
+        check(on is not None, f"after the change to subpixel smoothing is saved on ({saved_smoothing()})")
     finally:
         stop(app)
-    app = launch("system")
+    app = launch("subpixel")
     try:
-        system = weights("system")
-        shot = rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "window-system.png")})
-        check(isinstance(shot, dict) and "error" not in shot, f"debug.window_snapshot wrote window-system.png ({shot})")
+        smooth = weights("subpixel")
+        shot = rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "window-subpixel.png")})
+        check(isinstance(shot, dict) and "error" not in shot, f"debug.window_snapshot wrote window-subpixel.png ({shot})")
     finally:
         stop(app)
+    # A change made while cmux is not running (the file edited by hand, or an update that changes
+    # the default) holds at the first launch: AppKit reads the saved value before the launch's
+    # settings read, so the app must write it before NSApplication starts.
+    cold = {}
+    for mode in ("antialiased", "subpixel"):
+        write_config(mode)
+        app = launch(mode + " (changed while cmux was not running)")
+        try:
+            cold[mode] = weights(f"cold-{mode}")
+        finally:
+            stop(app)
+
+    def ink(values):
+        return sum(v for k, v in values.items() if k.startswith("stock."))
+
+    for mode, warm in (("antialiased", thin), ("subpixel", smooth)):
+        for theme in ("dark", "light"):
+            if theme in warm and theme in cold[mode]:
+                a, b = ink(cold[mode][theme]), ink(warm[theme])
+                check(b > 0 and abs(a / b - 1) <= 0.02,
+                      f"{theme}: {mode} changed while cmux was not running draws at once ({a / b * 100 if b else 0:.1f}% of the warm launch's stock ink)")
     for theme in ("dark", "light"):
-        if theme not in thin or theme not in system:
+        if theme not in thin or theme not in smooth:
             continue
-        check(thin[theme].get("smoothsStems") == 0, f"{theme}: the default (antialiased) launch draws without smoothing")
-        if system[theme].get("smoothsStems") != 1:
-            print(f"{theme}: this Mac turned font smoothing off for every app; system draws thin too", flush=True)
-            continue
+        check(thin[theme].get("smoothsStems") == 0, f"{theme}: the antialiased launch draws without smoothing")
+        check(smooth[theme].get("smoothsStems") == 1, f"{theme}: the subpixel launch draws with smoothing")
         keys = sorted(k for k in thin[theme] if k.startswith("stock."))
-        a, b = sum(thin[theme][k] for k in keys), sum(system[theme][k] for k in keys)
+        a, b = sum(thin[theme][k] for k in keys), sum(smooth[theme][k] for k in keys)
         report[f"stock_ratio.{theme}"] = a / b if b else None
-        check(b > 0 and a < b * 0.97, f"{theme}: stock NSTextField ink, antialiased over system: {a / b * 100 if b else 0:.1f}%")
+        check(b > 0 and a < b * 0.97, f"{theme}: stock NSTextField ink, antialiased over subpixel: {a / b * 100 if b else 0:.1f}%")
 finally:
     with open(os.path.join(opts.out, "text-weight.json"), "w") as f:
         json.dump({"failures": failures, **report}, f, indent=1)

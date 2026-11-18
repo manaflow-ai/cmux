@@ -619,6 +619,11 @@ function openEntry(open: ChatOpenRow): ChatRowEntry {
 
 type Listener = (snapshot: ChatRowsSnapshot) => void;
 
+/// The sids a batch applied in parts has changed, until its `commit`.
+export class StorePart {
+  readonly touched = new Set<SidRows>();
+}
+
 /// Every chat sub of a page, by sid. The host client hands it each batch's changes; it applies
 /// them and tells each sid's subscribers once, after the batch, with the new snapshot.
 export class ChatRowStore {
@@ -697,7 +702,17 @@ export class ChatRowStore {
 
   /// Applies one batch: every change, then one snapshot per sid that changed.
   applyBatch(changes: readonly ChatChange[]): void {
-    const touched = new Set<SidRows>();
+    const part = new StorePart();
+    this.applyPart(part, changes);
+    this.commit(part);
+  }
+
+  /// Applies changes into `part` and tells no one yet. A batch applied in slices (rows/receiver.ts)
+  /// calls this per change and `commit(part)` once at its end, so subscribers are told once, as with
+  /// `applyBatch`. Another batch committed meanwhile tells only the sids it changed itself (with
+  /// their state as it is then).
+  applyPart(part: StorePart, changes: readonly ChatChange[]): void {
+    const touched = part.touched;
     for (const change of changes) {
       const sid = changeSid(change);
       if (sid === null) continue;
@@ -713,7 +728,15 @@ export class ChatRowStore {
       rows.apply(change);
       touched.add(rows);
     }
-    for (const rows of touched) this.notify(rows);
+  }
+
+  /// Tells each sid `part` changed, once, with its new snapshot.
+  commit(part: StorePart): void {
+    if (!part.touched.size) return;
+    const touched = [...part.touched];
+    part.touched.clear();
+    // A sid closed between a part and the commit (a batch spans slices) tells no one.
+    for (const rows of touched) if (this.sids.get(rows.sid) === rows) this.notify(rows);
   }
 
   private notify(rows: SidRows): void {
