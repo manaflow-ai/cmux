@@ -230,5 +230,72 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
                 self.assertEqual(resolved(runs_on, "someone-else", "", "", ""), {"ubuntu-24.04"})
 
 
+# The routes that can name an owned self-hosted Linux label whose runner user has no sudo:
+# cmux-gcp-lane-build-x64, the build-lane runners on the GCP agent lanes (cmuxterm-hq
+# build-fleet/swift-linux-builder/lane-build-runners). LINUX_BUILD_RUNNER and LINUX_RUNNER_DARWIN_CROSS name it,
+# the placement steps hand it on as a needs output or a reusable workflow's runner input, and a matrix runner
+# carries it in the workflows that read those variables. The nightly path names the label itself (6763b318).
+OWNED_ROUTE = re.compile(
+    r"vars\.(?:LINUX_BUILD_RUNNER|LINUX_RUNNER_DARWIN_CROSS|CMUX_TUI_GATE_RUNNER)\b"
+    r"|inputs\.linux(?:_build)?_runner\b"
+    r"|needs\.[\w-]+\.outputs\.[\w-]*runner\b"
+    r"|'cmux-gcp-lane-build[\w-]*'"
+)
+SUDO = re.compile(r"(?<![\w-])sudo(?![\w-])")
+APT_INSTALL = re.compile(r"\bapt(?:-get)?\s+(?:[^|;&\n]*\s)?install\b")
+
+
+def owned_routable_jobs() -> list[tuple[str, str, dict]]:
+    """(workflow, job, body) for every job whose runs-on can resolve to an owned label."""
+    found = []
+    for path in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+        text = path.read_text(encoding="utf-8")
+        if not OWNED_ROUTE.search(text):
+            continue
+        for name, job in workflow_jobs.jobs(path).items():
+            runs_on = workflow_jobs.runs_on(job)
+            if OWNED_ROUTE.search(runs_on) or "matrix." in runs_on:
+                found.append((path.name, name, job))
+    return found
+
+
+class OwnedRunnerNeedsNoPasswordTest(unittest.TestCase):
+    """A job that can land on an owned runner never asks sudo for a password.
+
+    On 2026-11-18 LINUX_BUILD_RUNNER named cmux-gcp-lane-build-x64 and every musl leg of run 44363923089
+    died in its first step, `sudo apt-get install ... musl-tools`, with "sudo: a password is required": that
+    label's runner user has no sudo. Such a job installs packages through scripts/ci/apt-ensure.sh (nothing
+    to do when the image has them; `sudo -n` otherwise, failing at once with the packages to provision), and
+    any other sudo it runs is `sudo -n`. A step only GitHub-hosted runners take is exempt.
+    """
+
+    def test_the_musl_legs_are_found(self) -> None:
+        names = {(workflow, job) for workflow, job, _ in owned_routable_jobs()}
+        self.assertIn(("cmux-tui-build-package.yml", "build"), names)
+        self.assertIn(("cmux-tui-artifacts.yml", DARWIN_CROSS_JOB), names)
+
+    def test_no_password_prompt_on_an_owned_route(self) -> None:
+        for workflow, name, job in owned_routable_jobs():
+            for step in job.get("steps") or []:
+                run = step.get("run")
+                if not isinstance(run, str) or "github-hosted" in str(step.get("if", "")):
+                    continue
+                for line in run.splitlines():
+                    with self.subTest(workflow=workflow, job=name, step=step.get("name"), line=line.strip()):
+                        self.assertIsNone(
+                            APT_INSTALL.search(line),
+                            "install packages with scripts/ci/apt-ensure.sh PACKAGE..., not apt-get install",
+                        )
+                        for match in SUDO.finditer(line):
+                            self.assertTrue(line[match.end():].lstrip().startswith("-n"), "use sudo -n")
+
+    def test_the_detector_flags_the_failing_step(self) -> None:
+        self.assertTrue(APT_INSTALL.search("sudo apt-get install -y binutils clang musl-tools"))
+        self.assertTrue(APT_INSTALL.search("sudo apt-get -o DPkg::Lock::Timeout=300 install -y zsh"))
+        self.assertIsNone(APT_INSTALL.search("bash scripts/ci/apt-ensure.sh musl-tools"))
+        self.assertTrue(OWNED_ROUTE.search("${{ needs.tree-preflight.outputs.linux_build_runner || '' }}"))
+        self.assertTrue(OWNED_ROUTE.search("github.run_attempt == 1 && 'cmux-gcp-lane-build-x64' || vars.LINUX_RUNNER"))
+
+
 if __name__ == "__main__":
     unittest.main()
