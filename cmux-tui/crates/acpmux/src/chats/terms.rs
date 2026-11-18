@@ -152,11 +152,14 @@ fn tokens(text: &str) -> Vec<Token> {
 
 /// A time in `since:`/`before:` as ms since the epoch: `7d`, `today`, `yesterday`, `2026-11-01`.
 fn time(value: &str, now_ms: i64) -> Option<i64> {
+    // Where a clock change skips midnight (DST starting at 00:00), the day starts at 01:00.
     let midnight = |date: NaiveDate| {
-        Local
-            .from_local_datetime(&date.and_hms_opt(0, 0, 0)?)
-            .earliest()
-            .map(|t| t.timestamp_millis())
+        [0, 1].into_iter().find_map(|hour| {
+            Local
+                .from_local_datetime(&date.and_hms_opt(hour, 0, 0)?)
+                .earliest()
+                .map(|t| t.timestamp_millis())
+        })
     };
     let today = || Local.timestamp_millis_opt(now_ms).single().map(|t| t.date_naive());
     match value {

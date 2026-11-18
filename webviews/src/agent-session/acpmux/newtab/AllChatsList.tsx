@@ -26,7 +26,7 @@ import { useNt } from "./strings";
 import { useMinuteClock } from "../clock";
 import { ChatFilterMenu, type ChatStatusFilter } from "./ChatFilterMenu";
 import { ChatRecencyMenu } from "./ChatRecencyMenu";
-import { plainWords, withRecency } from "./chatQueryTerms";
+import { liveMatches, withRecency } from "./chatQueryTerms";
 import { AllChatsLoading } from "./AllChatsLoading";
 import { useLasting } from "../../../ui/lasting";
 import {
@@ -162,8 +162,6 @@ export function AllChatsList({
   const [filter, setFilter] = useState<ChatStatusFilter>("all");
   // Working and Needs input are live chats only; the indexed rows are finished chats.
   const indexed = filter === "all" || filter === "done";
-  // A live chat's title is matched with the query's words; its operators are acpmux's to read.
-  const query = plainWords(state.query.trim());
   // A search hides live chats under All, as before; a live-only filter searches their titles. When
   // alone hides none: a live chat is in use now, so within any `since:`.
   const searched = withRecency(state.query.trim(), "any") !== "";
@@ -173,8 +171,7 @@ export function AllChatsList({
         ? []
         : active
       : active.filter(
-          (chat) =>
-            FILTER_STATES[filter].has(chat.state) && (indexed ? !searched : chat.title.toLowerCase().includes(query)),
+          (chat) => FILTER_STATES[filter].has(chat.state) && (indexed ? !searched : liveMatches(chat, state.query)),
         );
   // The leaders show under All with no search; a filter or a search is about the chats.
   const leadsShown = filter === "all" && !searched ? leads : [];
