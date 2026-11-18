@@ -52,7 +52,8 @@ describe("device-key renewal (cmux Remote with the app quit)", () => {
     await refused("PATCH", `/v1/devices/${phone.id}`, { name: "x" });
     await refused("DELETE", `/v1/devices/${phone.id}`);
     await refused("POST", "/v1/auth/device/anchor", {});
-    // Raising a viewer is refused, from Ask (the default) to View or Full.
+    // Raising a viewer is refused, from an Ask the app stored to View or Full.
+    expect((await mac.call("PUT", `/v1/permissions/${mac.id}/${phone.id}`, { scope: "ask" })).status).toBe(200);
     await refused("PUT", `/v1/permissions/${mac.id}/${phone.id}`, { scope: "view" });
     await refused("PUT", `/v1/permissions/${mac.id}/${phone.id}`, { scope: "full" });
     // Lowering is allowed: Full (set by the app) to View, then to None; sharing off.
