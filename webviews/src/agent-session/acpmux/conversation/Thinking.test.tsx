@@ -6,11 +6,11 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../model";
-import { WRITING_MS } from "./thinkingModel";
 import { settleReact } from "../../../../test/support/domTeardown";
 import { importWithDom } from "../../../../test/support/importWithDom";
 
 const { Thinking } = await importWithDom(() => import("./Thinking"));
+const { WRITING_MS } = await importWithDom(() => import("./thinkingModel"));
 const { WorkingFor } = await importWithDom(() => import("./WorkingFor"));
 const { StatusVerbContext } = await importWithDom(() => import("../statusVerbs"));
 const { WaitingOnContext } = await importWithDom(() => import("./waitingOn"));

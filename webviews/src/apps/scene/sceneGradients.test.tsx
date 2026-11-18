@@ -3,12 +3,17 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { fileURLToPath } from "node:url";
-import { UiProvider } from "../../ui/UiProvider";
-import { SceneRenderer } from "./SceneRenderer";
-import { sceneGradient, sceneStyle } from "./sceneStyle";
-import { scenePalette, sceneSymbolRendering, symbolGlyphColor } from "./sceneSymbolRendering";
-import { SceneStore, type SceneOp } from "./store";
+import type { SceneOp } from "./store";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { UiProvider } = await importWithDom(() => import("../../ui/UiProvider"));
+const { SceneRenderer } = await importWithDom(() => import("./SceneRenderer"));
+const { sceneGradient, sceneStyle } = await importWithDom(() => import("./sceneStyle"));
+const { scenePalette, sceneSymbolRendering, symbolGlyphColor } = await importWithDom(
+  () => import("./sceneSymbolRendering"),
+);
+const { SceneStore } = await importWithDom(() => import("./store"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
