@@ -9,17 +9,17 @@ import { installDom } from "./testDom";
 import type { MuseumArtResult } from "./ops";
 
 /**
- * Rows under `elements` drawn again since `mark`: a row's own element holds the props React last
- * drew it with, and a render makes a new props object while a skipped one keeps it. This counts
- * the element itself, not a component above it, so a row drawn inline by a parent that re-rendered
- * on its own state counts too (test/support/mountedRowRenders reads a component's props, which
- * stay the same object then).
+ * Rows under `elements` drawn again since `mark`. React stores the props of each host element's
+ * latest commit on its DOM node (`__reactProps$`): a render that reaches the row makes a new props
+ * object, and a row React skipped (a memo row, or JSX the React Compiler kept) keeps it. This reads
+ * the row's own element, not a component above it, so a row drawn inline by a parent that
+ * re-rendered on its own state counts too: test/support/mountedRowRenders reads a component's
+ * props, which stay the same object then.
  */
 function rowRenders(elements: () => Iterable<Element>) {
   const propsOf = (element: Element) => {
-    const key = Object.keys(element).find((name) => name.startsWith("__reactFiber$"));
-    const fiber = key ? (element as unknown as Record<string, { memoizedProps: unknown }>)[key] : undefined;
-    return fiber?.memoizedProps;
+    const key = Object.keys(element).find((name) => name.startsWith("__reactProps$"));
+    return key ? (element as unknown as Record<string, unknown>)[key] : undefined;
   };
   let seen = new Set<unknown>();
   return {
