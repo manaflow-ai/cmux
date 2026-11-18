@@ -25,7 +25,7 @@ enum LiveWebHandlers {
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let bundled = context.services.bundledCLI
-        Task { _ = await bundled.resolve() } // task-owner: none; one bounded file read whose answer bundled keeps
+        Task { _ = await bundled.resolve(); _ = await BundledCLIRun.expireStaleLayers(bundled) } // task-owner: none; a bounded file read, then stale layers off
         let noCLI: @MainActor () -> String? = { bundled.known == nil ? LiveWebStrings.noCLI : nil }
         registry.bindEffect(startID, unavailable: noCLI, effect: { invocation in
             guard let cli = bundled.known else { return .refused(LiveWebStrings.noCLI) }
@@ -179,7 +179,7 @@ enum LiveWebStrings {
     static var swiftStarting: String { text("liveSwift.starting", "Starting Swift live mode…") }
     static var swiftStopping: String { text("liveSwift.stopping", "Stopping Swift live mode…") }
     static var swiftStarted: String {
-        text("liveSwift.started", "cmux restarts into the live code build when it is ready (the first time it builds it), keeping every session.")
+        text("liveSwift.started", "cmux restarts into the live code build when it is ready.")
     }
     static var swiftStopped: String {
         text("liveSwift.stopped", "cmux restarts into the normal build, keeping every session.")

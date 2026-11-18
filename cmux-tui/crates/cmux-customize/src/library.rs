@@ -47,8 +47,11 @@ use crate::tree::{self, Part, SETTINGS, Tree};
 use crate::{Customize, Error, validate};
 
 pub mod code;
+mod collection;
+pub mod expire;
 pub mod keys;
 pub mod overlay;
+mod put;
 pub mod recover;
 mod text;
 
@@ -58,7 +61,7 @@ use keys::KEYBINDINGS;
 pub use overlay::Overlay;
 pub use recover::{ActiveLayer, Layers, Recovered};
 pub use text::thumbnail;
-use text::{one_line, redact_serde, slug, unique_name};
+use text::{one_line, slug, unique_name};
 
 /// The collection format version this cmux reads and writes.
 pub const COLLECTION_VERSION: u32 = 1;
@@ -100,6 +103,9 @@ pub struct Entry {
     /// The generation it was saved from (local only).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generation: Option<u32>,
+    /// When it was last turned on (local only; [`expire`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_ms: Option<u64>,
     /// Code not in your build (`source` "pr", "branch", "sha", "dir", "fork"): its web part is the
     /// stack key `code:web` ([`code`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -121,8 +127,7 @@ impl Entry {
             }
     }
 
-    /// The layer folder this entry serves while it is on and on top, when it
-    /// has a web part.
+    /// The layer folder this entry serves while it is on and on top, when it has a web part.
     fn web_layer(&self) -> Option<&CodeLayer> {
         self.code.as_ref().filter(|code| code.has_web())
     }
@@ -415,6 +420,7 @@ impl Customize {
         {
             let mut entry = library.entries.remove(at);
             entry.on = true;
+            entry.on_ms = Some(now_ms);
             let name = entry.name().to_owned();
             library.entries.insert(0, entry);
             self.write_library(&mut library)?;
@@ -445,6 +451,7 @@ impl Customize {
                 profile,
                 added_ms: Some(now_ms),
                 generation: Some(generation.n),
+                on_ms: Some(now_ms),
                 code: None,
             },
         );
@@ -470,6 +477,7 @@ impl Customize {
                 )));
             }
             entry.on = on;
+            entry.on_ms = if on { Some(now_ms) } else { entry.on_ms };
             Ok(())
         })
     }
@@ -529,6 +537,7 @@ impl Customize {
                     profile,
                     added_ms,
                     generation: None,
+                    on_ms: layer.has_web().then_some(now_ms),
                     code: Some(layer),
                 },
             );
@@ -640,7 +649,7 @@ impl Customize {
             .entries
             .into_iter()
             .filter(|entry| !only_on || entry.on)
-            .map(|entry| Entry { added_ms: None, generation: None, ..entry })
+            .map(|entry| Entry { added_ms: None, generation: None, on_ms: None, ..entry })
             .collect();
         Ok(Collection {
             version: COLLECTION_VERSION,
@@ -711,6 +720,7 @@ impl Customize {
                     profile,
                     added_ms: Some(now_ms),
                     generation: None,
+                    on_ms: (turn_on && entry.on).then_some(now_ms),
                     code: entry.code.clone(),
                 });
             }
@@ -724,57 +734,6 @@ impl Customize {
             Ok(())
         })?;
         Ok(Imported { added, already, renamed, change })
-    }
-
-    /// Reads a collection from its text, checking only its shape; import
-    /// checks every profile.
-    pub fn parse_collection(text: &str) -> Result<Collection, Error> {
-        if text.len() > MAX_COLLECTION_BYTES {
-            return Err(Error::Library(format!(
-                "a collection is at most {} MiB",
-                MAX_COLLECTION_BYTES / 1024 / 1024
-            )));
-        }
-        let probe: Value = serde_json::from_str(text).map_err(|error| {
-            Error::Library(format!(
-                "not a cmux collection (line {}, column {})",
-                error.line(),
-                error.column()
-            ))
-        })?;
-        // A single profile is a collection of one.
-        if probe.get("cmuxProfile").is_some() {
-            let profile: Profile = serde_json::from_value(probe)
-                .map_err(|_| Error::Library("not a cmux profile".to_owned()))?;
-            return Ok(Collection {
-                version: COLLECTION_VERSION,
-                name: profile.name.clone(),
-                description: String::new(),
-                entries: vec![Entry {
-                    on: true,
-                    source: "import".to_owned(),
-                    words: Vec::new(),
-                    thumbnail: Thumbnail::default(),
-                    profile,
-                    added_ms: None,
-                    generation: None,
-                    code: None,
-                }],
-            });
-        }
-        match probe.get("cmuxCollection").and_then(Value::as_u64) {
-            Some(1) => {}
-            Some(n) => {
-                return Err(Error::Library(format!(
-                    "this collection is format {n}; this cmux reads format {COLLECTION_VERSION}"
-                )));
-            }
-            None => return Err(Error::Library("not a cmux collection".to_owned())),
-        }
-        // Where it stops reading, never what it read there.
-        serde_json::from_value(probe).map_err(|error| {
-            Error::Library(format!("not a cmux collection: {}", redact_serde(&error.to_string())))
-        })
     }
 
     /// Every entry of `collection` is one `use` would take, and the set is
@@ -832,6 +791,18 @@ impl Customize {
     ) -> Result<Changed, Error> {
         self.ensure_baseline(now_ms)?;
         let _lock = self.store().lock()?;
+        self.library_change_locked(label, origin, now_ms, edit)
+    }
+
+    /// [`Customize::library_change`] for a caller that holds the store lock
+    /// (and made the baseline): one step of a longer change.
+    fn library_change_locked(
+        &self,
+        label: &str,
+        origin: &str,
+        now_ms: u64,
+        edit: impl FnOnce(&mut LibraryFile) -> Result<(), Error>,
+    ) -> Result<Changed, Error> {
         let mut library = self.read_library()?;
         let before = library.entries.clone();
         edit(&mut library)?;
@@ -961,9 +932,10 @@ impl Customize {
         }
         let scan = tree::scan(self.roots())?;
         let mut in_the_way: Vec<_> = writes
-            .iter()
-            .filter(|(_, bytes)| bytes.is_some())
-            .filter_map(|(path, _)| tree::in_the_way(self.roots(), path, &scan.tree))
+            .keys()
+            // A removal too: a file on disk the scan kept no copy of (one
+            // edited past the size limit) is yours, never deleted unseen.
+            .filter_map(|path| tree::in_the_way(self.roots(), path, &scan.tree))
             .collect();
         let written: BTreeMap<String, Vec<u8>> = writes
             .iter()

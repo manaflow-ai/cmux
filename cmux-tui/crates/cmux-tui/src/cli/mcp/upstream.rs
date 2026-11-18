@@ -14,6 +14,9 @@
 //! `tools_mcp.rs`) run in one process: each sends its requests with its name in `_meta`
 //! ([`acpmux::tools_mcp::SERVER_META`]), and each answer goes back to the request that waits
 //! for it, so a call that waits (a secret card) holds no other server's call.
+//!
+//! A spec with `http` names a loopback streamable HTTP endpoint instead (acpmux's daemon serving
+//! those servers, `upstream_http.rs`): no process, the same `_meta` routing.
 
 use std::collections::{BTreeSet, HashMap};
 use std::io::{BufRead, BufReader, Write};
@@ -27,7 +30,10 @@ use serde_json::{Map, Value, json};
 
 use super::computer_use_gate::{self, AppCaller, Gate};
 use super::cua_recovery;
+#[path = "upstream_http.rs"]
+pub(super) mod upstream_http;
 use cmux_json::JsonSet as _;
+use upstream_http::Http;
 
 /// The env acpmux gives the `cmux` server: a JSON array of
 /// `{name, command, args, env}`.
@@ -58,6 +64,8 @@ pub(super) struct Spec {
     pub call_timeout: Duration,
     /// The process it runs in with other servers (acpmux's `shared`), instead of its own.
     pub shared: Option<Launch>,
+    /// The loopback HTTP endpoint it is served at (acpmux's daemon), instead of a process.
+    pub http: Option<Http>,
 }
 
 /// A process to start: its command, args and env.
@@ -106,7 +114,8 @@ pub(super) fn specs(value: Option<std::ffi::OsString>) -> Vec<Spec> {
                 .as_u64()
                 .map_or(CALL_TIMEOUT, |secs| Duration::from_secs(secs.clamp(1, 24 * 3600)));
             let shared = item.get("shared").and_then(Launch::from_json);
-            Some(Spec { name, command, args, env, call_timeout, shared })
+            let http = item.get("http").and_then(Http::from_json);
+            Some(Spec { name, command, args, env, call_timeout, shared, http })
         })
         .collect()
 }
@@ -164,7 +173,7 @@ pub(super) fn rules(spec: &Spec, own: Option<&str>) -> Option<String> {
 pub(super) struct Upstream {
     spec: Spec,
     pub prefix: String,
-    conn: Option<Arc<Conn>>,
+    conn: Option<Link>,
     /// Its tools as the server lists them (original names).
     tools: Option<Vec<Value>>,
     pub instructions: Option<String>,
@@ -185,18 +194,54 @@ pub(super) struct Upstream {
 }
 
 /// Why a request has no result.
-enum Failure {
+pub(super) enum Failure {
     /// The server answered with a JSON-RPC error: the call did not run and
     /// the connection is fine.
     Refused(String),
     /// No answer (timeout, exit, closed pipe): the call may have run.
     Lost(String),
+    /// Never reached (an HTTP server that is down, or ended the session): the call did not run,
+    /// and the next one starts again.
+    Unsent(String),
 }
 
 impl Failure {
-    fn message(self) -> String {
+    pub(super) fn message(self) -> String {
         match self {
-            Failure::Refused(message) | Failure::Lost(message) => message,
+            Failure::Refused(message) | Failure::Lost(message) | Failure::Unsent(message) => {
+                message
+            }
+        }
+    }
+}
+
+/// How an upstream is reached: its process (its own or a shared one), or its HTTP endpoint.
+#[derive(Clone)]
+enum Link {
+    Process(Arc<Conn>),
+    Http(Arc<upstream_http::Client>),
+}
+
+impl Link {
+    fn alive(&self) -> bool {
+        match self {
+            Link::Process(conn) => conn.alive(),
+            // Each request connects again: a server that went down is a failed request.
+            Link::Http(_) => true,
+        }
+    }
+
+    fn notify(&self, method: &str) -> Result<(), String> {
+        match self {
+            Link::Process(conn) => conn.notify(method),
+            Link::Http(client) => client.notify(method, START_TIMEOUT),
+        }
+    }
+
+    fn request(&self, method: &str, params: Value, timeout: Duration) -> Result<Value, Failure> {
+        match self {
+            Link::Process(conn) => conn.request(method, params, timeout),
+            Link::Http(client) => client.request(method, params, timeout),
         }
     }
 }
@@ -377,7 +422,10 @@ impl Upstream {
     /// call starts it again). While a process runs, how long until it would be idle; `None`
     /// when none runs.
     pub(super) fn stop_if_idle(&mut self, idle: Duration) -> Option<Duration> {
-        self.conn.as_ref()?;
+        // An HTTP upstream has no process to end.
+        if !matches!(self.conn, Some(Link::Process(_))) {
+            return None;
+        }
         let left = idle.saturating_sub(self.used.elapsed());
         if left.is_zero() {
             // The child ends with its connection (`Conn::drop`); a shared one once no other
@@ -405,7 +453,7 @@ impl Upstream {
     /// The pid of its running process (tests kill it).
     #[cfg(test)]
     pub(super) fn pid(&self) -> Option<u32> {
-        let conn = self.conn.as_ref()?;
+        let Some(Link::Process(conn)) = self.conn.as_ref() else { return None };
         Some(conn.child.lock().unwrap_or_else(PoisonError::into_inner).id())
     }
 
@@ -547,6 +595,10 @@ impl Upstream {
         match answered {
             Ok(result) => Ok(result),
             Err(Failure::Refused(error)) => Err((error, "not_run")),
+            Err(Failure::Unsent(error)) => {
+                self.conn = None;
+                Err((error, "not_run"))
+            }
             Err(Failure::Lost(error)) => {
                 // A dead or late server starts again on the next call (a shared one once no
                 // other server holds it); the call itself may have run.
@@ -569,16 +621,17 @@ impl Upstream {
         self.conn = None;
         // The key before the start: a list is stored only for the command it came from.
         let key = self.listings.as_ref().and_then(|_| super::upstream_listing::key(&self.spec));
-        self.conn = Some(match &self.spec.shared {
-            Some(launch) => Conn::shared(launch, &self.prefix)?,
-            None => {
+        self.conn = Some(match (&self.spec.http, &self.spec.shared) {
+            (Some(http), _) => Link::Http(Arc::new(upstream_http::Client::new(http)?)),
+            (None, Some(launch)) => Link::Process(Conn::shared(launch, &self.prefix)?),
+            (None, None) => {
                 let spec = &self.spec;
                 let own = Launch {
                     command: spec.command.clone(),
                     args: spec.args.clone(),
                     env: spec.env.clone(),
                 };
-                Arc::new(Conn::start(&own, &self.prefix)?)
+                Link::Process(Arc::new(Conn::start(&own, &self.prefix)?))
             }
         });
         let init = self
@@ -622,7 +675,8 @@ impl Upstream {
         self.conn.as_ref().ok_or("not started")?.notify(method)
     }
 
-    /// One request, for this server: in a shared process its name goes in `_meta`.
+    /// One request, for this server: in a shared process or at an HTTP endpoint (both route by
+    /// it) its name goes in `_meta`.
     fn request(
         &mut self,
         method: &str,
@@ -630,7 +684,7 @@ impl Upstream {
         timeout: Duration,
     ) -> Result<Value, Failure> {
         let conn = self.conn.clone().ok_or_else(|| Failure::Lost("not started".into()))?;
-        if self.spec.shared.is_some()
+        if (self.spec.shared.is_some() || self.spec.http.is_some())
             && let Some(fields) = params.as_object_mut()
             && let Some(meta) = fields.entry("_meta").or_insert_with(|| json!({})).as_object_mut()
         {

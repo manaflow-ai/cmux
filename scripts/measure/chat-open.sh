@@ -12,6 +12,9 @@
 # content frame and to final frame (--arg=--cases=click,click_again for those alone).
 # Build options (the rest go to the bench):
 #   --app=PATH       measure this app; nothing is built
+#   --build-at=SHA   build the app at SHA (a pull request's head or a base) with that commit's own reload.sh, and run
+#                    this checkout's bench against it (scripts/measure/app-at-commit.sh): an A/B is one step per arm,
+#                    each from the same landed harness
 #   --skip-build     measure the app this script last built in this checkout, when it was built at this
 #                    commit with these build options (.build keeps it between steps on a worker); else build
 #   --native-arch    build this Mac's architecture only (the default in a fleet measurement step)
@@ -30,15 +33,21 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 . scripts/measure/require-chromium.sh
+. scripts/measure/app-at-commit.sh
 require_chromium="$(measure_chromium_required "$@")"
 ask_engine="$(measure_engine_asked "$@")"
 tag="chatopen"
 out="$(mktemp -d)"
-reload_config=(--config bench) reload_args=() bench_args=() app="" skip_build=0
+# Remove the scratch folder on every exit (a failed build, a TERM), not only at the end: a leaked one holds a build.
+trap 'rm -rf -- "$out"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+reload_config=(--config bench) reload_args=() bench_args=() app="" skip_build=0 build_at=""
 for arg in "$@"; do
   case "$arg" in
     --config=*) reload_config=(--config "${arg#--config=}") ;;
     --app=*) app="${arg#--app=}" ;;
+    --build-at=*) build_at="${arg#--build-at=}" ;;
     --skip-build) skip_build=1 ;;
     --native-arch) reload_args+=(--native-arch) ;;
     --universal) export CMUX_RELOAD_NATIVE_ARCH=0 ;;
@@ -55,7 +64,7 @@ if [[ "$ask_engine" == 1 ]]; then
 fi
 # The commit, configuration and architecture an app was built for: --skip-build reuses only a match.
 # (and whether the build required Chromium: an app built with --allow-no-chromium is not one that required it).
-build_id="$(git rev-parse HEAD)/${reload_config[1]}/${CMUX_RELOAD_NATIVE_ARCH:-default}/chromium-required-$require_chromium/${reload_args[*]:-}"
+build_id="${build_at:-$(git rev-parse HEAD)}/${reload_config[1]}/${CMUX_RELOAD_NATIVE_ARCH:-default}/chromium-required-$require_chromium/${reload_args[*]:-}"
 build_id="${build_id// /,}"
 # What the last build left: its commit and its app, so --skip-build reuses only an app of this commit.
 last_build=".build/chat-open-last-build"
@@ -85,21 +94,30 @@ else
     echo "chat-open: --allow-no-chromium: the build may have no Chromium engine; the bench refuses no open, and the table says each case's page engine"
   fi
   reload_status=0
-  CMUX_NEXT_REQUIRE_CEF="$require_chromium" CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" "${reload_config[@]}" ${reload_args[@]+"${reload_args[@]}"} 2>&1 | tee "$out/reload.log" || reload_status=$?
-  if [[ "$reload_status" -ne 0 ]]; then
-    measure_chromium_failure chat-open "$out/reload.log" || true
-    exit "$reload_status"
-  fi
-  app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
-  if [[ -z "$app" || ! -d "$app" ]]; then
-    echo "chat-open: the tagged reload printed no app path" >&2
-    grep -E "error:|BUILD FAILED" "$out/reload.log" | head -n 60 >&2 || true
-    exit 1
+  if [[ -n "$build_at" ]]; then
+    app="$(CMUX_NEXT_REQUIRE_CEF="$require_chromium" measure_app_at_commit "$build_at" "$tag" "$out/at" \
+      "${reload_config[@]}" ${reload_args[@]+"${reload_args[@]}"})" || reload_status=$?
+    if [[ "$reload_status" -ne 0 ]]; then
+      measure_chromium_failure chat-open "$out/at.reload.log" || true
+      exit "$reload_status"
+    fi
+  else
+    CMUX_NEXT_REQUIRE_CEF="$require_chromium" CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" "${reload_config[@]}" ${reload_args[@]+"${reload_args[@]}"} 2>&1 | tee "$out/reload.log" || reload_status=$?
+    if [[ "$reload_status" -ne 0 ]]; then
+      measure_chromium_failure chat-open "$out/reload.log" || true
+      exit "$reload_status"
+    fi
+    app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
+    if [[ -z "$app" || ! -d "$app" ]]; then
+      echo "chat-open: the tagged reload printed no app path" >&2
+      grep -E "error:|BUILD FAILED" "$out/reload.log" | head -n 60 >&2 || true
+      exit 1
+    fi
   fi
   mkdir -p .build
   printf '%s %s\n' "$build_id" "$app" >"$last_build"
 fi
 mkdir -p artifacts
 # A fleet step has no LaunchServices session: the bench launches the app binary directly.
-CMUX_BENCH_LAUNCH=direct exec python3 scripts/cmux-next/chat-open-bench.py --app "$app" \
+CMUX_BENCH_LAUNCH=direct python3 scripts/cmux-next/chat-open-bench.py --app "$app" \
   --json artifacts/chat-open.json --md artifacts/chat-open.md "$@"

@@ -1337,7 +1337,7 @@
           },
           "help": {
             "key": "settings.editor.importFrom.help",
-            "text": "cmux reads that editor's settings and keybindings files and never changes them. A setting you make here wins."
+            "text": "cmux reads that editor's settings and keybindings, never changing them."
           },
           "kind": "choice",
           "choices": [

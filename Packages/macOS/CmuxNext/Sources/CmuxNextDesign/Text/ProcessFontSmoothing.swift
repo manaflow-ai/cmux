@@ -43,12 +43,36 @@ public nonisolated struct ProcessFontSmoothing: Sendable, Equatable {
     // same way, and UserDefaults is Apple-documented thread-safe.
     public static let current = ProcessFontSmoothing(defaults: .standard)
 
+    /// The smoothing of the text cmux draws into its own bitmaps (``GlyphMask``: ``ChromeLabel``,
+    /// ``ChromeTextLayer``, so the sidebar, tabs and most chrome), which follows
+    /// `appearance.fontSmoothing` live, as web pages do.
+    ///
+    /// It reads the app's defaults now, where ``apply(_:to:)`` writes the setting at launch and on
+    /// each change: at launch it is ``current``; after a change it is the new value, while AppKit's
+    /// own text keeps ``current`` until a restart (https://github.com/manaflow-ai/cmux/issues/44844:
+    /// the sidebar kept the launch's weight after a change while pages changed at once).
+    public static var chrome: ProcessFontSmoothing { ProcessFontSmoothing(defaults: .standard) }
+
+    /// ``apply(_:to:)`` to the app's defaults, for a settings change while the app runs: when
+    /// ``chrome`` changes, every ``ChromeLabel`` and ``ChromeTextLayer`` in the app's windows draws
+    /// again in it (``GlyphMask/weight(of:smoothing:)`` keys their images by it).
+    ///
+    /// - Returns: the smoothing chrome text now draws with.
+    @MainActor @discardableResult
+    public static func applyLive(_ mode: FontSmoothing) -> ProcessFontSmoothing {
+        let before = chrome
+        let after = apply(mode, to: .standard)
+        if after != before { ChromeTextRefresh.all() }
+        return after
+    }
+
     /// Writes `mode` for AppKit to read at its first text draw, and returns what text then draws.
     ///
-    /// ``FontSmoothing/antialiased`` writes 0 in the app's own domain (over a global value);
-    /// ``FontSmoothing/system`` removes the app's value, so the Mac's global choice applies. A
-    /// 0 already in place is not written again. Called before the first window: AppKit ignores
-    /// a change after its first text draw, so a change applies at the next launch.
+    /// ``FontSmoothing/antialiased`` writes 0 and ``FontSmoothing/subpixel`` writes 2 in the app's
+    /// own domain (over any global value; macOS 27 draws 1, 2 and 3 alike); ``FontSmoothing/auto``
+    /// removes the app's value, so the Mac's global choice applies. A value already in place is not
+    /// written again. AppKit ignores a change after its first text draw, so the app calls this before
+    /// its first window and again on each change, for the next launch.
     ///
     /// - Parameters:
     ///   - mode: the `appearance.fontSmoothing` setting.
@@ -56,11 +80,14 @@ public nonisolated struct ProcessFontSmoothing: Sendable, Equatable {
     /// - Returns: the smoothing `defaults` now gives.
     @discardableResult
     public static func apply(_ mode: FontSmoothing, to defaults: UserDefaults) -> ProcessFontSmoothing {
+        let saved = (defaults.object(forKey: defaultsKey) as? NSNumber)?.intValue
         switch mode {
-        case .antialiased:
-            if (defaults.object(forKey: defaultsKey) as? NSNumber)?.intValue != 0 { defaults.set(0, forKey: defaultsKey) }
-        case .system:
+        case .auto:
             defaults.removeObject(forKey: defaultsKey)
+        case .antialiased:
+            if saved != 0 { defaults.set(0, forKey: defaultsKey) }
+        case .subpixel:
+            if saved == nil || saved == 0 { defaults.set(2, forKey: defaultsKey) }
         }
         return ProcessFontSmoothing(defaults: defaults)
     }

@@ -1299,6 +1299,9 @@ pub enum ControlRequest {
     Restart(Vec<String>),
     /// The turn session's tool hook (rights.rs): answers the hook's JSON.
     RightsHook { phase: String, payload: Value },
+    /// `optchat-chief memory redescribe`: describe again the images these
+    /// note lines name (brain/redescribe.rs); answers `{started, refused}`.
+    Redescribe(Vec<u64>),
 }
 
 /// What the tools socket serves: the memory, the subagent tools when the
@@ -1420,6 +1423,7 @@ fn connection(conn: UnixStream, served: &Served) {
                         | "inspect"
                         | "grant"
                         | "browse"
+                        | "redescribe"
                 ) && role() == crate::turn_caller::Role::Subagent
                 {
                     if writeln!(
@@ -1569,6 +1573,34 @@ fn connection(conn: UnixStream, served: &Served) {
                             ),
                             Err(e) => json!({"error": {"code": "unavailable", "message": e}}),
                         },
+                    };
+                    if writeln!(out, "{answer}").is_err() {
+                        return;
+                    }
+                    continue;
+                }
+                // The owner's `memory redescribe`: the owner only (as the
+                // inspector's changes): never one of the Chief's own sessions.
+                if tool == "redescribe" {
+                    let owner = role() == crate::turn_caller::Role::Other
+                        && req.get("from").and_then(Value::as_str) != Some("subagent")
+                        && !peer.is_some_and(crate::turn_caller::under_this_process);
+                    let notes: Option<Vec<u64>> = req
+                        .get("messages")
+                        .and_then(Value::as_array)
+                        .map(|ids| ids.iter().filter_map(Value::as_u64).collect());
+                    let answer = match (owner, notes, control) {
+                        (false, _, _) => json!({"error": "owner control only"}),
+                        (true, None, _) => json!({"error": "redescribe needs messages: [ids]"}),
+                        (true, Some(_), None) => {
+                            json!({"error": "the host control is not served here"})
+                        }
+                        (true, Some(notes), Some(control)) => {
+                            match control(ControlRequest::Redescribe(notes)) {
+                                Ok(text) => json!({"text": text}),
+                                Err(e) => json!({"error": e}),
+                            }
+                        }
                     };
                     if writeln!(out, "{answer}").is_err() {
                         return;
@@ -1932,6 +1964,13 @@ pub fn ask_rights_hook(path: &Path, phase: &str, payload: Value) -> Result<Strin
 /// The browse page from the live host; Err when no host answers on `path`.
 pub fn ask_browse(path: &Path) -> Result<String, String> {
     ask_json(path, &json!({"tool": "browse"}))
+}
+
+/// `optchat-chief memory redescribe`: asks the running host to describe
+/// again the images these note lines name; returns its `{started, refused}`
+/// JSON.
+pub fn ask_redescribe(path: &Path, notes: &[u64]) -> Result<String, String> {
+    ask_json(path, &json!({"tool": "redescribe", "messages": notes}))
 }
 
 fn ask_json(path: &Path, request: &Value) -> Result<String, String> {

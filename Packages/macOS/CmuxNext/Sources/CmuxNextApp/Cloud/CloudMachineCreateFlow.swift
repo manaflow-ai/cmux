@@ -77,14 +77,15 @@ struct CloudMachineCreateFlow {
     var pause: @MainActor (_ attempt: Int) async throws -> Void
     /// Rust checks the selected backend's capabilities before an option-bearing create is sent.
     var validateOptions: @MainActor (_ params: JSONValue) async throws -> Void = { _ in }
+    var beside: @MainActor () async -> Void = {} // runs beside the first call (a create's `user.ensure`), awaited before an approval is answered and before an answer returns, so nothing the approved op runs goes ahead of it
     var newKey: () -> String = { UUID().uuidString }
     /// Same-key calls after the approval before ``Failure/stillPending``.
     var retries = 8
 
-    /// The default machine named `name` (trimmed; empty is none), in the stub plan's smallest
-    /// size (the backend checks the plan); `sizeShown` false when the plan picks the size.
+    /// The default machine named `name` (trimmed; empty is none): 4 vCPU, 16 GB of memory and a 64 GB disk, so a
+    /// chat's folder fits (the backend checks the plan); `sizeShown` false when the plan picks the size.
     static func named(_ name: String?, sizeShown: Bool = true, askedBy: String? = nil) -> Machine {
-        Machine(name: name.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }, cpu: 2, memoryMB: 4096, diskMB: 16384, sizeShown: sizeShown, askedBy: askedBy)
+        Machine(name: name.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }, cpu: 4, memoryMB: 16384, diskMB: 65536, sizeShown: sizeShown, askedBy: askedBy)
     }
 
     /// Creates a machine; `startedByPerson` is true for the person's own
@@ -105,8 +106,8 @@ struct CloudMachineCreateFlow {
         let machine = Self.named(name, askedBy: askedBy)
         // A person's own gesture is the confirmation, so the backend's hold gets no second prompt.
         if !startedByPerson, asksFirst { guard await confirm(.agentRequest(machine)) else { throw Failure.declined } }
-        let requestedMemory = request?.memoryMb ?? machine.memoryMB
-        var args: [String: JSONValue] = ["size": .object(["cpu": .number(Double(machine.cpu)), "memory_mb": .number(Double(requestedMemory)), "disk_mb": .number(Double(machine.diskMB))])]
+        let sized: (cpu: Int, memoryMb: Int, diskMb: Int) = request?.atLeast(cpu: machine.cpu, memoryMb: request?.memoryMb ?? machine.memoryMB, diskMb: machine.diskMB) ?? (cpu: machine.cpu, memoryMb: machine.memoryMB, diskMb: machine.diskMB) // a chat's folder size raises each axis
+        var args: [String: JSONValue] = ["size": .object(["cpu": .number(Double(sized.cpu)), "memory_mb": .number(Double(sized.memoryMb)), "disk_mb": .number(Double(sized.diskMb))])]
         if let name = machine.name { args["name"] = .string(name) }
         if let environment { args["environment"] = .string(environment) }
         // This Mac applies these once the machine exists (bootstrap, machine config, idle pause; the size goes as
@@ -151,10 +152,11 @@ struct CloudMachineCreateFlow {
                               ask: @MainActor (_ request: String) async -> Bool) async throws -> JSONValue {
         var confirmed = confirmed
         var approved: String?
-        var attempt = 0
+        var attempt = 0; let ensure = self.beside
+        async let besideDone: Void = ensure()
         for _ in 0...max(retries, 0) {
             do {
-                return try await run(op, args, key, .user)
+                let answer = try await run(op, args, key, .user); await besideDone; return answer
             } catch let failure as CloudAppOpFailure where failure.code == CloudAppOpFailure.approvalPending {
                 guard let request = failure.approvalRequest else { throw Failure.noApprovalRequest }
                 if approved == nil, request == earlier { approved = request }
@@ -171,7 +173,7 @@ struct CloudMachineCreateFlow {
                 }
                 onAnswering(request)
                 do {
-                    try await approve(request, op, args)
+                    await besideDone; try await approve(request, op, args)
                 } catch let failure as CloudApprovalAnswer.Failure
                             where failure.alreadyAnswered(request: request, answeredEarlier: request == answering) {
                     // An earlier attempt answered it and was cancelled before it could record that: the
