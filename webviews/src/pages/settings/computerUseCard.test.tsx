@@ -82,7 +82,7 @@ test("the card draws the Computer Use switch once, and the switch turns Computer
   page.unmount();
 });
 
-test("a cmux build the legacy helper can't verify says legacy Computer Use is off", async () => {
+test("a cmux build the legacy helper can't verify says legacy Computer Use needs a signed build", async () => {
   const page = await renderPage({ path: "/settings/agents" });
   const state: ComputerUseState = {
     phase: "ready",
@@ -93,7 +93,7 @@ test("a cmux build the legacy helper can't verify says legacy Computer Use is of
   };
   await act(async () => page.provider.setHost({ ...page.provider.host, computer_use: state }));
   await settle();
-  expect(card(page.container)!.textContent).toContain("Legacy Computer Use is off");
+  expect(card(page.container)!.textContent).toContain("Legacy Computer Use works only in a signed cmux build");
   page.unmount();
 });
 
