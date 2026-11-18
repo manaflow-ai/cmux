@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// The app's language on first use (`language-packs-v1`, CMUX-570): the home daemon downloads the
 /// pack the app pins for a language, checks its sha256 and unpacks it into the cache, and the app

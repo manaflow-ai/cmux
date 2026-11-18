@@ -20,7 +20,7 @@ public final class LanguagePackService {
     /// The language a pack was made active for, so a daemon restart does not ask again.
     private var activated: String?
 
-    public init(daemon: DaemonService, bundleID: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app.next") {
+    init(daemon: DaemonService, bundleID: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app.next") {
         self.daemon = daemon
         self.bundleID = bundleID
     }
