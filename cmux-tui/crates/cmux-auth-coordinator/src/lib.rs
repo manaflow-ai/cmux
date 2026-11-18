@@ -18,11 +18,13 @@
 //! [`PhaseDamper`] is the timed-out-phase registry.
 
 mod coordinator;
+mod event;
 mod model;
 mod phase;
 
-pub use coordinator::{
-    AfterTeams, AuthFailure, AutoLoginSource, Coordinator, Effect, Event, Persisted, RestoreTicket,
+pub use coordinator::Coordinator;
+pub use event::{
+    AfterTeams, AuthFailure, AutoLoginSource, Effect, Event, Persisted, RestoreTicket,
     RestoreTrigger, SignInFlow, SignInKind, TeamList, TeamRefreshTicket, TokenReadKind,
 };
 pub use model::{
