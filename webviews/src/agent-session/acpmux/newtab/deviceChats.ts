@@ -62,6 +62,12 @@ function subscribe(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
-export function useDeviceChats(): DeviceChat[] {
-  return useSyncExternalStore(subscribe, deviceChats, deviceChats);
+const NONE: DeviceChat[] = [];
+const noPushes = () => () => {};
+const none = () => NONE;
+
+/// Off (`read` false: a page that draws no device chats, the Minimal New Tab), it holds no listener
+/// and a push re-renders nothing.
+export function useDeviceChats(read = true): DeviceChat[] {
+  return useSyncExternalStore(read ? subscribe : noPushes, read ? deviceChats : none, read ? deviceChats : none);
 }

@@ -378,6 +378,7 @@ function homeOrAbove(cwd: string | undefined): boolean {
 /// How long the folder chip holds its place for a daemon that has not listed the chats yet.
 const RESERVE_MS = 2_000;
 const NO_DEVICE_CHATS: ReturnType<typeof useDeviceChats> = [];
+const NO_CARDS: ReturnType<typeof recentChatCards> = [];
 
 /// The new tab screen, variant B (plans/cmux-next/new-tab.md): the project and model pickers on
 /// top, then one field that reads what is typed (`!` a shell command, an address, or a prompt for
@@ -1127,16 +1128,22 @@ export function NewTabScreen(props: Props) {
     const timer = setTimeout(() => setChatsReserveOver(true), RESERVE_MS);
     return () => clearTimeout(timer);
   }, [holdChats]);
-  // The device chat index's newest chats, for the cards under the field.
-  const pushed = useDeviceChats();
+  // The device chat index's newest chats, for the cards under the field. Minimal draws no lists, so
+  // it reads no chat or closed tab: a session push costs a Minimal page, a hidden spare one too, no
+  // list work. With no chats listed yet it still counts device chats, for the first-run starters.
+  const chatList = !minimal && sections.chats !== "none";
+  const pushed = useDeviceChats(chatList || snapshot.sessions.length === 0);
   const device = holdChats ? NO_DEVICE_CHATS : pushed;
-  const closed = useRecentlyClosed();
+  const closed = useRecentlyClosed(!minimal && sections.closed);
   // Ages read the shared clock (clock.ts): every page shows the same age and changes it together.
   const clock = useMinuteClock();
   const at = now ?? clock;
   const cards = useMemo(
-    () => recentChatCards(snapshot.sessions, at, t, device, sections.recent, sections.chats === "list"),
-    [snapshot.sessions, at, t, device, sections.recent, sections.chats],
+    () =>
+      chatList
+        ? recentChatCards(snapshot.sessions, at, t, device, sections.recent, sections.chats === "list")
+        : NO_CARDS,
+    [chatList, snapshot.sessions, at, t, device, sections.recent, sections.chats],
   );
   // With All chats on the page (the host answers `chats.page`) every chat is in that list, so
   // the cards keep only the chats that are running or need the user. Show All Chats off
