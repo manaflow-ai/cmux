@@ -27,7 +27,7 @@
 #     developer surface, bundle dev.cmux.mobile.<tag>, display name "cmux <tag>", an unsigned
 #     device app) plus the fleet simulator check: signed in with the worker's agent account, then
 #     relaunched with no credentials and signed in from its own Keychain, with screenshots and a
-#     recording. The step carries --label ios-agent-signin, so only a simulator worker holding
+#     recording. The step carries --sign-in agent, so only a simulator worker holding
 #     the agent account file takes it; --target-worker pins it further. Job ids are saved:
 #     rerunning the same command resumes them. With no connected phone the fleet legs still run,
 #     and the phone is the reported blocker.
@@ -183,7 +183,7 @@ fleet_start_sim() {
   # ios-agent-signin: only a simulator worker holding the agent account file (hq build-fleet README,
   # "Sign-in placement") takes it; the step reads that file itself (cmux-next-ios-sim.sh handoff).
   local args=(run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$SHA"
-    --arg shots --arg "handoff=$SLUG" --label ios-agent-signin --artifact artifacts/ios-sim/evidence.zip
+    --arg shots --arg "handoff=$SLUG" --sign-in agent --artifact artifacts/ios-sim/evidence.zip
     --key "cnx-ios-handoff-$SLUG-${SHA:0:12}")
   [[ -z "$TARGET_WORKER" ]] || args+=(--target-worker "$TARGET_WORKER")
   echo "==> iPhone app: fleet step cmux-next-ios-sim.sh handoff tag=$SLUG${TARGET_WORKER:+ on $TARGET_WORKER} (log: $STATE/sim-step.log)"
