@@ -840,8 +840,8 @@ mod tests {
             [ -e \"$a/.ssh\" ] && { echo 'denied dir visible at the second mount' >&2; exit 41; }
             cat \"$a/.ssh/id_ed25519\" 2>/dev/null && { echo 'denied file read' >&2; exit 42; }
             [ -d \"$a/Projects/repo\" ] || { echo 'work folder missing at the second mount' >&2; exit 43; }
-            : > \"$a/Projects/repo/w\" 2>/dev/null && { echo 'second mount writable' >&2; exit 44; }
-            : > \"$c/ok\" || { echo 'cwd not writable' >&2; exit 45; }
+            ( : > \"$a/Projects/repo/w\" ) 2>/dev/null && { echo 'second mount writable' >&2; exit 44; }
+            ( : > \"$c/ok\" ) || { echo 'cwd not writable' >&2; exit 45; }
             exit 0";
         let command = strings(&[
             "/bin/sh",
