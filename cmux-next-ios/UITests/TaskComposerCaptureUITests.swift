@@ -228,7 +228,7 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
             },
             Scene(group: g, id: "composer-model-menu", args: Self.list) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
-                         { C.tap(C.any(app, "taskComposer.model.claude"), "Claude Code's model") }])
+                         { Self.revealTap(C.any(app, "taskComposer.model.claude"), "Claude Code's model") }])
             },
             Scene(group: g, id: "agent-row-model-menu", args: Self.list) { app in
                 C.steps([{ Self.composeTwoAgents(app) }, { Self.revealTap(C.any(app, "taskComposer.settings"), "Each agent's settings") },
@@ -244,21 +244,21 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
             },
             Scene(group: g, id: "effort-menu", args: Self.list) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
-                         { C.tap(C.any(app, "taskComposer.effort.claude"), "Claude Code's effort") },
+                         { Self.revealTap(C.any(app, "taskComposer.effort.claude"), "Claude Code's effort") },
                          { Self.check(app.buttons["Extra high"].firstMatch.exists, "the model's levels are not listed") }])
             },
             Scene(group: g, id: "mode-menu", args: Self.list) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
-                         { C.tap(C.any(app, "taskComposer.mode.claude"), "Claude Code's mode") },
+                         { Self.revealTap(C.any(app, "taskComposer.mode.claude"), "Claude Code's mode") },
                          { Self.check(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Plan'")).firstMatch.exists, "no Plan mode") }])
             },
             Scene(group: g, id: "fast-mode-menu", args: Self.list) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
-                         { C.tap(C.any(app, "taskComposer.option.fast-mode.claude"), "Fast mode") }])
+                         { Self.revealTap(C.any(app, "taskComposer.option.fast-mode.claude"), "Fast mode") }])
             },
             Scene(group: g, id: "effort-picked", args: Self.list) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
-                         { C.tap(C.any(app, "taskComposer.effort.claude"), "Claude Code's effort") },
+                         { Self.revealTap(C.any(app, "taskComposer.effort.claude"), "Claude Code's effort") },
                          { C.tap(app.buttons["Max"].firstMatch, "Max") }, { C.pause(0.8); return nil },
                          { Self.check((C.any(app, "taskComposer.effort.claude").label).contains("Max"), "Max did not stick") }])
             },
@@ -280,11 +280,11 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
             },
             Scene(group: g, id: "model-unavailable", args: Self.list + ["-cmux-mobile-task-catalog", "many"]) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Review the release branch") },
-                         { C.tap(C.any(app, "taskComposer.model.claude"), "Claude Code's model") }])
+                         { Self.revealTap(C.any(app, "taskComposer.model.claude"), "Claude Code's model") }])
             },
             Scene(group: g, id: "model-unavailable-tapped", args: Self.list + ["-cmux-mobile-task-catalog", "many"]) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Review the release branch") },
-                         { C.tap(C.any(app, "taskComposer.model.claude"), "Claude Code's model") },
+                         { Self.revealTap(C.any(app, "taskComposer.model.claude"), "Claude Code's model") },
                          { C.tap(C.label(app, contains: "Opus Max"), "Opus Max") },
                          { C.pause(1); return nil }, { Self.closeMenu(app) },
                          { Self.check(!((C.any(app, "taskComposer.agents").value as? String) ?? "").contains("Opus Max"), "Opus Max was chosen") }])
