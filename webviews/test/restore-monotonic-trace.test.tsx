@@ -520,6 +520,18 @@ test("retained presentation refuses another chat and strips stale live state", a
   expect(restored?.connection).toBe("connecting");
 });
 
+test("a retained tail of restart metadata does not expose only the turn opener", async () => {
+  const { AcpmuxDirectClient } = await import("../src/agent-session/acpmux/direct");
+  const tail = keptTail();
+  expect(
+    AcpmuxDirectClient.retainedSnapshot(CHAT, {
+      ...tail,
+      turnOpener: RECORDS[0],
+      events: [{ sessionId: CHAT, seq: 100, at: START + 1000, dir: "mux", kind: "resumed", msg: {} }],
+    }),
+  ).toBeUndefined();
+});
+
 test("a retained tail that answers after its presentation unmounts cannot draw", async () => {
   const { watchRestoredTail } = await import("../src/agent-session/acpmux/restoredTail");
   let answer: (value: unknown) => void = () => {};
