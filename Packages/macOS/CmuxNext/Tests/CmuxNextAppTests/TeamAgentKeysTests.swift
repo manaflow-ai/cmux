@@ -41,6 +41,28 @@ import Testing
         #expect(model.pageState["agents"] == .array([]))
     }
 
+    /// A Cloud start's check (CloudStartChat.wireSetup) refreshes while Settings may already be reading the keys: the
+    /// second refresh waits for that read's reply instead of returning with nothing loaded, which read as "no team key"
+    /// and showed Set up Cloud to a team-key person.
+    @Test func aRefreshWhileAReadRunsWaitsForItsReply() async {
+        var reads = 0
+        var release: CheckedContinuation<Void, Never>?
+        let model = TeamAgentKeys(scope: { self.scope }, call: { _, _, _, _ in
+            reads += 1
+            await withCheckedContinuation { release = $0 }
+            return self.status(manage: false, claude: self.claudeSet)
+        })
+        let first = Task { await model.refresh() }
+        while release == nil { await Task.yield() }
+        let second = Task { await model.refresh(); return model.loaded }
+        for _ in 0..<20 { await Task.yield() } // the second refresh is in before the reply lands
+        release?.resume()
+        await first.value
+        #expect(await second.value, "the second refresh returned before the running read loaded")
+        #expect(reads == 1)
+        #expect(model.currentAgents.first?["set"] == true)
+    }
+
     @Test func statusLoadsEveryAgentWithItsHint() async throws {
         var reads: [(String, JSONValue, String?)] = []
         let model = TeamAgentKeys(scope: { self.scope }, call: { _, op, params, key in
