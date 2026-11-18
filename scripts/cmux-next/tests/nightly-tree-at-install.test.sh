@@ -306,6 +306,29 @@ check '[[ $status == 0 ]] && grep -qx "tree_pending=true" "$TMP/gh-output"' "a c
 rm -f "$runs_dir/runs-$app"; set_runs "$active_run"; pending
 check '[[ $status == 0 ]] && grep -qx "tree_pending=true" "$TMP/gh-output"' "an active same-key run keeps the tip pending"
 rm -f "$runs_dir/runs-$own"; set_runs "$no_runs"
+# The resolver reads the publisher's jobs the way await-tree-client.sh does (2026-11-18: owner
+# 44223233076's build jobs sat queued 2 h with no runner; the nightly retries 44232805509 and
+# 44235456054 each took the tip as pending, and 44235456054 waited the full 45 min on it).
+# An active run that is not making progress publishes nothing in time: the resolver builds the
+# newest published tree instead.
+own_list() { set_runs "{\"total_count\":1,\"workflow_runs\":[{\"id\":$1,\"status\":\"in_progress\",\"head_sha\":\"$own\",\"head_branch\":\"feat-cmux-next\"}]}"; }
+stalled_jobs() { printf '{"jobs":[{"name":"build / build x86_64-unknown-linux-musl","status":"queued","runner_name":null,"labels":["blacksmith-32vcpu-ubuntu-2404"],"created_at":"%s"}]}' "$(ago "$1")"; }
+reset_cdn; own_run "$own" 11; own_list 11; jobs_file 11 "$(stalled_jobs 6000)"; pending
+check '[[ $status == 0 ]] && grep -qx "tree_pending=false" "$TMP/gh-output" && grep -q "making progress" "$TMP/summary" && grep -q "blacksmith-32vcpu-ubuntu-2404" "$TMP/summary"' \
+  "a tree whose only publisher has no runner past the stall bound leaves it to the resolver"
+own_run "$own" 12 3; own_list 12; jobs_file 12 "$failed_jobs"; pending
+check '[[ $status == 0 ]] && grep -qx "tree_pending=false" "$TMP/gh-output" && grep -q "failed build-linux" "$TMP/summary"' \
+  "a tree whose only publisher failed on its last attempt leaves it to the resolver"
+own_run "$own" 13; own_list 13; jobs_file 13 "$(stalled_jobs 0)"; pending
+check '[[ $status == 0 ]] && grep -qx "tree_pending=true" "$TMP/gh-output"' "a publisher queued under the stall bound keeps the tip pending"
+own_run "$own" 14 1; own_list 14; jobs_file 14 "$failed_jobs"; pending
+check '[[ $status == 0 ]] && grep -qx "tree_pending=true" "$TMP/gh-output"' "a failed build a retry will re-run keeps the tip pending"
+# A stuck owner is passed over for a same-key run that builds: still pending.
+own_run "$own" 11; jobs_file 11 "$(stalled_jobs 6000)"; own_run "$app" 15
+set_runs "{\"total_count\":2,\"workflow_runs\":[{\"id\":11,\"status\":\"in_progress\",\"head_sha\":\"$own\",\"head_branch\":\"feat-cmux-next\"},{\"id\":15,\"status\":\"in_progress\",\"head_sha\":\"$app\",\"head_branch\":\"feat-cmux-next\"}]}"
+rm -f "$runs_dir/runs-$app"; pending
+check '[[ $status == 0 ]] && grep -qx "tree_pending=true" "$TMP/gh-output"' "a stuck owner passed over for a same-key run that builds keeps the tip pending"
+rm -f "$runs_dir/runs-$own" "$runs_dir/runs-$app"; rm -rf "$TMP/api/repos/o/r/actions/runs"; set_runs "$no_runs"
 
 # Recovery: a run's await-nightly-tree-marker must have passed (or not exist).
 mkdir -p "$TMP/ghbin"
