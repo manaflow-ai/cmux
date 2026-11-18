@@ -91,3 +91,24 @@ fn its_prompt_is_acpmuxs_own() {
     assert!(super::super::idle::cache_compact::is_own(Some(&ours)));
     assert!(!super::super::inbox::persons_prompt(None, Some(&ours)));
 }
+
+#[test]
+fn only_the_persons_own_prompt_is_compacted_ahead_of() {
+    let with = |provenance: Option<Value>, agent: Option<&str>| PromptOptions {
+        provenance,
+        agent: agent.map(str::to_owned),
+        ..PromptOptions::default()
+    };
+    assert!(persons_own(&with(None, None)), "a local prompt with no sender");
+    let person = json!({"kind": "person_message", "from": "user_42", "fromName": "Bo"});
+    assert!(persons_own(&with(Some(person), None)));
+    assert!(!persons_own(&with(None, Some("helper"))), "another agent's message");
+    let agent = json!({"kind": "agent_message", "from": "helper"});
+    assert!(!persons_own(&with(Some(agent), None)), "an agent named by its provenance");
+    let card = json!({"kind": "task_result"});
+    assert!(!persons_own(&with(Some(card), None)), "a lane's task card");
+    assert!(!persons_own(&with(Some(json!({"kind": KIND})), None)), "its own compaction");
+    let guest = json!({"kind": "person_message", "from": "guest:k3x9", "fromName": "Cy"});
+    assert!(crate::author::awaits_owner(Some(&guest)));
+    assert!(!persons_own(&with(Some(guest), None)), "a guest's prompt waits for the owner");
+}

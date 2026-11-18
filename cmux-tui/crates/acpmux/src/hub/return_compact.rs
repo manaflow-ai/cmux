@@ -98,7 +98,7 @@ pub(crate) fn read_min_tokens() -> Option<u64> {
 
 /// Whether a prompt is the person's own as this module reads it: no other agent's message (its
 /// sender named or worked out from its provenance), none of acpmux's own, no trigger, no Cloud
-/// execution, no inbox message and no guest's prompt waiting for the owner. A client's word
+/// execution and no guest's prompt waiting for the owner. A client's word
 /// (`cacheCompact`) counts only on such a prompt.
 fn persons_own(opts: &PromptOptions) -> bool {
     let provenance = opts.provenance.as_ref();
@@ -109,7 +109,6 @@ fn persons_own(opts: &PromptOptions) -> bool {
         && !crate::author::awaits_owner(provenance)
         && !crate::prompt_provenance::is_trigger(provenance)
         && opts.cloud_turn.is_none()
-        && !opts.inbox
 }
 
 /// Whether a prompt compacts the chat first: `choice` the client's word, `min_tokens` the
