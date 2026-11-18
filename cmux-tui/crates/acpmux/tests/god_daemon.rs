@@ -253,17 +253,21 @@ struct Rpc {
     /// Bytes read so far, and the longest line: what a prompt's notices weigh.
     read_bytes: u64,
     longest_line: u64,
-    /// The peer rows' `_acpmux/session_changed` notices read, but for the [`MARKER_KIND`] one:
-    /// how many, their bytes, and how many of each peer.
+    /// The peer rows' `_acpmux/session_changed` notices read, but for the marker's
+    /// ([`MARKER_KINDS`]): how many, their bytes, and how many of each peer; and the events
+    /// dropped.
     flood: Flood,
 }
 
-/// `_acpmux/session_changed` notices of peer rows (`peer` set) a client read.
+/// `_acpmux/session_changed` notices of peer rows (`peer` set) a client read, and the hub events
+/// its connection's fan-out dropped instead (`_acpmux/lagged`'s `dropped`): the hub's broadcast
+/// holds 8,192 events, and 26 lists of 400 rows announced at once overrun it.
 #[derive(Clone, Default)]
 struct Flood {
     notices: u64,
     bytes: u64,
     by_peer: BTreeMap<String, u64>,
+    dropped: u64,
 }
 
 impl Flood {
@@ -275,14 +279,34 @@ impl Flood {
             .map(|(p, n)| (p.clone(), n - before.by_peer.get(p).unwrap_or(&0)))
             .filter(|(_, n)| *n > 0)
             .collect();
-        Flood { notices: self.notices - before.notices, bytes: self.bytes - before.bytes, by_peer }
+        Flood {
+            notices: self.notices - before.notices,
+            bytes: self.bytes - before.bytes,
+            by_peer,
+            dropped: self.dropped - before.dropped,
+        }
+    }
+
+    /// Every flood notice queued for the client: those it read and those its fan-out dropped.
+    fn queued(&self) -> u64 {
+        self.notices + self.dropped
+    }
+
+    /// Their bytes: those read, and the dropped ones at the mean of the ones read.
+    fn queued_bytes(&self) -> u64 {
+        let mean = self.bytes as f64 / self.notices.max(1) as f64;
+        (self.bytes as f64 + mean * self.dropped as f64).round() as u64
     }
 }
 
 /// The record kind of the change the test makes to one peer row once the attaches are done
 /// ([`flood_end`]): the daemon's one notice loop takes it after every list before it, so its
-/// notice is the last of theirs this client reads. No fixture row changes so.
+/// notice is the last of theirs this client reads.
 const MARKER_KIND: &str = "rules";
+
+/// The records `Hub::set_rules` appends, the marker's last: neither is a flood notice, and no
+/// fixture row changes so.
+const MARKER_KINDS: [&str; 2] = ["permission_chat_allowance", MARKER_KIND];
 
 /// A peer row's `_acpmux/session_changed`: its peer and record kind.
 fn peer_change(v: &Value) -> Option<(&str, &str)> {
@@ -360,11 +384,14 @@ impl Rpc {
         let line = std::mem::take(&mut self.line);
         let v: Value = serde_json::from_str(&line).unwrap();
         if let Some((peer, kind)) = peer_change(&v)
-            && kind != MARKER_KIND
+            && !MARKER_KINDS.contains(&kind)
         {
             self.flood.notices += 1;
             self.flood.bytes += line.len() as u64;
             *self.flood.by_peer.entry(peer.to_owned()).or_default() += 1;
+        }
+        if v["method"] == "_acpmux/lagged" {
+            self.flood.dropped += v["params"]["dropped"].as_u64().unwrap_or(0);
         }
         Ok(v)
     }
@@ -659,18 +686,26 @@ fn flood_end(rpc: &mut Rpc, hub: &Hub, peer: &str, from: &Flood) -> Result<Flood
 /// behind), the most of them one peer's list queued (`attachNoticesAheadMax`: what an attach that
 /// lands just after that list waits behind), and their bytes over the lists that arrived
 /// (`noticeBytesPerPeerList`, `peerLists`: links the proxies carried to a peer, one list each).
+/// Queued counts the ones the connection's fan-out dropped when it fell behind the hub's
+/// broadcast (`noticesDropped`, told as `_acpmux/lagged`): which of them are dropped moves with
+/// timing, their sum with the ones read does not. Dropped ones are weighed at the mean of those
+/// read.
 fn flood_json(window: &Result<Flood, Value>, lists: u64) -> Value {
     let Ok(w) = window else {
         return json!({"attachNoticesAhead": null, "attachNoticesAheadMax": null,
                       "noticeBytes": null, "noticeBytesPerPeerList": null, "peerLists": lists,
+                      "noticesRead": null, "noticesDropped": null,
                       "floodError": window.as_ref().err()});
     };
+    let bytes = w.queued_bytes();
     json!({
-        "attachNoticesAhead": w.notices,
+        "attachNoticesAhead": w.queued(),
         "attachNoticesAheadMax": w.by_peer.values().max().copied().unwrap_or(0),
-        "noticeBytes": w.bytes,
-        "noticeBytesPerPeerList": w.bytes.checked_div(lists),
+        "noticeBytes": bytes,
+        "noticeBytesPerPeerList": bytes.checked_div(lists),
         "peerLists": lists,
+        "noticesRead": w.notices,
+        "noticesDropped": w.dropped,
         "floodError": null,
     })
 }
