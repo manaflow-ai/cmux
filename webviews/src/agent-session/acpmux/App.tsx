@@ -273,7 +273,8 @@ import {
   type CloudMachine,
 } from "./cloudMachines";
 import { usePeerCloudMachine } from "./peerCloudMachine";
-import { inThisVisit, useFolderTrustAsk, visitOf } from "./useFolderTrustAsk";
+import { inThisVisit, visitOf } from "./useFolderTrustAsk";
+import { useChatTrust, useTrustRoute } from "./useChatTrust";
 import { movedOn, sentIn as sentInHeld, useTrustHeldPrompts, whereHeldGoes, type TrustHeldPrompt } from "./trustHeld";
 import { routeCurrentTrustRefusal, routeOwnedTrustRefusal, type TrustRefusalOwner } from "./trustRefusalRoute";
 import { heldPrompts, type SendGesture } from "./heldPrompt";
@@ -1945,44 +1946,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setShareChat(snapshot.sessionId);
     setShareOpen(false);
   }
-  // Updated by the client before React renders, so a late Trust save cannot replay into a new
-  // route during that interval. The catalog generation changes only when the client changes.
-  const trustRouteSnapshot = useRef(snapshot);
-  // The snapshot's owner is captured when the client publishes that snapshot. During a selection
-  // hold the direct client may already point at B while the pane still paints A; never label that
-  // rendered A with B's generation or let its Trust action target B.
-  const trustRenderedOwner = useRef<
-    { client?: AcpmuxDirectClient; generation?: number; sessionId?: string } | undefined
-  >(undefined);
-  const trustAuthority = useCallback(() => {
-    const current = trustRouteSnapshot.current;
-    return JSON.stringify([
-      catalogClientId.current,
-      current.origin,
-      current.answersTrust,
-      directClient.current?.trustPeer ?? current.summary?.peer,
-      current.summary?.hostKind,
-      current.summary?.host,
-    ]);
-  }, []);
-  const trustVisit = useCallback(() => {
-    const client = directClient.current;
-    const rendered = trustRenderedOwner.current;
-    // A held snapshot is actionable only while its owner is still the client's live selection.
-    // Return a fresh sentinel for a stale render so useFolderTrustAsk's sameVisit fence rejects
-    // Trust/save/refusal callbacks even when React has not painted the replacement snapshot yet.
-    // Native/gallery preview frames intentionally have no direct client; retain the unbound
-    // visit semantics there so their host-backed Trust card remains interactive.
-    if (!client) return undefined;
-    if (
-      !rendered ||
-      rendered.client !== client ||
-      rendered.generation !== client.trustGeneration ||
-      rendered.sessionId !== client.selectedSession
-    )
-      return Symbol("stale-trust-visit");
-    return JSON.stringify([rendered.generation, rendered.sessionId]);
-  }, []);
+  const trustRouting = useTrustRoute(snapshot, catalogClientId, directClient);
+  const { trustRouteSnapshot, trustRenderedOwner, trustVisit } = trustRouting;
   // The chat's Cloud machine while it does not answer: paused offers Resume, starting spins.
   // An ssh peer is never an account's Cloud machine, whatever its name.
   const offlinePeer = snapshot.peerCopy?.offline ? snapshot.peerCopy.peer : undefined;
@@ -2623,29 +2588,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const blockSend = Boolean(pendingFolder) || confirmingHere || Boolean(authBlock);
   // `snapshot.catalog` is `catalog` (the snapshot above carries the fetched one).
   const continueAvailable = canContinueIn(snapshot);
-  /// Takes acpmux's trust refusal of a prompt (useFolderTrustAsk.ts): the question shows for the
-  /// folder it named, and `again` sends the held prompt after Trust.
-  const peerTrustStarted = useRef<(() => void) | undefined>(undefined);
-  const trustRefused = useRef<((error: unknown, again?: () => void, declined?: () => void) => boolean) | undefined>(
-    undefined,
-  );
-  const trustCancelEpoch = useRef(0);
-  const pendingTrustRefusal = useRef<
-    | {
-        client: AcpmuxDirectClient;
-        generation: number;
-        sessionId?: string;
-        cancelEpoch: number;
-        error: unknown;
-        again?: () => void;
-        declined?: () => void;
-      }
-    | undefined
-  >(undefined);
-  const trustRouteOwner = useRef<
-    { client: AcpmuxDirectClient; generation: number; sessionId?: string; cancelEpoch: number } | undefined
-  >(undefined);
-
   /// Keeps a send's gesture for the prompt acpmux held behind the trust question (heldPrompt.ts).
   const holdPrompt = useRef<(() => void) | undefined>(undefined);
   /// Puts a prompt acpmux refused for the folder's trust into the pane's hold (trustHeld.ts), with
@@ -2656,73 +2598,33 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   >(() => undefined);
   /// The chat and folder shown, read when a prompt goes (a refusal may come after the person moved on).
   const shownFrom = useRef<() => SentFrom>(() => ({ chat: undefined, cwd: undefined }));
-  // A folder without a trust answer is asked about beside the chat's other permission asks as
-  // soon as the chat's folder is known (a new chat's chosen one before its first prompt). No
-  // prompt goes until the answer is Trust; acpmux refuses one that does (`trust_gate.rs`).
   const lastMarks = useRef<RowMarks | undefined>(undefined);
   const marks = useMemo(() => (lastMarks.current = markRows(snapshot.rows, lastMarks.current)), [snapshot.rows]);
   const promptCount = marks.prompts.length;
-  const answersTrust = snapshot.origin !== "remote" || snapshot.answersTrust === true;
-  const trustAsk = useFolderTrustAsk(
-    trustSource,
-    {
-      sessionId: snapshot.sessionId,
-      cwd: snapshot.summary?.cwd ?? (snapshot.sessionId ? undefined : projectDraft),
-      family: snapshot.summary?.family || snapshot.summary?.harness,
-      prompts: promptCount,
-      authority: trustAuthority,
-      visit: trustVisit,
-      reread: newTabAdoptions,
-    },
+  const {
     answersTrust,
-    !directClient.current?.trustPeer && healthLocal && snapshot.origin !== "remote" && snapshot.origin !== "peer",
+    trustAsk,
+    peerTrustStarted,
+    trustRefused,
+    trustCancelEpoch,
+    pendingTrustRefusal,
+    trustRouteOwner,
+    trustRevision,
+    retryAfterTrust,
+    trustNow,
+    cancelTrustResend,
+  } = useChatTrust({
+    source: trustSource,
+    snapshot,
+    projectDraft,
+    prompts: promptCount,
+    reread: newTabAdoptions,
+    local:
+      !directClient.current?.trustPeer && healthLocal && snapshot.origin !== "remote" && snapshot.origin !== "peer",
     blockSend,
-  );
-  // A no-folder recovery must not win over a trust answer made while its session switch is in
-  // flight. The revision is advanced by Trust/Undo and by trust refusals, and read through a ref
-  // because the host action handler outlives the render that installed it.
-  const trustRevision = useRef(trustAsk.revision);
-  trustRevision.current = trustAsk.revision;
-  const trustRoute = trustAsk.refused;
-  trustRefused.current = trustRoute;
-  peerTrustStarted.current = trustAsk.started;
-  // The connection's action table outlives renders; Retry must read the current folder/auth gate.
-  const retryAfterTrust = useRef(trustAsk.retry);
-  retryAfterTrust.current = trustAsk.retry;
-  const cancelTrustResend = useCallback(() => {
-    const client = directClient.current;
-    client?.cancelTrustRefusals();
-    trustCancelEpoch.current += 1;
-    pendingTrustRefusal.current = undefined;
-    trustAsk.cancelResend();
-  }, [trustAsk]);
-  const routeClient = trustRenderedOwner.current?.client;
-  trustRouteOwner.current = routeClient
-    ? {
-        client: routeClient,
-        generation: trustRenderedOwner.current?.generation ?? routeClient.trustGeneration,
-        sessionId: trustRenderedOwner.current?.sessionId ?? snapshot.sessionId,
-        cancelEpoch: trustCancelEpoch.current,
-      }
-    : undefined;
-  useEffect(() => {
-    const pending = pendingTrustRefusal.current;
-    const client = directClient.current;
-    const owner = trustRouteOwner.current;
-    if (
-      !pending ||
-      !client ||
-      pending.client !== client ||
-      pending.generation !== client.trustGeneration ||
-      pending.cancelEpoch !== trustCancelEpoch.current ||
-      !owner ||
-      owner.client !== client ||
-      owner.generation !== pending.generation ||
-      (pending.sessionId !== undefined && client.shownSession()?.sessionId !== pending.sessionId)
-    )
-      return;
-    if (trustRoute(pending.error, pending.again, pending.declined)) pendingTrustRefusal.current = undefined;
-  }, [trustRoute]);
+    directClientRef: directClient,
+    route: trustRouting,
+  });
   /// The ask whose card has a deny's instructions open: it stays the single card (`heldOnCard`).
   const [draftAsk, setDraftAsk] = useState<AcpmuxPermission>();
   const individualPermission =
@@ -3381,8 +3283,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [transcriptRows],
   );
   // The cards' context changes only when what they show does: Trust is a new function each render.
-  const trustNow = useRef(trustAsk.trust);
-  trustNow.current = trustAsk.trust;
   const canTrustFolder = answersTrust && !trustAsk.trusted && trustAsk.ask?.state !== "remote";
   const trustBlock = trustAsk.blocked?.reason;
   const failedSends = useMemo<FailedSends>(
