@@ -21,6 +21,8 @@ public final class ChiefBrainWatch {
     private let watching: Watching?
     /// Whether a pid runs an `optchat-chief`; the tests name a stand-in process instead.
     private let isChiefHost: (pid_t) -> Bool
+    /// Whether a pid runs the "cmux Files (dev)" launcher (``ChiefHostStop/isFilesHostLauncher(_:)``).
+    private let isFilesHostLauncher: (pid_t) -> Bool
     private var source: (any DispatchSourceProcess)?
     /// The kernel sources that look for a host's lock while none is watched (see ``armOnLock``).
     private var lockFileSource: (any DispatchSourceFileSystemObject)?
@@ -43,11 +45,13 @@ public final class ChiefBrainWatch {
     static let deathWindow: Duration = .seconds(60)
 
     public init(home: ChiefHome, restart: @escaping Restart, watching: Watching? = nil,
-                isChiefHost: @escaping (pid_t) -> Bool = ChiefHostStop.isChiefHost) {
+                isChiefHost: @escaping (pid_t) -> Bool = ChiefHostStop.isChiefHost,
+                isFilesHostLauncher: @escaping (pid_t) -> Bool = ChiefHostStop.isFilesHostLauncher) {
         self.home = home
         self.restart = restart
         self.watching = watching
         self.isChiefHost = isChiefHost
+        self.isFilesHostLauncher = isFilesHostLauncher
     }
 
     /// Watches `pid`, or the host that holds the lock now when `pid` is nil.

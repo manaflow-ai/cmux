@@ -128,12 +128,14 @@ mod carried_launch;
 pub(crate) use carried_launch::CarriedLaunch;
 mod exit_with;
 mod install_key;
+mod owner_launcher;
 mod replace;
 pub(crate) use exit_with::{
     EXIT_WITH_PID_ARG, ExitWith, parse_owner_exit_with, resolve_exit_with_pid,
 };
 #[cfg(any(target_vendor = "apple", target_os = "linux"))]
 pub(crate) use exit_with::{exit_with, test_owner_exit_with};
+use owner_launcher::{OWNER_LAUNCHER_ENV, owner_launcher};
 mod identify;
 #[cfg(all(test, unix))]
 mod recovery_tests;
@@ -831,17 +833,20 @@ fn configure_detached_owner_environment(command: &mut Command) {
     }
 }
 
-/// The DEV app's owner launcher (docs/cmux-files-host.md): the embedded "cmux Files (dev)"
-/// helper, which runs the owner as its child from a pinned, team-signed identity, so macOS asks
-/// for Files and Folders once for every DEV build instead of once per tag. The app sets it for
-/// `server ensure` only in a DEV build that embeds the helper; unset runs the owner directly.
-const OWNER_LAUNCHER_ENV: &str = "CMUX_TUI_OWNER_LAUNCHER";
-
 /// The owner's command before its own arguments: `program`, or `launcher run -- program` when
-/// the app named an absolute launcher.
+/// `launcher` is the helper embedded in the owner's own app (`owner_launcher.rs`).
 fn owner_command(program: &std::path::Path, launcher: Option<&std::ffi::OsStr>) -> Command {
-    let launcher = launcher.filter(|launcher| std::path::Path::new(launcher).is_absolute());
-    let mut command = Command::new(launcher.unwrap_or(program.as_os_str()));
+    owner_command_with(program, launcher, |path| path.is_file())
+}
+
+fn owner_command_with(
+    program: &std::path::Path,
+    launcher: Option<&std::ffi::OsStr>,
+    is_file: impl Fn(&std::path::Path) -> bool,
+) -> Command {
+    let launcher = owner_launcher(program, launcher, is_file);
+    let mut command =
+        Command::new(launcher.map_or(program.as_os_str(), |launcher| launcher.as_os_str()));
     if launcher.is_some() {
         command.arg("run").arg("--").arg(program);
     }
@@ -1078,36 +1083,6 @@ mod tests {
     use super::cloud_backend_from_identity;
     use super::configure_detached_owner_environment;
     use serde_json::json;
-
-    #[test]
-    fn a_dev_owner_launcher_runs_the_owner_through_cmux_files() {
-        use std::ffi::OsStr;
-        use std::path::Path;
-        let program = Path::new("/A/cmux DEV x.app/Contents/Resources/bin/cmux-tui");
-        let launcher = OsStr::new(
-            "/A/cmux DEV x.app/Contents/Library/cmux Files (dev).app/Contents/MacOS/cmux-files-host",
-        );
-        let through = super::owner_command(program, Some(launcher));
-        assert_eq!(through.get_program(), launcher);
-        let args: Vec<&OsStr> = through.get_args().collect();
-        assert_eq!(args, [OsStr::new("run"), OsStr::new("--"), program.as_os_str()]);
-
-        for launcher in [None, Some(OsStr::new("")), Some(OsStr::new("cmux-files-host"))] {
-            let direct = super::owner_command(program, launcher);
-            assert_eq!(direct.get_program(), program.as_os_str(), "{launcher:?}");
-            assert_eq!(direct.get_args().count(), 0, "{launcher:?}");
-        }
-        // Shells under the owner never inherit the launcher.
-        for command in [through, super::owner_command(program, None)] {
-            assert!(
-                command
-                    .get_envs()
-                    .any(|(key, value)| key == super::OWNER_LAUNCHER_ENV && value.is_none()),
-                "the owner's environment drops {}",
-                super::OWNER_LAUNCHER_ENV
-            );
-        }
-    }
 
     #[test]
     fn backend_identity_is_optional_for_classic_and_exact_for_next() {
