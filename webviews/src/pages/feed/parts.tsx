@@ -1,6 +1,6 @@
 // The Feed's shared pieces: a row (FeedRowCells), its glyph and poster line (FeedGlyph), the empty
 // state, the disconnected banner (FeedView), a request card (FeedListView's FeedRequestCard), the
-// prompt summary (FeedPromptSummary) and the list that keeps only the rows in view (FeedRowsView).
+// prompt summary (FeedPromptSummary) and the list that keeps only the rows in view past 100 lines (FeedRowsView).
 import { memo, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import { sameJson } from "../../agent-session/acpmux/sameJson";
 import { cx } from "../../ui/cx";
@@ -20,6 +20,7 @@ import {
   metaLine,
   posterLabel,
   relativeTime,
+  DRAWN_WHOLE_UP_TO,
   type FeedLine,
 } from "./model";
 import { plain } from "./context";
@@ -241,10 +242,11 @@ export interface LinesProps {
   onKeyDown: (event: KeyboardEvent) => void;
 }
 
-/** Rows and group titles at fixed heights, at any length only the rows near the viewport (and the
- * selected row, so Up and Down and `aria-selected` always find it) are in the document: a feed costs
- * what the window shows. Each row carries its place (`aria-rowindex`) for a screen reader. Rows out of
- * the window are not in the document, so find-in-page does not reach them. */
+/** Rows and group titles at fixed heights. Up to DRAWN_WHOLE_UP_TO lines every line is in the
+ * document, so find-in-page and copy reach all of them. Past it only the rows near the viewport (and
+ * the selected row, so Up and Down and `aria-selected` always find it) are: a long feed costs what the
+ * window shows, and find-in-page does not reach the rows out of it. Each row carries its place
+ * (`aria-rowindex`) for a screen reader. */
 export function FeedLines({
   lines,
   strings,
@@ -256,7 +258,7 @@ export function FeedLines({
   onOpen,
   onKeyDown,
 }: LinesProps) {
-  const draw = (index: number, style: CSSProperties) => {
+  const draw = (index: number, style?: CSSProperties) => {
     const line = lines[index]!;
     return line.type === "header" ? (
       <GroupHeader key={line.id} title={line.title} count={line.count} style={style} rowIndex={index + 1} />
@@ -274,6 +276,13 @@ export function FeedLines({
       />
     );
   };
+  if (lines.length <= DRAWN_WHOLE_UP_TO) {
+    return (
+      <div className="feed-lines" role="grid" aria-label={label} tabIndex={0} onKeyDown={onKeyDown}>
+        {lines.map((_, index) => draw(index))}
+      </div>
+    );
+  }
   const active = lines.findIndex((line) => line.type === "row" && line.selected);
   return (
     // The virtual list is the grid; this wrapper is its tab stop and takes its keys.
