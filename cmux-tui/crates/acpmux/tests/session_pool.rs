@@ -473,9 +473,11 @@ async fn one_pool_record(daemon: &Daemon) -> Value {
 /// or none, starts cold and never runs on the warmed agent's login.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_credentialed_hint_is_taken_only_by_a_start_with_that_credential() {
-    // The fake as a Claude-family agent, so the credential goes into its spawn as Claude's would.
-    let mut fakeb = profile("b");
-    fakeb["family"] = json!("claude");
+    // A stand-in Claude Code, so the credential goes into its spawn as Claude's would. The plain
+    // ACP fake given the Claude family never came up pooled: a Claude-family start is Claude's.
+    let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+    let fakeb =
+        json!({"kind": "claude-stdio", "family": "claude", "argv": ["python3", fake_claude]});
     let daemon = Daemon::with_fakeb("cred", 0, &fakeb);
     let mut rpc = daemon.rpc().await;
     let home = daemon.home.clone();
