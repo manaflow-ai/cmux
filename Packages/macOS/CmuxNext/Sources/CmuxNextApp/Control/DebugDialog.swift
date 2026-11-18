@@ -6,6 +6,7 @@ import CmuxNextImportCards
 import CmuxNextMacScreen
 import CmuxNextMobileHost
 import CmuxNextOnboarding
+import CmuxNextServer
 import CmuxNextSessionTransfer
 import CmuxNextCloud
 import CmuxNextSettings
@@ -34,6 +35,9 @@ enum DebugDialog {
                                             SessionLinkGate.dialogIdentifier, CmuxRemoteActionEnvironment.confirmIdentifier]).union(CmuxRemoteActionEnvironment.setupIdentifiers)
 
     static func run(_ params: [String: JSONValue], _ services: AppServices) -> JSONValue {
+        #if DEBUG  // `{serverCard: "addServer" | "pairInvite" | "addMachine", state}`: the native server cards from fixtures.
+        if let card = params["serverCard"]?.stringValue { return ["shown": .bool(ServerCardsDebug.show(card: card, state: params["state"]?.stringValue ?? "", over: NSApp.mainWindow) { PairingQRCode().pngData(for: $0) })] }
+        #endif
         let center = CmuxDialogCenter.shared
         var result: [String: JSONValue] = [:]
         if let fixture = params["open"]?.stringValue {

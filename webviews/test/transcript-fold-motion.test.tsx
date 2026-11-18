@@ -9,6 +9,7 @@ import path from "node:path";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import { MOTION_EASE_OUT } from "../src/motion/scale.generated";
 import type { AcpmuxActivity } from "../src/agent-session/acpmux/model";
 import {
   cssTimeMs,
@@ -99,7 +100,7 @@ beforeEach(() => {
   reduce = false;
   animations = [];
   foldMotion.duration = () => token;
-  foldMotion.easing = () => "cubic-bezier(0, 0, 0.58, 1)";
+  foldMotion.easing = () => MOTION_EASE_OUT;
   foldMotion.reducedMotion = () => reduce;
   resetTranscriptDisclosure();
   container = dom.window.document.getElementById("root")!;
@@ -275,7 +276,7 @@ for (const { name, node, body } of collapsibles) {
     expect(animations.length).toBe(1);
     const [opening] = animations;
     expect(opening!.options.duration).toBe(token);
-    expect(opening!.options.easing).toBe("cubic-bezier(0, 0, 0.58, 1)");
+    expect(opening!.options.easing).toBe(MOTION_EASE_OUT);
     expect(opening!.keyframes[0]).toEqual({ height: "0px", opacity: 0 });
     expect(opening!.keyframes.at(-1)!.opacity).toBe(1);
     // The chevron turns as it opens.
@@ -430,7 +431,7 @@ test("a move token that becomes zero settles the active fold even when fade moti
   click();
   expect(container.querySelector(".cv-tool-output-card")).not.toBeNull();
   const box = container.querySelector<HTMLElement>(".cv-fold")!;
-  document.documentElement.style.setProperty("--agent-motion-in", "80ms");
+  document.documentElement.style.setProperty("--agent-motion-in", "80ms"); // motion-allow: a fixture token, not the scale
   token = 0;
   document.documentElement.style.setProperty("--agent-motion-move", "0ms");
   await act(async () => {
@@ -481,7 +482,7 @@ test("the fold token is the settle (one curve for every web fold), and the chevr
   );
   // The fold reads the token as the page resolves it.
   expect(cssTimeMs("190ms")).toBe(190);
-  expect(cssTimeMs(" 0.18s")).toBe(180);
+  expect(cssTimeMs(" 0.18s")).toBe(180); // motion-allow: parser input
   expect(cssTimeMs("0ms")).toBe(0);
   expect(cssTimeMs("")).toBeUndefined();
 });
