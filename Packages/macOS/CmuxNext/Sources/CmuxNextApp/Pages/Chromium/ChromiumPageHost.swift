@@ -66,7 +66,7 @@ final class ChromiumPageHost: PageChromiumHosting {
         #if DEBUG || CMUX_BENCH_HOOKS
         if traced, ChatOpenTrace.shared.chromiumPane == nil { ChatOpenTrace.shared.chromiumPane = configuration.pane?.rawValue }
         #endif
-        DebugTimings.markLaunch("chromium_page.make_start")
+        DebugTimings.markLaunch("chromium_page.make_start"); DebugTimings.markLaunch("app.r1.chromium_page.make_start")
         let made = try await cef.makeTab(configuration)
         for mark in cef.startReport.launchMarks(now: DebugTimings.millisecondsSinceProcessStart() / 1_000) { DebugTimings.markLaunch(mark.name, at: Date(timeIntervalSinceNow: mark.offset)) }
         guard let tab = made as? CEFTab else { made.close(); throw Failure.notChromium }
@@ -76,7 +76,7 @@ final class ChromiumPageHost: PageChromiumHosting {
         tab.delegate = chromiumPage
         tab.agentRelay.createBrowser()
         guard await tab.agentRelay.browserCreated() else { tab.close(); throw Failure.browserNotCreated }
-        DebugTimings.markLaunch("chromium_page.browser_created")
+        DebugTimings.markLaunch("chromium_page.browser_created"); DebugTimings.markLaunch("app.r1.chromium_page.browser_created")
         return chromiumPage
     }
 }

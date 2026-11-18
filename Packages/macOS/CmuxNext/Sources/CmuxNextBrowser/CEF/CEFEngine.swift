@@ -170,6 +170,12 @@ public final class CEFEngine: BrowserEngine {
         CEFRuntime.shared.initializeAfter = gate
     }
 
+    /// Launch milestone sink for Chromium's start steps (measurement arm CMUX-571 row C).
+    public var launchMark: @Sendable (String) -> Void {
+        get { CEFRuntime.shared.launchMark }
+        set { CEFRuntime.shared.launchMark = newValue }
+    }
+
     /// Runs `CefInitialize` before any Chromium tab needs it, when a caller
     /// predicts one (`reason`: `restoredTab`, `newTabMenu`, `palette`). The
     /// framework load stays off the main thread; `CefInitialize` (about
