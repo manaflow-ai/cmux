@@ -58,4 +58,22 @@ struct SidebarPriorityRenderCountTests {
         #expect(view.rows.count <= bound)
         #expect(view.rows["p\(middle)"] != nil, "the row scrolled to is drawn")
     }
+
+    /// What one title change costs to show at base, averaged over 50 updates. Prints "priority-walk".
+    @Test(arguments: [100, 10_000])
+    func theWalkPerUpdateIsMeasured(count: Int) throws {
+        var entries = Self.entries(count)
+        let (view, window, _) = Self.shown(entries)
+        defer { window.contentView = nil; window.closeAfterTest() }
+        let updates = 50
+        let show = ContinuousClock().measure {
+            for index in 0..<updates {
+                entries[1].title = "renamed \(index)"
+                view.show(SidebarPriorityPanel(entries: entries))
+            }
+        }
+        let micros = Double(show.components.seconds) * 1e6 + Double(show.components.attoseconds) / 1e12
+        print("priority-walk n=\(count) show_us_per_update=\(Int(micros / Double(updates)))")
+        #expect(view.rows["p1"]?.entry.title == "renamed \(updates - 1)")
+    }
 }
