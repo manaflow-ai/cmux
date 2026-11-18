@@ -9,8 +9,10 @@ SIM_RECORDER_PID=""
 
 sim_recorder_start() {
   local udid=$1 out=$2 log=$3 set=${4:-}
-  _sim_recorder_simctl() { xcrun simctl ${set:+--set "$set"} "$@"; }
-  _sim_recorder_simctl io "$udid" recordVideo --codec h264 --force "$out" >"$log" 2>&1 &
+  # xcrun itself is the background job (never a shell function or subshell): a non-interactive
+  # shell's background jobs ignore SIGINT, so a wrapper would swallow the stop's SIGINT and the
+  # stop would wait forever. recordVideo installs its own SIGINT handler and finishes on it.
+  xcrun simctl ${set:+--set "$set"} io "$udid" recordVideo --codec h264 --force "$out" >"$log" 2>&1 &
   SIM_RECORDER_PID=$!
 }
 
