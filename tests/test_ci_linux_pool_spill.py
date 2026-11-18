@@ -208,6 +208,41 @@ class ServedMarks(unittest.TestCase):
         self.assertEqual(spill.served_marks({FOUR: "x", EIGHT: "x"}, load), {FOUR})
 
 
+class SampleClient(unittest.TestCase):
+    """2026-11-18 from 11:18Z the cmux-bot read token was refused (403), so the sample was unread and no served mark
+    cleared; the policy checkout's client asks a refused read once more with the workflow token."""
+
+    def module(self, init):
+        return type("Switch", (), {"GitHub": type("GitHub", (), {"__init__": init})})
+
+    def test_a_client_that_takes_a_fallback_gets_the_workflow_token(self):
+        def init(self, token, repo, fallback_token=None):
+            self.args = (token, repo, fallback_token)
+
+        client = spill.sample_client(self.module(init), "bot", "o/r", "workflow")
+        self.assertEqual(client.args, ("bot", "o/r", "workflow"))
+        self.assertEqual(spill.sample_client(self.module(init), "bot", "o/r", None).args, ("bot", "o/r", None))
+
+    def test_an_older_client_without_one_still_reads(self):
+        def init(self, token, repo):
+            self.args = (token, repo)
+
+        self.assertEqual(spill.sample_client(self.module(init), "bot", "o/r", "workflow").args, ("bot", "o/r"))
+
+    @unittest.skipUnless(POLICY_ROOT, "set RUNNER_POOL_POLICY_ROOT to a main checkout")
+    def test_mains_client_takes_the_fallback(self):
+        import importlib.util
+        path = Path(POLICY_ROOT) / "scripts" / "ci" / "cloud_overflow_switch.py"
+        found = importlib.util.spec_from_file_location("main_cloud_overflow_switch", path)
+        module = importlib.util.module_from_spec(found)
+        sys.path.insert(0, str(path.parent))
+        try:
+            found.loader.exec_module(module)
+        finally:
+            sys.path.remove(str(path.parent))
+        self.assertEqual(spill.sample_client(module, "bot", "o/r", "workflow").fallback_token, "workflow")
+
+
 class Client:
     def __init__(self, runs, jobs, fail=()):
         self._runs, self._jobs, self._fail = runs, jobs, set(fail)

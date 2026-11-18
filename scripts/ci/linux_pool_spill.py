@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import inspect
 import json
 import os
 import re
@@ -329,6 +330,16 @@ def served_marks(dead: object, load: Mapping[str, Any] | None) -> set[str]:
     return served
 
 
+def sample_client(switch_module: Any, token: str, repo: str, fallback: str | None) -> Any:
+    """The sample's REST client from the policy checkout's cloud_overflow_switch (main's, beside its policy), with
+    `fallback` as its fallback reader when that client takes one. main's does; an older checkout's takes only token
+    and repo, and then the sample reads with `token` alone, as before."""
+    github = switch_module.GitHub
+    if fallback and "fallback_token" in inspect.signature(github).parameters:
+        return github(token, repo, fallback_token=fallback)
+    return github(token, repo)
+
+
 def apply(policy: Any, raw: str | None, policy_value: str | None, pools: Mapping[str, Any],
           load: Mapping[str, Any] | None, *, now: dt.datetime) -> tuple[dict[str, Any], list[str]]:
     """The RUNNER_POOLS value after the spill step: main's next value (`policy_value`, else the current one) with the
@@ -393,8 +404,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         # The cmux-bot read budget is org-wide: on 2026-11-18 from 11:18Z its reads were refused (403), so this
         # sample was unread and no served mark cleared. A refused read is asked once more with the workflow token,
         # as main's runner_pools.main() does for the janitor snapshot (cmux#46257).
-        client = cloud_overflow_switch.GitHub(str(env["GH_TOKEN"]).strip(), repo,
-                                              (env.get("GH_FALLBACK_TOKEN") or "").strip() or None)
+        client = sample_client(cloud_overflow_switch, str(env["GH_TOKEN"]).strip(), repo,
+                               (env.get("GH_FALLBACK_TOKEN") or "").strip() or None)
 
     # The current value, read live: the job-start value may predate the switch step's writes.
     raw = env.get(VARIABLE)
