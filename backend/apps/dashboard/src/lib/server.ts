@@ -182,7 +182,9 @@ export const completeIntegration = createServerFn({ method: "POST" })
     if (!token || !subject) return { status: 401, body: { error: "signed out" } as unknown as OpResponse, environment: "development" as const }
     // The session leaves this console's own API only for a state the development API signed for this same person:
     // the issuer is a claim anyone can put in a link, and someone else's genuine state is a link anyone can send.
-    const user = await apiUserId(process.env.CMUX_STACK_PROJECT_ID ?? "", subject)
+    const project = process.env.CMUX_STACK_PROJECT_ID
+    if (!project) throw new Error("Stack project is not configured")
+    const user = await apiUserId(project, subject)
     if (!(await integrationStateSignedBy(data.params.state, await developmentJwks(), { issuer: DEVELOPMENT_STATE_ISSUER, user }))) {
       return refused({ code: "integration.state_invalid", message: "This link expired, was not issued by the development Cloud, or belongs to someone else. Start the connection again." })
     }

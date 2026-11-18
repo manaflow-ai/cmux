@@ -109,7 +109,7 @@ test("a development state is forwarded only when the development API's key signe
   expect(await integrationStateSignedBy(theirs, development.jwks, expect_, now)).toBe(false)
   expect(await integrationStateSignedBy(good, development.jwks, { ...expect_, user: "" }, now)).toBe(false)
   const { sub: _sub, ...noSubject } = claims
-  expect(await integrationStateSignedBy(await signedState(development.key, noSubject), development.jwks, { ...expect_, user: "" }, now)).toBe(false)
+  expect(await integrationStateSignedBy(await signedState(development.key, noSubject), development.jwks, expect_, now)).toBe(false)
   // Signed by another key, another issuer, another audience, expired, altered after signing, or not ES256.
   expect(await integrationStateSignedBy(await signedState(other.key, claims), development.jwks, expect_, now)).toBe(false)
   expect(await integrationStateSignedBy(await signedState(development.key, { ...claims, iss: "https://cmux-api/staging" }), development.jwks, expect_, now)).toBe(false)
