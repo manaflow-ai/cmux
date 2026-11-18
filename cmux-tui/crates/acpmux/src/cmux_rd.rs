@@ -197,7 +197,11 @@ pub async fn ensure(place: &Place, pin: &Pin, host: &impl Host) -> Result<Outcom
             archive_sha256: pin.sha256.to_owned(),
             binary_sha256: crate::sha256::sha256_hex(&binary),
             path: place.bin.clone(),
-            enabled_sha256: None,
+            // The same archive put back (its binary changed or moved): `enable` ran for it.
+            enabled_sha256: current
+                .as_ref()
+                .and_then(|r| r.enabled_sha256.clone())
+                .filter(|sha| sha == pin.sha256),
         };
         save(&place.home, &fresh)?;
         current = Some(fresh);
