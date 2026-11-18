@@ -20,6 +20,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { DialogButton } from "../../../ui/DialogButton";
+import { focusRoute } from "../../../ui/focusRoute";
 import { useT } from "../i18n";
 import { AlertCircle, Spinner } from "../conversation/icons";
 import { ranRenders } from "../conversation/renderFrame";
@@ -155,7 +156,11 @@ export const UiSurfaceCard = memo(function UiSurfaceCard({ surface, client: give
   const requestId = pending?.requestId;
   useEffect(() => {
     if (!requestId || !card.current?.contains(document.activeElement)) return;
-    strip.current?.querySelector<HTMLButtonElement>("[data-uis-confirm]")?.focus();
+    focusRoute(
+      strip.current?.querySelector<HTMLButtonElement>("[data-uis-confirm]"),
+      "person",
+      "the confirm strip the person just asked for, so Return and Escape answer it",
+    );
   }, [requestId]);
 
   const approval = useMemo(() => firstApproval(root), [root]);

@@ -8,9 +8,10 @@
   box-sizing: border-box;
   min-inline-size: 0;
   margin-block: var(--ds-space-1);
-  padding: var(--ds-space-2) var(--ds-space-3);
+  padding: var(--ds-space-2);
   border: var(--cmux-hairline, 0.5px) solid var(--cv-card-ring);
-  border-radius: var(--ds-radius-popup);
+  /* Concentric with its answers: their corner plus the card's padding (check-concentric-containers). */
+  border-radius: calc(var(--ds-radius-control) + var(--ds-space-2));
   background: var(--cv-card-fill);
   color: var(--cv-text);
   font-family: var(--cv-font);
@@ -507,12 +508,12 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--ds-space-2);
-  margin: 0 calc(-1 * var(--ds-space-3)) calc(-1 * var(--ds-space-2));
-  padding: var(--ds-space-2) var(--ds-space-3);
+  margin: 0 calc(-1 * var(--ds-space-2)) calc(-1 * var(--ds-space-2));
+  padding: var(--ds-space-2);
   border-block-start: var(--cmux-hairline, 0.5px) solid var(--cv-card-ring);
   background: color-mix(in srgb, var(--agent-accent) 6%, transparent);
-  border-end-start-radius: var(--ds-radius-popup);
-  border-end-end-radius: var(--ds-radius-popup);
+  border-end-start-radius: calc(var(--ds-radius-control) + var(--ds-space-2));
+  border-end-end-radius: calc(var(--ds-radius-control) + var(--ds-space-2));
 }
 .uis-confirm-summary {
   flex: 1 1 14rem;
