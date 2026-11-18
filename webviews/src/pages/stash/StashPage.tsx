@@ -393,6 +393,8 @@ const GroupHeader = memo(function GroupHeader({
       data-index={index}
       data-size="group"
       data-key={`group:${stash}`}
+      // Its rows are its siblings in the windowed list, not its children: they carry the same `data-stash`.
+      data-stash={stash}
       className="stash-group"
       aria-label={name}
       style={{ transform: `translateY(${top}px)` }}
@@ -467,6 +469,7 @@ const StashRow = memo(function StashRow({
       data-index={index}
       data-size="row"
       data-key={`${stash}/${member.id}`}
+      data-stash={stash}
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
       role="listitem"
       aria-posinset={position}
