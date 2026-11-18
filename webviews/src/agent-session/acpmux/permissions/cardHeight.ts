@@ -6,6 +6,7 @@ import typeScale from "../../../../../schemas/type-scale/type-scale.json";
 import { chatDensityTextScale, drawnFontSize, chatDisplay, chatMetrics } from "../chatDisplay";
 import { chatUiFontVariables, chatUiMeasureStack, chatUiTracking } from "../chatUiFont";
 import type { AcpmuxPermission } from "../model";
+import { workflowLabs } from "../summary/workflowCardModel";
 import { currentLanguage, translate } from "../i18n";
 import { plainText } from "../question/inlineText";
 import { consentChoice, hasPreviews, itemAnswerText, type AgentQuestion } from "../question/model";
@@ -104,7 +105,8 @@ export function permissionCardHeight(permission: AcpmuxPermission | undefined, w
   // Immutable permission snapshots retain their estimate while unrelated reply tokens stream.
   // Keep only the current width per ask; old asks are released with their snapshot.
   // The font's stack and its name: two fonts that share a stack track differently.
-  const key = `${width}/${scale}/${currentLanguage()}/${cardFont()}/${chatDisplay().uiFont}/${chatDisplay().font}/${drawnFontSize(chatDisplay())}/${chatDisplay().lineHeight}`;
+  // Labs `workflowLabs` changes how a Workflow ask draws.
+  const key = `${width}/${scale}/${currentLanguage()}/${cardFont()}/${chatDisplay().uiFont}/${chatDisplay().font}/${drawnFontSize(chatDisplay())}/${chatDisplay().lineHeight}/${workflowLabs}`;
   const cached = estimates.get(permission);
   if (cached?.key === key) return cached.height;
   const height = estimatePermission(permission, width, scale);
@@ -129,11 +131,24 @@ function estimatePermission(permission: AcpmuxPermission, width: number, scale: 
   const room = Math.max(1, width / scale - 2 * EDGE);
   const external = permission.externalAccess;
   const plan = permission.plan;
+  // A Workflow ask drawn as its approval card (Labs `workflowLabs`, WorkflowAsk.tsx).
+  const workflow = !external && workflowLabs ? permission.workflow : undefined;
   let height = 2 * EDGE + body.lineHeight;
-  const description = external ? translate("permission.external.detail") : permissionDetail(permission);
+  const description = external
+    ? translate("permission.external.detail")
+    : workflow
+      ? workflow.description
+      : permissionDetail(permission);
   if (description) height += 4 + textHeight(description, room, body.size, body.lineHeight);
   // The plan's Markdown, inset 8 by 12 and scrolled past 320px.
   if (plan) height += 4 + Math.min(320, 16 + textHeight(plan, room - 24, detail.size, detail.size * 1.5));
+  // Its phases, one line each in a well inset 8 by 12 and scrolled past 220px, then the caution.
+  if (workflow) {
+    const rows = workflow.phases.length + (workflow.morePhases ? 1 : 0);
+    if (rows > 0) height += 8 + Math.min(220, 16 + rows * detail.size * 1.5);
+    if (workflow.resume) height += 8 + caption.size * 1.3;
+    height += 8 + textHeight(translate("workflow.ask.caution"), room, caption.size, caption.size * 1.3);
+  }
   const { allowOnce, allowAlways, deny, others } = permissionAnswers(permission.options);
   const command = permissionCommand(permission);
   const scoped = !external && Boolean(permission.scope || (allowAlways && alwaysAllowScope(permission, allowAlways)));
@@ -147,11 +162,17 @@ function estimatePermission(permission: AcpmuxPermission, width: number, scale: 
   }
   if (scoped) height += (command ? GAP : 0) + caption.size * 1.3;
   const labels = [
-    ...(allowOnce ? [translate(plan ? "permission.plan.approve" : "permission.allowOnce")] : []),
+    ...(allowOnce
+      ? [translate(plan ? "permission.plan.approve" : workflow ? "workflow.ask.once" : "permission.allowOnce")]
+      : []),
     ...(allowAlways
       ? [
           translate(
-            permissionOptionKind(allowAlways) === "allow_chat" ? "permission.allowChat" : "permission.alwaysAllow",
+            workflow
+              ? "workflow.ask.always"
+              : permissionOptionKind(allowAlways) === "allow_chat"
+                ? "permission.allowChat"
+                : "permission.alwaysAllow",
           ),
         ]
       : []),

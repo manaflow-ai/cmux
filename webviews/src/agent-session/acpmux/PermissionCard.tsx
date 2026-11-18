@@ -13,6 +13,9 @@ import "./permissions/externalAccess.css";
 import { takePermissionFocus } from "./permissions/focusRequest";
 import { compareHarnesses, harnessName, type PlanBuildElsewhere } from "./permissions/planBuild";
 import { ProposedEdits } from "./permissions/ProposedEdits";
+import "./permissions/WorkflowAsk.css";
+import { WorkflowAskBody } from "./permissions/WorkflowAsk";
+import { useWorkflowAsk, workflowAskTitle } from "./permissions/workflowAskModel";
 import {
   alwaysAllowScope,
   commandPreview,
@@ -260,8 +263,18 @@ export function PermissionCard({
   const preview = useMemo(() => commandPreview(command), [command]);
   const external = permission.externalAccess;
   const [settingsError, setSettingsError] = useState<{ id: string; message: string }>();
-  const title = external ? t("permission.external.title", { target: external.target }) : permissionTitle(permission, t);
-  const detail = external ? t("permission.external.detail") : permissionDetail(permission);
+  /// A Claude Workflow call's ask, drawn as the workflow's approval card (Labs `workflowLabs`).
+  const workflow = useWorkflowAsk(permission);
+  const title = external
+    ? t("permission.external.title", { target: external.target })
+    : workflow
+      ? workflowAskTitle(workflow, t)
+      : permissionTitle(permission, t);
+  const detail = external
+    ? t("permission.external.detail")
+    : workflow
+      ? workflow.description
+      : permissionDetail(permission);
   const {
     allowOnce,
     allowAlways,
@@ -277,7 +290,11 @@ export function PermissionCard({
   const otherId = React.useId();
   const allowAlwaysLabel =
     allowAlways &&
-    (permissionOptionKind(allowAlways) === "allow_chat" ? t("permission.allowChat") : t("permission.alwaysAllow"));
+    (workflow
+      ? t("workflow.ask.always")
+      : permissionOptionKind(allowAlways) === "allow_chat"
+        ? t("permission.allowChat")
+        : t("permission.alwaysAllow"));
   const otherLabels = useMemo(() => {
     const taken = new Set<string>([t("permission.allowOnce"), t("permission.deny")]);
     if (allowAlwaysLabel) taken.add(allowAlwaysLabel);
@@ -604,6 +621,7 @@ export function PermissionCard({
             <Markdown plainCode>{plan}</Markdown>
           </div>
         )}
+        {workflow && <WorkflowAskBody workflow={workflow} />}
       </div>
       {(commandBlock || scopeBlock) && (
         <div className="acpmux-permission-details">
@@ -692,7 +710,13 @@ export function PermissionCard({
                 (() => {
                   const approve = (
                     <PermissionActionButton
-                      label={plan ? t("permission.plan.approve") : t("permission.allowOnce")}
+                      label={
+                        plan
+                          ? t("permission.plan.approve")
+                          : workflow
+                            ? t("workflow.ask.once")
+                            : t("permission.allowOnce")
+                      }
                       aria-describedby={scopeText ? targetId : undefined}
                       shortcut={shortcuts ? allowOnceShortcut : undefined}
                       cardKey={shortcuts ? ALLOW_KEY : undefined}

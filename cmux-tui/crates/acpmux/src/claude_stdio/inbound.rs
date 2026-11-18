@@ -101,6 +101,10 @@ impl Translator {
                 if let Some(m) = line.get("permissionMode").and_then(Value::as_str) {
                     *self.mode.lock().await = m.to_owned();
                 }
+                if let Some(cwd) = line.get("cwd").and_then(Value::as_str).filter(|c| !c.is_empty())
+                {
+                    *self.cwd.lock().await = Some(cwd.into());
+                }
                 // Answer a pending session/new or session/load now that we have the id.
                 let waiting: Vec<String> = self
                     .pending
@@ -557,6 +561,15 @@ impl Translator {
                             "_meta": {"claude": {"tool": name, "interactive": interactive, "suggestions": req.get("permission_suggestions"), "description": req.get("description")}}
                         });
                         with_edit(&mut call, name, &input);
+                        // A Workflow ask names the run it starts: its name and phases (workflow_ask.rs).
+                        if name == "Workflow" {
+                            let cwd = self.cwd.lock().await.clone();
+                            if let Some(workflow) =
+                                workflow_ask::workflow_ask(&input, cwd.as_deref()).await
+                            {
+                                call["_meta"]["claude"]["workflow"] = workflow;
+                            }
+                        }
                         out.push(Message::request(
                             acp_id,
                             method::SESSION_REQUEST_PERMISSION,

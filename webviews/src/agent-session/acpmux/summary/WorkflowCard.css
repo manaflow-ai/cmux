@@ -159,3 +159,16 @@
 .acpmux-workflow-card__phases > span[data-state="failed"] {
   background: var(--agent-status-failure);
 }
+/* Held at an account usage limit (data-hold, workflowCardModel `usageLimitHold`): the line says when it
+   continues and gives way first; the bar and the running phase lose their accent, as nothing runs. */
+.acpmux-workflow-card__meta > .acpmux-workflow-card__hold {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--agent-text);
+}
+.acpmux-workflow-card[data-hold] .acpmux-workflow-card__progress > span,
+.acpmux-workflow-card[data-hold] .acpmux-workflow-card__phases > span[data-state="running"] {
+  background: var(--agent-muted);
+}

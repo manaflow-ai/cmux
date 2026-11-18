@@ -26,7 +26,7 @@
 //! - A sub-session whose last turn was stopped (`cancelled`) is continued instead, in the same
 //!   chat: `hub/subsession_resume.rs`.
 
-use super::{Mark, SUFFIX, continue_text, split_attempt, still_cut};
+use super::{Mark, SUFFIX, continue_text, split_attempt, still_cut, with_paused_workflows};
 use crate::hub::digest::DIGEST_KIND;
 use crate::hub::{Control, Hub, PromptOptions, Session};
 use crate::protocol::session::{RetryKind, RetryResult};
@@ -213,7 +213,13 @@ impl Hub {
                 let reason = crate::hub::turn_errors::resume_cause(&error, &error)
                     .filter(|r| *r != "context")
                     .unwrap_or("error");
-                vec![json!({"type": "text", "text": continue_text(&error, reason)})]
+                let mut text = continue_text(&error, reason);
+                // After a usage limit, the chat's paused workflows go on with it (auto_resume.rs).
+                if reason == "capacity" {
+                    text =
+                        with_paused_workflows(text, &self.workflow_index.paused_runs(&session.id));
+                }
+                vec![json!({"type": "text", "text": text})]
             }
         };
         let held = self.held_by(session, &root, &cut_turn);
@@ -486,5 +492,14 @@ mod tests {
     fn a_continuation_names_the_error_it_continues_after() {
         assert!(continue_text("x", "transport").contains("a connection error (x)"));
         assert!(continue_text("simulated internal error", "error").contains("cut off by an error"));
+    }
+
+    #[test]
+    fn a_continuation_after_a_limit_names_the_paused_workflows() {
+        let text = continue_text("You've hit your limit", "capacity");
+        assert_eq!(with_paused_workflows(text.clone(), &[]), text);
+        let named = with_paused_workflows(text, &["wf_1".into(), "wf_2".into()]);
+        assert!(named.contains("(wf_1, wf_2)"), "{named}");
+        assert!(named.contains("resumeFromRunId"), "{named}");
     }
 }

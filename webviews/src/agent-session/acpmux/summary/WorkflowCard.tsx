@@ -16,7 +16,7 @@ import { modelName, tally, workflowOf } from "./foldWorkflows";
 import { cardCount, cardLine, listNames, runningPhases, workflowModel } from "./workflowView";
 import "./WorkflowCard.css";
 import "./workflowDots.css";
-import { opener, sideTabOpener, listeners } from "./workflowCardModel";
+import { limitHold, opener, sideTabOpener, listeners } from "./workflowCardModel";
 import { Clock } from "../../../ui/Typography";
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
@@ -25,6 +25,11 @@ const subscribe = (listener: () => void) => {
 const current = () => opener;
 
 const currentSideTab = () => sideTabOpener;
+const currentHold = () => limitHold;
+
+/// When a held workflow continues, as a clock time in the pane's language ("14:05", "2:05 PM").
+const clockTime = (at: number, language: string) =>
+  new Intl.DateTimeFormat(language, { hour: "numeric", minute: "2-digit" }).format(new Date(at));
 
 export type WorkflowCardPresentation = "selected" | "compact" | "phases";
 
@@ -64,7 +69,12 @@ export function WorkflowCard({
   const openSideTab = useSyncExternalStore(subscribe, currentSideTab, currentSideTab);
   const workflow = useMemo(() => workflowOf(node, ""), [node]);
   const counts = tally(workflow.agents);
-  const running = workflow.state === "running" && counts.running > 0;
+  // The chat waits at an account usage limit (workflowCardModel `usageLimitHold`): a workflow that
+  // has not ended is held with it, and says when it continues by itself.
+  const chatHold = useSyncExternalStore(subscribe, currentHold, currentHold);
+  const ended = workflow.state === "completed" || workflow.state === "failed" || workflow.state === "cancelled";
+  const hold = ended ? undefined : chatHold;
+  const running = !hold && workflow.state === "running" && counts.running > 0;
   // The card's one clock: the workflow's elapsed time (Leo's screenshot had a second, an agent's,
   // that disagreed with it).
   const now = useNow(running);
@@ -98,6 +108,7 @@ export function WorkflowCard({
         type="button"
         className={`acpmux-workflow-card acpmux-workflow-card--${presentation}`}
         data-state={workflow.state}
+        data-hold={hold ? "usage-limit" : undefined}
         data-presentation={presentation}
         disabled={!open}
         onClick={(event) => open?.(node.id, event.currentTarget)}
@@ -107,7 +118,15 @@ export function WorkflowCard({
           <Icon name="disclosure.collapsed" size={ROW_ICON} row />
         </span>
         <span className="acpmux-workflow-card__meta">
-          <span>{localizedState(t, workflow.state)}</span>
+          {hold ? (
+            <span className="acpmux-workflow-card__hold">
+              {hold.nextAt !== undefined
+                ? t("workflow.limit.paused", { time: clockTime(hold.nextAt, language) })
+                : t("workflow.limit.pausedNoTime")}
+            </span>
+          ) : (
+            <span>{localizedState(t, workflow.state)}</span>
+          )}
           {/* The selected card names its running phases on its last row, where they have room. */}
           {presentation !== "selected" && phaseNames.length > 0 && (
             <span className="acpmux-workflow-card__running">{listNames(phaseNames, language)}</span>

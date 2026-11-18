@@ -13,6 +13,9 @@ extension AgentRetrySettings {
     public nonisolated static let autoRetryAttemptsPath = ["agents", "autoRetry", "attempts"]
     public nonisolated static let autoRetryAttemptsDefault: Double = 4
     public nonisolated static let autoRetryAttemptsRange: ClosedRange<Double> = 1...12
+    /// `agents.autoRetry.usageLimitFallback`: Off (the default): a usage limit waits for its reset on the same account (turn_errors.rs resume_cause). On: a usage limit moves the chat onto its profile's fallback (acpmux harnesses.<profile>.fallback, another signed-in account), the way a sign-in failure does (turns.rs); with no fallback set, or one a Cloud or remote chat may not use, it waits as before. Leo's gui-gap brief (2026-11-18): hand a workflow paused at a usage limit to another signed-in account through the existing failover.
+    public nonisolated static let autoRetryUsageLimitFallbackPath = ["agents", "autoRetry", "usageLimitFallback"]
+    public nonisolated static let autoRetryUsageLimitFallbackDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -50,6 +53,16 @@ nonisolated enum AgentRetrySettingsSchema {
                 kind: .number(SettingNumber(AgentRetrySettings.autoRetryAttemptsRange, step: 1, unit: .count)),
                 default: .number(AgentRetrySettings.autoRetryAttemptsDefault),
                 keywords: ["retry", "attempts", "loop", "rate limit"]
+            ),
+            SettingDescriptor(
+                AgentRetrySettings.autoRetryUsageLimitFallbackPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.autoRetry.usageLimitFallback", "Move to Fallback Account at Usage Limit"),
+                help: SettingsText.keyed("settings.agents.autoRetry.usageLimitFallback.help", "Continues on the agent's fallback profile instead of waiting for the limit to reset."),
+                kind: .toggle,
+                default: .bool(AgentRetrySettings.autoRetryUsageLimitFallbackDefault),
+                keywords: ["usage limit", "fallback", "account", "failover", "workflow", "agents"]
             ),
         ]
     }

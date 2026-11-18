@@ -148,7 +148,7 @@ extension SettingsSchema {
         "agents.guidance.otherAgents": .userOnly, "agents.guidance.userSkills": .userOnly,
         // Whether and how often a failed turn is sent again spends the person's usage: their call, as `sessions.resumeAgents` is.
         "agents.autoRetry.enabled": .userOnly, "agents.autoRetry.intervalSeconds": .userOnly,
-        "agents.autoRetry.attempts": .userOnly,
+        "agents.autoRetry.attempts": .userOnly, "agents.autoRetry.usageLimitFallback": .userOnly,
         // Compacting on a timer spends the person's usage (one model call each): their call.
         "agents.cacheCompact.enabled": .userOnly, "agents.cacheCompact.minContextPercent": .userOnly,
         // Which folders an agent may open without asking is the person's call: an agent must not widen what it may open without asking.

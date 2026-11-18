@@ -118,7 +118,7 @@ mod unread_steers;
 
 /// The loop as Settings > Agents > Retry After Errors sets it (`agents.autoRetry.*`).
 mod settings;
-pub(in crate::hub) use settings::effective_delays;
+pub(in crate::hub) use settings::{effective_delays, usage_limit_fallback};
 
 /// Whether a failed turn's `error` is one acpmux may retry by itself: a transient one
 /// ([`super::turn_errors::resume_cause`]), or a revoked token, which a chat's first send retries
@@ -181,6 +181,19 @@ fn continue_text(error: &str, reason: &str) -> String {
         "Your previous turn was cut off by {cause} ({error}). Check what already \
          finished (files, commands, messages), then continue from where it stopped. Do not \
          redo work that completed."
+    )
+}
+
+/// The continue text with the chat's paused workflow runs (`WorkflowIndex::paused_runs`), each
+/// to resume by its run id; the text as it was when none is paused.
+fn with_paused_workflows(text: String, runs: &[String]) -> String {
+    if runs.is_empty() {
+        return text;
+    }
+    format!(
+        "{text} Workflow runs in this chat are paused ({}): resume each one the limit paused \
+         with the Workflow tool's resumeFromRunId.",
+        runs.join(", ")
     )
 }
 
@@ -1272,6 +1285,11 @@ impl Hub {
         // still holds them and runs them itself (`carried_turn.rs`).
         if reason == "agent_exited" {
             text = unread_steers::with_unread(text, &self.unread_steers(&session.id, cut_turn));
+        }
+        // A usage limit pauses the chat's running workflows too: the continue names them, so
+        // they go on by themselves with the chat.
+        if reason == "capacity" {
+            text = with_paused_workflows(text, &self.workflow_index.paused_runs(&session.id));
         }
         let blocks = vec![json!({"type": "text", "text": text})];
         let result = self.prompt_with(session, blocks, "acpmux", false, opts).await;

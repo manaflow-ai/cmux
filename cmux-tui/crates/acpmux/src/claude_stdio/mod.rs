@@ -350,6 +350,9 @@ mod tests;
 mod usage_limits;
 #[cfg(test)]
 mod usage_limits_tests;
+mod workflow_ask;
+#[cfg(test)]
+mod workflow_ask_tests;
 #[cfg(test)]
 mod workflow_tests;
 mod workflows;
@@ -636,6 +639,9 @@ pub struct Translator {
     /// Running Workflow tool calls (`workflows.rs`): each run's transcript
     /// dir once its launch named it, and what was last sent of its agents.
     workflows: Mutex<HashMap<String, workflows::WorkflowRun>>,
+    /// The chat's folder as Claude Code's `init` line names it: where a Workflow
+    /// ask's saved workflow is looked up (`workflow_ask.rs`).
+    cwd: Mutex<Option<std::path::PathBuf>>,
     /// The chat model's context window as Claude Code last reported it (a
     /// result's `modelUsage`), 0 until then: `usage_update`'s `size`.
     context_window: AtomicU64,
@@ -817,6 +823,7 @@ impl Translator {
             subagent_tasks: Mutex::new(HashMap::new()),
             failed_agents: Mutex::new(Default::default()),
             workflows: Mutex::new(HashMap::new()),
+            cwd: Mutex::new(None),
             background_shells: Mutex::new(HashMap::new()),
             task_plan: Mutex::new(Default::default()),
             context_window: AtomicU64::new(0),

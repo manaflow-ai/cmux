@@ -21,6 +21,7 @@ import type {
   AcpmuxFileDiff,
   AcpmuxLocation,
   AcpmuxPermission,
+  AcpmuxWorkflowAsk,
   AcpmuxPermissionScope,
   AcpmuxSecretAsk,
   AcpmuxSessionOffer,
@@ -881,6 +882,7 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
     externalAccess: externalAccessFromRequest(raw),
     diffs: permissionDiffs(toolCall),
     plan: permissionPlan(toolCall, claudeMeta),
+    workflow: permissionWorkflow(toolCall, claudeMeta),
     pending: true,
     options: (raw.options ?? []).map((option: any) => ({
       id: String(option.optionId ?? option.id),
@@ -1636,6 +1638,30 @@ export function permissionPlan(
         .trim()
     : "";
   return text || undefined;
+}
+
+/// The workflow a Claude Workflow call's ask would start: what acpmux read from its script
+/// (`_meta.claude.workflow`, claude_stdio/workflow_ask.rs), else the call's own `name` or `title`.
+/// Undefined for any other ask.
+export function permissionWorkflow(
+  tool: { rawInput?: unknown } | undefined,
+  claudeMeta?: { tool?: unknown; workflow?: unknown },
+): AcpmuxWorkflowAsk | undefined {
+  if (claudeMeta?.tool !== "Workflow") return undefined;
+  const read = objectValue(claudeMeta.workflow);
+  const input = objectValue(tool?.rawInput);
+  const phases = Array.isArray(read?.phases)
+    ? read.phases.filter((phase: unknown): phase is string => typeof phase === "string" && phase.trim() !== "")
+    : [];
+  const more = typeof read?.morePhases === "number" && read.morePhases > 0 ? read.morePhases : undefined;
+  const resume = stringValue(read?.resume) ?? stringValue(input?.resumeFromRunId);
+  return {
+    name: stringValue(read?.name) ?? stringValue(input?.name) ?? stringValue(input?.title),
+    description: stringValue(read?.description) ?? stringValue(input?.description),
+    phases,
+    ...(more ? { morePhases: more } : {}),
+    ...(resume ? { resume } : {}),
+  };
 }
 
 /// The input an earlier event of a call carried, kept as its `inputSummary` JSON.

@@ -1043,6 +1043,16 @@ export type ExternalAccess = {
   platform: "macos";
 };
 
+export type AcpmuxWorkflowAsk = {
+  name?: string;
+  description?: string;
+  phases: string[];
+  /// Phases past the ones sent.
+  morePhases?: number;
+  /// The run a resume continues (`resumeFromRunId`).
+  resume?: string;
+};
+
 export type AcpmuxPermission = {
   externalAccess?: ExternalAccess;
   permissionId: string;
@@ -1062,6 +1072,10 @@ export type AcpmuxPermission = {
   /// The plan a plan approval asks about, as Markdown (Claude Code's ExitPlanMode, Grok's
   /// `x.ai/exit_plan_mode`, Cursor's `create_plan`; direct.ts `permissionPlan`).
   plan?: string;
+  /// The Claude workflow a Workflow call's ask would start: its name, description and phase titles
+  /// as acpmux read them from the script's `meta` (claude_stdio/workflow_ask.rs; direct.ts
+  /// `permissionWorkflow`). The approval card draws it (Labs `workflowLabs`).
+  workflow?: AcpmuxWorkflowAsk;
   pending: boolean;
   options: {
     id: string;

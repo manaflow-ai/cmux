@@ -206732,6 +206732,270 @@
         }
       }
     },
+    "settings.agents.autoRetry.usageLimitFallback": {
+      "comment": "Settings > Agents > Retry After Errors: the toggle that moves a chat to its fallback account at a usage limit",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الانتقال إلى الحساب الاحتياطي عند حد الاستخدام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pređi na rezervni račun na ograničenju korištenja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skift til reservekonto ved forbrugsgrænsen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Am Nutzungslimit zum Ersatzkonto wechseln"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move to Fallback Account at Usage Limit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pasar a la cuenta de respaldo al llegar al límite de uso"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Passer au compte de secours à la limite d’utilisation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Passa all’account di riserva al limite di utilizzo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用上限で代替アカウントに切り替える"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្តូរទៅគណនីបម្រុងនៅដែនកំណត់ការប្រើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사용 한도에서 대체 계정으로 전환"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bytt til reservekonto ved bruksgrensen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przejdź na konto zapasowe po osiągnięciu limitu użycia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Passar para a conta reserva no limite de uso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переходить на резервный аккаунт при лимите использования"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ย้ายไปบัญชีสำรองเมื่อถึงขีดจำกัดการใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kullanım sınırında yedek hesaba geç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переходити на резервний обліковий запис на ліміті використання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chuyển sang tài khoản dự phòng khi chạm giới hạn sử dụng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "达到用量上限时切换到备用账户"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "達到用量上限時切換到備用帳號"
+          }
+        }
+      }
+    },
+    "settings.agents.autoRetry.usageLimitFallback.help": {
+      "comment": "Settings > Agents > Retry After Errors: usage limit fallback help",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يتابع على الملف الاحتياطي للوكيل بدل انتظار إعادة ضبط الحد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nastavlja na rezervnom profilu agenta umjesto da čeka da se ograničenje resetuje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fortsætter på agentens reserveprofil i stedet for at vente på, at grænsen nulstilles."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Macht mit dem Ersatzprofil des Agenten weiter, statt auf das Zurücksetzen des Limits zu warten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continues on the agent's fallback profile instead of waiting for the limit to reset."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Continúa en el perfil de respaldo del agente en lugar de esperar a que se restablezca el límite."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Continue sur le profil de secours de l’agent au lieu d’attendre la réinitialisation de la limite."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Continua sul profilo di riserva dell’agente invece di attendere il ripristino del limite."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "上限のリセットを待たずに、エージェントの代替プロファイルで続行します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្តលើប្រវត្តិរូបបម្រុងរបស់ភ្នាក់ងារ ជំនួសការរង់ចាំដែនកំណត់កំណត់ឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "한도가 초기화될 때까지 기다리지 않고 에이전트의 대체 프로필에서 계속합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fortsetter på agentens reserveprofil i stedet for å vente på at grensen nullstilles."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kontynuuje na zapasowym profilu agenta zamiast czekać na reset limitu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Continua no perfil reserva do agente em vez de esperar o limite ser redefinido."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Продолжает на резервном профиле агента, не дожидаясь сброса лимита."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ทำงานต่อบนโปรไฟล์สำรองของเอเจนต์แทนการรอให้ขีดจำกัดรีเซ็ต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sınırın sıfırlanmasını beklemek yerine ajanın yedek profilinde sürer."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Продовжує на резервному профілі агента, не чекаючи скидання ліміту."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tiếp tục trên hồ sơ dự phòng của tác tử thay vì chờ giới hạn được đặt lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在智能体的备用配置上继续，而不是等待上限重置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在代理的備用設定檔上繼續，而不是等待上限重設。"
+          }
+        }
+      }
+    },
     "settings.agents.autoRetry.attempts.help": {
       "comment": "Settings > Agents > Retry After Errors: attempts help",
       "extractionState": "manual",

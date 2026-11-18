@@ -1316,21 +1316,23 @@ impl Hub {
             Self::drain_inbound(session).await;
             let stderr =
                 session.stderr_tail.lock().unwrap().iter().cloned().collect::<Vec<_>>().join("\n");
+            // A usage limit moves too when the person turned that on (Settings > Agents > Retry
+            // After Errors); the settings file is read only for one.
+            let usage_limits_move = (super::turn_errors::is_usage_limit_error(&e.message)
+                || super::turn_errors::is_usage_limit_error(&stderr))
+                && super::auto_resume::usage_limit_fallback();
             let dead_limit = e.message.starts_with("agent process closed")
-                && is_limit_error(&stderr)
-                && !super::turn_errors::is_usage_limit_error(&stderr)
-                && !super::turn_errors::is_gateway_error(&stderr);
-            let mut target = if ((is_limit_error(&e.message)
-                && !super::turn_errors::is_usage_limit_error(&e.message)
-                && !super::turn_errors::is_gateway_error(&e.message))
-                || dead_limit)
-                && session.stops.load(Ordering::SeqCst) == stops
-                && !child.ended_on_purpose()
-            {
-                self.fallback_profile(session).await
-            } else {
-                None
-            };
+                && super::turn_errors::moves_to_fallback(&stderr, usage_limits_move);
+            let mut target =
+                if (super::turn_errors::moves_to_fallback(&e.message, usage_limits_move)
+                    || dead_limit)
+                    && session.stops.load(Ordering::SeqCst) == stops
+                    && !child.ended_on_purpose()
+                {
+                    self.fallback_profile(session).await
+                } else {
+                    None
+                };
             // A chat on a Cloud machine, or one a remote connection started, never falls over
             // onto the local CodeRouter, nor names it in its error: the machine is signed in from
             // the Mac (Leo, 2026-10-31: "STOP USING CODEROUTER").

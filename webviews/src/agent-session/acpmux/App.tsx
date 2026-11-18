@@ -333,7 +333,13 @@ import { backgroundTasksLook } from "./backgroundTasks/backgroundTasksLook.exper
 import { settleTrayExit } from "./subagents/trayMotionModel";
 import { runRetry, type RetryTarget } from "./subagents/retryState";
 import { runResume as runSubagentResume } from "./subagents/resumeState";
-import { configureWorkflowCardOpen, configureWorkflowCardSideTab } from "./summary/workflowCardModel";
+import {
+  configureUsageLimitHold,
+  configureWorkflowCardOpen,
+  configureWorkflowCardSideTab,
+  configureWorkflowLabs,
+  usageLimitHold,
+} from "./summary/workflowCardModel";
 import {
   type DoneLineCache,
   finishedTrayItems,
@@ -6081,6 +6087,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     configureWorkflowCardSideTab(workflowLabsEnabled ? openWorkflowSideTab : undefined);
     return () => configureWorkflowCardSideTab(undefined);
   }, [openWorkflowSideTab, workflowLabsEnabled]);
+  useEffect(() => configureWorkflowLabs(workflowLabsEnabled), [workflowLabsEnabled]);
+  // The workflow card's "Paused at usage limit" line follows the shown chat's retry wait.
+  const autoResumeRetry = snapshot.autoResume?.retry;
+  const usageLimits = snapshot.summary?.usageLimits;
+  useEffect(
+    () => configureUsageLimitHold(workflowLabsEnabled ? usageLimitHold(autoResumeRetry, usageLimits) : undefined),
+    [workflowLabsEnabled, autoResumeRetry, usageLimits],
+  );
   // The running line's counts (conversation/WorkingFor.tsx), with the tray off (Debug Settings):
   // the subagents still running, the background commands that have not ended and the started chats
   // that run. A count of one opens its subagent, the command's row or the chat; of several, the

@@ -33,6 +33,16 @@ pub fn is_limit_error(message: &str) -> bool {
         || is_usage_limit_error(message)
 }
 
+/// Whether a failed turn's `message` moves the chat onto its fallback profile (`turns.rs`): a
+/// sign-in failure always; a usage limit only when `usage_limits_move` (the person's
+/// `agents.autoRetry.usageLimitFallback`), since it otherwise recovers on the same account after
+/// its reset; a gateway's error never, as the fallback is the gateway's own pool.
+pub(crate) fn moves_to_fallback(message: &str, usage_limits_move: bool) -> bool {
+    is_limit_error(message)
+        && !is_gateway_error(message)
+        && (usage_limits_move || !is_usage_limit_error(message))
+}
+
 /// A usage window or rate limit can recover without changing the person's sign-in.
 pub(crate) fn is_usage_limit_error(message: &str) -> bool {
     let m = message.to_lowercase();
@@ -228,6 +238,20 @@ pub fn resume_cause(raw: &str, shown: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A usage limit moves to the fallback only when the person turned that on; a sign-in
+    /// failure always does, and a gateway's error or a provider's capacity never.
+    #[test]
+    fn a_usage_limit_moves_to_the_fallback_only_when_turned_on() {
+        let limit = "You've hit your limit · resets 3pm (Europe/Berlin)";
+        assert!(!moves_to_fallback(limit, false));
+        assert!(moves_to_fallback(limit, true));
+        assert!(moves_to_fallback("Not logged in · Please run /login", false));
+        assert!(moves_to_fallback("Not logged in · Please run /login", true));
+        for m in ["API Error: 529 overloaded_error", "simulated internal error"] {
+            assert!(!moves_to_fallback(m, true), "{m}");
+        }
+    }
 
     #[test]
     fn transport_errors_are_told_from_limits_and_bugs() {

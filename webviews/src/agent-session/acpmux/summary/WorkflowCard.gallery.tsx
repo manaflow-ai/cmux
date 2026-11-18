@@ -7,20 +7,31 @@ import { componentEntry } from "../../../gallery/format";
 import { GALLERY_NOW } from "../../../gallery/clock";
 import { realWorkflowFixture } from "../realWorkflowFixture";
 import { WorkflowCard, type WorkflowCardPresentation } from "./WorkflowCard";
-import { configureWorkflowCardOpen, configureWorkflowCardSideTab } from "./workflowCardModel";
+import {
+  configureUsageLimitHold,
+  configureWorkflowCardOpen,
+  configureWorkflowCardSideTab,
+  type UsageLimitHold,
+} from "./workflowCardModel";
 import { workflowFixture, type WorkflowFixtureStage } from "./workflowFixture";
 
 type Props = {
   stage: WorkflowFixtureStage;
   presentation: WorkflowCardPresentation;
   replay?: ReturnType<typeof realWorkflowFixture>;
+  /// The chat waits at an account usage limit (workflowCardModel `usageLimitHold`).
+  hold?: UsageLimitHold;
 };
+
+/// The reset the held variants continue after: 2h05m past the gallery's clock.
+const RESET = GALLERY_NOW + 125 * 60_000;
 
 /// The gallery's cards open nothing, but draw as the chat's do: a button.
 configureWorkflowCardOpen(() => undefined);
 configureWorkflowCardSideTab(() => undefined);
 
-function GalleryWorkflowCard({ stage, presentation, replay }: Props) {
+function GalleryWorkflowCard({ stage, presentation, replay, hold }: Props) {
+  configureUsageLimitHold(hold);
   const nodes = (replay ?? workflowFixture(stage)).filter((node) => node.kind === "workflow");
   return (
     <div className="acpmux-shell" style={{ padding: "16px 20px" }}>
@@ -64,6 +75,26 @@ export default componentEntry<Props>({
     "selected-finished": {
       note: "Selected treatment after completion: 7/7, completed state, final elapsed time and total tokens remain visible; the progress bar is full and no done line repeats the card.",
       props: { stage: "finished", presentation: "selected" },
+    },
+    "held-at-limit": {
+      note: "Labs: the chat's account hit its usage limit mid-run. The state reads 'Paused at usage limit, continues after' the reset time acpmux's retry waits for, the clock stops, and the bar and running phase lose their accent. It goes on by itself at that time (auto retry).",
+      props: { stage: "parallel", presentation: "selected", hold: { nextAt: RESET } },
+    },
+    "held-no-time": {
+      note: "Labs: held at a usage limit with no reset time known: 'Paused at usage limit'.",
+      props: { stage: "running", presentation: "selected", hold: {} },
+    },
+    "held-compact": {
+      note: "Gallery alternative A while held: the compact card's one line gives the pause first; the phase names give way.",
+      props: { stage: "running", presentation: "compact", hold: { nextAt: RESET } },
+    },
+    "held-phases": {
+      note: "Gallery alternative B while held: the phase strip keeps its done segments, the running one goes muted.",
+      props: { stage: "running", presentation: "phases", hold: { nextAt: RESET } },
+    },
+    "held-finished": {
+      note: "A workflow that already finished is never called paused, even while the chat waits at a limit.",
+      props: { stage: "finished", presentation: "selected", hold: { nextAt: RESET } },
     },
     "real-run": {
       note: "Labs: a scrubbed card replayed from a real Claude Workflow stream. Completed, Report, 3/3 and 10s, with the recorded tokens and model.",
