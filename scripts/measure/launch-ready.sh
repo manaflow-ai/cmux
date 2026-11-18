@@ -9,6 +9,10 @@
 #   base=SHA     with dmg=build: SHA built too, its runs interleaved with this checkout's (base 1, head 1, ...)
 #   head=SHA     with dmg=build: build SHA as the head instead of this checkout (a pull request's head: the controller
 #                runs this script only at a commit of feat-cmux-next, so an A/B of a PR names it here)
+#   dmg=swap     each side a clone of ONE signed nightly with only its executable and resource bundles built Release at
+#                the side's commit (head=, else this checkout; base= too when given, or base=nightly for the nightly's
+#                own binary), every side re-sealed ad hoc the same way (scripts/measure/swap-nightly.sh). Refused, exit 3,
+#                when a commit changes what a swap cannot carry. nightly=URL|sha256:HEX pins that nightly (default newest)
 #   runs=N       measured relaunches per side (1 to 10, default 5), after one priming launch
 #   session=stress3  before the measured relaunches, each side's home gets a 3-window, 60-workspace session: one more
 #                launch after the priming one, in which launch-ready-seed.py opens 3 windows, makes 60 workspaces across
@@ -76,7 +80,7 @@ set -uo pipefail
 
 main() {
   cd "$(dirname "$0")/../.." || exit 3
-  local out="$PWD/.build/launch-ready" dmg=nightly base="" headsha="" runs=5 profile=0 session=small prerun=0 copy=same machines=0 late=0 arg rc=0 i side
+  local out="$PWD/.build/launch-ready" dmg=nightly nightly="" base="" headsha="" runs=5 profile=0 session=small prerun=0 copy=same machines=0 late=0 arg rc=0 i side
 
   local preflight=1 preflight_cpu=30
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
@@ -88,7 +92,8 @@ main() {
   trap 'rm -rf "$LR_SOCKETS"; defaults_restore "$out" || exit 4' EXIT
   for arg in "$@"; do
     case "$arg" in
-      dmg=nightly|dmg=build|dmg=https://*) dmg="${arg#dmg=}" ;;
+      dmg=nightly|dmg=build|dmg=swap|dmg=https://*) dmg="${arg#dmg=}" ;;
+      nightly=https://*|nightly=sha256:*) nightly="${arg#nightly=}" ;;
       base=*) base="${arg#base=}" ;;
       head=*) headsha="${arg#head=}" ;;
       runs=*) runs="${arg#runs=}" ;;
@@ -117,8 +122,9 @@ main() {
   [[ "$prerun" =~ ^[0-9]+$ && "$prerun" -le 600 ]] || { echo "prerun= takes 0 to 600 seconds" >&2; exit 2; }
   [[ "$late" =~ ^[0-9]+$ && "$late" -le 10000 ]] || { echo "late= takes 0 to 10000 ms" >&2; exit 2; }
   LR_LATE="$late"
-  [[ -z "$base" || ( "$dmg" == build && "$base" =~ ^[0-9a-f]{40}$ ) ]] || { echo "base= takes a 40-hex commit, with dmg=build" >&2; exit 2; }
-  [[ -z "$headsha" || ( "$dmg" == build && "$headsha" =~ ^[0-9a-f]{40}$ ) ]] || { echo "head= takes a 40-hex commit, with dmg=build" >&2; exit 2; }
+  [[ -z "$base" || ( "$dmg" =~ ^(build|swap)$ && "$base" =~ ^[0-9a-f]{40}$ ) || "$dmg:$base" == swap:nightly ]] \
+    || { echo "base= takes a 40-hex commit, with dmg=build or dmg=swap (or nightly, with dmg=swap)" >&2; exit 2; }
+  [[ -z "$headsha" || ( "$dmg" =~ ^(build|swap)$ && "$headsha" =~ ^[0-9a-f]{40}$ ) ]] || { echo "head= takes a 40-hex commit, with dmg=build or dmg=swap" >&2; exit 2; }
   case_args_ok "$base" "$session" || exit 2
   if [[ "$LR_SNAPSHOT" == unknown ]]; then LR_FRONT=tab; fi # the workspace closed is the priming launch's front tab's
   echo "LR state $LR_STATE"
@@ -137,7 +143,11 @@ main() {
   cp scripts/ci/fresh_home_launch_smoke.py "$out/fresh_home_launch_smoke.py"
   echo "LR session $session prerun $prerun copy $copy machines $machines"
   local sides=(head)
-  if [[ "$dmg" == build ]]; then
+  if [[ "$dmg" == swap ]]; then
+    source scripts/measure/swap-nightly.sh
+    swap_nightly "$out" "$nightly" ${base:+base="$base"} head="${headsha:-$(git rev-parse HEAD)}" || exit 3
+    [[ -z "$base" ]] || sides=(base head)
+  elif [[ "$dmg" == build ]]; then
     # nightly-fresh-launch.sh's build_dmg, without running its main. From a file: macOS's bash 3.2 sources nothing
     # from a process substitution.
     sed '/^main "\$@"; exit \$?$/d' scripts/measure/nightly-fresh-launch.sh >"$out/nightly-fresh-launch-lib.sh"
@@ -180,11 +190,16 @@ main() {
     local mount="$out/mnt-$side" image="$side"
     [[ "$side" != late ]] || image=head # the late side runs the head's build
     mkdir -p "$mount" "$out/$side"
-    hdiutil attach "$out/$image.dmg" -nobrowse -readonly -mountpoint "$mount" >/dev/null || { echo "LR attach $side failed"; exit 3; }
-    local found; found="$(find "$mount" -maxdepth 1 -name '*.app' | head -1)"
+    local found
+    if [[ "$dmg" == swap ]]; then
+      found="$(find "$out/swap-$image" -maxdepth 1 -name '*.app' | head -1)" # swap_nightly's sealed copy
+    else
+      hdiutil attach "$out/$image.dmg" -nobrowse -readonly -mountpoint "$mount" >/dev/null || { echo "LR attach $side failed"; exit 3; }
+      found="$(find "$mount" -maxdepth 1 -name '*.app' | head -1)"
+    fi
     ditto "$found" "$out/$side/$(basename "$found")" || exit 3
     if [[ "$copy" == fresh || "$LR_CASE" == update ]]; then mkdir -p "$out/$side-dmg" && ditto "$found" "$out/$side-dmg/$(basename "$found")" || exit 3; fi
-    hdiutil detach "$mount" >/dev/null || hdiutil detach -force "$mount" >/dev/null
+    [[ "$dmg" == swap ]] || hdiutil detach "$mount" >/dev/null || hdiutil detach -force "$mount" >/dev/null
     local info="$out/$side/$(basename "$found")/Contents/Info.plist"
     [[ -f "$info" ]] || { echo "LR-FAIL $side $(basename "$found") has no Contents/Info.plist"; exit 3; }
     echo "LR app $side $(basename "$found") $(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$info" 2>/dev/null)"

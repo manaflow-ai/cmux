@@ -6136,6 +6136,10 @@ export class AcpmuxDirectClient {
     }
     if (this.closed) return;
     if (pageShown()) this.wake();
+    if (pageShown() && this.readAheadOwed) {
+      this.readAheadOwed = false;
+      this.scheduleReadAhead(READ_AHEAD_DELAY_MS);
+    }
     // Showing the page is the reader's own move, made outside it (a tab, a workspace).
     if (pageShown()) pageAttention()?.touch();
     const sessionId = this.selectedSessionId;
@@ -14008,6 +14012,8 @@ export class AcpmuxDirectClient {
   /// Chats waiting for a read, the next one first.
   private readAheadQueue: string[] = [];
   private readAheadTimer?: ReturnType<typeof setTimeout>;
+  /// The idle read ahead came due while the page was hidden: it runs once the page shows (`showChanged`).
+  private readAheadOwed = false;
 
   /// A chat acpmux purged: nothing of its read ahead is kept. Kept, each closed chat the read ahead
   /// had read stayed in `readAheadAt` and `readAheadSeq` for the pane's life
@@ -14022,10 +14028,22 @@ export class AcpmuxDirectClient {
   }
 
   /// Reads the list's most recent chats ahead once the pane is idle for `delayMs`.
+  /// A hidden page reads nothing ahead: every workspace's pages read the same recent chats, so N
+  /// hidden pages read each one N times for a switch only the shown page takes (Leo, 2026-11-18:
+  /// "And other general perf"). Its read ahead runs when it shows. A hover or a host's prefetch
+  /// (`queueReadAhead` with `first`) still reads at once.
   private scheduleReadAhead(delayMs: number): void {
     if (this.closed || this.readAheadTimer !== undefined) return;
+    if (!pageShown()) {
+      this.readAheadOwed = true;
+      return;
+    }
     this.readAheadTimer = setTimeout(() => {
       this.readAheadTimer = undefined;
+      if (!pageShown()) {
+        this.readAheadOwed = true;
+        return;
+      }
       const recent = [...this.sessions]
         .filter((session) => session.sessionId && session.sessionId !== this.selectedSessionId && !session.coldArchive)
         .sort((a, b) => Number(b.updatedAt ?? 0) - Number(a.updatedAt ?? 0))
