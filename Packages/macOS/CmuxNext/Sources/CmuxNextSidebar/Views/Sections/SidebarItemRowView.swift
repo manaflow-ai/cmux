@@ -22,19 +22,16 @@ class SidebarItemRowView: NSView {
         case icon
         /// Glyph and label side by side on one line (inline), no fill at rest.
         case chip
-        /// A large glyph in a rounded well over a short centered label
-        /// (the tiles arrangement), no fill at rest.
+        /// A large glyph in a rounded well over a short centered label (the tiles arrangement), no fill at rest.
         case favorite
 
         var isIconOnly: Bool { self == .tile || self == .icon }
     }
 
-    /// A window rail button: a larger, brighter glyph on a rounder tile,
-    /// and unread items as a dot on the glyph (the Codex rail).
+    /// A window rail button: a larger, brighter glyph on a rounder tile, and unread items as a dot on the glyph (the Codex rail).
     var isRailButton = false
     var onPress: (() -> Void)?
-    /// Modifier-aware activation for controls whose action has a one-shot
-    /// Option override. Plain activations continue through `onPress`.
+    /// Modifier-aware activation for controls whose action has a one-shot Option override. Plain activations continue through `onPress`.
     var onPressWithModifiers: ((NSEvent.ModifierFlags) -> Void)?
     var onContextMenu: ((NSEvent, NSView) -> Void)?
     /// True: the item acts on mouse-down, as workspace rows do (every item but a new-tab
@@ -45,8 +42,7 @@ class SidebarItemRowView: NSView {
     var isMovable = true
     /// The current press already ran the action on mouse-down; its release does not run it again.
     private var activatedOnPress = false
-    /// The sidebar's edit mode (`SidebarItemRowView+Editing`): the item wiggles and shows its ✕
-    /// (`onRemove`), and a press only drags it.
+    /// The sidebar's edit mode (`SidebarItemRowView+Editing`): the item wiggles and shows its ✕ (`onRemove`), and a press only drags it.
     var isEditing = false { didSet { if isEditing != oldValue { editingChanged() } } }
     var onRemove: (() -> Void)?
     var removeButton: SidebarIconButton?
@@ -130,6 +126,7 @@ class SidebarItemRowView: NSView {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
+        SidebarPerfCounters.add(.itemViewsMade)
         wantsLayer = true
         for decoration in [pill, chip] {
             decoration.actions = ["backgroundColor": NSNull(), "bounds": NSNull(), "position": NSNull(),
@@ -174,6 +171,7 @@ class SidebarItemRowView: NSView {
 
     func configure(_ info: SidebarItemInfo, style: Style) {
         guard info != self.info || style != self.style else { return }
+        SidebarPerfCounters.add(.itemConfigures)
         // A selection change paints at once (SIDEBAR-SELECTION-NO-TRAVEL-ANIMATION).
         if info.isActive != self.info.isActive || info.isSecondarySelected != self.info.isSecondarySelected { fadesNextFill = false }
         self.info = info

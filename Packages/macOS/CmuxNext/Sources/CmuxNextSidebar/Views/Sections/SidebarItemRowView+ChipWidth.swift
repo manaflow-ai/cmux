@@ -9,6 +9,7 @@ extension SidebarItemRowView {
     static func chipWidth(title: String, font: NSFont, badge: Int? = nil, dot: Bool = false, activity: Bool = false) -> CGFloat {
         let key = ChipKey(title: title, pointSize: font.pointSize, badge: badge.map { min($0, 100) }, dot: dot, activity: activity)
         if let cached = chipWidths[key] { return cached }
+        SidebarPerfCounters.add(.labelMeasures)
         // The label's own width (a text field adds its cell padding), plus
         // one space2 of slack: measured and drawn widths differ by a few
         // points between window contexts (seen in offscreen renders).
