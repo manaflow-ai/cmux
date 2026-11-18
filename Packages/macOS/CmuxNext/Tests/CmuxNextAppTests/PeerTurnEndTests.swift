@@ -56,7 +56,7 @@ struct PeerTurnEndTests {
         return DaemonTree(workspaces: trees)
     }
 
-    final class Flag: @unchecked Sendable { var raised = false }
+    nonisolated final class Flag: @unchecked Sendable { var raised = false }
 
     /// The detector: a peer's turn end reads the tabs of its own session and no other. Base walked every
     /// tab of every workspace (it read each tab's `agentSession`), so a change of any other tab's facts
