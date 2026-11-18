@@ -18,8 +18,8 @@ final class SidebarAppSections: SidebarAppSectionProvider {
     private let team: (() -> CloudTeamHostingView?)?
     private var teamView: CloudTeamHostingView?
 
-    init(apps: AppsService, team: (() -> CloudTeamHostingView?)? = nil) {
-        provider = AppSectionProvider(client: apps.client) { [weak apps] in apps?.presence.isPresented($0) == true }
+    init(client: AppsClient, isPresented: @escaping (String) -> Bool, team: (() -> CloudTeamHostingView?)? = nil) {
+        provider = AppSectionProvider(client: client, isPresented: isPresented)
         self.team = team
         provider.showWidgets(place: "sidebar")
     }
