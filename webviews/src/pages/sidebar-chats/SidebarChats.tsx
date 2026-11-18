@@ -6,13 +6,25 @@
 // primitive fields, so a new block (a new revision, or the host's age tick) draws again only the rows
 // whose title, mark or age changed: the host dates each row's age itself (`meta`, "12m"), so no clock
 // reaches a row whose label stayed the same. The handlers must keep their identity (mount.tsx does).
+// Once the host sends the slice of the page the sidebar shows, only the rows near it mount, between two
+// spacers that keep every other row's place, so the block's height (and `ready`'s) stays the same.
 import { memo, type CSSProperties, type MouseEvent } from "react";
 import { AgentMark } from "../../agent-session/shared/AgentMark";
 import { Icon } from "../../agent-session/acpmux/icons/Icon";
-import { blockHeight, isFoldable, rowLabel, type SidebarChatsBlock, type SidebarChatsStrings } from "./model";
+import {
+  blockHeight,
+  isFoldable,
+  rowLabel,
+  sliceRange,
+  type SidebarChatsBlock,
+  type SidebarChatsSlice,
+  type SidebarChatsStrings,
+} from "./model";
 
 export interface SidebarChatsProps {
   block: SidebarChatsBlock;
+  /** The part of the page the sidebar shows; null before the host's first: every row mounts. */
+  slice?: SidebarChatsSlice | null;
   strings: SidebarChatsStrings;
   onOpen(chat: string): void;
   onFold(): void;
@@ -92,10 +104,18 @@ const ChatRow = memo(function ChatRow({ id, title, meta, harness, markColor, gly
   );
 });
 
-export function SidebarChats({ block, strings, onOpen, onFold, onMore, onMenu }: SidebarChatsProps) {
+/** Holds the place of `count` unmounted rows (each a row and its spacing). */
+function Spacer({ count, stride }: { count: number; stride: number }) {
+  if (count <= 0) return null;
+  return <div className="sc-spacer" aria-hidden="true" style={{ height: `${count * stride}px` }} />;
+}
+
+export function SidebarChats({ block, slice, strings, onOpen, onFold, onMore, onMenu }: SidebarChatsProps) {
   const foldable = isFoldable(block);
   const title = block.part === "pinned" ? strings.pinned : strings.earlier;
   const quiet = block.part === "earlier";
+  const { start, end } = slice ? sliceRange(block, slice) : { start: 0, end: block.rows.length };
+  const stride = block.metrics.row + block.metrics.spacing;
   return (
     <section
       className="sc-block"
@@ -121,20 +141,24 @@ export function SidebarChats({ block, strings, onOpen, onFold, onMore, onMenu }:
           <span className="sc-header-name">{title}</span>
         </h2>
       )}
+      {!block.folded && <Spacer count={start} stride={stride} />}
       {!block.folded &&
-        block.rows.map((row) => (
-          <ChatRow
-            key={row.id}
-            id={row.id}
-            title={row.title}
-            meta={row.meta ?? null}
-            harness={row.harness ?? null}
-            markColor={row.markColor ?? null}
-            glyph={block.metrics.glyph}
-            onOpen={onOpen}
-            onMenu={onMenu}
-          />
-        ))}
+        block.rows
+          .slice(start, end)
+          .map((row) => (
+            <ChatRow
+              key={row.id}
+              id={row.id}
+              title={row.title}
+              meta={row.meta ?? null}
+              harness={row.harness ?? null}
+              markColor={row.markColor ?? null}
+              glyph={block.metrics.glyph}
+              onOpen={onOpen}
+              onMenu={onMenu}
+            />
+          ))}
+      {!block.folded && <Spacer count={block.rows.length - end} stride={stride} />}
       {!block.folded && block.tail ? (
         <button
           type="button"
