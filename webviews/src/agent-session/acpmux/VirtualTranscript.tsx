@@ -229,6 +229,7 @@ import {
 import { focusRoute } from "../../ui/focusRoute";
 import { continuesLiveResize, LIVE_RESIZE_MS, stepLiveResize } from "./conversation/liveResizeStep";
 import { DOCK_NOTICE } from "./noticeSlotModel";
+import { chatSnapshotDock } from "./chatSnapshot/live";
 
 /// The live line's box and gap in a run as custom properties on the scroller (transcriptGrid.ts transcriptLiveVars):
 /// conversation.css sizes the line with them. Constant, so the scroller's per-scroll restyle never changes them.
@@ -1705,6 +1706,7 @@ function TranscriptView({
   jumpButton = false,
   needsYou,
   dock,
+  dockPending = false,
   queueWithdrawn,
   queueIds,
   queuedTail,
@@ -1772,6 +1774,10 @@ function TranscriptView({
   /// it, the scrollbar's track to the pane's bottom as in the Claude and Codex apps, and its end sits
   /// above it. Its height is room under the last row, followed as it changes before the frame paints.
   dock?: HTMLElement | null;
+  /// The bottom stack still lacks acpmux's state of the chat (its queue: the pane has not read acpmux's
+  /// chat list yet, snapshot `listedSessions`). While it does, the room under the last row keeps the
+  /// saved copy's stack (`copyHold`).
+  dockPending?: boolean;
   /// Prompts withdrawn from the queue (snapshot `queueWithdrawn`): no row comes for one whose card
   /// leaves the stack, so the view keeps no room for it.
   queueWithdrawn?: readonly string[];
@@ -2322,6 +2328,17 @@ function TranscriptView({
   const dockRoom = dockSpace > 0 ? dockSpace + restExtra : 0;
   const dockRoomRef = useRef(0);
   dockRoomRef.current = dockRoom;
+  /// The room the saved copy's bottom stack took under its last row (chatSnapshot/live.ts
+  /// `chatSnapshotDock`): its reach over the view's foot less the notices that lay over the foot
+  /// (`noticeHold`, within the rest gap), read as the transcript mounts under the copy. The copy draws
+  /// the chat's queue, and the live page's first frame does not until acpmux's list comes (direct.ts
+  /// `drawTailWhileConnecting`): every row moved down by the queue's height at the swap, and back up as
+  /// the queue came (chat-copy-dock-swap test, queued). Gone for good once the stack has acpmux's state.
+  const [copyDock, setCopyDock] = useState(() => {
+    const copy = chatSnapshotDock(DOCK_NOTICE);
+    return Math.max(0, copy.space - Math.min(copy.notice, restExtra));
+  });
+  if (!dockPending && copyDock > 0) setCopyDock(0);
   // Full stack height is distinct from the overlap room: a tall dock can extend beyond the
   // viewport, while an after-latest tray still needs the whole stack reserved in stage flow.
   const [dockHeight, setDockHeight] = useState(0);
@@ -4334,6 +4351,11 @@ function TranscriptView({
         : noticeTaken
           ? 0
           : dockNotice - noticeHeldAt;
+  // The copy's stack the live one lacks, while acpmux's state is still to come (`copyDock`): held as
+  // room under the last row, so the swap moves no row; the state settles it in one step (none when
+  // the queue comes back as the copy drew it). A gap, never a cover.
+  const copyHold =
+    dockPending && copyDock > 0 && dockSpace > 0 && following ? Math.max(0, copyDock - (dockSpace - noticeHold)) : 0;
   // Over a floating stack the newest line rests the rest gap over it (`dockRoom`, model.ts `restRoom`);
   // a turn footer's action row lies in the band under its reply, so that band comes first
   // (transcriptGrid.ts `restBand`). Docked in flow, the composer gap is the rows' own (`tailGap`).
@@ -4342,7 +4364,15 @@ function TranscriptView({
       ? (measured.layout.restBand ?? 0)
       : (measured.layout.tailGap ?? TRANSCRIPT_COMPOSER_GAP * (measured.layout.scale ?? 1));
   const rowsAtDock =
-    measured.layout.totalHeight + THREAD_TOP + topInset + tailGap + dockRoom - trayHold - cardHold - noticeHold;
+    measured.layout.totalHeight +
+    THREAD_TOP +
+    topInset +
+    tailGap +
+    dockRoom -
+    trayHold -
+    cardHold -
+    noticeHold +
+    copyHold;
   const atDock = Math.max(floorHeight, rowsAtDock);
   // A card that grew is drawn up by at most what the offset can take back: the view keeps more than
   // the follow deadband to scroll, so the reader's scroll up still leaves the latest row (and the
@@ -4366,7 +4396,8 @@ function TranscriptView({
           ),
         )
       : grown;
-  const room = sessionSwitched || following ? dockRoom - lifted - trayHold - cardHold - noticeHold : heldRoom.current;
+  const room =
+    sessionSwitched || following ? dockRoom - lifted - trayHold - cardHold - noticeHold + copyHold : heldRoom.current;
   const rowsHeight = measured.layout.totalHeight + THREAD_TOP + topInset + tailGap + room;
   // The content's end without the room a collapse left (`foldRoom`), which it is released against.
   const rowsEnd = Math.max(floorHeight - lifted, rowsHeight);
