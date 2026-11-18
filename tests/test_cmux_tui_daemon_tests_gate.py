@@ -92,12 +92,6 @@ class DaemonTestsGateTests(unittest.TestCase):
                 label = route(runs_on, context)
                 if context["github.repository_owner"] != "manaflow-ai":
                     self.assertEqual(label, "ubuntu-24.04", context)
-                elif context["github.run_attempt"] == 1 and (
-                        context["github.event_name"] == "workflow_dispatch"
-                        or context["github.ref"] in ("refs/heads/feat-cmux-next", "refs/heads/nightly-next")):
-                    # The nightly path's attempt 1 takes our GCP build lanes first, never a Mac
-                    # (cmux-tui-artifacts.yml jobs: comment); a re-run keeps the Blacksmith size.
-                    self.assertEqual(label, "cmux-gcp-lane-build-x64", (overrides, context))
                 else:
                     self.assertEqual(label, GATE_LABEL, (overrides, context))
 

@@ -89,13 +89,9 @@ class WiringTests(unittest.TestCase):
         # DAEMON_POOL is the gate's Blacksmith route. A publisher job placed on the live fleet Linux label
         # reads as off-pool, so a deferring run tests the tree itself instead of waiting on it.
         fleet = "contains(needs.tree-preflight.outputs.linux_jobs, ' cmux-next-daemon-tests ') && needs.tree-preflight.outputs.linux_runner || "
-        # So does the nightly path's attempt 1 on the owned GCP build lanes (cmux-tui-artifacts.yml jobs: comment).
-        owned = ("github.run_attempt == 1 && (github.event_name == 'workflow_dispatch' || github.ref == "
-                 "'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/nightly-next') && 'cmux-gcp-lane-build-x64' || ")
         gate = gate_runs_on(self.WORKFLOW)
         self.assertIn(fleet, gate)
-        self.assertIn(owned, gate)
-        self.assertEqual(self.WORKFLOW.count(f"DAEMON_POOL: {gate.replace(owned, '').replace(fleet, '')}"), 2)
+        self.assertEqual(self.WORKFLOW.count(f"DAEMON_POOL: {gate.replace(fleet, '')}"), 2)
 
     def test_the_owner_wait_sparse_checkout_has_the_script(self):
         owner_wait = self.WORKFLOW[self.WORKFLOW.index("sparse-checkout: |\n            scripts/ci/cmux-tui-tree-claim.sh"):]
