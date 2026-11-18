@@ -362,8 +362,10 @@ public nonisolated struct AgentTurnStates: Hashable, Sendable {
     /// Every session's state.
     public var bySession: [String: AgentTurnState] { states }
 
+    /// A peer's row (`peer`) is that peer's session, never this Mac's: its state is the row's
+    /// (``AgentPeerRow/rows(_:)``), so a peer working never reads as a session of this Mac working.
     private mutating func upsert(_ summary: [String: Any]) {
-        guard let id = summary["sessionId"] as? String else { return }
+        guard let id = summary["sessionId"] as? String, summary["peer"] == nil else { return }
         states[id] = AgentTurnState.of(summary: summary)
     }
 }
@@ -413,6 +415,10 @@ public final class AgentTurnStateStore {
     /// Bumped by every turn state change of any session: for a reader that
     /// follows all of them (one read, no walk).
     public private(set) var stateRevision: UInt64 = 0
+    /// How many of this Mac's sessions (its own acpmux's and the mirrored ones') run a turn now, kept by
+    /// ``setState(_:session:)``: ``hasWorkingSession`` is one read of it, never a walk of every record, and a
+    /// reader of it hears only a change of the count. A peer's row never counts (``AgentPeerRow``).
+    public private(set) var workingSessions = 0
     /// `install:<id>` of this Mac; a chat tab of another host has no state
     /// here (its acpmux runs elsewhere).
     public var localHost: String?
@@ -424,7 +430,7 @@ public final class AgentTurnStateStore {
     /// closes, when a chat with no state may still be working.
     public var watching = false
     /// A session's running turn ended (working to anything else; the watch closing is not an
-    /// end). The app rings the chat's pane until the person goes into it, as a terminal agent's
+    /// end), this Mac's or an acpmux peer's row of it (that row's working to anything else). The app rings the chat's pane until the person goes into it, as a terminal agent's
     /// notification does: acpmux reads a turn that ends in a shown chat at once (cx-n8ou).
     @ObservationIgnored public var onTurnEnded: ((String) -> Void)?
     /// Also told when a session's running turn ends, with its folder (`cwd`, when known): the diff
@@ -458,21 +464,36 @@ public final class AgentTurnStateStore {
     public func setState(_ state: AgentTurnState?, session: String) {
         let record = record(session)
         guard record.state != state else { return }
+        if record.state == .working { workingSessions -= 1 }
+        if state == .working { workingSessions += 1 }
         record.state = state
         stateRevision &+= 1
     }
 
+    /// Tells the turn-end hooks that `session`'s running turn ended.
+    private func turnEnded(_ session: String, folder: String?) {
+        onTurnEnded?(session)
+        for observer in turnEndedObservers { observer(session, folder) }
+    }
+
     /// Sets one session's facts from a `_acpmux/session_changed`; writes only what changed.
     /// `recordsTimeline` false (the watch closing) notes no moment: nothing happened to the chat.
+    /// A push of acpmux peer `peerName`'s row (`peer`: that row, nil when the peer purged it) writes that row,
+    /// never this Mac's state or timeline of the session id: session ids are each daemon's own, and another
+    /// machine's turn is not this Mac's (design audit 2026-11-18 finding 7). Its chat facts (title, last message)
+    /// stay as before: the Chief pet reads a peer's chat's last message by session id.
     public func apply(session: String, sessionName: String? = nil, state: AgentTurnState?, lastMessage: String?, muted: Bool, title: String?,
                       generatedTitle: String? = nil, detail: AgentChatDetail?, recordsTimeline: Bool = true,
-                      source: String = AgentTurnStateStore.localSource, peer: AgentPeerRow? = nil) {
+                      source: String = AgentTurnStateStore.localSource, peer: AgentPeerRow? = nil, peerName: String? = nil) {
         let held = record(session)
         held.source = source
-        if recordsTimeline, held.state == .working, state != .working {
-            onTurnEnded?(session)
-            for observer in turnEndedObservers { observer(session, (detail ?? held.detail)?.cwd) }
+        if let name = peerName ?? peer?.name {
+            if recordsTimeline, held.peers[name]?.state == .working, peer?.state != .working { turnEnded(session, folder: (detail ?? held.detail)?.cwd) }
+            if held.peers[name] != peer { held.peers[name] = peer }
+            writeFacts(held, sessionName: sessionName, lastMessage: lastMessage, muted: muted, title: title, generatedTitle: generatedTitle, detail: detail)
+            return
         }
+        if recordsTimeline, held.state == .working, state != .working { turnEnded(session, folder: (detail ?? held.detail)?.cwd) }
         if recordsTimeline {
             let nowMs = UInt64((Date().timeIntervalSince1970 * 1000).rounded())
             for event in AgentTimeline.chatEvents(from: held.state, held.detail, to: state, detail, nowMs: nowMs) {
@@ -480,14 +501,18 @@ public final class AgentTurnStateStore {
             }
         }
         setState(state, session: session)
-        let record = record(session)
+        writeFacts(held, sessionName: sessionName, lastMessage: lastMessage, muted: muted, title: title, generatedTitle: generatedTitle, detail: detail)
+    }
+
+    /// Writes a record's chat facts; only what changed.
+    private func writeFacts(_ record: Session, sessionName: String?, lastMessage: String?, muted: Bool, title: String?, generatedTitle: String?,
+                            detail: AgentChatDetail?) {
         if record.lastMessage != lastMessage { record.lastMessage = lastMessage }
         if record.muted != muted { record.muted = muted }
         if record.title != title { record.title = title }
         if record.generatedTitle != generatedTitle { record.generatedTitle = generatedTitle }
         if record.sessionName != sessionName { record.sessionName = sessionName }
         if record.detail != detail { record.detail = detail }
-        if let peer, record.peers[peer.name] != peer { record.peers[peer.name] = peer }
     }
 
     /// Replaces every session of `source`'s watch with its page's; writes only what changed.
@@ -507,8 +532,14 @@ public final class AgentTurnStateStore {
                       title: titles[id], generatedTitle: generatedTitles[id], detail: details[id], source: source)
             }
             var rows = peers[id] ?? [:]
-            for name in keepingPeers[id] ?? [] { rows[name] = record(id).peers[name] }
-            if record(id).peers != rows { record(id).peers = rows }
+            let held = record(id)
+            for name in keepingPeers[id] ?? [] { rows[name] = held.peers[name] }
+            guard held.peers != rows else { continue }
+            // A peer's turn that ran ended when the page has its row no longer working (or gone).
+            if held.peers.contains(where: { $0.value.state == .working && rows[$0.key]?.state != .working }) {
+                turnEnded(id, folder: (details[id] ?? held.detail)?.cwd)
+            }
+            held.peers = rows
         }
     }
 
@@ -533,11 +564,6 @@ public final class AgentTurnStateStore {
         }
     }
 
-    /// Peer `peer` purged its session `session`: its row goes (another peer's row of that id stays).
-    public func removePeerRow(_ peer: String, session: String) {
-        guard let record = sessions[session], record.peers[peer] != nil else { return }
-        record.peers[peer] = nil
-    }
 
     // MARK: Reads
 

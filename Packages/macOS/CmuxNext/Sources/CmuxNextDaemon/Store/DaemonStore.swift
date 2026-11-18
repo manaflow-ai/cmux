@@ -267,6 +267,9 @@ public final class DaemonStore: StateResourceQueries {
     public func screen(_ handle: ScreenID) -> ScreenModel? { index.screensByHandle[handle] }
     public func pane(_ handle: PaneID) -> PaneModel? { index.panesByHandle[handle] }
     public func tab(surface: SurfaceID) -> TabModel? { index.tabsBySurface[surface] }
+    /// The tabs that show acpmux session `session` (agent chat tabs), from the index in O(those tabs):
+    /// a turn end reads them, never every tab. Reads no observed state (a hot path, like `tab(surface:)`).
+    public func tabs(agentSession session: String) -> [TabModel] { index.tabs(agentSession: session) }
     /// The current tab records, invalidated only when the tab/pane topology
     /// changes. Callers that need to inspect every tab without observing row
     /// status should use this instead of walking ``workspaces``.

@@ -387,9 +387,10 @@ public final class AgentTurnStateFeed {
             if let peerRow { paging?.changedPeers[session, default: []].insert(peerRow.name) } else { paging?.changed.insert(session) }
             // Most session records leave the indicator as it was: the store writes (and so
             // redraws the tabs and rows that read this session) only what differs.
+            // A peer's push writes only that peer's row of the session id (its purge removes the row): never
+            // this Mac's state of the id (design audit 2026-11-18 finding 7).
             turns.apply(session: session, sessionName: sessionName, state: state, lastMessage: lastMessage, muted: muted, title: title,
-                        generatedTitle: generatedTitle, detail: detail, source: source, peer: peerRow?.row)
-            if let peerRow, peerRow.row == nil { turns.removePeerRow(peerRow.name, session: session) }
+                        generatedTitle: generatedTitle, detail: detail, source: source, peer: peerRow?.row, peerName: peerRow?.name)
             turns.setStartedBy(startedBy, session: session, source: source)
             if lanes.lanes[session] != lane { lanes.set(session, lane) }
             if deleted, !isMirror { Self.purged?(session) }
@@ -425,8 +426,9 @@ public final class AgentTurnStateFeed {
     static func hold(_ message: Message, in page: inout AgentWatchPage) {
         guard case .change(let session, let state, let lastMessage, let muted, let title, let generatedTitle, let detail, let lane,
                            let startedBy, _, _, let sessionName, let peerRow, _) = message else { return }
-        page.setSession(session, state: state, lastMessage: lastMessage, muted: muted, title: title, generatedTitle: generatedTitle,
-                        sessionName: sessionName, detail: detail, lane: lane, startedBy: startedBy)
+        // A peer's row keeps this Mac's state of the id as it is, as the store does.
+        page.setSession(session, state: peerRow == nil ? state : page.states[session], lastMessage: lastMessage, muted: muted, title: title,
+                        generatedTitle: generatedTitle, sessionName: sessionName, detail: detail, lane: lane, startedBy: startedBy)
         if let peerRow { page.setPeerRow(session, peer: peerRow.name, row: peerRow.row) }
     }
 
