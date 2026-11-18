@@ -1083,14 +1083,14 @@ test("deleting a placed attachment with its token pasted as text beside it takes
 // hold a send; it stays for the next prompt (attachmentIntake.tsx useSendWhenAttached). The send's
 // clear took its node out of the text as an edit, and the edit cancelled it: its upload was dropped
 // and the next prompt went without it. A node the person deletes is still cancelled.
-async function withUploadingFile(onSend?: ComposerProps["onSend"]) {
+async function withUploadingFile(onSend?: ComposerProps["onSend"], extra: Partial<ComposerProps> = {}) {
   let finish: ((paths: string[]) => void) | undefined;
   const upload = () =>
     new Promise<{ paths: string[] }>((resolve) => {
       finish = (paths) => resolve({ paths });
     });
   const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
-  const composer = await openComposer(sent, { upload, ...(onSend ? { onSend } : {}) });
+  const composer = await openComposer(sent, { upload, ...(onSend ? { onSend } : {}), ...extra });
   await act(async () => composer.current!.restore("see", []));
   await act(async () => markdownField().setCaret(Number.MAX_SAFE_INTEGER));
   const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
@@ -1122,6 +1122,86 @@ test("a prompt sent while its file still uploads waits for it, then goes once wi
   await upload.finish(["/tmp/notes.bin"]);
   await until(() => sent.length === 1, "the held send");
   expect(sent[0]!.attachments.map((each) => [each.id, each.path])).toEqual([[upload.id, "/tmp/notes.bin"]]);
+});
+
+/// A chat that takes a prompt before its files (the agent pane, `sendsBeforeFiles`): `calls` are
+/// the sends as they leave the composer, `delivered` each prompt's files once they are chips, and
+/// `failures` the waits that failed. A failed one comes back to the composer, as the pane's
+/// queue gives it back (startingSends.ts).
+function takesBeforeFiles(handle: () => RefObject<ComposerHandle | null> | undefined) {
+  const calls: string[] = [];
+  const delivered: ComposerAttachment[][] = [];
+  const failures: unknown[] = [];
+  const onSend: ComposerProps["onSend"] = (text, attachments, _steer, _gesture, filesReady) => {
+    calls.push(text);
+    if (!filesReady) delivered.push(attachments ?? []);
+    else
+      void filesReady.then(
+        (chips) => delivered.push(chips),
+        (error: { attachments?: ComposerAttachment[] }) => {
+          failures.push(error);
+          handle()?.current?.restore(text, error.attachments ?? []);
+        },
+      );
+    return true;
+  };
+  return { calls, delivered, failures, extra: { sendsBeforeFiles: true, onSend } satisfies Partial<ComposerProps> };
+}
+
+// cmux#45759 (Leo, 2026-11-17: "I CAN'T EVEN SEND A MESSAGE WHILE THE THING LOADS ... JUST MAKE IT
+// LOOK LIKE IT'S SENT OR JUST SEND IT"): in a chat that takes a prompt before its files, the
+// prompt leaves the composer at once; the guarantee above holds there too: it goes once, with the file.
+test("a prompt sent before its file is uploaded leaves the composer at once, then goes once with the file", async () => {
+  const chat = takesBeforeFiles(() => opened);
+  const upload = await withUploadingFile(undefined, chat.extra);
+  await act(async () => upload.composer.current!.send());
+  await settleTurns();
+  expect(chat.calls).toHaveLength(1);
+  expect(chat.calls[0]).toContain("see");
+  expect(field().querySelector("[data-inline-attachment]")).toBeNull();
+  expect(markdownField().value().trim()).toBe("");
+  // Never without its file.
+  expect(chat.delivered).toEqual([]);
+  await upload.finish(["/tmp/notes.bin"]);
+  await until(() => chat.delivered.length === 1, "the file following its prompt");
+  expect(chat.delivered[0]!.map((each) => [each.id, each.path])).toEqual([[upload.id, "/tmp/notes.bin"]]);
+  expect(chat.calls).toHaveLength(1);
+  // The chip is the prompt's: none lands back in the composer.
+  expect(upload.composer.current!.wakeState().attachments ?? []).toEqual([]);
+});
+
+// The guarantee of "a send with a failed attachment waits until its x takes it away" in a chat that
+// takes a prompt before its files: a failed file is never dropped. The send tries it again; when it
+// fails again the prompt comes back, its failed file a tile with its Retry, and nothing went.
+test("a prompt sent with a failed upload never goes without it: it comes back with the failed tile and its Retry", async () => {
+  const upload = async () => ({ error: "The disk is full.", final: true });
+  const chat = takesBeforeFiles(() => opened);
+  const composer = await openComposer([], { upload, ...chat.extra });
+  await act(async () => composer.current!.restore("look", []));
+  await until(() => field().textContent?.includes("look") === true, "the prompt");
+  await act(async () => markdownField().setCaret("look".length));
+  const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "clipboardData", {
+    value: {
+      files: [new File([new Uint8Array(64)], "notes.bin", { type: "application/octet-stream" })],
+      types: ["Files"],
+      getData: () => "",
+    },
+  });
+  await act(async () => {
+    field().dispatchEvent(event);
+  });
+  const failed = () => host.querySelector('[data-state="failed"], .acpmux-attachment-failed');
+  await until(() => Boolean(failed()), "the failed tile");
+  await act(async () => composer.current!.send());
+  await until(() => chat.failures.length === 1, "the prompt's file failing again");
+  const { SendFilesFailed } = await import("../src/agent-session/acpmux/composer/attachmentIntakeModel");
+  expect(chat.failures[0]).toBeInstanceOf(SendFilesFailed);
+  expect(chat.delivered).toEqual([]);
+  await settleTurns();
+  expect(field().textContent).toContain("look");
+  await until(() => Boolean(failed()), "the failed tile back in the composer");
+  expect(host.querySelector(".acpmux-md-inline-retry, .acpmux-attachment-retry")).not.toBeNull();
 });
 
 test("a file still uploading whose node the person deletes is cancelled", async () => {

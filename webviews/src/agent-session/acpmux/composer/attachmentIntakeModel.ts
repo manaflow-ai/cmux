@@ -1118,8 +1118,10 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
               for (const id of ids) sentWith.current.set(id, group);
             });
             mark(true);
-            for (const chip of chips)
-              if (chip.uploadFailed && !autoRetries.current.has(chip.id)) retryRef.current(chip.id);
+            // A chip showing its Retry has given up (its own tries are over: `giveUp`, whose try
+            // record stays), so nothing would ever make it: the send is its Retry. Skipping one
+            // with a try record left the prompt waiting forever on a file no tile showed.
+            for (const chip of chips) if (chip.uploadFailed) retryRef.current(chip.id);
             return wait;
           },
           // Before `take` only: no chip was the prompt's yet.

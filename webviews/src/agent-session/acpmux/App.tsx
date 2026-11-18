@@ -1031,19 +1031,22 @@ const removeQueued = (promptId: string) =>
 /// is the transcript's), and rejects when it was refused before. One acpmux refused for the folder's
 /// trust that joined the pane's hold (`holdRefused`) counts as taken: it waits in the queue now.
 /// `gesture`: the Enter or click the composer bound to a send it held for its files.
-const sendWhenTaken = (steer: boolean) => (text: string, attachments: ComposerAttachment[], gesture?: SendGesture) =>
-  new Promise<void>((resolve, reject) => {
-    callNative("chat.send", {
-      text,
-      attachments,
-      accepted: () => resolve(),
-      steer,
-      ...(gesture ? { gesture } : {}),
-    }).then(
-      () => resolve(),
-      (error: unknown) => (heldRefusal(error) ? resolve() : reject(error)),
-    );
-  });
+/// `chat`: the chat it must go to; a pane showing another one by then refuses it (`startCancelled`).
+const sendWhenTaken =
+  (steer: boolean, chat?: string) => (text: string, attachments: ComposerAttachment[], gesture?: SendGesture) =>
+    new Promise<void>((resolve, reject) => {
+      callNative("chat.send", {
+        text,
+        attachments,
+        accepted: () => resolve(),
+        steer,
+        ...(chat ? { expectedSessionId: chat } : {}),
+        ...(gesture ? { gesture } : {}),
+      }).then(
+        () => resolve(),
+        (error: unknown) => (heldRefusal(error) ? resolve() : reject(error)),
+      );
+    });
 
 /// Keeps the current gesture for prompt `promptId`, which the folder's trust holds (trustHeld.ts).
 const reserveHeldPrompt = (promptId: string) =>
@@ -6789,6 +6792,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// for the last of them: a prompt sent meanwhile goes after it, never before (`sendInTurn`).
   const directSends = useRef(0);
   const directInFlight = useRef<Promise<void>>(Promise.resolve());
+  /// The host answered that this page has no acpmux to reach (a preview host, the gallery): no
+  /// `chat.send` will ever come, so a send is not "made while the chat loads" and never waits for
+  /// one in the pane's queue; the composer keeps it, as before (`untilAcpmuxTakesSends`).
+  const noAcpmux = useRef(false);
   const [startingSends] = useState(
     () =>
       new StartingSends(
@@ -8500,13 +8507,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // The page opens its own WebSocket only on the dev slot (hostRetry.ts `quickRetry`).
         browserSocket = !mock && !bridge;
         if (!mock && !bridge && !(host.transport === "acpmux-websocket" && host.endpoint && host.token)) {
-          // A host with no daemon to reach has nothing left to fail.
+          // A host with no daemon to reach has nothing left to fail, and no send waits for it.
+          noAcpmux.current = true;
           setHostError(undefined);
           setHostErrorShown(false);
           return;
         }
         // Native chats never load the in-page daemon or its fixture transcripts. Keep this
         // await in the mock branch so the native handshake still starts in the same turn.
+        noAcpmux.current = false;
         const mockModule = mock ? (preparedMockTransport() ?? (await import("./mock"))) : undefined;
         if (cancelled) return;
         // A new chat in mock mode starts without a session too, as against a real daemon. A host
@@ -12644,6 +12653,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
         <ImageViewerContext.Provider value={openImage}>
           <Composer
+            sendsBeforeFiles
             cloudStarting={cloudStarting}
             snapshot={composerDrawn}
             guestHarnesses={guestsHere ? composerSnapshot.catalog : undefined}
@@ -12710,6 +12720,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               // it may leave the composer at once and wait in the pane, in order, for its files still
               // being read (`filesReady`), for acpmux to connect, or for the sends before it.
               const waitsInPane =
+                !noAcpmux.current &&
                 Boolean(snapshot.sessionId) &&
                 surfaceRef.current !== "quick" &&
                 !projectDraft &&
@@ -12731,13 +12742,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               /// BEFORE THE PREVIOUS").
               const sendInTurn = () => {
                 const before = directInFlight.current;
+                // It goes to the chat it was sent in: one the pane left meanwhile refuses it
+                // (`expectedSessionId`), and it comes back to the composer, never into the chat shown now.
+                const sentIn = snapshot.sessionId || undefined;
                 startingSends.add(
                   text,
                   shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
                   async (words, attachments, held) => {
                     await before;
                     await untilAcpmuxTakesSends();
-                    return sendWhenTaken(steer === true)(
+                    return sendWhenTaken(steer === true, sentIn)(
                       words,
                       shellContextAttachments(attachments, (id) => shellRuns.get(id)),
                       held,

@@ -314,7 +314,7 @@ type Props = {
   /// `filesReady`: the prompt went while some of its files were still read or uploaded; `attachments`
   /// has stand-ins for them (their ids, names, no bytes) and this is the whole list once they are
   /// chips. A sender that cannot hold a prompt for them answers false and does nothing else: the
-  /// composer then keeps the prompt until they are ready, as before.
+  /// composer then keeps the prompt until they are ready, as before. Given only with `sendsBeforeFiles`.
   onSend(
     text: string,
     attachments?: ComposerAttachment[],
@@ -322,6 +322,10 @@ type Props = {
     gesture?: SendGesture,
     filesReady?: Promise<ComposerAttachment[]>,
   ): boolean | void | Promise<unknown>;
+  /// `onSend` takes a prompt before its files (`filesReady`), answering true or false. Unset: a
+  /// sender that knows nothing of stand-ins, so the composer holds the prompt for its files itself
+  /// and never hands that sender zero-byte stand-ins it would send (and then send again).
+  sendsBeforeFiles?: boolean;
   /// Binds the person's current key press or click to one prompt (`transport.gesture`), for a send
   /// the composer holds until its files are ready (attachmentIntake.tsx `useSendWhenAttached`).
   onBindSendGesture?(): SendGesture | undefined;
@@ -545,6 +549,7 @@ function ComposerFrame({
   turnQueue,
   chips: Chips,
   onSend,
+  sendsBeforeFiles,
   onBindSendGesture,
   onBindSideGesture,
   transcriptFollowing,
@@ -1739,7 +1744,7 @@ function ComposerFrame({
     // A file pasted or dropped is still being read or uploaded: the prompt goes now and shows as
     // sent, and the file follows it (`sendWith`); the chat sends it once the file is a chip, in its
     // turn. Only where the chat can hold it so (`onSend`'s `filesReady`); else it waits here for it.
-    const handed = !isCommand && !side && !local && loading > 0 ? sendWith() : undefined;
+    const handed = sendsBeforeFiles && !isCommand && !side && !local && loading > 0 ? sendWith() : undefined;
     if (handed) {
       placed = placeInline(typedText.trim(), [...attachments, ...handed.standIns]);
       prompt = placed.text;

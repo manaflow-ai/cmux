@@ -158,9 +158,13 @@ export function useInlineAttachments(options: Options) {
   };
   /// The nodes in the text the last edit left, or the value from outside put there, by id.
   const placedNow = useRef<string[]>([]);
-  /// Whether `id` went with a prompt and has not been put back.
+  /// Whether `id` went with a prompt and has not been put back. A file that went loading with its
+  /// prompt and failed is the composer's loading chip again (attachmentIntakeModel.ts `release`): its
+  /// node, back with the prompt's text, is its failed tile with Retry, never removed as sent.
   const isSent = (id: string) =>
-    sentIds.current.has(id) && !live.current.attachmentsRef.current.some((attachment) => attachment.id === id);
+    sentIds.current.has(id) &&
+    !live.current.attachmentsRef.current.some((attachment) => attachment.id === id) &&
+    !live.current.pending.some((chip) => chip.id === id);
 
   const [api] = useState(() => ({
     /// The person's paste or drop made `chips`: each goes in at the caret, images, videos, files,
