@@ -45,18 +45,20 @@ public nonisolated struct HomeChiefRoster: Hashable, Sendable, Codable {
                                        prefersLocal: Bool = false) -> HomeChiefRoster {
         // The one Chief list rule (CmuxChiefList), the iPhone's Home's too.
         let chiefs = rows.filter { $0.kind == .chief }.map { ChiefList.Chief(conversation: $0.id.rawValue, isCloud: cloud.contains($0.id)) }
+        // A server with no name yet is "Paired server", as this list always said.
         return HomeChiefRoster(ChiefList(chiefs: chiefs, local: local?.rawValue, hosted: hosted?.rawValue, placed: placed?.rawValue,
-                                         server: server, showsPlaced: showsPlaced, prefersLocal: prefersLocal))
+                                         server: server, showsPlaced: showsPlaced, prefersLocal: prefersLocal),
+                               unnamedServer: HomeModelStrings.placeServer)
     }
 
     /// This roster as the shared list (CmuxChiefList's ``ChiefList``).
     var list: ChiefList {
-        ChiefList(main: main?.rawValue, places: Dictionary(uniqueKeysWithValues: places.map { ($0.key.rawValue, $0.value) }))
+        ChiefList(main: main?.rawValue, places: Dictionary(uniqueKeysWithValues: places.map { ($0.key.rawValue, $0.value.shared) }))
     }
 
-    init(_ list: ChiefList) {
+    init(_ list: ChiefList, unnamedServer: String = "") {
         self.init(main: list.main.map { ConversationID($0) },
-                  places: Dictionary(uniqueKeysWithValues: list.places.map { (ConversationID($0.key), $0.value) }))
+                  places: Dictionary(uniqueKeysWithValues: list.places.map { (ConversationID($0.key), HomeChiefPlace($0.value, unnamedServer: unnamedServer)) }))
     }
 
     /// This roster while the cloud Chiefs are not read yet (launch): the last launch's main Chief and
@@ -73,6 +75,6 @@ public nonisolated struct HomeChiefRoster: Hashable, Sendable, Codable {
     /// the main Chief ("Main · Cloud"), since the same Chief can be listed
     /// on more than one host; a non-default engine follows ("This Mac · UniiChat").
     @MainActor public func tag(for id: ConversationID, engine: String?) -> String? {
-        list.tag(for: id.rawValue, engine: engine, mainLabel: HomeModelStrings.mainChief) { $0.label }
+        list.tag(for: id.rawValue, engine: engine, mainLabel: HomeModelStrings.mainChief) { HomeChiefPlace($0, unnamedServer: "").label }
     }
 }
