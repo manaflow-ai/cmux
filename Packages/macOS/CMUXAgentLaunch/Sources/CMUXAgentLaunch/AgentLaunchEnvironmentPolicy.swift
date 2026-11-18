@@ -106,6 +106,9 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "CAMPFIRE_CODING_AGENT_DIR",
         "CAMPFIRE_CODING_AGENT_SESSION_DIR",
         "CAMPFIRE_RELAY_URL",
+        // Claude Code only resumes a session started in Code Mode while this flag is set,
+        // so a restored Code Mode pane must replay it. A mode flag, not a secret.
+        "CLAUDE_CODE_EXPERIMENTAL_CODE_MODE",
         "CLAUDE_CONFIG_DIR",
         // Selects the directory holding Cursor's cli-config.json and approval policy.
         "CURSOR_CONFIG_DIR",
