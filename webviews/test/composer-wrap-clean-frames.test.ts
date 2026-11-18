@@ -99,11 +99,15 @@ await requireBrowserLane("composer-wrap-clean-frames.test.ts", async () => {
     return page;
   };
 
-  const rest = (page: Page, surface: Surface) =>
-    page.waitForFunction(
+  // After the frame that draws the last key: the growth starts in that frame's animation callbacks
+  // (fieldGrowth.ts reads no layout in the key's own task), so read at once the field still rests.
+  const rest = async (page: Page, surface: Surface) => {
+    await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => done())));
+    await page.waitForFunction(
       (selector) => document.querySelector<HTMLElement>(selector)!.getAnimations().length === 0,
       surface.field,
     );
+  };
 
   /** Starts reading every painted frame into `window.__reads`. */
   const startReads = (page: Page, surface: Surface) =>

@@ -14,10 +14,15 @@ import { sliceHoldsInline } from "./inlineNode";
 // 2026-11-07: "it's like the composer kind of doesn't grow smoothly. It grows in bursts."). The
 // field lays out at its natural height (markdownField.css: auto, up to its cap); when an edit
 // changes that height, this draws the field from the height it showed to the new one on the move
-// spring (fieldGrowth.experiment.ts arms). It starts in the edit's own task, before the frame's
-// layout and observers, so the first frame still draws the old height, and tells the transcript
-// (fieldGrowthEvent.ts): it takes the end height into its room in one render and moves its rows
-// home on the same curve and clock, on the compositor, with no render per frame.
+// spring (fieldGrowth.experiment.ts arms). An edit's own task reads no layout: the field reads its
+// height once in the next frame's animation callbacks (`requestAnimationFrame`), where the frame lays
+// out anyway, however many edits came since; one that changed it starts the motion there, before the
+// frame's layout, observers and paint, so the first frame still draws the old height. Not in the
+// observer step: a height changed there is an observation the step leaves undelivered (the
+// "ResizeObserver loop" error), and the stack's observers would read the end height first. It tells
+// the transcript (fieldGrowthEvent.ts), the motion's one owner: it takes the end height into its room
+// in one render after that frame (never a synchronous one) and moves its rows home on the same curve
+// and clock, on the compositor, with no render per frame.
 //
 // Where the text rides: a line typed or wrapped keeps the text's top on the field's moving top edge,
 // so the lines already there move with the edge and the new line comes in at the bottom as the edge
@@ -161,6 +166,10 @@ export function fieldGrowth(external: () => boolean): Plugin {
       // window's cap) by the field's own observer, which delivers after the edit that changes it.
       let shown = -1;
       let restObserver: ResizeObserver | undefined;
+      // The frame that reads the edits since the last one (`follow`), and whether one lands at once
+      // (an attachment placed, a value set from outside).
+      let frame: number | undefined;
+      let editedAtOnce = false;
       const attach = () => {
         scroller = view.dom.closest<HTMLElement>(".acpmux-md-field");
         if (!scroller || typeof ResizeObserver !== "function") return;
@@ -195,7 +204,7 @@ export function fieldGrowth(external: () => boolean): Plugin {
         animation.addEventListener("finish", done, { once: true });
         animation.addEventListener("cancel", done, { once: true });
       };
-      // perf-hot: one layout read per edit (ProseMirror's own caret reveal reads the same layout next).
+      // perf-hot: one layout read per frame with an edit, in its animation callbacks, never in an edit's task composer-field-growth
       const follow = (atOnce = false) => {
         const field = scroller;
         if (!field) return;
@@ -211,7 +220,7 @@ export function fieldGrowth(external: () => boolean): Plugin {
         shown = to;
         // Read before the same-end path: an edit after motion went off (or a value set from outside)
         // lands a running growth instead of playing it on.
-        const moves = !atOnce && arm !== "instant" && !external() && motionMode(field.ownerDocument) === "full";
+        const moves = !atOnce && arm !== "instant" && motionMode(field.ownerDocument) === "full";
         if (running && moves && Math.abs(to - running.to) < 0.5) {
           // The same end (a second edit on the same line, the text's observer's first call): the
           // motion goes on where it was, on the same curve and clock. A started animation given its
@@ -287,9 +296,20 @@ export function fieldGrowth(external: () => boolean): Plugin {
       return {
         update(next, previous) {
           if (!scroller) attach();
-          if (!next.state.doc.eq(previous.doc)) follow(placedKey.getState(next.state) === true);
+          if (next.state.doc.eq(previous.doc)) return;
+          // What lands at once is known only now (a value set from outside ends with this task).
+          editedAtOnce ||= placedKey.getState(next.state) === true || external();
+          if (frame !== undefined) return;
+          frame = requestAnimationFrame(() => {
+            frame = undefined;
+            const atOnce = editedAtOnce;
+            editedAtOnce = false;
+            follow(atOnce);
+          });
         },
         destroy() {
+          if (frame !== undefined) cancelAnimationFrame(frame);
+          frame = undefined;
           restObserver?.disconnect();
           if (scroller) land(scroller);
         },

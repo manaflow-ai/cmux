@@ -1999,6 +1999,41 @@ function drawShown(): void {
   for (const wait of due) wait();
 }
 
+/// A keystroke never waits on the stream's draw (Leo, 2026-11-17: "why should typing... wait on
+/// rendering???"). A key's edit is in the DOM when its event ends, and it shows at the next frame's
+/// paint, after that frame's animation callbacks: the stream's draw (a transcript render, 10 to 13 ms
+/// at 1,500 rows) ran there and the letter waited for it. So the first frame after a key draws
+/// nothing of the stream; the stream's draw takes the frame after, with everything that landed
+/// meanwhile. Once per key: keys faster than the display defer the stream at most every other frame,
+/// and the 50 ms fallback in `nextFrame` still bounds the wait.
+let lastKeyAt = Number.NEGATIVE_INFINITY;
+let yieldedKeyAt = Number.NEGATIVE_INFINITY;
+/// A key at most this long ago is the one the coming frame paints.
+const KEY_FRAME_MS = 20;
+let keyWatch = false;
+function watchKeys(): void {
+  if (keyWatch || typeof window === "undefined" || typeof window.addEventListener !== "function") return;
+  keyWatch = true;
+  const note = () => {
+    lastKeyAt = performance.now();
+  };
+  // Capture, passive: the watch only reads the time, before any handler, and never delays the key.
+  for (const type of ["keydown", "beforeinput", "compositionupdate"])
+    window.addEventListener(type, note, { capture: true, passive: true });
+}
+/// The frame (its rAF time) a key took: every chat's draw in that frame waits, not only the first.
+let yieldedFrame: number | undefined;
+/// Whether the draw asked for in the frame at `frameTime` waits a frame for a key. The 50 ms fallback
+/// (no frame time) never waits: it is the bound.
+function keyYieldsFrame(frameTime: number | undefined): boolean {
+  if (frameTime === undefined) return false;
+  if (frameTime === yieldedFrame) return true;
+  if (lastKeyAt === yieldedKeyAt || performance.now() - lastKeyAt > KEY_FRAME_MS) return false;
+  yieldedKeyAt = lastKeyAt;
+  yieldedFrame = frameTime;
+  return true;
+}
+
 /// Runs `run` once before the next display frame, or after 50 ms when a shown page draws no frames
 /// (an occluded window). A hidden page draws nothing: `run` waits until it shows, also when the page
 /// hides before the frame comes, and its first frame then draws everything that landed meanwhile
@@ -2008,6 +2043,7 @@ function drawShown(): void {
 /// Whichever of the frame and the 50 ms fallback comes first cancels the other: the fallback left
 /// waiting woke the page 50 ms after every drawn frame to do nothing (CMUX-571 idle wakeups).
 export const nextFrame = (run: () => void): (() => void) => {
+  watchKeys();
   let done = false;
   let stopPending: (() => void) | undefined;
   const frame = () => {
@@ -2021,8 +2057,15 @@ export const nextFrame = (run: () => void): (() => void) => {
       if (fallback !== undefined) clearTimeout(fallback);
       stopPending = undefined;
     };
-    const once = () => {
+    const once = (frameTime?: number) => {
       if (ran || done) return;
+      // A key typed since the last frame paints first: this frame draws only its edit, and the
+      // stream's draw takes the next one (`keyYieldsFrame`).
+      const at = typeof frameTime === "number" ? frameTime : undefined;
+      if (keyYieldsFrame(at) && typeof requestAnimationFrame === "function" && typeof drawn === "number") {
+        drawn = requestAnimationFrame(once);
+        return;
+      }
       ran = true;
       stop();
       if (!pageShown()) return waitForShow(frame);
@@ -2031,7 +2074,7 @@ export const nextFrame = (run: () => void): (() => void) => {
     };
     stopPending = stop;
     drawn = requestAnimationFrame(once);
-    fallback = setTimeout(once, 50);
+    fallback = setTimeout(() => once(), 50);
     // A frame that came at once (a test's clock) leaves no fallback behind.
     if (ran) stop();
   };
