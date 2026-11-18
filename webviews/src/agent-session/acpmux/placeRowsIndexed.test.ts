@@ -156,7 +156,11 @@ describe("placeRowsIndexed matches placeRows", () => {
     for (const rows of [
       { heights: [0, 0], marks: [MARK_FOOTER, MARK_FOOTER], gaps: [0, 0] },
       { heights: [30], marks: [MARK_INDICATOR], gaps: [0] },
-      { heights: [30, 10, 0], marks: [MARK_PROMPT, MARK_INDICATOR, MARK_FOOTER], gaps: [0, 0, 0] },
+      {
+        heights: [30, 10, 0],
+        marks: [MARK_PROMPT, MARK_INDICATOR, MARK_FOOTER],
+        gaps: [0, 0, 0],
+      },
       { heights: [], marks: [], gaps: [] },
     ]) {
       const estimate = estimateOf(rows);
@@ -278,5 +282,42 @@ describe("placeRowsIndexed matches placeRows", () => {
     expect(reads).toBe(1);
     expect(grown.geometry.heightAt(4_999)).toBe(400);
     expect(layoutGeometry(placed).topAt(4_999)).toBe(before);
+  });
+});
+
+// A row collapsing to nothing (model.ts collapsingHeight) moves the rows under it with it: from its
+// full height to 0 the row under it travels by at most what the collapsing row lost, plus its share
+// of the gaps, at every step, and lands where the row would be with the collapsing one not drawn.
+describe("a collapsing row closes its gaps with it", () => {
+  const rows: Rows = {
+    heights: [120, 28, 0, 40, 60],
+    marks: [MARK_FOOTER, 0, 0, MARK_MESSAGE, MARK_PROMPT],
+    gaps: [0, 0, 0, 0, 0],
+  };
+  const estimate = estimateOf(rows);
+  const nextTop = (height: number, collapsing: boolean) =>
+    placeRowsIndexed(
+      estimate,
+      (index) => (index === 1 ? height : rows.heights[index]),
+      undefined,
+      0,
+      (index) => collapsing && index === 1,
+    ).geometry.topAt(3);
+  test("at full height and at 0 it places as a drawn and an undrawn row", () => {
+    expect(nextTop(28, true)).toBeCloseTo(nextTop(28, false), 6);
+    expect(nextTop(0, true)).toBeCloseTo(nextTop(0, false), 6);
+  });
+  test("no step between: the row under it moves smoothly", () => {
+    const steps = 28;
+    let before = nextTop(28, true);
+    const travel = before - nextTop(0, true);
+    for (let at = steps - 1; at >= 0; at -= 1) {
+      const top = nextTop(at, true);
+      expect(before - top).toBeGreaterThanOrEqual(-EPSILON);
+      expect(before - top).toBeLessThanOrEqual(travel / steps + 1 + EPSILON);
+      before = top;
+    }
+    // Not collapsing, the gaps drop all at once when it reaches 0.
+    expect(nextTop(1, false) - nextTop(0, false)).toBeGreaterThan(4);
   });
 });

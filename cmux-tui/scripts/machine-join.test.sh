@@ -90,7 +90,16 @@ case "\$1" in -s) echo "\$JT_OS" ;; -m) echo "\$JT_ARCH" ;; *) echo fake ;; esac
 EOF
 chmod 755 "$shims/uname"
 
+# sleep records its argv and returns at once: a retry's wait costs the suite nothing.
+cat >"$shims/sleep" <<EOF
+#!/bin/sh
+. "$fakes/record.sh"
+EOF
+chmod 755 "$shims/sleep"
+
 # The fake curl: serves \$JT_SERVE/<kind> by the URL's shape, honours -o.
+# \$JT_LOG/curl-fails, one curl exit code per line: the acpmux download
+# fails with each in turn (a reset is 56, an HTTP status 22), then succeeds.
 cat >"$shims/curl" <<EOF
 #!/bin/sh
 . "$fakes/record.sh"
@@ -111,6 +120,15 @@ case "\$url" in
   https://files.cmux.com/cmux-tui/*/cmux-tui-*) src="\$JT_SERVE/cmux" ;;
   https://claude.ai/install.sh) src="\$JT_SERVE/claude-install.sh" ;;
   *) exit 6 ;;
+esac
+case "\$url" in
+  */tree/*)
+    if [ -s "\$JT_LOG/curl-fails" ]; then
+      code="\$("$(command -v head)" -n 1 "\$JT_LOG/curl-fails")"
+      "$(command -v sed)" 1d "\$JT_LOG/curl-fails" >"\$JT_LOG/curl-fails.next"
+      "$(command -v mv)" "\$JT_LOG/curl-fails.next" "\$JT_LOG/curl-fails"
+      exit "\$code"
+    fi ;;
 esac
 [ -f "\$src" ] || exit 22
 if [ -n "\$out" ]; then "$(command -v cat)" "\$src" >"\$out"; else "$(command -v cat)" "\$src"; fi
@@ -425,11 +443,45 @@ suite() {
   check "the temp dir was kept for the disk check" eval 'ls "$d/tmp"/cmux-join.*/join.err >/dev/null 2>&1'
   check "acpmux's stderr is redacted before it reaches disk" no_token_on_disk
 
+  # A transport reset is retried (run 44192875334: a 23 s blip reset every
+  # connection); an HTTP status the server sent is not.
+  new_case fetch-reset
+  printf '56\n56\n' >"$d/log/curl-fails"
+  run_join env
+  check "two resets, then the download: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "one line per retry" test "$(grep -c 'retrying in' "$d/out")" = 2
+  check "the retry line names the curl exit" out_has "(curl exit 56); retrying in 2 s"
+  check "waits 2 s, then 8 s" test "$(grep '^sleep' "$d/log/argv" | tr '\n' ' ')" = "sleep 2 sleep 8 "
+  check "three tries of the download" test "$(grep -c '^curl .*tree/' "$d/log/argv")" = 3
+  check "acpmux installed" installed
+  check "the token reaches acpmux on stdin, once" token_on_stdin_once
+  check "no token in output" no_token_in_output
+
+  new_case fetch-reset-gives-up
+  printf '56\n7\n28\n35\n' >"$d/log/curl-fails"
+  run_join env
+  check "four transport failures: exit 1 (got $rc)" rc_is 1
+  check "it stops after four tries" test "$(grep -c '^curl .*tree/' "$d/log/argv")" = 4
+  check "waits 2, 8 and 20 s" test "$(grep '^sleep' "$d/log/argv" | tr '\n' ' ')" = "sleep 2 sleep 8 sleep 20 "
+  check "it says the download failed" out_has "cannot download acpmux for x86_64-unknown-linux-musl"
+  check "nothing installed" eval '! installed'
+  check "nothing redeemed" no_redeem
+
+  new_case fetch-http-status
+  printf '22\n' >"$d/log/curl-fails"
+  run_join env
+  check "an HTTP status: exit 1 (got $rc)" rc_is 1
+  check "an HTTP status is not retried" test "$(grep -c '^curl .*tree/' "$d/log/argv")" = 1
+  check "no wait" eval '! grep -q "^sleep" "$d/log/argv"'
+  check "no retry line" eval '! out_has "retrying in"'
+  check "nothing redeemed" no_redeem
+
   new_case sha-mismatch
   serve_dir "$d/serve" "0000000000000000000000000000000000000000000000000000000000000000"
   run_join env
   check "mismatch fails (got $rc)" rc_is 1
   check "mismatch says so" out_has "checksum verification failed for acpmux"
+  check "a mismatch is not retried" test "$(grep -c '^curl .*tree/' "$d/log/argv")" = 1
   check "nothing installed" eval '! installed'
   check "nothing redeemed" no_redeem
 

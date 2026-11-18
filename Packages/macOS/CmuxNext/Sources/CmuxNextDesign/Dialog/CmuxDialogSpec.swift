@@ -6,6 +6,8 @@ public import CmuxNextDesignTokens
 /// optional fields, and the buttons with their roles. `CmuxDialogCenter`
 /// shows it in a scope and reports one `CmuxDialogAnswer`.
 public nonisolated struct CmuxDialogSpec: Equatable, Sendable {
+    /// Non-chat callers opt into the shared material; held chat dialogs retain their current look.
+    public var usesTransientMaterial: Bool
     public var title: String
     /// One short sentence per line.
     public var lines: [String]
@@ -48,9 +50,10 @@ public nonisolated struct CmuxDialogSpec: Equatable, Sendable {
         }
     }
 
-    public init(title: String, lines: [String] = [], origin: String? = nil, fields: [CmuxDialogField] = [],
+    public init(usesTransientMaterial: Bool = false, title: String, lines: [String] = [], origin: String? = nil, fields: [CmuxDialogField] = [],
                 buttons: [CmuxDialogButton], icon: Data? = nil, identifier: String? = nil, layout: Layout = .standard,
                 error: String? = nil) {
+        self.usesTransientMaterial = usesTransientMaterial
         self.title = title
         self.lines = lines
         self.origin = origin
@@ -63,9 +66,9 @@ public nonisolated struct CmuxDialogSpec: Equatable, Sendable {
     }
 
     /// The button Return presses: the first `.default`, else none. A person-only button is never pressed by a key.
-    public var defaultButton: CmuxDialogButton? { buttons.first { $0.role == .default && !$0.personOnly } }
+    public var defaultButton: CmuxDialogButton? { buttons.first { $0.role == .default && !$0.personOnly && $0.isEnabled } }
     /// The button Escape presses: the first `.cancel`, else the only button (never a person-only one).
     public var cancelButton: CmuxDialogButton? {
-        (buttons.first { $0.role == .cancel } ?? (buttons.count == 1 ? buttons[0] : nil)).flatMap { $0.personOnly ? nil : $0 }
+        (buttons.first { $0.role == .cancel } ?? (buttons.count == 1 ? buttons[0] : nil)).flatMap { $0.personOnly || !$0.isEnabled ? nil : $0 }
     }
 }
