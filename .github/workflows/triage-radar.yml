@@ -26,9 +26,28 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+      # This job's reads spend the cmux-bot App's own budget, not the repository's GITHUB_TOKEN pool
+      # (1,000 requests an hour shared by every workflow; run 43989604298 failed on "API rate limit
+      # exceeded for installation"). github.token stays the fallback: for a failed mint, a
+      # refused read, and every write (hq docs/compendium/ci-quotas.md, cmux#35264).
+      - name: Mint the cmux-bot token for this job's reads
+        id: read-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-contents: read
+          permission-issues: read
+          permission-pull-requests: read
+
       - name: Refresh current attention candidates
         env:
-          GH_TOKEN: ${{ github.token }}
+          # Reads on GH_TOKEN; the radar issue's edit on GH_FALLBACK_TOKEN (github.token).
+          GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TRIAGE_RADAR_ISSUE: "13512"
           ISSUE_HOURS: "72"

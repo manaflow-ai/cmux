@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 
 import type { Locale } from "../../../../i18n/routing";
 import { buildAlternates } from "../../../../i18n/seo";
+import { cmuxCloudPrivacySection } from "./cmux-cloud";
 import {
   type PrivacyPolicySection,
   type PrivacyPolicySubsection,
@@ -39,31 +40,34 @@ export default async function PrivacyPolicyPage({ params }: PageProps) {
       {sections.map((section, index) => (
         <PolicySection key={index} section={section} />
       ))}
+      <section id="cmux-cloud">
+        <PolicySection section={cmuxCloudPrivacySection} />
+      </section>
     </>
   );
 }
 
 const lastUpdatedByLocale = {
-  en: "Last updated: July 14, 2026",
-  ja: "最終更新日: 2026 年 7 月 14 日",
-  "zh-CN": "最后更新：2026 年 7 月 14 日",
-  "zh-TW": "最後更新：2026 年 7 月 14 日",
-  ko: "최종 업데이트: 2026년 7월 14일",
-  de: "Zuletzt aktualisiert: 14. Juli 2026",
-  es: "Última actualización: 14 de julio de 2026",
-  fr: "Dernière mise à jour : 14 juillet 2026",
-  it: "Ultimo aggiornamento: 14 luglio 2026",
-  da: "Senest opdateret: 14. juli 2026",
-  pl: "Ostatnia aktualizacja: 14 lipca 2026 r.",
-  ru: "Последнее обновление: 14 июля 2026 г.",
-  bs: "Posljednje ažuriranje: 14. juli 2026.",
-  ar: "آخر تحديث: 14 يوليو 2026",
-  no: "Sist oppdatert: 14. juli 2026",
-  "pt-BR": "Última atualização: 14 de julho de 2026",
-  th: "อัปเดตล่าสุด: 14 กรกฎาคม 2026",
-  tr: "Son güncelleme: 14 Temmuz 2026",
-  km: "បានធ្វើបច្ចុប្បន្នភាពចុងក្រោយ៖ 14 កក្កដា 2026",
-  uk: "Останнє оновлення: 14 липня 2026 р.",
+  en: "Last updated: November 17, 2026",
+  ja: "最終更新日: 2026 年 11 月 17 日",
+  "zh-CN": "最后更新：2026 年 11 月 17 日",
+  "zh-TW": "最後更新：2026 年 11 月 17 日",
+  ko: "최종 업데이트: 2026년 11월 17일",
+  de: "Zuletzt aktualisiert: 17. November 2026",
+  es: "Última actualización: 17 de noviembre de 2026",
+  fr: "Dernière mise à jour : 17 novembre 2026",
+  it: "Ultimo aggiornamento: 17 novembre 2026",
+  da: "Senest opdateret: 17. november 2026",
+  pl: "Ostatnia aktualizacja: 17 listopada 2026 r.",
+  ru: "Последнее обновление: 17 ноября 2026 г.",
+  bs: "Posljednje ažuriranje: 17. novembar 2026.",
+  ar: "آخر تحديث: 17 نوفمبر 2026",
+  no: "Sist oppdatert: 17. november 2026",
+  "pt-BR": "Última atualização: 17 de novembro de 2026",
+  th: "อัปเดตล่าสุด: 17 พฤศจิกายน 2026",
+  tr: "Son güncelleme: 17 Kasım 2026",
+  km: "បានធ្វើបច្ចុប្បន្នភាពចុងក្រោយ៖ 17 វិច្ឆិកា 2026",
+  uk: "Останнє оновлення: 17 листопада 2026 р.",
 } satisfies Record<Locale, string>;
 
 function lastUpdatedForLocale(locale: string): string {

@@ -6,10 +6,21 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import postgres, { type Sql } from "postgres";
 
-import { closeCloudDbForTests } from "../db/client";
+import { closeCloudDbForTests, cloudDb } from "../db/client";
+import { loadAnalyticsInputs, parseAnalyticsQuery } from "../services/billing/analytics/query";
+import {
+  accountDeletionCheckForUser,
+  detachAppleBillingForAccountDeletion,
+} from "../services/billing/apple/accountDeletion";
+import { processAppleNotification, type AppleIapDependencies } from "../services/billing/apple/service";
 import { activeApplePlanForUser } from "../services/billing/apple/entitlement";
 import type { AppleSubscriptionState } from "../services/billing/apple/state";
-import { AppleOwnershipError, databaseAppleIapStore } from "../services/billing/apple/store";
+import {
+  APPLE_NOTIFICATION_MAX_ATTEMPTS,
+  AppleOwnershipError,
+  appleNotificationRetryDelayMs,
+  databaseAppleIapStore,
+} from "../services/billing/apple/store";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
 const dbTest = runDbTests ? test : test.skip;
@@ -28,7 +39,7 @@ beforeAll(() => {
 
 beforeEach(async () => {
   if (!sql) return;
-  await sql`truncate apple_account_tokens, apple_subscriptions, apple_transactions, apple_notifications`;
+  await sql`truncate apple_account_tokens, apple_subscriptions, apple_transactions, apple_notifications, apple_notification_history_cursors`;
 });
 
 afterAll(async () => {
@@ -166,12 +177,106 @@ describe("Apple IAP store", () => {
     expect((await store.insertNotification(ledger)).inserted).toBe(false);
     await store.insertNotification({ ...ledger, notificationUuid: "n-2" });
     await store.insertNotification({ ...ledger, notificationUuid: "n-3" });
-    await store.markNotificationFailed("n-1", "Stack unavailable");
+    await store.markNotificationFailed("n-1", "Stack unavailable", new Date(NOW));
     await store.markNotificationProcessed("n-2", new Date());
     await store.markNotificationSkipped("n-3", "unlinked_account", new Date());
-    expect((await store.pendingNotifications(10)).map((row) => row.notificationUuid)).toEqual(["n-1"]);
+    const due = new Date(NOW + appleNotificationRetryDelayMs(1));
+    expect((await store.pendingNotifications(10, due)).map((row) => row.notificationUuid)).toEqual(["n-1"]);
     await store.markNotificationProcessed("n-1", new Date());
-    expect(await store.pendingNotifications(10)).toEqual([]);
+    expect(await store.pendingNotifications(10, due)).toEqual([]);
+  });
+
+  dbTest("a failed notification backs off exponentially and is dead-lettered after the last attempt", async () => {
+    const ledger = {
+      notificationUuid: "n-1", notificationType: "DID_RENEW", subtype: null, environment: "Production",
+      originalTransactionId: "otx-1", signedDate: new Date(NOW), payload: { data: {} },
+    };
+    await store.insertNotification(ledger);
+    await store.insertNotification({ ...ledger, notificationUuid: "n-2" });
+    const first = await store.markNotificationFailed("n-1", "boom", new Date(NOW));
+    expect(first).toEqual({ attemptCount: 1, deadLettered: false });
+    const [row] = await sql!`select attempt_count, next_attempt_at, dead_lettered_at from apple_notifications where notification_uuid = 'n-1'`;
+    expect(new Date(row!.next_attempt_at).getTime()).toBe(NOW + appleNotificationRetryDelayMs(1));
+    // Not due yet: only the untouched row is listed.
+    expect((await store.pendingNotifications(10, new Date(NOW))).map((r) => r.notificationUuid)).toEqual(["n-2"]);
+    const second = await store.markNotificationFailed("n-1", "boom", new Date(NOW));
+    expect(second.attemptCount).toBe(2);
+    const [again] = await sql!`select next_attempt_at from apple_notifications where notification_uuid = 'n-1'`;
+    expect(new Date(again!.next_attempt_at).getTime()).toBe(NOW + appleNotificationRetryDelayMs(2));
+    let last = second;
+    for (let attempt = 3; attempt <= APPLE_NOTIFICATION_MAX_ATTEMPTS; attempt += 1) {
+      last = await store.markNotificationFailed("n-1", "boom", new Date(NOW));
+    }
+    expect(last).toEqual({ attemptCount: APPLE_NOTIFICATION_MAX_ATTEMPTS, deadLettered: true });
+    const far = new Date(NOW + 365 * DAY);
+    expect((await store.pendingNotifications(10, far)).map((r) => r.notificationUuid)).toEqual(["n-2"]);
+    expect((await store.notification("n-1"))?.deadLetteredAt).not.toBeNull();
+  });
+
+  dbTest("renewal re-check candidates: granting, ending in the window, not checked recently, whatever auto-renew says", async () => {
+    const write = (overrides: Partial<AppleSubscriptionState>) =>
+      store.writeSubscriptionState(state(overrides), { tokenOwner: "user-a" });
+    const HOUR = 60 * 60_000;
+    await write({ originalTransactionId: "soon", expiresAt: new Date(NOW + 2 * HOUR) });
+    await write({ originalTransactionId: "sooner", expiresAt: new Date(NOW + HOUR) });
+    await write({ originalTransactionId: "far", expiresAt: new Date(NOW + 10 * DAY) });
+    await write({ originalTransactionId: "off", autoRenewEnabled: false, expiresAt: new Date(NOW + HOUR) });
+    await write({ originalTransactionId: "unknown-renew", autoRenewEnabled: null, expiresAt: new Date(NOW + 3 * HOUR) });
+    await write({ originalTransactionId: "expired", status: "expired", expiresAt: new Date(NOW + HOUR) });
+    await write({ originalTransactionId: "long-gone", expiresAt: new Date(NOW - 2 * HOUR) });
+    await write({
+      originalTransactionId: "grace", status: "grace_period",
+      expiresAt: new Date(NOW - DAY), gracePeriodExpiresAt: new Date(NOW + 4 * HOUR),
+    });
+    await write({ originalTransactionId: "checked", expiresAt: new Date(NOW + HOUR) });
+    const before = await store.subscription("checked");
+    await store.markAppleChecked("checked", new Date(NOW));
+    const after = await store.subscription("checked");
+    expect(after?.appleCheckedAt?.getTime()).toBe(NOW);
+    expect(after?.updatedAt.getTime()).toBe(before?.updatedAt.getTime());
+
+    const query = {
+      accessEndsAfter: new Date(NOW - HOUR),
+      accessEndsBy: new Date(NOW + 6 * HOUR),
+      checkedBefore: new Date(NOW - 25 * 60_000),
+      limit: 10,
+    };
+    expect((await store.renewalCheckCandidates(query)).map((row) => row.originalTransactionId))
+      .toEqual(["off", "sooner", "soon", "unknown-renew", "grace"]);
+    expect((await store.renewalCheckCandidates({ ...query, checkedBefore: new Date(NOW + 1) })).map((row) => row.originalTransactionId))
+      .toEqual(["checked", "off", "sooner", "soon", "unknown-renew", "grace"]);
+    expect(await store.renewalCheckCandidates({ ...query, limit: 1 })).toHaveLength(1);
+  });
+
+  dbTest("subscription analytics leave out family-shared transactions", async () => {
+    const row = {
+      transactionId: "tx-purchased", originalTransactionId: "otx-1", userId: "user-a", productId: "com.cmux.app.pro.monthly",
+      planId: "pro", environment: "Production", type: "PURCHASE", purchaseDate: new Date(NOW - DAY),
+      expiresAt: new Date(NOW + 29 * DAY), priceMilliunits: 74990, currency: "USD", storefront: "USA", offerType: null,
+      revokedAt: null, payload: { signedDate: NOW, inAppOwnershipType: "PURCHASED" },
+    };
+    await store.recordTransaction(row);
+    await store.recordTransaction({
+      ...row, transactionId: "tx-family", userId: "user-b", payload: { signedDate: NOW, inAppOwnershipType: "FAMILY_SHARED" },
+    });
+    const query = parseAnalyticsQuery(new URLSearchParams({ source: "apple" }), new Date(NOW))!;
+    const inputs = await loadAnalyticsInputs(query);
+    expect(inputs.appleTransactions.map((tx) => tx.transactionId)).toEqual(["tx-purchased"]);
+  });
+
+  dbTest("the history cursor upserts per bundle and environment", async () => {
+    expect(await store.notificationHistoryCursor("com.cmux.app", "Production")).toBeNull();
+    const cursor = {
+      bundleId: "com.cmux.app", environment: "Production", nextStartAt: new Date(NOW - DAY),
+      windowStartAt: new Date(NOW - DAY), windowEndAt: new Date(NOW), paginationToken: "page-2", retryableRuns: 3,
+    };
+    await store.saveNotificationHistoryCursor(cursor);
+    await store.saveNotificationHistoryCursor({ ...cursor, environment: "Sandbox", paginationToken: null });
+    expect(await store.notificationHistoryCursor("com.cmux.app", "Production")).toEqual(cursor);
+    const done = { ...cursor, nextStartAt: new Date(NOW), windowStartAt: null, windowEndAt: null, paginationToken: null, retryableRuns: 0 };
+    await store.saveNotificationHistoryCursor(done);
+    expect(await store.notificationHistoryCursor("com.cmux.app", "Production")).toEqual(done);
+    expect((await store.notificationHistoryCursor("com.cmux.app", "Sandbox"))?.paginationToken).toBeNull();
   });
 
   dbTest("the lapse sweep lists rows past expiry and grace, oldest lapse first, until swept", async () => {
@@ -196,11 +301,180 @@ describe("Apple IAP store", () => {
 
     const lapsed = await store.lapsedSubscriptions(new Date(NOW), 10);
     expect(lapsed.map((row) => row.userId)).toEqual(["user-e", "user-b", "user-a"]);
+    expect(lapsed[2]).toMatchObject({
+      originalTransactionId: "otx-a", bundleId: "com.cmux.app", environment: "Production", appleCheckedAt: null,
+    });
+    // An earlier cutoff (the sweep's leeway) leaves out the row that lapsed a minute ago.
+    expect((await store.lapsedSubscriptions(new Date(NOW - 30 * 60_000), 10)).map((row) => row.userId))
+      .toEqual(["user-e", "user-b"]);
     await store.markLapseSwept(lapsed.map((row) => row.originalTransactionId), new Date(NOW));
     expect(await store.lapsedSubscriptions(new Date(NOW), 10)).toEqual([]);
     const statuses = await sql!`select original_transaction_id, status from apple_subscriptions order by original_transaction_id`;
     expect(statuses.map((row) => [row.original_transaction_id, row.status])).toEqual([
       ["otx-a", "expired"], ["otx-b", "billing_retry"], ["otx-c", "grace_period"], ["otx-d", "expired"], ["otx-e", "billing_retry"],
     ]);
+  });
+});
+
+// Account deletion with an App Store subscription: the pre-delete check sees
+// the renewing subscription, deletion removes the token and the subscription
+// state, keeps the transaction ledger under the deleted-account placeholder,
+// and a later App Store notification is skipped as unlinked instead of
+// granting a plan to the deleted account.
+const DELETING_USER = "deleting-user";
+
+function deletionState(token: string, overrides: Partial<AppleSubscriptionState> = {}): AppleSubscriptionState {
+  return {
+    originalTransactionId: "otx-deleted",
+    appAccountToken: token,
+    bundleId: "com.cmux.app",
+    environment: "Production",
+    productId: "com.cmux.app.pro.monthly",
+    planId: "pro",
+    status: "active",
+    autoRenewEnabled: true,
+    autoRenewProductId: "com.cmux.app.pro.monthly",
+    purchaseDate: new Date(NOW - DAY),
+    originalPurchaseDate: new Date(NOW - DAY),
+    expiresAt: new Date(NOW + 29 * DAY),
+    gracePeriodExpiresAt: null,
+    storefront: "USA",
+    currency: "USD",
+    priceMilliunits: 74990,
+    lastTransactionId: "tx-1",
+    revokedAt: null,
+    revocationReason: null,
+    stateSignedAt: new Date(NOW - DAY),
+    ...overrides,
+  };
+}
+
+async function subscribeDeletingUser(): Promise<string> {
+  const token = await store.accountTokenForUser(DELETING_USER);
+  await store.writeSubscriptionState(deletionState(token), { tokenOwner: DELETING_USER });
+  await store.recordTransaction({
+    transactionId: "tx-1",
+    originalTransactionId: "otx-deleted",
+    userId: DELETING_USER,
+    productId: "com.cmux.app.pro.monthly",
+    planId: "pro",
+    environment: "Production",
+    type: "PURCHASE",
+    purchaseDate: new Date(NOW - DAY),
+    expiresAt: new Date(NOW + 29 * DAY),
+    priceMilliunits: 74990,
+    currency: "USD",
+    storefront: "USA",
+    offerType: null,
+    revokedAt: null,
+    payload: {},
+  });
+  return token;
+}
+
+describe("account deletion with an App Store subscription", () => {
+  dbTest("the pre-delete check reports a renewing subscription and stops once auto-renew is off", async () => {
+    const token = await subscribeDeletingUser();
+    expect(await accountDeletionCheckForUser(DELETING_USER)).toEqual({
+      appStoreSubscriptionRenews: true,
+      manageSubscriptionsUrl: "https://apps.apple.com/account/subscriptions",
+    });
+    await store.writeSubscriptionState(
+      deletionState(token, { autoRenewEnabled: false, stateSignedAt: new Date(NOW) }),
+      { tokenOwner: DELETING_USER },
+    );
+    expect(await accountDeletionCheckForUser(DELETING_USER)).toEqual({
+      appStoreSubscriptionRenews: false,
+      manageSubscriptionsUrl: null,
+    });
+  });
+
+  dbTest("deletion leaves other accounts' tokens, subscriptions and ledger rows alone", async () => {
+    await subscribeDeletingUser();
+    const otherToken = await store.accountTokenForUser("other-user");
+    await store.writeSubscriptionState(
+      deletionState(otherToken, { originalTransactionId: "otx-other", lastTransactionId: "tx-other" }),
+      { tokenOwner: "other-user" },
+    );
+    await store.recordTransaction({
+      transactionId: "tx-other",
+      originalTransactionId: "otx-other",
+      userId: "other-user",
+      productId: "com.cmux.app.pro.monthly",
+      planId: "pro",
+      environment: "Production",
+      type: "PURCHASE",
+      purchaseDate: new Date(NOW - DAY),
+      expiresAt: new Date(NOW + 29 * DAY),
+      priceMilliunits: 74990,
+      currency: "USD",
+      storefront: "USA",
+      offerType: null,
+      revokedAt: null,
+      payload: {},
+    });
+
+    await cloudDb().transaction((tx) => detachAppleBillingForAccountDeletion(tx, DELETING_USER));
+
+    expect(await store.userIdForAccountToken(otherToken)).toBe("other-user");
+    expect(await store.subscription("otx-other")).toMatchObject({ userId: "other-user", status: "active" });
+    const otherLedger = await sql!`select user_id from apple_transactions where transaction_id = 'tx-other'`;
+    expect(otherLedger.map((row) => row.user_id)).toEqual(["other-user"]);
+    expect(await accountDeletionCheckForUser("other-user")).toMatchObject({ appStoreSubscriptionRenews: true });
+  });
+
+  dbTest("deletion unlinks the subscription, keeps the ledger, and a later renewal is skipped", async () => {
+    const token = await subscribeDeletingUser();
+
+    await cloudDb().transaction((tx) => detachAppleBillingForAccountDeletion(tx, DELETING_USER));
+
+    expect(await store.userIdForAccountToken(token)).toBeNull();
+    expect(await store.subscription("otx-deleted")).toBeNull();
+    expect(await accountDeletionCheckForUser(DELETING_USER)).toMatchObject({ appStoreSubscriptionRenews: false });
+    const ledger = await sql!`select user_id from apple_transactions where transaction_id = 'tx-1'`;
+    expect(ledger.map((row) => row.user_id)).toEqual(["deleted-account"]);
+
+    // Apple keeps renewing the subscription; its next notification still
+    // carries the deleted account's token.
+    const { row } = await store.insertNotification({
+      notificationUuid: "renewal-after-deletion",
+      notificationType: "DID_RENEW",
+      subtype: null,
+      environment: "Production",
+      originalTransactionId: "otx-deleted",
+      signedDate: new Date(NOW),
+      payload: {
+        data: {
+          transactionInfo: {
+            type: "Auto-Renewable Subscription",
+            originalTransactionId: "otx-deleted",
+            transactionId: "tx-2",
+            appAccountToken: token,
+            bundleId: "com.cmux.app",
+            productId: "com.cmux.app.pro.monthly",
+            environment: "Production",
+            purchaseDate: NOW,
+            expiresDate: NOW + 30 * DAY,
+            signedDate: NOW,
+          },
+        },
+      },
+    });
+    const applied: string[] = [];
+    const deps: AppleIapDependencies = {
+      store,
+      verifier: {} as AppleIapDependencies["verifier"],
+      serverApi: null,
+      applyEntitlement: async (userId) => { applied.push(userId); },
+      captureEvent: async () => {},
+      now: () => new Date(NOW),
+    };
+
+    expect(await processAppleNotification(row, deps)).toBe("skipped");
+    expect(applied).toEqual([]);
+    expect(await store.subscription("otx-deleted")).toBeNull();
+    const [ledgerRow] = await sql!`select processed_at, error from apple_notifications where notification_uuid = 'renewal-after-deletion'`;
+    expect(ledgerRow?.processed_at).not.toBeNull();
+    expect(ledgerRow?.error).toBe("skipped: unlinked_account");
   });
 });

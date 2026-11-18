@@ -8,6 +8,7 @@ every 30 minutes and measures how long feat-cmux-next pushes have waited.
 """
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
 import http.client
 import importlib.util
@@ -1385,6 +1386,31 @@ class FeedAlarm1113Tests(unittest.TestCase):
         self.assertEqual(gh.logs_read, 0)
         quiet = watch.Stage(False, 0.0, None, "No feat-cmux-next push since the feed's newest item.")
         self.assertFalse(watch.alarm_due(dt.datetime(2026, 11, 13, 20, 0, tzinfo=dt.timezone.utc), FEED_1113, quiet, ""))
+
+    def test_a_gate_job_queued_twenty_minutes_pages_before_two_hours(self):
+        # 2026-11-18: the tree publication jobs of run 44289517882 sat queued on blacksmith-4vcpu-ubuntu-2404 while
+        # two NEXT nightlies failed at "Bundle the cmux-tui client"; the feed was under 2h old, so nothing paged.
+        now = FEED_1113 + dt.timedelta(minutes=50)
+        since = FEED_1113 + dt.timedelta(minutes=5)
+        stale = watch.Stage(True, 0.75, since, "nightly-next run x is still building.")
+        self.assertFalse(watch.alarm_due(now, FEED_1113, stale, ""))
+        queued = dataclasses.replace(stale, gate_wait=19.0)
+        self.assertFalse(watch.alarm_due(now, FEED_1113, queued, ""))
+        queued = dataclasses.replace(stale, gate_wait=watch.GATE_PAGE_MINUTES)
+        self.assertTrue(watch.alarm_due(now, FEED_1113, queued, ""))
+        # Not stale (nothing waits): a queued job alone pages no one.
+        self.assertFalse(watch.alarm_due(now, FEED_1113, dataclasses.replace(queued, stale=False), ""))
+
+    def test_queued_gate_jobs_report_how_long_each_waited(self):
+        runs = [{"id": 1, "head_sha": "a7baf2b36623cafb", "html_url": "https://github.com/x/y/actions/runs/1"}]
+        jobs = {1: [{"name": "verify cmux-tui CDN publication", "status": "queued",
+                     "created_at": "2026-11-18T12:55:39Z", "labels": ["blacksmith-4vcpu-ubuntu-2404"]},
+                    {"name": "done", "status": "completed", "created_at": "2026-11-18T11:00:00Z"}]}
+        now = dt.datetime(2026, 11, 18, 13, 20, 39, tzinfo=dt.timezone.utc)
+        found = watch.queued_gate_jobs(now, [("cmux-tui-artifacts.yml", runs)], lambda r: jobs[r["id"]])
+        self.assertEqual([round(waited) for waited, _ in found], [25])
+        self.assertIn("blacksmith-4vcpu-ubuntu-2404", found[0][1])
+        self.assertEqual(watch.queued_gates(now, [("cmux-tui-artifacts.yml", runs)], lambda r: jobs[r["id"]]), found[0][1])
 
     def test_a_new_issue_carries_the_alarm_in_its_body(self):
         gh, _, result = self.tick(dt.datetime(2026, 11, 13, 9, 0, tzinfo=dt.timezone.utc), [])

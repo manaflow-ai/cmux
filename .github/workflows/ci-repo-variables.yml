@@ -85,6 +85,7 @@ jobs:
           CMUX_CI_RUNNER_VARIABLES: |
             CI_CONTROL_RUNNER=${{ vars.CI_CONTROL_RUNNER }}
             CI_LIGHT_LANE_RUNNER=${{ vars.CI_LIGHT_LANE_RUNNER }}
+            CI_LINUX_HOSTED_RUNNER=${{ vars.CI_LINUX_HOSTED_RUNNER }}
             CI_NIGHTLY_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}
             CI_NIGHTLY_NEXT_BUILD_RUNNER=${{ vars.CI_NIGHTLY_NEXT_BUILD_RUNNER }}
             CI_NIGHTLY_NEXT_TRUSTED_POOL=${{ vars.CI_NIGHTLY_NEXT_TRUSTED_POOL }}
@@ -92,6 +93,7 @@ jobs:
             CI_PR_POOL_ORDER=${{ vars.CI_PR_POOL_ORDER }}
             CI_SEED_TRUSTED_POOL=${{ vars.CI_SEED_TRUSTED_POOL }}
             CI_SIDE_LANE_RUNNER=${{ vars.CI_SIDE_LANE_RUNNER }}
+            CI_SIDE_LANE_LABELS=${{ vars.CI_SIDE_LANE_LABELS }}
             CI_TRUSTED_RUNNER=${{ vars.CI_TRUSTED_RUNNER }}
             CMUX_CI_RUNNER_FLEET=${{ vars.CMUX_CI_RUNNER_FLEET }}
             CMUX_CI_RUNNER_OVERRIDES=${{ vars.CMUX_CI_RUNNER_OVERRIDES }}
@@ -134,6 +136,7 @@ jobs:
           RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
           LINUX_RUNNER: ${{ vars.LINUX_RUNNER }}
           CI_CLOUD_OVERFLOW_SAVED: ${{ vars.CI_CLOUD_OVERFLOW_SAVED }}
+          CI_LINUX_HOSTED_RUNNER: ${{ vars.CI_LINUX_HOSTED_RUNNER }}
         run: python3 scripts/ci/runner_pools.py --check
 
       # No runs-on waits on one machine through a variable's value
@@ -152,11 +155,13 @@ jobs:
           # its own frozen copy of ios-internal-nightly.yml).
           ROUTE_BRANCHES: main feat-cmux-next nightly-next rc/cnx-ios-builder
           CMUX_CI_RUNS_ON_VARIABLES: |
+            CI_BLACKSMITH_MACOS=${{ vars.CI_BLACKSMITH_MACOS }}
             CI_CLASSIC_NIGHTLY_MINI=${{ vars.CI_CLASSIC_NIGHTLY_MINI }}
             CI_CLOUD_OVERFLOW_SAVED=${{ vars.CI_CLOUD_OVERFLOW_SAVED }}
             CI_COMPILE_CHECK_GATEWAY=${{ vars.CI_COMPILE_CHECK_GATEWAY }}
             CI_CONTROL_RUNNER=${{ vars.CI_CONTROL_RUNNER }}
             CI_EVAL_STEP_GATEWAY=${{ vars.CI_EVAL_STEP_GATEWAY }}
+            CI_FFI_RELEASE_POOL=${{ vars.CI_FFI_RELEASE_POOL }}
             CI_IOS_INTERNAL_RUNNER=${{ vars.CI_IOS_INTERNAL_RUNNER }}
             CI_LIGHT_LANE_RUNNER=${{ vars.CI_LIGHT_LANE_RUNNER }}
             CI_LINUX_GATE_OWNED_RUNNER=${{ vars.CI_LINUX_GATE_OWNED_RUNNER }}
@@ -178,6 +183,7 @@ jobs:
             CI_SEED_TRUSTED_POOL=${{ vars.CI_SEED_TRUSTED_POOL }}
             CI_SESSION_LABEL=${{ vars.CI_SESSION_LABEL }}
             CI_SESSION_LANE_RUNNER=${{ vars.CI_SESSION_LANE_RUNNER }}
+            CI_SIDE_LANE_LABELS=${{ vars.CI_SIDE_LANE_LABELS }}
             CI_SIDE_LANE_RUNNER=${{ vars.CI_SIDE_LANE_RUNNER }}
             CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY=${{ vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY }}
             CI_TEST_COMPILE_GATEWAY=${{ vars.CI_TEST_COMPILE_GATEWAY }}

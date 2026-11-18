@@ -5882,12 +5882,27 @@ fn terminal_exit_snapshot_round_trips_and_records_journal_coverage() {
     let replay: &[u8] = b"snapshot \x1b[32mready\x1b[0m\r\n";
     let blob = vt_replay_blob_for_test(&terminal_id, 100, 30, replay);
 
+    let covered_through = u64::try_from(output.len()).unwrap();
     assert!(
-        registry.put_terminal_exit_snapshot(terminal_id.as_str(), INCARNATION_ONE, &blob).unwrap()
+        registry
+            .put_terminal_exit_snapshot(
+                terminal_id.as_str(),
+                INCARNATION_ONE,
+                covered_through,
+                &blob
+            )
+            .unwrap()
     );
     // The exit latch is first-writer-wins; a replayed store is a no-op.
     assert!(
-        !registry.put_terminal_exit_snapshot(terminal_id.as_str(), INCARNATION_ONE, &blob).unwrap()
+        !registry
+            .put_terminal_exit_snapshot(
+                terminal_id.as_str(),
+                INCARNATION_ONE,
+                covered_through,
+                &blob
+            )
+            .unwrap()
     );
 
     let snapshot = registry
@@ -5899,7 +5914,7 @@ fn terminal_exit_snapshot_round_trips_and_records_journal_coverage() {
     assert_eq!((snapshot.cols, snapshot.rows), (100, 30));
     assert_eq!(snapshot.replay_bytes.as_slice(), replay);
 
-    // A generation that journaled nothing has nothing to cover: no row.
+    // A generation that printed nothing has nothing to cover: no row.
     let other = terminal_resource(TERMINAL_TWO);
     let other_blob = vt_replay_blob_for_test(&other, 80, 24, b"idle");
     assert!(
@@ -5907,6 +5922,7 @@ fn terminal_exit_snapshot_round_trips_and_records_journal_coverage() {
             .put_terminal_exit_snapshot(
                 other.as_str(),
                 "30000000000040008000000000000002",
+                0,
                 &other_blob
             )
             .unwrap()
