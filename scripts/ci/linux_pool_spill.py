@@ -15,9 +15,12 @@ Each pass it
   dead-member rule, the probe and janitor evidence and the --check schema stay main's;
 - samples the Linux queue itself (sample_load()): queued and in-progress runs created WAITED_MINUTES to
   SAMPLE_WINDOW ago, listed in age slices and spread evenly over each (at most MAX_RUNS), their jobs read with
-  the job's own GITHUB_TOKEN (actions: read), counted per Blacksmith Linux label as queued, running and `waited`
-  (queued WAITED_MINUTES or more, the stall-aware failover's bound). The counts are a lower bound;
-- clears main's dead mark on any Linux label the sample shows running a job (served_marks()), and lets main's
+  the cmux-bot read token and a refused read asked once more with the job's own GITHUB_TOKEN (GH_FALLBACK_TOKEN),
+  counted per Blacksmith Linux label as queued, running, `waited` (queued WAITED_MINUTES or more, the stall-aware
+  failover's bound) and `started` (a runner took it within STARTED_WINDOW, finished or not). The counts are a lower
+  bound;
+- clears main's dead mark on any Linux label the sample shows running or recently starting a job (served_marks()),
+  and lets main's
   reconcile() re-pick every pool, by main's own rule that a label running a job is busy, not dead
   (runner_pools.started_nothing_while_queued()). main reads that from the janitor's snapshot, but the janitor runs
   on the same saturated Blacksmith sizes: on 2026-11-17 its snapshots landed at 20:57Z and 21:59Z, so the passes at
@@ -92,7 +95,17 @@ SPILL_RETURN_SHARE = 0.7
 COMPLETE = "_complete"
 # Label -> minutes the oldest sampled queued job has waited.
 OLDEST = "_oldest"
-ZERO = {"queued": 0, "running": 0, "waited": 0}
+ZERO = {"queued": 0, "running": 0, "waited": 0, "started": 0}
+# A sampled job a runner took this recently, finished or not, counts as `started`: the label is serving (main's
+# runner_pools.RECENT_START). On 2026-11-18 at 13:18Z every probe but 2 vCPU waited out its 5 minutes under the org's
+# vCPU cap, main marked 4, 8, 16 and 32 vCPU dead, and every Linux pool went to 2 vCPU; a short job that started
+# and finished between passes left no `running` count to clear the mark with.
+STARTED_WINDOW = dt.timedelta(minutes=15)
+
+
+def took(job: Mapping[str, Any]) -> bool:
+    """A runner took the job. `started_at` alone says nothing: GitHub sets it on queued jobs too."""
+    return bool(job.get("runner_name") or job.get("runner_id"))
 
 
 def iso(moment: dt.datetime) -> str:
@@ -168,12 +181,19 @@ def sample_load(client: Any, *, now: dt.datetime, max_runs: int = MAX_RUNS) -> d
             complete = False
         for job in jobs:
             status = job.get("status")
-            if status not in ("queued", "in_progress"):
-                continue
             label = next((str(label) for label in job.get("labels") or () if LINUX_LABEL.match(str(label))), None)
             if label is None:
                 continue
+            started = parse_time(job.get("started_at"))
+            recent = (status != "queued" and job.get("conclusion") != "skipped" and took(job)
+                      and started is not None and now - started <= STARTED_WINDOW)
+            if status not in ("queued", "in_progress") and not recent:
+                continue
             entry = counts.setdefault(label, {key: 0.0 for key in ZERO})
+            if recent:
+                entry["started"] += weight[run["id"]]
+            if status not in ("queued", "in_progress"):
+                continue
             if status == "in_progress":
                 entry["running"] += weight[run["id"]]
                 continue
@@ -291,8 +311,9 @@ class Recorder:
 
 
 def served_marks(dead: object, load: Mapping[str, Any] | None) -> set[str]:
-    """The dead-marked Blacksmith Linux labels the sample shows running at least one job. A running job is a
-    start, complete sample or not (the counts are a lower bound), so a cut sample still clears a mark."""
+    """The dead-marked Blacksmith Linux labels the sample shows running at least one job or starting one within
+    STARTED_WINDOW. A start is a start, complete sample or not (the counts are a lower bound), so a cut sample still
+    clears a mark."""
     if not isinstance(dead, Mapping) or not isinstance(load, Mapping):
         return set()
     served = set()
@@ -301,7 +322,7 @@ def served_marks(dead: object, load: Mapping[str, Any] | None) -> set[str]:
         if not (isinstance(label, str) and LINUX_LABEL.match(label) and isinstance(counts, Mapping)):
             continue
         try:
-            if int(counts.get("running") or 0) > 0:
+            if int(counts.get("running") or 0) > 0 or int(counts.get("started") or 0) > 0:
                 served.add(label)
         except (TypeError, ValueError):
             continue
@@ -369,7 +390,11 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         switch = policy.Variables(str(env["SWITCH_TOKEN"]).strip(), repo)
     if client is None and (env.get("GH_TOKEN") or "").strip() and repo:
         import cloud_overflow_switch  # noqa: PLC0415 - main's client, loaded beside its policy
-        client = cloud_overflow_switch.GitHub(str(env["GH_TOKEN"]).strip(), repo)
+        # The cmux-bot read budget is org-wide: on 2026-11-18 from 11:18Z its reads were refused (403), so this
+        # sample was unread and no served mark cleared. A refused read is asked once more with the workflow token,
+        # as main's runner_pools.main() does for the janitor snapshot (cmux#46257).
+        client = cloud_overflow_switch.GitHub(str(env["GH_TOKEN"]).strip(), repo,
+                                              (env.get("GH_FALLBACK_TOKEN") or "").strip() or None)
 
     # The current value, read live: the job-start value may predate the switch step's writes.
     raw = env.get(VARIABLE)
