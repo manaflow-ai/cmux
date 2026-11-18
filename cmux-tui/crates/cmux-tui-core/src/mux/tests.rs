@@ -110,6 +110,7 @@ mod workspace_materialize;
 #[cfg(unix)]
 mod workspace_registry_stress;
 mod workspaces;
+mod write_path_commits_by_writer;
 mod writer_lock_order;
 
 use crate::layout::{DEFAULT_VIEWPORT_PANE_WIDTH, VirtualRect};
