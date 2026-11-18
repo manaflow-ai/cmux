@@ -170,6 +170,14 @@ public final class CEFEngine: BrowserEngine {
         CEFRuntime.shared.initializeAfter = gate
     }
 
+    /// Launch: every Chromium start waits for `firstFrame`, and `preload` maps the framework early when a Chromium
+    /// page is likely. The hold does not depend on the preload: a restored tab keeps its own engine record, so a
+    /// visible Chromium tab starts Chromium as the window builds whatever `browser.defaultEngine` says.
+    public func launch(after firstFrame: FirstFrameGate, preload: Bool) {
+        initializeAfter(firstFrame)
+        if preload { self.preload() }
+    }
+
     /// Runs `CefInitialize` before any Chromium tab needs it, when a caller
     /// predicts one (`reason`: `restoredTab`, `newTabMenu`, `palette`). The
     /// framework load stays off the main thread; `CefInitialize` (about
