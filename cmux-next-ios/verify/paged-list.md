@@ -9,7 +9,7 @@ is `-cmux-mobile-paged-lab DIRECTION:SCENARIO` (`CmuxMobileShell/PagedListLabRoo
 
 | Guarantee | How | Proof |
 |---|---|---|
-| A page that lands never moves the row being read | The anchor (first row under the reader's top) is captured before the snapshot apply and restored after the layout pass that placed it | `test{Down,Up}PageLandsWithoutMovingTheReader*`: row frame from outside, ≤ 0.5 pt, plus the lab probe |
+| A page that lands never moves the row being read | The anchor (first row under the reader's top; for an `.up` list at its newest end, the lowest row's bottom, so a change above pushes the older rows up as in Messages) is captured before the snapshot apply and restored after the layout pass that placed it | `test{Down,Up}PageLandsWithoutMovingTheReader*`: row frame from outside, ≤ 0.5 pt, plus the lab probe |
 | A row above the reader that changes height moves nothing | `PagedListLayout` sets `contentOffsetAdjustment` for every self-sizing change of a row that starts above the reader's top. Without it, UIKit's list jumps when you scroll up into rows that had estimated heights | Same tests at the accessibility text size (heights far from the estimate) |
 | No re-measure flicker | Heights are cached per row value, width and text size. A row that comes back into view takes its height without a SwiftUI sizing pass | Fling tests (frames and hitches in `PAGEDLIST` lines) |
 | No blank edge on a fling | The next page is asked for 2 screens before the edge (`UIScrollView.pagedScreensToEdge`), on every scroll step and after every update | `test*FlingsMeetRowsWithoutHitches`: >90 rows read during flings |
@@ -135,8 +135,9 @@ lands above it) are not explanations: a frame where a correction left the row of
 shift. An offset move inside an update or a layout pass (a row above that sized itself, UIKit's own
 batch-update or self-sizing adjustment) is never the finger or a fling, which move it between passes,
 so it is a correction too (the layer's layout around `layoutSubviews` counts as the pass). The sample is taken once per update and once per layout pass, after the
-list's corrections, on the row being read, or, for an `.up` list at its newest row, on the lowest row on
-screen (the list keeps that one on the bottom edge). In the lab, `worstShift` names what the list was
+list's corrections, on the row the list keeps still: the top of the row being read, or, for an `.up`
+list at its newest row, the bottom of the lowest row on screen (the list keeps that on the bottom edge,
+and a row there that grows grows upward). A `.down` list mid-slide keeps its rows the same way. In the lab, `worstShift` names what the list was
 doing in the worst frame, with a trail of every offset move since the frame before and how the
 measure read it (`c` correction, `o` the list's own move, `U`/`L`/`S` inside an update, a layout pass
 or the layer's layout, `p` a layout adjustment UIKit announced, `d`/`t`/`u` a drag, a resting finger

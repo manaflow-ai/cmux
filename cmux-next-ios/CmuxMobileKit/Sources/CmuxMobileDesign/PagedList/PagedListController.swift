@@ -301,6 +301,8 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         var id: CellID
         var next: CellID?
         var gap: Int?
+        /// The row's top, or its bottom for an `.up` list at its newest row.
+        var bottom: Bool
         var windowY: CGFloat
         var width: CGFloat
         var offsetY: CGFloat
@@ -461,8 +463,12 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         // and its slide runs: then it keeps its rows too, so a page or rows landing or leaving above
         // (a full window dropping its oldest row) don't move them (rows that arrive below move
         // nothing above).
-        let holdsForSlide = direction == .up && follows && (spring.isRunning || arrivals > 0)
-        let anchor = rowsChanged && loaded && (!follows || slidesDown || holdsForSlide) ? captureAnchor() : nil
+        // A `.down` list mid-slide keeps its rows the same way (the new rows above it can change).
+        let holdsForSlide = follows && (spring.isRunning || (direction == .up && arrivals > 0))
+        // An `.up` list at its newest end keeps its lowest row's bottom where it is, as Messages does:
+        // a change above pushes the older rows up, never the newest down.
+        let anchor = rowsChanged && loaded && (!follows || slidesDown || holdsForSlide)
+            ? captureAnchor(fromBottom: direction == .up && followsNewest) : nil
         items = next
         order = newOrder
         showsEdge = newShowsEdge
@@ -540,13 +546,27 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             var windowY: CGFloat
         }
         var rows: [Row]
+        /// The rows' bottoms, lowest first (an `.up` list at its newest end), not their tops.
+        var fromBottom = false
         var id: CellID? { rows.first?.id }
     }
 
     private var readerTop: CGFloat { collectionView.contentOffset.y + collectionView.adjustedContentInset.top }
 
-    /// The rows on screen whose bottom is below the reader's top edge (the first is the one being read).
-    private func captureAnchor() -> Anchor? {
+    /// The rows on screen whose bottom is below the reader's top edge (the first is the one being read),
+    /// or, `fromBottom`, those whose top is above the bottom edge, lowest first, by their bottoms.
+    private func captureAnchor(fromBottom: Bool = false) -> Anchor? {
+        if fromBottom {
+            let bottom = bottomEdgeY
+            var rows: [Anchor.Row] = []
+            for indexPath in collectionView.indexPathsForVisibleItems.sorted().reversed() {
+                guard let attributes = collectionView.layoutAttributesForItem(at: indexPath),
+                      attributes.frame.minY < bottom - 0.5,
+                      let id = dataSource.itemIdentifier(for: indexPath), case .row = id else { continue }
+                rows.append(Anchor.Row(id: id, index: indexPath.item, windowY: windowY(attributes, bottom: true)))
+            }
+            return rows.isEmpty ? nil : Anchor(rows: rows, fromBottom: true)
+        }
         let top = readerTop
         var rows: [Anchor.Row] = []
         for indexPath in collectionView.indexPathsForVisibleItems.sorted() {
@@ -558,14 +578,19 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         return rows.isEmpty ? nil : Anchor(rows: rows)
     }
 
-    private func windowY(_ attributes: UICollectionViewLayoutAttributes) -> CGFloat {
-        collectionView.convert(attributes.frame.origin, to: nil).y
+    private func windowY(_ attributes: UICollectionViewLayoutAttributes, bottom: Bool = false) -> CGFloat {
+        collectionView.convert(CGPoint(x: 0, y: bottom ? attributes.frame.maxY : attributes.frame.minY), to: nil).y
     }
 
-    private func windowY(of id: CellID) -> CGFloat? {
+    private func windowY(of id: CellID, bottom: Bool = false) -> CGFloat? {
         guard let indexPath = dataSource.indexPath(for: id),
               let attributes = collectionView.layoutAttributesForItem(at: indexPath) else { return nil }
-        return windowY(attributes)
+        return windowY(attributes, bottom: bottom)
+    }
+
+    /// The list's bottom edge in content coordinates (above the keyboard, an accessory, a bar).
+    private var bottomEdgeY: CGFloat {
+        collectionView.contentOffset.y + collectionView.bounds.height - collectionView.adjustedContentInset.bottom
     }
 
     /// Puts the reader back: the first row of `anchor` that is still in the list and kept its place
@@ -584,7 +609,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             return oldGap.signum() == newGap.signum() && abs(newGap - oldGap) <= max(2, abs(oldGap))
         }
         guard let pick = survivors.indices.first(where: stable).map({ survivors[$0].0 }),
-              let now = windowY(of: pick.id) else { return nil }
+              let now = windowY(of: pick.id, bottom: anchor.fromBottom) else { return nil }
         let delta = now - (pick.windowY + shift)
         guard abs(delta) > 0.25 else { return pick }
         if deliberate { moveOffset(to: collectionView.contentOffset.y + delta) } else { correctOffset(by: delta) }
@@ -776,13 +801,13 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         let current = referenceRow()
         let offsetY = collectionView.contentOffset.y
         defer {
-            shiftSample = current.map { ShiftSample(id: $0.id, next: $0.next, gap: $0.gap, windowY: $0.windowY, width: width, offsetY: offsetY) }
+            shiftSample = current.map { ShiftSample(id: $0.id, next: $0.next, gap: $0.gap, bottom: $0.bottom, windowY: $0.windowY, width: width, offsetY: offsetY) }
             explained = 0
             pendingAdjustment = 0
             trail.removeAll(keepingCapacity: true)
         }
         guard let last = shiftSample, abs(last.width - width) < 0.5,
-              let indexPath = dataSource.indexPath(for: last.id), let now = windowY(of: last.id) else { return }
+              let indexPath = dataSource.indexPath(for: last.id), let now = windowY(of: last.id, bottom: last.bottom) else { return }
         if let next = last.next, let gap = last.gap {
             guard let nextPath = dataSource.indexPath(for: next), nextPath.item - indexPath.item == gap else { return }
         }
@@ -806,25 +831,26 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         trail.append("\(kind)\(nested ? "^" : "")\(String(format: "%+.1f", delta))")
     }
 
-    /// The row the measure follows: the one being read, or, for an `.up` list at its newest row, the
-    /// lowest row on screen (what the reader there reads; the list keeps it on the bottom edge).
-    private func referenceRow() -> (id: CellID, next: CellID?, gap: Int?, windowY: CGFloat)? {
+    /// The row the measure follows: the one the list keeps still. The one being read (its top), or,
+    /// for an `.up` list at its newest row, the lowest row on screen (its bottom: the list keeps that
+    /// on the bottom edge, and a row there that grows grows upward).
+    private func referenceRow() -> (id: CellID, next: CellID?, gap: Int?, bottom: Bool, windowY: CGFloat)? {
         guard direction == .up, followsNewest else { return firstReadable() }
-        let bottom = collectionView.contentOffset.y + collectionView.bounds.height - collectionView.adjustedContentInset.bottom
+        let bottom = bottomEdgeY
         var found: (CellID, Int, CGFloat)?
         for indexPath in collectionView.indexPathsForVisibleItems.sorted().reversed() {
             guard let attributes = collectionView.layoutAttributesForItem(at: indexPath),
                   attributes.frame.minY < bottom - 0.5,
                   let id = dataSource.itemIdentifier(for: indexPath), case .row = id else { continue }
             if let first = found {
-                return (first.0, id, indexPath.item - first.1, first.2)
+                return (first.0, id, indexPath.item - first.1, true, first.2)
             }
-            found = (id, indexPath.item, windowY(attributes))
+            found = (id, indexPath.item, windowY(attributes, bottom: true))
         }
-        return found.map { ($0.0, nil, nil, $0.2) }
+        return found.map { ($0.0, nil, nil, true, $0.2) }
     }
 
-    private func firstReadable() -> (id: CellID, next: CellID?, gap: Int?, windowY: CGFloat)? {
+    private func firstReadable() -> (id: CellID, next: CellID?, gap: Int?, bottom: Bool, windowY: CGFloat)? {
         let top = readerTop
         var found: (CellID, Int, CGFloat)?
         for indexPath in collectionView.indexPathsForVisibleItems.sorted() {
@@ -832,11 +858,11 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
                   attributes.frame.maxY > top + 0.5,
                   let id = dataSource.itemIdentifier(for: indexPath), case .row = id else { continue }
             if let first = found {
-                return (first.0, id, indexPath.item - first.1, first.2)
+                return (first.0, id, indexPath.item - first.1, false, first.2)
             }
             found = (id, indexPath.item, windowY(attributes))
         }
-        return found.map { ($0.0, nil, nil, $0.2) }
+        return found.map { ($0.0, nil, nil, false, $0.2) }
     }
 
     // MARK: Reading ahead
