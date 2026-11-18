@@ -4,7 +4,7 @@ import { expect, test } from "bun:test";
 import { chatRowsFeed } from "../../../../test/support/chatRowsFeed";
 import { ChatAdapter } from "./adapter";
 import { ChatRowsHost, type ChatRowsPost } from "./host";
-import { ChatRowStore } from "./store";
+import { type ChatHeads, ChatRowStore } from "./store";
 import type { ChatRow } from "./wire";
 
 const row = (id: number, extra: Partial<ChatRow> = {}): ChatRow => ({
@@ -91,4 +91,44 @@ test("a decided ask adapted before the chat's harness is known names its mode on
   expect(mode()).toBe("Full access");
   harness = "claude";
   expect(mode()).toBe("Accept edits");
+});
+
+test("the page of turns' heads older than the first row held are the earlier prompts, one list until they change", async () => {
+  const { snapshot, op } = await chat([row(50, { turn: 50, kind: "user", body: { text: "now" } }), row(51)]);
+  const adapter = new ChatAdapter({ sessionId: "s1" });
+  const group = (id: number, prompt: number) =>
+    row(id, { kind: "group", turn: prompt, body: { head: `prompt ${prompt}`, prompt, promptId: `p${prompt}` } });
+  const heads = { rows: [group(11, 10), group(31, 30), group(51, 50)], hasBefore: false, hasAfter: false };
+  const first = adapter.adapt({ ...snapshot(), heads });
+  // The turn whose prompt is held (row 50) is drawn from its rows, not as an earlier prompt.
+  expect(first.earlierPrompts).toEqual([
+    { id: "row-10", version: 1, kind: "user", at: 1794480726000, text: "prompt 10", turnId: "10", promptId: "p10" },
+    { id: "row-30", version: 1, kind: "user", at: 1794480726000, text: "prompt 30", turnId: "30", promptId: "p30" },
+  ]);
+  // A change below the first row held makes no new list.
+  op({ op: "patch", row: row(51, { rev: 2, body: { text: "edited" } }) });
+  expect(adapter.adapt({ ...snapshot(), heads }).earlierPrompts).toBe(first.earlierPrompts!);
+  // No heads, or none older than what is held: none.
+  expect(adapter.adapt({ ...snapshot(), heads: null }).earlierPrompts).toBeUndefined();
+  expect(adapter.adapt(snapshot()).earlierPrompts).toBeUndefined();
+});
+
+test("every prompt is held once the window holds the chat, or the page of turns' run has none before or after", async () => {
+  const { snapshot } = await chat([row(50, { turn: 50, kind: "user", body: { text: "now" } }), row(51)]);
+  const adapter = new ChatAdapter({ sessionId: "s1" });
+  const run = (extra: Partial<ChatHeads> = {}): ChatHeads => ({
+    rows: [],
+    hasBefore: false,
+    hasAfter: false,
+    ...extra,
+  });
+  // The window holds the whole chat.
+  expect(adapter.adapt(snapshot()).promptsHeld).toBe(true);
+  // History left: not until the page of turns answers with a whole run.
+  const older = { ...snapshot(), hasBefore: true };
+  expect(adapter.adapt({ ...older, heads: null }).promptsHeld).toBe(false);
+  expect(adapter.adapt({ ...older, heads: run({ hasBefore: true }) }).promptsHeld).toBe(false);
+  expect(adapter.adapt({ ...older, heads: run({ hasAfter: true }) }).promptsHeld).toBe(false);
+  expect(adapter.adapt({ ...older, heads: run({ unsupported: true }) }).promptsHeld).toBe(false);
+  expect(adapter.adapt({ ...older, heads: run() }).promptsHeld).toBe(true);
 });

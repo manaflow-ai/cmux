@@ -6,7 +6,7 @@
 // showing me a big preview of the stuff from teh start".
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { minimapTurns } from "../src/agent-session/acpmux/threadMinimap/model";
+import { currentTurn, minimapTurns, visibleTurns } from "../src/agent-session/acpmux/threadMinimap/model";
 import { fakeClient, records } from "./support/fakeAcpmuxClient";
 
 const CHAT = "0190a000-0000-7000-8000-0000000c0de2";
@@ -77,4 +77,28 @@ test("the index arriving after the open, then a streamed reply, keeps every tick
     expect(read.turns.map((turn) => turn.key)).toEqual(keys);
     read = next;
   }
+});
+
+test("held from the middle, the prompts past the held rows are later ticks, and the reader is never on one", async () => {
+  const { rows } = await fakeClient(records(CHAT, Array.from({ length: 9 }, (_, n) => turn(n + 1)).flat()));
+  const all = rows();
+  const prompts = all.filter((row) => row.kind === "user");
+  const keys = minimapTurns(all, CHAT).ticks.map((tick) => tick.key);
+  // Held: turns 4 to 6. Earlier: 1 to 3. Later (a store chat's `laterPrompts`): 7 to 9.
+  const held = all.slice(all.indexOf(prompts[3]!), all.indexOf(prompts[6]!));
+  const earlier = prompts.slice(0, 3).map(indexed);
+  const read = minimapTurns(held, CHAT, undefined, undefined, earlier, 0, prompts.slice(6).map(indexed));
+  expect(read.ticks.map((tick) => tick.key)).toEqual(keys);
+  expect(read.turns.map((turn) => turn.index >= 0)).toEqual(keys.map((_, index) => index >= 3 && index < 6));
+  expect(read.loadedStart).toBe(3);
+  // Each held turn's top is its row's; a later turn has none (index -1). Scrolled past the last held
+  // prompt, the reader is on turn 6, not on a later tick.
+  const tops = (index: number) => (index >= 0 && index < held.length ? index * 100 : undefined);
+  expect(currentTurn(read.turns, tops, 10_000, 600, 3, 6)).toBe(5);
+  expect(visibleTurns(read.turns, tops, held.length * 100, 10_000, 600, 3, 6).last).toBe(5);
+  // A later prompt held again (a later tick's click): the same ticks, in the same places.
+  const more = all.slice(all.indexOf(prompts[3]!), all.indexOf(prompts[7]!));
+  const next = minimapTurns(more, CHAT, read, undefined, earlier, 0, prompts.slice(7).map(indexed));
+  expect(next.ticks.map((tick) => tick.key)).toEqual(keys);
+  expect(next.turns.map((turn) => turn.index >= 0)).toEqual(keys.map((_, index) => index >= 3 && index < 7));
 });

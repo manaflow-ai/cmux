@@ -9,6 +9,7 @@ import { type AdaptedChat, ChatAdapter, type ChatRowsContext } from "./adapter";
 import { CHAT_ROWS_OFF, CHAT_ROWS_OTHER_SID, CHAT_ROWS_SLOW, ChatRowsHost, type ChatRowsPost } from "./host";
 import { addChatRowsHost, listenForChatRows, receiveChatRows, removeChatRowsHost } from "./receiver";
 import { type ChatFall, ChatRowStore, type ChatRowsSnapshot } from "./store";
+import type { RowId } from "./rowId";
 
 /// What this document knows of the host's switch: `off` once a host said it has no such operation
 /// (`chat.rows.off`: the page host's `unknown_op` or the old bridge's `unsupported`), and then no
@@ -53,6 +54,10 @@ type Shown = {
   view?: AdaptedChat;
   /// `FIRST_WINDOW_MS` running, until the first window is in.
   firstWindow?: ReturnType<typeof setTimeout>;
+  /// The edition whose page of turns was asked: one ask an edition (decision 378).
+  turnsAsked?: number;
+  /// Each waits on the page out: told when it lands or is refused, or the chat is left.
+  pageWaits: (() => void)[];
 };
 /// An open out: its answer is every choose of its chat's until it settles.
 type Opening = { chat: string; answer?: Promise<boolean> };
@@ -77,9 +82,14 @@ export class ChatSource {
     private hooks: ChatSourceHooks,
     name?: () => string,
   ) {
-    this.host = new ChatRowsHost(post, new ChatRowStore({ onFall: (fall) => this.onFall(fall) }), name);
+    this.host = new ChatRowsHost(
+      post,
+      new ChatRowStore({ onFall: (fall) => this.onFall(fall), onPageEnd: (sid) => this.onPageEnd(sid) }),
+      name,
+    );
     // Before the first open: the host's batches reach this store through the document's receiver.
     addChatRowsHost(this.host, post);
+    if (typeof document !== "undefined") document.addEventListener("visibilitychange", this.onVisible);
   }
 
   /// Whether the page asks the switch at all: not once a host said off, and never of a daemon
@@ -153,6 +163,7 @@ export class ChatSource {
       sid: opened.sid,
       adapter: kept?.adapter ?? new ChatAdapter(this.hooks.context(chat)),
       stop: () => {},
+      pageWaits: [],
     };
     shown.stop = this.host.store.subscribe(opened.sid, (snapshot) => this.draw(shown, snapshot));
     this.shown = shown;
@@ -180,6 +191,81 @@ export class ChatSource {
     return shown?.chat === chat && shown.view !== undefined && this.host.page(shown.sid, "before");
   }
 
+  /// A rail jump to a turn the rows held do not reach (direct.ts `loadPromptRow`): pages from its
+  /// prompt's row (`row-<prompt>`, the rail's earlier or later prompt) until a page holds it.
+  /// Resolves true once it is held, false when the page was refused, held no such row, or the chat
+  /// was left or fell.
+  async through(chat: string, prompt: RowId): Promise<boolean> {
+    for (;;) {
+      const shown = this.shown;
+      if (shown?.chat !== chat || !shown.view) return false;
+      if (this.holdsRow(shown, prompt)) return true;
+      if (this.host.page(shown.sid, "after", { from: prompt - 1 })) {
+        await this.pageSettled(shown);
+        return this.shown === shown && this.holdsRow(shown, prompt);
+      }
+      // Another page is out: this one is asked once it is in.
+      if (!this.host.store.pageOut(shown.sid)) return false;
+      await this.pageSettled(shown);
+    }
+  }
+
+  private holdsRow(shown: Shown, id: number): boolean {
+    const rows = this.host.store.snapshot(shown.sid)?.rows ?? [];
+    let lo = 0;
+    let hi = rows.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (rows[mid]!.id < id) lo = mid + 1;
+      else hi = mid;
+    }
+    return rows[lo]?.id === id && rows[lo]!.row !== null;
+  }
+
+  /// Resolves once no page is out for the chat on screen, or it is no longer on screen.
+  private pageSettled(shown: Shown): Promise<void> {
+    if (this.shown !== shown || !this.host.store.pageOut(shown.sid)) return Promise.resolve();
+    return new Promise((resolve) => shown.pageWaits.push(resolve));
+  }
+
+  private settlePageWaits(shown: Shown, left = false): void {
+    if (!shown.pageWaits.length || (!left && this.host.store.pageOut(shown.sid))) return;
+    for (const resolve of shown.pageWaits.splice(0)) resolve();
+  }
+
+  /// The page of turns, once an edition, after its first window is drawn and while the page is
+  /// seen: from the open turn's group row (the page before it holds every settled turn), else from
+  /// past the last row held. Behind a page out (a person's page goes first); asked at the snapshot
+  /// that ends it.
+  private askTurns(shown: Shown, snapshot: ChatRowsSnapshot): void {
+    const edition = snapshot.edition;
+    if (edition === undefined || shown.turnsAsked === edition || this.hidden()) return;
+    if (this.host.store.pageOut(shown.sid)) return;
+    const from = openGroup(snapshot) ?? (snapshot.rows[snapshot.rows.length - 1]?.id ?? 0) + 1;
+    if (this.host.page(shown.sid, "before", { from, turns: true })) shown.turnsAsked = edition;
+  }
+
+  private hidden(): boolean {
+    return typeof document !== "undefined" && document.visibilityState === "hidden";
+  }
+
+  /// A page out ended with an error (refused, a stale edition): who waited on it learns, and a
+  /// page of turns that waited behind it is asked now.
+  private onPageEnd(sid: string): void {
+    const shown = this.shown;
+    if (shown?.sid !== sid) return;
+    this.settlePageWaits(shown);
+    const snapshot = shown.view ? this.host.store.snapshot(sid) : undefined;
+    if (snapshot?.ready) this.askTurns(shown, snapshot);
+  }
+
+  /// The page is seen again: a page of turns not asked while it was hidden is asked now.
+  private onVisible = (): void => {
+    const shown = this.shown;
+    const snapshot = shown && shown.view ? this.host.store.snapshot(shown.sid) : undefined;
+    if (shown && snapshot?.ready) this.askTurns(shown, snapshot);
+  };
+
   /// Leaves the chat on the store, keeping its last window: on a select of another chat and at the
   /// client's close. A fall leaves it too, keeping nothing (`onFall`).
   close(): void {
@@ -191,6 +277,7 @@ export class ChatSource {
     this.shown = undefined;
     clearTimeout(shown.firstWindow);
     shown.stop();
+    this.settlePageWaits(shown, true);
     const snapshot = this.host.store.snapshot(shown.sid);
     if (snapshot?.ready) this.keep(shown.chat, snapshot, shown.adapter);
     // Left before its first window: the window it drew is still its last.
@@ -207,6 +294,7 @@ export class ChatSource {
   dispose(): void {
     this.close();
     removeChatRowsHost(this.host);
+    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.onVisible);
   }
 
   private draw(shown: Shown, snapshot: ChatRowsSnapshot): void {
@@ -215,12 +303,15 @@ export class ChatSource {
     shown.view = shown.adapter.adapt(snapshot);
     if (this.drawing?.chat === shown.chat) this.drawing = undefined;
     this.hooks.rows(shown.chat);
+    this.settlePageWaits(shown);
+    if (this.shown === shown) this.askTurns(shown, snapshot);
   }
 
   /// A chat's last window as kept: its settled rows (no open row, no row apart, no queue), none of
   /// its read bodies, and no page above it until the store holds the chat again.
   private keep(chat: string, snapshot: ChatRowsSnapshot, adapter: ChatAdapter): void {
     const rows = snapshot.rows.filter((entry) => entry.row !== null && !entry.row.open && !entry.unconfirmed);
+    adapter.dropHeads();
     this.kept.delete(chat);
     this.kept.set(chat, {
       snapshot: {
@@ -231,6 +322,8 @@ export class ChatSource {
         hasAfter: false,
         queue: { entries: [], count: 0 },
         bodies: new Map(),
+        // A kept chat keeps no heads: the next open asks its edition's page of turns.
+        heads: null,
       },
       adapter,
     });
@@ -265,8 +358,22 @@ export class ChatSource {
     this.shown = undefined;
     clearTimeout(shown.firstWindow);
     shown.stop();
+    this.settlePageWaits(shown, true);
     this.fallen.add(shown.chat);
     this.toV1(shown.chat);
     this.hooks.fell(shown.chat, code);
   }
+}
+
+/// The open turn's group row: the last group row held, while it is open. The rows after it are
+/// that turn's, so the walk back is one turn long.
+function openGroup(snapshot: ChatRowsSnapshot): number | undefined {
+  for (const entries of [snapshot.apart, snapshot.rows])
+    for (let at = entries.length - 1; at >= 0; at -= 1) {
+      const row = entries[at]!.row;
+      if (row?.kind !== "group") continue;
+      if (row.open) return row.id;
+      if (entries === snapshot.rows) return undefined;
+    }
+  return undefined;
 }

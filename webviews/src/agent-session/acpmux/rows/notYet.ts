@@ -5,7 +5,7 @@
 // A key is `<view row kind>.<field>`; a tool call's fields are `tool.<field>`.
 
 export type Home = "a" | "b" | "c" | "d" | "e" | "f" | "g";
-export type Builder = "2c" | "2d" | "A0" | "row 11";
+export type Builder = "2c" | "2d" | "6d" | "A0" | "row 11";
 
 /// `covers` names the FIELDS.md names the entry stands for beside its own field.
 export type NotYet = { field: string; home: Home; builder: Builder; note: string; covers?: readonly string[] };
@@ -156,9 +156,21 @@ export const NOT_IN_CORPUS: readonly NotYet[] = [
   { field: "snapshot.since.turns", home: "d", builder: "2d", note: "turns ended since the seen row; not decided" },
   // The architect's.
   { field: "snapshot.presence", home: "f", builder: "A0", note: "with typing and the read mark (decision 234)" },
-  { field: "snapshot.earlierPrompts", home: "d", builder: "A0", note: "a page of turns (decision 235, 6d)" },
   { field: "row:frame", home: "b", builder: "A0", note: "untraced" },
   { field: "row:laneNoticeBatch", home: "b", builder: "A0", note: "untraced" },
   { field: "row:subagentReport", home: "b", builder: "A0", note: "untraced" },
   { field: "row:subagentReportFirst", home: "b", builder: "A0", note: "untraced" },
+  // A store chat's jumps by acpmux's turn id: no store row carries one (6d decision 416).
+  {
+    field: "snapshot.timelineJump",
+    home: "f",
+    builder: "6d",
+    note: "a timeline span's jump goes by its `promptId` once the span carries one (Rust half first); until then it answers false and reads no rows. Tests: 'a span with a promptId whose head is held reveals that turn's rows and reads one prompt row page', 'a span whose head is not held asks the turns page once and then reveals', 'two heads with one promptId reveal the newest', 'a span with no promptId returns false and no request leaves the page', 'the v1 path is unchanged'",
+  },
+  {
+    field: "snapshot.revealTurn",
+    home: "f",
+    builder: "A0",
+    note: "a `#turn-<turnId>` link and Needs you's Go to source name acpmux's turn id, which no store row carries; A0 decides",
+  },
 ];

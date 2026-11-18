@@ -15,6 +15,7 @@ import {
 } from "./chatSource";
 import { CHAT_ROWS_LATE, CHAT_ROWS_LOST, CHAT_ROWS_SLOW, OPEN_ANSWER_MS } from "./host";
 import { receiveChatRows, resetChatRowsReceiver, listenForChatRows } from "./receiver";
+import { promptRowId } from "./rowId";
 import { syncLanes } from "../../../../test/support/chatRowsFeed";
 
 const FIXTURES = `${import.meta.dir}/../../../../../Packages/macOS/CmuxNext/Tests/Fixtures/AgentChatStream`;
@@ -376,4 +377,238 @@ test("a second choose of the chat whose open is out waits on that open, posting 
   expect(opens()).toBe(1);
   expect(posts.some((post) => post.method === "chat.rows.close")).toBe(false);
   expect(rows.holds("chat-a")).toBe(true);
+});
+
+const pageAsks = (posts: readonly Post[]) => posts.filter((post) => post.method === "chat.rows.page");
+
+test("the page of turns is asked once an edition, after the first window, from past the last row", async () => {
+  const { rows, posts, feed } = source();
+  expect(await rows.choose("chat-a", HOLDS)).toBe(true);
+  expect(pageAsks(posts)).toEqual([]);
+  feed(chat.get("window")!);
+  expect(pageAsks(posts)).toEqual([{ method: "chat.rows.page", params: { sid: "rows.1", before: 12, turns: true } }]);
+  // The recording's page of turns: its group rows are the heads, and the rail's earlier prompts
+  // are those older than the first row held (none here: the window holds rows 1 to 10).
+  feed(chat.get("page-turns")!);
+  expect(rows.host.store.snapshot("rows.1")!.heads?.rows.map((head) => head.id)).toEqual([7, 12]);
+  expect(rows.view("chat-a")!.earlierPrompts).toBeUndefined();
+  // The same edition again asks nothing; another edition asks once more.
+  feed(chat.get("window-same-edition")!);
+  expect(pageAsks(posts)).toHaveLength(1);
+  feed(chat.get("window-new-edition")!);
+  expect(pageAsks(posts)).toHaveLength(2);
+});
+
+test("a daemon with no page of turns: no earlier prompts, and none asked again this edition", async () => {
+  const { rows, posts, feed } = source();
+  expect(await rows.choose("chat-a", HOLDS)).toBe(true);
+  feed(chat.get("window")!);
+  feed(chat.get("page-turns-unsupported")!);
+  expect(rows.host.store.snapshot("rows.1")!.heads?.unsupported).toBe(true);
+  expect(rows.view("chat-a")!.earlierPrompts).toBeUndefined();
+  feed(chat.get("ops")!);
+  expect(pageAsks(posts)).toHaveLength(1);
+});
+
+const changeOf = (value: unknown) => JSON.stringify(value);
+const groupRow = (id: number, prompt: number, open = false) => ({
+  id,
+  rev: 1,
+  kind: "group",
+  turn: prompt,
+  at: 1794480726,
+  open,
+  body: { head: `prompt ${prompt}`, prompt, promptId: `p${prompt}` },
+  est: 1,
+});
+const textRow = (id: number, turn: number) => ({
+  id,
+  rev: 1,
+  kind: "text",
+  turn,
+  at: 1794480726,
+  open: false,
+  body: { text: `r${id}` },
+  est: 1,
+});
+const handWindow = (rows: unknown[], extra: Record<string, unknown> = {}) =>
+  changeOf({
+    kind: "chatWindow",
+    replaces: true,
+    window: { sid: "rows.1", cursor: 99, edition: 1, rows, hasBefore: true, hasAfter: false, ...extra },
+  });
+
+test("asked from the open turn's group row, and behind a page out: a person's page goes first", async () => {
+  const { rows, posts, feed } = source();
+  expect(await rows.choose("chat-a", HOLDS)).toBe(true);
+  // The open turn's group row is held apart, open, with its prompt and a reply in the stretch.
+  feed([
+    handWindow([textRow(50, 49), textRow(51, 49)], {
+      open: [{ row: groupRow(52, 52, true) }],
+    }),
+  ]);
+  expect(pageAsks(posts).at(-1)!.params).toEqual({ sid: "rows.1", before: 52, turns: true });
+  // The page of turns lands; a new edition comes while a person's page is out.
+  feed([
+    changeOf({
+      kind: "chatPage",
+      page: { sid: "rows.1", edition: 1, rows: [], hasBefore: false, hasAfter: false, turns: true },
+    }),
+  ]);
+  expect(rows.page("chat-a")).toBe(true);
+  feed([handWindow([textRow(60, 59)], { edition: 2 })]);
+  // The new edition's window ends the person's page (a window lets go of a page out), so the page
+  // of turns is asked at once from past the last row.
+  expect(pageAsks(posts).at(-1)!.params).toEqual({ sid: "rows.1", before: 61, turns: true });
+});
+
+test("hidden: asked when seen again; a switch away and back after asks nothing", async () => {
+  const doc = globalThis as { document?: unknown };
+  const had = Object.getOwnPropertyDescriptor(globalThis, "document");
+  let state = "hidden";
+  const listeners = new Set<() => void>();
+  doc.document = {
+    get visibilityState() {
+      return state;
+    },
+    addEventListener: (_: string, listener: () => void) => listeners.add(listener),
+    removeEventListener: (_: string, listener: () => void) => listeners.delete(listener),
+  };
+  try {
+    const { rows, posts, feed } = source();
+    expect(await rows.choose("chat-a", HOLDS)).toBe(true);
+    feed(chat.get("window")!);
+    expect(pageAsks(posts)).toEqual([]);
+    state = "visible";
+    for (const listener of listeners) listener();
+    expect(pageAsks(posts)).toHaveLength(1);
+    // Nothing owed: hidden then seen again, twice, asks no other page this edition.
+    for (const next of ["hidden", "visible", "hidden", "visible"]) {
+      state = next;
+      for (const listener of listeners) listener();
+    }
+    expect(pageAsks(posts)).toHaveLength(1);
+  } finally {
+    if (had) Object.defineProperty(globalThis, "document", had);
+    else delete doc.document;
+  }
+});
+
+test("a rail jump pages after the turn's prompt and resolves once it is held, or false", async () => {
+  const { rows, posts, feed } = source();
+  expect(await rows.choose("chat-a", HOLDS)).toBe(true);
+  feed([handWindow([textRow(90, 89), textRow(91, 89)])]);
+  feed([
+    changeOf({
+      kind: "chatPage",
+      page: {
+        sid: "rows.1",
+        edition: 1,
+        rows: [groupRow(31, 30), groupRow(61, 60)],
+        hasBefore: false,
+        hasAfter: false,
+        turns: true,
+      },
+    }),
+  ]);
+  expect(rows.view("chat-a")!.earlierPrompts!.map((prompt) => prompt.id)).toEqual(["row-30", "row-60"]);
+  const jump = rows.through("chat-a", promptRowId("row-30")!);
+  expect(pageAsks(posts).at(-1)!.params).toEqual({ sid: "rows.1", after: 29 });
+  feed([
+    changeOf({
+      kind: "chatPage",
+      page: {
+        sid: "rows.1",
+        edition: 1,
+        rows: [textRow(30, 30), groupRow(31, 30), textRow(32, 30)],
+        hasBefore: true,
+        hasAfter: true,
+      },
+    }),
+  ]);
+  expect(await jump).toBe(true);
+  // Held now: the prompt is no earlier prompt, and the jump to it answers at once.
+  expect(rows.view("chat-a")!.earlierPrompts).toBeUndefined();
+  expect(await rows.through("chat-a", promptRowId("row-30")!)).toBe(true);
+  // A refused page answers false; so does a chat left while its page is out.
+  const refused = rows.through("chat-a", promptRowId("row-60")!);
+  feed([changeOf({ kind: "chatError", sid: "rows.1", method: "page", id: null, code: "refused" })]);
+  expect(await refused).toBe(false);
+  const left = rows.through("chat-a", promptRowId("row-60")!);
+  rows.close();
+  expect(await left).toBe(false);
+});
+
+const userRow = (id: number) => ({
+  ...textRow(id, id),
+  kind: "user",
+  body: { content: `prompt ${id}`, promptId: `p${id}`, state: "sent", steer: false },
+});
+
+test("after a jump to an old prompt that trims the tail, every prompt the heads hold is on the rail, on both sides of the held rows", async () => {
+  const { rows, feed } = source();
+  expect(await rows.choose("chat-a", HOLDS)).toBe(true);
+  // The window around an old prompt: rows before and after it are let go (the trimmed tail is
+  // `hasAfter`), and the page of turns names every prompt, 10 to 90.
+  feed([handWindow([userRow(30), groupRow(31, 30), textRow(32, 30)], { hasAfter: true })]);
+  feed([
+    changeOf({
+      kind: "chatPage",
+      page: {
+        sid: "rows.1",
+        edition: 1,
+        rows: [groupRow(11, 10), groupRow(31, 30), groupRow(61, 60), groupRow(91, 90)],
+        hasBefore: false,
+        hasAfter: false,
+        turns: true,
+      },
+    }),
+  ]);
+  const view = rows.view("chat-a")!;
+  expect(view.earlierPrompts!.map((prompt) => prompt.id)).toEqual(["row-10"]);
+  expect(view.laterPrompts!.map((prompt) => prompt.id)).toEqual(["row-60", "row-90"]);
+  // The held prompt is drawn from its rows, so the rail has each prompt once: earlier, held, later.
+  const held = view.rows.filter((row) => row.kind === "user").map((row) => row.id);
+  expect(held).toEqual(["row-30"]);
+  // The same heads and held rows: the same lists, so the rail's memo holds.
+  expect(rows.view("chat-a")!.laterPrompts).toBe(view.laterPrompts!);
+});
+
+test("a later tick's click brings its prompt into the window", async () => {
+  const { rows, posts, feed } = source();
+  expect(await rows.choose("chat-a", HOLDS)).toBe(true);
+  feed([handWindow([userRow(30), groupRow(31, 30), textRow(32, 30)], { hasAfter: true })]);
+  feed([
+    changeOf({
+      kind: "chatPage",
+      page: {
+        sid: "rows.1",
+        edition: 1,
+        rows: [groupRow(31, 30), groupRow(61, 60), groupRow(91, 90)],
+        hasBefore: false,
+        hasAfter: false,
+        turns: true,
+      },
+    }),
+  ]);
+  const tick = rows.view("chat-a")!.laterPrompts![0]!;
+  expect(tick.id).toBe("row-60");
+  const jump = rows.through("chat-a", promptRowId(tick.id)!);
+  expect(pageAsks(posts).at(-1)!.params).toEqual({ sid: "rows.1", after: 59 });
+  feed([
+    changeOf({
+      kind: "chatPage",
+      page: {
+        sid: "rows.1",
+        edition: 1,
+        rows: [userRow(60), groupRow(61, 60), textRow(62, 60)],
+        hasBefore: true,
+        hasAfter: true,
+      },
+    }),
+  ]);
+  expect(await jump).toBe(true);
+  const view = rows.view("chat-a")!;
+  expect(view.rows.some((row) => row.id === "row-60")).toBe(true);
+  expect(view.laterPrompts!.map((prompt) => prompt.id)).toEqual(["row-90"]);
 });

@@ -35,6 +35,11 @@ export function removeChatRowsHost(host: ChatRowsHost): void {
   pump.remove(host);
 }
 
+/// Tests: how many host clients the document's receiver holds.
+export function chatRowsHostCount(): number {
+  return pump.hostCount();
+}
+
 export function listenForChatRows(lanes?: Lanes): void {
   pump.listen(lanes);
 }

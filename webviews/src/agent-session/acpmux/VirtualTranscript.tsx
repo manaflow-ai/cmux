@@ -217,6 +217,7 @@ import { callNative } from "./callNative";
 import { StreamReveal } from "./streamReveal";
 import { type NativeRegistry, type OpenDiff, type RowProps } from "./rows/rowProps";
 import { NoticeRow } from "./rows/NoticeRow";
+import type { RowId } from "./rows/rowId";
 import { defaultRegistry, readOnlyRegistry } from "./rows/registry";
 import {
   NO_ROWS,
@@ -1684,8 +1685,10 @@ function TranscriptView({
   rows: paneRows,
   streams = false,
   earlier,
+  later,
   promptCount,
   loadThrough,
+  loadPromptRow,
   loadPromptIndex,
   sessionId,
   onToggleActivity,
@@ -1737,11 +1740,16 @@ function TranscriptView({
   /// The chat's prompts older than `rows` (the snapshot's `earlierPrompts`): the thread rail lays
   /// them out from the first frame, so it never grows or shifts as history pages in.
   earlier?: readonly AcpmuxRow[];
+  /// A store chat's prompts past `rows` (the snapshot's `laterPrompts`): the rail draws their ticks
+  /// after the held ones.
+  later?: readonly AcpmuxRow[];
   /// The chat's prompt count while it does not hold every prompt yet (the snapshot's `promptCount`):
   /// the rail starts at the height that many prompts take, with the held ones at their final rows.
   promptCount?: number;
   /// Pages history in until the prompt at `seq` is held (a click on an earlier prompt's tick).
   loadThrough?: (seq: number) => Promise<boolean>;
+  /// Pages a store chat's rows in until its prompt row is held (a click on an earlier or later tick).
+  loadPromptRow?: (row: RowId) => Promise<boolean>;
   /// Asks for the chat's prompt index (a hover or click on a pending tick): true once it named them.
   loadPromptIndex?: () => Promise<boolean>;
   sessionId?: string;
@@ -7181,7 +7189,9 @@ function TranscriptView({
               rows={rows}
               earlier={earlier}
               promptCount={promptCount}
+              later={later}
               loadThrough={loadThrough}
+              loadPromptRow={loadPromptRow}
               loadPromptIndex={loadPromptIndex}
               sessionId={sessionId}
               layout={layout}

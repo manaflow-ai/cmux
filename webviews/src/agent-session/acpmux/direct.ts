@@ -114,6 +114,7 @@ import {
 export { SETTLED_ATTACH_CAPABILITY, attachedDetail, settledAttachFailed } from "./attachParams";
 import { ChatSource } from "./rows/chatSource";
 import { holdAttach, holdReads } from "./rows/holdKinds";
+import type { RowId } from "./rows/rowId";
 import {
   forgetTail,
   keptEvents,
@@ -3979,8 +3980,10 @@ export class AcpmuxDirectClient {
     const client = new AcpmuxDirectClient({ protocolVersion: 1, transport: "acpmux-bridge", sessionId }, listener);
     client.closed = true;
     client.fedMode = true;
-    // Not this page's chat to hand over or to read again when shown: no page listeners.
+    // Not this page's chat to hand over or to read again when shown: no page listeners, and no chat
+    // source on the store (its visibility listener and its host in the document's receiver go).
     client.stopPageListeners();
+    client.chatRows.dispose();
     return client;
   }
 
@@ -4013,6 +4016,7 @@ export class AcpmuxDirectClient {
     this.disposed = true;
     this.frameSnapshot = undefined;
     this.stopPageListeners();
+    this.chatRows.dispose();
   }
 
   /// Folds one chat's records into a `fed` client (the source carries no other chat, so each is
@@ -11376,8 +11380,11 @@ export class AcpmuxDirectClient {
       catalog: NO_CATALOG,
       commands: this.commands,
       canLoadOlder: fromStore ? fromStore.canLoadOlder : this.seqHistoryLeft() || this.nativeBefore() !== undefined,
-      ...(this.shownEarlierPrompts().length ? { earlierPrompts: this.shownEarlierPrompts() } : {}),
-      ...(this.promptCountAwaited() !== undefined ? { promptCount: this.promptCountAwaited() } : {}),
+      ...(fromStore
+        ? fromStore.earlierPrompts && { earlierPrompts: fromStore.earlierPrompts }
+        : this.shownEarlierPrompts().length > 0 && { earlierPrompts: this.shownEarlierPrompts() }),
+      ...(fromStore?.laterPrompts && { laterPrompts: fromStore.laterPrompts }),
+      ...this.promptCountField(fromStore?.promptsHeld),
       historyFrom: this.firstSeq,
       missingSession: this.selectedSessionId ? undefined : this.missingSession,
       unavailable: this.unavailableNow(),
@@ -15224,6 +15231,21 @@ export class AcpmuxDirectClient {
     return count > 0 ? count : undefined;
   }
 
+  /// The snapshot's `promptCount`: v1's (`promptCountAwaited`), or for a chat on the store
+  /// (`promptsHeld` given) the same summary count while its heads and held rows do not name every
+  /// prompt (the page of turns has not answered, or its run has turns before or after it).
+  private promptCountField(promptsHeld?: boolean): { promptCount?: number } {
+    if (promptsHeld === undefined) {
+      const count = this.promptCountAwaited();
+      return count !== undefined ? { promptCount: count } : {};
+    }
+    const sessionId = this.selectedSessionId;
+    if (!sessionId || promptsHeld) return {};
+    const summary = this.summary?.sessionId === sessionId ? this.summary : undefined;
+    const count = Number(summary?.turnCount ?? 0);
+    return count > 0 ? { promptCount: count } : {};
+  }
+
   /// The rail's ask for the prompt index, from a hover or a click on a pending tick (ThreadMinimap
   /// `loadPromptIndex`): resolves true once the index has named the chat's earlier prompts, false
   /// when it cannot. One read at a time per chat, its answer kept for the chat; a failed read is
@@ -15489,12 +15511,24 @@ export class AcpmuxDirectClient {
     return "stale";
   }
 
-  /// Pages history in until the record at `seq` is held: a click on the rail's tick of a prompt
-  /// older than the held rows (`earlierPrompts`). Each step is `loadOlder` reading on through `seq`
+  /// A chat on the row store: pages its rows until the prompt row `row` is held (a click on the
+  /// rail's earlier or later tick, `row-<id>`). False on a v1 chat, which names prompts by seq.
+  loadPromptRow(row: RowId): Promise<boolean> {
+    const shown = this.selectedSessionId;
+    if (!shown || !this.chatRows.holds(shown)) return Promise.resolve(false);
+    return this.chatRows.through(shown, row);
+  }
+
+  /// A v1 chat: pages history in until the record at `seq` is held: a click on the rail's tick of a
+  /// prompt older than the held rows (`earlierPrompts`). Each step is `loadOlder` reading on through `seq`
   /// (up to OLDER_PAGES_PER_ASK pages in one commit), with its guards; a step that moves nothing, or
   /// another chat, ends it.
   /// Resolves true once the prompt is held, false when the read stopped short of it.
   async loadThrough(seq: number): Promise<boolean> {
+    // A chat on the store names no row by a log seq: a seq read as a row id would page the wrong
+    // rows, so it reads none (`loadPromptRow` takes a store chat's row, 6d decision 410).
+    const shown = this.selectedSessionId;
+    if (shown && this.chatRows.holds(shown)) return false;
     const generation = this.selectionGeneration;
     const held = () => generation === this.selectionGeneration && this.firstSeq !== undefined && this.firstSeq <= seq;
     // The prompt index gives us the target's sequence before its transcript page is held. Fetch

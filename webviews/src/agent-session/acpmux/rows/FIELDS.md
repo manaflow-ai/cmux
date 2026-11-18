@@ -14,7 +14,7 @@ The seven homes (decision 229):
 
 A page-made field is allowed only when it is a pure function of one row's own fields, of the open rows, or of homes d to g. A function of other settled rows is home b; if the group row lacks what it needs, the field is a gap.
 
-Builders: **built** (on the wire now), **2c** (the translator, decision 231), **2d** (the queue, decision 232), **A0**, **row 11** (only an answer's send).
+Builders: **built** (on the wire now), **2c** (the translator, decision 231), **2d** (the queue, decision 232), **6d** (the row store page, decision 416), **A0**, **row 11** (only an answer's send).
 
 Sources cited:
 
@@ -72,8 +72,9 @@ Sources cited:
 | newestOwnSteer                                                                  | App.tsx:7916                                                  | c                         | the same read, plus a user row's `author`. 2c                                                            |                                                                                |
 | sinceKey                                                                        | App.tsx:5982                                                  | d                         | window `seen` (wire.rs:655). Built                                                                       |                                                                                |
 | canLoadOlder                                                                    | App.tsx:3909                                                  | d                         | `hasBefore` (wire.rs:647). Built                                                                         |                                                                                |
-| earlierPrompts                                                                  | App.tsx:11588                                                 | d                         | a page of turns (decision 235). A0                                                                       |                                                                                |
-| promptCount                                                                     | App.tsx:11591                                                 | e                         | `extra.turnCount` (list_tee:44). Built                                                                   |                                                                                |
+| earlierPrompts                                                                  | App.tsx:11588                                                 | d                         | a page of turns, the store's heads (decision 235). Built                                                 |                                                                                |
+| laterPrompts                                                                    | App.tsx:11659                                                 | d                         | the heads past the last row held (decision 409); store chats only. Built                                 | decision 409                                                                   |
+| promptCount                                                                     | App.tsx:11591                                                 | e                         | `extra.turnCount` (list_tee:44), until the heads and held rows name every prompt (`promptsHeld`). Built  |                                                                                |
 | historyFrom                                                                     | App.tsx:11641                                                 | d                         | `hasBefore`. Built                                                                                       | A0's answer                                                                    |
 | switching                                                                       | App.tsx:1516                                                  | g                         | Built                                                                                                    |                                                                                |
 | missingSession, unavailable, missingReason, liveChat, liveTakeOver              | App.tsx:2099/5288/2102/5292/13786                             | f                         | Built                                                                                                    |                                                                                |
@@ -221,8 +222,8 @@ This section is the input for rows/notYet.ts.
 ### A0
 
 - `presence`, typing and the read mark (`_acpmux/view`): home f through the hold attach (decision 234). They leave this list once PR 3 sends the hold.
-- `earlierPrompts`: a page of turns, `page {turns: true}` (decision 235); the store holds one page of turn heads in 6d.
 - Untraced and marked b?: `frame`, `laneNoticeBatch`, `subagentReport`, `subagentReportFirst`.
+- A store chat's jumps by acpmux's turn id (decision 416). No store row carries that id. The timeline's jump (`timelineJump`, built by 6d) goes by the span's prompt id once acpmux's time spans carry one. Until then it answers false and reads no rows. A turn link or Needs you's Go to source (`revealTurn`) resolves nothing on a store chat; A0 decides it.
 
 ### row 11
 

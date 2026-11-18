@@ -99,5 +99,10 @@ export function createDocumentPump<Batch, Change, Host, Part>(options: DocumentP
     if (error) throw error.error;
   }
 
-  return { add, remove, listen, reset, receive };
+  /** Tests: how many hosts the pump holds. */
+  function hostCount(): number {
+    return hosts.size;
+  }
+
+  return { add, remove, listen, reset, receive, hostCount };
 }

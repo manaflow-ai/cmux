@@ -30,7 +30,64 @@ export type AdaptedChat = {
   rows: AcpmuxRow[];
   queue: QueuedPrompt[];
   canLoadOlder: boolean;
+  /// The page of turns' prompts older than the rows held (the snapshot's `earlierPrompts`), for
+  /// the thread rail: absent until a page of turns came, and for a daemon with none.
+  earlierPrompts?: readonly AcpmuxRow[];
+  /// The page of turns' prompts past the last row held (the snapshot's `laterPrompts`): after a
+  /// jump to an old prompt let the tail go, the rail still shows every newer prompt (decision 409).
+  laterPrompts?: readonly AcpmuxRow[];
+  /// Whether the heads and the rows held name every prompt of the chat: the window holds it all,
+  /// or the page of turns answered with none before or after its run. Until then the pane sends the
+  /// summary's `promptCount`, so the rail starts at its full height.
+  promptsHeld: boolean;
 };
+
+/// Every prompt is held: the window has no rows before or after it, or the heads' run has none.
+function promptsHeld(snapshot: ChatRowsSnapshot): boolean {
+  if (!snapshot.hasBefore && !snapshot.hasAfter) return true;
+  const heads = snapshot.heads;
+  return !!heads && !heads.unsupported && !heads.hasBefore && !heads.hasAfter;
+}
+
+const NO_EARLIER: readonly AcpmuxRow[] = Object.freeze([]);
+
+/// A turn's head as the rail's earlier prompt: a `user` row named as its prompt's row is
+/// (`row-<rowId>`, the turn's `turn`), so a rail jump to it lands on that row once a page holds it.
+/// The prompt's text is the head's start of it (`body.head`).
+function earlierPrompt(head: ChatRow): AcpmuxRow | undefined {
+  const body = (head.body ?? {}) as { head?: unknown; promptId?: unknown; prompt?: unknown };
+  const prompt = typeof body.prompt === "number" ? body.prompt : head.turn;
+  if (prompt === undefined) return undefined;
+  return {
+    id: `row-${prompt}`,
+    version: head.rev,
+    kind: "user",
+    at: head.at * 1000,
+    text: typeof body.head === "string" ? body.head : "",
+    turnId: String(prompt),
+    ...(typeof body.promptId === "string" && body.promptId ? { promptId: body.promptId } : {}),
+  };
+}
+
+/// The heads' prompts on either side of the rows held, each in order (decision 409): `earlier`
+/// those older than the first row held, `later` those past the last. A jump to an old prompt lets
+/// the tail go; the newer prompts stay on the rail as `later`.
+function railPrompts(snapshot: ChatRowsSnapshot): { earlier: readonly AcpmuxRow[]; later: readonly AcpmuxRow[] } {
+  const heads = snapshot.heads?.rows ?? NO_EARLIER_HEADS;
+  const first = snapshot.rows[0]?.id ?? Infinity;
+  const last = snapshot.rows.at(-1)?.id ?? -Infinity;
+  const earlier: AcpmuxRow[] = [];
+  const later: AcpmuxRow[] = [];
+  for (const head of heads) {
+    const row = earlierPrompt(head);
+    if (!row) continue;
+    const prompt = Number(row.turnId);
+    if (prompt < first) earlier.push(row);
+    else if (prompt > last) later.push(row);
+  }
+  return { earlier: earlier.length ? earlier : NO_EARLIER, later: later.length ? later : NO_EARLIER };
+}
+const NO_EARLIER_HEADS: readonly ChatRow[] = Object.freeze([]);
 
 /// One snapshot's view, adapted whole: the parity test's reading. A page adapts through a
 /// `ChatAdapter`, which keeps the rows that did not change.
@@ -48,8 +105,24 @@ export class ChatAdapter {
   /// as each row is adapted, so a chat chosen before its list row is known learns it later: then
   /// every made row goes, and a decided ask's mode is named by that harness.
   #harness: string | undefined;
+  /// `railPrompts`' last answer, by the heads and the first and last rows held it was read from: a
+  /// text delta or a row between them makes no new lists.
+  #rail:
+    | {
+        heads: ChatRowsSnapshot["heads"];
+        first: number | undefined;
+        last: number | undefined;
+        earlier: readonly AcpmuxRow[];
+        later: readonly AcpmuxRow[];
+      }
+    | undefined;
 
   constructor(readonly context: ChatRowsContext) {}
+
+  /// A kept chat keeps no heads (decision 378): its earlier prompts' memo goes with them.
+  dropHeads(): void {
+    this.#rail = undefined;
+  }
 
   adapt(snapshot: ChatRowsSnapshot): AdaptedChat {
     const harness = this.context.harness;
@@ -73,7 +146,15 @@ export class ChatAdapter {
         }
         rows.push(...made.rows);
       }
+    const first = snapshot.rows[0]?.id;
+    const last = snapshot.rows.at(-1)?.id;
+    let rail = this.#rail;
+    if (!rail || rail.heads !== snapshot.heads || rail.first !== first || rail.last !== last)
+      this.#rail = rail = { heads: snapshot.heads, first, last, ...railPrompts(snapshot) };
     return {
+      ...(rail.earlier.length ? { earlierPrompts: rail.earlier } : {}),
+      ...(rail.later.length ? { laterPrompts: rail.later } : {}),
+      promptsHeld: promptsHeld(snapshot),
       rows,
       // A cut entry's whole text is a `prompt:<id>` blob once read.
       queue: snapshot.queue.entries.map((entry) => {
