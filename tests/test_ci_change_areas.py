@@ -63,6 +63,7 @@ WEB_JOBS = (
     "web-tests",
     "web-instant-navigation",
     "react-apps-check",
+    "agent-pane-real-acpmux",
     "diff-sidecar-check",
     "web-db-migrations",
 )
@@ -2529,6 +2530,19 @@ def test_helper_a_test_only_unrouted_workflows_run_names_reaches_no_lane() -> No
     # A test a routed job names, or that something else runs, still fails open.
     run_by_a_script = {**unrouted_test, "scripts/run-it.sh": "python3 tests/test_unrouted.py\n"}
     assert helper_areas(run_by_a_script) is None
+    run_by_a_python_script = {
+        **unrouted_test,
+        "scripts/run_it.py": 'import subprocess\nsubprocess.run(["python3", "tests/test_unrouted.py"])\n',
+    }
+    assert helper_areas(run_by_a_python_script) is None
+    # A scripts/ Python file that names the test only in a comment or docstring
+    # runs nothing (scripts/cmux-next/tests/test_build_names.py's comment, once
+    # run-script-tests.py ran that file, #44759, failed owned_pool_rescue.py open).
+    named_in_prose = {
+        **unrouted_test,
+        "scripts/notes_it.py": '"""See tests/test_unrouted.py."""\n# tests/test_unrouted.py shares a module\nprint(1)\n',
+    }
+    assert helper_areas(named_in_prose) == areas()
     # A nightly step script only an unrouted workflow runs is a dead end too.
     step_script = {
         **unrouted_test,
@@ -4978,6 +4992,7 @@ def test_web_status_allows_unselected_subarea_jobs_to_skip() -> None:
             "web-tests": "skipped",
             "web-instant-navigation": "skipped",
             "react-apps-check": "skipped",
+            "agent-pane-real-acpmux": "skipped",
             "diff-sidecar-check": "skipped",
             "web-db-migrations": "skipped",
         },
