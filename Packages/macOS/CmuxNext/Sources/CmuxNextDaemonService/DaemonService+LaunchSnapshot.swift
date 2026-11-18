@@ -57,9 +57,7 @@ extension DaemonService {
         if let path = identity.launchSnapshotPath { noteSessionFolder(ofLaunchSnapshot: path) }
         if let registry = identity.registryID, registry != launchRecordedRegistryID {
             launchRecordedRegistryID = registry
-            let location = launchSnapshotLocation
-            // task-owner: none; a write of a few bytes that ends by itself, off the main thread (a file write blocks).
-            Task.detached(priority: .utility) { location.recordRegistry(registry, session: session) }
+            launchRegistryRecorder.record(registry, session: session, location: launchSnapshotLocation)
         }
     }
 
