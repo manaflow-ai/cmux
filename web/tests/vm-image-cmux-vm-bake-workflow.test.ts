@@ -186,7 +186,8 @@ describe("cloud-vm-image-bake.yml", () => {
 
       // What bake.ts and smoke.ts write into the out dir.
       const name = `cmuxnp-dev-vmimg-${tag}`;
-      writeFileSync(path.join(bake.out, `bake-${name}.json`), JSON.stringify({ name, lockSha256: "f".repeat(64), desktop: { role: "desktop", program: "cmux-rd", version: "0.2.3", socketUnit: "cmux-agent-rd.socket", socket: "/run/cmux-rd/desktop.sock" }, ...(teamVm ? { teamFilesRoot: "/srv/team root:cmux-ssh 2750" } : {}) }));
+      // The team image's bake recorded no inputs key (as a --dev-tree bake would not): its candidate carries none.
+      writeFileSync(path.join(bake.out, `bake-${name}.json`), JSON.stringify({ name, lockSha256: "f".repeat(64), desktop: { role: "desktop", program: "cmux-rd", version: "0.2.3", socketUnit: "cmux-agent-rd.socket", socket: "/run/cmux-rd/desktop.sock" }, ...(teamVm ? { teamFilesRoot: "/srv/team root:cmux-ssh 2750" } : { inputsSha256: "e".repeat(64) }) }));
       const smokeReport = path.join(bake.out, `smoke-${tag}.json`);
       writeFileSync(smokeReport, JSON.stringify({ passed: false, checks: { a: { ok: false } } }));
       const refused = await runStep("Dev channel candidate", inputs, dir);
@@ -210,6 +211,8 @@ describe("cloud-vm-image-bake.yml", () => {
       });
       if (teamVm) expect(recorded.team_files_root).toBe("/srv/team root:cmux-ssh 2750");
       else expect(recorded).not.toHaveProperty("team_files_root");
+      if (teamVm) expect(recorded).not.toHaveProperty("inputs_sha256");
+      else expect(recorded.inputs_sha256).toBe("e".repeat(64));
     });
   }
 });
@@ -262,7 +265,7 @@ describe("cloud-vm-image-bake.yml mode prod-copy", () => {
     // account-check, bake and smoke each saw a 0600 key file and no key in their environment.
     expect(readFileSync(path.join(dir, "bun.env"), "utf8")).toBe("key-in-env=0 file-mode=600\n".repeat(3));
     const name = "cmuxnp-prod-vmimg-ci-4242-1";
-    writeFileSync(path.join(bake.out, `bake-${name}.json`), JSON.stringify({ name, lockSha256: "f".repeat(64), desktop: { role: "desktop", program: "cmux-rd", version: "0.2.3", socketUnit: "cmux-agent-rd.socket", socket: "/run/cmux-rd/desktop.sock" }, teamFilesRoot: "/srv/team root:cmux-ssh 2750" }));
+    writeFileSync(path.join(bake.out, `bake-${name}.json`), JSON.stringify({ name, lockSha256: "f".repeat(64), desktop: { role: "desktop", program: "cmux-rd", version: "0.2.3", socketUnit: "cmux-agent-rd.socket", socket: "/run/cmux-rd/desktop.sock" }, teamFilesRoot: "/srv/team root:cmux-ssh 2750", inputsSha256: "e".repeat(64) }));
     writeFileSync(path.join(bake.out, "smoke-ci-4242-1.json"), JSON.stringify({ passed: true, checks: { a: { ok: true } } }));
     const candidate = await runStep("Production copy candidate", PROD_COPY, dir, "sh-prod", { key: "s3cr3t-key", plan });
     expect(candidate.result.status).toBe(0);
@@ -279,6 +282,7 @@ describe("cloud-vm-image-bake.yml mode prod-copy", () => {
       bake: "images/cmux-vm/bake.ts --prod-copy --agent-tools --team-vm (CI run 4242)",
       smoke: { result: "PASSED", detail: "smoke.ts --clones 2 --team-vm (CI run 4242): 1 checks passed" },
       team_files_root: "/srv/team root:cmux-ssh 2750",
+      inputs_sha256: "e".repeat(64),
     });
 
     // A dev-named bake is never written as a production candidate.

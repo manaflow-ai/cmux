@@ -484,7 +484,7 @@ pub async fn handle(
     conn: &Arc<crate::server::Conn>,
     params: Value,
 ) -> Result<Value, RpcError> {
-    if conn.origin != crate::server::Origin::Local {
+    if conn.origin != crate::conn_origin::Origin::Local {
         return Err(denied("GitHub actions are asked over this machine's unix socket only"));
     }
     let mut request: GithubActionParams = serde_json::from_value(params)

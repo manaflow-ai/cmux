@@ -19,7 +19,14 @@
 // poke between them (a commit the chat drew in time: about 200 ms of frames, not 1.5 s of a chat at rest),
 // or IDLE_FRAMES after the last poke when its frames keep missing. A chat that
 // goes idle in its minimal motion reads no frames to prove it healthy: with no work for HEALTHY_FOR
-// it is (one timer, not up to 600 frames of a chat at rest), and the mark goes. Stop condition:
+// it is (one timer, not up to 600 frames of a chat at rest), and the mark goes, but only when its
+// loop stopped on QUIET_FRAMES in budget. A chat whose loop ran out of IDLE_FRAMES with its frames
+// still missing (a loaded machine, whose next record comes in a few seconds) stays
+// minimal: before, two idle seconds took the mark away whatever the load, and the next record
+// came back in on its 80 ms fade, held at its first keyframe through the first frame
+// (entranceClock.ts), so at 4 fps it was invisible for 250 ms to 1 s after it drew (Leo's NIGHTLY,
+// 2026-11-16: "it shuold be instant even under load"). Its next poke reads frames again; once
+// QUIET_FRAMES of them come in budget, the timer runs and the mark goes. Stop condition:
 // `dispose` ends the loop, the timer and the observer and takes the mark away; a hidden page counts
 // no gap (it draws none).
 
@@ -230,12 +237,15 @@ export function createFrameBudget(chat: Element, clock?: Clock): FrameBudget {
     quiet = !poked && gap !== undefined && gap <= 2 * FRAME ? quiet + 1 : 0;
     poked = false;
     // Idle: stop reading. Still minimal: the chat is healthy once it has done no work for HEALTHY_FOR.
-    left = quiet >= QUIET_FRAMES ? 0 : left - 1;
+    // Only a loop that stopped on QUIET_FRAMES in budget saw the chat draw its work in time; one that ran out of
+    // IDLE_FRAMES with its frames still missing is a loaded chat, which stays minimal for its next record.
+    const settled = quiet >= QUIET_FRAMES;
+    left = settled ? 0 : left - 1;
     if (left > 0) handle = time.frame(tick);
     else {
       last = undefined;
       quiet = 0;
-      if (state.minimal && rest === undefined) {
+      if (state.minimal && rest === undefined && settled) {
         const next = later(() => {
           rest = undefined;
           if (!disposed && left <= 0 && state.rested()) apply();

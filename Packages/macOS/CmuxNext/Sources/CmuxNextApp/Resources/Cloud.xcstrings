@@ -10520,6 +10520,270 @@
         "uk": {"stringUnit": {"state": "needs_review", "value": "Не вдалося запустити налаштування на машині: %@"}},
         "vi": {"stringUnit": {"state": "needs_review", "value": "Không thể bắt đầu thiết lập trên máy: %@"}}
       }
+    },
+    "cloud.github.connectBody": {
+      "comment": "Set Up GitHub on a Cloud machine when the team has not connected cmux's GitHub App: the dialog offers Connect GitHub instead of the machine's own sign-in.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اربط تطبيق GitHub الخاص بـ cmux واختر مستودعاته في متصفحك. ثم أعد إعداد GitHub هنا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povežite cmux GitHub aplikaciju i odaberite njene repozitorije u pregledniku. Zatim ponovo postavite GitHub ovdje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbind cmux' GitHub-app, og vælg dens repositories i din browser. Konfigurer derefter GitHub her igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinde die GitHub-App von cmux und wähle ihre Repositorys in deinem Browser. Richte GitHub dann hier erneut ein."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect cmux's GitHub App and choose its repositories in your browser. Then set up GitHub here again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecta la app de GitHub de cmux y elige sus repositorios en tu navegador. Luego vuelve a configurar GitHub aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez l'app GitHub de cmux et choisissez ses dépôts dans votre navigateur. Puis configurez GitHub ici à nouveau."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collega l'app GitHub di cmux e scegli i suoi repository nel browser. Poi configura di nuovo GitHub qui."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザで cmux の GitHub App を接続してリポジトリを選んでから、ここでもう一度 GitHub を設定してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្ជាប់កម្មវិធី GitHub របស់ cmux ហើយជ្រើសឃ្លាំងរបស់វាក្នុងកម្មវិធីរុករក។ បន្ទាប់មករៀបចំ GitHub នៅទីនេះម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저에서 cmux의 GitHub 앱을 연결하고 리포지토리를 선택한 다음 여기에서 GitHub를 다시 설정하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koble til cmux sin GitHub-app og velg repositoriene i nettleseren. Sett deretter opp GitHub her igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połącz aplikację GitHub cmux i wybierz jej repozytoria w przeglądarce. Potem ponownie skonfiguruj tu GitHub."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecte o app do GitHub do cmux e escolha os repositórios no navegador. Depois configure o GitHub aqui novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключите приложение GitHub от cmux и выберите его репозитории в браузере. Затем снова настройте GitHub здесь."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เชื่อมต่อแอป GitHub ของ cmux และเลือกรีโพสิทอรีในเบราว์เซอร์ แล้วตั้งค่า GitHub ที่นี่อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux'un GitHub uygulamasını bağlayın ve depolarını tarayıcınızda seçin. Ardından GitHub'ı burada yeniden kurun."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підключіть застосунок GitHub від cmux і виберіть його репозиторії в браузері. Потім знову налаштуйте GitHub тут."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết nối ứng dụng GitHub của cmux và chọn các kho lưu trữ trong trình duyệt. Sau đó thiết lập lại GitHub tại đây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在浏览器中连接 cmux 的 GitHub App 并选择其仓库，然后在这里重新设置 GitHub。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在瀏覽器中連接 cmux 的 GitHub App 並選擇其存放庫，然後在這裡重新設定 GitHub。"
+          }
+        }
+      }
+    },
+    "cloud.github.connect": {
+      "comment": "Set Up GitHub's button when the team has not connected cmux's GitHub App.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ربط GitHub"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poveži GitHub"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbind GitHub"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub verbinden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect GitHub"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectar GitHub"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecter GitHub"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collega GitHub"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub を接続"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្ជាប់ GitHub"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub 연결"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koble til GitHub"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połącz GitHub"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectar GitHub"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключить GitHub"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เชื่อมต่อ GitHub"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub'ı bağla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підключити GitHub"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết nối GitHub"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接 GitHub"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連接 GitHub"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

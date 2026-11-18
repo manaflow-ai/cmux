@@ -208,3 +208,11 @@ final class CEFHostedPageView: NSView {
     var contextId: UInt32 { get }
     var layer: CALayer? { get }
 }
+
+#if DEBUG || CMUX_BENCH_HOOKS
+extension CEFHostedPageView {
+    /// The hosted context's root layer size, the page window's size as the fork laid it out; nil when the context is
+    /// not in this process or none is hosted. Read by `debug.motion`'s `page` sampler (CEFHostView+MotionSample).
+    var debugHostedRootSize: CGSize? { contextRoot?.bounds.size }
+}
+#endif

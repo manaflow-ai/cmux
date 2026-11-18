@@ -470,6 +470,51 @@ fn the_plan_says_whether_classic_is_open() {
     }
 }
 
+/// An idle classic saves only when its session changes, so a save long ago
+/// says nothing about whether it runs: a sentinel naming a live pid, or the
+/// per-user `cmux-<uid>.sock.lock` held, keeps a launch from asking. On
+/// 2026-11-15 a classic stable (open since Nov 7, last save 2 min
+/// earlier, its lock `cmux-501.sock.lock`) read as closed, and a relaunch
+/// offered its workspaces unasked.
+#[cfg(unix)]
+#[test]
+fn an_idle_classic_that_saved_long_ago_is_still_open() {
+    use std::os::unix::io::AsRawFd;
+    let mux = Mux::new_for_test("classic-import-idle", SurfaceOptions::default());
+    let home = home(true);
+    // Classic's last save, a day ago.
+    let day_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(24 * 60 * 60);
+    std::fs::File::options()
+        .write(true)
+        .open(home.session())
+        .unwrap()
+        .set_modified(day_ago)
+        .unwrap();
+    let sentinel = home.0.join(".local/state/cmux/lifecycle/com.cmuxterm.app/running.sentinel");
+    std::fs::create_dir_all(sentinel.parent().unwrap()).unwrap();
+    // A sentinel with no pid and an old save is a classic that crashed.
+    std::fs::write(&sentinel, "").unwrap();
+    assert_eq!(plan(&mux, &home, Mode::Manual)["classic_running"], false);
+    // The sentinel names a live pid (this test's): classic runs, however old its save.
+    std::fs::write(&sentinel, format!("pid={}\n", std::process::id())).unwrap();
+    let open = plan(&mux, &home, Mode::Automatic);
+    assert_eq!(open["classic_running"], true);
+    assert_eq!(open["decision"], json!({"decision": "skip", "reason": "classic_running"}));
+    std::fs::remove_file(&sentinel).unwrap();
+    assert_eq!(plan(&mux, &home, Mode::Manual)["classic_running"], false);
+    // Classic stable's lock beside its per-user socket, held.
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    let lock = home.0.join(format!(".local/state/cmux/cmux-{uid}.sock.lock"));
+    std::fs::write(&lock, "").unwrap();
+    let holder = std::fs::File::open(&lock).unwrap();
+    // SAFETY: the descriptor is open for the call.
+    assert_eq!(unsafe { libc::flock(holder.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+    let open = plan(&mux, &home, Mode::Automatic);
+    assert_eq!(open["classic_running"], true);
+    assert_eq!(open["decision"], json!({"decision": "skip", "reason": "classic_running"}));
+}
+
 /// The channel saved last is read, whichever build this is, and a newest
 /// channel whose files do not decode falls back to the next channel's.
 #[test]

@@ -1127,6 +1127,7 @@ fn a_page_is_counted_in_the_mailbox_with_every_member_it_carries() {
                     last_activity: n,
                     chat_id: format!("chat-{n:060}"),
                     origin: "o".repeat(64),
+                    past: false,
                 })
             })
             .collect(),

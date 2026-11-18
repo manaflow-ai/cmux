@@ -485,8 +485,11 @@ def main(argv: list[str] | None = None) -> int:
     smoke.READY = lambda snap: smoke.visible_windows(snap) > 0
     state: dict = {}
     writer_dir = (out or Path(tempfile.mkdtemp(prefix="idle-cpu-"))) / "writers"
+    # A person's home has a login keychain: without one Chromium's Safe Storage dialog sits there (cmuxterm-hq#11994).
+    smoke.PREPARE_HOME = smoke.login_keychain
     if args.history > 0:
         def prepare(env):
+            smoke.login_keychain(env)
             result["history"] = seed_history(Path(env["HOME"]), args.history, args.history_prompt_kb)
             log(f"idle-cpu: home seeded: {json.dumps(result['history'])}")
             if args.writers > 0:

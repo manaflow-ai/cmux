@@ -221,8 +221,8 @@ final class InternalPageTabStore {
                       failed onFailed: (@MainActor ((any Error)?) -> Void)? = nil, requiresSurface: Bool = false) -> InternalPageView? {
         let store = daemon.store
         let homePlacement = HomeDockOpens.opensBeside(model, services: services)
-        // Home's dock alone, no caller's placement: made in its new column right of it in one commit, shown in this turn (as a link, #33548).
-        let splits = homePlacement && onCreated == nil && pane != nil && ActionRunScope.viewChangeAllowed() && store.isLonePinnedDock(model.handle)
+        // Home's dock alone (taking tabs or not), no caller's placement: made in its new column right of it in one commit, shown in this turn (as a link, #33548).
+        let splits = onCreated == nil && pane != nil && ActionRunScope.viewChangeAllowed() && store.isLonePinnedDock(model.handle)
             && [DaemonCapability.conversationTabSplit, .pinnedDockAlone, .splitClientKeys].allSatisfy { daemon.supports($0.rawValue) }
         // A foreground page in Home is selected by its destination placement, never while its
         // provisional tab still belongs to the dock: that would release OutboundTab too early.

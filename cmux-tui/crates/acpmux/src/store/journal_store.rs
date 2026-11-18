@@ -872,6 +872,15 @@ impl Store for JournalStore {
         self.inner
             .fenced(|| Store::scan_kinds_after_strict(&self.inner.local, id, after, kinds, visit))
     }
+    fn scan_kinds_keyed(
+        &self,
+        id: &str,
+        kinds: &[&str],
+        keep: &mut dyn FnMut(&super::KindHead<'_>) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.inner.fenced(|| Store::scan_kinds_keyed(&self.inner.local, id, kinds, keep, visit))
+    }
     fn scan_heads(&self, id: &str, visit: &mut dyn FnMut(&RecordHead<'_>) -> bool) -> Result<()> {
         self.inner.fenced(|| Store::scan_heads(&self.inner.local, id, visit))
     }

@@ -8,7 +8,8 @@
 //!
 //! - `agent-idle`, `agent-needs-input`: `cmux agents events` read in a loop
 //!   ([`super::super::agents::follow_events`]): terminal agents are pushed by
-//!   the daemon; agent chats and permission prompts come from the app's state.
+//!   the daemon; agent chats from the daemon's chat list (`chat.list`), and
+//!   permission prompts from the app's state.
 //! - `pr-opened`: nothing pushes GitHub changes to cmux, so `gh search prs`
 //!   every [`PR_POLL_SECONDS`] (the GitHub pull requests signal's own pace),
 //!   in every state from a creation-time cursor, and a line for each pull

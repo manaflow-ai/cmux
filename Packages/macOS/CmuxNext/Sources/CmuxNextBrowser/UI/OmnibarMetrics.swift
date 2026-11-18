@@ -61,7 +61,8 @@ public nonisolated struct OmnibarMetrics: Equatable, Sendable {
         if tokens.fontSize == nil || tokens.isBuiltIn {
             levelFont = min(levelFont, max(CGFloat(Self.fontSizeRange.lowerBound), ((requested - Self.textClearance) / 1.25).rounded(.down)))
         }
-        let densityFont = levelFont * textScale
+        // A density's own URL text size (`omnibarFontSize`, Spacious's 20 pt; Lucas 2026-11-16), else its body text.
+        let densityFont = (tokens.fontToken("omnibarFontSize") ?? levelFont) * textScale
         let font = fontSize.flatMap { $0.isFinite ? CGFloat(Self.clamp($0, Self.fontSizeRange).rounded()) : nil } ?? densityFont
         barHeight = max(requested, Self.minimumBarHeight(fontSize: font))
         self.fontSize = font
@@ -71,7 +72,8 @@ public nonisolated struct OmnibarMetrics: Equatable, Sendable {
         // bar shrinks it (a suggestion row centers the glyph on the chip's center).
         iconPointSize = min(tokens.resolve(compact: 13, comfortable: 15), ((barHeight - 8) / 1.2).rounded(.down))
         toolbarIconSize = min(glyphSide ?? tokens.toolbarGlyphSize, buttonSize)
-        trailingIconSize = min(tokens.resolve(compact: 18, comfortable: 20), barHeight - 6)
+        // A density's `omnibarTrailingIconSize` (Helium's `kLocationBarTrailingIconSize` 18, Chrome's 20).
+        trailingIconSize = min(tokens.tokens["omnibarTrailingIconSize"].map { CGFloat($0) } ?? tokens.resolve(compact: 18, comfortable: 20), barHeight - 6)
     }
 
     /// The shortest bar that holds a line of `fontSize` text with `textClearance` around it. The
@@ -85,7 +87,7 @@ public nonisolated struct OmnibarMetrics: Equatable, Sendable {
     @MainActor public static var current: OmnibarMetrics {
         let overrides = OmnibarGlassAppearance.current
         return OmnibarMetrics(tokens: Metrics.tokens, height: overrides.height, fontSize: overrides.fontSize,
-                              textScale: Typography.userScale, rowHeight: Metrics.chromeRowHeight, glyphSide: Metrics.toolbarGlyphSize)
+                              textScale: Typography.userScale, rowHeight: Metrics.tokens.tokens["omnibarHeight"].map { Metrics.scale(CGFloat($0)) } ?? Metrics.tabHeight, glyphSide: Metrics.toolbarGlyphSize)
     }
 
     private static func clamp(_ value: Double, _ range: ClosedRange<Double>) -> Double {

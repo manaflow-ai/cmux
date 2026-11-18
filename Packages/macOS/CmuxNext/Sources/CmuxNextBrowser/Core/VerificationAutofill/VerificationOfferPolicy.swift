@@ -25,13 +25,17 @@ public nonisolated struct VerificationOfferPolicy: Sendable {
 
     private let publicSuffixes: PublicSuffixList
     private let parser: VerificationMessageParser
+    private let senders: VerificationSenderMap
 
     /// - Parameters:
     ///   - publicSuffixes: The list that decides sites (``PublicSuffixList/bundled()`` in the app).
     ///   - parser: Reads codes and links from an email.
-    public init(publicSuffixes: PublicSuffixList, parser: VerificationMessageParser = VerificationMessageParser()) {
+    ///   - senders: Sites that send codes for another site of the same owner (reviewed, exact domains).
+    public init(publicSuffixes: PublicSuffixList, parser: VerificationMessageParser = VerificationMessageParser(),
+                senders: VerificationSenderMap = .reviewed) {
         self.publicSuffixes = publicSuffixes
         self.parser = parser
+        self.senders = senders
     }
 
     /// Decides one email against one waiting page.
@@ -56,7 +60,7 @@ public nonisolated struct VerificationOfferPolicy: Sendable {
         let sameSite = senderSite == pageSite
         if let bound = message.originBoundCode {
             guard bound.host == pageHost else { return .failure(.originBoundToAnotherHost) }
-        } else if !sameSite {
+        } else if !sameSite && !senders.sameOwner(senderSite, pageSite) {
             return .failure(.differentSite)
         }
         if email.senderAuthenticated == false { return .failure(.senderFailedAuthentication) }
@@ -76,14 +80,14 @@ public nonisolated struct VerificationOfferPolicy: Sendable {
         guard !codes.isEmpty || !links.isEmpty else { return .failure(.nothingToOffer) }
 
         return .success(VerificationOffer(
-            emailID: email.id, tab: signal.tab, senderSite: pageSite, pageOrigin: Self.origin(scheme: "https", host: pageHost, port: signal.pageURL.port),
+            emailID: email.id, tab: signal.tab, senderSite: senderSite, pageSite: pageSite, pageOrigin: Self.origin(scheme: "https", host: pageHost, port: signal.pageURL.port),
             code: codes.first, link: links.first, expiresAt: expiresAt
         ))
     }
 
     /// The registrable domain of an https URL's host, or nil (any other
     /// scheme, no host, no site). The inbox compares it to an offer's
-    /// ``VerificationOffer/senderSite`` when the person clicks.
+    /// ``VerificationOffer/pageSite`` when the person clicks.
     /// - Parameter url: A page URL.
     /// - Returns: Its site, or nil.
     public func site(of url: URL) -> String? {

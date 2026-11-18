@@ -28,6 +28,7 @@ mod effect_fields;
 #[cfg(unix)]
 pub(crate) use agent_cli_job::AgentCLIJobBusy;
 use effect_fields::created_identity_kind;
+use effect_fields::creation_effect_fields;
 use effect_fields::effect_cell_size;
 use effect_fields::effect_command;
 use effect_fields::effect_on_exit;
@@ -97,6 +98,7 @@ mod effect_execution;
 mod effectful_operation;
 mod emptied_workspace;
 mod end_terminals_batch;
+pub(in crate::mux) mod floating_panes;
 mod layout_ops;
 pub(in crate::mux) use layout_ops::LayoutSizesUnchanged;
 mod layout_projection;
@@ -109,6 +111,7 @@ mod reservations;
 mod screen_create;
 mod structural_move;
 mod tab_workspace_move;
+mod terminal_tab_attach;
 mod topology_operation;
 #[cfg(test)]
 mod topology_test_hooks;

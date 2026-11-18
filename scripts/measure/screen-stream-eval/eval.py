@@ -127,8 +127,8 @@ def target(name: str, folder: Path, out: Path) -> None:
                     phases[row["phase"]] = row
         kbps, fps, sampled_fps, encode, decode = phase_numbers(window.get("series") or [], phases)
         ocr = load(folder / f"ocr-{rep}.json")
-        # Bytes are required, except from a viewer that marks them unavailable (Screen Sharing.app,
-        # `bytes_unavailable: true`); that one needs frame or sampled-change counts instead. A
+        # Bytes are required, except from a viewer that marks them unavailable (Screen Sharing.app
+        # when nettop read none, `bytes_unavailable: true`); that one needs frame or sampled-change counts instead. A
         # `bytes_method` alone (gui-viewer.sh's nettop) still owes bytes.
         if (window.get("extra") or {}).get("bytes_unavailable") is True:
             missing = [k for k in WINDOW_PHASES if fps[k] is None and sampled_fps[k] is None]
@@ -220,6 +220,24 @@ def summary(results_path: Path, out: Path, previous_path: Path | None) -> None:
         lines.append("No earlier run to compare against.")
     if run.get("blocked"):
         lines += ["", f"**Not measured:** {run['blocked']}"]
+    targets = results.get("targets", {})
+    if len(targets) > 1:
+        # One row per contender, so latency, bandwidth and frame rate read across targets at once.
+        lines += ["", "## Side by side", "",
+                  "| Target | Key / click p50 | kbps idle / typing / scroll | fps idle / typing / scroll |",
+                  "| --- | --- | --- | --- |"]
+        sampled_only = False
+        for name, t in targets.items():
+            latency = " / ".join(fmt(((t.get("latency") or {}).get(kind) or {}).get("p50_ms"), " ms")
+                                 for kind in ("key", "pointer"))
+            kbps = " / ".join(fmt((t.get("kbps") or {}).get(phase), "", 0) for phase in WINDOW_PHASES)
+            fps, mark = t.get("fps") or {}, ""
+            if all(v is None for v in fps.values()) and any(v is not None for v in (t.get("sampled_fps") or {}).values()):
+                fps, mark, sampled_only = t["sampled_fps"], "*", True
+            rate = " / ".join(fmt(fps.get(phase), mark) for phase in WINDOW_PHASES)
+            lines.append(f"| {name} | {latency} | {kbps} | {rate} |")
+        if sampled_only:
+            lines += ["", "\\* sampled screenshot changes a second (at most 10 captures a second), not decoded FPS."]
     for name, t in results.get("targets", {}).items():
         p = ((previous or {}).get("targets") or {}).get(name) or {}
 

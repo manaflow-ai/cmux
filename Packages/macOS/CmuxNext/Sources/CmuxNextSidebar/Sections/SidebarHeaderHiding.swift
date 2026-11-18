@@ -2,12 +2,12 @@ import CmuxNextDesign
 
 extension SidebarSectionsPreferences {
     /// Whether the workspace list draws differently than under `previous`: its rows'
-    /// elements, Projects shown, the grouping, a header per computer, minimal mode, the density,
+    /// elements, Projects shown, the grouping, a header per computer, the density,
     /// detailed status icons, timestamps, workspace colors and their style, what group headers show, how their background draws, or the group palette and its gradient.
     func changesList(from previous: SidebarSectionsPreferences?) -> Bool {
         previous?.workspaceRow != workspaceRow
             || previous?.showProjects != showProjects || previous?.groupBy != groupBy
-            || previous?.groupsByComputer != groupsByComputer || previous?.minimal != minimal || previous?.density != density
+            || previous?.groupsByComputer != groupsByComputer || previous?.density != density
             || previous?.detailedStatusIcons != detailedStatusIcons || previous?.showTimestamps != showTimestamps
             || previous?.showLocalMachine != showLocalMachine || previous?.showColors != showColors
             || previous?.workspaceColorIndicator != workspaceColorIndicator

@@ -3,7 +3,9 @@
 // nothing else, however long the chat (CMUX-571; Leo: "improve performance (chat, everything
 // related)"; Leo, 2026-11-12: long chats must have "no perceivable difference"). Not the pane root,
 // the transcript or a row; and not the model picker under the box, which does not read the text
-// (it read the composer's prompt-focus function, a new one on each composer render, from context).
+// (it read the composer's prompt-focus function, a new one on each composer render, from context),
+// and not the + menu (ComposerFrame, which the React Compiler leaves as written, built its rows and
+// handlers anew on each render).
 //
 // The real pane (`?mock`) built by vite.config.acpmux-pane.mjs as it ships (production React, React
 // Compiler on; the dev server's development build never drew the picker on a key, fix or not); a chat of
@@ -50,7 +52,7 @@ await requireBrowserLane("composer-keystroke-renders-browser.test.ts", async () 
     fs.rmSync(out, { recursive: true, force: true });
   });
 
-  test("a key in a long chat draws neither the transcript, a row nor the model picker", async () => {
+  test("a key in a long chat draws neither the transcript, a row, the model picker nor the + menu", async () => {
     const port = statics!.port!;
     const page = await browser.newPage({ viewport: { width: 1100, height: 820 } });
     await page.goto(`http://127.0.0.1:${port}/?mock`);
@@ -105,6 +107,7 @@ await requireBrowserLane("composer-keystroke-renders-browser.test.ts", async () 
       transcript: renders.transcript ?? 0,
       rows: counted("row:") + counted("content:") + counted("frame:"),
       model: renders["composer:model"] ?? 0,
-    }).toEqual({ transcript: 0, rows: 0, model: 0 });
+      plus: renders["composer:plus"] ?? 0,
+    }).toEqual({ transcript: 0, rows: 0, model: 0, plus: 0 });
   });
 });

@@ -17,6 +17,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane } from "./support/papercutChat";
+import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -48,7 +49,7 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
   });
 
   const FIELD = ".acpmux-composer-prompt";
-  const EDITABLE = ".acpmux-composer-prompt [contenteditable='true']";
+  const EDITABLE = COMPOSER_EDITOR;
 
   /// Three painted frames: a paste's own scroll to its end runs a frame after it, and the edge marks
   /// follow that scroll's event.

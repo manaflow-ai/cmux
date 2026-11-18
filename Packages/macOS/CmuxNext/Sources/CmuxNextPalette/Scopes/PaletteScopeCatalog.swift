@@ -106,15 +106,12 @@ final class PaletteScopeListProvider: PaletteProvider {
             }
     }
 
+    /// The row's subtitle: none when its prefix key shows at the right, which already says what to
+    /// type (and the field says "Search Workspaces ⇥" once the keyword is typed); else how to enter it
+    /// by keyword (Lawrence 2026-11-15: "search workspaces looks bad", "Type #, or workspaces and Tab").
     private func hint(for scope: PaletteScopeDescriptor) -> String? {
-        let prefix = config.prefixEntry ? scope.prefix : nil
-        let keyword = config.keywordEntry ? scope.keywords.first : nil
-        switch (prefix, keyword) {
-        case let (prefix?, keyword?): return PaletteStrings.scopeHintPrefixKeyword(prefix, keyword)
-        case let (prefix?, nil): return PaletteStrings.scopeHintPrefix(prefix)
-        case let (nil, keyword?): return PaletteStrings.scopeHintKeyword(keyword)
-        case (nil, nil): return nil
-        }
+        if config.prefixEntry, scope.prefix != nil { return nil }
+        return config.keywordEntry ? scope.keywords.first.map(PaletteStrings.scopeHintKeyword) : nil
     }
 }
 
