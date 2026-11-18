@@ -216,6 +216,8 @@ jobs:
         if: always() && steps.switch.outcome != 'skipped'
         env:
           GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
+          # A refused read (the cmux-bot budget is org-wide) is asked once more with this (runner_pools.main()).
+          GH_FALLBACK_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           SWITCH_TOKEN: ${{ steps.switch-token.outputs.token }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run || inputs.probe_label != '') && 'true' || 'false' }}

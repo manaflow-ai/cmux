@@ -4452,12 +4452,24 @@ class GitHub:
         self.rate_limits: dict[str, dict[str, int]] = {}
         # The first rate-limit refusal this sweep met, or "": main() then ends the sweep green with a warning.
         self.rate_limited = ""
+        # Another App's token for the sweep's GET reads (READ_TOKEN, use_read_token()), or "": every request then
+        # goes on `token`, as before.
+        self.read_token = ""
         self.headers = {
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
             "X-GitHub-Api-Version": "2022-11-28",
             "User-Agent": "cmux-ci-queue-janitor",
         }
+
+    def use_read_token(self, read_token: str) -> None:
+        """Make the sweep's GET reads (the run pages and every in-flight run's job listing: nearly all of a sweep's
+        REST) on `read_token`, another App's installation with its own hourly budget, so they stop spending
+        `token`'s. `token` (cmux-bot) keeps every write, the GraphQL lookups and an app_only request, so cancels and
+        the open-head re-run keep their author. A read the read token is refused (401, 403 or 429, a spent budget
+        too) is made again on `token`, and the rest of the sweep reads there, as before this split."""
+        if read_token and read_token not in (self._token, self.fallback_token):
+            self.read_token = read_token
 
     def request(self, method: str, path: str, body: Any | None = None, *, app_only: bool = False) -> Any:
         """One API call. A read (GET, or a GraphQL query) that meets a 5xx or a dropped connection is
@@ -4484,6 +4496,10 @@ class GitHub:
         headers = dict(self.headers)
         if data is not None:
             headers["Content-Type"] = "application/json"
+        # A GET goes on the read token while there is one (use_read_token()); writes, GraphQL and app_only never do.
+        read_token = self.read_token if method == "GET" and not app_only else ""
+        if read_token:
+            headers["Authorization"] = f"Bearer {read_token}"
         request = urllib.request.Request(API + path, data=data, headers=headers, method=method)
         try:
             timeout = 30.0
@@ -4493,11 +4509,20 @@ class GitHub:
                     raise RuntimeError(f"{method} {path.split('?')[0]} not sent: past the sweep's deadline")
                 timeout = min(timeout, remaining)
             with urllib.request.urlopen(request, timeout=timeout) as response:
-                self.note_rate_limit(response.headers)
+                self.note_rate_limit(response.headers, read=bool(read_token))
                 raw = response.read()
                 return json.loads(raw) if raw else {}
         except urllib.error.HTTPError as error:
-            self.note_rate_limit(error.headers)
+            self.note_rate_limit(error.headers, read=bool(read_token))
+            if read_token and error.code in (401, 403, 429):
+                # The read App refused it (expired, not permitted, or its budget spent): this read and the rest of
+                # the sweep's go on `token`, as they did before the split. Another thread may have dropped it first.
+                with self._count_lock:
+                    if self.read_token == read_token:
+                        print(f"queue-janitor: read token refused ({error.code}) on {path.split('?')[0]}; "
+                              "reading with the sweep's own token for the rest of the sweep", file=sys.stderr)
+                        self.read_token = ""
+                return self._request(method, path, body, app_only=app_only)
             if error.code in (403, 429) and rate_limited(error):
                 limited = RateLimited(f"{method} {path.split('?')[0]} failed ({error.code}: rate limit; "
                                       "the sweep stops rather than spend the workflow token)")
@@ -4531,10 +4556,12 @@ class GitHub:
             # RemoteDisconnected, a reset or a timeout.
             raise _Transient(repr(error)) from error
 
-    def note_rate_limit(self, headers: Any) -> None:
+    def note_rate_limit(self, headers: Any, *, read: bool = False) -> None:
+        """The newest budget reading per resource; the read token's apart (`core (read token)`), so the summary's
+        `core` stays the sweep token's (cmux-bot's) budget."""
         found = read_rate_limit(headers)
         if found:
-            self.rate_limits[found[0]] = found[1]
+            self.rate_limits[f"{found[0]} (read token)" if read else found[0]] = found[1]
 
     def in_flight_runs(self) -> list[dict[str, Any]]:
         """Every run in IN_FLIGHT_RUN_STATUSES, up to MAX_RUN_PAGES pages a status; how complete each status's
@@ -5019,6 +5046,11 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
 
     def cmux_bot() -> bool:
         return bool(cmux_bot_token) and cmux_bot_token == token and github.app_token
+    # READ_TOKEN: the glaeda-route App's token, which the workflow passes only beside cmux-bot's. The sweep's GET reads
+    # (a page per 100 in-flight runs, then each listed run's jobs: up to MAX_JOB_LISTINGS) go on its budget, so a
+    # backed-up queue no longer drains the cmux-bot installation every other workflow and reconciler shares.
+    if os.environ.get("READ_TOKEN") and hasattr(github, "use_read_token"):
+        github.use_read_token(os.environ["READ_TOKEN"])
     now = utc_now()
     linux_only = linux_only_workflow_paths(args.workflows_dir)
     branch_linux_only = branch_linux_only_paths(args.branch_workflows)

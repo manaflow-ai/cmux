@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import datetime as dt
+import io
 import json
 import os
 import re
@@ -132,6 +134,14 @@ class Declared(unittest.TestCase):
         steps = workflow["jobs"]["watch"]["steps"]
         [checkout] = [s for s in steps if s.get("id") == "spill-tooling"]
         self.assertRegex(checkout["with"]["ref"], r"^[0-9a-f]{40}$")
+        # 2026-11-18: the pin sat at c736d2e (2026-11-01) for 17 days, so the hosted-first valve (cmux#45861) never
+        # ran: RUNNER_POOLS.hosted_saturated stayed unset while GitHub-hosted held ~2,500 queued runs (median wait
+        # 3 h), and nightly 44243166776's publish-nightly-next-github queued behind them. The pin's comment names the
+        # spill changes it carries; it must carry the valve.
+        self.assertNotEqual(checkout["with"]["ref"], "c736d2e6c1db29305963040992f89f9466630f79")
+        pin_line = next(line for line in (ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text().splitlines()
+                        if checkout["with"]["ref"] in line)
+        self.assertIn("#45861", pin_line, "the spill pin must carry the hosted-first valve")
         self.assertEqual(checkout["with"]["persist-credentials"], False)
         self.assertEqual(set(checkout["with"]["sparse-checkout"].split()),
                          {"scripts/ci/linux_pool_spill.py", "scripts/ci/runner_pool_reconcile.py"})
@@ -391,6 +401,43 @@ class Reconcile(unittest.TestCase):
         # macOS pools and any other label stay out of the valve.
         self.assertEqual(runner_pools.allowed(pools["macos_26"], pools), runner_pools.members(pools["macos_26"]))
         self.assertTrue(runner_pools.value_problems({**value, "linux_16": "blacksmith-2vcpu-ubuntu-2404"}, pools))
+
+    def test_the_release_valve_never_goes_below_min_vcpu(self) -> None:
+        # 2026-11-18 11:47Z-13:18Z: with 16, 8 and 32 vCPU marked dead the valve put linux_16 on 4 and then 2 vCPU,
+        # and every fat-LTO cmux-tui tree build there was SIGKILLed out of memory (run 44289517882, acpmux rustc on
+        # blacksmith-4vcpu-ubuntu-2404, then 12 runs on 2 vCPU), so no tree published and the NEXT nightlies failed.
+        pools = {
+            "linux_2": {"why": "x", "members": ["blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"]},
+            "linux_4": {"why": "x", "members": ["blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"]},
+            "linux_8": {"why": "x", "members": ["blacksmith-8vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"]},
+            "linux_16": {"why": "x", "min_vcpu": 8,
+                         "members": ["blacksmith-16vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404",
+                                     "blacksmith-32vcpu-ubuntu-2404"]},
+        }
+        self.assertEqual(runner_pools.spec_problems(pools), [])
+        self.assertEqual(runner_pools.valve_labels(pools["linux_16"], pools), [])
+        dead = {"blacksmith-16vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404",
+                "blacksmith-4vcpu-ubuntu-2404"}
+        value, _ = runner_pools.reconcile({}, pools, dead_now=dead, served_now=(), now=NOW)
+        # It waits on its own first member rather than taking a size its jobs are killed on.
+        self.assertEqual(value["linux_16"], "blacksmith-16vcpu-ubuntu-2404")
+        self.assertEqual(value["linux_8"], "blacksmith-2vcpu-ubuntu-2404")  # no floor: the valve as before
+        # A value below the floor is not allowed, so a hand edit is reset too.
+        self.assertTrue(runner_pools.value_problems({**value, "linux_16": "blacksmith-4vcpu-ubuntu-2404"}, pools))
+
+    def test_a_large_pool_declares_its_memory_floor(self) -> None:
+        pools = {"linux_16": {"why": "x", "members": ["blacksmith-16vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404"]}}
+        self.assertTrue(any("min_vcpu" in problem for problem in runner_pools.spec_problems(pools)))
+        below = {"linux_16": {"why": "x", "min_vcpu": 16,
+                              "members": ["blacksmith-16vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404"]}}
+        self.assertTrue(any("below its min_vcpu" in problem for problem in runner_pools.spec_problems(below)))
+        bad = {"linux_16": {"why": "x", "min_vcpu": "8", "members": ["blacksmith-16vcpu-ubuntu-2404"]}}
+        self.assertTrue(any("positive whole number" in problem for problem in runner_pools.spec_problems(bad)))
+        # The declared fat-LTO pools keep 8 vCPU (32 GB) as their floor.
+        declared = runner_pools.load_pools()
+        for name in ("linux_16", "linux_32"):
+            with self.subTest(pool=name):
+                self.assertEqual(runner_pools.memory_floor(declared[name]), 8)
 
     def test_no_change_keeps_the_value_byte_for_byte(self) -> None:
         value, _ = self.run_once({})
@@ -900,6 +947,31 @@ class RawLabelVars(unittest.TestCase):
         self.assertIsNone(runner_pools.raw_substitute(self.DEAD32, set(self.SIZES), pools))
         self.assertIsNone(runner_pools.raw_substitute("blacksmith-6vcpu-macos-26", set(), pools))
 
+    def test_the_tree_build_variables_never_move_below_eight_vcpu(self) -> None:
+        # 2026-11-18 13:31Z: LINUX_BUILD_RUNNER and LINUX_RUNNER_DARWIN_CROSS had moved to 2 vCPU, where the fat-LTO
+        # tree build legs were SIGKILLed out of memory.
+        pools = runner_pools.load_pools()
+        small = {"blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"}
+        dead = set(self.SIZES) - small
+        self.assertEqual(runner_pools.raw_substitute(self.DEAD32, dead, pools), "blacksmith-4vcpu-ubuntu-2404")
+        self.assertIsNone(runner_pools.raw_substitute(self.DEAD32, dead, pools, 8))
+        live = {"LINUX_BUILD_RUNNER": "blacksmith-2vcpu-ubuntu-2404", "CI_CONTROL_RUNNER": "blacksmith-2vcpu-ubuntu-2404"}
+        previous = {"LINUX_BUILD_RUNNER": {"home": "blacksmith-16vcpu-ubuntu-2404", "to": "blacksmith-2vcpu-ubuntu-2404"}}
+        homes, lines = runner_pools.raw_homes(previous, live, dead, pools, owned=frozenset())
+        # No size at or above 8 vCPU is live: it goes back home to wait there.
+        self.assertEqual(homes["LINUX_BUILD_RUNNER"], {"home": "blacksmith-16vcpu-ubuntu-2404",
+                                                       "to": "blacksmith-16vcpu-ubuntu-2404"})
+        self.assertTrue(any("below its 8 vCPU floor" in line for line in lines), lines)
+        value = {runner_pools.DEAD_KEY: {label: "2026-11-18T13:31:07Z" for label in dead},
+                 runner_pools.RAW_HOME_KEY: homes}
+        self.assertEqual(runner_pools.raw_writes(value, live, owned=frozenset()),
+                         [("LINUX_BUILD_RUNNER", "blacksmith-16vcpu-ubuntu-2404", "blacksmith-2vcpu-ubuntu-2404",
+                           "blacksmith-16vcpu-ubuntu-2404 is dead")])
+        # 8 vCPU live again: it takes that, not 2.
+        homes, _ = runner_pools.raw_homes(previous, live, dead - {"blacksmith-8vcpu-ubuntu-2404"}, pools,
+                                          owned=frozenset())
+        self.assertEqual(homes["LINUX_BUILD_RUNNER"]["to"], "blacksmith-8vcpu-ubuntu-2404")
+
     def test_the_pinned_spill_path_makes_the_same_moves(self) -> None:
         # Production runs main() through linux_pool_spill.py: a switch that records writes, then the spill re-parses
         # the recorded RUNNER_POOLS (parse_value()) and writes mirror_writes() over _live() itself.
@@ -1013,6 +1085,103 @@ class CapBound(unittest.TestCase):
         # Only Blacksmith Linux pools of one family: macOS and mixed lists keep their declared order.
         self.assertIsNone(runner_pools.grows_before_shrinking(["blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26"]))
 
+
+
+class RefusedRead(unittest.TestCase):
+    """A refused snapshot read is asked once more with the workflow token (2026-11-18 11:18Z: the cmux-bot read
+    token got 403, the writer judged on the probe alone, and every Linux pool went to the 2 vCPU release valve)."""
+
+    FOUR, EIGHT = "blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404"
+    SIXTEEN, THIRTY_TWO = "blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404"
+    TWO = "blacksmith-2vcpu-ubuntu-2404"
+
+    class Refused:
+        def snapshot(self, *, now):
+            raise RuntimeError("HTTP Error 403: Forbidden")
+
+    def pass_with(self, fallback):
+        # The 11:18Z probe: 2 vCPU started, every other size waited out its minutes behind the vCPU cap.
+        switch = Main.Switch({runner_pools.HEALTH_VARIABLE: json.dumps(health({
+            self.TWO: "started", self.FOUR: "stalled", self.EIGHT: "stalled", self.SIXTEEN: "stalled",
+            self.THIRTY_TWO: "stalled"}))})
+        self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": ""}, api=self.Refused(), switch=switch, now=NOW,
+                                           **({"fallback": fallback} if fallback is not None else {})), 0)
+        return json.loads(switch.writes[0][1])
+
+    def test_the_fallback_snapshot_keeps_serving_sizes_live(self) -> None:
+        snapshot = copy.deepcopy(RECORDED)
+        snapshot["generated_at"] = runner_pools.iso(NOW - dt.timedelta(minutes=1))
+        snapshot["label_started"] = {label: runner_pools.iso(NOW - dt.timedelta(minutes=2))
+                                     for label in (self.FOUR, self.EIGHT, self.SIXTEEN, self.THIRTY_TWO)}
+        value = self.pass_with(Main.Api(snapshot))
+        self.assertEqual(value["_dead"], {})
+        self.assertEqual((value["linux"], value["linux_8"], value["linux_16"], value["linux_32"]),
+                         (self.FOUR, self.EIGHT, self.SIXTEEN, self.THIRTY_TWO))
+
+    class Counting:
+        """A fallback reader that records each read and answers with a fixed result (or raises it)."""
+
+        def __init__(self, result):
+            self.result = result
+            self.calls = 0
+
+        def snapshot(self, *, now):
+            self.calls += 1
+            if isinstance(self.result, Exception):
+                raise self.result
+            return self.result
+
+    def main_output(self, fallback):
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            value = self.pass_with(fallback)
+        return value, out.getvalue()
+
+    def test_a_refused_fallback_still_judges_on_the_probe(self) -> None:
+        fallback = self.Counting(RuntimeError("HTTP Error 403: Forbidden"))
+        value, out = self.main_output(fallback)
+        self.assertEqual(fallback.calls, 1)
+        self.assertIn(self.SIXTEEN, value["_dead"])
+        # Every x64 size but 2 vCPU stalled with no snapshot: linux_16 (16, 8, 32 vCPU) takes the 2 vCPU valve.
+        self.assertEqual(value["linux_16"], self.TWO)
+        self.assertIn("judging on the probe alone", out)
+
+    def test_a_fallback_with_no_snapshot_warns_it_judges_on_the_probe(self) -> None:
+        # GitHub.snapshot() returns None (no trusted snapshot artifact) without raising: that is not a read.
+        fallback = self.Counting(None)
+        value, out = self.main_output(fallback)
+        self.assertEqual(fallback.calls, 1)
+        self.assertEqual(value["linux_16"], self.TWO)
+        self.assertIn("judging on the probe alone", out)
+        self.assertNotIn("janitor snapshot read with the fallback token", out)
+
+    def test_the_fallback_reader_is_built_from_the_workflow_token(self) -> None:
+        # The workflow passes GH_TOKEN (the cmux-bot read token) and GH_FALLBACK_TOKEN (github.token).
+        built = []
+        real = runner_pools.pr_runner_pool.GitHub
+
+        class Recording:
+            def __init__(self, token, repo):
+                built.append((token, repo))
+
+            def snapshot(self, *, now):
+                return None
+
+        switch = Main.Switch({runner_pools.HEALTH_VARIABLE: json.dumps(health({self.TWO: "started"}))})
+        env = {"RUNNER_POOLS": "", "GH_TOKEN": "bot-token", "GH_FALLBACK_TOKEN": "workflow-token",
+               "GH_REPO": "manaflow-ai/cmux"}
+        runner_pools.pr_runner_pool.GitHub = Recording
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                runner_pools.main([], env, api=self.Refused(), switch=switch, now=NOW)
+            self.assertEqual(built, [("workflow-token", "manaflow-ai/cmux")])
+            # The same token twice is no fallback: nothing more is built.
+            built.clear()
+            with contextlib.redirect_stdout(io.StringIO()):
+                runner_pools.main([], {**env, "GH_FALLBACK_TOKEN": "bot-token"}, api=self.Refused(), switch=switch,
+                                  now=NOW)
+            self.assertEqual(built, [])
+        finally:
+            runner_pools.pr_runner_pool.GitHub = real
 
 if __name__ == "__main__":
     unittest.main()
