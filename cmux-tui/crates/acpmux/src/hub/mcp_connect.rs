@@ -179,7 +179,9 @@ impl Hub {
         let connected = self
             .first_connect(session, &request_id, &card, key.as_deref().map(String::as_str))
             .await;
+        let store = self.mcp_store_dir().await;
         let kept = self.keep_in_shared_store(
+            &store,
             &card,
             &scope,
             &connected,
