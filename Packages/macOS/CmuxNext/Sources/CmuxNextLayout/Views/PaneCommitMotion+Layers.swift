@@ -16,7 +16,8 @@ extension PaneCommitMotion {
         if size != .zero { add("bounds.size", from: NSValue(size: size), to: NSValue(size: .zero), on: layer, token) }
     }
 
-    private func add(_ keyPath: String, from: NSValue, to: NSValue, on layer: CALayer, _ token: MotionSpring) {
+    /// Adds one animation of this motion to `layer`; ``finish()`` takes it away.
+    func add(_ keyPath: String, from: NSValue, to: NSValue, on layer: CALayer, _ token: MotionSpring) {
         let animation = Motion.panes.springAnimation(token, keyPath, from: from, to: to)
         animation.isAdditive = true
         let key = "pane.commit.\(serial).\(keyPath)"

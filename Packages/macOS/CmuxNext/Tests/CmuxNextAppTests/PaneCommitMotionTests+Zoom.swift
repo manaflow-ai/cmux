@@ -109,7 +109,7 @@ extension PaneCommitMotionTests {
     }
 
     /// A second Cmd-Shift-Enter in the zoom's motion: the next frame shows every pane at its place in the grid, and no
-    /// pane has a move on its layer (an unzoom shows in one frame). Each frame after it shows the grid; a dim that the
+    /// pane has a move on its layer (an unzoom of a pane that gives no last frame shows in one frame). Each frame after it shows the grid; a dim that the
     /// unzoom brings goes, and the frames stop.
     @Test func aSecondKeyInAZoomsMotionShowsEveryPaneAtItsPlace() throws {
         let zoom = try Self.zooming(frames: 3)

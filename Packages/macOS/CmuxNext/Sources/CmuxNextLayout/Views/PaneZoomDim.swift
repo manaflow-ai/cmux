@@ -8,7 +8,8 @@ import CmuxNextDesign
 ///   with a hole that goes with the pane (``Phase/zooming``). The frame that ends the move takes the dim away. No
 ///   frame waits for the dim. A zoom whose pane does not move shows in one frame with no dim.
 /// - An unzoom shows every pane at its place in one frame, the others under the dim (``Phase/going``), which fades out
-///   and leaves when its fade is over.
+///   and leaves when its fade is over. When the pane that had the screen closes to its place (``PaneCommitMotion``),
+///   the dim's hole goes with it.
 ///
 /// The fades and the moves run on the render server. This object counts their time in the layout's frame ticks: it
 /// has no timer and no clock of its own, so the frame that takes the dim away is the layout's.
@@ -32,8 +33,8 @@ final class PaneZoomDim {
     var presentsPage = false { didSet { if presentsPage { owesMarks = true } } }
     /// Seconds of frame time left in the phase ``Phase/going``.
     private var remaining: TimeInterval = 0
-    /// The content rect of the pane that the waiting zoom moves, as it showed before the zoom, in the overlay plane's
-    /// coordinates: the dim's hole starts there.
+    /// The content rect of the pane that the waiting zoom or unzoom moves, as its layout had it before, in the overlay
+    /// plane's coordinates: the dim's hole starts there.
     private var holeBefore: CGRect?
     /// The pane an unzoom gives its place back to: the dim comes with the frame that shows that unzoom.
     private var returning: PaneID?
@@ -89,7 +90,8 @@ final class PaneZoomDim {
         }
         // A second key in a zoom's move changes nothing that shows in its own turn: the pane still moves, so its dim
         // stays. The pass that shows this change takes the dim away, or lets it go from the strength it shows.
-        holeBefore = motion.zooms ? layout.panes.first.flatMap { hole(of: $0, on: screen) } : nil
+        // Where the pane that moves has its place now: a zoom's pane in the layout before, an unzoom's at its screen's size.
+        holeBefore = (motion.zooms ? layout.panes.first : motion.unzooms ? shown.first : nil).flatMap { hole(of: $0, on: screen) }
         returning = back
         if zooming { cameUndimmed = !dimsOthers }
     }
@@ -108,11 +110,14 @@ final class PaneZoomDim {
         showMarks(on: screen)
         // A zoom's dim still showed when this pass came: a second key came in the zoom's move.
         let zoomDimShowed = phase == .zooming
-        if let zoom = motion.panesPlaced(on: screen) {
-            come(with: zoom, on: screen)
+        let started = motion.panesPlaced(on: screen)
+        if let started, started.act == .zoom {
+            come(with: started.change, on: screen)
         } else if phase == .off {
             self.view?.removeFromSuperview() // a dim that a zoom took over, when that zoom shows with no move
         }
+        let before = holeBefore
+        holeBefore = nil
         guard let pane = returning else {
             // The pass ended the zoom's move (a split or a close in it shows in one frame): its dim goes with it.
             if zoomDimShowed, !motion.inFlight { leave() }
@@ -123,6 +128,11 @@ final class PaneZoomDim {
         guard fade > 0, let view = place(around: pane, on: screen) else { return leave() }
         // An unzoom in a zoom's move lets that zoom's dim go from the strength it shows: no step up to its full strength.
         view.fadeOut(continuing: zoomDimShowed)
+        if let before, started?.act == .unzoom {
+            // The hole goes with the pane that closes to its place: the dim never covers that pane.
+            let spring = PaneCommitMotion.Act.unzoom.spring
+            view.moveHole(from: before) { part, origin, size in motion.move(part, spring, origin: origin, size: size) }
+        }
         phase = .going
         remaining = fade
         screen.context.requestFrames()
