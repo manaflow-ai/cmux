@@ -1321,3 +1321,19 @@
 .nt-screen .nt-create .nt-tool-icon > svg{width:100%;height:100%}
 
 .nt-row:has(.nt-row-shortcut) .nt-row-title{flex-shrink:1}
+
+/* Inside a New Tab app's scene (the Composer node, NewTabScreen `embedded`): the composer and its
+   create row in the app's own flow. The app lays the page out, so no page padding, scroller or room. */
+.nt-screen[data-embedded] {
+  flex: none;
+  overflow: visible;
+  padding: 0;
+  --nt-screen-inset: 0px;
+}
+.nt-screen[data-embedded][data-minimal] {
+  padding-top: 0;
+}
+/* The `>` an app asks for (Composer({ prompt: true })), as the Console template draws it. */
+.nt-screen[data-prompt-glyph] .nt-field {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}

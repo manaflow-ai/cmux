@@ -26,6 +26,13 @@ import type { SceneNode, SceneStore } from "./store";
 import "./scene.css";
 
 export type SceneDispatch = (node: string, event: string, payload?: unknown) => void;
+/** Where a `Composer` node sits and what it asks for: the embedding host draws cmux's own New Tab
+ * composer into `element` (a portal), so an app's New Tab page places the real field. */
+export type SceneComposerSlot = { element: HTMLElement; prompt: boolean; placeholder?: string; cwd?: string };
+/** What the embedding host draws into an app's scene. A New Tab page (NewTabAppPage) gives
+ * `composer`; every other host gives none, and a `Composer` node draws nothing there. */
+export type SceneHost = { composer?(slot: SceneComposerSlot | null): void };
+export const SceneHostContext = createContext<SceneHost | undefined>(undefined);
 /** The embedding host resolves an app-relative bundle path to a trusted local resource URL.
  * App-supplied URLs are never passed directly to an image. */
 export type SceneAssetResolver = (bundlePath: string) => string | undefined;
@@ -106,6 +113,27 @@ function SceneRow({ node }: { node: SceneNode }) {
   );
 }
 
+/** `Composer`: a placeholder the host fills with cmux's own New Tab composer (the project and
+ * agent chips, attachments, slash commands and the start flow), at the node's place. `prompt` puts
+ * the Console's `>` before a monospace field; `cwd` moves the folder the next chat starts in;
+ * `placeholder` replaces the field's hint. Without a host that gives one (the sidebar, a pane, the
+ * native renderers) it draws nothing. */
+function SceneComposer({ node }: { node: SceneNode }) {
+  const host = useContext(SceneHostContext);
+  const [element, setElement] = useState<HTMLDivElement | null>(null);
+  const prompt = node.props.prompt === true;
+  const placeholder = sceneText(node.props.placeholder) || undefined;
+  const cwd = sceneText(node.props.cwd) || undefined;
+  const give = host?.composer;
+  useEffect(() => {
+    if (!give || !element) return;
+    give({ element, prompt, ...(placeholder ? { placeholder } : {}), ...(cwd ? { cwd } : {}) });
+    return () => give(null);
+  }, [give, element, prompt, placeholder, cwd]);
+  if (!give) return null;
+  return <div ref={setElement} className="cmux-app-scene-composer-slot" />;
+}
+
 function SceneTextField({ node, dispatch, disabled }: { node: SceneNode; dispatch: SceneDispatch; disabled: boolean }) {
   const external = sceneText(node.props.text);
   const [text, setText] = useState(external);
@@ -121,6 +149,8 @@ function SceneTextField({ node, dispatch, disabled }: { node: SceneNode; dispatc
     <input
       ref={input}
       className="cmux-app-scene-field"
+      // `.font()`, `.weight()` and `.monospaced()` as a Text's (a console look's monospace field).
+      style={fieldStyle(node.props)}
       value={text}
       placeholder={sceneText(node.props.placeholder)}
       aria-label={sceneText(node.props.help) || sceneText(node.props.placeholder) || undefined}
@@ -258,6 +288,17 @@ function SceneSlider({ node, dispatch, disabled }: { node: SceneNode; dispatch: 
   );
 }
 
+/** A TextField's own type: the font, weight and monospace a Text takes, never its line limit. */
+function fieldStyle(props: SceneNode["props"]): CSSProperties | undefined {
+  const { fontSize, fontWeight, fontStyle, fontFamily } = textStyle(props);
+  const style: CSSProperties = {};
+  if (fontSize !== undefined) style.fontSize = fontSize;
+  if (fontWeight !== undefined) style.fontWeight = fontWeight;
+  if (fontStyle !== undefined) style.fontStyle = fontStyle;
+  if (fontFamily !== undefined) style.fontFamily = fontFamily;
+  return Object.keys(style).length ? style : undefined;
+}
+
 function contentOf(node: SceneNode, children: ReactNode, dispatch: SceneDispatch, disabled: boolean): ReactNode {
   const props = node.props;
   switch (node.type) {
@@ -327,6 +368,8 @@ function contentOf(node: SceneNode, children: ReactNode, dispatch: SceneDispatch
     }
     case "TextField":
       return <SceneTextField node={node} dispatch={dispatch} disabled={disabled} />;
+    case "Composer":
+      return <SceneComposer node={node} />;
     case "Circle":
     case "Capsule":
     case "Rectangle":

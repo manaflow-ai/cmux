@@ -286,6 +286,11 @@ type Props = NewTabScreenActions & {
   /// The workspace's tabs to move here (a split's page, cx-jfo7).
   openTabs?: NewTabHost["openTabs"];
   inputToken?: string;
+  /// Drawn inside a New Tab app's scene (cmux.newtab/1's `Composer` node): the composer and its
+  /// create row alone, in the flow of the app's layout, with no room over it. `prompt` puts the
+  /// Console's `>` before a monospace field; `cwd` (changed by the app, e.g. an environment row)
+  /// moves the folder the next chat starts in; `placeholder` replaces the field's hint.
+  embedded?: { prompt?: boolean; placeholder?: string; cwd?: string };
   now?: number;
   /// The folder the tab inherited: the project picker starts there.
   cwd?: string;
@@ -389,7 +394,10 @@ export function NewTabScreen(props: Props) {
   const minimal = template === "minimal";
   // Claude Code desktop's new-session page (templates.ts stage, the Default template): the composer
   // at the foot, the environment and suggestions cards over it.
-  const stage = sections.stage;
+  const embedded = props.embedded !== undefined;
+  const stage = sections.stage && !embedded;
+  /// The Console's `>` before the field: its template's, or an embedding app's `prompt`.
+  const promptGlyph = sections.prompt || props.embedded?.prompt === true;
   const [carried] = useState(() => props.takeDraft?.());
   // A host-provided location is literal text, not Markdown (paths can contain `_`, `*`, or `[`);
   // a carried composer draft is already serialized Markdown, including attachment tokens.
@@ -421,12 +429,24 @@ export function NewTabScreen(props: Props) {
   const [profilePick, setProfilePick] = useState<{ url: string; text: string }>();
   /// A dictation session runs: Send ends it and sends (submit).
   const listening = !shell && props.dictation !== undefined && isActive(props.dictation.state);
-  const [seeded, setProject] = useState(props.cwd && !isAgentHome(props.cwd) ? props.cwd : undefined);
+  const embedCwd = props.embedded?.cwd;
+  const [seeded, setProject] = useState(
+    embedCwd ?? (props.cwd && !isAgentHome(props.cwd) ? props.cwd : undefined),
+  );
   // A tab with no project of its own (none, the home folder or a private agent-home folder) and no
   // start folder from the host starts on the most recent project (Leo 2026-10-18), until a pick.
   const [picked, setPicked] = useState(false);
   // No folder (Leo 2026-10-18): no project, no start folder, until a folder pick.
   const [none, setNone] = useState(false);
+  // An embedding app moved the start folder (its environment row): the composer starts there, as a pick.
+  const seededEmbed = useRef(embedCwd);
+  useEffect(() => {
+    if (!embedCwd || seededEmbed.current === embedCwd) return;
+    seededEmbed.current = embedCwd;
+    setProject(embedCwd);
+    setPicked(true);
+    setNone(false);
+  }, [embedCwd]);
   const [fixing, setFixing] = useState(false);
   useEffect(() => {
     if (props.fixError) setFixing(false);
@@ -1601,7 +1621,9 @@ export function NewTabScreen(props: Props) {
     input.focus();
     input.setCaret(input.plainText().length);
   };
-  const placeholder = profilePick ? nt("profile.placeholder", { site: shortHost(profilePick.url) }) : nt("placeholder");
+  const placeholder = profilePick
+    ? nt("profile.placeholder", { site: shortHost(profilePick.url) })
+    : (props.embedded?.placeholder ?? nt("placeholder"));
   // A dictation waiting for words says so in the empty field, in italic (dictation.css).
   const dictating = props.dictating === true;
   const keyDown = (event: KeyboardEvent) => {
@@ -2344,8 +2366,8 @@ export function NewTabScreen(props: Props) {
             {split && attachmentPicker}
             {/* A prompt glyph (the Console's `>`) keeps a column of its own before the text; with
               none the text starts one gap after +, and shell mode's `!` stands in that gap. */}
-            <div className="nt-field-slot" data-glyph-column={sections.prompt || undefined}>
-              {(shell || sections.prompt) && (
+            <div className="nt-field-slot" data-glyph-column={promptGlyph || undefined}>
+              {(shell || promptGlyph) && (
                 <span
                   className={shell ? "nt-input-glyph nt-shell-glyph" : "nt-input-glyph nt-prompt-glyph"}
                   aria-hidden="true"
@@ -2545,6 +2567,8 @@ export function NewTabScreen(props: Props) {
       data-all-chats={allChats || undefined}
       data-layout={stage ? "stage" : undefined}
       data-minimal={minimal || undefined}
+      data-embedded={embedded || undefined}
+      data-prompt-glyph={promptGlyph || undefined}
     >
       {stage ? (
         <>
@@ -2564,7 +2588,7 @@ export function NewTabScreen(props: Props) {
         <>
           {/* Minimal keeps the old greeting's room over the composer, empty, so the composer sits
                 where it always sat (screen.css .nt-composer-room). */}
-          {minimal && <div className="nt-composer-room" />}
+          {minimal && !embedded && <div className="nt-composer-room" />}
           {composerCard}
           {starters}
           {props.notice}

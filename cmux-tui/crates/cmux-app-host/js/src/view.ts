@@ -229,6 +229,22 @@ export function TextField(
   return node
 }
 
+/**
+ * cmux's own New Tab composer (the field with its project and agent chips, attachments, slash
+ * commands and start flow) at this place in a New Tab page app's scene (cmux.newtab/1). `prompt`
+ * puts the Console's `>` before a monospace field; `cwd` moves the folder the next chat starts in
+ * (an environment row); `placeholder` replaces the hint. Anywhere else it draws nothing.
+ */
+export function Composer(
+  options: { prompt?: Bindable<boolean>; placeholder?: Bindable<string>; cwd?: Bindable<string | null> } = {}
+): ViewNode {
+  const node = new ViewNode("Composer")
+  if (options.prompt !== undefined) node.props.prompt = options.prompt
+  if (options.placeholder !== undefined) node.props.placeholder = options.placeholder
+  if (options.cwd !== undefined) node.props.cwd = options.cwd
+  return node
+}
+
 /** A native switch, two-way bound like TextField: `value` is the state, `onChange` gets the new one. */
 export function Toggle(value: Bindable<boolean>, options: { label?: Bindable<string>; disabled?: Bindable<boolean>; onChange?: (on: boolean) => unknown } = {}): ViewNode {
   const node = new ViewNode("Toggle")

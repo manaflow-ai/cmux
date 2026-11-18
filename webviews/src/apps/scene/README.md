@@ -38,7 +38,13 @@ The renderer accepts the existing [scene ABI](../../../../cmux-tui/crates/cmux-a
   `message` and `symbol`.
 - Button renders its `title` or children. Menu renders nested `menu` entries with
   `title`, `symbol`, `disabled`, `destructive`, `children` or `divider`.
-- TextField supports `text`, `placeholder`, `autofocus` and handler-presence props.
+- TextField supports `text`, `placeholder`, `autofocus` and handler-presence props, and
+  `font`, `weight`, `italic` and `monospaced` as a Text does.
+- Composer (`prompt`, `placeholder`, `cwd`) is where a New Tab page app (cmux.newtab/1) shows
+  cmux's own composer: NewTabAppPage gives SceneRenderer a `SceneHostContext` whose `composer`
+  receives the node's element, and App.tsx portals NewTabScreen (embedded) into it. Hosts that
+  give no composer draw nothing for it.
+- Icon `harness:<id>` draws that agent's own mark (shared/AgentMark).
   ProgressView renders a clamped `value` or the pane's existing spinner.
 - Toggle is a settings row: `label` leading, a small switch trailing, `value` its state. Slider
   spans the row over `min...max` (0...1 when empty or reversed), snapped to `step` (a hundredth

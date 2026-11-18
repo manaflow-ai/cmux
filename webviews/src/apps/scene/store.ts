@@ -87,6 +87,11 @@ export class SceneStore {
   getNode(id: string): SceneNode | undefined {
     return this.nodes.get(id);
   }
+  /** Whether the scene has a node of `type` (NewTabAppPage: a `Composer` reports input readiness itself). */
+  hasNodeOfType(type: string): boolean {
+    for (const node of this.nodes.values()) if (node.type === type) return true;
+    return false;
+  }
   getRoot = (): string | undefined => this.root;
   getGeneration = (): number => this.generation;
   markDrawn(generation: number): void {

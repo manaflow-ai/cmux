@@ -7,6 +7,7 @@ import { pageError } from "../../../pages/shared/pageClient";
 import type { SceneEvent } from "../../../apps/scene/panelsClient";
 import { teardownDom } from "../../../../test/support/domTeardown";
 import { newTabHost, pickedNewTabApp } from "../newTabModel";
+import type { SceneComposerSlot } from "../../../apps/scene/SceneRenderer";
 import { NewTabAppPage } from "./NewTabAppPage";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
@@ -173,5 +174,93 @@ test("keys typed after Cmd-T wait for the app's first scene: focus while it load
     window.dispatchEvent(new window.Event("focus"));
   });
   expect(ready).toEqual(["t1"]);
+  await act(async () => root.unmount());
+});
+
+test("a Composer node is where cmux's own composer goes: the slot carries prompt, cwd and placeholder, and its field reports readiness", async () => {
+  const host = new Host();
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  const slots: (SceneComposerSlot | null)[] = [];
+  const ready: string[] = [];
+  await act(async () => {
+    root.render(
+      <NewTabAppPage
+        app="local/console"
+        client={host}
+        inputToken="t2"
+        onInputReady={(token) => ready.push(token)}
+        onUnavailable={() => undefined}
+        onComposer={(slot) => slots.push(slot)}
+      />,
+    );
+  });
+  await act(async () => {
+    host.scene?.(
+      {
+        mount_id: "m1",
+        ops: [
+          { op: "create", id: "c", type: "Composer", props: { prompt: true, cwd: "/projects/atlas", placeholder: "Ask" } },
+          { op: "create", id: "v", type: "VStack", props: {} },
+          { op: "children", id: "v", children: ["c"] },
+          { op: "root", id: "v" },
+        ],
+      },
+      1,
+    );
+  });
+  const slot = slots.at(-1);
+  expect(slot?.prompt).toBe(true);
+  expect(slot?.cwd).toBe("/projects/atlas");
+  expect(slot?.placeholder).toBe("Ask");
+  expect(slot?.element.classList.contains("cmux-app-scene-composer-slot")).toBe(true);
+  expect(container.contains(slot?.element ?? null)).toBe(true);
+  // cmux's own field in the slot reports (App.tsx passes it the token): the page does not, so it reports once.
+  await act(async () => {
+    window.dispatchEvent(new window.Event("focus"));
+  });
+  expect(ready).toEqual([]);
+  // The app moves the folder: the slot follows.
+  await act(async () => {
+    host.scene?.({ mount_id: "m1", ops: [{ op: "update", id: "c", props: { cwd: "/projects/zeta" } }] }, 2);
+  });
+  expect(slots.at(-1)?.cwd).toBe("/projects/zeta");
+  await act(async () => root.unmount());
+  expect(slots.at(-1)).toBeNull();
+});
+
+test("a Composer node draws nothing where no host gives a composer", async () => {
+  const host = new Host();
+  const { container, root } = await render(host);
+  await act(async () => {
+    host.scene?.({ mount_id: "m1", ops: [{ op: "create", id: "c", type: "Composer", props: {} }, { op: "root", id: "c" }] }, 1);
+  });
+  expect(container.querySelector(".cmux-app-scene-composer-slot")).toBeNull();
+  await act(async () => root.unmount());
+});
+
+test("a TextField takes .monospaced() and .font() as a Text does; Icon harness:<id> draws the agent's mark", async () => {
+  const host = new Host();
+  const { container, root } = await render(host);
+  await act(async () => {
+    host.scene?.(
+      {
+        mount_id: "m1",
+        ops: [
+          { op: "create", id: "f", type: "TextField", props: { monospaced: true, font: 15 } },
+          { op: "create", id: "i", type: "Icon", props: { symbol: "harness:claude", size: 16 } },
+          { op: "create", id: "h", type: "HStack", props: {} },
+          { op: "children", id: "h", children: ["f", "i"] },
+          { op: "root", id: "h" },
+        ],
+      },
+      1,
+    );
+  });
+  const field = container.querySelector<HTMLInputElement>(".cmux-app-scene-field");
+  expect(field?.style.fontFamily).toBe("var(--font-mono)");
+  expect(field?.style.fontSize).toBe("15px");
+  expect(container.querySelector(".cmux-app-scene-harness")).not.toBeNull();
   await act(async () => root.unmount());
 });

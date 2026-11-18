@@ -1,6 +1,7 @@
 import { Icon } from "../../agent-session/acpmux/icons/Icon";
 import { useIcons } from "../../agent-session/acpmux/icons/iconsContextModel";
 import { bundledIconPack, MISSING_ICON } from "../../agent-session/acpmux/icons/iconPack";
+import { AgentMark } from "../../agent-session/shared/AgentMark";
 import { sceneText } from "./sceneStyle";
 import { symbolGlyphColor } from "./sceneSymbolRendering";
 
@@ -42,6 +43,9 @@ export function appSceneIcon(value: unknown): string {
   return mapped && Object.hasOwn(bundledIconPack.icons, mapped) ? mapped : MISSING_ICON;
 }
 
+/** The symbol namespace of an agent's own mark: `harness:claude`, `harness:codex`, ... */
+export const HARNESS_PREFIX = "harness:";
+
 /** Unknown SF names deliberately draw a neutral fallback without an icon-pack warning. `rendering`
  * (`symbolRendering`) and `palette` (`symbolColors`) pick the glyph's color as SF Symbols' modes
  * do, for the glyph as a whole (sceneSymbolRendering.ts). */
@@ -62,6 +66,15 @@ export function SceneSymbol({
 }) {
   const { pack } = useIcons();
   const value = sceneText(symbol);
+  // `harness:<id>` (`Icon("harness:claude")`): the agent's own mark, as cmux's chat cards draw it; a
+  // harness no mark knows draws the icon acpmux picked for it, else a monogram.
+  if (value.startsWith(HARNESS_PREFIX) && value.length > HARNESS_PREFIX.length) {
+    return (
+      <span className={className ? `cmux-app-scene-harness ${className}` : "cmux-app-scene-harness"}>
+        <AgentMark agent={value.slice(HARNESS_PREFIX.length)} size={size} />
+      </span>
+    );
+  }
   const mapped = Object.hasOwn(pack.icons, value) ? value : SYMBOLS[value];
   const name = mapped && Object.hasOwn(pack.icons, mapped) ? mapped : MISSING_ICON;
   const modeColor = name === MISSING_ICON ? undefined : symbolGlyphColor(value, rendering, palette);

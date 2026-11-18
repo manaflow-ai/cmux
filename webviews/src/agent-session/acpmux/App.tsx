@@ -95,7 +95,8 @@ import { setNowPlaying } from "./newtab/nowPlaying";
 import { setAttentionTabs } from "./needsYou/attentionTabs";
 import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
 import { HistoryScreen } from "./newtab/HistoryScreen";
-import { NewTabAppPage } from "./newtab/NewTabAppPage";
+import { InComposerSlot, NewTabAppPage } from "./newtab/NewTabAppPage";
+import type { SceneComposerSlot } from "../../apps/scene/SceneRenderer";
 import { historyPages } from "./queue/historyPages";
 import type { AllChatsPage } from "./newtab/allChatsListModel";
 import { newTabScreenActions } from "./newtab/screenActions";
@@ -11289,6 +11290,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (handshaken || hostError === undefined);
   // The extension the person picked to draw the whole page (`tabs.newTabApp`), until it could not show.
   const newTabApp = showNewTab ? pickedNewTabApp(newTab, newTabAppGone, newTabAdoptions) : undefined;
+  // Where the app's Composer node sits (cmux.newtab/1): cmux's own New Tab composer is drawn there.
+  const [newTabComposer, setNewTabComposer] = useState<SceneComposerSlot | null>(null);
+  const newTabAppShown = !!newTabApp && !harnessesOpen;
+  const newTabComposerSlot = newTabAppShown ? newTabComposer : null;
   if (newTab !== undefined && !handshaken && hostError !== undefined) composerStoodIn.current = true;
   /// The one-time Cloud hint shows on a new chat this Mac starts while Cloud is offered and is not
   /// its mode (cloudChatHintModel.ts); never in a quick chat or a chat on another machine.
@@ -13640,7 +13645,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               />
             )}
           {showNewTab && folderAskView}
-          {newTabApp && !harnessesOpen ? (
+          {newTabAppShown ? (
             <NewTabAppPage
               key={`${newTabGeneration}:${newTabApp}`}
               app={newTabApp}
@@ -13648,9 +13653,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               onUnavailable={() => setNewTabAppGone(newTabAdoptions)}
               inputToken={newTab?.inputToken}
               onInputReady={(token) => void callNative("newTab.inputReady", { token })}
+              onComposer={setNewTabComposer}
             />
-          ) : showNewTab && !newTab.history && shownTemplate(newTab) !== "classic" ? (
-            <>
+          ) : null}
+          {newTabAppShown && !newTabComposerSlot ? null : showNewTab &&
+            (newTabAppShown || (!newTab.history && shownTemplate(newTab) !== "classic")) ? (
+            // An app's page draws cmux's own composer at its Composer node (a portal into the scene).
+            <InComposerSlot slot={newTabComposerSlot}>
               {/* Setup keeps this page's draft and project, while its hidden input effects stop. */}
               <Activity mode={harnessesOpen ? "hidden" : "visible"}>
                 <NewTabScreen
@@ -13803,7 +13812,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   startNotice={trustQuestion}
                   // The host answers only for a page on this Mac; another machine's keeps the refusal.
                   {...(!quick ? { localPaths } : {})}
-                  template={screenTemplate(shownTemplate(newTab))}
+                  template={newTabComposerSlot ? "minimal" : screenTemplate(shownTemplate(newTab))}
+                  {...(newTabComposerSlot
+                    ? {
+                        embedded: {
+                          prompt: newTabComposerSlot.prompt,
+                          ...(newTabComposerSlot.placeholder ? { placeholder: newTabComposerSlot.placeholder } : {}),
+                          ...(newTabComposerSlot.cwd ? { cwd: newTabComposerSlot.cwd } : {}),
+                        },
+                      }
+                    : {})}
                   {...(newTab.allChats === false ? { allChats: false } : {})}
                   {...(newTab.suggestionOrder ? { suggestionOrder: newTab.suggestionOrder } : {})}
                   snapshot={
@@ -13900,7 +13918,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 />
               </Activity>
               {harnessesOpen && harnessesPage}
-            </>
+            </InComposerSlot>
           ) : harnessesOpen ? (
             harnessesPage
           ) : contextOpen && !showNewTab ? (
