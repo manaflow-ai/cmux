@@ -53,5 +53,20 @@ import Testing
         #expect(!panel.isVisible, "Escape always closes it")
     }
 
+    /// Done, then the trigger again: the card shows again, with its words (the same snapshot is no reason to skip it).
+    @Test func theCardOpensAgainAfterDone() throws {
+        let popover = AppHealthPopover(health: AppHealth())
+        popover.fixture = AppHealthCard.fixture(state: "failed")
+        defer { popover.close() }
+        for round in 1...3 {
+            popover.open(over: nil)
+            let panel = try #require(popover.panel)
+            #expect(panel.isVisible, "round \(round): the card shows")
+            #expect(panel.dialogView?.spec.title == "Agent chat needs a repair", "round \(round): with its words")
+            _ = try #require(panel.dialogView).dialog.press("done")
+            #expect(!panel.isVisible, "round \(round): Done closes it")
+        }
+    }
+
     static func views(under root: NSView) -> [NSView] { root.subviews.flatMap { [$0] + views(under: $0) } }
 }
