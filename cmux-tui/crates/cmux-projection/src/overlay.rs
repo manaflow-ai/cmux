@@ -498,12 +498,18 @@ impl Overlay {
     }
 
     fn cached(&self, key: Key) -> Option<Vec<u8>> {
+        if !self.fetch.cache() {
+            return None;
+        }
         let bytes = fs::read(self.cache_path(key)).ok()?;
         self.cache_hits.fetch_add(1, Ordering::Relaxed);
         Some(bytes)
     }
 
     fn store(&self, key: Key, bytes: &[u8]) {
+        if !self.fetch.cache() {
+            return;
+        }
         let temp = self.scratch_path();
         if fs::write(&temp, bytes).is_ok() && fs::rename(&temp, self.cache_path(key)).is_err() {
             let _ = fs::remove_file(&temp);
@@ -542,7 +548,8 @@ impl Overlay {
         }
         let mut batch = vec![index];
         let mut bytes = self.manifest.entry(index).map_or(0, |entry| entry.size);
-        if let Some(entry) = self.manifest.entry(index) {
+        // A source with no cache answers one file at a time: read ahead would be thrown away.
+        if let Some(entry) = self.manifest.entry(index).filter(|_| self.fetch.cache()) {
             let folder = self.manifest.path_of(entry.parent);
             let (first, siblings) = self.manifest.children(entry.parent);
             let mut inflight = self.inflight.lock().unwrap_or_else(PoisonError::into_inner);

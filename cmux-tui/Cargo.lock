@@ -1907,6 +1907,7 @@ dependencies = [
  "fuser",
  "libc",
  "serde",
+ "sha1",
  "tempfile",
  "zstd",
 ]
