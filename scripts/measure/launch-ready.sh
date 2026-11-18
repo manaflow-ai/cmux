@@ -255,10 +255,18 @@ checker_delta() {
     printf "syspolicyd_ms=%d xprotect_ms=%d amfid_ms=%d trustd_ms=%d taskgated_ms=%d", y[1]-x[1], y[2]-x[2], y[3]-x[3], y[4]-x[4], y[5]-x[5] }'
 }
 
+# exe_stat APP: the main executable's hard-link count and ctime ("links:ctime"); a launch that changes either
+# (a code-sign clone that hard-links it) is what makes the checkers scan it again before the next launch.
+exe_stat() {
+  local name
+  name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$1/Contents/Info.plist" 2>/dev/null)"
+  stat -f '%l:%c' "$1/Contents/MacOS/$name" 2>/dev/null || echo unknown
+}
+
 # probe OUT SIDE LABEL SETTLE_S PROFILE: one launch of SIDE's copy with SIDE's home, in the console session; with
 # PROFILE 1 under an all-processes Time Profiler recording.
 probe() {
-  local out="$1" side="$2" label="$3" settle="$4" profile="$5" app line load recorder="" trace cross checkers
+  local out="$1" side="$2" label="$3" settle="$4" profile="$5" app line load recorder="" trace cross checkers exe
   trace="$out/$side-$label.trace" # its own line: bash 3.2 expands a `local` line's words before it assigns any
   app="$(find "$out/$side" -maxdepth 1 -name '*.app' | head -1)"
   mkdir -p "$out/home-$side" && chmod 0777 "$out/home-$side"
@@ -290,10 +298,10 @@ probe() {
   if [[ "$side" == late && "$label" == run* ]]; then
     sleep "$(awk -v ms="${LR_LATE:-0}" 'BEGIN { printf "%.3f", ms / 1000 }')" # late=MS, just before the open request
   fi
-  checkers="$(checker_cpu)"
+  checkers="$(checker_cpu)" exe="$(exe_stat "$app")"
   line="$(GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh "$out/launch-ready" "$app" "$out/home-$side" "$label" "$settle" "$LR_SOCKETS/$side.sock" \
     $([[ "$LR_STATE" == bare ]] && echo shell) 2>>"$out/probe.log" | grep '^LR-RUN ')"
-  checkers="$(checker_delta "$checkers" "$(checker_cpu)")"
+  checkers="$(checker_delta "$checkers" "$(checker_cpu)") exe=$exe->$(exe_stat "$app")"
   # Every launch snapshot path the launch left must be in its own home: one in the other side's means it read that.
   # Unsaved defaults fail the same way, and the stale copy goes: the side's next launch starts empty, not from it.
   if side_defaults "$out" save "$app" "$out/home-$side/defaults.plist"; then
