@@ -1288,7 +1288,7 @@ impl Hub {
         }
         // A usage limit pauses the chat's running workflows too: the continue names them, so
         // they go on by themselves with the chat.
-        if reason == "capacity" {
+        if super::turn_errors::is_usage_limit_error(cut.error) {
             text = with_paused_workflows(text, &self.workflow_index.paused_runs(&session.id));
         }
         let blocks = vec![json!({"type": "text", "text": text})];

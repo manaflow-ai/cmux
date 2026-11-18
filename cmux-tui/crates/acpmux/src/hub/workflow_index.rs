@@ -160,24 +160,31 @@ impl WorkflowIndex {
         rows.bound();
     }
 
-    /// The run ids of chat `session_id`'s paused workflows that no later run of the same id took
-    /// up again, oldest first: what an automatic continue after a usage limit names, so Claude
-    /// resumes them (`auto_resume.rs`; a resume is a new task with the same `runId`).
+    /// The run ids of chat `session_id`'s paused workflows, oldest pause first: each run whose
+    /// latest task (a resume is a new task with the same `runId`) ended paused. A run a resume
+    /// took up, running or ended since, is not one. What a continue after a usage limit names,
+    /// so Claude resumes them (`auto_resume.rs`).
     pub fn paused_runs(&self, session_id: &str) -> Vec<String> {
         let rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
-        let run = |row: &Row| row.fields.get("runId").and_then(Value::as_str).map(str::to_owned);
-        let mine = || rows.by_id.values().filter(|row| row.session_id == session_id);
-        let taken_up: HashSet<String> =
-            mine().filter(|row| row.ended_at.is_none()).filter_map(run).collect();
-        let mut paused: Vec<(u64, String)> = mine()
-            .filter(|row| row.fields.get("reason").and_then(Value::as_str) == Some("paused"))
-            .filter(|row| row.fields.get("state").and_then(Value::as_str) == Some("cancelled"))
-            .filter_map(|row| Some((row.ended_at?, run(row)?)))
-            .filter(|(_, id)| !taken_up.contains(id))
+        let mut latest: HashMap<&str, &Row> = HashMap::new();
+        for row in rows.by_id.values().filter(|row| row.session_id == session_id) {
+            let Some(run) = row.fields.get("runId").and_then(Value::as_str) else { continue };
+            let newer = latest.get(run).is_none_or(|seen| {
+                (row.started_at, row.ended_at.is_none(), row.ended_at)
+                    > (seen.started_at, seen.ended_at.is_none(), seen.ended_at)
+            });
+            if newer {
+                latest.insert(run, row);
+            }
+        }
+        let mut paused: Vec<(u64, String)> = latest
+            .into_iter()
+            .filter(|(_, row)| row.fields.get("reason").and_then(Value::as_str) == Some("paused"))
+            .filter(|(_, row)| row.fields.get("state").and_then(Value::as_str) == Some("cancelled"))
+            .filter_map(|(run, row)| Some((row.ended_at?, run.to_owned())))
             .collect();
         paused.sort();
-        let mut seen = HashSet::new();
-        paused.into_iter().map(|(_, id)| id).filter(|id| seen.insert(id.clone())).collect()
+        paused.into_iter().map(|(_, run)| run).collect()
     }
 
     /// Forgets the workflows of chats that are gone.
@@ -396,6 +403,13 @@ mod tests {
         // Resumed: a new task of the same run id runs.
         index.observe("chat-1", &[run("a/w4", "wf_2")], 4);
         assert_eq!(index.paused_runs("chat-1"), ["wf_1"]);
+        // The resumed run ends: still not paused. Paused again: named again.
+        index.observe("chat-1", &[json!({"id": "a/w4", "state": "completed"})], 5);
+        assert_eq!(index.paused_runs("chat-1"), ["wf_1"]);
+        index.observe("chat-1", &[run("a/w5", "wf_1"), paused("a/w5")], 6);
+        assert_eq!(index.paused_runs("chat-1"), ["wf_1"]);
+        index.observe("chat-1", &[json!({"id": "a/w5", "state": "completed"})], 7);
+        assert_eq!(index.paused_runs("chat-1"), Vec::<String>::new());
         assert_eq!(index.paused_runs("chat-3"), Vec::<String>::new());
     }
 

@@ -96,3 +96,30 @@ async fn the_workflow_permission_request_carries_the_run() {
         json!(["Review", "Verify", "Report"])
     );
 }
+
+/// Review of #46229: a quote in a comment opens no string, and `const metaData` is not `meta`.
+#[test]
+fn comments_and_a_longer_name_do_not_mislead_the_parser() {
+    let script = "const metaData = { name: 'wrong' }\nexport const meta = {\n  // don't: name: 'commented'\n  name: 'right', /* phases: [{ title: 'no' }] */\n  phases: [{ title: 'A' }],\n}";
+    let meta = parse_meta(meta_literal(script).expect("a meta literal"));
+    assert_eq!(meta.name.as_deref(), Some("right"));
+    assert_eq!(meta.phases, ["A"]);
+}
+
+/// Review of #46229: a device or FIFO the model names is never read (its size reads 0), and a
+/// relative path is the chat folder's.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_device_is_never_read_and_a_relative_path_is_the_chats() {
+    let zero = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        workflow_ask(&json!({"scriptPath": "/dev/zero", "name": "z"}), None),
+    )
+    .await
+    .expect("answers at once");
+    assert_eq!(zero.unwrap()["phases"], json!([]));
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("wf.js"), SCRIPT).unwrap();
+    let relative = workflow_ask(&json!({"scriptPath": "wf.js"}), Some(dir.path())).await.unwrap();
+    assert_eq!(relative["phases"], json!(["Review", "Verify", "Report"]));
+}

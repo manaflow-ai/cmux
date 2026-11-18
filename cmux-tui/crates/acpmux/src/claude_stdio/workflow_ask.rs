@@ -27,7 +27,12 @@ pub(super) async fn workflow_ask(input: &Value, cwd: Option<&Path>) -> Option<Va
     let s = |k: &str| input.get(k).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty());
     let script = match (s("script"), s("scriptPath"), s("name")) {
         (Some(script), _, _) => Some(script.to_owned()),
-        (None, Some(path), _) => read_script(Path::new(path)).await,
+        // A relative path is the chat's folder's, as Claude Code reads it.
+        (None, Some(path), _) => match (Path::new(path).is_relative(), cwd) {
+            (true, Some(cwd)) => read_script(&cwd.join(path)).await,
+            (true, None) => None,
+            (false, _) => read_script(Path::new(path)).await,
+        },
         (None, None, Some(name)) => saved_script(name, cwd).await,
         _ => None,
     };
@@ -66,12 +71,21 @@ fn clip(text: &str) -> String {
     cut
 }
 
+/// A regular file's text, at most `SCRIPT_BYTES`: a device, FIFO or `/proc` file (whose size reads
+/// 0) is never read, so a path the model names can neither block the ask nor fill memory.
 async fn read_script(path: &Path) -> Option<String> {
-    let size = tokio::fs::metadata(path).await.ok()?.len();
-    if size > SCRIPT_BYTES {
+    use tokio::io::AsyncReadExt as _;
+    let meta = tokio::fs::metadata(path).await.ok()?;
+    if !meta.is_file() || meta.len() > SCRIPT_BYTES {
         return None;
     }
-    tokio::fs::read_to_string(path).await.ok()
+    let file = tokio::fs::File::open(path).await.ok()?;
+    let mut bytes = Vec::new();
+    file.take(SCRIPT_BYTES + 1).read_to_end(&mut bytes).await.ok()?;
+    if bytes.len() as u64 > SCRIPT_BYTES {
+        return None;
+    }
+    String::from_utf8(bytes).ok()
 }
 
 /// A saved workflow's script: the project's first, then the person's own.
@@ -106,7 +120,11 @@ pub(super) struct Meta {
 
 /// The `{...}` of `export const meta = {...}`, braces included.
 pub(super) fn meta_literal(script: &str) -> Option<&str> {
-    let at = script.find("const meta")?;
+    // `const meta` as a whole word: never `const metaData`.
+    let at = script.match_indices("const meta").map(|(at, _)| at).find(|at| {
+        let next = script[at + "const meta".len()..].chars().next();
+        !next.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+    })?;
     let open = at + script[at..].find('{')?;
     let close = open + matching(&script[open..], '{', '}')?;
     Some(&script[open..=close])
@@ -119,23 +137,7 @@ fn matching(text: &str, open: char, close: char) -> Option<usize> {
     while let Some((i, c)) = chars.next() {
         match c {
             '"' | '\'' | '`' => skip_string(&mut chars, c),
-            '/' if chars.peek().map(|(_, n)| *n) == Some('/') => {
-                for (_, n) in chars.by_ref() {
-                    if n == '\n' {
-                        break;
-                    }
-                }
-            }
-            '/' if chars.peek().map(|(_, n)| *n) == Some('*') => {
-                chars.next();
-                let mut star = false;
-                for (_, n) in chars.by_ref() {
-                    if star && n == '/' {
-                        break;
-                    }
-                    star = n == '*';
-                }
-            }
+            '/' if skip_comment(&mut chars) => {}
             c if c == open => depth += 1,
             c if c == close => {
                 depth = depth.checked_sub(1)?;
@@ -147,6 +149,32 @@ fn matching(text: &str, open: char, close: char) -> Option<usize> {
         }
     }
     None
+}
+
+/// After a `/`: skips the `//` or `/* */` comment it opens and says true; false when it opens none.
+fn skip_comment(chars: &mut std::iter::Peekable<std::str::CharIndices<'_>>) -> bool {
+    match chars.peek().map(|(_, n)| *n) {
+        Some('/') => {
+            for (_, n) in chars.by_ref() {
+                if n == '\n' {
+                    break;
+                }
+            }
+            true
+        }
+        Some('*') => {
+            chars.next();
+            let mut star = false;
+            for (_, n) in chars.by_ref() {
+                if star && n == '/' {
+                    break;
+                }
+                star = n == '*';
+            }
+            true
+        }
+        _ => false,
+    }
 }
 
 fn skip_string(chars: &mut std::iter::Peekable<std::str::CharIndices<'_>>, quote: char) {
@@ -199,6 +227,8 @@ fn top_level_key(object: &str, key: &str) -> Option<usize> {
                     }
                 }
             }
+            // A comment's words are no key, and its quotes open no string.
+            '/' if skip_comment(&mut chars) => {}
             '{' | '[' | '(' => depth += 1,
             '}' | ']' | ')' => depth = depth.saturating_sub(1),
             c if depth == 1 && (c.is_ascii_alphabetic() || c == '_') => {

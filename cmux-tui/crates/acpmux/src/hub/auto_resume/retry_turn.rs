@@ -215,7 +215,7 @@ impl Hub {
                     .unwrap_or("error");
                 let mut text = continue_text(&error, reason);
                 // After a usage limit, the chat's paused workflows go on with it (auto_resume.rs).
-                if reason == "capacity" {
+                if crate::hub::turn_errors::is_usage_limit_error(&error) {
                     text =
                         with_paused_workflows(text, &self.workflow_index.paused_runs(&session.id));
                 }
