@@ -12,7 +12,7 @@ struct AutomationListRow: View, Equatable {
     @Environment(\.rowDrawn) private var rowDrawn
 
     /// Equal when what the row draws is: the page makes `select` again with each body.
-    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+    static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.row == rhs.row && lhs.selected == rhs.selected && lhs.now == rhs.now && lhs.palette == rhs.palette
     }
 
