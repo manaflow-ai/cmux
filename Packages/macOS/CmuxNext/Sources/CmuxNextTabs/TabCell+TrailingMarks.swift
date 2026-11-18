@@ -113,6 +113,13 @@ extension TabCell {
         return placeStateMark(dot: dot, glyph: glyph, visible: true, onPath: onPath)
     }
 
+    /// The status slot (the x's size) centered at ``TabStripMetrics/statusSlotMidX(pillWidth:placement:)``.
+    func statusSlotRect(pillWidth: CGFloat, midY: CGFloat) -> CGRect {
+        let m = metrics, side = m.closeButtonSize
+        return CGRect(x: pixel(m.statusSlotMidX(pillWidth: pillWidth, placement: m.resolvedStatusMarkPlacement) - side / 2),
+                      y: pixel(midY - side / 2), width: side, height: side)
+    }
+
     /// The unread dot while the spinner holds its place: a small dot inside the ring (`dotInRing`), else none.
     private func placeCombinedDot(_ look: TabBusyUnreadMark, onPath: Bool) {
         guard look == .dotInRing, let spinner = spinnerLayer?.frame else { removeBadge(onPath: onPath); return }
