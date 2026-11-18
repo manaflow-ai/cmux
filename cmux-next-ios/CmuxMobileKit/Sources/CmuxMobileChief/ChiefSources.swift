@@ -532,6 +532,21 @@ public final class ChiefSources {
         cloudState = .ready(chief)
         cloud.use(ChiefMockBackend(identity: identity), identity: identity)
     }
+
+    /// Demo only (`chief-list` scenes): the account's Cloud Chiefs `chiefs`, `open` the one this phone has open,
+    /// over the mock Chief, so Home lists every one of them as the Mac's list does.
+    public func showDemoCloudChiefs(_ chiefs: [(name: String, isDefault: Bool, server: String?)], open: Int) {
+        let records = chiefs.enumerated().map { index, chief in
+            CloudChief(id: "agent_demo_cloud_\(index)", displayName: chief.name, isDefault: chief.isDefault,
+                       mainConversation: "conv_demo_cloud_\(index)", rev: 1,
+                       brainPlace: chief.server.map { CloudChief.BrainPlace(host: $0, install: "demo") })
+        }
+        guard records.indices.contains(open) else { return }
+        let identity = records[open].identity(userID: "user_demo")
+        cloudChiefs = records
+        cloudState = .ready(records[open])
+        cloud.use(ChiefMockBackend(identity: identity), identity: identity)
+    }
     #endif
 
     // MARK: Lookup
