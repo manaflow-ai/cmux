@@ -16,6 +16,8 @@ public nonisolated struct CEFStartReport: Equatable, Sendable {
     public var initializeDuration: Duration?
     /// Seconds since process start when `CefInitialize` returned.
     public var readyAfterLaunch: Double?
+    /// Measurement arm (CMUX-571 row C): Chromium's start steps (`CEFStartSteps.marks`), as launch marks too.
+    public var steps: [CEFStartMark] = []
 }
 
 extension CEFStartReport {
@@ -33,6 +35,12 @@ extension CEFStartReport {
             marks.append(("cef.initialize_start", ready - (Double(seconds) + Double(attoseconds) / 1e18) - now))
         }
         marks.append(("cef.ready", ready - now))
+        let raw = Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW))
+        for step in steps where step.name != "pump" {
+            let start = (Double(step.startUptimeNanos) - raw) / 1e9
+            marks.append(("cef.step." + step.name, start))
+            if step.milliseconds > 0 { marks.append(("cef.step." + step.name + "_end", start + step.milliseconds / 1000)) }
+        }
         return marks
     }
 }

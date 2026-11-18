@@ -88,7 +88,7 @@ final class CEFStartSteps {
 }
 
 /// One timed step of Chromium's start (`CEFStartSteps.marks`).
-public struct CEFStartMark: Sendable {
+public nonisolated struct CEFStartMark: Equatable, Sendable {
     public var name: String
     /// `CLOCK_UPTIME_RAW` nanoseconds, the clock of `debug.hangs`.
     public var startUptimeNanos: UInt64

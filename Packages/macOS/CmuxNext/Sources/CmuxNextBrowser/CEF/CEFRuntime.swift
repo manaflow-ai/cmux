@@ -340,7 +340,7 @@ final class CEFRuntime {
         case .shutDown: "shutDown"
         }
         return CEFStartReport(state: name, preloaded: preloaded, trigger: trigger, loadDuration: loadDuration,
-                              initializeDuration: initializeDuration, readyAfterLaunch: readyAfterLaunch)
+                              initializeDuration: initializeDuration, readyAfterLaunch: readyAfterLaunch, steps: CEFStartSteps.shared.marks)
     }
 
     var forkAPIVersion: Int32 { shim?.forkAPIVersion() ?? 0 }
