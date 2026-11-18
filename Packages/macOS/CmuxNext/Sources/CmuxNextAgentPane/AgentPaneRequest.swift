@@ -440,7 +440,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// key (``AgentPaneDisplaySetting/writablePath(_:)``); a null value removes it.
     /// `pane.setAttachmentView {view}` writes `agentPane.attachmentView` the same way (`inline`, `strip` or `both`),
     /// and `pane.setComposerRing {ring}` writes `agentPane.composerRing` (`context` or `planUsage`),
-    /// and `pane.setDictationSource {source}` writes `agentPane.dictationSource`.
+    /// and `pane.setDictationSource {source}` writes `agentPane.dictationSource`, and
+    /// `pane.setComposerLook {look}` writes `agentPane.composerLook` (`auto`, `codex` or `claude`).
     case displaySetting(path: [String], value: JSONValue?)
     /// `tips.state`: read the feature tip records, keep one, or ask to show a tip
     /// (``AgentPaneFeatureTipRecords``).

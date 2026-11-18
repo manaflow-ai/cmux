@@ -8,3 +8,21 @@ public nonisolated enum AgentPaneNewChatPlace: String, Sendable, Hashable, CaseI
     /// The person's own Cloud machine (a free one of theirs, else a new one).
     case cloud
 }
+
+/// Which of the composer's two looks every chat draws (agentPane.composerLook; composerLook.ts): auto keeps the look the chat's dots picked, stored in the page (cmux.composer.look), else Codex's; claude or codex pins that look over the dots' choice. The New Tab page always draws Claude's look. Leo, 2026-10-22: "first dot claude, second dot codex. since it's just all looks anyways".
+public nonisolated enum AgentPaneComposerLook: String, Sendable, Hashable, CaseIterable {
+    /// The look the chat's dots picked, else Codex's (as before).
+    case auto
+    /// The mode, model and effort inside the box.
+    case codex
+    /// The mode, model and effort in a quiet row under the box.
+    case claude
+}
+
+/// Where an empty chat's composer sits (agentPane.emptyChatComposerPosition): bottom, docked as always, or center, the middle of the pane with the hero over it, as the New Tab page sets it (styles.css, [data-empty-chat-composer="center"]).
+public nonisolated enum AgentPaneEmptyChatComposerPosition: String, Sendable, Hashable, CaseIterable {
+    /// Docked at the bottom, as before.
+    case bottom
+    /// In the middle of the pane until the first message.
+    case center
+}

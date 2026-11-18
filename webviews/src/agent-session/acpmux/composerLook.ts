@@ -12,7 +12,11 @@
 // `agent-pane.composer-look` `codex-chat-alt-in-box-row`. Chat dots pick the look on hover in the
 // composer's bottom area (LookSwitch.tsx). The choice stays in localStorage across chats, panes
 // and launches. New Tab always uses Claude's look, including its shared controls.
+// Settings' `agentPane.composerLook` (composerSettings.ts) set to `codex` or `claude` draws that look
+// over the stored choice, so a cmuxProfile can carry it; `auto` (the default) keeps the stored one.
+// While a look is set, a dot asks the host to write the setting (`pane.setComposerLook {look}`).
 import { useContext, useSyncExternalStore } from "react";
+import { composerSettingsSnapshot, setComposerSettings, subscribeComposerSettings } from "./composerSettings";
 import { OnNewTab } from "./newTabComposer";
 
 export const COMPOSER_LOOKS = ["claude", "codex"] as const;
@@ -49,8 +53,22 @@ export function savedComposerLook(): ComposerLook {
   }
 }
 
+/// The look Settings sets (`agentPane.composerLook`), when it sets one: it wins over the stored one.
+function settingLook(): ComposerLook | undefined {
+  const look = composerSettingsSnapshot().composerLook;
+  return look === "auto" ? undefined : look;
+}
+
 function current(): ComposerLook {
-  return shown ?? savedComposerLook();
+  return shown ?? settingLook() ?? savedComposerLook();
+}
+
+/// The host's write of `agentPane.composerLook` (`pane.setComposerLook {look}`).
+let composerLookHost: ((look: ComposerLook) => unknown) | undefined;
+
+/// App's route to the host; a page with none (a gallery, a test) keeps the pick in the page.
+export function registerComposerLookHost(write: ((look: ComposerLook) => unknown) | undefined) {
+  composerLookHost = write;
 }
 
 function subscribe(listener: () => void) {
@@ -60,9 +78,12 @@ function subscribe(listener: () => void) {
     if (event.key === KEY || event.key === null) listener();
   };
   globalThis.addEventListener?.("storage", onStorage);
+  // Settings' look (agentPane.composerLook) arrives on the host's `composer` event.
+  const offSettings = subscribeComposerSettings(listener);
   return () => {
     listeners.delete(listener);
     globalThis.removeEventListener?.("storage", onStorage);
+    offSettings();
   };
 }
 
@@ -80,6 +101,16 @@ export function setComposerLook(look: ComposerLook, { remember = true }: { remem
     globalThis.localStorage?.setItem(KEY, fallback);
   } catch {
     // Storage off: the page's copy still holds it.
+  }
+  if (settingLook()) {
+    // Settings pins a look: the page shows the pick at once (its subscribers hear it) and asks the
+    // host to write it, whose next `composer` value is authoritative.
+    setComposerSettings({ composerLook: fallback });
+    try {
+      void Promise.resolve(composerLookHost?.(fallback)).catch(() => undefined);
+    } catch {
+      // The page keeps the pick (above).
+    }
   }
   for (const listener of listeners) listener();
 }

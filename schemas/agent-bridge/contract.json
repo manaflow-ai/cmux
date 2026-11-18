@@ -187,6 +187,7 @@
     "pane.sessionInfo.overlays": "pane.sessionInfo.overlays",
     "pane.sessionInfo.pinch": "pane.sessionInfo.pinch",
     "pane.setAttachmentView": "pane.setAttachmentView",
+    "pane.setComposerLook": "pane.setComposerLook",
     "pane.setComposerRing": "pane.setComposerRing",
     "pane.setDictationSource": "pane.setDictationSource",
     "pane.setDisplay": "pane.setDisplay",

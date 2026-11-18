@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 621,
+  "count": 623,
   "sections": [
     {
       "id": "general",
@@ -17,6 +17,19 @@
             "inline",
             "strip",
             "both"
+          ]
+        },
+        {
+          "key": "agentPane.composerLook",
+          "title": "Composer Look",
+          "help": "Where the mode, model and effort sit: under the box or inside it.",
+          "kind": "choice",
+          "default": "auto",
+          "group": "Agent Chat",
+          "values": [
+            "auto",
+            "codex",
+            "claude"
           ]
         },
         {
@@ -92,6 +105,18 @@
             "always",
             "collapsed",
             "never"
+          ]
+        },
+        {
+          "key": "agentPane.emptyChatComposerPosition",
+          "title": "Empty Chat Message Box",
+          "help": "Where the message box sits in a chat with no messages yet.",
+          "kind": "choice",
+          "default": "bottom",
+          "group": "Agent Chat",
+          "values": [
+            "bottom",
+            "center"
           ]
         },
         {

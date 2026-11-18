@@ -381,6 +381,108 @@
           "swift_enum": {
             "name": "AgentPaneNewChatPlace"
           }
+        },
+        {
+          "key": "agentPane.composerLook",
+          "note": "Which of the composer's two looks every chat draws (agentPane.composerLook; composerLook.ts): auto keeps the look the chat's dots picked, stored in the page (cmux.composer.look), else Codex's; claude or codex pins that look over the dots' choice. The New Tab page always draws Claude's look. Leo, 2026-10-22: \"first dot claude, second dot codex. since it's just all looks anyways\".",
+          "title": {
+            "key": "settings.agentPane.composerLook",
+            "text": "Composer Look"
+          },
+          "help": {
+            "key": "settings.agentPane.composerLook.help",
+            "text": "Where the mode, model and effort sit: under the box or inside it."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "auto",
+              "title": {
+                "key": "settings.choice.composerLookAuto",
+                "text": "Automatic"
+              },
+              "note": "The look the chat's dots picked, else Codex's (as before)."
+            },
+            {
+              "value": "codex",
+              "title": {
+                "key": null,
+                "text": "Codex"
+              },
+              "note": "The mode, model and effort inside the box."
+            },
+            {
+              "value": "claude",
+              "title": {
+                "key": null,
+                "text": "Claude"
+              },
+              "note": "The mode, model and effort in a quiet row under the box."
+            }
+          ],
+          "default": "auto",
+          "keywords": [
+            "composer",
+            "look",
+            "style",
+            "codex",
+            "claude",
+            "message box",
+            "model",
+            "mode",
+            "effort",
+            "agent"
+          ],
+          "swift_enum": {
+            "name": "AgentPaneComposerLook"
+          }
+        },
+        {
+          "key": "agentPane.emptyChatComposerPosition",
+          "note": "Where an empty chat's composer sits (agentPane.emptyChatComposerPosition): bottom, docked as always, or center, the middle of the pane with the hero over it, as the New Tab page sets it (styles.css, [data-empty-chat-composer=\"center\"]).",
+          "title": {
+            "key": "settings.agentPane.emptyChatComposerPosition",
+            "text": "Empty Chat Message Box"
+          },
+          "help": {
+            "key": "settings.agentPane.emptyChatComposerPosition.help",
+            "text": "Where the message box sits in a chat with no messages yet."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "bottom",
+              "title": {
+                "key": "settings.choice.bottom",
+                "text": "Bottom"
+              },
+              "note": "Docked at the bottom, as before."
+            },
+            {
+              "value": "center",
+              "title": {
+                "key": "settings.choice.emptyChatComposerCenter",
+                "text": "Center"
+              },
+              "note": "In the middle of the pane until the first message."
+            }
+          ],
+          "default": "bottom",
+          "keywords": [
+            "composer",
+            "message box",
+            "empty",
+            "new chat",
+            "center",
+            "centered",
+            "middle",
+            "bottom",
+            "position",
+            "agent"
+          ],
+          "swift_enum": {
+            "name": "AgentPaneEmptyChatComposerPosition"
+          }
         }
       ]
     }

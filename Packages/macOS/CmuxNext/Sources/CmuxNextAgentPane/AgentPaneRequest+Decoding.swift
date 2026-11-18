@@ -215,6 +215,13 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.setComposerLook":
+            // The chat's look dots when `agentPane.composerLook` pins a look; the page writes only this key with it.
+            if let look = (params?["look"] as? String).flatMap(AgentPaneComposerLook.init(rawValue:)) {
+                self = .displaySetting(path: AgentPaneComposerSetting.composerLookPath, value: .string(look.rawValue))
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.setRemoteControl":
             // Session Info's Remote Control switch: one Bool, nothing else.
             if let on = params?["on"] as? Bool, Set((params ?? [:]).keys) == ["on"] {

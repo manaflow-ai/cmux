@@ -379,6 +379,7 @@ import {
   registerDictationSourceHost,
   useComposerSettings,
 } from "./composerSettings";
+import { registerComposerLookHost } from "./composerLook";
 import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
 import { restoredDecisions, type HunkDecision, type HunkReview } from "./changes/hunkReview";
 import {
@@ -1275,6 +1276,7 @@ if (typeof window !== "undefined")
   });
 registerAttachmentViewHost((view) => callNative("pane.setAttachmentView", { view }));
 registerComposerRingHost((ring) => callNative("pane.setComposerRing", { ring }));
+registerComposerLookHost((look) => callNative("pane.setComposerLook", { look }));
 registerDictationSourceHost((source) => callNative("pane.setDictationSource", { source }));
 registerChatDisplayHost((key, value) => void callNative("pane.setDisplay", { key, value }).catch(() => undefined));
 /// A folder's `git.status` from the native host, named by the folder: a new chat has no session to
@@ -1621,7 +1623,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const paneRenderStart = acpmuxPerf.enabled ? performance.now() : 0;
   acpmuxPerf.render("pane");
   const t = useT();
-  const { scrollToBottomOnSend, newChatsIn } = useComposerSettings();
+  const { scrollToBottomOnSend, newChatsIn, emptyChatComposerPosition } = useComposerSettings();
   const scrollToBottomOnSendRef = useRef(scrollToBottomOnSend);
   scrollToBottomOnSendRef.current = scrollToBottomOnSend;
   /// A new chat's Run as (hq#3367): Persistent is the chat as before; Sandboxed runs the
@@ -13534,6 +13536,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         <div
           className="acpmux-main"
           data-new-chat={freshView && !showNewTab ? "" : undefined}
+          // Settings' `agentPane.emptyChatComposerPosition`: "center" sits a new chat's composer in the
+          // middle of the pane (styles.css); absent, it docks at the bottom as always.
+          data-empty-chat-composer={
+            freshView && !showNewTab && emptyChatComposerPosition === "center" ? "center" : undefined
+          }
           // The transcript runs the pane's height under the bottom stack (bottomStack.css) while the
           // stage shows it; a new chat's hero, a handoff review, the diff and the inspector keep it in flow.
           data-dock={!reviewing && !freshView && !inspectorOpen ? "float" : undefined}

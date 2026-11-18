@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { setComposerLook, useComposerLook } from "../src/agent-session/acpmux/composerLook";
+import { registerComposerLookHost, setComposerLook, useComposerLook } from "../src/agent-session/acpmux/composerLook";
+import { setComposerSettings } from "../src/agent-session/acpmux/composerSettings";
 
 import { OnNewTab } from "../src/agent-session/acpmux/newTabComposer";
 
@@ -25,6 +26,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  registerComposerLookHost(undefined);
+  setComposerSettings({ composerLook: "auto" });
   setComposerLook("codex");
   if (storageDescriptor) Object.defineProperty(globalThis, "localStorage", storageDescriptor);
   else Reflect.deleteProperty(globalThis, "localStorage");
@@ -77,4 +80,41 @@ test("New Tab ignores saved and unknown chat looks without rewriting storage", (
     ).toBe("<span>claude</span>");
     expect(values.get("cmux.composer.look") ?? null).toBe(saved);
   }
+});
+
+// Settings' agentPane.composerLook: `auto` (the default) is the stored look above; a set look wins.
+test("the auto setting keeps the stored look and the Codex default", () => {
+  setComposerSettings({ composerLook: "auto" });
+  expect(currentLook()).toBe("<span>codex</span>");
+  values.set("cmux.composer.look", "claude");
+  expect(currentLook()).toBe("<span>claude</span>");
+});
+
+test("a set look wins over the stored one, and New Tab stays Claude", () => {
+  values.set("cmux.composer.look", "claude");
+  setComposerSettings({ composerLook: "codex" });
+  expect(currentLook()).toBe("<span>codex</span>");
+  values.set("cmux.composer.look", "codex");
+  setComposerSettings({ composerLook: "claude" });
+  expect(currentLook()).toBe("<span>claude</span>");
+  setComposerSettings({ composerLook: "codex" });
+  expect(
+    renderToStaticMarkup(
+      <OnNewTab.Provider value={true}>
+        <Look />
+      </OnNewTab.Provider>,
+    ),
+  ).toBe("<span>claude</span>");
+});
+
+test("a dot picked while a look is set shows at once and asks the host to write the setting", () => {
+  const writes: string[] = [];
+  registerComposerLookHost((look) => void writes.push(look));
+  setComposerLook("claude");
+  expect(writes).toEqual([]);
+  setComposerSettings({ composerLook: "codex" });
+  setComposerLook("claude");
+  expect(currentLook()).toBe("<span>claude</span>");
+  expect(writes).toEqual(["claude"]);
+  expect(values.get("cmux.composer.look")).toBe("claude");
 });

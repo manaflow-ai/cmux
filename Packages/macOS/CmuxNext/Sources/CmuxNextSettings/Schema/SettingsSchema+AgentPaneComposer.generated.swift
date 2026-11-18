@@ -32,6 +32,12 @@ extension AgentPaneComposerSetting {
     /// `agentPane.newChatsIn`: Where a new chat runs when its composer picks nothing (agentPane.newChatsIn); the page decides (runLocationDefault.ts). Leo, 2026-10-31: "whenever i start a chat it should be able to send me to cloud autommatically".
     public nonisolated static let newChatsInPath = ["agentPane", "newChatsIn"]
     public nonisolated static let newChatsInDefault: AgentPaneNewChatPlace = .local
+    /// `agentPane.composerLook`: Which of the composer's two looks every chat draws (agentPane.composerLook; composerLook.ts): auto keeps the look the chat's dots picked, stored in the page (cmux.composer.look), else Codex's; claude or codex pins that look over the dots' choice. The New Tab page always draws Claude's look. Leo, 2026-10-22: "first dot claude, second dot codex. since it's just all looks anyways".
+    public nonisolated static let composerLookPath = ["agentPane", "composerLook"]
+    public nonisolated static let composerLookDefault: AgentPaneComposerLook = .auto
+    /// `agentPane.emptyChatComposerPosition`: Where an empty chat's composer sits (agentPane.emptyChatComposerPosition): bottom, docked as always, or center, the middle of the pane with the hero over it, as the New Tab page sets it (styles.css, [data-empty-chat-composer="center"]).
+    public nonisolated static let emptyChatComposerPositionPath = ["agentPane", "emptyChatComposerPosition"]
+    public nonisolated static let emptyChatComposerPositionDefault: AgentPaneEmptyChatComposerPosition = .bottom
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -156,6 +162,33 @@ nonisolated enum AgentPaneComposerSettingsSchema {
                 ]),
                 default: .string(AgentPaneComposerSetting.newChatsInDefault.rawValue),
                 keywords: ["cloud", "new chat", "start", "machine", "vm", "remote", "this mac", "local", "run"]
+            ),
+            SettingDescriptor(
+                AgentPaneComposerSetting.composerLookPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.composerLook", "Composer Look"),
+                help: SettingsText.keyed("settings.agentPane.composerLook.help", "Where the mode, model and effort sit: under the box or inside it."),
+                kind: .choice([
+                    SettingChoice(AgentPaneComposerLook.auto.rawValue, SettingsText.keyed("settings.choice.composerLookAuto", "Automatic")),
+                    SettingChoice(AgentPaneComposerLook.codex.rawValue, "Codex"),
+                    SettingChoice(AgentPaneComposerLook.claude.rawValue, "Claude"),
+                ]),
+                default: .string(AgentPaneComposerSetting.composerLookDefault.rawValue),
+                keywords: ["composer", "look", "style", "codex", "claude", "message box", "model", "mode", "effort", "agent"]
+            ),
+            SettingDescriptor(
+                AgentPaneComposerSetting.emptyChatComposerPositionPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.emptyChatComposerPosition", "Empty Chat Message Box"),
+                help: SettingsText.keyed("settings.agentPane.emptyChatComposerPosition.help", "Where the message box sits in a chat with no messages yet."),
+                kind: .choice([
+                    SettingChoice(AgentPaneEmptyChatComposerPosition.bottom.rawValue, SettingsText.keyed("settings.choice.bottom", "Bottom")),
+                    SettingChoice(AgentPaneEmptyChatComposerPosition.center.rawValue, SettingsText.keyed("settings.choice.emptyChatComposerCenter", "Center")),
+                ]),
+                default: .string(AgentPaneComposerSetting.emptyChatComposerPositionDefault.rawValue),
+                keywords: ["composer", "message box", "empty", "new chat", "center", "centered", "middle", "bottom", "position", "agent"]
             ),
         ]
     }
