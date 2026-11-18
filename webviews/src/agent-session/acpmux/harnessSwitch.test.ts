@@ -369,3 +369,38 @@ test("pickSession gives up on a start that never answers, and answers none for a
   await Promise.resolve();
   expect(await trust.pickSession(1000)).toBeUndefined();
 });
+
+// cmux#46434: New Tab, Codex picked into Full access and High, then Claude Code, then Codex again.
+test("a start left for another agent before it opened gets its mode and options back on the way back", () => {
+  const harnessSwitch = new HarnessSwitch();
+  harnessSwitch.connect(startingPort());
+  const tickets: string[] = [];
+  harnessSwitch.setHandlers({
+    gesture: async (intent) => {
+      tickets.push(intent.method === "session/set_mode" ? `mode:${intent.params.modeId}` : intent.method);
+      return "ticket";
+    },
+  });
+  void harnessSwitch.switchTo("codex", "/work", { deferred: true });
+  harnessSwitch.pickMode("agent-full-access");
+  harnessSwitch.pickConfig("effort", "high");
+  void harnessSwitch.switchTo("claude", "/work", { deferred: true, model: "opus" });
+  // Another agent's picks never carry to this one.
+  expect(harnessSwitch.view().intent?.config).toEqual({ model: "opus", options: {} });
+  tickets.length = 0;
+  void harnessSwitch.switchTo("codex", "/work", { deferred: true, model: "gpt-6.1-sol" });
+  expect(harnessSwitch.view().intent?.config).toEqual({
+    model: "gpt-6.1-sol",
+    mode: "agent-full-access",
+    options: { effort: "high" },
+  });
+  // Each comes back with this pick's gesture, not the first pick's.
+  expect(tickets).toEqual(["mode:agent-full-access", "session/set_config_option"]);
+  // In another folder, or after a cancel, the harness starts with its own defaults again.
+  void harnessSwitch.switchTo("claude", "/work", { deferred: true });
+  void harnessSwitch.switchTo("codex", "/elsewhere", { deferred: true });
+  expect(harnessSwitch.view().intent?.config.mode).toBeUndefined();
+  harnessSwitch.cancel();
+  void harnessSwitch.switchTo("codex", "/work", { deferred: true });
+  expect(harnessSwitch.view().intent?.config).toEqual({ options: {} });
+});

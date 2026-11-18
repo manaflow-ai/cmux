@@ -291,6 +291,11 @@ export class HarnessSwitch {
   private listeners = new Set<() => void>();
   /// The session the pane left for the current intent, when it was empty: switching back reuses it.
   private left?: { sessionId: string; harness?: string };
+  /// The mode and option picks of a start this page left for another agent before it opened (a New
+  /// Tab's Codex picked into Full access, then Claude Code picked): going back to that agent in that
+  /// folder starts with them again, never with the harness's own defaults (cmux#46434). Kept until a
+  /// start opens or the switch is cancelled.
+  private kept = new Map<string, { mode?: string; options: Record<string, string> }>();
   private hintTarget?: string;
   private cancelHint?: () => void;
   private lastHint?: { harness: string; at: number };
@@ -427,11 +432,30 @@ export class HarnessSwitch {
       tickets: previous?.harness === harness ? previous.tickets : new Map(),
       done,
     };
+    // Another agent's start, left before it opened: its mode and option picks wait for a way back.
+    if (
+      previous &&
+      previous.harness !== harness &&
+      (previous.config.mode || Object.keys(previous.config.options).length)
+    )
+      this.kept.set(keptKey(previous.harness, previous.cwd), {
+        ...(previous.config.mode ? { mode: previous.config.mode } : {}),
+        options: previous.config.options,
+      });
     if (previous) this.retire(previous, false);
     this.modelPick = undefined;
     this.configPick = undefined;
     this.settling = undefined;
     this.intent = intent;
+    // Back to an agent this page left before its start opened: its own mode and option picks come
+    // back, each with a gesture ticket from this pick (the first pick's may be past its lifetime).
+    // Options passed with this pick go after them, so they win.
+    const back = previous && previous.harness !== harness ? this.kept.get(keptKey(harness, cwd)) : undefined;
+    if (back) {
+      this.kept.delete(keptKey(harness, cwd));
+      if (back.mode) this.holdMode(intent, back.mode);
+      for (const [configId, value] of Object.entries(back.options)) this.holdConfig(intent, configId, value);
+    }
     // Each held option takes its gesture ticket now, in the pick's own handler.
     for (const [configId, value] of held) this.holdConfig(intent, configId, value);
     if (shown && shownSession && !previous) {
@@ -565,10 +589,13 @@ export class HarnessSwitch {
   /// A held pick takes a gesture ticket at once (pane-native transport); a live pick needs none.
   pickMode(mode: string): boolean {
     if (!this.intent) return false;
-    this.intent.config = { ...this.intent.config, mode };
-    this.intent.tickets.set("mode", this.takeTicket({ method: "session/set_mode", params: { modeId: mode } }));
+    this.holdMode(this.intent, mode);
     this.changed();
     return true;
+  }
+  private holdMode(intent: Intent, mode: string): void {
+    intent.config = { ...intent.config, mode };
+    intent.tickets.set("mode", this.takeTicket({ method: "session/set_mode", params: { modeId: mode } }));
   }
   pickConfig(configId: string, value: string, live?: { sessionId: string; current?: string }): boolean {
     if (!this.intent) {
@@ -700,7 +727,10 @@ export class HarnessSwitch {
         if (done) return finish(done.sessionId);
         if (this.clock.now() >= deadline) return finish(undefined);
         // A shown pick's session is set before its open answers, with no change to draw: look again.
-        cancelTimer = this.clock.schedule(check, Math.min(PICK_SESSION_POLL_MS, Math.max(0, deadline - this.clock.now())));
+        cancelTimer = this.clock.schedule(
+          check,
+          Math.min(PICK_SESSION_POLL_MS, Math.max(0, deadline - this.clock.now())),
+        );
       };
       const unsubscribe = this.subscribe(() => {
         const done = settled();
@@ -720,6 +750,7 @@ export class HarnessSwitch {
     this.configPick = undefined;
     this.settling = undefined;
     this.left = undefined;
+    this.kept.clear();
     this.changed();
   }
 
@@ -821,6 +852,8 @@ export class HarnessSwitch {
       return;
     }
     this.left = undefined;
+    // The chat opened: what another agent's start held for a way back is nobody's now.
+    this.kept.clear();
     this.handlers.opened?.(opened);
     // What was picked while acpmux started the harness. A pick the opened session already has is
     // not sent: the first prompt waits on every pick, and each is a round trip to the agent, seconds
@@ -1248,6 +1281,11 @@ export function applySwitch(
     unavailable: undefined,
     missingReason: undefined,
   };
+}
+
+/// The key a left start's picks are kept under (`HarnessSwitch.kept`): its agent and its folder.
+function keptKey(harness: string, cwd: string | undefined): string {
+  return `${harness}\u0000${cwd ?? ""}`;
 }
 
 /// The pane's relay refused the intent's folder (AcpmuxPathPolicy): it is outside the pane's roots.
