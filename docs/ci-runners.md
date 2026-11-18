@@ -1028,8 +1028,9 @@ overflow probe's `watch` job runs it every 10 minutes, after the switch, with
 the token the switch already uses (the `manaflow-glaeda-route` App; no new
 credential). It reads per-label start evidence: the probe's per-label health
 (`CI_CLOUD_LABEL_HEALTH`, every Linux member probed), and the queue janitor's
-snapshot (a Blacksmith label whose oldest queued job waited 10 minutes, the
-same stall rule as `simple_pool_picker.blacksmith_stalled()`, and the
+snapshot (a Blacksmith label whose oldest queued job waited 10 minutes, with no
+new job started in that wait window, the same stall rule as
+`simple_pool_picker.blacksmith_stalled()`, and the
 dead-label entries once #27114 lands). It marks those labels dead, points each
 pool at its first unmarked member, and writes `RUNNER_POOLS` only on a change.
 A mark expires after 30 minutes unless seen again; a label seen starting a job

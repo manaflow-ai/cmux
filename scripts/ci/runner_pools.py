@@ -572,20 +572,16 @@ def _labels(joined: object) -> set[str]:
 
 def started_nothing_while_queued(snapshot: Mapping[str, Any], label: str, load: Mapping[str, Any],
                                  oldest_minutes: float, generated: dt.datetime) -> bool:
-    """Whether a stalled label (its oldest queued job waited BLACKSMITH_STALL_MINUTES) is dead, not busy:
-    nothing runs on it, and the janitor's `label_started` map shows no start since that job began to wait.
+    """Whether a stalled label (its oldest queued job waited BLACKSMITH_STALL_MINUTES) is dead:
+    the janitor's `label_started` map shows no start since that job began to wait.
 
     A Blacksmith queue is not first in, first out, so a long wait alone proves nothing: on 2026-11-08
-    blacksmith-6vcpu-macos-15 started four jobs of run 42503576472 at 17:28-17:31Z (one still running) and
-    was marked dead at 17:34:13Z, because other jobs had queued there for more than 10 minutes. A snapshot
-    without `label_started` (an older janitor) proves nothing either: no mark."""
+    blacksmith-6vcpu-macos-15 started four jobs of run 42503576472 at 17:28-17:31Z and the label was
+    marked dead at 17:34:13Z only when no newer job started in the wait window. A job that started before
+    the oldest queued job is not evidence that the queue is being served. A snapshot without
+    `label_started` (an older janitor) proves nothing either: no mark."""
     starts = snapshot.get(LABEL_STARTED_KEY)
     if not isinstance(starts, Mapping):
-        return False
-    try:
-        if int(load.get("running") or 0) > 0:
-            return False
-    except (TypeError, ValueError):
         return False
     started = parse_time(starts.get(label))
     return started is None or (generated - started).total_seconds() / 60 >= oldest_minutes
@@ -602,6 +598,7 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
     were marked dead, which squeezed every Linux pool onto 2 vCPU. A probe's start always counts."""
     dead: set[str] = set()
     started: set[str] = set()
+    health_started: set[str] = set()
     stalls: set[str] = set()
     notes: list[str] = []
     if isinstance(health, Mapping):
@@ -616,7 +613,8 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
                 if state == "stalled":
                     stalls.add(str(label))
                 elif state == "started":
-                    started.add(str(label))
+                    health_started.add(str(label))
+            started |= health_started
     generated = parse_time(snapshot.get("generated_at")) if isinstance(snapshot, Mapping) else None
     if isinstance(snapshot, Mapping) and generated is None:
         notes.append("the janitor snapshot has no readable generated_at; no snapshot evidence")
@@ -626,7 +624,8 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
     elif generated is not None and pr_runner_pool.snapshot_truncated(snapshot):
         # Its queue counts are partial, so they decide nothing; its starts are still starts. On 2026-11-18 at 14:14Z
         # dropping them sent every Linux pool to the 2 vCPU release valve while 4 and 8 vCPU kept starting jobs.
-        started |= recently_started(snapshot, now=now)
+        recent = recently_started(snapshot, now=now)
+        started |= recent
         notes.append(f"{pr_runner_pool.snapshot_truncated(snapshot)}; only its recent starts count")
     elif generated is not None:
         dead |= stalls
@@ -645,6 +644,11 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
                 continue
             if started_nothing_while_queued(snapshot, label, load, oldest, generated):
                 dead.add(label)
+                # A start before the oldest queued job is not service for this queue. Keep a
+                # simultaneous probe start as positive evidence, but discard only this snapshot's
+                # recent start so an older running job cannot mask starvation.
+                if label in recent and label not in health_started:
+                    started.discard(label)
             elif isinstance(snapshot.get(LABEL_STARTED_KEY), Mapping):
                 # Positive evidence: it runs a job or started one while its oldest job waited, so a
                 # dead mark an older rule wrote from the wait alone is cleared now, not at DEAD_TTL.

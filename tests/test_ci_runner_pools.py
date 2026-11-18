@@ -306,7 +306,7 @@ class Evidence(unittest.TestCase):
                 self.assertEqual(value["linux"], label)
             else:
                 self.assertEqual(dead, {label})
-                self.assertNotEqual(value["linux"], label)
+                self.assertEqual(value["linux"], pools["linux"]["members"][1])
                 moved_at = generated
         self.assertEqual(moved_at - first_queued, dt.timedelta(minutes=10))
 
