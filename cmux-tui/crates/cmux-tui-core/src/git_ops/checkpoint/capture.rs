@@ -58,6 +58,9 @@ pub(super) struct Captured {
     pub coverage: Coverage,
     pub included: Included,
     pub bytes: Bytes,
+    /// HEAD, the branch and the index as the capture saw them (and verified
+    /// unchanged at its end): a writer compares it again under its lock.
+    pub fingerprint: String,
 }
 
 /// One worktree file or link to store.
@@ -185,6 +188,7 @@ pub(super) fn capture(
         coverage: summary.coverage,
         included: summary.included,
         bytes: summary.bytes,
+        fingerprint: before.fingerprint,
     })
 }
 
@@ -531,7 +535,7 @@ fn write_tree(
 }
 
 /// Writes `bytes` as a blob, with no filter.
-fn hash_blob(
+pub(super) fn hash_blob(
     git: &WriteGit<'_>,
     bytes: &[u8],
     operation: &'static str,
@@ -541,7 +545,7 @@ fn hash_blob(
 }
 
 /// The object ids of files' raw bytes, in order; written with `write`.
-fn hash_files(
+pub(super) fn hash_files(
     git: &WriteGit<'_>,
     paths: &[&[u8]],
     write: bool,
@@ -594,7 +598,7 @@ fn hash_failed(
 }
 
 /// The one line a run prints, such as an object id.
-fn single(
+pub(super) fn single(
     git: &WriteGit<'_>,
     index: Option<&Path>,
     arguments: &[&str],
@@ -613,7 +617,7 @@ fn single(
     Ok(value)
 }
 
-fn os(path: &[u8]) -> OsString {
+pub(super) fn os(path: &[u8]) -> OsString {
     #[cfg(unix)]
     {
         use std::os::unix::ffi::OsStrExt;

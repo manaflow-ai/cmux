@@ -213,7 +213,7 @@ USAGE
   cmux git files [TARGET] [--limit <n>] <query>...
   cmux git list [TARGET] [--limit <n>]
   cmux git checkpoint create [TARGET] [--untracked eligible | <untracked-path>...]
-    [--exclude <path,...>] [--reason manual|handoff|turn] [--max-bytes <n>]
+    [--exclude <path,...>] [--reason manual|handoff|turn|restore] [--max-bytes <n>]
     [--max-files <n>] [--expected-repository <id>] [--expected-worktree <id>]
   cmux git checkpoint get [TARGET] <checkpoint> | --key <idempotency-key>
   cmux git checkpoint list [TARGET] [--cursor <cursor>] [--limit <n>] [--candidates]
@@ -222,6 +222,7 @@ USAGE
   cmux git checkpoint diff [TARGET] <from> [<to>] [--only <path,...>] [--patch]
     [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>]
     [--after-path <path>] [--patch-offset <n> [--patch-revision <revision>]]
+  cmux git checkpoint restore [TARGET] <checkpoint> [--dry-run] [--allow-base-change]
   cmux git commit [TARGET] --message <text> [--all [--include-untracked]] [--amend]
     [--no-verify] [--expected-head <commit>] [<path>...]
   cmux git push [TARGET] [--remote <name>] [--branch <name>]
@@ -295,7 +296,12 @@ oversized files are skipped and reported. A reused --idempotency-key replays
 the first result; get --key recovers it. Checkpoints expire after 7 days unless
 pinned; pins beginning handoff: or restore: belong to cmux. checkpoint diff
 lists what changed from one checkpoint to a later one, or to the working tree
-now when <to> is left out, in the shape of diff.
+now when <to> is left out, in the shape of diff. checkpoint restore writes a
+checkpoint's files and staged entries back and removes files tracked or
+created since (never ignored ones); HEAD stays. It first pins a safety
+checkpoint of the current files, named in safety_checkpoint_id: restoring that
+one is Undo. --dry-run lists the paths and writes nothing; a moved HEAD
+refuses with base_changed unless --allow-base-change.
 
 commit and push run git as in your terminal, with your hooks, identity and
 credentials, but never prompt and stop after 120 s. commit commits the named

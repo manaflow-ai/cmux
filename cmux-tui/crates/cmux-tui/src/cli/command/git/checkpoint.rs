@@ -1,6 +1,7 @@
-//! `git checkpoint create|get|list|pin|unpin|diff`: capture-only repository
+//! `git checkpoint create|get|list|pin|unpin|diff|restore`: repository
 //! checkpoints the session host stores without changing HEAD, the index or
-//! the worktree.
+//! the worktree, and `restore`, which writes one back (its safety checkpoint
+//! is the Undo).
 
 use cmux_tui_core::resource::ResourceOperation as Op;
 use serde_json::{Map, Value};
@@ -10,7 +11,7 @@ use super::super::{
     validate_one_of,
 };
 
-const REASONS: &[&str] = &["manual", "handoff", "turn"];
+const REASONS: &[&str] = &["manual", "handoff", "turn", "restore"];
 
 /// `words` follow `git checkpoint`; `params` already names the repository.
 pub(super) fn parse(
@@ -58,6 +59,16 @@ pub(super) fn parse(
             params.insert("checkpoint_id".into(), text(id));
             params.insert("pin_id".into(), Value::String(flags.required("pin")?));
             Op::GitCheckpointUnpin
+        }
+        ["restore", id] => {
+            params.insert("checkpoint_id".into(), text(id));
+            if flags.boolean("dry-run") {
+                params.insert("dry_run".into(), Value::Bool(true));
+            }
+            if flags.boolean("allow-base-change") {
+                params.insert("allow_base_change".into(), Value::Bool(true));
+            }
+            Op::GitCheckpointRestore
         }
         ["diff", from, to @ ..] if to.len() <= 1 => {
             params.insert("from".into(), text(from));

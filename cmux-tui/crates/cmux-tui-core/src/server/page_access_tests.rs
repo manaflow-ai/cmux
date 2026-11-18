@@ -131,6 +131,7 @@ const FILE_SYSTEM: &[&str] = &[
     "git.checkpoint.get",
     "git.checkpoint.list",
     "git.checkpoint.pin",
+    "git.checkpoint.restore",
     "git.checkpoint.unpin",
     "diff.comments.list",
     "diff.comments.save",

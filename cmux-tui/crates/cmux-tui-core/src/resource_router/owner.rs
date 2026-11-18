@@ -147,6 +147,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::GitCheckpointGet
         | ResourceOperation::GitCheckpointList
         | ResourceOperation::GitCheckpointPin
+        | ResourceOperation::GitCheckpointRestore
         | ResourceOperation::GitCheckpointUnpin
         | ResourceOperation::GitBranches
         | ResourceOperation::GitCommit

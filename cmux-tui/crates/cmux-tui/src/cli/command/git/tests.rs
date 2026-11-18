@@ -262,6 +262,34 @@ fn git_checkpoint_reads_and_pins_name_one_checkpoint() {
 }
 
 #[test]
+fn git_checkpoint_restore_names_one_checkpoint_and_takes_a_dry_run() {
+    let id = "ckpt_00000000000000000000000000000001";
+    assert_eq!(
+        sent(&["git", "checkpoint", "restore", id, "--path", "/repo"]),
+        ("git.checkpoint.restore".into(), json!({"path": "/repo", "checkpoint_id": id}))
+    );
+    assert_eq!(
+        sent(&["git", "checkpoint", "restore", id, "--path", "/repo", "--dry-run"]),
+        (
+            "git.checkpoint.restore".into(),
+            json!({"path": "/repo", "checkpoint_id": id, "dry_run": true})
+        )
+    );
+    assert_eq!(
+        sent(&["git", "checkpoint", "restore", id, "--path", "/repo", "--allow-base-change"]),
+        (
+            "git.checkpoint.restore".into(),
+            json!({"path": "/repo", "checkpoint_id": id, "allow_base_change": true})
+        )
+    );
+    assert!(rejects(&["git", "checkpoint", "restore"]).contains("git checkpoint action"));
+    assert_eq!(
+        sent(&["git", "checkpoint", "create", "--path", "/repo", "--reason", "restore"]),
+        ("git.checkpoint.create".into(), json!({"path": "/repo", "reason": "restore"}))
+    );
+}
+
+#[test]
 fn git_files_joins_the_query_and_takes_a_limit() {
     let here = std::env::current_dir().unwrap().to_string_lossy().into_owned();
     assert_eq!(

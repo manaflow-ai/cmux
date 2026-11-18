@@ -207,5 +207,18 @@ pub(super) fn git_cases() -> Vec<(Vec<&'static str>, &'static str)> {
             vec!["git", "checkpoint", "unpin", CHECKPOINT, "--pin", "user:keep"],
             "git.checkpoint.unpin",
         ),
+        (
+            vec![
+                "git",
+                "checkpoint",
+                "restore",
+                CHECKPOINT,
+                "--path",
+                "/repo",
+                "--dry-run",
+                "--allow-base-change",
+            ],
+            "git.checkpoint.restore",
+        ),
     ]
 }

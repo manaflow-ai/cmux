@@ -104,8 +104,11 @@ async fn checkpoint_cli(cwd: &Path, args: &[&str], limit: Duration) -> Answer {
 pub(crate) fn read_answer(success: bool, stdout: &[u8], stderr: &[u8]) -> Answer {
     let parse = |bytes: &[u8]| serde_json::from_slice::<Value>(bytes).ok();
     if success && let Some(v) = parse(stdout) {
+        // A mutation's reply is `{value, generation, revision, replayed}`, perhaps under
+        // `result`: the operation's own fields are in `value`.
         let result = v.get("result").filter(|r| r.is_object()).cloned().unwrap_or(v);
-        return Answer::Ok(result);
+        let value = result.get("value").filter(|r| r.is_object()).cloned().unwrap_or(result);
+        return Answer::Ok(value);
     }
     let v = parse(stdout).filter(|v| v.get("error").is_some()).or_else(|| parse(stderr));
     let error = v.as_ref().map(|v| v.get("error").cloned().unwrap_or_else(|| v.clone()));

@@ -757,6 +757,10 @@
       "scope": "git:write",
       "class": "mutation"
     },
+    "git.checkpoint.restore": {
+      "scope": "git:write",
+      "class": "mutation"
+    },
     "git.checkpoint.unpin": {
       "scope": "git:write",
       "class": "mutation"

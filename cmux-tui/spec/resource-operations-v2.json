@@ -10397,6 +10397,102 @@
       },
       "extra": false
     },
+    "GitCheckpointRestoreFile": {
+      "kind": "object",
+      "fields": {
+        "path": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "Relative to the repository root."
+        },
+        "change": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "restore",
+              "remove"
+            ]
+          },
+          "description": "restore writes the checkpoint's bytes, mode or staged entry back; remove deletes a path the checkpoint did not have (a newly tracked path or a new eligible untracked file)."
+        }
+      },
+      "extra": false
+    },
+    "GitCheckpointRestoreResult": {
+      "kind": "object",
+      "fields": {
+        "checkpoint_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          },
+          "description": "The checkpoint restored."
+        },
+        "dry_run": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Present and true for a dry run, which wrote nothing."
+        },
+        "safety_checkpoint_id": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          },
+          "description": "The pinned checkpoint of the state before an applied restore; restoring it is Undo."
+        },
+        "base_changed": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "HEAD is not the checkpoint's base HEAD."
+        },
+        "complete": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "False when the checkpoint or the live capture left eligible files out, or the checkpoint's skip list is too long to tell which live paths are new, so some paths are left as they are."
+        },
+        "files_total": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Every path the restore changes (or would change)."
+        },
+        "files": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "GitCheckpointRestoreFile"
+            },
+            "max_items": 200
+          },
+          "description": "The first 200 changed paths in path order."
+        }
+      },
+      "extra": false
+    },
     "GitCheckpointDiffResult": {
       "kind": "object",
       "fields": {
@@ -27425,7 +27521,8 @@
               "values": [
                 "manual",
                 "handoff",
-                "turn"
+                "turn",
+                "restore"
               ]
             },
             "default": "manual"
@@ -27891,6 +27988,92 @@
         "A pinned record is never pruned.",
         "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict.",
         "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, repository_changed, repository_busy, budget_exceeded, unsupported_index, managed_pin, no_state_directory, store_failed or git_failed; extra.message explains it."
+      ]
+    },
+    "git.checkpoint.restore": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "checkpoint_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "dry_run": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "default": false,
+            "description": "Report the paths a restore would change and write nothing."
+          },
+          "allow_base_change": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "default": false,
+            "description": "Restore even when HEAD moved since the checkpoint: HEAD stays, only the index and worktree content of the checkpoint's paths change."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "GitCheckpointRestoreResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Restore writes back the checkpoint's covered paths: its tracked worktree files (raw bytes, mode, links as links), its staged entries and its untracked files. A path tracked now that the checkpoint did not have, and a new eligible untracked file, are removed. Ignored files, nested repositories and submodules are never touched; a covered path occupied by one refuses with conflict.",
+        "HEAD never moves. When HEAD is not the checkpoint's base, apply refuses with base_changed unless allow_base_change.",
+        "Before the first write, apply captures a safety checkpoint of every eligible path (reason restore), pinned restore:<checkpoint_id>:<idempotency_key>; restoring it is Undo. The index is installed under index.lock.",
+        "A replayed key returns the first result with replayed true and never applies again; the same key with other arguments is idempotency.conflict.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, repository_changed, repository_busy, budget_exceeded, unsupported_index, base_changed, worktree_mismatch, conflict, restore_incomplete, no_state_directory, store_failed or git_failed; extra.message explains it."
       ]
     },
     "git.checkpoint.unpin": {

@@ -10,6 +10,14 @@ fn a_wrapped_resource_reply_answers_its_result() {
 }
 
 #[test]
+fn a_mutation_reply_answers_its_value() {
+    let out = br#"{"result":{"value":{"files_total":2,"safety_checkpoint_id":"ckpt_s"},"generation":"3","revision":"1","replayed":false}}"#;
+    let Answer::Ok(v) = read_answer(true, out, b"") else { panic!("answered") };
+    assert_eq!(v["files_total"], 2);
+    assert_eq!(v["safety_checkpoint_id"], "ckpt_s");
+}
+
+#[test]
 fn a_bare_reply_is_its_own_result() {
     let Answer::Ok(v) = read_answer(true, br#"{"files_total":3,"files":[]}"#, b"") else {
         panic!("answered")
