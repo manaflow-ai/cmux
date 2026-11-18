@@ -16,6 +16,7 @@ import { activity, assistant, chat, summary, tool, user } from "../../../gallery
 import { agentPaneEntry } from "../../../gallery/format";
 import type { Play, PlayContext } from "../../../gallery/play";
 import { arms, showArm, type Arm } from "./arm";
+import { MOTION_MS, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
 
 const GROUP_ROW = "reconvene-toggle-run";
 
@@ -131,15 +132,15 @@ export default agentPaneEntry({
   ],
   variants: {
     now: variant(
-      "Shipped: at the bottom, the run of commands opens on the settle fold (180 ms, height and opacity), the text above rising with it.",
+      `Shipped: at the bottom, the run of commands opens on the settle fold (${MOTION_SETTLE_MS} ms, height and opacity), the text above rising with it.`,
     ),
     instant: variant(
-      "Opens at its final layout in the click's frame; only the opened rows' ink fades in (80 ms). Fastest and never lags; the rows above move in one step.",
+      `Opens at its final layout in the click's frame; only the opened rows' ink fades in (${MOTION_MS.quick} ms). Fastest and never lags; the rows above move in one step.`,
       ARMS.instant,
       "jump",
     ),
     quick: variant(
-      "The same fold on the quick step (80 ms, --cmux-motion-quick) instead of the settle. Keeps the stack motion; still a height animation that can drop frames under load.",
+      `The same fold on the quick step (${MOTION_MS.quick} ms, --cmux-motion-quick) instead of the settle. Keeps the stack motion; still a height animation that can drop frames under load.`,
       ARMS.quick,
     ),
     clip: variant(

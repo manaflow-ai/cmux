@@ -26,7 +26,7 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.app.confirmQuit", "Ask Before Quitting Ends Agents or Terminals"),
-                help: SettingsText.keyed("settings.app.confirmQuit.help", "Cmd-Q asks first when quitting would end working agents or open terminals. A quit that keeps the sessions running never asks."),
+                help: SettingsText.keyed("settings.app.confirmQuit.help", "Ask before Cmd-Q ends agents or terminals."),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.confirmQuitDefault),
                 keywords: ["quit", "cmd-q", "confirm", "ask", "warn", "exit", "agents", "terminals"]
@@ -181,7 +181,7 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.layout.focusFollowsMouse", "Focus Follows Mouse"),
-                help: SettingsText.keyed("settings.layout.focusFollowsMouse.help", "Moving the pointer onto a pane or scrolling over it focuses that pane. Off keeps focus where you type until you click. Momentum and the first second after typing never move focus."),
+                help: SettingsText.keyed("settings.layout.focusFollowsMouse.help", "Pointing at or scrolling over a pane focuses it."),
                 summary: SettingsText.keyed("settings.layout.focusFollowsMouse.summary", "Hovering or scrolling a pane focuses it"),
                 kind: .toggle,
                 default: .bool(ColumnLayoutSettings.focusFollowsMouseDefault),
@@ -192,7 +192,7 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.layout.scrollAreas", "Scroll Areas"),
-                help: SettingsText.keyed("settings.layout.scrollAreas.help", "Side-by-side panes that do not fit scroll sideways instead of shrinking, also in docked columns."),
+                help: SettingsText.keyed("settings.layout.scrollAreas.help", "Panes that do not fit scroll sideways instead of shrinking."),
                 summary: SettingsText.keyed("settings.layout.scrollAreas.summary", "Splits scroll instead of squashing"),
                 kind: .toggle,
                 default: .bool(ColumnLayoutSettings.scrollAreasDefault),
@@ -203,7 +203,7 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.layout.scrollModifier", "Scroll Columns and Rows With"),
-                help: SettingsText.keyed("settings.layout.scrollModifier.help", "Command + Scroll moves columns and rows from anywhere, and a plain scroll always scrolls the pane under the pointer. Without a modifier, a sideways scroll moves columns unless the pane scrolls sideways itself, and rows scroll only over the gaps between them."),
+                help: SettingsText.keyed("settings.layout.scrollModifier.help", "What moves columns and rows: Command + Scroll, or a plain sideways scroll."),
                 summary: SettingsText.keyed("settings.layout.scrollModifier.summary", "Command + Scroll moves columns and rows"),
                 kind: .choice([
                     SettingChoice(LayoutScrollModifier.command.rawValue, SettingsText.keyed("settings.choice.scrollModifierCommand", "Command + Scroll")),
@@ -217,7 +217,7 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.layout.pagesHandleCommandScroll", "Web Pages Get Command + Scroll First"),
-                help: SettingsText.keyed("settings.layout.pagesHandleCommandScroll.help", "A web page that uses Command + Scroll itself, such as Figma or Excalidraw zooming, keeps it. Over any other page, Command + Scroll moves columns. Off, Command + Scroll always moves columns."),
+                help: SettingsText.keyed("settings.layout.pagesHandleCommandScroll.help", "Pages like Figma keep Command + Scroll. Off, it always moves columns."),
                 summary: SettingsText.keyed("settings.layout.pagesHandleCommandScroll.summary", "Figma and Excalidraw keep Command + Scroll zoom"),
                 kind: .toggle,
                 default: .bool(ColumnLayoutSettings.pagesHandleCommandScrollDefault),
@@ -246,7 +246,7 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.layout.newPanePlacement", "New Terminals and Browsers"),
-                help: SettingsText.keyed("settings.layout.newPanePlacement.help", "Open a Tab adds a tab to the focused pane. Split Automatically splits the largest pane, like New Pane (Auto Layout)."),
+                help: SettingsText.keyed("settings.layout.newPanePlacement.help", "Split Automatically splits the largest pane."),
                 kind: .choice([
                     SettingChoice(NewPanePlacement.tab.rawValue, SettingsText.keyed("settings.choice.newPaneTab", "Open a Tab")),
                     SettingChoice(NewPanePlacement.split.rawValue, SettingsText.keyed("settings.choice.newPaneSplit", "Split Automatically")),
@@ -269,7 +269,6 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.layout.linkPlacement", "Open Links and Files"),
-                help: SettingsText.keyed("settings.layout.linkPlacement.help", "Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one."),
                 kind: .choice([
                     SettingChoice(LinkPlacement.splitRight.rawValue, SettingsText.keyed("settings.choice.linkPlacementSplitRight", "Split Right")),
                     SettingChoice(LinkPlacement.newColumn.rawValue, SettingsText.keyed("settings.choice.linkPlacementNewColumn", "New Column on the Right")),
@@ -283,7 +282,7 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.layout.mainPane", "Main Pane"),
-                help: SettingsText.keyed("settings.layout.mainPane.help", "Agent Chats keeps an agent chat as the main pane: links, files, subagents and side chats it opens appear as tabs in a column on its right, and closing that column gives the chat its full width back."),
+                help: SettingsText.keyed("settings.layout.mainPane.help", "Keeps a chat as the main pane, with what it opens in a column on its right."),
                 kind: .choice([
                     SettingChoice(MainPaneSetting.agentChats.rawValue, SettingsText.keyed("settings.choice.mainPaneAgentChats", "Agent Chats")),
                     SettingChoice(MainPaneSetting.off.rawValue, SettingsText.keyed("settings.choice.mainPaneOff", "Off")),
@@ -304,7 +303,6 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.workspaces.newPlacement", "New Workspace Position"),
-                help: SettingsText.keyed("settings.workspaces.newPlacement.help", "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it."),
                 kind: .choice([
                     SettingChoice(NewWorkspacePlacement.top.rawValue, SettingsText.keyed("settings.choice.top", "Top")),
                     SettingChoice(NewWorkspacePlacement.afterCurrent.rawValue, SettingsText.keyed("settings.choice.afterCurrentWorkspace", "After Current Workspace")),
@@ -318,7 +316,6 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.sidebar.groupByComputer", "Group Workspaces by Computer"),
-                help: SettingsText.keyed("settings.sidebar.groupByComputer.help", "Off: one list of workspaces, and a workspace on another computer names it under its title. On: a section per computer."),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.groupByComputerDefault),
                 keywords: ["sidebar", "computer", "machine", "cloud", "remote", "group", "section", "header", "flat", "list"]
@@ -328,7 +325,7 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.workspaces.autoName", "Name Workspaces from Tabs"),
-                help: SettingsText.keyed("settings.workspaces.autoName.help", "A workspace you have not named shows its front tab's name: a page's title, an agent chat's title, or a terminal's title or folder. Your own name always wins."),
+                help: SettingsText.keyed("settings.workspaces.autoName.help", "An unnamed workspace shows its front tab's name. Your own name always wins."),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.autoNameWorkspacesDefault),
                 keywords: ["workspace", "name", "rename", "auto", "title", "tab", "chat", "page", "folder", "sidebar"]

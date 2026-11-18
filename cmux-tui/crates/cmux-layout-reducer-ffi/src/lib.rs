@@ -17,15 +17,13 @@
 //! hold off idle sleep and when to look again),
 //! `cmux-bookmarks-core`'s optimistic bookmark tree (`bookmarks_apply`: the
 //! confirmed listing with the pending ops applied by the daemon's rules),
-//! `cmux-cloud-start-core`'s Cloud start decisions (`cloud_harness_login`,
-//! one call that reads the harness and both probes' output; `cloud_start_*`:
+//! `cmux-cloud-start-core`'s Cloud start decisions (`cloud_start_*`:
 //! the refusal, the account checks and the folder a start may copy;
-//! `cloud_folder_too_broad`, `cloud_vm_kind`, `cloud_login_fingerprint`;
+//! `cloud_folder_too_broad`, `cloud_vm_kind`;
 //! `cloud_agent_check`: whether the start's agent can run, before its lease;
 //! `cloud_ask_answer`, `cloud_ask_first`: who may answer an agent's Cloud ask;
-//! `cloud_sequence_*`: the start's one sequencer, its step order and times; and
-//! `cloud_harness_login_provider`, `cloud_guest_kind`, `cloud_guest_kind_probe`,
-//! kept for an app pinned before `cloud_harness_login` read them itself),
+//! `cloud_sequence_*`: the start's one sequencer, its step order and times;
+//! a Cloud machine reaches models through its edge, so no op decides a login copy),
 //! `cmux-cloud-config`'s rules (`cloud_config_*`: which Cloud a build talks to;
 //! `cloud_auth_*`: the auth rules around the app's Keychain I/O;
 //! `cloud_identity_*`: the install identity's rules;
@@ -299,8 +297,8 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&new_placement::plan(&request)).map_err(|_| ERR_INVALID)?
             }
             b"optimistic" => {
-                let request: cmux_layout_reducer::optimistic::Request =
-                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                let request = cmux_layout_reducer::optimistic::parse_request(request)
+                    .map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&cmux_layout_reducer::optimistic::respond(&request))
                     .map_err(|_| ERR_INVALID)?
             }
@@ -315,12 +313,6 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&cmux_bookmarks_core::preview::respond(request))
                     .map_err(|_| ERR_INVALID)?
-            }
-            b"cloud_harness_login" => {
-                use cmux_cloud_start_core::harness_login;
-                let request: harness_login::Inputs =
-                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                serde_json::to_vec(&harness_login::decide(&request)).map_err(|_| ERR_INVALID)?
             }
             b"cloud_agent_check" => {
                 use cmux_cloud_start_core::agent_check;
@@ -452,6 +444,22 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&serde_json::json!({ "uploads": uploads }))
                     .map_err(|_| ERR_INVALID)?
             }
+            // The start's check of the machine's model route: the command to run there, and,
+            // given what it printed, the verdict.
+            b"cloud_machine_route" => {
+                #[derive(serde::Deserialize)]
+                struct Request {
+                    #[serde(default)]
+                    stdout: Option<String>,
+                }
+                use cmux_cloud_start_core::machine_route;
+                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                let verdict = request.stdout.as_deref().map(machine_route::verdict);
+                serde_json::to_vec(&serde_json::json!({
+                    "command": machine_route::GUEST, "verdict": verdict,
+                }))
+                .map_err(|_| ERR_INVALID)?
+            }
             b"cloud_folder_too_broad" => {
                 #[derive(serde::Deserialize)]
                 struct Request {
@@ -477,41 +485,6 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 ))
                 .map_err(|_| ERR_INVALID)?
             }
-            b"cloud_login_fingerprint" => {
-                #[derive(serde::Deserialize)]
-                struct Request {
-                    token: Vec<u8>,
-                }
-                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                let fingerprint = cmux_cloud_start_core::machine_login::fingerprint(&request.token);
-                serde_json::to_vec(&serde_json::json!({ "fingerprint": fingerprint }))
-                    .map_err(|_| ERR_INVALID)?
-            }
-            b"cloud_harness_login_provider" => {
-                #[derive(serde::Deserialize)]
-                struct Request {
-                    harness: Option<String>,
-                }
-                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                let provider = cmux_cloud_start_core::harness_login::login_provider(
-                    request.harness.as_deref(),
-                );
-                serde_json::to_vec(&serde_json::json!({ "provider": provider }))
-                    .map_err(|_| ERR_INVALID)?
-            }
-            b"cloud_guest_kind" => {
-                #[derive(serde::Deserialize)]
-                struct Request {
-                    stdout: String,
-                }
-                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                let kind = cmux_cloud_start_core::harness_login::guest_kind(&request.stdout);
-                serde_json::to_vec(&serde_json::json!({ "kind": kind })).map_err(|_| ERR_INVALID)?
-            }
-            b"cloud_guest_kind_probe" => serde_json::to_vec(&serde_json::json!({
-                "probe": cmux_cloud_start_core::harness_login::GUEST_KIND_PROBE
-            }))
-            .map_err(|_| ERR_INVALID)?,
             b"focus_type_ahead" => {
                 let request: cmux_focus_core::wire::TypeAheadRequest =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
