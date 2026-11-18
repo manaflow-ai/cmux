@@ -287,7 +287,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "App"
+            "value": "Anwendung"
           }
         },
         "en": {
@@ -299,13 +299,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "App"
+            "value": "Aplicación"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "App"
+            "value": "Application"
           }
         },
         "it": {
@@ -389,7 +389,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "App"
+            "value": "應用程式"
           }
         }
       }
