@@ -75,16 +75,19 @@ extension TabStripView {
         if !made.isEmpty { TabSeparatorVisibility.apply(to: self, around: made) }
     }
 
-    /// Drops the cells of tabs out of the mounted range that nothing holds and that no move carries.
-    func dropHiddenCells() {
+    /// Drops the cells of tabs out of the mounted range that nothing holds and that no move carries. `shownFrom`: a move
+    /// is about to start from that scroll; a cell it would show there (in view, not only in range) stays for it.
+    func dropHiddenCells(shownFrom: TabScrollMapping? = nil) {
         guard !cells.isEmpty else { return }
         let held = heldIDs
         let band = scrollMapping.band
         let slots = slotIndex.slots
+        let width = mountViewportWidth
         var dropping: [TabID] = []
         for (id, cell) in cells where !held.contains(id) {
             guard let slot = slots[id], !isInMountRange(slot, offset: scrollOffset, band: band),
                   cell.layer.animationKeys()?.isEmpty != false else { continue }
+            if let from = shownFrom, slot.maxX >= from.offset, slot.x <= from.offset + width { continue }
             dropping.append(id)
         }
         for id in dropping { unmountCell(id) }

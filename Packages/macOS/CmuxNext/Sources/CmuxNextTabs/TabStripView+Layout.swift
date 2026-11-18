@@ -344,6 +344,8 @@ extension TabStripView {
         }
         // Only the tabs within a viewport of the view have cells: the ones it reveals get theirs, where the layers show now.
         mountVisibleCells(showing: scrollFrom ?? mapping)
+        // A move would carry every cell (and keep it until it ends): first the ones it shows neither now nor where it lands go.
+        if move != nil { dropHiddenCells(shownFrom: scrollFrom ?? mapping) }
         var trailing = unmountedTrailing()
         for (id, cell) in cells {
             guard let place = placed[id] else { continue }
