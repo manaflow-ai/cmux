@@ -306,3 +306,55 @@ test("a re-read that changes one comment draws only that entry again", async () 
   expect(host.textContent).toContain("Comment 4, edited");
   expect(said.since()).toBe(1);
 });
+
+// Each row's link is a tab stop. jsdom moves no focus on Tab, so `tab()` does what a browser does:
+// the next tab stop in document order takes focus (a browser then scrolls it in).
+const TABBABLE = "button:not([disabled]), a[href], input:not([disabled]), [tabindex]:not([tabindex='-1'])";
+
+async function tab(shift = false) {
+  const document = dom.window.document;
+  const stops = [...document.querySelectorAll<HTMLElement>(TABBABLE)];
+  const next = stops[stops.indexOf(document.activeElement as HTMLElement) + (shift ? -1 : 1)];
+  await act(async () => next?.focus());
+  await settle();
+}
+
+const jobLink = (name: string) =>
+  [...host.querySelectorAll<HTMLButtonElement>(".gh-ci-row .gh-row-link")].find((link) => link.textContent === name);
+const focusedText = () => dom.window.document.activeElement?.textContent;
+
+test("Tab from a focused row the page scrolled 20,000 px away from goes to the next job", async () => {
+  Object.defineProperty(dom.window, "scrollY", { configurable: true, value: 0 });
+  await mount(1_000);
+  await act(async () => jobLink("job 30")!.focus());
+  await settle();
+  await scrollWindow(20_000);
+  expect(jobLink("job 30")).toBeDefined();
+  await tab();
+  expect(focusedText()).toBe("job 31");
+});
+
+test("Shift-Tab from a focused row the page scrolled 20,000 px away from goes to the job before it", async () => {
+  Object.defineProperty(dom.window, "scrollY", { configurable: true, value: 0 });
+  await mount(1_000);
+  await act(async () => jobLink("job 30")!.focus());
+  await settle();
+  await scrollWindow(20_000);
+  await tab(true);
+  expect(focusedText()).toBe("job 29");
+});
+
+test("Shift-Tab from the control after the dashboard enters it at the last job", async () => {
+  Object.defineProperty(dom.window, "scrollY", { configurable: true, value: 0 });
+  await mount(1_000);
+  const stops = [...dom.window.document.querySelectorAll<HTMLElement>(TABBABLE)];
+  const dashboard = host.querySelector(".gh-ci")!;
+  const after = stops.find(
+    (stop) =>
+      !dashboard.contains(stop) &&
+      dashboard.compareDocumentPosition(stop) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING,
+  )!;
+  await act(async () => after.focus());
+  await tab(true);
+  expect(focusedText()).toBe("job 999");
+});

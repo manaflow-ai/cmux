@@ -380,11 +380,18 @@ function useDashboardWindow(list: RefObject<HTMLElement | null>, items: readonly
     resize?.observe(element.closest("main") ?? element);
     return () => resize?.disconnect();
   }, [list, windowed]);
-  const [focused, setFocused] = useState<number>();
+  // The item holding the keyboard focus, by key: an answer that moves it keeps it found.
+  const [focusedKey, setFocusedKey] = useState<string>();
   const onFocus = useCallback((event: FocusEvent<HTMLElement>) => {
     const index = Number((event.target as Element).closest("[data-index]")?.getAttribute("data-index"));
-    setFocused(Number.isInteger(index) ? index : undefined);
+    setFocusedKey(Number.isInteger(index) ? (itemsRef.current[index]?.key ?? undefined) : undefined);
   }, []);
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  // Once per item list: each item's place by key, and the first and last items with a tab stop.
+  const place = useMemo(() => new Map(items.map((item, index) => [item.key, index])), [items]);
+  const ends = useMemo(() => [stopFrom(items, 0, 1), stopFrom(items, items.length - 1, -1)], [items]);
+  const focused = focusedKey === undefined ? -1 : (place.get(focusedKey) ?? -1);
   // One function per item list: TanStack asks every item's key again when it changes.
   const itemKey = useCallback((index: number) => items[index]!.key, [items]);
   // The first measured item of each kind sizes every one of that kind not yet drawn, so a scroll
@@ -407,13 +414,19 @@ function useDashboardWindow(list: RefObject<HTMLElement | null>, items: readonly
     },
     [],
   );
+  // Mounted beside the window: the focused item and the items with the tab stops before and after it,
+  // and the first and last items with a tab stop. The browser's own Tab and Shift-Tab then go on in
+  // list order from a focused row the page scrolled away from, and enter the dashboard at its first
+  // or last row (focusing a row scrolls it in). No key handler.
   const rangeExtractor = useCallback(
     (range: Range) => {
       const near = defaultRangeExtractor(range);
-      if (focused === undefined || focused >= range.count || near.includes(focused)) return near;
-      return [...near, focused].sort((a, b) => a - b);
+      const held =
+        focused < 0 ? ends : [focused, stopFrom(items, focused - 1, -1), stopFrom(items, focused + 1, 1), ...ends];
+      const far = held.filter((index) => index >= 0 && index < range.count && !near.includes(index));
+      return far.length === 0 ? near : [...new Set([...near, ...far])].sort((a, b) => a - b);
     },
-    [focused],
+    [focused, ends, items],
   );
   const virtualizer = useWindowVirtualizer({
     count: items.length,
@@ -440,6 +453,19 @@ function useDashboardWindow(list: RefObject<HTMLElement | null>, items: readonly
 }
 
 const noMeasure = () => {};
+
+/** Whether an item holds a tab stop: the passed fold, or a line with a row link or a shard's pip. */
+function hasStop(item: DashboardItem): boolean {
+  if (item.kind === "fold") return true;
+  if (item.kind === "title") return false;
+  return item.rows.some((row) => row.matrix || !!(row.jobs.find((job) => job.state === row.state) ?? row.jobs[0])?.url);
+}
+
+/** The first item from `index` on in the direction `step` that holds a tab stop, or -1. A title has none. */
+function stopFrom(items: readonly DashboardItem[], index: number, step: 1 | -1): number {
+  for (let at = index; at >= 0 && at < items.length; at += step) if (hasStop(items[at]!)) return at;
+  return -1;
+}
 
 /** A running row's longest elapsed time (and what it usually takes); a finished one's duration. */
 function rowTime(row: DashboardRow, at: number, strings: Strings): string | undefined {
