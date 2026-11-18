@@ -5,6 +5,9 @@ Run: python3 -I scripts/cmux-next/tests/test_pane_perf_rows.py
 No app, display or subprocess is run: the definitions are loaded without the script's top-level app launch.
 - moving_frames: New Column moves only the strip camera (column-scroll.md R3b), so a count of the pane and divider
   springs alone (`layout.travel`) read 0 for every New Column (BENCH BASE REDS 3).
+- commit_notes: the app's own notes of a commit motion (the act that moves, or why a change showed in one frame).
+- pane-zoom-terminal.py's sample_frames: a zoom by a commit motion has `layout.commit` samples and no
+  spring frame, so a row that counts the springs alone reads 0 for it.
 - not_applicable: a one-column layout (1x2) has no vertical divider, so its drag is not applicable, not a FAIL.
 - activate: the bench opens its bundle through LaunchServices and waits for a key window.
 """
@@ -22,12 +25,13 @@ def definitions(path, names):
     tree = ast.parse(path.read_text(), filename=str(path))
     nodes = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in names]
     missing = set(names) - {node.name for node in nodes}
-    assert not missing, f"pane-perf-terminal.py lacks {sorted(missing)}"
+    assert not missing, f"{path.name} lacks {sorted(missing)}"
     return compile(ast.Module(body=nodes, type_ignores=[]), str(path), "exec")
 
 
 BENCH = definitions(ROOT / "pane-perf-terminal.py", {"moving_frames", "not_applicable", "activate", "commit_frames",
-                                                    "late_frames", "motion_arms"})
+                                                    "late_frames", "motion_arms", "commit_notes"})
+ZOOM = definitions(ROOT / "pane-zoom-terminal.py", {"sample_frames"})
 
 
 def loaded(**extra):
@@ -88,6 +92,43 @@ class CommitFrames(unittest.TestCase):
         self.assertEqual(self.commit_frames(frames((600, 0), (200, 0), (0, 0))), 0)
         for samples in (None, [], {}, [None, 3]):
             self.assertEqual(self.commit_frames(samples), 0)
+
+
+class CommitNotes(unittest.TestCase):
+    def setUp(self):
+        self.commit_notes = loaded()["commit_notes"]
+
+    def test_the_notes_of_the_commit_motion_are_kept_in_their_order(self):
+        notes = [{"t_ms": 1, "text": "tabs: sync added 1"}, {"t_ms": 2, "text": "layout.commit: split moves 2 panes"},
+                 None, {"t_ms": 3, "text": "layout.commit: no move, the motion is off"}]
+        self.assertEqual(self.commit_notes(notes),
+                         ["layout.commit: split moves 2 panes", "layout.commit: no move, the motion is off"])
+
+    def test_a_reply_without_such_a_note_gives_none(self):
+        for notes in (None, [], {}, [{"t_ms": 3}], [{"text": None}], [{"text": "layout: rest"}]):
+            self.assertEqual(self.commit_notes(notes), [])
+
+
+class ZoomSampleFrames(unittest.TestCase):
+    def setUp(self):
+        namespace = {}
+        exec(ZOOM, namespace)
+        self.sample_frames = namespace["sample_frames"]
+
+    def test_a_zoom_by_a_commit_motion_has_commit_frames_and_no_spring_frame(self):
+        samples = frames((0, 0), (0, 0), (0, 0))
+        samples[1:1] = [{"name": "layout.commit", "v": 4}, {"name": "layout.commit", "v": 4}, {"name": "layout.commit", "v": 0}]
+        self.assertEqual(self.sample_frames(samples, "layout.commit"), 2)
+        self.assertEqual(self.sample_frames(samples, "layout.travel"), 0)
+
+    def test_a_zoom_by_the_springs_counts_its_spring_frames(self):
+        samples = frames((600, 0), (200, 0), (0, 0))
+        self.assertEqual(self.sample_frames(samples, "layout.travel"), 2)
+        self.assertEqual(self.sample_frames(samples, "layout.commit"), 0)
+
+    def test_a_reply_without_samples_counts_none(self):
+        for samples in (None, [], {}, [None, 3], [{"name": "layout.travel"}]):
+            self.assertEqual(self.sample_frames(samples, "layout.travel"), 0)
 
 
 def probe(**changed):

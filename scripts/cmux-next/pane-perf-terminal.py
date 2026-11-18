@@ -462,6 +462,14 @@ def commit_frames(samples):
                if isinstance(sample, dict) and sample.get("name") == "layout.commit" and (sample.get("v") or 0) > 0)
 
 
+def commit_notes(notes):
+    """The app's own notes of a commit motion while recording (each note whose text starts with `layout.commit`): the
+    act that moves, or why a change showed in one frame. A build without such a note gives an empty list."""
+    notes = notes if isinstance(notes, list) else []
+    return [note["text"] for note in notes
+            if isinstance(note, dict) and isinstance(note.get("text"), str) and note["text"].startswith("layout.commit")]
+
+
 def late_frames(frames, action_s=None):
     """Where the long intervals of a `debug.frames` reply are (stopped with `raw`). The probe's `missed` counts each
     interval above 1.5 refreshes one time, however long it is. `missed_refreshes` is the refreshes that those
@@ -596,6 +604,7 @@ def measure(label, name):
         "missed": frames.get("missed"), "frames_max_ms": frames.get("max_ms"), "frames_p99_ms": frames.get("p99_ms"),
         "frames_p50_ms": frames.get("p50_ms"), "frames_p95_ms": frames.get("p95_ms"), "frames": frames.get("frames"),
         "refresh_ms": frames.get("refresh_ms"), "moving_frames": moving, "commit_frames": committed, **late,
+        "commit_notes": commit_notes(motion.get("notes")) if isinstance(motion, dict) else [],
         "background_cpu": background_cpu,
         "layout_max_ms": work.get("max_ms"), "layout_p95_ms": work.get("p95_ms"), "layout_p50_ms": work.get("p50_ms"),
         "commit_p50_ms": (commit or {}).get("p50_ms"), "commit_p95_ms": (commit or {}).get("p95_ms"),
@@ -922,8 +931,9 @@ def main():
                     row(f"{label} {step} #{index}: still (the pane motion is off)", "0 frames", moved,
                         not run["moving_frames"] and not run["commit_frames"])
                 elif step not in STILL:
+                    animated = (run["moving_frames"] or 0) > 0 or (run["commit_frames"] or 0) > 0
                     row(f"{label} {step} #{index}: animated (layout springs, the strip camera or a commit motion moved)",
-                        "> 0 frames", moved, (run["moving_frames"] or 0) > 0 or (run["commit_frames"] or 0) > 0)
+                        "> 0 frames", moved + ("" if animated else f"; the app's notes: {run['commit_notes'][:4]}"), animated)
                 missed = run["missed"]
                 row(f"{label} {step} #{index}: missed frames" + ("" if opts.gate else " (info)"),
                     f"<= {opts.missed_budget}", f"{missed} ({run['missed_refreshes']} refreshes)",
