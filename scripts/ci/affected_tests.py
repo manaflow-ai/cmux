@@ -26,6 +26,8 @@ cmux-tui, which the Rust step runs where cargo is (`cmux-tui-rust-check.sh test
           CmuxNext's route marking everything) lists every test target of the package.
   web     run-webviews-tests.sh with CMUX_WEB_TEST_FILES, split over the shards; files that
           launch a browser engine run apart with CMUX_BROWSER_TESTS=1.
+  web-app web/scripts/run-tests.sh (web/'s own suite, ci-web.yml's Web tests) when a web/ path
+          changes or a web/ test names a changed path, split over the shards.
   python  run_python_test_lane.py --lane linux-guard --path ... --shard K/N through
           `cmux-ci test` (fast checks on Linux).
   native  the Native/ cargo workspace's own tests (optchat-chief's step mode on macOS, else
@@ -61,6 +63,9 @@ import focused_tests  # noqa: E402
 RUST_SCRIPT = "scripts/ci/cmux-tui-rust-check.sh"
 SWIFT_SCRIPT = "scripts/ci/package-test-lane.sh"
 WEB_SCRIPT = "scripts/ci/run-webviews-tests.sh"
+# web/'s own suite (ci-web.yml's "Web tests" job): bun, every file, web/scripts/run-tests.sh.
+WEB_APP = "web/"
+WEB_APP_SCRIPT = "web/scripts/run-tests.sh"
 PYTHON_RUNNER = "scripts/ci/run_python_test_lane.py"
 GUARDS_SCRIPT = "scripts/ci/guards-local.sh"
 LINUX_PYTHON_LANE = "linux-guard"
@@ -172,6 +177,24 @@ def tests_naming(root: Path, paths: list[str]) -> tuple[dict[str, list[str]], li
     return {k: sorted(v) for k, v in swift.items()}, sorted(web), sorted(python)
 
 
+def web_app_reached(root: Path, files: list[str]) -> list[str]:
+    """Why web/'s tests run, or []: a changed web/ path, or a web/ test that names a changed path outside
+    web/ (next-docs.test.ts checks the docs against the action catalog, docs-shortcuts.test.ts against the
+    keybindings). A replay of base reds found 10 of 10 web/ reds in no plan."""
+    reasons = [f for f in files if f.startswith(WEB_APP)][:3]
+    outside = [p for p in files if not p.startswith(WEB_APP)]
+    names = {Path(p).name for p in outside if len(Path(p).name) >= 8
+             and Path(p).name not in focused_tests.COMMON and not re.fullmatch(r"[A-Z0-9_-]+\.md", Path(p).name)}
+    # A folder a test reads whole (docs-shortcuts.test.ts: Packages/macOS/CmuxNext/Sources/CmuxNextActions).
+    names |= {parent.as_posix() for p in outside for parent in PurePosixPath(p).parents if len(parent.parts) >= 3}
+    names = sorted(names)
+    if not reasons and names:
+        args = ["grep", "-l", "-F"] + [x for n in names for x in ("-e", n)]
+        reasons = subprocess.run(["git", "-C", str(root), *args, "--", WEB_APP + "tests"],
+                                 capture_output=True, text=True).stdout.split()[:3]
+    return reasons
+
+
 def unregistered_python_tests(root: Path) -> list[str]:
     """test_*.py files the lane registry does not list (scripts/tests, scripts/cmux-next/tests,
     cmux-tui/scripts, ...): their own workflows run them, so the lane runner cannot."""
@@ -251,6 +274,14 @@ class Planner:
                 name = label + (f"-{i}of{len(parts)}" if len(parts) > 1 else "")
                 self.run_step(name, "web", f"{len(picked)} webviews test files", WEB_SCRIPT, "light", [],
                               env={**env, "CMUX_WEB_TEST_FILES": "\n".join(part)})
+
+    def web_app(self, why: str) -> None:
+        """Every web/ test, split as ci-web.yml's Web tests job splits them (run-tests.sh --shard K/N)."""
+        n = max(1, min(self.shards, 4))
+        for i in range(1, n + 1):
+            cmd = f"cd web && bun install --frozen-lockfile && ./scripts/run-tests.sh" + (f" --shard {i}/{n}" if n > 1 else "")
+            self.units.append({"name": "web-app" + (f"-{i}of{n}" if n > 1 else ""), "kind": "web-app", "why": why,
+                               "argv": ["test", "--setup", "webviews", "--", "bash", "-c", cmd]})
 
     def python(self, paths: list[str] | None) -> None:
         lanes = python_lane_tests(self.root)
@@ -394,6 +425,7 @@ def plan(root: Path, base: str, head: str, files: list[str] | None, shards: int,
         p.rust(everything=True)
         p.swift({pkg: swift_test_targets(root, pkg) for pkg in swift_packages(root)}, "every Swift package test target")
         p.web(None)
+        p.web_app("every web/ test")
         p.python(None)
         unregistered = unregistered_python_tests(root)
         if unregistered:
@@ -421,6 +453,8 @@ def plan(root: Path, base: str, head: str, files: list[str] | None, shards: int,
             web_python = web_workflow_python_tests(root)
         elif focused["web"] or named_web:
             p.web([f["path"] for f in focused["web"]] + named_web)
+        if reached := web_app_reached(root, files):
+            p.web_app("web/ tests: " + ", ".join(reached))
         lanes = python_lane_tests(root)
         lane_paths = [item["path"] for item in focused["python"]]
         if any(focused_tests.REGISTRY_FRAGMENT.fullmatch(f) for f in files):

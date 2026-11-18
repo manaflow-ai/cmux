@@ -203,6 +203,17 @@ class AffectedTests(unittest.TestCase):
         unit = next(u for u in result["units"] if u["name"] == "workspace-cmux-next-ios-rust")
         self.assertEqual(unit["argv"][-3:], [affected_tests.RUST_WORKSPACES, "run", "cmux-next-ios/rust"])
 
+    def test_web_app_tests_run_on_a_web_change_and_on_a_path_they_read(self):
+        # A replay of base reds (tap history since 2026-10-25) found 10 of 10 web/ reds in no plan:
+        # next-docs.test.ts and docs-shortcuts.test.ts read the action catalog outside web/.
+        self.assertIn("web-app-1of4", names(plan(["web/app/page.tsx"])))
+        self.assertIn("web-app-1of4", names(plan(["plans/cmux-next/action-surfaces.json"])))
+        catalog = "Packages/macOS/CmuxNext/Sources/CmuxNextActions/NewTabActions.xcstrings"
+        self.assertTrue(any(n.startswith("web-app") for n in names(plan([catalog]))))
+        self.assertIn("web-app-4of4", names(plan([], everything=True)))
+        # acpmux is no negative: vm-cmux-tui.test.ts reads its cli/hosts.rs.
+        self.assertFalse(any(n.startswith("web-app") for n in names(plan(["cmux-tui/crates/ghostty-vt/src/alternate_replay_tests.rs"]))))
+
     def test_too_many_paths_runs_everything(self):
         files = [f"cmux-tui/AGENTS-{i}.md" for i in range(affected_tests.MAX_FILES + 1)]
         self.assertTrue(plan(files)["all"])

@@ -361,7 +361,7 @@ def replay_worktree() -> Path:
 
 
 def selected(plan: dict) -> dict:
-    sel = {"all": plan["all"], "python": set(), "web": set(), "swift": set(), "rust": False, "guards": False, "native": set(), "rust_all": False}
+    sel = {"all": plan["all"], "python": set(), "web": set(), "swift": set(), "rust": False, "guards": False, "native": set(), "rust_all": False, "web_app": False}
     for unit in plan["units"]:
         argv = unit["argv"]
         if unit["kind"] == "guards":
@@ -385,6 +385,8 @@ def selected(plan: dict) -> dict:
             sel["rust"] = True
         elif unit["kind"] == "native":
             sel["native"].add(unit["why"])
+        elif unit["kind"] == "web-app":
+            sel["web_app"] = True
     return sel
 
 
@@ -463,7 +465,7 @@ def check(path: Path, metadata: Path, out: Path | None, per_head_metadata: bool 
             manifest = workspace + "/Cargo.toml"
             hit, why = manifest in sel["native"], f"workspace {manifest}"
         elif kind == "web-app":
-            hit, why = False, "web/ tests: no unit of any plan runs them"
+            hit, why = sel["web_app"], "web/'s suite"
         elif sel["all"]:
             hit, why = True, "every suite (" + "; ".join(plan["reasons"][:2]) + ")"
         elif kind == "python":
