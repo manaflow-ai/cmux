@@ -120,7 +120,13 @@ import {
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import { heldPick, withCloudStartFolder, withDraftFolder } from "./newtab/draftFolder";
-import { cloudModePickFor as cloudModeFor, cloudSendAgent, holdCloudModePick, useCloudModePick } from "./cloudModePick";
+import {
+  cloudModePickFor as cloudModeFor,
+  cloudSendAgent,
+  cloudStartModePick,
+  holdCloudModePick,
+  useCloudModePick,
+} from "./cloudModePick";
 import { configurationSessionMatches, pickEffort } from "./configurationActions";
 import { rememberRecentFolders } from "./newtab/recentProject";
 import { rememberStartedProject } from "./newtab/startedProject";
@@ -12788,6 +12794,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       cloudShownAgent.harness ?? "",
                       cloudShownAgent.model,
                     ),
+                    // The Mode chip holds its pick under the chat's own harness (none on a blank page): the send
+                    // reads it there too, so a pick the chip shows is never dropped for the picker face's harness.
+                    ...cloudStartModePick(composerSnapshot.summary?.harness),
                     // The picker's effort and account go with its model (cmux-tui/docs/model-connections.md).
                     ...cloudPickExtras(composerSnapshot.summary),
                   },
