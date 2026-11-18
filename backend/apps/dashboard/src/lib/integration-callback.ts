@@ -70,18 +70,19 @@ export const DEVELOPMENT_STATE_ISSUER = "https://cmux-api/development"
 const STATE_AUDIENCE = "cmux-integration-state"
 
 /**
- * Whether `state` is an unexpired integration state signed (ES256) by one of the keys in `jwks` for `issuer`.
- * The staging console asks this with the development API's published keys before it sends a session there:
- * the issuer alone is a claim anyone can write into a link, the signature is not. The API still verifies the
- * state, its user and its team when it completes.
+ * Whether `state` is an unexpired integration state the development API (`issuer`, the keys in `jwks`) signed
+ * (ES256) for `user`, the console session's own person. The staging console asks this before it sends a session
+ * to the development API: the issuer alone is a claim anyone can write into a link, and a genuine state made for
+ * someone else is a link anyone can send. The API still verifies the state, its user and its team when it completes.
  */
-export const integrationStateSignedBy = async (state: string | undefined, jwks: unknown, issuer: string, now: number = Date.now()): Promise<boolean> => {
+export const integrationStateSignedBy = async (state: string | undefined, jwks: unknown, expect: { readonly issuer: string; readonly user: string }, now: number = Date.now()): Promise<boolean> => {
   if (typeof state !== "string" || state.length > 4096) return false
   const parts = state.split(".")
   if (parts.length !== 3) return false
   const claims = jsonPart(parts[1]!)
   if (jsonPart(parts[0]!)?.alg !== "ES256" || !claims) return false
-  if (claims.iss !== issuer || claims.aud !== STATE_AUDIENCE) return false
+  if (claims.iss !== expect.issuer || claims.aud !== STATE_AUDIENCE) return false
+  if (!expect.user || claims.sub !== expect.user) return false
   if (typeof claims.exp !== "number" || claims.exp * 1000 <= now) return false
   const keys = (jwks as { keys?: unknown } | null | undefined)?.keys
   if (!Array.isArray(keys)) return false
@@ -101,13 +102,33 @@ export const integrationStateSignedBy = async (state: string | undefined, jwks: 
 }
 
 /**
+ * The subject of the console's own access token, and whether the token is still good for a call (30 s of slack).
+ * Read without verification: the token is the console's own HttpOnly cookie, and the answer only decides whether
+ * that same person's session is sent on. Undefined when the token carries no subject.
+ */
+export const accessTokenSubject = (token: string | undefined, now: number = Date.now()): { readonly subject: string; readonly fresh: boolean } | undefined => {
+  const parts = typeof token === "string" && token.length <= 16_384 ? token.split(".") : []
+  const claims = parts.length === 3 ? jsonPart(parts[1]!) : undefined
+  if (!claims || typeof claims.sub !== "string" || !claims.sub) return undefined
+  return { subject: claims.sub, fresh: typeof claims.exp === "number" && claims.exp * 1000 > now + 30_000 }
+}
+
+/**
+ * The API's id for a signed-in person, as it writes it into a state's subject (api src/domains/user.ts userIdFor;
+ * api test-node/dev-github-app.test.ts pins the two equal).
+ */
+export const apiUserId = async (signInProject: string, subject: string): Promise<string> => {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`stack:${signInProject}:${subject}`)))
+  return `user_${Array.from(digest.slice(0, 10), (b) => b.toString(16).padStart(2, "0")).join("")}`
+}
+
+/**
  * The answer for a development completion the development API refused to authenticate. A 401 from the console's
  * own API means the session ended; from the development API it means that API did not accept this sign-in, and
- * the console's session is still good, so the page must not show "sign in". `signedOut` is the console's own
- * answer when the session could not be refreshed.
+ * the console's session is still good, so the page must not show "sign in".
  */
-export const developmentRefusal = (status: number, signedOut: boolean): { readonly code: string; readonly message: string } | undefined =>
-  status === 401 && !signedOut
+export const developmentRefusal = (status: number): { readonly code: string; readonly message: string } | undefined =>
+  status === 401
     ? { code: "auth.development_refused", message: "The development Cloud did not accept this sign-in. Start the connection again from a development build signed in to this account." }
     : undefined
 

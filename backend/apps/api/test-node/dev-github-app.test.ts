@@ -1,10 +1,14 @@
 import { generateKeyPairSync } from "node:crypto"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
-import { importPKCS8 } from "jose"
+import { exportJWK, generateKeyPair, importPKCS8 } from "jose"
 import { describe, expect, it } from "vitest"
 import { GITHUB_TOKEN_PERMISSIONS } from "@cmux/protocol"
 import { GITHUB_PUSH_EVENTS } from "../src/integrations/github-push.ts"
+import { userIdFor } from "../src/domains/user.ts"
+import { signState } from "../src/integrations/state.ts"
+import type { Env } from "../src/env.ts"
+import { apiUserId, DEVELOPMENT_STATE_ISSUER, integrationStateSignedBy } from "../../dashboard/src/lib/integration-callback.ts"
 import { CALLBACK_ORIGIN, createPage, DEVELOPMENT_API_ORIGIN, isLocalHost, LOCAL_PORT, manifest, secretsFromConversion } from "../scripts/dev-github-app.ts"
 
 /** JSONC to JSON: drops comments outside strings (wrangler.jsonc has no trailing commas). */
@@ -80,5 +84,29 @@ describe("secretsFromConversion", () => {
     expect(() => secretsFromConversion({ ...answer, client_secret: "" })).toThrow(/client_secret/)
     const { webhook_secret: _w, ...noHook } = answer
     expect(secretsFromConversion(noHook)).not.toHaveProperty("GITHUB_WEBHOOK_SECRET")
+  })
+})
+
+/**
+ * The staging console sends its session to the development API only for a state that API signed for the same
+ * person (dashboard src/lib/integration-callback.ts integrationStateSignedBy). That check must accept exactly
+ * what signState mints, so this signs a real state and verifies it the way the console does.
+ */
+describe("the console's check of a development state", () => {
+  it("derives the same user id as the API", async () => {
+    expect(await apiUserId("project-1", "stack-user-1")).toBe(userIdFor("project-1", "stack-user-1"))
+  })
+
+  it("accepts a state signState minted for this person, and no one else's", async () => {
+    const { privateKey, publicKey } = await generateKeyPair("ES256", { extractable: true })
+    const env = { JWT_PRIVATE_JWK: JSON.stringify(await exportJWK(privateKey)), ENVIRONMENT: "development" } as Env
+    // The published form (src/auth.ts publicJwks): the public half, alg and use.
+    const jwks = { keys: [{ ...(await exportJWK(publicKey)), alg: "ES256", use: "sig" }] }
+    const me = userIdFor("project-1", "stack-user-1")
+    const state = await signState(env, { conn: "conn_1", team: "team_0123456789abcdef0123", user: me, provider: "github", return_to: "cmux-dev-tag://integration/complete" })
+    expect(await integrationStateSignedBy(state, jwks, { issuer: DEVELOPMENT_STATE_ISSUER, user: me })).toBe(true)
+    expect(await integrationStateSignedBy(state, jwks, { issuer: DEVELOPMENT_STATE_ISSUER, user: userIdFor("project-1", "stack-user-2") })).toBe(false)
+    const staging = await signState({ ...env, ENVIRONMENT: "staging" } as Env, { conn: "conn_1", team: "team_0123456789abcdef0123", user: me, provider: "github" })
+    expect(await integrationStateSignedBy(staging, jwks, { issuer: DEVELOPMENT_STATE_ISSUER, user: me })).toBe(false)
   })
 })

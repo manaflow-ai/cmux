@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
-import { DEVELOPMENT_API_URL, DEVELOPMENT_STATE_ISSUER, developmentRefusal, integrationCompletionApi, integrationEnvironmentHint, integrationStateSignedBy, STAGING_API_URL, STAGING_CONSOLE_HOST } from "../src/lib/integration-callback"
+import { accessTokenSubject, apiUserId, DEVELOPMENT_API_URL, DEVELOPMENT_STATE_ISSUER, developmentRefusal, integrationCompletionApi, integrationEnvironmentHint, integrationStateSignedBy, STAGING_API_URL, STAGING_CONSOLE_HOST } from "../src/lib/integration-callback"
 
 /**
  * The development Worker's Connect comes back to the staging console, which finishes development states on the
@@ -92,40 +92,56 @@ const keyPair = async () => {
   return { key: pair.privateKey, jwks: { keys: [{ kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y, kid: "development-test", alg: "ES256", use: "sig" }] } }
 }
 
-test("a development state is forwarded only when the development API's key signed it", async () => {
+test("a development state is forwarded only when the development API's key signed it for this person", async () => {
   const development = await keyPair()
   const other = await keyPair()
   const now = Date.UTC(2026, 10, 18)
-  const claims = { iss: DEVELOPMENT_STATE_ISSUER, aud: "cmux-integration-state", sub: "user", team: "team_0123456789abcdef0123", exp: now / 1000 + 600 }
+  const me = await apiUserId("project", "stack-user-1")
+  const expect_ = { issuer: DEVELOPMENT_STATE_ISSUER, user: me }
+  const claims = { iss: DEVELOPMENT_STATE_ISSUER, aud: "cmux-integration-state", sub: me, team: "team_0123456789abcdef0123", exp: now / 1000 + 600 }
   const good = await signedState(development.key, claims)
-  expect(await integrationStateSignedBy(good, development.jwks, DEVELOPMENT_STATE_ISSUER, now)).toBe(true)
+  expect(await integrationStateSignedBy(good, development.jwks, expect_, now)).toBe(true)
   // The issuer hint alone (what a hand-made link can carry) is not enough.
   expect(integrationEnvironmentHint(token({ iss: DEVELOPMENT_STATE_ISSUER }))).toBe("development")
-  expect(await integrationStateSignedBy(token({ ...claims }), development.jwks, DEVELOPMENT_STATE_ISSUER, now)).toBe(false)
+  expect(await integrationStateSignedBy(token({ ...claims }), development.jwks, expect_, now)).toBe(false)
+  // A genuine state the development API signed for someone else: a link they could send to this person.
+  const theirs = await signedState(development.key, { ...claims, sub: await apiUserId("project", "stack-user-2") })
+  expect(await integrationStateSignedBy(theirs, development.jwks, expect_, now)).toBe(false)
+  expect(await integrationStateSignedBy(good, development.jwks, { ...expect_, user: "" }, now)).toBe(false)
+  const { sub: _sub, ...noSubject } = claims
+  expect(await integrationStateSignedBy(await signedState(development.key, noSubject), development.jwks, { ...expect_, user: "" }, now)).toBe(false)
   // Signed by another key, another issuer, another audience, expired, altered after signing, or not ES256.
-  expect(await integrationStateSignedBy(await signedState(other.key, claims), development.jwks, DEVELOPMENT_STATE_ISSUER, now)).toBe(false)
-  expect(await integrationStateSignedBy(await signedState(development.key, { ...claims, iss: "https://cmux-api/staging" }), development.jwks, DEVELOPMENT_STATE_ISSUER, now)).toBe(false)
-  expect(await integrationStateSignedBy(await signedState(development.key, { ...claims, aud: "api" }), development.jwks, DEVELOPMENT_STATE_ISSUER, now)).toBe(false)
-  expect(await integrationStateSignedBy(good, development.jwks, DEVELOPMENT_STATE_ISSUER, now + 601_000)).toBe(false)
+  expect(await integrationStateSignedBy(await signedState(other.key, claims), development.jwks, expect_, now)).toBe(false)
+  expect(await integrationStateSignedBy(await signedState(development.key, { ...claims, iss: "https://cmux-api/staging" }), development.jwks, expect_, now)).toBe(false)
+  expect(await integrationStateSignedBy(await signedState(development.key, { ...claims, aud: "api" }), development.jwks, expect_, now)).toBe(false)
+  expect(await integrationStateSignedBy(good, development.jwks, expect_, now + 601_000)).toBe(false)
   const { exp: _exp, ...noExpiry } = claims
-  expect(await integrationStateSignedBy(await signedState(development.key, noExpiry), development.jwks, DEVELOPMENT_STATE_ISSUER, now)).toBe(false)
+  expect(await integrationStateSignedBy(await signedState(development.key, noExpiry), development.jwks, expect_, now)).toBe(false)
   const [h, , sig] = good.split(".")
-  expect(await integrationStateSignedBy(`${h}.${b64url(JSON.stringify({ ...claims, team: "team_ffffffffffffffffffff" }))}.${sig}`, development.jwks, DEVELOPMENT_STATE_ISSUER, now)).toBe(false)
-  expect(await integrationStateSignedBy(await signedState(development.key, claims, { alg: "none" }), development.jwks, DEVELOPMENT_STATE_ISSUER, now)).toBe(false)
+  expect(await integrationStateSignedBy(`${h}.${b64url(JSON.stringify({ ...claims, team: "team_ffffffffffffffffffff" }))}.${sig}`, development.jwks, expect_, now)).toBe(false)
+  expect(await integrationStateSignedBy(await signedState(development.key, claims, { alg: "none" }), development.jwks, expect_, now)).toBe(false)
   // No keys (the development API did not answer), or an answer in another shape.
   for (const jwks of [undefined, null, {}, { keys: "x" }, { keys: [null, { kty: "RSA" }] }]) {
-    expect(await integrationStateSignedBy(good, jwks, DEVELOPMENT_STATE_ISSUER, now)).toBe(false)
+    expect(await integrationStateSignedBy(good, jwks, expect_, now)).toBe(false)
   }
   for (const state of [undefined, "", "not-a-jwt", "a.b.c", 42 as unknown as string]) {
-    expect(await integrationStateSignedBy(state, development.jwks, DEVELOPMENT_STATE_ISSUER, now)).toBe(false)
+    expect(await integrationStateSignedBy(state, development.jwks, expect_, now)).toBe(false)
   }
   expect(integrationEnvironmentHint(42 as unknown as string)).toBeUndefined()
 })
 
+test("the console reads its own session's person and whether the token still has time", () => {
+  const now = Date.UTC(2026, 10, 18)
+  expect(accessTokenSubject(token({ sub: "stack-user-1", exp: now / 1000 + 300 }), now)).toEqual({ subject: "stack-user-1", fresh: true })
+  // Expired, about to expire, or no expiry: the console refreshes before it sends anything.
+  expect(accessTokenSubject(token({ sub: "stack-user-1", exp: now / 1000 - 1 }), now)).toEqual({ subject: "stack-user-1", fresh: false })
+  expect(accessTokenSubject(token({ sub: "stack-user-1", exp: now / 1000 + 10 }), now)?.fresh).toBe(false)
+  expect(accessTokenSubject(token({ sub: "stack-user-1" }), now)?.fresh).toBe(false)
+  for (const t of [undefined, "", "not-a-jwt", token({ exp: now / 1000 + 300 }), token({ sub: "" }), token({ sub: 7 })]) expect(accessTokenSubject(t, now)).toBeUndefined()
+})
+
 test("a 401 from the development API is not a signed-out console", () => {
-  expect(developmentRefusal(401, false)?.code).toBe("auth.development_refused")
-  // The console could not refresh its own session: that is signed out.
-  expect(developmentRefusal(401, true)).toBeUndefined()
-  expect(developmentRefusal(200, false)).toBeUndefined()
-  expect(developmentRefusal(403, false)).toBeUndefined()
+  expect(developmentRefusal(401)?.code).toBe("auth.development_refused")
+  expect(developmentRefusal(200)).toBeUndefined()
+  expect(developmentRefusal(403)).toBeUndefined()
 })

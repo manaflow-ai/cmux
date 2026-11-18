@@ -106,8 +106,8 @@ const create = () => {
   const server = createServer(async (req, res) => {
     // Only this address: a page on another name that resolves here (DNS rebinding) must not read the state or post a code.
     if (!isLocalHost(req.headers.host)) {
-      res.writeHead(421)
-      res.end()
+      res.writeHead(421, { "content-type": "text/plain" })
+      res.end(`Open http://127.0.0.1:${LOCAL_PORT}/ instead.`)
       return
     }
     const url = new URL(req.url ?? "/", `http://127.0.0.1:${LOCAL_PORT}`)
