@@ -161,7 +161,7 @@ final class AppContainer {
         dropHome()
         homeKey = key
         let source = makeHomeSource(server: server, account: account)
-        let store = HomeStore(source: source)
+        let store = HomeStore(source: source, blobCacheDirectory: HomeStore.defaultBlobCacheDirectory)  // the app's own attachment folder, which this store owns
         store.start()
         home = store
         chiefBrain = (source as? any HomeChiefBrainControlling).map { HomeChiefBrainModel(control: $0) }

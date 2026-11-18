@@ -208,11 +208,13 @@ public final class HomeStore {
     /// Drafts, scroll anchors and the coalesced cache writes.
     @ObservationIgnored let viewCache: HomeClientViewCache
 
+    /// - Parameter blobCacheDirectory: The attachment folder; by default one of its own (``ownBlobCacheDirectory()``).
+    ///   The app's Home store passes its folder in the app's Caches (``defaultBlobCacheDirectory``).
     /// - Parameter prunesBlobCache: Whether this store prunes `blobCacheDirectory` at `start` and while it runs. A
     ///   store over a local conversation of its own (New Message's blank page, a bare launch's message box) passes
     ///   false: it keeps none of the folder's blobs, so its pass would delete the drafts' and pending sends' blobs of
     ///   the store that owns the folder (its keep set is empty).
-    public init(source: any HomeSource, blobCacheDirectory: URL = HomeStore.defaultBlobCacheDirectory,
+    public init(source: any HomeSource, blobCacheDirectory: URL = HomeStore.ownBlobCacheDirectory(),
                 clock: any Clock<Duration> = ContinuousClock(), cache: HomeCache? = nil,
                 cacheWriteDelay: Duration = .milliseconds(250), prunesBlobCache: Bool = true) {
         self.source = source
