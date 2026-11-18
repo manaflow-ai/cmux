@@ -144,6 +144,20 @@ class WorkflowConcurrencyTests(unittest.TestCase):
         self.assertIn("long, mac", finding)
         self.assertNotIn("short", finding)
 
+    def test_an_expression_timeout_counts_as_its_largest_number(self):
+        # ci-owned-pool-rescue.yml: `sweeper && 345 || 195` is a long job, not an unknown one.
+        text = """
+        on: workflow_dispatch
+        jobs:
+          long: {runs-on: ubuntu-latest, timeout-minutes: "${{ inputs.x && 345 || 195 }}", steps: [{run: x}]}
+          short: {runs-on: ubuntu-latest, timeout-minutes: "${{ inputs.x && 15 || 10 }}", steps: [{run: x}]}
+          named: {runs-on: ubuntu-latest, timeout-minutes: "${{ fromJSON(vars.LIMIT_45) }}", steps: [{run: x}]}
+        """
+        [finding] = self.findings(text)
+        self.assertIn("long", finding)
+        self.assertNotIn("short", finding)
+        self.assertNotIn("named", finding)
+
     def test_job_level_group_covers_the_job(self):
         text = """
         on: workflow_dispatch

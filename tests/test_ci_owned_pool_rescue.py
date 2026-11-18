@@ -7454,7 +7454,14 @@ class Workflow(unittest.TestCase):
                 self.assertIn("github.run_attempt == 1", upload["if"], path)
 
     def test_job_timeout_covers_the_watch_and_the_cancel_wait(self):
-        timeout = self.doc["jobs"]["rescue"]["timeout-minutes"] * 60
+        # The sweeper gets 345 minutes, a single watch 195: no Blacksmith runner is held past the
+        # job's own bound (2026-11-18, the org vCPU cap starved every size).
+        sweeper = "(github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id)"
+        self.assertEqual(self.doc["jobs"]["rescue"]["timeout-minutes"], f"${{{{ {sweeper} && 345 || 195 }}}}")
+        self.assertIn(sweeper, self.doc["concurrency"]["group"])
+        timeout, single = 345 * 60, 195 * 60
+        self.assertEqual(rescue.RESCUE_JOB_LIFETIME_SECONDS, timeout)
+        self.assertEqual(single, rescue.JOB_TIMEOUT_SECONDS)
         self.assertGreaterEqual(timeout, rescue.JOB_TIMEOUT_SECONDS)
         # A sweeper adopts runs, then gives a rescue under way its grace, within a hosted job's 6 hours.
         self.assertLessEqual(rescue.SWEEP_SECONDS + rescue.RESCUE_GRACE_SECONDS,
