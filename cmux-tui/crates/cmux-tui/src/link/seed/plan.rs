@@ -189,6 +189,17 @@ pub fn plan(folder: &Path, out_bundle: &Path) -> Result<Planned, Fallback> {
     build(&repo, out_bundle, &Since::Base(&base), bases)
 }
 
+/// Whether [`plan`] would seed `folder` rather than fall back to the copy, read from git alone
+/// (no bundle, no commit written): a start's estimate before any machine (`sync_cli::estimate`).
+/// The machine may still refuse the seed (`seed.needs_github`); the copy then goes as estimated.
+pub fn seedable(folder: &Path) -> Result<(), Fallback> {
+    let repo = Repo::open(folder)?;
+    if repo.bases().is_empty() {
+        return Err(Fallback::new(FallbackCode::NoBase, "no commit is known to be on the remote"));
+    }
+    Ok(())
+}
+
 /// [`plan`] from `base` (one of [`Planned::bases`], after the machine
 /// found the remote lacks the first).
 pub fn plan_with_base(folder: &Path, out_bundle: &Path, base: &str) -> Result<Planned, Fallback> {

@@ -159,7 +159,7 @@ import Testing
         #expect(model.activeProfileID == space, "the rows pass wrote another space of the window after the order-in")
     }
 
-    /// The work in front of the order-in, as a count (decision of 2026-11-16: the measure of that work is a count,
+    /// The work in front of the order-in, as a count (the measure of that work is a count,
     /// not a time). The window manager's call that makes and presents a window runs no rows pass: a rows pass reads
     /// each workspace of the window's space. The list reloads in full two times in that call: one time when the
     /// list is made, one time at the window's first draw (its space page). The count is exact: this fixture owns
@@ -193,7 +193,7 @@ import Testing
     /// window's making (`WindowController.show`) runs the rows pass in the making's turn when the model does not
     /// list the workspace or lists another space than the window's. That run is then the first run of the window's
     /// rows pass, the run that shows at once, and it is not a task's; the swap then runs the selection pass and
-    /// draws the sidebar. The swap must add no draw of the list (decision of 2026-11-16): the call that makes the
+    /// draws the sidebar. The swap must add no draw of the list: the call that makes the
     /// window reloads the list in full the two times of each window's making (`theMakingOfAWindowRunsNoRowsPass`)
     /// and draws no selection on the list's rows after the reloads (`selection_patches`). A third reload, or a
     /// selection patch, is a draw of the list for the selection after the run's show drew it without the selection.
@@ -230,8 +230,8 @@ import Testing
     /// then runs ONE rows pass, the first run of the window's rows pass, and after it the selection pass selects
     /// the band's item. That run, made before this test had its two asserts of a count, printed `list_reloads=2
     /// selection_patches=1` for this swap: one selection patch, a draw of the list for the selection after the
-    /// first run's show drew it without the selection. The swap must add no draw of the list in this case too
-    /// (decision of 2026-11-17): the three checks in front say that the window is in that state, that the swap ran
+    /// first run's show drew it without the selection. The swap must add no draw of the list in this case too:
+    /// the three checks in front say that the window is in that state, that the swap ran
     /// the rows pass one time and that the selection is the band's item; the line `NEW-WINDOW-WORK-IN-THE-SWAP
     /// hidden_by_the_band` has the counts of that swap.
     @Test func theSwapOfANewWindowForAWorkspaceThatTheBandHidesAddsNoDrawOfTheList() throws {
@@ -309,7 +309,7 @@ import Testing
                 "a new window's list does not draw the create's row while the pointer is over its rows")
     }
 
-    /// The show at once is the first run's only (decision of 2026-11-16). This window has no create at its making,
+    /// The show at once is the first run's only. This window has no create at its making,
     /// so the first run of its rows pass changes no row; that run uses the show at once up. Then a create's row
     /// comes and the rows pass runs again: a change of the rows that nobody in this window asked for, with the
     /// pointer over the rows, so the list keeps it back (`SidebarListView.showModelChange`). The pointer's answer is

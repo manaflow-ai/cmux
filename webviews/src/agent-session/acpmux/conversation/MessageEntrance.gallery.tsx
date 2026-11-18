@@ -36,6 +36,7 @@ function MessageEntranceGallery({ variant }: { variant: Variant }) {
       <header className="message-entrance-gallery__header">
         <div>
           <h1>New message entrance</h1>
+          {/* motion-allow: the historical entrance length this gallery compares */}
           <p>Append a prompt and reply to compare a 180ms compositor-only entrance.</p>
         </div>
         <button type="button" className="ui-button" onClick={() => setTurn((value) => value + 1)}>
