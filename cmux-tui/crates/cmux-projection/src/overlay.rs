@@ -93,6 +93,7 @@ pub struct Overlay {
     owner: (u32, u32),
     upper: PathBuf,
     cache: PathBuf,
+    cache_admission: Mutex<()>,
     scratch: PathBuf,
     whiteouts_file: PathBuf,
     inner: Mutex<Inner>,
@@ -196,6 +197,7 @@ impl Overlay {
             owner,
             upper,
             cache,
+            cache_admission: Mutex::new(()),
             scratch,
             whiteouts_file,
             inner: Mutex::new(Inner { whiteouts, next, ..Inner::default() }),
@@ -521,6 +523,7 @@ impl Overlay {
         let temp = self.scratch_path();
         if fs::write(&temp, bytes).is_ok() {
             let target = self.cache_path(key);
+            let _admission = self.cache_admission.lock().unwrap_or_else(PoisonError::into_inner);
             make_room(&self.cache, size, &target, CACHE_BUDGET_BYTES);
             if fs::rename(&temp, target).is_err() {
                 let _ = fs::remove_file(&temp);

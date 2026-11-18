@@ -40,6 +40,7 @@ fn main() -> std::process::ExitCode {
 
 #[cfg(target_os = "linux")]
 mod linux {
+    use std::net::ToSocketAddrs;
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -125,7 +126,7 @@ mod linux {
         let listen =
             args.listen.clone().ok_or_else(|| anyhow::anyhow!("--listen is required\n{USAGE}"))?;
         anyhow::ensure!(
-            !listen.starts_with("0.0.0.0") && !listen.starts_with("[::]"),
+            listen_is_specific(&listen),
             "--listen takes the tailnet or VPC address, never every interface"
         );
         let mut limits = SeedLimits::default();
@@ -136,6 +137,31 @@ mod linux {
             limits.conns = conns;
         }
         peers::serve(&git_dir.canonicalize()?, &listen, limits)
+    }
+
+    fn listen_is_specific(listen: &str) -> bool {
+        let mut addrs = match listen.to_socket_addrs() {
+            Ok(addrs) => addrs,
+            Err(_) => return false,
+        };
+        let mut saw_addr = false;
+        addrs.all(|addr| {
+            saw_addr = true;
+            !addr.ip().is_unspecified()
+        }) && saw_addr
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::listen_is_specific;
+
+        #[test]
+        fn rejects_every_spelling_of_an_unspecified_listener() {
+            assert!(!listen_is_specific("0.0.0.0:18991"));
+            assert!(!listen_is_specific("[::]:18991"));
+            assert!(!listen_is_specific("[0:0:0:0:0:0:0:0]:18991"));
+            assert!(listen_is_specific("127.0.0.1:18991"));
+        }
     }
 
     /// FNV-1a: a short stable name for a mount path.
