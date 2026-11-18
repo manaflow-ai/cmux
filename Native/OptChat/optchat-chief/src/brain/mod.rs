@@ -181,6 +181,8 @@ pub enum Input {
         harness: Option<String>,
         /// Its lifetime (action_lifetime.rs), decided as it starts.
         made: Option<crate::action_lifetime::Made>,
+        /// It starts under the goal (goal.rs).
+        goal: bool,
     },
     /// A subagent's first prompt (view and task) is sent: its inbox follows.
     SubagentPrompted {
@@ -1652,7 +1654,8 @@ impl Brain {
                 policy,
                 harness,
                 made,
-            } => self.sub_started(&id, session_id, policy, harness, made),
+                goal,
+            } => self.sub_started(&id, session_id, policy, harness, made, goal),
             Input::SubagentPrompted { id } => {
                 self.sub_prompted(&id);
                 self.stop_if_cancelled(&id);
