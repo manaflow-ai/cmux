@@ -6,10 +6,12 @@
 
 pub mod ffi;
 pub mod plan;
+pub mod prior;
 
 pub use plan::{
     Appearance, Display, Frame, ImageKey, Now, Plan, Reason, SavedWindow, plan, png_size,
 };
+pub use prior::{PriorState, Registry};
 
 /// Held events past which the window swaps at once. Typing never reaches it; nothing is dropped.
 pub const INPUT_SWAP_AT: usize = 4096;

@@ -6,6 +6,8 @@ use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
+use crate::prior::PriorState;
+
 /// A rectangle in screen points (AppKit's coordinates).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Frame {
@@ -71,7 +73,9 @@ pub struct SavedWindow {
 #[repr(u8)]
 pub enum Reason {
     Image = 0,
-    /// No record and no state of an earlier run (`launch-times.jsonl`): a first launch ever.
+    /// No record, and every sign of an earlier run known to be absent (`PriorState::is_fresh`: no
+    /// registry folder of the session, no recorded snapshot path, no `launch-times.jsonl`): a first
+    /// launch ever.
     FreshInstall = 1,
     NoWindows = 2,
     /// The image's key names another build, or the record is v1 (no key).
@@ -82,8 +86,8 @@ pub enum Reason {
     ImageUnreadable = 7,
     ImageSizeDiffers = 8,
     FullScreen = 9,
-    /// No record, but an earlier run left its state: an upgrade from a build without the writer,
-    /// whose session can restore a window anywhere.
+    /// No record, and an earlier run left its state or it cannot be ruled out: an upgrade from a
+    /// build without the writer, whose session can restore a window anywhere.
     Upgrade = 10,
 }
 
@@ -112,15 +116,15 @@ pub struct Plan {
 }
 
 /// Decides stage 0 from the saved windows (front first; `None`: no readable record).
-/// `prior_state`: an earlier run left its state beside the record (`launch-times.jsonl`).
+/// `prior`: what an earlier run left (`PriorState::gather`), read when there is no record.
 pub fn plan(
     windows: Option<&[SavedWindow]>,
-    prior_state: bool,
+    prior: PriorState,
     image_dir: &Path,
     now: &Now<'_>,
 ) -> Plan {
     let Some(windows) = windows else {
-        let reason = if prior_state { Reason::Upgrade } else { Reason::FreshInstall };
+        let reason = if prior.is_fresh() { Reason::FreshInstall } else { Reason::Upgrade };
         return Plan { window: None, image: None, reason };
     };
     let Some(front) = windows.first().filter(|w| frame_is_usable(&w.frame)) else {
