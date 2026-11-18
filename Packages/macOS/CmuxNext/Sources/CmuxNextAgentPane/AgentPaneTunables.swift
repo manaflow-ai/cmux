@@ -188,7 +188,7 @@ public nonisolated struct AgentPaneTunables {
     public static let chromium = Tunable<Bool>.toggle(
         "agent.chromium", PageTunables.section, "Agent chat in Chromium (spike)",
         help: "New agent tabs show in Chromium instead of WebKit, on the page host, when the browser engine is Chromium.",
-        default: true, code: "AgentPaneTunables.chromium")
+        default: false, code: "AgentPaneTunables.chromium") // experiment lane/rtc-webkit-bound: the chat on WebKit (not for merge)
     /// Session Info at the right of every agent chat, Chief included (cx-ncc.101; Leo 2026-10-20):
     /// Environment, Context, Connectors, Changes, Servers, Subagents, Background tasks and Outputs,
     /// with a header toggle that shows and hides it. On by default; off brings back the summary card.
