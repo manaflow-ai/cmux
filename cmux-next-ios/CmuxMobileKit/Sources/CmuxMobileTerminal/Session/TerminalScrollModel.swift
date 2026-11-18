@@ -70,6 +70,9 @@ public struct TerminalScrollModel: Equatable, Sendable {
         return restored
     }
 
+    /// A restore set `.reading` and the page has not reached its rows yet.
+    public var awaitsPlacement: Bool { unplaced }
+
     /// The page's offset is the target now (the controller set it).
     public mutating func reachedTarget() { unplaced = false }
 

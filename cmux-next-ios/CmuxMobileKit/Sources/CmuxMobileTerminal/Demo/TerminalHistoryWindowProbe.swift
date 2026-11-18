@@ -9,7 +9,9 @@ import Foundation
 /// `P` a reading mark placed, `F` placed under a finger, `S` a replay read as short of the reader (older
 /// rows asked), `T` a restore dropped because a finger or a fling held the
 /// page, `D` a waiting place dropped by a drag, `N` the newest rows asked for
-/// from the screen, `R` newer rows asked for coming down.
+/// from the screen, `R` newer rows asked for coming down. At a reset: `M` the
+/// reader's rows marked, `W` a place already waiting kept, `Z` nothing marked
+/// (the page follows). `G` the page reached a restore's rows.
 @MainActor
 public final class TerminalHistoryWindowProbe {
     public static let shared = TerminalHistoryWindowProbe()
@@ -27,6 +29,11 @@ public final class TerminalHistoryWindowProbe {
     /// When the newest rows were last asked for: the rows on the page, the
     /// gap's row, the document's rows, and the restore before it.
     var lastNewest = "-"
+    /// The last reset: the scroll state (`f`, `r`, `i`), `u` when a restore
+    /// had not reached its rows yet, `t` a finger or `d` a deceleration on
+    /// the page, `:` then the outcome letter and, for `Z`, why (`anchor`: no
+    /// rows away from the bottom, `text`: the rows did not read, `glide`).
+    var lastReset = "-"
 
     func note(_ event: Character) {
         counts[event, default: 0] += 1
@@ -38,8 +45,8 @@ public final class TerminalHistoryWindowProbe {
     /// `K`: the restore found the reader's rows but the scroll model kept another state.
     /// `U`: a drag began before the page reached the restored rows; it was moved there first.
     public var caption: String {
-        let fields = "PFKUSTDNR".map { "\($0)\(counts[$0] ?? 0)" }.joined(separator: ",")
-        return "top=\(topWord) probe=\(fields) trail=\(trail.isEmpty ? "-" : trail) place=\(lastPlace) newest=\(lastNewest)"
+        let fields = "PFKUSTDNRMWZG".map { "\($0)\(counts[$0] ?? 0)" }.joined(separator: ",")
+        return "top=\(topWord) probe=\(fields) trail=\(trail.isEmpty ? "-" : trail) place=\(lastPlace) newest=\(lastNewest) reset=\(lastReset)"
     }
 }
 #endif

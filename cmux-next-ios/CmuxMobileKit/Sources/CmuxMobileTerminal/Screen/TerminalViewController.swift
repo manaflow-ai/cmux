@@ -814,6 +814,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             scrollView.contentOffset.y = target
             settingOffset = false
         }
+        #if DEBUG
+        if scroll.awaitsPlacement { TerminalHistoryWindowProbe.shared.note("G") }
+        #endif
         scroll.reachedTarget()
         updateViewport(visibleMinY: scrollView.contentOffset.y)
         updateBottomFade()
@@ -1191,7 +1194,17 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 // TerminalReadingMark); otherwise to the prompt. A place
                 // waiting for older rows is placed by this reset's replay.
                 olderRowsAsked = false
+                #if DEBUG
+                let probeContext = probeResetContext()
+                let probeWaiting = restorePending
+                probeMarkMiss = "-"
+                #endif
                 markReadingPosition()
+                #if DEBUG
+                let outcome = probeWaiting ? "W" : (readingMark != nil ? "M" : "Z")
+                TerminalHistoryWindowProbe.shared.note(Character(outcome))
+                TerminalHistoryWindowProbe.shared.lastReset = "\(probeContext):\(outcome)\(outcome == "Z" ? probeMarkMiss : "")"
+                #endif
                 freezeLastFrame()
                 // Held already (a second reset, D4): the frame that releases
                 // it is one placed after this reset's replay.
@@ -1573,7 +1586,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         case .interacting: stateLetter = held ? "h" : "i"
         }
         let movedRows = markOffsetY.map { cell.height > 0 ? Int(((scrollView.contentOffset.y - $0) / cell.height).rounded()) : 0 }
-        TerminalHistoryWindowProbe.shared.lastPlace = "\(stateLetter)\(movedRows.map { $0 >= 0 ? "+\($0)" : "\($0)" } ?? "?")@\(anchor.row)/\(total)"
+        TerminalHistoryWindowProbe.shared.lastPlace = "\(stateLetter)\(movedRows.map { $0 >= 0 ? "+\($0)" : "\($0)" } ?? "?")@\(anchor.row)/\(total)\(scrollView.isTracking ? "t" : (scrollView.isDecelerating ? "d" : ""))"
         #endif
         sizingLog.notice("reading mark restored row \(placed.row, privacy: .public) -> \(anchor.row, privacy: .public) of \(total, privacy: .public) (scroll \(String(describing: self.scroll.state), privacy: .public))")
         if let underGesture = scroll.restoreReading(anchor) {
@@ -1696,12 +1709,21 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         if glide != nil {
             stopGlide(thenFollow: true)
             restoredMark = nil
+            #if DEBUG
+            probeMarkMiss = "glide"
+            #endif
             return
         }
         guard let anchor = readingAnchor() else {
             restoredMark = nil
+            #if DEBUG
+            probeMarkMiss = "anchor"
+            #endif
             return
         }
+        #if DEBUG
+        probeMarkMiss = "text\(anchor.row)/\(scrollbar.total)"
+        #endif
         if scrollView.isDecelerating || fling != nil {
             fling?.stop()
             fling = nil
@@ -1722,6 +1744,29 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         readingMarkOffsetY = readingMark == nil ? nil : scrollView.contentOffset.y
         sizingLog.notice("reading mark row \(anchor.row, privacy: .public) of \(self.scrollbar.total, privacy: .public): \(self.readingMark == nil ? "none" : "kept", privacy: .public)")
     }
+
+    #if DEBUG
+    /// Why the last reset marked nothing (`TerminalHistoryWindowProbe.lastReset`).
+    private var probeMarkMiss = "-"
+
+    /// The scroll state for the probe: `f`, `r` or `i`, `u` while a restore
+    /// has not reached its rows, `t` a finger or `d` a deceleration.
+    private func probeResetContext() -> String {
+        var context: String
+        switch scroll.state {
+        case .following: context = "f"
+        case .reading: context = "r"
+        case .interacting: context = "i"
+        }
+        if scroll.awaitsPlacement { context += "u" }
+        if scrollView.isTracking || scrollView.isDragging {
+            context += "t"
+        } else if scrollView.isDecelerating {
+            context += "d"
+        }
+        return context
+    }
+    #endif
 
     /// The replay gate's own deadline (V3-2): the document is never left
     /// ungrown past it, held frame or not.
@@ -2672,7 +2717,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 if asked { TerminalHistoryWindowProbe.shared.note(need == .newest ? "N" : "R") }
                 if asked, need == .newest {
                     let probe = TerminalHistoryWindowProbe.shared
-                    probe.lastNewest = "\(top)-\(bottom)/gap\(gap.row)/doc\(originRow)-\(document?.endRow ?? -1)/after:\(probe.lastPlace)"
+                    probe.lastNewest = "\(top)-\(bottom)/gap\(gap.row)/doc\(originRow)-\(document?.endRow ?? -1)/after:\(probe.lastPlace)/\(probeResetContext())"
                 }
                 #endif
                 _ = asked
