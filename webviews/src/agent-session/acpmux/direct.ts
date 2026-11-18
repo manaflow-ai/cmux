@@ -8020,7 +8020,11 @@ export class AcpmuxDirectClient {
     // A record that opened the turn arms the watch; one that ended it stops it (`followQuietWatch`).
     this.followQuietWatch();
     this.noticeRefusal(event);
-    this.emitInFrame(event.kind, this.streamGrew);
+    // A tool's progress (`tool_call_update`: its output, its status) waits for a hidden page to show
+    // as the text stream does: a busy agent's tools drew a hidden tab up to 20 times a second (Leo,
+    // 2026-11-18, "Why should non visible thing even affect the renderer thread anyways?"). A new
+    // tool call still draws within 50 ms: a subagent's start opens its own pane.
+    this.emitInFrame(event.kind, this.streamGrew || event.kind === "tool_call_update");
     if (event.dir === "mux" && event.kind === "turn_result" && event.sessionId) {
       this.checkFinishedTurn(event.sessionId, event.seq);
       this.shedOlderHeld();

@@ -337,6 +337,12 @@ export function ComposerContext({
   const placeLists = useRef<SessionsBy | null>(null);
   placeLists.current ??= new SessionsBy(placeFields);
   const sessions = placeLists.current.of(listedSessions);
+  // The chat's own place (`placeFields` of its summary): the same object while where it runs is the
+  // same, so the machine and folder lists below are not made again from every listed chat when only
+  // the summary's other fields changed. A New Tab's summary is made anew from each snapshot.
+  const placedSummary = useRef<Summary | undefined>(undefined);
+  if (!samePlace(placedSummary.current, summary)) placedSummary.current = summary;
+  const summaryPlace = placedSummary.current;
   const t = useT();
   const composerSettings = useComposerSettings();
   const newChat = !started && onProject !== undefined;
@@ -356,7 +362,7 @@ export function ComposerContext({
     // not as a lost link; in a new chat a paused one is a pick that resumes it.
     const listed = withCloudSleep(
       availableComputers(
-        summary,
+        summaryPlace,
         sessions,
         peers,
         peerKinds,
@@ -371,11 +377,11 @@ export function ComposerContext({
     );
     if (!newChat) return listed;
     const detail = t(CONTEXT_LABELS.cloud);
-    return withCloudMachines(listed, shownMachines, peers, computerId(summary)).map((row) =>
+    return withCloudMachines(listed, shownMachines, peers, computerId(summaryPlace)).map((row) =>
       isCloudMachineRow(row) ? { ...row, detail } : row,
     );
   }, [
-    summary,
+    summaryPlace,
     sessions,
     peers,
     peerKinds,
@@ -511,7 +517,7 @@ export function ComposerContext({
   // repository from it (FolderPopover `groupByRepo`), thousands of folders on each New Tab page and
   // chat (bench/session-scale-typing.bench.ts).
   const madeFolders = useMemo(() => {
-    const known = availableFolders(summary, sessions, selectedComputer);
+    const known = availableFolders(summaryPlace, sessions, selectedComputer);
     if (selectedComputer === "local") {
       const seen = new Set(known.map((folder) => folder.id));
       for (const environment of savedFolders) {
@@ -537,7 +543,7 @@ export function ComposerContext({
     }));
     return chatFolderChoices({ known, listed, cloudMachine: machineOnCloud });
   }, [
-    summary,
+    summaryPlace,
     sessions,
     selectedComputer,
     projectChoices,
@@ -1357,6 +1363,13 @@ function availableFolders(summary: Summary | undefined, sessions: readonly Sessi
     if (sessionComputer === computer) add(session.cwd);
   }
   return folders;
+}
+
+/// Whether two summaries put their chat in the same place (`placeFields`).
+function samePlace(left: Summary | undefined, right: Summary | undefined): boolean {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  return placeFields(left).every((field, index) => field === placeFields(right)[index]);
 }
 
 function normalizeCwd(cwd?: string): string | undefined {
