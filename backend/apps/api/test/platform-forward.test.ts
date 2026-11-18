@@ -73,7 +73,7 @@ const requests: ReadonlyArray<readonly [string, () => Request]> = [
   ["cloud state socket", () => new Request(`${ORIGIN}/v1/cloud/machines/${VM}/state`, { headers: { upgrade: "websocket" } })],
   ["cloud shares list", () => new Request(`${ORIGIN}/v1/cloud/machines/${VM}/shares`)],
   ["cloud share create", () => post(`/v1/cloud/machines/${VM}/shares`, '{"person":"user_x"}')],
-  ["cloud share revoke", () => new Request(`${ORIGIN}/v1/cloud/machines/${VM}/shares/shr_1`, { method: "DELETE" })],
+  ["cloud share revoke", () => new Request(`${ORIGIN}/v1/cloud/machines/${VM}/shares/csh_1`, { method: "DELETE" })],
   ["Native network target", () => new Request(`${ORIGIN}/v1/host/network/target`)],
   ["login copy switch", () => new Request(`${ORIGIN}/v1/cloud/harness-login-copy`)],
   // The platform's client config: the app's origins and the backend's capabilities (machine_create.bootstrap).
@@ -85,7 +85,9 @@ const requests: ReadonlyArray<readonly [string, () => Request]> = [
 ]
 
 /** The rows the cloud surface sends to the platform: every row before the first that stays here. */
-const forwardedRequests = requests.slice(0, requests.findIndex(([name]) => name === "staying op"))
+const firstLocal = requests.findIndex(([name]) => name === "staying op")
+if (firstLocal < 1) throw new Error("platform-forward.test: the \"staying op\" row marks the end of the forwarded rows")
+const forwardedRequests = requests.slice(0, firstLocal)
 
 afterEach(() => vi.restoreAllMocks())
 
