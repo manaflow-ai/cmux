@@ -390,7 +390,7 @@ mod tests {
     /// revoked the join.
     #[test]
     fn a_screen_host_that_may_still_run_fails_the_leave() {
-        let why = crate::share_host::linux::still_running(&[4242], false);
+        let why = crate::share_host::linux::still_running(Some(4242), false);
         assert_eq!(
             why,
             "the screen host may still be running (pid 4242); systemctl --user disable --now did not finish; stop it with: kill -KILL 4242"

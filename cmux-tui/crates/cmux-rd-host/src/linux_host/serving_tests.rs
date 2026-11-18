@@ -327,18 +327,20 @@ fn a_host_whose_stop_failed_stops_itself_at_its_next_check() {
     let (origin, seen) = person_hub();
     let old = hold(&dir, &origin, Before::PersonAnchored).unwrap();
     let serving = super::Serving::now(&dir).unwrap();
-    let (stopped, stops) = std::sync::mpsc::channel();
     let every = std::time::Duration::from_millis(50);
-    super::watch(dir.clone(), serving, every, move |why| stopped.send(why).unwrap()).unwrap();
-    // Still what it started as: it serves on.
-    assert!(stops.recv_timeout(every * 4).is_err());
+    // Still what it started as: it serves on, through the whole wait.
+    assert_eq!(super::wait_serving(&serving, &dir, every * 4, every), None);
     let unit = Recorded::new(seen.clone(), true);
     let e = super::tear_down(&dir, super::Previous::load(&dir).unwrap(), &unit).unwrap_err();
     assert!(e.to_string().contains("may still be running"), "{e}");
     let sign_out = format!("/v1/devices/{}/sign-out", old.id);
     assert!(seen.lock().unwrap().iter().any(|s| s.path == sign_out), "not signed out at the hub");
     assert!(Account::load(&dir).unwrap().is_none() && Device::load(&dir).unwrap().is_none());
-    let why = stops.recv_timeout(every * 4).expect("the host did not stop itself");
+    // At its next check, not at the end of its wait.
+    let started = std::time::Instant::now();
+    let why = super::wait_serving(&serving, &dir, std::time::Duration::from_secs(30), every)
+        .expect("the host did not stop itself");
+    assert!(started.elapsed() < every * 4, "{:?}", started.elapsed());
     assert!(why.contains("sign-in is gone"), "{why}");
     let _ = std::fs::remove_dir_all(&dir);
 }

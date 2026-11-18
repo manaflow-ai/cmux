@@ -8,9 +8,10 @@
 //!   verified gone, its local records deleted (only once one of the two worked). Only then does
 //!   the new identity sign in, and the caller starts the unit.
 //! - A sign-in that fails leaves the host off, never on the old account.
-//! - The running host keeps it itself: it checks its records and its join every [`WATCH_EVERY`]
-//!   and exits the moment they are not what it started as ([`Serving::changed`]), so no
-//!   caller's failure (a `systemctl` that failed, a unit started by hand) leaves it serving.
+//! - The running host keeps it itself: its hub link checks its records and its join every
+//!   [`WATCH_EVERY`] and stops its session and exits the moment they are not what it started as
+//!   ([`Serving::changed`], [`wait_serving`]), so no caller's failure (a `systemctl` that
+//!   failed, a unit started by hand) leaves it serving.
 //! - Every writer of the records holds [`Lock`], so two sign-ins never interleave.
 //! - A joined machine's identity is its join ([`machine::Joined::is`]: the acpmux home, machine
 //!   id and credential generation), checked here before the host is installed and by `run`
@@ -20,11 +21,12 @@
 use super::machine;
 use super::{machine_renewal, with_fresh_identity, Fatal};
 use crate::Res;
+use cmux_file_lock::{FileLock, Kind};
 use cmux_hub_host::hub::{Hub, HubError};
 use cmux_hub_host::identity::{self, Account, Device};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Stops the host unit before an identity changes.
 pub(super) trait Unit {
@@ -392,22 +394,27 @@ impl Serving {
     }
 }
 
-/// Checks every `every`, on a thread of its own, that the host still is `serving`; the first
-/// time it is not, calls `stop` with why.
-pub(super) fn watch(
-    dir: PathBuf,
-    serving: Serving,
+/// Waits `wait`, checking every `every` that the host still is `serving`; why it is not, the
+/// first time it is not (then at once). The host's hub link checks the same between its reads,
+/// so it stops serving and exits within [`WATCH_EVERY`] whether its link is up or it waits to
+/// connect again.
+pub(super) fn wait_serving(
+    serving: &Serving,
+    dir: &Path,
+    wait: Duration,
     every: Duration,
-    stop: impl FnOnce(String) + Send + 'static,
-) -> Res<()> {
-    std::thread::Builder::new().name("linux-host-identity".into()).spawn(move || loop {
-        std::thread::sleep(every);
-        if let Some(why) = serving.changed(&dir) {
-            stop(why);
-            return;
+) -> Option<String> {
+    let until = Instant::now() + wait;
+    loop {
+        if let Some(why) = serving.changed(dir) {
+            return Some(why);
         }
-    })?;
-    Ok(())
+        let left = until.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return None;
+        }
+        std::thread::sleep(left.min(every));
+    }
 }
 
 /// Next to the records: what every writer of them holds.
@@ -417,13 +424,12 @@ const LOCK_FILE: &str = "identity.lock";
 /// records takes it, so a person's `enable` and a join's never interleave. Released when
 /// dropped, and by the kernel when the process ends.
 pub(super) struct Lock {
-    _file: std::fs::File,
+    _held: FileLock,
 }
 
 /// Takes [`Lock`], waiting for whoever holds it.
 pub(super) fn lock(dir: &Path) -> Res<Lock> {
     use std::os::unix::fs::OpenOptionsExt;
-    use std::os::unix::io::AsRawFd;
     identity::private_dir(dir)?;
     let file = std::fs::OpenOptions::new()
         .create(true)
@@ -432,11 +438,7 @@ pub(super) fn lock(dir: &Path) -> Res<Lock> {
         .mode(0o600)
         .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
         .open(dir.join(LOCK_FILE))?;
-    // SAFETY: the descriptor is the open `file`'s, valid while it lives.
-    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
-        return Err(std::io::Error::last_os_error().into());
-    }
-    Ok(Lock { _file: file })
+    Ok(Lock { _held: FileLock::take(file, Kind::Exclusive)? })
 }
 
 /// Names the acpmux home of the last join that began signing this desktop in. It outlives a

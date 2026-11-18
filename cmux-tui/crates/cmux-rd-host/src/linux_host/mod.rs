@@ -871,6 +871,8 @@ fn run(args: &Args) -> Res<()> {
     let (dir, hub, account) = load()?;
     // What this process serves as, read now; it exits once the records say otherwise.
     let serving_as = serving::Serving::now(&dir)?;
+    // Held while this process lives: a teardown that takes it knows no host serves.
+    let _running = cmux_hub_host::host_process::hold(&dir)?;
     let runtime = identity::runtime_dir()?;
     identity::private_dir(&runtime)?;
     // Read at start so a bad file fails now; read again for every ticket and every second.
@@ -901,15 +903,6 @@ fn run(args: &Args) -> Res<()> {
     }
     let hub = Arc::new(hub);
     let current: Current = Arc::new(Mutex::new(None));
-    // The host keeps the identity invariant itself (serving.rs): a sign-in that changed or went
-    // away, or a join that was replaced or left, stops the session and this process at once.
-    // Its session helper ends with it (its input closes).
-    let watched = current.clone();
-    serving::watch(dir.clone(), serving_as, serving::WATCH_EVERY, move |why| {
-        eprintln!("linux-host: {why}; the session stops and the host exits");
-        stop_current(&watched);
-        std::process::exit(EXIT_NEEDS_SETUP);
-    })?;
     if let Some(display) = setup::virtual_display() {
         stop_idle_display(display, current.clone());
     }
@@ -923,8 +916,14 @@ fn run(args: &Args) -> Res<()> {
     loop {
         let started = Instant::now();
         let (result, stopped) = hold_link(&current, || {
-            hold_socket(&hub, &dir, &runtime, &serve_args, &current, applies_input)
+            hold_socket(&hub, &dir, &runtime, &serve_args, &current, applies_input, &serving_as)
         });
+        // The host keeps the identity invariant itself (serving.rs): a sign-in that changed or
+        // went away, or a join that was replaced or left, ends the link, the session (above)
+        // and this process.
+        if let Some(why) = serving_as.changed(&dir) {
+            return Err(retired(&why));
+        }
         if let Some(id) = stopped {
             eprintln!("linux-host: the hub link dropped; the session it served stopped");
             end_later(&hub, &id, "peer_offline");
@@ -941,9 +940,21 @@ fn run(args: &Args) -> Res<()> {
         if started.elapsed() > Duration::from_secs(60) {
             backoff = Duration::from_secs(1);
         }
-        std::thread::sleep(backoff);
+        if let Some(why) = serving::wait_serving(&serving_as, &dir, backoff, serving::WATCH_EVERY) {
+            return Err(retired(&why));
+        }
         backoff = (backoff * 2).min(Duration::from_secs(30));
     }
+}
+
+/// Why a host that is no longer this desktop's identity exits; it is not restarted.
+fn retired(why: &str) -> Box<dyn std::error::Error + Send + Sync> {
+    eprintln!("linux-host: {why}; the session stopped and the host exits");
+    Fatal::needs(
+        &format!("The host no longer serves as this desktop's sign-in: {why}"),
+        Fatal::ENABLE,
+    )
+    .into()
 }
 
 /// How long the virtual display stays up with no share and no app window on it.
@@ -999,11 +1010,20 @@ fn hold_socket(
     serve_args: &ServeCommand,
     current: &Current,
     applies_input: bool,
+    serving_as: &serving::Serving,
 ) -> Res<()> {
     let mut ws = hub.user_socket()?;
     let mut last_ping = Instant::now();
     let mut last_consent = Instant::now();
+    let mut last_identity = Instant::now();
     loop {
+        if last_identity.elapsed() >= serving::WATCH_EVERY {
+            // No longer this desktop's identity: `run` stops the session and exits.
+            if serving_as.changed(dir).is_some() {
+                return Ok(());
+            }
+            last_identity = Instant::now();
+        }
         if last_consent.elapsed() >= CONSENT_EVERY {
             // `enable --view-only` while this runs: a control session stops now.
             let consent = LocalConsent::load(dir);

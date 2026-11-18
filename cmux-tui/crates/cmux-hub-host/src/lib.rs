@@ -6,7 +6,8 @@
 //! where the files live, the service manager) stay with each host.
 
 pub mod b64;
-// The running linux-host process: recorded, and verified gone after a stop (host_process.rs).
+// The running linux-host process: holds its pid file locked, verified gone after a stop
+// (host_process.rs).
 #[cfg(unix)]
 pub mod host_process;
 // The identity's private files are checked by owner and mode on Unix, and refused as reparse

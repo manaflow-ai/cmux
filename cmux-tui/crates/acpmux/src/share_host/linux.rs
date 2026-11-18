@@ -262,11 +262,11 @@ pub(crate) fn save_mark(folder: &Path, mark: &Value) -> cmux_hub_host::Res<()> {
 }
 
 /// `acpmux machine leave` and a superseded enable: stops and disables the screen host the join
-/// set up (`systemctl --user disable --now`, blocking, 10 s at most), then checks that none of
-/// this user's host processes runs, the unit's or one started by hand, killing any that did not
+/// set up (`systemctl --user disable --now`, blocking, 10 s at most), then checks by its pid
+/// file's lock that no host runs, the unit's or one started by hand, killing one that did not
 /// stop with its process group (review F1 of #45369). cmux-rd itself refuses to start again
 /// with the join's credential gone, and a running one exits once it is. Ok only once no host
-/// process runs; else what still runs and how to stop it.
+/// runs; else what may still run and how to stop it.
 pub(crate) fn stop_host() -> Result<(), String> {
     use cmux_hub_host::host_process;
     // SAFETY: getuid has no preconditions and cannot fail.
@@ -277,7 +277,6 @@ pub(crate) fn stop_host() -> Result<(), String> {
         std::env::var_os("DBUS_SESSION_BUS_ADDRESS"),
         |p| p.exists(),
     );
-    let pids = host_process::running();
     let spawned = cmux_process::Command::new("systemctl")
         .args(["--user", "disable", "--now", HOST_UNIT])
         .envs(env.iter().map(|(k, v)| (*k, v)))
@@ -288,16 +287,22 @@ pub(crate) fn stop_host() -> Result<(), String> {
     let disabled = spawned.is_ok_and(|mut child| {
         matches!(child.wait_timeout(Duration::from_secs(10)), Ok(Some(s)) if s.success())
     });
-    host_process::ensure_gone(&pids, host_process::STOP_WAIT)
-        .map_err(|left| still_running(&left, disabled))
+    let gone = match identity::config_dir() {
+        Ok(dir) => host_process::ensure_gone(&dir, host_process::STOP_WAIT),
+        Err(_) => Err(None),
+    };
+    gone.map_err(|pid| still_running(pid, disabled))
 }
 
-/// What [`stop_host`] says when host processes `left` still run.
-pub(crate) fn still_running(left: &[u32], disabled: bool) -> String {
-    let pids = left.iter().map(u32::to_string).collect::<Vec<_>>().join(" ");
+/// What [`stop_host`] says when the host, `pid` when known, may still run.
+pub(crate) fn still_running(pid: Option<u32>, disabled: bool) -> String {
     format!(
-        "the screen host may still be running (pid {pids}){}; stop it with: kill -KILL {pids}",
-        if disabled { "" } else { "; systemctl --user disable --now did not finish" }
+        "the screen host may still be running ({}){}; stop it with: {}",
+        pid.map_or("its pid is unknown".into(), |pid| format!("pid {pid}")),
+        if disabled { "" } else { "; systemctl --user disable --now did not finish" },
+        pid.map_or(format!("systemctl --user kill --signal=KILL {HOST_UNIT}"), |pid| {
+            format!("kill -KILL {pid}")
+        })
     )
 }
 

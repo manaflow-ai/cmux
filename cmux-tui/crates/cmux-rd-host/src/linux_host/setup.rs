@@ -357,22 +357,25 @@ pub fn set_up_virtual_display() -> Res<u32> {
 }
 
 /// Stops the host unit (`systemctl --user stop`) before this desktop's identity changes; a unit
-/// that was never installed is already stopped. Ok only once none of this user's host processes
-/// runs (the unit's, or one started by hand): each is checked gone, and killed with its process
-/// group when `systemctl` did not stop it in time (review F1 of #45369).
+/// that was never installed is already stopped. Ok only once no host of this desktop runs (the
+/// unit's, or one started by hand): it is checked gone by its pid file's lock, and killed with
+/// its process group when `systemctl` did not stop it in time (review F1 of #45369).
 pub fn stop_host() -> Res<()> {
-    use cmux_hub_host::host_process;
-    let pids = host_process::running();
+    use cmux_hub_host::{host_process, identity};
     let stopped = match systemctl(&["stop", HOST_UNIT]) {
         Err(e) if e.to_string().contains("not loaded") => Ok(()),
         other => other,
     };
-    match host_process::ensure_gone(&pids, host_process::STOP_WAIT) {
+    let dir = identity::config_dir()?;
+    match host_process::ensure_gone(&dir, host_process::STOP_WAIT) {
         Ok(()) => Ok(()),
-        Err(left) => Err(format!(
-            "the screen host is still running (pid {left:?}{}); stop it with: kill -KILL {}",
+        Err(pid) => Err(format!(
+            "the screen host is still running ({}{}); stop it with: {}",
+            pid.map_or("its pid is unknown".into(), |pid| format!("pid {pid}")),
             stopped.err().map(|e| format!("; {e}")).unwrap_or_default(),
-            left.iter().map(u32::to_string).collect::<Vec<_>>().join(" ")
+            pid.map_or(format!("systemctl --user kill --signal=KILL {HOST_UNIT}"), |pid| {
+                format!("kill -KILL {pid}")
+            })
         )
         .into()),
     }
