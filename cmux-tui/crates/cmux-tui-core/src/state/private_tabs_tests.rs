@@ -139,6 +139,9 @@ fn restore_of_a_mix_keeps_the_normal_tabs_in_order_without_the_private_ones() {
     let mux = session.open();
     assert_eq!(tab_ids_of_pane(&mux, &pane), vec![ids[0].clone(), ids[2].clone(), ids[4].clone()]);
     assert!(closed(&mux).is_empty(), "a restart's close of a private tab was recorded");
+    // The closed tabs' marks are gone too: the table never grows with every private tab ever opened.
+    let marks = mux.read_registry_state(crate::state::private_tabs::marked_tabs).unwrap();
+    assert!(marks.is_empty(), "{marks:?}");
     drop(mux);
 
     // A second start finds nothing more to close.
@@ -217,6 +220,10 @@ fn tabs_move_between_incognito_and_normal_workspaces_keeping_their_privacy() {
     assert!(private_flag(&mux, &out), "the tab lost its privacy in the normal workspace");
     assert!(!private_flag(&mux, &tab_id(&mux, normal[0])));
 
+    // A normal tab never enters the incognito workspace; a private one may.
+    assert!(mux.move_tab_to_workspace(normal[0], Some(incognito_workspace)).is_err());
+    assert_eq!(workspace_of(&mux, normal[0]), normal_workspace);
+    mux.mark_tab_private(normal[0]).unwrap();
     mux.move_tab_to_workspace(normal[0], Some(incognito_workspace)).unwrap();
     assert_eq!(workspace_of(&mux, normal[0]), incognito_workspace);
 

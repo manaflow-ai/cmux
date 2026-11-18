@@ -201,16 +201,17 @@ fn a_move_out_of_a_normal_workspace_stays_normal_and_recorded() {
 /// Screens never move between an ephemeral workspace and an existing normal
 /// one, in either direction (with the refusal message). Tabs do since
 /// `private-tabs-v1` (Leo, 2026-11-18: "drop the 9/30 rule and allow private
-/// tabs anywhere"), through the v2 operation the CLI sends and a raw command;
+/// tabs anywhere"), through the v2 operation the CLI sends and a raw command:
 /// one that leaves the ephemeral workspace stays private
-/// (`private_tabs_tests`).
+/// (`private_tabs_tests`) and may go back. A normal tab still never enters an
+/// ephemeral workspace.
 #[test]
 fn screen_moves_between_an_ephemeral_and_a_normal_workspace_are_refused() {
     let mux = Mux::new_for_test("ephemeral-move-refused", SurfaceOptions::default());
     let (normal, normal_tabs) = workspace_with_tabs(&mux, "normal", false, 3);
     let (incognito, incognito_tabs) = workspace_with_tabs(&mux, "incognito", true, 3);
 
-    for (tab, to) in [(incognito_tabs[0], normal_tabs[1]), (normal_tabs[0], incognito_tabs[1])] {
+    let v2_move = |tab: SurfaceId, to: SurfaceId| {
         let params = json!({
             "tab": tab_id(&mux, tab),
             "destination_workspace": workspace_of(&mux, to),
@@ -218,13 +219,24 @@ fn screen_moves_between_an_ephemeral_and_a_normal_workspace_are_refused() {
             "destination_pane": pane_id(&mux, to),
             "index": 0,
         });
-        send(&mux, "tab.move", params, Some(&format!("move-{tab}"))).unwrap();
-        assert_eq!(workspace_of(&mux, tab), workspace_of(&mux, to));
-    }
-    for (tab, to) in [(incognito_tabs[2], &normal), (normal_tabs[2], &incognito)] {
-        mux.move_tab_to_workspace(tab, Some(internal_id(&mux, to))).unwrap();
-        assert_eq!(&workspace_of(&mux, tab), to);
-    }
+        send(&mux, "tab.move", params, Some(&format!("move-{tab}-{to}")))
+    };
+    // Out of the incognito workspace, and back (it is private now).
+    v2_move(incognito_tabs[0], normal_tabs[1]).unwrap();
+    assert_eq!(workspace_of(&mux, incognito_tabs[0]), normal);
+    v2_move(incognito_tabs[0], incognito_tabs[1]).unwrap();
+    assert_eq!(workspace_of(&mux, incognito_tabs[0]), incognito);
+    mux.move_tab_to_workspace(incognito_tabs[2], Some(internal_id(&mux, &normal))).unwrap();
+    assert_eq!(workspace_of(&mux, incognito_tabs[2]), normal);
+
+    // A normal tab into the incognito workspace: refused both ways, and it stays.
+    let error = v2_move(normal_tabs[0], incognito_tabs[1]).unwrap_err();
+    assert!(error.message.contains("ephemeral"), "{error:?}");
+    assert!(
+        mux.move_tab_to_workspace(normal_tabs[2], Some(internal_id(&mux, &incognito))).is_err()
+    );
+    assert_eq!(workspace_of(&mux, normal_tabs[0]), normal);
+    assert_eq!(workspace_of(&mux, normal_tabs[2]), normal);
 
     for (from, to) in [(&incognito, &normal), (&normal, &incognito)] {
         let screen =

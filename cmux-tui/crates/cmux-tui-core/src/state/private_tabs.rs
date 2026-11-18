@@ -156,15 +156,56 @@ impl Mux {
     /// ephemeral workspaces closed (their tabs went with them).
     pub(crate) fn close_private_tabs(self: &Arc<Self>) -> anyhow::Result<()> {
         let private = self.read_registry_state(live_private_tabs)?;
-        if private.is_empty() {
+        if !private.is_empty() {
+            self.close_tabs_left_private(&private);
+        }
+        self.forget_closed_private_tabs()
+    }
+
+    /// Drop the marks of tabs that are gone: closed history judged them at
+    /// their close, so the table holds only live tabs after each start and
+    /// never grows with every private tab ever opened.
+    fn forget_closed_private_tabs(self: &Arc<Self>) -> anyhow::Result<()> {
+        let stale: i64 = self.read_registry_state(|connection| {
+            if !table_ready(connection)? {
+                return Ok(0);
+            }
+            Ok(connection.query_row(
+                "SELECT COUNT(*) FROM private_tabs WHERE tab_id NOT IN
+                   (SELECT public_id FROM resource_tabs WHERE deleted_revision IS NULL)",
+                [],
+                |row| row.get(0),
+            )?)
+        })?;
+        if stale == 0 {
             return Ok(());
         }
+        self.commit_state(
+            &WorkspaceMutation::daemon_local("cmux-tui-private-tab"),
+            "tab.forget_closed_private",
+            &json!({"operation": "tab.forget_closed_private", "rows": stale}),
+            None,
+            StateEffects::NOTES,
+            |transaction, _| {
+                transaction.execute(
+                    "DELETE FROM private_tabs WHERE tab_id NOT IN
+                       (SELECT public_id FROM resource_tabs WHERE deleted_revision IS NULL)",
+                    [],
+                )?;
+                Ok(StateChanges::new(json!({"rows": stale}), Vec::new()))
+            },
+        )?;
+        Ok(())
+    }
+
+    fn close_tabs_left_private(self: &Arc<Self>, private: &[String]) {
+        let private = private.iter().map(String::as_str).collect::<std::collections::HashSet<_>>();
         let surfaces = self.with_state(|state| {
             state
                 .resource_indexes
                 .tab_ids
                 .iter()
-                .filter(|(_, tab)| private.iter().any(|id| id == tab.as_str()))
+                .filter(|(_, tab)| private.contains(tab.as_str()))
                 .map(|(surface, _)| *surface)
                 .collect::<Vec<_>>()
         });
@@ -175,6 +216,5 @@ impl Mux {
                 );
             }
         }
-        Ok(())
     }
 }
