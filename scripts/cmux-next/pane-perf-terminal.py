@@ -470,6 +470,43 @@ def commit_notes(notes):
             if isinstance(note, dict) and isinstance(note.get("text"), str) and note["text"].startswith("layout.commit")]
 
 
+def commit_placements(samples, notes):
+    """Each `layout.commit` note with its time in its own tick: `after_tick_ms` = the note's `t_ms` less the `t_ms` of
+    the last `clock.dt_ms` sample at or before it. The clock writes that sample at the start of a tick, and the app
+    writes the note after the tick placed the panes, so this is the placement's main-thread time in the tick that
+    shows the act. None when no tick sample is before the note. A note with no time is left out."""
+    samples = samples if isinstance(samples, list) else []
+    ticks = sorted(sample["t_ms"] for sample in samples if isinstance(sample, dict)
+                   and sample.get("name") == "clock.dt_ms" and isinstance(sample.get("t_ms"), (int, float)))
+    placed = []
+    for note in notes if isinstance(notes, list) else []:
+        if not (isinstance(note, dict) and isinstance(note.get("text"), str) and note["text"].startswith("layout.commit")
+                and isinstance(note.get("t_ms"), (int, float))):
+            continue
+        before = [t for t in ticks if t <= note["t_ms"]]
+        placed.append({"text": note["text"], "t_ms": note["t_ms"],
+                       "after_tick_ms": round(note["t_ms"] - before[-1], 1) if before else None})
+    return placed
+
+
+def layout_spans(spans):
+    """The app's measured parts of a pane change while recording: each span whose name starts with `layout.` (the
+    placement, the show and the hide loops), as {name: count, sum_ms, max_ms, max_at_ms (when the longest one
+    started, ms from the record's start)}. The span `layout` (a whole motion, to its rest) is not one of them. A
+    build without such a span gives an empty dict."""
+    parts = {}
+    for span in spans if isinstance(spans, list) else []:
+        if not (isinstance(span, dict) and str(span.get("name") or "").startswith("layout.")
+                and isinstance(span.get("ms"), (int, float))):
+            continue
+        part = parts.setdefault(span["name"], {"count": 0, "sum_ms": 0.0, "max_ms": None, "max_at_ms": None})
+        part["count"] += 1
+        part["sum_ms"] = round(part["sum_ms"] + span["ms"], 2)
+        if part["max_ms"] is None or span["ms"] > part["max_ms"]:
+            part["max_ms"], part["max_at_ms"] = span["ms"], span.get("at_ms")
+    return parts
+
+
 def late_frames(frames, action_s=None):
     """Where the long intervals of a `debug.frames` reply are (stopped with `raw`). The probe's `missed` counts each
     interval above 1.5 refreshes one time, however long it is. `missed_refreshes` is the refreshes that those
@@ -605,6 +642,8 @@ def measure(label, name):
         "frames_p50_ms": frames.get("p50_ms"), "frames_p95_ms": frames.get("p95_ms"), "frames": frames.get("frames"),
         "refresh_ms": frames.get("refresh_ms"), "moving_frames": moving, "commit_frames": committed, **late,
         "commit_notes": commit_notes(motion.get("notes")) if isinstance(motion, dict) else [],
+        "commit_placements": commit_placements(motion.get("samples"), motion.get("notes")) if isinstance(motion, dict) else [],
+        "layout_spans": layout_spans(motion.get("spans")) if isinstance(motion, dict) else {},
         "background_cpu": background_cpu,
         "layout_max_ms": work.get("max_ms"), "layout_p95_ms": work.get("p95_ms"), "layout_p50_ms": work.get("p50_ms"),
         "commit_p50_ms": (commit or {}).get("p50_ms"), "commit_p95_ms": (commit or {}).get("p95_ms"),
@@ -686,6 +725,11 @@ def measure(label, name):
                  f"catchers {result['catcher_updates']} reorders {result['reorders']}  page rAF {result['page_frames']}")
     where = ", ".join(f"{miss.get('interval_ms')} ms {miss.get('cause')} at {miss.get('after_action_ms')} ms after the action"
                       for miss in late["missed_frames"][:8])
+    if result["commit_placements"] or result["layout_spans"]:
+        placed = ", ".join(f"{place['after_tick_ms']} ms" for place in result["commit_placements"][:4])
+        parts = ", ".join(f"{part} {facts['count']}x sum {facts['sum_ms']} max {facts['max_ms']} ms"
+                          for part, facts in sorted(result["layout_spans"].items()))
+        extra += f"  commit note after its tick's start [{placed}]  parts [{parts}]"
     print(f"  {label:<22} moved {moving:>3} commit {committed:>3}  frame p50 {result['frames_p50_ms']} p95 {result['frames_p95_ms']} "
           f"p99 {result['frames_p99_ms']} max {result['frames_max_ms']} ms  missed {result['missed']} "
           f"long intervals = {late['missed_refreshes']} refreshes [{where}] (refresh {result['refresh_ms']})  "

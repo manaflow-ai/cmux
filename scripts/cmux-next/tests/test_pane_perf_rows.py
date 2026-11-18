@@ -30,7 +30,8 @@ def definitions(path, names):
 
 
 BENCH = definitions(ROOT / "pane-perf-terminal.py", {"moving_frames", "not_applicable", "activate", "commit_frames",
-                                                    "late_frames", "motion_arms", "commit_notes"})
+                                                    "late_frames", "motion_arms", "commit_notes", "commit_placements",
+                                                    "layout_spans"})
 ZOOM = definitions(ROOT / "pane-zoom-terminal.py", {"sample_frames"})
 
 
@@ -107,6 +108,48 @@ class CommitNotes(unittest.TestCase):
     def test_a_reply_without_such_a_note_gives_none(self):
         for notes in (None, [], {}, [{"t_ms": 3}], [{"text": None}], [{"text": "layout: rest"}]):
             self.assertEqual(self.commit_notes(notes), [])
+
+
+class CommitPlacements(unittest.TestCase):
+    def setUp(self):
+        self.commit_placements = loaded()["commit_placements"]
+
+    def test_a_note_is_placed_after_the_start_of_its_own_tick(self):
+        samples = [{"name": "clock.dt_ms", "t_ms": 100.0, "v": 8.33}, {"name": "layout.travel", "t_ms": 100.2, "v": 0},
+                   {"name": "clock.dt_ms", "t_ms": 108.3, "v": 8.33}, {"name": "clock.dt_ms", "t_ms": 130.0, "v": 21.7}]
+        notes = [{"t_ms": 118.9, "text": "layout.commit: unzoom moves 30 panes"}, {"t_ms": 119.0, "text": "tabs: sync"},
+                 {"t_ms": 130.4, "text": "layout.commit: rest"}]
+        self.assertEqual(self.commit_placements(samples, notes), [
+            {"text": "layout.commit: unzoom moves 30 panes", "t_ms": 118.9, "after_tick_ms": 10.6},
+            {"text": "layout.commit: rest", "t_ms": 130.4, "after_tick_ms": 0.4}])
+
+    def test_a_note_before_each_tick_has_no_place(self):
+        samples = [{"name": "clock.dt_ms", "t_ms": 50.0, "v": 8.33}]
+        notes = [{"t_ms": 20.0, "text": "layout.commit: split moves 2 panes"}]
+        self.assertEqual(self.commit_placements(samples, notes),
+                         [{"text": "layout.commit: split moves 2 panes", "t_ms": 20.0, "after_tick_ms": None}])
+        self.assertEqual(self.commit_placements(None, notes)[0]["after_tick_ms"], None)
+
+    def test_a_reply_without_such_a_note_gives_none(self):
+        for notes in (None, [], {}, [None], [{"text": "layout.commit: no time"}], [{"t_ms": 3, "text": "layout: rest"}]):
+            self.assertEqual(self.commit_placements([{"name": "clock.dt_ms", "t_ms": 1.0, "v": 8.33}], notes), [])
+
+
+class LayoutSpans(unittest.TestCase):
+    def setUp(self):
+        self.layout_spans = loaded()["layout_spans"]
+
+    def test_each_named_part_has_its_count_its_sum_and_its_longest_span(self):
+        spans = [{"name": "layout.hide", "ms": 8.1, "at_ms": 400.0}, {"name": "layout.place", "ms": 1.2, "at_ms": 100.0},
+                 {"name": "layout.place", "ms": 9.6, "at_ms": 108.3}, {"name": "layout", "ms": 250.0, "at_ms": 100.0},
+                 {"name": "tabs", "ms": 3.0, "at_ms": 90.0}]
+        self.assertEqual(self.layout_spans(spans), {
+            "layout.hide": {"count": 1, "sum_ms": 8.1, "max_ms": 8.1, "max_at_ms": 400.0},
+            "layout.place": {"count": 2, "sum_ms": 10.8, "max_ms": 9.6, "max_at_ms": 108.3}})
+
+    def test_a_build_without_the_spans_gives_none(self):
+        for spans in (None, [], {}, [None, 3], [{"name": "layout", "ms": 250.0}], [{"name": "layout.place"}]):
+            self.assertEqual(self.layout_spans(spans), {})
 
 
 class ZoomSampleFrames(unittest.TestCase):
