@@ -785,11 +785,20 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
             (true, _) => (weighed.iter().filter(takes).collect(), true),
         };
     }
+    // Lanes against the cap first, in lane_admission's pick order: under `max_lanes` (or no cap
+    // or count read), then past it on headroom, then full. An unread host stands between the
+    // last two (`under_cap` and the order above).
+    let cap_rank = |w: &Weighed| match w.cap {
+        CapState::Under | CapState::Unknown => 0,
+        CapState::Headroom => 1,
+        CapState::Full => 2,
+    };
     order.sort_by(|a, b| {
         let room = |w: &Weighed| w.room.unwrap_or(-1.0);
         let best = |w: &Weighed| w.tier.as_ref().map_or(usize::MAX, |t| t.0);
-        best(a)
-            .cmp(&best(b))
+        cap_rank(a)
+            .cmp(&cap_rank(b))
+            .then(best(a).cmp(&best(b)))
             .then(room(b).total_cmp(&room(a)))
             .then(a.lanes.rank.total_cmp(&b.lanes.rank))
             .then(a.live.unwrap_or(u64::MAX).cmp(&b.live.unwrap_or(u64::MAX)))

@@ -697,3 +697,28 @@ fn a_read_host_with_no_cap_or_no_live_count_still_goes_ahead_of_an_unread_one() 
     let v = place(&[c("big", Value::Null), c("laptop", no_live)], Some(&registry()), Work::Agent);
     assert_eq!(v["pick"], "laptop", "{v:#}");
 }
+
+#[test]
+fn the_pick_order_is_under_then_headroom_then_unread_then_full() {
+    // max_lanes 3, headroom_max_lanes 5 on light and desk-like copies: under (2 live), headroom
+    // (4 live, room for a lane), full (5 live), and a host with no reading.
+    let mut reg = registry();
+    for name in ["light", "small", "big"] {
+        let lanes = &mut reg["machines"][name]["lanes"];
+        lanes["max_lanes"] = json!(3);
+        lanes["headroom_max_lanes"] = json!(5);
+    }
+    let under = c("light", health(40.0, 12, 1.0, 300.0, 2));
+    // small has more RAM room than light, but is past max_lanes on headroom: under goes first.
+    let headroom = c("small", health(60.0, 16, 1.0, 300.0, 4));
+    let full = c("big", health(60.0, 32, 1.0, 400.0, 5));
+    let unread = c("laptop", Value::Null);
+    let all = [full.clone(), unread.clone(), headroom.clone(), under];
+    assert_eq!(place(&all, Some(&reg), Work::Agent)["pick"], "light");
+    let v = place(&[full.clone(), unread.clone(), headroom], Some(&reg), Work::Agent);
+    assert_eq!(v["pick"], "small", "{v:#}");
+    let v = place(&[full.clone(), unread], Some(&reg), Work::Agent);
+    assert_eq!((&v["pick"], &v["overloaded"]), (&json!("laptop"), &json!(false)), "{v:#}");
+    let v = place(&[full], Some(&reg), Work::Agent);
+    assert_eq!((&v["pick"], &v["overloaded"]), (&json!("big"), &json!(true)), "{v:#}");
+}
