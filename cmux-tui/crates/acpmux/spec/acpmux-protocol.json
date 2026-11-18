@@ -4995,9 +4995,12 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
+        "credentials": true,
         "cwd": true,
         "harness": true,
-        "release": true
+        "model": true,
+        "release": true,
+        "workspaceId": true
       },
       "type": "object"
     },

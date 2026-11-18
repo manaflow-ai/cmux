@@ -172,8 +172,8 @@ public final class ConversationTranscriptCache: @unchecked Sendable {
 
     /// Keeps the store's transcript for `key`: the newest `limit` in memory now, and every
     /// acknowledged message that changed since the last save on disk, on the queue. Sends not yet
-    /// acknowledged, Send Later rows and image bytes are not kept (the outbox owns unsent
-    /// messages). `deleted`: rows deleted for me, which leave the disk for good. `reachedStart`:
+    /// acknowledged, Send Later rows and image bytes are not kept (a send the store never confirmed
+    /// lives only in that store). `deleted`: rows deleted for me, which leave the disk for good. `reachedStart`:
     /// the store holds the conversation's first message, so its history is stored whole.
     @MainActor public func save(_ key: String, info: ConversationInfo?, meID: String?, messages: [ConversationMessage],
                                 deleted: Set<String> = [], reachedStart: Bool = false) {
