@@ -1032,6 +1032,11 @@ async fn limit_error_stays_on_the_current_profile() {
     assert!(!kinds.iter().any(|k| k == "failover"), "{kinds:?} {r:?}");
     assert_eq!(hub.session_summary(&session)["harness"], "fake");
     assert!(r.is_err(), "{r:?}");
+    // The limit holds the chat until its reset (`hub/rate_hold.rs`): the next prompt would queue
+    // behind the hold. Stop ends it, and the chat goes on on the same profile.
+    let row = hub.session_summary(&session);
+    assert!(row["rateLimitedUntil"].as_u64().is_some(), "{row}");
+    c.request(method::SESSION_CANCEL, json!({"sessionId": id})).await.unwrap();
     let ok = c
         .request(
             method::SESSION_PROMPT,

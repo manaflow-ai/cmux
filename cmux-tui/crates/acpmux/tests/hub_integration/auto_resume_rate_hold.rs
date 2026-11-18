@@ -147,6 +147,39 @@ async fn stop_ends_a_rate_limit_hold_and_the_queue_goes_on() {
     .unwrap();
 }
 
+/// The wakes that fed the spiral on 2026-11-18, besides other agents' messages: a watchdog's
+/// `acpmux retry` every minute and a tool's background-done notice. While the chat is held the
+/// retry is refused (`retry.rate_limited`, with the hold's deadline) and the notice queues: no
+/// turn starts before the reset.
+#[tokio::test]
+async fn a_retry_and_a_notice_start_no_turn_while_the_rate_limit_holds() {
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![25]);
+    let id = new_session(&mut c, "woken").await;
+    let r = c.request(method::SESSION_PROMPT, json!({
+        "sessionId": id,
+        "prompt": [{"type": "text", "text": format!("recover-once: {LIMIT}; Retry-After: 600")}],
+        "_meta": {"acpmux": {"promptId": "p-woken"}}
+    })).await;
+    assert!(r.is_err());
+    until(&hub, &id, |k| k.iter().any(|k| k == "auto_resume_scheduled")).await;
+    let until_ms = of_kind(&hub, &id, "rate_limit_held")[0].msg["until"].as_u64().unwrap();
+
+    let err = c.request("_acpmux/retry", json!({"sessionId": id})).await.unwrap_err();
+    assert!(err.contains("retry.rate_limited"), "{err}");
+    let notice = json!({
+        "sessionId": id,
+        "prompt": [{"type": "text", "text": "[notice from task-watch] background task done"}],
+        "_meta": {"acpmux": {"promptId": "n-bg", "fromAgent": "task-watch"}}
+    });
+    c.send(method::SESSION_PROMPT, notice).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(acpmux::store::now_ms() < until_ms);
+    assert_eq!(of_kind(&hub, &id, "turn_started").len(), 1, "{:?}", kinds(&hub, &id));
+    let row = hub.session_summary(&hub.resolve(&id).unwrap());
+    assert_eq!(row["rateLimitedUntil"], until_ms, "{row}");
+}
+
 /// Leo, 2026-11-18: "claude-sr2-coord fell into a weird "rate limited" loop again 429 and
 /// whatever". Six turns in a row that fail on the limit park the chat: its continuation waits,
 /// a message from another agent starts nothing, and the row says so. `_acpmux/retry` sends the
