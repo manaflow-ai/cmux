@@ -1,0 +1,24 @@
+// studio: a true black window, cool off-white text, hairline white rules at 8%, an indigo primary.
+{
+  "name": "studio",
+  "description": "Black, cool off-white text, hairline white rules at 8%, an indigo primary.",
+
+  "appearance.theme": "Builtin Dark",
+  "colors": { "background": "#000000", "foreground": "#f1f3f7", "selection": "#262626", "accent": "#4f5df0" },
+  "appearance.appTheme": "followTerminal",
+  "appearance.accent": "blue",
+
+  "appearance.background": "none",
+  "appearance.borders": "none",
+  "appearance.chromeStyle": "flat-sidebar-line",
+
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#000000",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "appearance.surfaces.agentPane.color": "#000000",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "sidebar.sectionLook": "quiet",
+  "appearance.statusIndicator.style": "dot",
+
+  "appearance.density": "compact"
+}

@@ -1,0 +1,19 @@
+/* studio: the chat on true black. Your prompt in a dark pill on the right, the reply as plain
+   off-white text, 8px radii, a near-black composer on a white 8% hairline with a deep soft shadow.
+   Colors and radii only: sizes stay with the settings, so rows keep their measured heights. */
+:root {
+  --cv-bubble: #1a1a1a;
+  --cv-code-bg: rgb(255 255 255 / 8%);
+  --cv-codeblock-bg: rgb(255 255 255 / 4%);
+  --cv-codeblock-ring: rgb(255 255 255 / 8%);
+  --cv-rule: rgb(255 255 255 / 8%);
+  --cv-link: #8b95ff;
+}
+.acpmux-shell {
+  --acpmux-composer-bg: #0a0a0a;
+  --acpmux-composer-edge: rgb(255 255 255 / 8%);
+}
+.acpmux-composer-box {
+  --acpmux-composer-radius: 16px;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 8%), 0 14px 32px -18px rgb(0 0 0 / 75%);
+}

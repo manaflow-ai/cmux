@@ -5,6 +5,7 @@ import { useEscapingList } from "../../ui/popupHost";
 import { useScrollEdges } from "../../ui/scrollEdges";
 import { AgentMark as BrandMark } from "../shared/AgentMark";
 import { agentDisplayName } from "./agents";
+import { STUDIO } from "../../look/studio";
 import { useLastPick } from "./lastPick";
 import { ArrowUpIcon } from "./ComposerPickers";
 import { ComposerFoot } from "./ComposerFoot";
@@ -384,7 +385,8 @@ export function NewTabPage({
   const selectedProject = projectCwd ? projectLabel(projectCwd) : undefined;
   const folder = projectCwd ? projectLabel(projectCwd) : "";
   const agent = agentDisplayName(harness ?? "agent");
-  const placeholder = NEW_TAB_LABELS.placeholder[kind](t, kind === "agent" ? agent : folder);
+  // The studio look: an agent tab prompts as the chat composer does (look/studio.ts).
+  const placeholder = kind === "agent" ? STUDIO.placeholder : NEW_TAB_LABELS.placeholder[kind](t, folder);
 
   const changeKind = (next: TabKind) => {
     if (next === kind) return;

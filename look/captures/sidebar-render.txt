@@ -1,0 +1,9 @@
+bun test v1.4.4 (38afee6c8)
+
+studio-sidebar.test.ts:
+[ "PO", "postplan", "7m", "Site favorites", "t3/site-favorites", "Working", "1", "Settled", "1" ]
+
+ 1 pass
+ 0 fail
+ 2 expect() calls
+Ran 1 test across 1 file. [11.00ms]

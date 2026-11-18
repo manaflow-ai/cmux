@@ -1,0 +1,24 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": "studio sidebar",
+  "version": "1.0.0",
+  "description": "The studio look's sidebar: a search row, chats on three lines (project and time, title, branch and agent), then Working and Settled shelves at the bottom.",
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "main.js" },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderChats",
+      "title": "Chats",
+      "symbol": "bubble.left.and.bubble.right",
+      "options": { "defaultRegion": "middle", "maxRows": 50 }
+    }
+  },
+  "scopes": {
+    "agent_chat:read": "Read your agent chats: title, state, folder and times.",
+    "workspace:read": "Know which workspace is open, to mark its chat.",
+    "workspace:write": "Show a chat's workspace when you click it.",
+    "actions:run": "Open a chat that has no workspace in a new tab, and start a new chat."
+  }
+}

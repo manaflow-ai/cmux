@@ -13919,7 +13919,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 >
                   <ChatHeaderStatus status={header.status} detail={header.detail}>
                     {!inTabRow && !showNewTab && snapshot.sessionId && (
-                      <ThreadTitle key={snapshot.sessionId} title={chatName} onRename={renameFromTitle} />
+                      <ThreadTitle
+                        key={snapshot.sessionId}
+                        title={chatName}
+                        {...(snapshot.summary?.cwd ? { project: projectLabel(snapshot.summary.cwd) } : {})}
+                        onRename={renameFromTitle}
+                      />
                     )}
                   </ChatHeaderStatus>
                   <div className="acpmux-handoff-header-tools" ref={tabRowTools}>

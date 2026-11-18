@@ -157,6 +157,7 @@ import {
   type ComposerPlusExtension,
 } from "./composerPlusRegistry";
 import { ComposerPlusMenu } from "./ComposerPlusMenu";
+import { STUDIO } from "../../look/studio";
 import { loadRecentCommandNames, recentCommands, rememberRecentCommand } from "./recentCommands";
 import { openPicker } from "./pickerOpeners";
 import type { RepickMachine } from "./cloudRepick";
@@ -2255,8 +2256,9 @@ function ComposerFrame({
             : COMPOSER_LABELS.placeholder;
   // A side session's idle prompt reads "Reply in this session…" (the `placeholder` prop); the
   // mid-turn and Esc hints still win, since they say what a key does now.
+  // The studio look writes the idle prompt as the reference app does (look/studio.ts).
   const placeholderText =
-    placeholder && placeholderKey === COMPOSER_LABELS.placeholder ? placeholder : t(placeholderKey);
+    placeholderKey === COMPOSER_LABELS.placeholder ? (placeholder ?? STUDIO.placeholder) : t(placeholderKey);
   // An idle new chat suggests the open PR another chat in this checkout made, Tab to take it
   // (promptSuggestion.ts; Leo 2026-10-18). It never sends: Tab writes it, Return sends it.
   const cwd = snapshot.summary?.cwd;

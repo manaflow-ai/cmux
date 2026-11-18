@@ -141,6 +141,7 @@ import { newTabIconColumnArm } from "./iconColumn.experiment";
 import { elementBox, reportToastAvoidance } from "../toastAvoidance";
 import { githubIssueLink } from "../../../githubReferences";
 import { reportInputReadyWhenFocused } from "./inputReady";
+import { STUDIO } from "../../../look/studio";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 /// Where a browser pick of the page opens: by default it navigates the page's own tab; `beside` asks for a
@@ -1614,7 +1615,10 @@ export function NewTabScreen(props: Props) {
     input.focus();
     input.setCaret(input.plainText().length);
   };
-  const placeholder = profilePick ? nt("profile.placeholder", { site: shortHost(profilePick.url) }) : nt("placeholder");
+  // The studio look: the field prompts as the chat composer does (look/studio.ts).
+  const placeholder = profilePick
+    ? nt("profile.placeholder", { site: shortHost(profilePick.url) })
+    : STUDIO.placeholder;
   // A dictation waiting for words says so in the empty field, in italic (dictation.css).
   const dictating = props.dictating === true;
   const keyDown = (event: KeyboardEvent) => {

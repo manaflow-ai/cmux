@@ -6,7 +6,7 @@
 // listed whole here (Leo, 2026-11-01: "our + button results are still really bad"): at most a few
 // recent ones, then one "Commands and skills…" row that opens the slash list, which searches them
 // all (composerPlusRegistry.ts, recentCommands.ts).
-import { Picker, PlusIcon, type Section } from "./ComposerPickers";
+import { PaperclipIcon, Picker, type Section } from "./ComposerPickers";
 import { runComposerPlusAction, type ComposerPlusEntry } from "./composerPlusRegistry";
 import type { SlashCommand } from "./slashCommands";
 import { useT } from "./i18n";
@@ -76,7 +76,8 @@ const MemoPlusMenu = memo(function PlusMenu({
       // Codex's short tooltip (Leo, 2026-10-21): "Add files and more", not the menu's list.
       tooltip={t("composer.addTooltip")}
       className={className ? `acpmux-composer-plus ${className}` : "acpmux-composer-plus"}
-      button={<PlusIcon />}
+      // The studio look: a paperclip, as the reference app draws its attach button.
+      button={<PaperclipIcon />}
       align="start"
       sections={sections}
       {...(onOpen ? { onOpen } : {})}

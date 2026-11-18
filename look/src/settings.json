@@ -1,0 +1,19 @@
+{
+  "appearance.themeFile": "studio",
+  "sidebar.groupBy": "none",
+  "sidebar.showTimestamps": true,
+  "sidebar.showSearchButton": true,
+  "sidebar.density": "comfortable",
+  "sidebar.showSpaces": false,
+  "sidebar.cards.tips": false,
+  "sidebar.workspaceRow.secondLineOrder": ["branch", "agentStatus"],
+  "tabs.hideLoneChatTab": true,
+  "tabs.newTabTemplate": "minimal",
+  "agentPane.display.presentation": "messages",
+  "agentPane.display.font.preset": "system",
+  "agentPane.display.font.ui": "inter",
+  "agentPane.display.font.size": 14,
+  "agentPane.display.width": 736,
+  "agentPane.display.minimap": "off",
+  "agentPane.display.harnessPlacement": "left"
+}

@@ -8,3 +8,5 @@ import "./diffTokens.css";
 import "./styles.css";
 // The UI inspector's outline, label and hint (uiPointer/overlay.ts).
 import "./uiPointer/uiPointer.css";
+// The studio look's stylesheet loads last, over the pane's own (look/README.md).
+import "../../look/studio.css";
