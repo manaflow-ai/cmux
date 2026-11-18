@@ -42,7 +42,9 @@ struct ComputerUseHelperStagingTests {
             let before = fixture.recorder.copies
             let staged = await withTaskGroup(of: URL?.self) { group in
                 for _ in 0..<4 { group.addTask { await fixture.staging.stage(fixture.source) } }
-                return await group.reduce(into: [URL?]()) { $0.append($1) }
+                var urls: [URL?] = []
+                for await url in group { urls.append(url) }
+                return urls
             }
             #expect(staged.allSatisfy { $0 == fixture.destination })
             #expect(fixture.recorder.copies == before + 1, "later stages reuse the first one's copy")
