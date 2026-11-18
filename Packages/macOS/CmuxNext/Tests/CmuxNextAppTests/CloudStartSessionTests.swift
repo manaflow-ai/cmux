@@ -574,7 +574,10 @@ struct CloudStartSessionTests {
         }
         let request = CloudStartSession.Request(machineID: nil, name: name, agent: "codex", cwd: nil)
         #expect(failure.message == CloudStartSessionStrings.setupRequired(agent: "codex", command: request.command), "\(failure.message)")
-        #expect(failure.message.contains("Continue with ChatGPT") && failure.message.contains("`cmux cloud start-session --name \(name) --agent codex`"))
+        // A Cloud chat runs on the person's own model connection, sent with the start (cmux#40159): the
+        // refusal names where to add one, and no Mac sign-in or setup-token step.
+        #expect(failure.message.contains("Settings > Models") && failure.message.contains("`cmux cloud start-session --name \(name) --agent codex`"), "\(failure.message)")
+        #expect(!failure.message.contains("Mac") && !failure.message.contains("setup-token"), "\(failure.message)")
         #expect(!services.machines.cloud.contains { $0.machine.title == name })
         // A ChatGPT connection that serves Cloud passes the gate (the unread machine list refuses next).
         services.cloud.setup.read = { CloudSetup.Snapshot(personal: [cliLogin, CloudSetup.Connection(id: "chatgpt-plan-1", families: ["codex"])], organization: []) }

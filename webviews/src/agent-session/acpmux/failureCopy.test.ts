@@ -89,6 +89,37 @@ test("a Claude sign-in failure on a team Cloud machine says it takes no personal
   expect(failureCopy(t, "429 Too Many Requests", team)).toBe("turn.failure.rateLimited");
 });
 
+// A Cloud chat runs on the person's own model connection, sent from the Mac with the start
+// (cmux#40159); the machine has no route of its own. acpmux's sign-in text there (claude_auth.rs
+// `compose_cloud`) says so, and nothing was rejected: the card says to add a connection for Cloud in
+// Settings > Models, never "the provider rejected" or a Mac or setup-token step.
+test("a Cloud machine with no Claude connection says to add one in Settings > Models", () => {
+  const keys = ((key: string) => key) as Translate;
+  const cloud = { hostKind: "cloud" as const, harness: "claude", name: "Claude Code" };
+  const notSignedIn = [
+    "Claude is not signed in here. Add a Claude connection for Cloud in Settings > Models, then start again. (Claude said: Not logged in · Please run /login)",
+    "Claude is not signed in here. Add a Claude connection for Cloud in Settings > Models, then start again. Or click Use cmux's gateway: this machine's team has an account there. (Claude said: Invalid API key · Please run /login)",
+    "Claude Code provider credentials are missing",
+  ];
+  for (const message of notSignedIn) {
+    expect(failureCopy(keys, message, cloud), message).toBe("turn.failure.cloudAuthMissing");
+  }
+  // acpmux's gateway fallback (claude_auth.rs `GATEWAY_FALLBACK`) sent the message again: not this card.
+  const fallback =
+    "Claude is not signed in here, so this chat now uses cmux's gateway (your team's account); the message goes again there. (Claude said: Not logged in · Please run /login)";
+  expect(failureCopy(keys, fallback, cloud)).not.toBe("turn.failure.cloudAuthMissing");
+  // A team machine keeps its own card; a provider that refused a login keeps "rejected".
+  expect(failureCopy(keys, notSignedIn[0], { ...cloud, teamMachine: true })).toBe(
+    "turn.failure.cloudTeamMachineNoLogin",
+  );
+  expect(
+    failureCopy(keys, "The provider rejected Claude Code's credentials on this Cloud machine (HTTP 401).", cloud),
+  ).toBe("turn.failure.cloudAuthRejected");
+  const copy = failureCopy(translatorFor("en"), notSignedIn[0], cloud);
+  expect(copy).toBe("Add a Claude Code connection for Cloud in Settings > Models, then start again.");
+  expect(copy).not.toMatch(/\bMac\b|setup-token/i);
+});
+
 // Lucas's fresh Codex chat failed with only "failed to load workspace requirements: invalid input
 // parameter" under "ran into a problem and stopped". The card says which settings to check, and the
 // file Codex names when it names one; a cloud bundle that timed out or refused a sign-in keeps its kind.
