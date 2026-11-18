@@ -1797,7 +1797,8 @@
         "CmuxNextPages",
         "CmuxNextPagesTestSupport",
         "CmuxNextSettings",
-        "CmuxNextTestSupport"
+        "CmuxNextTestSupport",
+        "CmuxNextWakeupsTestSupport"
       ],
       "packages": [],
       "reads": [
