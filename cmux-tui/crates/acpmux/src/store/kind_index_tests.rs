@@ -620,6 +620,7 @@ fn ledger_scan_resume_pass_bench() {
 
 /// Waits past the clock tick of the last folder change, then trusts folders at once
 /// (`kind_heads.rs` `SETTLED`): a test's changes come milliseconds apart, a daemon's seconds.
+#[cfg(unix)]
 fn settle() {
     std::thread::sleep(std::time::Duration::from_millis(30));
     kind_heads::SETTLED_FOR.with(|s| s.set(Some(std::time::Duration::ZERO)));
@@ -631,6 +632,7 @@ fn settle() {
 /// chat's folders are settled, a keyed scan opens only its last segment, however many segments
 /// the log has, and still sees an append, a new segment, and a sealed segment replaced by a
 /// rename.
+#[cfg(unix)]
 #[test]
 fn a_keyed_scan_of_a_settled_log_opens_its_last_segment_only() {
     let root = root();
@@ -713,6 +715,7 @@ fn a_keyed_scan_of_a_log_just_written_checks_every_segment() {
 /// `logged_prompt_past_inbox`), with their keeps (`hub/inbox.rs`, `hub/prompt_ledger.rs`
 /// `keep_prompt`, which joins by a turn or a list too; here by the prompt, its turn and a list).
 /// Returns the records read whole.
+#[cfg(unix)]
 fn resend_reads(store: &LocalStore, id: &str, prompt: &str) -> u64 {
     const INBOX: &[&str] = &["inbox", "inbox_noticed", "inbox_answered", "inbox_removed"];
     let turn = prompt.replacen('p', "t", 1);
@@ -743,6 +746,7 @@ fn resend_reads(store: &LocalStore, id: &str, prompt: &str) -> u64 {
 /// 3,213 with a list) beside `ACPMUX_RESEND_BENCH_CHATS` small chats (default 10,000), each asked
 /// once first (their heads held as a running daemon holds them). Times a resend's reads of the
 /// coordinator ([`resend_reads`]) and their CPU, after the folders settled.
+#[cfg(unix)]
 #[test]
 #[ignore = "a timing harness, run by hand"]
 fn resend_scale_bench() {

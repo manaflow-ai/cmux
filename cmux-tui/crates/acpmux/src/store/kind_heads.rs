@@ -545,7 +545,7 @@ impl LocalStore {
             #[cfg(test)]
             SEALED_HITS.with(|n| n.set(n.get() + 1));
             return match self.read_picked(id, index, path, None, &heads, kinds, keep) {
-                Some(records) => Ok(records.into_iter().all(|rec| visit(rec))),
+                Some(records) => Ok(records.into_iter().all(visit)),
                 None => {
                     self.kind_heads.forget_segment(id, index);
                     self.keyed_whole(id, index, path, &scan, keep, visit)
@@ -715,7 +715,7 @@ fn dir_stamp(path: &Path, now: std::time::SystemTime) -> std::io::Result<Option<
     }
     #[cfg(not(unix))]
     {
-        let _ = now;
+        let _ = (now, settled_for);
         Ok(None)
     }
 }
