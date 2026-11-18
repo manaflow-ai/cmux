@@ -176,6 +176,31 @@ final class PagedListUITests: XCTestCase {
         attach(empty, "agentchats-empty")
     }
 
+    /// A page that repeats a chat id shows it once instead of crashing the diffable data source.
+    @MainActor func testAgentChatsPageWithARepeatedChatShowsItOnce() {
+        let app = launch("agentchats:dupes")
+        let list = app.collectionViews["agentChats.list"]
+        XCTAssertTrue(app.descendants(matching: .any)["agentChats.row.chat-0"].waitForExistence(timeout: 10), "no chats")
+        let next = app.descendants(matching: .any)["agentChats.row.chat-25"]
+        for _ in 0..<10 where !next.exists { list.swipeUp(velocity: .fast) }
+        XCTAssertTrue(next.waitForExistence(timeout: 10), "the next page did not load")
+        XCTAssertEqual(app.state, .runningForeground, "the app crashed on a repeated id")
+        attach(app, "agentchats-repeated-id")
+    }
+
+    /// An empty list still refreshes: pulling down on its empty state reads again.
+    @MainActor func testAgentChatsEmptyListPullsToRefresh() {
+        let app = launch("agentchats:emptythenone")
+        let empty = app.descendants(matching: .any)["agentChats.list.empty"]
+        XCTAssertTrue(empty.waitForExistence(timeout: 10), "no empty state")
+        attach(app, "agentchats-empty-before-pull")
+        let start = empty.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+        start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 360)))
+        XCTAssertTrue(app.descendants(matching: .any)["agentChats.row.chat-0"].waitForExistence(timeout: 10),
+                      "pulling the empty list did not refresh it")
+        attach(app, "agentchats-empty-after-pull")
+    }
+
     // MARK: Flings
 
     @MainActor func testDownFlingsMeetRowsWithoutHitches() { fling("down:fast", up: false) }

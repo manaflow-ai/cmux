@@ -5,7 +5,8 @@ import SwiftUI
 /// The Chats list (``AgentChatsList``, on the shared ``PagedList``) on fixed chats, for screenshots
 /// and UI tests of every state (verify/paged-list.md). Scenarios: `pages` (three pages of 20 chats,
 /// 0.6 s each, then the end), `edgefail` (the second page fails once; Try Again reads it), `slow`
-/// (6 s older pages: the edge's spinner), `empty`, `firstfail` (no chats: the screen's failure).
+/// (6 s older pages: the edge's spinner), `empty`, `firstfail` (no chats: the screen's failure),
+/// `dupes` (the first page sends one chat twice), `emptythenone` (empty until a pull to refresh reads one chat).
 public struct AgentChatsGallery: View {
     @State private var model: AgentChatsModel
     /// Held here: the model keeps its backend weakly, as the app's workspace source owns the real one.
@@ -41,6 +42,7 @@ public struct AgentChatsGallery: View {
 final class GalleryChatsBackend: AgentChatsBackend {
     let scenario: String
     private var failed = false
+    private var firstReads = 0
 
     init(scenario: String) { self.scenario = scenario }
 
@@ -55,6 +57,10 @@ final class GalleryChatsBackend: AgentChatsBackend {
         try await Task.sleep(for: scenario == "slow" && cursor != nil ? .seconds(6) : .milliseconds(600))
         if scenario == "firstfail" { throw Refused() }
         if scenario == "empty" { return AgentChatPage(chats: [], nextCursor: nil) }
+        if scenario == "emptythenone", cursor == nil {
+            firstReads += 1
+            if firstReads == 1 { return AgentChatPage(chats: [], nextCursor: nil) }
+        }
         let start = cursor.flatMap(Int.init) ?? 0
         if scenario == "edgefail", start == 20, !failed {
             failed = true
@@ -64,13 +70,15 @@ final class GalleryChatsBackend: AgentChatsBackend {
         let titles = ["Fix the paged list's anchor", "Ship iOS infinite scroll", "Review #45778", "Agent chats search",
                       "Workspace sidebar groups", "Dark mode pass", "Composer keyboard pin", "Feed pagination plan"]
         let statuses = ["idle", "running", "waiting", "idle", "idle"]
-        let chats = (start..<(start + 20)).map { n in
+        let count = scenario == "emptythenone" ? 1 : 20
+        var chats = (start..<(start + count)).map { n in
             AgentChatListing(id: "chat-\(n)", title: "\(titles[n % titles.count]) \(n)", harness: harnesses[n % harnesses.count],
                              cwd: "/Users/aziz/Development/cmux/worktrees/task-\(n % 7)", status: statuses[n % statuses.count],
                              updatedAt: Date(timeIntervalSinceReferenceDate: 815_000_000 - Double(n) * 3_600), archived: false)
         }
-        let end = start + 20
-        return AgentChatPage(chats: chats, nextCursor: end < 60 ? String(end) : nil)
+        if scenario == "dupes", start == 0 { chats.insert(chats[3], at: 7) }
+        let end = start + count
+        return AgentChatPage(chats: chats, nextCursor: end < 60 && count == 20 ? String(end) : nil)
     }
 
     func openAgentChat(_ chat: AgentChatListing, in workspace: Workspace) async throws -> WorkspaceTab { throw Refused() }
