@@ -8,9 +8,15 @@ Sources (one run may hold several; each app's rows carry labels app=<name>):
                            as --compare-zip URL1,URL2. --arg zip_name=NAME names it (default: the file name).
   --host fleet             cmux's DMG for --build (the newest NIGHTLY by default), mounted read-only on a fleet
                            Mac by scripts/measure/bundle-size.sh, which prints the same listing.
+  --arg unpack=1           the newest NIGHTLY (or --arg dmg=PATH, a DMG on disk) decoded and unpacked on this
+                           machine, Linux included, by scripts/cmux-next/fetch-nightly-dmg.py (needs 7-Zip 20+),
+                           then attributed by scripts/cmux-next/bundle-size.py tree. Needs no Mac: run it through
+                           `cmux-ci test -- scripts/bench/cmux-bench bundle --host anywhere --arg unpack=1`.
 
 Rows: total_uncompressed (MB), download (MB, when known), file_count, and one `component` row per
 direct child of Contents/<dir>/ (frameworks, helpers, resources, the main binary) of at least 1 MB.
+With unpack, also one `kind` row per kind of bytes of at least 1 MB (localizations, licenses, Mach-O
+code, unwind tables, symbols...) and `duplicate_extra` (MB in byte-identical extra copies).
 """
 from __future__ import annotations
 
@@ -18,12 +24,16 @@ import collections
 import json
 import os
 import struct
+import subprocess
+import sys
 from pathlib import Path, PurePosixPath
 
-from benchlib.bench import Bench, BenchError, Context
+from benchlib.bench import REPO_ROOT, Bench, BenchError, Context
 from benchlib.net import open_url
 
 MIN_COMPONENT = 1_000_000
+FETCH = REPO_ROOT / "scripts/cmux-next/fetch-nightly-dmg.py"
+TREE = REPO_ROOT / "scripts/cmux-next/bundle-size.py"
 
 
 def _range(url: str, start: int, end: int) -> bytes:
@@ -120,9 +130,27 @@ class Bundle(Bench):
             if size >= MIN_COMPONENT:
                 ctx.row("component", size / 1e6, "MB", labels={**labels, "component": comp})
 
+    def _unpack(self, ctx: Context) -> None:
+        """fetch-nightly-dmg.py, then bundle-size.py tree; the tree JSON is kept in the workdir and ingested."""
+        out = ctx.workdir / "nightly"
+        cmd = [sys.executable, "-I", str(FETCH), str(out)]
+        if ctx.arg("dmg"):
+            cmd += ["--dmg", str(Path(ctx.arg("dmg")).expanduser())]
+        got = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        fetched = json.loads(got.stdout.strip().splitlines()[-1])
+        tree = ctx.workdir / "tree.json"
+        subprocess.run([sys.executable, "-I", str(TREE), "tree", fetched["app"], "--dmg", fetched["dmg"],
+                        "--json", str(tree)], check=True, stdout=sys.stderr)
+        ctx.notes.append(f"nightly {fetched.get('version')}: tree JSON at {tree}")
+        self._rows(ctx, "cmux", tree_listing(Path(fetched["app"])), fetched.get("dmg_bytes"))
+        self.ingest(ctx, tree)
+
     def run(self, ctx: Context) -> None:
         did = False
-        if ctx.arg("app"):
+        if ctx.arg("unpack"):
+            self._unpack(ctx)
+            did = True
+        elif ctx.arg("app"):
             app = Path(ctx.arg("app")).expanduser()
             if not app.is_dir():
                 raise BenchError(f"--arg app={app}: not an app bundle directory")
@@ -144,14 +172,26 @@ class Bundle(Bench):
             self._rows(ctx, name, files, size)
             did = True
         if not did:
-            raise BenchError("bundle: pass --arg app=PATH, --compare-zip URL, or --host fleet")
+            raise BenchError("bundle: pass --arg app=PATH, --arg unpack=1, --compare-zip URL, or --host fleet")
+
+    def _tree_rows(self, ctx: Context, data: dict) -> None:
+        """bundle-size.py tree's JSON: the bytes by kind and in identical extra copies."""
+        labels = {"app": "cmux"}
+        for k in data["kinds"]:
+            if k["bytes"] >= MIN_COMPONENT:
+                ctx.row("kind", k["bytes"] / 1e6, "MB", labels={**labels, "kind": k["kind"]})
+        ctx.row("duplicate_extra", data["duplicates"]["extra_bytes"] / 1e6, "MB", labels=labels)
 
     def ingest(self, ctx: Context, path: Path) -> None:
-        """bundle-size.sh's JSON ({app, download_bytes, files: [[path, bytes], ...]}) or a .app directory."""
+        """bundle-size.sh's JSON ({app, download_bytes, files: [[path, bytes], ...]}), bundle-size.py tree's
+        JSON (with its listing), or a .app directory."""
         if path.is_dir():
             self._rows(ctx, ctx.arg("app_name") or "cmux", tree_listing(path), None)
             return
         data = json.loads(path.read_text())
+        if "kinds" in data:
+            self._tree_rows(ctx, data)
+            return
         self._rows(ctx, data.get("app", "cmux"), [(f, int(s)) for f, s in data["files"]], data.get("download_bytes"))
 
 

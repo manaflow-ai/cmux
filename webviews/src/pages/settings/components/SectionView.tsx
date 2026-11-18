@@ -35,6 +35,7 @@ import { ServerCard } from "./ServerCard";
 import { SharedLinksCard } from "./SharedLinksCard";
 import { CustomizeLibraryCard } from "./CustomizeLibraryCard";
 import { KeysCard } from "./KeysCard";
+import { McpServersCard } from "./McpServersCard";
 import { TailnetCard } from "./TailnetCard";
 import { ModelsCard } from "./ModelsCard";
 import { SectionActions } from "./SectionActions";
@@ -87,6 +88,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   sharedLinks: (_focus, _workspace, reveal) => <SharedLinksCard reveal={reveal} />,
   customizeLibrary: (_focus, _workspace, reveal) => <CustomizeLibraryCard reveal={reveal} />,
   keys: (_focus, _workspace, reveal) => <KeysCard reveal={reveal} />,
+  mcpServers: () => <McpServersCard />,
   tailnet: () => <TailnetCard />,
   models: (focus) => <ModelsCard focus={focus} />,
   worktreeSetup: () => <WorktreeSetupCard />,

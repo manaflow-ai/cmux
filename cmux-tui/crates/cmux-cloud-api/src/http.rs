@@ -153,7 +153,7 @@ impl Reply {
 
 /// One call's session: the client, the base URL and the credentials.
 pub struct Http {
-    client: reqwest::Client,
+    clients: cmux_cloud_client::connect_retry::Clients,
     base: reqwest::Url,
     pub(crate) auth: Auth,
     credential: String,
@@ -167,15 +167,16 @@ impl Http {
     pub fn new(request: &Request) -> Result<Self, Failure> {
         let base = base_url(&request.api).map_err(Failure::Transport)?;
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let client = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            // A black-holed SYN costs 1 s per address, then a new socket (`connect_retry`).
-            .connect_timeout(cmux_cloud_client::connect_retry::CONNECT_TIMEOUT)
-            .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
-            .build()
-            .map_err(|e| Failure::Transport(e.to_string()))?;
+        // A black-holed SYN costs 1 s per address, then a new socket (`connect_retry`); the last
+        // try connects with no connect timeout.
+        let clients = cmux_cloud_client::connect_retry::Clients::build(|| {
+            reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
+        })
+        .map_err(|e| Failure::Transport(e.to_string()))?;
         Ok(Http {
-            client,
+            clients,
             base,
             auth: request.auth,
             credential: request.credential.clone(),
@@ -212,7 +213,7 @@ impl Http {
         path: &str,
     ) -> Result<Reply, Failure> {
         let mut builder =
-            self.client.request(method, url).bearer_auth(&self.credential).timeout(timeout);
+            self.clients.fast.request(method, url).bearer_auth(&self.credential).timeout(timeout);
         match self.auth {
             Auth::Stack => {
                 builder = builder
@@ -243,7 +244,7 @@ impl Http {
             None => builder,
         };
         // Sent again only when it did not connect: no byte of it reached the server.
-        let send = cmux_cloud_client::connect_retry::send(builder);
+        let send = cmux_cloud_client::connect_retry::send(&self.clients, builder);
         let response = match tokio::time::timeout(timeout, send).await {
             Err(_) => return Err(Failure::TimedOut(path.to_owned())),
             Ok(Err(e)) if e.is_timeout() => return Err(Failure::TimedOut(path.to_owned())),
