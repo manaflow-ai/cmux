@@ -480,6 +480,8 @@ fn short_lived_resource_terminal_keeps_its_output_out_of_the_journal() {
             }
         }
     }
+    // `None < Some(_)` holds, so require the run record before comparing order.
+    assert!(run_sequence.is_some(), "the journal omitted the terminal run record");
     assert!(
         run_sequence < exit_sequence,
         "journal order was run={run_sequence:?}, exit={exit_sequence:?}"
