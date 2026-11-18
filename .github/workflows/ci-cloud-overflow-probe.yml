@@ -195,7 +195,7 @@ jobs:
         timeout-minutes: 2
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: e74b1d429f925af292a062b80d069ab47e87ac24 # feat-cmux-next with cmux#45861 (hosted-first valve, served marks), #45878 (linux_16 spill) and #46392 (recent starts, members-only spill)
+          ref: e74b1d429f925af292a062b80d069ab47e87ac24 # feat-cmux-next with cmux#45861 (served marks), #45878 (linux_16 spill) and #46392 (recent starts, members-only spill)
           path: .runner-pool-tooling
           sparse-checkout: |
             scripts/ci/linux_pool_spill.py
