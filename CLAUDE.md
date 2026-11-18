@@ -73,6 +73,9 @@ A change to the Mac or iOS app is not done until the person can open it. Every a
 such a change ends with the dev build link, the fleet simulator evidence and the iPhone install result.
 Use one task tag, `<task-slug>` (for example `sidebar-star-align-v1`), for the Mac and iOS builds.
 A documentation-only change needs no build; give the file path instead.
+A change to the cmux-next API (`backend/apps/api`, `backend/db`) is tried on its own per-tag stack,
+`scripts/cmux-next/cloud-dev-stack.sh up --tag <task-slug> --journey`, and stopped with `down` when done
+([cmux-backend](skills/cmux-backend/SKILL.md#run-your-unmerged-cmux-next-api-a-per-tag-stack-on-the-dev-vm)).
 The report also names, for the person to run, the command that puts the change into their running cmux now, from
 [the loop](#the-loop-use-it-first-then-test) (`cmux app try <PR>`, `cmux customize use pr:N`), so they
 use it before the build is done. The agent itself runs it there only when asked; otherwise it uses a side copy (`hot-verify.py look`).
