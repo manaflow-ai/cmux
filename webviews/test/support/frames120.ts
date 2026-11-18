@@ -36,6 +36,10 @@ export type Frames120 = {
   start(): void;
   stop(): Promise<FramePacing>;
   close(): Promise<void>;
+  /// What the pump has done since the page opened, for a failure's reason: frames asked and answered,
+  /// the frames whose page work (`__frameIdle`) ran out its second, the slowest frame (ms), and how
+  /// long since the last answered frame (ms).
+  pumpState(): { asked: number; drawn: number; idleTimeouts: number; slowestMs: number; sinceDrawnMs: number };
 };
 
 async function freePort(): Promise<number> {
@@ -117,13 +121,19 @@ export async function open120Hz(
     /// `clock: "frames"`: until the page ran what the last frame left due (its frame clock's
     /// `__frameIdle`, absent until the page loaded it); a second at most, so a page that never answers
     /// still draws.
+    const pumped = { asked: 0, drawn: 0, idleTimeouts: 0, slowestMs: 0, drawnAt: performance.now() };
     const pageIdle = () =>
       Promise.race([
         cdp
           .send("Runtime.evaluate", { expression: "globalThis.__frameIdle?.()", awaitPromise: true } as never)
           .catch(() => undefined),
         // fixed-wait: the most a frame waits for the page's own work before it is drawn anyway
-        new Promise((resolve) => setTimeout(resolve, 1000)),
+        new Promise((resolve) =>
+          setTimeout(() => {
+            pumped.idleTimeouts += 1;
+            resolve(undefined);
+          }, 1000),
+        ),
       ]);
     const pump = (async () => {
       let next = performance.now();
@@ -147,8 +157,12 @@ export async function open120Hz(
           }
         }
         const asked = performance.now();
+        pumped.asked += 1;
         await cdp.send("HeadlessExperimental.beginFrame", args as never).catch(() => undefined);
         const drawn = performance.now();
+        pumped.drawn += 1;
+        pumped.drawnAt = drawn;
+        pumped.slowestMs = Math.max(pumped.slowestMs, drawn - asked);
         // The next slot after the frame was drawn; slots it ran over are dropped.
         let slots = 1;
         next += FRAME_MS;
@@ -172,6 +186,14 @@ export async function open120Hz(
       async stop() {
         measuring = false;
         return pacing;
+      },
+      pumpState() {
+        const { drawnAt, slowestMs, ...counts } = pumped;
+        return {
+          ...counts,
+          slowestMs: Math.round(slowestMs),
+          sinceDrawnMs: Math.round(performance.now() - drawnAt),
+        };
       },
       async close() {
         running = false;

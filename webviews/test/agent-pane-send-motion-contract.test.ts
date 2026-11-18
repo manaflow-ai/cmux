@@ -116,6 +116,8 @@ await requireBrowserLane("agent-pane-send-motion-contract.test.ts", async () => 
   /// The idle chat's newest text: each test leaves its turn in the chat's log.
   let lastIdle = "Answer 40:";
   type Opened = { page: Page; frames?: Frames120; close(): Promise<void> };
+  /// Each Chromium page's frame pump, for a failure's reason.
+  const pumps = new WeakMap<Page, Frames120>();
   /// The chat at its latest row, at rest: Chromium on the 120 Hz clock, WebKit on its own.
   async function open(name: string, pane: NonNullable<typeof idle>, ready: string): Promise<Opened> {
     const viewport = { width: 980, height: 700 };
@@ -124,6 +126,7 @@ await requireBrowserLane("agent-pane-send-motion-contract.test.ts", async () => 
     if (name === "chromium" && chromium120) {
       frames = await open120Hz(pane.address().replace("/#", "/?clock=frames#"), { viewport, clock: "frames" });
       page = frames.page;
+      pumps.set(page, frames);
     } else page = await browsers.get(name)!.newPage({ viewport });
     // A click or key that never lands fails within a minute, naming what it waited for (an element
     // never stable, say), instead of sitting out the file's 400 s timeout.
@@ -175,6 +178,7 @@ await requireBrowserLane("agent-pane-send-motion-contract.test.ts", async () => 
           composer: field?.innerText.slice(0, 80),
           focused: document.activeElement?.className,
           running: document.getAnimations().filter((animation) => animation.playState === "running").length,
+          settle: (window as unknown as { __settled?: unknown }).__settled,
         });
       })
       .catch((error: unknown) => `unreadable: ${String(error)}`);
@@ -185,7 +189,8 @@ await requireBrowserLane("agent-pane-send-motion-contract.test.ts", async () => 
     within(
       stillFrames(page),
       120_000,
-      async () => `the pane drew neither 12 still frames nor 900 frames: ${await pageState(page)}`,
+      async () =>
+        `the pane drew neither 12 still frames nor 900 frames: ${await pageState(page)}; pump ${JSON.stringify(pumps.get(page)?.pumpState())}`,
     );
   const stillFrames = (page: Page) =>
     page.evaluate(
@@ -196,6 +201,7 @@ await requireBrowserLane("agent-pane-send-motion-contract.test.ts", async () => 
           let frames = 0;
           window.cmuxAfterPaint(() => {
             frames += 1;
+            (window as unknown as { __settled?: unknown }).__settled = { frames, still, last };
             const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
             const thread = document.querySelector<HTMLElement>(".acpmux-thread");
             const dock = document.querySelector<HTMLElement>(MAIN_DOCK);
