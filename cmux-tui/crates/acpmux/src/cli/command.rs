@@ -2097,8 +2097,9 @@ mod help_contract_tests {
                     argv.push("--build");
                 }
                 match Cli::try_parse_from(&argv).map(|cli| cli.command) {
-                    Ok(Some(Command::Host(PeerCmd::Place { build }))) => {
-                        assert_eq!(build, want_build, "{argv:?}")
+                    Ok(Some(Command::Host(PeerCmd::Place { build, skip }))) => {
+                        assert_eq!(build, want_build, "{argv:?}");
+                        assert!(skip.is_empty(), "{argv:?}");
                     }
                     _ => panic!("{argv:?} is not machine pick"),
                 }
@@ -2111,6 +2112,12 @@ mod help_contract_tests {
                 ),
                 "{argv:?} is not machine status"
             );
+        }
+        // `--skip` leaves machines out of the pick, as an automatic `new` does after a refusal.
+        let argv = ["acpmux", "machine", "pick", "--skip", "a", "--skip", "b"];
+        match Cli::try_parse_from(argv).map(|cli| cli.command) {
+            Ok(Some(Command::Host(PeerCmd::Place { skip, .. }))) => assert_eq!(skip, ["a", "b"]),
+            _ => panic!("{argv:?} is not machine pick"),
         }
     }
 

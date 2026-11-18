@@ -422,6 +422,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         let said = error.to_string();
                         eprintln!("{}", said.lines().next().unwrap_or_default());
                         eprintln!("{}", crate::cli::place::next_line(&refused));
+                        if launch.worktree.is_some() {
+                            eprintln!("{}", crate::cli::place::worktree_left_line(&refused));
+                        }
                         let next = match before_deadline(
                             deadline,
                             setup_name,
@@ -445,8 +448,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                                 )));
                             }
                         };
-                        // A daemon without `skip` may pick it again: that is no next machine.
-                        if next.as_ref().is_some_and(|n| refused_here.contains(n)) {
+                        // A daemon without `skip` may pick it again, under any spelling of its name
+                        // (canonical names, as the daemon compares them): that is no next machine.
+                        let again = |n: &String| {
+                            let n = crate::placement::canonical(n);
+                            refused_here.iter().any(|r| crate::placement::canonical(r) == n)
+                        };
+                        if next.as_ref().is_some_and(again) {
                             return Err(error);
                         }
                         host = next;

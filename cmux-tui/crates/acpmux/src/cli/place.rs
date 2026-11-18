@@ -149,6 +149,16 @@ pub fn next_line(host: &str) -> String {
     format!("{host} refused the start (its remote chain): trying the next machine")
 }
 
+/// What an automatic `new --worktree` prints when it moves on from `host`: a worktree that
+/// machine made for this start before its chain refused stays there, unused, until its own
+/// worktree cleanup (`acpmux worktree clean`, which archives work that lives only there).
+pub fn worktree_left_line(host: &str) -> String {
+    format!(
+        "{host} may keep a worktree it made for this start before refusing it; no session uses \
+         it, and `acpmux worktree clean` on {host} archives and removes it"
+    )
+}
+
 /// A verdict with no pick: an explicit `--host auto` stops with why; a `new` that named no host
 /// (`here_if_none`) starts here with a warning, unless the registry holds this machine (`held`).
 fn without_pick(v: &Value, here_if_none: bool, held: Option<String>) -> Result<Option<String>> {
@@ -312,6 +322,7 @@ mod tests {
             next_line("vm"),
             "vm refused the start (its remote chain): trying the next machine"
         );
+        assert!(worktree_left_line("vm").contains("`acpmux worktree clean` on vm"));
     }
 
     #[test]

@@ -35,6 +35,10 @@ pub enum PeerCmd {
         /// For a build or test suite: only build machines.
         #[arg(long)]
         build: bool,
+        /// Leave this machine out (repeatable): one that just refused a start you made from
+        /// the pick, as `new --machine auto` leaves out a machine whose remote chain refused it.
+        #[arg(long, value_name = "MACHINE")]
+        skip: Vec<String>,
     },
     /// Whether a machine is dedicated: it runs agents with no per-session
     /// sandbox, the VM is the boundary (vmHost). Claude runs there without the

@@ -737,8 +737,9 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
 }
 
 /// `place`, with the hosts `demoted` names (each with its line, `start_refusals::line`) ranked
-/// after the others that stand the same against their lane cap and room: the record is one term
-/// of the pick order, after reach, budget, lane cap and room and before the tier and load. So a
+/// after the others in the same set and the same lane-cap state: the record is one term of the
+/// pick order, after reach, budget, the lane cap and the set a host is weighed in (with room at
+/// all, unread, or passed over for room), and before the tier, the room number and load. So a
 /// recorded host under its cap still goes ahead of any host at its cap, and a record never takes
 /// a host out or makes "no host has room".
 pub fn place_demoting(
@@ -844,10 +845,11 @@ pub fn place_demoting(
     let pick = order.first();
     let why = match pick {
         Some(w) if overloaded => format!(
-            "{}: {} ({}; no host has room, so the one with the most takes it: load and lane caps only warn)",
+            "{}: {} ({}; no host has room, so the one with the most takes it: load and lane caps only warn{})",
             w.name,
             w.why,
-            w.refused.as_deref().unwrap_or_default()
+            w.refused.as_deref().unwrap_or_default(),
+            w.demoted.as_deref().map(|d| format!("; picked although {d}")).unwrap_or_default()
         ),
         Some(w) if w.demoted.is_some() => format!(
             "{}: {} (picked although {}: no host without such a record stands as well against its lane cap and room)",
