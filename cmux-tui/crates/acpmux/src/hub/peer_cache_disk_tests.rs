@@ -26,11 +26,12 @@ fn add_idle_peer(hub: &Hub, name: &str) -> Arc<crate::peer::Peer> {
 }
 
 /// Session `i`: about 5 KB, and every hundredth (in a large list) about 84 KB, like the largest
-/// `timeBreakdown` a real peer listed.
+/// row a real peer listed. The padding is a member the disk keeps (`timeBreakdown` it does not,
+/// `peer_row::OnDiskRow`).
 fn row(i: usize, rows: usize) -> Value {
     let pad = if rows > 100 && i % 100 == 99 { BIG_PAD } else { ROW_PAD };
     json!({"sessionId": format!("s{i}"), "name": format!("lane-{i}"), "status": "idle",
-        "turnCount": 1, "updatedAt": 5, "timeBreakdown": "x".repeat(pad)})
+        "turnCount": 1, "updatedAt": 5, "lastMessage": "x".repeat(pad)})
 }
 
 fn wrote(hub: &Hub) -> u64 {

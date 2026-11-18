@@ -717,9 +717,17 @@ impl Hub {
     }
 
     /// Census notices intentionally omit tools. Keep an already captured inventory in the
-    /// remote cache so `_acpmux/wait` and other per-session reads do not lose it on a change.
-    fn retain_summary_tools(mut summary: Value, previous: Option<&PeerRow>) -> Value {
-        if summary.get("tools").is_none()
+    /// remote cache so `_acpmux/wait` and other per-session reads do not lose it on a change,
+    /// while this link streams the chat (`attached`, `Peer::is_marked`): any other's tools
+    /// leave at its next change, rather than the mirror keeping every chat's ever captured
+    /// (6,900 of 10,366 mirrored rows, 13.3 MB, 2026-11-18).
+    fn retain_summary_tools(
+        mut summary: Value,
+        previous: Option<&PeerRow>,
+        attached: bool,
+    ) -> Value {
+        if attached
+            && summary.get("tools").is_none()
             && let Some(previous) = previous.filter(|p| p.has_tools())
         {
             // Only its tools are parsed, not the row.
@@ -903,7 +911,7 @@ impl Hub {
                     // comparison work without it. The single-consumer notice loop keeps another
                     // notice for this peer from changing the baseline while this one is built.
                     let (changed, gone) = loop {
-                        let (mut old, epoch, purged) = {
+                        let (mut old, epoch, purged, link) = {
                             let Some(current) =
                                 self.peer(&peer).filter(|p| p.generation == generation)
                             else {
@@ -929,13 +937,17 @@ impl Hub {
                                     .collect::<HashMap<_, _>>(),
                                 epoch,
                                 purged,
+                                current,
                             )
                         };
+                        // Tools are kept for a chat this link streams (`retain_summary_tools`).
+                        let marked = |id: &str| link.is_marked(id);
                         // Each row is parsed from its text here, one at a time, and kept packed
                         // (`peer_row.rs`), so a list is never held parsed. A row that is not an
                         // object is skipped.
                         let mut listed = Vec::new();
                         let mut changed = Vec::new();
+                        let mut quiet = Vec::new();
                         for text in &list {
                             let Ok(s) = serde_json::from_str::<Value>(text) else { continue };
                             let summary = Self::remote_summary(&peer, s);
@@ -946,14 +958,23 @@ impl Hub {
                             let id = receipt.qualified_id();
                             let previous = old.remove(&id);
                             let previous = previous.as_ref().map(|r| &r.summary);
-                            let summary =
-                                PeerRow::new(&Self::retain_summary_tools(summary, previous));
+                            let attached = marked(&receipt.mux_session_id);
+                            let summary = PeerRow::new(&Self::retain_summary_tools(
+                                summary, previous, attached,
+                            ));
                             listed.push((receipt.mux_session_id.clone(), summary.created_at()));
                             // Compared as text.
                             if previous != Some(&summary) {
+                                // A row that differs only in its receipt's `generation` (the peer
+                                // restarted) did not change: the table takes it, nobody is told.
+                                let run_only = previous.is_some_and(|p| p.same_but_run(&summary));
                                 // One row for the table and the announcement both.
                                 let row = RemoteSession { peer: peer.clone(), summary, receipt };
-                                changed.push((id, Arc::new(row)));
+                                if run_only {
+                                    quiet.push((id, Arc::new(row)));
+                                } else {
+                                    changed.push((id, Arc::new(row)));
+                                }
                             }
                         }
                         let gone_ids = old.keys().cloned().collect::<Vec<_>>();
@@ -975,10 +996,10 @@ impl Hub {
                         for id in gone_ids {
                             map.remove(&id);
                         }
-                        for (id, row) in &changed {
+                        for (id, row) in changed.iter().chain(&quiet) {
                             map.insert_shared(id.clone(), Arc::clone(row));
                         }
-                        if !changed.is_empty() || !gone.is_empty() {
+                        if !changed.is_empty() || !quiet.is_empty() || !gone.is_empty() {
                             current
                                 .remote_rows_epoch
                                 .fetch_add(1, std::sync::atomic::Ordering::Release);
@@ -1085,6 +1106,7 @@ impl Hub {
                         summary = Self::retain_summary_tools(
                             summary,
                             previous.as_ref().map(|r| &r.summary),
+                            current.is_marked(&mux_id),
                         );
                         let row = PeerRow::new(&summary);
                         map.insert(

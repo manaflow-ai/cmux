@@ -7,7 +7,10 @@
 //!
 //! The members a list writes itself (`stale`, `peerState`) or leaves out or cuts without tools
 //! (`tools`, `toolsMutable`, `title`), and `tags` (read on demand), are kept apart from the rest,
-//! so a list writes the row with no parse and no member twice.
+//! so a list writes the row with no parse and no member twice. So are the members a change
+//! compare or the disk copy reads apart: `sessionReceipt` (its `generation` is the owning
+//! daemon's start time, one fact per link, not a change of the row: [`PeerRow::same_but_run`])
+//! and `timeBreakdown` (never saved: [`OnDiskRow`]).
 
 use super::*;
 use serde_json::value::RawValue;
@@ -21,6 +24,8 @@ enum Apart {
     Title,
     Tools,
     ToolsMutable,
+    Receipt,
+    TimeBreakdown,
 }
 
 impl Apart {
@@ -32,6 +37,8 @@ impl Apart {
             "title" => Self::Title,
             "tools" => Self::Tools,
             "toolsMutable" => Self::ToolsMutable,
+            "sessionReceipt" => Self::Receipt,
+            "timeBreakdown" => Self::TimeBreakdown,
             _ => return None,
         })
     }
@@ -44,6 +51,8 @@ impl Apart {
             Self::Title => "title",
             Self::Tools => "tools",
             Self::ToolsMutable => "toolsMutable",
+            Self::Receipt => "sessionReceipt",
+            Self::TimeBreakdown => "timeBreakdown",
         }
     }
 }
@@ -170,8 +179,15 @@ impl PeerRow {
 
     /// The row as JSON text: every member, `stale` as `stale` says (else as kept), `peerState`
     /// as `peer_state` says (else as kept), and without tools (`tools`, `toolsMutable`, a long
-    /// title cut) unless `tools`.
-    fn text_with(&self, stale: Option<bool>, peer_state: Option<&str>, tools: bool) -> String {
+    /// title cut) unless `tools`. `disk` leaves out what the disk copy never keeps (`tools`,
+    /// `toolsMutable`, `timeBreakdown`), the title whole.
+    fn text_with(
+        &self,
+        stale: Option<bool>,
+        peer_state: Option<&str>,
+        tools: bool,
+        disk: bool,
+    ) -> String {
         let Some(open) = self.base.strip_suffix('}') else {
             return self.base.to_string();
         };
@@ -194,7 +210,8 @@ impl PeerRow {
             let value = match which {
                 Apart::Stale if stale.is_some() => continue,
                 Apart::PeerState if peer_state.is_some() => continue,
-                Apart::Tools | Apart::ToolsMutable if !tools => continue,
+                Apart::Tools | Apart::ToolsMutable if !tools || disk => continue,
+                Apart::TimeBreakdown if disk => continue,
                 Apart::Title if !tools => self.short_title.as_ref().unwrap_or(value),
                 _ => value,
             };
@@ -210,12 +227,62 @@ impl PeerRow {
     /// The row as a session list lists it (`peers::listed_remote_row`): `stale` always set,
     /// `peerState` its link's state when known, with tools only when `tools`. No parse.
     pub fn listed(&self, peer_state: Option<&str>, tools: bool) -> String {
-        self.text_with(Some(self.hot.stale), peer_state, tools)
+        self.text_with(Some(self.hot.stale), peer_state, tools, false)
     }
 
     /// The whole row as JSON text.
     pub fn text(&self) -> String {
-        self.text_with(None, None, true)
+        self.text_with(None, None, true, false)
+    }
+
+    /// The row as the disk copy keeps it ([`OnDiskRow`]).
+    fn disk_text(&self) -> String {
+        self.text_with(None, None, true, true)
+    }
+
+    /// Whether the two are the same row but for the members `skip` names and their receipts'
+    /// `generation`.
+    fn same_but(&self, other: &Self, skip: &[Apart]) -> bool {
+        if self.base != other.base {
+            return false;
+        }
+        let rest = |row: &'_ Self| {
+            row.apart
+                .iter()
+                .filter(|(which, _)| *which != Apart::Receipt && !skip.contains(which))
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        if rest(self) != rest(other) {
+            return false;
+        }
+        let receipt = |row: &'_ Self| {
+            row.apart.iter().find(|(which, _)| *which == Apart::Receipt).map(|(_, v)| v.clone())
+        };
+        let (mine, theirs) = (receipt(self), receipt(other));
+        if mine == theirs {
+            return true;
+        }
+        // Parsed only when the texts differ (a peer that restarted): about a hundred bytes.
+        let run_free = |text: Option<Box<str>>| {
+            let mut receipt: Value = serde_json::from_str(&text?).ok()?;
+            receipt.as_object_mut()?.remove("generation");
+            Some(receipt)
+        };
+        let mine = run_free(mine);
+        mine.is_some() && mine == run_free(theirs)
+    }
+
+    /// Whether the two are the same row but for the run of the daemon that owns it (its
+    /// receipt's `generation`, that daemon's start time): a peer that restarted lists each row
+    /// so, and none of them changed.
+    pub(super) fn same_but_run(&self, other: &Self) -> bool {
+        self.same_but(other, &[])
+    }
+
+    /// Whether the disk copies of the two ([`OnDiskRow`]) are the same, but for the run.
+    pub(super) fn same_on_disk(&self, other: &Self) -> bool {
+        self.same_but(other, &[Apart::Tools, Apart::ToolsMutable, Apart::TimeBreakdown])
     }
 
     /// The whole row, parsed: for a reader that needs more than the hot fields.
@@ -322,6 +389,18 @@ impl serde::Serialize for PeerRow {
     }
 }
 
+/// A row as the peer cache writes it (`peer_cache_disk.rs`): without `tools`, `toolsMutable`
+/// and `timeBreakdown`, which no last-known row needs and which were most of its bytes (a
+/// journal row with them was 15-90 KB on a Mac mirroring 10,366 rows, 2026-11-18).
+pub(super) struct OnDiskRow<'a>(pub(super) &'a PeerRow);
+
+impl serde::Serialize for OnDiskRow<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let raw = RawValue::from_string(self.0.disk_text()).map_err(serde::ser::Error::custom)?;
+        raw.serialize(serializer)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -352,6 +431,35 @@ mod tests {
         assert_eq!(row.listed(None, true).matches("\"stale\"").count(), 1);
         assert_eq!(row.listed(Some("x"), true).matches("\"peerState\"").count(), 1);
         assert_eq!(serde_json::to_value(&row).unwrap(), summary);
+    }
+
+    #[test]
+    fn a_row_another_run_lists_is_the_same_but_for_the_run() {
+        let row = |generation: u64, title: &str| {
+            PeerRow::new(&json!({
+                "sessionId": "s1", "status": "closed", "title": title,
+                "sessionReceipt": {"hostId": "hb", "muxSessionId": "s1", "generation": generation},
+            }))
+        };
+        assert_ne!(row(1, "a"), row(2, "a"));
+        assert!(row(1, "a").same_but_run(&row(2, "a")));
+        assert!(!row(1, "a").same_but_run(&row(2, "b")));
+        assert!(row(1, "a").same_on_disk(&row(2, "a")));
+        assert_eq!(row(1, "a").value(), PeerRow::new(&row(1, "a").value()).value());
+    }
+
+    #[test]
+    fn the_disk_copy_keeps_no_tools_or_timing() {
+        let summary = json!({
+            "sessionId": "s1", "title": "t".repeat(400), "tools": [{"name": "a"}],
+            "toolsMutable": true, "timeBreakdown": {"turns": [1, 2, 3]},
+        });
+        let row = PeerRow::new(&summary);
+        let disk = serde_json::to_value(OnDiskRow(&row)).unwrap();
+        assert_eq!(disk, json!({"sessionId": "s1", "title": "t".repeat(400)}));
+        let census = PeerRow::new(&json!({"sessionId": "s1", "title": "t".repeat(400)}));
+        assert!(row.same_on_disk(&census));
+        assert!(!row.same_but_run(&census));
     }
 
     #[test]

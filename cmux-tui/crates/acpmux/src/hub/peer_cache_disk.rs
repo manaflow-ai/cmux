@@ -21,7 +21,12 @@
 //! never lands on a newer snapshot. A torn line (a crash mid-append) does not parse and is
 //! skipped. An older daemon reading these files sees the snapshot as of the last compaction:
 //! the same rows, possibly older, all marked stale until the peer lists them again.
+//!
+//! Neither file keeps a row's `tools`, `toolsMutable` or `timeBreakdown` (`OnDiskRow`), and a
+//! row that differs only in those or in its receipt's `generation` (the peer's start time) is
+//! not written again: a peer's restart with its sessions unchanged writes nothing.
 
+use super::peer_row::OnDiskRow;
 use super::*;
 
 /// The journal is folded into the snapshot once it reaches this size or twice the snapshot's.
@@ -60,7 +65,7 @@ struct EntryOut<'a> {
     base: u64,
     link: Link,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    set: Vec<(&'a str, &'a PeerRow)>,
+    set: Vec<(&'a str, OnDiskRow<'a>)>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     drop: Vec<&'a str>,
 }
@@ -135,7 +140,9 @@ fn still_on_disk(kept: &Kept, now: &Arc<RemoteSession>, link: &Link) -> Option<K
     if Arc::ptr_eq(&kept.seen, now) {
         return Some(Kept { disk: kept.disk.clone(), seen: now.clone() });
     }
-    if kept.disk.summary == now.summary {
+    // Compared as disk keeps them (`OnDiskRow`): a peer's restart (its receipts' `generation`)
+    // or its tools and timing coming and going write nothing.
+    if kept.disk.summary.same_on_disk(&now.summary) {
         return Some(Kept::new(now));
     }
     if !now.summary.stale() {
@@ -143,7 +150,7 @@ fn still_on_disk(kept: &Kept, now: &Arc<RemoteSession>, link: &Link) -> Option<K
     }
     let mut loaded = kept.disk.summary.clone();
     loaded.mark_stale(link.last_seen);
-    (loaded == now.summary).then(|| Kept { disk: kept.disk.clone(), seen: now.clone() })
+    loaded.same_on_disk(&now.summary).then(|| Kept { disk: kept.disk.clone(), seen: now.clone() })
 }
 
 /// The bytes one save wrote, by file.
@@ -229,14 +236,14 @@ impl OnDisk {
             last_seen: Option<u64>,
             down_since: Option<u64>,
             next_retry_at: Option<u64>,
-            sessions: Vec<&'a PeerRow>,
+            sessions: Vec<OnDiskRow<'a>>,
             journal: u64,
         }
         let bytes = serde_json::to_vec(&SavedOut {
             last_seen: link.last_seen,
             down_since: link.down_since,
             next_retry_at: link.next_retry_at,
-            sessions: rows.iter().map(|(_, r)| &r.summary).collect(),
+            sessions: rows.iter().map(|(_, r)| OnDiskRow(&r.summary)).collect(),
             journal: base,
         })?;
         // The snapshot first: a crash before the journal is emptied leaves lines of the old
@@ -317,7 +324,7 @@ fn line_for(
             still_on_disk(old, row, &link)
         });
         let next = still.unwrap_or_else(|| {
-            set.push((key.as_str(), &row.summary));
+            set.push((key.as_str(), OnDiskRow(&row.summary)));
             Kept::new(row)
         });
         kept.insert(key.clone(), next);
