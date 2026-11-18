@@ -4,6 +4,7 @@
 Usage (stdlib only; run with `python3 -I`):
   language-packs.py split APP OUT --base-url https://files-next.cmux.com/language-packs [--keep LANG ...]
   language-packs.py measure APP [--keep LANG ...]
+  language-packs.py measure APP --cef        (step 3: the Chromium locale paks, measured only)
 
 Languages are APP/Contents/Info.plist CFBundleLocalizations minus "en" (and minus --keep). Only the
 CmuxNext package's SwiftPM resource bundles (APP/Contents/Resources/CmuxNext_*.bundle) are split;
@@ -211,6 +212,36 @@ def measure(args) -> None:
         print(f"kept in the app: {', '.join(name + '.lproj' for name in left)}")
 
 
+CEF_RESOURCES = "Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Resources"
+
+
+def measure_cef(args) -> None:
+    """Step 3 (CMUX-570), measure only: the Chromium locale paks a pack per Chromium locale would
+    take out of the framework (every <locale>.lproj but en, the regional en_GB, es_419 and pt_PT
+    included, which become downloads, never cuts: the 2026-11-12 decision). Not split yet: CEF on
+    macOS loads locale paks only from its framework's Resources, so the split needs the CEF fork to
+    read them from the language pack cache first, and must run before sign-cef.sh seals the framework."""
+    resources = Path(args.app) / CEF_RESOURCES
+    if not resources.is_dir():
+        die(f"no {resources}")
+    total = packed_total = files_total = 0
+    print(f"{'locale':<8} {'files':>6} {'installed':>12} {'packed':>12}")
+    for lproj in sorted(resources.glob("*.lproj")):
+        name = lproj.name[: -len(".lproj")]
+        if name == "en":
+            continue
+        files = lproj_files(lproj)
+        size = sum(f.stat().st_size for f in files)
+        entries = [(lproj.name, None)] + [(f.relative_to(resources).as_posix(), f) for f in files]
+        packed = len(zstd_compress(tar_bytes(entries)))
+        print(f"{name:<8} {len(files):>6} {size:>12} {packed:>12}")
+        total += size
+        packed_total += packed
+        files_total += len(files)
+    print(f"Chromium locales: {files_total} files, {mb(total)} installed bytes removed, {mb(packed_total)} of packs "
+          f"(en.lproj stays)")
+
+
 def check_base_url(url: str) -> str:
     if not (url.startswith("https://") or re.match(r"http://(localhost|127\.0\.0\.1)(:\d+)?(/|$)", url)):
         die(f"--base-url must be https (or http to localhost for tests): {url!r}")
@@ -274,7 +305,8 @@ def main() -> None:
     m = sub.add_parser("measure")
     m.add_argument("app")
     m.add_argument("--keep", nargs="+", default=[], metavar="LANG")
-    m.set_defaults(run=measure)
+    m.add_argument("--cef", action="store_true", help="measure the Chromium locale paks instead (step 3)")
+    m.set_defaults(run=lambda a: measure_cef(a) if a.cef else measure(a))
     args = parser.parse_args()
     args.run(args)
 
