@@ -1275,6 +1275,9 @@ pub struct Hub {
     /// Which predicted next prompts reach the person (`suggestion_gate.rs`): this daemon's own
     /// chats and the peers' chats it relays to its person.
     pub(crate) suggestion_gate: StdMutex<crate::suggestion_gate::Gate>,
+    /// Machines whose own remote chain refused a start this daemon forwarded there, which the
+    /// automatic pick skips while fresh (`start_refusals.rs`).
+    pub(crate) start_refusals: crate::start_refusals::StartRefusals,
 }
 
 /// What a cached closed row was built after: every row's changes (`Events::summary_generation`),
@@ -1566,6 +1569,7 @@ impl Hub {
             presence: Default::default(),
             workflow_index: Default::default(),
             suggestion_gate,
+            start_refusals: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             watched_moves: Default::default(),
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),

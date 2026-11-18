@@ -109,12 +109,32 @@ fn dispatch_hosts(
 }
 
 /// This machine and every connected peer, with their last readings, and every other peer with
-/// why it is none (`split_peers`).
+/// why it is none (`split_peers`, `without_refusing`).
 async fn candidates(hub: &Hub) -> (Vec<Candidate>, Vec<(String, String)>) {
-    let (peers, down) = split_peers(hub.peers());
+    let (peers, mut down) = split_peers(hub.peers());
+    let peers = without_refusing(peers, &mut down, &hub.start_refusals, crate::store::now_ms());
     let mut candidates = vec![this_machine(hub).await];
     candidates.extend(peers);
     (candidates, down)
+}
+
+/// `peers` without the ones whose own remote chain refused a start while that record is fresh
+/// at `now_ms` (`start_refusals.rs`): each goes to `down`, as a peer that does not answer, with
+/// the refusal and its time. A start that names one still goes there.
+fn without_refusing(
+    peers: Vec<Candidate>,
+    down: &mut Vec<(String, String)>,
+    refusals: &crate::start_refusals::StartRefusals,
+    now_ms: u64,
+) -> Vec<Candidate> {
+    let mut kept = Vec::with_capacity(peers.len());
+    for peer in peers {
+        match refusals.fresh(&peer.name, now_ms) {
+            Some(r) => down.push((peer.name, crate::start_refusals::line(&r, now_ms))),
+            None => kept.push(peer),
+        }
+    }
+    kept
 }
 
 /// Peer rows split into candidates and the names of the others with why
@@ -307,6 +327,42 @@ mod tests {
                 ("gone".to_owned(), "not connected (offline)".to_owned()),
             ]
         );
+    }
+
+    /// A peer whose own remote chain refused a start is passed over like a peer that does not
+    /// answer while the record is fresh, listed with the refusal and its time; after 30 minutes,
+    /// or once a start there works, it is weighed again.
+    #[test]
+    fn a_peer_whose_chain_refused_a_start_is_skipped_while_the_refusal_is_fresh() {
+        let refusals = crate::start_refusals::StartRefusals::default();
+        let at = 1_763_464_980_000; // 2025-11-18T11:23:00Z
+        refusals.record("roomy", at, "remote chain refused: the sandbox canary shows no sandbox");
+        // roomy has more room than lean: without the record it is the pick.
+        let peers =
+            || vec![named("roomy", false, health(60, 0)), named("lean", false, health(20, 0))];
+        let weigh = |now: u64| {
+            let mut down = Vec::new();
+            let kept = without_refusing(peers(), &mut down, &refusals, now);
+            let v = crate::placement::place(&kept, None, Work::Agent);
+            crate::placement::with_down(v, &down)
+        };
+        let v = weigh(at + 5 * 60_000);
+        assert_eq!(v["pick"], "lean", "{v:#}");
+        let roomy = v["hosts"].as_array().unwrap().iter().find(|h| h["name"] == "roomy").unwrap();
+        assert_eq!((&roomy["ok"], &roomy["room"]), (&json!(false), &Value::Null), "{v:#}");
+        let refused = roomy["refused"].as_str().unwrap();
+        assert!(
+            refused.starts_with("its remote chain refused a start at 2025-11-18T11:23:00")
+                && refused.contains("(5 min ago;")
+                && refused.ends_with("the sandbox canary shows no sandbox"),
+            "{refused}"
+        );
+        // Stale after 30 minutes: weighed again, and the pick.
+        assert_eq!(weigh(at + crate::start_refusals::FRESH_MS)["pick"], "roomy");
+        // A start that works there clears it at once.
+        refusals.record("roomy", at, "remote chain refused: x");
+        refusals.note("roomy", &Ok(()), at + 1);
+        assert_eq!(weigh(at + 2)["pick"], "roomy");
     }
 
     /// A command-line `new` on a machine a person works at weighs only the others: this one and

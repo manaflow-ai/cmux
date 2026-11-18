@@ -250,7 +250,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let folder_named = args.cwd.is_some() || launch.worktree.is_some();
             let target =
                 crate::cli::place::new_target(args.host.as_deref(), interactive, folder_named);
-            let host = match target {
+            // The work the pick placed, to place again after a refusal (`place::try_next`).
+            let placed_work = match &target {
+                crate::cli::place::Target::Place(work) => Some(*work),
+                _ => None,
+            };
+            let mut host = match target {
                 crate::cli::place::Target::Place(work) => {
                     before_deadline(
                         deadline,
@@ -356,10 +361,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // A session of this name already running is the one asked for:
             // found before the create, or after losing the create to another
             // launcher with the same name.
-            let key = launch.name.as_ref().map(|n| match &host {
-                Some(h) => format!("{h}/{n}"),
-                None => n.clone(),
-            });
+            let key_on = |host: &Option<String>| {
+                launch.name.as_ref().map(|n| match host {
+                    Some(h) => format!("{h}/{n}"),
+                    None => n.clone(),
+                })
+            };
+            let mut key = key_on(&host);
+            // The machines this automatic start went to (`place::try_next`).
+            let mut tried = 1;
             let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
             if let Some(cwd) = &cwd {
                 p["cwd"] = json!(cwd);
@@ -395,6 +405,68 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         reconnects += 1;
                         client =
                             before_deadline(deadline, setup_name, reconnect_after_update()).await?;
+                    }
+                    // The pick's own remote chain refused the start, so nothing started there:
+                    // place it again, which skips that machine now, and start on the next one.
+                    Err(error)
+                        if crate::cli::place::try_next(
+                            placed_work.is_some(),
+                            host.as_deref(),
+                            tried,
+                            &error,
+                        ) =>
+                    {
+                        let refused = host.clone().unwrap_or_default();
+                        let said = error.to_string();
+                        eprintln!("{}", said.lines().next().unwrap_or_default());
+                        eprintln!("{}", crate::cli::place::next_line(&refused));
+                        let next = match before_deadline(
+                            deadline,
+                            setup_name,
+                            crate::cli::place::resolve(
+                                &client,
+                                placed_work.unwrap_or("agent"),
+                                launch.name.as_deref(),
+                                launch.reuse,
+                                interactive,
+                                args.host.is_none(),
+                            ),
+                        )
+                        .await
+                        {
+                            Ok(next) => next,
+                            Err(none) => {
+                                return Err(error.context(format!(
+                                    "{refused} refused the start, and no next machine took it \
+                                     ({none:#})"
+                                )));
+                            }
+                        };
+                        // A daemon that kept no record may pick it again: that is no next machine.
+                        if next.as_deref() == Some(refused.as_str()) {
+                            return Err(error);
+                        }
+                        tried += 1;
+                        host = next;
+                        key = key_on(&host);
+                        match &host {
+                            Some(h) => p["_meta"]["acpmux"]["peer"] = json!(h),
+                            None => {
+                                if let Some(m) = p["_meta"]["acpmux"].as_object_mut() {
+                                    m.remove("peer");
+                                }
+                            }
+                        }
+                        if launch.worktree.is_none() {
+                            match new_session_cwd(host.as_deref(), args.cwd.clone())? {
+                                Some(cwd) => p["cwd"] = json!(cwd),
+                                None => {
+                                    if let Some(o) = p.as_object_mut() {
+                                        o.remove("cwd");
+                                    }
+                                }
+                            }
+                        }
                     }
                     found => break found?,
                 }
