@@ -319,6 +319,38 @@ import Testing
         #expect(!applied && flowing.unacked.isEmpty)
     }
 
+    /// An ignored ack is reported once per stall episode, so a misbehaving page shows in the log
+    /// (AgentPaneTransport logs `.pastNewestPush` with `report`) but cannot flood it.
+    @Test func anAckPastTheNewestPushIsReportedOncePerStall() {
+        var ledger = PagePushLedger(bounds: .init(maximumUnackedBytes: 100, maximumUnackedPushes: 240))
+        ledger.pushed(seq: 1, bytes: 120)
+        let held = ledger.deadlinePassed()
+        #expect(!held && ledger.stalled)
+
+        let first = ledger.ack(seq: 5)
+        #expect(first == .pastNewestPush(newest: 1, report: true))
+        for _ in 0..<1000 {
+            let again = ledger.ack(seq: 6)
+            #expect(again == .pastNewestPush(newest: 1, report: false), "one report per stall episode")
+        }
+        #expect(ledger.acksPastNewest == 1001 && ledger.stalled && ledger.unackedBytes == 120)
+
+        let valid = ledger.ack(seq: 1)
+        #expect(valid == .resumed)
+
+        // The next stall is a new episode: its first ignored ack is reported again.
+        ledger.pushed(seq: 2, bytes: 120)
+        let heldAgain = ledger.deadlinePassed()
+        #expect(!heldAgain && ledger.stalls == 2)
+        let second = ledger.ack(seq: 9)
+        #expect(second == .pastNewestPush(newest: 2, report: true))
+
+        // A new connection forgets its pushes: any ack before the first push is past the newest.
+        ledger.reset()
+        let none = ledger.ack(seq: 1)
+        #expect(none == .pastNewestPush(newest: nil, report: true))
+    }
+
     @Test func anEpisodeHoldsKeptRecordsBehindItsOneMarker() {
         var episode = PageShedEpisode()
         let heldOutside = episode.deferRecord("r0", bytes: 2)

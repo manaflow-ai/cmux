@@ -343,14 +343,23 @@ import CmuxPagePushBound
     /// The page applied push `seq` of `connection` (`transport.ack`). `inputPending`: it had a key
     /// or pointer event waiting, or handled one under 50 ms ago, so the next pushes are small
     /// (``Limits/inputFramesPerFlush``). A stale or repeated ack only updates `inputPending`, but
-    /// any ack ends a stall: the page runs again, and the next push brings what was held.
+    /// any ack of a push made ends a stall: the page runs again, and the next push brings what was
+    /// held. An ack past the newest push is a buggy page's: it ends nothing, logged once per stall.
     public func acked(connection: Int, seq: Int, inputPending: Bool) {
         guard connection == current else { return }
         inputPendingAt = inputPending ? ProcessInfo.processInfo.systemUptime : nil
         acks += 1
-        if ledger.acked(seq: seq) {
+        switch ledger.ack(seq: seq) {
+        case .resumed:
             resumeStalledPage()
             return
+        case .pastNewestPush(let newest, let report):
+            if report {
+                Self.logger.error("agent pane transport: ignored an ack past the newest push connection=\(self.current, privacy: .public) seq=\(seq, privacy: .public) newest_pushed=\(newest.map(String.init) ?? "-", privacy: .public) stalled=\(self.ledger.stalled, privacy: .public)")
+            }
+            return
+        case .applied:
+            break
         }
         guard awaitingAck?.seq == seq else { return }
         finishAck(timedOut: false)
