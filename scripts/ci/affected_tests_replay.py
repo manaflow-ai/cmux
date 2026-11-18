@@ -310,7 +310,17 @@ def selected(plan: dict) -> dict:
 RUNNER_CHECKOUT = re.compile(r"^(?:.*/)?_work/[^/]+/[^/]+/")  # home/runner/_work/cmux/cmux/tests/x.py
 
 
-def check(path: Path, metadata: Path, out: Path | None) -> int:
+def head_metadata(wt: Path) -> dict | None:
+    """The worktree's own cmux-tui crate graph, or None when cargo is absent or refuses the manifests."""
+    if not shutil.which("cargo"):
+        return None
+    try:
+        return cargo_affected.cargo_metadata(wt, cargo_affected.WORKSPACE)
+    except (subprocess.CalledProcessError, json.JSONDecodeError):
+        return None
+
+
+def check(path: Path, metadata: Path, out: Path | None, per_head_metadata: bool = False) -> int:
     data = json.loads(path.read_text())
     for f in data["failures"]:
         if f["kind"] == "python":
@@ -338,10 +348,15 @@ def check(path: Path, metadata: Path, out: Path | None) -> int:
             wt = replay_worktree()
             subprocess.run(["git", "-C", str(wt), "checkout", "--quiet", "--force", "--detach", head], check=True)
             plan = affected_tests.plan(wt, base, head, files, 4, False)
-            crates = cargo_affected.plan(wt, meta, files)
             # The saved metadata is one commit's crate graph: a head with other members or edges would
-            # be planned against the wrong graph, so its Rust verdicts are unknown.
+            # be planned against the wrong graph, so its Rust verdicts are unknown, unless
+            # --metadata-per-head reads the head's own (`cargo metadata --no-deps` compiles nothing).
+            head_meta = meta
             same_graph = head_graph(head) == meta_graph(meta)
+            if not same_graph and per_head_metadata:
+                head_meta = head_metadata(wt)
+                same_graph = head_meta is not None
+            crates = cargo_affected.plan(wt, head_meta or meta, files)
             plans[head] = {"plan": plan, "sel": selected(plan), "crates": crates, "files": files,
                            "tree": None, "same_graph": same_graph}
         p = plans[head]
@@ -417,10 +432,12 @@ def main(argv: list[str]) -> int:
     k.add_argument("failures", type=Path)
     k.add_argument("--metadata", type=Path, required=True)
     k.add_argument("--json", type=Path)
+    k.add_argument("--metadata-per-head", action="store_true",
+                   help="a head whose crate graph differs from --metadata's: read its own with `cargo metadata --no-deps`")
     args = parser.parse_args(argv)
     if args.cmd == "collect":
         return collect(args.since, args.until, args.out, args.max_runs, args.runs_since)
-    return check(args.failures, args.metadata, args.json)
+    return check(args.failures, args.metadata, args.json, args.metadata_per_head)
 
 
 if __name__ == "__main__":

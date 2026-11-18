@@ -196,7 +196,8 @@ class AffectedTests(unittest.TestCase):
         self.assertIn(mac[0], [n["what"] for n in result["not_run"]])
 
     def test_webviews_source_runs_the_tests_that_import_it(self):
-        tests = affected_tests.web_tests(ROOT)
+        # A file the controller can list (scripts/**.test.mjs sorts first and runs only in the whole lane).
+        tests = [t for t in affected_tests.web_tests(ROOT) if affected_tests.WEB_FILE_OK.match(t)]
         self.assertTrue(tests)
         target = "webviews/" + tests[0]
         result = plan([target])
@@ -306,6 +307,15 @@ class Replay(unittest.TestCase):
         meta["workspace_members"].append("new 0.0.0")  # or before a crate was removed
         self.assertNotIn("new", graph)
         self.assertIn("new", self.replay.meta_graph(meta))
+
+    def test_per_head_metadata_is_the_heads_own_graph_or_none(self):
+        from unittest import mock
+        with mock.patch.object(self.replay.shutil, "which", return_value=None):
+            self.assertIsNone(self.replay.head_metadata(ROOT))  # no cargo: the verdict stays unknown
+        if not self.replay.shutil.which("cargo"):
+            self.skipTest("no cargo here")
+        meta = self.replay.head_metadata(ROOT)
+        self.assertEqual(self.replay.meta_graph(meta), self.replay.head_graph("HEAD"))
 
     def test_guard_runner_summary_names_each_red_guard(self):
         log = "##[group]Run x\nfailed: workflow-guard-tests / ci: Validate A; workflow-guard-tests / ci: Validate B\n"
