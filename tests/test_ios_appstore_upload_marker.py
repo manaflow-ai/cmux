@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""The cmux.app upload marker must follow Apple's receipt, not the step's exit.
+"""The cmux CLASSIC upload marker must follow Apple's receipt, not the step's exit.
 
 ios-appstore-upload.yml skips a scheduled poll when a completed run for the
-same main SHA left a `cmux-app-testflight-upload` artifact: the marker says
+same main SHA left a `cmux-classic-testflight-upload` artifact: the marker says
 "Apple already has this revision", and the next poll only retries group
 assignment. The two steps that write and retain that marker ran only on
 success, so a failure after App Store Connect had accepted the IPA (issue
@@ -27,7 +27,9 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/ios-appstore-upload.yml"
 RECORD = "Record completed upload before group assignment"
 RETAIN = "Retain completed upload for assignment retries"
-APP_ID = "6783338052"
+# A stand-in cmux CLASSIC app id; the real one comes from the
+# IOS_CLASSIC_ASC_APP_ID repository variable.
+APP_ID = "6799000001"
 RECEIPT = {"uploadId": "41b619d5", "fileName": "cmux-resigned.ipa", "uploaded": True}
 
 
@@ -70,6 +72,7 @@ class UploadMarkerTests(unittest.TestCase):
                 "RUNNER_TEMP": str(temp),
                 "GITHUB_OUTPUT": str(output),
                 "GITHUB_SHA": "head-sha",
+                "ASC_APP_ID": APP_ID,
             }
             for key, value in (record.get("env") or {}).items():
                 value = str(value)
@@ -84,7 +87,7 @@ class UploadMarkerTests(unittest.TestCase):
             outputs = dict(
                 line.split("=", 1) for line in output.read_text().splitlines() if "=" in line
             )
-            marker_path = temp / "cmux-app-upload-marker" / "upload.json"
+            marker_path = temp / "cmux-classic-upload-marker" / "upload.json"
             marker = json.loads(marker_path.read_text()) if marker_path.exists() else None
             return outputs, marker
 
@@ -96,6 +99,13 @@ class UploadMarkerTests(unittest.TestCase):
         # Apple accepted anything never publishes a marker.
         self.assertIn("steps.record_upload.outputs.recorded == 'true'", retain)
         self.assertEqual(step(RECORD).get("id"), "record_upload")
+
+    def test_marker_records_the_configured_classic_app_not_com_cmux_app(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("'app_id': os.environ['ASC_APP_ID']", step(RECORD)["run"])
+        self.assertNotIn("'6783338052'", workflow)
+        job_env = yaml.safe_load(workflow)["jobs"]["upload"]["env"]
+        self.assertEqual(job_env["ASC_APP_ID"], "${{ vars.IOS_CLASSIC_ASC_APP_ID }}")
 
     def test_failure_after_the_receipt_records_the_upload(self):
         outputs, marker = self.record("failure", receipt=json.dumps(RECEIPT) + "\n")

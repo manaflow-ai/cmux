@@ -453,6 +453,7 @@ async function applySubscriptionEntitlementUpdate(
   if (
     !("skipped" in result)
     && !result.isActive
+    && !("retainsAccess" in result && result.retainsAccess)
   ) {
     if (result.scope === "user") {
       await dependencies.revokeCoderouterRouteTokens(result.stackUserId);
