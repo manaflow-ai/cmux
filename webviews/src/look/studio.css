@@ -8,17 +8,17 @@
    primary oklch(0.571 0.21 264), radius 0.5rem, chat column 46rem, composer shadow
    0 14px 32px -18px rgb(0 0 0 / 75%). */
 :root {
-  --studio-bg: #000;
-  --studio-fg: #f1f3f7;
-  --studio-muted: #a3a3a3;
-  --studio-border: rgb(255 255 255 / 8%);
-  --studio-input: rgb(255 255 255 / 18%);
-  --studio-primary: oklch(0.571 0.21 264);
+  --studio-bg: #000; /* colour-allow: the reference app's own token, which this look carries */
+  --studio-fg: #f1f3f7; /* colour-allow: the reference app's own token, which this look carries */
+  --studio-muted: #a3a3a3; /* colour-allow: the reference app's own token, which this look carries */
+  --studio-border: rgb(255 255 255 / 8%); /* colour-allow: the reference app's own token, which this look carries */
+  --studio-input: rgb(255 255 255 / 18%); /* colour-allow: the reference app's own token, which this look carries */
+  --studio-primary: oklch(0.571 0.21 264); /* colour-allow: the reference app's own token, which this look carries */
   --studio-radius: 0.5rem;
-  --studio-card: #0a0a0a;
-  --studio-pill: #1a1a1a;
-  --studio-shadow: 0 14px 32px -18px rgb(0 0 0 / 75%);
-  --studio-font: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
+  --studio-card: #0a0a0a; /* colour-allow: the reference app's own token, which this look carries */
+  --studio-pill: #1a1a1a; /* colour-allow: the reference app's own token, which this look carries */
+  --studio-shadow: 0 14px 32px -18px rgb(0 0 0 / 75%); /* colour-allow: the reference app's own token, which this look carries */
+  --studio-font: var(--font-ui); /* the system font (-apple-system), the reference app's UI font */
   --studio-mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, monospace;
 }
 
@@ -30,8 +30,7 @@
   --acpmux-composer-solid: var(--studio-card);
   --acpmux-composer-surface: var(--studio-card);
   --acpmux-composer-shadow: var(--studio-shadow);
-  --acpmux-pill-open: rgb(255 255 255 / 10%);
-  --font-ui: var(--studio-font);
+  --acpmux-pill-open: rgb(255 255 255 / 10%); /* colour-allow: the reference app's own token, which this look carries */
   background: var(--studio-bg);
 }
 .acpmux-shell,
@@ -43,10 +42,10 @@
   --cv-activity-text: var(--studio-muted);
   --cv-rule: var(--studio-border);
   --cv-bubble: var(--studio-pill);
-  --cv-code-bg: rgb(255 255 255 / 8%);
-  --cv-codeblock-bg: rgb(255 255 255 / 3%);
+  --cv-code-bg: rgb(255 255 255 / 8%); /* colour-allow: the reference app's own token, which this look carries */
+  --cv-codeblock-bg: rgb(255 255 255 / 3%); /* colour-allow: the reference app's own token, which this look carries */
   --cv-codeblock-ring: var(--studio-border);
-  --cv-link: #8b95ff;
+  --cv-link: #8b95ff; /* colour-allow: the reference app's own token, which this look carries */
 }
 
 /* Your prompt: a dark pill on the right, opaque (the reference draws no glass). */
@@ -86,7 +85,7 @@
   white-space: nowrap;
 }
 .studio-crumb__slash {
-  color: rgb(255 255 255 / 28%);
+  color: rgb(255 255 255 / 28%); /* colour-allow: the reference app's own token, which this look carries */
   font-size: var(--text-control);
 }
 
@@ -102,7 +101,7 @@
 }
 .acpmux-composer .acpmux-send {
   border-radius: 50%;
-  background: rgb(255 255 255 / 10%);
+  background: rgb(255 255 255 / 10%); /* colour-allow: the reference app's own token, which this look carries */
   color: var(--studio-fg);
 }
 .acpmux-composer .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, :disabled) {
@@ -120,7 +119,7 @@
   --glass-edge: var(--studio-border);
   --glass-opaque: var(--studio-card);
   background: var(--studio-card);
-  border-radius: 1rem;
+  border-radius: 1rem; /* concentric-allow: the reference app's panel corner; its rows have no button fill */
   box-shadow: 0 0 0 1px var(--studio-border), var(--studio-shadow);
 }
 
