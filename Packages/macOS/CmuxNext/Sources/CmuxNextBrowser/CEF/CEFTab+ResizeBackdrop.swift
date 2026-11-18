@@ -56,8 +56,9 @@ extension CEFTab {
 
     /// The ground the page's pane shows when it closes (CLOSE MOTION 2 case 3): the page's own background, as its host
     /// view fills a resize gap with it, so the page's color stays where the page was instead of the window's; nil (the
-    /// chrome's ground) before the first real page and under a see-through cmux page, which shows the pane under it.
-    public var pageGround: CGColor? { pageSeeThrough ? nil : pageBackdropColor }
+    /// chrome's ground) before the first real page, under a see-through cmux page and under a document that has not
+    /// painted, each of which shows the pane under it (``showsPaneGround``).
+    public var pageGround: CGColor? { showsPaneGround ? nil : pageBackdropColor }
 
     /// Reads the document's background (after a load, when a live resize
     /// starts, and when the page hears a new color scheme) and applies it to

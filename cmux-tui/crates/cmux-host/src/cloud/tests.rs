@@ -460,3 +460,251 @@ fn carrier_ticket_request_uses_an_empty_body() {
     assert_eq!(request.url, format!("{DEV}/v1/cloud/machines/{MACHINE}/carrier"));
     assert_eq!(request.bearer.as_deref(), Some("tok-1"));
 }
+
+/// The bind endpoint answering from a script, then like [`Fake`].
+struct Scripted(RefCell<VecDeque<Result<(u16, Value), String>>>, Fake);
+
+impl Scripted {
+    fn new(answers: impl IntoIterator<Item = Result<(u16, Value), String>>) -> Scripted {
+        Scripted(RefCell::new(answers.into_iter().collect()), Fake::new())
+    }
+}
+
+impl Http for Scripted {
+    fn post(&self, url: &str, body: &Value, bearer: Option<&str>) -> Result<(u16, Value), String> {
+        let next = self.0.borrow_mut().pop_front();
+        next.unwrap_or_else(|| self.1.post(url, body, bearer))
+    }
+}
+
+fn forbidden() -> Result<(u16, Value), String> {
+    Ok((403, json!({ "ok": false, "error": { "code": "auth.forbidden" } })))
+}
+
+/// hq#7542: a bind whose answer was lost may have spent the token; the
+/// platform's refusal of the retry must not delete bind.json while the
+/// token can live, or the machine never binds.
+#[test]
+fn a_refusal_after_a_lost_answer_keeps_bind_json_while_the_token_lives() {
+    let rng = SystemRandom::new();
+    let mut store = MemoryStore::default();
+    store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
+    let key = ensure_install_key(&mut store, "i-aaa", &rng).unwrap().key;
+    let http = Scripted::new([Err("connection reset".to_owned()), forbidden(), forbidden()]);
+    let mut bind = |at| bind_machine(&mut store, &http, &key, "AAAA=", &daemon(), None, at);
+    assert!(matches!(bind(T0), BindResult::Retry(_)));
+    let result = bind(T0 + 1_100);
+    assert!(matches!(result, BindResult::Retry(_)), "{result:?}");
+    let result = bind(T0 + 15 * 60 * 1000);
+    assert_eq!(result, BindResult::Refused("auth.forbidden".to_owned()), "past the token's life");
+    assert_eq!(store.read(BIND_FILE), None);
+    assert_eq!(store.read(BIND_UNANSWERED_FILE), None);
+}
+
+#[test]
+fn a_retry_after_a_lost_answer_that_binds_clears_the_record() {
+    let rng = SystemRandom::new();
+    let mut store = MemoryStore::default();
+    store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
+    let key = ensure_install_key(&mut store, "i-aaa", &rng).unwrap().key;
+    let http = Scripted::new([Ok((503, json!({}))), forbidden()]);
+    let mut bind = |at| bind_machine(&mut store, &http, &key, "AAAA=", &daemon(), None, at);
+    assert!(matches!(bind(T0), BindResult::Retry(_)));
+    assert!(matches!(bind(T0 + 1_000), BindResult::Retry(_)));
+    let result = bind(T0 + 5_000);
+    assert!(matches!(result, BindResult::Bound(_)), "{result:?}");
+    assert_eq!(store.mode_of(BIND_UNANSWERED_FILE), None);
+    assert_eq!(store.read(BIND_FILE), None);
+}
+
+/// With no unanswered try, or one of an earlier token, a refusal is final.
+#[test]
+fn a_refusal_with_no_lost_answer_of_this_token_is_final() {
+    let rng = SystemRandom::new();
+    let mut store = MemoryStore::default();
+    let key = ensure_install_key(&mut store, "i-aaa", &rng).unwrap().key;
+    store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
+    let http = Scripted::new([forbidden(), Err("connection reset".to_owned()), forbidden()]);
+    let result = bind_machine(&mut store, &http, &key, "AAAA=", &daemon(), None, T0);
+    assert_eq!(result, BindResult::Refused("auth.forbidden".to_owned()));
+    assert_eq!(store.read(BIND_FILE), None);
+    store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
+    let result = bind_machine(&mut store, &http, &key, "AAAA=", &daemon(), None, T0);
+    assert!(matches!(result, BindResult::Retry(_)), "{result:?}");
+    let mut next: Value = serde_json::from_str(&bind_text()).unwrap();
+    next["bind_token"] = json!("bt_a_new_one_time_token_from_the_driver_0000");
+    store.write(BIND_FILE, &next.to_string(), 0o600).unwrap();
+    let result = bind_machine(&mut store, &http, &key, "AAAA=", &daemon(), None, T0 + 1_000);
+    assert_eq!(result, BindResult::Refused("auth.forbidden".to_owned()), "another token");
+    assert_eq!(store.read(BIND_FILE), None);
+}
+
+/// Review F2 of #38326's P2s: the Cloud role's bind (`hold_then_bind`, the
+/// call `bind_now` makes) takes the updater's connect hold, so the bound
+/// machine's first link is held from any update's restart. Driven through
+/// the real path to `BindResult::Bound`, under a temporary root.
+#[test]
+fn a_bind_that_lands_holds_the_updaters_flip() {
+    use crate::updater::gate::{CONNECT_HOLD, Gate, Honor};
+
+    let root = tempfile::tempdir().unwrap();
+    let paths = crate::config::Paths::new(root.path());
+    let fake = Fake::new();
+    let mut store = MemoryStore::default();
+    store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
+    let key = ensure_install_key(&mut store, "i-aaa", &SystemRandom::new()).unwrap().key;
+    let result = super::client::hold_then_bind(
+        &paths,
+        &mut store,
+        &fake,
+        &key,
+        "AAAA=",
+        &daemon(),
+        None,
+        T0,
+    );
+    assert!(matches!(result, Some(BindResult::Bound(_))), "{result:?}");
+    assert_eq!(
+        Gate::new(&paths).held_left(T0),
+        Some(CONNECT_HOLD),
+        "the bind did not hold the updater's flip"
+    );
+    let mut flipped = false;
+    assert!(Gate::new(&paths).run(T0 + 1_000, Honor::AllButResume, |_| flipped = true).is_err());
+    assert!(!flipped, "an update flipped during the bound machine's first connect");
+}
+
+/// With a restart of the service pending (queued by any process), the bind
+/// does not go out: no request, and bind.json stays for the restarted service.
+#[test]
+fn a_bind_with_a_restart_pending_waits_for_the_restarted_service() {
+    use crate::updater::gate::{Gate, Honor};
+
+    let root = tempfile::tempdir().unwrap();
+    let paths = crate::config::Paths::new(root.path());
+    assert!(Gate::new(&paths).run(T0, Honor::All, |inside| inside.restart_queued(T0)).is_ok());
+    let fake = Fake::new();
+    let mut store = MemoryStore::default();
+    store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
+    let key = ensure_install_key(&mut store, "i-aaa", &SystemRandom::new()).unwrap().key;
+    let result = super::client::hold_then_bind(
+        &paths,
+        &mut store,
+        &fake,
+        &key,
+        "AAAA=",
+        &daemon(),
+        None,
+        T0 + 1_000,
+    );
+    assert!(result.is_none(), "{result:?}");
+    assert!(fake.0.borrow().seen.is_empty(), "the bind went out");
+    assert!(store.read(BIND_FILE).is_some(), "bind.json is kept for the restarted service");
+}
+
+/// Leo's item 1 ("no first-boot self-update"): "A spare whose services are restarting is not
+/// claimable. Fix it so the flip clears ready, and ready comes back only when the restarted
+/// daemon reconnects." A fake spare flips after ready: the restarted service's reports say
+/// `degraded` (the Cloud does not hand it out) until its session host answers `identify`, and
+/// `running` after. Before, its first report took the bake's daemon block and said `running` at
+/// once (2026-11-15 04:23Z: a warm spare flipped at 04:23:23Z, was claimed 41 s later, and its
+/// chat never connected).
+#[test]
+fn a_spare_that_flips_after_ready_reports_degraded_until_its_daemon_identifies() {
+    use super::client::CloudClient;
+    use super::session::Session;
+    use crate::updater::gate::{Gate, Honor};
+
+    let fake = Fake::new();
+    let rng = SystemRandom::new();
+    let mut store = MemoryStore::default();
+    store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
+    let key = ensure_install_key(&mut store, "i-aaa", &rng).unwrap().key;
+    let bound = bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), None, T0);
+    assert!(matches!(bound, BindResult::Bound(_)), "bind failed");
+    let saved: Bound = serde_json::from_str(&store.read(BOUND_FILE).unwrap()).unwrap();
+    let mut client = CloudClient::new(fake.clone(), saved, key);
+    let send = |client: &mut CloudClient<Fake>, s: &mut Session, reqs: Vec<_>, now| {
+        let mut states = Vec::new();
+        let mut queue: Vec<super::sender::OpRequest> = reqs;
+        while let Some(req) = queue.pop() {
+            states.push(req.params["state"].as_str().unwrap_or("").to_owned());
+            let answer = client.op(&req, T0);
+            queue.extend(s.answered(&req, &answer, now, 0.5).0);
+        }
+        states
+    };
+
+    // Ready: the spare's service runs and reports running.
+    let mut ready = Session::new(MACHINE, daemon(), 60_000).after_restart(false);
+    let reqs = ready.start(0);
+    assert_eq!(send(&mut client, &mut ready, reqs, 0), ["running"], "the spare before its flip");
+
+    // The flip queues the restart of the service (the own-flip mark with it).
+    let root = tempfile::tempdir().unwrap();
+    let paths = crate::config::Paths::new(root.path());
+    let gate = Gate::new(&paths);
+    assert!(gate.run(T0, Honor::All, |inside| inside.flip_restart_queued(T0, 0)).is_ok());
+
+    // The restarted service: the queued restart, then the updater's own-flip mark still there.
+    let restarted = gate.service_started_at(T0 + 3_000);
+    assert!(restarted, "the start after the flip is not the queued restart");
+    assert!(gate.take_own_flip(T0 + 3_000, 0), "the Cloud role's read took the updater's mark");
+    assert!(!gate.service_started_at(T0 + 4_000), "a second start is no queued restart");
+
+    let mut s = Session::new(MACHINE, daemon(), 60_000).after_restart(restarted);
+    let reqs = s.start(0);
+    assert_eq!(send(&mut client, &mut s, reqs, 0), ["degraded"], "claimable during the restart");
+    // A heartbeat while the session host is still down: still not claimable.
+    let reqs = s.fire(60_000);
+    assert_eq!(send(&mut client, &mut s, reqs, 60_000), ["degraded"], "a heartbeat said running");
+
+    // The restarted session host answers identify (the new build): running, at once.
+    let new_build = DaemonInfo { version: "0.41.0".to_owned(), ..daemon() };
+    let reqs = s.daemon_identified(&new_build, 75_000);
+    assert_eq!(send(&mut client, &mut s, reqs, 75_000), ["running"], "not claimable after");
+    let ops = fake.0.borrow().seen.iter().filter(|r| r.url.ends_with("/v1/ops")).count();
+    assert_eq!(ops, 4, "one report per step");
+
+    // The same build answering (no new block) is the daemon back too.
+    let mut same = Session::new(MACHINE, daemon(), 60_000).after_restart(true);
+    let reqs = same.start(0);
+    assert_eq!(send(&mut client, &mut same, reqs, 0), ["degraded"]);
+    let reqs = same.daemon_identified(&daemon(), 20_000);
+    assert_eq!(send(&mut client, &mut same, reqs, 20_000), ["running"]);
+    assert!(same.daemon_identified(&daemon(), 40_000).is_empty(), "reported once");
+}
+
+/// The flip's `stopping` report (`role::report_stopping`): from `bound.json`, the install key
+/// and the block the Cloud role last reported, one `cloud.vm.status.report` that says stopping.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_flips_stopping_report_says_stopping_with_the_last_reported_block() {
+    use super::role::FileStore;
+
+    let root = tempfile::tempdir().unwrap();
+    let paths = crate::config::Paths::new(root.path());
+    let fake = Fake::new();
+    assert_eq!(
+        super::role::report_stopping_with(&paths, fake.clone()),
+        Err("not bound (no bound.json)".to_owned()),
+        "an unbound machine sends nothing"
+    );
+    let mut store = FileStore::new(paths.clone());
+    store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
+    let key = ensure_install_key(&mut store, "i-aaa", &SystemRandom::new()).unwrap().key;
+    let bound = bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), None, T0);
+    assert!(matches!(bound, BindResult::Bound(_)), "bind failed");
+    let reported = DaemonInfo { version: "0.40.1".to_owned(), ..daemon() };
+    let state = json!({ "daemon": reported.to_json() });
+    store.write(AGENT_STATE_FILE, &format!("{state}\n"), 0o644).unwrap();
+
+    assert_eq!(super::role::report_stopping_with(&paths, fake.clone()), Ok(()));
+    let seen = fake.0.borrow();
+    let op = seen.seen.iter().rfind(|r| r.url.ends_with("/v1/ops")).expect("no report went out");
+    assert_eq!(op.bearer.as_deref(), Some("tok-1"));
+    assert_eq!(op.body["op"], STATUS_REPORT_OP);
+    assert_eq!(op.body["params"]["machine"], MACHINE);
+    assert_eq!(op.body["params"]["state"], "stopping");
+    assert_eq!(op.body["params"]["daemon"], reported.to_json());
+}

@@ -2,6 +2,7 @@
 // Rich text on the clipboard (richClipboard.ts): a reply's Markdown as HTML for other apps, and HTML
 // from other apps (and the transcript's own selection copy) as Markdown for the composer.
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { settleReact } from "../../../test/support/domTeardown";
 import { JSDOM } from "jsdom";
 import { htmlHasBlocks, htmlMarkdown, looksLikeMarkdown, markdownHtml } from "./richClipboard";
 
@@ -16,8 +17,13 @@ beforeAll(() => {
     scope[key] = (dom.window as unknown as Record<string, unknown>)[key];
   }
 });
-afterAll(() => {
-  for (const key of KEYS) scope[key] = saved.get(key);
+afterAll(async () => {
+  await settleReact();
+  for (const key of KEYS) {
+    const value = saved.get(key);
+    if (value === undefined) delete scope[key];
+    else scope[key] = value;
+  }
 });
 
 const REPLY = [
@@ -53,6 +59,15 @@ test("raw HTML in a reply copies as text, never markup", () => {
 
 test("HTML reads back as the same Markdown", () => {
   expect(htmlMarkdown(markdownHtml(REPLY))).toBe(REPLY);
+});
+
+test("plain pre-wrap spans retain lines without flattening rich pasted spans", () => {
+  expect(htmlMarkdown('<span style="white-space: pre-wrap;">first\n    second</span>')).toBe("first\n    second");
+  expect(
+    htmlMarkdown(
+      '<span style="white-space: pre-wrap;"><strong>Bold</strong> <a href="https://example.com/">link</a></span>',
+    ),
+  ).toBe("**Bold** [link](https://example.com/)");
 });
 
 test("Notes and Docs HTML: nested lists beside items, Docs' bold spans and its normal-weight wrapper", () => {

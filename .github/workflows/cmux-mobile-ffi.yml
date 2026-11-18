@@ -27,6 +27,7 @@ on:
     paths:
       - ".github/workflows/cmux-mobile-ffi.yml"
       - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/actions/runner-cargo-home/**"
       - "cmux-tui/Cargo.toml"
       - "cmux-tui/Cargo.lock"
       - "cmux-tui/rust-toolchain.toml"
@@ -148,7 +149,7 @@ jobs:
         working-directory: cmux-tui
         env:
           # Thin LTO leaves LLVM bitcode in the archive, which Apple's ld cannot
-          # read from a newer rustc (see cmux-terminal-client-xcframework.yml).
+          # read from a newer rustc.
           CARGO_PROFILE_RELEASE_LTO: "off"
           RUSTFLAGS: "-C embed-bitcode=no"
           IPHONEOS_DEPLOYMENT_TARGET: "17.0"
@@ -183,8 +184,7 @@ jobs:
       - name: Assemble xcframework
         run: |
           set -euo pipefail
-          # Static frameworks, not bare libraries, for the reason in
-          # cmux-terminal-client-xcframework.yml: bare-library slices copy
+          # Static frameworks, not bare libraries: bare-library slices copy
           # their module maps to one Build/Products include path and collide.
           lib=cmux-tui/target
           gen="$RUNNER_TEMP/uniffi-swift"

@@ -1,6 +1,7 @@
 // Static transcript glyphs use the same cmux pack as the rest of the pane.
 // Spinner and third-party marks retain their independently settled drawings.
 import type { CSSProperties } from "react";
+import { FORK_ICON } from "../icons/forkIcon";
 import { Icon } from "../icons/Icon";
 import "./spinner.css";
 
@@ -56,13 +57,14 @@ export const Envelope = glyph("message.send");
 export const Bot = glyph("agent.bot");
 export const PauseCircle = glyph("agent.paused");
 export const ArrowDown = glyph("nav.down");
+export const PointerClick = glyph("computeruse.click");
 
 export const Pin = ({ filled, ...props }: CvIconProps & { filled?: boolean }) => (
   <Icon name="action.pin" selected={filled} {...props} />
 );
 
 export const TurnCopy = ({ size = 14 }: CvIconProps = {}) => <Copy size={size} />;
-export const TurnFork = ({ size = 14 }: CvIconProps = {}) => <Icon name="agent.fork" size={size} />;
+export const TurnFork = ({ size = 14 }: CvIconProps = {}) => <Icon name={FORK_ICON} size={size} />;
 export const TurnAnchor = ({ size = 14 }: CvIconProps = {}) => <Icon name="bookmark" size={size} />;
 export const StopSquare = (props: CvIconProps) => <Icon name="action.stop" selected {...props} />;
 export const PlayTriangle = (props: CvIconProps) => <Icon name="media.play" selected {...props} />;

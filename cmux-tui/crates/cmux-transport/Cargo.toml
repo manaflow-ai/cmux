@@ -7,7 +7,12 @@ license.workspace = true
 publish.workspace = true
 description = "Pure core of the cmux overlay transport: datagram classes, STUN, relay frames, probes and the path selector"
 
+[features]
+# getifaddrs for `medium::local_networks`; the rest of the crate stays pure.
+local-networks = ["dep:libc"]
+
 [dependencies]
+libc = { version = "0.2", optional = true }
 
 [dev-dependencies]
 proptest = { version = "1", default-features = false, features = ["std"] }

@@ -130,7 +130,7 @@ impl Environment {
             platform_origin: deployment.platform_origin.into(),
             mobile_origin: deployment.mobile_origin.into(),
             device_hub_origin: deployment.device_hub_origin.into(),
-            share_room_origin: deployment.platform_origin.into(),
+            share_room_origin: deployment.share_origin.into(),
             // Previews use the development room, whose install-token issuer
             // remains the development API.
             share_api_origin: deployment.api_origin.into(),
@@ -147,6 +147,11 @@ pub const PRODUCTION_API: &str = "https://cloud-api.cmux.dev";
 pub const DEVELOPMENT_PLATFORM: &str = "https://cmux-platform-development.debussy.workers.dev";
 pub const STAGING_PLATFORM: &str = "https://cmux-platform-staging.debussy.workers.dev";
 pub const PRODUCTION_PLATFORM: &str = "https://cmux-platform-production.debussy.workers.dev";
+/// Each platform deployment's short chat share host (cmux-platform `SHARE_PAGE_ORIGIN`, a custom domain of
+/// the same Worker): links made there and on the platform origin are the same deployment's.
+pub const DEVELOPMENT_SHARE: &str = "https://share-dev.cmux.dev";
+pub const STAGING_SHARE: &str = "https://share-staging.cmux.dev";
+pub const PRODUCTION_SHARE: &str = "https://share.cmux.dev";
 pub const STACK_ORIGIN: &str = "https://api.stack-auth.com";
 pub const DEVELOPMENT_STACK_PROJECT: &str = "454ecd03-1db2-4050-845e-4ce5b0cd9895";
 pub const DEVELOPMENT_STACK_CLIENT_KEY: &str = "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g";
@@ -159,6 +164,8 @@ pub struct Deployment {
     pub auth_web_origin: &'static str,
     pub vm_origin: &'static str,
     pub platform_origin: &'static str,
+    /// The chat share room: the platform deployment's short share host, so links read `share.cmux.dev/g/...`.
+    pub share_origin: &'static str,
     pub mobile_origin: &'static str,
     pub device_hub_origin: &'static str,
     pub stack_project_id: &'static str,
@@ -170,6 +177,7 @@ pub const DEVELOPMENT_DEPLOYMENT: Deployment = Deployment {
     auth_web_origin: "https://cmux-staging.vercel.app",
     vm_origin: "https://vm-staging.cmux.dev",
     platform_origin: DEVELOPMENT_PLATFORM,
+    share_origin: DEVELOPMENT_SHARE,
     mobile_origin: "https://cmux-mobile-api-dev.debussy.workers.dev",
     device_hub_origin: "https://cmux-device-hub-dev.debussy.workers.dev",
     stack_project_id: DEVELOPMENT_STACK_PROJECT,
@@ -178,6 +186,7 @@ pub const DEVELOPMENT_DEPLOYMENT: Deployment = Deployment {
 pub const STAGING_DEPLOYMENT: Deployment = Deployment {
     api_origin: STAGING_API,
     platform_origin: STAGING_PLATFORM,
+    share_origin: STAGING_SHARE,
     ..DEVELOPMENT_DEPLOYMENT
 };
 pub const PRODUCTION_DEPLOYMENT: Deployment = Deployment {
@@ -185,6 +194,7 @@ pub const PRODUCTION_DEPLOYMENT: Deployment = Deployment {
     auth_web_origin: "https://cmux.com",
     vm_origin: "https://vm.cmux.dev",
     platform_origin: PRODUCTION_PLATFORM,
+    share_origin: PRODUCTION_SHARE,
     mobile_origin: "https://mobile-api.cmux.dev",
     device_hub_origin: "https://cmux-device-hub.debussy.workers.dev",
     stack_project_id: PRODUCTION_STACK_PROJECT,
@@ -197,6 +207,7 @@ pub const LOCAL_DEPLOYMENT: Deployment = Deployment {
     auth_web_origin: "http://localhost:3777",
     vm_origin: "http://localhost:8789",
     platform_origin: "http://localhost:8788",
+    share_origin: "http://localhost:8788",
     mobile_origin: "http://localhost:8790",
     device_hub_origin: "http://localhost:8791",
     ..DEVELOPMENT_DEPLOYMENT
@@ -264,6 +275,7 @@ impl Resolver {
         if !home.is_absolute() {
             return Err("home path must be absolute".into());
         }
+        move_from_classic(home, bundle_id);
         Ok(Self { bundle_id: bundle_id.into(), home: home.to_path_buf() })
     }
 
@@ -371,6 +383,38 @@ impl Resolver {
         client_config::resolve(self, selection).await
     }
 
+    /// `cloud env check-create`: the preflight the app runs before every Cloud create, on its path. The
+    /// backend's client-config is read only when a field needs an advertised capability
+    /// (ADVANCED_CREATE_FIELDS): a plain create (a chat's machine) needs none, so it answers with no
+    /// network round trip, where the fetch cost a person's create one more round trip (up to its 5 s
+    /// timeout on a slow link) before the create was sent.
+    pub async fn check_create(
+        &self,
+        selection: Selection,
+        params: &serde_json::Value,
+    ) -> Result<Selection, String> {
+        if !client_config::create_needs_capabilities(params)? {
+            return Ok(selection);
+        }
+        let selection = client_config::resolve(self, selection).await?;
+        check_create_capabilities(&selection, params)?;
+        Ok(selection)
+    }
+
+    /// A launch's read, with no network I/O when it can: the validated cache, else a known
+    /// deployment's built-in configuration (what an unreachable or config-less backend gives
+    /// anyway); only a custom origin with no cache is fetched. The app refreshes the cache after
+    /// its window is up, so a changed backend config applies at the next launch.
+    pub async fn client_config_cache_first(
+        &self,
+        selection: Selection,
+    ) -> Result<Selection, String> {
+        match client_config::without_fetch(self, selection.clone()) {
+            Some(selection) => Ok(selection),
+            None => client_config::resolve(self, selection).await,
+        }
+    }
+
     /// Applies a previously fetched, validated client-config cache without
     /// performing network I/O. Daemon consumers use this after CLI bootstrap.
     pub fn cached_client_config(&self, selection: Selection) -> Result<Option<Selection>, String> {
@@ -378,7 +422,7 @@ impl Resolver {
     }
 
     pub fn state_path(&self) -> PathBuf {
-        self.home.join("Library/Application Support/cmux").join(&self.bundle_id).join(STATE_FILE)
+        bundle_folder(&self.home, &self.bundle_id).join(STATE_FILE)
     }
 
     pub fn bundle_id(&self) -> &str {
@@ -557,6 +601,71 @@ fn next_revision() -> u64 {
     clock.wrapping_add(REVISION.fetch_add(1, Ordering::Relaxed))
 }
 
+/// NEXT's own folder for one bundle, `~/Library/Application Support/cmux-next/<bundle id>`
+/// (CmuxNext `NextSupport.bundleFolder`): the selection state, its client-config cache and the
+/// app's other per-bundle Cloud and SSH state. Builds before kept these in classic cmux's
+/// `cmux/<bundle id>` (cmuxterm-hq goals/next-store-out-of-classic.md), which classic cmux of the
+/// same bundle id (NIGHTLY) also uses, so only NEXT's items move out of it ([`move_from_classic`]).
+pub fn bundle_folder(home: &Path, bundle_id: &str) -> PathBuf {
+    home.join("Library/Application Support/cmux-next").join(bundle_id)
+}
+
+/// Where builds before kept [`bundle_folder`]'s items: classic cmux's `cmux/<bundle id>`.
+fn classic_bundle_folder(home: &Path, bundle_id: &str) -> PathBuf {
+    home.join("Library/Application Support/cmux").join(bundle_id)
+}
+
+/// The items this crate keeps in [`bundle_folder`] that builds before kept in classic's folder.
+const MOVED_ITEMS: [&str; 2] = [STATE_FILE, "client-config"];
+
+/// Moves this crate's items from classic cmux's `cmux/<bundle id>` to [`bundle_folder`], once
+/// each, and leaves a symlink at each old path for a daemon from before the move. The app moves
+/// them (and its own items) at launch (CmuxNext `ClassicFolderItemsMove.moveBundleItems`); this
+/// does the same for a CLI or daemon that runs first. Never over anything at the new path: an
+/// item already there stays the one in use, and the old one is left where it is. A few `lstat`s
+/// when there is nothing to move. Best effort: a failure leaves the old item, and the resolver
+/// starts in the new place.
+fn move_from_classic(home: &Path, bundle_id: &str) {
+    let classic = classic_bundle_folder(home, bundle_id);
+    let next = bundle_folder(home, bundle_id);
+    for name in MOVED_ITEMS {
+        let (old, new) = (classic.join(name), next.join(name));
+        let Ok(kind) = fs::symlink_metadata(&old).map(|meta| meta.file_type()) else { continue };
+        if !(kind.is_file() || kind.is_dir()) || fs::symlink_metadata(&new).is_ok() {
+            continue;
+        }
+        if create_private_dir(&next).is_err() {
+            return;
+        }
+        let moved = if kind.is_dir() {
+            // rename(2) of a folder never replaces one with files, nor a file.
+            fs::rename(&old, &new).is_ok()
+        } else {
+            // A hard link is refused when anything is at `new`, which a plain rename of a file would replace.
+            fs::hard_link(&old, &new).is_ok() && fs::remove_file(&old).is_ok()
+        };
+        if moved {
+            link_back(&new, &old);
+        }
+    }
+}
+
+#[cfg(unix)]
+fn link_back(new: &Path, old: &Path) {
+    let _ = std::os::unix::fs::symlink(new, old);
+}
+
+#[cfg(not(unix))]
+fn link_back(_new: &Path, _old: &Path) {}
+
+fn create_private_dir(path: &Path) -> std::io::Result<()> {
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder.create(path)
+}
+
 fn temp_path(parent: &Path) -> PathBuf {
     parent.join(format!(".{STATE_FILE}.{}.{}.tmp", std::process::id(), next_revision()))
 }
@@ -601,6 +710,69 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    fn classic(home: &Home, bundle: &str) -> PathBuf {
+        classic_bundle_folder(&home.0, bundle)
+    }
+
+    #[test]
+    fn state_moves_out_of_classics_folder_once_and_classics_sign_in_stays() {
+        let home = Home::new();
+        let old = classic(&home, SHIPPED_NIGHTLY_BUNDLE);
+        fs::create_dir_all(old.join("client-config")).unwrap();
+        fs::write(old.join(STATE_FILE), r#"{"name":"staging","revision":7,"explicit":true}"#)
+            .unwrap();
+        fs::write(old.join("client-config/origin.json"), "{}").unwrap();
+        // Classic NIGHTLY shares the bundle id and keeps its file-fallback sign-in here.
+        fs::write(old.join("credentials.json"), "classic").unwrap();
+
+        let resolver = Resolver::new(SHIPPED_NIGHTLY_BUNDLE, &home.0).unwrap();
+        let next = bundle_folder(&home.0, SHIPPED_NIGHTLY_BUNDLE);
+        assert_eq!(resolver.state_path(), next.join(STATE_FILE));
+        assert!(fs::symlink_metadata(next.join(STATE_FILE)).unwrap().is_file());
+        assert_eq!(fs::read_to_string(next.join("client-config/origin.json")).unwrap(), "{}");
+        // An older daemon still reads the old paths, through the links left there.
+        assert!(fs::symlink_metadata(old.join(STATE_FILE)).unwrap().file_type().is_symlink());
+        assert!(fs::read_to_string(old.join(STATE_FILE)).unwrap().contains("staging"));
+        assert_eq!(fs::read_to_string(old.join("client-config/origin.json")).unwrap(), "{}");
+        assert_eq!(fs::read_to_string(old.join("credentials.json")).unwrap(), "classic");
+        assert!(!next.join("credentials.json").exists());
+
+        // Once: the links are not moved again, and a later resolver reads the same state.
+        Resolver::new(SHIPPED_NIGHTLY_BUNDLE, &home.0).unwrap();
+        assert!(fs::symlink_metadata(next.join(STATE_FILE)).unwrap().is_file());
+    }
+
+    #[test]
+    fn state_already_in_use_in_the_new_place_is_never_replaced() {
+        let home = Home::new();
+        let old = classic(&home, DEV_BUNDLE);
+        let next = bundle_folder(&home.0, DEV_BUNDLE);
+        fs::create_dir_all(&old).unwrap();
+        fs::create_dir_all(next.join("client-config")).unwrap();
+        fs::write(old.join(STATE_FILE), r#"{"name":"staging","revision":7,"explicit":true}"#)
+            .unwrap();
+        fs::write(next.join(STATE_FILE), r#"{"name":"dev","revision":0,"explicit":false}"#)
+            .unwrap();
+        fs::create_dir_all(old.join("client-config")).unwrap();
+        fs::write(old.join("client-config/a.json"), "old").unwrap();
+        fs::write(next.join("client-config/b.json"), "new").unwrap();
+
+        let resolver = Resolver::new(DEV_BUNDLE, &home.0).unwrap();
+        assert_eq!(resolver.resolve(None).unwrap().name, "dev");
+        assert!(fs::symlink_metadata(old.join(STATE_FILE)).unwrap().is_file());
+        assert_eq!(fs::read_to_string(old.join("client-config/a.json")).unwrap(), "old");
+        assert!(!next.join("client-config/a.json").exists());
+    }
+
+    #[test]
+    fn a_fresh_home_writes_nothing_in_classics_folder() {
+        let home = Home::new();
+        let resolver = Resolver::new(DEV_BUNDLE, &home.0).unwrap();
+        resolver.resolve(None).unwrap();
+        assert!(resolver.state_path().is_file());
+        assert!(!classic_bundle_folder(&home.0, DEV_BUNDLE).exists());
     }
 
     #[test]

@@ -11,6 +11,7 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -54,12 +55,9 @@ style.textContent = readFileSync(
 dom.window.document.head.append(style);
 let root: Root | undefined;
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const { createRoot } = await import("react-dom/client");
@@ -229,7 +227,7 @@ test("an agent's waiting message: its line, no Read after this turn, a message's
   expect(host.textContent).not.toContain("Read after this turn");
   expect(host.querySelector(".acpmux-queued, .cv-spinner, [data-spinner]")).toBeNull();
   expect(host.querySelector(".cv-received__text")).toBeNull();
-  await act(async () => host.querySelector<HTMLButtonElement>("button.cv-disclosure__toggle")!.click());
+  await act(async () => host.querySelector<HTMLButtonElement>("button.cv-agentmsg__toggle")!.click());
   expect(host.querySelector(".cv-received__text")?.textContent).toContain("CI is green on #24001");
   // The sender's name opens its chat.
   await act(async () => host.querySelector<HTMLButtonElement>("button.cv-received__from")!.click());

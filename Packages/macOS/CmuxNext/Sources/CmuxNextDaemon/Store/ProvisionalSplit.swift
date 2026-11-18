@@ -162,9 +162,11 @@ import Foundation
               daemon != nil || (store.panesByHandle[provisional.handle] == nil && store.tabsBySurface[provisional.surface] == nil),
               let screen = store.screen(containing: target) else { return nil }
         // Where the split, New Column or New Row shows (cmux-layout-reducer `optimistic`: `split_kind.rs`'s
-        // column and row trees, `new_pane_right`, `new_row_with_options_as`); nil when cmux-tui would refuse it.
+        // column and row trees, `new_pane_right`, `new_row_with_options_as`, `split_around`, `split {before: true}`);
+        // nil when cmux-tui would refuse it.
         guard let placed = OptimisticRules.split(screen, target: target, direction: direction, ratio: ratio, leaf: leaf,
-                                                 splitID: provisional.splitID, column: provisional.column, row: provisional.row)
+                                                 splitID: provisional.splitID, column: provisional.column, row: provisional.row,
+                                                 around: provisional.around, before: provisional.before)
         else { return nil }
         // With the daemon's pane already listed, only the layout is the overlay's.
         let undo = IntentUndo.splitPane(screen: screen.handle, layout: screen.layout, columns: screen.columns,

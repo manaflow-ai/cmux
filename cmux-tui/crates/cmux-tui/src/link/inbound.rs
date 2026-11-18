@@ -13,11 +13,17 @@ use std::net::{IpAddr, SocketAddr};
 use std::os::fd::{AsFd, AsRawFd};
 use std::path::{Path, PathBuf};
 
-use cmux_link::dial::{MAX_LINE_BYTES, Service, ServiceHello, parse_line};
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
+use cmux_link::dial::{
+    MAX_LINE_BYTES, RekeyReply, RekeyRequest, Service, ServiceHello, line, parse_line,
+};
 use cmux_link::owner_session::{IDENTIFY_REQUEST, OwnerRefused, OwnerSession, is_brain_identity};
 use cmux_link::pairing::Pairings;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
+use super::acpmux::{AcpmuxTarget, hand_to_acpmux};
+use super::control::RekeyTarget;
 use super::lines::read_line;
 
 /// Why an inbound stream was closed without reaching the daemon.
@@ -35,9 +41,73 @@ pub(super) enum InboundRefused {
     NotAnEntry,
     /// An owner session that the link refused (who, or which socket).
     Owner(OwnerRefused),
+    /// This link serves no `acpmux` stream.
+    AcpmuxUnavailable,
+    /// No live, proven acpmux listener (`acpmux::listener_record`); no byte
+    /// of the stream was sent anywhere.
+    AcpmuxNotLive(acpmux::listener_record::NotLive),
 }
 
 pub(super) use super::paired_streams::Revocations;
+
+/// A paired peer names the key its link serves from now on ([`RekeyRequest`]).
+/// The stream came in on the old key, which the pairing trusts, so the record
+/// moves to the new one; a key another install's record holds is refused.
+async fn serve_rekey<S>(
+    stream: &mut S,
+    from: &cmux_link::stamp::LinkPeer,
+    from_key: &[u8; 32],
+    target: Option<&RekeyTarget>,
+) -> Result<(), InboundRefused>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let target = target.ok_or(InboundRefused::EntryUnavailable)?;
+    let text = read_line(stream, MAX_LINE_BYTES).await.map_err(|_| InboundRefused::BadHello)?;
+    let request = parse_line::<RekeyRequest>(&text).ok_or(InboundRefused::BadHello)?;
+    let refused = |why: String| RekeyReply { ok: false, error: Some(why), public_key: None };
+    let (reply, changed) = match rekey_key(&request.public_key) {
+        Some(key) => match target.apply(from, from_key, &key).await {
+            Ok(changed) => {
+                // This link adopted a key too and still keeps the asker on its old one: the
+                // answer names the new key (`key_adoption.rs`). The same rekey again (a reply
+                // lost on the way) gets the same answer.
+                let public_key = target.answer_for(&from.install).map(|ours| STANDARD.encode(ours));
+                (RekeyReply { ok: true, error: None, public_key }, changed)
+            }
+            Err(error) => (refused(error.to_string()), false),
+        },
+        None => (refused("invalid_key".to_owned()), false),
+    };
+    #[cfg(test)]
+    if target.drops_reply() {
+        if changed {
+            target.reload();
+        }
+        return Ok(());
+    }
+    let _ = stream.write_all(line(&reply).as_bytes()).await;
+    let _ = stream.flush().await;
+    let _ = stream.shutdown().await;
+    if changed {
+        // The reload drops this stream's session; first the asker reads the answer and
+        // closes (bounded). A reply lost anyway is asked for again (`key_adoption.rs`).
+        let mut sink = tokio::io::sink();
+        let drained = tokio::io::copy(stream, &mut sink);
+        let _ = tokio::time::timeout(REKEY_REPLY_DRAIN, drained).await;
+        target.reload();
+    }
+    Ok(())
+}
+
+/// How long a rekey's answer may take to reach the asker before the reload.
+const REKEY_REPLY_DRAIN: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// A rekey's key: canonical standard base64 of 32 bytes, not all zero.
+pub(super) fn rekey_key(text: &str) -> Option<[u8; 32]> {
+    let key: [u8; 32] = STANDARD.decode(text).ok()?.try_into().ok()?;
+    (STANDARD.encode(key) == text && key != [0; 32]).then_some(key)
+}
 use super::paired_streams::{close_revoked, while_paired};
 
 /// The daemon entry a link stream may reach for the session listening on
@@ -62,20 +132,36 @@ pub(super) async fn serve_inbound<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    serve_inbound_watched(stream, peer_key, peer_addr, pairings, session_socket, owner, None).await
+    serve_inbound_watched(
+        stream,
+        peer_key,
+        peer_addr,
+        pairings,
+        Some(session_socket),
+        owner,
+        &AcpmuxTarget::Off,
+        None,
+        None,
+    )
+    .await
 }
 
 /// [`serve_inbound`], where `revocations` carries every new pairing view: a
 /// handshake or stream closes when the view no longer pairs its key to
 /// the same identity (a peer-map update or `cmux link peer remove`).
+/// Without a `session_socket` a `daemon` stream is refused; an `acpmux`
+/// stream goes to `acpmux` (`super::acpmux`).
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn serve_inbound_watched<S>(
     mut stream: S,
     peer_key: [u8; 32],
     peer_addr: SocketAddr,
     pairings: &Pairings,
-    session_socket: &Path,
+    session_socket: Option<&Path>,
     owner: Option<&OwnerSession>,
+    acpmux: &AcpmuxTarget,
     mut revocations: Option<Revocations>,
+    rekey: Option<&RekeyTarget>,
 ) -> Result<(), InboundRefused>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -105,6 +191,7 @@ where
     // owner (decided here, from the key's pairing record) the owner session.
     let (served, owner_requested) = match parse_line::<ServiceHello>(&hello) {
         Some(ServiceHello { service: Service::Daemon, link_token: None, epoch: None }) => {
+            let session_socket = session_socket.ok_or(InboundRefused::EntryUnavailable)?;
             // A paired peer's stream carries no control-plane check.
             (
                 while_paired(
@@ -126,6 +213,28 @@ where
             )
             .await,
             true,
+        ),
+        // acpmux checks its own token on the upgrade; the link only carries it.
+        Some(ServiceHello { service: Service::Acpmux, link_token: None, epoch: None }) => (
+            while_paired(
+                revocations.as_mut(),
+                peer_key,
+                &peer,
+                hand_to_acpmux(&mut stream, acpmux),
+            )
+            .await,
+            false,
+        ),
+        // The peer's link adopted its node key: its record moves to the key it names.
+        Some(ServiceHello { service: Service::Rekey, link_token: None, epoch: None }) => (
+            while_paired(
+                revocations.as_mut(),
+                peer_key,
+                &peer,
+                serve_rekey(&mut stream, &record.peer(), &peer_key, rekey),
+            )
+            .await,
+            false,
         ),
         _ => return Err(InboundRefused::BadHello),
     };
@@ -189,52 +298,15 @@ async fn connect_same_uid(
     }
 }
 
-/// How a spliced stream ended: the bytes each way, or the copy's error.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct Spliced {
-    /// Bytes from the peer to the entry (or sshd), when the copy ended cleanly.
-    pub to_entry: Option<u64>,
-    /// Bytes from the entry (or sshd) back to the peer.
-    pub to_peer: Option<u64>,
-    /// The copy's error, when it ended on one.
-    pub error: Option<io::ErrorKind>,
-}
-
-impl Spliced {
-    pub(super) fn of(copied: io::Result<(u64, u64)>) -> Self {
-        match copied {
-            Ok((to_entry, to_peer)) => {
-                Self { to_entry: Some(to_entry), to_peer: Some(to_peer), error: None }
-            }
-            Err(error) => Self { to_entry: None, to_peer: None, error: Some(error.kind()) },
-        }
-    }
-}
-
 /// Splice `stream` into the session's remote entry with `peer` (and the
 /// `check` the link made for this stream, only after it passed) stamped as
 /// the first line, after the entry proved it is one (same user and cmux
 /// code, then the entry banner).
 pub(super) async fn hand_to_entry<S>(
-    stream: S,
-    peer: &cmux_link::stamp::LinkPeer,
-    check: Option<cmux_link::stamp::StampCheck>,
-    session_socket: &Path,
-) -> Result<(), InboundRefused>
-where
-    S: AsyncRead + AsyncWrite + Unpin,
-{
-    hand_to_entry_traced(stream, peer, check, session_socket, &mut None).await
-}
-
-/// [`hand_to_entry`], setting `spliced` once the stamp went to the entry and
-/// the copy ended.
-pub(super) async fn hand_to_entry_traced<S>(
     mut stream: S,
     peer: &cmux_link::stamp::LinkPeer,
     check: Option<cmux_link::stamp::StampCheck>,
     session_socket: &Path,
-    spliced: &mut Option<Spliced>,
 ) -> Result<(), InboundRefused>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -252,18 +324,10 @@ where
     let mut verifying = ShutdownOnCancel(Some(
         entry.as_fd().try_clone_to_owned().map_err(|_| InboundRefused::NotAnEntry)?,
     ));
-    #[cfg(test)]
-    let hold = verify_hold::take(&daemon_entry(session_socket));
-    tokio::task::spawn_blocking(move || {
-        #[cfg(test)]
-        if let Some(hold) = hold {
-            hold();
-        }
-        cmux_link::caller::verify_fd(fd.as_raw_fd())
-    })
-    .await
-    .map_err(|_| InboundRefused::NotAnEntry)?
-    .map_err(|_| InboundRefused::NotAnEntry)?;
+    tokio::task::spawn_blocking(move || cmux_link::caller::verify_fd(fd.as_raw_fd()))
+        .await
+        .map_err(|_| InboundRefused::NotAnEntry)?
+        .map_err(|_| InboundRefused::NotAnEntry)?;
     verifying.finished();
     let banner =
         read_line(&mut entry, MAX_LINE_BYTES).await.map_err(|_| InboundRefused::NotAnEntry)?;
@@ -271,7 +335,7 @@ where
         return Err(InboundRefused::NotAnEntry);
     }
     write_stamp(&mut entry, &stamp).await.map_err(|_| InboundRefused::EntryUnavailable)?;
-    *spliced = Some(Spliced::of(tokio::io::copy_bidirectional(&mut stream, &mut entry).await));
+    let _ = tokio::io::copy_bidirectional(&mut stream, &mut entry).await;
     Ok(())
 }
 
@@ -297,32 +361,4 @@ impl Drop for ShutdownOnCancel {
 async fn write_stamp(entry: &mut tokio::net::UnixStream, stamp: &str) -> io::Result<()> {
     entry.write_all(stamp.as_bytes()).await?;
     entry.write_all(b"\n").await
-}
-
-/// Test seam: hold the entry verification of one entry socket (the macOS
-/// signature check can take seconds) until the test releases it.
-#[cfg(test)]
-pub(super) mod verify_hold {
-    use std::collections::HashMap;
-    use std::path::{Path, PathBuf};
-    use std::sync::{Mutex, OnceLock};
-
-    type Hold = Box<dyn FnOnce() + Send>;
-
-    fn holds() -> &'static Mutex<HashMap<PathBuf, Hold>> {
-        static HOLDS: OnceLock<Mutex<HashMap<PathBuf, Hold>>> = OnceLock::new();
-        HOLDS.get_or_init(Default::default)
-    }
-
-    /// Run `hold` on the verification thread of the next handoff to `entry`.
-    pub(in crate::link) fn set(entry: &Path, hold: Hold) {
-        holds()
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(entry.into(), hold);
-    }
-
-    pub(super) fn take(entry: &Path) -> Option<Hold> {
-        holds().lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(entry)
-    }
 }

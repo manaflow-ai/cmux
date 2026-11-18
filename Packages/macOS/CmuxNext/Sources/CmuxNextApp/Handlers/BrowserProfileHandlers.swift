@@ -70,12 +70,37 @@ enum BrowserProfileHandlers {
             guard !record.isDefault else { throw ActionFailure.invalidTarget(BrowserProfileAppStrings.defaultCannotBeDeleted) }
             try profiles.delete(record.id)
         }
+        bindDaemonVerbs(into: registry, context: context)
         BrowserProfileOpenHandlers.bind(bind, context: context)
         BrowsingDataClear.bind(bind, context: context)
     }
 
+    /// `cmux browser profile move|proxy set|proxy clear` from the palette; a daemon refusal shows as the action's failure.
+    private static func bindDaemonVerbs(into registry: ActionRegistry, context: AppActionContext) {
+        let profiles = context.services.browserProfiles
+        func bind(_ id: ActionID, _ edit: @escaping @MainActor (String, ActionInvocation) throws -> ActionEffect) {
+            registry.bindEffect(id, requires: nil, effect: { invocation in
+                do { return try edit(context.browserProfile(invocation).id, invocation) } catch let error as BrowserProfileBookError {
+                    throw ActionFailure.invalidTarget(BrowserProfileAppStrings.message(error))
+                }
+            })
+        }
+        bind("browserProfile.move") { id, invocation in
+            guard let position = invocation["index"]?.intValue else { throw ActionFailure.invalidTarget(BrowserProfileAppStrings.positionRequired) }
+            let order = context.services.machines.local.store.personal.browserProfiles
+            return try profiles.move(id, to: BrowserProfileSnapshot.moveIndex(of: id, to: position, in: order))
+        }
+        bind("browserProfile.setProxy") { id, invocation in
+            guard let proxy = BrowserProfileSnapshot.Proxy.palette(scheme: invocation["scheme"]?.stringValue, host: invocation["host"]?.stringValue,
+                                                                  port: invocation["port"]?.intValue)
+            else { throw ActionFailure.invalidTarget(BrowserProfileAppStrings.invalidProxy) }
+            return try profiles.setProxy(id, proxy)
+        }
+        bind("browserProfile.clearProxy") { id, _ in try profiles.setProxy(id, nil) }
+    }
+
     /// A new profile: the given name, color and icon, else "Profile N" and
-    /// the first color no other profile uses.
+    /// the color that looks the most unlike the other profiles'.
     private static func create(invocation: ActionInvocation, _ profiles: BrowserProfileService) throws {
         let (name, color) = profiles.newProfileDefaults(name: invocation["name"]?.stringValue, color: invocation["color"]?.stringValue)
         let icon = invocation["icon"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }

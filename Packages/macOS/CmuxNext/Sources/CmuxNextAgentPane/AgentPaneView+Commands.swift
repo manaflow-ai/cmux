@@ -43,6 +43,8 @@ extension AgentPaneView {
     /// A chat that just opened from a fork (``AgentForkDestination``): the keyboard goes to its
     /// composer, so the next words go to the fork.
     public func focusComposer() { showWithKeyboard("focusComposer") }
+    /// A click on a chat's notification: a waiting permission card takes the keyboard, so one key answers it.
+    public func focusAsk() { showWithKeyboard("permissionFocus") }
     private func showWithKeyboard(_ command: String) {
         focusChat()
         send(command)

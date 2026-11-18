@@ -166,6 +166,14 @@ export interface UpstreamClientService {
     vm: Named<R, VmId>,
     proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:network"> },
   ) => Effect.Effect<void, UpstreamError>;
+  /**
+   * Deletes every such rule, then reads again and fails unless none is left; never touches a narrower rule, an
+   * HTTPS proxy or a shared-network rule. Answers how many it deleted.
+   */
+  readonly revokeVmPublicEgress: <C, R>(
+    vm: Named<R, VmId>,
+    proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:network"> },
+  ) => Effect.Effect<number, UpstreamError>;
   readonly getVm: <C, R>(
     vm: Named<R, VmId>,
     proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:read"> },

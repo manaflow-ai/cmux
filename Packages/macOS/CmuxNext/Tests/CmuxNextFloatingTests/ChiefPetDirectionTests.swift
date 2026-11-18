@@ -53,6 +53,8 @@ import Testing
     }
 
     /// Thinking looks around in one looping keyframe animation; without motion it stands on thinking's first frame.
+    /// A working chat is the Chief thinking too (Leo 2026-11-07: "the left, right, up, down thinking"): the
+    /// pet's states never say `.thinking` for a chat at work, so working looks around the same way.
     @Test func thinkingLooksAroundOnlyWhileItMayMove() throws {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
@@ -68,7 +70,9 @@ import Testing
         #expect(drawn.pose == .state)
         #expect(!drawn.isMoving)
         drawn.show(mochi, state: .working, facingRight: true, moving: true)
-        #expect(drawn.pose == .state, "only thinking looks around")
+        #expect(drawn.pose == .lookTour, "a working chat looks around as it thinks")
+        drawn.show(mochi, state: .waiting, facingRight: true, moving: true)
+        #expect(drawn.pose == .state, "waiting on the person never looks around")
         // Reduce Motion: no tour runs.
         Motion.reduceMotionOverride = true
         drawn.show(mochi, state: .thinking, facingRight: false, moving: true)

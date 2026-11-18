@@ -2565,9 +2565,16 @@ pub unsafe extern "C" fn cmux_wireguard_net_start(
         Ok(text) => Zeroizing::new(text.to_owned()),
         Err(error) => return fail(error),
     };
-    let parsed = match WgConfig::parse_wg_quick(&text) {
+    let mut parsed = match WgConfig::parse_wg_quick(&text) {
         Ok(parsed) => parsed,
         Err(error) => return fail(format!("wireguard config: {error}")),
+    };
+    // Settings' Ultra Connection Mode (`remote.ultra`, Auto by default),
+    // read at each start; `CMUX_WG_ULTRA` still wins over it.
+    parsed.ultra = match cmux_tui_core::user_settings::ultra() {
+        cmux_tui_core::user_settings::UltraConnection::Off => cmux_wg::UltraChoice::Off,
+        cmux_tui_core::user_settings::UltraConnection::Auto => cmux_wg::UltraChoice::AUTO,
+        cmux_tui_core::user_settings::UltraConnection::Always => cmux_wg::UltraChoice::ALWAYS,
     };
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .worker_threads(1)

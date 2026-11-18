@@ -1,0 +1,11 @@
+{
+  "source": "schemas/settings/source/terminal.json",
+  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Terminal.generated.swift",
+  "type": "TerminalSettingsSchema",
+  "joined": "descriptors",
+  "lists": {
+    "terminalFont": ["fontRows", null],
+    "openingLinks": ["linkRows", null],
+    "terminalCompatibility": ["compatibilityRows", null]
+  }
+}

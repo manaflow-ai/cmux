@@ -12,6 +12,7 @@ import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/mode
 import { layoutConversation } from "../src/agent-session/acpmux/model";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { hiddenRowFolds, turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { toolGroups } from "../src/agent-session/acpmux/conversation/toolGroups";
 
 // Claude's in-place runs (claudeTurnFold.experiment.ts arm "runs"): these tests cover that arm. The
 // default folds a Claude turn under "Worked for", as Codex does (turnFoldStyle.test.ts).
@@ -38,6 +39,27 @@ const tool = (title: string, kind: string, fields: Record<string, unknown> = {})
 });
 const send = (to: string, message: string) =>
   tool("SendMessage", "other", { inputSummary: JSON.stringify({ to, message }) });
+
+test("a 1024-recipient MCP batch keeps its full summary count and its closed group's height", () => {
+  const batch = (count: number) =>
+    activity([
+      tool("mcp__cmux__acpmux_send", "other", {
+        inputSummary: JSON.stringify({ tag: "area=docs", text: "hello" }),
+        output: JSON.stringify({
+          results: Array.from({ length: count }, (_, index) => ({ index: 0, to: `recipient-${index}`, ok: true })),
+        }),
+      }),
+    ]);
+  const small = { ...batch(32), foldRun: true };
+  const large = { ...batch(1024), foldRun: true };
+  // With another send beside it, every message is one group of sends that counts each recipient.
+  const companion = send("recipient-companion", "hello");
+  const groups = toolGroups([...large.items!, companion]);
+  expect(groups.map((group) => group.type)).toEqual(["sendGroup"]);
+  expect(groups[0]?.type === "sendGroup" && groups[0].entries.length).toBe(1025);
+  // Both start as one closed "Sent N messages" line: the estimate does not grow with the receipt.
+  expect(layoutConversation([large], 720).heights[0]).toBe(layoutConversation([small], 720).heights[0]);
+});
 const read = (path: string) => tool(`Read ${path}`, "read", { locations: [{ path }] });
 const run = (command: string) => tool(command, "execute", { command, output: "ok\n" });
 const activity = (items: AcpmuxActivity[], id?: string) =>
@@ -197,4 +219,26 @@ test("a run whose edit waits for its permission stays in sight, not under the li
   );
   const view = turnView(rows, new Set(), claude);
   expect(ids(view)).toContain("asks");
+});
+
+test("hidden discovery never invents a second line or work count beside a coordination send", async () => {
+  const { foldMessageRuns, messageRunSummary } = await import("../src/agent-session/acpmux/conversation/messageRuns");
+  const discovery = tool("ToolSearch", "other", {
+    provenance: { claudeTool: "ToolSearch" },
+    output: "Loaded 2 tools",
+  });
+  const sent = send("helper", "Read the result");
+  const folded = (items: AcpmuxActivity[]) => ({ ...activity(items, "discovery-run"), foldRun: true });
+  const lone = folded([discovery, sent, discovery]);
+  expect(foldMessageRuns([lone], new Set())).toEqual([lone]);
+  const receivedRow = received("helper", "Checked", "discovery-report");
+  const run = foldMessageRuns([lone, receivedRow], new Set())[0]!;
+  expect(run.kind).toBe(MESSAGE_RUN);
+  expect(run.messageRun!.work).toEqual([]);
+  expect(messageRunSummary(translate, run.messageRun!)).toBe("Sent a message, received a message");
+  const failed = { ...discovery, tool: { ...discovery.tool!, status: "failed", output: "Discovery unavailable" } };
+  const visible = foldMessageRuns([folded([failed, sent])], new Set())[0]!;
+  expect(visible.kind).toBe(MESSAGE_RUN);
+  expect(visible.messageRun!.work).toEqual([failed]);
+  expect(visible.messageRun!.failed).toBe(1);
 });

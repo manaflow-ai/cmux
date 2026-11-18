@@ -41,8 +41,8 @@ import Testing
         let button = SidebarStyle.toolbarButtonSize
         let room = button + 2
         #expect(room < badge.fittingSize.width)
-        // The + ends `space3` before the trailing edge; the badge keeps `space2` before it.
-        return sidebarView.titlebarLeadingX + room + Metrics.space2 + button + Metrics.space3
+        // The + centers on the trailing column (`titlebarPlusTrailingInset` from the edge); the badge keeps `space2` before it.
+        return sidebarView.titlebarLeadingX + room + Metrics.space2 + button + SidebarStyle.titlebarPlusTrailingInset
     }
 
     @Test func aNarrowSidebarShowsTheMarkAsASquareIconOnThePlusButtonsLine() throws {

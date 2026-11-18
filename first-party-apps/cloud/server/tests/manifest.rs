@@ -230,3 +230,19 @@ fn error_codes(manifest: &Value) -> Vec<&'static str> {
         .map(|i| i.code)
         .collect()
 }
+
+/// Every Cloud machine link's carrier and `cmux link dial` child live in this
+/// server process. With no `idleStopSeconds` the supervisor's onDemand default
+/// stops the server 60 s after its last op result, which ended every open
+/// machine link about once a minute (VM streams ended 59.2-60.0 s after
+/// accept, cmuxterm-hq run 42421794206). The server never idle-stops; it
+/// ends with the app.
+#[test]
+fn the_cloud_server_never_idle_stops_while_it_carries_machine_links() {
+    let manifest = json(&app_dir().join("cmux-app.v2.json"));
+    assert_eq!(
+        manifest["server"]["lifecycle"]["idleStopSeconds"],
+        serde_json::json!(0),
+        "an idle stop kills every carrier and drops every Cloud machine link"
+    );
+}

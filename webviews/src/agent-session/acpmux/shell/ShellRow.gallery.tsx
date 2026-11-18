@@ -3,7 +3,8 @@ import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import type { AcpmuxRow } from "../model";
-import { ShellActionsContext, ShellRow } from "./ShellRow";
+import { ShellRow } from "./ShellRow";
+import { ShellActionsContext } from "./shellRowModel";
 import type { ShellRun } from "./shellRuns";
 
 const now = 1_760_000_000_000;
@@ -127,10 +128,7 @@ export default componentEntry<Props>({
   height: 420,
   widths: { narrow: 390, normal: 640, wide: 860 },
   anchors: [{ selector: ".acpmux-shell-block" }],
-  covers: [
-    "agent-session/acpmux/shell/ShellRow.tsx#ShellActionsContext",
-    "agent-session/acpmux/shell/ShellRow.tsx#ShellRow",
-  ],
+  covers: ["agent-session/acpmux/shell/ShellRow.tsx#ShellRow"],
   load: async () => GalleryShellRow,
   styles: () =>
     Promise.all([

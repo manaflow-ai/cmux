@@ -124,6 +124,7 @@ const FILE_SYSTEM: &[&str] = &[
     "git.branches",
     "git.diff",
     "git.files.list",
+    "git.fingerprint",
     "git.files.search",
     "git.checkpoint.create",
     "git.checkpoint.diff",
@@ -131,6 +132,10 @@ const FILE_SYSTEM: &[&str] = &[
     "git.checkpoint.list",
     "git.checkpoint.pin",
     "git.checkpoint.unpin",
+    "diff.comments.list",
+    "diff.comments.save",
+    "diff.comments.delete",
+    "diff.comments.send",
     "session.journal.hook.put",
 ];
 

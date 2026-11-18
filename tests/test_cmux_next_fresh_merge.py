@@ -20,6 +20,13 @@ import subprocess
 import sys
 import tempfile
 import unittest
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/cmux-next/fresh-merge.py"
 
@@ -79,7 +86,7 @@ class FreshMergeTests(unittest.TestCase):
         self.origin, self.work, bin_dir = root / "origin.git", root / "work", root / "bin"
         self.state, self.log = root / "state.json", root / "gh.log"
         bin_dir.mkdir()
-        subprocess.run(["git", "init", "-q", "--bare", "-b", "feat-cmux-next", str(self.origin)], check=True)
+        git_fixture_env.init_repo(self.origin, "--bare", "-b", "feat-cmux-next")
         subprocess.run(["git", "clone", "-q", str(self.origin), str(self.work)], check=True,
                        capture_output=True)
         git(self.work, "config", "user.email", "t@example.com")
@@ -92,7 +99,7 @@ class FreshMergeTests(unittest.TestCase):
         gh = bin_dir / "gh"
         gh.write_text(FAKE_GH % {"state": str(self.state), "log": str(self.log), "origin": str(self.origin)})
         gh.chmod(0o755)
-        self.env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        self.env = git_fixture_env.fixture_env({key: value for key, value in os.environ.items() if not key.startswith("GIT_")})
         glaeda = bin_dir / "glaeda-gh"
         glaeda.write_text(FAKE_GLAEDA % {"log": str(self.log)})
         glaeda.chmod(0o755)

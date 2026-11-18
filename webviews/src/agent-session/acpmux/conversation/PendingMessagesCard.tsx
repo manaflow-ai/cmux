@@ -12,11 +12,32 @@ import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { FindReveal } from "./chatFind";
-import { messageOpened, setMessageOpened } from "./incomingOpened";
+import { messageOpened, setDigestOpened, setMessageOpened } from "./incomingOpened";
 import { bySender } from "./pendingMessages";
+import { inboxThreadKey } from "./inboxNotice";
 import { SenderName } from "./IncomingMessageCard";
-import { groupSender, MessageGroupHead } from "./MessageGroupHead";
+import { MessageGroupHead } from "./MessageGroupHead";
+import { groupSender } from "./messageGroupHeadModel";
+import { hoverMessages } from "./MessageGroupHover";
 import "./PendingMessagesCard.css";
+
+/// The ids a digest's lines open by: each message's row, and an inbox thread's line by its own key
+/// (InboxNoticeCard.tsx `inboxThreadKey`), so a preview-only thread opens and reads its messages. A
+/// batch inside it ("Received N messages", reports) keeps its own fold: it reveals its lines, then
+/// each opens (Leo, 2026-11-02).
+export function digestMembers(rows: readonly AcpmuxRow[]): string[] {
+  return rows
+    .filter((member) => !member.laneNoticeBatch)
+    .flatMap((member) => {
+      if (member.inboxThread) return [inboxThreadKey(member.id, member.inboxThread.threadId)];
+      if (member.incoming?.kind === "inbox")
+        return [
+          member.id,
+          ...member.incoming.notice.threads.map((thread) => inboxThreadKey(member.id, thread.threadId)),
+        ];
+      return [member.id];
+    });
+}
 
 export function PendingMessagesCard({
   row,
@@ -100,9 +121,20 @@ export function PendingMessagesCard({
           senders={names.join(", ")}
           open={open}
           bodyId={bodyId}
-          onToggle={() => show(!open)}
+          onToggle={() => {
+            // The head opens the group with every message in it open (incomingOpened.ts).
+            setDigestOpened(session, row.id, digestMembers(displayRows ?? rows), !open);
+            setOpen(!open);
+          }}
           className="cv-pending__toggle"
           iconClassName="cv-pending__icon"
+          messages={hoverMessages(
+            (displayRows ?? rows).map((member) =>
+              member.incoming?.kind === "message" ? member.incoming.message : undefined,
+            ),
+            (displayRows ?? rows).map((member) => member.inboxThread?.count),
+            (displayRows ?? rows).map((member) => member.at),
+          )}
         />
       </div>
       {open && (

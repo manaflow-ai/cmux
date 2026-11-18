@@ -6,24 +6,29 @@
 // (attachments.ts `promptBlocks`), which acpmux records as a pasted range and the agent reads
 // between "pasted by the person" marks (hub/prompt_attribution.rs). The text sent is the same.
 //
-// A short one-line paste (a path, a word, a name) stays the person's text: it is not a block of
-// someone else's words. A paste the person edited is theirs too, no longer found as it was; acpmux
-// still notes one that reads as another agent's (`agentText`).
-import { type ComposerAttachment, INLINE_ATTACHMENT_MARK, inlineToken } from "../attachments";
-import { pastedTextAttachment } from "../pastedText";
+// Only a paste that reads as another agent's output (agentText.ts: a "From" header, a Trace-ID
+// line, a generated-with footer, a review receipt), or an oversized one put back in the prompt as
+// text (pastedText.ts `isLargePaste`), is marked: the rest of what the person pastes
+// (their notes, a dictation app's text, a quote) stays their prompt's text, as it was before marks
+// (ask-42dfdea96c; Leo, 2026-11-07: "You don't want to show it as pasted text when it wasn't pasted
+// text in the first place. This is a misattribution."). The bubble draws a marked paste as the prompt's
+// own text too (PromptText.tsx, its one body): the mark is for the agent. A paste the person edited is
+// theirs; acpmux still notes typed text that reads as another agent's (`agentText`).
+import { type ComposerAttachment, escapeTextMarks, INLINE_ATTACHMENT_MARK, inlineToken } from "../attachments";
+import { isLargePaste, pastedTextAttachment } from "../pastedText";
 import { readsAsAgent } from "../agentText";
 
-/// A paste of at least this many characters, or more than one line, goes as a block of its own.
-export const MARKED_PASTE_CHARS = 200;
 /// The pastes a draft remembers, newest kept: a draft rarely holds more, and the send's scan stays
 /// bounded however much was pasted and deleted.
 export const REMEMBERED_PASTES = 16;
 
-/// Whether a paste of `text` that stays in the draft goes as a pasted block.
+/// Whether a paste of `text` that stays in the draft goes as a pasted block: another agent's output,
+/// or a paste past the chip's size. Never an ordinary paste, however many lines it has.
 export function marksPaste(text: string): boolean {
   const body = text.trim();
-  if (!body) return false;
-  return body.length >= MARKED_PASTE_CHARS || /\S[^\S\n]*\n[\s\S]*\S/.test(body) || readsAsAgent(body);
+  // The size as the chip measured it (pastedChips.ts `take`): untrimmed, so a paste that was a chip
+  // stays marked when Edit in Prompt puts it back as text.
+  return body !== "" && (isLargePaste(text) || readsAsAgent(body));
 }
 
 /// `pastes` remembered with `text` added, oldest dropped past REMEMBERED_PASTES. The same text
@@ -73,4 +78,30 @@ export function markPastes(
   }
   if (!added.length) return prompt;
   return { text: runs.map((run) => run.text).join(""), attachments: [...prompt.attachments, ...added] };
+}
+
+/// A prompt coming back to the composer (refused, taken back, a steer withdrawn, edited from the
+/// queue) with each placed paste chip `markPastes` made at its send put back in its place as text,
+/// and that text in `pastes` to remember (`remember`), so the next send marks it as pasted again if
+/// it still reads as another agent's. Only a paste past the chip's limit (pastedText.ts
+/// `isLargePaste`) comes back as a chip, as it went in: a dictation-length paste was text in the
+/// draft (one an older composer marked included), and coming back it stays text, never a "Pasted
+/// text · 1.2K characters" chip (ask-14d16a6247). The text goes back as the draft writes the
+/// person's text (`escapeTextMarks`), so a U+FFFC run in it never reads as an attachment's place.
+export function unmarkPastes(prompt: { text: string; attachments: ComposerAttachment[] }): {
+  text: string;
+  attachments: ComposerAttachment[];
+  pastes: string[];
+} {
+  const pastes: string[] = [];
+  let text = prompt.text;
+  const attachments = prompt.attachments.filter((chip) => {
+    if (chip.kind !== "pasted" || chip.text === undefined || isLargePaste(chip.text)) return true;
+    const token = inlineToken(chip.id);
+    if (!text.includes(token)) return true;
+    text = text.replace(token, () => escapeTextMarks(chip.text!));
+    pastes.push(chip.text);
+    return false;
+  });
+  return pastes.length ? { text, attachments, pastes } : { ...prompt, pastes };
 }

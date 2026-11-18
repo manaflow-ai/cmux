@@ -285,6 +285,23 @@ fn not_marked(name: &str, e: &anyhow::Error) -> RpcError {
     refused("upload.unreadable", format!("cannot mark upload {name} in use: {e}"))
 }
 
+/// The upload a prompt block names, as its id and file name (`open_delivery::part`): a
+/// reference (`_meta.acpmux.upload`), or a link resolved from one (`_meta.acpmux.uploadPath`,
+/// the upload's own folder and its name: `file_uploads::finished_path`). None: the block names
+/// no upload; `Some(None)`: it names one, but not by both.
+pub(crate) fn named_upload(block: &Value) -> Option<Option<(String, String)>> {
+    let text = |v: Option<&Value>| v.and_then(Value::as_str).map(str::to_owned);
+    if let Some(upload) = upload_of(block) {
+        let id = text(upload.get("uploadId"));
+        return Some(id.zip(text(upload.get("fileName"))));
+    }
+    let path = block.pointer("/_meta/acpmux/uploadPath")?;
+    let path = Path::new(path.as_str().unwrap_or_default());
+    let name = path.file_name().and_then(|n| n.to_str()).map(str::to_owned);
+    let id = path.parent().and_then(Path::file_name).and_then(|n| n.to_str()).map(str::to_owned);
+    Some(id.zip(name))
+}
+
 fn links_upload(blocks: &[Value]) -> bool {
     blocks.iter().any(|b| b.pointer("/_meta/acpmux/uploadPath").is_some())
 }

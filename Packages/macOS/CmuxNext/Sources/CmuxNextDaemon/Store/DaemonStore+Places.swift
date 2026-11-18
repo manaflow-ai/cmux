@@ -24,12 +24,16 @@ extension DaemonStore {
 
     /// The chat tab that shows ACP session `session`, on `host` when one is given.
     public func tab(agentSession session: String, host: String? = nil) -> TabModel? {
-        for workspace in workspaces {
-            for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs)
-            where tab.agentSession?.session == session && (host == nil || tab.agentSession?.host == host) {
-                return tab
-            }
-        }
-        return nil
+        // Lazily, stopping at the first: no array of every tab per call.
+        workspaces.lazy.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
+            .first { $0.agentSession?.session == session && (host == nil || $0.agentSession?.host == host) }
+    }
+
+    /// Whether tab `id` is a chat of `host`'s acpmux bound to `session` (or to none yet): a tab of
+    /// another machine or chat never stands for it (a Cloud chat's uploads, CloudUploads).
+    public func holdsChat(tab id: String, host: String, session: String) -> Bool {
+        guard let record = workspaces.lazy.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first(where: { $0.id == id })?.agentSession,
+              record.host == host else { return false }
+        return (record.session ?? session) == session
     }
 }

@@ -208,17 +208,20 @@ pub(super) fn run(args: &[String]) -> i32 {
             source,
             identity,
             deadline: tokio::time::Instant::now() + args.deadline,
+            prefetched: Arc::new(answer::Prefetched::default()),
             // Route lines carry the machine id, the step and the time: no value.
             log: Arc::new(|line| {
                 let mut stderr = std::io::stderr().lock();
                 let _ = stderr.write_all(line.as_bytes());
             }),
+            phases: Arc::new(|_| {}),
+            fresh_sessions: Default::default(),
+            progress: None,
+            ssh: Arc::new(super::ssh::SshSetup::from_env(None)),
+            ssh_refusal: super::ssh::SshRefusal::default(),
+            drill: false,
         };
-        let dialed = match client::dial(&plan, |ceiling| {
-            cmux_remote::connection::ReconnectPolicy::default().retry_delay(ceiling)
-        })
-        .await
-        {
+        let dialed = match client::dial(&plan).await {
             Ok(dialed) => dialed,
             Err(failure) => {
                 return self::failure(failure.step.error_code(), None, failure.retryable);

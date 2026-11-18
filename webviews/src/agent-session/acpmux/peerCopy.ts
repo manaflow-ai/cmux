@@ -34,6 +34,10 @@ export type PeerCopy = PeerCopyState & {
   lastSeq: number;
   /// An attach of it is out (the open's, or one after its machine came back): no other starts.
   attaching?: boolean;
+  /// The rows are the ones the machine's own attach drew before it went down, kept as they are
+  /// (direct.ts `keepPeerCopy`), not a copy read from the Mac: the machine's next page continues
+  /// them from `lastSeq` as a reconnect does, the records in between read, never dropped.
+  own?: boolean;
 };
 
 /// Whether a copy of generation `kept` (its `createdAt`) is of the session that names `current`:

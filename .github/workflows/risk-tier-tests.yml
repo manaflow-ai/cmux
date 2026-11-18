@@ -9,6 +9,7 @@ on:
     paths:
       - scripts/ci/risk_tier.py
       - tests/test_risk_tier.py
+      - tests/git_fixture_env.py
       - .github/workflows/risk-tier.yml
       - .github/workflows/risk-tier-tests.yml
 
@@ -35,5 +36,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/risk_tier.py
             tests/test_risk_tier.py
+            tests/git_fixture_env.py
+            .github/workflows/risk-tier.yml
           sparse-checkout-cone-mode: false
       - run: python3 tests/test_risk_tier.py -v

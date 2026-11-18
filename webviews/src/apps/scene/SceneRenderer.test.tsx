@@ -6,18 +6,23 @@ import { fileURLToPath } from "node:url";
 import { UiProvider } from "../../ui/UiProvider";
 import type { PopupHost } from "../../ui/popupHost";
 import type { NativePopupModel, NativePopupEvent } from "../../ui/nativePopup";
-import { SceneRenderer, type SceneAssetResolver, type SceneDispatch } from "./SceneRenderer";
+import type { ReactNode } from "react";
+import { SceneFailure, sceneFailureCopy } from "./SceneFailure";
+import { SceneRenderer, sliderSnap, type SceneAssetResolver, type SceneDispatch } from "./SceneRenderer";
+import { translate } from "../../agent-session/acpmux/i18n";
 import { appSceneIcon } from "./SceneSymbol";
 import { SceneStore, type SceneOp } from "./store";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
+  await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;
@@ -87,6 +92,13 @@ function render(
     ),
   );
   return { container, store, calls };
+}
+
+/** Renders `element` in the same DOM setup as `render` (for the failure row, outside a scene). */
+function renderElement(element: ReactNode) {
+  const { container } = render([]);
+  act(() => root!.render(<UiProvider container={container}>{element}</UiProvider>));
+  return container;
 }
 
 const row: SceneOp[] = [
@@ -409,4 +421,329 @@ test("Image draws nothing when the embedding page has no bundle resolver", () =>
     { op: "root", id: "image" },
   ]);
   expect(container.querySelector("img")).toBeNull();
+});
+
+test("Toggle flips at once and sends change {value} before the click returns; the app's next value wins", () => {
+  const trace: string[] = [];
+  const { container, calls, store } = render(
+    [
+      { op: "create", id: "root", type: "VStack" },
+      { op: "create", id: "live", type: "Toggle", props: { label: "Notify", value: false, onChange: true } },
+      { op: "create", id: "shown", type: "Toggle", props: { label: "Read only", value: true } },
+      { op: "children", id: "root", children: ["live", "shown"] },
+      { op: "root", id: "root" },
+    ],
+    undefined,
+    undefined,
+    (node, event) => trace.push(`${node}:${event}`),
+  );
+  const live = container.querySelector<HTMLElement>('[data-app-node="live"] [role="switch"]')!;
+  const shown = container.querySelector<HTMLElement>('[data-app-node="shown"] [role="switch"]')!;
+  const checked = (element: HTMLElement) => element.getAttribute("aria-checked") === "true";
+  const disabled = (element: HTMLElement) => element.hasAttribute("data-disabled");
+  expect(container.querySelector('[data-app-node="live"]')?.textContent).toBe("Notify");
+  expect(checked(live)).toBe(false);
+  expect(disabled(live)).toBe(false);
+  expect(checked(shown)).toBe(true);
+  expect(disabled(shown)).toBe(true);
+  act(() => {
+    trace.push("click:start");
+    live.click();
+    trace.push("click:returned");
+    expect(trace).toEqual(["click:start", "live:change", "click:returned"]);
+  });
+  expect(calls).toEqual([["live", "change", { value: true }]]);
+  expect(checked(live)).toBe(true);
+  // The app refuses: its next value shows.
+  act(() => store.apply([{ op: "update", id: "live", props: { value: true } }]));
+  act(() => store.apply([{ op: "update", id: "live", props: { value: false } }]));
+  expect(checked(live)).toBe(false);
+  act(() => shown.click());
+  expect(calls).toHaveLength(1);
+});
+
+test("Slider sends each snapped change synchronously and drops values that snap to the last one sent", () => {
+  const trace: string[] = [];
+  const { container, calls, store } = render(
+    [
+      { op: "create", id: "level", type: "Slider", props: { min: 0, max: 10, step: 0.5, value: 2, onChange: true } },
+      { op: "root", id: "level" },
+    ],
+    undefined,
+    undefined,
+    (node, event) => trace.push(`${node}:${event}`),
+  );
+  const slider = container.querySelector<HTMLInputElement>('input[type="range"]')!;
+  expect(slider.value).toBe("2");
+  const input = (value: string) => {
+    Object.getOwnPropertyDescriptor(dom!.window.HTMLInputElement.prototype, "value")!.set!.call(slider, value);
+    slider.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  };
+  act(() => {
+    trace.push("input:start");
+    input("3.1");
+    trace.push("input:returned");
+    expect(trace).toEqual(["input:start", "level:change", "input:returned"]);
+    // 3.2 snaps to the 3 just sent: dropped, not delayed.
+    input("3.2");
+    input("3.7");
+  });
+  expect(calls).toEqual([
+    ["level", "change", { value: 3 }],
+    ["level", "change", { value: 3.5 }],
+  ]);
+  // While a drag runs the app's echo of an earlier value does not move the thumb; it shows on release.
+  act(() => {
+    slider.dispatchEvent(new dom!.window.Event("pointerdown", { bubbles: true }));
+  });
+  act(() => store.apply([{ op: "update", id: "level", props: { value: 3 } }]));
+  expect(slider.value).toBe("3.5");
+  act(() => {
+    slider.dispatchEvent(new dom!.window.Event("pointerup", { bubbles: true }));
+  });
+  expect(slider.value).toBe("3");
+  act(() => store.apply([{ op: "update", id: "level", props: { onChange: null } }]));
+  expect(slider.disabled).toBe(true);
+});
+
+test("Slider snapping matches the native renderer's range, step and decimals", () => {
+  expect(sliderSnap(0.30000000000000004, [0, 1], 0.1)).toBe(0.3);
+  expect(sliderSnap(-4, [0, 1], 0.01)).toBe(0);
+  expect(sliderSnap(12, [0, 10], 3)).toBe(9);
+  expect(sliderSnap(7, [5, 10], 2)).toBe(7);
+});
+
+test("Panel renders its caption title and stacked children on the glass or card surface", () => {
+  const { container, store } = render([
+    { op: "create", id: "panel", type: "Panel", props: { title: "Build" } },
+    { op: "create", id: "a", type: "Text", props: { text: "Passing" } },
+    { op: "create", id: "b", type: "Toggle", props: { label: "Watch", value: true, onChange: true } },
+    { op: "children", id: "panel", children: ["a", "b"] },
+    { op: "root", id: "panel" },
+  ]);
+  const panel = container.querySelector<HTMLElement>('[data-app-node="panel"]')!;
+  expect(panel.getAttribute("data-app-type")).toBe("Panel");
+  expect(panel.getAttribute("data-style")).toBe("glass");
+  expect(panel.querySelector(".cmux-app-scene-panel-title")?.textContent).toBe("Build");
+  expect([...panel.children].map((child) => child.getAttribute("data-app-node") ?? child.className)).toEqual([
+    "cmux-app-scene-panel-title",
+    "a",
+    "b",
+  ]);
+  act(() => store.apply([{ op: "update", id: "panel", props: { style: "card", title: null, spacing: 4 } }]));
+  expect(panel.getAttribute("data-style")).toBe("card");
+  expect(panel.querySelector(".cmux-app-scene-panel-title")).toBeNull();
+  expect(panel.style.gap).toBe("4px");
+});
+
+test("the failure row says what happened, reloads from the click, copies the raw reason and shows Details", () => {
+  const reason = "init: main: SyntaxError: expecting ';' at main.js:2:12";
+  const trace: string[] = [];
+  const copied: string[] = [];
+  const container = renderElement(
+    <SceneFailure
+      status={{ state: "failed", reason }}
+      onReload={() => trace.push("reload")}
+      copyText={(text) => copied.push(text)}
+    />,
+  );
+  const text = container.textContent ?? "";
+  expect(text).toContain(translate("apps.failure.script"));
+  expect(text).toContain("main.js");
+  expect(text).toContain("expecting ';'");
+  expect(container.querySelector(".cmux-app-scene-failure-detail")).toBeNull();
+  const button = (action: string) => container.querySelector<HTMLButtonElement>(`[data-action="${action}"]`)!;
+  act(() => {
+    trace.push("click:start");
+    button("reload").click();
+    trace.push("click:returned");
+    expect(trace).toEqual(["click:start", "reload", "click:returned"]);
+  });
+  act(() => button("copy").click());
+  expect(copied).toEqual([reason]);
+  expect(button("copy").textContent).toBe(translate("apps.failure.copied"));
+  act(() => button("details").click());
+  expect(container.querySelector(".cmux-app-scene-failure-detail")?.textContent).toBe(reason);
+  expect(button("details").textContent).toBe(translate("apps.failure.hideDetails"));
+});
+
+test("a disconnected mount draws its one plain line with no buttons, and no Reload without a host", () => {
+  let container = renderElement(<SceneFailure status={{ state: "disconnected", reason: "cmux is not connected" }} />);
+  expect(container.textContent).toBe("cmux is not connected");
+  expect(container.querySelector("button")).toBeNull();
+  container = renderElement(<SceneFailure status={{ state: "failed", reason: "boom" }} />);
+  expect(container.querySelector('[data-action="reload"]')).toBeNull();
+  expect(container.querySelector('[data-action="copy"]')).not.toBeNull();
+});
+
+test("failure copy matches the native AppFailureCopy cases", () => {
+  const t = translate;
+  expect(sceneFailureCopy("app.limit: more than 4096 scene nodes", t)).toEqual({
+    title: t("apps.failure.tooLarge"),
+    detail: "app.limit: more than 4096 scene nodes",
+  });
+  expect(sceneFailureCopy("ReferenceError: x is not defined", t).location).toBe("x is not defined");
+  expect(sceneFailureCopy("init: Error: at eval_script:1:1", t).location).toBe(
+    t("apps.failure.scriptAtOnly").replace("%1$@", "1").replace("%2$@", "1"),
+  );
+  expect(sceneFailureCopy("the host stopped", t)).toEqual({
+    title: t("apps.failure.generic"),
+    detail: "the host stopped",
+  });
+});
+
+const list: SceneOp[] = [
+  { op: "create", id: "root", type: "VStack" },
+  { op: "create", id: "a", type: "Text", props: { text: "Milk", transition: "slide" } },
+  { op: "create", id: "b", type: "Text", props: { text: "Eggs", transition: "slide", strikethrough: true } },
+  { op: "children", id: "root", children: ["a", "b"] },
+  { op: "root", id: "root" },
+];
+
+test("strikethrough draws a line through the text", () => {
+  const { container } = render(list);
+  const done = container.querySelector<HTMLElement>('[data-app-node="b"] .cmux-app-scene-text')!;
+  expect(done.style.textDecorationLine).toBe("line-through");
+  const open = container.querySelector<HTMLElement>('[data-app-node="a"] .cmux-app-scene-text')!;
+  expect(open.style.textDecorationLine).toBe("");
+});
+
+test("a transition animates a node in after the first frame and keeps a removed one until it has left", async () => {
+  const { container, store } = render(list);
+  // The first scene draws in place.
+  expect(container.querySelector('[data-app-node="a"]')!.hasAttribute("data-entering")).toBe(false);
+  act(() =>
+    store.apply([
+      { op: "create", id: "c", type: "Text", props: { text: "Bread", transition: "slide" } },
+      { op: "children", id: "root", children: ["a", "b", "c"] },
+    ]),
+  );
+  const added = container.querySelector('[data-app-node="c"]')!;
+  expect(added.getAttribute("data-transition")).toBe("slide");
+  expect(added.hasAttribute("data-entering")).toBe(true);
+
+  act(() =>
+    store.apply([
+      { op: "children", id: "root", children: ["b", "c"] },
+      { op: "remove", id: "a" },
+    ]),
+  );
+  // The removed row stays at its place, from its last props, and takes no input while it leaves.
+  const order = [...container.querySelectorAll("[data-app-node]")].map((n) => n.getAttribute("data-app-node"));
+  expect(order).toEqual(["root", "a", "b", "c"]);
+  const leaving = container.querySelector('[data-app-node="a"]')!;
+  expect(leaving.hasAttribute("data-leaving")).toBe(true);
+  expect(leaving.textContent).toBe("Milk");
+  // The leave ends on its own timer (the motion scale's quick step): wait for the node to go.
+  for (let turn = 0; turn < 200 && container.querySelector('[data-app-node="a"]'); turn += 1) {
+    await act(() => new Promise<void>((resolve) => queueMicrotask(resolve)));
+    await act(() => new Promise<void>((resolve) => dom!.window.requestAnimationFrame(() => resolve())));
+  }
+  expect(container.querySelector('[data-app-node="a"]')).toBeNull();
+});
+
+test("a reset scene draws fresh: nothing enters and nothing old stays to leave", () => {
+  const { container, store } = render(list);
+  act(() =>
+    store.apply(
+      [
+        { op: "create", id: "root", type: "VStack", props: {} },
+        { op: "create", id: "z", type: "Text", props: { text: "Eggs", transition: "slide" } },
+        { op: "children", id: "root", children: ["z"] },
+        { op: "root", id: "root" },
+      ],
+      true,
+    ),
+  );
+  const order = [...container.querySelectorAll("[data-app-node]")].map((n) => n.getAttribute("data-app-node"));
+  expect(order).toEqual(["root", "z"]);
+  expect(container.querySelector('[data-app-node="z"]')!.hasAttribute("data-entering")).toBe(false);
+});
+
+test("with motion off a removed node goes at once", () => {
+  const { container, store } = render(list);
+  document.documentElement.dataset.cmuxMotion = "off";
+  act(() =>
+    store.apply([
+      { op: "children", id: "root", children: ["b"] },
+      { op: "remove", id: "a" },
+    ]),
+  );
+  expect(container.querySelector('[data-app-node="a"]')).toBeNull();
+});
+
+test("numericText rolls only the changed digits, up as the number grows and down as it shrinks", () => {
+  const { container, store } = render([
+    { op: "create", id: "t", type: "Text", props: { text: "9:41", contentTransition: "numericText" } },
+    { op: "root", id: "t" },
+  ]);
+  const digits = () =>
+    [...container.querySelectorAll(".cmux-app-scene-digit")].map((d) => [d.textContent, d.getAttribute("data-roll")]);
+  expect(digits()).toEqual([
+    ["9", null],
+    [":", null],
+    ["4", null],
+    ["1", null],
+  ]);
+  act(() => store.apply([{ op: "update", id: "t", props: { text: "9:42" } }]));
+  expect(digits()).toEqual([
+    ["9", null],
+    [":", null],
+    ["4", null],
+    ["2", "up"],
+  ]);
+  act(() => store.apply([{ op: "update", id: "t", props: { text: "9:39" } }]));
+  expect(digits()).toEqual([
+    ["9", null],
+    [":", null],
+    ["3", "down"],
+    ["9", "down"],
+  ]);
+});
+
+test("an opacity content transition crossfades the new text and animation marks the node", () => {
+  const { container, store } = render([
+    {
+      op: "create",
+      id: "t",
+      type: "Text",
+      props: { text: "Sunny", contentTransition: "opacity", animation: "smooth" },
+    },
+    { op: "root", id: "t" },
+  ]);
+  const node = container.querySelector('[data-app-node="t"]')!;
+  expect(node.getAttribute("data-animation")).toBe("smooth");
+  expect(node.querySelector(".cmux-app-scene-content")!.hasAttribute("data-roll")).toBe(false);
+  act(() => store.apply([{ op: "update", id: "t", props: { text: "Cloudy" } }]));
+  const content = node.querySelector(".cmux-app-scene-content")!;
+  expect(content.textContent).toBe("Cloudy");
+  expect(content.getAttribute("data-roll")).toBe("fade");
+});
+
+test("layout: HStack aligns top or bottom, ZStack centers, a shape's frame wins over size, accent is the theme's", () => {
+  const { container } = render([
+    { op: "create", id: "root", type: "VStack" },
+    { op: "create", id: "top", type: "HStack", props: { alignment: "top" } },
+    { op: "create", id: "bottom", type: "HStack", props: { alignment: "bottom" } },
+    { op: "create", id: "middle", type: "HStack" },
+    { op: "create", id: "z", type: "ZStack" },
+    { op: "create", id: "bar", type: "Capsule", props: { frame: { width: 80, height: 6 }, fill: "accent" } },
+    { op: "create", id: "wide", type: "Rectangle", props: { frame: { maxWidth: "infinity", height: 4 } } },
+    { op: "create", id: "dot", type: "Circle", props: { size: 10 } },
+    { op: "children", id: "root", children: ["top", "bottom", "middle", "z", "bar", "wide", "dot"] },
+    { op: "root", id: "root" },
+  ]);
+  const style = (id: string) => container.querySelector<HTMLElement>(`[data-app-node="${id}"]`)!.style;
+  expect(style("top").alignItems).toBe("flex-start");
+  expect(style("bottom").alignItems).toBe("flex-end");
+  expect(style("middle").alignItems).toBe("");
+  expect(style("bar").width).toBe("80px");
+  expect(style("bar").height).toBe("6px");
+  expect(style("bar").backgroundColor).toBe("var(--cmux-accent, var(--agent-text))");
+  expect(style("wide").width).toBe("100%");
+  expect(style("wide").height).toBe("4px");
+  expect(style("dot").width).toBe("10px");
+  expect(style("dot").height).toBe("10px");
+  const css = require("node:fs").readFileSync(new URL("./scene.css", import.meta.url), "utf8") as string;
+  expect(css).toMatch(/\.cmux-app-scene-zstack \{\s*display: grid;\s*place-items: center;/);
 });

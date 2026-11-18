@@ -113,6 +113,17 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "palette.newCloudChat",
+        group: GROUP,
+        title: t("ActionCatalog", "action.palette.newCloudChat", "New Cloud Chat"),
+        keywords: &["agent", "chat", "new", "cloud", "vm", "remote", "machine", "sleep"],
+        category: "agents",
+        symbol: "cloud",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        cli_name: "action palette-new-cloud-chat",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "agentPane.toggleSessionInfo",
         group: GROUP,
         title: t("Localizable", "action.agentPane.toggleSessionInfo", "Toggle Session Info"),
@@ -247,12 +258,12 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "agentPane.togglePointerInspector",
         group: GROUP,
-        title: Text::raw("Inspect UI Element"),
-        keywords: &["agent", "ui", "pointer", "inspect", "inspect element", "pick", "element", "debug"],
+        title: Text::raw("Point at Element"),
+        keywords: &["agent", "ui", "pointer", "point", "point at element", "inspect", "inspect element", "inspect ui element", "pick", "element", "debug"],
         category: "agents",
         symbol: "scope",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "inspect", 1).folder("tools").label(Text::raw("Inspect Element"))], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "inspect", 1).folder("tools").label(Text::raw("Point at Element…"))], ..SurfacePlan::DEFAULT },
         cli_name: "agent toggle-ui-pointer",
         ..Action::DEFAULT
     },
@@ -285,6 +296,22 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "palette.captureScreenshotToChat",
+        group: GROUP,
+        title: t("ActionCatalog", "action.palette.captureScreenshotToChat", "Capture Screenshot to Chat"),
+        description: Some("Picks a region of the screen with the system's picker and puts the screenshot into the focused agent chat's composer (else a new chat's) as an unsent draft. Its system-wide key works while another app is in front once app.captureScreenshotGlobalHotKey is on."),
+        keywords: &["screenshot", "capture", "screen", "region", "image", "picture", "attach", "chat", "agent", "global", "hotkey", "hot key"],
+        default_shortcut: Some(Shortcut { key: "s", modifiers: CTRL | OPT | CMD }),
+        category: "agents",
+        symbol: "camera.viewfinder",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action palette-capture-screenshot-to-chat",
+        is_person_only: true,
+        is_global_hot_key: true,
+        ..Action::DEFAULT
+    },
+    Action {
         id: "palette.addHarness",
         group: GROUP,
         title: t("ActionCatalog", "action.palette.addHarness", "Integrate a Harness with an Agent…"),
@@ -306,6 +333,17 @@ pub static ACTIONS: &[Action] = &[
         symbol: "chart.bar.xaxis",
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action stats-show",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "agentBoard.show",
+        group: GROUP,
+        title: t("ActionCatalog", "action.agentBoard.show", "Show Agent Board"),
+        keywords: &["agent board", "board", "work tracking", "ledger", "evidence", "decisions", "permutations", "agents"],
+        category: "agents",
+        symbol: "square.grid.3x3.topleft.filled",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action agent-board-show",
         ..Action::DEFAULT
     },
     Action {
@@ -402,6 +440,23 @@ pub static ACTIONS: &[Action] = &[
         requires: &["agentPaneFocused"],
         targets: &["pane"],
         cli_name: "action agent-pane-copy-last-code-block",
+        ..Action::DEFAULT
+    },
+    // The floating mini (the Chief pet) stands for the focused chat; run while it does, it gives the
+    // mini back to the Chief. Person-only: with the mini managed off it opens the mini's reply box.
+    Action {
+        id: "agentPane.showInMini",
+        group: GROUP,
+        title: t("ActionCatalog", "action.agentPane.showInMini", "Show in Mini"),
+        keywords: &["agent", "chat", "mini", "pet", "chief", "floating", "avatar", "coordinator"],
+        category: "agents",
+        symbol: "pip",
+        surfaces: PALETTE,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        requires: &["agentPaneFocused"],
+        targets: &["pane"],
+        cli_name: "action agent-pane-show-in-mini",
+        is_person_only: true,
         ..Action::DEFAULT
     },
     Action {
@@ -579,6 +634,17 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "palette.toggleTerminalChat",
+        group: GROUP,
+        title: t("ActionCatalog", "action.palette.toggleTerminalChat", "Toggle Terminal and Chat"),
+        keywords: &["agent", "chat", "terminal", "gui", "swap", "switch"],
+        category: "agents",
+        symbol: "arrow.left.arrow.right",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "agent toggle-terminal-chat",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "palette.launchClaudeTeams",
         group: GROUP,
         title: t("ActionCatalog", "action.palette.launchClaudeTeams", "Launch Claude Teams"),
@@ -607,7 +673,7 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["agent", "fork", "branch"],
         default_shortcut: Some(Shortcut { key: "y", modifiers: OPT | CMD }),
         category: "agents",
-        symbol: "arrow.triangle.branch",
+        symbol: "arrow.branch",
         surfaces: PALETTE | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("terminalSelection", "create", 199), Placement::at("agentChat", "create", 199)], ..SurfacePlan::DEFAULT },
         cli_name: "agent fork-conversation",
@@ -796,8 +862,8 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["agent", "session", "acpmux", "subagent", "workspace"],
         category: "agents",
         symbol: "bubble.left.and.text.bubble.right",
-        surfaces: KEYBOARD,
-        surface_plan: SurfacePlan { palette: Decision::Exempt("noObject"), cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         arguments: &[args::SESSION, args::NAME_4.optional(), args::DEFAULT_NAME.optional(), args::KEY.optional(), args::CWD_2.optional(), args::HOST_2.optional(), args::GROUP_4.optional(), args::PLACEMENT.optional()],
         cli_name: "agent open",
         starts_terminal: true,
@@ -810,8 +876,8 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["agent", "session", "acpmux", "subagent", "tab", "chat"],
         category: "agents",
         symbol: "bubble.left.and.text.bubble.right",
-        surfaces: KEYBOARD,
-        surface_plan: SurfacePlan { palette: Decision::Exempt("noObject"), cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         arguments: &[args::SESSION, args::HOST_2.optional()],
         targets: &["pane", "tab"],
         cli_name: "agent open-tab",

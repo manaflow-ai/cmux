@@ -1,6 +1,6 @@
 // The chat's gallery (GalleryDialog.tsx) blurs the pane behind it. Under Reduce Transparency, the
 // host's data-reduce-transparency or the system's media query, it is a solid page instead, as the
-// other blurred acpmux surfaces are. Real Chromium loads summary.css; it cannot emulate
+// other blurred acpmux surfaces are. Real Chromium loads desktop.css and summary.css; it cannot emulate
 // prefers-reduced-transparency, so the media block's own rules are checked against the dialog.
 import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -17,7 +17,10 @@ await requireBrowserLane("chat-gallery-reduce-transparency.test.ts", async () =>
     describe.skip("chat gallery reduce transparency", () => test("chromium", () => {}));
     return;
   }
-  const css = readFileSync(path.resolve(import.meta.dir, "../src/agent-session/acpmux/summary/summary.css"), "utf8");
+  // desktop.css first, as every page loads it: it holds the glass levels the gallery names.
+  const css = ["pages/shared/desktop.css", "agent-session/acpmux/summary/summary.css"]
+    .map((file) => readFileSync(path.resolve(import.meta.dir, "../src", file), "utf8"))
+    .join("\n");
   let browser: Browser | undefined;
   beforeAll(async () => {
     browser = await chromium.launch({ headless: true });
@@ -30,8 +33,9 @@ await requireBrowserLane("chat-gallery-reduce-transparency.test.ts", async () =>
     const page = await browser!.newPage();
     await page.setContent(
       // A translucent window (or a custom surface) sends a fully clear page background, so the solid
-      // look must come from the always-opaque surface token, as the composer's does.
-      `<style>:root{--agent-page-bg:transparent;--cmux-surface-solid:rgb(30, 30, 30);--acpmux-base:rgb(40, 40, 40)}${css}</style><div class="acpmux-chat-gallery" id="g"></div>`,
+      // look must come from the always-opaque surface token, as the composer's does. The glass
+      // levels come from desktop.css in the app; the page sets the popover level's values here.
+      `<style>:root{--agent-page-bg:transparent;--cmux-surface-solid:rgb(30, 30, 30);--acpmux-base:rgb(40, 40, 40);--ds-glass-popover-tint:70%;--ds-glass-popover-blur:blur(24px) saturate(1.25)}${css}</style><div class="acpmux-chat-gallery" id="g"></div>`,
     );
     return page;
   }

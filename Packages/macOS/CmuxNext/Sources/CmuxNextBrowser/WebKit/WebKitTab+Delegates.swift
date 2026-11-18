@@ -39,8 +39,8 @@ extension WebKitTab: WKNavigationDelegate {
 
         if !Self.isWebScheme(url) {
             decisionHandler(.cancel, preferences)
-            // The shared opener admits cmux's sign-in return without a
-            // gesture, with app-opening consent. Other links need a click.
+            // The shared opener prompts for every non-gesture navigation,
+            // including sign-in returns, before handing it to another app.
             if navigationAction.targetFrame?.isMainFrame ?? true {
                 BrowserExternalApps.shared.open(url, from: navigationAction.sourcePage, userGesture: isUserLinkClick, ask: enqueuePrompt)
             }
@@ -86,6 +86,8 @@ extension WebKitTab: WKNavigationDelegate {
             // A video sent as a generic file plays in the tab, at its own address. A simulated
             // load, not `loadHTMLString`: the player takes the video's place in the back list.
             decisionHandler(.cancel)
+            // WebKit lets a decision outlive a suspend (`WebPageProxy::receivedNavigationResponsePolicyDecision`).
+            guard resumeIfSuspended() else { return }
             webView.loadSimulatedRequest(URLRequest(url: url), responseHTML: RemoteVideoPage.html(for: url))
         } else if navigationResponse.isForMainFrame, isAttachment || !navigationResponse.canShowMIMEType {
             // The page that started the navigation counts the download.
@@ -204,6 +206,8 @@ extension WebKitTab: WKNavigationDelegate {
         processLogger.error("web content process ended tab=\(tabID, privacy: .public) reason=\(exit.reason.rawValue, privacy: .public) pressure=\(pressure.rawValue, privacy: .public) \(owed ? "reloads once by itself (memory)" : "no automatic reload", privacy: .public)")
         apply(.processExited(exit))
         if owed, webView.window?.isVisible == true, !webView.isHiddenOrHasHiddenAncestor { reloadOwedAfterExit() }
+        // Last: the host may close this tab to replace it.
+        frozenPageEnded()
     }
 
     /// Takes the one automatic reload a memory end owes (`exitRecovery`), if the sad tab still shows.

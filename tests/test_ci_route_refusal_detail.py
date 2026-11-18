@@ -13,7 +13,7 @@ reads share a 45 s budget), logs and raises after one attempt, as before.
 from __future__ import annotations
 
 import contextlib
-import importlib.util
+import importlib
 import io
 import sys
 import unittest
@@ -26,11 +26,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def load(name: str):
-    spec = importlib.util.spec_from_file_location(name, ROOT / "scripts/ci" / f"{name}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules.setdefault(name, module)
-    spec.loader.exec_module(module)
-    return module
+    # Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+    if str(ROOT / "scripts/ci") not in sys.path:
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+    return importlib.import_module(name)
 
 
 pool = load("pr_runner_pool")
@@ -38,11 +37,7 @@ cascade = load("next_macos_cascade")
 
 
 def load_side():
-    spec = importlib.util.spec_from_file_location("side_lane_placement_under_test",
-                                                  ROOT / "scripts/ci/side_lane_placement.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return load("side_lane_placement")
 
 
 def refused(code: int, body: str, **headers: str) -> urllib.error.HTTPError:
@@ -61,6 +56,19 @@ class Ok:
 
     def read(self, *args):
         return b'{"runners": []}'
+
+
+def as_request(answer):
+    """pr_runner_pool's calls go through deadline_http.request: an answer as urlopen gives it (a raised
+    HTTPError, or a response read whole), as request() gives it."""
+    if isinstance(answer, BaseException):
+        raise answer
+    return 200, answer.read(), {}
+
+
+def answering(answers):
+    left = iter(answers)
+    return lambda *args, **kwargs: as_request(next(left))
 
 
 def clients():
@@ -83,7 +91,11 @@ class RefusalDetailTests(unittest.TestCase):
         err = io.StringIO()
         if module is cascade:
             fn = lambda: self.cascade_api._get("/orgs/o/actions/runner-groups?x=1")  # noqa: E731
-        with mock.patch.object(module.urllib.request, "urlopen", side_effect=answers) as opened, \
+        if module is pool:
+            opener = mock.patch.object(pool.deadline_http, "request", side_effect=answering(answers))
+        else:
+            opener = mock.patch.object(module.urllib.request, "urlopen", side_effect=answers)
+        with opener as opened, \
                 mock.patch.object(module.time, "sleep", side_effect=sleeps.append), contextlib.redirect_stderr(err):
             try:
                 result = fn()
@@ -167,7 +179,7 @@ class RefusalDetailTests(unittest.TestCase):
 
         client = pool.GitHub("t", "o/r", retry_cap=5)
         err = io.StringIO()
-        with mock.patch.object(pool.urllib.request, "urlopen", side_effect=slow) as opened, \
+        with mock.patch.object(pool.deadline_http, "request", side_effect=slow) as opened, \
                 mock.patch.object(pool.time, "sleep", side_effect=lambda s: (sleeps.append(s), now.__setitem__(0, now[0] + s))), \
                 contextlib.redirect_stderr(err):
             for _ in range(3):
@@ -192,7 +204,8 @@ class RefusalDetailTests(unittest.TestCase):
             now[0] = 0.0
             sleeps.clear()
             env = {"GITHUB_REPOSITORY": "o/r", "ROUTE_TOKEN": "a", "ROUTE_TOKEN_FALLBACK": "b"}
-            with mock.patch.object(pool.urllib.request, "urlopen", side_effect=slow) as opened, \
+            with mock.patch.object(pool.deadline_http, "request", side_effect=slow) as opened, \
+                    mock.patch.object(pool.urllib.request, "urlopen", side_effect=AssertionError("bare urlopen")), \
                     mock.patch.object(pool.time, "sleep",
                                       side_effect=lambda s: (sleeps.append(s), now.__setitem__(0, now[0] + s))), \
                     mock.patch.object(side, "SIDE_RETRY_CAP_SECONDS", cap), \

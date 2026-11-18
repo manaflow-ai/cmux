@@ -1,7 +1,8 @@
 import React, { useContext, useEffect, useState } from "react";
 import { Menu, MenuButton, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { type ConfigOption, optionValueName } from "./agentOptions";
-import { ChevronIcon, unrestricted } from "./ComposerPickers";
+import { ChevronIcon } from "./ComposerPickers";
+import { unrestricted } from "./composerPickerModel";
 import { useT } from "./i18n";
 import { registerPicker } from "./pickerOpeners";
 import { OnNewTab } from "./newTabComposer";
@@ -33,10 +34,7 @@ export function AgentOptionsMenu({
   if (options.length === 0) return null;
   const only = options.length === 1 ? options[0] : undefined;
   const face = only ? `${only.name ?? only.id}: ${optionValueName(only) ?? ""}` : label;
-  const tooltip = [
-    ...options.map((option) => `${option.name ?? option.id}: ${optionValueName(option) ?? ""}`),
-    t("picker.optionsHelp"),
-  ].join("\n");
+  const tooltip = options.map((option) => `${option.name ?? option.id}: ${optionValueName(option) ?? ""}`).join("\n");
   return (
     <span className="acpmux-picker acpmux-options" data-fit-title={face} data-fit-title-unit="options">
       <Menu open={open} onOpenChange={setOpen}>

@@ -27,6 +27,11 @@ impl LossCauses {
         self.by_public.remove(public_id);
     }
 
+    /// The cause of `public_id`'s last host loss.
+    pub(crate) fn get(&self, public_id: &str) -> Option<&Value> {
+        self.by_public.get(public_id)
+    }
+
     pub(crate) fn snapshot(&self) -> HashMap<String, Value> {
         self.by_public.clone()
     }

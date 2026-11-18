@@ -9,16 +9,17 @@ import { readFileSync } from "node:fs";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import { ChangesSection } from "../src/agent-session/acpmux/session-info/ChangesSection";
 import {
   CHANGES_SHOWN,
-  ChangesSection,
   changesOrder,
   glyphState,
   visibleChanges,
   type SessionInfoPullRequestStatus,
-} from "../src/agent-session/acpmux/session-info/ChangesSection";
+} from "../src/agent-session/acpmux/session-info/changesSectionModel";
 import type { SummaryPullRequest } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { transcriptPullRequests } from "../src/agent-session/acpmux/summary/transcriptPullRequests";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -52,6 +53,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

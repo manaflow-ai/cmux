@@ -19,9 +19,19 @@ page's wire log), its acpmux reply, the host's `chat.openTab` (`fork_open_asked`
 first content.
 
 Every fork is also checked: acpmux's store gained exactly one chat, the focused pane shows it, and it
-opened where asked (right: one more pane in the chat's workspace; tab: the same panes, the chat's pane
-now on another tab; workspace: one more workspace, shown). A fork that opens nothing, opens twice or
-opens elsewhere is a failure the summary counts.
+opened where asked (a split, column or row: one more pane in the chat's workspace; tab: the same panes,
+the chat's pane now on another tab; workspace: one more workspace, shown; window: one more window). A
+fork that opens nothing, opens twice or opens elsewhere is a failure the summary counts. And it opens
+as a person expects (Leo, 2026-11-07: "it doesn't tear the screen and it loads fast ... all the clicks
+and the UI elements, all those work as well"):
+
+  tore            the chat's pane showed another tab while the fork opened elsewhere (`debug.surfaces`)
+  kept tail       the fork's first frame drew from the chat it forked (`chat_state` drewKeptTail)
+  at fork point   the fork's transcript sits at its latest row, where the chat was forked
+  late shifts     anything moved on the fork's page after it was usable (`layout_watch`)
+  clicks          a native click on the fork's composer, title and ••• menu reaches its page
+                  (`debug.agent_pane click`: the window's hit test, a trusted press and click), and its
+                  composer has the keyboard
 
 Chats are the chat-open bench's (chat_open_agent.py's realistic turns, seeded by acpmux itself on a
 seeding daemon, cached per worker: chat_open_seed_cache.py under a `fork-open` folder), copied under
@@ -31,7 +41,7 @@ turn, as a chat a person just used has it; `--no-warm` forks a chat whose agent 
 
 Runs on a fleet mini through scripts/measure/fork-open.sh (or, at a commit not on feat-cmux-next,
 scripts/measure/chat-open.sh --arg=--fork-open), never on an interactive Mac:
-  fork-open-bench.py --app BUNDLE [--runs 10] [--placements right,tab,workspace] [--sizes small,big]
+  fork-open-bench.py --app BUNDLE [--runs 10] [--placements right,left,...,window] [--sizes small,big]
                      [--small-turns 40] [--big-turns 1000] [--json FILE] [--md FILE]
 Kills only the processes it started (the app it launched through bench_memory and the seeding daemon).
 """
@@ -54,14 +64,21 @@ import bench_memory as bm  # noqa: E402
 import idle_cost_load as icl  # noqa: E402
 import chat_open_seed_cache as seed_cache  # noqa: E402
 
-PLACEMENTS = {"right": "palette.forkAgentConversationRight", "tab": "palette.forkAgentConversationNewTab",
-              "workspace": "palette.forkAgentConversationNewWorkspace", "down": "palette.forkAgentConversationBottom",
-              "left": "palette.forkAgentConversationLeft"}
+# Every Fork To destination (AgentForkDestination), by its raw value.
+PLACEMENTS = {"right": "palette.forkAgentConversationRight", "left": "palette.forkAgentConversationLeft",
+              "up": "palette.forkAgentConversationTop", "down": "palette.forkAgentConversationBottom",
+              "columnRight": "palette.forkAgentConversationNewColumnRight",
+              "columnLeft": "palette.forkAgentConversationNewColumnLeft",
+              "row": "palette.forkAgentConversationNewRow", "tab": "palette.forkAgentConversationNewTab",
+              "workspace": "palette.forkAgentConversationNewWorkspace",
+              "window": "palette.forkAgentConversationNewWindow"}
+# Placements that open the fork in a new pane of the chat's workspace.
+PANE_PLACEMENTS = ("right", "left", "up", "down", "columnRight", "columnLeft", "row")
 
 parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
 parser.add_argument("--app", required=True)
 parser.add_argument("--runs", type=int, default=10)
-parser.add_argument("--placements", default="right,tab,workspace")
+parser.add_argument("--placements", default=",".join(PLACEMENTS))
 parser.add_argument("--sizes", default="small,big")
 parser.add_argument("--small-turns", type=int, default=40)
 parser.add_argument("--big-turns", type=int, default=1000)
@@ -179,7 +196,9 @@ def acpmux_socket():
 class Run:
     def __init__(self, acpmux_home):
         self.home = acpmux_home
-        self.pid, self.sock, self.scratch = bm.launch(APP, CONFIG, {"ACPMUX_HOME": acpmux_home})
+        # Activated (no CMUX_NEXT_NO_ACTIVATE): the fork's composer must take the native keyboard, which a
+        # window of an app that never activates never has.
+        self.pid, self.sock, self.scratch = bm.launch(APP, CONFIG, {"ACPMUX_HOME": acpmux_home, "CMUX_NEXT_NO_ACTIVATE": None})
         self.app = bm.App(APP, self.sock)
         deadline = time.monotonic() + 60
         while not self.app.ping() and time.monotonic() < deadline:
@@ -221,6 +240,77 @@ def shown_layout(run):
     workspace = next((p.get("workspace") for p in panes if p.get("workspace")), None)
     focused = next((p.get("pane") for p in panes if p.get("focused")), None)
     return workspace, panes, focused
+
+
+def window_count(run):
+    return len((run.rpc("debug.surfaces") or {}).get("windows") or [])
+
+
+def shown_tab(run, pane):
+    """The tab pane `pane` shows now (`debug.surfaces`), or None when no window lists it."""
+    for window in (run.rpc("debug.surfaces") or {}).get("windows") or []:
+        for row in window.get("panes") or []:
+            if row.get("pane") == pane:
+                return row.get("shown_tab") or row.get("selected_tab")
+    return None
+
+
+def find_fork(run, parent_session):
+    """The pane, in any window, that shows a chat other than `parent_session` with rows: the fork (a new window's
+    fork is not in the first window, and need not be the pane the app reports focused)."""
+    for window in (run.rpc("debug.surfaces") or {}).get("windows") or []:
+        for row in window.get("panes") or []:
+            pane = row.get("pane")
+            if not pane or row.get("kind") == "terminal":
+                continue
+            state = run.pane("chat_state", pane=pane)
+            sid = state.get("sessionId")
+            if sid and sid != parent_session and (state.get("rows") or 0) > 0:
+                return pane, sid
+    return None, None
+
+
+def workspace_of(run, pane):
+    """The workspace pane `pane` is in, in any window."""
+    for window in (run.rpc("debug.surfaces") or {}).get("windows") or []:
+        for row in window.get("panes") or []:
+            if row.get("pane") == pane:
+                return row.get("workspace")
+    return None
+
+
+def checks(run, pane, watch):
+    """What the fork's pane does once usable: where its transcript sits (at the fork point: its
+    latest row), whether anything moves after its first paint, and whether the window's hit test
+    reaches the page at the composer, the chat's title (its hat) and its ••• menu, each a native
+    click (`debug.agent_pane click`)."""
+    out = {}
+    state = run.pane("chat_state", pane=pane)
+    follow = state.get("follow") or {}
+    top, client, height = follow.get("scrollTop"), follow.get("clientHeight"), follow.get("scrollHeight")
+    out["drew_kept_tail"] = state.get("drewKeptTail")
+    out["at_fork_point"] = (isinstance(top, (int, float)) and isinstance(client, (int, float))
+                            and isinstance(height, (int, float)) and height - client - top <= 2)
+    out["late_shifts"] = len(watch.get("shifts") or []) + len(watch.get("scroll_jumps") or [])
+    # The fork takes the keyboard where it opens (AgentTabs+Fork.swift focusForkComposer).
+    # The page's caret, and the native keyboard: the pane's window is key and its first responder is in the pane.
+    focus = run.pane("composer_focused", pane=pane) or {}
+    out["composer_focused"] = focus.get("focused") is True and focus.get("native") is True
+    targets = {"composer": {"selector": '.acpmux-composer [contenteditable="true"], .acpmux-composer textarea'},
+               "title": {"selector": ".acpmux-thread-title"},
+               "menu": {"selector": 'button[aria-label="Chat actions"]'}}
+    clicks = {}
+    for name, where in targets.items():
+        clicked = run.pane("click", pane=pane, **where)
+        events = clicked.get("page_events") or []
+        # The window's hit test reached the page there (a Chromium chat takes a DevTools press instead), and
+        # the page saw a trusted press and click.
+        reached = clicked.get("hit_in_page") is True or clicked.get("delivered") == "devtools"
+        clicks[name] = reached and "mousedown" in events and "click" in events
+        if name == "menu":
+            run.pane("close_menus", pane=pane)
+    out["clicks"] = clicks
+    return out
 
 
 def workspace_count(run):
@@ -278,7 +368,11 @@ def fork_stage(log, armed_wall):
 def fork_once(run, placement, parent, before_sessions):
     """Forks the shown chat to `placement`; times, stages and the placement check."""
     workspace0, panes0, focused0 = shown_layout(run)
-    workspaces0 = workspace_count(run)
+    workspaces0, windows0 = workspace_count(run), window_count(run)
+    parent_tab = shown_tab(run, parent["pane"])
+    # The chat's pane keeps showing the chat while the fork opens elsewhere: any other tab it shows
+    # meanwhile is the fork passing through it (a tear). A new tab is the one place it shows there.
+    passed_through = set()
     armed = run.rpc("debug.chat_open_trace", {"action": "arm"})
     if armed.get("error"):
         return {"error": f"arm: {armed['error']}"}
@@ -288,31 +382,50 @@ def fork_once(run, placement, parent, before_sessions):
         run.rpc("debug.chat_open_trace", {"action": "finish"})
         return {"error": f"action: {acted['error']}"}
     usable = None
-    fork_session = None
+    fork_session = fork_pane = None
+    watch = {}
     deadline = began + opts.timeout
     polls = 0
     while time.monotonic() < deadline:
         polls += 1
+        if placement != "tab":
+            seen = shown_tab(run, parent["pane"])
+            if seen and parent_tab and seen != parent_tab:
+                passed_through.add(seen)
         # A fork acpmux refused opens nothing: stop waiting once its reply says so.
         if polls % 25 == 0 and fork_stage(run.pane("acp_log", pane=parent["pane"], limit=80),
                                           armed.get("armed_wall") or time.time()).get("fork_reply_kind") == "error":
             break
+        # The focused pane first (one call a frame); every pane of every window now and then, for a fork the
+        # app shows in another window than the one it reports focused.
         state = run.pane("chat_state")
-        sid = state.get("sessionId")
-        if sid and sid != parent["session"] and (state.get("rows") or 0) > 0:
-            ready = run.pane("readiness")
+        pane, sid = state.get("pane"), state.get("sessionId")
+        if not (sid and sid != parent["session"] and (state.get("rows") or 0) > 0):
+            pane, sid = find_fork(run, parent["session"]) if polls % 10 == 0 else (None, None)
+        if sid and sid != parent["session"]:
+            ready = run.pane("readiness", pane=pane) if pane else run.pane("readiness")
             if ready.get("composer_visible") and ready.get("document_ready"):
                 usable = round((time.monotonic() - began) * 1000, 1)
-                fork_session = sid
+                fork_session, fork_pane = sid, pane or ready.get("pane")
+                # What moves on the fork's page from the moment it is usable (not seconds later).
+                watch = run.pane("layout_watch", pane=fork_pane, ms=600) or {}
                 break
         time.sleep(0.01)  # test script: about once a frame
     trace = run.rpc("debug.chat_open_trace", {"action": "wait", "timeout_ms": 5000, "settle_ms": 300}, timeout=30) or {}
     marks = trace.get("marks_ms") or {}
     time.sleep(0.5)  # test script: anything a fork opens twice opens by now
     workspace1, panes1, focused1 = shown_layout(run)
-    workspaces1 = workspace_count(run)
+    workspaces1, windows1 = workspace_count(run), window_count(run)
+    after = checks(run, fork_pane, watch) if fork_session and fork_pane else {}
+    # A new window's workspace is not the first window's: closed with the run's.
+    after["fork_workspace"] = workspace_of(run, fork_pane) if fork_pane else None
     made = store_sessions(run.home) - before_sessions
-    state = run.pane("chat_state")
+    # The focused session: the fork's, read from its own pane, only when that pane has the native keyboard
+    # (`composer_focused` native: its window, or its Chromium page window, is key with the first responder in
+    # it); else the pane the app reports focused. An untargeted read alone answers the first window's pane,
+    # never a New Window fork's.
+    state = (run.pane("chat_state", pane=fork_pane) if fork_pane and after.get("composer_focused")
+             else run.pane("chat_state"))
     record = {
         "placement": placement, "usable_ms": usable, "pane_ms": marks.get("pane_made"),
         "content_ms": trace.get("first_content_ms"), "timed_out": trace.get("timed_out"),
@@ -324,7 +437,9 @@ def fork_once(run, placement, parent, before_sessions):
         "fork_session": fork_session, "focused_session": state.get("sessionId"), "fork_rows": state.get("rows"),
         "parent_rows": parent["rows"], "store_new": sorted(made),
         "layout": {"workspace_same": workspace1 == workspace0, "panes": [len(panes0), len(panes1)],
-                   "focused_same": focused1 == focused0, "workspaces": [workspaces0, workspaces1]},
+                   "focused_same": focused1 == focused0, "workspaces": [workspaces0, workspaces1],
+                   "windows": [windows0, windows1]},
+        "tore": sorted(passed_through), **after,
     }
     stages = record["stages"]
     record["fork_reply"] = {"kind": stages.pop("fork_reply_kind", None), "text": stages.pop("fork_reply_text", None)}
@@ -345,7 +460,21 @@ def problems(placement, r, parent):
     layout = r["layout"]
     before, after = layout["panes"]
     ws_before, ws_after = layout["workspaces"]
-    if placement in ("right", "left", "down"):
+    if r.get("tore"):
+        found.append(f"the chat's pane showed another tab while the fork opened: {r['tore']}")
+    if r.get("fork_session"):
+        if r.get("drew_kept_tail") is not True:
+            found.append("the fork's first frame did not draw from the chat it forked")
+        if r.get("at_fork_point") is not True:
+            found.append("the fork's transcript is not at the fork point")
+        if r.get("late_shifts"):
+            found.append(f"{r['late_shifts']} shifts after the fork's first paint")
+        if r.get("composer_focused") is not True:
+            found.append("the fork's composer does not have the keyboard")
+        for name, ok in (r.get("clicks") or {}).items():
+            if not ok:
+                found.append(f"a click on the fork's {name} did not reach its page")
+    if placement in PANE_PLACEMENTS:
         if not layout["workspace_same"] or after != before + 1 or ws_after != ws_before:
             found.append(f"not one new split in the chat's workspace ({layout})")
     elif placement == "tab":
@@ -354,6 +483,9 @@ def problems(placement, r, parent):
     elif placement == "workspace":
         if layout["workspace_same"] or ws_after != ws_before + 1:
             found.append(f"not one new shown workspace ({layout})")
+    elif placement == "window":
+        if layout["windows"][1] != layout["windows"][0] + 1:
+            found.append(f"not one new window ({layout})")
     return found
 
 
@@ -379,20 +511,30 @@ def summarize(records):
     for name in ("pane_ms", "content_ms", "usable_ms"):
         out[name] = {"p50": pct([r.get(name) for r in ok], 0.5), "p95": pct([r.get(name) for r in ok], 0.95),
                      "max": pct([r.get(name) for r in ok], 1.0)}
+    usable = [r for r in ok if r.get("fork_session")]
+    out["tore"] = sum(1 for r in ok if r.get("tore"))
+    out["kept_tail"] = sum(1 for r in usable if r.get("drew_kept_tail") is True)
+    out["at_fork_point"] = sum(1 for r in usable if r.get("at_fork_point") is True)
+    out["late_shifts"] = sum(1 for r in usable if r.get("late_shifts"))
+    out["clicks_ok"] = sum(1 for r in usable if (r.get("clicks") or {}) and all((r.get("clicks") or {}).values()))
+    out["usable"] = len(usable)
     stages = sorted({k for r in ok for k in (r.get("stages") or {})})
     out["stages_p50"] = {k: pct([(r.get("stages") or {}).get(k) for r in ok], 0.5) for k in stages}
     return out
 
 
 def table(results):
-    lines = ["| size | placement | forks | failed | pane p50/p95 | content p50/p95 | usable p50/p95 | fork rpc p50 | open asked p50 |",
-             "|---|---|---|---|---|---|---|---|---|"]
+    lines = ["| size | placement | forks | failed | pane p50/p95 | content p50/p95 | usable p50/p95 | fork rpc p50 | open asked p50 "
+             "| tore | first frame from tail | at fork point | late shifts | clicks ok |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for size, by_place in results.items():
         for placement, s in by_place.items():
             pair = lambda m: f"{s[m]['p50']} / {s[m]['p95']}"  # noqa: E731
             stages = s.get("stages_p50") or {}
             lines.append(f"| {size} | {placement} | {s['forks']} | {s['failed']} | {pair('pane_ms')} | {pair('content_ms')} | "
-                         f"{pair('usable_ms')} | {stages.get('fork_rpc_ms')} | {stages.get('fork_open_asked')} |")
+                         f"{pair('usable_ms')} | {stages.get('fork_rpc_ms')} | {stages.get('fork_open_asked')} | "
+                         f"{s['tore']}/{s['forks']} | {s['kept_tail']}/{s['usable']} | {s['at_fork_point']}/{s['usable']} | "
+                         f"{s['late_shifts']}/{s['usable']} | {s['clicks_ok']}/{s['usable']} |")
     return "\n".join(lines)
 
 
@@ -441,7 +583,8 @@ def main():
                     say(size, placement, i, json.dumps({k: record.get(k) for k in
                                                         ("error", "pane_ms", "content_ms", "usable_ms", "stages", "problems", "fork_reply")}))
                     after_ws, _, _ = shown_layout(run)
-                    close_shown(run, [parent["key"]] + ([after_ws] if after_ws and after_ws != before_ws else []))
+                    extra = {w for w in (after_ws, record.get("fork_workspace")) if w and w != before_ws and w != parent["key"]}
+                    close_shown(run, [parent["key"]] + sorted(extra))
                     time.sleep(0.5)  # test script: the closes land
     finally:
         run.end()

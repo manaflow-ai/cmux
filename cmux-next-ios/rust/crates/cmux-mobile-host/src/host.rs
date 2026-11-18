@@ -183,6 +183,8 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
             }
         }))
     });
+    // Per-service byte rates for `cmux device traffic` (traffic.rs).
+    let _traffic = AbortTask(tokio::spawn(crate::traffic::run_sampler()));
     // Phones keep their WireGuard sessions when the Mac changes networks.
     let _network_watch = AbortTask(tokio::spawn(crate::netwatch::run()));
     // Live tunnels can roam even while signaling is unreachable. Rehome resends
@@ -281,8 +283,11 @@ async fn connect_once(
     // Cancellation on wake/network change must close the old socket and stop
     // its auxiliary tasks; dropping a SignalingClient alone does neither.
     signaling_now.send_replace(Some(signaling.clone()));
-    let mut lifetime =
-        ConnectionLifetime { signaling: signaling.clone(), tasks: Vec::new(), published: signaling_now.clone() };
+    let mut lifetime = ConnectionLifetime {
+        signaling: signaling.clone(),
+        tasks: Vec::new(),
+        published: signaling_now.clone(),
+    };
     tracing::info!(device_id = config.device_id, "signaling connected");
     // Sessions of the previous socket (WireGuard tunnels outlive it) send
     // their `bye` on this one now.
@@ -343,12 +348,10 @@ pub fn unauthorized(error: &anyhow::Error) -> bool {
         {
             return *status == 401;
         }
-        if let Some(cmux_mobile_link::signaling::SignalingError::Connect(message)) =
-            cause.downcast_ref::<cmux_mobile_link::signaling::SignalingError>()
-        {
-            return message.contains("401");
-        }
-        false
+        matches!(
+            cause.downcast_ref::<cmux_mobile_link::signaling::SignalingError>(),
+            Some(cmux_mobile_link::signaling::SignalingError::Unauthorized)
+        )
     })
 }
 
@@ -674,10 +677,12 @@ mod tests {
             anyhow::Error::new(cmux_mobile_link::api::ApiError::Status { status: 401, body: String::new() })
                 .context("POST /v1/devices");
         assert!(unauthorized(&refused));
+        assert!(unauthorized(&anyhow::Error::new(cmux_mobile_link::signaling::SignalingError::Unauthorized)));
+        // Another failed upgrade (a 502 from the edge) is not a refused token.
         let upgrade = anyhow::Error::new(cmux_mobile_link::signaling::SignalingError::Connect(
-            "HTTP error: 401 Unauthorized".into(),
+            "HTTP error: 502 Bad Gateway".into(),
         ));
-        assert!(unauthorized(&upgrade));
+        assert!(!unauthorized(&upgrade));
         let server =
             anyhow::Error::new(cmux_mobile_link::api::ApiError::Status { status: 502, body: String::new() });
         assert!(!unauthorized(&server));

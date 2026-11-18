@@ -344,6 +344,81 @@ public struct WorkspaceLayout: Hashable, Sendable {
             return (pane, frame.width >= frame.height ? .right : .down)
         }
 
+        /// The pane at the screen's top-left corner as the Mac draws it, the one a workspace opens
+        /// on (user 2026-11-11): the leftmost pane, the topmost of those. A zoomed pane fills the
+        /// screen. With viewport columns, the docks sit as the Mac's column-major
+        /// `DockStripGeometry.place` puts them: a left dock runs the full height at the left edge,
+        /// a top band sits between the side docks above the scrolling strip, and the strip's
+        /// first column starts after a docked (not overlay) left dock. A stack counts its shown
+        /// pane. Without a frame (no tree from the Mac), the first pane listed.
+        public var topLeftPane: Pane? {
+            if let zoomed = panes.first(where: \.isZoomed) { return zoomed }
+            let order = panes.map(\.id)
+            let frames = shownFrames.filter { order.contains($0.key) && $0.value.width > 0 && $0.value.height > 0 }
+            // An overlay dock is drawn over the strip at the same corner: it wins a tie.
+            let docked = Set(columns.filter(\.isDocked).flatMap { $0.rows.isEmpty ? $0.root?.paneIDs ?? [] : $0.rows.flatMap(\.root.paneIDs) })
+            let corner = frames.min { lhs, rhs in
+                let (a, b) = (lhs.value, rhs.value)
+                if abs(a.minX - b.minX) > 0.0001 { return a.minX < b.minX }
+                if abs(a.minY - b.minY) > 0.0001 { return a.minY < b.minY }
+                let (dockA, dockB) = (docked.contains(lhs.key), docked.contains(rhs.key))
+                if dockA != dockB { return dockA }
+                // Otherwise the pane listed first.
+                return (order.firstIndex(of: lhs.key) ?? 0) < (order.firstIndex(of: rhs.key) ?? 0)
+            }
+            guard let id = corner?.key else { return panes.first }
+            return panes.first { $0.id == id }
+        }
+
+        /// Every shown pane's frame in a 16:10 window, docks included (see `topLeftPane`).
+        var shownFrames: [Int: CGRect] {
+            let window = CGRect(origin: .zero, size: Self.window)
+            guard !columns.isEmpty else { return root?.frames(in: window) ?? [:] }
+            let docks = columns.compactMap(\.dock)
+            let sides = docks.filter { !$0.isBand }.count, bands = docks.filter(\.isBand).count
+            let sideShare: CGFloat = sides > 1 ? 0.4 : 0.75, bandShare: CGFloat = bands > 1 ? 1.0 / 3.0 : 0.5
+            func extent(_ column: Column, along length: CGFloat, cap: CGFloat) -> CGFloat {
+                length * min(CGFloat(max(column.width, 0)), cap)
+            }
+            // The side docks first: the bands and the strip sit between their inner edges.
+            var stripMinX: CGFloat = 0, stripMaxX = window.width
+            var bandMinX: CGFloat = 0, bandMaxX = window.width
+            var frames: [Int: CGRect] = [:]
+            for column in columns {
+                guard let dock = column.dock, !dock.isBand else { continue }
+                let width = extent(column, along: window.width, cap: sideShare)
+                let rect = dock.edge == .left
+                    ? CGRect(x: 0, y: 0, width: width, height: window.height)
+                    : CGRect(x: window.width - width, y: 0, width: width, height: window.height)
+                frames.merge(column.frames(in: rect)) { lhs, _ in lhs }
+                if dock.edge == .left {
+                    bandMinX = width
+                    if !dock.isOverlay { stripMinX = width }
+                } else {
+                    bandMaxX = window.width - width
+                    if !dock.isOverlay { stripMaxX = window.width - width }
+                }
+            }
+            var stripMinY: CGFloat = 0, stripMaxY = window.height
+            for column in columns {
+                guard let dock = column.dock, dock.isBand else { continue }
+                let height = extent(column, along: window.height, cap: bandShare)
+                let rect = dock.edge == .top
+                    ? CGRect(x: bandMinX, y: 0, width: max(bandMaxX - bandMinX, 0), height: height)
+                    : CGRect(x: bandMinX, y: window.height - height, width: max(bandMaxX - bandMinX, 0), height: height)
+                frames.merge(column.frames(in: rect)) { lhs, _ in lhs }
+                if dock.edge == .top { stripMinY = height } else { stripMaxY = window.height - height }
+            }
+            let stripWidth = max(stripMaxX - stripMinX, 0), stripHeight = max(stripMaxY - stripMinY, 0)
+            var x = stripMinX
+            for column in columns where column.dock == nil {
+                let width = stripWidth * CGFloat(max(column.width, 0))
+                frames.merge(column.frames(in: CGRect(x: x, y: stripMinY, width: width, height: stripHeight))) { lhs, _ in lhs }
+                x += width
+            }
+            return frames
+        }
+
         /// The dividers Resize Pane can move: each split of the trees Equalize Splits evens out.
         public var resizableSplits: [ResizableSplit] { equalizable.flatMap(\.splits) }
 
@@ -362,6 +437,15 @@ public struct WorkspaceLayout: Hashable, Sendable {
     /// The screen the workspace shows on the Mac (its first when none is marked).
     public var activeScreen: Screen? { screens.first(where: \.isActive) ?? screens.first }
     public var panes: [Pane] { screens.flatMap(\.panes) }
+
+    /// The tab a workspace opens on (user 2026-11-11): the shown screen's top-left pane's
+    /// active tab (`Screen.topLeftPane`), else that pane's first listed tab. Nil when the
+    /// phone lists none of its tabs.
+    public var topLeftTabID: String? {
+        guard let pane = activeScreen?.topLeftPane else { return nil }
+        if let id = pane.activeTabID, pane.tabIDs.contains(id) { return id }
+        return pane.tabIDs.first
+    }
 
     public func pane(_ id: Int) -> Pane? { panes.first { $0.id == id } }
     public func pane(holding tabID: String) -> Pane? { panes.first { $0.tabIDs.contains(tabID) } }

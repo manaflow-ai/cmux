@@ -14,6 +14,7 @@ import { nextStepAsk } from "./nextStepAsk";
 import { answerThrough } from "./turnActions";
 import { NEXT_STEP, turnViewFrom, waitingAsks } from "./turns";
 import { askKey, bottomAsks, claimAnswer, dismissAsk, dismissedAsks, resetAnswerClaims } from "./waitingAskStore";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -49,6 +50,7 @@ beforeEach(() => {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -150,7 +152,8 @@ test("F2: the card's two copies share the answer on its way, so two clicks send 
   await act(async () => buttons()[0]!.click());
   expect(buttons().every((b) => b.disabled)).toBe(true);
   await act(async () => buttons()[1]!.click());
-  expect(sent).toEqual(["Inline"]);
+  // No asker named: the quote is the question alone (nextStepAsk.ts `answerPrompt`).
+  expect(sent).toEqual(["> Which look should ship?\n\nInline"]);
   await act(async () => finish());
   expect(buttons().some((b) => b.disabled)).toBe(false);
 });

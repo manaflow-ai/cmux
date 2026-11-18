@@ -30,7 +30,7 @@ import Testing
         service.route(.sessionTicket(ticket("s1", scope: .full)))
         #expect(viewer.phase == .streaming(sessionID: "s1", scope: .full))
         #expect(viewer.screen != nil)
-        // The signaling goes to the stream once: a reconnect would need a new ticket.
+        // The signaling goes to the stream once; a reconnect obtains a fresh ticket.
         #expect(viewer.takeSignaling() != nil)
         #expect(viewer.takeSignaling() == nil)
         #expect(viewer.screen?.reconnectLimit == 0)
@@ -113,22 +113,126 @@ import Testing
         #expect(second.phase == .streaming(sessionID: "new", scope: .full))
     }
 
-    @Test func aDroppedStreamEndsTheHubSessionAndOffersToConnectAgain() async throws {
+    @Test func aDroppedStreamReattachesWithTheRoamingBackoffAndKeepsTheScreenView() async throws {
         let (service, ends) = makeService()
         let viewer = try #require(service.connect(to: mac(), scope: .full))
         viewer.requestAnswered(.success(HubSession(id: "s7", state: .approved, scope: .full)), scope: .full)
         service.route(.sessionTicket(ticket("s7", scope: .full)))
+        let screen = try #require(viewer.screen)
+        let reattach = Reattachments()
+        viewer.reattachSession = { _, id in
+            await reattach.record(id)
+            return self.ticket(id, scope: .full)
+        }
+        let droppedAt = ContinuousClock.now
         viewer.streamDropped("s7")
-        #expect(viewer.phase == .ended(reason: "failed"))
-        #expect(viewer.screen == nil)
-        await ends.wait(for: 1)
-        #expect(ends.calls == [Ends.Call(session: "s7", reason: "failed")])
-        // The Mac's own reason, arriving after the drop, replaces "failed" on the card.
-        service.route(.sessionRevoked(sessionID: "s7", reason: "sharing_off"))
-        #expect(viewer.phase == .ended(reason: "sharing_off"))
-        // A late drop of an older stream changes nothing.
-        viewer.streamDropped("s0")
-        #expect(viewer.phase == .ended(reason: "sharing_off"))
+        #expect(viewer.phase == .reconnecting(sessionID: "s7", scope: .full))
+        #expect(viewer.screen === screen)
+        let id = await reattach.wait()
+        #expect(id == "s7")
+        // The first try goes at once: the drop is already known (conn-quiet, 2026-11-14).
+        #expect(ContinuousClock.now - droppedAt < .milliseconds(500))
+        #expect(viewer.phase == .streaming(sessionID: "s7", scope: .full))
+        #expect(viewer.screen === screen)
+        #expect(ends.calls.isEmpty)
+    }
+
+    /// conn-quiet (Leo, 2026-11-14: "shut the f*** up"): a dropped stream reattaches over its
+    /// last frame with no card, no failed flash and no layout jump until the notice bound.
+    @Test func aDroppedStreamSaysNothingUnderTheNoticeBoundAndKeepsItsLayout() throws {
+        let (service, _) = makeService()
+        let viewer = try #require(service.connect(to: mac(), scope: .full))
+        viewer.requestAnswered(.success(HubSession(id: "s8", state: .approved, scope: .full)), scope: .full)
+        service.route(.sessionTicket(ticket("s8", scope: .full)))
+        let screen = try #require(viewer.screen)
+        viewer.reattachSession = { _, _ in throw CancellationError() }
+        // The session's own give-up path hands the drop to the viewer at once.
+        let dropped = try #require(screen.onDropped)
+        #expect(dropped(), "the viewer takes the drop")
+        #expect(viewer.phase == .reconnecting(sessionID: "s8", scope: .full))
+        #expect(screen.phase == .connecting)
+        #expect(screen.isReconnecting)
+        #expect(!screen.reconnectNoticeDue)
+        #expect(screen.keepsLiveLayout)
+        #expect(ScreenSession.reconnectNoticeDelay == .seconds(10))
+        viewer.close(reason: .viewerDisconnected)
+    }
+
+    /// Drop to the hub's reattach call, 8 drops in a row: the timing the conn-quiet table quotes
+    /// (`drop_to_reattach_ms p50/p95`). Builds at base too, where every drop waited 1 s.
+    @Test func dropToReattachIsUnder250MillisecondsAtP95() async throws {
+        var samples: [Double] = []
+        // One drop per viewer: each is the first drop of a stream (a stream that came up and
+        // dropped starts its backoff over; the tests' streams never come up on their own).
+        for _ in 0 ..< 8 {
+            let (service, _) = makeService()
+            let viewer = try #require(service.connect(to: mac(), scope: .full))
+            viewer.requestAnswered(.success(HubSession(id: "s9", state: .approved, scope: .full)), scope: .full)
+            service.route(.sessionTicket(ticket("s9", scope: .full)))
+            let reattach = Reattachments()
+            viewer.reattachSession = { _, id in
+                await reattach.record(id)
+                return self.ticket(id, scope: .full)
+            }
+            let droppedAt = ContinuousClock.now
+            viewer.streamDropped("s9")
+            _ = await reattach.wait()
+            let elapsed = ContinuousClock.now - droppedAt
+            samples.append(Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1e15)
+            viewer.close(reason: .viewerDisconnected)
+        }
+        samples.sort()
+        let p50 = samples[samples.count / 2], p95 = samples[samples.count - 1]
+        print("conn-quiet drop_to_reattach_ms p50=\(Int(p50)) p95=\(Int(p95)) n=\(samples.count)")
+        #expect(p95 < 250)
+    }
+
+    /// A stream that drops again before it ever came up does not ask the hub again at once,
+    /// over and over: the second drop waits the backoff's next step.
+    @Test func aStreamThatNeverComesUpBacksOffInsteadOfLooping() async throws {
+        let (service, _) = makeService()
+        let viewer = try #require(service.connect(to: mac(), scope: .full))
+        viewer.requestAnswered(.success(HubSession(id: "s11", state: .approved, scope: .full)), scope: .full)
+        service.route(.sessionTicket(ticket("s11", scope: .full)))
+        let reattach = Reattachments()
+        viewer.reattachSession = { _, id in
+            await reattach.record(id)
+            return self.ticket(id, scope: .full)
+        }
+        viewer.streamDropped("s11")
+        _ = await reattach.wait()
+        for _ in 0 ..< 200 where viewer.phase != .streaming(sessionID: "s11", scope: .full) { await Task.yield() }
+        let droppedAgainAt = ContinuousClock.now
+        viewer.streamDropped("s11")
+        _ = await reattach.wait()
+        #expect(ContinuousClock.now - droppedAgainAt >= .seconds(1))
+        viewer.close(reason: .viewerDisconnected)
+    }
+
+    /// Back in the foreground while a reattach sleeps out a long backoff step: it tries now.
+    @Test func comingBackToTheForegroundReattachesNow() async throws {
+        let (service, _) = makeService()
+        let viewer = try #require(service.connect(to: mac(), scope: .full))
+        viewer.requestAnswered(.success(HubSession(id: "s10", state: .approved, scope: .full)), scope: .full)
+        service.route(.sessionTicket(ticket("s10", scope: .full)))
+        let calls = Reattachments()
+        let failures = FailureBudget(2)
+        viewer.reattachSession = { _, id in
+            await calls.record(id)
+            if failures.take() {
+                throw CancellationError()
+            }
+            return self.ticket(id, scope: .full)
+        }
+        viewer.streamDropped("s10")
+        _ = await calls.wait() // at once, fails
+        _ = await calls.wait() // after 1 s, fails; the next step is 2 s
+        let resumedAt = ContinuousClock.now
+        viewer.reattachNow()
+        _ = await calls.wait()
+        #expect(ContinuousClock.now - resumedAt < .milliseconds(500))
+        for _ in 0 ..< 200 where viewer.phase != .streaming(sessionID: "s10", scope: .full) { await Task.yield() }
+        viewer.close(reason: .viewerDisconnected)
     }
 
     @Test func aFailedSignOutEndsTheSessionAndStopSignsOutAgain() async throws {
@@ -308,6 +412,36 @@ import Testing
     }
 }
 
+@MainActor final class Reattachments {
+    private var ids: [String] = []
+    private var waiters: [CheckedContinuation<String, Never>] = []
+
+    func record(_ id: String) {
+        if let waiter = waiters.first {
+            waiters.removeFirst()
+            waiter.resume(returning: id)
+        } else {
+            ids.append(id)
+        }
+    }
+
+    func wait() async -> String {
+        if !ids.isEmpty { return ids.removeFirst() }
+        return await withCheckedContinuation { waiters.append($0) }
+    }
+}
+
+/// How many more reattach calls fail.
+@MainActor final class FailureBudget {
+    private var left: Int
+    init(_ left: Int) { self.left = left }
+    func take() -> Bool {
+        guard left > 0 else { return false }
+        left -= 1
+        return true
+    }
+}
+
 /// The hub's sign-out call: counts its calls and fails each when `failing`.
 @MainActor final class SignOuts {
     struct Offline: Error {}
@@ -337,4 +471,85 @@ struct TestKeys: DeviceKeyMaterial {
     func open(_: Data, encapsulatedKey _: Data, info _: Data) throws -> Data { Data() }
 }
 
+#endif
+
+#if os(iOS)
+/// A Mac that can't be shared says why in the list's alert, never as a full-screen card over
+/// the list (user 2026-11-13).
+extension ScreenSharingViewerTests {
+    @Test func tappingAMacThatIsNotSharedShowsTheAlertAndAsksTheHubNothing() {
+        let (service, ends) = makeService()
+        let notShared = HubDevice(id: hostID, name: "Studio", platform: .macos, signingKey: "", macScreenShared: false, online: true)
+        service.select(notShared)
+        #expect(service.viewer == nil)
+        #expect(service.alert?.refusal == .notShared)
+        #expect(service.alert?.hostName == "Studio")
+        #expect(ends.calls.isEmpty)
+    }
+
+    @Test func aRefusalBeforeTheViewerShowsBecomesTheAlert() throws {
+        let (service, _) = makeService()
+        service.select(mac(), scope: .full)
+        let viewer = try #require(service.viewer)
+        // Still asking the hub: nothing full screen, the row spins.
+        #expect(service.viewerOnScreen == nil)
+        // The list was stale: the hub says the Mac isn't sharing.
+        viewer.requestAnswered(.failure(.server(status: 409, code: .notShared, message: "")), scope: .full)
+        #expect(service.viewer == nil)
+        #expect(service.viewerOnScreen == nil)
+        let alert = try #require(service.alert)
+        #expect(alert.hostID == hostID && alert.hostName == "Studio")
+        #expect(alert.refusal == .notShared && alert.requested == .full)
+    }
+
+    @Test func onceShownARefusalStaysOnTheViewersCard() throws {
+        let (service, _) = makeService()
+        let viewer = try #require(service.connect(to: mac(), scope: .full))
+        viewer.requestAnswered(.success(HubSession(id: "s1", state: .pending, scope: .full)), scope: .full)
+        #expect(service.viewerOnScreen === viewer)
+        // Try Again on the card, refused: the card says why; no alert pulls it away.
+        viewer.request(.full)
+        #expect(service.viewerOnScreen === viewer)
+        viewer.requestAnswered(.failure(.server(status: 409, code: .notShared, message: "")), scope: .full)
+        #expect(service.viewerOnScreen === viewer)
+        #expect(viewer.phase == .refused(.notShared, requested: .full))
+        #expect(service.alert == nil)
+    }
+
+    @Test func leavingThePageEndsARequestThatNeverShowed() throws {
+        let (service, _) = makeService()
+        let viewer = try #require(service.connect(to: mac(), scope: .full))
+        service.leaveUnshownRequest()
+        #expect(service.viewer == nil)
+        #expect(viewer.phase == .ended(reason: ScreenSharingEndReason.viewerDisconnected.rawValue))
+    }
+
+    @Test func leavingThePageKeepsAViewerOnScreen() throws {
+        let (service, _) = makeService()
+        let viewer = try #require(service.connect(to: mac(), scope: .full))
+        viewer.requestAnswered(.success(HubSession(id: "s1", state: .pending, scope: .full)), scope: .full)
+        service.leaveUnshownRequest()
+        #expect(service.viewer === viewer)
+    }
+}
+#endif
+
+#if os(iOS)
+extension ScreenSharingViewerTests {
+    /// Review: a request still waiting when an unavailable Mac is tapped would go full screen
+    /// under that Mac's alert.
+    @Test func tappingAnUnavailableMacEndsARequestStillWaiting() throws {
+        let (service, _) = makeService()
+        service.select(mac(), scope: .full)
+        let waiting = try #require(service.viewer)
+        let offline = HubDevice(id: "other-mac", name: "Office iMac", platform: .macos, signingKey: "", macScreenShared: true, online: false)
+        service.select(offline)
+        #expect(service.viewer == nil)
+        #expect(service.alert?.refusal == .hostOffline)
+        // The hub's late answer doesn't bring the old request on screen.
+        waiting.requestAnswered(.success(HubSession(id: "s3", state: .pending, scope: .full)), scope: .full)
+        #expect(service.viewerOnScreen == nil)
+    }
+
+}
 #endif

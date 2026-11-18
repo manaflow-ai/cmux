@@ -10,9 +10,10 @@ Run: `Native/OptChat/optchat-chief/evals/run.sh` (all cases), or
 `--no-model` (deterministic only), `--ledger pre` (the reply ledger as it was
 before 2026-10-26, for A/B), `--min-pass 0.8` (gate on a pass fraction),
 `--baseline DIR_OR_SUMMARY_JSON` (diff against an earlier run, below).
-Model cases need `OPTCHAT_ANTHROPIC_BASE_URL`: the team subrouter
-(`http://100.89.225.106:31415`, what CI uses) or the sr2 gateway
-(`http://100.120.48.119:4016`, reachable from cmux-lawrence). Requests are
+Model cases need `OPTCHAT_ANTHROPIC_BASE_URL`: the sr2 gateway
+(`http://100.120.48.119:4016`, what CI uses; by IP, since not every host
+resolves `sr2-gateway`). The old team subrouter (`http://100.89.225.106:31415`)
+answers 502 to every Claude request since 2026-11-08. Requests are
 Claude Code shaped (its system line and user agent), as production turns are.
 `chief_eval preflight` checks the route. Deterministic cases need nothing.
 Run it on a mini or Linux box, not the laptop: `ulimit -n 8192` first (each

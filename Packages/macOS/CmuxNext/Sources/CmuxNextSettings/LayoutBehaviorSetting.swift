@@ -3,8 +3,6 @@ public import CmuxNextDesign
 /// `layout.centerFocusedColumn` in cmux.json: "never" (default), "always" or
 /// "on-overflow" (plans/cmux-next/column-scroll.md).
 public nonisolated enum CenterFocusedColumnSetting {
-    public static let configPath = ["layout", "centerFocusedColumn"]
-    public static let fallback: CenterFocusedColumn = .never
 
     /// A missing key is the default with no diagnostic; a bad value is the
     /// default plus a diagnostic.

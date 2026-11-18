@@ -7,7 +7,7 @@ import {
   TEXT_CARD_LINES,
   TEXT_CARD_WRAP_CHARS,
   textPreview,
-} from "./TextAttachmentCard";
+} from "./textAttachmentCardModel";
 
 test("the card shows the first lines, from the top", () => {
   const text = Array.from({ length: 40 }, (_, index) => `line ${index + 1}`).join("\n");

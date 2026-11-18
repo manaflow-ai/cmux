@@ -85,7 +85,8 @@ nonisolated enum AcpmuxStrayDaemon {
             return true
         }
         do {
-            try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home)
+            try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home,
+                                                  reason: "stray daemon: no cmux install runs it")
         } catch {
             logger.error("acpmux takeover request failed: \(String(describing: error), privacy: .public)")
             daemons.mark(home: environment.home, restarting: false)

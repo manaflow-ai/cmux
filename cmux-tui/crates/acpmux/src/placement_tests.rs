@@ -269,9 +269,35 @@ fn a_held_host_is_never_a_placement_candidate() {
     reg["machines"]["big"]["hold"] = json!({"until": "2026-10-30T20:50:00Z"});
     let hosts = lane_hosts_at(Some(&reg), 0).unwrap();
     assert!(registry_lanes(&hosts, "big-box").unwrap()[HELD].is_string());
-    let after = crate::server::machine_health::rfc3339_ms("2026-10-30T20:50:01Z").unwrap();
+    let after = crate::clock_text::rfc3339_ms("2026-10-30T20:50:01Z").unwrap();
     let hosts = lane_hosts_at(Some(&reg), after).unwrap();
     assert!(registry_lanes(&hosts, "big-box").unwrap().get(HELD).is_none());
+}
+
+/// A lane host the registry drains (`lanes.accept_new` false, leo-workspace lane-place's drain
+/// flag) takes no new work here either. 2026-11-17: gcp-agent-lane-5 was drained for a
+/// black-start drill, lane-place stopped placing there, and about 20 lanes still landed on it
+/// through `--machine auto`, because this pick read `hold` but never `accept_new`.
+#[test]
+fn a_drained_lane_host_is_never_a_placement_candidate() {
+    let both =
+        [c("big", health(60.0, 32, 1.0, 400.0, 0)), c("small", health(5.0, 8, 7.9, 30.0, 0))];
+    let mut reg = registry();
+    reg["machines"]["big"]["lanes"]["accept_new"] = json!(false);
+    let v = place(&both, Some(&reg), Work::Agent);
+    assert_eq!(v["pick"], "small", "{v}");
+    let big = host(&v, "big");
+    assert_eq!(big["ok"], false);
+    assert_eq!(big["refused"], "draining (lanes.accept_new false)", "{big}");
+    // Its why, when the registry gives one, is the refusal's.
+    reg["machines"]["big"]["lanes"]["accept_new_why"] = json!("black-start drill");
+    let v = place(&both, Some(&reg), Work::Agent);
+    assert_eq!(host(&v, "big")["refused"], "draining: black-start drill");
+    // accept_new true, or absent, keeps it a candidate.
+    for open in [json!(true), Value::Null] {
+        reg["machines"]["big"]["lanes"]["accept_new"] = open.clone();
+        assert_eq!(place(&both, Some(&reg), Work::Agent)["pick"], "big", "{open}");
+    }
 }
 
 /// A machine a person works at: `interactive: true`, or the registry's role for one (`leo-mac`,
@@ -346,7 +372,7 @@ fn a_retired_host_is_never_a_placement_candidate() {
 fn a_reserved_host_is_never_a_placement_candidate() {
     let both =
         [c("big", health(60.0, 32, 1.0, 400.0, 0)), c("small", health(5.0, 8, 7.9, 30.0, 0))];
-    let at = |t: &str| crate::server::machine_health::rfc3339_ms(t).unwrap();
+    let at = |t: &str| crate::clock_text::rfc3339_ms(t).unwrap();
     let mut reg = registry();
     reg["reservations"] = json!([{"id": "lawrence-2026-10-29", "owner": "lawrencecchen",
         "hosts": ["big-box"], "from": "2026-10-29T20:50:00Z", "until": "2026-10-30T20:50:00Z"}]);
@@ -494,4 +520,80 @@ fn no_or_a_malformed_placement_preference_keeps_the_most_room_first() {
         let v = place(&cands, Some(&reg), Work::Agent);
         assert_eq!((&v["pick"], &v["tier"]), (&json!("gcp-vm"), &Value::Null), "{bad}: {v:#}");
     }
+}
+
+/// A machine the registry's `status` says is off (idle-stopped, stopped, paused or retired, as
+/// leo-workspace's host_state.py reads it) takes no new work, even when its peer reads connected
+/// and shows room, and is never the overloaded fallback; its verdict row says why. `retiring` is
+/// still up.
+#[test]
+fn a_host_the_registry_status_marks_off_is_never_a_placement_candidate() {
+    let roomy = || health(40.0, 16, 1.0, 300.0, 0);
+    for (status, word) in [
+        ("idle-stopped (2026-11-05: off the tailnet)", "idle-stopped"),
+        ("Stopped for a resize", "stopped"),
+        ("paused", "paused"),
+        ("retired 2026-11-04", "retired"),
+    ] {
+        let mut reg = registry();
+        reg["machines"]["small"]["status"] = json!(status);
+        // light is at its lane cap, so it takes the work only as the overloaded fallback.
+        let full = health(40.0, 12, 1.0, 300.0, 3);
+        let v = place(&[c("small", roomy()), c("light", full)], Some(&reg), Work::Agent);
+        assert_eq!((&v["pick"], &v["overloaded"]), (&json!("light"), &json!(true)), "{v:#}");
+        let why = format!("{word} (its fleet-registry.json status)");
+        assert_eq!(host(&v, "small")["refused"], json!(why), "{v:#}");
+        assert_eq!(host(&v, "small")["load"], false, "{v:#}");
+        let v = place(&[c("small", roomy())], Some(&reg), Work::Agent);
+        assert!(v["pick"].is_null(), "{status}: {v:#}");
+        assert_eq!(held(Some(&reg), "small").as_deref(), Some(why.as_str()));
+    }
+    let mut reg = registry();
+    reg["machines"]["small"]["status"] = json!("retiring (hq#2507)");
+    let v = place(&[c("small", roomy())], Some(&reg), Work::Agent);
+    assert_eq!(v["pick"], "small", "{v:#}");
+}
+
+/// A peer is a candidate only while its link is up: the `connected` flag and the live `state`
+/// both say so (`degraded` is slow, not gone). A flag still set while the link reconnects is
+/// down. Each down peer is listed in the verdict as passed over, and never picked.
+#[test]
+fn a_peer_whose_link_is_not_up_is_passed_over_with_why() {
+    let row = |connected: bool, state: &str| json!({"name": "vm", "connected": connected, "state": state});
+    assert_eq!(peer_down(&row(true, "connected")), None);
+    assert_eq!(peer_down(&row(true, "degraded")), None);
+    assert_eq!(peer_down(&json!({"name": "vm", "connected": true})), None, "no state: the flag");
+    for state in ["reconnecting", "offline", "connecting", "restarting"] {
+        assert_eq!(peer_down(&row(true, state)), Some(format!("not connected ({state})")));
+        assert_eq!(peer_down(&row(false, state)), Some(format!("not connected ({state})")));
+    }
+    assert_eq!(peer_down(&json!({"name": "vm"})), Some("not connected (down)".into()));
+
+    let v = place(&[c("small", health(40.0, 16, 1.0, 300.0, 0))], Some(&registry()), Work::Agent);
+    let v = with_down(v, &[("vm".into(), "not connected (reconnecting)".into())]);
+    assert_eq!(v["pick"], "small", "{v:#}");
+    assert_eq!(host(&v, "vm")["ok"], false, "{v:#}");
+    assert_eq!(host(&v, "vm")["refused"], "not connected (reconnecting)", "{v:#}");
+}
+
+#[test]
+fn a_loaded_local_machine_says_why_and_the_pick_names_its_room() {
+    // This machine is over its budget; a peer has room. The reply says both, so the composer can
+    // say "This Mac is busy · Run on far" and "room for N" without reading the hosts list.
+    let mut busy = health(20.0, 16, 29.8, 200.0, 2);
+    busy["pressure"] = json!({"ok": false, "over": ["load1 29.8 >= 15"], "cores": 16});
+    let mut here = c("mac", busy);
+    here.local = true;
+    let v = place(&[here, c("far", health(16.0, 8, 0.5, 200.0, 0))], None, Work::Agent);
+    assert_eq!(v["pick"], "far", "{v:#}");
+    assert_eq!(v["local"], false, "{v:#}");
+    assert_eq!(v["localOver"], "over its budget (load1 29.8 >= 15)", "{v:#}");
+    // far: RAM (16 - 4) / 2 = 6, CPU 7.5 → 6.
+    assert_eq!(v["room"], 6.0, "{v:#}");
+    // A quiet local machine has no verdict to show.
+    let mut here = c("mac", health(20.0, 16, 1.0, 200.0, 0));
+    here.local = true;
+    let v = place(&[here], None, Work::Agent);
+    assert!(v["localOver"].is_null(), "{v:#}");
+    assert_eq!(v["local"], true, "{v:#}");
 }

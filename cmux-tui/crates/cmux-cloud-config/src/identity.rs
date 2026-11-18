@@ -19,10 +19,39 @@ pub fn is_team(value: &str) -> bool {
 
 /// The backend's id for a Stack team (the API's `stackTeamIdFor`).
 pub fn backend_team_id(stack_project_id: &str, stack_team_id: &str) -> String {
-    let digest =
-        Sha256::digest(format!("stack-team:{stack_project_id}:{}", stack_team_id.to_lowercase()));
-    let hex: String = digest.iter().take(10).map(|b| format!("{b:02x}")).collect();
-    format!("team_{hex}")
+    format!(
+        "team_{}",
+        hex20(&format!("stack-team:{stack_project_id}:{}", stack_team_id.to_lowercase()))
+    )
+}
+
+/// The first 20 hex digits of `text`'s SHA-256: the backend's derived ids (`domains/user.ts`), so
+/// routing needs no lookup.
+fn hex20(text: &str) -> String {
+    Sha256::digest(text).iter().take(10).map(|b| format!("{b:02x}")).collect()
+}
+
+/// The backend's id for a Stack user (the API's `userIdFor`, backend `domains/user.ts`): the
+/// conversations' participant and a cmux-next machine's `creator`. The Stack id keeps its case,
+/// as the backend's does.
+pub fn worker_user_id(stack_project_id: &str, stack_user_id: &str) -> String {
+    format!("user_{}", hex20(&format!("stack:{stack_project_id}:{stack_user_id}")))
+}
+
+/// The backend's id for a user's personal team (the API's `personalTeamIdFor`): where the
+/// person's own Cloud grant applies. Stack never lists it, so the app names it by this id (an
+/// active team that [`is_team`] passes is this one; a Stack team id never is).
+pub fn personal_team_id(stack_project_id: &str, stack_user_id: &str) -> String {
+    format!(
+        "team_{}",
+        hex20(&format!("personal:{}", worker_user_id(stack_project_id, stack_user_id)))
+    )
+}
+
+/// The `x-cmux-team` (backend id) of an active team: the personal team's backend id as is, a
+/// Stack team's hashed ([`backend_team_id`]). The one rule every caller uses.
+pub fn team_header(stack_project_id: &str, team: &str) -> String {
+    if is_team(team) { team.to_owned() } else { backend_team_id(stack_project_id, team) }
 }
 
 /// Why a token mint may not name the team it asked for.
@@ -34,17 +63,17 @@ pub enum MintRefusal {
     Managed,
 }
 
-/// The backend team to mint for, from the app's team state (Stack ids): the asked team, else the
-/// active team, else none (the install's own, personal team). A device restricted to a managed
-/// team mints only for that team, and only while it is the active one, as every other Cloud call
-/// on it.
+/// The backend team to mint for, from the app's team state (Stack ids, or the personal team's
+/// backend id when that one is active): the asked team, else the active team ([`team_header`]),
+/// else none (the install's own, personal team). A device restricted to a managed team mints only
+/// for that team, and only while it is the active one, as every other Cloud call on it.
 pub fn mint_team(
     requested: Option<&str>,
     active_stack_team: Option<&str>,
     managed_stack_team: Option<&str>,
     stack_project_id: &str,
 ) -> Result<Option<String>, MintRefusal> {
-    let backend = |team: &str| backend_team_id(stack_project_id, team);
+    let backend = |team: &str| team_header(stack_project_id, team);
     if let Some(managed) = managed_stack_team {
         if active_stack_team != Some(managed) {
             return Err(MintRefusal::Managed);

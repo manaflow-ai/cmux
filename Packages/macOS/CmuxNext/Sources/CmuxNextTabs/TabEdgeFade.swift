@@ -45,7 +45,7 @@ import QuartzCore
         let clear = NSColor.clear.cgColor
         let colors = [opaque, opaque, edges.leading ? clear : opaque, opaque, opaque, edges.trailing ? clear : opaque]
         if isFaded, tabsClip.layer?.mask !== fadeMask { tabsClip.layer?.mask = fadeMask }
-        let animates = strip.window != nil && (wasFaded || isFaded) && !Motion.isLiveResizing // in a live resize the edge follows at once
+        let animates = strip.window != nil && (wasFaded || isFaded) && !Motion.isLiveResizing(strip.window) // in a live resize of its window the edge follows at once
         CATransaction.begin()
         CATransaction.setMainCompletion { [weak self] in
             guard let self, let strip = self.strip, !(self.edges.leading || self.edges.trailing) else { return }

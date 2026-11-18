@@ -220,8 +220,8 @@ function leoCapture(): AcpmuxSnapshot {
 /// message's first line on the row, as a person does: the recipient's chip is a button of its own
 /// that opens that chat.
 const openFirstSend: Play = async (ctx) => {
-  await ctx.click({ selector: ".cv-sent .cv-sent__preview" });
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__under .cv-subsession__toggle"));
+  await ctx.click({ selector: ".cv-sent-msg .cv-sent__preview" });
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg .cv-sent__raw > .cv-received__more"));
 };
 
 export default agentPaneEntry({

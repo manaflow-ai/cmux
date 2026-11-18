@@ -5,6 +5,7 @@
 import { useCallback, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import { cx } from "./cx";
+import { useScrollEdges } from "./scrollEdges";
 
 export interface VirtualListProps {
   count: number;
@@ -14,7 +15,10 @@ export interface VirtualListProps {
   activeIndex?: number;
   /** Changes when the same index names a different result set or active item. */
   activeScrollKey?: string;
-  renderRow(index: number, style: CSSProperties): ReactNode;
+  /** `measure` is set when `measureRows` is on: the row passes it as its `ref`, with `data-index={index}`. */
+  renderRow(index: number, style: CSSProperties, measure?: (element: Element | null) => void): ReactNode;
+  /** Rows size to their content: each is measured once rendered, and `estimateSize` is only the first guess. */
+  measureRows?: boolean;
   className?: string;
   id?: string;
   /** The list's ARIA role and name (listbox, grid, ...); rows set theirs in renderRow. */
@@ -23,6 +27,8 @@ export interface VirtualListProps {
   overscan?: number;
   /** Use the closest matching ancestor as the viewport instead of creating a nested scroller. */
   scrollParent?: string;
+  /** Fade overflowing rows on this list's own viewport. */
+  fade?: boolean;
 }
 
 /** The active result can change without changing its numeric index (a filtered folder). */
@@ -51,8 +57,18 @@ export function VirtualList({
   label,
   overscan = 6,
   scrollParent,
+  fade = false,
+  measureRows = false,
 }: VirtualListProps) {
   const scroller = useRef<HTMLDivElement | null>(null);
+  const scrollEdges = useScrollEdges();
+  const mounted = useCallback(
+    (node: HTMLDivElement | null) => {
+      scroller.current = node;
+      scrollEdges(fade && !scrollParent ? node : null);
+    },
+    [fade, scrollParent, scrollEdges],
+  );
   const space = useRef<HTMLDivElement | null>(null);
   const [scrollMargin, setScrollMargin] = useState(0);
   const parent = useCallback(
@@ -120,9 +136,9 @@ export function VirtualList({
     // The layout the absolute rows need is inline, not only in ui.css: a page that does not load
     // ui.css (the agent pane) otherwise places the rows against the page and draws them over it.
     <div
-      ref={scroller}
+      ref={mounted}
       id={id}
-      className={cx("ui-virtual", className)}
+      className={cx("ui-virtual", fade && !scrollParent && "ui-scroll-edge-fade", className)}
       style={{ overflow: scrollParent ? "visible" : "auto" }}
       role={role}
       aria-label={label}
@@ -133,14 +149,18 @@ export function VirtualList({
         style={{ position: "relative", width: "100%", height: virtualizer.getTotalSize() }}
       >
         {items.map((item) =>
-          renderRow(item.index, {
-            position: "absolute",
-            top: 0,
-            insetInlineStart: 0,
-            width: "100%",
-            transform: `translateY(${item.start - scrollMargin}px)`,
-            height: item.size,
-          }),
+          renderRow(
+            item.index,
+            {
+              position: "absolute",
+              top: 0,
+              insetInlineStart: 0,
+              width: "100%",
+              transform: `translateY(${item.start - scrollMargin}px)`,
+              ...(measureRows ? {} : { height: item.size }),
+            },
+            measureRows ? virtualizer.measureElement : undefined,
+          ),
         )}
       </div>
     </div>

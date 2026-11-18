@@ -107,4 +107,15 @@ pub static ACTIONS: &[Action] = &[
         cli_name: "settings window-style-floating",
         ..Action::DEFAULT
     },
+    Action {
+        id: "appearance.chromeStyle.blocks",
+        group: GROUP,
+        title: t("SettingsActions", "action.appearance.chromeStyle.blocks", "Window Style: Blocks"),
+        keywords: &["window", "style", "chrome", "appearance", "look", "blocks", "blocky", "solid", "flat", "tonal", "no borders", "no lines", "borderless"],
+        category: "settings",
+        symbol: "square.split.2x2.fill",
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), mcp_exemption: Some("systemChange"), ..SurfacePlan::DEFAULT },
+        cli_name: "settings window-style-blocks",
+        ..Action::DEFAULT
+    },
 ];

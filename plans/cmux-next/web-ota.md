@@ -64,6 +64,10 @@ Web bundles call native code by name (page ops, pane methods, scheme paths), so 
 generated contract to hash. `webviews/src/web-abi.json` holds one integer. Bump it in the change
 that makes a bundle need native code an older app lacks; web-only changes keep it. A bumped `abi`
 waits for the nightly that carries the native side, and the app keeps the web it serves.
+Bump it also in the change that edits `OUTPUTS` (web-bundle-key.py, `WebUpdateTree.outputs`): the
+`outputs` digest hashes every listed path, a missing one included, so an older app would refuse every
+newer pointer as a lasting `tree digest` failure; with the bump it waits as app-too-old instead
+(abi 4: the palette ranker bundle left `OUTPUTS`).
 `build-pages-web.sh` ships the file as `pages/web-abi.json`, so the app and every update read the
 same source.
 

@@ -35,18 +35,15 @@ fn daemon_log_refuses_a_symlink() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// The managed-unit tests write a fake `systemctl` and then run it. Run at once, one test's
-/// fork could inherit the other's still-open write of its script, and the exec then fails with
-/// ETXTBSY ("Text file busy"): one at a time.
-#[cfg(target_os = "linux")]
-static FAKE_SYSTEMCTL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+/// The managed-unit tests write a fake `systemctl` and then run it. Any test in this binary
+/// that forks while this process holds a write descriptor to the script hands it to its child
+/// until that child execs, and the exec then fails with ETXTBSY ("Text file busy"); a lock
+/// over these tests alone left every other forking test in the window. The script is written
+/// by [`crate::test_exec::write_executable`], in its own process, so no fork here inherits it.
 
 #[cfg(target_os = "linux")]
 #[tokio::test]
 async fn managed_unit_start_avoids_a_symlinked_default_home() {
-    use std::os::unix::fs::PermissionsExt;
-    let _one_at_a_time = FAKE_SYSTEMCTL.lock().await;
-
     let dir = std::env::temp_dir().join(format!(
         "acpmux-managed-start-{}-{}",
         std::process::id(),
@@ -63,15 +60,13 @@ async fn managed_unit_start_avoids_a_symlinked_default_home() {
     assert!(crate::config::private_state_dir(&link).is_err());
 
     let systemctl = dir.join("systemctl");
-    std::fs::write(
+    crate::test_exec::write_executable(
         &systemctl,
         format!(
             "#!/bin/sh\nif [ \"$2\" = show ] && [ \"$5\" = LoadState ]; then echo loaded; exit 0; fi\nif [ \"$2\" = show ] && [ \"$5\" = Environment ]; then echo ACPMUX_HOME={}; exit 0; fi\nif [ \"$2\" = start ]; then : > \"$(dirname \"$0\")/started\"; exit 0; fi\nexit 1\n",
             supervised.display()
         ),
-    )
-    .unwrap();
-    std::fs::set_permissions(&systemctl, std::fs::Permissions::from_mode(0o755)).unwrap();
+    );
     let started = dir.join("started");
     let detached = dir.join("detached");
     connect_with_systemctl(&systemctl, &link, &socket, true, {
@@ -101,8 +96,6 @@ async fn managed_unit_start_avoids_a_symlinked_default_home() {
 #[cfg(target_os = "linux")]
 #[tokio::test]
 async fn managed_unit_start_matches_shortened_sockets() {
-    use std::os::unix::fs::PermissionsExt;
-    let _one_at_a_time = FAKE_SYSTEMCTL.lock().await;
     let scratch = cmux_unix_socket::short_test_dir("managed-socket");
     let dir = scratch.path();
     std::fs::create_dir_all(dir).unwrap();
@@ -126,10 +119,12 @@ async fn managed_unit_start_matches_shortened_sockets() {
                 .unwrap_or_default()
         );
         let systemctl = dir.join("systemctl");
-        std::fs::write(&systemctl, format!(
-            "#!/bin/sh\ncase \"$5\" in LoadState) echo loaded;; Environment) echo '{environment}';; esac\n"
-        )).unwrap();
-        std::fs::set_permissions(&systemctl, std::fs::Permissions::from_mode(0o700)).unwrap();
+        crate::test_exec::write_executable(
+            &systemctl,
+            format!(
+                "#!/bin/sh\ncase \"$5\" in LoadState) echo loaded;; Environment) echo '{environment}';; esac\n"
+            ),
+        );
         let result =
             managed_unit_connect_with(&systemctl, &unit_home, &socket, &|| async { Ok(()) })
                 .await
@@ -146,17 +141,14 @@ fn fake_unit_in_state(
     home: &std::path::Path,
     state: &str,
 ) -> std::path::PathBuf {
-    use std::os::unix::fs::PermissionsExt;
     let systemctl = dir.join("systemctl");
-    std::fs::write(
+    crate::test_exec::write_executable(
         &systemctl,
         format!(
             "#!/bin/sh\ncase \"$5\" in\n  LoadState) echo loaded; exit 0;;\n  Environment) echo ACPMUX_HOME={}; exit 0;;\n  ActiveState) echo x >> \"$(dirname \"$0\")/probes\"; echo {state}; exit 0;;\nesac\n[ \"$2\" = start ] && exit 0\nexit 1\n",
             home.display()
         ),
-    )
-    .unwrap();
-    std::fs::set_permissions(&systemctl, std::fs::Permissions::from_mode(0o700)).unwrap();
+    );
     systemctl
 }
 
@@ -166,7 +158,6 @@ fn fake_unit_in_state(
 #[cfg(target_os = "linux")]
 #[tokio::test]
 async fn managed_unit_still_stopping_keeps_the_wait() {
-    let _one_at_a_time = FAKE_SYSTEMCTL.lock().await;
     let scratch = cmux_unix_socket::short_test_dir("managed-stopping");
     let dir = scratch.path();
     let home = dir.join("home");
@@ -191,7 +182,6 @@ async fn managed_unit_still_stopping_keeps_the_wait() {
 #[cfg(target_os = "linux")]
 #[tokio::test]
 async fn managed_unit_gone_takes_the_detached_path() {
-    let _one_at_a_time = FAKE_SYSTEMCTL.lock().await;
     for state in ["inactive", "failed"] {
         let scratch = cmux_unix_socket::short_test_dir("managed-gone");
         let dir = scratch.path();

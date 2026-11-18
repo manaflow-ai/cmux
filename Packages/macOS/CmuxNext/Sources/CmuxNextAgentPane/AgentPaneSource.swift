@@ -51,6 +51,14 @@ public nonisolated enum AgentPaneSource: Equatable, Sendable {
         }
     }
 
+    /// The source as the pane's log names it.
+    var logDescription: String {
+        switch self {
+        case .bundled(let url): "bundled:\(url.path)"
+        case .devServer(let url): "dev:\(url.absoluteString)"
+        }
+    }
+
     /// Environment variable naming the dev server, for example
     /// `http://127.0.0.1:4176/`.
     public static let devURLVariable = "CMUX_NEXT_AGENT_PANE_DEV_URL"

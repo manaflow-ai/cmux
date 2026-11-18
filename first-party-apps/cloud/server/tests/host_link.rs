@@ -31,11 +31,13 @@ fn host() -> Host {
     Host::start_with(FIXTURES, spawner, attach, edge)
 }
 
-fn details(binary: &str) -> Value {
+/// The daemon's answer; `state_dir` names the details apart. The daemon
+/// also sends `binary` and `hub_socket`, which the server does not read.
+fn details(state_dir: &str) -> Value {
     json!({
-        "binary": binary,
+        "binary": "/opt/cmux/bin/cmux-tui",
         "hub_socket": "/tmp/cmux-test/wg-hub.sock",
-        "state_dir": "/tmp/cmux-test/link-state",
+        "state_dir": state_dir,
         "socket_dir": "/tmp/cmux-test",
         "device_name": "test-mac",
     })
@@ -72,7 +74,9 @@ fn the_host_frames_have_one_shape_for_request_result_error_and_event() {
     let mut host = host();
     let request = link_get(&mut host);
     assert_eq!(request["id"], 1);
-    host.send(&json!({ "t": "host.result", "id": 1, "value": details("/opt/cmux/bin/cmux-tui") }));
+    host.send(
+        &json!({ "t": "host.result", "id": 1, "value": details("/tmp/cmux-test/link-state") }),
+    );
     let up = connect(&mut host, "c-1");
     assert_eq!(up["ok"], true, "{up}");
     // An answer to no waiting request and a frame of unknown kind get no line.
@@ -85,36 +89,34 @@ fn the_host_frames_have_one_shape_for_request_result_error_and_event() {
 }
 
 #[test]
-fn connect_waits_for_link_get_and_then_spawns_with_the_hosts_binary() {
+fn connect_waits_for_link_get_and_then_spawns_with_the_hosts_folders() {
     let mut host = host();
     link_get(&mut host);
     let early = connect(&mut host, "c-1");
     assert_eq!(early["ok"], false);
     assert_eq!(early["error"]["code"], "cmux.cloud.link_unavailable", "{early}");
     assert_eq!(host.spawner.spawns(), 0);
-    host.send(&json!({ "t": "host.result", "id": 1, "value": details("/opt/cmux/v2/cmux-tui") }));
+    host.send(
+        &json!({ "t": "host.result", "id": 1, "value": details("/tmp/cmux-test/link-state-v2") }),
+    );
     let up = connect(&mut host, "c-2");
     assert_eq!(up["ok"], true, "{up}");
     assert_eq!(host.spawner.spawns(), 1);
-    let binary = host.spawner.log().commands[0].binary.clone();
-    assert_eq!(binary, std::path::PathBuf::from("/opt/cmux/v2/cmux-tui"));
+    let command = host.spawner.log().commands[0].clone();
+    assert_eq!(command.state_dir, std::path::PathBuf::from("/tmp/cmux-test/link-state-v2"));
+    assert_eq!(command.upstream, common::carrier_socket_of("vm-alpha01"), "the app's carrier");
 }
 
 #[test]
 fn a_bad_answer_is_a_typed_error_and_nothing_spawns() {
     for bad in [
-        details("bin/cmux-tui"),
-        json!({ "binary": "/opt/cmux/bin/cmux-tui", "hub_socket": "hub.sock",
-            "state_dir": "/tmp/s", "socket_dir": "/tmp", "device_name": "mac" }),
-        json!({ "binary": "/opt/cmux/bin/cmux-tui", "hub_socket": "/tmp/hub.sock",
-            "state_dir": "/tmp/s", "socket_dir": "/tmp", "device_name": "" }),
-        json!({ "binary": "/opt/cmux/bin/cmux-tui", "hub_socket": "/tmp/hub.sock",
-            "state_dir": "/tmp/s", "socket_dir": "/tmp", "device_name": "mac\u{7}" }),
+        details("link-state"),
+        json!({ "state_dir": "/tmp/s", "socket_dir": "tmp", "device_name": "mac" }),
+        json!({ "state_dir": "/tmp/s", "socket_dir": "/tmp", "device_name": "" }),
+        json!({ "state_dir": "/tmp/s", "socket_dir": "/tmp", "device_name": "mac\u{7}" }),
         json!({ "binary": "/opt/cmux/bin/cmux-tui" }),
-        json!({ "binary": "/opt/cmux/bin/cmux-tui", "hub_socket": "/tmp/hub.sock",
-            "state_dir": "/tmp/s", "socket_dir": "/tmp", "device_name": "--carrier" }),
-        json!({ "binary": "/opt/cmux/../bin/cmux-tui", "hub_socket": "/tmp/hub.sock",
-            "state_dir": "/tmp/s", "socket_dir": "/tmp", "device_name": "mac" }),
+        json!({ "state_dir": "/tmp/s", "socket_dir": "/tmp", "device_name": "--carrier" }),
+        json!({ "state_dir": "/tmp/../s", "socket_dir": "/tmp", "device_name": "mac" }),
     ] {
         let mut host = host();
         link_get(&mut host);
@@ -129,7 +131,9 @@ fn a_bad_answer_is_a_typed_error_and_nothing_spawns() {
 fn link_changed_respawns_the_live_link_with_the_new_details() {
     let mut host = host();
     link_get(&mut host);
-    host.send(&json!({ "t": "host.result", "id": 1, "value": details("/opt/cmux/v1/cmux-tui") }));
+    host.send(
+        &json!({ "t": "host.result", "id": 1, "value": details("/tmp/cmux-test/link-state-v1") }),
+    );
     let up = connect(&mut host, "c-1");
     assert_eq!(up["result"]["generation"], 1, "{up}");
     // Drop the connect's own `up` line.
@@ -139,7 +143,7 @@ fn link_changed_respawns_the_live_link_with_the_new_details() {
         }
     }
     host.send(&json!({ "t": "host.event", "op": "cmux.host.link.changed",
-        "data": details("/opt/cmux/v2/cmux-tui") }));
+        "data": details("/tmp/cmux-test/link-state-v2") }));
     let down = host.next();
     let new_up = host.next();
     let state = |line: &Option<Value>| {
@@ -150,7 +154,9 @@ fn link_changed_respawns_the_live_link_with_the_new_details() {
     assert_eq!(state(&new_up), (Some(json!("up")), Some(json!(2))), "{new_up:?}");
     let log = host.spawner.log();
     assert_eq!(log.commands.len(), 2, "one respawn");
-    assert_eq!(log.commands[1].binary, std::path::PathBuf::from("/opt/cmux/v2/cmux-tui"));
+    assert_eq!(log.commands[1].state_dir, std::path::PathBuf::from("/tmp/cmux-test/link-state-v2"));
+    assert_eq!(log.commands[1].upstream, log.commands[0].upstream, "the same app carrier");
+    assert_eq!(host.cloud.carrier_asks.len(), 1, "a respawn asks the app nothing");
     assert_eq!(log.terminated.len(), 1, "the old link process ended");
 }
 
@@ -172,7 +178,9 @@ fn a_retryable_host_error_is_retried_once_on_the_next_connect() {
     let (second, around) = connect_lines(&mut host, "c-2");
     assert_eq!(second["error"]["code"], "cmux.cloud.link_unavailable", "{second}");
     assert!(around.iter().all(|l| !is_request(l)), "{around:?}");
-    host.send(&json!({ "t": "host.result", "id": 2, "value": details("/opt/cmux/bin/cmux-tui") }));
+    host.send(
+        &json!({ "t": "host.result", "id": 2, "value": details("/tmp/cmux-test/link-state") }),
+    );
     let up = connect(&mut host, "c-3");
     assert_eq!(up["ok"], true, "{up}");
 }
@@ -195,90 +203,23 @@ fn a_final_host_error_is_link_unavailable_with_the_hosts_code() {
     assert_eq!(host.spawner.spawns(), 0);
 }
 
-/// The details with no live `cmux link`: the supervisor sends a null hub.
+/// The details with no live `cmux link`: the daemon sends a null hub.
 fn no_hub() -> Value {
-    let mut value = details("/opt/cmux/bin/cmux-tui");
+    let mut value = details("/tmp/cmux-test/link-state");
     value["hub_socket"] = Value::Null;
     value
 }
 
+/// The carrier needs no `cmux link` (no WireGuard hub): a null hub links as
+/// any other answer does, through the app's carrier socket.
 #[test]
-fn a_null_hub_socket_is_link_unavailable_and_nothing_spawns() {
+fn a_null_hub_socket_still_links_through_the_apps_carrier() {
     let mut host = host();
     link_get(&mut host);
     host.send(&json!({ "t": "host.result", "id": 1, "value": no_hub() }));
-    let answer = connect(&mut host, "c-1");
-    assert_eq!(answer["error"]["code"], "cmux.cloud.link_unavailable", "{answer}");
-    assert_eq!(answer["error"]["retryable"], true, "a later link.changed may bring the hub");
-    assert_eq!(host.spawner.spawns(), 0);
-}
-
-#[test]
-fn a_link_changed_with_a_hub_lets_the_next_connect_spawn() {
-    let mut host = host();
-    link_get(&mut host);
-    host.send(&json!({ "t": "host.result", "id": 1, "value": no_hub() }));
-    let early = connect(&mut host, "c-1");
-    assert_eq!(early["error"]["code"], "cmux.cloud.link_unavailable", "{early}");
-    host.send(&json!({ "t": "host.event", "op": "cmux.host.link.changed",
-        "data": details("/opt/cmux/bin/cmux-tui") }));
-    let up = connect(&mut host, "c-2");
-    assert_eq!(up["ok"], true, "{up}");
-    assert_eq!(host.spawner.spawns(), 1);
-}
-
-/// A link that starts after the null-hub answer is found by the next
-/// connect (cx-rtipa S2): that connect sends one new `link.get`, and the
-/// connect after the answer spawns. A connect while it waits sends none.
-#[test]
-fn a_null_hub_asks_for_the_link_details_again_on_the_next_connect() {
-    let mut host = host();
-    link_get(&mut host);
-    host.send(&json!({ "t": "host.result", "id": 1, "value": no_hub() }));
-    let (first, before) = connect_lines(&mut host, "c-1");
-    assert!(before.iter().all(|l| !is_request(l)), "no request before the connect: {before:?}");
-    assert_eq!(first["error"]["code"], "cmux.cloud.link_unavailable", "{first}");
-    assert_eq!(first["error"]["retryable"], true, "{first}");
-    let retry = host.next();
-    let expected =
-        json!({ "t": "host.request", "id": 2, "op": "cmux.host.link.get", "params": {} });
-    assert_eq!(retry, Some(expected), "one new request after that connect");
-    let (second, around) = connect_lines(&mut host, "c-2");
-    assert_eq!(second["error"]["code"], "cmux.cloud.link_unavailable", "{second}");
-    assert!(around.iter().all(|l| !is_request(l)), "{around:?}");
-    host.send(&json!({ "t": "host.result", "id": 2, "value": details("/opt/cmux/bin/cmux-tui") }));
-    let up = connect(&mut host, "c-3");
-    assert_eq!(up["ok"], true, "{up}");
-    assert_eq!(host.spawner.spawns(), 1);
-}
-
-#[test]
-fn a_link_changed_back_to_a_null_hub_ends_the_live_link() {
-    let mut host = host();
-    link_get(&mut host);
-    host.send(&json!({ "t": "host.result", "id": 1, "value": details("/opt/cmux/bin/cmux-tui") }));
     let up = connect(&mut host, "c-1");
     assert_eq!(up["ok"], true, "{up}");
-    while let Some(line) = host.next() {
-        if line["event"] == "cloud.link.changed" && line["data"]["state"] == "up" {
-            break;
-        }
-    }
-    host.send(&json!({ "t": "host.event", "op": "cmux.host.link.changed", "data": no_hub() }));
-    let down = host.next();
-    assert_eq!(
-        down.as_ref().map(|l| (
-            l["event"].clone(),
-            l["data"]["state"].clone(),
-            l["data"]["generation"].clone()
-        )),
-        Some((json!("cloud.link.changed"), json!("down"), json!(1))),
-        "the live link ends when the hub goes away: {down:?}"
-    );
-    assert_eq!(host.spawner.log().terminated.len(), 1, "its process ended");
-    let again = connect(&mut host, "c-2");
-    assert_eq!(again["error"]["code"], "cmux.cloud.link_unavailable", "{again}");
-    assert_eq!(host.spawner.spawns(), 1, "no new link without a hub");
+    assert_eq!(host.spawner.spawns(), 1);
 }
 
 #[test]
@@ -286,12 +227,18 @@ fn a_late_link_get_answer_never_replaces_newer_link_changed_details() {
     let mut host = host();
     link_get(&mut host);
     host.send(&json!({ "t": "host.event", "op": "cmux.host.link.changed",
-        "data": details("/opt/cmux/v2/cmux-tui") }));
-    host.send(&json!({ "t": "host.result", "id": 1, "value": details("/opt/cmux/v1/cmux-tui") }));
+        "data": details("/tmp/cmux-test/link-state-v2") }));
+    host.send(
+        &json!({ "t": "host.result", "id": 1, "value": details("/tmp/cmux-test/link-state-v1") }),
+    );
     let up = connect(&mut host, "c-1");
     assert_eq!(up["ok"], true, "{up}");
-    let binary = host.spawner.log().commands[0].binary.clone();
-    assert_eq!(binary, std::path::PathBuf::from("/opt/cmux/v2/cmux-tui"), "the newer details win");
+    let state_dir = host.spawner.log().commands[0].state_dir.clone();
+    assert_eq!(
+        state_dir,
+        std::path::PathBuf::from("/tmp/cmux-test/link-state-v2"),
+        "the newer details win"
+    );
 }
 
 #[test]

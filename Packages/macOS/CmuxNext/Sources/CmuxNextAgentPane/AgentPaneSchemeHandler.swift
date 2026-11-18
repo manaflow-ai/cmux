@@ -39,7 +39,17 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
             task.didFinish()
             return
         }
-        if task.request.httpMethod.map({ $0 == "GET" }) ?? true, let url = task.request.url, let media = Self.mediaFile(for: url) {
+        // The page's drawn-copy script (AgentPageResources on the page host): this host keeps none.
+        if task.request.httpMethod.map({ $0 == "GET" }) ?? true, let url = task.request.url, url.path == "/\(AgentPaneChatSnapshots.prefix)/chat.js" {
+            let data = Data("self.\(AgentPaneChatSnapshots.global)=null;".utf8)
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1",
+                                           headerFields: Self.headers(for: URL(fileURLWithPath: "chat.js"), length: data.count))
+            task.didReceive(response ?? URLResponse(url: url, mimeType: "text/javascript", expectedContentLength: data.count, textEncodingName: "utf-8"))
+            task.didReceive(data)
+            task.didFinish()
+            return
+        }
+        if task.request.httpMethod.map({ $0 == "GET" }) ?? true, let url = task.request.url, let media = Self.mediaSource(for: url) {
             return serveMedia(media, url: url, task: task)
         }
         if task.request.httpMethod.map({ $0 == "GET" }) ?? true, let url = task.request.url, Self.isLibrary(url) {

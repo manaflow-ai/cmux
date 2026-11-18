@@ -55,6 +55,11 @@ pub enum Hit {
     RecoverableWorkspace {
         index: usize,
     },
+    /// A row of the workspace rail's agents section: focus that agent's tab.
+    AgentRow {
+        surface: SurfaceId,
+        target: ProjectionTarget,
+    },
     CreateWorkspace {
         mode: Option<WorkspaceCreationMode>,
     },

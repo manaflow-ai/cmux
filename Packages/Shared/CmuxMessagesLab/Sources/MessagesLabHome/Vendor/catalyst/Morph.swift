@@ -135,7 +135,7 @@ final class MorphBubble {
             tail.bounds = CGRect(x: -w1, y: 0, width: w1, height: h1)
             bubble.addSublayer(tail)
             // Text images drawn as the bubble draws them, at the LARGEST size they
-            // reach on screen (the scale pulse overshoots 1 slightly), so the
+            // reach on screen (`peakScale`; cmux: the scale pulse no longer passes 1), so the
             // layer only ever scales them down (resolution brief: no upscaled
             // snapshot during an animation).
             text.contents = images.0

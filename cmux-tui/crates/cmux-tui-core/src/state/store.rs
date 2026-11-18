@@ -95,6 +95,7 @@ pub(crate) fn create_state_schema(transaction: &Transaction<'_>) -> anyhow::Resu
     // triggers drop an archive with its group.
     crate::workspace_registry::terminal_archive_store::create_schema(transaction)?;
     super::agent_folder::create_agent_folder_schema(transaction)?;
+    super::created_by::create_schema(transaction)?;
     super::agent_message_schema::create_agent_message_schema(transaction)?;
     super::window_record_store::create_window_record_schema(transaction)?;
     super::sidebar_layout_store::create_sidebar_layout_schema(transaction)?;
@@ -161,11 +162,23 @@ pub(crate) fn migrate_saved_tab_groups_to_personal(connection: &Connection) -> a
 pub(crate) struct StateChanges {
     pub(crate) result: Value,
     pub(crate) changes: Vec<Value>,
+    /// The mutation found the stored state equal to what it asks for and
+    /// wrote nothing ([`StateChanges::unchanged`]).
+    pub(crate) unchanged: bool,
 }
 
 impl StateChanges {
     pub(crate) fn new(result: Value, changes: Vec<Value>) -> Self {
-        Self { result, changes }
+        Self { result, changes, unchanged: false }
+    }
+
+    /// The answer of a mutation that changes nothing: the stored state is
+    /// already what it asks for, and `apply` wrote no row. The registry then
+    /// commits nothing: no revision, no ledger row, no journal record, no
+    /// WAL frame. A retry under the same key applies again and gets the same
+    /// answer, so no ledger row is needed to replay it.
+    pub(crate) fn unchanged(result: Value) -> Self {
+        Self { result, changes: Vec::new(), unchanged: true }
     }
 }
 
@@ -265,7 +278,18 @@ impl WorkspaceRegistry {
         let sqlite_revision =
             i64::try_from(revision).context("resource revision exceeds SQLite range")?;
         let personal_before = personal_revision(&tx)?;
-        let StateChanges { result, changes } = apply(&tx)?;
+        let StateChanges { result, changes, unchanged } = apply(&tx)?;
+        if unchanged {
+            // `apply` wrote nothing: the transaction ends with no write, and
+            // the answer names the revision that already holds this state.
+            drop(tx);
+            return Ok(StateCommit {
+                revision: previous_revision,
+                result,
+                replayed: false,
+                personal_revision: None,
+            });
+        }
         let changes = Value::Array(finish_changes(changes));
         // Personal mutations advance `personal_revision` and append their own
         // `personal.*` fact; the raw `personal-changed` event follows it.
@@ -350,6 +374,17 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<T> {
         read(&self.connection.get())
     }
+
+    /// Run a read against the registry connection with one try for it:
+    /// `None` while another thread holds the connection (the journal writer
+    /// at a commit), and the read did not run.
+    pub(crate) fn try_read_state<T>(
+        &self,
+        read: impl FnOnce(&Connection) -> anyhow::Result<T>,
+    ) -> Option<anyhow::Result<T>> {
+        let connection = self.connection.try_get()?;
+        Some(read(&connection))
+    }
 }
 
 /// The state resources for a session snapshot's `extra.state`.
@@ -410,6 +445,14 @@ static NOTED_EPHEMERAL: std::sync::Mutex<std::collections::BTreeSet<String>> =
 pub(crate) fn note_ephemeral(workspace_id: &str) {
     use crate::panic_free::RecoverPoison;
     NOTED_EPHEMERAL.lock().recover_poison().insert(workspace_id.to_string());
+}
+
+/// Whether any workspace was ever ephemeral in this process: a remote
+/// device's `list-workspaces` revision is then a digest of what it may see
+/// (server.rs `list_workspaces_reply_since`).
+pub(crate) fn any_ephemeral_noted() -> bool {
+    use crate::panic_free::RecoverPoison;
+    !NOTED_EPHEMERAL.lock().recover_poison().is_empty()
 }
 
 /// Whether workspace `workspace_id` was ever ephemeral in this process.

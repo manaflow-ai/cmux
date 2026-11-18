@@ -12,8 +12,10 @@
 //!
 //! In both cases the files are moved together into
 //! `<session dir>/registry-recovery/<unix ms>/` and the open fails with
-//! [`RegistryQuarantined`], naming that directory. The next open starts a new
-//! registry beside the preserved files rather than on top of them.
+//! [`RegistryQuarantined`], naming that directory. The session's saved
+//! terminal output and the backup of an output-cleanup swap follow them
+//! ([`keep_with_quarantined`]). The next open starts a new registry beside
+//! the preserved files rather than on top of them.
 //!
 //! Everything else stays in place, because the data may still be good:
 //!
@@ -160,6 +162,50 @@ pub(crate) fn quarantine(db_path: &Path, reason: &str) -> anyhow::Result<Registr
     let _ = crate::platform::sync_directory(&recovery_dir);
     let _ = crate::platform::sync_directory(session_dir);
     Ok(RegistryQuarantined { recovery_dir, reason: reason.to_string() })
+}
+
+/// Moves the files that belong to a registry [`quarantine`] moved aside into
+/// its recovery directory, after a start that failed with that quarantine:
+///
+/// - `terminal-output/`, the session's saved terminal output. The next start
+///   opens a new, empty registry, and the output store drops the files of
+///   every terminal that registry does not know; left in place, all of it
+///   would be deleted at that start.
+/// - The backup of an output-cleanup swap (`.pre-output-cleanup` and its
+///   sidecars). With the registry gone, the next start takes a backup in
+///   place for an interrupted swap and renames it in: it would serve the
+///   session from before the swap. A start that rolls a failed swap back has
+///   already put the backup in place before this runs.
+///
+/// Each file goes alone; one that cannot move stays where it was, and the
+/// reason is logged. The caller still holds the session's locks.
+pub(super) fn keep_with_quarantined(db_path: &Path, quarantined: &RegistryQuarantined) {
+    let Some(session_dir) = db_path.parent() else { return };
+    let previous = crate::workspace_registry::output_cleanup::previous_path(db_path);
+    let mut sources = vec![session_dir.join(crate::output_store::STORE_DIRECTORY)];
+    if previous.exists() {
+        // The main file first, as in `quarantine`: an interruption leaves
+        // only sidecars, which no open applies to anything.
+        sources.push(previous.clone());
+        sources.extend(SIDECAR_SUFFIXES.iter().map(|suffix| sidecar_path(&previous, suffix)));
+    }
+    let mut moved = false;
+    for source in sources.into_iter().filter(|source| source.exists()) {
+        let Some(name) = source.file_name() else { continue };
+        let destination = quarantined.recovery_dir.join(name);
+        match fs::rename(&source, &destination) {
+            Ok(()) => moved = true,
+            Err(error) => eprintln!(
+                "cmux-tui: could not move {} beside the quarantined registry in {}: {error}",
+                source.display(),
+                quarantined.recovery_dir.display()
+            ),
+        }
+    }
+    if moved {
+        let _ = crate::platform::sync_directory(&quarantined.recovery_dir);
+        let _ = crate::platform::sync_directory(session_dir);
+    }
 }
 
 fn unique_recovery_dir(recovery_root: &Path) -> anyhow::Result<PathBuf> {

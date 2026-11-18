@@ -13,7 +13,7 @@ enum CoalesceKey: Hashable {
 
     init?(_ event: DaemonEvent) {
         switch event {
-        case .titleChanged(let surface, _): self = .title(surface)
+        case .titleChanged(let surface, _, _): self = .title(surface)
         case .surfaceResized(let surface, _): self = .size(surface)
         case .scrollChanged(let surface, _, _): self = .scroll(surface)
         case .agentPresenceChanged(let presence): self = .presence(presence.surface)

@@ -11,17 +11,22 @@ public struct SplitRequest: TerminalSpawningRequest {
     public var direction: SplitDirection
     public var tab: SurfaceID?
     public var options: SpawnOptions
-    public init(pane: PaneID, direction: SplitDirection, tab: SurfaceID? = nil, options: SpawnOptions = SpawnOptions()) {
+    /// The new pane goes before `pane` on the split axis (Split Left, Split Up; `split-before-v1`). Sent only when true.
+    public var before: Bool
+    public init(pane: PaneID, direction: SplitDirection, tab: SurfaceID? = nil, options: SpawnOptions = SpawnOptions(),
+                before: Bool = false) {
         self.pane = pane
         self.direction = direction
         self.tab = tab
         self.options = options
+        self.before = before
     }
-    enum CodingKeys: String, CodingKey { case pane, dir }
+    enum CodingKeys: String, CodingKey { case pane, dir, before }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(pane, forKey: .pane)
         try c.encode(direction, forKey: .dir)
+        if before { try c.encode(true, forKey: .before) }
         try options.encode(to: encoder)
     }
 }

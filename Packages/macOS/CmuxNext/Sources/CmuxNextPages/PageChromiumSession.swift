@@ -10,6 +10,10 @@ final class PageChromiumSession {
     let deadline: DemandTimer
     /// Agent question keyboard proof, separate from the page's general main-world bridge.
     var questionKeys: ChromiumQuestionKeyChannel?
+    /// Follows the renderer's hang state for app health (PageWebView+Chromium).
+    var hangWatch: Task<Void, Never>?
+    /// Restarts this page's renderer when it stays hung (agent chats only; ``AgentRendererHangRestart``).
+    var hangRestart: AgentRendererHangRestart?
 
     init(page: any PageChromiumPage, bridge: ChromiumPageHostBridge, clock: any Clock<Duration>) {
         self.page = page
@@ -20,6 +24,8 @@ final class PageChromiumSession {
     /// Stops the bridge and closes the page. Idempotent.
     func end() {
         questionKeys?.invalidate()
+        hangWatch?.cancel()
+        hangRestart?.cancel()
         deadline.cancel()
         bridge.uninstall()
         page.onEvent = nil

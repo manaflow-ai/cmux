@@ -22,7 +22,6 @@ final class SessionRegistrar {
     /// This Mac's name, resolved off the main actor (`MacName`).
     private var computerName: String?
 
-
     init(machines: MachineRegistry, notice: @escaping @MainActor (_ session: String, _ message: String) -> Bool,
          withdraw: @escaping @MainActor (_ session: String) -> Void) {
         self.machines = machines

@@ -2,27 +2,12 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextSettings
+import CmuxNextWindowRules
 
-/// What Cmd-T opens in a pane.
-nonisolated enum NewTabKind: Equatable, Sendable {
-    case terminal
-    /// A browser tab on `engine` (nil: `browser.defaultEngine`).
-    case browser(engine: String?)
-    case agent
-    /// The new tab page, to pick the kind.
-    case page
+/// What Cmd-T opens in a pane: the rule is Rust's (cmux-window-rules `tabs::new_tab_kind`).
+typealias NewTabKind = WindowRules.NewTabKind
 
-    /// The pane's selected tab decides: a browser tab (daemon or
-    /// session-local) gets a browser tab on its engine, so cookies and
-    /// extensions stay in that engine; an agent tab gets an agent tab; a
-    /// terminal, a remote terminal or an empty pane gets a terminal tab.
-    static func resolve(selectedKind: TabKind?, engine: String?, isLocalBrowser: Bool, isAgent: Bool = false) -> NewTabKind {
-        if isAgent { return .agent }
-        if selectedKind == .browser { return .browser(engine: engine) }
-        if isLocalBrowser { return .browser(engine: nil) }
-        return .terminal
-    }
-
+extension WindowRules.NewTabKind {
     /// The action that opens this kind on its own, whose title New <Kind> Tab takes in a tab's menu.
     var newActionID: ActionID {
         switch self {
@@ -33,11 +18,24 @@ nonisolated enum NewTabKind: Equatable, Sendable {
         }
     }
 
+    /// The facts of the tab a new tab opens next to: `agent` counts only where the caller counts it.
+    static func facts(_ tab: TabModel?, id: String?, agent: Bool, newTabPage: Bool, user: Bool = false, followsSetting: Bool = false,
+                      canHostAgent: Bool = false) -> WindowRules.NewTabFacts {
+        let kind: String? = switch tab?.kind {
+        case .pty?: "pty"
+        case .browser?: "browser"
+        case nil: nil
+        default: "other"
+        }
+        return WindowRules.NewTabFacts(selectedKind: kind, engine: tab?.browserEngine, localBrowser: id?.hasPrefix(LocalBrowserTab.prefix) == true,
+                                       agent: agent, newTabPage: newTabPage, user: user, followsSetting: followsSetting, canHostAgent: canHostAgent)
+    }
+
     /// The kind New <Kind> Tab opens next to tab `id`, as the user sees it:
-    /// agent tabs and New Tab pages count (`newTabOfPaneKind`).
+    /// agent tabs and New Tab pages count (`newTabOfPaneKind`). A terminal when the FFI does not answer.
     @MainActor static func of(_ id: String, tab: TabModel?, services: AppServices) -> NewTabKind {
         let agent = services.agentTabs.isAgentTab(id)
-        if agent, services.agentTabs.isNewTabPage(id) { return .page }
-        return resolve(selectedKind: tab?.kind, engine: tab?.browserEngine, isLocalBrowser: id.hasPrefix(LocalBrowserTab.prefix), isAgent: agent)
+        let facts = facts(tab, id: id, agent: agent, newTabPage: agent && services.agentTabs.isNewTabPage(id))
+        return WindowRules().newTabKind(facts)?.sameKind ?? .terminal
     }
 }

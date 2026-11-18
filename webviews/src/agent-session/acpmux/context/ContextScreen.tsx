@@ -8,7 +8,8 @@
 // Leo, 2026-11-04: "giving the users a better way to, like, see what's actually happening and to,
 // like, visualize what's happening ... as a viewer or whatever ... some people just want to edit it
 // a bit, right? Like, we can just expose that".
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { PICKER_LAST_KNOWN } from "../../../lastKnown";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { Button } from "../../../ui/Button";
 import { Tabs, TabsList, TabsTrigger } from "../../../ui/Tabs";
@@ -45,6 +46,15 @@ const GROUP_TITLE: Record<GroupId, StringKey> = {
 
 type Load = { kind: "loading" } | { kind: "failed"; reason: string } | { kind: "ready"; inventory: Inventory };
 
+/// The last inventory each chat's reader answered, by the reader (App's `loadContext` stays the same
+/// function for one chat): a screen opened again draws it at once and reads again behind it.
+const lastInventory = new WeakMap<() => Promise<unknown>, Inventory>();
+
+function lastKnown(load: () => Promise<unknown>): Load {
+  const inventory = PICKER_LAST_KNOWN ? lastInventory.get(load) : undefined;
+  return inventory ? { kind: "ready", inventory } : { kind: "loading" };
+}
+
 export function ContextScreen({
   load,
   save,
@@ -60,20 +70,26 @@ export function ContextScreen({
   layout?: ContextLayout;
 }) {
   const t = useT();
-  const [state, setState] = useState<Load>({ kind: "loading" });
+  const [state, setState] = useState<Load>(() => lastKnown(load));
   useEscapeCloses(true, onClose, "textarea");
   // acpmux pushes no change for the inventory; a saved edit answers with the inventory after it.
   // mount-read: the screen reads the chat's inventory once each time it opens.
   useEffect(() => {
     let live = true;
+    // A last-known inventory stays on screen until this read answers; a failed read keeps it.
+    const shown = PICKER_LAST_KNOWN ? lastInventory.get(load) : undefined;
+    if (shown) setState({ kind: "ready", inventory: shown });
     load().then(
       (value) => {
         if (!live) return;
         const inventory = parseInventory(value);
-        setState(inventory ? { kind: "ready", inventory } : { kind: "failed", reason: "" });
+        if (inventory) lastInventory.set(load, inventory);
+        if (inventory) setState({ kind: "ready", inventory });
+        else if (!shown) setState({ kind: "failed", reason: "" });
       },
       (error: unknown) => {
-        if (live) setState({ kind: "failed", reason: error instanceof Error ? error.message : String(error) });
+        if (live && !shown)
+          setState({ kind: "failed", reason: error instanceof Error ? error.message : String(error) });
       },
     );
     return () => {
@@ -112,6 +128,7 @@ export function ContextScreen({
             ? {
                 save: async (change: ContextOverride) => {
                   const next = parseInventory(await save(change));
+                  if (next) lastInventory.set(load, next);
                   if (next) setState({ kind: "ready", inventory: next });
                 },
               }
@@ -330,9 +347,17 @@ function TextEditor({
     kind: "idle",
   });
   // A scope switch or a save answer brings new text; what the person typed is kept until then.
-  useEffect(() => setDraft(initial), [initial]);
+  // A refresh behind a last-known inventory brings new text too, but never over an edited draft.
+  const shown = useRef({ initial, scope, saving: false });
+  useEffect(() => {
+    const last = shown.current;
+    shown.current = { initial, scope, saving: false };
+    if (last.initial === initial) return;
+    setDraft((current) => (last.scope !== scope || last.saving || current === last.initial ? initial : current));
+  }, [initial, scope]);
   const run = (text: string | null) => {
     if (!save) return;
+    shown.current.saving = true;
     setStatus({ kind: "saving" });
     save(text).then(
       () => setStatus({ kind: "saved" }),

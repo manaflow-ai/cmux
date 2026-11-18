@@ -14,6 +14,7 @@
 import type { IncomingMessage } from "./conversation/incomingMessage";
 import type { AcpmuxRow } from "./model";
 import type { AcpmuxSessionEntry } from "./sessionList";
+import { findSession } from "./sessionIndex";
 
 export type ManagedBy =
   /** A Chief started it. */
@@ -38,7 +39,7 @@ export function chiefOf(
   sessions: readonly Pick<AcpmuxSessionEntry, "sessionId" | "chiefChild" | "chiefHome" | "chiefTurn">[],
 ): string | undefined {
   if (!sessionId) return undefined;
-  const own = sessions.find((entry) => entry.sessionId === sessionId);
+  const own = findSession(sessions, sessionId);
   if (!own?.chiefChild) return undefined;
   const turn = own.chiefHome ? sessions.find((entry) => entry.chiefTurn?.home === own.chiefHome) : undefined;
   return turn?.chiefTurn?.participant ?? DEFAULT_CHIEF;
@@ -48,12 +49,13 @@ export function chiefOf(
  *  manager the list does not hold (closed, on another machine) is not named, so no line shows. */
 export function managedBy(sessionId: string | undefined, sessions: readonly Entry[]): ManagedBy | undefined {
   if (!sessionId) return undefined;
-  const own = sessions.find((entry) => entry.sessionId === sessionId);
+  // Two lookups through the list's shared index (sessionIndex.ts), not passes over every listed chat.
+  const own = findSession(sessions, sessionId);
   if (!own) return undefined;
   if (own.chiefChild) return { kind: "chief" };
   const parentId = own.startedBy ?? own.spawnedBy;
   if (!parentId || parentId === sessionId) return undefined;
-  const parent = sessions.find((entry) => entry.sessionId === parentId);
+  const parent = findSession(sessions, parentId);
   const name = parent?.displayTitle?.trim() || parent?.name?.trim();
   if (!name) return undefined;
   // The names its messages sign with (incomingMessage.ts reads the sender by its chat's name).

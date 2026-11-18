@@ -431,6 +431,18 @@ public final class EmptyWorkspaceRepair {
     /// `WorkspaceCreation` could not close `key` after its terminal failed.
     public func closeFailed(_ key: WorkspaceKey) { keptAfterFailedClose.insert(key) }
 
+    /// Creates workspace `key` with the browser tab `tab` as its only tab, in one request
+    /// (`workspace-first-tab-v1`), owned by this repair while it runs, so the repair never fills it.
+    /// Nothing is half-created: the daemon takes the workspace back when it cannot make the tab.
+    ///
+    /// - Returns: The daemon's reply; its `firstTab` is the tab it made.
+    public func createBrowserWorkspace(_ key: WorkspaceKey, name: String?, tab: WorkspaceFirstBrowserTab,
+                                       on connection: DaemonConnection) async throws -> WorkspaceMutationResult {
+        try await populating(key) {
+            try await connection.createWorkspaceWithFirstTabWaitingForReply(name: name, key: key, firstTab: tab)
+        }
+    }
+
     private func recordFailure(_ key: WorkspaceKey, _ error: Error) {
         failures[key] = String(describing: error)
         failureEpochs[key] = epoch()

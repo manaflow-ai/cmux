@@ -81,8 +81,6 @@ tmux-*.log
 # Local-only prototype and deploy state
 /Prototypes/*-clone/
 /.cloudflare/
-# Locally downloaded prebuilt client for Packages/Shared/CmuxTerminalClient
-Packages/Shared/CmuxTerminalClient/CmuxTerminalClient.xcframework/
 
 # The settings export stamp is derived, never committed (Leo 2026-10-21):
 # scripts/ci/defaults_guard.py source-stamp --ref REF prints it for any commit.
@@ -98,7 +96,6 @@ Packages/Shared/CmuxTerminalClient/CmuxTerminalClient.xcframework/
 !/Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/GENERATED.md
 /Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/*
 !/Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/GENERATED.md
-/Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js
 /Resources/markdown-viewer/webviews-app/
 # The React pages' strings tables: build output of webviews/scripts/pages/gen-strings.mjs, written
 # by bun install, the webviews test preload and every bundle build from the xcstrings catalogs
@@ -114,6 +111,8 @@ Packages/Shared/CmuxTerminalClient/CmuxTerminalClient.xcframework/
 /webviews/src/**/generated/*.tmp
 
 # nested-groups prototype gallery output
+Packages/macOS/CmuxNext/mac-screen-devices-gallery/
+Packages/macOS/CmuxNext/mac-screen-devices-gallery.tar
 Packages/macOS/CmuxNext/nested-groups-gallery/
 Packages/macOS/CmuxNext/nested-groups-gallery.tar
 Packages/macOS/CmuxNext/group-line-gallery/
@@ -139,3 +138,7 @@ Packages/macOS/CmuxNext/usage-warning-gallery.tar
 
 # Spotlight exclusion marker that scripts/measure/quiet-host.sh writes in a fleet checkout
 .metadata_never_index
+
+# The extension SDK's customize types: every build of cmux-extension-sdk writes them from
+# cmux_customize::schema (build.rs); `cmux customize schema --typescript` prints the same text.
+/cmux-tui/crates/cmux-extension-sdk/typescript/src/generated/

@@ -42,7 +42,7 @@ test("a failed Write through a folder link, retried at the real path, lists once
   ]);
   await dom.render(await editedCard(row));
   expect(title()).toBe("Edited notes.txt");
-  expect(dom.text(".acpmux-edited-sub")).toBe("+1-1");
+  expect(dom.text(".acpmux-edited-summary-counts")).toBe("+1-1");
   expect(dom.host().querySelector(".acpmux-edited-failed")).toBeNull();
 });
 

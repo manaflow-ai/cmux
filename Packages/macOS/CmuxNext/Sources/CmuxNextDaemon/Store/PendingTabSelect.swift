@@ -25,6 +25,26 @@ public struct PendingTabSelect: Sendable {
         return nil
     }
 
+    /// As ``take(shown:record:)``, and with nothing of its own to take: the tab that the pane's selected tab became,
+    /// when that tab (`selected`) is a creation's stand-in that the pane's strip no longer lists and the store's
+    /// record of the creation names a tab that the strip lists (`listed`: whether the strip lists a tab now; `fate`:
+    /// ``DaemonCreations/fate(ofStandIn:in:)``). Two or more stand-ins that get their tabs in one apply have no pair
+    /// in the strip: the pane then selects and shows the tab of the selected one in that apply, as a tab it created.
+    /// What waits here stays as it was then.
+    @MainActor public mutating func take(shown: [TabModel], record: [TabModel], selected: String?, listed: (String) -> Bool,
+                                         fate: (String) -> StandInFate) -> String? {
+        if let made = take(shown: shown, record: record) { return made }
+        guard let selected, ProvisionalTab.isProvisional(selected), !listed(selected), case .became(let tab) = fate(selected),
+              listed(tab) else { return nil }
+        return tab
+    }
+
+    /// The tab this waits to select that `tabs` (the pane's records) list already, the surface's first: the pane's current tab
+    /// for a new tab's slot before the strip's apply takes it (Ctrl-` then Cmd-T; a reopened tab, F1 on #37799).
+    @MainActor public func listed(in tabs: [TabModel]) -> String? {
+        surface.flatMap { surface in tabs.first { $0.surface == surface }?.id } ?? tab.flatMap { tab in tabs.contains { $0.id == tab } ? tab : nil }
+    }
+
     /// The hand-over of Cmd-N's stand-in pane to the daemon's pane that takes it over under another layout id, so under a
     /// new pane controller (P0 STATUS 13438): what the stand-in waited to select (`standIn`), else the tab it showed
     /// selected (`selected`, as the daemon's tab in its place once the records list one: `replacement`). One value, the

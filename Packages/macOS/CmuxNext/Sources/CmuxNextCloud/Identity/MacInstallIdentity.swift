@@ -32,6 +32,8 @@ public actor MacInstallIdentity {
     /// Set by ``signOut(stackUser:session:)`` until the session ends
     /// (``unbind()``): a late sign-in callback registers nothing.
     private var signingOut = false
+    /// Callers of ``installToken(awaitingBind:)`` waiting for the first bind (or a drop) of this launch.
+    private var bindWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.install")
 
     public init(store: MacInstallStore, transport: any InstallAuthTransport, deviceName: String, clientVersion: String?) {
@@ -67,6 +69,37 @@ public actor MacInstallIdentity {
         return try await client.installToken()
     }
 
+    /// ``installToken()`` for a caller that knows the app is signed in: when the user is not bound yet (the first
+    /// Cloud call of a launch can come before the restored session reaches ``signedIn(stackUser:session:)``; Leo's
+    /// NIGHTLY logged `install token mint failed: signedOut` on a relaunch), it waits up to `wait` for the bind
+    /// instead of answering signed out.
+    public func installToken(awaitingBind wait: Duration) async throws -> String {
+        if client == nil, !signingOut {
+            let id = UUID()
+            await withCheckedContinuation { continuation in
+                bindWaiters[id] = continuation
+                // task-owner: one bounded wait per waiter; the bind, a drop or this deadline resumes it once.
+                Task { [weak self] in
+                    // wakeup-allow: the one deadline of this wait; it ends earlier when a bind wakes the waiter.
+                    try? await Task.sleep(for: wait)
+                    await self?.wake(id)
+                }
+            }
+        }
+        return try await installToken()
+    }
+
+    /// How many ``installToken(awaitingBind:)`` callers wait for a bind now.
+    var pendingBindWaiters: Int { bindWaiters.count }
+
+    private func wake(_ id: UUID) { bindWaiters.removeValue(forKey: id)?.resume() }
+
+    private func wakeAll() {
+        let waiters = bindWaiters
+        bindWaiters = [:]
+        for waiter in waiters.values { waiter.resume() }
+    }
+
     /// A fresh token for one backend team, using this install's existing signer and grant.
     /// The personal client stays bound to its own scope; team refusals never rotate its key.
     public func installToken(team: String) async throws -> String {
@@ -83,53 +116,6 @@ public actor MacInstallIdentity {
         let token = try await scoped.installTokenInCallerTask()
         guard bound == generation, user == stackUser, await client.currentRecord == record else { throw Failure.signedOut }
         return token
-    }
-
-    func nativeContext(team: String) async throws -> NativeInstallContext {
-        guard let client, let stackUser = user else { throw Failure.signedOut }
-        let bound = generation
-        let token = try await installToken(team: team)
-        guard let record = await client.currentRecord, let environment = await client.environment else { throw Failure.signedOut }
-        let point = try await store.signer(for: stackUser).publicKeyX963()
-        guard bound == generation, user == stackUser, await client.currentRecord == record, point.count == 65, point.first == 4 else { throw Failure.signedOut }
-        return NativeInstallContext(account: stackUser, user: record.user, install: record.install, environment: environment,
-                                    point: point.base64EncodedString(), token: token, generation: bound, secureStorage: store.usesSecureEnclave)
-    }
-
-    func nativeCheck(_ context: NativeInstallContext) async throws {
-        guard context.generation == generation, context.account == user, !signingOut,
-              await client?.currentRecord == InstallRecord(user: context.user, install: context.install) else { throw Failure.signedOut }
-        guard context.generation == generation, context.account == user, !signingOut else { throw Failure.signedOut }
-    }
-
-    func nativeSign(_ message: String, context: NativeInstallContext) async throws -> String {
-        try await nativeCheck(context)
-        let signed = try await store.signer(for: context.account).sign(Data(message.utf8))
-        try await nativeCheck(context)
-        let signature = signed.count == 64 ? try P256.Signing.ECDSASignature(rawRepresentation: signed) : try P256.Signing.ECDSASignature(derRepresentation: signed)
-        return signature.rawRepresentation.base64EncodedString()
-    }
-
-    func nativeOwnerPost(_ body: Data, context: NativeInstallContext) async throws -> (status: Int, body: Data) {
-        try await nativeCheck(context)
-        let reply = try await transport.post("/v1/ops", json: body, bearer: context.token, headers: requestHeaders)
-        try await nativeCheck(context)
-        return reply
-    }
-
-    /// A GET on the API Worker under the install's token (`path` includes its query).
-    func nativeOwnerGet(_ path: String, context: NativeInstallContext) async throws -> (status: Int, body: Data) {
-        try await nativeCheck(context)
-        let reply = try await transport.get(path, bearer: context.token, headers: requestHeaders)
-        try await nativeCheck(context)
-        return reply
-    }
-
-    func nativeOwnerRead(_ body: Data, context: NativeInstallContext) async throws -> (status: Int, body: Data) {
-        try await nativeCheck(context)
-        let reply = try await transport.post("/v1/read", json: body, bearer: context.token, headers: requestHeaders)
-        try await nativeCheck(context)
-        return reply
     }
 
     /// The owner refused the current token (401): the next call mints again.
@@ -169,6 +155,7 @@ public actor MacInstallIdentity {
         let dropped = client
         client = nil
         user = nil
+        wakeAll()
         await dropped?.reset()
     }
 
@@ -208,6 +195,7 @@ public actor MacInstallIdentity {
             deviceName: deviceName, clientVersion: clientVersion, record: store.record(for: stackUser),
             profile: .mac, onRecord: { [weak self] record in await self?.recordChanged(record, for: stackUser, generation: bound) }
         )
+        wakeAll()
     }
 
     private func recordChanged(_ record: InstallRecord?, for stackUser: String, generation bound: UInt64) {

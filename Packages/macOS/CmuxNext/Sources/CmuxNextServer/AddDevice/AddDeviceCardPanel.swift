@@ -1,8 +1,7 @@
 public import AppKit
 import CmuxNextDesign
 
-/// The Add Device card's panel: the same floating glass card as Add Server and Add Machine
-/// (``AddServerCardPanel``), near the top center of the cmux window, on every Space and over full
+/// The Add Device card's panel: a floating glass card near the top center of the cmux window, on every Space and over full
 /// screen, never activating the app. Escape runs the card's Cancel.
 @MainActor
 final class AddDeviceCardPanel: NSPanel {
@@ -52,8 +51,18 @@ final class AddDeviceCardPanel: NSPanel {
         let size = content.fittingSize
         let screen = window?.screen ?? NSScreen.main
         let visible = screen?.visibleFrame ?? NSRect(origin: .zero, size: size)
-        setFrame(AddServerCardPanel.placement(size: size, over: window?.frame, in: visible), display: false)
+        setFrame(Self.placement(size: size, over: window?.frame, in: visible), display: false)
         WindowActivation.show(self, .raise)
+    }
+
+    /// Horizontally centered on `parent`, its top 56 pt below the parent's top, kept inside `visible`; with no
+    /// parent, the top center of `visible`.
+    static func placement(size: CGSize, over parent: NSRect?, in visible: NSRect) -> NSRect {
+        let width = min(size.width, visible.width), height = min(size.height, visible.height)
+        let anchor = parent ?? visible
+        let x = min(max(anchor.midX - width / 2, visible.minX), visible.maxX - width)
+        let top = min(anchor.maxY, visible.maxY) - CmuxFloatingDialogPanel.anchorTopInset
+        return NSRect(x: x, y: min(max(top - height, visible.minY), visible.maxY - height), width: width, height: height)
     }
 
     override func cancelOperation(_ sender: Any?) {

@@ -19,8 +19,9 @@ public struct SettingNotInSchema: Error, Sendable, CustomStringConvertible {
 }
 
 extension SettingsController {
-    /// Writes one schema setting atomically; nil removes the key (its
-    /// default applies) and any object the removal leaves empty. The file
+    /// Writes one schema setting atomically; nil, or the value the key has
+    /// unset (`isUnsetValue`), removes the key (its default applies) and any
+    /// object the removal leaves empty. The file
     /// watcher then applies the change to every window and the Settings
     /// window reads it back from `snapshot`.
     public func setSetting(_ descriptor: SettingDescriptor, to value: JSONValue?, by writer: SettingWriter) async throws {
@@ -30,18 +31,23 @@ extension SettingsController {
         // again behind the new value (or behind a reset to the default).
         var legacy: [String]?
         if let old = RenamedSettingKeys.legacyPath(for: descriptor.path), try await file.value(at: old) != nil { legacy = old }
+        if let value, !descriptor.accepts(value) { throw SettingRefused(key: descriptor.id, value: value) }
+        // A write never copies the theme file's own entries into cmux-next.json (Theme Studio writes
+        // the whole edits map it shows, which holds the file's colors).
+        // The default's own value removes the key instead of storing it, so the key keeps following
+        // the default when a later release changes it (a stored copy would pin the old one).
+        // (`value = nil` on the optional, never a `nil` literal typed as `JSONValue`: that is `.null`,
+        // which the file would store.)
+        var value = strippingThemeFileEntries(descriptor, value)
+        if let written = value, isUnsetValue(written, of: descriptor) { value = nil }
         // The window background's opacity and material leave Ghostty, or return to it, together.
         var linked = try await windowBackgroundLinkedEdits(writing: descriptor.path, value: value)
         // A built-in density (any write of appearance.density) ends the custom one, which would win
         // over it (plans/cmux-next/density-DESIGN.md).
-        let customDensity = CustomDensitySelectionSetting().configPath
-        if descriptor.path == DensitySetting().configPath, try await file.value(at: customDensity) != nil {
+        let customDensity = CustomDensitySelectionSetting.configPath
+        if descriptor.path == DensitySetting.configPath, try await file.value(at: customDensity) != nil {
             linked.append((path: customDensity, value: nil))
         }
-        if let value, !descriptor.accepts(value) { throw SettingRefused(key: descriptor.id, value: value) }
-        // A write never copies the theme file's own entries into cmux-next.json (Theme Studio writes
-        // the whole edits map it shows, which holds the file's colors).
-        let value = strippingThemeFileEntries(descriptor, value)
         // Before the write, so an observer of the new value already sees what the hook recorded;
         // the hook's undo runs if the write fails.
         let undo = writer == .user ? userWillWrite?(descriptor, value) : nil
@@ -90,40 +96,40 @@ extension SettingsController {
         // Reset All changes user-only keys too: only the user may run it.
         guard writer == .user else { throw SettingUserOnly(key: "*", writer: writer) }
         let managed = file.managedGuard.managedKeys
+        // One publish per batch, not one daemon write per key: a reset row drops the objects it
+        // empties (cmux-config `remove_pruning`).
+        var edits: [SettingsFileEdit] = []
         for descriptor in SettingsSchema.all where managed[descriptor.id] == nil && !SettingsSchema.keptOnResetAll.contains(descriptor.path) {
-            try await removePruning(descriptor.path)
+            edits.append(.reset(descriptor.path))
             // A renamed row's old key would apply again behind the reset (``RenamedSettingKeys``).
-            if let legacy = RenamedSettingKeys.legacyPath(for: descriptor.path) { try await removePruning(legacy) }
+            if let legacy = RenamedSettingKeys.legacyPath(for: descriptor.path) { edits.append(.reset(legacy)) }
         }
         for key in SettingsSchema.retiredKeys.keys.sorted() where managed[key] == nil {
-            try await removePruning(CmuxConfigFile.keyPath(from: key))
+            edits.append(.reset(CmuxConfigFile.keyPath(from: key)))
         }
-        try await file.remove(["shortcuts", "bindings"])
+        edits.append(.reset(["shortcuts", "bindings"]))
         if case .object(let members)? = try await file.value(at: ["shortcuts"]) {
             let reserved = CmuxConfigSnapshot.reservedShortcutKeys
-            for key in members.keys where !reserved.contains(key) {
-                try await file.remove(["shortcuts", key])
+            for key in members.keys.sorted() where !reserved.contains(key) {
+                edits.append(.reset(["shortcuts", key]))
             }
         }
-        try await pruneEmpty(["shortcuts"])
-    }
-
-    /// Removes `path`, then each parent object that became empty.
-    func removePruning(_ path: [String]) async throws {
-        try await file.remove(path)
-        var parent = Array(path.dropLast())
-        while !parent.isEmpty {
-            guard try await pruneEmpty(parent) else { break }
-            parent.removeLast()
+        edits.append(.resetUnchanged(["shortcuts"], .object([:])))
+        for start in stride(from: 0, to: edits.count, by: Self.editsPerWrite) {
+            try await file.edit(Array(edits[start..<min(start + Self.editsPerWrite, edits.count)]))
         }
         await reloadAfterWrite()
     }
 
-    /// Removes the object at `path` when it has no members. True when removed.
-    @discardableResult
-    private func pruneEmpty(_ path: [String]) async throws -> Bool {
-        guard case .object(let members)? = try await file.value(at: path), members.isEmpty else { return false }
-        try await file.remove(path)
-        return true
+    /// The most edits one write sends (`settings.edit` takes at most 1000).
+    nonisolated static let editsPerWrite = 1000
+
+    /// Removes `path`, then each parent object that became empty.
+    func removePruning(_ path: [String]) async throws {
+        // Each parent goes only while it is still empty in the file the writer publishes, so an
+        // object that gains a member meanwhile stays.
+        let parents = (1..<max(path.count, 1)).reversed().map { SettingsFileEdit.resetUnchanged(Array(path.prefix($0)), .object([:])) }
+        try await file.edit([.reset(path)] + parents)
+        await reloadAfterWrite()
     }
 }

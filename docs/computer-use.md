@@ -78,9 +78,14 @@ is incomplete, a refresh never opens or reopens onboarding. Retried/concurrent
 protected requests share the runtime claim and one window controller. Dismissal
 leaves the claim in place, so later requests and refreshes stay quiet; only
 disabling Computer Use, relaunching, or invalidating helper readiness resets it.
-To resume or select another permission step, use **Finish Setup…**,
-**Grant…**, or **Open System Settings** in Settings → cmux Computer Use, or the
-matching command palette action. Completed setup stays quiet unless fresh
+To resume or select another permission step, use **Set Up…** or **Open System
+Settings** in cmux Settings → Agents → Computer Use, or the matching command
+palette action. A failed helper restarts with **Restart Helper** there or
+`cmux agent restart-computer-use-helper`. An agent's call does that by itself
+first: when the helper is unreachable, the chat's `cmux mcp serve` reads the
+current endpoint from acpmux (a chat that outlived an app relaunch holds the
+old agent token), restarts its proxy, asks cmux to restart the helper and
+retries for about 7 s before the call fails. Completed setup stays quiet unless fresh
 explicit intent needs setup again after readiness is invalidated.
 
 The Settings action uses the same onboarding flow: its first **Allow** action

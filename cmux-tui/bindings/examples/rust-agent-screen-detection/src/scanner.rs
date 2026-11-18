@@ -15,23 +15,27 @@
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
+use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux::{
-    Client, Config, JournalAppendResult, JournalClass, JournalEventSchema, JournalIngress,
-    JournalProducerManifest, JournalReplayPolicy, JournalSensitivity, JournalStart, JournalSubject,
-    MutationOptions, ReadScreenOptions, Selector, Session, SessionId, SessionJournalOptions,
-    StreamPoll, Terminal, TerminalId,
+    Client, Config, EventStreamOptions, JournalAppendResult, JournalClass, JournalEventSchema,
+    JournalIngress, JournalProducerManifest, JournalReplayPolicy, JournalSensitivity, JournalStart,
+    JournalSubject, MutationOptions, ReadScreenOptions, ResourceChange, ResourceReference,
+    Selector, Session, SessionEvent, SessionId, SessionJournalOptions, StreamCancellation,
+    Terminal, TerminalId, TerminalLifecycle,
 };
 use serde_json::json;
 
 use crate::background_agent::{AgentJobTracker, PlatformProcesses, ProbeObservation};
 use crate::detect::{AgentState, ScreenDetectTracker};
+use crate::first_scan::{ListedTerminal, first_scan_ids};
 use crate::manifest::{DetectionInput, ManifestSet};
 use crate::process as process_discovery;
+use crate::reconnect::{Pass, run_passes};
+pub use crate::wake_kinds::journal_wake_kinds;
 
-const RECONNECT_INTERVAL: Duration = Duration::from_secs(1);
 const PROCESS_GROUP_RECHECK_IDENTIFIED: Duration = Duration::from_secs(5);
 const PROCESS_GROUP_RECHECK_UNKNOWN: Duration = Duration::from_millis(500);
 const PROCESS_GROUP_RECHECK_ON_OUTPUT: Duration = Duration::from_secs(1);
@@ -83,6 +87,16 @@ impl ScannerState {
         }
     }
 
+    /// The detector holds state for `terminal_id`: a tracker entry, a probe
+    /// cache, an agent job, or a journal request that it must send again.
+    fn knows_terminal(&self, terminal_id: &str) -> bool {
+        self.tracker.tracks(terminal_id)
+            || self.pending_appends.contains_key(terminal_id)
+            || self.agent_jobs.contains_key(terminal_id)
+            || self.process_cache.entries.contains_key(terminal_id)
+            || self.process_info_cache.entries.contains_key(terminal_id)
+    }
+
     fn retain_terminals(&mut self, live: &HashSet<String>) {
         // Keep the in-memory tracker and probe caches for an uncertain
         // envelope until replay settles it. Otherwise a later successful
@@ -130,27 +144,53 @@ pub fn run(socket: &str, session_name: &str, plugin_id: &str) -> Result<(), Stri
         std::env::var("CMUX_PLUGIN_GENERATION").ok().filter(|value| !value.is_empty());
     let session_selector = configured_session_selector(session_name)?;
     let mut state = ScannerState::new();
-    loop {
-        let config = Config::from_socket_path(socket);
-        match Client::connect(config) {
-            Ok(client) => {
-                let session = client.session(session_selector.clone());
-                if let Err(error) = register_manifest(&session, plugin_id) {
-                    eprintln!("cmux-agent-screen-detection: manifest registration failed: {error}");
-                    thread::sleep(RECONNECT_INTERVAL);
-                    continue;
-                }
-                match scan_connection(&session, plugin_id, plugin_generation.as_deref(), &mut state)
-                {
-                    Ok(()) => return Ok(()),
-                    Err(error) => eprintln!(
-                        "cmux-agent-screen-detection: {session_name} connection ended: {error}"
-                    ),
-                }
-            }
-            Err(error) => eprintln!("cmux-agent-screen-detection: connect failed: {error}"),
+    let started = Instant::now();
+    run_passes(
+        || {
+            connection_pass(
+                socket,
+                session_name,
+                &session_selector,
+                plugin_id,
+                plugin_generation.as_deref(),
+                &mut state,
+            )
+        },
+        thread::sleep,
+        || started.elapsed(),
+    );
+    Ok(())
+}
+
+/// One pass of the reconnect loop: connect, register the manifest, scan until
+/// the connection ends.
+fn connection_pass(
+    socket: &str,
+    session_name: &str,
+    session_selector: &Selector<SessionId>,
+    plugin_id: &str,
+    plugin_generation: Option<&str>,
+    state: &mut ScannerState,
+) -> Pass {
+    let client = match Client::connect(Config::from_socket_path(socket)) {
+        Ok(client) => client,
+        Err(error) => {
+            eprintln!("cmux-agent-screen-detection: connect failed: {error}");
+            return Pass::NotScanned;
         }
-        thread::sleep(RECONNECT_INTERVAL);
+    };
+    let session = client.session(session_selector.clone());
+    if let Err(error) = register_manifest(&session, plugin_id) {
+        eprintln!("cmux-agent-screen-detection: manifest registration failed: {error}");
+        return Pass::NotScanned;
+    }
+    let mut scanned = false;
+    match scan_connection(&session, plugin_id, plugin_generation, state, &mut scanned) {
+        Ok(()) => Pass::Done,
+        Err(error) => {
+            eprintln!("cmux-agent-screen-detection: {session_name} connection ended: {error}");
+            if scanned { Pass::Scanned } else { Pass::NotScanned }
+        }
     }
 }
 
@@ -250,11 +290,85 @@ fn event_schema(kind: &str) -> JournalEventSchema {
     }
 }
 
+/// The terminals one `session.events` item changed: each terminal upsert or
+/// delete of a delta. A snapshot wakes nothing: the scanner reads every
+/// terminal after it subscribes.
+pub fn terminal_wakes(event: &SessionEvent) -> Vec<String> {
+    let SessionEvent::Delta(delta) = event else { return Vec::new() };
+    delta
+        .changes
+        .iter()
+        .filter_map(|change| match change {
+            ResourceChange::Upsert { id: ResourceReference::Terminal(id), .. }
+            | ResourceChange::Delete { id: ResourceReference::Terminal(id), .. } => {
+                Some(id.to_string())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// What one of the two wake streams tells the scan loop.
+enum Wake {
+    /// These terminals changed.
+    Terminals(Vec<String>),
+    /// The stream ended: the connection is over.
+    Ended(String),
+}
+
+/// How many wakes may wait for the scan loop. A full queue blocks the
+/// stream's reader, the daemon then ends the stream with a gap, and the
+/// reconnect reads every terminal again.
+const WAKE_QUEUE: usize = 256;
+
+/// Cancels the wake streams when the connection's scan loop returns, so
+/// their reader threads end with it.
+struct WakeStreams {
+    cancel: Vec<StreamCancellation>,
+}
+
+impl Drop for WakeStreams {
+    fn drop(&mut self) {
+        for stream in &self.cancel {
+            let _ = stream.cancel();
+        }
+    }
+}
+
+/// Reads one wake stream to its end on its own thread. `next` blocks for the
+/// stream's next item and answers the terminals it names.
+fn spawn_wake_stream(
+    name: &str,
+    ended: &'static str,
+    wakes: mpsc::SyncSender<Wake>,
+    mut next: impl FnMut() -> Result<Option<Vec<String>>, String> + Send + 'static,
+) -> Result<(), String> {
+    thread::Builder::new()
+        .name(name.into())
+        .spawn(move || {
+            loop {
+                let wake = match next() {
+                    Ok(Some(terminals)) if terminals.is_empty() => continue,
+                    Ok(Some(terminals)) => Wake::Terminals(terminals),
+                    Ok(None) => Wake::Ended(ended.to_string()),
+                    Err(error) => Wake::Ended(error),
+                };
+                let last = matches!(wake, Wake::Ended(_));
+                if wakes.send(wake).is_err() || last {
+                    return;
+                }
+            }
+        })
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
 fn scan_connection(
     session: &Session,
     plugin_id: &str,
     plugin_generation: Option<&str>,
     state: &mut ScannerState,
+    scanned: &mut bool,
 ) -> Result<(), String> {
     let manifests = match ManifestSet::from_environment() {
         Ok(manifests) => manifests,
@@ -264,25 +378,46 @@ fn scan_connection(
         }
     };
     // Subscribe before taking the initial inventory. Output/lifecycle changes
-    // that race the read are retained by the stream, so there is no lost wakeup.
+    // that race the read are retained by the streams, so there is no lost wakeup.
     // Agent reports are excluded: the plugin must never wake itself through
     // its own journal-to-resource projection.
-    let mut events = session
+    let mut journal = session
         .journal(SessionJournalOptions {
             start: Some(JournalStart::Tail),
             follow: Some(true),
-            kinds: vec![
-                "terminal.*".into(),
-                "workspace.*".into(),
-                "tab.*".into(),
-                "pane.*".into(),
-                "screen.*".into(),
-            ],
+            kinds: journal_wake_kinds(),
             max_sensitivity: Some(JournalSensitivity::Sensitive),
             ..Default::default()
         })
         .map_err(|error| error.to_string())?;
+    // A terminal's record changes (a live fact needs no journal row).
+    let mut records =
+        session.events(EventStreamOptions::default()).map_err(|error| error.to_string())?;
+    let _streams = WakeStreams { cancel: vec![journal.cancellation(), records.cancellation()] };
+    let (sender, wakes) = mpsc::sync_channel(WAKE_QUEUE);
+    spawn_wake_stream(
+        "journal-wakes",
+        "terminal journal stream ended",
+        sender.clone(),
+        move || {
+            let item = journal.recv().map_err(|error| error.to_string())?;
+            Ok(item.map(|item| {
+                item.value
+                    .subjects
+                    .into_iter()
+                    .filter(|subject| subject.kind == "terminal")
+                    .map(|subject| subject.id)
+                    .collect()
+            }))
+        },
+    )?;
+    spawn_wake_stream("record-wakes", "session event stream ended", sender, move || {
+        let item = records.recv().map_err(|error| error.to_string())?;
+        Ok(item.map(|item| terminal_wakes(&item.value)))
+    })?;
     let snapshots = session.terminal_snapshots().map_err(|error| error.to_string())?;
+    // From here the pass has its wake streams and the terminals of the session.
+    *scanned = true;
     let live_ids = snapshots.iter().map(|item| item.id.to_string()).collect::<HashSet<_>>();
     retry_pending_appends_without_live_terminal(
         session,
@@ -292,8 +427,13 @@ fn scan_connection(
     );
     state.retain_terminals(&live_ids);
     let mut deadlines = HashMap::<String, Instant>::new();
-    for id in live_ids {
-        deadlines.insert(id, Instant::now());
+    let listed = snapshots.iter().map(|item| ListedTerminal {
+        id: item.id.as_str(),
+        exited: item.lifecycle == TerminalLifecycle::Exited,
+        known: state.knows_terminal(item.id.as_str()),
+    });
+    for id in first_scan_ids(listed) {
+        deadlines.insert(id.to_string(), Instant::now());
     }
     loop {
         let now = Instant::now();
@@ -331,28 +471,28 @@ fn scan_connection(
                     .or_insert(pending.retry_not_before);
             }
         }
-        let event = match deadlines.values().min() {
-            Some(deadline) => match events
-                .next_timeout(deadline.saturating_duration_since(Instant::now()))
-                .map_err(|error| error.to_string())?
-            {
-                StreamPoll::Item(item) => Some(item),
-                StreamPoll::TimedOut => continue,
-                StreamPoll::End => return Err("terminal journal stream ended".into()),
-            },
-            None => events.recv().map_err(|error| error.to_string())?,
+        let wake = match deadlines.values().min() {
+            Some(deadline) => {
+                match wakes.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+                    Ok(wake) => wake,
+                    Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                    Err(mpsc::RecvTimeoutError::Disconnected) => {
+                        return Err("terminal wake streams ended".into());
+                    }
+                }
+            }
+            None => wakes.recv().map_err(|_| "terminal wake streams ended".to_string())?,
         };
-        let Some(event) = event else {
-            return Err("terminal journal stream ended".into());
+        let terminals = match wake {
+            Wake::Terminals(terminals) => terminals,
+            Wake::Ended(error) => return Err(error),
         };
-        for subject in event.value.subjects.iter().filter(|subject| subject.kind == "terminal") {
+        for id in terminals {
             // Coalesce a burst without deferring forever under flowing output.
             // A quiet session blocks on recv and makes zero catalog/process/screen reads.
-            deadlines
-                .entry(subject.id.clone())
-                .or_insert_with(|| Instant::now() + Duration::from_millis(25));
-            state.process_cache.entries.remove(&subject.id);
-            state.process_info_cache.entries.remove(&subject.id);
+            state.process_cache.entries.remove(&id);
+            state.process_info_cache.entries.remove(&id);
+            deadlines.entry(id).or_insert_with(|| Instant::now() + Duration::from_millis(25));
         }
     }
 }
@@ -640,6 +780,9 @@ fn scan_terminal(
     // it on the terminal snapshot, so unchanged screens do not cross the
     // socket or invoke the terminal parser. Older daemons fall back to a
     // local text hash below.
+    // A size change (pane move, split, resize) makes the agent redraw; the
+    // tracker does not read that redraw as work.
+    state.tracker.observe_size(&terminal_id, snapshot.cols, snapshot.rows, now);
     let revision_due = snapshot
         .stream_revision
         .map(|revision| state.tracker.observe_revision(&terminal_id, revision, now));
@@ -787,16 +930,7 @@ fn scan_terminal(
         if metadata_fresh { screen.osc_progress.as_deref().unwrap_or_default() } else { "" };
     let mut detection =
         manifest.detect(DetectionInput { screen: &screen.text, osc_title, osc_progress });
-    // Flowing PTY output is a working signal for the screen source. It only
-    // upgrades an idle read and owes one expiry re-evaluation; hooks still
-    // win in the core roster reducer.
-    if !detection.skip_state_update
-        && detection.state == crate::manifest::ScreenState::Idle
-        && state.tracker.output_active(&terminal_id, now)
-    {
-        detection.state = crate::manifest::ScreenState::Working;
-        state.tracker.note_activity_upgrade(&terminal_id);
-    }
+    state.tracker.apply_output_activity(&terminal_id, &mut detection, now);
     if let Some(emission) = state.tracker.record_detection_at(
         &terminal_id,
         Some((manifest.id(), detection)),
@@ -1070,3 +1204,6 @@ fn now_nanos() -> u128 {
 fn emission_idempotency_key(nonce: &str, sequence: u64) -> String {
     format!("agent-emission-{nonce}-{sequence}")
 }
+
+#[cfg(test)]
+mod knows_terminal_tests;

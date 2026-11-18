@@ -27,13 +27,15 @@ import Foundation
         let columns: [ColumnSnapshot]
     }
 
-    /// A split of `target` showing `leaf` (New Column with `column`, New Row with `row`); nil when it shows
-    /// nothing: cmux-tui would refuse it, or the screen's tree already places `leaf`.
+    /// A split of `target` showing `leaf` (New Column with `column`, New Row with `row`, wrapping split `around` whole,
+    /// `leaf` first when `before`); nil when it shows nothing: cmux-tui would refuse it, or the screen's tree already
+    /// places `leaf`.
     static func split(_ screen: ScreenModel, target: PaneID, direction: SplitDirection, ratio: Double, leaf: PaneID,
-                      splitID: String, column: ProvisionalColumn?, row: ProvisionalRow?) -> Placed? {
+                      splitID: String, column: ProvisionalColumn?, row: ProvisionalRow?, around: SplitID?, before: Bool) -> Placed? {
         call(SplitRequest(screen: WireScreen(screen), target: target, dir: direction, ratio: ratio, leaf: leaf, splitID: splitID,
                           column: column.map { WireColumnSpec(handle: $0.handle.rawValue, width: $0.width, left: $0.left) },
-                          row: row.map { WireRowSpec(handle: $0.handle.rawValue, height: $0.height) }))
+                          row: row.map { WireRowSpec(handle: $0.handle.rawValue, height: $0.height) },
+                          around: around, before: before ? true : nil))
     }
 
     /// A lone tab docked into a leading column holding `leaf`; nil while the daemon's layout must place it.
@@ -73,26 +75,6 @@ import Foundation
         struct Answer: Decodable { let heights: [RowHeightValue] }
         let answer: Answer? = call(RowHeightsRequest(rows: rows.map { RowHeightValue(row: $0.id, height: $0.height) }, heights: heights))
         return answer?.heights
-    }
-
-    /// One tab a held close keeps out of the visible order, and its index before.
-    struct HeldTab: Encodable {
-        let surface: SurfaceID
-        let index: Int
-    }
-
-    /// `move-tab`'s index in the daemon's order, and the tab's current one there, while the held closes (oldest
-    /// first, each in removal order) keep tabs out of `visible`.
-    static func daemonMoveIndex(visible: [SurfaceID], moving: SurfaceID, index: Int, held: [[HeldTab]]) -> (final: Int, current: Int?) {
-        struct Answer: Decodable {
-            let final: Int
-            let current: Int?
-        }
-        guard let answer: Answer = call(DaemonMoveIndexRequest(visible: visible, moving: moving, index: index, held: held)) else {
-            // Unreachable for a request this file encodes; the end of the pane is the move's safe place.
-            return (visible.count, visible.firstIndex(of: moving))
-        }
-        return (answer.final, answer.current)
     }
 
     // MARK: The call
@@ -250,9 +232,11 @@ extension OptimisticRules {
         let splitID: String
         let column: WireColumnSpec?
         let row: WireRowSpec?
+        let around: SplitID?
+        let before: Bool?
 
         enum CodingKeys: String, CodingKey {
-            case op, screen, target, dir, ratio, leaf, column, row
+            case op, screen, target, dir, ratio, leaf, column, row, around, before
             case splitID = "split_id"
         }
     }
@@ -326,13 +310,5 @@ extension OptimisticRules {
     fileprivate struct WireRowNow: Encodable {
         let id: RowID
         let height: Int
-    }
-
-    fileprivate struct DaemonMoveIndexRequest: Encodable {
-        let op = "daemon_move_index"
-        let visible: [SurfaceID]
-        let moving: SurfaceID
-        let index: Int
-        let held: [[OptimisticRules.HeldTab]]
     }
 }

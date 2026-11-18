@@ -12,6 +12,10 @@ to the first frame the pane shows the chat's content, with every surface the pan
   reopen     a chat this app showed before, opened again in a new workspace
   subagent   a click on a subagent's line in its chat's transcript (`debug.agent_pane click`),
              which opens the subagent's pane (`chat.subagentPane`)
+  subagent_column  the third subagent clicked open from one chat: the first two (unmeasured) fill the right
+             column (a split right, then one below it), so this one opens as a tab in the column's lower pane,
+             as most of a working chat's subagent clicks do (Leo, 2026-11-05: "things just don't fucking open
+             up fast enough on the right. links. subagents. all")
   big        a chat of --turns turns (thousands), never opened before
   bloated    a chat whose log is mostly repeated tool_call_update records (--bloat calls x
              updates x KiB, every update re-sending the whole output), as long Codex and Claude
@@ -26,6 +30,11 @@ to the first frame the pane shows the chat's content, with every surface the pan
   click      a mouse click on the sidebar row of a chat never shown in this app's life (its workspace made in
              the background, so the click makes its pane): judged from pixels, not the page's mark
   click_again  a click back onto the row of a chat shown before and left (its page kept)
+  click_hover  a click on the row of a chat never shown, after the pointer rested on that row for --hover-ms
+             (`debug.pointer_hover`, the sidebar's hover path), as a person's pointer does before a click
+Each click case also samples the app's footprint (every process of the bundle) before its first round and
+after its last: every round leaves its chat's page kept, so the difference over the rounds is the memory one
+kept chat costs (`memory` in the JSON, and the table's last lines).
 
 The click cases read the window as the window server composited it, frame after frame, from the click
 (`debug.new_tab frame_strip` with gesture `mouse`, `above` so the Chromium page is in it: read through
@@ -98,7 +107,8 @@ import bench_memory as bm  # noqa: E402
 import idle_cost_load as icl  # noqa: E402
 from bench_power import wipe_state  # noqa: E402  (the tagged app's saved state under the real ~/Library)
 import chat_open_frames as cof  # noqa: E402
-from chat_open_summary import cell, invalid_reason, summarize  # noqa: E402
+import bench_page_engine  # noqa: E402
+from chat_open_summary import cell, engine_of, invalid_reason, judge_engine, page_engines, spare_pool, summarize  # noqa: E402
 import chat_open_seed_cache as seed_cache  # noqa: E402
 
 parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
@@ -111,6 +121,11 @@ parser.add_argument("--bloat", default="20 400 5", help="calls, updates per call
 parser.add_argument("--sessions", type=int, default=1500)
 parser.add_argument("--conditions", default="idle,load,load_utility,load_nice")
 parser.add_argument("--cases", default="click,click_again,sidebar,reopen,subagent,big,bloated,restore")
+parser.add_argument("--hover-ms", type=float, default=300,
+                    help="click_hover: how long the pointer rests on the row before the click")
+parser.add_argument("--trace-clicks", action="store_true",
+                    help="click cases: also arm the app's chat-open trace before each click (`trace` in the record: its marks, "
+                         "from the arm, about 120 ms before the click, and the surfaces the pane showed)")
 parser.add_argument("--strip-ms", type=float, default=2500, help="click cases: how long the frame strip records after the click")
 parser.add_argument("--strip-tolerance", type=float, default=0.001,
                     help="click cases: the share of the content area's pixels that may differ for two frames to count as one "
@@ -136,6 +151,13 @@ parser.add_argument("--capture-check", action="store_true",
                     help="only say whether this process (and so the app it launches) may read the screen "
                          "(screen_capture_check.py) into --json, then exit: nothing is launched (scripts/measure/chat-open.sh "
                          "with --app=PATH builds nothing)")
+parser.add_argument("--page-engine", choices=bench_page_engine.WANTED, default="any",
+                    help="the engine that each open's page must run in (decision 2026-11-16). `cef` or `webkit`: an open in "
+                         "another engine, or one that showed content with no engine said, is no number; its case reads "
+                         "FAILED (reason other_engine), gives no median and no memory per kept page, and the bench exits 1. "
+                         "`any` (the default) refuses no open: the table's `page engine` lines say what ran. With `cef` the "
+                         "bench asks the app one time at its first launch and stops there when the app has no Chromium. "
+                         "scripts/measure/chat-open.sh asks `cef` unless --allow-no-chromium")
 parser.add_argument("--json")
 parser.add_argument("--md")
 opts = parser.parse_args()
@@ -145,10 +167,13 @@ if opts.capture_check:
 APP = os.path.realpath(opts.app.rstrip("/"))
 CONDITIONS = [c.strip() for c in opts.conditions.split(",") if c.strip()]
 CASES = [c.strip() for c in opts.cases.split(",") if c.strip()]
-CLICK_CASES = ("click", "click_again")
+CLICK_CASES = ("click", "click_again", "click_hover")
 # The click cases go first in a condition: each makes a sidebar row, and a row below the sidebar's fold can't be clicked.
 CASES = [c for c in CASES if c in CLICK_CASES] + [c for c in CASES if c not in CLICK_CASES]
-SUBAGENTS = opts.subagents or opts.runs + 1
+# subagent_column clicks three of one chat's subagents.
+SUBAGENTS = opts.subagents or max(opts.runs + 1, 3)
+# The cases that open the subagent template; seed_templates makes it only for them.
+SUBAGENT_CASES = {"subagent", "subagent_column"}
 # A new workspace goes last, so `workspace.selectLast` shows the one an open just made (the default
 # placement is the top of the list). Over --config: another placement would show the wrong workspace.
 # The tagged build's state folder (scripts/measure/chat-open.sh builds --tag, default "chatopen").
@@ -289,7 +314,11 @@ def seed_templates(root):
     the sources that shape it, so the arms of an A/B (different app builds, the same templates)
     seed once. The templates, how long getting them took and each entry's cache result."""
     started = time.monotonic()
-    specs = {"small": {"turns": opts.small_turns}, "subagent": {"subagents": SUBAGENTS}}
+    # Only the templates the asked cases open: a run of `relaunched` alone seeds no subagent chat, so a seed agent
+    # that spawns no subagents can't stop it (2026-11-16: "spawned 0 of 5 subagents" ended a relaunched A/B).
+    specs = {"small": {"turns": opts.small_turns}}
+    if SUBAGENT_CASES & set(CASES):
+        specs["subagent"] = {"subagents": SUBAGENTS}
     if "big" in CASES:
         specs["big"] = {"turns": opts.turns}
     if "bloated" in CASES:
@@ -364,7 +393,7 @@ def seed(root):
     app's store: --sessions short chats for the list and fresh copies of each shape for every cold
     open, under fresh ids in a fresh store every run."""
     templates, seeded_s, cache_result, subagent_check = seed_templates(root)
-    small, sub = templates["small"], templates["subagent"]
+    small, sub = templates["small"], templates.get("subagent")
     big, bloated = templates.get("big"), templates.get("bloated")
     answered, closed = templates["answered"], templates["closed"]
     stored_at = time.monotonic()
@@ -379,7 +408,11 @@ def seed(root):
             if "relaunched" in CASES else [],
             "click": [copy_chat(home, small, f"Click {condition} {i}") for i in range(opts.runs)],
             "click_again": [copy_chat(home, small, f"Click again {condition} {i}") for i in range(opts.runs)],
-            "subagent": [copy_chat(home, sub, f"Subagents {condition} {i}") for i in range(opts.runs)],
+            "click_hover": [copy_chat(home, small, f"Click hover {condition} {i}") for i in range(opts.runs)],
+            "subagent": [copy_chat(home, sub, f"Subagents {condition} {i}") for i in range(opts.runs)]
+            if "subagent" in CASES else [],
+            "subagent_column": [copy_chat(home, sub, f"Subagent column {condition} {i}") for i in range(opts.runs)]
+            if "subagent_column" in CASES else [],
             "big": [copy_chat(home, big, f"Big {condition} {i}") for i in range(opts.runs)] if big else [],
             "bloated": [copy_chat(home, bloated, f"Bloated {condition} {i}") for i in range(opts.runs)] if bloated else [],
         }
@@ -459,10 +492,12 @@ class Run:
         import pwd
         homes = [os.path.join(self.scratch or "", "home"), pwd.getpwuid(os.getuid()).pw_dir]
         found = []
+        # NEXT's own folder, and classic's for a build from before it (its link there is not followed).
         for home in homes:
-            for folder, _dirs, files in os.walk(os.path.join(home, "Library", "Application Support", "cmux")):
-                if os.path.basename(folder) == "agent-pane-images" and TAG_DIR in folder:
-                    found += sorted(files)
+            for parent in ("cmux-next", "cmux"):
+                for folder, _dirs, files in os.walk(os.path.join(home, "Library", "Application Support", parent)):
+                    if os.path.basename(folder) == "agent-pane-images" and TAG_DIR in folder:
+                        found += sorted(files)
         return found
 
     def end(self):
@@ -587,7 +622,7 @@ def why(record):
     """What an open's log line says beyond its times, so a run with no artifact (a failed step returns
     none) still shows why an open had no first content."""
     parts = []
-    for key in ("error", "timed_out", "invalid_reason"):
+    for key in ("error", "timed_out", "invalid_reason", "engine_fault"):
         if record.get(key):
             parts.append(f"{key}={str(record[key])[:200]}")
     if not record.get("first_content_ms"):
@@ -614,8 +649,8 @@ def why(record):
 
 
 # A subagent's line, by what opens it: its finished transcript line (SubagentDoneLine.tsx), then its running-tray
-# line (AgentLine.tsx). Enabled ones only: a line with nothing to open is disabled and its click opens nothing.
-SUBAGENT_LINES = ("button.cv-subagent-done:not([disabled])", "button.acpmux-agent-line__button:not([disabled])")
+# line (AgentLine.tsx). A finished line opens from its name chip alone; a line with nothing to open has no chip button.
+SUBAGENT_LINES = (".cv-subagent-done button.cv-agent-tag.is-open", "button.acpmux-agent-line__button:not([disabled])")
 NO_MATCH = "no visible element matches"
 
 
@@ -624,7 +659,7 @@ def subagent_task(k):
     return f"Audit area {k}: crashes, edge cases, slow paths"
 
 
-def click_subagent(run):
+def click_subagent(run, pane=None, skip=()):
     """Clicks a subagent line the chat shows, newest first. The click needs the line in the page,
     and which of the chat's subagent lines it renders depends on the build: a fixed name per open
     failed with "no visible element matches" for "Auditor 0" at one base and "Auditor 1" at
@@ -636,15 +671,19 @@ def click_subagent(run):
     By text, each subagent's name, then its task: a build that names a line by its task (the tray and a
     finished line read "Audit area 3: ..." since 2026-11-04) shows no element whose text is the name alone.
     Then by structure (`SUBAGENT_LINES`). When nothing matches, `probe` lists which of those selectors match
-    anything, so a failed run says what the page shows."""
+    anything, so a failed run says what the page shows.
+
+    `pane`: the chat's pane (a click's reply names it), once a subagent's pane has taken the focus. `skip`: the
+    subagents already clicked open, by index, so each click opens another one."""
     reply = None
-    texts = [text for k in range(SUBAGENTS - 1, -1, -1) for text in (f"Auditor {k}", subagent_task(k))]
-    for text in texts:
-        reply = run.rpc("debug.agent_pane", {"action": "click", "text": text}) or {}
+    target = {"pane": pane} if pane else {}
+    texts = [(k, text) for k in range(SUBAGENTS - 1, -1, -1) if k not in skip for text in (f"Auditor {k}", subagent_task(k))]
+    for k, text in texts:
+        reply = run.rpc("debug.agent_pane", {"action": "click", "text": text, **target}) or {}
         if reply.get("error") != NO_MATCH:
-            return {**reply, "subagent": text}
-    for selector in SUBAGENT_LINES:
-        reply = run.rpc("debug.agent_pane", {"action": "click", "selector": selector}) or {}
+            return {**reply, "subagent": text, "index": k}
+    for selector in () if skip else SUBAGENT_LINES:
+        reply = run.rpc("debug.agent_pane", {"action": "click", "selector": selector, **target}) or {}
         if reply.get("error") != NO_MATCH:
             return {**reply, "subagent": selector}
     return {**reply, "probe": subagent_probe(run)}
@@ -655,12 +694,12 @@ def click_subagent(run):
 GROUP_TOGGLE = 'button.cv-subagents[aria-expanded="false"]'
 
 
-def open_subagent_groups(run, limit=8):
-    """Opens each closed subagent group the chat shows, before the trace is armed (unmeasured), so the click finds
-    a subagent's line. Returns how many it opened."""
+def open_subagent_groups(run, limit=8, pane=None):
+    """Opens each closed subagent group the chat shows (in `pane`, else the focused one), before the trace is armed
+    (unmeasured), so the click finds a subagent's line. Returns how many it opened."""
     opened = 0
     for _ in range(limit):
-        reply = run.rpc("debug.agent_pane", {"action": "click", "selector": GROUP_TOGGLE}) or {}
+        reply = run.rpc("debug.agent_pane", {"action": "click", "selector": GROUP_TOGGLE, **({"pane": pane} if pane else {})}) or {}
         if reply.get("error"):
             break
         opened += 1
@@ -829,9 +868,51 @@ def frame_click(run, key, label, keep=False):
     return record
 
 
+# What a click's record keeps of its trace. `engine`: the engine of the chat's page (decision 2026-11-16: a
+# measure says its engine).
+CLICK_TRACE_KEYS = ("marks_ms", "order", "frames", "first_content_ms", "longest_empty_ms", "timed_out", "page_timing",
+                    "engine")
+
+
+def judged(record):
+    """`record` under the asked engine (--page-engine; chat_open_summary.judge_engine)."""
+    return judge_engine(record, opts.page_engine)
+
+
+def click_engine(run, record):
+    """A click's record with its page's engine. A traced click (--trace-clicks) has it. For the others the app
+    says it for the shown chat, asked after the click's frames are in, so the read is in no time of the click.
+    A click that failed showed no page and asks nothing."""
+    if engine_of(record) is None and not record.get("error"):
+        # 40 s, the bench's own limit for a call: a slow answer under load is not an engine that was not read.
+        record["engine"] = bench_page_engine.page_engine(run.rpc("debug.agent_pane", {"action": "engine"}, timeout=40))
+    return record
+
+
+def kept_page_memory(before_mb, after_mb, records):
+    """What one kept chat page costs: the app's footprint after a click case less the one before it, over the
+    opens that kept a page. With an open in another engine than asked it is no number for the asked engine:
+    `refused_for_engine` says how many, and `per_kept_page_mb` is None."""
+    kept = sum(1 for r in records if not r.get("error"))
+    refused = sum(1 for r in records if r.get("engine_fault"))
+    out = {"before_footprint_mb": before_mb, "after_footprint_mb": after_mb, "kept_pages": kept,
+           "per_kept_page_mb": round((after_mb - before_mb) / kept, 1) if kept and not refused else None}
+    if refused:
+        out["refused_for_engine"] = refused
+    return out
+
+
+def memory_cell(case, memory, opens):
+    """One case's part of the table's memory line."""
+    if memory.get("refused_for_engine"):
+        return f"{case} no number ({memory['refused_for_engine']} of its {opens} opens in another engine than asked)"
+    return f"{case} {memory['per_kept_page_mb']} MB over {memory['kept_pages']} pages"
+
+
 def measure_click(run, case, session, base, label, index=0):
     """One click case: the chat's workspace made in the background (`click`), or shown once and left
-    (`click_again`), then a click on its row from the workspace `base`, which shows no chat."""
+    (`click_again`), or made in the background and its row hovered for --hover-ms (`click_hover`), then a click on
+    its row from the workspace `base`, which shows no chat."""
     key, row, error = background_row(run, session)
     if error:
         return {"error": error, "row": row}
@@ -852,8 +933,23 @@ def measure_click(run, case, session, base, label, index=0):
         # nothing to change; cmux#33845).
         if next((r.get("selected") for r in sidebar_rows(run) if workspace_id(r) == key), False):
             return {"error": "the chat's workspace was shown before the click: the click would measure nothing", "row": row}
+        if case == "click_hover":
+            # The pointer comes onto the row and rests there, as before a person's click (`debug.pointer_hover`: real
+            # tracking-area events, so the sidebar's own hover path runs). The strip starts recording about 120 ms
+            # before its click (DebugFrameStrip's lead), so the rest before the click is --hover-ms.
+            hovered = run.rpc("debug.pointer_hover", {"row": key}) or {}
+            if not str(hovered.get("row_hovered") or "").endswith(key):
+                return {"error": f"the hover did not land on the row: {json.dumps(hovered)[:300]}", "row": row}
+            time.sleep(max(0.0, opts.hover_ms / 1000 - 0.12))  # test script: the pointer rests on the row
+    armed = run.rpc("debug.chat_open_trace", {"action": "arm"}) if opts.trace_clicks else None
     record = frame_click(run, key, label, keep=index < opts.keep_frames)
     record["workspace"] = key
+    if armed is not None:
+        trace = run.rpc("debug.chat_open_trace", {"action": "wait", "timeout_ms": 5000, "settle_ms": 100,
+                                                  "page_timing": True}, timeout=30) or {}
+        record["trace"] = {k: trace.get(k) for k in CLICK_TRACE_KEYS}
+        record["trace"]["armed"] = armed if armed.get("error") else None
+    judged(click_engine(run, record))
     # Back to the workspace with no chat, so the next click starts from the same picture.
     run.app.action("goToWorkspace", focus=True, workspace=base)
     time.sleep(0.5)  # test script: the switch back settles
@@ -874,6 +970,22 @@ def measure_case(run, case, sessions, index):
         groups = open_subagent_groups(run)
         record = traced(run, lambda: click_subagent(run))
         record["opened_groups"] = groups
+        return record
+    if case == "subagent_column":
+        # Through `debug.agent_pane open_subagent`, the hook a tray line's `chat.subagentPane` calls: a click on the
+        # chat's lines found none after the first split (the narrower pane drew them again, 2026-11-09).
+        settle_open(run, session)
+        chat = (run.rpc("debug.agent_pane", {"action": "chat_state"}) or {}).get("pane")
+        target = {"pane": chat} if chat else {}
+        before = []
+        for index in (1, 2):
+            before.append(run.rpc("debug.agent_pane", {"action": "open_subagent", "index": index, "focus": True, **target}) or {})
+            time.sleep(2)  # test script: its split (right, then below) lands
+        record = traced(run, lambda: run.rpc("debug.agent_pane", {"action": "open_subagent", "index": 3, "focus": True, **target}) or {})
+        record["before"] = before
+        marks = (record.get("trace") or {}).get("marks_ms") or record.get("marks_ms") or {}
+        # Its pane shows on the right at `pane_made`, and draws at `pane_painted` (the trace's marks, from the action).
+        record["pane_made_ms"], record["pane_painted_ms"] = marks.get("pane_made"), marks.get("pane_painted")
         return record
     raise ValueError(case)
 
@@ -896,7 +1008,8 @@ def main():
     root = tempfile.mkdtemp(prefix="chat-open-")
     results = {"host": socket.gethostname(), "ncpu": NCPU, "app": APP,
                "model": subprocess.run(["sysctl", "-n", "hw.model"], capture_output=True, text=True).stdout.strip(),
-               "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "cases": {}, "raw": {}}
+               "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "cases": {}, "raw": {},
+               "page_engine_asked": opts.page_engine}
     signal.signal(signal.SIGTERM, bm.interrupted)
     load = Load(root)
     run = None
@@ -915,6 +1028,14 @@ def main():
             wipe_state(APP)
             run = Run(root, home)
             run.launch()
+            if opts.page_engine == "cef" and "chromium" not in results:
+                # One read, at the first launch: an app with no Chromium can give no open in the asked engine, so
+                # the bench stops here and not after each case ran to its end.
+                results["chromium"] = bench_page_engine.chromium_word(run.rpc("debug.cef", timeout=40))
+                say(bench_page_engine.chromium_line("chat-open", results["chromium"]))
+                stop = bench_page_engine.no_chromium(results["chromium"])
+                if stop:
+                    raise SystemExit(f"chat-open: {stop}")
             time.sleep(5)  # test script: let launch work end before the first measured open
             if condition != "idle":
                 load.start(condition)
@@ -925,6 +1046,9 @@ def main():
                 if case in ("big", "bloated") and not sessions[condition][case]:
                     continue
                 records = []
+                # Each click round leaves its chat's page kept (hidden, mounted): the app's footprint before
+                # and after the case, over the rounds, is the memory one kept chat costs.
+                memory_before = bm.sample(run.pid, APP, f"{condition}-{case}-before", 0) if case in CLICK_CASES and run.pid else None
                 for index in range(opts.runs):
                     if case in CLICK_CASES:
                         record = measure_click(run, case, sessions[condition][case][index], base, f"{condition}-{case}-{index}", index) \
@@ -934,13 +1058,24 @@ def main():
                             f"final_frame_ms={record.get('final_frame_ms')} first_is_final={record.get('first_is_final')} "
                             f"between={record.get('between_frames')} blank={record.get('blank_frames')} "
                             f"transcript_ms={record.get('transcript_ms')} watch_started_ms={record.get('watch_started_ms')} "
-                            f"drift={json.dumps(record.get('drift'))}" + (f" error={str(record['error'])[:300]}" if record.get("error") else ""))
+                            f"drift={json.dumps(record.get('drift'))} engine={engine_of(record)}"
+                            + (f" error={str(record['error'])[:300]}" if record.get("error") else "")
+                            + (f" engine_fault={record['engine_fault']}" if record.get("engine_fault") else ""))
                         continue
-                    record = measure_case(run, case, sessions[condition], index)
+                    record = judged(measure_case(run, case, sessions[condition], index))
                     record["invalid_reason"] = invalid_reason(record)
                     records.append(record)
                     say(f"chat-open: {condition} {case} {index}: first_content_ms={record.get('first_content_ms')} "
                         f"empty={record.get('longest_empty_ms')} flashes={record.get('flashes')}{why(record)}")
+                if memory_before:
+                    time.sleep(2)  # test script: the last round's page and the spare's refill settle
+                    after = bm.sample(run.pid, APP, f"{condition}-{case}-after", 0)
+                    kinds = {k: round(v["footprint_mb"] - memory_before["kinds"].get(k, {}).get("footprint_mb", 0.0), 1)
+                             for k, v in after["kinds"].items()}
+                    results.setdefault("memory", {}).setdefault(condition, {})[case] = {
+                        **kept_page_memory(memory_before["total_footprint_mb"], after["total_footprint_mb"], records),
+                        "delta_by_kind_mb": kinds}
+                    say(f"chat-open: {condition} {case} memory: {json.dumps(results['memory'][condition][case])}")
                 results["raw"].setdefault(condition, {})[case] = records
                 results["cases"].setdefault(condition, {})[case] = (cof.summarize if case in CLICK_CASES else summarize)(records)
             if "relaunched" in CASES:
@@ -953,7 +1088,7 @@ def main():
                     run.quit()
                     run.launch()
                     time.sleep(5)  # test script: let launch work end before the measured open, as at the start
-                    record = traced(run, lambda: open_workspace(run, session))
+                    record = judged(traced(run, lambda: open_workspace(run, session)))
                     record["invalid_reason"] = invalid_reason(record)
                     records.append(record)
                     say(f"chat-open: {condition} relaunched {index}: first_content_ms={record.get('first_content_ms')} "
@@ -982,7 +1117,7 @@ def main():
                             time.sleep(0.5)  # test script: waiting for the app's recorder to finish
                         if not recorded(record_dir):
                             say(f"chat-open: {condition} restore {index}: the launch recording wrote no frames.json")
-                    record["invalid_reason"] = invalid_reason(record)
+                    record["invalid_reason"] = invalid_reason(judged(record))
                     records.append(record)
                     say(f"chat-open: {condition} restore {index}: first_content_ms={record.get('first_content_ms')} "
                         f"first_image_ms={record.get('first_image_ms')} saved_pictures={pictures}{why(record)}")
@@ -1012,14 +1147,16 @@ def main():
     failed = [f"{condition} {case}" for condition, cases in results["cases"].items()
               for case, summary in cases.items() if not summary.get("complete")]
     if failed:
-        raise SystemExit("chat-open: incomplete measurements (an open with no first content or no empty time): "
+        raise SystemExit("chat-open: incomplete measurements (an open with no first content or no empty time, or "
+                         f"in another engine than the asked one, --page-engine {opts.page_engine}): "
                          + ", ".join(failed))
 
 
 def markdown(results):
     lines = [f"chat-open-bench on {results['host']} ({results['model']}, {results['ncpu']} CPUs); "
              f"median of {opts.runs} opens, milliseconds from the action to the first frame of chat content; "
-             f"a cell reads FAILED when an open of its case timed out, errored, or showed no content or no empty time "
+             f"a cell reads FAILED when an open of its case timed out, errored, showed no content or no empty time, "
+             f"or ran in another page engine than the asked one "
              f"(no median over the rest); click rows are from pixels: click to first content frame and to final frame "
              f"(the first of {opts.settle_frames}+ frames equal to the last), how many clicks drew the final frame first, "
              f"frames between, blank frames, and the most px a transcript row moved after first paint",
@@ -1034,6 +1171,20 @@ def markdown(results):
             cells.append(cof.cell(s) if case in CLICK_CASES else cell(s, case))
         lines.append(f"| {case} | " + " | ".join(cells) + " |")
     lines += ["", "load average per condition: " + ", ".join(f"{c} {v}" for c, v in results.get("load_avg", {}).items())]
+    # The prewarmed page each open found (adopted, or a cold page and why), so a spare every open refuses shows.
+    for condition, cases in (results.get("raw") or {}).items():
+        for case, records in (cases or {}).items():
+            pool = spare_pool(records) if isinstance(records, list) else None
+            if pool:
+                lines.append(f"spare pool, {case} {condition}: {pool}")
+            engines = page_engines(records) if isinstance(records, list) else None
+            if engines:
+                asked = results.get("page_engine_asked") or "any"
+                lines.append(f"page engine, {case} {condition}: {engines}" + (f" (asked: {asked})" if asked != "any" else ""))
+    for condition, cases in results.get("memory", {}).items():
+        lines.append(f"memory per kept chat page ({condition}): " + ", ".join(
+            memory_cell(case, m, len(((results.get("raw") or {}).get(condition) or {}).get(case) or []))
+            for case, m in cases.items()))
     return "\n".join(lines)
 
 

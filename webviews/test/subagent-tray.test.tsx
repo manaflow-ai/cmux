@@ -11,8 +11,10 @@
 //   transcript. Between turns a command shows only when acpmux's process registry says it runs; one
 //   only the transcript knows (a peer's chat, whose end never arrived) does not pin the tray.
 // - The tray's lines are the summary card's Subagents rows: one component (AgentLine.tsx).
-import { afterAll, describe, expect, setSystemTime, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, setSystemTime, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
+import { RUNNING_TRAY_LINE, RUNNING_TRAY_LIST_LINE } from "../src/agent-session/acpmux/subagents/subagentSelectors";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -56,14 +58,14 @@ const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
 const { SUBAGENTS } = await import("../src/agent-session/acpmux/subagents/subagentFold");
-const { SUBAGENT_DONE } = await import("../src/agent-session/acpmux/subagents/subagentRows");
+const { SUBAGENT_DONE, SUBAGENT_STARTED } = await import("../src/agent-session/acpmux/subagents/subagentRows");
 const { trayItems, finishedTrayItems, withSubagentLines, configureSubagentTray } =
   await import("../src/agent-session/acpmux/subagents/runningTray");
 const { SubagentTray } = await import("../src/agent-session/acpmux/subagents/SubagentTray");
 const { resetTrayOpenMemory } = await import("../src/agent-session/acpmux/subagents/trayFoldMemory");
-const { nestAgents } = await import("../src/agent-session/acpmux/subagents/AgentsPill");
+const { nestAgents } = await import("../src/agent-session/acpmux/subagents/agentsPillModel");
 const { SubagentStatusList } = await import("../src/agent-session/acpmux/summary/SubagentStatusList");
-const { SubagentNavContext } = await import("../src/agent-session/acpmux/subagents/SubagentGroup");
+const { SubagentNavContext } = await import("../src/agent-session/acpmux/subagents/subagentGroupModel");
 const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
 const { backgroundCommands, commandLabel } = await import("../src/agent-session/acpmux/session-info/processes");
 const { runningBackgroundTasks } = await import("../src/agent-session/acpmux/summary/sessionSummary");
@@ -73,14 +75,10 @@ type StartedSession = import("../src/agent-session/acpmux/started/startedSession
 type Row = import("../src/agent-session/acpmux/model").AcpmuxRow;
 type Subagent = import("../src/agent-session/acpmux/subagents/subagentFold").Subagent;
 
-afterAll(() => {
+afterAll(async () => {
   setPaneLanguage("en");
   configureSubagentTray(true);
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 setPaneLanguage("en");
 
@@ -146,10 +144,10 @@ describe("the transcript keeps no running card", () => {
     row("a2", "assistant", 100, { text: "Both are back." }),
   ];
 
-  test("a running subagent draws no row; the tray has it", () => {
+  test("a running subagent keeps its start line while the tray owns its progress", () => {
     const rows = transcript([agent("Reviewer", { action: "Read src/app.ts" })]);
     const out = withSubagentLines(rows);
-    expect(out.map((entry) => entry.kind)).toEqual(["user", "assistant", "activity", "assistant"]);
+    expect(out.map((entry) => entry.kind)).toEqual(["user", "assistant", SUBAGENT_STARTED, "activity", "assistant"]);
     const items = trayItems([agent("Reviewer", { action: "Read src/app.ts" })], [], NONE, true);
     expect(items.map((item) => item.id)).toEqual(["Reviewer"]);
   });
@@ -163,22 +161,63 @@ describe("the transcript keeps no running card", () => {
     expect(out.map((entry) => entry.id)).toEqual([
       "u1",
       "a1",
+      `${SUBAGENT_STARTED}:${SUBAGENTS}-3`,
       "t1",
       `${SUBAGENT_DONE}:Tester`,
       `${SUBAGENT_DONE}:Reviewer`,
       "a2",
     ]);
     // The rows around them are the same objects, and so is a line whose subagent did not change.
-    expect(out[2]).toBe(rows[3]!);
+    expect(out[3]).toBe(rows[3]!);
     const cache = new Map();
     const first = withSubagentLines(rows, cache);
     const again = withSubagentLines([...rows], cache);
-    expect(again[3]).toBe(first[3]!);
+    expect(again[4]).toBe(first[4]!);
   });
 
   test("a transcript without subagents is returned as it is", () => {
     const rows = [row("u1", "user", 0), row("a1", "assistant", 5)];
     expect(withSubagentLines(rows)).toBe(rows);
+  });
+
+  test("a started line shares tool-row spacing and its name opens the actual agent", async () => {
+    const started = withSubagentLines(transcript([agent("Reviewer")])).find(
+      (entry) => entry.kind === SUBAGENT_STARTED,
+    )!;
+    const tool = row("read", "activity", 11, {
+      items: [
+        {
+          kind: "tool",
+          text: "Read source",
+          tool: { id: "read", title: "Read source", kind: "read", status: "completed" },
+        },
+      ],
+    });
+    const opened: string[] = [];
+    const { root, done } = await render(
+      createElement(
+        SubagentNavContext.Provider,
+        { value: (id: string | undefined) => void opened.push(String(id)) },
+        createElement(VirtualTranscript, {
+          rows: [started, tool],
+          onToggleActivity: () => {},
+          expanded: new Set<string>(),
+        }),
+      ),
+    );
+    try {
+      expect(
+        root.querySelector(`article[data-row-id="${started.id}"]`)?.classList.contains("acpmux-row--before-step"),
+      ).toBe(true);
+      expect(root.querySelector('article[data-row-id="read"]')?.classList.contains("acpmux-row--after-step")).toBe(
+        true,
+      );
+      const name = root.querySelector<HTMLButtonElement>(".cv-subagent-started .cv-agent-tag.is-open")!;
+      await act(async () => name.click());
+      expect(opened).toEqual(["Reviewer"]);
+    } finally {
+      await done();
+    }
   });
 
   test("the line names the subagent and how long it ran; a failure is marked failed", async () => {
@@ -201,10 +240,14 @@ describe("the transcript keeps no running card", () => {
       // The duration is the row's trailing column; the line's button still reads it whole.
       expect(lines.map((line) => [line.dataset.state, line.getAttribute("aria-label")])).toEqual([
         ["failed", "Subagent failed: Tester · 30s"],
-        ["completed", "Subagent finished: Reviewer · 1m 20s"],
+        ["completed", "Reviewer finished · 1m 20s"],
       ]);
       expect(root.querySelector(".cv-subagents")).toBeNull();
+      // Only its name chip opens it (Leo, 2026-11-05: "subagents need to have their clickable bit be
+      // highlighted instead of the whole line click").
       await act(async () => lines[1]!.click());
+      expect(opened).toEqual([]);
+      await act(async () => lines[1]!.querySelector<HTMLButtonElement>("button.cv-agent-tag.is-open")!.click());
       expect(opened).toEqual(["Reviewer"]);
     } finally {
       await done();
@@ -337,14 +380,14 @@ describe("the tray", () => {
       // Folded, the header reads as the item's own line: its one mark, its name, its time.
       expect(head.querySelectorAll(".acpmux-running-tray__stack-mark").length).toBe(1);
       expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("Explore the daemon");
-      expect(head.querySelector(".acpmux-running-tray__latest")?.textContent).toContain("Bash");
+      expect(head.querySelector(".acpmux-running-tray__latest")?.textContent).toBe("Running a command");
       expect(head.querySelector(".acpmux-running-tray__time[data-lone]")?.textContent).toMatch(/^1m 2\ds$/);
       // The first click expands the hat in place; it never navigates.
       await act(async () => head.click());
       expect(opened).toEqual([]);
       expect(head.getAttribute("aria-expanded")).toBe("true");
       expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("1 subagent running");
-      const lines = [...root.querySelectorAll(".acpmux-running-tray .acpmux-agent-line")];
+      const lines = [...root.querySelectorAll(RUNNING_TRAY_LINE)];
       expect(lines.length).toBe(1);
       const text = (selector: string) => lines[0]!.querySelector(selector)?.textContent;
       expect(text(".acpmux-summary-agent__name")).toBe("Explore the daemon");
@@ -355,12 +398,15 @@ describe("the tray", () => {
       expect(text(".acpmux-agent-line__sr")).toBe("Running");
       const tooltip = lines[0]!.querySelector<HTMLElement>(".acpmux-agent-line__button")!.title;
       expect(tooltip).toContain("general-purpose");
-      expect(tooltip).toContain("Bash");
+      expect(tooltip).toContain("Running a command");
       expect(text(".acpmux-agent-line__time")).toMatch(/^1m 2\ds$/);
       expect(lines[0]!.querySelector(".acpmux-lineage__icon")?.getAttribute("data-state")).toBe("running");
-      // The line inside the open hat is what opens the subagent.
-      await act(async () => lines[0]!.querySelector("button")!.click());
+      const link = lines[0]!.querySelector<HTMLButtonElement>(".acpmux-agent-line__button")!;
+      expect(link.type).toBe("button");
+      expect(link.hasAttribute("aria-expanded")).toBe(false);
+      await act(async () => link.click());
       expect(opened).toEqual(["Explore the daemon"]);
+      expect(lines[0]!.closest("li")!.querySelector("[data-line-detail]")).toBeNull();
     } finally {
       await done();
     }
@@ -663,13 +709,14 @@ describe("the tray", () => {
     const live = agent("Reviewer", { startedAt: now - 39 * 60_000 });
     const ended = agent("Linter", { state: "completed", startedAt: now - 90_000, endedAt: now - 54_000 });
     const stopped: string[] = [];
+    const opened: string[] = [];
     const { root, done } = await render(
       createElement(SubagentTray, {
         items: trayItems([live], [], NONE, true),
         finished: finishedTrayItems([ended], NONE),
         working: true,
         waiting: new Set<string>(),
-        onOpen: () => {},
+        onOpen: (id: string) => opened.push(id),
         stop: async (id: string) => {
           stopped.push(id);
         },
@@ -677,7 +724,7 @@ describe("the tray", () => {
       { open: true },
     );
     try {
-      const lines = [...root.querySelectorAll<HTMLElement>(".acpmux-running-tray .acpmux-agent-line")];
+      const lines = [...root.querySelectorAll<HTMLElement>(RUNNING_TRAY_LINE)];
       const running = lines.find((line) => line.dataset.status === "running")!;
       const finished = lines.find((line) => line.dataset.status === "done")!;
       expect(running.hasAttribute("data-timed")).toBe(true);
@@ -691,10 +738,15 @@ describe("the tray", () => {
       expect(stop.querySelectorAll('svg[data-icon="action.stop"] path').length).toBe(2);
       await act(async () => stop.click());
       expect(stopped).toEqual(["Reviewer"]);
+      expect(opened).toEqual([]);
       expect(finished.hasAttribute("data-timed")).toBe(false);
       const mark = finished.querySelector<HTMLElement>(".acpmux-done-mark[data-hat-done]")!;
       expect(mark.dataset.look).toBe("check");
-      expect(mark.querySelector('svg[data-icon="status.check"]')).not.toBeNull();
+      // The check sits in Stop's slot, after the time (Leo, 2026-11-07), not in the mark before it.
+      expect(mark.querySelector('svg[data-icon="status.check"]')).toBeNull();
+      expect(
+        finished.querySelector('.acpmux-agent-line__stop-track > [data-done-check] svg[data-icon="status.check"]'),
+      ).not.toBeNull();
       expect(mark.querySelector(".acpmux-agent-line__sr")?.textContent).toBe("Done");
       // The time stays in the line's own time column, as every line's does (the layout lanes measure it).
       expect(mark.querySelector(".acpmux-done-mark__time")).toBeNull();
@@ -774,7 +826,13 @@ describe("the tray", () => {
         "cargo watch",
         "Port the history page",
       ]);
+      // Agent rows open directly; commands and started sessions retain their detail controls.
       for (const line of lines) await act(async () => line.querySelector<HTMLButtonElement>("button")!.click());
+      expect(opened).toEqual(["agent:Watcher"]);
+      for (const line of lines.slice(1))
+        await act(async () =>
+          line.closest("li")!.querySelector<HTMLButtonElement>("[data-line-detail] button")!.click(),
+        );
       expect(opened).toEqual(["agent:Watcher", "command:s/1", "chat:c1"]);
       await act(async () => lines[1]!.querySelector<HTMLButtonElement>(".acpmux-session-info-stop")!.click());
       expect(stopped).toEqual(["s/1"]);
@@ -911,7 +969,10 @@ describe("a tray line says what it is and what a click does", () => {
       expect(button.querySelector(".acpmux-summary-text")?.textContent?.startsWith("Command")).toBe(false);
       expect(button.getAttribute("title")).toBe(raw);
       expect(button.querySelector(".acpmux-agent-line__chevron")).not.toBeNull();
+      // It expands to its tail in place; the tail's button opens its terminal.
       await act(async () => button.click());
+      expect(opened).toEqual([]);
+      await act(async () => line.closest("li")!.querySelector<HTMLButtonElement>("[data-line-detail] button")!.click());
       expect(opened).toEqual(["s/1"]);
       // One stop control on the line, and it says exactly what it stops.
       const stops = [...root.querySelectorAll<HTMLButtonElement>("button")].filter((each) =>
@@ -951,7 +1012,7 @@ describe("a tray line says what it is and what a click does", () => {
     try {
       const head = root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head");
       if (head && head.getAttribute("aria-expanded") !== "true") await act(async () => head.click());
-      const lines = [...root.querySelectorAll<HTMLElement>(".acpmux-running-tray__list .acpmux-agent-line")];
+      const lines = [...root.querySelectorAll<HTMLElement>(RUNNING_TRAY_LIST_LINE)];
       expect(lines).toHaveLength(2);
       for (const line of lines) {
         // One glyph: no word and no second icon before the name.
@@ -1361,10 +1422,12 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
       const tray = root.querySelector<HTMLElement>(".acpmux-running-tray")!;
       const list = tray.querySelector<HTMLElement>(".acpmux-running-tray__list")!;
       // The tray is the header, then the fold (trayMotion.tsx) with the list in it: the pinned header
-      // is outside the scroller, and nothing (no View all) follows the list.
+      // is outside the scroller, and nothing (no View all) follows the list. The rim's resize band
+      // (trayResize.ts) sits over the hat's top edge, out of the column's flow.
       expect([...tray.children].map((child) => child.className)).toEqual([
         expect.stringContaining("acpmux-running-tray__head"),
         "acpmux-running-tray__fold",
+        "acpmux-running-tray__rim",
       ]);
       expect([...tray.children[1]!.children].map((child) => child.className)).toEqual(["acpmux-running-tray__list"]);
       expect(list.querySelectorAll("li").length).toBe(118);
@@ -1735,7 +1798,12 @@ describe("the tray lists only the chat's own work", () => {
       expect(lines.map((line) => line.querySelector(".acpmux-summary-agent__name")?.textContent)).toEqual([
         "Review the fold",
       ]);
+      // Its click expands it in place (Leo, 2026-11-07); its detail's Open chat opens it beside.
       await act(async () => lines[0]!.querySelector<HTMLButtonElement>("button")!.click());
+      expect(opened).toEqual([]);
+      await act(async () =>
+        lines[0]!.closest("li")!.querySelector<HTMLButtonElement>("[data-line-detail] button")!.click(),
+      );
       expect(opened).toEqual(["beside:own"]);
     } finally {
       await done();
@@ -1743,12 +1811,21 @@ describe("the tray lists only the chat's own work", () => {
   });
 });
 
-// Leo, 2026-11-04: "didn't we see better stacked subagents or whatever earlier idk these all being
-// claude". Under a Claude chat its own subagents draw the subagent sparkle in each one's tone, never the
-// Claude mark on every line; only a subagent of another family (Codex) draws its harness's mark.
-describe("a subagent of the chat's own family draws its toned sparkle, not the chat's mark", () => {
-  test("Claude subagents under a Claude chat are toned sparkles; a Codex one keeps its mark", async () => {
-    const { SubagentHarnessContext } = await import("../src/agent-session/acpmux/subagents/SubagentGroup");
+// A subagent keeps its harness logo even when it shares the parent chat's family.
+describe("subagents show their harness logos", () => {
+  // Sender Badge: None draws each row's icon as before the sender badge (SenderIcon.tsx); these
+  // tests pin that look.
+  beforeAll(async () => {
+    const { configureSenderIconLook, SENDER_ICON_BADGE_KEY } =
+      await import("../src/agent-session/acpmux/subagents/senderIconLook");
+    configureSenderIconLook({ [SENDER_ICON_BADGE_KEY]: "none" });
+  });
+  afterAll(async () => {
+    const { configureSenderIconLook } = await import("../src/agent-session/acpmux/subagents/senderIconLook");
+    configureSenderIconLook({});
+  });
+  test("same-family and inherited harnesses keep their logos alongside another family", async () => {
+    const { SubagentHarnessContext } = await import("../src/agent-session/acpmux/subagents/subagentGroupModel");
     const items = trayItems(
       [
         agent("Reviewer", { startedAt: at(10) }),
@@ -1770,12 +1847,11 @@ describe("a subagent of the chat's own family draws its toned sparkle, not the c
     try {
       const icons = [...root.querySelectorAll(".acpmux-agent-line .acpmux-lineage__icon")];
       expect(icons.length).toBe(3);
-      const sparkles = icons.filter((icon) => icon.querySelector('[data-agent-tone] [data-icon="task.ai"]'));
-      expect(sparkles.length).toBe(2);
-      // The header stacks the same three marks: two toned sparkles and the Codex mark.
+      expect(icons.every((icon) => icon.querySelector(".agent-mark"))).toBe(true);
+      expect(icons.some((icon) => icon.querySelector('[data-icon="task.ai"]'))).toBe(false);
       const stack = root.querySelector(".acpmux-running-tray__stack")!;
       expect(stack.querySelectorAll(".acpmux-running-tray__stack-mark").length).toBe(3);
-      expect(stack.querySelectorAll('[data-icon="task.ai"]').length).toBe(2);
+      expect(stack.querySelectorAll(".agent-mark").length).toBe(3);
     } finally {
       await done();
     }
@@ -1784,7 +1860,7 @@ describe("a subagent of the chat's own family draws its toned sparkle, not the c
 
 // A plan with nothing running has no lines to stack: the header's slot stays blank, never the 3/4
 // ring Leo rejected (2026-11-01).
-test("a plan-only tray's header keeps a blank slot, not the ring", async () => {
+test("a plan-only tray's header draws the Plan mode mark over its rows' status column, not the ring (2026-11-14)", async () => {
   const { root, done } = await render(
     createElement(SubagentTray, {
       items: [],
@@ -1797,8 +1873,58 @@ test("a plan-only tray's header keeps a blank slot, not the ring", async () => {
   try {
     const head = root.querySelector(".acpmux-running-tray__head")!;
     expect(head.querySelector(".acpmux-running-tray__stack")).toBeNull();
-    expect(head.querySelector(".acpmux-lineage__icon")?.hasAttribute("data-blank")).toBe(true);
+    const mark = head.querySelector(".acpmux-lineage__icon");
+    expect(mark?.hasAttribute("data-blank")).toBe(false);
+    expect(mark?.querySelector('[data-icon="mode.plan"]')).not.toBeNull();
   } finally {
     await done();
+  }
+});
+
+test("many live and finished commands share one terminal header mark without hiding agents", async () => {
+  const { SubagentHarnessContext } = await import("../src/agent-session/acpmux/subagents/subagentGroupModel");
+  const commands = Array.from({ length: 7 }, (_, index) => command(`wait-${index}`, { command: "sleep 300" }));
+  const agents = [agent("Reviewer", { harness: "claude" })];
+  const items = trayItems(agents, commands, NONE, true);
+  const finished = [{ kind: "command" as const, id: "done", command: command("done", { state: "completed" }) }];
+  const shown = await render(
+    createElement(
+      SubagentHarnessContext.Provider,
+      { value: "claude" },
+      createElement(SubagentTray, { items, finished, working: true, waiting: new Set<string>(), onOpen: () => {} }),
+    ),
+    { open: true },
+  );
+  try {
+    const stack = shown.root.querySelector(".acpmux-running-tray__stack")!;
+    expect(stack.querySelectorAll('[data-icon="terminal"]')).toHaveLength(1);
+    expect(stack.querySelectorAll(".agent-mark")).toHaveLength(1);
+    expect(shown.root.querySelectorAll(".acpmux-agent-line")).toHaveLength(9);
+    await shown.show(
+      createElement(SubagentTray, {
+        items: trayItems([], commands, NONE, true),
+        onOpen: () => {},
+        finished,
+        working: true,
+        waiting: new Set<string>(),
+      }),
+    );
+    expect(shown.root.querySelectorAll('.acpmux-running-tray__stack [data-icon="terminal"]')).toHaveLength(1);
+    const olderAgents = Array.from({ length: 6 }, (_, index) =>
+      agent(`Reviewer ${index}`, { harness: "claude", startedAt: at(0) }),
+    );
+    await shown.show(
+      createElement(SubagentTray, {
+        items: trayItems(olderAgents, commands, NONE, true),
+        finished,
+        working: true,
+        waiting: new Set<string>(),
+        onOpen: () => {},
+      }),
+    );
+    expect(shown.root.querySelectorAll('.acpmux-running-tray__stack [data-icon="terminal"]')).toHaveLength(1);
+    expect(shown.root.querySelectorAll(".acpmux-running-tray__stack .agent-mark")).toHaveLength(3);
+  } finally {
+    await shown.done();
   }
 });

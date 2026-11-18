@@ -15,7 +15,7 @@ public import CmuxNextDesignTokens
 /// the same limit every text token has (`ThemeTokens.glyphInk`).
 ///
 /// ```swift
-/// let background = GroupBackground(tint: group.tint, strength: .band, glass: true, themed: false, tokens: tokens)
+/// let background = GroupBackground(tint: group.tint, strength: .band, glass: true, palette: .vibrant, tokens: tokens)
 /// pill.backgroundColor = background.fill.nsColor.cgColor
 /// name.textColor = background.ink.nsColor
 /// ```
@@ -54,14 +54,18 @@ public nonisolated struct GroupBackground: Equatable, Sendable {
     ///   - tint: The group's color; ``GroupTint/none`` draws the neutral fill.
     ///   - strength: The header bar or the faint wash.
     ///   - glass: The glass look (true) or the solid one.
-    ///   - themed: Palette colors come from the theme (`sidebar.groupColors` = theme).
+    ///   - palette: Where token colors come from (`sidebar.groupPalette`).
+    ///   - wallpaper: The desktop picture's color, for the wallpaper palette.
     ///   - tokens: The theme the sidebar draws in.
-    public init(tint: GroupTint, strength: Strength, glass: Bool, themed: Bool, tokens: ThemeTokens) {
+    public init(tint: GroupTint, strength: Strength, glass: Bool, palette: GroupPalette, wallpaper: WallpaperTint? = nil,
+                tokens: ThemeTokens) {
+        // Vibrant (and glass, which draws vibrant) keeps the tokens' own header fills; another palette's color washes in.
+        let fixed = palette.drawn == .vibrant
         let ground = tokens.sidebarBackground.withAlpha(1)
         self.ground = ground
         let text = tokens.textPrimary.withAlpha(1)
         let color: ThemeRGB? = switch tint {
-        case let .palette(token): themed ? token.themeRGB(tokens) ?? token.swatchRGB(tokens) : nil
+        case let .palette(token): fixed ? nil : token.paletteRGB(palette, tokens: tokens, wallpaper: wallpaper)
         case let .custom(rgb): ThemeTokens.readable(rgb.withAlpha(1), over: ground, minimum: ThemeTokens.minimumMarkContrast)
         case .none: nil
         }
@@ -70,11 +74,11 @@ public nonisolated struct GroupBackground: Equatable, Sendable {
         switch (strength, tint) {
         case (.band, .none):
             base = ground.mixed(toward: text, tokens.isDark ? 0.12 : 0.07)
-        case let (.band, .palette(token)) where !themed:
+        case let (.band, .palette(token)) where fixed:
             base = token.headerRGB(tokens)
             inks = .onColor
         case (.band, .palette):
-            // The theme's color washed into the sidebar, as `GroupTint.headerChip(themed:)` drew it.
+            // The palette's color washed into the sidebar, as `GroupTint.headerChip(palette:)` draws it.
             base = ground.mixed(toward: color ?? text, tokens.isDark ? 0.34 : 0.26)
         case (.band, .custom):
             base = color ?? text

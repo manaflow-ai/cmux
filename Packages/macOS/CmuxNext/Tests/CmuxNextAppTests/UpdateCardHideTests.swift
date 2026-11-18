@@ -47,7 +47,7 @@ import CmuxNextTestSupport
     }
 
     static func defaults() -> UserDefaults {
-        UserDefaults(suiteName: "UpdateCardHideTests.\(UUID().uuidString)")!
+        UserDefaults(testSuiteName: "UpdateCardHideTests.\(UUID().uuidString)")!
     }
 
     struct Harness {

@@ -411,6 +411,41 @@ fn internal() { let surface_id: u64 = 4; }
                 ("boundary.surface", 5),
             ])
 
+    def test_cli_allows_terminal_identity_env_names_from_the_rust_table_only(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            write(
+                tui / CHECKER.TERMINAL_IDENTITY_ENV_SOURCE,
+                """\
+pub const EXCLUDED_KEYS: [&str; 3] = [
+    "PWD",
+    "CMUX_SURFACE_ID",
+    "CMUX_TAB_ID",
+];
+""",
+            )
+            write(
+                tui / "crates/cmux-tui/src/cli/last_chat.rs",
+                """\
+const KEYS: [&str; 2] = ["CMUX_TUI_TERMINAL_ID", "CMUX_SURFACE_ID"];
+const MADE_UP: &str = "CMUX_SURFACE_NAME";
+const HELP: &str = "cmux list-surfaces";
+""",
+            )
+
+            diagnostics, _ = CHECKER.scan_public_boundaries(tui)
+
+            self.assertEqual(
+                CHECKER.terminal_identity_env_names(tui),
+                frozenset({"CMUX_SURFACE_ID", "CMUX_TAB_ID"}),
+            )
+            self.assertEqual([item.line for item in diagnostics], [2, 3])
+            self.assertEqual({item.code for item in diagnostics}, {"boundary.surface"})
+            self.assertIn("EXCLUDED_KEYS", diagnostics[0].message)
+
+    def test_live_terminal_identity_env_table_names_cmux_surface_id(self) -> None:
+        self.assertIn("CMUX_SURFACE_ID", CHECKER.terminal_identity_env_names(CHECKER.TUI))
+
     def test_cli_allows_relay_transport_slot_but_rejects_resource_slot(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)

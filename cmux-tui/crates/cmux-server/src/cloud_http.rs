@@ -47,11 +47,6 @@ pub fn network_changes() -> u64 {
     *NETWORK.borrow()
 }
 
-/// The count of [`network_changed`] calls, to wait on.
-pub fn network_watch() -> watch::Receiver<u64> {
-    NETWORK.subscribe()
-}
-
 #[cfg(test)]
 #[path = "cloud_http_tests.rs"]
 mod tests;
@@ -78,6 +73,12 @@ impl JsonPoster {
     #[cfg(test)]
     pub(crate) fn allowing_http_on(network: &watch::Sender<u64>) -> Result<JsonPoster, String> {
         JsonPoster::watching(true, network.subscribe())
+    }
+
+    /// A poster like this one with a pool of its own: a request on it never
+    /// queues behind one in flight on this poster.
+    pub fn twin(&self) -> Result<JsonPoster, String> {
+        JsonPoster::watching(self.allow_http, self.network.clone())
     }
 
     fn watching(allow_http: bool, network: watch::Receiver<u64>) -> Result<JsonPoster, String> {

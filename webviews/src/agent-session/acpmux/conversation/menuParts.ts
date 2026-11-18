@@ -14,6 +14,8 @@
 
 export type MenuPart = {
   code?: string;
+  /** Fence language, kept when a selection copies a complete code card. */
+  codeLanguage?: string;
   command?: string;
   output?: string;
   path?: string;

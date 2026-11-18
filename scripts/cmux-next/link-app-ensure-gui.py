@@ -23,12 +23,15 @@ The app is started by its executable from this job and ended by exact pid; it ne
 the user's cmux. The tag's daemons end through TagTeardown.
 """
 import json, os, plistlib, socket, stat, subprocess, sys, threading, time
+import tempfile
 
 APP = os.environ["NX_APP"]
 TAG = os.environ["NX_APP_TAG"]
 CREDS = os.path.expanduser("~/.secrets/cmuxterm-dev.env")
 WORKER = "https://cmux-api-development.debussy.workers.dev"
-OUT = os.environ.get("NX_ARTIFACTS") or f"/tmp/link-gui-{os.getpid()}"
+# One private dir (short, for the sockets): a guessable /tmp name could be planted by another account first.
+PRIV = tempfile.mkdtemp(prefix="lkg-", dir="/tmp")
+OUT = os.environ.get("NX_ARTIFACTS") or os.path.join(PRIV, "out")
 os.makedirs(OUT, exist_ok=True)
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 STEPS = []
@@ -95,11 +98,12 @@ def fingerprint(path):
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown
 
-TAG_ROOT = os.path.expanduser(f"~/Library/Application Support/cmux/tags/{TAG}")
+TAG_ROOT = os.path.expanduser(f"~/Library/Application Support/cmux-next/tags/{TAG}")
 # A fresh tag only: this script never moves or deletes a tag folder it did
-# not make.
-if os.path.lexists(TAG_ROOT):
-    sys.exit(f"refusing: {TAG_ROOT} already exists; use a new tag")
+# not make (nor an older build's in classic's cmux/tags, which the app adopts).
+for root in (TAG_ROOT, os.path.expanduser(f"~/Library/Application Support/cmux/tags/{TAG}")):
+    if os.path.lexists(root):
+        sys.exit(f"refusing: {root} already exists; use a new tag")
 TUI = os.path.join(TAG_ROOT, "tui")
 LINK_STATE = os.path.join(TUI, "link")
 REGISTRATION = os.path.join(TUI, "link.json")
@@ -138,8 +142,8 @@ def remove_own_socket(path):
 config = os.path.join(OUT, "cmux.json")
 with open(config, "w") as f:
     f.write("{}\n")
-HOME_ACP = f"/tmp/lkg-acp-{os.getpid()}"
-ACP_SOCKET = f"/tmp/lkg-acp-{os.getpid()}.sock"
+HOME_ACP = os.path.join(PRIV, "acp-home")
+ACP_SOCKET = os.path.join(PRIV, "acp.sock")
 os.makedirs(HOME_ACP, mode=0o700, exist_ok=True)
 env = dict(os.environ)
 env.update({"CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last",

@@ -61,7 +61,7 @@ struct AgentSessionOpenPlacementTests {
         await RapidWorkspaceCreateTests.wait(within: .seconds(20)) { !Self.tabs(on: focusedSession, in: store).isEmpty }
         await Self.caughtUp(services)
         let before = Self.daemonTabs(store)
-        let focusedTitles = Set(Self.tabs(on: focusedSession, in: store).map(\.tab.title))
+        let focusedTitles = Set(Self.tabs(on: focusedSession, in: store).map(\.tab.titleText))
 
         let name = "Rail & sidebar"
         let session = "s-open-\(UUID().uuidString.prefix(8).lowercased())"
@@ -90,7 +90,7 @@ struct AgentSessionOpenPlacementTests {
         let ownKey = own?.key?.rawValue ?? own?.id ?? ""
         let ownTabs = after[ownKey] ?? []
         let ownName = own?.name
-        let title = onSession.first?.tab.title
+        let title = onSession.first?.tab.titleText
         await launched.stop()
 
         #expect(first && second, "a run was refused")

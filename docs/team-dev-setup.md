@@ -25,6 +25,6 @@ After development setup, launch a tagged build:
 scripts/dev-setup.sh --tag <your-initials>
 ```
 
-That builds the tagged macOS DEBUG app signed in with your personal profile, enables the iOS pairing host, mints an attach ticket, and launches the iOS dev build attached to your Mac. Use `--surface mac` for macOS only, or `--agent` to select the simulator/test profile for both the tagged Mac app and iOS Simulator. See `scripts/dev-setup.sh --help` for all flags.
+That builds the tagged macOS DEBUG app signed in with your personal profile, then builds and launches the iOS dev build signed in with the same profile. The iOS app does not pair with the Mac; its own signed-in receipt is the launch gate. Use `--surface mac` for macOS only, or `--agent` to select the simulator/test profile for both the tagged Mac app and iOS Simulator. See `scripts/dev-setup.sh --help` for all flags.
 
 This is DEBUG-only and per-user. Credential files live outside the repo and are never committed; `scripts/cmuxterm-dev.env.example` is the development template. Release builds never read these credentials (the sign-in automation is compiled out of release).

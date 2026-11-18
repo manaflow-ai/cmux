@@ -100,6 +100,14 @@ jobs:
               core.info(table(kept));
               body = body.replace(table(kept), `The kept table is too long for the issue; it is in the run log (${runUrl}).`);
             }
+            // Still past it, the To decide table keeps the rows that fit, in its order (flips first),
+            // and the whole table goes to the run log.
+            if (body.length > 65000) {
+              core.info(table(act));
+              let shown = act.length;
+              while (shown > 0 && body.replace(table(act), () => table(act.slice(0, shown))).length > 64000) shown--;
+              body = body.replace(table(act), () => `${table(act.slice(0, shown))}\n\n${act.length - shown} more are in the run log (${runUrl}).`);
+            }
             if (issue) {
               await github.rest.issues.update({ owner, repo, issue_number: issue.number, body });
               return;

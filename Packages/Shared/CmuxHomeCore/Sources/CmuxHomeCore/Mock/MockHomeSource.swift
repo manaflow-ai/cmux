@@ -15,18 +15,26 @@ public actor MockHomeSource: HomeSource {
         /// Delay before a Chief starts typing and before it answers.
         public var replyDelay: Duration
         public var startsOnline: Bool
+        /// The Hosted Chief's brain at start: on, off, or nil for none (``HomeChiefBrainControlling``).
+        public var hostedChiefBrain: Bool?
 
         public init(chiefHistory: Int = 2_000, latency: Duration = .milliseconds(120),
-                    replyDelay: Duration = .milliseconds(900), startsOnline: Bool = true) {
+                    replyDelay: Duration = .milliseconds(900), startsOnline: Bool = true, hostedChiefBrain: Bool? = nil) {
             self.chiefHistory = chiefHistory
             self.latency = latency
             self.replyDelay = replyDelay
             self.startsOnline = startsOnline
+            self.hostedChiefBrain = hostedChiefBrain
         }
 
         /// No delays: for tests.
         public static let immediate = Options(chiefHistory: 300, latency: .zero, replyDelay: .zero)
     }
+
+    /// The Hosted Chief's brain (``setHostedChiefBrain(enabled:failingTurnOns:)``): nil is no Hosted Chief brain.
+    var hostedChiefBrain: Bool?
+    /// Turn Ons that fail before one succeeds.
+    var failingChiefTurnOns = 0
 
     /// What ``agentSessions(_:of:)`` answers (``setAgentSessions(_:)``).
     private var agentSessionRefs: [HomeAgentSessionRef] = []
@@ -104,6 +112,7 @@ public actor MockHomeSource: HomeSource {
         self.options = options
         self.clock = clock
         self.online = options.startsOnline
+        self.hostedChiefBrain = options.hostedChiefBrain
         self.epoch = now
         let seed = MockHomeSeed.make(now: now, chiefHistory: options.chiefHistory)
         self.me = seed.me
@@ -483,11 +492,13 @@ public actor MockHomeSource: HomeSource {
     }
 
     /// Posts `parts` as `author` under `key`, in `threadRoot`'s thread when one is given (a Chief's
-    /// done marker answers the message it closes), and returns its seq.
+    /// done marker answers the message it closes), and returns its seq. `parent` is the message of
+    /// that thread the post answers (a nested reply, conversation-tree-v1); nil answers the root.
     @discardableResult
     public func post(_ parts: [MessagePart], from author: ParticipantID, in conversation: ConversationID, key: IdempotencyKey,
-                     threadRoot: MessageID? = nil) -> Seq? {
-        guard (try? commitMessage(in: conversation, author: author, parts: parts, key: key, threadRoot: threadRoot)) != nil else { return nil }
+                     threadRoot: MessageID? = nil, parent: MessageID? = nil) -> Seq? {
+        guard (try? commitMessage(in: conversation, author: author, parts: parts, key: key, threadRoot: threadRoot,
+                                  parent: parent)) != nil else { return nil }
         return conversations[conversation]?.lastSeq
     }
 

@@ -10,6 +10,7 @@ import { componentEntry } from "../../../gallery/format";
 import { setHeaderState } from "../header/headerState";
 import { setSessionInfoOpen } from "./sessionInfoState";
 import { GalleryPane } from "./SessionInfoSurfaces.gallery";
+import { SESSION_INFO, SESSION_INFO_TOGGLE, SESSION_INFO_TOGGLE_OFF } from "./sessionInfoSelectors";
 
 export default componentEntry<{ surface: "transcript" }>({
   id: "agent-pane.session-info-narrow-pane",
@@ -18,10 +19,7 @@ export default componentEntry<{ surface: "transcript" }>({
   pane: true,
   height: 640,
   widths: { narrow: 370, normal: 528, wide: 740 },
-  covers: [
-    "agent-session/acpmux/session-info/SessionInfo.tsx#sessionInfoStage",
-    "agent-session/acpmux/session-info/SessionInfo.tsx#pushedWidth",
-  ],
+  covers: ["agent-session/acpmux/session-info/SessionInfo.tsx#SessionInfoPanel"],
   load: async () => {
     setHeaderState({ inspector: true });
     setSessionInfoOpen(true);
@@ -37,12 +35,10 @@ export default componentEntry<{ surface: "transcript" }>({
       props: { surface: "transcript" },
       play: async (ctx) => {
         // A pane too narrow for a readable chat beside it waits for the toggle; a wider one has it open.
-        const closed = 'button.acpmux-session-info-toggle[aria-pressed="false"]';
-        await ctx.waitFor(() => ctx.document.querySelector("button.acpmux-session-info-toggle"));
+        const closed = SESSION_INFO_TOGGLE_OFF;
+        await ctx.waitFor(() => ctx.document.querySelector(SESSION_INFO_TOGGLE));
         if (ctx.document.querySelector(closed)) await ctx.click({ selector: closed });
-        await ctx.waitFor(
-          () => ctx.document.querySelector("aside.acpmux-session-info")?.getAttribute("data-presence") === "shown",
-        );
+        await ctx.waitFor(() => ctx.document.querySelector(SESSION_INFO)?.getAttribute("data-presence") === "shown");
       },
     },
   },

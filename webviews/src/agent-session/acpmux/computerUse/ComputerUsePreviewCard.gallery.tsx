@@ -2,7 +2,8 @@
 import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
-import { FLOAT_MARGIN, SessionInfoPanel, type SessionInfoPlacement } from "../session-info/SessionInfo";
+import { SessionInfoPanel } from "../session-info/SessionInfo";
+import { FLOAT_MARGIN, type SessionInfoPlacement } from "../session-info/sessionInfoModel";
 import { useUnderSessionInfo } from "../session-info/underSessionInfo";
 import { ComputerUsePreviewCard } from "./ComputerUsePreviewCard";
 import { useComputerUsePreviewRoom, type ComputerUsePreview } from "./computerUsePreview";
@@ -43,9 +44,11 @@ const running: ComputerUsePreview = {
 const done: ComputerUsePreview = { ...running, done: true, icon };
 
 /// The person's pointer over the display, as the host sends it (a telepointer, never in the frame).
+// motion-allow: a fixture pointer age
 const personOver = { x: 0.3, y: 0.32, visible: true, ageMs: 120, idle: false };
 const withPerson: ComputerUsePreview = {
   ...running,
+  // motion-allow: a fixture pointer age
   telepointers: { agent: { x: 0.83, y: 0.9, visible: true, ageMs: 80, idle: false }, person: personOver },
 };
 const personOnly: ComputerUsePreview = {
@@ -159,7 +162,7 @@ export default componentEntry<Props>({
       props: { preview: running },
     },
     done: {
-      note: "After the session ended: the window dims, the app's icon (40px) scales in at its center and a 16px green check pops in on the icon's corner. The host hides it 30 s later, with a short fade and scale down.",
+      note: "After the session ended: the window dims, the app's icon (40px) scales in at its center and a 16px green check scales in on the icon's corner, neither past its size. The host hides it 30 s later, with a short fade and scale down.",
       props: { preview: done },
     },
     "done-no-icon": {

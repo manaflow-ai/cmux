@@ -6,7 +6,8 @@
 // painted its lines. Same metrics, so nothing moves; only the colors arrive.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CodeBlock } from "./CodeBlock";
-import { CodeHeader, codeHeaderClass, useCodeHeaderLook } from "./CodeHeader";
+import { CodeHeader } from "./CodeHeader";
+import { codeHeaderClass, useCodeHeaderLook } from "./codeHeaderModel";
 import { isDiagram } from "./codeShape";
 import { CopyButton } from "./CopyButton";
 import { useT } from "../i18n";
@@ -43,7 +44,7 @@ export function PlainCode({
   return (
     <div
       className={`cv-codeblock cv-codeblock--plain${codeHeaderClass(look)}${diagram ? " cv-codeblock--diagram" : ""}`}
-      ref={menuPartRef({ code })}
+      ref={menuPartRef({ code, codeLanguage: lang })}
     >
       <CodeHeader look={look} lang={lang} label={label}>
         <OpenPreview code={code} lang={lang} identity={artifactIdentity} revision={artifactRevision} />

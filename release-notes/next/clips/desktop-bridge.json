@@ -1,0 +1,54 @@
+{
+  "caption": "A chat in Claude Desktop leaves a message for Codex Desktop through cmux, and Codex reads it from its inbox.",
+  "frameInterval": 0.25,
+  "settings": {
+    "terminal": {
+      "fontSize": 22
+    }
+  },
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2
+    },
+    {
+      "title": "A terminal",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "workspace new",
+          "origin": "script",
+          "args": {
+            "name": "Bridge",
+            "cwd": "/tmp",
+            "command": "export ACPMUX_HOME=/tmp/bridge-demo; mkdir -p $ACPMUX_HOME; printf '\\033]2;Bridge\\007\\033[H\\033[2J'; sleep 3; printf '$ acpmux bridge send codex-desktop \"Can you review the login fix?\"\\n'; acpmux bridge send --from 'Claude Desktop' codex-desktop 'Can you review the login fix?'; sleep 2; printf '\\n$ acpmux bridge inbox codex-desktop\\n'; acpmux bridge inbox codex-desktop; exec sleep 86400",
+            "focus": true
+          }
+        }
+      },
+      "wait": 2.5
+    },
+    {
+      "title": "Send to Codex Desktop",
+      "wait": 2.2,
+      "clip": true
+    },
+    {
+      "title": "Codex Desktop reads its inbox",
+      "wait": 2.5,
+      "clip": true
+    },
+    {
+      "title": "End",
+      "wait": 0.3
+    }
+  ],
+  "crop": [
+    0.17,
+    0,
+    0.83,
+    0.42
+  ],
+  "lead": 0.6,
+  "hold": 1.6
+}

@@ -41,9 +41,40 @@ pub(super) struct Spool {
 }
 
 /// The drain lock: while held, this child is the queue's one sender. The
-/// lock is the open file's; it goes with the file.
+/// drop unlocks before the file closes: a child that another thread of the
+/// daemon (the owner's `resume` drain) forked meanwhile shares the open file
+/// until it execs, and a close alone would leave the lock held in that copy.
 pub(super) struct DrainLock {
-    _held: File,
+    held: File,
+}
+
+impl Drop for DrainLock {
+    fn drop(&mut self) {
+        let _ = self.held.unlock();
+    }
+}
+
+/// The queue file, locked for this process until dropped; the drop unlocks
+/// before the file closes, as [`DrainLock`]'s does.
+struct QueueLock(File);
+
+impl std::ops::Deref for QueueLock {
+    type Target = File;
+    fn deref(&self) -> &File {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for QueueLock {
+    fn deref_mut(&mut self) -> &mut File {
+        &mut self.0
+    }
+}
+
+impl Drop for QueueLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
 }
 
 impl Spool {
@@ -87,8 +118,9 @@ impl Spool {
                 Err(std::fs::TryLockError::WouldBlock) => return Ok(None),
                 Err(std::fs::TryLockError::Error(error)) => return Err(error),
             }
-            if names_this_file(&self.drain, &file)? {
-                return Ok(Some(DrainLock { _held: file }));
+            let lock = DrainLock { held: file };
+            if names_this_file(&self.drain, &lock.held)? {
+                return Ok(Some(lock));
             }
             // A sender deleted the queue after this child opened the lock
             // file: lock the one the path names now.
@@ -101,7 +133,7 @@ impl Spool {
         let mut file = self.open_locked()?;
         file.seek(SeekFrom::Start(offset))?;
         let mut line = Vec::new();
-        let read = BufReader::new(&mut file)
+        let read = BufReader::new(&mut *file)
             .take((MAX_MESSAGE_BYTES as u64).saturating_add(1))
             .read_until(b'\n', &mut line)?;
         Ok((read > 0).then(|| (line, offset.saturating_add(read as u64))))
@@ -155,10 +187,11 @@ impl Spool {
     }
 
     /// The queue file, opened and locked for this process until dropped.
-    fn open_locked(&self) -> io::Result<File> {
+    fn open_locked(&self) -> io::Result<QueueLock> {
         loop {
             let file = open_spool_file(&self.lines)?;
             file.lock()?;
+            let file = QueueLock(file);
             if names_this_file(&self.lines, &file)? {
                 return Ok(file);
             }
@@ -230,6 +263,10 @@ fn run_between_unlinks(lines: &Path) {
         hook();
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "hook_spool_tests.rs"]
+mod lock_tests;
 
 fn ends_with_newline(file: &mut File, length: u64) -> io::Result<bool> {
     file.seek(SeekFrom::Start(length.saturating_sub(1)))?;

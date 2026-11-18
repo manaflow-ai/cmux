@@ -19,6 +19,16 @@ extension WorkspaceTabsSource {
     /// The workspace's panes as its Mac listed them last (nil: not listed yet).
     public var layout: WorkspaceLayout? { workspace?.layout }
 
+    /// The workspace's Mac has not sent its live list yet (dialing, or last-known rows while the
+    /// link comes up): a list it has not shown is still on its way, not empty, and its page loads.
+    public var awaitsMacList: Bool {
+        guard let macID = workspace?.macID else { return false }
+        switch store.macDataPhase(macID) {
+        case .loading, .cached: return true
+        case .live, .empty, .failed, .offline, .idle: return false
+        }
+    }
+
     /// The page menu's way to the Panes page, once the Mac listed the workspace's panes.
     func panesItems() -> [TabsKitMenuItem] {
         guard let layout, !layout.panes.isEmpty else { return [] }

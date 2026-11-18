@@ -2,9 +2,22 @@
 
 use super::*;
 
+#[cfg(test)]
+thread_local! {
+    static PRESENTATION_READS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
 impl WorkspaceRegistry {
+    /// Whole presentation reads on this thread (test hook).
+    #[cfg(test)]
+    pub(crate) fn presentation_reads_for_test() -> u64 {
+        PRESENTATION_READS.with(std::cell::Cell::get)
+    }
+
     /// Groups in order plus the presentation of every live workspace.
     pub fn presentation_snapshot(&self) -> anyhow::Result<PresentationSnapshot> {
+        #[cfg(test)]
+        PRESENTATION_READS.with(|reads| reads.set(reads.get() + 1));
         let groups = read_groups(&self.connection.get())?;
         let db = self.connection.get();
         let mut statement = db.prepare(
@@ -88,12 +101,15 @@ impl WorkspaceRegistry {
         let saved_screen_groups =
             super::super::screen_store::read_saved_screen_groups(&self.connection.get())?;
         let kept_tabs = crate::state::kept_tab_store::read_kept_tabs(&self.connection.get())?;
+        let tab_attention =
+            crate::state::tab_state_store::read_tab_attention(&self.connection.get())?;
         let conversation_tabs = read_conversation_tabs(&self.connection.get())?;
         let remote_terminals = read_remote_terminals(&self.connection.get())?;
         let home_workspace =
             crate::state::home_store::live_home(&self.connection.get())?.map(|h| h.1);
         let app_workspaces = crate::state::home_store::live_app_workspaces(&self.connection.get())?;
         let app_tabs = crate::state::app_workspaces::read_app_tabs(&self.connection.get())?;
+        let recovered_terminals = read_recovered_terminals(&self.connection.get())?;
         Ok(PresentationSnapshot {
             groups,
             workspaces,
@@ -104,12 +120,26 @@ impl WorkspaceRegistry {
             remote_terminals,
             home_workspace,
             app_workspaces,
+            recovered_terminals,
             app_tabs,
             tab_groups,
             saved_tab_groups,
             screens,
             saved_screen_groups,
             kept_tabs,
+            tab_attention,
         })
     }
+}
+
+/// The live terminals recovered from orphaned hosts (`workspace-recovered-v1`): rows whose launch
+/// spec is the recovered one (`mux/orphan_hosts.rs`), not tombstoned or deleted.
+fn read_recovered_terminals(connection: &Connection) -> anyhow::Result<HashSet<String>> {
+    let mut statement = connection.prepare(
+        "SELECT terminal_id FROM terminal_hosts
+         WHERE deleted_revision IS NULL AND lifecycle != 'tombstoned'
+           AND json_extract(launch_spec_json, '$.recovered_terminal') = 1",
+    )?;
+    let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+    Ok(rows.collect::<Result<_, _>>()?)
 }

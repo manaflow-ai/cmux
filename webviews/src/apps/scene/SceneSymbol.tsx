@@ -1,5 +1,5 @@
 import { Icon } from "../../agent-session/acpmux/icons/Icon";
-import { useIcons } from "../../agent-session/acpmux/icons/IconsContext";
+import { useIcons } from "../../agent-session/acpmux/icons/iconsContextModel";
 import { bundledIconPack, MISSING_ICON } from "../../agent-session/acpmux/icons/iconPack";
 import { sceneText } from "./sceneStyle";
 
@@ -17,6 +17,12 @@ const SYMBOLS: Record<string, string> = {
   "checkmark.circle": "action.confirm",
   "checkmark.circle.fill": "action.confirm",
   xmark: "action.close",
+  "xmark.circle": "status.failure",
+  "xmark.circle.fill": "status.failure",
+  "minus.circle": "action.remove",
+  clock: "time.waiting",
+  "exclamationmark.triangle": "status.warning",
+  "exclamationmark.triangle.fill": "status.warning",
   plus: "action.add",
   "info.circle": "status.info",
   "info.circle.fill": "status.info",

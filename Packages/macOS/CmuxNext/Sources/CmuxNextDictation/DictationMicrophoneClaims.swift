@@ -37,6 +37,17 @@ public final class DictationMicrophoneClaims {
         stopHolder = nil
     }
 
+    /// Stops whoever holds the microphone, keeping their words: another app takes it now (the
+    /// composer mic's hand-off to a dictation app).
+    public func yield() {
+        let previous = stopHolder
+        (holder, stopHolder) = (nil, nil)
+        previous?()
+    }
+
+    /// Whether any of cmux's surfaces holds the microphone now.
+    public var isHeld: Bool { holder != nil }
+
     /// Whether `owner` holds the microphone now.
     public func isHeld(by owner: AnyObject) -> Bool { holder === owner }
 }

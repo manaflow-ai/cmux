@@ -2,30 +2,19 @@ import "./harnessStatus.css";
 import { useEffect, useRef, useState } from "react";
 import { copyTextResult } from "./conversation/clipboard";
 import { Icon } from "./icons/Icon";
-import { translate, type Translate, usePaneLanguage, useT } from "./i18n";
+import { type Translate, usePaneLanguage, useT } from "./i18n";
 import type { AcpmuxSnapshot } from "./model";
 import { useEscapeToDismiss } from "./paneSurface";
 import { usageLimitsLabel } from "./usageLimits";
 import { compactingUsage } from "./usageStats";
-
-type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
-
-function text(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function info(summary: Summary): Record<string, unknown> {
-  return summary.agentInfo && typeof summary.agentInfo === "object" && !Array.isArray(summary.agentInfo)
-    ? summary.agentInfo
-    : {};
-}
-
-/** Only the explicit label is displayable; arbitrary metadata keys may contain credentials. */
-export function authSourceLabel(summary: Summary, t: Translate = translate): string {
-  const source = info(summary);
-  return text(source.authSource) ?? text(summary.authSource) ?? t("status.notReported");
-}
-
+import {
+  type Summary,
+  text,
+  info,
+  authSourceLabel,
+  type StatusField,
+  statusCardCopyText,
+} from "./harnessStatusCardModel";
 function routeLabel(summary: Summary, t: Translate): string {
   const source = info(summary);
   const route = text(source.routeName) ?? text(source.route) ?? text(summary.route);
@@ -57,15 +46,8 @@ function usageLabel(summary: Summary, t: Translate): string {
   return t("status.usage", { percent, used: usage.used.toLocaleString(), size: usage.size.toLocaleString() });
 }
 
-type StatusField = readonly [label: string, value: string];
-
 function display(value: unknown, t: Translate): string {
   return text(value) ?? t("status.notReported");
-}
-
-/** The same plain text that Copy all puts on the clipboard. */
-export function statusCardCopyText(fields: readonly StatusField[]): string {
-  return fields.map(([label, value]) => `${label}: ${value}`).join("\n");
 }
 
 /** The shared `/status` card. Values are normalized to labels and never render credential values. */

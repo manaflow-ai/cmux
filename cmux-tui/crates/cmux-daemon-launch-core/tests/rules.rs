@@ -101,7 +101,7 @@ fn the_snapshot_of_a_session_is_its_own_registrys() {
 fn a_channel_build_adopts_the_old_session_once_and_records_it() {
     let temp = Temp::new("adopt");
     let support = temp.path("support");
-    let state = temp.path("support/cmux/tags/nightly/tui");
+    let state = temp.path("support/cmux-next/tags/nightly/tui");
     let legacy_snapshot = temp.path("support/cmux-tui/sessions/cmux-app-xyz/launch-snapshot.json");
     temp.write("support/cmux-tui/sessions/cmux-app-xyz/launch-snapshot.json", USED);
     let input = |remembered: Option<&str>, bundle: &str| AdoptInput {
@@ -128,18 +128,18 @@ fn a_channel_build_adopts_the_old_session_once_and_records_it() {
     );
 
     // The channel's own session was used: never replaced.
-    temp.write("support/cmux/tags/nightly/tui/cmux-app-nightly-1/launch-snapshot.json", USED);
+    temp.write("support/cmux-next/tags/nightly/tui/cmux-app-nightly-1/launch-snapshot.json", USED);
     assert!(!legacy::adopts(&input(Some(&legacy_snapshot), "com.cmuxterm.app.nightly")));
     // Only the launch's own New Tab page: untouched, so it adopts and records it.
     temp.write(
-        "support/cmux/tags/nightly/tui/cmux-app-nightly-1/launch-snapshot.json",
+        "support/cmux-next/tags/nightly/tui/cmux-app-nightly-1/launch-snapshot.json",
         NEW_TAB_ONLY,
     );
     assert!(legacy::adopts(&input(Some(&legacy_snapshot), "com.cmuxterm.app.nightly")));
-    let marker = temp.path("support/cmux/tags/nightly/legacy-session-adopted");
+    let marker = temp.path("support/cmux-next/tags/nightly/legacy-session-adopted");
     assert!(Path::new(&marker).exists());
     // Recorded: kept although the own session now counts as used.
-    temp.write("support/cmux/tags/nightly/tui/cmux-app-nightly-1/launch-snapshot.json", USED);
+    temp.write("support/cmux-next/tags/nightly/tui/cmux-app-nightly-1/launch-snapshot.json", USED);
     assert!(legacy::adopts(&input(None, "com.cmuxterm.app.nightly")));
 }
 

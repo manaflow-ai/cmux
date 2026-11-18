@@ -549,7 +549,9 @@ async fn a_peer_that_does_not_save_attachments_is_refused_before_anything_is_sen
             let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
             let counted = counted.clone();
             tokio::spawn(async move {
-                while let Some(Ok(Ws::Text(text))) = ws.next().await {
+                // Non-text frames (the client's pings, #38015) are not requests: skip them.
+                while let Some(Ok(frame)) = ws.next().await {
+                    let Ws::Text(text) = frame else { continue };
                     let Ok(Message::Request { id, method: m, .. }) = Message::parse(&text) else {
                         continue;
                     };

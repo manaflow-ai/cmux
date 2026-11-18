@@ -37,7 +37,7 @@ final class HomeChatColorsPreviewView: NSView {
     private var background: NSColor = .clear
 
     func show(_ shown: HomeChatColorsPreview) {
-        background = shown.background
+        background = shown.background.nsColor
         received.show(shown.received)
         sent.show(shown.sent)
         needsDisplay = true
@@ -82,8 +82,8 @@ final class HomeChatColorsBubble: NSView {
 
     func show(_ pair: HomeChatColorsPreview.Pair) {
         shown = pair
-        fill = pair.fill
-        label.textColor = pair.text
+        fill = pair.fill.nsColor
+        label.textColor = pair.text.nsColor
         needsDisplay = true
     }
 

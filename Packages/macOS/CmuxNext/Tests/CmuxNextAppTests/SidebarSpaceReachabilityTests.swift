@@ -182,6 +182,15 @@ import Testing
         return remote.applied.flatMap { $0 }
     }
 
+    /// What the daemon's delete-profile with `move_to` changes in the document (`move_room_items`): a group's
+    /// `profile` and a Pinned link's, tab's or app's `room` move from the deleted space to the target.
+    static func deletedSpaceOps(from: String, into to: String, records: SidebarDocRecords) -> [[String: Any]] {
+        records.items.values.filter { $0.room == from }.sorted { $0.id < $1.id }.compactMap { item -> [String: Any]? in
+            if case .group = item.body { return ["op": "group.update", "id": item.id, "patch": ["profile": to]] }
+            return item.body.belongsToASpace ? ["op": "item.update", "id": item.id, "patch": ["room": to]] : nil
+        }
+    }
+
     enum Op: String, CaseIterable {
         case none, moveBandGroup, moveMachineGroup, deleteSpaceInto, deleteSpace, renameSpace, pin, unpin, moveWorkspace,
              newSubgroup, nestUnderAnotherSpace
@@ -198,7 +207,7 @@ import Testing
             state.apply(try await movingGroup("itm_mw", to: play, in: state))
         case .deleteSpaceInto:
             let records = try SidebarDocRecords(document: document(state.items))
-            state.apply(SidebarDocStore.spaceOps(from: Spaces.work, into: play, records: records))
+            state.apply(deletedSpaceOps(from: Spaces.work, into: play, records: records))
             state.spaces.remove(Spaces.work)
             state.windows[play, default: []] += state.windows.removeValue(forKey: Spaces.work) ?? []
         case .deleteSpace:
@@ -216,10 +225,9 @@ import Testing
             state.windows[Spaces.work] = []
             state.windows[play] = [1]
         case .newSubgroup:
-            let records = try SidebarDocRecords(document: document(state.items))
+            let (store, _) = try await store(state)
             for (parent, id) in [("itm_mw", "itm_new"), ("itm_cp", "itm_new2"), ("itm_bc", "itm_new3")] {
-                let plan = SidebarDocSubgroupPlan(parent: GroupID(parent), id: GroupID(id), name: "Sub", color: .palette(.blue), records: records)
-                state.apply(try #require(plan.ops, "\(parent): \(String(describing: plan.refusal))"))
+                state.apply(try store.subgroupOps(parent: GroupID(parent), id: GroupID(id), name: "Sub", color: .palette(.blue)))
             }
         case .nestUnderAnotherSpace:
             state.move("itm_ch", to: Spaces.pinned, parent: "itm_bp")

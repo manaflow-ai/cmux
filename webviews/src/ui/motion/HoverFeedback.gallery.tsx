@@ -2,13 +2,14 @@
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { HoverDemo, type HoverDemoProps } from "./MotionDemos";
+import { MOTION_MS } from "../../motion/scale.generated";
 
 const openMenu: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "More for Session Info tabs" });
   await ctx.waitFor(() => ctx.find({ testId: "motion-demo-receipt" }).textContent === "Menu open on row 2");
 };
 
-// Picked: scale. Hover fill over 80 ms, a revealed control in over 120 ms and out over 80 ms, nothing on
+// Picked: scale. Hover fill over 80 ms, a revealed control on the dwell ramp (desktop.css --cmux-hover-reveal-*), nothing on
 // the press (design/motion-and-polish.md rules 6 and 8). blink is what Leo called jarring, slow lags the
 // pointer, press-dip is the click flash he called out.
 export default componentEntry<HoverDemoProps>({
@@ -21,12 +22,12 @@ export default componentEntry<HoverDemoProps>({
   styles: () => Promise.all([import("./motion.css"), import("./motion.gallery.css")]),
   variants: {
     scale: {
-      note: "Picked: fill 80 ms; reveal in 120 / out 80; no press.",
+      note: `Picked: fill ${MOTION_MS.quick} ms; reveal on the dwell ramp; no press.`,
       props: { timing: "scale" },
       play: openMenu,
     },
     blink: { note: "Before: appears and disappears in one frame.", props: { timing: "blink" }, play: openMenu },
-    slow: { note: "Everything at 180 ms.", props: { timing: "slow" }, play: openMenu },
+    slow: { note: `Everything at ${MOTION_MS.standard} ms.`, props: { timing: "slow" }, play: openMenu },
     "press-dip": { note: "Rejected: a dip and shrink on the press.", props: { timing: "press-dip" }, play: openMenu },
   },
 });

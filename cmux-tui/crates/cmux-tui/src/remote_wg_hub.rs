@@ -183,7 +183,7 @@ pub(super) fn run_wg(args: &[String]) -> anyhow::Result<()> {
 
 /// `cmux wg dial --hub PATH HOST PORT`: one TCP stream to HOST:PORT through a running hub,
 /// on stdin and stdout, for an ssh `ProxyCommand` (`ssh -o ProxyCommand='cmux wg dial --hub
-/// PATH %h %p' cmux@10.0.0.7`; `cmux cloud enroll-machine` writes such a Host block). HOST is
+/// PATH %h %p' cmux@10.0.0.7`). HOST is
 /// an address inside the hub's AllowedIPs, as the hub dials nothing else. Exits when either
 /// side ends.
 fn run_wg_dial(args: &[String]) -> anyhow::Result<()> {
@@ -285,11 +285,12 @@ fn start_wireguard_hub_tunnel(
     options: HubTunnel,
     timeout: Duration,
 ) -> anyhow::Result<(Arc<cmux_wg::WgNet>, cmux_wg::MultipathControl)> {
-    let config = if path == Path::new("-") {
+    let mut config = if path == Path::new("-") {
         read_wireguard_config_stdin(&mut io::stdin().lock())?
     } else {
         read_wireguard_config(path)?
     };
+    config.ultra = ultra_setting();
     let probes = options.probes.then(cmux_wg::ProbeConfig::default);
     let send_buffer = options.send_buffer;
     let kind = cmux_wg::PathKind::ViaCloudRegion;

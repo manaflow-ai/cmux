@@ -4,22 +4,31 @@
 // over the very control the person was about to click (Leo 2026-11-07: "the top right button area is somehow, like,
 // shifting its layout"). Only a real move opens one: the element still under the pointer after it moves gets it then.
 
-/** The screen point of a pointer event. */
-type At = { readonly screenX: number; readonly screenY: number };
+/** A pointer event's point on the screen and in the page's viewport. Both stay put while the pointer is still and a
+ * layout moves elements under it; an engine that reports no screen point (WebKit's automation sends 0, 0) still
+ * reports the viewport point, so a move is either one changing. */
+type At = { readonly screenX: number; readonly screenY: number; readonly clientX: number; readonly clientY: number };
 
 /** The pointer's last moved-to point, read by `pointerover` (which comes before the `pointermove` of the same move). */
 export class PointerMotion {
-  private last: { x: number; y: number } | undefined;
+  private last: At | undefined;
 
   /** A `pointermove`: true when the pointer is somewhere new (an engine's synthetic move at the same point is not). */
   moved(event: At): boolean {
     const arrived = this.arrived(event);
-    this.last = { x: event.screenX, y: event.screenY };
+    this.last = { screenX: event.screenX, screenY: event.screenY, clientX: event.clientX, clientY: event.clientY };
     return arrived;
   }
 
   /** A `pointerover`: true when the pointer moved onto the element, false when the element moved under it. */
   arrived(event: At): boolean {
-    return this.last === undefined || this.last.x !== event.screenX || this.last.y !== event.screenY;
+    const last = this.last;
+    return (
+      last === undefined ||
+      last.screenX !== event.screenX ||
+      last.screenY !== event.screenY ||
+      last.clientX !== event.clientX ||
+      last.clientY !== event.clientY
+    );
   }
 }

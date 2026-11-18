@@ -25,8 +25,11 @@ struct ChromiumNewTabNow {
             configuration.navigationGuard = navigationGuard
         }
         // Last: a reopened tab's closed history is claimed only by the page made here; every
-        // bail-out above leaves it for the asynchronous path's page.
-        configuration = requests.closedHistories.restoring(configuration, url: url, local: cache.browserTabs.daemon(for: tab).isLocal, tab: key)
+        // bail-out above leaves it for the asynchronous path's page. A person's new tab (a stand-in)
+        // is never a reopen: it opens blank, with no closed tab's history (#37384).
+        if !ProvisionalTab.isProvisional(surface: tab.surface) {
+            configuration = requests.closedHistories.restoring(configuration, url: url, local: cache.browserTabs.daemon(for: tab).isLocal, tab: key)
+        }
         return cache.chromiumNow.make(configuration)
     }
 }

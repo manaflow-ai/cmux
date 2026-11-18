@@ -7,7 +7,10 @@
 // one. Add account (Codex and Claude) signs in a new login in a folder of its own (for Codex a shadow
 // home that shares settings and chats with the CLI's), or adds an API key by its secret reference.
 // An account whose plan usage was read when Settings opened shows its 5-hour and weekly limits under
-// it, in the composer ring's plan usage card (PlanUsageCardBody).
+// it, in the composer ring's plan usage card (PlanUsageCardBody); a signed-out one shows none, since
+// usage read before a sign-out no longer belongs to anyone signed in. Remove runs on the click: it
+// takes the account out of cmux's list, and its login folder (or its key) and the CLI's own sign-in
+// stay where they are.
 import { useId, useState } from "react";
 import { PlanUsageCardBody } from "../../../agent-session/acpmux/PlanUsageCard";
 import { Button } from "../../../ui/Button";
@@ -16,7 +19,8 @@ import { useStore } from "../context";
 import { Select } from "../editors/Select";
 import { Switch } from "../editors/ToggleEditor";
 import { planName } from "../harnesses";
-import type { HarnessesRun, ProviderAccount } from "../ops";
+import { SETTINGS_SENTENCES, type HarnessesRun, type ProviderAccount } from "../ops";
+import { userMessage } from "../../shared/userMessage";
 import { t } from "../strings";
 
 /** The families whose accounts Settings can add (a login folder per account, or an API key). */
@@ -182,7 +186,7 @@ function AccountRow({
             </Button>
           )}
         </div>
-        {account.usage && (
+        {account.usage && account.signedIn && (
           <div className="harness-account-usage" data-account-usage="">
             {/* No family: the card's usage-page link opens through the agent pane's browser, which
                 Settings does not have. */}
@@ -307,7 +311,7 @@ export function ProviderAccounts({ family, accounts }: { family: string; account
       .then(
         () => true,
         (failure: unknown) => {
-          setError(failure instanceof Error ? failure.message : String(failure));
+          setError(userMessage(failure, SETTINGS_SENTENCES));
           return false;
         },
       )

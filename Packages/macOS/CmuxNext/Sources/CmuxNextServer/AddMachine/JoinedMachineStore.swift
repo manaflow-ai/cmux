@@ -44,7 +44,7 @@ public final class JoinedMachineStore {
 
     /// `owner`'s section shows the rows: while any section does, the store re-reads the list once
     /// when the first online row's heartbeat would pass ``JoinedMachine/onlineWindow`` (the hub's
-    /// 90 s row TTL), and a row whose read failed goes offline at that moment. No online row with a
+    /// 30 s row TTL), and a row whose read failed goes offline at that moment. No online row with a
     /// heartbeat, no deadline. With no section on screen (`visible` false: covered) no deadline is set,
     /// and a fire finding none reads nothing; both wait for ``resumeAging()``; the section stays registered until ``stopAging(_:)``.
     public func startAging(_ owner: AnyObject, visible: @escaping @MainActor () -> Bool) {

@@ -40,11 +40,13 @@ CHECKS = (
     "check:effect-cleanup",
     "check:browser-lanes",
     "check:fixed-waits",
+    "check:whole-list-rows",
     "check:design-tokens",
     "check:ui-review",
     "typecheck",
     "acpmux-protocol:check",
     "check:catalog-keys",
+    "check:catalog-unused",
     "check:popup-hover-reveals",
 )
 LINE_REF = re.compile(r"(\S):\d+(?::\d+)?\b")

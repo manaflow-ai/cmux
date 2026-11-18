@@ -22,14 +22,37 @@ use crate::state::remote_terminal_tabs_store::{
     RemoteTerminalRecord, RemoteTerminalUpdate, read_snapshot, update_remote_terminal,
     write_remote_terminal,
 };
-use crate::workspace_registry::FrontendBrowserRecord;
+use crate::workspace_registry::{FrontendBrowserRecord, PresentationSnapshot};
+
+impl PresentationSnapshot {
+    /// The browser id behind `surface` when it is a remote-terminal tab's
+    /// placeholder.
+    fn remote_terminal_id<'a>(&self, surface: &'a Surface) -> Option<&'a BrowserPublicId> {
+        let ContentPublicId::Browser(id) = &surface.resource_identity()?.content_id else {
+            return None;
+        };
+        self.remote_terminals.contains_key(id.as_str()).then_some(id)
+    }
+
+    /// What a tab shows of `surface`'s title (D2): a terminal's title without
+    /// its status glyphs, a page's as is. A remote-terminal tab is a terminal,
+    /// though its placeholder surface is a browser. The one rule for a tree
+    /// built from the daemon's state; `list-workspaces` applies the same rule
+    /// by the tab's kind (`TabTitle::of_kind` in `server/tree_json.rs`).
+    pub fn shown_title(&self, surface: &Surface) -> crate::TabTitle {
+        let raw = surface.title();
+        if matches!(surface, Surface::Pty(_)) || self.remote_terminal_id(surface).is_some() {
+            crate::TabTitle::terminal(&raw)
+        } else {
+            crate::TabTitle::page(&raw)
+        }
+    }
+}
 
 impl Mux {
     /// The browser id behind a remote-terminal tab's placeholder surface.
     pub(crate) fn remote_terminal_id(&self, surface: &Surface) -> Option<BrowserPublicId> {
-        let identity = surface.resource_identity()?;
-        let ContentPublicId::Browser(id) = &identity.content_id else { return None };
-        self.presentation_snapshot().remote_terminals.contains_key(id.as_str()).then(|| id.clone())
+        self.presentation_snapshot().remote_terminal_id(surface).cloned()
     }
 
     fn require_remote_terminal_id(&self, surface: SurfaceId) -> anyhow::Result<BrowserPublicId> {
@@ -101,8 +124,10 @@ impl Mux {
     }
 
     /// Record a remote-terminal tab's title, session name, or text snapshot.
-    /// Title and session name changes are tab changes; a snapshot is stored
-    /// silently.
+    /// A change of the session name or of what the tab shows of its title is
+    /// a tab change. A spinner frame of one text is stored and announces
+    /// nothing, as a local terminal's does (`terminal_title::store`, D2); a
+    /// snapshot is stored silently.
     pub(crate) fn update_remote_terminal_tab(
         &self,
         surface: SurfaceId,
@@ -127,9 +152,11 @@ impl Mux {
             }
             self.publish_journal_event();
             if change.title {
-                self.emit(MuxEvent::TitleChanged { surface, title: Arc::from(title) });
+                self.emit(MuxEvent::terminal_title(surface, Arc::from(title)));
             }
-            self.emit_tab_changed(surface);
+            if change.tab {
+                self.emit_tab_changed(surface);
+            }
         }
         Ok(change)
     }

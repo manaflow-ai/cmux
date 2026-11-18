@@ -3,6 +3,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
+import CmuxNextWindowRules
 
 /// scrolling-column column actions: new column, focus and move left/right, center,
 /// width presets. Widths go through the layout model (one gesture transaction per
@@ -29,27 +30,11 @@ enum ColumnHandlers {
                 ctx.refuse(newRowUnavailableReason(ctx) ?? RefusalStrings.needsDaemonCapability(DaemonCapability.rows.rawValue))
             }
         })
-        registry.bind("column.focusLeft", invoke: { focusAdjacent($0, forward: false, ctx) })
-        registry.bind("column.focusRight", invoke: { focusAdjacent($0, forward: true, ctx) })
-        registry.bind("column.moveLeft", invoke: { move($0, direction: .left, ctx) })
-        registry.bind("column.moveRight", invoke: { move($0, direction: .right, ctx) })
-        registry.bind("column.center", invoke: { invocation in
-            guard let (content, column) = column(invocation, ctx), let pane = column.root.panes.first else { return }
-            let focused = content.layoutModel.focusedPane.flatMap { column.root.contains($0) ? $0 : nil }
-            content.layoutModel.centerColumn(containing: focused ?? pane)
-        })
-        let presets: [(ActionID, ColumnWidthPreset)] = [
-            ("column.widthOneThird", .oneThird), ("column.widthHalf", .half),
-            ("column.widthTwoThirds", .twoThirds), ("column.widthFull", .full),
-        ]
-        for (id, preset) in presets {
-            registry.bind(id, invoke: { invocation in
-                guard let (content, column) = column(invocation, ctx) else { return }
-                setWidth(preset.rawValue, of: column, in: content, ctx)
-            })
+        // Focus, move, center and widths: Rust plans them over the column found here (cmux-window-rules
+        // `chat::column_plan`, whose table names the ids).
+        for id in WindowRules().columnActions()?.planned ?? [] {
+            registry.bind(ActionID(rawValue: id), invoke: { run(id, $0, ctx) })
         }
-        registry.bind("column.cycleWidth", invoke: { cycle($0, forward: true, ctx) })
-        registry.bind("column.cycleWidthBack", invoke: { cycle($0, forward: false, ctx) })
     }
 
     /// Why New Row cannot run now: rows off, or a daemon without rows-v1.
@@ -70,62 +55,75 @@ enum ColumnHandlers {
     /// The targeted column (`column:<id>`), else the targeted or focused
     /// pane's column (a split screen's implicit column).
     static func column(_ invocation: ActionInvocation, _ ctx: AppActionContext) -> (WorkspaceContentController, LayoutColumn)? {
+        target(invocation, ctx).map { ($0.0, $0.2) }
+    }
+
+    /// The one column resolver of the column actions and their availability, with the column's screen and workspace.
+    /// `refusing` (a run): a column or pane named and not shown is refused; availability never refuses and finds a
+    /// targeted pane by its key.
+    static func target(_ invocation: ActionInvocation, _ ctx: AppActionContext, refusing: Bool = true)
+        -> (WorkspaceContentController, LayoutScreen, LayoutColumn)? {
+        let contents = ctx.services.windows.controllers.compactMap(\.content)
         if let target = invocation.target, target.kind == .column {
-            for window in ctx.services.windows.controllers {
-                guard let content = window.content else { continue }
+            for content in contents {
                 for screen in content.layoutModel.screens {
-                    if let column = screen.column(id: CmuxNextLayout.ColumnID(target.id)) { return (content, column) }
+                    if let column = screen.column(id: CmuxNextLayout.ColumnID(target.id)) { return (content, screen, column) }
                 }
             }
-            return ctx.refuse(RefusalStrings.noColumnShown(target.id))
+            return refusing ? ctx.refuse(RefusalStrings.noColumnShown(target.id)) : nil
         }
-        guard let pane = ctx.paneController(invocation), let content = pane.workspace else { return nil }
-        // Every screen is a column strip; a screen stored as one split tree
-        // is its implicit column.
-        guard let column = content.layoutModel.screen(containing: pane.layoutPaneID)?.column(containing: pane.layoutPaneID)
-        else { return nil }
-        return (content, column)
+        let named: PaneController?? = invocation.target.map { target in contents.lazy.compactMap { $0.panes.values.first { pane in
+            target.kind == .pane ? pane.paneKey == target.id : pane.stripModel.tab(StripTabID(target.id)) != nil
+        } }.first } // .some(nil): a pane or tab named and not found has no column, never the focused pane's
+        let pane = refusing ? ctx.paneController(invocation) : named ?? ctx.services.windows.active?.focusedPane
+        guard let pane, let content = pane.workspace, let screen = content.layoutModel.screen(containing: pane.layoutPaneID),
+              let column = screen.column(containing: pane.layoutPaneID) else { return nil }
+        return (content, screen, column)
     }
 
-    private static func setWidth(_ width: Double, of column: LayoutColumn, in content: WorkspaceContentController, _ ctx: AppActionContext) {
-        guard abs(column.width - width) > 0.001 else { return ctx.refuseQuietly(RefusalStrings.columnAlreadyHasWidth) }
-        content.layoutModel.setColumnWidth(column.id, width: width, transaction: .make(), phase: .ended)
+    /// `column` of `screen` as the column rules read it.
+    static func facts(_ column: LayoutColumn, of screen: LayoutScreen) -> WindowRules.ActionColumn {
+        WindowRules.ActionColumn(width: column.width, panes: column.root.panes.map(\.rawValue),
+                                 implicit: column.id == screen.implicitColumnID, docked: column.dock != nil)
     }
 
-    private static func cycle(_ invocation: ActionInvocation, forward: Bool, _ ctx: AppActionContext) {
-        guard let (content, column) = column(invocation, ctx) else { return }
-        setWidth(ColumnWidthPreset.next(after: column.width, forward: forward).rawValue, of: column, in: content, ctx)
-    }
-
-    private static func focusAdjacent(_ invocation: ActionInvocation, forward: Bool, _ ctx: AppActionContext) {
-        guard let (content, column) = column(invocation, ctx), let anchor = column.root.panes.first,
-              let screen = content.layoutModel.screen(containing: anchor) else { return }
-        // The column's active (most recently focused) tile, else its first.
-        guard let next = PaneResize.adjacentColumn(of: anchor, forward: forward, in: screen.layout),
-              let pane = FocusNavigation.mostRecent(next.root.panes, recency: content.recentPanes) ?? next.root.panes.first else {
-            return ctx.refuseQuietly(RefusalStrings.noColumnInDirection(RefusalStrings.direction(forward ? .right : .left)))
+    /// Runs column action `id`: Rust's plan over the column's facts, then the layout model or daemon command.
+    private static func run(_ id: String, _ invocation: ActionInvocation, _ ctx: AppActionContext) {
+        guard let (content, screen, column) = target(invocation, ctx) else { return }
+        let anchor = column.root.panes.first
+        let adjacent = { (forward: Bool) in
+            anchor.flatMap { PaneResize.adjacentColumn(of: $0, forward: forward, in: screen.layout) }?.root.panes.map(\.rawValue)
         }
-        PaneHandlers.focusByKey(pane, in: content, invocation)
-    }
-
-    /// Moves the whole column one place: `move-column` (every pane in it, one
-    /// daemon commit). A daemon without `column-move-v1` still moves a
-    /// one-pane column through `swap-pane`.
-    private static func move(_ invocation: ActionInvocation, direction: PaneDirection, _ ctx: AppActionContext) {
-        guard let (content, column) = column(invocation, ctx), let pane = column.root.panes.first else { return }
-        guard let screen = content.layoutModel.screen(containing: pane),
-              PaneResize.adjacentColumn(of: pane, forward: direction == .right, in: screen.layout) != nil else {
-            return ctx.refuseQuietly(RefusalStrings.columnAtEdge)
-        }
-        guard let handle = content.handles.panes[pane] ?? ctx.refuse(RefusalStrings.paneHasNoDaemonHandle(pane.rawValue)) else { return }
         let daemon = ctx.services.activeDaemon
-        if daemon.supports(DaemonCapability.columnMove.rawValue) {
-            let columnDirection: ColumnMoveDirection = direction == .right ? .right : .left
-            return ctx.send("move-column") { try await $0.moveColumn(of: handle, direction: columnDirection) }
+        let known = WindowRules.ColumnFacts(
+            column: Self.facts(column, of: screen), left: adjacent(false), right: adjacent(true),
+            recent: content.recentPanes.map(\.rawValue), focused: content.layoutModel.focusedPane?.rawValue,
+            columnMove: daemon.supports(DaemonCapability.columnMove.rawValue), handle: anchor.flatMap { content.handles.panes[$0] } != nil)
+        guard let plan = WindowRules().columnPlan(id, known) else { return }
+        switch plan {
+        case .setWidth(let width):
+            content.layoutModel.setColumnWidth(column.id, width: width, transaction: .make(), phase: .ended)
+        case .moveColumn(let right, let pane):
+            guard let handle = content.handles.panes[LayoutPaneID(rawValue: pane)] else { return }
+            ctx.send("move-column") { try await $0.moveColumn(of: handle, direction: right ? ColumnMoveDirection.right : .left) }
+        case .swapPane(let right, let pane):
+            guard let handle = content.handles.panes[LayoutPaneID(rawValue: pane)] else { return }
+            ctx.send("swap-pane") { try await $0.swapPane(handle, with: .direction(right ? PaneDirection.right : .left)) }
+        case .focus(let pane):
+            PaneHandlers.focusByKey(LayoutPaneID(rawValue: pane), in: content, invocation)
+        case .center(let pane):
+            content.layoutModel.centerColumn(containing: LayoutPaneID(rawValue: pane))
+        case .refuse(let refusal, let quiet):
+            let reason = switch refusal {
+            case .alreadyHasWidth: RefusalStrings.columnAlreadyHasWidth
+            case .columnAtEdge: RefusalStrings.columnAtEdge
+            case .noColumnInDirection(let right): RefusalStrings.noColumnInDirection(RefusalStrings.direction(right ? .right : .left))
+            case .needsColumnMove: daemon.missingCapabilityMessage(DaemonCapability.columnMove.rawValue)
+            case .noHandle: RefusalStrings.paneHasNoDaemonHandle(anchor?.rawValue ?? "")
+            }
+            if quiet { ctx.refuseQuietly(reason) } else { ctx.refuse(reason) }
+        case .nothing:
+            return
         }
-        guard column.root.panes.count == 1 else {
-            return ctx.refuse(daemon.missingCapabilityMessage(DaemonCapability.columnMove.rawValue))
-        }
-        ctx.send("swap-pane") { try await $0.swapPane(handle, with: .direction(direction)) }
     }
 }

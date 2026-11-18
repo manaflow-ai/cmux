@@ -204,6 +204,7 @@ async fn a_prompt_cut_by_a_restart_keeps_the_trust_gate_it_came_with() {
         record: dir.join("trust.json"),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     };
     let (hub, mut c) = daemon(&cfg, &dir).await;
     hub.set_trust_gate(Some(gate.clone()));

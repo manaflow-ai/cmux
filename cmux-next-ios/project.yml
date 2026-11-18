@@ -28,6 +28,17 @@ configs:
   # `scripts/testflight-build.sh --config TestFlightStaging`; production
   # (TestFlight) stays the default.
   TestFlightStaging: release
+  # AppStore: the public App Store build, App Store Connect app "cmux" (bundle
+  # com.cmux.app, the record the classic ios/ app used; this app replaces it as
+  # an update). The TestFlight configuration with the production identity:
+  # production Stack project, Worker and Cloud, App Store signing, push and Sign
+  # in with Apple. Built only by `scripts/testflight-build.sh --config AppStore`.
+  # No workflow builds or uploads it yet: the App Store lane for com.cmux.app is
+  # not wired (.github/workflows/ios-app-store.yml and ios-appstore-upload.yml
+  # still build the classic ios/ app). A phone updating from the
+  # classic app keeps its Keychain items and settings: ClassicLeftovers
+  # (CmuxMobileLive) deletes them once at the first launch.
+  AppStore: release
 options:
   bundleIdPrefix: dev.cmux.mobile
   deploymentTarget:
@@ -85,6 +96,15 @@ settings:
     # checks its own signed entitlements, PushAppGroup.swift).
     CMUX_MOBILE_APP_GROUP_ID_YES: group.$(CMUX_MOBILE_APP_BUNDLE_ID)
     CMUX_MOBILE_APP_GROUP_ID_NO: ""
+    # Whether the App Store distribution configurations (TestFlight,
+    # TestFlightStaging, AppStore) claim cmux's universal links
+    # (com.apple.developer.associated-domains, the *-Links entitlements). Only
+    # a profile whose App ID has the Associated Domains capability can sign
+    # it, and signing fails with an entitlement the profile lacks, so it is
+    # off here; scripts/testflight-build.sh passes YES when the downloaded
+    # profile carries it. Neither dev.cmux.app.internal nor com.cmux.app has
+    # the capability yet (verify/deep-links.md).
+    CMUX_MOBILE_ASSOCIATED_DOMAINS: "NO"
     # App Store profiles (by name) the TestFlight configurations sign with;
     # testflight-build.sh passes the downloaded profiles' UUIDs instead.
     CMUX_MOBILE_APP_PROFILE: cmux Internal Distribution
@@ -132,6 +152,23 @@ settings:
       CMUX_MOBILE_API_BASE: $(CMUX_MOBILE_STAGING_API_BASE)
       CMUX_MOBILE_CLOUD_API_BASE: $(CMUX_MOBILE_STAGING_CLOUD_API_BASE)
       CMUX_MOBILE_STACK_ENVIRONMENT: development
+    AppStore:
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: CMUX_MOBILE_PRODUCTION CMUX_MOBILE_APPSTORE
+      SWIFT_OPTIMIZATION_LEVEL: -O
+      CMUX_MOBILE_TAG: ""
+      # The extensions are com.cmux.app.notification-content and
+      # com.cmux.app.notification-service; the Keychain groups are
+      # 7WLXT3NR37.com.cmux.app (the default, the classic app's too) and
+      # 7WLXT3NR37.com.cmux.app.push; the App Group (when on) is group.com.cmux.app.
+      CMUX_MOBILE_APP_BUNDLE_ID: com.cmux.app
+      CMUX_MOBILE_DISPLAY_NAME: cmux
+      # The version is the base MARKETING_VERSION above: the review package
+      # (cmux-next-ios/AppStoreReview/metadata/version/<MARKETING_VERSION>) is named for it.
+      CMUX_MOBILE_API_BASE: $(CMUX_MOBILE_PROD_API_BASE)
+      CMUX_MOBILE_CLOUD_API_BASE: $(CMUX_MOBILE_PROD_CLOUD_API_BASE)
+      CMUX_MOBILE_APP_PROFILE: cmux App Store CI
+      CMUX_MOBILE_CONTENT_EXTENSION_PROFILE: cmux App Store CI Notification Content
+      CMUX_MOBILE_SERVICE_EXTENSION_PROFILE: cmux App Store CI Notification Service
 packages:
   CmuxMobileKit:
     path: CmuxMobileKit
@@ -177,11 +214,19 @@ targets:
         CMUX_MOBILE_ENTITLEMENTS_NO: App/CmuxMobileApp-Keychain.entitlements
         CMUX_MOBILE_ENTITLEMENTS_YES: App/CmuxMobileApp-Group.entitlements
         CODE_SIGN_ENTITLEMENTS: $(CMUX_MOBILE_ENTITLEMENTS_$(CMUX_MOBILE_APP_GROUP))
-        # Simulator builds also claim cmux's universal links (associated domains). Device
-        # builds do not until the App IDs have the Associated Domains capability and
-        # their profiles include it: the team wildcard profile cannot carry it, and
-        # dev.cmux.app.internal does not have it yet (verify/deep-links.md).
+        # Simulator builds also claim cmux's universal links (associated domains).
+        # Device builds do only when their profile includes the Associated Domains
+        # capability: the team wildcard profile cannot carry it, and the App Store
+        # distribution configurations take it with CMUX_MOBILE_ASSOCIATED_DOMAINS=YES
+        # (verify/deep-links.md).
         "CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]": App/CmuxMobileApp-Simulator.entitlements
+        # The App Store distribution configurations' entitlements, by
+        # CMUX_MOBILE_ASSOCIATED_DOMAINS (above): the *-Links files add the
+        # universal links to the same set.
+        CMUX_MOBILE_DISTRIBUTION_ENTITLEMENTS_NO: App/CmuxMobileApp-TestFlight.entitlements
+        CMUX_MOBILE_DISTRIBUTION_ENTITLEMENTS_YES: App/CmuxMobileApp-TestFlight-Links.entitlements
+        CMUX_MOBILE_DISTRIBUTION_GROUP_ENTITLEMENTS_NO: App/CmuxMobileApp-TestFlight-Group.entitlements
+        CMUX_MOBILE_DISTRIBUTION_GROUP_ENTITLEMENTS_YES: App/CmuxMobileApp-TestFlight-Links-Group.entitlements
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1"
         # App/Info.plist (generated by xcodegen from `info:` below) is the
@@ -210,8 +255,8 @@ targets:
           # Push (production APNs), Sign in with Apple, and its own keychain
           # group. The "cmux Internal Distribution" App Store profile
           # authorizes each key; testflight-build.sh signs manually with it.
-          CMUX_MOBILE_ENTITLEMENTS_NO: App/CmuxMobileApp-TestFlight.entitlements
-          CMUX_MOBILE_ENTITLEMENTS_YES: App/CmuxMobileApp-TestFlight-Group.entitlements
+          CMUX_MOBILE_ENTITLEMENTS_NO: $(CMUX_MOBILE_DISTRIBUTION_ENTITLEMENTS_$(CMUX_MOBILE_ASSOCIATED_DOMAINS))
+          CMUX_MOBILE_ENTITLEMENTS_YES: $(CMUX_MOBILE_DISTRIBUTION_GROUP_ENTITLEMENTS_$(CMUX_MOBILE_ASSOCIATED_DOMAINS))
           CMUX_MOBILE_PUSH: "YES"
           CMUX_MOBILE_APPLE_SIGN_IN: "YES"
           CODE_SIGN_STYLE: Manual
@@ -221,8 +266,20 @@ targets:
           # Push (production APNs), Sign in with Apple, and its own keychain
           # group. The "cmux Internal Distribution" App Store profile
           # authorizes each key; testflight-build.sh signs manually with it.
-          CMUX_MOBILE_ENTITLEMENTS_NO: App/CmuxMobileApp-TestFlight.entitlements
-          CMUX_MOBILE_ENTITLEMENTS_YES: App/CmuxMobileApp-TestFlight-Group.entitlements
+          CMUX_MOBILE_ENTITLEMENTS_NO: $(CMUX_MOBILE_DISTRIBUTION_ENTITLEMENTS_$(CMUX_MOBILE_ASSOCIATED_DOMAINS))
+          CMUX_MOBILE_ENTITLEMENTS_YES: $(CMUX_MOBILE_DISTRIBUTION_GROUP_ENTITLEMENTS_$(CMUX_MOBILE_ASSOCIATED_DOMAINS))
+          CMUX_MOBILE_PUSH: "YES"
+          CMUX_MOBILE_APPLE_SIGN_IN: "YES"
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Apple Distribution
+          PROVISIONING_PROFILE_SPECIFIER: $(CMUX_MOBILE_APP_PROFILE)
+        AppStore:
+          # The TestFlight entitlements: every value comes from the bundle id
+          # (push, Time Sensitive notifications, Sign in with Apple,
+          # $(AppIdentifierPrefix)com.cmux.app and the .push group; the
+          # universal links only with CMUX_MOBILE_ASSOCIATED_DOMAINS=YES), signed with the "cmux App Store CI" profile (scripts/asc_ensure_signing.py makes it).
+          CMUX_MOBILE_ENTITLEMENTS_NO: $(CMUX_MOBILE_DISTRIBUTION_ENTITLEMENTS_$(CMUX_MOBILE_ASSOCIATED_DOMAINS))
+          CMUX_MOBILE_ENTITLEMENTS_YES: $(CMUX_MOBILE_DISTRIBUTION_GROUP_ENTITLEMENTS_$(CMUX_MOBILE_ASSOCIATED_DOMAINS))
           CMUX_MOBILE_PUSH: "YES"
           CMUX_MOBILE_APPLE_SIGN_IN: "YES"
           CODE_SIGN_STYLE: Manual
@@ -295,8 +352,9 @@ targets:
           UIColorName: LaunchBackground
           UIImageName: LaunchMark
           UIImageRespectsSafeAreaInsets: false
-        # Portrait, but a shared Mac screen turns with the phone (CmuxMobileAppDelegate,
-        # ScreenSharingOrientation): the delegate allows landscape only there.
+        # Portrait on a phone's screen, but a shared Mac screen and an unfolded foldable's
+        # screen turn (CmuxMobileAppDelegate, ScreenSharingOrientation): the delegate allows
+        # landscape only there.
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
@@ -341,6 +399,10 @@ targets:
           CODE_SIGN_IDENTITY: Apple Distribution
           PROVISIONING_PROFILE_SPECIFIER: $(CMUX_MOBILE_CONTENT_EXTENSION_PROFILE)
         TestFlightStaging:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Apple Distribution
+          PROVISIONING_PROFILE_SPECIFIER: $(CMUX_MOBILE_CONTENT_EXTENSION_PROFILE)
+        AppStore:
           CODE_SIGN_STYLE: Manual
           CODE_SIGN_IDENTITY: Apple Distribution
           PROVISIONING_PROFILE_SPECIFIER: $(CMUX_MOBILE_CONTENT_EXTENSION_PROFILE)
@@ -399,6 +461,10 @@ targets:
           CODE_SIGN_IDENTITY: Apple Distribution
           PROVISIONING_PROFILE_SPECIFIER: $(CMUX_MOBILE_SERVICE_EXTENSION_PROFILE)
         TestFlightStaging:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Apple Distribution
+          PROVISIONING_PROFILE_SPECIFIER: $(CMUX_MOBILE_SERVICE_EXTENSION_PROFILE)
+        AppStore:
           CODE_SIGN_STYLE: Manual
           CODE_SIGN_IDENTITY: Apple Distribution
           PROVISIONING_PROFILE_SPECIFIER: $(CMUX_MOBILE_SERVICE_EXTENSION_PROFILE)

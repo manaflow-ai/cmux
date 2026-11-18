@@ -49,4 +49,28 @@ import Testing
         if stillOpen { kill(pid, SIGKILL) }
         await connection.close()
     }
+
+    /// A handshake deadline (a Cloud carrier connection's cold dial) outlasts the request deadline: the
+    /// unanswered `identify` fails only once the handshake's own deadline passed.
+    @Test func theHandshakeWaitsItsOwnDeadline() async throws {
+        #expect(DaemonConnectionConfiguration(requestTimeout: .seconds(30)).handshakeDeadline == .seconds(30))
+        let pidFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-handshake-deadline-\(UUID().uuidString)").path
+        defer { try? FileManager.default.removeItem(atPath: pidFile) }
+        let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", Self.script, pidFile])
+        var configuration = DaemonConnectionConfiguration(requiredCapabilities: [], requestTimeout: .milliseconds(100),
+                                                          spawnTimeout: .seconds(2), terminalEnvironment: nil)
+        configuration.handshakeTimeout = .milliseconds(1500)
+        #expect(configuration.handshakeDeadline == .milliseconds(1500))
+        let connection = DaemonConnection(
+            endpoint: .init(socketPath: "/tmp/cmux-handshake-deadline-\(UUID().uuidString).sock", bridge: bridge),
+            configuration: configuration)
+        let started = ContinuousClock.now
+        do {
+            try await connection.start()
+            Issue.record("a handshake with no identify reply started")
+        } catch {}
+        #expect(ContinuousClock.now - started >= .seconds(1), "the handshake gave up at the request deadline")
+        await connection.close()
+    }
 }

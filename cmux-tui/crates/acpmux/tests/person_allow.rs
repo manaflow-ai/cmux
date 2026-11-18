@@ -1586,5 +1586,230 @@ async fn machine_consent_status_is_required_for_joined_or_unreadable_state() {
     assert_eq!(view["consent"]["screen"], "none", "unreadable state fails closed");
 }
 
+/// A platform stand-in on loopback for the tunnel methods: each request's first line, its
+/// lower-cased headers and body, answered as the platform would.
+async fn tunnel_platform()
+-> (String, std::sync::Arc<std::sync::Mutex<Vec<(String, String, Value)>>>) {
+    use tokio::io::AsyncReadExt;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let log = seen.clone();
+    tokio::spawn(async move {
+        while let Ok((mut stream, _)) = listener.accept().await {
+            let mut buffer = Vec::new();
+            let mut chunk = [0u8; 4096];
+            let head_end = loop {
+                let n = stream.read(&mut chunk).await.unwrap_or(0);
+                if n == 0 {
+                    break None;
+                }
+                buffer.extend_from_slice(&chunk[..n]);
+                if let Some(at) = buffer.windows(4).position(|w| w == b"\r\n\r\n") {
+                    break Some(at + 4);
+                }
+            };
+            let Some(head_end) = head_end else { continue };
+            let head = String::from_utf8_lossy(&buffer[..head_end]).to_ascii_lowercase();
+            let length: usize = head
+                .lines()
+                .find_map(|l| l.strip_prefix("content-length:").and_then(|v| v.trim().parse().ok()))
+                .unwrap_or(0);
+            while buffer.len() < head_end + length {
+                let n = stream.read(&mut chunk).await.unwrap_or(0);
+                if n == 0 {
+                    break;
+                }
+                buffer.extend_from_slice(&chunk[..n]);
+            }
+            let body: Value = serde_json::from_slice(&buffer[head_end..]).unwrap_or(Value::Null);
+            let line = head.lines().next().unwrap_or_default().to_owned();
+            // One key's answer is lost on the way (a gateway timeout): the test's failed recovery.
+            let lost = {
+                use base64::Engine as _;
+                let public =
+                    x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::from([6u8; 32]));
+                base64::engine::general_purpose::STANDARD.encode(public.to_bytes())
+            };
+            let reply = if line.starts_with("get /v1/host/network/target ") {
+                json!({"team": "team_test", "mesh": "mesh_test", "ipv4_cidr": "10.64.0.0/16"})
+            } else if line.contains("/wg-key ") && body["wgPublicKey"] == lost.as_str() {
+                json!({"code": "test.gateway_timeout", "message": "lost"})
+            } else if line.contains("/wg-key ") {
+                json!({"machineId": "machine_test", "joinTokenId": "join_test", "teamId": "team_test",
+                       "wgPublicKey": body["wgPublicKey"]})
+            } else if line.contains("/v1/mesh/nodes/machine_test/") {
+                json!({"tunnel_id": "machine_test", "network_id": "team_test", "client_public_key": "k"})
+            } else {
+                json!({"code": "test.unknown", "message": "not this test's route"})
+            };
+            let status = match reply.get("code").and_then(Value::as_str) {
+                Some("test.gateway_timeout") => 504,
+                Some(_) => 404,
+                None => 200,
+            };
+            // Only the tunnel routes: the daemon's own join-record work (a vault pull as the
+            // machine) is not this test's.
+            if line.contains(" /v1/mesh/nodes/") || line.contains("/wg-key ") {
+                log.lock().unwrap().push((line, head, body));
+            }
+            let text = reply.to_string();
+            let response = format!(
+                "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{text}",
+                text.len()
+            );
+            let _ = stream.write_all(response.as_bytes()).await;
+        }
+    });
+    (origin, seen)
+}
+
+/// The tunnel methods carry the person's cmux token: a shell on the unix socket is refused
+/// before anything reaches the platform; the app's person-proved connection attaches this Mac
+/// and rekeys it, and the key file then holds the key the platform took.
+#[tokio::test]
+async fn only_the_person_moves_this_macs_cloud_tunnel() {
+    use std::os::unix::fs::PermissionsExt;
+    let (origin, seen) = tunnel_platform().await;
+    let daemon = Daemon::start("tunnel", Some(KEY));
+    let path = daemon.dir.join("machine-credential.json");
+    std::fs::write(&path, json!({"credential":"cmm_test","machine_id":"machine_test","team_id":"team_test","name":"test","hub_origin":origin,"last_heartbeat":null,"revoked":false,"wgPublicKey":"old"}).to_string()).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    // The app names its own platform origin with every call; the token goes only there.
+    let token = json!({"token": "person-token", "platformOrigin": origin});
+    let mut shell = Rpc::connect(&daemon.socket).await;
+    shell.initialize().await;
+    for method in [
+        "_acpmux/machine.tunnel.attach",
+        "_acpmux/machine.tunnel.detach",
+        "_acpmux/machine.tunnel.rekey",
+    ] {
+        let refused = shell.call(method, token.clone()).await;
+        assert_eq!(reason(&refused), REASON, "{method}: {refused}");
+    }
+    assert!(seen.lock().unwrap().is_empty(), "a refused call reached the platform");
+
+    let mut app = Rpc::person(&daemon.socket, KEY).await;
+    let missing = app.call("_acpmux/machine.tunnel.attach", json!({})).await;
+    assert_eq!(reason(&missing), "token_required", "{missing}");
+    // A join record rewritten to name another host (any process of this user can write it)
+    // gets no token: the call is refused before any request, to that host or the app's.
+    let (substitute, substitute_seen) = tunnel_platform().await;
+    let joined = std::fs::read_to_string(&path).unwrap();
+    std::fs::write(&path, joined.replace(&origin, &substitute)).unwrap();
+    for method in [
+        "_acpmux/machine.tunnel.attach",
+        "_acpmux/machine.tunnel.detach",
+        "_acpmux/machine.tunnel.rekey",
+    ] {
+        let refused = app.call(method, token.clone()).await;
+        assert_eq!(reason(&refused), "machine.origin_untrusted", "{method}: {refused}");
+    }
+    assert!(substitute_seen.lock().unwrap().is_empty(), "the substituted host got a request");
+    assert!(seen.lock().unwrap().is_empty(), "a refused call reached the platform");
+    // No origin named by the app: refused the same way.
+    let unnamed = app.call("_acpmux/machine.tunnel.attach", json!({"token": "person-token"})).await;
+    assert_eq!(reason(&unnamed), "machine.origin_untrusted", "{unnamed}");
+    std::fs::write(&path, joined).unwrap();
+    // A rekey whose answer was lost left its candidate key behind.
+    use base64::Engine as _;
+    let public_of = |key: [u8; 32]| {
+        let public = x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::from(key));
+        base64::engine::general_purpose::STANDARD.encode(public.to_bytes())
+    };
+    let pending = daemon.dir.join("node.wg.pending");
+    let leave_pending = |key: [u8; 32]| {
+        std::fs::write(&pending, key).unwrap();
+        std::fs::set_permissions(&pending, std::fs::Permissions::from_mode(0o600)).unwrap();
+    };
+    let node_before = std::fs::read(daemon.dir.join("node.wg.key")).ok();
+    // Its second try is lost too: the attach fails rather than reading as attached.
+    leave_pending([6u8; 32]);
+    let unfinished = app.call("_acpmux/machine.tunnel.attach", token.clone()).await;
+    assert_eq!(reason(&unfinished), "indeterminate", "{unfinished}");
+    let tried = std::mem::take(&mut *seen.lock().unwrap());
+    assert_eq!(tried.len(), 1, "no attach after a failed recovery: {tried:?}");
+    assert!(tried[0].0.contains("/wg-key "), "{}", tried[0].0);
+    assert_eq!(std::fs::read(&pending).unwrap(), [6u8; 32], "the candidate still waits");
+    assert_eq!(std::fs::read(daemon.dir.join("node.wg.key")).ok(), node_before);
+    leave_pending([5u8; 32]);
+    // Another team's network is refused before the pending rekey is finished.
+    let mismatch = app
+        .call(
+            "_acpmux/machine.tunnel.attach",
+            json!({"token": "person-token", "platformOrigin": origin, "networkId": "team_other"}),
+        )
+        .await;
+    assert_eq!(reason(&mismatch), "network_mismatch", "{mismatch}");
+    assert!(mismatch.to_string().contains("team_test"), "it names the id it takes: {mismatch}");
+    assert!(seen.lock().unwrap().is_empty(), "a mismatched attach reached the platform");
+    assert_eq!(std::fs::read(&pending).unwrap(), [5u8; 32], "the candidate waits");
+    assert_eq!(std::fs::read(daemon.dir.join("node.wg.key")).ok(), node_before);
+    // No network id is the team's own: the pending key goes to the platform and into place first.
+    let attached = app.ok("_acpmux/machine.tunnel.attach", token.clone()).await;
+    assert_eq!(attached["tunnel_id"], "machine_test");
+    let candidate = public_of([5u8; 32]);
+    assert_eq!(attached["pendingRekey"], json!({"finished": true, "wgPublicKey": candidate}));
+    assert!(!pending.exists());
+    let rekeyed = app.ok("_acpmux/machine.tunnel.rekey", token.clone()).await;
+    let new_key = rekeyed["wgPublicKey"].as_str().unwrap().to_owned();
+    assert_ne!(new_key, candidate);
+    assert_eq!(rekeyed["restarted"], false, "no WireGuard transport runs in this daemon");
+    let requests = seen.lock().unwrap().clone();
+    assert_eq!(requests.len(), 3, "{requests:?}");
+    for (index, route) in [
+        "post /v1/machines/credentials/machine_test/wg-key ",
+        "post /v1/mesh/nodes/machine_test/attach ",
+        "post /v1/machines/credentials/machine_test/wg-key ",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        assert!(requests[index].0.starts_with(route), "{}", requests[index].0);
+    }
+    assert_eq!(requests[0].2["wgPublicKey"], candidate.as_str());
+    assert_eq!(requests[2].2["wgPublicKey"], new_key.as_str());
+    // What `cmux cloud network-list` lists (cmux-cloud-api's `vm.networks`, from the platform's
+    // network target) is the id both take: detach, then attach again.
+    let (list, tail) = cmux_cloud_api::parse(
+        json!({"call": "vm.networks", "api": origin, "auth": "worker", "credential": "install"})
+            .to_string()
+            .as_bytes(),
+    )
+    .unwrap();
+    let listed = cmux_cloud_api::perform(&list, tail).await.unwrap();
+    assert_eq!(listed.as_array().map(Vec::len), Some(1), "{listed}");
+    let network = listed[0]["id"].clone();
+    let team = json!({"token": "person-token", "platformOrigin": origin, "networkId": network});
+    let detached = app.ok("_acpmux/machine.tunnel.detach", team.clone()).await;
+    assert_eq!(detached["tunnel_id"], "machine_test");
+    let attached = app.ok("_acpmux/machine.tunnel.attach", team).await;
+    assert_eq!(attached["tunnel_id"], "machine_test");
+    assert!(attached.get("pendingRekey").is_none(), "no pending key was left");
+    let requests = seen.lock().unwrap().clone();
+    assert!(
+        requests[3].0.starts_with("post /v1/mesh/nodes/machine_test/detach "),
+        "{}",
+        requests[3].0
+    );
+    assert!(
+        requests[4].0.starts_with("post /v1/mesh/nodes/machine_test/attach "),
+        "{}",
+        requests[4].0
+    );
+    for (_, headers, _) in &requests {
+        assert!(headers.contains("authorization: bearer person-token"), "{headers}");
+        assert!(headers.contains("x-cmux-team: team_test"), "{headers}");
+    }
+    let key = std::fs::read(daemon.dir.join("node.wg.key")).unwrap();
+    assert_eq!(public_of(key.try_into().unwrap()), new_key);
+    let record: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(record["wgPublicKey"], new_key.as_str());
+    assert!(
+        !std::fs::read_to_string(&path).unwrap().contains("person-token"),
+        "the token was stored"
+    );
+}
+
 #[path = "support/machine_consent_home.rs"]
 mod machine_consent_home;

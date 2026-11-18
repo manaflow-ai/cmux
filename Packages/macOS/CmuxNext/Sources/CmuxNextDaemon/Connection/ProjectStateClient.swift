@@ -10,26 +10,6 @@ public struct ProjectStateClient: Sendable {
         self.connection = connection
     }
 
-    /// `source` reports `entries` (`{path, last_used_ms}`, the time a decimal
-    /// string); with `complete`, they are everything the source lists.
-    public func observe(source: String, entries: [JSONValue], complete: Bool, idempotencyKey: String) async throws {
-        _ = try await connection.resourceRequest({ id in
-            ResourceRequestEnvelope(id: id, operation: "project.observe",
-                                    params: ["source": .string(source), "entries": .array(entries), "complete": .bool(complete)],
-                                    idempotencyKey: idempotencyKey)
-        }, as: ResourceMutationResult<JSONValue>.self)
-    }
-
-    /// App launch or activation: the folders the app checked (`existing`,
-    /// `gone`); the daemon also rereads the editor sources.
-    public func sync(existing: [String], gone: [String], idempotencyKey: String) async throws {
-        _ = try await connection.resourceRequest({ id in
-            ResourceRequestEnvelope(id: id, operation: "project.sync",
-                                    params: ["existing": .array(existing.map(JSONValue.string)), "gone": .array(gone.map(JSONValue.string))],
-                                    idempotencyKey: idempotencyKey)
-        }, as: ResourceMutationResult<JSONValue>.self)
-    }
-
     /// The listed folders (`project.list`): pinned first, then by last use,
     /// hidden ones and folders gone from disk (`state: missing`) left out;
     /// `query` filters by path or name, a leading `~` read as `home`. A reply
@@ -73,6 +53,18 @@ public struct ProjectStateClient: Sendable {
     public func add(path: String, idempotencyKey: String) async throws {
         _ = try await connection.resourceRequest({ id in
             ResourceRequestEnvelope(id: id, operation: "project.add", params: ["path": .string(path)],
+                                    idempotencyKey: idempotencyKey)
+        }, as: ResourceMutationResult<JSONValue>.self)
+    }
+
+    /// Saves the project's worktree recipe (`project.update` `worktree`). With `keepSaved`, the
+    /// daemon leaves a recipe the project already has as it is.
+    public func saveWorktreeRecipe(path: String, worktree: JSONValue, keepSaved: Bool = false,
+                                   idempotencyKey: String) async throws {
+        let params: [String: JSONValue] = ["path": .string(path), "worktree": worktree]
+            .merging(keepSaved ? ["keep_saved_worktree": .bool(true)] : [:]) { _, new in new }
+        _ = try await connection.resourceRequest({ id in
+            ResourceRequestEnvelope(id: id, operation: "project.update", params: params,
                                     idempotencyKey: idempotencyKey)
         }, as: ResourceMutationResult<JSONValue>.self)
     }

@@ -5,11 +5,10 @@ edition = "2024"
 rust-version = "1.91"
 license = "GPL-3.0-or-later"
 publish = false
+# In cmux-app-ffi's workspace (its Cargo.lock), outside cmux-tui's.
+workspace = "../cmux-app-ffi"
 description = "A thin C ABI over the cmux SDK's daemon client (cmux-tui/bindings/rust), the client the cmux CLI uses: connect, call, command, subscribe"
 
-# Own workspace, like the other crates cmux-app-ffi links: built for the app
-# xcframework (scripts/cmux-next/build-app-ffi.sh) and tested on its own.
-[workspace]
 
 [lib]
 crate-type = ["staticlib", "rlib"]
@@ -27,9 +26,3 @@ cbindgen = { version = "=0.29.2", default-features = false }
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 unused_qualifications = "warn"
-
-[profile.release]
-opt-level = 3
-codegen-units = 1
-debug = false
-strip = "debuginfo"

@@ -7,37 +7,31 @@ use super::*;
 #[path = "agent_session_shares.rs"]
 pub(super) mod shares;
 
-/// A teammate's verbs: the shared chat's own, never start, trust, media, children, permission,
-/// typing or view, whatever the proxy forwards.
-const TEAMMATE_VERBS: [&str; 6] = [
+// The verbs of a teammate, a talking guest and a viewer: one source with acpmux's Cloud carrier
+// rules (`cmux_agent_pane_policy::share_roles`).
+use cmux_agent_pane_policy::share_roles::{GUEST_VERBS, TEAMMATE_VERBS, VIEWER_VERBS};
+
+/// A Cloud team member on a teammate's team machine (`member.rs`): the chat's own verbs, its
+/// steer, typing and view. Never start, trust, media, children, permission, a queue decision,
+/// a setting or the owner's sign-in. Its prompts steer like the owner's and are never held.
+const MEMBER_VERBS: [&str; 8] = [
     "agent-session-attach",
-    "agent-session-observe",
     "agent-session-events",
     "agent-session-prompt",
     "agent-session-cancel",
-    "agent-session-detach",
-];
-/// A guest invited with `talk` (a signed-in account): watch and write (every prompt held for the
-/// owner), its typing and view. A guest who joined by the link alone gets `VIEWER_VERBS`.
-/// Never cancel, permission, children or media. An attach is the guest's writable observe.
-const GUEST_VERBS: [&str; 7] = [
-    "agent-session-attach",
-    "agent-session-observe",
-    "agent-session-events",
-    "agent-session-prompt",
     "agent-session-typing",
     "agent-session-view",
     "agent-session-detach",
+    "agent-session-permission",
 ];
 
-/// An invitee with the `view` role: watch only (no prompt, no typing).
-const VIEWER_VERBS: [&str; 5] = [
-    "agent-session-attach",
-    "agent-session-observe",
-    "agent-session-events",
-    "agent-session-view",
-    "agent-session-detach",
-];
+/// Whether `author` is a Cloud team member's (`user_<id>`, named by its signed link token).
+pub(super) fn is_member(author: &Value) -> bool {
+    author["id"].as_str().is_some_and(|id| id.starts_with(MEMBER_PREFIX))
+}
+
+/// The id prefix of a Cloud account (cmux-platform `userIdFor`), as acpmux's author takes it.
+pub(super) const MEMBER_PREFIX: &str = "user_";
 
 /// Whether `author` is a link guest's (`guest:<share_id>.<guest_id>`).
 pub(super) fn is_guest(author: &Value) -> bool {
@@ -64,9 +58,12 @@ pub(super) fn scope(
     let cmd = object.get("cmd").and_then(Value::as_str).unwrap_or_default().to_owned();
     if let Some(author) = author {
         let guest = is_guest(author);
+        // `agent-session-permission` is in the member's list only so it is answered
+        // `agent_session.owner_only` (`run_on_worker`), not a bare not-trusted.
         let verbs: &[&str] = match (guest, shares::view_only(author)) {
             (true, true) => &VIEWER_VERBS,
             (true, false) => &GUEST_VERBS,
+            (false, _) if is_member(author) => &MEMBER_VERBS,
             (false, _) => &TEAMMATE_VERBS,
         };
         if !verbs.contains(&cmd.as_str()) {
@@ -219,6 +216,7 @@ pub(super) fn session_of(
     if bound
         || (!mux.control_clients.is_unix(client) || mux.is_remote_client(client))
             && !mux.cloud_mobile_client(client)
+            && !mux.is_native_agent_owner(client)
     {
         return refuse(writer, id, Refusal::NotTrusted);
     }
@@ -504,6 +502,9 @@ mod tests {
                 "_host_author":author, "_host_session":SESSION}),
             json!({"cmd":"agent-session-context", "surface":surface, "op":"set", "scope":"user", "text":"edit",
                 "_host_author":author, "_host_session":SESSION}),
+            // A side question approves reads on the owner's machine: the owner's alone.
+            json!({"cmd":"agent-session-btw", "surface":surface, "question":"why?",
+                "_host_author":author, "_host_session":SESSION}),
             json!({"cmd":"agent-session-typing", "surface":surface, "on":true,
                 "_host_author":author, "_host_session":SESSION}),
             json!({"cmd":"agent-session-view", "surface":surface, "visible":true,
@@ -580,9 +581,14 @@ mod tests {
             json!({"cmd":"agent-session-start", "cwd":"/tmp"}),
             json!({"cmd":"agent-session-media", "media_id":"m1"}),
             json!({"cmd":"agent-session-children"}),
+            // A fork and a side chat are the owner's.
+            json!({"cmd":"agent-session-fork", "through_seq":1}),
+            json!({"cmd":"agent-session-side", "live":true}),
+            json!({"cmd":"agent-session-side", "live":true, "prompt":"x", "prompt_id":"p"}),
             json!({"cmd":"agent-session-permission", "permission_id":"perm_attach", "option_id":"allow"}),
             json!({"cmd":"agent-session-typing", "on":true}),
             json!({"cmd":"agent-session-view", "visible":true}),
+            json!({"cmd":"agent-session-btw", "question":"why?"}),
         ] {
             let reply = client.request(pinned(frame.clone()));
             assert_code(&reply, "agent_session.not_trusted");

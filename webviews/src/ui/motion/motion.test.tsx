@@ -8,6 +8,7 @@ import { DepthLayer } from "./DepthLayer";
 import { motionMode } from "./motionMode";
 import { SlidingIndicator } from "./SlidingIndicator";
 import { swapFrames, ViewSwap } from "./ViewSwap";
+import { settleReact } from "../../../test/support/domTeardown";
 
 // The ui/motion primitives: the selection and the new view are there on the click, and the motion is
 // transform (or opacity, clip) only, finite, and off under Reduce Motion or motion off.
@@ -63,6 +64,7 @@ afterEach(async () => {
   root = undefined;
   played = [];
   animations = [];
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -364,7 +366,7 @@ test("a control that is both revealed and hover-filled keeps both fades", () => 
   };
   // The fill names its fade; the reveal's in and out durations ride one property the shown state sets.
   expect(body(".ui-hover-fill")).toContain("--ui-fill-transition:");
-  expect(body(".ui-reveal")).toMatch(/transition: opacity var\(--ui-reveal-ms\)/);
+  expect(body(".ui-reveal")).toMatch(/transition: opacity var\(--ui-reveal-ms\) var\(--ui-reveal-ease\)/);
   const both = body(".ui-reveal.ui-hover-fill");
   expect(both).toMatch(/opacity var\(--ui-reveal-ms\)/);
   expect(both).toContain("var(--ui-fill-transition)");

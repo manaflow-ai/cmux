@@ -78,6 +78,9 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// terminals, agents and running turns across the app relaunch. The flag applies to automatic
     /// installs too; a staged update must never wait behind live work on that host.
     var holdsUserInstalls = true
+    /// Bytes the download in progress received. Sparkle reports each network chunk (thousands a
+    /// second, on the main thread); the model hears of them only when the shown percent changes.
+    private var downloadedBytes: UInt64 = 0
     /// The update Sparkle's own silent driver staged (`willInstallUpdateOnQuit`), which never
     /// reaches ``backgroundItem``; read only while its "Restart to Complete Update" state holds.
     var quitInstallItem: SUAppcastItem?
@@ -235,6 +238,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     func showDownloadInitiated(cancellation: @escaping () -> Void) {
         log.append("show download initiated")
+        downloadedBytes = 0
         setState(.downloading(.init(
             cancel: { [weak self] in
                 cancellation()
@@ -251,6 +255,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         guard case let .downloading(downloading) = model.state else {
             return
         }
+        downloadedBytes = 0
         setState(.downloading(.init(
             cancel: downloading.cancel,
             expectedLength: expectedContentLength,
@@ -258,14 +263,25 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     }
 
     func showDownloadDidReceiveData(ofLength length: UInt64) {
-        log.append("download received data: \(length)")
         guard case let .downloading(downloading) = model.state else {
+            return
+        }
+        downloadedBytes = max(downloadedBytes, downloading.progress) &+ length
+        let step = Self.downloadStep(bytes: downloadedBytes, expected: downloading.expectedLength)
+        let complete = downloading.expectedLength.map { downloadedBytes >= $0 } ?? false
+        guard complete || step != Self.downloadStep(bytes: downloading.progress, expected: downloading.expectedLength) else {
             return
         }
         setState(.downloading(.init(
             cancel: downloading.cancel,
             expectedLength: downloading.expectedLength,
-            progress: downloading.progress + length)))
+            progress: downloadedBytes)))
+    }
+
+    /// The download's shown step: its whole percent, or each MiB while the length is unknown.
+    static func downloadStep(bytes: UInt64, expected: UInt64?) -> UInt64 {
+        guard let expected, expected > 0 else { return bytes >> 20 }
+        return UInt64((Double(bytes) / Double(expected) * 100).rounded(.down))
     }
 
     func showDownloadDidStartExtractingUpdate() {
@@ -273,9 +289,21 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         setState(.extracting(.init(progress: 0)))
     }
 
+    /// Sparkle calls this once per archive entry: thousands of times a second, on the main thread
+    /// (3,000 to 4,600 a second on Nov 7, when NIGHTLY showed "Not Responding"). Only a change of
+    /// the shown whole percent reaches the model and the log.
     func showExtractionReceivedProgress(_ progress: Double) {
+        if case .extracting(let extracting) = model.state,
+           Self.percent(extracting.progress) == Self.percent(progress) {
+            return
+        }
         log.append(String(format: "show extraction progress: %.2f", progress))
         setState(.extracting(.init(progress: progress)))
+    }
+
+    /// `progress` (`0...1`) as the whole percent the update surfaces show.
+    static func percent(_ progress: Double) -> Int {
+        Int((min(max(progress, 0), 1) * 100).rounded(.down))
     }
 
     func showReady(toInstallAndRelaunch reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {

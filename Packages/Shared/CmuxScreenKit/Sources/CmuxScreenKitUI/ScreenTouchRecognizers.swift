@@ -150,5 +150,28 @@ extension ScreenViewController {
         }
         return (image.cgImage, size, CGPoint(x: 2, y: 2))
     }()
+
+    /// The agent's pointer on a screen stream: a ring centred on the point
+    /// it acts at (white with a dark outline and a tinted centre), in
+    /// framebuffer pixels, so it reads apart from the person's arrow.
+    static let agentPointer: (image: CGImage?, size: CGSize) = {
+        let size = CGSize(width: 30, height: 30)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
+            let ring = UIBezierPath(ovalIn: CGRect(x: 3, y: 3, width: 24, height: 24))
+            ring.lineWidth = 4
+            context.cgContext.setShadow(offset: CGSize(width: 0, height: 1), blur: 2, color: UIColor.black.withAlphaComponent(0.4).cgColor)
+            UIColor.white.setStroke()
+            ring.stroke()
+            context.cgContext.setShadow(offset: .zero, blur: 0, color: nil)
+            UIColor.black.withAlphaComponent(0.6).setStroke()
+            UIBezierPath(ovalIn: CGRect(x: 0.75, y: 0.75, width: 28.5, height: 28.5)).stroke()
+            UIColor.systemPurple.setFill()
+            UIBezierPath(ovalIn: CGRect(x: 10, y: 10, width: 10, height: 10)).fill()
+        }
+        return (image.cgImage, size)
+    }()
 }
 #endif

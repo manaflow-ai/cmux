@@ -15,7 +15,8 @@ import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { openProcessTerminal } from "../processTerminal";
 import { arrivalKey, type BackgroundCommand, sendLabel, splitCommands } from "../session-info/processes";
-import { COMMAND_STATE, StopButton } from "../session-info/TasksSection";
+import { StopButton } from "../session-info/TasksSection";
+import { COMMAND_STATE } from "../session-info/tasksSectionModel";
 import { RunningElapsed, SummaryTaskClock } from "./SummaryTaskClock";
 
 const ROW_ICON = rowIconSize(12);

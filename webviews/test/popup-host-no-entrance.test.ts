@@ -5,12 +5,17 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { createPopupHost, type PopupModel } from "../src/ui/popupHost";
+import { settleReact } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = Object.getOwnPropertyDescriptor(scope, "document");
 const dom = new JSDOM("<!doctype html>");
 beforeAll(() => void (scope.document = dom.window.document));
-afterAll(() => (saved ? Object.defineProperty(scope, "document", saved) : delete scope.document));
+afterAll(async () => {
+  await settleReact();
+  if (saved) Object.defineProperty(scope, "document", saved);
+  else delete scope.document;
+});
 
 const MODEL: PopupModel = {
   items: [{ id: "0", label: "cmux" }],

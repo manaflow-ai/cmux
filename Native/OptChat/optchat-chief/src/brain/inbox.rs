@@ -431,9 +431,13 @@ impl Brain {
                 .filter(|p| p.kind == cmux_conversation::ParticipantKind::Human)
                 .and_then(|p| p.person.as_deref())
                 .filter(|id| *id != cmux_chief::rules::USER_LOCAL);
+            // `from`, `images`, `files`, `remote`: content-free flags for
+            // product analytics (analytics/catalog.rs).
+            let from = message_from(summary, &message);
             self.trace.emit(
                 "usage.message",
-                serde_json::json!({"id": message.id, "person": person}),
+                serde_json::json!({"id": message.id, "person": person, "from": from,
+                    "images": has_images, "files": has_files, "remote": remote.is_some(), "side": false}),
             );
             let sender = self.settings.membership.agent_sender(summary, &message);
             let relay = sender
@@ -441,6 +445,13 @@ impl Brain {
                 .filter(|s| self.chief.trusts_agent(&s.name))
                 .map(|s| s.name.clone());
             let framed = agent_framed(sender.as_ref(), relay.is_some(), &text);
+            // A person's `/name` runs that skill on this message: the turn reads
+            // its SKILL.md (slash_skills.rs). Agents' messages invoke nothing.
+            let framed = if sender.is_none() {
+                self.with_slash_skill(&framed)
+            } else {
+                framed
+            };
             let logged =
                 super::files::logged_text(&super::images::logged_text(&framed, &images), &files);
             self.posted
@@ -585,4 +596,38 @@ pub(super) fn agent_framed(
         name = sender.name,
         class = sender.class,
     )
+}
+
+impl Brain {
+    /// `text` with the invocation line of the skill it invokes (`/name`,
+    /// slash_skills.rs); the catalog is read only for a message that starts
+    /// with a command.
+    pub(super) fn with_slash_skill(&self, text: &str) -> String {
+        if crate::slash_skills::invoked(text).is_none() {
+            return text.to_owned();
+        }
+        let skills = crate::slash_skills::catalog(
+            &self.file.mux_home(),
+            &crate::compactor::user_claude_home(),
+        );
+        crate::slash_skills::with_invocation(text, &skills)
+    }
+}
+
+/// Whether `message`'s author is a person (`human`), an agent or neither,
+/// from the conversation's participants: a closed token for analytics.
+pub(super) fn message_from(
+    summary: &cmux_conversation::Summary,
+    message: &cmux_conversation::Message,
+) -> &'static str {
+    match summary
+        .participants
+        .iter()
+        .find(|p| p.id == message.author)
+        .map(|p| &p.kind)
+    {
+        Some(cmux_conversation::ParticipantKind::Human) => "human",
+        Some(cmux_conversation::ParticipantKind::Agent) => "agent",
+        _ => "other",
+    }
 }

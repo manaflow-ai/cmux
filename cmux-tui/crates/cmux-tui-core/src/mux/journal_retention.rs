@@ -234,9 +234,11 @@ impl Drop for TerminalTeardown<'_> {
 }
 
 impl Mux {
-    /// O(1) reconnect bookkeeping, called by the hosted reader after its
-    /// gap record is enqueued (surface/journal_reconnect.rs): mark the
-    /// terminal for the next coalesced checkpoint.
+    /// O(1) bookkeeping for a terminal whose replay boundary moved: a host
+    /// reconnect (called by the hosted reader after its gap record,
+    /// surface/journal_reconnect.rs) or a record the full terminal lane
+    /// refused (`Mux::journal_terminal_resize`). Marks the terminal for the
+    /// next coalesced checkpoint.
     pub(crate) fn note_terminal_host_reconnect(self: &Arc<Self>, terminal_id: TerminalPublicId) {
         let retention = &self.journal_retention;
         retention
@@ -290,6 +292,10 @@ impl Mux {
             return CaptureOutcome::Deferred;
         }
         let Some(first) = batch.first() else { return CaptureOutcome::Skipped };
+        // A marker the full terminal lane still owes goes into the journal
+        // ahead of the checkpoint that covers it; one that finds no room
+        // stays owed for its terminal's next record or the next checkpoint.
+        self.journal_ingress.offer_owed_terminal_gaps();
         // Terminals of the batch that ended still left gap records in the
         // journal tail, so the checkpoint is taken for them too.
         let sequence = self.journal_retention.captures.load(Ordering::Acquire);

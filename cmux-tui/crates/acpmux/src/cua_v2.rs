@@ -28,6 +28,10 @@
 //! Tool names and arguments stay upstream-shaped. The trusted bridge adds
 //! the session's target allow-list to the helper envelope, outside model
 //! arguments; the Swift host resolves targets and enforces the policy.
+//!
+//! The bridge serves one tool of its own, [`wait_for::TOOL`]: it waits for an
+//! element with repeated `get_window_state` reads (AX tree only, no
+//! screenshot) instead of an agent's sleep-and-look loop.
 
 use std::path::{Path, PathBuf};
 
@@ -38,7 +42,9 @@ use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufRea
 #[cfg(unix)]
 use tokio::net::UnixStream;
 
+pub mod awake;
 mod liveness;
+pub mod wait_for;
 
 pub use liveness::Owner;
 #[cfg(target_os = "macos")]
@@ -211,7 +217,7 @@ impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
             .await
             .ok()
             .and_then(Result::ok)
-            .ok_or_else(|| anyhow!(crate::cli::cloud_join::CONSENT_REQUIRED))?;
+            .ok_or_else(|| anyhow!(crate::machine_record::CONSENT_REQUIRED))?;
             // Only the admitted driver's inventory can classify an operation.
             // Refresh when a screen-only grant needs that distinction: tool names
             // and model-supplied annotations are never an authority.
@@ -313,6 +319,8 @@ where
 {
     let mut lines = input.lines();
     let mut helper: Option<Helper<S>> = None;
+    // Every tool call keeps the display from dimming into a lock for a while ([`awake`]).
+    let mut display = awake::DisplayAwake::default();
     while let Some(line) = lines.next_line().await? {
         if line.trim().is_empty() {
             continue;
@@ -337,11 +345,27 @@ where
             "ping" => Ok(json!({})),
             "tools/list" => forward(&mut helper, &connect, "tools/list", None, Value::Null)
                 .await
-                .map(tools_list_result),
+                .map(|inventory| wait_for::with_definition(tools_list_result(inventory))),
             "tools/call" => {
+                display.touch();
                 let name = message["params"]["name"].as_str().unwrap_or_default().to_owned();
                 let arguments =
                     message["params"].get("arguments").cloned().unwrap_or_else(|| json!({}));
+                if name == wait_for::TOOL {
+                    let result = match wait_for::Wait::parse(&arguments) {
+                        Ok(wait) => {
+                            let mut reader =
+                                HelperReader { helper: &mut helper, connect: &connect };
+                            wait_for::run(&wait, &mut reader).await
+                        }
+                        Err(text) => {
+                            json!({"content": [{"type":"text", "text":text}], "isError":true})
+                        }
+                    };
+                    write_line(&mut output, &json!({"jsonrpc": "2.0", "id": id, "result": result}))
+                        .await?;
+                    continue;
+                }
                 Ok(
                     match forward(&mut helper, &connect, "tools/call", Some(&name), arguments).await
                     {
@@ -367,8 +391,8 @@ where
 
 /// A trusted inventory readOnlyHint requires screen consent; unknown and action
 /// tools require both independent grants, including their post-action captures.
-fn require_tool_consent(read_only: bool, status: &Value) -> Result<()> {
-    let denied = || anyhow!(crate::cli::cloud_join::CONSENT_REQUIRED);
+pub(crate) fn require_tool_consent(read_only: bool, status: &Value) -> Result<()> {
+    let denied = || anyhow!(crate::machine_record::CONSENT_REQUIRED);
     let required = status["consentRequired"].as_bool().ok_or_else(denied)?;
     let screen = status["consent"]["screen"].as_str().ok_or_else(denied)?;
     let control = status["consent"]["control"].as_str().ok_or_else(denied)?;
@@ -409,8 +433,8 @@ where
         match current.request(method, name, arguments.clone()).await {
             Ok(result) => return Ok(result),
             Err(e) => {
-                if e.to_string() == crate::cli::cloud_join::CONSENT_REQUIRED {
-                    return Err((-32020, crate::cli::cloud_join::CONSENT_REQUIRED.to_owned()));
+                if e.to_string() == crate::machine_record::CONSENT_REQUIRED {
+                    return Err((-32020, crate::machine_record::CONSENT_REQUIRED.to_owned()));
                 }
                 *helper = None;
                 if attempt == 1 || !is_connection_error(&e) {
@@ -420,6 +444,31 @@ where
         }
     }
     Err((-32000, "the Computer Use helper is unavailable".into()))
+}
+
+/// [`wait_for`]'s checks: `get_window_state` through [`forward`], so each one
+/// passes the machine consent check and reconnects like a direct call.
+struct HelperReader<'a, S, C> {
+    helper: &'a mut Option<Helper<S>>,
+    connect: &'a C,
+}
+
+impl<S, C, F> wait_for::TreeReader for HelperReader<'_, S, C>
+where
+    S: tokio::io::AsyncRead + AsyncWrite + Unpin,
+    C: Fn() -> F,
+    F: std::future::Future<Output = Result<Helper<S>>>,
+{
+    async fn read(&mut self, arguments: Value) -> Result<Value, String> {
+        forward(self.helper, self.connect, "tools/call", Some(wait_for::READ_TOOL), arguments)
+            .await
+            .map_err(|(_, text)| text)
+    }
+
+    fn abandon(&mut self) {
+        // The cut-off call may still answer on this connection.
+        *self.helper = None;
+    }
 }
 
 fn is_connection_error(e: &anyhow::Error) -> bool {

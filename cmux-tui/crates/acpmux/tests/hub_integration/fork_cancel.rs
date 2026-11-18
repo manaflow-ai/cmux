@@ -102,6 +102,18 @@ async fn cancel_refuses_a_used_fork_and_a_chat_that_is_no_fork() {
     let chat = c.request(method::MUX_KILL, json!({"sessionId": id, "cancelFork": true})).await;
     assert!(chat.unwrap_err().contains("only a fork"));
     assert!(hub.resolve(&id).is_ok());
+
+    // By its token too: a fork used since it was made is refused, not answered as cancelled
+    // (review of #36979: the token's Cancel said cancelled and the fork stayed).
+    let request = json!({"sessionId": id, "live": true, "cancelToken": "used-1"});
+    let f = c.request(FORK_OP, request).await.unwrap();
+    let fid = f["sessionId"].as_str().unwrap().to_owned();
+    let prompt = json!({"sessionId": fid, "prompt": [{"type": "text", "text": "mine too"}]});
+    c.request(method::SESSION_PROMPT, prompt).await.unwrap();
+    let by_token = json!({"sessionId": id, "cancelFork": true, "cancelToken": "used-1"});
+    let refused = c.request(method::MUX_KILL, by_token).await;
+    assert!(refused.unwrap_err().contains("delete it instead"));
+    assert!(hub.resolve(&fid).is_ok());
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -186,5 +198,58 @@ async fn a_fork_cancelled_while_it_is_made_leaves_nothing() {
     // The chat goes on.
     let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": "after"}]});
     assert_eq!(c.request(method::SESSION_PROMPT, prompt).await.unwrap()["stopReason"], "end_turn");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A fork of a chat whose tool call runs settles that call and ends the turn in its copy, and no
+/// listener of the hub hears any of it: the first record of the fork it carries is `forked`
+/// (review of #36979, F1: the fork's cut-off records each woke every connection before it).
+#[tokio::test]
+async fn nothing_hears_a_running_turn_s_fork_before_it_is_made() {
+    let root = std::env::temp_dir().join(format!("acpmux-fork-quiet-cut-{}", uuid::Uuid::now_v7()));
+    let claude = root.join("claude");
+    std::fs::create_dir_all(&claude).unwrap();
+    let (hub, mut c) = claude_setup(&claude, &[]).await;
+    let id = chat_with_turns(&mut c, 1).await;
+    let gate = root.join("gate");
+    let hold = format!("tool-hold: {}", gate.display());
+    c.send(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": hold}]}),
+    )
+    .await;
+    for _ in 0..500 {
+        if hub.events(&id, 0, 10_000).unwrap().iter().any(|e| e.kind == "tool_call") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let mut events = hub.subscribe();
+
+    let f = c.request(FORK_OP, json!({"sessionId": id, "live": true})).await.unwrap();
+    let fid = f["sessionId"].as_str().unwrap().to_owned();
+    let mut heard = Vec::new();
+    while let Ok(event) = events.try_recv() {
+        if event.session_id == fid {
+            heard.push(event.record.kind.clone());
+        }
+    }
+    let fork = hub.events(&fid, 0, 10_000).unwrap();
+    assert!(
+        fork.iter().any(|e| e.kind == "turn_result" && e.msg["detail"] == "forked"),
+        "the fork's copy ends the running turn"
+    );
+    assert!(
+        fork.iter().any(|e| e.kind == "tool_call_update"
+            && e.msg.pointer("/params/update/status") == Some(&json!("failed"))),
+        "the fork's copy settles the running tool call"
+    );
+    assert_eq!(
+        heard.first().map(String::as_str),
+        Some("forked"),
+        "heard before the fork was made: {heard:?}"
+    );
+    std::fs::write(&gate, "").unwrap();
+    hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }

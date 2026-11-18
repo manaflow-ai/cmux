@@ -57,10 +57,18 @@ const MASK: &str = "••••••";
 pub(crate) struct Secrets {
     pending: StdMutex<HashMap<String, Pending>>,
     held: StdMutex<HashMap<String, Held>>,
+    /// Held across [`Hub::close_stale_card`]'s read and append, so two late answers write one
+    /// decision.
+    closing: StdMutex<()>,
 }
 
 struct Pending {
     session: String,
+    /// The card's `decisionNonce`, for a card a phone may answer with a signature
+    /// ([`CardKind::signed`]); None for the others, which only the person's connection answers.
+    nonce: Option<String>,
+    /// [`CardKind::one_line`].
+    one_line: Option<usize>,
     reply: oneshot::Sender<Option<Zeroizing<String>>>,
 }
 
@@ -69,6 +77,35 @@ struct Held {
     value: Zeroizing<String>,
     at: Instant,
 }
+
+/// The records a private card writes, and the outcome words of its answer.
+#[derive(Clone, Copy)]
+pub(super) struct CardKind {
+    pub request: &'static str,
+    pub decision: &'static str,
+    pub provided: &'static str,
+    pub declined: &'static str,
+    /// A phone's signed answer counts too (`Hub::card_answer_signed`): the request record carries a
+    /// `decisionNonce` and this run's `personInstance`.
+    pub signed: bool,
+    /// The value must be one line of at most this many bytes (a password): `secret_submit`
+    /// refuses another and the card stays open, so a decision is never recorded for a value the
+    /// asker cannot use.
+    pub one_line: Option<usize>,
+}
+
+/// The option a phone signs for a card's value (`approvers::message`, the card's id as the
+/// permission). A decline is not signed.
+pub const CARD_PROVIDE: &str = "card_provide";
+
+const CARD_SECRET: CardKind = CardKind {
+    request: "secret_request",
+    decision: "secret_decision",
+    provided: "provided",
+    declined: "declined",
+    signed: false,
+    one_line: None,
+};
 
 /// An environment variable name: what the card shows and `secret_run` sets.
 fn valid_name(name: &str) -> bool {
@@ -85,7 +122,10 @@ fn project_of(session: &Session) -> Result<String, RpcError> {
 
 /// Reads `pipe` to its end, keeping at most `cap` bytes: a command that
 /// prints without end cannot fill the daemon's memory.
-async fn read_capped(pipe: Option<impl AsyncRead + Unpin>, cap: usize) -> (Vec<u8>, bool) {
+pub(super) async fn read_capped(
+    pipe: Option<impl AsyncRead + Unpin>,
+    cap: usize,
+) -> (Vec<u8>, bool) {
     let (mut kept, mut cut) = (Vec::new(), false);
     let Some(mut pipe) = pipe else { return (kept, cut) };
     let mut chunk = [0u8; 8192];
@@ -135,10 +175,15 @@ fn cut_value_len(bytes: &[u8], value: &[u8]) -> usize {
 /// What a command printed (read with room for one value past the cap), the
 /// value masked before the cap cuts it: a value across the cut would
 /// otherwise leave its first bytes.
-fn mask((bytes, cut): (Vec<u8>, bool), value: &str) -> String {
+fn mask(read: (Vec<u8>, bool), value: &str) -> String {
+    mask_within(read, value, MAX_OUTPUT_BYTES)
+}
+
+/// [`mask`], cut to `max` bytes.
+pub(super) fn mask_within((bytes, cut): (Vec<u8>, bool), value: &str, max: usize) -> String {
     let end = if cut { bytes.len() - cut_value_len(&bytes, value.as_bytes()) } else { bytes.len() };
     let masked = String::from_utf8_lossy(&bytes[..end]).replace(value, MASK);
-    let mut end = masked.len().min(MAX_OUTPUT_BYTES);
+    let mut end = masked.len().min(max);
     while !masked.is_char_boundary(end) {
         end -= 1;
     }
@@ -147,7 +192,8 @@ fn mask((bytes, cut): (Vec<u8>, bool), value: &str) -> String {
 
 /// The variables a secret's command keeps from the daemon, besides the login
 /// environment: never a token or an acpmux setting.
-const KEPT_ENV: &[&str] = &["HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "LANG", "TERM"];
+pub(super) const KEPT_ENV: &[&str] =
+    &["HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "LANG", "TERM"];
 
 impl Hub {
     /// The agent's ask: waits for the person's card and returns
@@ -170,49 +216,9 @@ impl Hub {
         }
         let reason: String = reason.chars().take(MAX_REASON_CHARS).collect();
         let project = project_of(session)?;
-        let secret_id = super::person::new_nonce();
-        let (tx, rx) = oneshot::channel();
-        {
-            let mut pending = self.secrets.pending.lock().unwrap_or_else(|e| e.into_inner());
-            // Dropping the old card's reply answers its asker `cancelled`.
-            pending.retain(|_, p| p.session != session.id);
-            pending.insert(secret_id.clone(), Pending { session: session.id.clone(), reply: tx });
-        }
-        // Stopped (`Hub::kill` marks it closing before it cancels the cards): a card that came
-        // after the cancel is cancelled here.
-        if session.closing.load(Ordering::SeqCst) || session.status() == SessionStatus::Closed {
-            self.secrets.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&secret_id);
-            return Ok(json!({"declined": true, "name": name, "outcome": "cancelled"}));
-        }
-        self.append(
-            session,
-            "mux",
-            "secret_request",
-            json!({"secretId": secret_id, "name": name, "reason": reason}),
-        );
-        let prev = session.status();
-        self.set_status(session, SessionStatus::Waiting);
-        let answer = tokio::time::timeout(ASK_TTL, rx).await.ok().and_then(Result::ok);
-        // A cancelled or expired card is gone from the pane as well.
-        self.secrets.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&secret_id);
-        let outcome = match answer {
-            Some(Some(_)) => "provided",
-            Some(None) => "declined",
-            None => "cancelled",
-        };
-        self.append(
-            session,
-            "mux",
-            "secret_decision",
-            json!({"secretId": secret_id, "name": name, "outcome": outcome}),
-        );
-        if session.status() == SessionStatus::Waiting
-            && session.permissions.lock().unwrap_or_else(|e| e.into_inner()).pending.is_empty()
-            && !self.secrets.waiting_in(&session.id)
-        {
-            self.set_status(session, super::permissions::status_after_ask(session, prev));
-        }
-        let Some(Some(value)) = answer else {
+        let card = json!({"name": name, "reason": reason});
+        let (outcome, value) = self.ask_person(session, CARD_SECRET, card, ASK_TTL).await;
+        let Some(value) = value else {
             return Ok(json!({"declined": true, "name": name, "outcome": outcome}));
         };
         let secret_ref = format!("secret_{}", &super::person::new_nonce()[..32]);
@@ -227,18 +233,186 @@ impl Hub {
         Ok(json!({"secretRef": secret_ref, "name": name}))
     }
 
+    /// Shows the chat a private card of `kind` (`{kind}_request` with `secretId` and `card`'s
+    /// fields) and waits at most `ttl` for the person's answer through `secret_submit`, then
+    /// records `{kind}_decision` with the outcome: `provided` with the value, `declined`, or
+    /// `cancelled` (a newer card, the turn's end, the wait running out). One open card per chat,
+    /// whatever its kind. The value is never in a record.
+    pub(super) async fn ask_person(
+        &self,
+        session: &Session,
+        kind: CardKind,
+        card: Value,
+        ttl: Duration,
+    ) -> (&'static str, Option<Zeroizing<String>>) {
+        let secret_id = super::person::new_nonce();
+        let nonce = kind.signed.then(super::person::new_nonce);
+        let (tx, rx) = oneshot::channel();
+        {
+            let mut pending = self.secrets.pending.lock().unwrap_or_else(|e| e.into_inner());
+            // Dropping the old card's reply answers its asker `cancelled`.
+            pending.retain(|_, p| p.session != session.id);
+            let card = Pending {
+                session: session.id.clone(),
+                nonce: nonce.clone(),
+                one_line: kind.one_line,
+                reply: tx,
+            };
+            pending.insert(secret_id.clone(), card);
+        }
+        // Stopped (`Hub::kill` marks it closing before it cancels the cards): a card that came
+        // after the cancel is cancelled here.
+        if session.closing.load(Ordering::SeqCst) || session.status() == SessionStatus::Closed {
+            self.secrets.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&secret_id);
+            return ("cancelled", None);
+        }
+        let mut record = card.clone();
+        cmux_json::JsonSet::set(&mut record, "secretId", json!(secret_id));
+        if let Some(nonce) = &nonce {
+            cmux_json::JsonSet::set(&mut record, super::person::DECISION_NONCE_FIELD, json!(nonce));
+            cmux_json::JsonSet::set(&mut record, "personInstance", json!(self.person.instance()));
+        }
+        self.append(session, "mux", kind.request, record);
+        let prev = session.status();
+        self.set_status(session, SessionStatus::Waiting);
+        let answer = tokio::time::timeout(ttl, rx).await.ok().and_then(Result::ok);
+        // A cancelled or expired card is gone from the pane as well.
+        self.secrets.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&secret_id);
+        let outcome = match answer {
+            Some(Some(_)) => kind.provided,
+            Some(None) => kind.declined,
+            None => "cancelled",
+        };
+        let mut decision = card;
+        cmux_json::JsonSet::set(&mut decision, "secretId", json!(secret_id));
+        cmux_json::JsonSet::set(&mut decision, "outcome", json!(outcome));
+        self.append(session, "mux", kind.decision, decision);
+        if session.status() == SessionStatus::Waiting
+            && session.permissions.lock().unwrap_or_else(|e| e.into_inner()).pending.is_empty()
+            && !self.secrets.waiting_in(&session.id)
+        {
+            self.set_status(session, super::permissions::status_after_ask(session, prev));
+        }
+        (outcome, answer.flatten())
+    }
+
+    /// An answer to a card this daemon no longer holds (it restarted while the card was open) whose
+    /// request record has no decision: every client still shows that card and would keep
+    /// answering it. Its `cancelled` decision closes it everywhere. A card this run asked is left
+    /// alone: its own ask writes its decision, and may be about to. Reads this one chat's card
+    /// records, only on this error path.
+    fn close_stale_card(&self, session: &Session, secret_id: &str) {
+        const KINDS: [CardKind; 2] = [CARD_SECRET, super::elevation::CARD];
+        let names = KINDS.map(|k| [k.request, k.decision]).concat();
+        let _one = self.secrets.closing.lock().unwrap_or_else(|e| e.into_inner());
+        let mut open: Option<(CardKind, Value)> = None;
+        let _ = self.store.scan_kinds(&session.id, &names, &mut |event| {
+            if event.msg.get("secretId").and_then(Value::as_str) == Some(secret_id) {
+                open = KINDS
+                    .into_iter()
+                    .find(|k| k.request == event.kind && event.at < self.started_at)
+                    .map(|k| (k, event.msg));
+            }
+            true
+        });
+        let Some((kind, mut decision)) = open else { return };
+        if let Some(fields) = decision.as_object_mut() {
+            fields.remove(super::person::DECISION_NONCE_FIELD);
+            fields.remove("personInstance");
+            fields.insert("outcome".into(), json!("cancelled"));
+        }
+        self.append(session, "mux", kind.decision, decision);
+    }
+
+    /// Whether a `secret_submit` from a connection that is not the person counts for this card.
+    /// Only a card whose kind is [`CardKind::signed`] has a nonce; a secret card stays the
+    /// person's own. On such a card a decline counts from anyone (it narrows, as a deny of a
+    /// permission does), and a value only with an enrolled phone's signature over the card's
+    /// answer (`approvers.rs`): the card's id as the permission, [`CARD_PROVIDE`] as the option,
+    /// the card's own nonce, no answers. The nonce is spent when it counts, so a signature
+    /// answers once.
+    pub fn card_answer_signed(
+        &self,
+        session: &Session,
+        secret_id: &str,
+        provides: bool,
+        params: &Value,
+    ) -> bool {
+        let nonce = {
+            let pending = self.secrets.pending.lock().unwrap_or_else(|e| e.into_inner());
+            match pending.get(secret_id) {
+                Some(p) if p.session == session.id => p.nonce.clone(),
+                _ => None,
+            }
+        };
+        let Some(nonce) = nonce else { return false };
+        if !provides {
+            return true;
+        }
+        let meta = params.pointer("/_meta/acpmux");
+        let field = |f: &str| meta.and_then(|m| m.get(f));
+        let (Some(sent_nonce), Some(signed)) = (
+            field(super::person::DECISION_NONCE_FIELD).and_then(Value::as_str),
+            field(super::approvers::DECISION_FIELD).filter(|v| v.is_object()),
+        ) else {
+            return false;
+        };
+        if !cmux_local_auth::tokens_match(sent_nonce, &nonce) {
+            return false;
+        }
+        self.person.approvers.verifies_then(
+            self.person.instance(),
+            &session.id,
+            secret_id,
+            CARD_PROVIDE,
+            &nonce,
+            None,
+            signed,
+            super::approvers::unix_now(),
+            || self.person.spend_decision(&nonce),
+        )
+    }
+
     /// The person's answer to a card: `value` None declines it.
+    /// Whether `value` fits the open card `secret_id`: 1 byte to 64 KiB, and one line of at most
+    /// the card's bound for a sudo card. Checked before an approver signature is spent, so a value
+    /// the card refuses leaves both the card and the phone's retry open.
+    pub fn check_card_value(
+        &self,
+        session: &Session,
+        secret_id: &str,
+        value: Option<&str>,
+    ) -> Result<(), RpcError> {
+        let Some(v) = value else { return Ok(()) };
+        if v.is_empty() || v.len() > MAX_VALUE_BYTES {
+            return Err(RpcError::invalid_params("the secret must be 1 byte to 64 KiB"));
+        }
+        let map = self.secrets.pending.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(Pending { session: owner, one_line: Some(max), .. }) = map.get(secret_id)
+            && *owner == session.id
+            && (v.len() > *max || v.contains(['\n', '\r', '\0']))
+        {
+            return Err(RpcError::invalid_params(format!(
+                "the password must be one line of at most {max} bytes"
+            )));
+        }
+        Ok(())
+    }
+
+    /// Whether `secret_id` is an open card of this chat.
+    pub fn card_open(&self, session: &Session, secret_id: &str) -> bool {
+        let map = self.secrets.pending.lock().unwrap_or_else(|e| e.into_inner());
+        map.get(secret_id).is_some_and(|p| p.session == session.id)
+    }
+
     pub fn submit_secret(
         &self,
         session: &Session,
         secret_id: &str,
         value: Option<Zeroizing<String>>,
     ) -> Result<(), RpcError> {
-        if let Some(v) = &value
-            && (v.is_empty() || v.len() > MAX_VALUE_BYTES)
-        {
-            return Err(RpcError::invalid_params("the secret must be 1 byte to 64 KiB"));
-        }
+        // A value the card cannot use leaves it open for another try.
+        self.check_card_value(session, secret_id, value.as_deref().map(String::as_str))?;
         let pending = {
             let mut map = self.secrets.pending.lock().unwrap_or_else(|e| e.into_inner());
             match map.get(secret_id) {
@@ -246,9 +420,10 @@ impl Hub {
                 _ => None,
             }
         };
-        let pending = pending.ok_or_else(|| {
-            RpcError::invalid_params("no secret request with that id in this chat")
-        })?;
+        let Some(pending) = pending else {
+            self.close_stale_card(session, secret_id);
+            return Err(RpcError::invalid_params("no secret request with that id in this chat"));
+        };
         pending
             .reply
             .send(value)

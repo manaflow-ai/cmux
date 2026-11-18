@@ -7,6 +7,8 @@ use std::path::{Path, PathBuf};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
+use cmux_link::key_holder::{self, KeyFile, KeyHolder};
+use cmux_link::pairing::Pairings;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
@@ -14,9 +16,9 @@ use zeroize::Zeroizing;
 /// outer WireGuard port of cmux endpoints).
 pub(super) const DEFAULT_PORT: u16 = 4101;
 
-/// The link mesh's inner MTU: 1200, the smaller of the two paths a session
-/// may use (1380 direct, 1200 through the Freestyle tunnel; transport.md
-/// 3.1), so a peer can move to the tunnel route without a size change.
+/// The link mesh's inner MTU. 1200 fit the nested tunnel route, which is
+/// gone; it stays until a change measures a larger one (1380 direct,
+/// transport.md 3.1).
 pub(super) const LINK_MTU: u16 = 1200;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -81,7 +83,7 @@ impl LinkState {
     }
 
     fn key_path(&self) -> PathBuf {
-        self.dir.join("private.key")
+        KeyFile::Link.path_in(&self.dir)
     }
 
     pub(super) fn config(&self) -> io::Result<LinkConfig> {
@@ -94,13 +96,20 @@ impl LinkState {
         Ok(config)
     }
 
-    /// Write the config and create the private key when there is none (an
-    /// existing key is kept, so re-running init never breaks pairings).
+    /// Write the config and create the private key when there is none and
+    /// the link has not adopted the node key (an existing key is kept, so
+    /// re-running init never breaks pairings).
     pub(super) fn init(&self, config: &LinkConfig) -> io::Result<()> {
         if !cmux_link::stamp::valid_id(&config.install) {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid install id"));
         }
         if config.server_identity.is_some() {
+            // An adopted link has no `private.key`, but it is still a local link: its
+            // peers know it by the node key, and `serve_key` refuses an enrolled link
+            // with an adoption record, so converting it would leave nothing to serve.
+            if self.dir().join(super::key_adoption::MARKER).symlink_metadata().is_ok() {
+                return Err(io::Error::other("server_link.identity_conflict"));
+            }
             let _ = enrolled(config)?;
             if self.key_path().symlink_metadata().is_ok()
                 || (self.has_config() && {
@@ -112,7 +121,11 @@ impl LinkState {
             }
         } else if self.has_config() && self.config()?.server_identity.is_some() {
             return Err(io::Error::other("server_link.identity_conflict"));
-        } else if !self.key_path().exists() {
+        } else if !self.key_path().exists()
+            && !self.dir().join(super::key_adoption::MARKER).exists()
+        {
+            // An adopted link serves the node key: a new link key would only look like a
+            // retired one (`key_adoption.rs`).
             let mut private = Zeroizing::new([0u8; 32]);
             getrandom::fill(&mut *private).map_err(io::Error::other)?;
             let secret = x25519_dalek::StaticSecret::from(*private);
@@ -121,11 +134,18 @@ impl LinkState {
         }
         let text = serde_json::to_vec_pretty(config)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-        write_private(&self.config_path(), &text)
+        write_private(&self.config_path(), &text)?;
+        // The box this link is set up on, kept beside its key: a copy of this directory on
+        // another machine never serves it (`key_adoption::refuse_copied`).
+        if config.server_identity.is_none() {
+            super::key_adoption::stamp_once(self)?;
+        }
+        Ok(())
     }
 
-    /// Moves this install's WireGuard key and paired peers aside under
-    /// `old`'s name (`private.key.<old>`, `peers.<old>.json`) and puts back
+    /// Moves this install's WireGuard key, paired peers and adoption record
+    /// aside under `old`'s name (`private.key.<old>`, `peers.<old>.json`,
+    /// `key-adopted.<old>.json`) and puts back
     /// `new`'s archived pair when it has one. Nothing is deleted; a new
     /// install without an archive gets a new key (`init`) and no peers.
     pub(super) fn switch_install(&self, old: &str, new: &str) -> io::Result<()> {
@@ -161,8 +181,15 @@ impl LinkState {
             return Err(invalid("invalid install id"));
         }
         let archive = |stem: &str, ext: &str, id: &str| self.dir.join(format!("{stem}{id}{ext}"));
-        let currents =
-            [(self.key_path(), "private.key.", ""), (self.peers_path(), "peers.", ".json")];
+        // The adoption record goes with its install's key and peers: a peer still
+        // pending keeps its retired key when the install comes back (`key_adoption.rs`).
+        let currents = [
+            (self.key_path(), "private.key.", ""),
+            (self.peers_path(), "peers.", ".json"),
+            (self.dir.join(super::key_adoption::MARKER), "key-adopted.", ".json"),
+        ];
+        // No pairing write lands between the checks and the moves.
+        let _pairings = Pairings::lock(&self.peers_path())?;
         let mut moves: Vec<(PathBuf, PathBuf)> = Vec::new();
         for (current, stem, ext) in &currents {
             if let Some(old) = old {
@@ -204,23 +231,62 @@ impl LinkState {
         Ok(())
     }
 
-    pub(super) fn private_key(&self) -> io::Result<Zeroizing<[u8; 32]>> {
+    /// This link's private key, for the mesh it serves: only with this
+    /// machine's WireGuard key lock (`holder`) held.
+    pub(super) fn private_key(&self, holder: &KeyHolder) -> io::Result<Zeroizing<[u8; 32]>> {
         let config = self.config()?;
         if config.server_identity.is_some() {
             return Ok(enrolled(&config)?.wireguard_key());
         }
-        let text = Zeroizing::new(std::fs::read_to_string(self.key_path())?);
-        let bytes = Zeroizing::new(
-            STANDARD
-                .decode(text.trim())
-                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?,
-        );
-        let key: [u8; 32] = bytes
-            .as_slice()
-            .try_into()
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "key is not 32 bytes"))?;
-        Ok(Zeroizing::new(key))
+        holder.open(KeyFile::Link, &self.dir, read_key)
     }
+
+    /// The public half of this link's key (`show`, `status`, the enrollment
+    /// checks), read without the lock: no session runs with it. Once the link
+    /// adopted the node key (`key_adoption.rs`), the node key's.
+    pub(super) fn own_public_key(&self) -> io::Result<[u8; 32]> {
+        let config = self.config()?;
+        if config.server_identity.is_some() {
+            return Ok(public_key(&enrolled(&config)?.wireguard_key()));
+        }
+        if let Some(adopted) = super::key_adoption::adopted(self)? {
+            return acpmux::cli::mesh_node_key::public_key_at(&adopted.key_dir).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::NotFound, "the adopted node key is missing")
+            });
+        }
+        let private = key_holder::open_for_public_key(KeyFile::Link, &self.dir, read_key)?;
+        Ok(public_key(&private))
+    }
+
+    /// Whether the link's own key file (`private.key`) is there.
+    pub(super) fn has_link_key(&self) -> bool {
+        self.key_path().symlink_metadata().is_ok()
+    }
+
+    /// Remove the link's own key once the node key replaced it (`key_adoption.rs`),
+    /// then sync the directory so the removal survives a crash.
+    pub(super) fn retire_link_key(&self) -> io::Result<()> {
+        match std::fs::remove_file(self.key_path()) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+            _ => {}
+        }
+        std::fs::File::open(&self.dir)?.sync_all()
+    }
+}
+
+/// A link key file: the base64 of 32 bytes.
+fn read_key(path: &Path) -> io::Result<Zeroizing<[u8; 32]>> {
+    let text = Zeroizing::new(std::fs::read_to_string(path)?);
+    let bytes = Zeroizing::new(
+        STANDARD
+            .decode(text.trim())
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?,
+    );
+    let key: [u8; 32] = bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "key is not 32 bytes"))?;
+    Ok(Zeroizing::new(key))
 }
 
 fn enrolled(config: &LinkConfig) -> io::Result<cmux_server::pairing::EnrolledIdentity> {
@@ -256,7 +322,9 @@ pub(super) fn default_dir() -> Option<PathBuf> {
 pub(super) fn socket_path_for(dir: &Path) -> PathBuf {
     use sha2::{Digest as _, Sha256};
     let canonical = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
-    let digest = Sha256::digest(canonical.as_os_str().as_encoded_bytes());
+    // The name from before NEXT's folder move, so a link an older daemon started keeps its socket.
+    let identity = cmux_agent_pane_policy::build_identity::path_identity(&canonical);
+    let digest = Sha256::digest(identity.as_os_str().as_encoded_bytes());
     let hex: String = digest.iter().take(6).map(|byte| format!("{byte:02x}")).collect();
     let leaf = format!("link-{hex}.sock");
     let preferred = cmux_tui_core::platform::runtime_dir().join(&leaf);
@@ -354,6 +422,13 @@ fn create_private_dir(dir: &Path) -> io::Result<()> {
     use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
     std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+}
+
+/// [`write_private`], then the directory synced: the new file survives a crash.
+pub(super) fn write_private_synced(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    write_private(path, bytes)?;
+    let dir = path.parent().unwrap_or_else(|| Path::new("."));
+    std::fs::File::open(dir)?.sync_all()
 }
 
 fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {

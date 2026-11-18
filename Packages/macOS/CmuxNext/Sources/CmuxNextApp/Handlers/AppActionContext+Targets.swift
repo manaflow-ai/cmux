@@ -112,9 +112,8 @@ extension AppActionContext {
     }
 
     /// Runs a daemon command off the main actor; failures are logged.
-    func send(_ label: String, _ body: @escaping DaemonCommandBody) {
-        guard connection() != nil else { return }
-        services.activeDaemon.send(label, body)
+    func send(_ label: String, logFailure: ((String, any Error) -> Void)? = nil, _ body: @escaping DaemonCommandBody) {
+        services.activeDaemon.send(label, checkingConnection: { connection() != nil }, logFailure: logFailure, body)
     }
 
     // MARK: Explicit targets
@@ -147,7 +146,7 @@ extension AppActionContext {
             guard let model = targetPane(target.id, invocation) else { return notFound(RefusalStrings.noPaneID(target.id)) }
             return services.paneController(for: model) ?? refuse(RefusalStrings.notShownInAnyWindow(String(describing: target)))
         }
-        for window in services.windows.controllers {
+        for window in services.windows.controllersActingFirst { // two windows can show one tab: the person's
             for pane in window.content?.panes.values.map({ $0 }) ?? [] where invocation.targetMachineID.map({ pane.daemon.machineID == $0 }) ?? true {
                 if pane.stripModel.tab(StripTabID(target.id)) != nil { return pane }
             }

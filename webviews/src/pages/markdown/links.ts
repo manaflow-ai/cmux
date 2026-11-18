@@ -14,13 +14,14 @@ export interface ParsedLink {
   anchor: string;
 }
 
-/** `cmux://workspace/ws_…`, `pane/…`, `tab/…`, `session/…`, `chief/…`, `agent/…` (with its `?host=&name=` hints) in the `cmux` scheme or a build's
- * `cmux-…` one; the host checks the ids again (DeepLink.parse) and opens nothing it does not know. */
+/** `cmux://workspace/ws_…`, `pane/…`, `tab/…`, `session/…`, `chief/…`, `group/…`, `agent/…` (with its `?host=&name=` hints) in the `cmux` scheme or a build's
+ * `cmux-…` one; the host checks the ids again (DeepLink.parse) and opens nothing it does not know. An agent link's
+ * percent-encoded or malformed hint is dropped by the host, never the link (schemas/deeplinks/agent-link.json). */
 const APP_AUTHORITY = /^cmux(-[a-z0-9-]+)?:\/\//i;
 const APP_ORDINARY =
-  /^(workspace|pane|tab|session|chief)\/[A-Za-z0-9._~/-]+(\?[A-Za-z0-9._~=&-]+)?(#[A-Za-z0-9._~-]+)?$/i;
+  /^(workspace|pane|tab|session|chief|group)\/[A-Za-z0-9._~/-]+(\?[A-Za-z0-9._~=&-]+)?(#[A-Za-z0-9._~-]+)?$/i;
 const APP_AGENT =
-  /^agent\/[a-z0-9-]{1,64}\/(?!\.+(?:[?#]|$))[A-Za-z0-9._:-]{1,256}(\?[A-Za-z0-9._~=&-]+)?(#[A-Za-z0-9._~-]+)?$/i;
+  /^agent\/[a-z0-9-]{1,64}\/(?!\.+(?:[?#]|$))[A-Za-z0-9._:-]{1,256}(\?[A-Za-z0-9._~=&%-]+)?(#[A-Za-z0-9._~-]+)?$/i;
 
 function isAppLink(href: string): boolean {
   const marker = href.indexOf("://");
@@ -90,12 +91,18 @@ export interface HeadingTarget {
   pos: number;
 }
 
+/** Each document's headings (`headingTargets`): every anchor link asks, and a walk per link made a file of many links quadratic. */
+const targetsByDoc = new WeakMap<ProseNode, readonly HeadingTarget[]>();
+
 /** Every heading of a document with its GitHub anchor, in order. */
-export function headingTargets(doc: ProseNode): HeadingTarget[] {
+export function headingTargets(doc: ProseNode): readonly HeadingTarget[] {
+  const cached = targetsByDoc.get(doc);
+  if (cached) return cached;
   const slugger = new Slugger();
   const out: HeadingTarget[] = [];
   doc.descendants((node, pos) => {
-    if (node.type.name !== "heading") return true;
+    // A paragraph holds no heading: its text is not walked.
+    if (node.type.name !== "heading") return !node.isTextblock;
     out.push({
       slug: slugger.slug(node.textContent),
       text: node.textContent,
@@ -104,6 +111,7 @@ export function headingTargets(doc: ProseNode): HeadingTarget[] {
     });
     return false;
   });
+  targetsByDoc.set(doc, out);
   return out;
 }
 
@@ -184,10 +192,10 @@ export class LinkResolver {
   }
 }
 
-/** Relative link paths in a document (link marks and images), for `LinkResolver.request`. */
-export function relativeLinkPaths(doc: ProseNode): Set<string> {
+/** Relative link paths in a document, or between two positions (link marks and images), for `LinkResolver.request`. */
+export function relativeLinkPaths(doc: ProseNode, from = 0, to = doc.content.size): Set<string> {
   const paths = new Set<string>();
-  doc.descendants((node) => {
+  doc.nodesBetween(from, to, (node) => {
     for (const mark of node.marks) {
       if (mark.type.name !== "link") continue;
       const link = parseLink(String(mark.attrs.href ?? ""));

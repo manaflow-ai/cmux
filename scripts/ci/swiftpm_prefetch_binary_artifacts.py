@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Seed SwiftPM's binary-artifact cache with curl before a Linux `swift build|test`.
+"""Seed SwiftPM's binary-artifact cache with curl before a `swift build|test` (Linux, and owned Macs).
 
 Linux SwiftPM (Swift 6.2 and 6.3) downloads a package's binary targets with FoundationNetworking, which
 crashes (signal 4, `try!` in EasyHandle.swift:312, libcurl code 43) when several redirected downloads run at
@@ -24,10 +24,22 @@ Trust: `dump-package` evaluates the snapshot's own manifests, which the command 
 the same job anyway (contents: read, no secrets), so this adds no reach; the store only ever serves a file
 whose SHA-256 matches the manifest that asks for it.
 
+Owned Macs (glaeda runners): every runner slot on a mini runs as one user, so all share one SwiftPM cache
+(~/Library/Caches/org.swift.swiftpm). On a cache miss SwiftPM downloads the artifact and copies it in at its
+cache name, and a second SwiftPM that missed the same URL at the same moment fails with "failed downloading
+'<url>' ... /artifacts/<name> already exists in file system" (cmux#43892's daemon test, six artifacts new to
+cmux11s-mac-mini, 2026-11-15). Seeded first, SwiftPM only reads the cache ("Fetching binary artifact ...
+from cache"): each file goes in with an atomic rename, and an exclusive lock on the store (.seed.lock) makes
+jobs starting together download each artifact once, the later ones waiting and then linking the store's
+copy. The cache stays the host's own and warm; nothing is per runner. The Mac store defaults to MAC_STORE,
+on the cache's volume, so a cache entry is a hard link to it.
+
 Fails soft: a manifest that does not evaluate, or an artifact that does not download, is reported with a
 ::warning:: and left for SwiftPM to fetch itself. A checksum that does not match the manifest is never cached.
 
-    swiftpm_prefetch_binary_artifacts.py --store DIR (--package-path PATH | --command CMD [--directory DIR])
+    swiftpm_prefetch_binary_artifacts.py [--store DIR] (--package-path PATH | --command CMD [--directory DIR])
+
+--store is required on Linux; on macOS it defaults to MAC_STORE.
 
 --command takes the shell command fast checks runs: it seeds only for `swift build|test` (or swift-build,
 swift-test), at its --package-path (else --directory), and does nothing for any other command.
@@ -37,15 +49,19 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import contextlib
+import fcntl
 import hashlib
 import json
 import os
+import pwd
 import re
 import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 SWIFTPM_VERBS = ("build", "test")
@@ -55,6 +71,11 @@ SWIFTPM_INFO = ("-h", "-help", "--version", "--show-bin-path")
 CHECKSUM = re.compile(r"[0-9a-f]{64}")
 MANIFEST = re.compile(r"Package(@swift-[0-9.]+)?\.swift")
 PIN_CACHE_VERSION = 1
+MAC_STORE = Path(pwd.getpwuid(os.getuid()).pw_dir) / "Library/Caches/cmux-swiftpm-artifact-store"
+SEED_LOCK = ".seed.lock"
+# How long a seed waits for another job's seed on the host before going on without the lock (still safe:
+# every write is an atomic rename). Above a cold download of every artifact on a mini (about 2 GB).
+SEED_LOCK_WAIT_SECONDS = 900
 
 
 def warn(message: str) -> None:
@@ -148,11 +169,14 @@ def swiftpm_cache_key(url: str) -> str:
     return "_" + mangled[1:] if mangled[:1].isdigit() else mangled
 
 
-def swiftpm_artifact_cache(env=os.environ, cache_path: str | None = None) -> Path:
-    """SwiftPM's shared binary-artifact cache on Linux: <--cache-path>/artifacts when the command passes one,
-    else FileManager's caches directory ($XDG_CACHE_HOME, else ~/.cache) / org.swift.swiftpm / artifacts."""
+def swiftpm_artifact_cache(env=os.environ, cache_path: str | None = None, platform: str = sys.platform) -> Path:
+    """SwiftPM's shared binary-artifact cache: <--cache-path>/artifacts when the command passes one, else
+    FileManager's caches directory / org.swift.swiftpm / artifacts: the account's ~/Library/Caches on macOS
+    (Foundation reads the account's home there, not $HOME), $XDG_CACHE_HOME else ~/.cache on Linux."""
     if cache_path:
         return Path(os.path.expanduser(cache_path)) / "artifacts"
+    if platform == "darwin":
+        return Path(pwd.getpwuid(os.getuid()).pw_dir) / "Library" / "Caches" / "org.swift.swiftpm" / "artifacts"
     caches = env.get("XDG_CACHE_HOME") or os.path.join(env.get("HOME") or os.path.expanduser("~"), ".cache")
     return Path(caches) / "org.swift.swiftpm" / "artifacts"
 
@@ -322,8 +346,8 @@ def link_into_cache(blob: Path, cache: Path, url: str) -> Path:
     cache.mkdir(parents=True, exist_ok=True)
     entry = cache / swiftpm_cache_key(url)
     if entry.is_file() and not entry.is_symlink() and entry.stat().st_size == blob.stat().st_size \
-            and os.path.samefile(entry, blob):
-        return entry
+            and (os.path.samefile(entry, blob) or sha256(entry) == blob.stem):
+        return entry  # already the right file (SwiftPM's own download of it, too): never swapped under a reader
     tmp = entry.with_name(f".{entry.name}.{os.getpid()}.tmp")
     tmp.unlink(missing_ok=True)
     try:
@@ -332,6 +356,28 @@ def link_into_cache(blob: Path, cache: Path, url: str) -> Path:
         shutil.copyfile(blob, tmp)
     tmp.replace(entry)
     return entry
+
+
+@contextlib.contextmanager
+def seed_lock(store: Path, wait: float = SEED_LOCK_WAIT_SECONDS):
+    """The host's seed lock on `store`, held exclusively; after `wait` seconds of another holder, go on without."""
+    store.mkdir(parents=True, exist_ok=True)
+    with open(store / SEED_LOCK, "a") as handle:
+        deadline = time.monotonic() + wait
+        said = False
+        while True:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    warn(f"another job held {store / SEED_LOCK} for {wait:.0f}s; seeding without it")
+                    break
+                if not said:
+                    say(f"waiting for another job's seed ({store / SEED_LOCK})")
+                    said = True
+                time.sleep(1)
+        yield  # closing the file releases the lock
 
 
 def seed(packages: list[Path], store: Path, cache: Path, swift: str = "swift", download=curl_download,
@@ -347,20 +393,23 @@ def seed(packages: list[Path], store: Path, cache: Path, swift: str = "swift", d
         except Exception as error:  # noqa: BLE001 - SwiftPM fetches whatever is not seeded
             warn(f"could not list {package}'s binary artifacts: {error}")
     missed = 0
-    for url, checksum in sorted(artifacts.items()):
-        try:
-            entry = link_into_cache(stored_artifact(url, checksum, store, download), cache, url)
-            say(f"cached {url} ({checksum[:12]}) at {entry}")
-        except Exception as error:  # noqa: BLE001 - SwiftPM downloads it as before
-            missed += 1
-            warn(f"left {url} for SwiftPM to download: {error}")
+    with seed_lock(store):
+        for url, checksum in sorted(artifacts.items()):
+            try:
+                entry = link_into_cache(stored_artifact(url, checksum, store, download), cache, url)
+                say(f"cached {url} ({checksum[:12]}) at {entry}")
+            except Exception as error:  # noqa: BLE001 - SwiftPM downloads it as before
+                missed += 1
+                warn(f"left {url} for SwiftPM to download: {error}")
     say(f"{len(artifacts) - missed} of {len(artifacts)} binary artifacts are in {cache}")
     return missed
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--store", required=True, type=Path, help="persistent store (checksum-keyed)")
+    darwin = sys.platform == "darwin"
+    parser.add_argument("--store", type=Path, required=not darwin, default=MAC_STORE if darwin else None,
+                        help=f"persistent store (checksum-keyed); macOS default {MAC_STORE}")
     parser.add_argument("--package-path", action="append", default=[])
     parser.add_argument("--command", help="the shell command about to run; seeds only for swift build|test")
     parser.add_argument("--directory", default=".", help="the directory --command runs in")

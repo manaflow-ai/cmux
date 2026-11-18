@@ -111,6 +111,11 @@ pub(crate) const FULL_ACCESS_MODES: [&str; 4] =
 /// Mode ids that are a temporary toggle, never inherited by a sub-session.
 const TOGGLE_MODES: [&str; 1] = ["plan"];
 
+/// Whether `mode` is a temporary toggle ([`TOGGLE_MODES`]), which a sub-session never inherits.
+pub(crate) fn is_toggle(mode: &str) -> bool {
+    TOGGLE_MODES.contains(&mode)
+}
+
 /// `agents.defaultPermissionMode`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum DefaultMode {
@@ -287,40 +292,7 @@ pub(super) fn file_allows_full_access() -> bool {
     }
 }
 
-/// The markers of a mode id or option value that skips every approval, shared with the cmux NEXT
-/// app (`spec/full-access-modes.json`).
-const FULL_ACCESS_RULE: &str = include_str!("../../../../spec/full-access-modes.json");
-
-fn full_access_markers() -> Option<&'static [String]> {
-    static MARKERS: std::sync::OnceLock<Option<Vec<String>>> = std::sync::OnceLock::new();
-    MARKERS
-        .get_or_init(|| {
-            let rule: Value = serde_json::from_str(FULL_ACCESS_RULE).ok()?;
-            Some(
-                rule.get("markers")?
-                    .as_array()?
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_owned)
-                    .collect(),
-            )
-        })
-        .as_deref()
-}
-
-/// Whether a mode id or option value skips every approval, by the shared rule
-/// (`spec/full-access-modes.json`): lowercased, without `-`, `_` or spaces, it contains a
-/// marker. Wider than `FULL_ACCESS_MODES` (the modes acpmux itself picks), so a harness's
-/// `danger-full-access` or `auto-approve` is refused too.
-pub(crate) fn is_full_access(mode: &str) -> bool {
-    let folded: String = mode
-        .chars()
-        .filter(|c| !matches!(c, '-' | '_' | ' '))
-        .flat_map(char::to_lowercase)
-        .collect();
-    // A rule that does not parse names every mode full access: refused while the setting is off.
-    full_access_markers().is_none_or(|markers| markers.iter().any(|m| folded.contains(m.as_str())))
-}
+pub(crate) use crate::web_modes::is_full_access;
 
 /// The mode a resumed chat runs in: its saved mode, or the harness default (`fallback`) when the
 /// saved one skips every approval and `sessions.allowFullAccess` is off (`allowed`).
@@ -779,8 +751,13 @@ impl Hub {
             self.stop_full_access_agent(session, off.off()).await;
             return Err(e);
         }
-        // A narrower policy holds over a pinned mode too (`policy_mode.rs`).
-        self.hold_policy_mode(session, child, profile_sets_mode(profile)).await;
+        // A narrower policy holds over a pinned mode too (`policy_mode.rs`). An agent that cannot
+        // keep it is stopped and the start fails.
+        if let Err(e) = self.hold_policy_mode(session, child, profile_sets_mode(profile)).await {
+            let record = super::policy_mode::refusal_record(&e);
+            self.stop_started_agent(session, false, "policy_refused", record).await;
+            return Err(e);
+        }
         Ok(())
     }
 
@@ -788,6 +765,18 @@ impl Hub {
     /// stays open and idle, and its next prompt starts an agent under the setting. `managed`: MDM's
     /// off stops it (now, or one that held as the agent started).
     pub(super) async fn stop_full_access_agent(&self, session: &Arc<Session>, managed: bool) {
+        self.stop_started_agent(session, managed, "full_access_refused", json!({})).await;
+    }
+
+    /// `stop_full_access_agent` for any refused start or run: logs `event` with `record` once the
+    /// agent ended.
+    pub(super) async fn stop_started_agent(
+        &self,
+        session: &Arc<Session>,
+        managed: bool,
+        event: &str,
+        record: Value,
+    ) {
         // Taken first: the child slot's lock is not held while the agent ends. Under MDM's off it
         // is retired under that lock, as MDM's end retires one (`end_managed_full_access`): a mode
         // or option report it still has queued is not applied to the agent after it, and none it
@@ -818,7 +807,14 @@ impl Hub {
             self.end_unadopted_host(session).await;
         }
         self.set_status(session, SessionStatus::Idle);
-        self.append(session, "mux", "full_access_refused", json!({}));
+        self.append(session, "mux", event, record);
+    }
+
+    /// Whether the person's own new chats on profile `harness` start in full access now (the
+    /// start level, which `sessions.allowFullAccess` and MDM already bound): what a start the
+    /// person sends to another machine carries (`full_access_children.rs`).
+    pub(super) async fn person_starts_full_access(&self, harness: &str) -> bool {
+        self.start_level(harness).await.0 == DefaultMode::FullAccess
     }
 
     /// The level new chats on profile `harness` start at now, and what chose it.
@@ -867,6 +863,7 @@ impl Hub {
         }
         // As session/new: harness discovery and launcher checks finish first.
         self.wait_startup().await;
+        self.rediscover_head(harness.as_deref(), preset.as_deref()).await;
         // MDM or the team policy forces full access off: every answer says so, for the mode menu.
         let managed_off = self.full_access_managed_off();
         let mark = |mut answer: Value| {

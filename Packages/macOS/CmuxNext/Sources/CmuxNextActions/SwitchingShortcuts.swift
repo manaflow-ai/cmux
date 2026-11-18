@@ -22,7 +22,7 @@ public nonisolated struct SwitchingShortcuts: Sendable, Equatable {
     public var nextPreviousTab: String?
     /// Previous and next workspace (`prevSidebarTab` / `nextSidebarTab`, default `⌃⌘[ ⌃⌘]`).
     public var nextPreviousWorkspace: String?
-    /// Focus Back and Forward (`focusHistoryBack` / `focusHistoryForward`, default `⌘[ ⌘]`).
+    /// Focus Back and Forward (`focusHistoryBack` / `focusHistoryForward`, default `⌥⌘, ⌥⌘.`).
     public var focusBackForward: String?
     /// The modifiers (`NSEvent.ModifierFlags` raw value, device independent)
     /// of the tabs-by-number key, for the Mission Control check; nil when it
@@ -76,7 +76,7 @@ public nonisolated struct SwitchingShortcuts: Sendable, Equatable {
                                key("nextSurface", Shortcut("]", modifiers: [.command, .shift])))
         nextPreviousWorkspace = pair(key("prevSidebarTab", Shortcut("[", modifiers: [.control, .command])),
                                      key("nextSidebarTab", Shortcut("]", modifiers: [.control, .command])))
-        focusBackForward = pair(key("focusHistoryBack", Shortcut("[", modifiers: [.command])),
-                                key("focusHistoryForward", Shortcut("]", modifiers: [.command])))
+        focusBackForward = pair(key("focusHistoryBack", Shortcut(",", modifiers: [.option, .command])),
+                                key("focusHistoryForward", Shortcut(".", modifiers: [.option, .command])))
     }
 }

@@ -13,8 +13,7 @@ import Testing
         let cache = ConversationTranscriptCache(directory: FileManager.default.temporaryDirectory
             .appending(path: "chief-transcripts-\(UUID().uuidString)"))
         defer { cache.removeAll() }
-        let outbox = ChiefOutbox(file: FileManager.default.temporaryDirectory.appendingPathComponent("outbox-\(UUID().uuidString).json"))
-        let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: outbox, transcripts: cache)
+        let session = ChiefSession(backend: ChiefOfflineBackend(), transcripts: cache)
         session.macID = "mac-A"
         session.use(ChiefMockBackend(sleep: { _ in }))
         try await waitUntil("Mac A's Chief to load") { session.store.hasLoadedNewest && !session.store.messages.isEmpty }
@@ -48,14 +47,29 @@ import Testing
         #expect(session.store.messages.isEmpty)
     }
 
+    /// A Chief made on its backend (a relaunch: the session is built with the Chief's backend,
+    /// not swapped to it) shows the kept messages at once. Before, a session that did not name
+    /// a fixed transcript key kept none in its init, and the relaunch showed the spinner.
+    @Test func aChiefMadeOnItsBackendShowsTheKeptMessagesAtOnce() async throws {
+        let cache = ConversationTranscriptCache(directory: FileManager.default.temporaryDirectory
+            .appending(path: "chief-transcripts-\(UUID().uuidString)"))
+        defer { cache.removeAll() }
+        let first = ChiefSession(backend: ChiefMockBackend(sleep: { _ in }), transcripts: cache)
+        try await waitUntil("the mock Chief to load") { first.store.hasLoadedNewest && !first.store.messages.isEmpty }
+        let seen = first.store.messages.compactMap(\.seq)
+
+        let relaunched = ChiefSession(backend: ChiefMockBackend(sleep: { _ in }), transcripts: cache)
+        #expect(relaunched.store.messages.compactMap(\.seq) == seen)
+        #expect(relaunched.store.isShowingKeptTranscript)
+    }
+
     /// Messages that came while the app was away are not alerted as new when the page brings
     /// them after the kept rows: before, the kept seq became the "seen" mark.
     @Test func keptRowsAreNotTheSeenMark() async throws {
         let cache = ConversationTranscriptCache(directory: FileManager.default.temporaryDirectory
             .appending(path: "chief-transcripts-\(UUID().uuidString)"))
         defer { cache.removeAll() }
-        let outbox = ChiefOutbox(file: FileManager.default.temporaryDirectory.appendingPathComponent("outbox-\(UUID().uuidString).json"))
-        let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: outbox, transcripts: cache)
+        let session = ChiefSession(backend: ChiefOfflineBackend(), transcripts: cache)
         session.macID = "mac-A"
         session.use(ChiefMockBackend(sleep: { _ in }))
         try await waitUntil("Mac A's Chief to load") { session.store.hasLoadedNewest && !session.store.messages.isEmpty }

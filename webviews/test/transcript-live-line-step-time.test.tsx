@@ -4,8 +4,9 @@
 // is cool but it always only shows 0s?". The fixture is one real Claude turn through acpmux
 // (test/fixtures/claude-subagent-launch.ndjson): a Bash call that ran 856ms, then a background
 // Agent call whose result is only its launch, 411ms after it started.
-import { expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { renderToStaticMarkup as renderMarkup } from "react-dom/server";
 import type { ReactNode } from "react";
 import { mergeToolItem } from "../src/agent-session/acpmux/direct";
@@ -13,6 +14,16 @@ import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/mode
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
 import { THINKING, turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { StatusVerbContext } from "../src/agent-session/acpmux/statusVerbs";
+
+// The line's two times (liveLineTimes.experiment.ts `labelled`) on the line itself
+// (liveTurnClock.experiment.ts `line`): this file reads the thinking time and the turn's clock.
+const TWO_TIMES = { "live-turn-clock": "line", "live-line-times": "labelled" };
+beforeEach(() => {
+  globalThis.cmuxExperiments = { ...TWO_TIMES };
+});
+afterEach(() => {
+  delete globalThis.cmuxExperiments;
+});
 
 type Event = { seq: number; at: number; kind: string; msg: { params: { update: Record<string, any> } } };
 const events: Event[] = readFileSync(new URL("./fixtures/claude-subagent-launch.ndjson", import.meta.url), "utf8")
@@ -57,7 +68,9 @@ const drawn = (row: AcpmuxRow, now: number) =>
       doingShell={row.doingShell}
       done={row.doingDone}
       doneMs={row.doingForMs}
-      thoughtMs={row.thoughtMs}
+      phaseAt={row.phaseAt}
+      heardAt={row.heardAt}
+      heardKey={row.heardKey}
       turnTotal={row.turnTotal}
       now={() => now}
     />,
@@ -68,11 +81,15 @@ test("the fixture's calls carry the times Claude's events gave them", () => {
   expect(agent!.tool!.endedAt! - agent!.tool!.startedAt!).toBe(411);
 });
 
-test("a step that ran under a second says its time, never a floored 0s", () => {
+test("a step that ran under a second gives the line back to Thinking, never a floored 0s", () => {
+  // The line reads Thinking the moment the call completes (Leo, 2026-11-07: "Why don't we just
+  // immediately switch to the thinking?"), never the finished step with its frozen time.
   const live = line([prompt, run(bash!)]);
-  // The line names the command, never Bash's description (Codex parity).
-  expect(live).toMatchObject({ doing: "echo ready", doingDone: true, doingForMs: 856 });
-  expect(drawn(live, prompt.at + 32_000)).toBe("echo ready 856ms · 32s");
+  expect(live.doing).toBeUndefined();
+  // Under a second after it, the thinking has no time of its own yet: the turn's clock alone.
+  const ended = bash!.tool!.endedAt!;
+  expect(drawn(live, ended + 500)).toBe(`Thinking ${Math.floor((ended + 500 - prompt.at) / 1_000)}s`);
+  expect(drawn(live, ended + 3_000)).toBe(`Thinking 3s · turn ${Math.floor((ended + 3_000 - prompt.at) / 1_000)}s`);
 });
 
 test("a subagent's launch never stands on the line as a step with its launch's time", () => {
@@ -90,10 +107,13 @@ test("a step stamped at one moment has no time of its own: the line shows only t
   const instant = { ...bash!, tool: { ...bash!.tool!, endedAt: bash!.tool!.startedAt } };
   const live = line([prompt, run(instant)]);
   expect(live.doingForMs).toBeUndefined();
-  expect(drawn(live, prompt.at + 32_000)).toBe("echo ready 32s");
+  const ended = instant.tool.endedAt!;
+  expect(drawn(live, ended + 500)).toBe(`Thinking ${Math.floor((ended + 500 - prompt.at) / 1_000)}s`);
 });
 
-test("thinking that streamed under a second says its time; one dated chunk has none", () => {
+test("thinking ticks from its first chunk after a silence, and a later silence reads Waiting", () => {
+  // Leo, 2026-11-12, on "Thinking 683ms · turn 15m 15s": "the whatever ms gets stuck and becomes
+  // false really quickly". The time beside Thinking is a live clock, never a frozen sum.
   const at = events[0]!.at;
   const thought = (startedAt: number, endedAt: number): AcpmuxActivity => ({
     kind: "thought",
@@ -102,11 +122,12 @@ test("thinking that streamed under a second says its time; one dated chunk has n
     endedAt,
   });
   const brief = line([prompt, { ...run(), items: [thought(at, at + 420)] }]);
-  expect(brief.thoughtMs).toBe(420);
-  expect(drawn(brief, prompt.at + 32_000)).toBe("Thinking 420ms · 32s");
-  const single = line([prompt, { ...run(), items: [thought(at, at)] }]);
-  expect(single.thoughtMs).toBeUndefined();
-  expect(drawn(single, prompt.at + 32_000)).toBe("Thinking 32s");
+  // 20 s of nothing after the prompt, then the thought: its stretch starts at its first chunk.
+  expect(brief.phaseAt).toBe(at);
+  expect(brief.heardAt).toBe(at + 420);
+  expect(drawn(brief, at + 3_000)).toBe("Thinking 3s · turn 23s");
+  expect(drawn(brief, at + 9_000)).toBe("Thinking 9s · turn 29s");
+  expect(drawn(brief, at + 420 + 12_000)).toBe("Waiting 12s · turn 32s");
 });
 
 test("every finished row's own time: milliseconds under a second, none for one stamped at one moment", async () => {
@@ -117,4 +138,27 @@ test("every finished row's own time: milliseconds under a second, none for one s
   expect(spanDuration(t, 32_000)).toBe("32s");
   expect(spanDuration(t, 0)).toBeUndefined();
   expect(spanDuration(t, -5)).toBeUndefined();
+});
+
+test("no finished span is drawn with formatDuration, which floors under a second to 0s", async () => {
+  // The detector for the class: a finished call, command or scheduled run's end minus its start
+  // goes through spanDuration ("856ms", or no time for a span stamped at one moment). A live clock
+  // ticking from its start may read "0s" for its first second; a finished one never does.
+  const { readdirSync, statSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  // A file path, not the URL's: a checkout under a folder with a space reads "%20" in `pathname`.
+  const root = fileURLToPath(new URL("../src", import.meta.url));
+  const files = (dir: string): string[] =>
+    readdirSync(dir).flatMap((name) => {
+      const path = join(dir, name);
+      return statSync(path).isDirectory() ? files(path) : /\.tsx?$/.test(name) ? [path] : [];
+    });
+  const offenders = files(root).flatMap((path) =>
+    readFileSync(path, "utf8")
+      .split("\n")
+      .flatMap((text, index) =>
+        /formatDuration\(.*\bendedAt\b/.test(text) ? [`${path.slice(root.length + 1)}:${index + 1}`] : [],
+      ),
+  );
+  expect(offenders).toEqual([]);
 });

@@ -3,7 +3,54 @@
 cmux's pages (Settings, History, Cloud, the viewers) and the agent chat are React. Edit them in a
 cmux checkout and the app you're using right now changes as you save: no build, no relaunch, your
 windows, chats and terminals stay where they are. It works in every cmux build, in WebKit and in
-Chromium, and it's on by default.
+Chromium, and it's on by default. The feature is called **cmux Live**.
+
+For a tagged Debug app with separate chat and pages servers, use
+[live chat editing](live-chat-editing.md). It includes the chat scenario workbench and source checks.
+
+## The loop
+
+Write the code, put it into the cmux you are running, use it, then test it. Leo, 2026-11-15: "imagine if you
+could just write the code and then the code goes into your app and then you can just use it." Screenshot it, take
+a video, click through it; compile checks, CI and suites come after the look. Of the newest 300 merged NEXT PRs, 70% of those that change the Mac app could go in live; almost none were looked at in a running app before merging:
+
+| Layer | Put it in | Take it out |
+|---|---|---|
+| Web, a PR | `cmux customize use pr:N` | `cmux customize library off pr-N` |
+| Web, a pushed branch or commit | `cmux customize use branch:NAME` or `sha:SHA` | `cmux customize library off NAME` |
+| Web, your working copy | `cmux customize use dir:PATH --watch` (again about 19 s after each save, on a fleet Mac), or `cmux live start` ([below](#start-in-30-seconds)) | `library off NAME`, `cmux live stop` |
+| Web, a fork's branch | `cmux customize use OWNER/REPO@REF`, from the fork's own workflow, never our CI | `library off NAME` |
+| Terminal daemon and acpmux Rust | `scripts/cmux-next/hot-apply.py apply SHA` ([below](#a-merged-commit-in-the-running-app-before-the-nightly)), about 2.7 s | `hot-apply.py rollback` |
+| A whole PR, branch or commit | `cmux app try <PR\|branch\|sha>` | `cmux app try undo` |
+| Swift, Rust the app links, resources | a build: `hot-apply.py plan SHA` says which | |
+
+To look and keep the proof in one step, `scripts/cmux-next/hot-verify.py look --source dir:.|pr:N --app APP --out DIR`
+puts the change into a side copy and writes before and after screenshots, a video and a receipt for the PR
+(`hot-verify.py plan --source dir:. --app APP` first says whether it needs a build).
+
+`cmux customize library status` says which layers are on, `library refresh` pulls each one's newest build (a fork's only when you run `use` again), and
+`library off --all` turns every code layer off. Rust hot-apply into a Developer ID NIGHTLY takes the
+tree's Team-signed copy, which CI publishes a few minutes after the tree; until then it is held back. Agents follow the same loop through the
+[cmux-hot-loop skill](../../skills/cmux-hot-loop/SKILL.md). Which layers swap, why, and how often each applies:
+cmuxterm-hq [docs/design/cmux-next-hot-swap-layers.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/design/cmux-next-hot-swap-layers.md)
+(team only).
+
+### Is cmux Live the same as Live Web Reload?
+
+Yes. It is one feature, and Live Web Reload was its old name. The setting Settings > General >
+**cmux Live** (`updates.liveWebReload`) is its on switch: on, the app may load your checkout's web
+UI; off, it shows the web UI it shipped with. `cmux live start` (or **Edit cmux Live…**) is the
+web path: it runs your checkout's dev server for the React pages and chat under `webviews/`.
+The other paths are flags: `cmux live start --swift` restarts a tagged DEV build into a live code
+build for the app's Swift ([live-code.md](live-code.md)), and `cmux live start --rust` swaps the
+daemon's Rust ([below](#the-daemons-rust-live)). When pages go blank or stop changing,
+`cmux live status` says first what the app loads its web UI from and why.
+
+`cmux live` and **Live Web Reload** are one feature, not one for Swift and one for React. `cmux live`
+(or **Edit cmux Live…**) is how you start and stop it; **Live Web Reload** in Settings > General is
+the switch that lets the app load what `cmux live` serves. Plain `cmux live start` is the React web
+UI. Swift (`--swift`), the daemon's Rust (`--rust`) and Chromium (`--chromium`) are flags of the same
+command, below.
 
 ## Start in 30 seconds
 
@@ -43,13 +90,13 @@ below are for slots, pull requests and built bundles. Agents in cmux learn all o
 | Stop your dev server | `cmux live stop`, or **Stop Editing cmux Live** (an installed overlay, if any, still serves) |
 | The shipped pages back | `scripts/cmux-next/web-overlay.sh off` (ignores the file; run `server off` first to stop the server) |
 | Your Rust edits to the daemon live, terminals kept | `cmux live start --rust [--build-host HOST]` ([below](#the-daemons-rust-live)) |
-| What's running | `cmux live status` |
+| What the app loads its web UI from, and why | `cmux live status` |
 | Your Swift live too, in a tagged build | `cmux live start --swift` restarts it into the live code build of its commit, sessions kept, and patches your edits in and every save; `cmux live stop --swift` restarts into the optimized build of your edits ([live-code.md](live-code.md#live-mode-restart-into-the-live-code-build-and-back)) |
-| Turn the feature off | Settings > General > **Live Web Reload**, or `cmux settings set updates.liveWebReload false` |
+| Turn the feature off | Settings > General > **cmux Live**, or `cmux settings set updates.liveWebReload false` |
 
 ## On and off
 
-**Live Web Reload** (`updates.liveWebReload` in `~/.config/cmux/cmux-next.json`) is on by default.
+**cmux Live** (`updates.liveWebReload` in `~/.config/cmux/cmux-next.json`) is on by default.
 On, cmux reads `~/.config/cmux/web-dev.json` and serves what it names; with no such file nothing
 changes. Off, cmux ignores the file without touching it. Flip it from Settings > General, or from
 any terminal:
@@ -116,6 +163,16 @@ While a dev server serves, the Content Security Policy is looser. Pages also all
 (React Refresh) and that server's `ws://` and `http://` origin. The agent pane uses the dev
 server's own policy, which allows inline scripts and loopback WebSockets and frames on any port.
 An overlay keeps the shipped policy.
+
+When the server stops or restarts under a page, the page never stays blank. A page drawn from the
+server shows a small note, "the dev server stopped", and reloads when it is back. A page whose code
+stops loading mid-load loads again: it gets the server's files if the server answers, else the
+shipped ones. It tries four times in about 8 seconds, then keeps a note that points at
+`cmux live status`. When the server exits on its own, its watch clears `server` from
+`web-dev.json`, so every page goes back to the shipped web UI, and writes the time to
+`dev-server.exit` in the state folder. `server --local` keeps each module's React Compiler output
+in that folder (`transforms`, about 50 MB per tree, entries older than 14 days are removed). So
+from the second start on, the agent pane is ready in about 6 s, not 35 s.
 
 ### A projection window
 
@@ -455,18 +512,88 @@ what feat-cmux-next published for SHA and diffs it against the app's `CMUXCommit
   `completion.json`, replaces the app's `bin/cmux`. The app's daemon then hands off to it as in
   `cmux live start --rust`: same app pid, terminals kept. `bin/cmux` is also `cmux-tui` and `acpmux`,
   so `cmux link`, the CLI in the app's terminals and acpmux daemons started after the swap run SHA's
-  build. A running acpmux daemon keeps its build until it restarts (`--acpmux-home H` restarts one).
+  build. A running acpmux daemon keeps its build until it restarts: `--restart-acpmux` restarts every
+  acpmux daemon running from the app's bin folder (`acpmux daemon run` or `cmux acp daemon run`, each
+  found by its socket's `daemon status`), so the agent daemon swaps too, its hosted sessions kept. Each
+  restarts with its own launch environment, read from the process, and must answer from a new pid. A
+  daemon a restart would cost its chats (a memory store without agent hosts), or one whose environment
+  can't be read, is left;
+  `--acpmux-home H` restarts one by its home. Without either, the receipt lists the acpmux daemons
+  left on the old build (`acpmux_left_on_old_build`), and `rollback` restarts the ones it restarted.
+  Another session's terminal daemon that runs from the same `bin/cmux` (a Chief's) keeps the build it
+  mapped and is listed in `left_on_old_build`, unless `--restart-sessions` is given. With it, each one is
+  handed to the new build by `server restart` on its socket. Its terminals are kept, and its session,
+  launch flags and environment carry over. It's checked like the app's own: a new owner must answer,
+  running the swapped file. `rollback` hands them back the same way. From ssh on macOS they're left and
+  the receipt says why.
 - **Web:** SHA's published web bundles go into the app's web overlay, as long as SHA's web ABI is
   the app's.
-- **Neither:** Swift, resources, Rust the app links through FFI, and helpers such as
-  cmux-mobile-host still need the nightly. `plan` lists them under `left`.
+- **App FFI:** Rust the app links (its FFI crates) swaps warm when the app carries it as one library,
+  `Contents/Frameworks/libcmux_app_ffi.dylib`. The library of SHA's `cmux-app-ffi-<commit>` release
+  (the newest commit at or before SHA that changed an FFI input; for a commit that only moves the pin,
+  the release SHA pins, since an app links its commit's pin, which lags the sources) replaces it, the app quits with
+  `cmux app quit --keep-sessions` and opens again, and the part is done once the app's control socket
+  answers from a new pid that stays up. The daemon and its terminals never stop. The release must only
+  add to the FFI the app's pin was built from (`scripts/cmux-next/app_ffi_additive.py`), and the
+  library must export every symbol the app imports. An ad hoc app takes the released (ad hoc)
+  library as is, and so does a NIGHTLY: its signature carries
+  `com.apple.security.cs.disable-library-validation`. A Developer ID app without that entitlement
+  loads only libraries signed by its team: `--sign-identity ID` signs with that team's identity, and
+  `--reseal` signs the app ad hoc too, so it starts signed out of its Keychain items until
+  `rollback`. Without either, the part and the Rust part are left, with why. An app that links the FFI statically (built
+  before the library) leaves it for a nightly.
+- **Signatures:** a Team-signed app (a NIGHTLY) holds no install key, so its daemon proves a
+  connection is the app only when the daemon is signed by the same team. CI's tree builds are
+  ad-hoc signed. Swapped into such an app, no connection is verified, the app registers no Cloud
+  credential provider, and the Cloud machine list ("Couldn't read your Cloud machines"), Cloud
+  starts and every user-origin call fail until `rollback`. So `plan` reads the published binary's
+  signature (two range requests) and lists the Rust part under `left` when its team isn't the
+  app's, and `apply` checks the file it swaps in, `--binary` included. `--unsigned-daemon` takes
+  it anyway, and the receipt says what breaks. CI also signs each feat-cmux-next tree's darwin
+  build with the NEXT nightly's identity (`cmux-tui-team-signed.yml`, on ref nightly-next, where
+  that identity lives) and publishes it at `cmux-tui/tree/KEY/team-signed/`. An app signed by that
+  team takes it (`plan`'s `build`, the receipt's `steps.build`), so the Rust part reaches a NIGHTLY
+  once it is there. To sign one commit by hand: `gh workflow run cmux-tui-team-signed.yml --ref
+  nightly-next -f commit=SHA`.
+- **Neither:** Swift, resources, Rust the app links statically, and helpers such as
+  cmux-mobile-host still need the nightly. `plan` lists them under `left`. C, Objective-C and Zig
+  sources inside `cmux-tui/` (a companion's shim, the Zig binding) are not resources: the tree build
+  compiles them, so they go with the Rust part unless they sit in an app FFI crate.
 
 Each part is checked after it goes in: `bin/cmux` hashes to the published sha256 and a new daemon
 answers from it, and the overlay names SHA. A part that fails its check is put back. SHA must come
-after the app's commit, and the swap carries every change between the two. Swapping `bin/cmux`
+after the app's commit, and the swap carries every change between the two.
+
+`rollback` puts back what the app served before the apply, not the files as they were. When
+`web-dev.json` pointed at an overlay the app refused (an older install for another web ABI, so the
+app served its bundled pages), it puts back no pointer: the bundled pages, and the receipt says so
+(`dropped_refused_pointer`). `plan` names such a pointer in `notes`, and
+`hot-apply.py drop-refused-overlay` drops it from an install by itself, keeping `web-dev.json`'s dev
+server and gallery entries. A pointer the app serves is left alone. Swapping `bin/cmux`
 breaks the bundle's seal until `rollback` or the next update. The running app does not notice.
 `scripts/measure/hot-apply-nightly.sh` runs apply and rollback on a copy of the newest nightly on a
 fleet Mac.
+
+Every receipt has `phases`, the seconds spent in plan, key, fetch, verify, backup, find, swap, reload
+and rollback (and quit and launch, for the ffi part). stderr prints them, largest first. `apply SHA --dry-run` plans, fetches and verifies
+without changing the app, and its receipt goes only to `history.jsonl`. `--base COMMIT` stands in for
+the app's commit, so `plan` and `--dry-run` also work on a host with no app.
+
+`hot-apply.py prefetch SHA` fetches and checks everything `apply SHA` needs and keeps it in the state
+folder by content: the keys by commit, the published metadata by URL, the builds by sha256, and the
+web bundles by web key (the newest 8). Run it once CI has published SHA, and the `apply` that follows
+only checks the kept files and swaps. A part the app already runs is skipped and listed under
+`unchanged`, and an apply that changed nothing leaves `rollback` to the apply before it.
+
+`plan` no longer needs a diff when CI has published both commits' hot keys
+(`files.cmux.com/cmux-next/hot-keys/SHA.json`, written by cmux-tui-artifacts.yml with
+`hot-apply.py keys SHA`). The keys are the tree key, the web key and ABI, and one digest each over
+the files in each bucket the diff would sort: the app shell (Swift, resources and manifests), the Rust
+the app links, the bundled helpers and the served web. Two commits with the same shell and FFI
+digests differ only in what a hot apply swaps, so `plan` compares the two files and says
+`"via": "published keys"`. It skips the fetch of SHA and the tree and web key computation. Nothing in
+the plan reads a checkout, so it is the step a `cmux` CLI command in any build can take next. Commits
+without keys (before this, or a branch) are planned from the diff as before.
 
 ## Every merge, no checkout
 
@@ -503,6 +630,7 @@ Inspector, or Chrome DevTools in Chromium) shows one warning, once per place:
 | `live-intervals` | More than 20 `setInterval` handles are live; names the call site holding most | The page clock: `subscribePageSecond`, `usePageNow`, `visibleInterval` (`ui/pageClock.ts`) |
 | `long-frame` | A frame takes over 50 ms; names the longest script (Chromium) | Do less per frame: render the visible window, defer off-screen work |
 | `react-commit` | A React root commits more than 120 times in a second, or renders for more than 16 ms in one update | Re-render only what changed: a streamed item reads its own value, batch to one commit a frame |
+| `still-surface` | A surface marked `data-perf-still` (the agent pane's composer and the hat over it) has its nodes or attributes rewritten in more than 6 of the last 10 seconds with no key or pointer input: a clock tick or another chat's event draws it again | Memoize it on what it shows (`composer/composerView.ts`); a ticking value is a leaf of its own (`subagents/Elapsed.tsx`) |
 
 The page's load and the second after each hot update are not budgeted for shifts, frames and
 commits. Mark an element that must stay wide with `data-perf-budget-allow="<why>"`. Turn the
@@ -516,12 +644,14 @@ Built bundles carry none of this. The code is `webviews/src/devkit/perfBudgets.t
 | Symptom | Check |
 |---|---|
 | Nothing changes after `server --local` | `web-overlay.sh status` lists the dev server. `curl -sI http://127.0.0.1:4200/agent-pane/index.html` answers 200, and with `-H 'X-Cmux-Dev-Nonce: 1'` it adds an `X-Cmux-Dev-Proof` (none: the server is older than this change, or `web-dev.json` has no `token`). The app's commit includes #22664 (above). |
-| A page loads, then stops updating | The dev server stopped. The page falls back to the overlay, then the bundle. Run `server --local` again. |
+| A page loads, then stops updating | The dev server stopped: the page says so in its corner, and if the server exited, `dev-server.exit` in the state folder says when. Pages go back to the shipped web UI. Run `server --local` again. |
+| A page is blank, or a script "has a MIME type of text/html" | The server is older than this change: it answered files it lacks with its index page. Pull the checkout and start it again. |
 | `the dev server did not start` | Another process holds the port (the server won't move to another one). Use `--port N`; the app follows `web-dev.json`. |
 | You see another tree's edits | A dev server that `web-overlay.sh` didn't start already answers on the port, and `server --local` reuses it. Stop it where it was started, or use `--port N` for a free port. |
-| You want the shipped pages without deleting anything | Set `"enabled": false` in `web-dev.json`, or turn **Live Web Reload** off (`cmux settings set updates.liveWebReload false`). |
-| Nothing changes, and `status` says the server runs | `cmux settings get updates.liveWebReload` says `true`. The app's commit includes this change (older NIGHTLYs also needed Debug Settings > Pages > Live web reload on). |
-| `status` says `refused by <app>` | The overlay was built for another page bridge (`abi` in its `manifest.json`, from `webviews/src/web-abi.json`) than the app has, so the app serves its own pages instead of calling host ops it lacks. Build the overlay from a tree at the app's ABI (near its `CMUXCommit`), or run a build of that tree. A web update is refused the same way. |
+| You want the shipped pages without deleting anything | Set `"enabled": false` in `web-dev.json`, or turn **cmux Live** off (`cmux settings set updates.liveWebReload false`). |
+| Nothing changes, and `status` says the server runs | The first lines of `cmux live status` say what the app loads and why. `cmux settings get updates.liveWebReload` says `true`. The app's commit includes this change (older NIGHTLYs also needed Debug Settings > Pages > Live web reload on). |
+| `status` says `refused by <app>` | The overlay was built for another page bridge (`abi` in its `manifest.json`, from `webviews/src/web-abi.json`) than the app has, so the app serves its own pages instead of calling host ops it lacks. Build the overlay from a tree at the app's ABI (near its `CMUXCommit`), or run a build of that tree. A web update is refused the same way. To make `web-dev.json` say what the app serves, `scripts/cmux-next/hot-apply.py drop-refused-overlay` drops the pointer. |
+| A page's React content goes blank, or a page shows another page or its HTML | The dev server answered a file it does not have (a bundled page's chunk, a page newer than your checkout) with the diff viewer's `index.html`. A server from a checkout with this change answers cmux a 404 there, and the app serves the bundled copy: pull, then `cmux live start` again. Serve a tree near the app's commit, so every page the app opens is in it. A page drawn as its HTML source in Chromium is fixed in apps from #37247 on. |
 | Unstyled pages with no override running | Not the live loop. With no `web-dev.json`, the app serves its bundled files unchanged. Report it with the app's commit. |
 
 The design and its edge cases are in [web-live-reload.md](../../plans/cmux-next/web-live-reload.md).

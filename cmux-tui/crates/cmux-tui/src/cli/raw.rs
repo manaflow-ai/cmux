@@ -18,6 +18,43 @@ pub(super) struct RawCommandPlan {
     pub stream: bool,
 }
 
+/// The commands whose reply names a terminal or view: `cmux raw` declares
+/// `terminal-public-ids-v1` before them, so the reply carries the public
+/// ids (`terminal_resource_id`, `tab_id`, ...) every selector takes (W5-P).
+const PUBLIC_ID_COMMANDS: &[&str] = &[
+    "run",
+    "create-terminal",
+    "resolve-terminal",
+    "move-terminal",
+    "new-tab",
+    "new-browser-tab",
+    "new-workspace",
+    "new-screen",
+    "new-pane",
+    "new-pane-right",
+    "split",
+    "new-row",
+];
+
+/// The id of the `set-client-info` line that declares the capability; its
+/// reply is not the raw request's.
+const DECLARE_ID: &str = "cmux-raw-terminal-public-ids";
+
+/// The line that declares `terminal-public-ids-v1` before `request`, for a
+/// command whose reply names a terminal or view; `None` for other commands.
+fn capability_line(request: &Value) -> Option<Vec<u8>> {
+    let cmd = request.get("cmd").and_then(Value::as_str)?;
+    if !PUBLIC_ID_COMMANDS.contains(&cmd) {
+        return None;
+    }
+    let declare = json!({
+        "id": DECLARE_ID,
+        "cmd": "set-client-info",
+        "capabilities": [cmux_tui_core::server::TERMINAL_PUBLIC_IDS_CAPABILITY],
+    });
+    serde_json::to_vec(&declare).ok()
+}
+
 pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
     let expected_id = plan.request.get("id").cloned();
     let encoded = match serde_json::to_vec(&plan.request) {
@@ -37,10 +74,7 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
     };
     let stream = match cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived) {
         Ok(stream) => stream,
-        Err(error) => {
-            eprintln!("{}", super::wire::connect_failure(&socket, &error));
-            return 3;
-        }
+        Err(error) => return super::wire::report_connect_failure(&socket, &error, global.output),
     };
     let _ = stream.set_read_timeout(if plan.stream { None } else { Some(Duration::from_secs(10)) });
     #[cfg(unix)]
@@ -48,9 +82,16 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
         return 3;
     }
     let mut reader = BufReader::new(stream);
+    // The daemon runs one connection's requests in order, so the capability
+    // applies to the request; an older daemon ignores a capability it lacks.
+    let mut lines = capability_line(&plan.request).unwrap_or_default();
+    if !lines.is_empty() {
+        lines.push(b'\n');
+    }
+    lines.extend_from_slice(&encoded);
     if let Err(error) = reader
         .get_mut()
-        .write_all(&encoded)
+        .write_all(&lines)
         .and_then(|_| reader.get_mut().write_all(b"\n"))
         .and_then(|_| reader.get_mut().flush())
     {
@@ -96,7 +137,9 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
             }
             continue;
         }
-        if expected_id.as_ref().is_some_and(|id| value.get("id") != Some(id)) {
+        if expected_id.as_ref().is_some_and(|id| value.get("id") != Some(id))
+            || value.get("id").and_then(Value::as_str) == Some(DECLARE_ID)
+        {
             continue;
         }
         if value.get("ok").and_then(Value::as_bool) == Some(true) {

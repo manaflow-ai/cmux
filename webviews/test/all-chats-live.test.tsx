@@ -5,6 +5,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -32,12 +33,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const row = (key: string, updatedAt: number) => ({ key, harness: "claude", title: key, cwd: "/tmp/cmux", updatedAt });
@@ -69,7 +67,7 @@ test("a loaded All chats list reads its first page again when the chat index pus
 });
 
 test("the first page read again goes on top of the loaded rows, which keep the later pages", async () => {
-  const { mergeFirstPage } = await import("../src/agent-session/acpmux/newtab/AllChatsList");
+  const { mergeFirstPage } = await import("../src/agent-session/acpmux/newtab/allChatsListModel");
   const loaded = [row("a", 3), row("changed", 2), row("b", 1), row("older", 0)];
   expect(mergeFirstPage([row("changed", 5), row("a", 3)], loaded).map((chat) => chat.key)).toEqual([
     "changed",

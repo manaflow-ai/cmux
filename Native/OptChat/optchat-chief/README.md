@@ -470,6 +470,9 @@ optchat-chief memory import [--mux-home DIR] DIR           an old JSONL home or 
 optchat-chief memory search [--mux-home DIR] [--limit N] [--json] WORDS  messages and summaries holding every word (FTS5);
                                                            --json: id, kind, date, snippet and full text per hit
 optchat-chief memory stats [--mux-home DIR]                counts, schema, migration record, backup status
+optchat-chief memory redescribe [--mux-home DIR] failed|ID...   the running host describes again the images these note
+                                                           lines name (failed: every "no description" note), rewrites
+                                                           each note in the change book and rebuilds the summaries above it
 optchat-chief agent-memory search|get|remember|mcp|sync|sources|config ...
                                                            long-term memory shared by Codex and Claude Code sessions
 ```
@@ -1433,9 +1436,13 @@ compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
   compactor's) ask acpmux to wait on the harness (`waitStart`) instead of a
   wall clock: a loaded machine slows a start down, and killing it there loses
   the start and the turn. acpmux ends the start once the harness has used no
-  CPU, with no thread ready, for 5 minutes. A turn's wait still ends on a stop
-  or the turn's limit, and past 30 s `settle.json` has `startingSecs`: the app
-  says the machine is busy and the Chief is still starting. Nothing reruns.
+  CPU (under 5 ms per 10 s: a launcher's own runtime ticks are no work), with
+  no thread ready and no page read in, for 5 minutes. A turn's wait still ends
+  on a stop or the turn's limit, and past 30 s `settle.json` has
+  `startingSecs`: the app says the machine is busy and the Chief is still
+  starting. A turn whose start acpmux ended that way posts no diagnostics: its
+  person's message waits in the reply ledger, whose retry turns start a fresh
+  harness and, if none starts, say so in plain words (#36028).
 - **Turns paragraph.** The spec says "do the user's tasks yourself ... use
   subagents only when the user asks". The Chief's base prompt replaces that
   paragraph with `prompt.rs` `CHIEF_TURNS`: keep turns short, give builds,

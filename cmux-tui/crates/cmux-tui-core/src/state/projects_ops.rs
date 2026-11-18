@@ -100,7 +100,16 @@ impl Mux {
             StateEffects::EVENTS_ONLY,
             |transaction, _| {
                 let mut projects = store::load(transaction)?;
+                let disabled = projects.disabled().clone();
                 let changed = apply(&mut projects)?;
+                // The stored projects already say this (an app sends one
+                // complete observation per chat index change, and a sync on
+                // each connection): that is no change, so nothing is
+                // written. It was one revision, one ledger row and one
+                // journal row each time (42 to 47 MB a day on one Mac).
+                if changed.is_empty() && *projects.disabled() == disabled {
+                    return Ok(StateChanges::unchanged(json!({"changed": changed})));
+                }
                 store::write(transaction, &projects, &changed)?;
                 store::write_disabled(transaction, &projects)?;
                 Ok(changes(&projects, &changed))
@@ -183,7 +192,8 @@ impl Mux {
     }
 
     /// `project.source.update`: the user turns a source on or off. Turning
-    /// an editor or app source on reads it again at once.
+    /// an editor or app source on reads it again at once, and so does a
+    /// chat-index source (`mux/project_chats.rs`).
     pub(crate) fn state_project_source_update(
         &self,
         mutation: &WorkspaceMutation,
@@ -199,37 +209,57 @@ impl Mux {
         };
         let refusals = store::refusals();
         let now = now_ms();
-        self.commit_projects(mutation, "project.source.update", &fingerprint, |projects| {
-            let mut changed: std::collections::BTreeSet<String> = projects
-                .set_source_enabled(source, enabled)
-                .map_err(rejected)?
-                .into_iter()
-                .collect();
-            for scan in &scans {
-                let observed = projects.observe(scan.source, &scan.entries, true, now, &refusals);
-                changed.extend(observed.map_err(rejected)?);
-            }
-            Ok(changed.into_iter().collect())
-        })
+        let commit =
+            self.commit_projects(mutation, "project.source.update", &fingerprint, |projects| {
+                let mut changed: std::collections::BTreeSet<String> = projects
+                    .set_source_enabled(source, enabled)
+                    .map_err(rejected)?
+                    .into_iter()
+                    .collect();
+                for scan in &scans {
+                    let observed =
+                        projects.observe(scan.source, &scan.entries, true, now, &refusals);
+                    changed.extend(observed.map_err(rejected)?);
+                }
+                Ok(changed.into_iter().collect())
+            })?;
+        // A chat-index source comes back from acpmux's list, which the daemon reads again.
+        if enabled {
+            #[cfg(unix)]
+            self.reimport_project_chats(source);
+        }
+        Ok(commit)
     }
 
     /// The daemon's own import of `scans` (startup, a source file changed):
     /// each list is complete, under the same rules as `project.observe`.
     pub(crate) fn state_project_import(&self, scans: &[SourceScan]) -> anyhow::Result<StateCommit> {
+        let lists: Vec<(&str, &[Observation])> =
+            scans.iter().map(|scan| (scan.source, scan.entries.as_slice())).collect();
+        self.state_project_import_lists(&lists)
+    }
+
+    /// The daemon's own import of complete `(source, entries)` lists: the
+    /// editor scans above and each chat-index harness that acpmux groups
+    /// (`mux/project_chats.rs`).
+    pub(crate) fn state_project_import_lists(
+        &self,
+        lists: &[(&str, &[Observation])],
+    ) -> anyhow::Result<StateCommit> {
         anyhow::ensure!(
-            scans.iter().all(|scan| scan.entries.len() <= MAX_OBSERVATIONS),
+            lists.iter().all(|(_, entries)| entries.len() <= MAX_OBSERVATIONS),
             "project import: at most {MAX_OBSERVATIONS} entries per source"
         );
         let mutation = WorkspaceMutation::daemon_local("project-sources");
-        let sources: Vec<&str> = scans.iter().map(|scan| scan.source).collect();
+        let sources: Vec<&str> = lists.iter().map(|(source, _)| *source).collect();
         let fingerprint =
             json!({"operation": "project.import", "sources": sources, "id": mutation.id});
         let refusals = store::refusals();
         let now = now_ms();
         self.commit_projects(&mutation, "project.import", &fingerprint, |projects| {
             let mut changed = std::collections::BTreeSet::new();
-            for scan in scans {
-                let observed = projects.observe(scan.source, &scan.entries, true, now, &refusals);
+            for (source, entries) in lists {
+                let observed = projects.observe(source, entries, true, now, &refusals);
                 changed.extend(observed.map_err(rejected)?);
             }
             Ok(changed.into_iter().collect())

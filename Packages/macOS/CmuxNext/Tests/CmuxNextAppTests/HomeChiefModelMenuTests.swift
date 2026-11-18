@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextDaemon
 import CmuxNextHome
 @testable import CmuxNextHomeEngine
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-10-20 ("we need a more comprehensive model and harness picker"): the Chief
@@ -155,7 +156,7 @@ import Testing
 
     @Test func aModelPickIsRememberedAsRecent() async throws {
         let (_, continuation) = AsyncStream.makeStream(of: [String: String?].self)
-        let defaults = try #require(UserDefaults(suiteName: "HomeChiefModelMenuTests-\(UUID().uuidString)"))
+        let defaults = try #require(UserDefaults(testSuiteName: "HomeChiefModelMenuTests-\(UUID().uuidString)"))
         let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory,
                                          source: MenuChief(start: Self.snapshot(model: "opus"), writes: continuation))
         view.recents = HomeChiefModelRecents(defaults: defaults)

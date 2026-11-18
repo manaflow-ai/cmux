@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from "react";
 import { Link, type AnyRouter } from "@tanstack/react-router";
 import { useSettingsState } from "../context";
 import { categoryRows, shownSidebarSections, type Category } from "../categories";
@@ -14,6 +15,63 @@ function badge(state: SettingsState, category: string): "warning" | "lock" | "up
   if (keys.some((key) => managedOf(state, key) !== null)) return "lock";
   if (category === "agents" && harnessesNeedAttention(state.harnesses)) return "update";
   return null;
+}
+
+/** In the app the host draws SF Symbols (`symbol-bold/<name>`, MenuSymbolImages); the gallery and tests
+ * have no such route and keep the page's own drawings. */
+const hostSymbols = () => globalThis.location?.protocol === "cmux-page:";
+
+/** The host's bold drawing of a symbol (`symbol-bold/<name>`, MenuSymbolImages; Lucas 2026-11-11). */
+const symbolHref = (name: string) => `symbol-bold/${encodeURIComponent(encodeURIComponent(name))}`;
+
+/** Symbols whose page drawing reads better than the SF Symbol (Lucas 2026-11-11: he picked these
+ * four from feat-cmux-next's sidebar); every other category keeps the host's bold symbol. */
+const PAGE_DRAWN: ReadonlySet<string> = new Set(["terminal", "bell", "keyboard", "contextualmenu.and.cursorarrow"]);
+
+/** The host-drawn icons loaded so far, kept so the browser keeps them decoded for the rows' masks. */
+const loadedSymbols: HTMLImageElement[] = [];
+/** True once ``preloadCategorySymbols`` loaded the icons: only then do the rows mask with them. */
+let symbolsLoaded = false;
+const symbolListeners = new Set<() => void>();
+const watchSymbols = (listener: () => void) => {
+  symbolListeners.add(listener);
+  return () => symbolListeners.delete(listener);
+};
+
+/**
+ * Loads and decodes the host's drawing of each symbol the sidebar masks, so the page's first frame has
+ * every icon (Lawrence 2026-11-15: "sometimes logos in settings doesnt load fast"). A mask's image is
+ * fetched only when its row first paints: the sidebar showed with empty icon slots, then each icon popped
+ * in. Worse, a parked spare drew its sidebar before its claim, when the host had no drawing to give: those
+ * requests failed, WebKit kept the failures, and most rows of a page claimed from the pool never got an
+ * icon. So the rows mask only with what this loaded, after the claim (mount.tsx), and the page's paint
+ * report waits for it; a symbol the host cannot draw settles too.
+ */
+export function preloadCategorySymbols(symbols: Iterable<string>): Promise<void> {
+  if (!hostSymbols()) return Promise.resolve();
+  const names = [...new Set(symbols)].filter((symbol) => !PAGE_DRAWN.has(symbol));
+  return Promise.all(
+    names.map((symbol) => {
+      const image = new Image();
+      loadedSymbols.push(image);
+      image.src = symbolHref(symbol);
+      return image.decode().catch(() => undefined);
+    }),
+  ).then(() => {
+    symbolsLoaded = true;
+    for (const listener of symbolListeners) listener();
+  });
+}
+
+/** A category's icon: the real SF Symbol it names, the one the window sidebar and menus draw, bold,
+ * as a template PNG masking a `currentColor` box, so it inks like the row's text (Lucas 2026-11-11:
+ * the page's hand-drawn icons looked cheap beside Aside's and Codex's). */
+function CategoryIcon({ symbol }: { symbol: string }) {
+  const loaded = useSyncExternalStore(watchSymbols, () => symbolsLoaded);
+  if (!hostSymbols() || PAGE_DRAWN.has(symbol)) return <Icon name={symbol} />;
+  // Its slot keeps its size until the icon is loaded (no layout shift), empty rather than a filled box.
+  const style = loaded ? { maskImage: `url("${symbolHref(symbol)}")` } : { visibility: "hidden" as const };
+  return <span className="section-symbol" data-symbol={symbol} style={style} />;
 }
 
 const BADGE_TEXT = {
@@ -45,7 +103,7 @@ export function SectionList({ current, onSelect }: { current: string | null; onS
         onClick={() => onSelect(category.id)}
       >
         <span className="section-icon" data-category={category.id}>
-          <Icon name={category.symbol} />
+          <CategoryIcon symbol={category.symbol} />
         </span>
         <span className="section-name">{text(category.title)}</span>
         {mark && (

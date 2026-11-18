@@ -79,7 +79,12 @@ and at the end, for example `✓ Completed after 3m 12s`, `✗ Failed (exit 1) a
   view shows the header, says the output is not shared yet, and still follows it to its
   end.
 - **Another machine's chat:** process methods are local only (the daemon refuses remote
-  WebSocket and peer connections), so the click works for chats on this Mac.
+  WebSocket and peer connections). A Cloud or SSH chat's tab lives on its machine's daemon, so
+  the viewer opens there, as Cmd-T opens a shell there: that machine's own cmux binary runs
+  `acp process show --follow` against that machine's acpmux over its own socket, and this Mac's
+  socket never goes with it (`AgentPaneProcessViewer(onChatMachine:)`; Leo, cmuxterm-hq#7856:
+  "whatever works on a local chat should work on a Cloud chat"). A peer's chat that this Mac's
+  acpmux relays has no tab on the peer's daemon: its rows show the call that started the task.
 
 ## Wiring
 

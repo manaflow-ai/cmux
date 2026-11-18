@@ -15,6 +15,7 @@
 // A guest's prompt is not the owner's either (design/chat-multiplayer.md, "Held message card"): it
 // draws here as a message from that person, held with Approve and Decline while it waits for the
 // owner (acpmux `awaitingOwner`), then with the queue's label once approved.
+import { TRANSIENT_SHOW_MS, useSettledItems } from "../afterDelay";
 import type { ComposerAttachment } from "../attachments";
 import { isGuest } from "../multiplayer/participants";
 import { inboxText } from "./inboxNotice";
@@ -38,6 +39,28 @@ export function ownQueue(queue: AcpmuxSnapshot["queue"]): AcpmuxSnapshot["queue"
   return queue.some(inTranscript) ? queue.filter((entry) => !inTranscript(entry)) : queue;
 }
 
+/// Whether a queue entry shows at once. A person's prompt does: one the person just sent is a whole
+/// queued row in the frame the composer clears (Leo, 2026-11-11; test/agent-pane-queue-collapse),
+/// and a held one waits on someone (the folder's trust, a waking machine, the owner), never on the
+/// turn. So does another agent's message a Stop holds: it waits for the person, not for a batch.
+const showsAtOnce = (entry: QueuedEntry) => !isAgentEntry(entry) || entry.heldByStop === true;
+
+const entryKey = (entry: QueuedEntry) => entry.id;
+
+/// The queue as the pane draws it, the composer's queue rows and the transcript's waiting card
+/// alike (App.tsx): another agent's message or acpmux's inbox notice that comes and goes within
+/// TRANSIENT_SHOW_MS (queued at a turn's end and started in the next batch) never paints (Leo,
+/// 2026-11-17: "i also dont like seeing the flicker flash of the Queued blah blah blah something").
+/// The queue there when chat `scope` first draws shows at once; the same array comes back while
+/// nothing shown changed.
+export function useShownQueue(
+  queue: AcpmuxSnapshot["queue"],
+  scope: unknown,
+  ms: number = TRANSIENT_SHOW_MS,
+): AcpmuxSnapshot["queue"] {
+  return useSettledItems(queue, entryKey, scope, ms, showsAtOnce) as AcpmuxSnapshot["queue"];
+}
+
 /// The transcript row id of queued message `promptId`.
 export const queuedMessageRowId = (promptId: string) => `queued-message-${promptId}`;
 
@@ -56,7 +79,8 @@ export function queuedMessageRows(queue: AcpmuxSnapshot["queue"], last?: readonl
       ? { name: person?.name ?? "", text: entry.prompt, raw: entry.prompt, fromPerson: true as const }
       : entry.message;
     // An inbox notice draws as its threads, each another agent's line, never its text for the agent.
-    const notice = !message && !isHeldEntry(entry) ? entry.inbox : undefined;
+    // One that names no thread (direct.ts `mergeQueue`) has nothing to draw.
+    const notice = !message && !isHeldEntry(entry) && entry.inbox?.threads.length ? entry.inbox : undefined;
     if (!message && !notice) continue;
     // The first message may explain a Stop hold, once for the run.
     const lead = rows.length === 0;

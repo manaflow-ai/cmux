@@ -1,0 +1,228 @@
+{
+  "id": 132884782234,
+  "run_id": 43737950292,
+  "workflow_name": "iOS E2E",
+  "head_branch": "lane/perf-cmux-571-restore-chat",
+  "run_url": "https://api.github.com/repos/manaflow-ai/cmux/actions/runs/43737950292",
+  "run_attempt": 1,
+  "node_id": "CR_kwDORDHQWM8AAAAe8Izcmg",
+  "head_sha": "2eda09633f93cd51342da12c00c1a14bf080ac76",
+  "url": "https://api.github.com/repos/manaflow-ai/cmux/actions/jobs/132884782234",
+  "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/43737950292/job/132884782234",
+  "status": "completed",
+  "conclusion": "failure",
+  "created_at": "2026-11-15T16:53:35Z",
+  "started_at": "2026-11-15T16:53:37Z",
+  "completed_at": "2026-11-15T16:54:11Z",
+  "name": "backend",
+  "steps": [
+    {
+      "name": "Set up job",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 1,
+      "started_at": "2026-11-15T16:53:37Z",
+      "completed_at": "2026-11-15T16:53:38Z"
+    },
+    {
+      "name": "Set up runner",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 2,
+      "started_at": "2026-11-15T16:53:38Z",
+      "completed_at": "2026-11-15T16:53:38Z"
+    },
+    {
+      "name": "Checkout backend sources",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 3,
+      "started_at": "2026-11-15T16:53:38Z",
+      "completed_at": "2026-11-15T16:53:39Z"
+    },
+    {
+      "name": "Restore Bun package cache",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 4,
+      "started_at": "2026-11-15T16:53:39Z",
+      "completed_at": "2026-11-15T16:53:39Z"
+    },
+    {
+      "name": "Setup Bun",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 5,
+      "started_at": "2026-11-15T16:53:39Z",
+      "completed_at": "2026-11-15T16:53:40Z"
+    },
+    {
+      "name": "Setup Node",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 6,
+      "started_at": "2026-11-15T16:53:40Z",
+      "completed_at": "2026-11-15T16:53:40Z"
+    },
+    {
+      "name": "Install dependencies",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 7,
+      "started_at": "2026-11-15T16:53:40Z",
+      "completed_at": "2026-11-15T16:53:42Z"
+    },
+    {
+      "name": "Save Bun package cache",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 8,
+      "started_at": "2026-11-15T16:53:42Z",
+      "completed_at": "2026-11-15T16:53:43Z"
+    },
+    {
+      "name": "Restore iroh-relay archive",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 9,
+      "started_at": "2026-11-15T16:53:43Z",
+      "completed_at": "2026-11-15T16:53:44Z"
+    },
+    {
+      "name": "Download iroh-relay archive",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 10,
+      "started_at": "2026-11-15T16:53:44Z",
+      "completed_at": "2026-11-15T16:53:44Z"
+    },
+    {
+      "name": "Verify and extract iroh-relay",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 11,
+      "started_at": "2026-11-15T16:53:44Z",
+      "completed_at": "2026-11-15T16:53:44Z"
+    },
+    {
+      "name": "Save iroh-relay archive",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 12,
+      "started_at": "2026-11-15T16:53:44Z",
+      "completed_at": "2026-11-15T16:53:45Z"
+    },
+    {
+      "name": "Refuse a runner that already runs Tailscale",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 13,
+      "started_at": "2026-11-15T16:53:45Z",
+      "completed_at": "2026-11-15T16:53:45Z"
+    },
+    {
+      "name": "Join tailnet",
+      "status": "completed",
+      "conclusion": "failure",
+      "number": 14,
+      "started_at": "2026-11-15T16:53:45Z",
+      "completed_at": "2026-11-15T16:54:08Z"
+    },
+    {
+      "name": "Check the SSH login user",
+      "status": "completed",
+      "conclusion": "skipped",
+      "number": 15,
+      "started_at": "2026-11-15T16:54:08Z",
+      "completed_at": "2026-11-15T16:54:08Z"
+    },
+    {
+      "name": "Start per-run backend",
+      "status": "completed",
+      "conclusion": "skipped",
+      "number": 16,
+      "started_at": "2026-11-15T16:54:08Z",
+      "completed_at": "2026-11-15T16:54:08Z"
+    },
+    {
+      "name": "Serve until the macOS job finishes",
+      "status": "completed",
+      "conclusion": "skipped",
+      "number": 17,
+      "started_at": "2026-11-15T16:54:08Z",
+      "completed_at": "2026-11-15T16:54:08Z"
+    },
+    {
+      "name": "Upload backend logs",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 18,
+      "started_at": "2026-11-15T16:54:08Z",
+      "completed_at": "2026-11-15T16:54:09Z"
+    },
+    {
+      "name": "Stop per-run backend",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 19,
+      "started_at": "2026-11-15T16:54:09Z",
+      "completed_at": "2026-11-15T16:54:09Z"
+    },
+    {
+      "name": "Post Join tailnet",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 34,
+      "started_at": "2026-11-15T16:54:09Z",
+      "completed_at": "2026-11-15T16:54:09Z"
+    },
+    {
+      "name": "Post Setup Node",
+      "status": "completed",
+      "conclusion": "skipped",
+      "number": 35,
+      "started_at": "2026-11-15T16:54:09Z",
+      "completed_at": "2026-11-15T16:54:09Z"
+    },
+    {
+      "name": "Post Setup Bun",
+      "status": "completed",
+      "conclusion": "skipped",
+      "number": 36,
+      "started_at": "2026-11-15T16:54:09Z",
+      "completed_at": "2026-11-15T16:54:09Z"
+    },
+    {
+      "name": "Post Checkout backend sources",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 37,
+      "started_at": "2026-11-15T16:54:09Z",
+      "completed_at": "2026-11-15T16:54:09Z"
+    },
+    {
+      "name": "Complete runner",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 38,
+      "started_at": "2026-11-15T16:54:09Z",
+      "completed_at": "2026-11-15T16:54:09Z"
+    },
+    {
+      "name": "Complete job",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 39,
+      "started_at": "2026-11-15T16:54:09Z",
+      "completed_at": "2026-11-15T16:54:09Z"
+    }
+  ],
+  "check_run_url": "https://api.github.com/repos/manaflow-ai/cmux/check-runs/132884782234",
+  "labels": [
+    "blacksmith-4vcpu-ubuntu-2404"
+  ],
+  "runner_id": 9638336,
+  "runner_name": "blacksmith-4vcpu-ubuntu-2404-nbszmqxqgikzi6el",
+  "runner_group_id": 7,
+  "runner_group_name": "blacksmith scale sets - blacksmith-4vcpu-ubuntu-2404"
+}

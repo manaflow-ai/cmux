@@ -6,7 +6,6 @@ import CmuxNextBrowser
 import CmuxNextBrowserTabs
 import CmuxNextDaemon
 import CmuxNextMacScreen
-import CmuxNextOnboarding
 import CmuxNextPalette
 import CmuxNextSettings
 import CmuxNextTabs
@@ -57,6 +56,7 @@ extension NewTabPage {
             openingPanes.remove(openingKey)
             return
         }
+        services.keyRouter.parkedTyping.newTabPageOpens(showing: pane.currentContent?.inputReadiness) // the text that waited for the page that the pane shows stays with that page
         var page = Self.page(services, selected: pane.selectedTab, window: pane.view.window, pane: pane, paletteActions: false)
         // The page's folder: the selected tab's, or (an empty pane of another machine) its workspace's there.
         let cwd = page.cwd
@@ -96,8 +96,8 @@ extension NewTabPage {
         }
         // `showNow` already syncs the strip as part of presenting the adopted spare. Repeating
         // that full reconciliation on the same main-actor turn adds directly to the Cmd-T p95
-        // budget (cx-98s). Cold pages still need the immediate strip sync because their content
-        // is presented by the normal scheduler on a later frame.
+        // budget (cx-98s). A cold page still gets the strip sync now: its view is made by the
+        // scheduler at the next frame (`PaneController.apply`, the frame rule, decision 2026-11-16).
         if !showedSpare {
             BenchSpans.measure("newTab.strip") { pane.view.stripView.sync(fromModel: true) }
         }
@@ -113,17 +113,16 @@ extension NewTabPage {
     /// before its pane shows it) takes them into its stored page, so the view made from it later lists them.
     static func fillPaletteActions(_ services: AppServices) {
         let tabs = services.agentTabs
-        let lacking = { (key: String) in tabs.views[key].map { $0.model.newTab?.omnibar.actions.isEmpty == true } ?? (tabs.newTabPages[key]?.page.omnibar.actions.isEmpty == true) }
+        let lacking = { (key: AgentTabKey) in tabs.views[key].map { $0.model.newTab?.omnibar.actions.isEmpty == true } ?? (tabs.newTabPages[key]?.page.omnibar.actions.isEmpty == true) }
         // Checked at the listing's first task: Cmd-N's page joins `newTabPages` after this call (`firstPageNewTab`).
-        services.newTabActions.list(wanted: { tabs.newTabPages.keys.contains(where: lacking) }) { listed in
-            for key in tabs.newTabPages.keys where lacking(key) {
-                if let view = tabs.views[key] { view.refreshNewTabActions(listed) } else { tabs.newTabPages[key]?.page.omnibar.actions = listed.actions }
+        services.newTabActions.list(wanted: { tabs.newTabPages.entries.contains { lacking($0.key) } }) { listed in
+            for entry in tabs.newTabPages.entries where lacking(entry.key) {
+                if let view = tabs.views[entry.key] { view.refreshNewTabActions(listed) } else { tabs.newTabPages[entry.key]?.page.omnibar.actions = listed.actions }
             }
         }
     }
 
-    /// The page chose a terminal or browser: open it, then close the page,
-    /// which held nothing yet. The page closes only once the new tab exists, so a refused or failed open
+    /// The page chose a terminal or browser: open it, then close the page, which held nothing yet. The page closes only once the new tab exists, so a refused or failed open
     /// leaves it, and what was typed, in place. A chat that has a session
     /// (`keep`: its Log In, Update or Open in Terminal) stays; the new tab opens beside it.
     /// A static of the page, not the pane, so PaneController stays one
@@ -161,7 +160,8 @@ extension NewTabPage {
         }
         if case .terminal = request.kind, request.run, command(request.text) == nil { return } // opens nothing
         // The pick lands where links do, in the pane on the right (Lawrence 2026-10-19); the Debug toggle
-        // `newTab.picksFollowLinks` off keeps it in the page's place, like a browser's new tab (Leo 2026-10-20), as do the page's create buttons (`inPlace`).
+        // `newTab.picksFollowLinks` off keeps it in the page's place, like a browser's new tab (Leo 2026-10-20), as do the page's create buttons (`inPlace`)
+        // and a browser pick, a navigation (Lawrence 2026-11-11: `navigatesInPlace`; Option-Return's `beside` opens where links go).
         // A page in the chat dock, the main pane: the pick opens in the strip beside it, whatever else the dock
         // holds (Leo 2026-10-30: "not to fucking open it up in the main fucking pane"). A setup action's `keep`
         // (Log In, Update, Open in Terminal) goes there too and leaves the page or chat in place.
@@ -169,7 +169,7 @@ extension NewTabPage {
            case .beside(let closesPage) = ChatColumnPlacement.DockPick.resolve(hasStrip: true, keep: keep) {
             return Self.openBeside(key, with: request, cwd: cwd, from: pane, closesPage: closesPage)
         }
-        if !keep, !request.inPlace, Self.opensBeside(key, in: pane, kind: request.kind) { return Self.openBeside(key, with: request, cwd: cwd, from: pane) }
+        if !keep, !request.inPlace, !request.navigatesInPlace, Self.opensBeside(key, in: pane, kind: request.kind) { return Self.openBeside(key, with: request, cwd: cwd, from: pane) }
         let closePage = keep ? close : NewTabSlot.placing(replacing: key, onMachine: pane.daemon.machineID, services: services, then: close) ?? close // the page's slot
         switch request.kind {
         case .terminal where !request.run:
@@ -202,8 +202,8 @@ extension NewTabPage {
     /// Tabs, fills the pane the person just made, NewTabPage.split). `mainPane` false for a chat pick:
     /// main pane layout keeps chats out of the column right of the chat dock (NewChatPlacement).
     static func opensBeside(_ key: String, in pane: PaneController, kind: AgentPaneTabKind? = nil, mainPane: Bool = true) -> Bool {
-        let tabs = pane.services.agentTabs, page = tabs.resolve(key)
-        guard AgentPaneTunables.newTabPicksFollowLinks.value, tabs.newTabPages[page]?.page.openTabs == nil, pane.pane.tabs.contains(where: { $0.id != page }) else { return false }
+        let tabs = pane.services.agentTabs, scoped = tabs.tabKey(key, machine: pane.daemon.machineID), page = scoped.key
+        guard AgentPaneTunables.newTabPicksFollowLinks.value, tabs.newTabPages[scoped]?.page.openTabs == nil, pane.pane.tabs.contains(where: { $0.id != page }) else { return false }
         return pane.services.linkOpener.target(from: pane, mainPane: mainPane, kind: kind?.rightColumnKind) != .pane(pane.layoutPaneID)
     }
 
@@ -236,7 +236,7 @@ extension NewTabPage {
                 return false
             }
         }
-        services.linkOpener.open(from: pane, kind: request.kind.rightColumnKind, make)
+        services.linkOpener.open(from: pane, kind: request.kind.rightColumnKind, opening: .tool, make)
     }
 
     /// Whether a pick on a page beside a lone chat (the main pane) docks the chat left once it lands, so the
@@ -309,11 +309,11 @@ extension NewTabPage {
         let list = services.newTabActions.request
         // Cmd-T took the prepared page: it takes this tab's context, already laid out.
         if let spare = services.newTabSpares.claimNative(key), let model = spare.model {
-            model.adopt(page: page, actions: actions, paletteActions: list)
+            model.adopt(page: page, actions: actions, paletteActions: list, chats: services.agentTabs.pageChats.chats)
             closeFrame.scheduleFrame { closeFrame.scheduleFrameFromMain { [weak model] in model?.loadPaletteActions() } }
             return spare
         }
-        let model = NativeNewTabModel(page: page, actions: actions, paletteActions: list)
+        let model = NativeNewTabModel(page: page, actions: actions, paletteActions: list, chats: services.agentTabs.pageChats.chats)
         closeFrame.scheduleFrame { closeFrame.scheduleFrameFromMain { [weak model] in model?.loadPaletteActions() } }
         let host = NativeNewTabView.hosted(model)
         // The page counts as shown (leaving it ends the hold) only once its field exists: until then
@@ -331,13 +331,12 @@ extension NewTabPage {
     private static func nativeActions(_ key: String, cwd: String?, pane: PaneController) -> NativeNewTabActions {
         NativeNewTabActions(
             submit: { [weak pane] text, kind, search in
-                guard let pane else { return }
-                guard submitNative(text, kind: kind, search: search, cwd: cwd, in: pane, page: key) else { return }
-                closingPage(key, in: pane)()
+                if let pane, submitNative(text, kind: kind, search: search, cwd: cwd, in: pane, page: key) { closingPage(key, in: pane)() }
             },
             jump: { [weak pane] target, id in if let services = pane?.services { jump(target, id: id, services: services) } },
-            action: { [weak pane] id in pane?.services.palette.runCommand(ActionID(rawValue: id), relativeTo: pane?.view.window) }
-        )
+            action: { [weak pane] id in pane?.services.palette.runCommand(ActionID(rawValue: id), relativeTo: pane?.view.window) },
+            openChat: { [weak pane] chat in pane?.services.agentTabs.pageChats.open?(chat) }, start: { [weak pane] harness, folder in
+                if let pane, pane.openAgentTab(seed: AgentPaneSeedSource(AgentPaneSeed(cwd: folder, harness: harness))) { closingPage(key, in: pane)() } })
     }
 
     /// What a native submit opens: an empty field makes the kind as it is; a terminal runs the text; a
@@ -351,7 +350,7 @@ extension NewTabPage {
         }
         guard let request = NewTabSubmit.nativeRequest(text: trimmed, kind: kind, search: search, cwd: cwd,
                                                        resolver: page.services.cache.suggestionEngine.resolver) else { return false }
-        let besidePage = ChatColumnPlacement.keepsNewTabPage(in: page) || Self.docksChat(page) || key.map { Self.opensBeside($0, in: page, kind: request.kind) } == true
+        let besidePage = ChatColumnPlacement.keepsNewTabPage(in: page) || Self.docksChat(page) || (!request.navigatesInPlace && key.map { Self.opensBeside($0, in: page, kind: request.kind) } == true)
         if request.kind.opensBesideChat && besidePage { return servicesOpenNativeTool(request, from: page) }
         switch (request.kind, request.text.isEmpty) {
         case (.terminal, _): page.newTerminalTab(cwd: cwd, typing: nativeTerminalTyping(request))
@@ -371,7 +370,7 @@ extension NewTabPage {
 
     private static func servicesOpenNativeTool(_ request: AgentPaneOpenTab, from page: PaneController) -> Bool {
         let services = page.services
-        return services.linkOpener.open(from: page, kind: request.kind.rightColumnKind) { target, placed in
+        return services.linkOpener.open(from: page, kind: request.kind.rightColumnKind, opening: .tool) { target, placed in
             switch request.kind {
             case .terminal:
                 let typing = nativeTerminalTyping(request)

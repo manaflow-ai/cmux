@@ -117,7 +117,7 @@ async fn only_a_change_is_announced_and_a_stop_empties_the_list() {
     let first = notices(&mut events);
     assert_eq!(first.len(), 2, "{first:?}");
     assert!(first.iter().all(|(kind, _)| kind == "status"), "{first:?}");
-    let writes = hub.remote_sessions.lock().unwrap().writes;
+    let writes = hub.remote_sessions.read().writes;
 
     let mut later = book();
     for d in &mut later.daemons {
@@ -125,7 +125,7 @@ async fn only_a_change_is_announced_and_a_stop_empties_the_list() {
     }
     hub.apply_mesh_book(later, "person-1", Some("d-a"));
     assert_eq!(notices(&mut events), [], "an unchanged book announces nothing");
-    assert_eq!(hub.remote_sessions.lock().unwrap().writes, writes, "nor rebuilds the list");
+    assert_eq!(hub.remote_sessions.read().writes, writes, "nor rebuilds the list");
 
     let mut waiting = book();
     waiting.sessions[1].state = "waiting".into();

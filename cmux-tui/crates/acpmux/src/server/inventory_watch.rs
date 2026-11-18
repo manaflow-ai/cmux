@@ -15,43 +15,30 @@ pub(super) fn handle(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, Rp
     }
     let InventoryWatchParams { enabled } = serde_json::from_value(params.clone())
         .map_err(|_| RpcError::invalid_params("expected only a boolean enabled field"))?;
-    let _outbound = conn.outbound_lock.lock().unwrap_or_else(|e| e.into_inner());
+    let _outbound = conn.out.lock();
     *conn.watch_inventory.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = enabled;
     if enabled { Ok(hub.health.inventory_changes().borrow().wire()) } else { Ok(json!({})) }
 }
 
-/// Bounded backpressure without a polling timer. Recheck subscription after
-/// reserving queue space, then take the newest snapshot so a disabled or slow
-/// connection cannot replay an older buffered observation after re-enabling.
+/// The newest snapshot, queued with the subscription read under the queue's lock, so a disabled
+/// connection never gets one queued after it turned the watch off. The queue is bounded in bytes
+/// (`outbound.rs`): a reader too slow for it is disconnected, never sent a stale snapshot.
 pub(super) async fn send_latest(
     conn: &Conn,
     snapshots: &mut tokio::sync::watch::Receiver<crate::harness_health::inventory_feed::Snapshot>,
 ) {
-    let _outbound = conn.outbound_lock.lock().unwrap_or_else(|e| e.into_inner());
+    let mut queue = conn.out.lock();
     let enabled = *conn.watch_inventory.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    let reserved = super::OUTBOUND_CONTROL_RESERVE
-        + conn.outbound_pending_controls.load(std::sync::atomic::Ordering::Acquire);
-    if enabled
-        && conn.out.capacity() > reserved
-        && let Ok(permit) = conn.out.try_reserve()
-    {
+    if enabled {
         let value = snapshots.borrow_and_update().wire();
         match Message::notification(method::MUX_HARNESS_INVENTORY, value).bounded_line() {
-            Ok(line) => permit.send(line),
+            Ok(line) => {
+                queue.push(line);
+            }
             // `bounded_line` counted it and warned, at most once a minute (`wire_size.rs`).
             Err(bytes) => tracing::debug!(bytes, "left out an inventory too large to send"),
         }
         return;
-    }
-    if enabled {
-        // Keep the response and gap-marker permits available when an
-        // inventory watcher is slower than the daemon's bounded queue.
-        super::report_outbound_loss_locked(
-            &conn.out,
-            &conn.outbound_dropped,
-            &conn.outbound_gap_pending,
-            &conn.outbound_lock,
-        );
     }
     // Do not replay changes that happened while the subscription was off.
     let _ = snapshots.borrow_and_update();

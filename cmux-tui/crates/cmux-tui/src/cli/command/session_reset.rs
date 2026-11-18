@@ -134,6 +134,41 @@ pub(in crate::cli) fn run_session_reset_state(
     }
 }
 
+/// After `daemon stop --end-terminals` (W5-R, bench round 4 item 10):
+/// removes the stopped owner's terminal and resume state (its launch
+/// snapshot and terminal-host records) under `session_dir`, as the owner
+/// reported it. The Chief store, conversations, git checkpoints, diff
+/// comments and session settings stay. The removal waits (until `deadline`)
+/// for the stopping owner to release its session locks, and never touches
+/// the state of an owner that runs. Returns the fields for the stop result:
+/// `removed_terminal_state` (true once none is left), and on failure
+/// `terminal_state_error` (a `session.reset_state.*` code).
+pub(in crate::cli) fn end_stopped_terminal_state(
+    session: &str,
+    session_dir: &std::path::Path,
+    deadline: std::time::Instant,
+) -> serde_json::Map<String, serde_json::Value> {
+    let mut fields = serde_json::Map::new();
+    let ended = session_dir
+        .parent()
+        .map(|root| cmux_tui_core::PersistentSessionStateResetter::new(root.to_path_buf()))
+        .filter(|resetter| {
+            resetter.session_dir(session)
+                == cmux_tui_core::platform::normalize_filesystem_path(session_dir.to_path_buf())
+        })
+        .ok_or("session.reset_state.invalid_state_path")
+        .and_then(|resetter| {
+            resetter
+                .end_terminal_state(session, deadline)
+                .map_err(|error| reset_failure_advice(&error).code)
+        });
+    fields.insert("removed_terminal_state".to_owned(), json!(ended.is_ok()));
+    if let Err(code) = ended {
+        fields.insert("terminal_state_error".to_owned(), json!(code));
+    }
+    fields
+}
+
 struct ResetFailureAdvice {
     code: &'static str,
     reason: &'static str,

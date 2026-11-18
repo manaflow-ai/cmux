@@ -2,6 +2,7 @@
 flake (it passed run again alone) or fails on the merge base too; a crash, a cut-short binary, a compile error or a
 test the base passes is the change's own red."""
 import importlib.util
+import posixpath
 import re
 import subprocess
 import sys
@@ -33,6 +34,23 @@ def binary(*results, total=None):
 
 def log(*binaries):
     return "\n\n".join(binaries) + "\n"
+
+
+def starts_a_test(source):
+    """Whether a plain `cargo test` starts a test of this Rust file: a `#[test]` or `#[tokio::test]` whose block of
+    attributes holds no `#[ignore]`."""
+    lines = [line.strip() for line in source.splitlines()]
+    for n, line in enumerate(lines):
+        if not re.match(r"#\[(?:tokio::)?test\b", line):
+            continue
+        first = last = n
+        while first > 0 and lines[first - 1].startswith("#["):
+            first -= 1
+        while last + 1 < len(lines) and lines[last + 1].startswith("#["):
+            last += 1
+        if not any(attribute.startswith("#[ignore") for attribute in lines[first:last + 1]):
+            return True
+    return False
 
 
 HEAD = log(
@@ -125,6 +143,69 @@ class Judge(unittest.TestCase):
         self.assertFalse(self.judge(stamped, retry=retry)[0])
 
 
+def coloured(text):
+    """TEXT as cargo prints it to a colour terminal: each outcome and the summary's state in its own colour codes,
+    each line stamped as the job log serves it."""
+    for word, code in (("FAILED", 31), ("ok", 32)):
+        text = re.sub(rf"(\.\.\. |test result: ){word}\b",
+                      lambda m, word=word, code=code: f"{m.group(1)}\x1b[{code}m{word}\x1b[0m", text)
+    return "\n".join(f"2026-10-31T01:02:03.4567890Z {line}" for line in text.splitlines())
+
+
+class ColouredSummary(unittest.TestCase):
+    """#41329's review F2: "scripts/ci/cargo_test_verdict.py:160: the summary rewrite searches the raw line, so ANSI
+    codes around FAILED stop it matching. The flaky result drops out while its failure count stays, and judge() calls
+    a passing retry an own red. Rewrite the normalized summary, and add a fixture with inline colour codes." And
+    "strip ANSI once, at the log reader, so no parser sees raw colour"."""
+
+    # One binary, a flake and a base red in it: taking the flake out leaves `1 failed`, its one named failure.
+    HEAD = log(binary(("hub::turn_cap_tests::caps", "FAILED"), ("agent_inbox::delivers", "FAILED"),
+                      ("carried_turns::carries", "ok")))
+    RETRY = log(binary(("hub::turn_cap_tests::caps", "ok"), ("agent_inbox::delivers", "FAILED")))
+    BASE = log(binary(("hub::turn_cap_tests::caps", "ok"), ("agent_inbox::delivers", "FAILED")))
+
+    def test_a_flake_in_a_coloured_binary_leaves_its_count_matching_its_names(self):
+        head = coloured(self.HEAD)
+        self.assertIn("test result: \x1b[31mFAILED\x1b[0m. 1 passed; 2 failed;", head)
+        out = verdict.without_failures(head, {"hub::turn_cap_tests::caps"})
+        self.assertEqual([line for line in verdict.test_reds.lines_of(out) if line.startswith("test result: ")],
+                         ["test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; "
+                          "finished in 1.00s"])
+        own, notes = verdict.judge(head, coloured(self.RETRY), coloured(self.BASE), JOB)
+        self.assertFalse(own, notes)
+        self.assertEqual(sum("(flaky)" in n for n in notes), 1, notes)
+        self.assertEqual(sum("(base red)" in n for n in notes), 1, notes)
+
+    def test_the_log_reader_strips_colour_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp, "head.log")
+            path.write_text(coloured(self.HEAD) + "\n\x1b]8;;https://example.invalid\x07link\x1b]8;;\x07\n")
+            text = verdict.read_text(path)
+        self.assertNotIn("\x1b", text)
+        self.assertIn("test result: FAILED. 1 passed; 2 failed;", text)
+
+
+class TitleSequencesKeepTheLinesBetweenThem(unittest.TestCase):
+    """#41382's review F1 (test_reds.py:64): "The OSC pattern is greedy and runs to the last ESC \\ in the log, so
+    plain() deletes every line between two title sequences. Reproduced through cargo_test_verdict.read_text: a head
+    with one new and one existing failure loses the new one, and judge() excuses it."""
+
+    TITLE = "\x1b]0;cargo test\x1b\\"
+
+    def test_a_new_failure_between_two_titles_is_the_changes_own(self):
+        head = log(binary(("hub::turn_cap_tests::caps", "FAILED")),
+                   self.TITLE + binary(("agent_inbox::delivers", "FAILED")), self.TITLE + "done")
+        base = log(binary(("hub::turn_cap_tests::caps", "FAILED")), binary(("agent_inbox::delivers", "ok")))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp, "head.log")
+            path.write_text(head)
+            text = verdict.read_text(path)
+        self.assertEqual(verdict.failed_names(text), ["agent_inbox::delivers", "hub::turn_cap_tests::caps"])
+        own, notes = verdict.judge(text, None, base, JOB)
+        self.assertTrue(own, notes)
+        self.assertTrue(any(n.startswith("::error") and "agent_inbox::delivers" in n for n in notes), notes)
+
+
 def workflow_paths(workflow: str) -> dict[str, list[str]]:
     """Each trigger's `paths:` globs in WORKFLOW, read without a YAML parser."""
     found, event, inside = {}, None, False
@@ -161,6 +242,9 @@ class Scope(unittest.TestCase):
         changed = ["cmux-tui/crates/cmux-json/src/lib.rs", "skills/cmux-cua/SKILL.md", "cmux-tui/Cargo.lock",
                    "README.md", "webviews/src/app.tsx", "cmux-tui/crates/ghostty-vt/src/lib.rs"]
         self.assertEqual(verdict.touches(ROOT, self.CRATE, changed), changed[:3])
+        gates = ["scripts/cmux-next/run-v2-gates.sh", "scripts/cmux-next/v2-gates.d/pr03d.gates"]
+        self.assertEqual(verdict.touches(ROOT, self.CRATE, gates), gates)  # read at test time
+        self.assertEqual(verdict.touches(ROOT, "cmux-tui/crates/cmux-host", gates), [])
 
     def test_the_workflow_runs_for_every_included_file_outside_cmux_tui(self):
         _, files = verdict.crate_inputs(ROOT, self.CRATE)
@@ -171,10 +255,61 @@ class Scope(unittest.TestCase):
         # one and its `changes` job routes them by these `push` paths (.github/scripts/cmux-tui-spec-changed.py).
         self.assertEqual(set(paths), {"push"})
         for event, globs in paths.items():
-            for path in outside + [p.rstrip("/") + ("/x" if p.endswith("/") else "") for p in verdict.ALWAYS]:
+            for path in outside + [p.rstrip("/") + ("/x" if p.endswith("/") else "") for p in verdict.ALWAYS + verdict.READ_AT_TEST_TIME[self.CRATE]]:
                 with self.subTest(event=event, path=path):
                     self.assertTrue(any(glob_matches(glob, path) for glob in globs),
                                     f"cmux-tui-spec.yml's {event} paths miss {path}, an input of acpmux's tests")
+
+    def test_the_job_runs_the_tests_of_every_acpmux_crate_acpmux_is_built_from(self):
+        # The job ran `-p acpmux` alone and no hosted job ran the other acpmux-* crates' tests: cmux#42834 changed
+        # what acpmux-book answers and left acpmux-core's test of the old answer red on the base, and cmux#42906
+        # left two more (repaired by cmux#42943). A new acpmux-* path dependency, direct or through another crate,
+        # or a new tests/*.rs of one, joins the job's `suites`. acpmux's own tests/ are not asked for: most of them
+        # run in other jobs.
+        dirs, _ = verdict.crate_inputs(ROOT, self.CRATE)
+        crates = [d for d in dirs if posixpath.basename(d).startswith("acpmux")]
+        self.assertIn("cmux-tui/crates/acpmux-core", crates)
+        workflow = (ROOT / ".github/workflows/cmux-tui-spec.yml").read_text()
+        suites = re.search(r"^ +suites=\(([^)]*)\)$", workflow, re.M).group(1).split()
+        named = {flag: {suites[n + 1] for n, word in enumerate(suites[:-1]) if word == flag}
+                 for flag in ("-p", "--test")}
+        self.assertIn("--lib", suites)
+        with verdict.git_tree.GitTree(ROOT) as tree:
+            for crate in crates:
+                name = posixpath.basename(crate)
+                with self.subTest(crate=name):
+                    self.assertIn(name, named["-p"], f"cmux-tui-spec.yml's acpmux tests job runs no test of {name}: "
+                                                     f"add `-p {name}` to its suites")
+                    if crate == self.CRATE:
+                        continue
+                    targets = {posixpath.basename(path)[:-3] for path in tree.files(f"{crate}/tests", ".rs")
+                               if posixpath.dirname(path) == f"{crate}/tests"}
+                    self.assertEqual(targets - named["--test"], set(),
+                                     f"cmux-tui-spec.yml's acpmux tests job misses {name}'s tests/ files: add "
+                                     "`--test NAME` to its suites for each")
+            # acpmux's own tests/v2_*.rs. tests/v2_gate_home.rs is the only test build of the v2 gate registry
+            # (benches/v2/mod.rs) and no hosted job ran it: cmux#42725 made the report refuse a run that leaves a
+            # measured row out, and two of the file's tests stayed red on the base. A v2_* file joins `suites`
+            # unless every test in it is #[ignore]d (a release gate cmux-ci runs by name).
+            found = []
+            for path in tree.files(f"{self.CRATE}/tests", ".rs"):
+                name = posixpath.basename(path)[:-3]
+                if posixpath.dirname(path) != f"{self.CRATE}/tests" or not name.startswith("v2_"):
+                    continue
+                found.append(name)
+                with self.subTest(target=name):
+                    self.assertTrue(name in named["--test"] or not starts_a_test(tree.text(path)),
+                                    f"cmux-tui-spec.yml's acpmux tests job misses acpmux's tests/{name}.rs, which "
+                                    f"holds a test a plain run starts: add `--test {name}` to its suites")
+            self.assertIn("v2_gate_home", found)
+
+    def test_a_file_of_ignored_gates_starts_no_test(self):
+        gate = '#[test]\n#[ignore = "release gate"]\nfn a() {}\n'
+        self.assertFalse(starts_a_test(gate))
+        self.assertFalse(starts_a_test('#[ignore]\n#[tokio::test(flavor = "multi_thread")]\nasync fn a() {}\n'))
+        self.assertFalse(starts_a_test("fn helper() {}\n"))
+        self.assertTrue(starts_a_test(gate + "\n#[test]\nfn b() {}\n"))
+        self.assertTrue(starts_a_test("    #[tokio::test]\n    async fn c() {}\n"))
 
 
 class Cli(unittest.TestCase):

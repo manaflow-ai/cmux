@@ -213,6 +213,7 @@ jobs:
           mapfile -d '' binaries < <(
             find dist/npm-packages -type f \
               \( -path '*/cmux-tui-*/bin/cmux-tui*' -o \
+                 -path '*/cmux-tui-*/bin/cmux-agent-screen-detection' -o \
                  -path '*/cmux-relay-*/bin/chatmux-relay*' \) \
               -print0 | sort -z
           )

@@ -33,7 +33,7 @@ use cmux_cloud_api::session::{
     redact, valid_machine,
 };
 
-const USAGE: &str = "usage: cmux machine access new --target machine:VM_ID [--ttl SECONDS] [--token-file PATH]\n       cmux machine access exec --target machine:VM_ID [--ttl SECONDS] [--timeout-ms MS] -- COMMAND...\n  both take --cloud-api URL (or CMUX_CLOUD_API_URL), --cloud-token-file PATH (or CMUX_CLOUD_ACCESS_TOKEN) and --team TEAM_ID";
+const USAGE: &str = "usage: cmux vm access new --target vm:VM_ID [--ttl SECONDS] [--token-file PATH]\n       cmux vm access exec --target vm:VM_ID [--ttl SECONDS] [--timeout-ms MS] -- COMMAND...\n  both take --cloud-api URL (or CMUX_CLOUD_API_URL), --cloud-token-file PATH (or CMUX_CLOUD_ACCESS_TOKEN) and --team TEAM_ID";
 const API_ENV: &str = "CMUX_CLOUD_API_URL";
 const TOKEN_ENV: &str = "CMUX_CLOUD_ACCESS_TOKEN";
 const EXEC_TIMEOUT_DEFAULT_MS: u64 = 30_000;
@@ -78,6 +78,12 @@ pub(super) fn run_words(global: &super::GlobalArgs, rest: &[String]) -> i32 {
         Ok(command) => command,
         Err(error) => return fail("usage.invalid", &error.0, 2),
     };
+    let env = |key: &str| std::env::var(key).ok().filter(|value| !value.trim().is_empty());
+    if let Some(words) = app_exec(&command, env)
+        && super::app::connect_command(global).is_ok()
+    {
+        return super::vm_short::exec_here(global, "cloud exec", &words);
+    }
     let resolved = resolve(&command, |key| std::env::var(key).ok());
     let (api, credential) = match resolved {
         Ok(pair) => pair,
@@ -119,7 +125,7 @@ pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
         let ttl_error = || UsageError::new("--ttl takes whole seconds from 60 to 900");
         match name {
             "--target" => {
-                command.machine = value.strip_prefix("machine:").unwrap_or(&value).to_owned();
+                command.machine = super::vm_words::bare_id(&value).to_owned();
             }
             "--ttl" => command.ttl = Some(value.parse().map_err(|_| ttl_error())?),
             "--cloud-api" => command.api = Some(value),
@@ -156,6 +162,27 @@ pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
         _ => return Err(usage()),
     };
     Ok(command)
+}
+
+/// `access exec` with no cmux API or credential given (no flag, no environment): the words of the app's `cloud exec`,
+/// which runs the command on the machine with the app's own sign-in, as `cmux vm exec` does. `None` for `access new`:
+/// the app has no action that mints a client session, so `new` still needs `--cloud-api` and a credential.
+pub(super) fn app_exec(
+    command: &Command,
+    env: impl Fn(&str) -> Option<String>,
+) -> Option<Vec<String>> {
+    let Verb::Exec { command: line, .. } = &command.verb else { return None };
+    let named =
+        command.api.is_some() || command.credential_file.is_some() || command.team.is_some();
+    if named || env(API_ENV).is_some() || env(TOKEN_ENV).is_some() {
+        return None;
+    }
+    Some(vec![
+        "--target".to_owned(),
+        format!("machine:{}", command.machine),
+        "--command".to_owned(),
+        line.clone(),
+    ])
 }
 
 /// The cmux API origin and the caller's credential, from the flags or the environment.

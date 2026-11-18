@@ -6,6 +6,14 @@
 // Mutations carry `idempotency_key` in their params (the page envelope rule, react-pages.md); the
 // host moves it to the op request's key.
 
+// The backend records (machine, snapshot, plan, migration) are the catalog's generated types
+// (clients/ts/cloud/src/generated.ts, from backend/catalog/cloud-operations.json): type-only, so
+// nothing of the client ships in the page bundle.
+import type * as Wire from "../../../../clients/ts/cloud/src/generated";
+
+/** The catalog's answer of one op. */
+type Result<Op extends Wire.CloudOpName> = Wire.CloudOps[Op]["result"];
+
 export const CloudOps = {
   authStatus: "cmux.cloud.auth.status",
   /**
@@ -23,6 +31,12 @@ export const CloudOps = {
   machineResize: "cmux.cloud.machine.resize",
   machineDelete: "cmux.cloud.machine.delete",
   machineIdlePolicySet: "cmux.cloud.machine.idle_policy.set",
+  /** Pin a machine so nothing deletes it automatically (`keep: false` unpins it). */
+  machineKeep: "cmux.cloud.machine.keep",
+  /** Archive a paused machine's disk (a snapshot with `archive_of`), then delete the machine. */
+  machineArchiveDelete: "cmux.cloud.machine.archive_delete",
+  /** The team's cleanup numbers (a team admin) and the caller's email heads-up. */
+  retentionSet: "cmux.cloud.retention.set",
   machineUpgrade: "cmux.cloud.machine.upgrade",
   machineConnect: "cmux.cloud.machine.connect",
   snapshotList: "cmux.cloud.snapshot.list",
@@ -109,12 +123,28 @@ export const PAGE_COMMAND = "cmux.page.command";
  * prove a gesture. The host answers the op's result fields at the top level, or `{confirmed: false}`
  * for a declined sheet.
  */
+/**
+ * The native actions the host runs behind its own confirmation sheet (PageDescriptor.cloud `confirmedOps`,
+ * PageProviders `runConfirmed`): their answer is `{confirmed: false}` or `{confirmed: true, value}`, the op's
+ * own answer under `value` ([`confirmedValue`](./store.ts)).
+ */
+export const CONFIRMED_ACTIONS = new Set<string>([
+  CloudOps.machineDelete,
+  CloudOps.machineArchiveDelete,
+  CloudOps.machineConnect,
+  CloudOps.snapshotRestore,
+  CloudOps.snapshotDelete,
+  AccountOps.signIn,
+  AccountOps.signOut,
+]);
+
 export const NATIVE_ACTIONS = new Set<string>([
   AccountOps.signIn,
   AccountOps.signOut,
   CloudOps.machineCreate,
   CloudOps.machineResize,
   CloudOps.machineDelete,
+  CloudOps.machineArchiveDelete,
   CloudOps.machineUpgrade,
   CloudOps.machineConnect,
   CloudOps.snapshotCreate,
@@ -134,6 +164,10 @@ export const CloudErrors = {
   planRequired: "cmux.cloud.plan_required",
   quotaExceeded: "cmux.cloud.quota_exceeded",
   sizeLocked: "cmux.cloud.size_locked",
+  /** The team reached its spending cap: `{spent_usd, cap_usd, period_end, pause_at}` (cmux-platform SpendCap.ts). */
+  spendCapReached: "cmux.cloud.spend_cap_reached",
+  /** The member spent their own monthly budget: `{spent_usd, limit_usd}`. */
+  memberBudgetReached: "cmux.cloud.member_budget_reached",
   /** No machine image is configured for this deployment yet (dev until the image lane has one). */
   noSnapshotConfigured: "cmux.cloud.no_snapshot_configured",
   fileOpsBusy: "cmux.cloud.file_ops_busy",
@@ -172,11 +206,18 @@ export function isGone(error: unknown): boolean {
   return codeOf(error) === CloudErrors.notFound;
 }
 
-/** A typed plan refusal (contract 1.5). The backend reads the plan; the page never computes one. */
+/**
+ * A typed plan refusal (contract 1.5), or a start the team's spending cap or the member's own budget refused
+ * (cmuxterm-hq#8205). The backend reads the plan and the spend; the page never computes one.
+ */
 export interface PlanRefusal {
-  kind: "plan_required" | "quota_exceeded" | "size_locked";
+  kind: "plan_required" | "quota_exceeded" | "size_locked" | "spend_cap" | "member_budget";
   limit?: number;
   used?: number;
+  /** Spend refusals: US dollars spent, the team's cap or the member's budget, and when the period resets. */
+  spentUsd?: number;
+  capUsd?: number;
+  periodEnd?: number;
   /**
    * The plan "See plans" checks out: the error's `details.plan`, else `CloudPlan.upgrade_plan`.
    * Absent when neither names one (null = no plan lifts the limit): the sentence shows alone.
@@ -188,7 +229,21 @@ const PLAN_KINDS: Record<string, PlanRefusal["kind"]> = {
   [CloudErrors.planRequired]: "plan_required",
   [CloudErrors.quotaExceeded]: "quota_exceeded",
   [CloudErrors.sizeLocked]: "size_locked",
+  [CloudErrors.spendCapReached]: "spend_cap",
+  [CloudErrors.memberBudgetReached]: "member_budget",
 };
+
+/**
+ * The backend's own spend codes, read from `upstream_code` too: an app server older than the cap answers them as
+ * `protocol_error` (an op that did not declare them yet) with the backend code kept.
+ */
+const UPSTREAM_SPEND_KINDS: Record<string, PlanRefusal["kind"]> = {
+  "cloud.spend_cap.reached": "spend_cap",
+  "cloud.member_budget.reached": "member_budget",
+};
+
+const finiteNumber = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isFinite(value) ? value : undefined;
 
 /**
  * The plan refusal of `error`, read from its code and `details` (`{limit, used}`, `{plan}`).
@@ -196,10 +251,25 @@ const PLAN_KINDS: Record<string, PlanRefusal["kind"]> = {
  */
 export function planRefusal(error: unknown, upgradePlan?: string | null): PlanRefusal | undefined {
   const code = codeOf(error);
-  const kind = typeof code === "string" ? PLAN_KINDS[code] : undefined;
+  const upstream = (error as { upstream_code?: unknown } | null)?.upstream_code;
+  const kind =
+    (typeof code === "string" ? PLAN_KINDS[code] : undefined) ??
+    (typeof upstream === "string" ? UPSTREAM_SPEND_KINDS[upstream] : undefined);
   if (!kind) return undefined;
   const details = (error as { details?: unknown }).details;
   const d = details && typeof details === "object" ? (details as Record<string, unknown>) : {};
+  if (kind === "spend_cap" || kind === "member_budget") {
+    // No plan lifts a spend refusal: an admin raises the cap or the budget, or the period resets.
+    const spentUsd = finiteNumber(d.spent_usd);
+    const capUsd = finiteNumber(kind === "spend_cap" ? d.cap_usd : d.limit_usd);
+    const periodEnd = finiteNumber(d.period_end);
+    return {
+      kind,
+      ...(spentUsd !== undefined ? { spentUsd } : {}),
+      ...(capUsd !== undefined ? { capUsd } : {}),
+      ...(periodEnd !== undefined ? { periodEnd } : {}),
+    };
+  }
   const plan = typeof d.plan === "string" && d.plan ? d.plan : upgradePlan || undefined;
   return {
     kind,
@@ -239,49 +309,21 @@ export interface TransferChanged {
   error?: { code: string; message?: string; retryable?: boolean };
 }
 
-/** `CloudMachine.status` (contract 1.2); a status the page does not know becomes `unknown`. */
-export type MachineStatus =
-  | "provisioning"
-  | "starting"
-  | "running"
-  | "pausing"
-  | "paused"
-  | "deleting"
-  | "failed"
-  | "unknown";
+/**
+ * The catalog's machine status, plus `unknown`: the page's own value for a status it does not know
+ * (`normalizeMachine`, like the server's decoder). The wire never sends `unknown`.
+ */
+export type MachineStatus = Wire.CloudMachineStatus | "unknown";
 
 /** A machine size. Create and resize send at least one field; the plan decides which are allowed. */
-export interface MachineSize {
-  cpu?: number | null;
-  memory_mb?: number | null;
-  disk_mb?: number | null;
-}
+export type MachineSize = Wire.CloudMachineSize;
 
-/** `CloudMachine` (contract 1.2; server `api/models.rs` `Machine`). Owner: the team's CloudDO. */
-export interface CloudMachine {
-  id: string;
-  team?: string | null;
-  creator?: string | null;
-  name?: string | null;
-  size?: MachineSize | null;
-  status: MachineStatus;
-  image?: { id: string; daemon_version?: string | null } | null;
-  /** The overlay host id; null until the machine is bound. */
-  host?: string | null;
-  /** Imported from cmux Cloud classic: read-only here until upgraded (contract 4). */
-  classic?: boolean;
-  /** Epoch milliseconds. */
-  created_at?: number | null;
-  last_active_at?: number | null;
-  idle_policy?: { idle_seconds?: number | null } | null;
-  error?: { code: string; message?: string | null; at?: number | null } | null;
-  /** US dollars an hour while running, from the server's rate table (display only; no rates here). */
-  hourly_rate_usd?: number | null;
-  /** Epoch milliseconds the machine last started running; null unless it is running. */
-  running_since?: number | null;
-  /** The record's own revision: a decimal string that only grows. */
-  revision: string;
-}
+/**
+ * `CloudMachine` as the catalog declares it (the generated wire is the only machine type), with the
+ * status widened to the page's `unknown`. Owner: the team's CloudDO. The page still reads optional
+ * parts defensively (`?.`, `??`), since an older server relays records with fields left out.
+ */
+export type CloudMachine = Omit<Wire.CloudMachine, "status"> & { readonly status: MachineStatus };
 
 export interface MachineListResult {
   machines: CloudMachine[];
@@ -307,21 +349,10 @@ export interface MachineResult {
 }
 
 /** A delete's answer; a retry after the delete answers the same. */
-export interface DeletedResult {
-  deleted: true;
-}
+export type DeletedResult = Result<"cloud.machine.delete">;
 
-/** `CloudSnapshot` (contract 1.2). */
-export interface CloudSnapshot {
-  id: string;
-  machine?: string | null;
-  name?: string | null;
-  size_mb?: number | null;
-  status?: string | null;
-  /** Epoch milliseconds. */
-  created_at?: number | null;
-  revision: string;
-}
+/** `CloudSnapshot` as the catalog declares it. */
+export type CloudSnapshot = Wire.CloudSnapshot;
 
 export interface SnapshotListResult {
   snapshots: CloudSnapshot[];
@@ -332,55 +363,30 @@ export interface SnapshotResult {
 }
 
 /** `CloudPlan`: limits and usage in one record (`cloud.usage.get` folded in). No plan logic here. */
-export interface CloudPlan {
-  plan_id: string;
-  /** The plan that lifts this plan's limits ("See plans"); null when no plan does. */
-  upgrade_plan?: string | null;
-  limits: {
-    max_active: number;
-    max_saved: number;
-    /** Memory sizes the plan offers, locked ones included. */
-    memory_options_mb: number[];
-    /** Offered sizes that need another plan: shown, not selectable. */
-    locked_memory_options_mb: number[];
-    vm_hours_included?: number | null;
-  };
-  usage: {
-    active: number;
-    saved: number;
-    vm_hours_used?: number | null;
-    /** Epoch milliseconds. */
-    period_end?: number | null;
-  };
-}
+export type CloudPlan = Wire.CloudPlan;
+
+/** `CloudPlan.retention`: the cleanup in force, the team's own numbers and the caller's email choice. */
+export type CloudRetention = Wire.CloudRetention;
+
+/** The team's own cleanup numbers (`cloud.retention.set {settings}`), each optional. */
+export type RetentionOverrides = Wire.CloudRetentionOverrides;
+
+/** Why the platform deletes a machine at `evict_at`. */
+export type DeleteReason = Wire.CloudDeleteReason;
 
 /** `cloud.billing.checkout {plan}`: the host opens the https URL in the browser. */
-export interface CheckoutResult {
-  url: string;
-}
-
-export type MigrationState = "none" | "available" | "moving" | "moved";
+export type CheckoutResult = Result<"cloud.billing.checkout">;
 
 /** `cloud.migration.status` (contract 4). */
-export interface MigrationStatus {
-  state: MigrationState;
-  classic_count: number;
-  imported: string[];
-}
+export type MigrationStatus = Result<"cloud.migration.status">;
+
+export type MigrationState = MigrationStatus["state"];
 
 /** `cloud.migration.start`: one way, per user. */
-export interface MigrationStarted {
-  state: MigrationState;
-}
+export type MigrationStarted = Result<"cloud.migration.start">;
 
 /** `cloud.machine.create` params (contract 1.3), without the key. */
-export interface CreateMachineArgs {
-  /** 1 to 80 characters; absent = the owner names the machine. */
-  name?: string;
-  size: MachineSize;
-  image?: string;
-  from_snapshot?: string;
-}
+export type CreateMachineArgs = Wire.CloudOps["cloud.machine.create"]["params"];
 
 /** `cloud.fs.list` entries and the `cloud.fs.stat` answer (server `fs/files.rs` `Entry`). */
 export interface FsEntry {

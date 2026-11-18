@@ -49,7 +49,7 @@ final class HomeFilterChip: ClickableButton {
 
     override func layout() {
         super.layout()
-        layer?.cornerRadius = bounds.height / 2
+        layer?.cornerRadius = Metrics.buttonCornerRadius(fitting: bounds.size)
     }
 
     /// The accent text and fill in the view's theme scope (also on a theme or appearance change).

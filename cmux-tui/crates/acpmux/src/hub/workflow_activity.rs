@@ -155,6 +155,7 @@ impl Hub {
                     prompt,
                     Some(run.cwd.clone()),
                     Some(&task_id),
+                    run.caller_subagent.clone(),
                     None,
                     false,
                     false,
@@ -280,6 +281,11 @@ impl Hub {
                                     )),
                                     cwd: Some(run.cwd.clone()),
                                     starter: Some(run.owner_session_id.clone()),
+                                    // The workflow's owning agent (`created_by.rs`).
+                                    created_by: Some(super::created_by::owner(
+                                        self,
+                                        &run.owner_session_id,
+                                    )),
                                     env,
                                     ..Default::default()
                                 },
@@ -355,14 +361,22 @@ impl Hub {
                             // Join its exact prompt outcome without submitting another effect.
                             let mut changes = self.subscribe();
                             while !self.knows_prompt(&session, &waiting_id, true) {
-                                self.workflow_runs
-                                    .store()
-                                    .authorize(&run.id, generation, &run.owner_session_id)
-                                    .map_err(workflow_error)?;
-                                match changes.recv().await {
-                                    Ok(_)
-                                    | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
-                                    Err(error) => return Err(workflow_error(error)),
+                                // Asked again on this chat's records only: the admission that
+                                // takes the prompt writes one. Every chat's event read the
+                                // chat's log again (each `knows_prompt` a keyed scan of it).
+                                loop {
+                                    self.workflow_runs
+                                        .store()
+                                        .authorize(&run.id, generation, &run.owner_session_id)
+                                        .map_err(workflow_error)?;
+                                    match changes.recv().await {
+                                        Ok(event) if event.session_id != session.id => {}
+                                        Ok(_)
+                                        | Err(tokio::sync::broadcast::error::RecvError::Lagged(
+                                            _,
+                                        )) => break,
+                                        Err(error) => return Err(workflow_error(error)),
+                                    }
                                 }
                             }
                             let outcome = self.prompt_outcome(&session, &waiting_id);
@@ -998,6 +1012,8 @@ mod tests {
         store.save(&owner).unwrap();
         let hub = Hub::new(config, store);
         let id = format!("wf-test-{}", uuid::Uuid::now_v7().simple());
+        let cwd = std::env::temp_dir().join(format!("acpmux-workflow-{id}"));
+        std::fs::create_dir_all(&cwd).unwrap();
         let run = hub
             .workflow_runs
             .store()
@@ -1010,12 +1026,13 @@ mod tests {
                 source_hash: String::new(),
                 args: json!([]),
                 allowed_tools: None,
-                cwd: std::env::temp_dir(),
+                cwd: cwd.clone(),
                 generation: 1,
                 state: crate::workflow_runs::State::Running,
                 activities: Default::default(),
                 outcome: None,
                 local_principal: false,
+                caller_subagent: None,
             })
             .unwrap();
         let child = ActivityRecord {
@@ -1041,6 +1058,7 @@ mod tests {
         hub.shutdown_all().await;
         // This test created the UUID-named directory; no other run is touched.
         std::fs::remove_dir_all(hub.workflow_runs.store().directory(&run.id).unwrap()).unwrap();
+        std::fs::remove_dir_all(run.cwd).unwrap();
     }
 
     fn turns(hub: &Hub, child: &ActivityRecord) -> usize {
@@ -1106,6 +1124,13 @@ mod tests {
         };
         let (a, b) = (name(&first), name(&second));
         assert!(a.starts_with("Shared title · ") && b.starts_with("Shared title · "));
+        // Each is its owning agent's (`created_by.rs`).
+        let Child::Agent { session_id, .. } = &first.child else { unreachable!() };
+        let by = hub.resolve(session_id).unwrap().meta().created_by;
+        assert_eq!(
+            by.map(|b| (b.kind, b.session)),
+            Some((crate::store::CreatorKind::Agent, Some("owner".to_owned())))
+        );
         assert_ne!(a, b);
         cleanup(hub, run).await;
     }
@@ -1472,7 +1497,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn workflow_pause_resume_preserves_child_and_restarts_only_cancelled_prompt() {
+    async fn workflow_pause_resume_replaces_harness_and_restores_cancelled_prompt_state() {
         let (hub, run, child) = activity_chat();
         let mut events = hub.subscribe();
         let worker_hub = hub.clone();
@@ -1502,6 +1527,20 @@ mod tests {
         let paused = hub.workflow_pause(&run.id, "owner").await.unwrap();
         assert_eq!(paused.state, crate::workflow_runs::State::Paused);
         assert!(worker.await.unwrap().is_err(), "paused generation cannot save a late outcome");
+        let Child::Agent { session_id, .. } = &child.child else { unreachable!() };
+        let mut cancelled = false;
+        hub.store
+            .scan_strict(session_id, 0, &mut |event| {
+                cancelled |= event.kind == "turn_result"
+                    && event.msg.get("stopReason").and_then(Value::as_str) == Some("cancelled");
+                true
+            })
+            .unwrap();
+        assert!(cancelled, "the fixture must acknowledge the real cancellation");
+        let restarted = hub
+            .restart_harnesses(None, Some(&std::collections::BTreeSet::from([session_id.clone()])))
+            .await;
+        assert_eq!(restarted.now, 1, "the process replacement must complete before resume");
         let resumed = hub.workflow_runs.store().resume(&run.id, "owner", false).unwrap();
         let saved = hub
             .workflow_runs

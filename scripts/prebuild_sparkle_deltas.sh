@@ -83,6 +83,7 @@ copy_app() {
   APP="$dest"
 }
 
+# plist-exists: every caller accepts only a number (^[0-9]+$), so PlistBuddy's missing-file message is never a version
 plist_value() { /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null; }
 
 if ! copy_app "$NEW_ARCHIVE"; then
@@ -168,7 +169,7 @@ while IFS= read -r entry; do
   if [[ "${#pids[@]}" -ge "$jobs" ]]; then
     wait_started
   fi
-done < <(printf '%s\n' "${candidates[@]}" | sort -rn | awk '!seen[$1]++' | head -n "$MAX_DELTAS")
+done < <(printf '%s\n' ${candidates[@]+"${candidates[@]}"} | sort -rn | awk '!seen[$1]++' | head -n "$MAX_DELTAS")
 wait_started
 log "built ${built} delta(s) in $(( $(date +%s) - started ))s"
 exit 0

@@ -9,7 +9,11 @@ that made it.
 
 - `scripts/ci/sealed_secrets.py`: `seal_bundle(repo, environment, key_id, key, {NAME: value})`
   seals with libsodium's `crypto_box_seal` (the encryption GitHub's secrets API takes) and returns a
-  bundle (JSON: target repo, environment, `key_id`, `key`, ciphertexts). `put BUNDLE` stores it.
+  bundle (JSON: target repo, environment, `key_id`, `key`, ciphertexts). `put BUNDLE` stores it;
+  `put DIRECTORY` stores every `bundle-*.json` in a multi-destination output directory.
+- A bundle whose environment is `None` goes to the repository's own Actions secrets, for a job with no
+  `environment:` (cmux-platform's `ci.yml`: targets `platform-staging` and `platform-production`). Pin
+  `gh api repos/OWNER/REPO/actions/secrets/public-key` for it; `put` needs write access to that repository's secrets.
 - Pin the target environment's `key_id` and `key` in the producing script. To read them, run
   `gh api repos/OWNER/REPO/environments/ENV/secrets/public-key`.
 - `put` reads the live public key first. If its `key_id` or bytes differ from the bundle's, it writes
@@ -23,15 +27,30 @@ that made it.
 `.github/workflows/cloud-capture-provision.yml` takes no inputs and runs only from `feat-cmux-next`,
 in the `cloud-vm-staging` environment. It finds or creates the staging test account
 (`cloud_capture_provision.py`), sets a new random password and the `pro` operator plan, checks that
-the account signs in, and uploads the `sealed-secrets` artifact. That artifact holds
-`CLOUD_CAPTURE_STACK_EMAIL` and `CLOUD_CAPTURE_STACK_PASSWORD`, sealed to the team's `cloud-capture`
-capture environment. To run it and store the result:
+the account signs in, and uploads the `sealed-secrets` artifact. A multi-destination target writes one
+ciphertext-only bundle per destination. The `journey` target stores its staging account in
+`cmux-next-vm-image-dev` as `CMUX_DOGFOOD_STACK_EMAIL/PASSWORD` and in `cmux-next-cloud-journey` as
+`CMUX_STAGING_STACK_EMAIL/PASSWORD`; the latter does not touch that environment's production pair. To run it and store the result:
 
 ```sh
 gh workflow run cloud-capture-provision.yml -R manaflow-ai/cmux --ref feat-cmux-next
 gh run download RUN_ID -R manaflow-ai/cmux -n sealed-secrets -D "$(mktemp -d)"
-python3 scripts/ci/sealed_secrets.py put DIR/sealed-secrets.json
+python3 scripts/ci/sealed_secrets.py put DIR/sealed-secrets
 ```
 
 Rerun it to rotate the password. The capture job reads only the two secrets. It never sees the
 staging server key and never creates users.
+
+## Staging INTERNAL_TOKEN
+
+`.github/workflows/internal-token-staging.yml` runs only from `feat-cmux-next`, in `cmux-next-staging`. It mints a
+fresh `INTERNAL_TOKEN`, seals it to this repository's `cloud-vm-staging` environment as
+`PLATFORM_STAGING_INTERNAL_TOKEN` (the classic migration staging proof's bearer, cmuxterm-hq#8793), then puts it on
+`cmux-platform-staging` and, when that Worker already has one, `cmux-api-staging`. Every run is a rotation of all
+three. To run it and store the result:
+
+```sh
+gh workflow run internal-token-staging.yml -R manaflow-ai/cmux --ref feat-cmux-next
+gh run download RUN_ID -R manaflow-ai/cmux -n sealed-secrets -D "$(mktemp -d)"
+python3 scripts/ci/sealed_secrets.py put DIR/sealed-secrets.json
+```

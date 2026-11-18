@@ -44,6 +44,9 @@ public nonisolated enum DaemonUpdateOutcome: Sendable, Equatable {
     case updated(build: String?)
     /// It already did; nothing changed.
     case current
+    /// It refused the build and kept its own (``Kept`` says why); nothing changed. Never shown as
+    /// updated. A restart window (``Kept/restartWindow(nextAfter:)``) is asked again like ``busy``.
+    case kept(Kept)
     /// It is not idle, or, asked to update while busy, it cannot now (unreachable, another update
     /// running); nothing changed. The policy asks again later.
     case busy
@@ -69,6 +72,28 @@ public nonisolated enum DaemonUpdateOutcome: Sendable, Equatable {
     /// whatever the app's build (``DaemonUpdateLedger/cannotUpdate``). `reason` says what still works.
     case unsupported(reason: String)
     case failed(reason: String)
+
+    /// Whether the update may have changed what the target runs (and restarted its daemon), so waiting for its
+    /// new link or capability can help: false for an answer that left it as it was (on the build already, kept,
+    /// held, no binary, cannot update in place, handled elsewhere). Busy, unreachable and failed answers may
+    /// have changed it (an update another run started, or one that ended where nobody could read it).
+    public nonisolated var mayHaveChangedTarget: Bool {
+        switch self {
+        case .updated, .busy, .unreachable, .rolledBack, .failed: true
+        case .current, .kept, .needsBinary, .handledElsewhere, .held, .unsupported: false
+        }
+    }
+
+    /// Why a target kept its own build (``DaemonUpdateOutcome/kept(_:)``).
+    public enum Kept: Sendable, Equatable {
+        /// It runs a newer build than the app's (acpmux `current`, reason `newerInstalled` or `newer`).
+        case newerInstalled
+        /// It runs a build with local changes, someone's own (acpmux `current`, reason `ownBuild`).
+        case ownBuild
+        /// An update restarted its daemon within the hour (acpmux `busy`, reason `restartWindow`);
+        /// `nextAfter`: when an update may restart it again, UTC `HH:MM` (the CLI's `14:05Z`).
+        case restartWindow(nextAfter: String?)
+    }
 }
 
 /// The commit of a build string (`<hash>[+dirty.x] <date>`, acpmux `build.rs`, or a 40-hex
@@ -147,6 +172,8 @@ public nonisolated struct DaemonUpdateEvent: Sendable, Equatable {
         /// One quiet line, never a toast.
         case offline
         case updated(build: String)
+        /// It refused the build and kept its own (``DaemonUpdateOutcome/kept(_:)``): never "updated".
+        case kept(DaemonUpdateOutcome.Kept)
         /// `rolledBack`: the target put its previous build back.
         case failed(reason: String, rolledBack: Bool)
         /// The target cannot take a build in place (``DaemonUpdateOutcome/unsupported(reason:)``):
@@ -160,23 +187,20 @@ public nonisolated struct DaemonUpdateEvent: Sendable, Equatable {
     public var displayName: String
     public var sshHost: String?
     public var state: State
-    /// Show a notice: a failure recorded for this build, which happens once per target and build.
-    public var notify: Bool
     /// The bundled build's commit (``DaemonBuildCommit/hash``) a final outcome is about, so a
     /// surface can tell whether the target reached it since; nil for the other states.
     public var build: String?
 
-    public init(id: String, displayName: String, sshHost: String? = nil, state: State, notify: Bool = false, build: String? = nil) {
+    public init(id: String, displayName: String, sshHost: String? = nil, state: State, build: String? = nil) {
         self.id = id
         self.displayName = displayName
         self.sshHost = sshHost
         self.state = state
-        self.notify = notify
         self.build = build
     }
 
-    public init(_ target: any DaemonUpdateTarget, _ state: State, notify: Bool = false, build: String? = nil) {
-        self.init(id: target.id, displayName: target.displayName, sshHost: target.sshHost, state: state, notify: notify, build: build)
+    public init(_ target: any DaemonUpdateTarget, _ state: State, build: String? = nil) {
+        self.init(id: target.id, displayName: target.displayName, sshHost: target.sshHost, state: state, build: build)
     }
 }
 

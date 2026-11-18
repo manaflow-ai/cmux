@@ -19,7 +19,7 @@ export default agentPaneEntry({
   title: "Chat another app runs",
   area: "Agent pane",
   height: 520,
-  covers: ["agent-session/acpmux/direct.ts#AcpmuxDirectClient"],
+  covers: ["agent-session/acpmux/LiveChatChoice.tsx#LiveChatChoice"],
   variants: {
     "choice-alone": {
       note: "Before, and still for a chat that cannot be watched: the choice over an empty pane",
@@ -29,6 +29,16 @@ export default agentPaneEntry({
       note: "Now: the chat View Only, following the terminal, asking nothing until the person replies or takes over",
       snapshot: chat(transcript, {
         summary: { ...chat(transcript).summary!, watching: "claude" },
+      }),
+    },
+    "claude-desktop": {
+      note: "A Claude desktop session acpmux lists (agents.desktopBridge.enabled): a reply goes to the app, taking nothing over",
+      snapshot: chat(transcript, {
+        summary: {
+          ...chat(transcript).summary!,
+          watching: "claude",
+          bridged: true,
+        },
       }),
     },
     "take-over-refused": {

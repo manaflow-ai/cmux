@@ -1,12 +1,66 @@
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { minimapTurns } from "../src/agent-session/acpmux/threadMinimap/model";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+
+// This file covers the `runs` arm of liveTurnWork.experiment.ts: a running turn keeps its finished
+// runs in sight until it ends. The `line` arm (one live line, as chatgpt.com draws a running
+// turn) is covered by live-turn-one-line.test.ts.
+const liveTurnArmsBefore = globalThis.cmuxExperiments;
+beforeAll(() => {
+  globalThis.cmuxExperiments = { ...liveTurnArmsBefore, "live-turn-work": "runs" };
+});
+afterAll(() => {
+  globalThis.cmuxExperiments = liveTurnArmsBefore;
+});
 
 const row = (partial: Partial<AcpmuxRow> & Pick<AcpmuxRow, "id" | "kind" | "at">): AcpmuxRow => ({
   version: 1,
   ...partial,
 });
+
+test("a received message's card retains its sender without changing prompt ticks", () => {
+  const rows = [
+    row({
+      id: "received",
+      kind: "user",
+      at: 1,
+      text: "Review complete.",
+      incoming: {
+        kind: "message",
+        message: { name: "peer/pr-row", sessionId: "review", text: "Review complete.", raw: "Review complete." },
+      },
+    }),
+  ];
+  const turns = minimapTurns(rows, "current");
+  expect(turns.turns[0]?.metadata?.sender).toEqual({ name: "peer/pr-row", sessionId: "review", relation: undefined });
+  expect(turns.turns[0]?.id).toBe("received");
+  expect(turns.ticks[0]?.id).toBe("received");
+});
+
+for (const [kind, extra] of [
+  ["an app or persona", { app: "Muse" }],
+  ["a Chief", { chief: "agent_ops" }],
+  ["a person", { fromPerson: true }],
+] as const) {
+  test(`${kind} sender keeps its own name: its card carries no session sender`, () => {
+    const rows = [
+      row({
+        id: "relayed",
+        kind: "user",
+        at: 1,
+        text: "Yes, on it.",
+        incoming: {
+          kind: "message",
+          message: { name: "Muse", ...extra, sessionId: "child-3", text: "Yes, on it.", raw: "Yes, on it." },
+        },
+      }),
+    ];
+    const turns = minimapTurns(rows, "current");
+    expect(turns.turns[0]?.from).toBe("Muse");
+    expect(turns.turns[0]?.metadata?.sender).toBeUndefined();
+  });
+}
 
 test("a minimap card keeps the turn metadata needed for a compact hover summary", () => {
   const rows: AcpmuxRow[] = [
@@ -126,7 +180,8 @@ test("production turnView wrappers keep metadata without re-reading earlier tool
   for (let token = 0; token < 20; token += 1) {
     raw = [...raw.slice(0, -1), { ...raw.at(-1)!, text: `${raw.at(-1)!.text} more`, version: token + 2 }];
     const next = turnView(raw, new Set(), options);
-    expect(next.find((item) => item.kind === "activity")).not.toBe(shaped.find((item) => item.kind === "activity"));
+    // A token in the reply leaves the tool row as it was drawn (turns.ts `steadyLiveRows`).
+    expect(next.find((item) => item.kind === "activity")).toBe(shaped.find((item) => item.kind === "activity"));
     const before = reads;
     committed = minimapTurns(next, "production", committed);
     expect(reads).toBe(before);

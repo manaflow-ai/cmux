@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextDesign
 @testable import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -10,7 +11,7 @@ import Testing
 @MainActor @Suite(.serialized) struct RecentFontsTests {
     static func defaults() -> (UserDefaults, String) {
         let suite = "cn-recent-fonts-\(UUID().uuidString)"
-        return (UserDefaults(suiteName: suite)!, suite)
+        return (UserDefaults(testSuiteName: suite)!, suite)
     }
 
     @Test func aPickMovesTheFamilyToTheFrontOnceAndTheListKeepsItsLimit() {
@@ -31,7 +32,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: home) }
         let url = home.appending(path: "cmux-next.json")
         try Data("{}".utf8).write(to: url)
-        let settings = SettingsController(registry: .standard(), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: .standard(), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()),
                                           managedWatchFiles: [])
         let (defaults, suite) = Self.defaults()

@@ -10,7 +10,7 @@ package import CmuxNextDesign
 /// sign in, we need to have a button for signing in").
 @MainActor
 package final class RefusalHUD {
-    package static let toastID = "refusal"
+    package static let toastID = CmuxToast.refusalID
     private let toasts: CmuxToastCenter
     private var handle: CmuxToastHandle?
     /// How long a message stays.

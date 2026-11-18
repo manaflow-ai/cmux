@@ -13,11 +13,13 @@
 # (unpinned Sparkle versions) is covered through fake git/xcodebuild; the
 # pinned release download/checksum/extraction path through fake tools.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../scripts/cmux-next/tests/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SCRIPT="$ROOT_DIR/scripts/sparkle_generate_appcast.sh"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cmux-appcast-no-deltas.XXXXXX")"
-trap 'rm -rf "$TMP_DIR"' EXIT
+git_fixture_trap_exit 'rm -rf "$TMP_DIR"'
 FAKE_BIN="$TMP_DIR/bin"
 mkdir -p "$FAKE_BIN"
 fail() { echo "FAIL: $*" >&2; exit 1; }

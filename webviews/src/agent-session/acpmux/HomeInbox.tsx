@@ -11,26 +11,24 @@
 // ⌥⌘3) unless the home's own chat shows a card that takes them. A refused answer says so on its
 // row, and the row answers again.
 import { useEffect, useRef, useState } from "react";
-import { pressToOpen } from "../../ui/pressToOpen";
+
 import { AgentMark } from "../shared/AgentMark";
-import { age } from "./HomeLists";
+import { age } from "./homeListsModel";
 import { type StringKey, useT } from "./i18n";
-import { NativeError } from "./nativeError";
-import { askText } from "./needsYou/NeedsYou";
+import { askText } from "./needsYou/needsYouModel";
 import type { NeedsYouAnswer, NeedsYouItem, NeedsYouKind } from "./needsYou/model";
 import { PermissionActionButton } from "./PermissionCard";
+import { recommendedLabel } from "./question/model";
+import { sessionIndex } from "./sessionIndex";
 import { type AcpmuxSessionEntry, projectLabel } from "./sessionList";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
+import { type HomeInboxOutcome, inlineAnswers } from "./homeInboxModel";
+import { pressToOpen } from "../../ui/pressToOpen";
 
 /// How the inbox lays its rows out: each ask with its chat under it and its answers (`list`, the
 /// home's), one line per ask with its answers at its end (`compact`), or under its chat's folder
 /// (`grouped`). The gallery shows all three.
 export type HomeInboxLook = "list" | "compact" | "grouped";
-
-/// What became of an answer given here: `answered` (the host answered it; the row hides until
-/// acpmux takes it off) or `opened` (the host can't answer it here and opened its chat, whose card
-/// answers it; the row stays).
-export type HomeInboxOutcome = "answered" | "opened";
 
 export type HomeInboxActions = {
   /// Answers `item` with `choice`; rejects when it was refused.
@@ -38,40 +36,6 @@ export type HomeInboxActions = {
   /// Opens the chat the ask is in.
   open(item: NeedsYouItem): void;
 };
-
-/// Answers another chat's ask from the home's inbox (`chat.asks.answer`, CmuxNextAgentPane
-/// AgentPaneAskAnswer): the host takes it only on the person's own click or key, for an ask still
-/// pending in a chat on this Mac's acpmux, with that ask's allow once or deny once. A host that does
-/// not answer it here opens the chat, whose card answers it: `unsupported` (another computer's chat
-/// or daemon, or the pane's own host before the op), or the shared page host without the op
-/// (`callPageHost` reports its `cmux.protocol.unknown_op` as `native.invalid_request` with the
-/// protocol code in `details`). Any other refusal, a malformed request's `invalid_params` included,
-/// rejects, and the row says so.
-const notAnsweredHere = (error: NativeError) =>
-  error.code === "unsupported" ||
-  (error.code === "native.invalid_request" &&
-    (error.details as { protocol?: unknown } | undefined)?.protocol === "cmux.protocol.unknown_op");
-
-export async function answerFromHome(
-  call: (method: string, params: Record<string, unknown>) => Promise<unknown>,
-  item: NeedsYouItem,
-  choice: NeedsYouAnswer,
-  open: (sessionId: string) => void,
-): Promise<HomeInboxOutcome> {
-  if (!item.permissionId) throw new Error("unanswerable");
-  try {
-    await call("chat.asks.answer", {
-      sessionId: item.sessionId,
-      permissionId: item.permissionId,
-      optionId: choice.id,
-    });
-    return "answered";
-  } catch (error) {
-    if (!(error instanceof NativeError) || !notAnsweredHere(error)) throw error;
-    open(item.sessionId);
-    return "opened";
-  }
-}
 
 const KINDS: Record<NeedsYouKind, StringKey> = {
   approval: "needsYou.kind.approval",
@@ -81,11 +45,6 @@ const KINDS: Record<NeedsYouKind, StringKey> = {
   input: "needsYou.kind.input",
   tab: "needsYou.kind.tab",
 };
-
-/// The answers a row gives in place: an approval's allow and deny. A question's choices, a held
-/// pair and a chat with no ask read here open the chat, where the whole ask shows.
-export const inlineAnswers = (item: NeedsYouItem) =>
-  item.kind === "approval" || item.kind === "verify" ? item.answers.filter((a) => a.tone !== "choice") : [];
 
 export function HomeInbox({
   items,
@@ -108,9 +67,13 @@ export function HomeInbox({
   // Asks answered here, hidden until acpmux's change takes them off the list.
   const [sent, setSent] = useState<ReadonlySet<string>>(new Set());
   const shown = items.filter((item) => !sent.has(item.id));
-  const byId = new Map(sessions.map((session) => [session.sessionId, session]));
+  // The list's shared id map (sessionIndex.ts), not one of its own per draw.
+  const byId = sessionIndex(sessions);
   // The first row an answer can be given on takes the keys.
-  const keyed = shortcuts ? shown.find((item) => inlineAnswers(item).length > 0)?.id : undefined;
+  // A question's choices take no permission shortcut: only an allow or a deny does.
+  const keyed = shortcuts
+    ? shown.find((item) => inlineAnswers(item).some((answer) => answer.tone !== "choice"))?.id
+    : undefined;
   if (shown.length === 0) return null;
   const row = (item: NeedsYouItem) => (
     <InboxRow
@@ -155,7 +118,7 @@ export function HomeInbox({
 /// The asks by their chat's folder, in the order each folder's newest ask came.
 function groups(
   items: readonly NeedsYouItem[],
-  byId: ReadonlyMap<string, AcpmuxSessionEntry>,
+  byId: Pick<ReadonlyMap<string, AcpmuxSessionEntry>, "get">,
   t: ReturnType<typeof useT>,
 ): [string, NeedsYouItem[]][] {
   const folders = new Map<string, NeedsYouItem[]>();
@@ -194,6 +157,8 @@ function InboxRow({
   const answers = inlineAnswers(item);
   const allow = answers.find((a) => a.tone === "allow");
   const deny = answers.find((a) => a.tone === "deny");
+  // A one-pick question's choices, answered here as its card would (homeInboxModel.ts `replyElsewhere`).
+  const choices = answers.filter((a) => a.tone === "choice");
   const answer = (choice: NeedsYouAnswer) => {
     if (inFlight.current) return;
     inFlight.current = true;
@@ -242,7 +207,12 @@ function InboxRow({
   const chat = item.who.chief ? t("needsYou.chief") : item.who.name;
   const where = [chat, look === "grouped" ? undefined : project, machine].filter(Boolean).join(" · ");
   return (
-    <li className="acpmux-home-inbox-row" data-kind={item.kind} data-sending={sending ? "" : undefined}>
+    <li
+      className="acpmux-home-inbox-row"
+      data-kind={item.kind}
+      data-question={item.question ? "" : undefined}
+      data-sending={sending ? "" : undefined}
+    >
       <button
         type="button"
         className="acpmux-home-inbox-open"
@@ -298,6 +268,24 @@ function InboxRow({
               onClick={() => answer(deny)}
             />
           )}
+          {choices.map((choice) => {
+            const { label, recommended } = recommendedLabel(choice.label);
+            return (
+              <button
+                key={choice.id}
+                type="button"
+                className="acpmux-home-inbox-answer"
+                data-tone="choice"
+                data-recommended={recommended || undefined}
+                disabled={sending !== undefined}
+                aria-busy={sending === choice.id}
+                onClick={() => answer(choice)}
+              >
+                {label}
+                {recommended && <span className="acpmux-home-inbox-recommended">{t("hat.questions.recommended")}</span>}
+              </button>
+            );
+          })}
         </fieldset>
       )}
       {failed && (

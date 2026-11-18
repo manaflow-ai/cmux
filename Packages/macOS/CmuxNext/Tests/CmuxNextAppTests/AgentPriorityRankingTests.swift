@@ -1,6 +1,7 @@
 import CmuxNextAgentActivity
 import CmuxNextAgentLanes
 import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -176,7 +177,7 @@ struct AgentPriorityRankingTests {
 
     @Test func archivedChatsLeaveAndMarksSurviveARelaunch() throws {
         let suite = "AgentPriorityRankingTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let marks = AgentPriorityMarks(defaults: defaults)
         marks.archive("broke")

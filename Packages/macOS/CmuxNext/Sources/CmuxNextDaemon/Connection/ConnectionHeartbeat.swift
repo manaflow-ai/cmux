@@ -1,3 +1,4 @@
+internal import CCmuxDaemonConnFFI
 import CmuxNextWakeups
 import Foundation
 import CmuxNextCompat
@@ -20,10 +21,13 @@ import CmuxNextCompat
 /// daemon answers; only EOF, a socket error or the process's exit end it. A
 /// bridged connection, whose daemon this Mac cannot see, still closes after its
 /// misses, which emits `.disconnected` and reconnects.
+///
+/// The counting is Rust's (`cmux_heartbeat_*`, cmux-daemon-conn-core src/heartbeat.rs); the timer, the ask
+/// and the observer stay here.
 final class ConnectionHeartbeat: Sendable {
     private let timer: DemandTimer
-    /// Unanswered asks in a row and the run they belong to.
-    private let state = Mutex((misses: 0, run: UInt64(0), answering: true))
+    /// Unanswered asks in a row, the run they belong to and ``answering`` (`CmuxHeartbeat`).
+    private let state = Mutex(cmux_heartbeat_new())
     /// Told each change of ``answering``, outside the lock (``observeAnswering(_:)``).
     private let observer = Mutex<(@Sendable (Bool) -> Void)?>(nil)
 
@@ -40,37 +44,29 @@ final class ConnectionHeartbeat: Sendable {
     /// can probe it then (``DaemonRecovery`` runs one `server ensure` per call); nil stops. The value is a hint
     /// of the moment: read ``answering`` for the current one.
     func observeAnswering(_ observer: (@Sendable (Bool) -> Void)?) {
-        self.observer.withLock { $0 = observer }
+        self.observer.store(observer)
     }
 
-    /// Sets ``answering`` for run `run` (any run when nil) and tells the observer when it changed, and at
-    /// every unanswered ask past the misses.
-    private func setAnswering(_ answering: Bool, run: UInt64?) {
-        let tell = state.withLock { state -> Bool in
-            guard run.map({ $0 == state.run }) ?? true else { return false }
-            let changed = state.answering != answering
-            state.answering = answering
-            return changed || !answering
-        }
-        if tell, let observer = observer.withLock({ $0 }) { observer(answering) }
+    private func tell(_ answering: Bool) {
+        if let observer = observer.load() { observer(answering) }
     }
 
     /// Starts asking on `transport`; a later start (a reconnect) or `stop`
     /// ends the earlier run, and a closed transport ends it after its misses.
     func start(_ transport: LineTransport, every interval: Duration, misses limit: Int) {
-        let run = state.withLock { state -> UInt64 in
-            state.misses = 0
-            state.run &+= 1
-            return state.run
+        let (run, told) = state.withLock { beat -> (UInt64, Bool) in
+            var told = false
+            let run = cmux_heartbeat_start(&beat, &told)
+            return (run, told)
         }
-        setAnswering(true, run: nil)
+        if told { tell(true) }
         schedule(transport, every: interval, misses: limit, run: run)
     }
 
     func stop() {
-        state.withLock { $0.run &+= 1 }
+        let told = state.withLock { cmux_heartbeat_stop(&$0) }
         timer.cancel()
-        setAnswering(true, run: nil)
+        if told { tell(true) }
     }
 
     private func schedule(_ transport: LineTransport, every interval: Duration, misses limit: Int, run: UInt64) {
@@ -84,17 +80,16 @@ final class ConnectionHeartbeat: Sendable {
         let answered = (try? await transport.request(cmd: IdentifyRequest.command, timeout: interval) { id in
             try WireCoding.encodeRequest(IdentifyRequest(), id: id)
         }) != nil
-        let missed = state.withLock { state -> Bool? in
-            guard state.run == run else { return nil }
-            state.misses = answered ? 0 : state.misses + 1
-            return state.misses >= limit
-        }
-        guard let missed else { return }
-        if missed, !transport.peerProcessIsAlive {
+        let peerAlive = transport.peerProcessIsAlive
+        let step = state.withLock { cmux_heartbeat_tick(&$0, run, answered, Int64(clamping: limit), peerAlive) }
+        switch step.action {
+        case 1: // missed, and its daemon is not alive
             transport.close()
+        case 2:
+            if step.tell { tell(step.answering) }
+            schedule(transport, every: interval, misses: limit, run: run)
+        default: // a later start or a stop ended the run
             return
         }
-        if answered || missed { setAnswering(answered, run: run) }
-        schedule(transport, every: interval, misses: limit, run: run)
     }
 }

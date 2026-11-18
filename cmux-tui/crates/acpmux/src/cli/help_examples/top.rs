@@ -19,6 +19,16 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "machine-auth",
+        &[
+            (
+                "Check how this Cloud machine's agents reach models (the edge, the placeholder key, no login)",
+                "acpmux machine-auth",
+            ),
+            ("The same report as JSON", "acpmux --json machine-auth"),
+        ],
+    ),
+    (
         "who-else",
         &[
             (
@@ -30,6 +40,14 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "Look for sessions on a topic in the last 6 hours",
                 "acpmux who-else --topic \"crate split\" --since 6h",
             ),
+        ],
+    ),
+    (
+        "ledger",
+        &[
+            ("Show what the last week cost, per repository", "acpmux ledger"),
+            ("Show the last 30 days per pull request", "acpmux ledger --since 30d --by pr"),
+            ("Print today's spend per model as JSON", "acpmux --json ledger --since 1d --by model"),
         ],
     ),
     (
@@ -264,6 +282,16 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             ("Open the TUI on coord", "acpmux attach coord"),
             ("Open the TUI on the session list", "acpmux attach"),
             ("Follow a session as plain text", "acpmux attach review-27310 --plain"),
+        ],
+    ),
+    (
+        "resume-here",
+        &[
+            (
+                "Run a Claude Code or Codex chat in this terminal once its turn ends",
+                "acpmux resume-here review-27310",
+            ),
+            ("Print the resume command instead of running it", "acpmux resume-here coord --print"),
         ],
     ),
     (

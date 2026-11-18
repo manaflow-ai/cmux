@@ -227,8 +227,10 @@ export interface Env {
   readonly CHIEF_CREDITS_DOGFOOD?: string
   readonly CHIEF_CREDITS_DOGFOOD_USD?: string
   readonly CHIEF_CREDITS_DOGFOOD_ROUND?: string
-  /** `e2e` on the development Worker only: the usage sync uses the e2e price set (1 USD included; billing-catalog.ts). */
+  /** `e2e` (development only): the e2e price set (1 USD included); `v2` (development or staging only): Team 25 USD per seat (billing-catalog.ts). Production is always v1. */
   readonly BILLING_USAGE_PRICE_SET?: string
+  /** The raise lock (billing-catalog.ts teamCapUnpaidMaxPools): before its first paid renewal invoice an account's cap counts up to this many pools (default 4). */
+  readonly TEAM_CAP_UNPAID_MAX_POOLS?: string
   /** `1`: a team the usage sync has not seen on a billable subscription stops at its plan's included AI amount (inference/included-stop.ts). */
   readonly USAGE_HARD_STOP_UNBILLED?: string
   readonly INTEGRATIONS_KMS_KEY_ARN?: string
@@ -245,6 +247,11 @@ export interface Env {
   readonly STACK_SECRET_SERVER_KEY?: string
   /** Secret: the Svix endpoint secret (whsec_...) of the Stack team webhook (stack-webhook.ts); unset answers 503. */
   readonly STACK_WEBHOOK_SECRET?: string
+  /**
+   * Secret (development and previews only, never staging or production): the token of the Cloud self-test's
+   * POST /v1/dev/fixtures (dev-fixtures.ts), which makes marked test users, teams and memberships. Unset: 503.
+   */
+  readonly DEV_FIXTURES_TOKEN?: string
   /**
    * GitHub Actions jobs that may sign in as one test account by their OIDC token (ci-session.ts, hq#7076): a JSON
    * array of rows naming the exact repository, ref and workflow file, and the one Stack user. No secret.
@@ -507,6 +514,7 @@ export interface Env {
   readonly INFERENCE_DAILY_CAP_USD_AZURE?: string
   readonly INFERENCE_DAILY_CAP_USD_CUSTOM?: string
   readonly INFERENCE_DAILY_CAP_USD_OPENAI?: string
+  readonly INFERENCE_DAILY_CAP_USD_PARTICLE?: string
   /** Hard USD cap per UTC day for all free-tier requests together. Missing = 0 = refuse. */
   readonly INFERENCE_FREE_DAILY_CAP_USD?: string
   /** Open requests per team (default 4) and per free device (default 1). */
@@ -532,6 +540,8 @@ export interface Env {
   readonly INFERENCE_AZURE_KEY?: string
   /** OpenAI's own API key (secret). */
   readonly INFERENCE_OPENAI_KEY?: string
+  /** Particle's API key (secret, optional): the only route of particle-ai/particle-1. */
+  readonly INFERENCE_PARTICLE_KEY?: string
   /** Our own OpenAI-compatible chat/completions URL and its bearer key (secret, optional). */
   readonly INFERENCE_CUSTOM_URL?: string
   readonly INFERENCE_CUSTOM_KEY?: string

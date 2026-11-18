@@ -2,7 +2,7 @@
 
 use super::Entry;
 use serde::{Deserialize, Serialize};
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -129,7 +129,7 @@ impl JournalStore for FileJournalStore {
         self.ensure_dir()?;
         let path = self.path_for(machine);
         drop_torn_tail(&path)?;
-        let mut file = OpenOptions::new().create(true).append(true).open(&path)?;
+        let mut file = crate::home_fs::OpenOptions::new().create(true).append(true).open(&path)?;
         let before = file.metadata()?.len();
         let written = file
             .write_all(line_of(&Line::Entry(entry.clone()))?.as_bytes())
@@ -184,7 +184,7 @@ pub(super) fn sync_dir(dir: &Path) -> io::Result<()> {
 /// line of its own. That append's tool result never returned, so nothing relied on it.
 fn drop_torn_tail(path: &Path) -> io::Result<()> {
     use std::io::{Read, Seek, SeekFrom};
-    let mut f = match OpenOptions::new().read(true).write(true).open(path) {
+    let mut f = match crate::home_fs::OpenOptions::new().read(true).write(true).open(path) {
         Ok(f) => f,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(e) => return Err(e),

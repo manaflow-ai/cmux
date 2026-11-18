@@ -17,13 +17,21 @@ export async function openProcessTerminal(toolCallId: string): Promise<boolean> 
   }
 }
 
-/// Whether a background task's terminal can open for a chat with this summary: one on this Mac.
-/// A peer's (SSH) or Cloud chat's processes run on that machine, which the host cannot read
-/// (AgentPaneProcessViewer `open` refuses a remote chat).
-export const opensProcessTerminal = (summary?: { peer?: string; host?: string; hostKind?: string }) =>
+type ChatHost = { peer?: string; host?: string; hostKind?: string };
+
+/// Whether the chat runs on this Mac, so this page reads its processes' output (`process/tail`) and
+/// its local files itself: another machine's acpmux refuses process methods to this page.
+export const chatProcessesHere = (summary?: ChatHost) =>
   !summary?.peer && !(summary?.host && summary.hostKind !== "local");
 
-/// What a background command's row or tray line opens: its terminal in a chat on this Mac, else the
+/// Whether a background task's terminal can open for a chat with this summary: one on this Mac, or
+/// a Cloud chat, whose terminal opens on its machine and reads that machine's acpmux there
+/// (AgentPaneProcessViewer `onChatMachine`; "whatever works on a local chat should work on a Cloud
+/// chat", cmuxterm-hq#7856). A peer's chat shows the call that started the task instead.
+export const opensProcessTerminal = (summary?: ChatHost) =>
+  chatProcessesHere(summary) || (!summary?.peer && summary?.hostKind === "cloud");
+
+/// What a background command's row or tray line opens: its terminal where one opens, else the
 /// Bash call that started it in the transcript (`showCall`, false when no loaded row holds it).
 /// Resolves which one opened, `none` when neither could.
 export async function openCommand(

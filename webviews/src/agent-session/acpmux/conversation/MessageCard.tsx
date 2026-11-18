@@ -10,18 +10,19 @@
 // with no box around it, cut between whole lines with Show more, and
 // nothing else (Leo 2026-10-21: the result's JSON under it was "immediately TMI"). Whether it is open lasts across
 // the virtualized transcript (transcriptDisclosure.tsx), and Find in Chat opens it.
-import { useContext, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useContext, useMemo, useSyncExternalStore } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { messageDelivery, notDeliveredReason, type AgentMessage, type Delivery } from "./agentMessages";
-import { AgentMessageRow, messagePreview } from "./AgentMessageRow";
+import { AgentMessageRow } from "./AgentMessageRow";
+import { messagePreview } from "./agentMessageRowModel";
 import { AgentNamesContext, AgentOpenContext, recipientName, shortId } from "./agentNames";
 import { useFindReveal } from "./chatFind";
 import { Envelope } from "./icons";
-import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { AgentMessageBody } from "./AgentMessageBody";
-import { wholeLineCut } from "./lineCut";
-import { targetChat } from "./SentMessageLine";
+import { ClampedText } from "./ClampedText";
+import { targetChat } from "./sentMessageLineModel";
 import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
 
 export function MessageCard({
@@ -124,53 +125,11 @@ function deliveryWord(
 
 /// The opened message: whole lines, then an explicit disclosure control.
 function MessageText({ item, text, messageAt }: { item: AcpmuxActivity; text: string; messageAt?: number }) {
-  const t = useT();
-  const id = useId();
   const [expanded, setExpanded] = useTranscriptDisclosure(`message-text:${item.tool!.id}`);
   useFindReveal([item], () => setExpanded(true));
-  const ref = useRef<HTMLDivElement>(null);
-  const [cutAt, setCutAt] = useState<number>();
-  const measure = () => {
-    const node = ref.current;
-    if (!node) return;
-    const limit = 8 * parseFloat(node.ownerDocument.defaultView!.getComputedStyle(node).lineHeight);
-    setCutAt(node.scrollHeight > limit + 1 ? wholeLineCut(node, limit) : undefined);
-  };
-  useLayoutEffect(() => {
-    measure();
-    // The pane's width decides the wrap and therefore the safe cut.
-    const node = ref.current;
-    if (!node || typeof ResizeObserver !== "function") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(node);
-    observer.observe(node.firstElementChild ?? node);
-    return () => observer.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- measure reads only the node
-  }, [text]);
-  const cut = !expanded && cutAt !== undefined;
   return (
-    <>
-      <div
-        id={id}
-        ref={ref}
-        className={`cv-message__text${cut ? " is-cut" : ""}`}
-        style={cut ? { maxHeight: cutAt } : undefined}
-        onFocusCapture={cut ? () => setExpanded(true) : undefined}
-      >
-        <AgentMessageBody text={text} messageAt={messageAt} />
-      </div>
-      {cutAt !== undefined && (
-        <button
-          type="button"
-          className="cv-user__more cv-message__more"
-          aria-expanded={expanded}
-          aria-controls={id}
-          data-find-skip=""
-          onClick={() => setExpanded(!expanded)}
-        >
-          {t(expanded ? "message.less" : "message.more")}
-        </button>
-      )}
-    </>
+    <ClampedText className="cv-message__text" expanded={expanded} onExpand={setExpanded} watch={text}>
+      <AgentMessageBody text={text} messageAt={messageAt} />
+    </ClampedText>
   );
 }

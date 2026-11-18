@@ -3,7 +3,7 @@
 // "Chat" in the label says whose avatar it is, not the Chief's or the person's (Leo 2026-11-07: "What
 // is an avatar supposed to be?"), and the rows draw the chat's picture once it has one.
 import { type Translate, translate } from "../i18n";
-import type { ChatMenuItem } from "./ChatHeaderTools";
+import type { ChatMenuItem } from "./chatHeaderToolsModel";
 
 export function avatarRows(
   chat: { sessionId: string | undefined; avatar: string | undefined },

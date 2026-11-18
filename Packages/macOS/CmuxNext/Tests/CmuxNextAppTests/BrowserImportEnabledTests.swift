@@ -7,6 +7,7 @@ import CmuxNextDesign
 @testable import CmuxNextImportCards
 import CmuxNextImportSuggestions
 @testable import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -81,7 +82,7 @@ import Testing
         try Data("{}".utf8).write(to: url)
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         services.settings = settings
         await settings.reload()
@@ -203,14 +204,14 @@ struct BrowserImportOffScanTests {
     }
 
     @Test func turningOffDropsTheScanInFlightAndOnAgainScansAgain() async throws {
-        let defaults = try #require(UserDefaults(suiteName: "import-off-scan-\(UUID().uuidString)"))
+        let defaults = try #require(UserDefaults(testSuiteName: "import-off-scan-\(UUID().uuidString)"))
         let ledger = FileManager.default.temporaryDirectory.appending(path: "import-jobs-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: ledger) }
         let center = ImportSuggestionsCenter(defaults: defaults, ledgerURL: ledger)
         let held = HeldScan()
         center.scanThisMac = { _ in await held.run() }
         center.host = ImportCardsHost(runImport: { _, _, _ in throw CancellationError() }, importedProfiles: { [] },
-                                      openSettings: { _ in }, importClassic: { _ in nil }, importConductor: { _ in nil })
+                                      openSettings: { _ in }, importClassic: { _ in nil }, importConductor: { _ in nil }, classicWorkspaces: { nil })
         var landed = false
         center.scan { landed = true }
         while held.started == 0 { await Task.yield() }

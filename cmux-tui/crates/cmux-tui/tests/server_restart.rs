@@ -25,8 +25,12 @@ struct Fixture {
 
 impl Fixture {
     fn new(session: &str) -> Self {
+        // Tests run in parallel threads of one process and can read the same
+        // clock value: the counter keeps each fixture's directory its own.
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let dir = PathBuf::from("/tmp").join(format!("cmux-rs-{}-{stamp}", std::process::id()));
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = PathBuf::from("/tmp").join(format!("cmux-rs-{}-{stamp}-{n}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
         fs::create_dir(dir.join("home")).unwrap();
@@ -94,6 +98,34 @@ impl Fixture {
                 return reply["data"].clone();
             }
         }
+    }
+
+    /// Starts an owner directly with `launch` (as the VM daemon of
+    /// 2026-10-25 was started), not through `server ensure`, and reaps it
+    /// when it exits so its pid never lingers as this test's zombie.
+    fn start_owner(&self, launch: &[&str], env: &[(&str, &str)]) -> i32 {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
+        command
+            .args(["--headless", "--session", self.session.as_str(), "--socket"])
+            .arg(&self.socket)
+            .args(launch)
+            .env("HOME", self.dir.join("home"))
+            .env("CFFIXED_USER_HOME", self.dir.join("home"))
+            .env("CMUX_TUI_STATE_DIR", self.dir.join("state"))
+            .env("CMUX_TUI_CONFIG", self.dir.join("config.json"))
+            .env("CMUX_TUI_SHELL_INTEGRATION", "none")
+            .env("SHELL", "/bin/sh")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        for (key, value) in env {
+            command.env(key, value);
+        }
+        let mut child = command.spawn().unwrap();
+        let pid = i32::try_from(child.id()).unwrap();
+        std::thread::spawn(move || child.wait());
+        wait_for("the directly started owner", || UnixStream::connect(&self.socket).is_ok());
+        pid
     }
 
     fn screen_has(&self, surface: &Value, text: &str) -> bool {
@@ -199,4 +231,97 @@ fn restart_refuses_end_terminals() {
     let fixture = Fixture::new("restart-end");
     let (success, value) = fixture.run("restart", &["--end-terminals"]);
     assert!(!success, "restart --end-terminals succeeded: {value}");
+}
+
+/// The argv `pid` runs with, program first.
+fn argv_of(pid: i32) -> Vec<String> {
+    let output = Command::new("ps").args(["-ww", "-o", "args=", "-p", &pid.to_string()]).output();
+    let line = String::from_utf8_lossy(&output.unwrap().stdout).trim().to_owned();
+    line.split_whitespace().map(str::to_owned).collect()
+}
+
+/// The value after `flag` in `argv`.
+fn flag_value<'a>(argv: &'a [String], flag: &str) -> Option<&'a str> {
+    argv.iter().position(|arg| arg == flag).and_then(|at| argv.get(at + 1)).map(String::as_str)
+}
+
+/// cmux-ad i3: a restart of the VM daemon (started with `--term xterm-ghostty
+/// --owner-host-fg #fdfff1 --owner-host-bg #272822`) started the new owner
+/// without them, so new terminals got another TERM and default colors. The
+/// new owner must start with the old one's launch flags and the launch
+/// environment the spawn contract passes (here the app's apps directories).
+#[test]
+fn daemon_upgrade_restart_keeps_the_old_owners_launch_flags_and_environment() {
+    let fixture = Fixture::new("restart-launch");
+    let apps = fixture.dir.join("apps");
+    let apps = apps.to_str().unwrap();
+    let old = fixture.start_owner(
+        &["--term", "xterm-ghostty", "--owner-host-fg", "#fdfff1", "--owner-host-bg", "#272822"],
+        &[("CMUX_APPS_DIRS", apps)],
+    );
+    let created =
+        fixture.request(json!({"cmd": "run", "argv": ["/bin/sh"], "new_workspace": true}));
+    // A live lead terminal: its shell runs and answered before the restart.
+    fixture.request(
+        json!({"cmd": "send", "surface": created["surface"], "text": "echo before-$((20+1))\n"}),
+    );
+    wait_for("the shell before the restart", || {
+        fixture.screen_has(&created["surface"], "before-21")
+    });
+
+    let restarted = fixture.server("restart", &[]);
+    let new = pid_of(&restarted);
+    assert_ne!(new, old, "restart kept the old owner: {restarted}");
+    let argv = argv_of(new);
+    assert_eq!(flag_value(&argv, "--term"), Some("xterm-ghostty"), "new owner argv {argv:?}");
+    assert_eq!(flag_value(&argv, "--owner-host-fg"), Some("#fdfff1"), "new owner argv {argv:?}");
+    assert_eq!(flag_value(&argv, "--owner-host-bg"), Some("#272822"), "new owner argv {argv:?}");
+    #[cfg(target_os = "linux")]
+    {
+        let environ = fs::read(format!("/proc/{new}/environ")).unwrap();
+        let wanted = format!("CMUX_APPS_DIRS={apps}");
+        assert!(
+            environ.split(|byte| *byte == 0).any(|entry| entry == wanted.as_bytes()),
+            "new owner lost CMUX_APPS_DIRS"
+        );
+    }
+    // The terminal is adopted as before: restart returns once it runs.
+    let resolved =
+        fixture.request(json!({"cmd": "resolve-terminal", "terminal_id": created["terminal_id"]}));
+    assert_eq!(resolved["lifecycle"], "running", "{resolved}");
+    assert_eq!(resolved["terminal_incarnation"], created["terminal_incarnation"], "{resolved}");
+}
+
+/// cmux-ad i3: `server restart` said "every terminal was kept" while the new
+/// owner still adopted their hosts: right after it returned, a terminal read
+/// lifecycle `adopting` (Linux fleet, steps c73722be and 1c1addbb). A
+/// seamless upgrade returns only when every kept terminal runs again, and
+/// its report counts them.
+#[test]
+fn daemon_upgrade_restart_returns_when_every_kept_terminal_runs() {
+    let fixture = Fixture::new("restart-adopted");
+    pid_of(&fixture.server("ensure", &[]));
+    let mut kept = Vec::new();
+    for at in 0..6 {
+        let created =
+            fixture.request(json!({"cmd": "run", "argv": ["/bin/sh"], "new_workspace": true}));
+        let text = format!("echo kept-$((100+{at}))\n");
+        fixture.request(json!({"cmd": "send", "surface": created["surface"], "text": text}));
+        let shown = format!("kept-{}", 100 + at);
+        wait_for("the shell before the restart", || {
+            fixture.screen_has(&created["surface"], &shown)
+        });
+        kept.push(created["terminal_id"].clone());
+    }
+
+    let restarted = fixture.server("restart", &[]);
+    let listed = fixture.request(json!({"cmd": "list-terminals"}));
+    for terminal in &kept {
+        let row = listed["terminals"]
+            .as_array()
+            .and_then(|rows| rows.iter().find(|row| row["terminal_id"] == *terminal))
+            .unwrap_or_else(|| panic!("terminal {terminal} gone after restart: {listed}"));
+        assert_eq!(row["lifecycle"], "running", "restart returned before adoption: {row}");
+    }
+    assert_eq!(restarted["terminals"]["running"], 6, "{restarted}");
 }

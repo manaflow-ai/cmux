@@ -12,7 +12,8 @@ import { tool } from "../../../gallery/fixtures/acpmux";
 import { AgentCallCard, type AgentCallLook } from "./AgentCallCard";
 import { agentCall } from "./agentCalls";
 import { ToolRow } from "./ToolRow";
-import { resetTranscriptDisclosure, TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 
 type Props = { look: AgentCallLook | "before"; state: "done" | "running" | "failed" };
 

@@ -32,6 +32,8 @@ public final class BackdropVideoView: NSView {
     public var windowsAboveOverride: (() -> [BackdropCoverage.Window])?
     private let players: BackdropVideoPlayers
     private var observers: [(NotificationCenter, NSObjectProtocol)] = []
+    /// The app's Low Power Mode (``LowPowerMode/system``, the `debug.low_power_mode` override included), watched while in a window.
+    private var powerObservation: LowPowerModeObservation?
     private var readyObservation: NSKeyValueObservation?
     private var screensAsleep = false
     private var sessionInactive = false
@@ -105,7 +107,7 @@ public final class BackdropVideoView: NSView {
 
     /// Everything ``wantsPlayback`` asks but coverage, which is sampled only while this holds.
     private var seen: Bool {
-        let lowPower = lowPowerOverride ?? ProcessInfo.processInfo.isLowPowerModeEnabled
+        let lowPower = lowPowerOverride ?? LowPowerMode.system.isEnabled
         let reduced = reduceMotionOverride ?? !Motion.panes.animatesLoops
         let hot = ProcessInfo.processInfo.thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue
         return onScreen && !lowPower && !hot && !reduced
@@ -122,6 +124,7 @@ public final class BackdropVideoView: NSView {
         super.viewDidMoveToWindow()
         for (center, observer) in observers { center.removeObserver(observer) }
         observers = []
+        powerObservation = nil
         guard window != nil else { return detach() }
         observe()
         attach()
@@ -207,12 +210,13 @@ public final class BackdropVideoView: NSView {
     }
 
     private func observe() {
+        powerObservation = LowPowerMode.system.observe { [weak self] _ in self?.update() }
         let app = NotificationCenter.default, workspace = NSWorkspace.shared.notificationCenter
         var names: [(NotificationCenter, Notification.Name, AnyObject?)] = [
             (app, NSWindow.didChangeOcclusionStateNotification, window), (app, NSWindow.didMiniaturizeNotification, window),
             (app, NSWindow.didDeminiaturizeNotification, window), (app, NSWindow.didBecomeMainNotification, window),
             (app, NSWindow.didBecomeKeyNotification, window), (app, NSApplication.didHideNotification, nil),
-            (app, NSApplication.didUnhideNotification, nil), (app, Notification.Name.NSProcessInfoPowerStateDidChange, nil),
+            (app, NSApplication.didUnhideNotification, nil),
             (app, ProcessInfo.thermalStateDidChangeNotification, nil), (app, Motion.reduceMotionDidChange, nil),
             (app, Motion.speedDidChange, nil),
             (workspace, NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, nil),

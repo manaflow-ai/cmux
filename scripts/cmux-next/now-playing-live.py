@@ -32,6 +32,7 @@ import argparse, functools, glob, http.server, json, math, os, plistlib, socket,
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag")
@@ -40,6 +41,8 @@ parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.
 parser.add_argument("--app", help="tagged .app (default: found in DerivedData)")
 parser.add_argument("--engines", default="chromium,webkit")
 opts = parser.parse_args()
+from bench_launch import require_no_person_mac  # noqa: E402
+require_no_person_mac("now-playing-live")  # it posts real input (CGEventPost): never on a person's Mac
 os.makedirs(opts.out, exist_ok=True)
 
 if not opts.socket and not opts.tag:
@@ -394,10 +397,10 @@ try:
         rpc("action.run", {"action": "newWindow", "origin": "script"})
     window = (wait_for(lambda: windows(), "a window", 60) or [{}])[0].get("id")
     if not quiet_wait(lambda: focused_pane(window), 15):
-        print("run newTab", rpc("action.run", {"action": "newTab", "origin": "script", "focus": True}), flush=True)
+        safe_print("run newTab", rpc("action.run", {"action": "newTab", "origin": "script", "focus": True}), flush=True)
     wait_for(lambda: focused_pane(window), "a focused pane", 60)
     url = serve()
-    print("page", url, flush=True)
+    safe_print("page", url, flush=True)
     for engine in opts.engines.split(","):
         run_engine(engine, window, url)
 finally:

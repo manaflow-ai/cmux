@@ -1,11 +1,15 @@
 // A machine's cost in words, as the Mac sidebar says it (SidebarMachineCost+Text.swift):
-// "$0.26/h · Running 2h 14m · About $0.58 so far"; while paused only "$0.26/h when running". Every
-// number comes from the server (`hourly_rate_usd`, `running_since`); this only formats them.
+// "$0.26/h · Running 2h 14m · About $0.58 so far"; while paused "$0.26/h when running" and, when the
+// server sends the paused rate, what the pause costs: "About $1.00 a month while paused". Every number
+// comes from the server (`hourly_rate_usd`, `paused_hourly_rate_usd`, `running_since`); this only
+// formats them.
 import { useEffect, useState } from "react";
 import type { CloudMachine } from "./ops";
 import { format, L } from "./strings";
 
 const MINUTE = 60_000;
+/** Hours in an average month (365 days / 12), for a paused machine's rate by the month. */
+const MONTH_HOURS = 730;
 
 /** US dollars to the cent ("$0.26"). */
 function price(usd: number, language: string): string {
@@ -47,8 +51,22 @@ export function costTicks(machine: CloudMachine | undefined): boolean {
 }
 
 /**
+ * What a paused machine costs by the month, from the server's paused rate; undefined unless the machine
+ * is paused and the server sent a rate. An hour of it is under a cent, so the month is the honest unit.
+ */
+function pausedPart(machine: CloudMachine, t: (key: string) => string, language: string): string | undefined {
+  const rate = machine.paused_hourly_rate_usd;
+  if (machine.status !== "paused" || typeof rate !== "number" || !Number.isFinite(rate) || rate < 0) return undefined;
+  const month = rate * MONTH_HOURS;
+  return month < 0.01
+    ? format(t(L.costPausedUnderMonthly), { price: price(0.01, language) })
+    : format(t(L.costPausedMonthly), { price: price(month, language) });
+}
+
+/**
  * Rate, time running and the estimate so far; while not running only the rate, "when running", so a
- * paused machine shows no running cost. Undefined without a rate or a running time.
+ * paused machine shows no running cost, then what its pause costs a month. Undefined without a rate
+ * or a running time.
  */
 export function costLine(
   machine: CloudMachine,
@@ -58,8 +76,13 @@ export function costLine(
 ): string | undefined {
   const rate = typeof machine.hourly_rate_usd === "number" ? machine.hourly_rate_usd : undefined;
   const ms = runningMs(machine, now);
-  if (ms === undefined)
-    return rate === undefined ? undefined : format(t(L.costRateWhenRunning), { price: price(rate, language) });
+  if (ms === undefined) {
+    const idle = [
+      rate === undefined ? undefined : format(t(L.costRateWhenRunning), { price: price(rate, language) }),
+      pausedPart(machine, t, language),
+    ].filter((part) => part !== undefined);
+    return idle.length > 0 ? idle.join(" · ") : undefined;
+  }
   const parts: string[] = [];
   if (rate !== undefined) parts.push(format(t(L.costRate), { price: price(rate, language) }));
   parts.push(format(t(L.costRunning), { duration: duration(ms, language) }));

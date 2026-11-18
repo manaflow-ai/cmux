@@ -3,7 +3,7 @@
 // its CSP plays media from (#34726); the page plays that URL and still refuses any other app URL.
 import { afterEach, expect, test } from "bun:test";
 import { setChipHost } from "../src/agent-session/acpmux/chips/host";
-import { loadPlayableMedia } from "../src/agent-session/acpmux/chips/ReplyMedia";
+import { loadPlayableMedia } from "../src/agent-session/acpmux/chips/replyMediaModel";
 
 afterEach(() => setChipHost(undefined));
 

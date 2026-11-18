@@ -20,6 +20,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { TURN_CYCLE } from "../src/agent-session/acpmux/composerTurnCycle.gallery";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { MODEL_PICKER, PLUS_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -58,8 +59,8 @@ await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
     prompt: ".acpmux-composer-prompt",
     // The box's own row draws no box of its own (display: contents): + and the mic stand for it.
     footer: ".acpmux-composer-context",
-    plus: ".acpmux-composer-plus .acpmux-picker-button",
-    model: ".acpmux-model .acpmux-picker-button",
+    plus: PLUS_PICKER,
+    model: MODEL_PICKER,
     // The model button's own effort label (Leo 2026-10-20: one button, no effort chip).
     effort: ".acpmux-model .acpmux-model-detail",
     access: ".acpmux-access-trigger",
@@ -119,6 +120,9 @@ await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
 
   const open = async (width: number, variant: string) => {
     const page = await browser!.newPage({ viewport: { width, height: 520 } });
+    // Claude's look, where an empty draft draws no Send: Codex's, the default since #42247, always
+    // draws Send (Composer.tsx).
+    await page.addInitScript(() => localStorage.setItem("cmux.composer.look", "claude"));
     await page.goto(stageURL(variant));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
     await page.locator(".acpmux-model .acpmux-model-detail:visible").first().waitFor();

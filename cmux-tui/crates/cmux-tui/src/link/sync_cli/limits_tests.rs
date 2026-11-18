@@ -17,10 +17,7 @@ fn pair() -> (Remote, UnixStream) {
     client.set_write_timeout(Some(Duration::from_secs(60))).unwrap();
     server.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
     server.set_write_timeout(Some(Duration::from_secs(60))).unwrap();
-    (
-        Remote { reader: BufReader::new(client), next_id: 1, deflate: false, no_follow: false },
-        server,
-    )
+    (Remote::on(client), server)
 }
 
 struct HashSink {

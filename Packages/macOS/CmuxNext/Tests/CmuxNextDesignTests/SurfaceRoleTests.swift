@@ -15,7 +15,8 @@ struct SurfaceRoleTests {
     /// their corners are the one corner radius (depth 0), no longer a literal each.
     @Test func theNeutralLooksKeepTheirValues() {
         #expect(FloatingGlassStyle.toast == FloatingGlassStyle(cornerDepth: 0, darkVeilAlpha: 0.42, lightVeilAlpha: 0.55,
-                                                               darkRim: (0.30, 0.06), lightRim: (0.85, 0.10), castsShadow: true))
+                                                               darkRim: (0.30, 0.06), lightRim: (0.85, 0.10), castsShadow: true,
+                                                               veilTakesThemeTint: true))
         #expect(FloatingGlassStyle.dialog == FloatingGlassStyle(cornerDepth: 0, darkVeilAlpha: 0.48, lightVeilAlpha: 0.62,
                                                                 darkRim: (0.28, 0.05), lightRim: (0.85, 0.10), castsShadow: true))
         #expect(FloatingGlassStyle.card == FloatingGlassStyle(cornerDepth: 0, darkVeilAlpha: 0.42, lightVeilAlpha: 0.45,
@@ -32,6 +33,9 @@ struct SurfaceRoleTests {
             #expect(role.tone == .theme)
         }
         #expect(SurfaceRole.toast.tone == .neutral)
+        // Only the toast's veil is the theme's tint (Leo 2026-11-07); the sheet and card keep the gray.
+        #expect(FloatingGlassStyle.toast.veilTakesThemeTint)
+        #expect(!FloatingGlassStyle.dialog.veilTakesThemeTint && !FloatingGlassStyle.card.veilTakesThemeTint)
         #expect(!SurfaceRole.card.castsShadow)
         #expect(SurfaceRole.toast.cornerRadius == FloatingGlassStyle.toast.cornerRadius)
         // Every role is a level of the one corner radius: the surfaces are the outer radius, a tooltip two levels in.
