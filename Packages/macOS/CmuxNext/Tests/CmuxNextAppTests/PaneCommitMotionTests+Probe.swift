@@ -8,8 +8,10 @@ import Testing
 /// with a move in flight, and one note for each change that the motion decides on. A pane's move runs on the render
 /// server and steps no spring of the layout, so the layout's own samples (`layout.travel`) say nothing of it.
 ///
-/// The trace is one static of the process. Each test starts it when its screen rests and stops it at its end, and
-/// has no suspension point, so no other test on the main actor runs in between.
+/// It reads the time of each loop over an act's panes too, as one span each.
+///
+/// The trace is one static of the process. Each test starts it (when its screen rests, or before its first act) and
+/// stops it at its end, and has no suspension point, so no other test on the main actor runs in between.
 extension PaneCommitMotionTests {
     /// The commit motion's samples and notes from the trace's start on.
     private static func traced() -> (samples: [Double], notes: [String]) {
@@ -75,5 +77,27 @@ extension PaneCommitMotionTests {
         #expect(traced.samples.isEmpty, "an act with a pane that does not ride gave samples of a move: \(traced.samples)")
         #expect(traced.notes.count == 1 && traced.notes[0].contains("each rides: false, the top view that does not ride: StandInPage"),
                 "an act with a pane that does not ride did not write one note with the kind: \(traced.notes)")
+    }
+
+    /// Each loop over an act's panes is one span of the record, with its time: the placement loop of the pass that
+    /// shows an act (`layout.place`), the hide of the panes that a zoom took out (`layout.hide`), and the show of the
+    /// panes that an unzoom brings back (`layout.show`), which comes after that pass's placement. A frame with no
+    /// act gives no span.
+    @Test func aProbeTimesEachLoopOverAnActsPanes() throws {
+        defer { MotionTrace.stop() }
+        MotionTrace.start()
+        let harness = try Self.unzooming(frames: 1).zoom.harness
+        defer { harness.window.closeAfterTest() }
+        func spans(_ name: String) -> [MotionTrace.Span] { MotionTrace.spans.filter { $0.name == name } }
+        let places = spans("layout.place"), hides = spans("layout.hide"), shows = spans("layout.show")
+        #expect(shows.count == 1, "the unzoom's one show of the panes that come back gave \(shows.count) spans")
+        let show = try #require(shows.first)
+        #expect(!hides.isEmpty && hides.allSatisfy { $0.start < show.start },
+                "the zoom's hide of its panes gave no span before the unzoom: \(hides)")
+        #expect(places.count >= 2, "the zoom's and the unzoom's placements gave \(places.count) spans")
+        #expect(places.last.map { $0.start <= show.start } == true, "the panes that come back showed before the unzoom's placement")
+        Commit.rest(harness)
+        _ = harness.root.advanceFrame(Self.dt)
+        #expect(spans("layout.place").count == places.count && spans("layout.show").count == 1, "a frame with no act gave a span")
     }
 }

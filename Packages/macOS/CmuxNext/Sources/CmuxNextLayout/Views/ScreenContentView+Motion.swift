@@ -187,6 +187,7 @@ extension ScreenContentView {
         var changed = force
         let scale = self.scale
         let laysOutNow = window != nil && bounds.width >= 1 && bounds.height >= 1
+        if zoomDim.motion.acts { MotionTrace.begin("layout.place") } // a probe's time of this loop, in the pass that shows an act
         for (pane, frame) in paneFrames {
             guard let host = context.hosts[pane], host.superview === self else { continue }
             let scrolls = geometry.scrolls(pane: pane)
@@ -241,6 +242,7 @@ extension ScreenContentView {
             if host.isDocked == (scrolls || geometry.floatingCards[pane] != nil) { host.isDocked.toggle() }
             clips.append((host, scrolls))
         }
+        MotionTrace.end("layout.place")
         // The panes this change brought back from a zoom's cover show now, placed.
         if showSnapReturning() { changed = true }
         // Once every frame is placed: a pane is clipped by the panes in front of it. A host whose
