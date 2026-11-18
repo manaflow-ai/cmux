@@ -13,7 +13,7 @@ import Testing
         var seq: Int
         var text: String
         var kind: Kind
-        enum Kind { case chunk, prompt, permissionRecord, permissionAsk }
+        enum Kind { case chunk, prompt, permissionRecord, permissionAsk, permissionPending }
     }
 
     /// One `_acpmux/event` record of about 2 KB, or a prompt, a permission record, or a permission ask.
@@ -23,6 +23,9 @@ import Testing
         }
         if seq % 151 == 0 {
             return Frame(seq: seq, text: #"{"jsonrpc":"2.0","method":"_acpmux/event","params":{"sessionId":"s","seq":\#(seq),"kind":"permission_request","msg":{"permissionId":"p\#(seq)"}}}"#, kind: .permissionRecord)
+        }
+        if seq % 173 == 0 {
+            return Frame(seq: seq, text: #"{"jsonrpc":"2.0","method":"_acpmux/permission_pending","params":{"sessionId":"s","permissionId":"p\#(seq)"}}"#, kind: .permissionPending)
         }
         if seq % 211 == 0 {
             return Frame(seq: seq, text: #"{"jsonrpc":"2.0","id":\#(seq),"method":"session/request_permission","params":{"sessionId":"s","toolCall":{}}}"#, kind: .permissionAsk)
@@ -52,6 +55,7 @@ import Testing
         var pushedBytes = 0
         var maxHeldBytes = 0
         var droppedTexts: [String] = []
+        var deferredTexts: [String] = []
         let framesPerPush = 512
         let bytesPerPush = 4 << 20
 
@@ -73,7 +77,9 @@ import Testing
             case .shed: droppedTexts.append(text)
             case .overflow: closed = true
             case .queue:
-                if !(rules.transcriptRecord(text) && episode.deferRecord(text, bytes: bytes)) {
+                if rules.transcriptRecord(text), episode.deferRecord(text, bytes: bytes) {
+                    deferredTexts.append(text)
+                } else {
                     inbox.append(text)
                     inboxBytes += bytes
                 }
@@ -174,7 +180,7 @@ import Testing
         }
         // Each lag's read: every record after its cursor, from the daemon's log.
         for cursor in page.lagCursors {
-            for frame in log where frame.seq > cursor && frame.kind != .permissionAsk { page.seen.insert(frame.seq) }
+            for frame in log where frame.seq > cursor && frame.kind != .permissionAsk && frame.kind != .permissionPending { page.seen.insert(frame.seq) }
         }
         return (host, stuckPushes, stuckBytes, heldAtEnd, page, log)
     }
@@ -200,7 +206,7 @@ import Testing
         #expect(markers.count == 1, "\(markers.count) lag markers")
         #expect(after.page.lagCursors.count == 1)
         // The gap read back: every record the daemon sent reached the page, live or by the read.
-        let records = Set(after.log.filter { $0.kind != .permissionAsk }.map(\.seq))
+        let records = Set(after.log.filter { $0.kind != .permissionAsk && $0.kind != .permissionPending }.map(\.seq))
         #expect(records.subtracting(after.page.seen).isEmpty, "\(records.subtracting(after.page.seen).count) records never reached the page")
         #expect(!after.host.droppedTexts.isEmpty, "nothing was dropped: the test did not reach the bound")
         #expect(!after.host.closed)
@@ -208,15 +214,20 @@ import Testing
 
     @Test func aPromptOrAPermissionAskIsNeverDropped() {
         let after = Self.run(PagePushLedger.Bounds())
-        let kept: [Frame.Kind] = [.prompt, .permissionRecord, .permissionAsk]
-        let dropped = after.host.droppedTexts.filter { text in
-            kept.contains(Self.frame(Self.seq(of: text) ?? Int(text.split(separator: ",")[1].dropFirst(5)) ?? 0).kind)
-        }
+        let kept: [Frame.Kind] = [.prompt, .permissionRecord, .permissionAsk, .permissionPending]
+        let kinds = Dictionary(after.log.map { ($0.text, $0.kind) }, uniquingKeysWith: { first, _ in first })
+        let dropped = after.host.droppedTexts.filter { kinds[$0].map(kept.contains) ?? false }
         #expect(dropped.isEmpty, "dropped \(dropped.count) prompts or permission asks")
         // Each reached the page as it was sent, not only through the gap read.
         let delivered = after.host.pushes.joined()
         for frame in after.log where kept.contains(frame.kind) {
             #expect(delivered.contains(frame.text), "seq \(frame.seq) (\(frame.kind)) was not delivered")
+        }
+        // A permission ask's notice and request are never held back behind the marker (they wake a
+        // hidden pane, AcpmuxPaneSocket+PageWaits); only kept transcript records wait for it.
+        #expect(!after.host.deferredTexts.isEmpty, "no kept record came during the episode")
+        for text in after.host.deferredTexts {
+            #expect(kinds[text] == .prompt || kinds[text] == .permissionRecord, "\(kinds[text].map { "\($0)" } ?? "?") waited for the marker")
         }
     }
 
