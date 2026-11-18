@@ -207,7 +207,9 @@ final class PaneZoomDim {
 
     /// Takes the dim away now: its zoom's move ended, its fade is over, a newer change came while it went, the screen's
     /// size changed, or the screen goes out of sight. The panes' move goes on: a newer change that moves adds to it.
-    /// An unzoom that waits for its frame keeps its dim to come (``returning``): a zoom's move can end in that wait.
+    /// An unzoom that waits for its frame keeps its dim to come (``returning``). A zoom's move does not end in that
+    /// wait, so its dim stays for the unzoom (``PaneCommitMotion/step(_:)``); it ends only under a wait that is
+    /// longer than a change's own bound.
     private func leave() {
         view?.removeFromSuperview()
         phase = .off

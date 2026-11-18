@@ -18,7 +18,8 @@ import Testing
 extension PaneCommitMotionTests {
     typealias Dim = PaneZoomDimTests
 
-    /// A zoom on p4 of the 2 by 2 grid, with the key's turn done and `frames` display frames stepped.
+    /// A zoom on one pane of the 2 by 2 grid (p4, unless a row names another), with the key's turn done and `frames`
+    /// display frames stepped.
     struct Zooming {
         let harness: Commit.Harness
         let screen: ScreenContentView
@@ -30,9 +31,12 @@ extension PaneCommitMotionTests {
         let was: CGRect
     }
 
-    /// `others`: more screens of the window, not shown.
-    static func zooming(frames: Int, others: [LayoutScreen] = []) throws -> Zooming {
-        let harness = Commit.Harness(Zoom.screens() + others, focused: "p4", holds: false)
+    /// `others`: more screens of the window, not shown. `pane`: the pane that zooms. `surfaces`: each pane's content
+    /// is a producer that a change waits for (`Commit.Surface`); the zoom's own surfaces report in the key's turn, so
+    /// the zoom shows in the first frame.
+    static func zooming(frames: Int, others: [LayoutScreen] = [], pane: PaneID = "p4", surfaces: Bool = false) throws -> Zooming {
+        let harness = Commit.Harness(Zoom.screens() + others, focused: pane, holds: false, surfaces: surfaces)
+        let all = ["p1", "p2", "p3", "p4"] as [PaneID]
         var begun = false
         defer { if !begun { harness.window.closeAfterTest() } }
         movePanes(harness)
@@ -41,11 +45,12 @@ extension PaneCommitMotionTests {
         let style = harness.root.context.style
         let grid = Commit.Rest(harness.model.screens, in: screen, style: style)
         try #require(grid.isShown(by: Commit.shown(screen)) && Dim.dim(harness) == nil, "SETUP: the grid does not rest with no dim")
-        let places = try Dim.places(clear: "p4", over: ["p1", "p2", "p3"], in: harness)
-        let was = try #require(harness.root.context.hosts["p4"]?.layer?.frame)
-        harness.model.apply(screens: Zoom.screens(zoomedOn: "p4") + others)
+        let places = try Dim.places(clear: pane, over: all.filter { $0 != pane }, in: harness)
+        let was = try #require(harness.root.context.hosts[pane]?.layer?.frame)
+        harness.model.apply(screens: Zoom.screens(zoomedOn: pane) + others)
         let zoomed = Commit.Rest(harness.model.screens, in: screen, style: style)
         harness.root.syncWithModel()
+        for each in all { harness.provider.surface(each)?.report() }
         for _ in 0..<frames { _ = harness.root.advanceFrame(dt) }
         begun = true
         return Zooming(harness: harness, screen: screen, grid: grid, zoomed: zoomed, places: places, was: was)
@@ -150,6 +155,62 @@ extension PaneCommitMotionTests {
         _ = harness.root.advanceFrame(Self.dt)
         for pane in covered {
             #expect(harness.root.context.hosts[pane]?.chrome.isHidden == false, "\(pane)'s ring does not show in the frame that shows the unzoom")
+        }
+        let going = try #require(Dim.dim(harness), "the frame that shows the unzoom shows no dim")
+        #expect(going.view === dim.view, "the unzoom's dim is another view than the zoom's: the dim was taken away and put back")
+        let fade = try #require(going.layer.animation(forKey: "opacity") as? CABasicAnimation, "the unzoom's dim has no fade on its layer")
+        #expect((fade.toValue as? Float) == 0, "the unzoom's dim does not go: its fade ends at \(String(describing: fade.toValue))")
+    }
+
+    /// A second Cmd-Shift-Enter in the LAST tick of the zoom's motion, with an unzoom that waits for its pane's
+    /// surface: the tick in which the zoom's time is spent comes before the frame that shows the unzoom. The motion
+    /// does not end under the change that waits. In the key's turn and in each tick of the wait the zoomed pane still
+    /// has its screen's size, the dim still shows, and each pane that the zoom covers is under the zoomed pane with
+    /// no ring. The FIRST pane of the grid zooms: the panes that it covers are after it in the screen's order, so each
+    /// would show over it at full light. The frame that shows the unzoom shows the grid and the rings, and the same
+    /// dim goes.
+    @Test func aSecondKeyInTheLastTickOfAZoomsMotionKeepsTheZoomUntilItsChangeShows() throws {
+        // How many frames the zoom's motion takes after the frame that begins it: one run of it to its end.
+        let whole = try Self.zooming(frames: 1, pane: "p1", surfaces: true)
+        defer { whole.harness.window.closeAfterTest() }
+        let ticks = Self.toTheEnd(whole.harness, whole.screen).ticks
+        try #require(ticks > 3 && ticks < Commit.frames, "SETUP: the zoom's motion took \(ticks) frames")
+
+        // One frame less: the next frame is the tick in which the zoom's time is spent.
+        let zoom = try Self.zooming(frames: ticks, pane: "p1", surfaces: true)
+        defer { zoom.harness.window.closeAfterTest() }
+        let harness = zoom.harness, screen = zoom.screen
+        let covered = ["p2", "p3", "p4"] as [PaneID]
+        try #require(Self.inFlight(screen), "SETUP: the zoom's motion ended a tick before its time")
+        let dim = try #require(Dim.dim(harness), "SETUP: no dim shows in the zoom's last tick")
+        let surface = try #require(harness.provider.surface("p1"), "SETUP: the zoomed pane has no surface")
+        let asked = surface.asks.count
+
+        harness.model.apply(screens: Zoom.screens())
+        harness.root.syncWithModel()
+        try #require(surface.asks.count == asked + 1, "SETUP: the unzoom asks the zoomed pane's surface for no size: it does not wait")
+        func staysZoomed(_ when: String) throws {
+            #expect(Self.places(zoom.zoomed, on: screen), "\(when): the zoomed pane does not have its screen's size: \(Commit.shown(screen).panes)")
+            #expect(Dim.dim(harness)?.view === dim.view, "\(when): the zoom's dim is gone before the unzoom shows")
+            for pane in covered {
+                let host = try #require(harness.root.context.hosts[pane], "\(pane) has no host after the second key")
+                #expect(!host.isHidden && host.chrome.isHidden, "\(when): \(pane)'s ring shows over the zoomed pane")
+                #expect((host.layer?.zPosition ?? 0) < 0, "\(when): \(pane) is not under the zoomed pane: it shows over it at full light")
+            }
+        }
+        try staysZoomed("the second key's turn")
+        for tick in 1...2 {
+            #expect(harness.root.advanceFrame(Self.dt), "tick \(tick) of the unzoom's wait asks for no frame")
+            try staysZoomed("tick \(tick) of the unzoom's wait")
+        }
+
+        surface.report()
+        _ = harness.root.advanceFrame(Self.dt)
+        #expect(zoom.grid.isShown(by: Commit.shown(screen)), "the first frame after the surface's report does not show the grid: \(Commit.shown(screen).panes)")
+        for pane in covered {
+            let host = harness.root.context.hosts[pane]
+            #expect(host?.chrome.isHidden == false && (host?.layer?.zPosition ?? -1) >= 0,
+                    "\(pane) does not show with its ring in the frame that shows the unzoom")
         }
         let going = try #require(Dim.dim(harness), "the frame that shows the unzoom shows no dim")
         #expect(going.view === dim.view, "the unzoom's dim is another view than the zoom's: the dim was taken away and put back")
