@@ -324,3 +324,7 @@ pub(super) fn draw_sidebar(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
         }
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "sidebar_tests.rs"]
+mod tests;
