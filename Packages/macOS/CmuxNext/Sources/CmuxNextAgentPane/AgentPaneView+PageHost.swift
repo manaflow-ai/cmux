@@ -54,12 +54,9 @@ extension AgentPaneView {
         // IME composition, unsent chips): a crash shows the notice, and Reload is the person's.
         page.reloadsAfterCrash = false
         page.onCrash = { [weak self] _, reloading in self?.pageCrashed(reloading: reloading) }
-        page.onDocumentLoaded = { [weak self] in
-            // A new document has no shared text of the New Tab context. This host has no commit hook
-            // (``AgentPaneNavigation`` clears the mark there for a web view of the pane's own).
-            self?.model.newTabSharedGeneration = nil
-            self?.pageLoadedAgain()
-        }
+        // No clear of the New Tab context's mark here (``AgentPaneModel/newTabSharedGeneration``): on this host each
+        // new document asks `newTab.context` early, and that answer always carries the shared text.
+        page.onDocumentLoaded = { [weak self] in self?.pageLoadedAgain() }
         pageEvents?.replay = { [weak self] in
             // A new subscriber is a page that loaded again: its registry renderers are gone.
             guard let self else { return [] }
