@@ -55,6 +55,7 @@
     Icon: () => Icon,
     Image: () => Image,
     LazyVStack: () => LazyVStack,
+    Line: () => Line,
     Menu: () => Menu,
     Panel: () => Panel,
     ProgressView: () => ProgressView,
@@ -625,6 +626,9 @@
     monospaced() {
       return this.set("monospaced", true);
     }
+    fontDesign(v) {
+      return this.set("fontDesign", v);
+    }
     color(v) {
       return this.set("color", v);
     }
@@ -639,6 +643,9 @@
     }
     truncation(v) {
       return this.set("truncation", v);
+    }
+    strikethrough(v = true) {
+      return this.set("strikethrough", v);
     }
     marquee(delaySeconds = 0.5) {
       return this.set("marquee", delaySeconds);
@@ -697,11 +704,29 @@
     rotation(degrees) {
       return this.set("rotation", degrees);
     }
+    rotationEffect(degrees) {
+      return this.set("rotation", degrees);
+    }
+    offset(v) {
+      return this.set("offset", v);
+    }
+    position(v) {
+      return this.set("position", v);
+    }
     cursor(v) {
       return this.set("cursor", v);
     }
     help(v) {
       return this.set("help", v);
+    }
+    transition(v) {
+      return this.set("transition", v);
+    }
+    contentTransition(v) {
+      return this.set("contentTransition", v);
+    }
+    animation(v = "smooth") {
+      return this.set("animation", v);
     }
     fixed() {
       return this.set("fixed", true);
@@ -737,6 +762,15 @@
   var LazyVStack = container("LazyVStack");
   var Group = container("Group");
   function Text(text) {
+    if (text !== null && typeof text === "object") {
+      const node = new ViewNode("Text");
+      node.props.text = "";
+      node.props.date = text.date;
+      node.props.dateStyle = text.style ?? "time";
+      if (text.timeZone !== undefined)
+        node.props.timeZone = text.timeZone;
+      return node;
+    }
     const node = new ViewNode("Text");
     node.props.text = typeof text === "function" ? () => String(text() ?? "") : String(text ?? "");
     return node;
@@ -772,6 +806,7 @@
   var Circle = (props = {}) => new ViewNode("Circle").withProps(props);
   var Capsule = (props = {}) => new ViewNode("Capsule").withProps(props);
   var Rectangle = (props = {}) => new ViewNode("Rectangle").withProps(props);
+  var Line = (props = {}) => new ViewNode("Line").withProps(props);
   var RoundedRectangle = (props = {}) => new ViewNode("RoundedRectangle").withProps(props);
   function ProgressView(value) {
     const node = new ViewNode("ProgressView");
@@ -2310,6 +2345,101 @@
         staleAfterSeconds: 300,
         safetyPollSeconds: 900
       },
+      "system_calendar.events": {
+        docs: "The next events in the calendars on this Mac (system_calendar.events): the access status, and the events from now through params.days once access is granted. The Mac app pushes system_calendar.changed when EventKit says a calendar changed, so the runtime never polls it; the daemon shares one read among every watcher for 30 s.",
+        scopes: [
+          "system_calendar:read"
+        ],
+        params: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            days: {
+              type: "integer",
+              minimum: 1,
+              maximum: 31
+            },
+            limit: {
+              type: "integer",
+              minimum: 1,
+              maximum: 50
+            }
+          }
+        },
+        value: {
+          type: "object",
+          required: [
+            "access",
+            "events"
+          ],
+          properties: {
+            access: {
+              enum: [
+                "granted",
+                "denied",
+                "restricted",
+                "notDetermined",
+                "unavailable"
+              ]
+            },
+            events: {
+              type: "array",
+              items: {
+                type: "object",
+                required: [
+                  "id",
+                  "title",
+                  "start",
+                  "end",
+                  "allDay",
+                  "calendar"
+                ],
+                properties: {
+                  id: {
+                    type: "string"
+                  },
+                  title: {
+                    type: "string"
+                  },
+                  start: {
+                    type: "number",
+                    description: "Unix ms"
+                  },
+                  end: {
+                    type: "number",
+                    description: "Unix ms"
+                  },
+                  allDay: {
+                    type: "boolean"
+                  },
+                  calendar: {
+                    type: "string",
+                    description: "The calendar's title"
+                  },
+                  color: {
+                    type: "string",
+                    description: "The calendar's color, #rrggbb"
+                  },
+                  location: {
+                    type: "string"
+                  },
+                  url: {
+                    type: "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        read: {
+          op: "system_calendar.events"
+        },
+        push: [
+          "system_calendar.changed"
+        ],
+        pollFloorSeconds: 5,
+        staleAfterSeconds: 300
+      },
       "workspace.list": {
         docs: "The workspaces of the current session in sidebar order (workspace.list). The daemon pushes workspace.changed on every tree change, so the runtime never polls it.",
         scopes: [
@@ -2708,7 +2838,8 @@
     return untracked(e);
   };
   var g = globalThis;
-  var RUNTIME_VERSION = "1.2.0";
+  var widgetClocks = new Map;
+  var RUNTIME_VERSION = "1.3.0";
   var exportsOf2 = () => g.__cmuxAppExports ?? {};
   var describe2 = (e) => e instanceof Error ? `${e.name === "Error" ? "" : `${e.name}: `}${e.message}` : String(e);
   function entry(name, fn, fallback) {
@@ -2767,6 +2898,12 @@
           if (typeof render !== "function")
             throw new Error(`the app does not export a function named ${exportName}`);
           const ctx = JSON.parse(ctxJSON || "{}");
+          widgetClocks.delete(mountId);
+          if (ctx && ctx.surface === "widget") {
+            const [now, setNow] = signal(Date.now());
+            widgetClocks.set(mountId, setNow);
+            ctx.now = now;
+          }
           state.context = ctx;
           mount(mountId, () => render(ctx), ctx);
           state.context = null;
@@ -2774,6 +2911,7 @@
         return "";
       } catch (e) {
         state.context = null;
+        widgetClocks.delete(mountId);
         unmount(mountId);
         const message = describe2(e);
         log("error", `mount ${exportName}: ${message}`);
@@ -2782,7 +2920,14 @@
         sendPendingOps();
       }
     };
-    g.__cmuxAppUnmount = (mountId) => entry("unmount", () => unmount(mountId), undefined);
+    g.__cmuxAppUnmount = (mountId) => entry("unmount", () => {
+      widgetClocks.delete(mountId);
+      unmount(mountId);
+    }, undefined);
+    g.__cmuxAppTick = (mountId, nowMs) => entry("tick", () => {
+      if (Number.isFinite(nowMs))
+        widgetClocks.get(mountId)?.(nowMs);
+    }, undefined);
     g.__cmuxAppDispatch = (mountId, nodeId, event, payloadJSON) => entry("dispatch", () => {
       if (!mountExists(mountId))
         return;

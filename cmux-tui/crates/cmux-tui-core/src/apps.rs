@@ -102,6 +102,8 @@ mod supervisor;
 #[cfg(all(test, unix))]
 mod supervisor_tests;
 #[cfg(unix)]
+mod system_calendar;
+#[cfg(unix)]
 mod terminal_backends;
 #[cfg(unix)]
 mod terminal_links;
@@ -109,6 +111,8 @@ mod terminal_links;
 mod terminal_ops;
 #[cfg(unix)]
 pub(crate) mod timer;
+#[cfg(unix)]
+mod widgets;
 
 use std::sync::{Arc, Mutex, OnceLock};
 

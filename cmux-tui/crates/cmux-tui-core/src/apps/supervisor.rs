@@ -179,6 +179,8 @@ pub(super) struct Mount {
     pub reset: bool,
     /// Its op-batch rate and coalescing (`budget.rs`).
     pub budget: super::budget::MountBudget,
+    /// A widget mount's clock and meter (`widgets.rs`); `None` for every other interface.
+    pub widget: Option<super::widgets::WidgetMount>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -247,6 +249,8 @@ pub(super) struct Inner {
     pub providers: HashMap<String, u64>,
     pub provider_calls: HashMap<u64, super::provider::ProviderCall>,
     pub next_provider_request: u64,
+    /// Granted `system_calendar.events.list` answers (`system_calendar.rs`).
+    pub system_calendar: super::system_calendar::Cache,
     /// `apps-run` replay by idempotency key (`runs.rs`).
     pub run_keys: HashMap<String, super::runs::RunKey>,
     pub run_key_order: VecDeque<String>,
@@ -297,6 +301,8 @@ pub(super) struct Inner {
     /// Open web panes' bridges and their calls waiting for a provider
     /// (`page_calls.rs`).
     pub pages: super::page_calls::Pages,
+    /// The widget layout and its replayed edits (`widgets.rs`).
+    pub widgets: super::widgets::WidgetState,
 }
 
 /// Work to do after the lock is released. Messages to hosts are not in this
@@ -466,6 +472,7 @@ impl Supervisor {
                 providers: HashMap::new(),
                 provider_calls: HashMap::new(),
                 next_provider_request: 0,
+                system_calendar: Default::default(),
                 run_keys: HashMap::new(),
                 run_key_order: VecDeque::new(),
                 servers: HashMap::new(),
@@ -485,6 +492,7 @@ impl Supervisor {
                 good_tried: HashMap::new(),
                 ladders: HashMap::new(),
                 pages: Default::default(),
+                widgets: Default::default(),
             }),
             config,
             router,
