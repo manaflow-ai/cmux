@@ -67,8 +67,11 @@
 //!   gives pages back to the file system.
 //!
 //! What M1, M2 and M3 leave out:
-//! - The copies are filled in one commit and the product's index grew row by
-//!   row: their pages are not as full as the product's.
+//! - The copies are filled in the order of the table's key, in one commit.
+//!   The product writes one journal row at a time, with other tables' pages
+//!   between: the same keys, not the same places in the file.
+//! - M5 (the same subject rows in a store of 10,000 to 1,000,000 journal
+//!   rows' entries) is a row of its own, in `subject_size.rs`.
 //! - How many subjects a period has is a property of this flow (the agents
 //!   of the bulk and their new session ids), not of a real session.
 //! - A WAL that started again in the bulk loses the frames before its start:
@@ -77,6 +80,8 @@
 //!   makes one; a step that fails says so.
 //!
 //! It fails by design: its words are the result.
+
+mod subject_size;
 
 use std::collections::{BTreeMap, BTreeSet};
 
