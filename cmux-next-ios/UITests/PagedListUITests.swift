@@ -252,7 +252,7 @@ final class PagedListUITests: XCTestCase {
                 drag(app, by: direction == .down ? -260 : 260)
                 drags += 1
             }
-            XCTAssertLess(hud(app).rows, target, "page \(landing + 1) landed before the reader held still; slow the lab's source")
+            XCTAssertLessThan(hud(app).rows, target, "page \(landing + 1) landed before the reader held still; slow the lab's source")
             let row = visibleRow(app)
             settle(row)
             let before = row.frame.minY
