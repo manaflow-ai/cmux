@@ -60,7 +60,7 @@ fn an_off_scale_size_names_the_persons_role_by_its_call() {
     ]);
     let findings = check_in(&[&ops], Surface::Widget, &custom());
     assert!(
-        findings[0].fix.starts_with("use text(\"display\", ...) (28 pt)"),
+        findings[0].fix.starts_with("use design.text(\"display\", ...) (28 pt)"),
         "{}",
         findings[0].fix
     );
@@ -83,6 +83,28 @@ fn a_bad_system_names_the_field_and_its_fix() {
     assert!(bad(base(json!({"space": [0, 8, 4]}))).contains("go up"));
     assert!(bad(base(json!({"colors": {"brand": "#ff0000"}}))).contains("colors.brand"));
     assert!(bad(base(json!({"limits": {"accents": 9}}))).contains("limits.accents"));
+    assert!(bad(base(json!({"limits": {"accents": 1.5}}))).contains("limits.accents"));
+    assert!(
+        bad(base(json!({"type": {"x": {"size": 12, "weight": 600}}}))).contains("type.x.weight")
+    );
+    assert!(
+        bad(base(json!({"type": {"x": {"size": 12, "monospaced": "yes"}}})))
+            .contains("type.x.monospaced")
+    );
+    // Whole-number floats and a null weight read as the SDK reads them.
+    let system = System::from_json(&base(json!({
+        "type": {"x": {"size": 12, "weight": null}},
+        "limits": {"accents": 2.0}
+    })))
+    .expect("a valid system");
+    assert_eq!(system.max_accents, 2);
+}
+
+#[test]
+fn a_tie_rounds_to_the_larger_step_as_the_sdk_does() {
+    // 2 is as near 0 as 4 on this scale; 0 would make the gap vanish.
+    assert_eq!(custom().nearest_step(2.0), 4.0);
+    assert_eq!(System::cmux().nearest_step(10.0), 12.0);
 }
 
 #[test]
@@ -95,4 +117,7 @@ fn a_folder_without_a_file_uses_cmuxs_system_and_a_broken_one_says_so() {
     let problem = problem.expect("a system finding");
     assert_eq!(problem.check, "system");
     assert!(problem.message.starts_with(FILE), "{}", problem.message);
+    // A file that is there but does not read as text is a finding too, not "no file".
+    std::fs::write(dir.path().join(FILE), [0xff, 0xfe, 0x00]).unwrap();
+    assert_eq!(System::load(dir.path()).1.map(|f| f.check), Some("system"));
 }

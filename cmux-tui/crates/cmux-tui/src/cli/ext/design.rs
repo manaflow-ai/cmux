@@ -102,6 +102,7 @@ impl Surface {
 }
 
 /// The design findings for the scene `batches` build against cmux's system.
+#[cfg(test)]
 pub(super) fn check(batches: &[&Value], surface: Surface) -> Vec<Finding> {
     check_in(batches, surface, &System::cmux())
 }
