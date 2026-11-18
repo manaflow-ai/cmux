@@ -25,6 +25,15 @@ fn a_mount_point_outside_the_roots_or_not_plain_is_refused() {
     assert!(mount_point(&dotted, &roots).is_err());
 }
 
+#[test]
+fn a_rejected_mount_does_not_create_parent_directories() {
+    let root = cmux_unix_socket::short_test_dir("proj-root");
+    let outside = cmux_unix_socket::short_test_dir("proj-outside");
+    let missing = outside.path().join("never-created").join("chat");
+    assert!(mount_point(missing.to_str().unwrap(), &[root.path().to_path_buf()]).is_err());
+    assert!(!outside.path().join("never-created").exists());
+}
+
 #[cfg(unix)]
 #[test]
 fn a_mount_point_symlink_cannot_escape_the_roots() {

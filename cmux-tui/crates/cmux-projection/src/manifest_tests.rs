@@ -54,6 +54,12 @@ fn a_manifest_survives_the_wire_and_a_tampered_one_is_refused() {
 }
 
 #[test]
+fn a_compressed_manifest_is_bounded_before_deserialization() {
+    let compressed = zstd::encode_all(vec![0_u8; 4097].as_slice(), 1).unwrap();
+    assert!(Manifest::decode_with_limit(&compressed, 4096).is_err());
+}
+
+#[test]
 fn a_bad_or_doubled_path_is_refused() {
     assert!(Manifest::build(1, vec![file("../x", 1)]).is_err());
     assert!(Manifest::build(1, vec![file("a//b", 1)]).is_err());
