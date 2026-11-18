@@ -174,32 +174,30 @@ impl Pacer {
         self.budget_bytes = 0.0;
     }
 
-    /// What is queued, in send order (to decide what an outage end drops, D12).
+    /// The queued frame datagrams, in send order (to decide what an outage end drops,
+    /// D12). Repairs are left out: they resend frames that already left, and a
+    /// tail-loss probe of a one-datagram frame would otherwise read as that whole
+    /// frame unstarted.
     pub fn queued(&self) -> impl Iterator<Item = &[u8]> {
-        self.queue.iter().map(Vec::as_slice)
+        self.queue.iter().skip(self.repairs_queued).map(Vec::as_slice)
     }
 
-    /// Takes the queued datagrams `stale` picks, in order, so the caller can retire
-    /// them (an outage ended and they are stale, D12); the rest keep their place and
-    /// pacing. When nothing is left the next frame pushed goes at once.
+    /// Takes the queued frame datagrams `stale` picks, in order, so the caller can
+    /// retire them (an outage ended and they are stale, D12); the rest, and every
+    /// queued repair, keep their place and pacing. When nothing is left the next
+    /// frame pushed goes at once.
     pub fn take_where(&mut self, mut stale: impl FnMut(&[u8]) -> bool) -> Vec<Vec<u8>> {
         let mut taken = Vec::new();
         let mut kept = VecDeque::with_capacity(self.queue.len());
-        let mut repairs_kept = 0;
         for (i, d) in self.queue.drain(..).enumerate() {
-            if stale(&d) {
+            if i >= self.repairs_queued && stale(&d) {
                 self.queued_bytes -= d.len();
                 taken.push(d);
             } else {
-                // Repairs stay at the head, ahead of frames, and keep their count.
-                if i < self.repairs_queued {
-                    repairs_kept += 1;
-                }
                 kept.push_back(d);
             }
         }
         self.queue = kept;
-        self.repairs_queued = repairs_kept;
         if self.queue.is_empty() {
             self.budget_bytes = 0.0;
         }
@@ -279,23 +277,24 @@ mod tests {
         assert!(last <= 8_400, "repairs and the frame behind them took {last} us");
     }
 
-    /// D12 with D6: an outage-end drop of queued frames keeps the repairs ahead of them
-    /// counted as repairs, so the frames left still count toward their send times.
+    /// D12 with D6: an outage-end drop sees and takes only queued frame datagrams. A
+    /// queued repair (a NACK answer or tail-loss probe of a frame that already left)
+    /// is neither a candidate nor taken, stays ahead of the frames and still counts as
+    /// a repair, so the frames left keep their send times.
     #[test]
-    fn an_outage_drop_keeps_queued_repairs_counted_as_repairs() {
+    fn an_outage_drop_leaves_queued_repairs_alone() {
         let mut p = Pacer::new();
         p.push_frame(frame(100), 10_000_000, 16_667, 0);
         let first = p.due(0).len();
         p.take_frame_datagrams_sent();
-        // Two repairs of a frame the drop picks, two of one it keeps.
-        p.push_repair(vec![vec![0xee; 1152], vec![0xee; 1152]], 10_000_000, 1_000);
-        p.push_repair(vec![vec![0xaa; 1152]; 2], 10_000_000, 1_000);
+        p.push_repair(vec![vec![0xee; 1152], vec![0xaa; 1152]], 10_000_000, 1_000);
         p.push_frame(vec![vec![0xee; 1152]; 10], 10_000_000, 16_667, 1_000);
+        assert_eq!(p.queued().count(), 100 - first + 10, "repairs are not candidates");
         let stale = p.take_where(|d| d[0] == 0xee);
-        assert_eq!(stale.len(), 12);
+        assert_eq!(stale.len(), 10, "only the queued frame's datagrams");
         let sent = drain(&mut p, 1_000);
         assert_eq!(sent.len(), 2 + 100 - first);
-        assert!(sent[..2].iter().all(|(_, d)| d[0] == 0xaa), "repairs still first");
+        assert_eq!((sent[0].1[0], sent[1].1[0]), (0xee, 0xaa), "repairs still first");
         assert_eq!(p.take_frame_datagrams_sent(), 100 - first);
     }
 
