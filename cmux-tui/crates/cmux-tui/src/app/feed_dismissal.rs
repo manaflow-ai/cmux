@@ -30,6 +30,7 @@ impl App {
     pub(super) fn refresh_sidebar_status(&mut self) {
         let agents = self.session.agents();
         self.sidebar_status = crate::sidebar_status::SidebarStatus::build(&self.tree, &agents);
+        self.sidebar_frame_cache.set_agents(&agents);
         self.acknowledge_viewed_done_tab();
     }
 

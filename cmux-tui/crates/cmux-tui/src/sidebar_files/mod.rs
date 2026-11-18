@@ -67,8 +67,14 @@ impl FileBrowser {
         self.navigation.is_pinned()
     }
 
+    #[cfg(test)]
     pub fn visible_entries(&self) -> impl Iterator<Item = &FileEntry> {
         self.visible.iter().map(|index| &self.entries[*index])
+    }
+
+    /// How many entries the filter shows.
+    pub fn visible_len(&self) -> usize {
+        self.visible.len()
     }
 
     pub fn visible_entry(&self, index: usize) -> Option<&FileEntry> {

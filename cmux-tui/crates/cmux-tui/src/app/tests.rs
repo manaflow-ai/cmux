@@ -670,6 +670,7 @@ fn test_app_with_events(session: Session) -> (App, Receiver<AppEvent>) {
         tabs_footer_scroll: 0,
         projection_rails: HashMap::new(),
         projection_order_cache: AgentOrderCache::default(),
+        sidebar_frame_cache: Default::default(),
         sidebar_status: crate::sidebar_status::SidebarStatus::default(),
         agent_section_scroll: 0,
         done_tab_ack_sent: None,

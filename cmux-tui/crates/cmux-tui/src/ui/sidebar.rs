@@ -193,8 +193,9 @@ fn draw_agents_section(
             buf[(end, section.y)].set_symbol(" ").set_style(palette.dim);
         }
     }
-    let mut hits = Vec::with_capacity(rows.len() * height);
-    for (index, row) in rows.iter().enumerate() {
+    let in_view = viewport.body_items(0, rows.len(), metrics.stride);
+    let mut hits = Vec::with_capacity(in_view.len() * height);
+    for (index, row) in rows.iter().enumerate().skip(in_view.start).take(in_view.len()) {
         let Some(y) = viewport.body_y(rail::RowSpan::new(index * metrics.stride, height)) else {
             continue;
         };
@@ -242,11 +243,10 @@ pub fn draw(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
 pub fn draw_machines(app: &mut App, frame: &mut Frame) {
     let Some(area) = app.machine_sidebar_area(frame.area().height) else { return };
     let Some(machine_ui) = app.machine_ui.as_ref() else { return };
-    let machines = machine_ui.snapshot.machines.clone();
+    let machine_count = machine_ui.snapshot.machines.len();
     let active = app.selected_machine();
     let capabilities = machine_ui.snapshot.capabilities;
     let selection = machine_ui.selection;
-    let managed_machines = machine_ui.managed_machines().to_vec();
     let rail_selection = machine_ui.rail_selection;
     let palette = rail::RailPalette::for_app(app, app.machine_sidebar_focused());
     let metrics = rail::RailMetrics::for_app(app);
@@ -255,17 +255,17 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
 
     let mut body_rows = 0;
     let machine_start = body_rows;
-    if machines.is_empty() {
+    if machine_count == 0 {
         body_rows += 1;
     } else {
-        body_rows += machines.len() * metrics.stride;
+        body_rows += machine_count * metrics.stride;
     }
     let create_footer = capabilities.create.then_some(0);
     let connect_footer = capabilities.connect.then_some(usize::from(capabilities.create));
     let footer_rows = usize::from(capabilities.create) + usize::from(capabilities.connect);
     let selected_body = if app.machine_sidebar_focused() && app.machine_rail_follow_selection {
         match rail_selection {
-            MachineRailSelection::Machine => (!machines.is_empty()).then_some(rail::RowSpan::new(
+            MachineRailSelection::Machine => (machine_count > 0).then_some(rail::RowSpan::new(
                 machine_start + selection * metrics.stride,
                 metrics.height,
             )),
@@ -295,6 +295,11 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
         selected_footer,
     );
 
+    // Borrowed again after the viewport took the scroll offsets; the rows
+    // are read in place, not copied per frame.
+    let Some(machine_ui) = app.machine_ui.as_ref() else { return };
+    let machines = machine_ui.snapshot.machines.as_slice();
+    let managed_machines = machine_ui.managed_machines();
     let mut hits = Vec::new();
     if machines.is_empty()
         && let Some(y) = viewport.body_y(rail::RowSpan::new(machine_start, 1))
@@ -307,7 +312,8 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
             palette.dim,
         );
     }
-    for (index, machine) in machines.iter().enumerate() {
+    let in_view = viewport.body_items(machine_start, machines.len(), metrics.stride);
+    for (index, machine) in machines.iter().enumerate().skip(in_view.start).take(in_view.len()) {
         let span = rail::RowSpan::new(machine_start + index * metrics.stride, metrics.height);
         let Some(y) = viewport.body_y(span) else { continue };
         let is_active = Some(machine.key) == active;
@@ -412,15 +418,15 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
 /// Native third-level column for tabs in the highlighted workspace.
 pub fn draw_tabs(app: &mut App, frame: &mut Frame) {
     let Some(area) = app.tabs_sidebar_area(frame.area().height) else { return };
-    let targets = app.sidebar_tab_targets();
-    app.tabs_rail_selection = app.tabs_rail_selection.min(targets.len().saturating_sub(1));
+    let target_count = app.sidebar_tab_target_count();
+    app.tabs_rail_selection = app.tabs_rail_selection.min(target_count.saturating_sub(1));
     let palette = rail::RailPalette::for_app(app, app.tabs_sidebar_focused());
     let metrics = rail::RailMetrics::for_app(app);
     let messages = &localization::catalog().sidebar;
     rail::prepare(frame, area, palette);
 
-    let body_rows = if targets.is_empty() { 1 } else { targets.len() * metrics.stride };
-    let selected = (!targets.is_empty()
+    let body_rows = if target_count == 0 { 1 } else { target_count * metrics.stride };
+    let selected = (target_count > 0
         && app.tabs_sidebar_focused()
         && app.tabs_rail_follow_selection)
         .then_some(rail::RowSpan::new(app.tabs_rail_selection * metrics.stride, metrics.height));
@@ -434,12 +440,15 @@ pub fn draw_tabs(app: &mut App, frame: &mut Frame) {
         None,
     );
 
-    if targets.is_empty() {
+    if target_count == 0 {
         if let Some(y) = viewport.body_y(rail::RowSpan::new(0, 1)) {
             rail::button(frame, area, y, messages.no_tabs, false, palette);
         }
     } else {
-        for (target_index, target) in targets.iter().enumerate() {
+        // Only the rows in view are built.
+        let in_view = viewport.body_items(0, target_count, metrics.stride);
+        let targets = app.sidebar_tab_targets_in(in_view.clone());
+        for (target_index, target) in in_view.zip(&targets) {
             let span = rail::RowSpan::new(target_index * metrics.stride, metrics.height);
             let Some(y) = viewport.body_y(span) else { continue };
             let selected = app.tabs_sidebar_focused()
@@ -532,7 +541,8 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
     {
         rail::button(frame, area, y, projection_empty_label(empty_resource), false, palette);
     }
-    for (row_index, row) in rows.iter().enumerate() {
+    let in_view = viewport.body_items(0, rows.len(), 1);
+    for (row_index, row) in rows.iter().enumerate().skip(in_view.start).take(in_view.len()) {
         let Some(y) = viewport.body_y(rail::RowSpan::new(row_index, 1)) else { continue };
         let highlighted = row.active || (focused && selected == row_index);
         let detail = projection_detail(row);
@@ -654,12 +664,9 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
 
     let actions = app.workspace_sidebar_action_rows();
     let view_index = app.view_index_for_rail(RailKind::Workspace);
-    let recoverable = app
-        .machine_ui
-        .as_ref()
-        .map(|ui| ui.recoverable_workspaces().into_iter().cloned().collect::<Vec<_>>())
-        .unwrap_or_default();
-    let body_rows = (app.tree.workspaces().len() + recoverable.len()) * metrics.stride;
+    let recoverable_count =
+        app.machine_ui.as_ref().map_or(0, |ui| ui.recoverable_workspace_count());
+    let body_rows = (app.tree.workspaces().len() + recoverable_count) * metrics.stride;
     let selected_body = (app.workspace_sidebar_focused() && app.workspace_rail_follow_selection)
         .then(|| match app.workspace_rail_selection {
             WorkspaceRailSelection::Workspace
@@ -671,7 +678,7 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
                 ))
             }
             WorkspaceRailSelection::Recoverable
-                if app.sidebar_recoverable_workspace_selection < recoverable.len() =>
+                if app.sidebar_recoverable_workspace_selection < recoverable_count =>
             {
                 Some(rail::RowSpan::new(
                     (app.tree.workspaces().len() + app.sidebar_recoverable_workspace_selection)
@@ -735,7 +742,10 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
             },
         ));
     }
-    for (i, ws) in app.tree.workspaces().iter().enumerate() {
+    let workspace_count = app.tree.workspaces().len();
+    let in_view = viewport.body_items(0, workspace_count, metrics.stride);
+    for (i, ws) in app.tree.workspaces().iter().enumerate().skip(in_view.start).take(in_view.len())
+    {
         let span = rail::RowSpan::new(i * metrics.stride, metrics.height);
         let Some(y) = viewport.body_y(span) else { continue };
         let active = i == app.tree.active_workspace;
@@ -773,8 +783,15 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         }
     }
 
-    for (index, workspace) in recoverable.iter().enumerate() {
-        let row = app.tree.workspaces().len() + index;
+    let recoverable_in_view =
+        viewport.body_items(workspace_count * metrics.stride, recoverable_count, metrics.stride);
+    for index in recoverable_in_view {
+        let Some(workspace) =
+            app.machine_ui.as_ref().and_then(|ui| ui.recoverable_workspace(index))
+        else {
+            continue;
+        };
+        let row = workspace_count + index;
         let span = rail::RowSpan::new(row * metrics.stride, metrics.height);
         let Some(y) = viewport.body_y(span) else { continue };
         let selected = app.workspace_sidebar_focused()
@@ -922,11 +939,8 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
         dim
     };
 
-    let entries = app
-        .sidebar_files
-        .visible_entries()
-        .map(|entry| (entry.name.clone(), entry.is_dir()))
-        .collect::<Vec<_>>();
+    let unread = unread_summary(app);
+    let entry_count = app.sidebar_files.visible_len();
     let selected = app.sidebar_files.selected();
     let current_dir = app.sidebar_files.current_dir().to_string_lossy().into_owned();
     let pinned = app.sidebar_files.is_pinned();
@@ -937,7 +951,6 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
     let total = app.sidebar_files.total_len();
     let listing_error = app.sidebar_files.listing_error().map(str::to_owned);
     let message = app.sidebar_files.message().map(str::to_owned);
-    let unread = unread_summary(app);
 
     let buf = frame.buffer_mut();
     for y in area.y..area.y + height {
@@ -978,22 +991,24 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
         if body_height > 0 {
             buf.set_stringn(area.x, body_start, truncate(&error, content_w), content_w, dim);
         }
-    } else if entries.is_empty() {
+    } else if entry_count == 0 {
         if body_height > 0 {
             buf.set_stringn(area.x, body_start, " No files", content_w, dim);
         }
     } else {
-        let offset = file_scroll_offset(selected, body_height, entries.len());
-        for (line, (name, is_dir)) in entries.iter().skip(offset).take(body_height).enumerate() {
-            let y = body_start + line as u16;
-            let row_index = offset + line;
+        // Only the entries in view are read, in place.
+        let offset = file_scroll_offset(selected, body_height, entry_count);
+        for row_index in offset..entry_count.min(offset + body_height) {
+            let Some(entry) = app.sidebar_files.visible_entry(row_index) else { break };
+            let (name, is_dir) = (&entry.name, entry.is_dir());
+            let y = body_start + (row_index - offset) as u16;
             let style = if row_index == selected { selected_style } else { base };
             if row_index == selected {
                 for x in area.x..area.x + content_width {
                     buf[(x, y)].set_style(style);
                 }
             }
-            let prefix = if *is_dir { "▸ " } else { "  " };
+            let prefix = if is_dir { "▸ " } else { "  " };
             buf.set_stringn(area.x, y, prefix, content_w, style.add_modifier(Modifier::DIM));
             let name_width = content_w.saturating_sub(2);
             buf.set_stringn(area.x + 2, y, truncate(name, name_width), name_width, style);
@@ -1022,7 +1037,7 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
             } else {
                 format!(
                     "{}/{}  .:{}  / filter",
-                    entries.len(),
+                    entry_count,
                     total,
                     if show_hidden { "on" } else { "off" }
                 )
@@ -1035,29 +1050,17 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
     input_cursor
 }
 
-fn unread_summary(app: &App) -> Option<(usize, Color)> {
-    let mut count = 0;
-    let mut highest = None;
-    for notification in app
-        .tree
-        .workspaces()
-        .iter()
-        .flat_map(|workspace| workspace.screens.iter())
-        .flat_map(|screen| screen.panes.iter())
-        .flat_map(|pane| pane.tabs.iter())
-        .filter_map(|tab| tab.notification.filter(|notification| notification.unread))
-    {
-        count += 1;
-        let ranked = match notification.level {
-            "error" => (2u8, app.config.theme.notification_error),
-            "warning" => (1, app.config.theme.notification_warning),
-            _ => (0, app.config.theme.notification_info),
-        };
-        if highest.is_none_or(|current: (u8, Color)| ranked.0 > current.0) {
-            highest = Some(ranked);
-        }
-    }
-    highest.map(|(_, color)| (count, color))
+/// The unread tab count and the color of its most severe level, walked
+/// once per tree (`SidebarFrameCache::unread`), not once per frame.
+fn unread_summary(app: &mut App) -> Option<(usize, Color)> {
+    let (count, rank) = app.sidebar_frame_cache.unread(&app.tree)?;
+    let theme = &app.config.theme;
+    let color = match rank {
+        2 => theme.notification_error,
+        1 => theme.notification_warning,
+        _ => theme.notification_info,
+    };
+    Some((count, color))
 }
 
 fn file_scroll_offset(selected: usize, visible_height: usize, total: usize) -> usize {

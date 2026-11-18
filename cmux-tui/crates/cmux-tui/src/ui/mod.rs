@@ -459,12 +459,18 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
             put(frame, &mut x, separator, Style::default().fg(segment_bg(segment)).bg(next_bg));
         }
     }
+    // Borrowed, not cloned: a copy of the active workspace would copy every
+    // tab in it on every frame.
     if app.config.status_bar.show_screens
-        && let Some(ws) = app.tree.active_workspace().cloned()
+        && let Some(ws) = app.tree.active_workspace()
     {
         put(frame, &mut x, " screens ", base.fg(chrome.status_dim_fg));
         let screen_caps = app.config.status_bar.screens_style.caps();
         for (i, screen) in ws.screens.iter().enumerate() {
+            // Chips past the bar's right edge are not drawn.
+            if x >= area.width {
+                break;
+            }
             let active = i == ws.active_screen;
             let label = format!(" {} ", truncate(&screen.display_name(i), 20));
             let chip_start = x;

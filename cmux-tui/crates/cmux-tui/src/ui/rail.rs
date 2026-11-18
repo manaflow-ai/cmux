@@ -5,6 +5,8 @@
 //! `7b675f42af35508eab66ac42fe1598628597a893` (Apache-2.0), modified by
 //! manaflow for cmux's shared rail metrics and narrow terminals.
 
+use std::ops::Range;
+
 use cmux_tui_core::Rect;
 use ratatui::Frame;
 use ratatui::style::{Color, Modifier, Style};
@@ -66,6 +68,22 @@ impl Viewport {
         #[cfg(test)]
         BODY_ROW_PROBES.with(|probes| probes.set(probes.get() + 1));
         visible_y(self.body, self.body_offset, span)
+    }
+
+    /// The items of a list laid out from body row `first_row`, one item
+    /// every `stride` rows, that can be in view: a draw visits these and not
+    /// the whole list, so its cost follows the rail's height. Each index
+    /// still goes through `body_y`, which drops a partly visible item.
+    pub fn body_items(self, first_row: usize, len: usize, stride: usize) -> Range<usize> {
+        let stride = stride.max(1);
+        let top = self.body_offset;
+        let bottom = top.saturating_add(usize::from(self.body.height));
+        if len == 0 || bottom <= first_row {
+            return 0..0;
+        }
+        let start = top.saturating_sub(first_row).div_ceil(stride).min(len);
+        let end = ((bottom - first_row - 1) / stride + 1).min(len);
+        start..end.max(start)
     }
 
     pub fn footer_y(self, span: RowSpan) -> Option<u16> {
@@ -489,6 +507,38 @@ mod tests {
         assert_eq!(viewport.footer.y, 4);
         assert_eq!(viewport.footer_offset, 2);
         assert_eq!(viewport.footer_y(RowSpan::new(3, 1)), Some(5));
+    }
+
+    #[test]
+    fn body_items_are_the_items_body_y_can_place() {
+        let mut footer_offset = 0;
+        for (first_row, len, stride, height) in
+            [(0, 40, 3, 2), (5, 40, 3, 2), (0, 7, 1, 1), (30, 4, 2, 2), (0, 0, 3, 2)]
+        {
+            for offset in 0..60 {
+                let mut body_offset = offset;
+                let viewport = viewport(
+                    Rect { x: 0, y: 0, width: 20, height: 9 },
+                    first_row + len * stride,
+                    0,
+                    &mut body_offset,
+                    &mut footer_offset,
+                    None,
+                    None,
+                );
+                let placed = (0..len)
+                    .filter(|index| {
+                        viewport.body_y(RowSpan::new(first_row + index * stride, height)).is_some()
+                    })
+                    .collect::<Vec<_>>();
+                let range = viewport.body_items(first_row, len, stride);
+                assert!(
+                    placed.iter().all(|index| range.contains(index)),
+                    "offset {offset}: {placed:?} outside {range:?}"
+                );
+                assert!(range.len() <= 9 / stride + 1, "offset {offset}: {range:?}");
+            }
+        }
     }
 
     #[test]

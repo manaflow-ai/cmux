@@ -431,6 +431,135 @@ fn agent_attention(state: &str) -> u8 {
     }
 }
 
+/// What the sidebar rails draw from, kept between frames so a paint frame
+/// (PTY output, typing) does not rebuild it: the agent roster of the last
+/// layout frame and each projection view's rows. A view's rows are rebuilt
+/// only when what they are made of changes (`ProjectionRowsKey`), so a
+/// frame's cost follows the rows in view, not the person's data.
+#[derive(Default)]
+pub(crate) struct SidebarFrameCache {
+    /// Active agents (not `done` or `unknown`) from the last layout frame.
+    agents: Vec<AgentInfo>,
+    /// Bumped when `agents` changes.
+    agents_generation: u64,
+    rows: HashMap<String, CachedProjectionRows>,
+    /// `unread` for the tree generation it was counted on.
+    unread: Option<(u64, Option<(usize, u8)>)>,
+}
+
+struct CachedProjectionRows {
+    key: ProjectionRowsKey,
+    rows: std::sync::Arc<[ProjectionRow]>,
+}
+
+#[derive(PartialEq)]
+struct ProjectionRowsKey {
+    levels: Vec<SidebarResourceKind>,
+    tree_generation: u64,
+    active_workspace: usize,
+    agents_generation: u64,
+    selected_workspace: usize,
+    collapsed: HashSet<ProjectionBranch>,
+}
+
+impl ProjectionRowsKey {
+    fn matches(
+        &self,
+        spec: &SidebarViewSpec,
+        tree: &TreeView,
+        agents_generation: u64,
+        selected_workspace: usize,
+        collapsed: &HashSet<ProjectionBranch>,
+    ) -> bool {
+        self.levels == spec.levels
+            && self.tree_generation == tree.generation()
+            && self.active_workspace == tree.active_workspace
+            && self.agents_generation == agents_generation
+            && self.selected_workspace == selected_workspace
+            && self.collapsed == *collapsed
+    }
+}
+
+impl SidebarFrameCache {
+    /// Unread tabs in `tree` and the most severe level among them (2 error,
+    /// 1 warning, 0 info), or `None` when nothing is unread. Counted once per
+    /// tree generation.
+    pub(crate) fn unread(&mut self, tree: &TreeView) -> Option<(usize, u8)> {
+        if let Some((generation, summary)) = self.unread
+            && generation == tree.generation()
+        {
+            return summary;
+        }
+        let mut count = 0;
+        let mut highest: Option<u8> = None;
+        for notification in tree
+            .workspaces()
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+            .flat_map(|pane| pane.tabs.iter())
+            .filter_map(|tab| tab.notification.filter(|notification| notification.unread))
+        {
+            count += 1;
+            let rank = match notification.level {
+                "error" => 2,
+                "warning" => 1,
+                _ => 0,
+            };
+            highest = Some(highest.map_or(rank, |current| current.max(rank)));
+        }
+        let summary = highest.map(|rank| (count, rank));
+        self.unread = Some((tree.generation(), summary));
+        summary
+    }
+
+    /// Adopt the roster a layout frame read; projection rows that show
+    /// agents are rebuilt only when it changed.
+    pub(crate) fn set_agents(&mut self, agents: &[AgentInfo]) {
+        let active = |agent: &&AgentInfo| !matches!(agent.state.as_str(), "done" | "unknown");
+        if self.agents.iter().eq(agents.iter().filter(active)) {
+            return;
+        }
+        self.agents = agents.iter().filter(active).cloned().collect();
+        self.agents_generation = self.agents_generation.wrapping_add(1);
+    }
+
+    /// The rows of view `spec`, rebuilt only when the tree, the roster, the
+    /// selected workspace or the collapsed branches changed since the last
+    /// call. The `Arc` hands the rows out without copying them.
+    pub(crate) fn projection_rows(
+        &mut self,
+        spec: &SidebarViewSpec,
+        tree: &TreeView,
+        selected_workspace: usize,
+        collapsed: &HashSet<ProjectionBranch>,
+        order_cache: &mut AgentOrderCache,
+    ) -> std::sync::Arc<[ProjectionRow]> {
+        // Finished reports are historical records, not active agents (see
+        // `set_agents`); a view without an agent level ignores the roster.
+        let shows_agents = spec.includes(SidebarResourceKind::Agents);
+        let agents_generation = if shows_agents { self.agents_generation } else { 0 };
+        if let Some(cached) = self.rows.get(&spec.id)
+            && cached.key.matches(spec, tree, agents_generation, selected_workspace, collapsed)
+        {
+            return cached.rows.clone();
+        }
+        let agents: &[AgentInfo] = if shows_agents { &self.agents } else { &[] };
+        let rows: std::sync::Arc<[ProjectionRow]> =
+            rows_cached(spec, tree, agents, selected_workspace, collapsed, order_cache).into();
+        let key = ProjectionRowsKey {
+            levels: spec.levels.clone(),
+            tree_generation: tree.generation(),
+            active_workspace: tree.active_workspace,
+            agents_generation,
+            selected_workspace,
+            collapsed: collapsed.clone(),
+        };
+        self.rows.insert(spec.id.clone(), CachedProjectionRows { key, rows: rows.clone() });
+        rows
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -3,6 +3,7 @@
 //! projection targets from the rails.
 
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use cmux_tui_core::{Direction, PaneId, Rect};
 
@@ -12,7 +13,7 @@ use crate::app::layout::{
 };
 use crate::app::menu::MenuItem;
 use crate::app::{App, MenuAction, RenderAction, WorkspaceRailSelection};
-use crate::config::{Action, SidebarColumnKind, SidebarResourceKind};
+use crate::config::{Action, SidebarColumnKind};
 use crate::localization;
 use crate::machine::WorkspaceCreationMode;
 use crate::sidebar_projection::{ProjectionRailState, ProjectionRow, ProjectionTarget};
@@ -131,29 +132,21 @@ impl App {
         self.focus == FocusTarget::ProjectionRail(index)
     }
 
-    pub(crate) fn projection_rows(&mut self, index: usize) -> Vec<ProjectionRow> {
-        let Some(spec) = self.config.sidebar.views.get(index) else { return Vec::new() };
+    /// The rows of projection view `index`, built from the tree and the
+    /// agent roster of the last layout frame. Rebuilt only when those, the
+    /// selected workspace or the collapsed branches change; a frame that
+    /// changes none of them gets the same rows without copying them.
+    pub(crate) fn projection_rows(&mut self, index: usize) -> Arc<[ProjectionRow]> {
+        let Some(spec) = self.config.sidebar.views.get(index) else { return Arc::from([]) };
         let empty_collapsed = HashSet::new();
         let collapsed = self
             .projection_rails
             .get(&spec.id)
             .map(|state| &state.collapsed)
             .unwrap_or(&empty_collapsed);
-        let agents = if spec.includes(SidebarResourceKind::Agents) {
-            // Finished reports are historical records, not active agents.
-            // Otherwise detached "surface..." rows remain forever after exit.
-            self.session
-                .agents()
-                .into_iter()
-                .filter(|agent| !matches!(agent.state.as_str(), "done" | "unknown"))
-                .collect::<Vec<_>>()
-        } else {
-            Vec::new()
-        };
-        crate::sidebar_projection::rows_cached(
+        self.sidebar_frame_cache.projection_rows(
             spec,
             &self.tree,
-            &agents,
             self.sidebar_workspace_selection,
             collapsed,
             &mut self.projection_order_cache,
@@ -271,52 +264,88 @@ impl App {
         }
     }
 
-    pub(crate) fn sidebar_tab_targets(&self) -> Vec<SidebarTabTarget> {
+    /// The workspace whose tabs the tabs rail lists, with its index.
+    fn sidebar_tabs_workspace(&self) -> Option<(usize, &crate::session::WorkspaceView)> {
         if self.workspace_rail_selection != WorkspaceRailSelection::Workspace {
-            return Vec::new();
+            return None;
         }
-        let workspace_index =
+        let index =
             self.sidebar_workspace_selection.min(self.tree.workspaces().len().saturating_sub(1));
-        let Some(workspace) = self.tree.workspaces().get(workspace_index) else {
+        self.tree.workspaces().get(index).map(|workspace| (index, workspace))
+    }
+
+    /// How many rows the tabs rail lists, without building them.
+    pub(crate) fn sidebar_tab_target_count(&self) -> usize {
+        self.sidebar_tabs_workspace().map_or(0, |(_, workspace)| {
+            workspace
+                .screens
+                .iter()
+                .flat_map(|screen| screen.panes.iter())
+                .map(|pane| pane.tabs.len())
+                .sum()
+        })
+    }
+
+    pub(crate) fn sidebar_tab_targets(&self) -> Vec<SidebarTabTarget> {
+        self.sidebar_tab_targets_in(0..usize::MAX)
+    }
+
+    /// The tabs rail's rows `range` (row indexes over every tab of the
+    /// listed workspace, in tree order). Panes before the range are skipped
+    /// whole, so a draw builds only the rows in view.
+    pub(crate) fn sidebar_tab_targets_in(
+        &self,
+        range: std::ops::Range<usize>,
+    ) -> Vec<SidebarTabTarget> {
+        let Some((workspace_index, workspace)) = self.sidebar_tabs_workspace() else {
             return Vec::new();
         };
-        workspace
-            .screens
-            .iter()
-            .enumerate()
-            .flat_map(|(screen_index, screen)| {
-                screen.panes.iter().flat_map(move |pane| {
-                    pane.tabs.iter().enumerate().map(move |(tab_index, tab)| {
-                        let name = tab
-                            .name
-                            .as_deref()
-                            .filter(|name| !name.is_empty())
-                            .or_else(|| (!tab.title.is_empty()).then_some(tab.title.as_str()))
-                            .unwrap_or(tab.short_id.as_str())
-                            .to_string();
-                        let subtitle = if workspace.screens.len() > 1 {
-                            format!("{} · {}", screen.display_name(screen_index), pane.short_id)
-                        } else {
-                            pane.short_id.clone()
-                        };
-                        let active = workspace_index == self.tree.active_workspace
-                            && screen_index == workspace.active_screen
-                            && pane.id == screen.active_pane
-                            && tab_index == pane.active_tab;
-                        SidebarTabTarget {
-                            workspace: workspace_index,
-                            screen: screen_index,
-                            pane: pane.id,
-                            index: tab_index,
-                            surface: tab.surface,
-                            name,
-                            subtitle,
-                            active,
-                        }
-                    })
-                })
-            })
-            .collect()
+        let mut targets = Vec::new();
+        let mut row = 0usize;
+        for (screen_index, screen) in workspace.screens.iter().enumerate() {
+            for pane in &screen.panes {
+                if row >= range.end {
+                    return targets;
+                }
+                let pane_rows = row..row + pane.tabs.len();
+                row = pane_rows.end;
+                if pane_rows.end <= range.start {
+                    continue;
+                }
+                let first = range.start.saturating_sub(pane_rows.start);
+                let last = (range.end - pane_rows.start).min(pane.tabs.len());
+                for (offset, tab) in pane.tabs[first..last].iter().enumerate() {
+                    let tab_index = first + offset;
+                    let name = tab
+                        .name
+                        .as_deref()
+                        .filter(|name| !name.is_empty())
+                        .or_else(|| (!tab.title.is_empty()).then_some(tab.title.as_str()))
+                        .unwrap_or(tab.short_id.as_str())
+                        .to_string();
+                    let subtitle = if workspace.screens.len() > 1 {
+                        format!("{} · {}", screen.display_name(screen_index), pane.short_id)
+                    } else {
+                        pane.short_id.clone()
+                    };
+                    let active = workspace_index == self.tree.active_workspace
+                        && screen_index == workspace.active_screen
+                        && pane.id == screen.active_pane
+                        && tab_index == pane.active_tab;
+                    targets.push(SidebarTabTarget {
+                        workspace: workspace_index,
+                        screen: screen_index,
+                        pane: pane.id,
+                        index: tab_index,
+                        surface: tab.surface,
+                        name,
+                        subtitle,
+                        active,
+                    });
+                }
+            }
+        }
+        targets
     }
 
     pub(super) fn activate_sidebar_tab(&mut self, target: &SidebarTabTarget) -> anyhow::Result<()> {
