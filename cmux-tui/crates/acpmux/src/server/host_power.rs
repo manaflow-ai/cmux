@@ -109,15 +109,14 @@ pub(crate) fn power_json(reading: Option<Power>, assume: Option<&Assume>) -> Opt
         p.on_ac = a.on_ac.or(p.on_ac);
         p.lid_closed = a.lid_closed.or(p.lid_closed);
     }
-    let mut v = json!({
-        "batteryPercent": p.battery_percent,
-        "onAc": p.on_ac,
-        "lidClosed": p.lid_closed,
-    });
+    let mut v = serde_json::Map::new();
+    v.insert("batteryPercent".into(), json!(p.battery_percent));
+    v.insert("onAc".into(), json!(p.on_ac));
+    v.insert("lidClosed".into(), json!(p.lid_closed));
     if assume.is_some() {
-        v["assumed"] = json!(true);
+        v.insert("assumed".into(), json!(true));
     }
-    Some(v)
+    Some(Value::Object(v))
 }
 
 /// `network` of `host_health`: `{up}`, with `assume`'s `networkUp` over the reading.
