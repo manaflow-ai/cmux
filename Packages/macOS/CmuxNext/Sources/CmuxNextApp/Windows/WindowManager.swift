@@ -285,7 +285,7 @@ final class WindowManager {
         let adopted = adoptLaunchWindow(restoredRegistry, records: document.windows)
         if adopted == nil { placeLaunchWindow(document) }
         // The closed launch window stood for the saved window it would have become.
-        if closedLaunchWindowID != nil, let front = adoptableFront(restoredRegistry) { restoreClosed.closed(front) }
+        if closedLaunchWindowID != nil, let front = restoredRegistry.frontOpen(where: hasMirroredWorkspace) { restoreClosed.closed(front) }
         for record in document.windows where states[record.id] == nil {
             let state = registry.closeSelection.watch(WindowState(record: record, focusInput: services.focusInput), gesture: ActionRunScope.isPersonsAction)
             state.onProfileChange = { [weak self, id = record.id] in self?.registry.spaceEntered(id); self?.spaceDidChange() }
@@ -330,6 +330,13 @@ final class WindowManager {
         // Its New Tab page or Home; not after the person closed a window meanwhile: revealing it
         // opens a window again (the Home workspace shows before the restore finished).
         if restoreClosed.windows.isEmpty { FirstWorkspaceLaunch(manager: self).land(firstWorkspace, leftover: leftover) }
+        // A relaunch lands where the person was, that workspace and tab or Home (cmux-window-rules `launch::landing`); a saved workspace the daemon lacks: Home.
+        if restoreClosed.windows.isEmpty, firstWorkspace == nil, !opensFresh, let front = registry.value.frontOpen(where: { _ in true }), let controller = controller(for: front),
+           let landing = document.windows.first(where: { $0.id == front }).flatMap({ WindowRules().launchLanding(front: $0, workspace: services.workspace(id:)) }) {
+            if case let .workspace(id, pane, tab) = landing, controller.state.workspaceID != id || controller.content?.workspace.id != id {
+                if let pane, let tab { controller.state.selection.select(tab, in: pane) }; select(id, in: controller.state); controller.showWorkspace(requested: id)
+            } else if landing == .home(why: "unknownWorkspace"), services.home.homeWorkspace != nil { AppActions.showHome(services) }
+        }
         // Classic cmux's session comes over once, after restore so the restored
         // registry never overwrites where its workspaces land.
         let onboarding = AppOnboardingServices(owner: services.onboarding)
@@ -370,7 +377,7 @@ final class WindowManager {
     /// nothing saved it stays the only window and receives every workspace.
     private func adoptLaunchWindow(_ restored: WindowRegistry, records: [WindowRecord]) -> WindowController? {
         guard let launchID = launchWindowID, let launch = controller(for: launchID),
-              let front = adoptableFront(restored),
+              let front = restored.frontOpen(where: hasMirroredWorkspace),
               let record = records.first(where: { $0.id == front }) else { return nil }
         launch.state.adopt(record)
         launchWindowID = front
@@ -390,13 +397,6 @@ final class WindowManager {
         guard services.environment.testWindow == nil, let launch = launchWindowID.flatMap(controller(for:)),
               let frame = document.lastFrame?.rect else { return }
         launch.window?.setFrame(WindowPlacementFallback.visible(frame, display: document.lastDisplay), display: true)
-    }
-
-    /// The frontmost saved window that can show a workspace now; one whose
-    /// workspaces are gone or still connecting would leave the launch
-    /// window on screen with nothing to show.
-    private func adoptableFront(_ restored: WindowRegistry) -> String? {
-        restored.recency.first { id in restored.window(id).map { $0.isOpen && hasMirroredWorkspace($0) } == true }
     }
 
     func restoresSession(_ id: String) -> Bool { registry.restoresSession(id, launchWindow: launchWindowID, saved: previousLaunch?.windowIDs) }
