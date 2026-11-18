@@ -142,9 +142,10 @@ extension PaneCommitMotionTests {
     }
 
     /// An unzoom brings the docked column back, and each pane is cut as it was before the zoom: in the frame that
-    /// shows the unzoom, and at rest after it.
-    @Test(arguments: DockMode.allCases)
-    func anUnzoomBesideADockCutsEachPaneAsBeforeTheZoom(_ mode: DockMode) throws {
+    /// shows the unzoom, and at rest after it. `early`: the unzoom comes in the zoom's move, while the move keeps the
+    /// panes that the zoom covers under the zoomed pane; its own turn still shows the zoomed pane, whole.
+    @Test(arguments: DockMode.allCases, [false, true])
+    func anUnzoomBesideADockCutsEachPaneAsBeforeTheZoom(_ mode: DockMode, early: Bool) throws {
         let harness = Commit.Harness(Self.dockStrip(mode), focused: "p1", holds: false)
         defer { harness.window.closeAfterTest() }
         Self.movePanes(harness)
@@ -155,11 +156,19 @@ extension PaneCommitMotionTests {
         try #require(before.count == 3, "SETUP: the screen does not rest with its 3 panes: \(before)")
         harness.model.apply(screens: Self.dockStrip(mode, zoomedOn: "p1"))
         harness.root.syncWithModel()
-        Commit.rest(harness)
-        try #require(Set(Self.hosts(of: screen).keys) == ["p1"], "SETUP: the zoom did not come to rest with one pane")
+        if early {
+            _ = harness.root.advanceFrame(Self.dt)
+            try #require(Self.inFlight(screen), "SETUP: the zoomed pane has no move on its layer")
+        } else {
+            Commit.rest(harness)
+            try #require(Set(Self.hosts(of: screen).keys) == ["p1"], "SETUP: the zoom did not come to rest with one pane")
+        }
 
         harness.model.apply(screens: Self.dockStrip(mode))
         harness.root.syncWithModel()
+        if early, let host = harness.root.context.hosts["p1"] {
+            #expect(Self.cut(of: host) == nil, "the turn of an unzoom in the zoom's move cuts the zoomed pane: \(Self.cut(of: host) ?? "")")
+        }
         _ = harness.root.advanceFrame(Self.dt)
         let first = masks()
         #expect(first == before, "the frame that shows the unzoom cuts the panes as \(first); before the zoom: \(before)")

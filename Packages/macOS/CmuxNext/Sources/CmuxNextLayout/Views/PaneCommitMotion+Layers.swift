@@ -80,6 +80,18 @@ extension PaneCommitMotion {
     /// The `zPosition` of a pane host's layer while a move keeps the pane under the others.
     static let underZ: CGFloat = -1
 
+    /// Whether `host` is in front of no pane in what its screen shows, whatever its place in the order of the
+    /// screen's views (``keepUnder(_:)`` changes only a layer's `zPosition`). `unshown`: a change of the screen waits
+    /// for the pass that shows it.
+    /// A pane that left the layout is in front of no pane from the pass that shows its change: it hides in that pass,
+    /// or the move keeps it under each pane to its end. Before that pass the screen shows the layout before the
+    /// change, and the pane covers what it covered. A pane that the move keeps under, and that a later change took
+    /// back, stays under until the pass that shows that change: from that pass it is in front again.
+    func isUnderEachPane(_ host: PaneHostView, unshown: Bool) -> Bool {
+        let kept = under.contains { $0.host === host }
+        return host.isLeaving ? kept || !unshown : kept && unshown
+    }
+
     /// A pane's ring (its border, focus ring and dim, in the layout's overlay plane) gets the pane's move, and each
     /// of its layers the change of size.
     func moveRing(of change: Change, _ token: MotionSpring) {
