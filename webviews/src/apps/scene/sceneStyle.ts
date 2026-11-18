@@ -10,7 +10,8 @@ export const sceneRecord = (value: unknown): Record<string, unknown> =>
 
 const COLORS: Record<string, string> = {
   primary: "var(--agent-text)",
-  accent: "var(--agent-text)",
+  // The theme's accent: its text color by default (the no-blue rule), its own hue with appearance.accent.
+  accent: "var(--cmux-accent, var(--agent-text))",
   secondary: "var(--agent-muted)",
   tertiary: "color-mix(in srgb, var(--agent-text) 38%, transparent)",
   separator: "var(--agent-border)",
@@ -102,6 +103,7 @@ export function textStyle(props: SceneProps): CSSProperties {
     fontSize: size === undefined ? FONTS[sceneText(props.font)] : Math.min(64, Math.max(6, size)),
     fontWeight: WEIGHTS[sceneText(props.weight)],
     fontStyle: props.italic === true ? "italic" : undefined,
+    textDecorationLine: props.strikethrough === true ? "line-through" : undefined,
     fontFamily: props.monospaced === true ? "var(--font-mono)" : undefined,
     ...(lines === undefined
       ? {}
