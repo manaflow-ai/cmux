@@ -54,6 +54,7 @@ struct FileExplorerRenderCountTests {
     }
 
     static func window(_ view: NSView) -> NSWindow {
+        _ = NSApplication.shared
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 260, height: 400), styleMask: [.titled],
                               backing: .buffered, defer: true)
         window.contentView = view
@@ -179,5 +180,51 @@ struct FileExplorerRenderCountTests {
         }
         print("render-count find N=\(count) one-removed configured=\(narrower.configured)")
         #expect(narrower.configured <= 1, "dropping one result configured \(narrower.configured) rows at N=\(count)")
+    }
+
+    /// The compare over every row each update still does (`VisibleRowsBaseline`, "items walked"), timed at N=10,000:
+    /// the median of 31 `TableRows.show` calls, for an unchanged list and for one changed row. Prints `walk-cost` lines.
+    @Test func theWalkPerUpdateAtTenThousandRows() async throws {
+        let n = 10_000
+        func median(_ run: () -> Void) -> Int {
+            var samples: [Duration] = []
+            for _ in 0..<31 { samples.append(ContinuousClock().measure(run)) }
+            let mid = samples.sorted()[15].components
+            return Int(mid.seconds) * 1_000_000 + Int(mid.attoseconds / 1_000_000_000_000)
+        }
+
+        let folder = URL(fileURLWithPath: "/tmp/walk-cost", isDirectory: true)
+        let tree = (0..<n).map { i in
+            FileExplorerRow(url: folder.appendingPathComponent(String(format: "f%06d.txt", i)), name: String(format: "f%06d.txt", i),
+                            depth: 0, isFolder: false, isExpanded: false)
+        }
+        var treeChanged = tree
+        treeChanged[3].git = .untracked
+        let explorer = FileExplorerSectionView(model: FileExplorerModel(), rootFolder: { nil }, perform: { _ in }, rowMenu: { _ in nil })
+        let explorerWindow = Self.window(explorer)
+        defer { explorerWindow.closeAfterTest() }
+        explorer.rows.show(tree, in: explorer.table)
+        let treeSame = median { explorer.rows.show(tree, in: explorer.table) }
+        let treeOne = median {
+            explorer.rows.show(treeChanged, in: explorer.table)
+            explorer.rows.show(tree, in: explorer.table)
+        } / 2
+        print("walk-cost files tree N=\(n) unchanged=\(treeSame)us one-change=\(treeOne)us")
+
+        let matches = (0..<n).map { RipgrepMatch(path: "/r/f\($0).swift", relativePath: "f\($0).swift", line: $0, column: 1, preview: "x \($0)") }
+        var matchesChanged = matches
+        matchesChanged[3] = RipgrepMatch(path: "/r/f3.swift", relativePath: "f3.swift", line: 3, column: 1, preview: "x changed")
+        let find = FindSectionView(model: FindSectionModel(search: { _, _ in nil }), rootFolder: { URL(fileURLWithPath: "/r") },
+                                   effects: NullFileExplorerEffects())
+        let findWindow = Self.window(find)
+        defer { findWindow.closeAfterTest() }
+        find.results.show(matches, in: find.table)
+        let findSame = median { find.results.show(matches, in: find.table) }
+        let findOne = median {
+            find.results.show(matchesChanged, in: find.table)
+            find.results.show(matches, in: find.table)
+        } / 2
+        print("walk-cost find results N=\(n) unchanged=\(findSame)us one-change=\(findOne)us")
+        #expect(find.results.count == n && explorer.rows.count == n)
     }
 }
