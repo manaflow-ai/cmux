@@ -241,8 +241,9 @@ export function ComposerBox({
   const placed = inline.inText(field.value);
   // The strip's chips as a key leaves them: the same arrays until a chip moves into or out of the
   // text, so a key draws no strip (the set above is new on every render, its ids are not).
-  const placedIds = [...placed].join("\n");
-  const inStrip = (chip: { id: string }) => !placedIds.split("\n").includes(chip.id);
+  // NUL joins them: a link chip's id carries its path, which may hold a newline but never a NUL.
+  const placedIds = [...placed].join("\0");
+  const inStrip = (chip: { id: string }) => !placedIds.split("\0").includes(chip.id);
   const stripAttachments = attachmentView === "inline" ? attachments.filter(inStrip) : attachments;
   const stripPending = pending && attachmentView === "inline" ? pending.filter(inStrip) : pending;
   const { remove: removeInline } = inline;
