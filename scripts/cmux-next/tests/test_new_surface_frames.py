@@ -175,6 +175,26 @@ class OneKeyTests(unittest.TestCase):
         self.assertEqual((got.get("whole_window"), got["changes_after_content"], got["first_is_final"], got["final"], got["invalid"]),
                          (False, 0, None, None, []))
 
+    def test_the_first_keys_strip_frames_of_a_gap_row_are_not_changes_after_the_second_key(self):
+        # No strip numbers, 2 keys 100 ms apart. After the first Cmd-T the strip has 1 new tab: it is at neither picture (no
+        # new tab before, 2 at the end) in each frame up to the second key. The reply counts those frames; no judged row is one.
+        got = nsf.one_key(take([(NEW, STILL)] * 252, strip_intermediate=8.0), "t", gap_ms=100, asked_hz=120)
+        self.assertEqual((got["changes_after_content"], got["first_is_final"], got.get("whole_window"), got["invalid"]), (0, None, False, []))
+        # 20 such frames with 12 rows before the second key: 8 are after it, less the row of the first content.
+        got = nsf.one_key(take([(NEW, STILL)] * 252, strip_intermediate=20.0), "t", gap_ms=100, asked_hz=120)
+        self.assertEqual((got["changes_after_content"], got["first_is_final"]), (7, False))
+
+    def test_a_case_and_its_line_name_the_zero_of_its_rows(self):
+        marks = nsf.one_key(take([(NEW, ROW_NEW)] * 240), "n", asked_hz=120)
+        sent = nsf.one_key(take([(NEW, ROW_NEW)] * 240, before_send_ms=4.0), "n", asked_hz=120)
+        self.assertEqual((marks["invalid"], sent["invalid"]), ([], []))
+        case = nsf.summarize([marks, marks])
+        self.assertEqual(case.get("zero"), [nsf.ZERO])
+        self.assertIn(f"; zero: {nsf.ZERO}", nsf.cell(case))
+        both = nsf.summarize([marks, sent])
+        self.assertEqual(both.get("zero"), sorted([nsf.ZERO, ZERO_SENT]))
+        self.assertIn("; ROWS OF 2 ZEROS (their times are not one table): ", nsf.cell(both))
+
     def test_a_frame_with_the_page_new_and_the_strip_old_is_a_change_with_its_frame(self):
         # No strip numbers. The reply's rows say `desync` in the first 3 frames: the page is there, the strip is the old one.
         pictures = [dict(content=NEW, outside=STILL, desync=True)] * 3 + [(NEW, STILL)] * 237
@@ -334,12 +354,17 @@ class FakeApp:
         # `refused`: the numbers of the frame_strip calls that the app refuses before a key goes in.
         self.late, self.going, self.ends_in, self.strips, self.paused, self.overlaps, self.folder_at_the_end = set(), None, None, 0, 0, 0, None
         self.refused = set()
+        # `others`: the workspaces that another actor opens in the first pause of a call that goes on.
+        self.others = 0
 
     def pause(self, _seconds):
         """The tool's pause. No clock: the app's call that goes on ends in the pause number `ends_in`."""
         if not self.going:
             return
         self.paused += 1
+        if self.paused == 1 and self.others:
+            self.workspaces += self.others
+            self.newest += ["n"] * self.others
         if self.paused == self.ends_in:
             self.folder_at_the_end = os.path.isdir(self.going)
             os.makedirs(self.going, exist_ok=True)
@@ -499,8 +524,36 @@ class ScreenTests(unittest.TestCase):
         self.assertEqual(app.strips, 1)  # no later key: each later row would share the marks and the processor
         self.assertEqual(report["rows"][0].get("call_went_on"), {"ended": False, "pauses": 240})
         self.assertEqual(list(report["cases"]), ["cmd-n/idle"])
-        self.assertEqual(report.get("stopped"), "after cmd-n-idle-0: the app's frame_strip call did not end in 240 pauses of 0.5 s: no later key")
+        self.assertEqual(report.get("stopped"), "after cmd-n-idle-0: the app's frame_strip call did not end in 240 pauses of 0.5 s: no later recording")
         self.assertEqual(json.loads(Path(self.folder, "report.json").read_text()).get("stopped"), report.get("stopped"))
+
+    def test_the_tool_sends_no_more_cmd_w_than_the_keys_that_it_sent(self):
+        app = FakeApp(self.folder, [(NEW, ROW_NEW)] * 240)
+        app.late, app.ends_in, app.others = {1}, 3, 1
+        _, closed = self.run_mode(app, keys="n", runs=1)
+        self.assertEqual(closed, [1])  # the workspace that another actor opened while the call went on is not the tool's to close
+
+    def test_an_old_last_file_in_a_rows_folder_is_not_the_end_of_a_call(self):
+        # A run that died left its row's folder with its last file (the driver's --out has a fixed default).
+        old = Path(self.folder, "cmd-n-idle-0")
+        old.mkdir()
+        Path(old, "strip.png").write_bytes(b"old")
+        app, report = self.late(3)
+        self.assertEqual((report["rows"][0].get("call_went_on"), app.overlaps), ({"ended": True, "pauses": 3}, 0))
+
+    def test_a_stopped_run_has_an_exit_code_that_is_not_zero_and_its_last_line_says_stopped(self):
+        said = io.StringIO()
+        with contextlib.redirect_stdout(said):
+            _, report = self.late(None)
+        self.assertEqual(report.get("exit_code"), 3)
+        self.assertIn("STOPPED after cmd-n-idle-0", said.getvalue().strip().splitlines()[-1])
+
+    def test_a_run_that_was_not_stopped_has_the_exit_code_zero(self):
+        said = io.StringIO()
+        with contextlib.redirect_stdout(said):
+            report, _ = self.run_mode(FakeApp(self.folder, [(NEW, ROW_NEW)] * 240), keys="n", runs=1)
+        self.assertEqual(report.get("exit_code"), 0)
+        self.assertNotIn("STOPPED", said.getvalue())
 
     def test_an_error_reply_of_a_call_that_does_not_go_on_keeps_its_case_and_closes_nothing(self):
         app = FakeApp(self.folder, [(NEW, ROW_NEW)] * 240)
