@@ -112,10 +112,10 @@ public struct CloudMachineRoute: Sendable {
     /// The machine reports no model route (``Verdict/notEdge``) or only a login the chat's agent does not use, and the chat
     /// carries no connection of its own (a team's shared key, or nothing chosen): its agent could reach no model. The Cloud
     /// service gives machines no route today (cmux-platform#1489: a create carrying the edge rule never binds), so this is
-    /// every such start, and the way on is the person's own connection. A start on the team's shared key shows Set up Cloud
-    /// (`cloud_setup_required`), which starts again by itself once a connection of the person's own serves the agent; any
-    /// other start ends with ``message`` and no Retry, which could never pass. Both end at once, not after an update wait
-    /// (cmux#45773).
+    /// every such start, and the way on is the person setting the agent up. A Claude or Codex start shows Set up Cloud
+    /// (`cloud_setup_required`, `AgentPaneCloudStart.needsConnectionReply`), which starts again once a connection of the
+    /// person's own serves the agent; only an agent Cloud cannot set up ends with ``message`` and no Retry. Either ends at
+    /// once, not after an update wait (cmux#45773).
     public struct NeedsConnection: Error, Sendable {
         public init() {}
         /// The card's text where Set up Cloud cannot be shown (an agent outside ``CloudSetup/families``).
