@@ -737,6 +737,138 @@ class Wiring(unittest.TestCase):
         for name in ("build", "build-windows"):
             self.assertNotIn("linux_runner", workflow[name].get("with", {}))
 
+    def test_the_nightly_tree_musl_legs_route_owned_gcp_linux_first_then_blacksmith(self):
+        # 2026-11-18: tree 453a2f94's musl legs sat on blacksmith-16vcpu behind about 346 queued runs while
+        # the NEXT nightly waited (Leo: "i thought we had a priority option / hey what about setting up those
+        # linux vms finally on our end? what about teh gcp ones?"). Route order: the owned GCP fleet label,
+        # picked live, then the legs' Blacksmith pools, never the other way round.
+        workflow = jobs("cmux-tui-artifacts.yml")
+        preflight = workflow["tree-preflight"]
+        ids = [step.get("id") for step in preflight["steps"]]
+        picker = preflight["steps"][ids.index("linux-build-placement")]
+        config = picker["env"]
+        self.assertEqual(config["FLEET_LINUX"], "cmux-fleet-linux-x64")
+        self.assertEqual(config["JOBS"].split(), ["tree-x86_64-musl", "tree-aarch64-musl",
+                                                  "machine-x86_64-musl", "machine-aarch64-musl"])
+        self.assertEqual(config["LINUX_ONLY"].split(), config["JOBS"].split())
+        # The nightly's tree pair first, then the Cloud machine channel's thin pair, each whole or not at all.
+        self.assertEqual(config["LINUX_GROUPS"].split(),
+                         ["tree-x86_64-musl,tree-aarch64-musl", "machine-x86_64-musl,machine-aarch64-musl"])
+        for knob in ("REQUIRE_LIVE_CAPACITY", "NIGHTLY_WAIT_FOR_FLEET", "FLEET_WAIT_NEEDS_MEMBER"):
+            with self.subTest(knob=knob):
+                self.assertEqual(config[knob], "1")
+        # N minutes: the owned fleet gets at most 3 before the legs fall to Blacksmith.
+        self.assertTrue(0 < int(config["NIGHTLY_WAIT_SECONDS"]) <= 180)
+        self.assertNotIn("SIDE_LABEL", config)
+        self.assertTrue(picker.get("continue-on-error"))
+        self.assertIn("steps.inspect.outputs.place_macos == 'true'", picker["if"])
+        self.assertIn("github.run_attempt == 1", picker["if"])
+        for ref in ("refs/heads/feat-cmux-next", "refs/heads/nightly-next"):
+            self.assertIn(ref, picker["if"])
+        self.assertLess(ids.index("inspect"), ids.index("linux-build-placement"))
+        # The placement can wait 2 minutes inside the preflight job's own bound.
+        self.assertGreaterEqual(int(preflight["timeout-minutes"]), 9)
+        for name, call, pair in (("linux_build_runner", "build", ("tree-x86_64-musl", "tree-aarch64-musl")),
+                                 ("machine_build_runner", "build-linux",
+                                  ("machine-x86_64-musl", "machine-aarch64-musl"))):
+            with self.subTest(output=name):
+                output = preflight["outputs"][name]
+                for job in config["JOBS"].split():
+                    needle = f"contains(steps.linux-build-placement.outputs.linux_jobs, ' {job} ')"
+                    if job in pair:
+                        self.assertIn(needle, output)
+                    else:
+                        self.assertNotIn(needle, output)
+                self.assertTrue(output.endswith("&& steps.linux-build-placement.outputs.linux_runner || '' }}"))
+                self.assertEqual(
+                    workflow[call]["with"]["linux_build_runner"],
+                    f"${{{{ github.run_attempt == 1 && needs.tree-preflight.outputs.{name} || '' }}}}")
+        package = jobs("cmux-tui-build-package.yml")
+        legs = next(step for step in package["plan-build"]["steps"] if step.get("id") == "targets")
+        route = legs["env"]["LINUX_BUILD_RUNNER"]
+        owned = route.index("inputs.linux_build_runner != '' && inputs.linux_build_runner")
+        for overflow in ("fromJSON(vars.RUNNER_POOLS).linux_16", "fromJSON(vars.RUNNER_POOLS).linux_8",
+                         "'blacksmith-16vcpu-ubuntu-2404'"):
+            with self.subTest(overflow=overflow):
+                self.assertLess(owned, route.index(overflow))
+        # Only the musl legs take it: plan-build and packaging keep their own runners.
+        self.assertNotIn("linux_build_runner", single_runs_on(package["plan-build"]))
+        plan = (WORKFLOWS / "cmux-tui-build-package.yml").read_text(encoding="utf-8")
+        self.assertEqual(plan.count('"runner": os.environ["LINUX_BUILD_RUNNER"]'), 2)
+
+    def test_the_tree_musl_pick_places_both_legs_or_neither_and_waits_only_for_a_live_fleet(self):
+        picker = next(step for step in jobs("cmux-tui-artifacts.yml")["tree-preflight"]["steps"]
+                      if step.get("id") == "linux-build-placement")
+        config = {**picker["env"], "GITHUB_RUN_ATTEMPT": "1"}
+        tree = ("tree-x86_64-musl", "tree-aarch64-musl")
+        both = tree + ("machine-x86_64-musl", "machine-aarch64-musl")
+        for count, expected in ((0, ()), (1, ()), (2, tree), (3, tree), (4, both), (5, both)):
+            with self.subTest(idle=count):
+                fleet = [fleet_runner(f"gcp-{index}") for index in range(count)] + [fleet_runner("gcp-busy", busy=True)]
+                placed = placement.decide(config, fleet, snapshot(), NOW)
+                self.assertEqual(placed.linux_jobs, expected)
+                self.assertEqual(placed.linux_runner, "cmux-fleet-linux-x64" if expected else "")
+                self.assertEqual(placed.mini_jobs, ())
+        # Queued jobs on the label (a nightly's, say) take its idle runners first.
+        queued = snapshot({"cmux-fleet-linux-x64": {"queued": 1, "oldest_queued_minutes": 1}})
+        self.assertEqual(placement.decide(config, [fleet_runner("a"), fleet_runner("b")], queued, NOW).linux_jobs, ())
+        # No online fleet member (the pool cannot boot VMs): Blacksmith at once, no 2-minute wait.
+        for first in ([], [fleet_runner(status="offline")]):
+            with self.subTest(first=first), \
+                 mock.patch.object(placement, "read", return_value=(first, snapshot())) as read, \
+                 mock.patch.object(placement.dt, "datetime", wraps=dt.datetime) as clock, \
+                 mock.patch.object(placement.time, "sleep") as sleep, \
+                 mock.patch.object(placement.signal, "setitimer"), \
+                 mock.patch.object(placement, "write") as write:
+                clock.now.return_value = NOW
+                self.assertEqual(placement.main(config), 0)
+                sleep.assert_not_called()
+                self.assertEqual(read.call_count, 1)
+                self.assertEqual(write.call_args.args[0].linux_runner, "")
+        # A busy fleet: wait, and take the label once two runners are free inside the window.
+        free = [fleet_runner("a"), fleet_runner("b")]
+        for second, expected in (([fleet_runner("a", busy=True)], ""), (free, "cmux-fleet-linux-x64")):
+            with self.subTest(second=second), \
+                 mock.patch.object(placement, "read",
+                                   side_effect=[([fleet_runner("a", busy=True)], snapshot()), (second, snapshot())]) as read, \
+                 mock.patch.object(placement.dt, "datetime", wraps=dt.datetime) as clock, \
+                 mock.patch.object(placement.time, "monotonic", side_effect=[0, 60, 120]), \
+                 mock.patch.object(placement.time, "sleep") as sleep, \
+                 mock.patch.object(placement.signal, "setitimer"), \
+                 mock.patch.object(placement, "write") as write:
+                clock.now.return_value = NOW
+                self.assertEqual(placement.main(config), 0)
+                sleep.assert_called_once_with(30)
+                self.assertEqual(read.call_count, 2)
+                self.assertEqual(write.call_args.args[0].linux_runner, expected)
+
+    def test_the_machine_channel_pair_takes_the_fleet_only_when_free_and_never_holds_the_tree_pair(self):
+        # goals/cloud-fix-to-machine.md: the thin legs queued 18-27 min on blacksmith-16vcpu on 2026-11-18.
+        picker = next(step for step in jobs("cmux-tui-artifacts.yml")["tree-preflight"]["steps"]
+                      if step.get("id") == "linux-build-placement")
+        config = {**picker["env"], "GITHUB_RUN_ATTEMPT": "1"}
+        # Four free: both pairs take the fleet.
+        placed = placement.decide(config, [fleet_runner(f"gcp-{i}") for i in range(4)], snapshot(), NOW)
+        self.assertEqual(placed.linux_jobs, ("tree-x86_64-musl", "tree-aarch64-musl",
+                                             "machine-x86_64-musl", "machine-aarch64-musl"))
+        # Three free: the tree pair takes two, and the machine pair does not split onto the third.
+        placed = placement.decide(config, [fleet_runner(f"gcp-{i}") for i in range(3)], snapshot(), NOW)
+        self.assertEqual(placed.linux_jobs, ("tree-x86_64-musl", "tree-aarch64-musl"))
+        # Without the tree pair (a run that builds no shipped tree), two free take the machine pair.
+        alone = {**config, "JOBS": "machine-x86_64-musl machine-aarch64-musl"}
+        self.assertEqual(placement.decide(alone, [fleet_runner("a"), fleet_runner("b")], snapshot(), NOW).linux_jobs,
+                         ("machine-x86_64-musl", "machine-aarch64-musl"))
+        # The tree pair placed at once: no wait for room for the machine pair.
+        with mock.patch.object(placement, "read", return_value=([fleet_runner("a"), fleet_runner("b")], snapshot())), \
+             mock.patch.object(placement.dt, "datetime", wraps=dt.datetime) as clock, \
+             mock.patch.object(placement.time, "sleep") as sleep, \
+             mock.patch.object(placement.signal, "setitimer"), \
+             mock.patch.object(placement, "write") as write:
+            clock.now.return_value = NOW
+            self.assertEqual(placement.main(config), 0)
+            sleep.assert_not_called()
+            self.assertEqual(write.call_args.args[0].linux_jobs, ("tree-x86_64-musl", "tree-aarch64-musl"))
+
     def test_the_cmux_tui_mini_pick_spends_routing_reads_only_when_the_macos_targets_may_build(self):
         # The pick reads the runners on the routing App (4 requests); a run whose tree is published, that
         # is stale, or that defers to a live owner builds nothing, so it must not spend them.
