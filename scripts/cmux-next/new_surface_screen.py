@@ -38,6 +38,17 @@ Kept pictures (`--screen-tgz FILE`, with the report): for the first `--keep-keys
 each recording with a change after the first content or an INVALID reason, the frame before the key, the named
 frames and the first frame of each change, at the recorded scale. No picture of a later recording is kept after
 160 kept pictures.
+
+A recording whose reply is the control's `timeout` with `state: in_progress` (frame_strip's compare and its files
+took longer than the call's limit; more frames or a larger `--scale` make it longer) is an INVALID row, and the
+app's call goes on after the reply: it uses the processor and the app's one list of bench marks, so a key in that
+time has numbers of 2 calls. The app has no call that says when frame_strip ended; its last act is the file
+`strip.png` in the recording's folder. So the tool waits for that file (up to `CALL_END_PAUSES` pauses of 0.5 s)
+before it removes the folder and sends a key, ends that case (`ended_early` in the case, `call_went_on` in the
+row), and goes on with the next case. A call whose file did not come stops the run: no later recording, `stopped`
+in the report and in the last printed line, and the driver's exit code is `STOPPED_EXIT`. A call that made no frame
+writes no such file and reads as one that did not end. The row's folder is removed before each call, so a file of
+an earlier run is not read as this call's.
 """
 import json
 import os
@@ -56,6 +67,16 @@ MAKER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "perf-ben
 LEAD_MS = 120  # frame_strip sends the key this long after its recording starts (later when the first frame is late)
 MARK = "NEW-SURFACE-SCREEN"
 OPENINGS_LIMIT = 60  # the app's list of opening records has 64 places (NewTabSparePool.maximumOpenings)
+LAST_FILE = "strip.png"  # the last file that frame_strip writes into its folder (WindowFrame.writeAll), before its reply
+CALL_END_PAUSES = 240  # of 0.5 s: how long the tool waits for a frame_strip call that went on after its `timeout` reply
+STOPPED_EXIT = 3  # the driver's exit code for a run that stopped before its last case
+
+
+def goes_on(reply):
+    """True when the control says that the app's call of this reply still runs (`timeout` with `state: in_progress`)."""
+    error = reply.get("error")
+    data = error.get("data") if isinstance(error, dict) else None
+    return isinstance(data, dict) and data.get("state") == "in_progress"
 
 
 def openings(opts):
@@ -112,19 +133,24 @@ def fresh_session(tag, app=None):
     tag's terminals). So this refuses, and ends nothing, when the path is not a `cmux DEV <tag>.app` bundle
     (bench_launch.tag_of: a shipped bundle, a folder that is no bundle), when the bundle's tag is not `tag`, and
     when an app of the bundle runs now (`tag-in-use`, as a BenchApp launch refuses): that app is a person's, or
-    another run's, and not this run's to end."""
+    another run's, and not this run's to end. A process lists the path that it was started by, so the app is
+    searched by the bundle's real path, by the path as given (a link to the bundle) and by the real path with no
+    `/private` before it (a Mac's `/tmp` and `/var`). The state that moves is the bundle's tag's (`--tag My-Tag` is
+    the tag `my-tag`)."""
     import bench_launch  # only this mode's launch and the entry's cleanup need it
     if app:
         from tag_teardown import TagTeardown
-        app = os.path.realpath(app).rstrip("/")
+        given, app = os.path.abspath(app).rstrip("/"), os.path.realpath(app).rstrip("/")
         of_bundle = bench_launch.tag_of(app)  # stops here when the path is not a tagged DEV bundle
         if of_bundle != re.sub(r"[^a-z0-9]+", "-", tag.lower()).strip("-"):
             sys.exit(f"{MARK}: --tag {tag} is not the tag of {os.path.basename(app)} ({of_bundle}): nothing ended, no session moved")
-        running = bench_launch.bundle_pids(app, "Contents/MacOS/")
+        paths = {app, given, app[len("/private"):] if app.startswith("/private/") else app}
+        running = sorted({pid for path in paths for pid in bench_launch.bundle_pids(path, "Contents/MacOS/")})
         if running:
             sys.exit(f"{MARK}: tag-in-use: an app of {app} runs now (pid {', '.join(map(str, running))}): it is not this "
                      "run's to end. Quit it, then run again. Nothing ended, no session moved")
         TagTeardown(app).end()
+        tag = of_bundle
     bench_launch.start_fresh_state(tag)
 
 
@@ -201,6 +227,8 @@ class Screen:
                   "scale": opts.scale, "tolerance": opts.tolerance, "duration_ms": opts.duration_ms + gap}
         if gap:
             params.update({"repeat": 2, "repeat_interval_ms": gap})
+        # No file of an earlier run in the row's folder (`--out` has a fixed default): an old last file is no call's end.
+        shutil.rmtree(folder, ignore_errors=True)
         watched, watcher = {}, None
         asked = time.monotonic()
         if run >= opts.runs - opts.page_watch:
@@ -212,8 +240,12 @@ class Screen:
             watcher.join(timeout=max(0.0, asked + opts.duration_ms / 1000 + 6 - time.monotonic()) + 20)
         if "error" in reply:
             row["invalid"].append(f"frame_strip: {json.dumps(reply.get('error'), default=str)[:300]}")
+            if goes_on(reply):
+                row["call_went_on"] = self.call_end(folder)
             shutil.rmtree(folder, ignore_errors=True)
-            self.close(keys_sent, own_tabs)
+            # Cmd-W only for what the keys opened: a call that the app refused sent no key, and a thing that another
+            # actor opened in the wait is not the tool's (never more Cmd-W than keys).
+            self.close(min(keys_sent, max(0, self.count(key) - before_count)), own_tabs)
             return row
         records = self.opened()
         row.update(frames_of.one_key(reply, key, gap, opts.tolerance, opts.display_hz or None))
@@ -245,6 +277,16 @@ class Screen:
         self.close(keys_sent, own_tabs)
         return row
 
+    def call_end(self, folder):
+        """Waits until the app's frame_strip call that went on after its reply wrote its last file into `folder`:
+        whether it came, and after how many pauses."""
+        for pauses in range(CALL_END_PAUSES):
+            if os.path.exists(os.path.join(folder, LAST_FILE)):
+                self.sleep(0.5)  # tool pacing: the call makes its reply after its last file
+                return {"ended": True, "pauses": pauses}
+            self.sleep(0.5)  # tool pacing: the app still compares and writes its frames
+        return {"ended": os.path.exists(os.path.join(folder, LAST_FILE)), "pauses": CALL_END_PAUSES}
+
     def close(self, opened, own_tabs):
         """Closes the recording's new tabs or workspaces, then Control-`'s terminal tab when the pane still has one
         more tab than before it: each recording of a case starts from the same tabs."""
@@ -254,7 +296,9 @@ class Screen:
             self.tools["close_new"](1)
 
     def pictures(self, row, folder, run):
-        wanted = run < self.opts.keep_keys or row.get("changes_after_content") or row.get("invalid")
+        # A row that is not first-is-final by its first content frame alone has no later changed frame: keep it too.
+        wanted = (run < self.opts.keep_keys or row.get("changes_after_content") or row.get("invalid")
+                  or row.get("content_first_is_last_picture") is False)
         if not wanted or self.kept >= 160:
             return
         os.makedirs(self.keep, exist_ok=True)
@@ -292,10 +336,27 @@ class Screen:
                     self.rows.append(row)
                     said = {name: row.get(name) and [row[name]["frame"], row[name]["ms"]] for name in ("tab", "content_first", "content_final", "final")}
                     print(f"{MARK}-ROW {row['label']}: {'INVALID ' + '; '.join(row['invalid']) if row['invalid'] else 'valid'} "
-                          f"{json.dumps(said)} changes_after_content={row.get('changes_after_content')} "
+                          f"{json.dumps(said)} first_is_final={row.get('first_is_final')} whole_window={row.get('whole_window')} "
+                          f"changes_after_content={row.get('changes_after_content')} "
                           f"refresh_ms={row.get('refresh_ms')} capture={row.get('capture')}", flush=True)
+                    if row.get("call_went_on"):
+                        break
                 report["cases"][case] = frames_of.summarize(rows)
-                print(f"{MARK} {case}: {frames_of.cell(report['cases'][case])}", flush=True)
+                went_on = rows[-1].get("call_went_on") if rows else None
+                if went_on:
+                    report["cases"][case]["ended_early"] = f"after {len(rows)} of {opts.runs} rows: frame_strip answered `timeout` and the app's call went on"
+                    if not went_on["ended"]:
+                        report["stopped"] = (f"after {rows[-1]['label']}: the app's frame_strip call did not end in "
+                                             f"{went_on['pauses']} pauses of 0.5 s: no later recording")
+                early = report["cases"][case].get("ended_early")
+                print(f"{MARK} {case}: {frames_of.cell(report['cases'][case])}{' (THE CASE ENDED EARLY ' + early + ')' if early else ''}", flush=True)
+                if report.get("stopped"):
+                    break
+            if report.get("stopped"):
+                print(f"{MARK} STOPPED {report['stopped']}", flush=True)
+                break
+        # A stopped run is not a whole run: the driver ends with this code (0: each case ran).
+        report["exit_code"] = STOPPED_EXIT if report.get("stopped") else 0
         if opts.json:
             with open(opts.json, "w", encoding="utf-8") as handle:
                 json.dump(report, handle, indent=1)
@@ -306,7 +367,7 @@ class Screen:
             with tarfile.open(opts.screen_tgz, "w:gz") as archive:
                 archive.add(self.keep, arcname="new-surface-screen")
         print(f"{MARK} report only: {len(self.rows)} rows, {sum(1 for row in self.rows if row['invalid'])} INVALID, "
-              f"{self.kept} pictures kept", flush=True)
+              f"{self.kept} pictures kept" + (f"; STOPPED {report['stopped']}" if report.get("stopped") else ""), flush=True)
         return report
 
 

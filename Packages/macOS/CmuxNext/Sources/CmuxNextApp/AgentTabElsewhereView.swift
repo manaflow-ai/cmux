@@ -4,7 +4,7 @@ import CmuxNextIcons
 
 /// What an agent chat tab shows on a Mac that does not run its session: the session lives in
 /// another Mac's acpmux, and only that Mac attaches to it ("This chat runs on <machine>").
-final class AgentTabElsewhereView: NSView {
+final class AgentTabElsewhereView: NSView, PaneCommitMotionPicture {
     private let icon = NSImageView()
     private let label = ChromeLabel(labelWithString: "")
 
