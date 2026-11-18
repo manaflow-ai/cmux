@@ -529,12 +529,16 @@ export function writeGrantSlot(
 }
 
 /**
- * Whether `cmuxVmPlan` holds a classic grant or restriction, as the classic
- * readers see it: an absent, empty or whitespace value and a NEXT id are all
- * "unset", so a NEXT grant is still mirrored over them.
+ * Whether `cmuxVmPlan` holds anything a classic reader acts on: any value
+ * that is present and is not a NEXT id. That includes an empty, whitespace or
+ * non-string value: the classic readers disagree on those (the override
+ * reader calls them unset, the billing plan reader keeps them as a
+ * restriction that hides the subscription), so the NEXT mirror never
+ * overwrites one. Such an account's NEXT grant is read from `cmuxNextVmPlan`.
  */
 function holdsClassicValue(client: Record<string, unknown>): boolean {
-  return classicManualVmPlanOverride(client) !== null;
+  const value = client.cmuxVmPlan;
+  return value !== undefined && value !== null && nextPlanId(value) === null;
 }
 
 function parseGrantRecord(record: unknown): AdminPlanGrantRecord | null {

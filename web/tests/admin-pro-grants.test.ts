@@ -33,6 +33,7 @@ import {
   type AdminStackUser,
 } from "../services/admin/proGrants";
 import type { StripeBillingStatus } from "../services/billing/pro";
+import { billingPlanIdFromMetadata } from "../services/billing/teamResolution";
 
 type FakeUser = AdminStackUser & {
   readonly updates: Array<{ clientReadOnlyMetadata?: unknown; serverMetadata?: unknown }>;
@@ -505,13 +506,15 @@ describe("classic and cmux NEXT grant slots", () => {
     }
   });
 
-  test("a NEXT write mirrors over an empty or whitespace classic key, which classic reads as unset", async () => {
-    for (const empty of ["", "   "]) {
-      const target = fakeUser({ id: "u1", clientReadOnlyMetadata: { cmuxVmPlan: empty } });
-      expect(adminUserRow(target, noStripe)).toMatchObject({ manualPlanId: null, nextManualPlanId: null });
+  test("a NEXT write never overwrites an empty, whitespace or non-string classic key, which the billing plan reader keeps as a restriction", async () => {
+    for (const blank of ["", "   ", 0]) {
+      const target = fakeUser({ id: "u1", clientReadOnlyMetadata: { cmuxVmPlan: blank } });
       await write(target, { plan: "next_pro" });
-      expect(target.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: "next_pro", cmuxNextVmPlan: "next_pro" });
+      expect(target.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: blank, cmuxNextVmPlan: "next_pro" });
       expect(adminUserRow(target, noStripe)).toMatchObject({ manualPlanId: null, nextManualPlanId: "next_pro" });
+      // The billing plan reader still hides a subscription behind that value; a mirrored NEXT id would have exposed it.
+      expect(billingPlanIdFromMetadata({ ...target.clientReadOnlyMetadata, cmuxPlan: "pro" })).toBeNull();
+      expect(billingPlanIdFromMetadata({ cmuxVmPlan: "next_pro", cmuxNextVmPlan: "next_pro", cmuxPlan: "pro" })).toBe("pro");
     }
   });
 
