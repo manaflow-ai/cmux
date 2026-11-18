@@ -944,7 +944,7 @@ class Workflow(unittest.TestCase):
         run = steps["Run the base reds"]
         for key in ("CMUX_NEXT_STYLE_GUARDS", "CMUX_WEB_TEST_RETRIES"):
             self.assertEqual(run["env"][key], replay["env"][key], key)
-        for key in ("CMUX_WEB_TEST_JOBS", "CMUX_WEB_TEST_DEV_JOBS"):
+        for key in ("CMUX_WEB_TEST_JOBS", "CMUX_WEB_TEST_DEV_JOBS", "CMUX_WEB_TEST_BROWSER_JOBS"):
             self.assertEqual(run["env"][key], head["env"][key], key)
         self.assertEqual(steps["Pick this shard's base reds"]["env"]["SHARD_COUNT"], "${{ matrix.shard_count }}")
         self.assertIn('--shard-count "$SHARD_COUNT"', steps["Pick this shard's base reds"]["run"])
