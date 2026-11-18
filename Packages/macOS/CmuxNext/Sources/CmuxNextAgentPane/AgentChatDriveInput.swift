@@ -1,7 +1,6 @@
 public import AppKit
-import CmuxNextCompat
+import CmuxNextBrowserAutomation
 public import CmuxNextPages
-import CmuxNextWakeups
 import Foundation
 public import WebKit
 
@@ -93,13 +92,13 @@ public struct AgentChatDriveInput {
             // WebKit drops a wheel that reaches the page before its next presentation update, and coalesces
             // wheels still pending: each tick waits for both (as WebKitNativeInput.wheel does), so ticks a
             // frame or less apart each reach the page. Each wait is bounded by `wheelWait`.
-            await Self.afterWebKitCallback(webView, "_doAfterNextPresentationUpdate:", bound: Self.wheelWait)
+            await Self.afterPresentationUpdate(webView, bound: Self.wheelWait)
             guard let window = webView.window,
                   let event = Self.wheelEvent(window: window, location: webView.convert(Self.viewPoint(webView, css: css), to: nil), deltaY: deltaY)
             else { return false }
             // The view's own override routes it (`PageWKWebView.scrollWheel(with:)`), as a person's wheel.
             webView.scrollWheel(with: event)
-            await Self.afterWebKitCallback(webView, "_doAfterProcessingAllPendingMouseEvents:", bound: Self.wheelWait)
+            await Self.afterPendingMouseEvents(webView, bound: Self.wheelWait)
             return true
         case .chromium(_, let page):
             return (try? await page.devTools("Input.dispatchMouseEvent", params: [
@@ -146,8 +145,8 @@ public struct AgentChatDriveInput {
     public func settle(bound: Duration = .seconds(1)) async {
         guard case .webKit(let webView)? = engine else { return }
         // A wheel that reaches a page before its next presentation update is dropped (WebKitNativeInput).
-        await Self.afterWebKitCallback(webView, "_doAfterNextPresentationUpdate:", bound: bound)
-        await Self.afterWebKitCallback(webView, "_doAfterProcessingAllPendingMouseEvents:", bound: bound)
+        await Self.afterPresentationUpdate(webView, bound: bound)
+        await Self.afterPendingMouseEvents(webView, bound: bound)
     }
 
     // MARK: Chromium layout counters
@@ -220,9 +219,10 @@ public struct AgentChatDriveInput {
               let event = NSEvent.mouseEvent(with: .mouseMoved, location: webView.convert(viewPoint, to: nil), modifierFlags: [],
                                              timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
                                              context: nil, eventNumber: 0, clickCount: 0, pressure: 0) else { return false }
+        // A macOS WebKitPrivateCalls has not verified gets the public mouseMoved(with:) instead.
         // crash-allow: WebKit private selector, used only after responds(to:) confirms it exists (no unknown-selector exception).
         let simulate = NSSelectorFromString("_simulateMouseMove:")
-        if webView.responds(to: simulate) { webView.perform(simulate, with: event) } else { webView.mouseMoved(with: event) }
+        if WebKitPrivateCalls().isVerified, webView.responds(to: simulate) { webView.perform(simulate, with: event) } else { webView.mouseMoved(with: event) }
         return true
     }
 
@@ -261,40 +261,18 @@ public struct AgentChatDriveInput {
         return event
     }
 
-    /// Runs WebKit's private `selector` (one block argument, called once) and waits for its block,
-    /// at most `bound`; at once when the view has no such selector.
-    private static func afterWebKitCallback(_ webView: WKWebView, _ name: String, bound: Duration) async {
-        // crash-allow: WebKit private selector, used only after responds(to:) confirms it exists (no unknown-selector exception).
-        let selector = NSSelectorFromString(name)
-        guard webView.responds(to: selector) else { return }
-        typealias Action = @convention(block) () -> Void
-        typealias Function = @convention(c) (AnyObject, Selector, Action) -> Void
-        let function = unsafeBitCast(webView.method(for: selector), to: Function.self)
-        let wait = CallbackWait()
-        let deadline = DemandTimer(owner: "agent.chat-drive.webkit-callback")
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            wait.start(continuation)
-            deadline.schedule(after: bound) { wait.finish() }
-            // WebKit keeps the block until it runs: it must be an escaping one.
-            let action: Action = { wait.finish() }
-            function(webView, selector, action)
-        }
-        deadline.cancel()
-    }
-}
-
-/// One wait that the WebKit callback or its deadline ends, whichever comes first.
-private nonisolated final class CallbackWait: Sendable {
-    private let continuation = Mutex<CheckedContinuation<Void, Never>?>(nil)
-
-    func start(_ waiting: CheckedContinuation<Void, Never>) {
-        continuation.withLock { $0 = waiting }
+    /// WebKit's next presentation update, at most `bound` (``WebKitPrivateCalls``: its callback is bounded and
+    /// resumes once, and a suspended page is skipped); at once on a macOS the private calls were not verified on.
+    private static func afterPresentationUpdate(_ webView: WKWebView, bound: Duration) async {
+        let calls = WebKitPrivateCalls(callbackBound: bound)
+        guard calls.isVerified else { return }
+        await calls.afterNextPresentationUpdate(webView)
     }
 
-    func finish() {
-        continuation.withLock { held in
-            defer { held = nil }
-            return held
-        }?.resume()
+    /// WebKit's handling of the mouse events sent so far, at most `bound`, the same way.
+    private static func afterPendingMouseEvents(_ webView: WKWebView, bound: Duration) async {
+        let calls = WebKitPrivateCalls(callbackBound: bound)
+        guard calls.isVerified else { return }
+        await calls.afterPendingMouseEvents(webView)
     }
 }

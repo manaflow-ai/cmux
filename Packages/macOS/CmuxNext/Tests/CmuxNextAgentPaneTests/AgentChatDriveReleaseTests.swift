@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextTestSupport
 import Foundation
 import Testing
+import WebKit
 
 /// `agent.chat.drive` hands the pointer back to the person: its hold watches for them every
 /// ``DriveWatch/step`` (type-only runs too, which are all hold), and its release counts only once
@@ -52,7 +53,8 @@ struct AgentChatDriveReleaseTests {
             self.answers = answers
         }
 
-        func release(armed: Bool = true) -> DriveRelease {
+        /// `later`: the later rounds' schedule (none unless a test asks: the app's are seconds apart).
+        func release(armed: Bool = true, later: [Duration] = []) -> DriveRelease {
             let release = DriveRelease(send: { [self] in
                 count += 1
                 return answers.isEmpty ? .wentIn : answers.removeFirst()
@@ -60,7 +62,7 @@ struct AgentChatDriveReleaseTests {
                 waits.append($0)
                 onWait?(waits.count)
                 await Task.yield()
-            })
+            }, later: later)
             release.armed = armed
             return release
         }
@@ -224,6 +226,97 @@ struct AgentChatDriveReleaseTests {
         #expect(sends.count == 2 + DriveRelease.retryWaits.count, "\(sends.count) sends")
     }
 
+    /// The sends of one whole failed round.
+    static let round = DriveRelease.retryWaits.count + 1
+
+    /// The app's later rounds: at most 3, 2 s, 10 s and 30 s after a failed round.
+    @Test func theLaterRoundsAreBounded() {
+        #expect(DriveRelease.laterRounds == [.seconds(2), .seconds(10), .seconds(30)])
+    }
+
+    /// A round that fails is followed by a later one on the schedule; the one that goes in ends the
+    /// release, and no round is scheduled after it.
+    @Test func laterRoundsFireOnTheScheduleAndStopOnceReleased() async throws {
+        let sends = Sends(Array(repeating: .failed, count: 2 * Self.round))
+        let release = sends.release(later: [.milliseconds(20), .milliseconds(20), .milliseconds(20)])
+        await release.release("end")
+        #expect(!release.released)
+        #expect(release.laterRoundsLeft == 3 && release.isLaterRoundScheduled)
+        try await settled(release)
+        #expect(release.released && release.how == "later")
+        #expect(sends.count == 2 * Self.round + 1, "the third round's first send goes in")
+        #expect(release.laterRoundsLeft == 1)
+        #expect(!release.isLaterRoundScheduled)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(sends.count == 2 * Self.round + 1, "a round ran after the release")
+    }
+
+    /// Past every later round the release stays pending with nothing scheduled: only a trigger (the
+    /// view back in a window, the tab closing, the person's pointer) ends it.
+    @Test func pastTheLaterRoundsNothingMoreIsScheduled() async throws {
+        let sends = Sends(Array(repeating: .failed, count: 100))
+        let release = sends.release(later: [.milliseconds(10), .milliseconds(10)])
+        await release.release("end")
+        let deadline = ContinuousClock.now + .seconds(5)
+        while release.laterRoundsLeft > 0 || release.isLaterRoundScheduled, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(!release.released && release.laterRoundsLeft == 0 && !release.isLaterRoundScheduled)
+        #expect(sends.count == 3 * Self.round)
+        release.runEnded = true
+        release.personPointer()
+        #expect(release.released && release.how == "person_pointer")
+    }
+
+    /// The person's real pointer in the pane: WebKit's hover follows it, so nothing synthetic is left.
+    /// AppKit tells the watch from the real cursor only (its tracking area); the run's own events go
+    /// straight to the web view and never reach it.
+    @Test func aPendingReleaseEndsOnTheRealPointerInThePane() async throws {
+        let pane = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        let release = Sends(Array(repeating: .failed, count: Self.round)).release()
+        await release.release("end")
+        release.runEnded = true
+        #expect(!release.released)
+        let watch = DrivePointerWatch(release: release)
+        watch.install(on: pane)
+        #expect(pane.trackingAreas.contains { ($0.owner as AnyObject?) === watch })
+        let event = try #require(NSEvent.enterExitEvent(with: .mouseEntered, location: .zero, modifierFlags: [], timestamp: 0,
+                                                        windowNumber: 0, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil))
+        watch.mouseEntered(with: event)
+        #expect(release.released && release.how == "person_pointer")
+        // Released: the watch is gone from the pane.
+        #expect(!pane.trackingAreas.contains { ($0.owner as AnyObject?) === watch })
+    }
+
+    /// During the run the person's pointer in the pane is the person: the run stops and releases.
+    @Test func theRealPointerDuringTheRunInterruptsIt() async throws {
+        let release = Sends().release()
+        release.personPointer()
+        #expect(release.triggered == "person")
+        try await settled(release)
+        #expect(release.released && release.how == "person")
+    }
+
+    /// The run's own move and release go to the web view, never through the pane's tracking area.
+    @Test func theRunsOwnMovesNeverReachTheWatch() async throws {
+        let pane = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+        let webView = WKWebView(frame: pane.bounds, configuration: WKWebViewConfiguration())
+        pane.addSubview(webView)
+        let window = NSWindow(contentRect: pane.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
+        window.contentView = pane
+        let release = Sends().release()
+        release.runEnded = true
+        let watch = DrivePointerWatch(release: release)
+        watch.install(on: pane)
+        let input = AgentChatDriveInput(webView: webView)
+        #expect(await input.move(to: CGPoint(x: 50, y: 50)))
+        #expect(await input.release() == .wentIn)
+        #expect(!release.released, "a synthetic move counted as the person's pointer")
+        watch.remove()
+    }
+
     @Test func everyWayARunEndsReleases() async throws {
         for path in ["end", "error", "cancel", "person"] {
             for fails in 0...DriveRelease.retryWaits.count {
@@ -248,5 +341,17 @@ struct AgentChatDriveReleaseTests {
         closing.trigger("teardown")
         try await settled(closing)
         #expect(closing.released && closing.how == "teardown")
+        // A path whose round keeps failing is completed by a later round, or by the person's pointer.
+        for path in ["end", "error", "cancel", "person", "timer"] {
+            let later = Sends(Array(repeating: .failed, count: Self.round)).release(later: [.milliseconds(10)])
+            await later.release(path)
+            try await settled(later)
+            #expect(later.released && later.how == "later", "\(path), then a later round")
+            let pointer = Sends(Array(repeating: .failed, count: 100)).release()
+            await pointer.release(path)
+            pointer.runEnded = true
+            pointer.personPointer()
+            #expect(pointer.released && pointer.how == "person_pointer", "\(path), then the person's pointer")
+        }
     }
 }

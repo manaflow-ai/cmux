@@ -279,6 +279,7 @@ public struct AgentChatDriveControl: Sendable {
             "interrupted": (run.interrupted ?? release.triggered).map(JSONValue.string) ?? .null,
             "released": .bool(release.released),
             "release": .string(release.how ?? "pending"),
+            "release_retries_scheduled": .number(Double(release.released ? 0 : release.laterRoundsLeft)),
             "capture": .null,
             "capture_note": .string(captureNote),
             "page": report.map(JSONValue.object) ?? .null,
@@ -527,7 +528,9 @@ struct DriveWatch {
 /// A view that is gone (``AgentChatDriveInput/ReleaseOutcome/gone``) holds no hover: that counts as
 /// released by `teardown`. Past the cap the release stays pending, registered on its view
 /// (``AgentPaneView/heldDrives``), and the view's next trigger (back in a window, the tab closing)
-/// runs another round. The registration lasts until a release went in. The run itself reads the
+/// runs another round; so do at most 3 later rounds (``laterRounds``: 2 s, 10 s and 30 s after a
+/// failed round), and the person's real pointer in the pane (``DrivePointerWatch``) ends it: WebKit's
+/// hover follows that pointer, so nothing synthetic is left. The registration lasts until a release went in. The run itself reads the
 /// window and the app (``DriveSurroundings``) with the person: no observer of its own.
 @MainActor
 final class DriveRelease {
@@ -541,6 +544,8 @@ final class DriveRelease {
     /// comes while a round runs gets a round of its own after it, never only the rest of that one. A
     /// teardown needs none: the round ends at its next send (``tornDown``).
     static let fresh: Set<String> = ["window"]
+    /// The waits before the later rounds, each after a round that failed: at most 3 more rounds.
+    static let laterRounds: [Duration] = [.seconds(2), .seconds(10), .seconds(30)]
 
     /// Sends the pointer-leave.
     private let send: @MainActor () async -> Outcome
@@ -564,16 +569,32 @@ final class DriveRelease {
     /// The deadline that releases even when the run never gets there; dropped once a release went in.
     private var backstop: DemandTimer?
     private weak var view: AgentPaneView?
+    /// The waits before the later rounds (tests pass their own).
+    private let later: [Duration]
+    /// The later rounds still to come; the result reports it while the release is pending.
+    private(set) var laterRoundsLeft: Int
+    /// The next later round's deadline; dropped once a release went in.
+    private var laterTimer: DemandTimer?
+    /// The person's real pointer in the pane ends a pending release (held here: a tracking area does not keep its owner).
+    var pointerWatch: DrivePointerWatch?
 
     init(input: AgentChatDriveInput) {
         send = { await input.release() }
         sleep = DriveRelease.pause
+        later = Self.laterRounds
+        laterRoundsLeft = later.count
     }
 
-    init(send: @escaping @MainActor () async -> Outcome, sleep: @escaping @MainActor (Duration) async -> Void = DriveRelease.pause) {
+    init(send: @escaping @MainActor () async -> Outcome, sleep: @escaping @MainActor (Duration) async -> Void = DriveRelease.pause,
+         later: [Duration] = DriveRelease.laterRounds) {
         self.send = send
         self.sleep = sleep
+        self.later = later
+        laterRoundsLeft = later.count
     }
+
+    /// A later round is waiting for its deadline.
+    var isLaterRoundScheduled: Bool { laterTimer?.isScheduled == true }
 
     static func pause(_ delay: Duration) async {
         // wakeup-allow: one wait between two release sends (at most 1 s, 8 a round), in the round's own task
@@ -592,11 +613,27 @@ final class DriveRelease {
     var isBackstopArmed: Bool { backstop?.isScheduled == true }
 
     /// Registers on `view` until a release went in: the tab closing and the view moving between
-    /// windows (``AgentPaneView/heldDrives``) trigger it.
+    /// windows (``AgentPaneView/heldDrives``) trigger it, and the person's real pointer in it ends it.
     func register(on view: AgentPaneView) {
         guard !released else { return }
         self.view = view
         view.heldDrives[ObjectIdentifier(self)] = self
+        DrivePointerWatch(release: self).install(on: view)
+    }
+
+    /// The person's real pointer moved in, into or out of the pane (``DrivePointerWatch``). During the
+    /// run that is the person: the run stops and releases. After it, WebKit's hover follows that pointer,
+    /// so a pending release is done (`person_pointer`) with no send.
+    func personPointer() {
+        guard !released else { return }
+        guard runEnded else {
+            if triggered == nil { triggered = "person" }
+            // task-owner: one bounded release round (about 4.5 s at most), joined by a round already running
+            // main-hop-allow: the person's pointer ends the run: one pointer-leave per send, at most 9 sends a round
+            Task { @MainActor in await self.release("person") }
+            return
+        }
+        finish("person_pointer")
     }
 
     /// Something outside the run happened (`teardown`, `window_close`, `resign`, `detached`, `window`).
@@ -635,6 +672,7 @@ final class DriveRelease {
         let attempt = Task { @MainActor in
             await self.retry(reason)
             self.round = nil
+            if !self.released { self.scheduleLater() }
         }
         round = attempt
         await attempt.value
@@ -658,11 +696,29 @@ final class DriveRelease {
         }
     }
 
+    /// After a round that failed: the next later round, when one is left and none waits yet.
+    private func scheduleLater() {
+        guard laterRoundsLeft > 0, !isLaterRoundScheduled else { return }
+        let timer = laterTimer ?? DemandTimer(owner: "agent.chat-drive.release-later")
+        laterTimer = timer
+        timer.schedule(after: later[later.count - laterRoundsLeft]) { @MainActor in
+            guard !self.released else { return }
+            self.laterRoundsLeft -= 1
+            await self.release("later", fresh: true)
+        }
+    }
+
     private func finish(_ reason: String) {
+        // A send in flight may answer after another path ended it: the first one stands.
+        guard !released else { return }
         released = true
         how = reason
         backstop?.cancel()
         backstop = nil
+        laterTimer?.cancel()
+        laterTimer = nil
+        pointerWatch?.remove()
+        pointerWatch = nil
         view?.heldDrives[ObjectIdentifier(self)] = nil
     }
 }
