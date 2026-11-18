@@ -98,6 +98,8 @@ const TYPES: &str = cmux_app_manifest::capabilities::APP_TYPES;
 /// The public SDK as this binary was built with it.
 /// The widget place and its layout helpers (`index.ts` re-exports them).
 const SDK_WIDGET: &str = include_str!("../../../../cmux-extension-sdk/typescript/src/widget.ts");
+/// Design systems: cmux's as data, `defineDesign` and the viewer (`index.ts` re-exports them).
+const SDK_DESIGN: &str = include_str!("../../../../cmux-extension-sdk/typescript/src/design.ts");
 pub(super) const SDK_INDEX: &str =
     include_str!("../../../../cmux-extension-sdk/typescript/src/index.ts");
 const SDK_PACKAGE: &str = include_str!("../../../../cmux-extension-sdk/typescript/package.json");
@@ -124,6 +126,7 @@ pub(super) fn sdk_files() -> Vec<(&'static str, String)> {
         ("sdk/README.md", SDK_README.to_string()),
         ("sdk/src/index.ts", index),
         ("sdk/src/widget.ts", SDK_WIDGET.to_string()),
+        ("sdk/src/design.ts", SDK_DESIGN.to_string()),
         ("sdk/tables/events.json", SDK_EVENTS.to_string()),
         ("sdk/tables/scopes.json", SDK_SCOPES.to_string()),
     ]

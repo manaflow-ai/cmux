@@ -70,7 +70,7 @@ const PACK_TS: &str = include_str!("../../../../cmux-app-host/tools/pack.ts");
 /// no copy of its own (a sample copied out of a checkout, one a person installs): the
 /// packer gets it in `CMUX_EXTENSION_SDK`. Paths keep the checkout's layout, which the
 /// SDK's relative imports of its tables expect.
-const SDK_FILES: [(&str, &str); 4] = [
+const SDK_FILES: [(&str, &str); 5] = [
     (
         "cmux-extension-sdk/typescript/src/index.ts",
         include_str!("../../../../cmux-extension-sdk/typescript/src/index.ts"),
@@ -78,6 +78,10 @@ const SDK_FILES: [(&str, &str); 4] = [
     (
         "cmux-extension-sdk/typescript/src/widget.ts",
         include_str!("../../../../cmux-extension-sdk/typescript/src/widget.ts"),
+    ),
+    (
+        "cmux-extension-sdk/typescript/src/design.ts",
+        include_str!("../../../../cmux-extension-sdk/typescript/src/design.ts"),
     ),
     (
         "cmux-app-host/schema/v2/events.json",
@@ -1255,8 +1259,15 @@ impl Session {
                 match self.probe(&pkg.id, &interface, base, !installed) {
                     Ok(Ok(ops)) => {
                         outcome.scene = super::scene::outline(&[&ops]);
-                        outcome.design =
-                            super::design::check(&[&ops], super::design::Surface::of(&interface));
+                        let (system, problem) = super::design_system::System::load(&pkg.dir);
+                        outcome.design = problem
+                            .into_iter()
+                            .chain(super::design::check_in(
+                                &[&ops],
+                                super::design::Surface::of(&interface),
+                                &system,
+                            ))
+                            .collect();
                     }
                     Ok(Err(problem)) => {
                         outcome.logs = self.daemon.take_logs();

@@ -51,7 +51,7 @@ fn a_title_style_that_drifts_between_renderers_is_named() {
 }
 
 #[test]
-fn more_than_four_text_styles_warn_once() {
+fn more_than_four_text_styles_warn_once_in_a_widget() {
     let ops = scene(&[
         ("Text", json!({"text": "a", "font": 34, "weight": "semibold"})),
         ("Text", json!({"text": "b", "font": 20, "weight": "semibold"})),
@@ -59,7 +59,9 @@ fn more_than_four_text_styles_warn_once() {
         ("Text", json!({"text": "d", "font": 13})),
         ("Text", json!({"text": "e", "font": 11})),
     ]);
-    assert_eq!(checks(&ops, Surface::Other), vec!["type-roles"]);
+    assert_eq!(checks(&ops, Surface::Widget), vec!["line-limit", "type-roles"]);
+    // A pane (or a specimen page that shows every role) may use more.
+    assert_eq!(checks(&ops, Surface::Other), Vec::<&str>::new());
 }
 
 #[test]
@@ -149,4 +151,25 @@ fn a_translucent_tint_is_blended_over_the_surface_not_read_as_solid() {
         contrast.iter().any(|f| f.message.contains("tinted background over cmux's light surface")),
         "{contrast:?}"
     );
+}
+
+#[test]
+fn hex_text_on_a_theme_background_is_not_measured_against_cmuxs_surfaces() {
+    // A "NEW" pill: white text on the accent. The accent's value is the theme's, so no ratio.
+    let ops = json!([
+        {"op": "create", "id": "pill", "type": "HStack", "props": {"background": "accent"}},
+        {"op": "create", "id": "t", "type": "Text", "props": {"text": "NEW", "color": "#ffffff", "lineLimit": 1}},
+        {"op": "children", "id": "pill", "children": ["t"]},
+        {"op": "root", "id": "pill"}
+    ]);
+    assert!(!checks(&ops, Surface::Widget).contains(&"contrast"));
+}
+
+#[test]
+fn a_translucent_text_color_is_measured_as_drawn() {
+    // Black at 20% on white draws a light grey: below 4.5:1, though opaque black is 21:1.
+    let ops = scene(&[("Text", json!({"text": "a", "color": "#00000033", "lineLimit": 1}))]);
+    let contrast: Vec<_> =
+        check(&[&ops], Surface::Widget).into_iter().filter(|f| f.check == "contrast").collect();
+    assert!(contrast.iter().any(|f| f.message.contains("light surface")), "{contrast:?}");
 }

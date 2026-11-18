@@ -60,7 +60,7 @@ export function bySize(context: Pick<WidgetContext, "size">, views: { small: () 
 /**
  * The type roles: each a point size and weight (Apple's widget text styles), drawn by the helper
  * named for it. Text goes through a role, not a size: `cmux ext dev` warns on a size that is not
- * one of these, and on more than four roles in one view.
+ * one of these, and on more than four roles in one widget.
  */
 export const TYPE_ROLES = {
   numeral: { size: 34, weight: "semibold" },
@@ -138,18 +138,18 @@ export function BigNumber(
 }
 
 /** A large heading: a tile's one word when there is no number (a place, a condition). */
-export function Heading(text: string | (() => string)): View {
-  return TextIn("heading", text)
+export function Heading(text: string | (() => string), options: { lines?: number } = {}): View {
+  return TextIn("heading", text, options)
 }
 
 /** A line of emphasis under or over the big number. */
-export function Headline(text: string | (() => string)): View {
-  return TextIn("title", text)
+export function Headline(text: string | (() => string), options: { lines?: number } = {}): View {
+  return TextIn("title", text, options)
 }
 
 /** A short emphasized line: a row's title, a key in a key-value pair. */
-export function Label(text: string | (() => string)): View {
-  return TextIn("label", text)
+export function Label(text: string | (() => string), options: { lines?: number } = {}): View {
+  return TextIn("label", text, options)
 }
 
 /** Running text, up to `lines` lines (one by default). */
@@ -158,13 +158,13 @@ export function Body(text: string | (() => string), options: { lines?: number } 
 }
 
 /** Secondary text: a date, a place, a condition. */
-export function Caption(text: string | (() => string)): View {
-  return TextIn("caption", text).color("secondary")
+export function Caption(text: string | (() => string), options: { lines?: number } = {}): View {
+  return TextIn("caption", text, options).color("secondary")
 }
 
 /** The quietest text: an updated time, a source. */
-export function Footnote(text: string | (() => string)): View {
-  return TextIn("footnote", text).color("tertiary")
+export function Footnote(text: string | (() => string), options: { lines?: number } = {}): View {
+  return TextIn("footnote", text, options).color("tertiary")
 }
 
 /** A symbol at a widget size (SF Symbols names; cmux maps them to its own set). */
