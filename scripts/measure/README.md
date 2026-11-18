@@ -62,6 +62,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `new-terminal-100x.sh` | New terminal, split and workspace latency through the cmux-tui daemon. | - | 2026-11-07 | active |
 | `held-new-tab.sh` | Held Cmd-T with Cmd-W now and then, in a session of many workspaces. | - | 2026-11-15 | active |
 | `held-new-tab.py` | Python driver for held-new-tab.sh. | - | 2026-11-16 | active |
+| `build-flags.py` | The form of a tagged reload's build, from the reload's own log: its `bench configuration` line, the optimization settings, the count of Swift compile lines with each -O level (held-new-tab.sh and pane-motion-films.sh call it). | - | 2026-11-17 | active |
 | `burst-bench.sh` | Bursts of Cmd-W, Cmd-D and Cmd-Shift-D: per-press input to next commit. | PL-burst | 2026-10-27 | active |
 | `palette-open.sh` | Command palette open time, per stage, from several page types. | - | 2026-10-27 | active |
 | `omnibar-click.sh` | Omnibar mouse-down to the frame that shows focus. | - | 2026-10-27 | active |
@@ -185,6 +186,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `cef-app-size.sh` | Installed-size proof for CEF binary with V8 snapshots. | CMUX-570 | 2026-11-14 | active |
 | `cef-snapshot-resources.py` | Pairs a CEF binary with its generated V8 snapshots. | CMUX-570 | 2026-11-14 | active |
 | `clear-cache-look.sh` | Clear Browsing Data's cache option on a real Chromium engine: a service worker's Cache Storage before and after (correctness). | - | 2026-11-17 | active |
+| `floating-pane-look.sh` | Pictures of a floating pane with the Debug Settings knob `Background opacity` at 1 and below 1: a terminal pane and a page pane, with a background picture and without (a look for a person; judges nothing). | - | 2026-11-18 | active |
 
 ## Build and dev loop
 
