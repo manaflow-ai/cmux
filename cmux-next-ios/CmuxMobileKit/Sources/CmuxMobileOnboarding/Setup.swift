@@ -201,14 +201,14 @@ public struct SetupFlow: View {
     }
 
     /// Setup's pages in the order they can appear.
-    nonisolated static let order: [Step] = [.intro, .team, .createTeam, .pairMac, .notifications, .firstChat]
+    public nonisolated static let order: [Step] = [.intro, .team, .createTeam, .pairMac, .notifications, .firstChat]
 
     /// Setup's plan for an account: the space choice when it has no team or
     /// several, Connect your Mac while no Mac is online, notifications while
     /// the system has not asked. When any of those is asked, setup opens with
     /// "Here's how cmux works" and ends with "Start your first agent"; when
     /// none is, there is no setup at all (a returning account on this phone).
-    nonisolated static func plan(teamCount: Int, macOnline: Bool, asksNotifications: Bool) -> [Step] {
+    public nonisolated static func plan(teamCount: Int, macOnline: Bool, asksNotifications: Bool) -> [Step] {
         var core: [Step] = []
         if teamCount != 1 { core.append(.team) }
         if !macOnline { core.append(.pairMac) }
@@ -219,7 +219,7 @@ public struct SetupFlow: View {
 
     /// The stack that shows `step` with the planned pages before it under it
     /// (the root is `steps.first`, so it is not on the path).
-    nonisolated static func path(to step: Step, in steps: [Step]) -> [Step] {
+    public nonisolated static func path(to step: Step, in steps: [Step]) -> [Step] {
         guard let index = steps.firstIndex(of: step), index > 0 else { return [] }
         return Array(steps[1...index])
     }
