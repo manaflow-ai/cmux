@@ -107,7 +107,7 @@ fn cell(before: Before, sign_in_works: bool) {
     assert!(!served("p:a"), "{tag}: still serves p:a: {calls:?}");
     let first_new_sign_in = calls.iter().rposition(|c| c.1 == "/v1/auth/machine");
     if sign_in_works {
-        assert!(got.is_ok(), "{tag}: {got:?}");
+        assert!(got.is_ok(), "{tag}: {:?}", got.as_ref().err());
         assert!(served("p:b"), "{tag}: serves {account:?}");
         let device = device.unwrap_or_else(|| panic!("{tag}: no device"));
         match before {
@@ -153,4 +153,123 @@ fn the_host_serves_only_the_current_join() {
             cell(before, works);
         }
     }
+}
+
+/// A hub whose Stack sign-in names `p:a` for token "tok-a" and `p:c` for "tok-c", and refuses
+/// "tok-bad".
+fn person_hub() -> (String, Arc<Mutex<Vec<Seen>>>) {
+    stub(|_, request| match request.path.as_str() {
+        "/v1/auth/stack" => {
+            let token = serde_json::from_str::<serde_json::Value>(&request.body).unwrap()["token"]
+                .as_str()
+                .unwrap_or("")
+                .to_owned();
+            match token.as_str() {
+                "tok-a" => (200, serde_json::json!({ "session": "s", "userId": "p:a" })),
+                "tok-c" => (200, serde_json::json!({ "session": "s", "userId": "p:c" })),
+                _ => (
+                    401,
+                    serde_json::json!({ "error": { "code": "unauthorized", "message": "no" } }),
+                ),
+            }
+        }
+        "/v1/auth/device/anchor" => (200, serde_json::json!({ "anchoredUntil": now_ms() + 1_000 })),
+        "/v1/auth/device" => {
+            (200, serde_json::json!({ "session": "a", "expiresAt": now_ms() + 3_600_000 }))
+        }
+        _ => (200, serde_json::json!({ "ok": true })),
+    })
+}
+
+fn person_cell(
+    token: &str,
+) -> (PathBuf, Device, Res<(Device, String)>, Vec<(String, String)>, Vec<usize>) {
+    let (origin, seen) = person_hub();
+    let dir = dir(&format!("person-{token}"));
+    let old = hold(&dir, &origin, Before::PersonAnchored).unwrap();
+    let unit = Recorded { seen: seen.clone(), stops: Mutex::new(Vec::new()) };
+    let got = super::person(&dir, &origin, token, None, &|| "encoder".to_owned(), &unit);
+    let calls = seen.lock().unwrap().iter().map(|s| (s.method.clone(), s.path.clone())).collect();
+    let stops = unit.stops.lock().unwrap().clone();
+    (dir, old, got, calls, stops)
+}
+
+#[test]
+fn the_same_person_keeps_this_desktop() {
+    let (dir, old, got, _, stops) = person_cell("tok-a");
+    assert_eq!(got.unwrap().0.id, old.id);
+    assert_eq!(Account::load(&dir).unwrap().unwrap().user_id, "p:a");
+    assert!(stops.is_empty(), "the same identity stops nothing");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn another_person_takes_this_desktop_only_after_the_first_is_torn_down() {
+    let (dir, old, got, calls, stops) = person_cell("tok-c");
+    let device = got.unwrap().0;
+    assert_ne!(device.id, old.id);
+    assert_eq!(Account::load(&dir).unwrap().unwrap().user_id, "p:c");
+    let sign_out = ("POST".to_owned(), format!("/v1/devices/{}/sign-out", old.id));
+    let at = calls.iter().position(|c| *c == sign_out).expect("the earlier device signed out");
+    let registered = calls.iter().position(|c| c.1 == "/v1/devices").expect("registered");
+    assert!(stops.first().is_some_and(|&s| s <= at) && at < registered, "{stops:?} {calls:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_refused_person_sign_in_leaves_the_host_off() {
+    let (dir, _, got, _, stops) = person_cell("tok-bad");
+    assert!(got.is_err());
+    assert_eq!(Account::load(&dir).unwrap(), None);
+    assert!(Device::load(&dir).unwrap().is_none());
+    assert!(!stops.is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn an_unanswered_sign_out_is_asked_again_and_the_host_is_off_meanwhile() {
+    let dir = dir("pending");
+    // The earlier person's hub does not answer.
+    let old = hold(&dir, "http://127.0.0.1:1", Before::PersonAnchored).unwrap();
+    let unit = Recorded { seen: Arc::new(Mutex::new(Vec::new())), stops: Mutex::new(Vec::new()) };
+    super::tear_down(&dir, super::Previous::load(&dir).unwrap(), &unit).unwrap();
+    assert!(Account::load(&dir).unwrap().is_none() && Device::load(&dir).unwrap().is_none());
+    let pending = super::load_pending(&dir).unwrap();
+    assert_eq!(pending.iter().map(|p| p.device.id.clone()).collect::<Vec<_>>(), [old.id.clone()]);
+    // Still unanswered: kept. Once a hub answers, dropped.
+    super::retry_pending(&dir);
+    assert_eq!(super::load_pending(&dir).unwrap().len(), 1);
+    let (origin, seen) = person_hub();
+    let mut moved = pending;
+    moved[0].hub = origin;
+    super::save_pending(&dir, &moved).unwrap();
+    super::retry_pending(&dir);
+    assert!(super::load_pending(&dir).unwrap().is_empty());
+    let sign_out = format!("/v1/devices/{}/sign-out", old.id);
+    assert!(seen.lock().unwrap().iter().any(|s| s.path == sign_out));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_host_started_for_an_earlier_join_serves_nothing() {
+    let dir = dir("earlier-join");
+    let home = dir.join("acpmux-home");
+    identity::private_dir(&home).unwrap();
+    let write = |machine_id: &str| {
+        let record = format!(
+            r#"{{"credential":"cmm_{machine_id}","machine_id":"{machine_id}","credential_generation":1}}"#
+        );
+        identity::write_private(&home.join(machine::CREDENTIAL_FILE), record.as_bytes()).unwrap();
+    };
+    write("m-a");
+    let joined = machine::Joined::of(&home, &machine::load(&home).unwrap().unwrap());
+    assert!(super::current_join(&dir, &joined).is_ok());
+    // Joined again: the unit's record names the earlier join.
+    write("m-b");
+    let e = super::current_join(&dir, &joined).unwrap_err();
+    assert!(e.is::<super::Fatal>() && e.to_string().contains("joined again"), "{e}");
+    // Left: no credential at all.
+    std::fs::remove_file(home.join(machine::CREDENTIAL_FILE)).unwrap();
+    assert!(super::current_join(&dir, &joined).unwrap_err().is::<super::Fatal>());
+    let _ = std::fs::remove_dir_all(&dir);
 }

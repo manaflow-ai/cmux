@@ -275,15 +275,18 @@ fn load() -> Res<(std::path::PathBuf, Hub, Account)> {
     let Some(account) = Account::load(&dir)? else {
         let (home, credential) = machine::current()?.ok_or(NOT_ENABLED)?;
         identity::private_dir(&dir)?;
-        let (hub, account) = sign_in_machine(&dir, DEFAULT_HUB, &home, credential)?;
+        // Nothing is signed in, so no host serves yet: there is no unit to stop first.
+        let device =
+            serving::join(&dir, DEFAULT_HUB, &home, credential.clone(), &serving::ThisProcess)?;
+        let account = Account::load(&dir)?.ok_or(NOT_ENABLED)?;
+        let hub = Hub::with_renewal(&account.hub, device, None, machine_renewal(credential))?;
         return Ok((dir, hub, account));
     };
     let device = Device::load(&dir)?.ok_or(NOT_ENABLED)?;
     let hub = match machine::Joined::load(&dir)? {
+        // Only the current join's host serves (serving.rs).
         Some(joined) => {
-            let credential = machine::load(&joined.acpmux_home)?.ok_or_else(|| {
-                Fatal::needs("This machine's join was revoked or removed", Fatal::JOIN)
-            })?;
+            let credential = serving::current_join(&dir, &joined)?;
             Hub::with_renewal(&account.hub, device, None, machine_renewal(credential))?
         }
         None => Hub::new(&account.hub, device, Some(account.user_id.clone()))?,
@@ -386,12 +389,17 @@ fn set_up_for_join(args: &Args) -> Res<()> {
         println!("{}", setup::virtual_display_line(display));
     }
     let hub_url = args.get("hub").unwrap_or(DEFAULT_HUB);
-    let Some(device) = join_device(&dir, hub_url, machine::current()?, &NoUnit)? else {
+    let joined = machine::current()?;
+    let from_join = joined.is_some();
+    let Some(device) = join_device(&dir, hub_url, joined, &serving::HostUnit)? else {
         println!("{NOT_INSTALLED}");
         return Ok(());
     };
     // The host this installs serves sessions at once, so its encoder is there first.
     let encoder = openh264_line();
+    if from_join {
+        serving::still_current(&dir, &serving::HostUnit)?;
+    }
     setup::install_host(virtual_display)?;
     println!(
         "This desktop is shared as \"{}\" ({}), {}; the host runs as {}. {encoder}.",
@@ -404,63 +412,31 @@ fn set_up_for_join(args: &Args) -> Res<()> {
 }
 
 /// The device `enable --non-interactive` installs the host as, or None when nothing signed
-/// this machine in.
+/// this machine in. A join always goes through [`serving::join`]: the host is the joiner's.
 fn join_device(
     dir: &std::path::Path,
     hub_url: &str,
     joined: Option<(std::path::PathBuf, machine::MachineCredential)>,
-    _unit: &dyn serving::Unit,
+    unit: &dyn serving::Unit,
 ) -> Res<Option<Device>> {
-    let (account, device) = (Account::load(dir)?, Device::load(dir)?);
     let Some((home, credential)) = joined else {
         // Not joined: a person's own `enable`, while anchored, renews by its device key.
-        return Ok(match (account, device) {
+        return Ok(match (Account::load(dir)?, Device::load(dir)?) {
             (Some(account), Some(device)) if account.anchored_until > now_ms() => Some(device),
             _ => None,
         });
     };
-    // Joined: the host is always the joiner's, since the hub is the only account boundary
-    // (hq docs/design/screen-share-under-100ms.md, D11). The hub says whose join this is,
-    // at every daemon start.
-    let same_join = machine::Joined::load(dir)?.is_some_and(|j| j.acpmux_home == home);
-    match (account, device) {
-        (Some(account), Some(device)) if same_join && account.hub == hub_url => {
-            let renewal = machine_renewal(credential.clone());
-            let hub = Hub::with_renewal(hub_url, device.clone(), None, renewal)?;
-            hub.session()?;
-            if hub.user_id().as_deref() == Some(account.user_id.as_str()) {
-                return Ok(Some(device));
-            }
-            // Joined again, to another account: that device was the old join's.
-        }
-        // A person's own sign-in, anchored or not: signed out here, not skipped.
-        (Some(account), Some(device)) if !same_join => sign_out_person(&account, device),
-        _ => {}
-    }
-    forget_sign_in(dir)?;
-    Ok(Some(sign_in_machine(dir, hub_url, &home, credential)?.0.device))
+    serving::join(dir, hub_url, &home, credential, unit).map(Some)
 }
 
-/// The seam the identity tests stop the unit through (red-first commit only).
+/// The seam the identity tests stop the unit through.
+#[cfg(test)]
 struct NoUnit;
 
+#[cfg(test)]
 impl serving::Unit for NoUnit {
     fn stop(&self) -> Res<()> {
         Ok(())
-    }
-}
-
-/// Signs a person's own sign-in out of this desktop at the hub (`POST /v1/devices/:id/sign-out`
-/// ends its sessions and drops its anchor). [`forget_sign_in`] deletes the device key next
-/// either way, so nothing here can renew as that account again.
-fn sign_out_person(account: &Account, device: Device) {
-    let path = format!("/v1/devices/{}/sign-out", device.id);
-    let signed_out = Hub::new(&account.hub, device, Some(account.user_id.clone()))
-        .and_then(|hub| hub.call("POST", &path, None));
-    if let Err(e) = signed_out {
-        eprintln!(
-            "cmux-rd linux-host: the hub did not sign this desktop's earlier account out ({e}); its device key is deleted, so this host no longer serves it"
-        );
     }
 }
 
@@ -475,30 +451,11 @@ fn forget_sign_in(dir: &std::path::Path) -> Res<()> {
     Ok(())
 }
 
-/// Who a live join signed this desktop in as: Some while the join's credential is still there
-/// (from [`machine::JOINED_FILE`], or `ACPMUX_HOME` when the join has not signed it in yet).
-/// The account is the hub's user id, or "this machine's account" before the first sign-in.
-fn join_owner(dir: &std::path::Path) -> Res<Option<String>> {
-    let recorded = match machine::Joined::load(dir)? {
-        Some(joined) => machine::load(&joined.acpmux_home)?.is_some(),
-        None => false,
-    };
-    if !recorded && machine::current()?.is_none() {
-        return Ok(None);
-    }
-    let account = match (recorded, Account::load(dir)?) {
-        (true, Some(account)) => account.user_id,
-        _ => "this machine's account".to_owned(),
-    };
-    Ok(Some(account))
-}
-
-/// Signs in, registers this desktop (a new identity when the hub refuses the old one), anchors
-/// it, installs the encoder and turns sharing on; the device and the encoder's line.
+/// A person's own `enable`: signs in, registers this desktop, anchors it, installs the encoder
+/// and turns sharing on ([`serving::person`]); the device and the encoder's line.
 fn sign_in_and_register(args: &Args, dir: &std::path::Path) -> Res<(Device, String)> {
-    // A joined machine's host is the joiner's (#45369): a person's own sign-in here would make
-    // it theirs until the next daemon start. Refused before any token is read.
-    if let Some(account) = join_owner(dir)? {
+    // A joined machine's host is the joiner's (#45369): refused before any token is read.
+    if let Some(account) = serving::join_owner(dir)? {
         return Err(format!(
             "this machine is joined to {account}; run `acpmux machine leave` first"
         )
@@ -510,31 +467,7 @@ fn sign_in_and_register(args: &Args, dir: &std::path::Path) -> Res<(Device, Stri
         (None, Some(account)) => account.hub,
         (None, None) => DEFAULT_HUB.to_owned(),
     };
-    let device = match Device::load(dir)? {
-        Some(mut device) => {
-            if let Some(name) = args.get("name") {
-                device.name = name.to_owned();
-            }
-            device
-        }
-        None => Device::generate(
-            args.get("name").map_or_else(identity::host_name, str::to_owned).as_str(),
-        )?,
-    };
-    let (_, (hub, user_id)) = with_fresh_identity(device, |device| {
-        device.save(dir)?;
-        let hub = Hub::new(&hub_url, device.clone(), None)?;
-        let user_id = hub.sign_in_with_stack(&token)?;
-        hub.register("linux")?;
-        Ok((hub, user_id))
-    })?;
-    let anchored_until = hub.anchor()?;
-    // The encoder before sharing turns on: a viewer must not reach a host that cannot encode.
-    let encoder = openh264_line();
-    hub.set_shared(true)?;
-    Account { hub: hub_url, user_id, anchored_until }.save(dir)?;
-    machine::Joined::clear(dir)?;
-    Ok((hub.device, encoder))
+    serving::person(dir, &hub_url, &token, args.get("name"), &openh264_line, &serving::HostUnit)
 }
 
 /// Cisco's OpenH264 in the per-user data directory (downloaded from Cisco the first time), in
@@ -686,8 +619,16 @@ fn share_on(args: &Args) -> Res<()> {
         println!("Sharing is on.");
         return Ok(());
     }
-    // Turning sharing on needs the account itself (a host session may only turn it off).
-    hub.sign_in_with_stack(&stack_token(args)?)?;
+    // Turning sharing on needs the account itself (a host session may only turn it off), and
+    // only this desktop's own: another account's token anchors nothing here (serving.rs).
+    let user = hub.sign_in_with_stack(&stack_token(args)?)?;
+    if user != account.user_id {
+        return Err(format!(
+            "this desktop is signed in as {}, not {user}; to share it as {user}, run: cmux-rd linux-host enable",
+            account.user_id
+        )
+        .into());
+    }
     account.anchored_until = hub.anchor()?;
     hub.set_shared(true)?;
     account.save(&dir)?;
@@ -1301,7 +1242,7 @@ mod tests {
         assert_eq!(Account::load(&dir).unwrap().unwrap().user_id, "p:b");
         // After `acpmux machine leave` (the credential gone) a person may enable it again.
         std::fs::remove_file(home.join(machine::CREDENTIAL_FILE)).unwrap();
-        assert_eq!(join_owner(&dir).unwrap(), None);
+        assert_eq!(serving::join_owner(&dir).unwrap(), None);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -359,6 +359,15 @@ pub fn set_up_virtual_display() -> Res<u32> {
 /// Installs the host's user unit (when missing or older) and starts it: with a desktop, as part
 /// of its graphical session; on a virtual display, from the user manager itself. Turns on
 /// lingering for a virtual display, so the host outlives the ssh session (warns if it cannot).
+/// Stops the host unit (`systemctl --user stop`) before this desktop's identity changes; a unit
+/// that was never installed is already stopped.
+pub fn stop_host() -> Res<()> {
+    match systemctl(&["stop", HOST_UNIT]) {
+        Err(e) if e.to_string().contains("not loaded") => Ok(()),
+        other => other,
+    }
+}
+
 pub fn install_host(virtual_display: bool) -> Res<()> {
     let dir = user_unit_dir()?;
     let text = if virtual_display { headless_host_unit() } else { HOST_UNIT_TEXT.to_owned() };
