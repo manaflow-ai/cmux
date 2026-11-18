@@ -38,6 +38,7 @@
         "CmuxNextAgentUpdates",
         "CmuxNextCloud",
         "CmuxNextCodeRouter",
+        "CmuxNextCompat",
         "CmuxNextDaemonService",
         "CmuxNextDesign",
         "CmuxNextIcons",
@@ -219,6 +220,7 @@
         "cmux-tui/spec/",
         "schemas/agent-bridge/contract.json",
         "schemas/agent-pane/attach-params.json",
+        "schemas/agent-pane/session-new-params.json",
         "scripts/cmux-next/pin-cmux-tui.sh",
         "webviews/src/agent-session/acpmux/flickerLog.ts"
       ]
@@ -543,7 +545,6 @@
         "scripts/cmux-next/web-bundle-key.py",
         "tests/fixtures/classic-to-next/",
         "web/scripts/cloud-vm/cmux-tui-upgrade.sh",
-        "web/services/vms/images/devbox/agent-auth.sh",
         "webviews/test/fixtures/new-tab-intents.json"
       ]
     },
@@ -905,6 +906,7 @@
         "CmuxNextActions",
         "CmuxNextCloud",
         "CmuxNextCompat",
+        "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextPages",
         "CmuxNextPalette",
@@ -916,6 +918,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextCloudUITests",
       "targets": [
+        "CmuxNextActions",
         "CmuxNextCloud",
         "CmuxNextCloudUI",
         "CmuxNextDesign",
@@ -1794,7 +1797,8 @@
         "CmuxNextPages",
         "CmuxNextPagesTestSupport",
         "CmuxNextSettings",
-        "CmuxNextTestSupport"
+        "CmuxNextTestSupport",
+        "CmuxNextWakeupsTestSupport"
       ],
       "packages": [],
       "reads": [

@@ -1352,6 +1352,18 @@ async fn dispatch_request_with_identity(
                 features.push(json!(crate::link_v2::FEATURE));
                 features.push(json!(acpmux_core::hub::PEER_PAGES_FEATURE));
             }
+            if super::controls::offered(hub, conn) {
+                if let Some(features) =
+                    reply.pointer_mut("/_meta/acpmux/features").and_then(Value::as_array_mut)
+                {
+                    features.push(json!(super::controls::FEATURE));
+                }
+                if let Some(extensions) =
+                    reply.pointer_mut("/_meta/acpmux/extensions").and_then(Value::as_array_mut)
+                {
+                    extensions.push(json!(super::controls::METHOD));
+                }
+            }
             // The daemon's v2 list holds the hub machines' rows (`hub/list_tee.rs`): a fact of
             // its index, named on every connection.
             if hub.v2_lists_hub_rows()
@@ -1748,6 +1760,7 @@ async fn dispatch_request_with_identity(
             }
             let disallowed_tools = disallowed_tools(meta)?;
             let additional_directories = crate::hub::additional_dirs::requested(&params).await?;
+            let stop_condition = crate::hub::stop_condition::requested(meta)?;
             // Its parent is the session this connection proved it runs in (`hub/lineage.rs`):
             // an agent's `acpmux new`. An adopted chat or an ephemeral run is nobody's child.
             let parent_ask = crate::hub::lineage::parent_ask(meta)?;
@@ -1815,6 +1828,7 @@ async fn dispatch_request_with_identity(
                 disallowed_tools,
                 checked_cwd: None,
                 additional_directories,
+                stop_condition,
                 person: person_asks(conn),
                 wait_start: asks_to_wait_on_its_harness(conn, &params),
                 // Purged by its creator right after its work (the Chief compactor's nodes): its
@@ -1884,6 +1898,11 @@ async fn dispatch_request_with_identity(
                 summary.set("admission", w);
             }
             successor::warn(hub, succ.as_ref(), &s, &mut summary).await;
+            // The stop condition it keeps (`hub/stop_condition.rs`): a caller that asked for one
+            // and does not see it here knows its agent can stop at any turn end.
+            if meta.stop_condition.is_some() {
+                summary.set(crate::hub::stop_condition::FIELD, Value::Bool(true));
+            }
             Ok(json!({
                 "sessionId": s.id,
                 "modes": meta.modes,
@@ -2562,6 +2581,17 @@ async fn dispatch_request_with_identity(
         }
         method::MUX_PREWARM => {
             let s = |k: &str| params.get(k).and_then(Value::as_str).map(str::to_owned);
+            // A Cloud chat's coming start (cmux#45953): its owner credential, from this machine's
+            // own socket only, as `session/new` takes one; never from an agent's connection.
+            let credential = crate::agent_credentials::requested(Some(&params))?;
+            if credential.is_some() {
+                crate::agent_credentials::admit(conn.origin == Origin::Local, conn.caller())?;
+            }
+            let shape = crate::hub::PrewarmShape {
+                model: s("model").filter(|m| (1..=200).contains(&m.len())),
+                workspace_id: s("workspaceId").filter(|w| (1..=128).contains(&w.len())),
+                credential,
+            };
             let request = crate::hub::PrewarmRequest {
                 harness: s("harness"),
                 preset: s("preset"),
@@ -2572,6 +2602,7 @@ async fn dispatch_request_with_identity(
                 remote: conn.origin.web_class(),
                 trust_gate: super::trust_gate::gated(conn.origin, &params),
                 trust_web: super::trust_gate::for_web(conn.origin, &params),
+                shape,
             };
             heap(|| hub.prewarm(request)).await
         }
@@ -2663,12 +2694,12 @@ async fn dispatch_request_with_identity(
             let home = dirs::home_dir().unwrap_or_default();
             let base = str_param(&params, "cwd").map(PathBuf::from).unwrap_or_else(|| home.clone());
             let value = str_param(&params, "path").unwrap_or("");
-            let path = crate::tui::directory::resolve(&base, value, &home, None)
+            let path = crate::directory_input::resolve(&base, value, &home, None)
                 .map_err(|e| RpcError::invalid_params(e.to_string()))?;
             let result = tokio::task::spawn_blocking(move || -> Result<Value, std::io::Error> {
                 let path = std::fs::canonicalize(path)?;
                 if !path.is_dir() { return Err(std::io::Error::other("not a directory")); }
-                let children = crate::tui::directory::children(&path);
+                let children = crate::directory_input::children(&path);
                 Ok(json!({"path": path, "parent": path.parent(), "home": home, "directories": children}))
             }).await.map_err(|e| RpcError::internal(e.to_string()))?.map_err(|e| RpcError::invalid_params(e.to_string()))?;
             Ok(result)
@@ -3383,6 +3414,7 @@ async fn dispatch_request_with_identity(
         method::MUX_APP_REPLY => super::app_reply::check(hub, conn, &params),
         method::MUX_HARNESS_INVENTORY_WATCH => super::inventory_watch::handle(hub, conn, &params),
         // A lending Mac counts once this answer is queued (`server/mod.rs`, `github_owner.rs`).
+        super::controls::METHOD => super::controls::handle(hub, conn, &params),
         method::MUX_WATCH => super::list_reply::watch(hub, conn, &params).await,
         method::MUX_EVENTS | method::MUX_ATTACHMENT => {
             events::handle(hub, m, &params, conn.caller())

@@ -1,9 +1,11 @@
+import ApplicationServices
 import CmuxNextCompat
 public import CmuxNextComputerUse
 public import CmuxNextDaemon
 public import CmuxNextDaemonService
 public import CmuxNextDevices
 import CmuxNextWakeups
+import CoreGraphics
 import Darwin
 public import Foundation
 import os
@@ -42,6 +44,8 @@ public final class CmuxRemoteService {
     }
     private var configWaiters: [UUID: CheckedContinuation<Void, any Error>] = [:]
     private let configClock: any Clock<Duration>
+    /// ``followAppPermissions(activation:)`` ran (once, at launch).
+    private var followsAppPermissions = false
 
     public init(clock: any Clock<Duration> = ContinuousClock(), connection: @escaping @MainActor () -> DaemonConnection?) {
         configClock = clock
@@ -135,6 +139,46 @@ public final class CmuxRemoteService {
     public func status() async throws -> CmuxNextDaemon.JSONValue {
         guard let connection else { throw CmuxRemoteError.unavailable }
         return try await connection.request(RemoteHostStatusRequest())
+    }
+
+    // MARK: The app's own grants
+
+    /// This app's own Screen Recording and Accessibility now (read only, never a prompt).
+    static func appPermissions() -> RemoteHostConfigRequest.AppPermissions {
+        RemoteHostConfigRequest.AppPermissions(screenRecording: CGPreflightScreenCaptureAccess(), accessibility: AXIsProcessTrusted())
+    }
+
+    /// Tells the daemon this app's own grants (`remote-host-config` `app_permissions` only, no
+    /// switch: nothing saved, started or stopped). Where no cmux Remote is bundled (Release and
+    /// NIGHTLY) the app captures the screen itself, so `cmux remote-host grants` reads these.
+    public func reportAppPermissions() async {
+        guard let connection else { return }
+        do {
+            _ = try await connection.request(RemoteHostConfigRequest(appPermissions: Self.appPermissions()))
+        } catch {
+            remoteLogger.notice("cmux Remote app grants not reported: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// Reports this app's grants at each daemon connection that serves `remote-host-v1` and
+    /// whenever the app becomes active, since the person may have just turned one on in System
+    /// Settings. Runs in every build, with or without cmux Remote bundled. Activation comes
+    /// from `activation`'s existing app-active observer (no observer of its own).
+    func followAppPermissions(activation: MacScreenSystemShortcuts) {
+        guard !followsAppPermissions else { return }
+        followsAppPermissions = true
+        activation.onAppActive = { [weak self] in
+            // task-owner: one report per activation, bounded by the daemon request timeout.
+            Task { [weak self] in await self?.reportAppPermissions() }
+        }
+        // The source reads the daemon's connection and capabilities, so a new connection wakes this.
+        let connected = { @MainActor [weak self] in self?.connection.map { ObjectIdentifier($0) } }
+        // task-owner: lives with the app; one report per daemon connection.
+        Task { [weak self] in
+            for await current in ObservationStream(connected) where current != nil {
+                await self?.reportAppPermissions()
+            }
+        }
     }
 
     // MARK: App socket

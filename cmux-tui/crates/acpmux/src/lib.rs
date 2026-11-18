@@ -84,6 +84,7 @@ pub mod deliver;
 pub mod deps;
 pub mod desktop_bridge;
 pub mod desktop_link;
+pub mod directory_input;
 pub mod folder_instructions;
 #[cfg(all(test, unix))]
 mod fork_tests;
@@ -137,10 +138,12 @@ pub mod hub;
 #[cfg(feature = "hub-carrier")]
 pub mod hub_carrier;
 pub mod hunk_summary;
+pub mod idempotency;
 #[cfg(windows)]
 mod job;
 pub mod launch_credential;
 pub mod launch_policy;
+pub mod left_on_mac;
 pub mod link_v2;
 #[cfg(target_os = "linux")]
 pub(crate) mod linux_sandbox;
@@ -312,7 +315,11 @@ pub mod touched_files;
 pub mod transcript;
 pub mod trust;
 pub mod trust_auto;
+/// The ratatui terminal UI (feature `tui`, off by default: acpmux is headless; the `cmux` multicall
+/// binary turns it on). Its entry for the CLI is `tui_entry`.
+#[cfg(feature = "tui")]
 pub mod tui;
+pub mod tui_entry;
 pub mod turn_attestation;
 pub(crate) mod turn_errors;
 pub(crate) mod uniichat_endpoint;

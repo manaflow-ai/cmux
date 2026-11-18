@@ -83,6 +83,7 @@ copy_app() {
   APP="$dest"
 }
 
+# plist-exists: every caller accepts only a number (^[0-9]+$), so PlistBuddy's missing-file message is never a version
 plist_value() { /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null; }
 
 if ! copy_app "$NEW_ARCHIVE"; then
