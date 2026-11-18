@@ -51,18 +51,26 @@ import Testing
             window.setContentSize(NSSize(width: size.width, height: height))
             root.layoutSubtreeIfNeeded()
             let ring = bar.pill.debugRing
-            #expect(ring.host === pane.layer, "\(preset): the ring is in \(String(describing: ring.host)), not the pane's layer")
-            // The ring's layer frame is in the pane's (flipped) points: its layer shares its coordinates.
+            // With the bar at the clip's edge the ring lives in the pane's layer above the clip; with the bar under it
+            // (Default and Compact's 3 pt under the tab, Lucas 2026-11-18) the ring fits in the bar's own layer, whole.
+            let inPane = ring.host === pane.layer
+            #expect(inPane || ring.host === bar.pill.layer, "\(preset): the ring is in \(String(describing: ring.host))")
+            #expect(inPane || OmnibarStyle.toolbarTopPadding(scale: window.backingScaleFactor) >= width,
+                    "\(preset): the ring is inside the clip with no room above the bar")
+            // The ring's layer frame is in its host's points: a layer shares its view's coordinates.
+            let around = bar.pill.bounds.insetBy(dx: -width, dy: -width)
+            let expected = inPane ? pane.convert(around, from: bar.pill) : around
             let barInPane = pane.convert(bar.bounds, from: bar)
-            let expected = barInPane.insetBy(dx: -width, dy: -width)
             #expect(abs(ring.frame.minX - expected.minX) <= 0.01 && abs(ring.frame.maxX - expected.maxX) <= 0.01
                     && abs(ring.frame.minY - expected.minY) <= 0.01 && abs(ring.frame.maxY - expected.maxY) <= 0.01,
                     "\(preset) at \(height): the ring is \(ring.frame), the bar \(barInPane)")
         }
         let barInWindow = bar.convert(bar.bounds, to: nil)
-        // The bar starts at the toolbar's top edge: the tab gap above it is the strip's, as above the tabs.
+        // The bar starts the toolbar's top padding under its top edge: the strip's tab gap, then the omnibar's own gap
+        // under the tab (3 pt at Compact and Default).
         let areaTop = area.convert(area.bounds, to: nil).maxY
-        #expect(abs(barInWindow.maxY - areaTop) <= 0.01, "\(preset): the bar's top is \(barInWindow.maxY), the toolbar's \(areaTop)")
+        let padding = OmnibarStyle.barTop(scale: window.backingScaleFactor)
+        #expect(abs(areaTop - barInWindow.maxY - padding) <= 0.01, "\(preset): the bar's top is \(barInWindow.maxY), the toolbar's \(areaTop), want \(padding) between")
         #expect(bar.pill.debugStyle["ring_width"] as? Double == Double(width))
     }
 

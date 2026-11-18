@@ -42,6 +42,7 @@
     "omnibarButtonSize": 28,
     "omnibarStarPlateSize": 28,
     "omnibarMoreGlyphSize": 20,
+    "omnibarTabGap": 3,
     "omnibarIconLeading": 2,
     "omnibarTextGap": 4.5,
     "omnibarPopupTopOutset": 2.5,

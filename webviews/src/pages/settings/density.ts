@@ -70,6 +70,7 @@ const REFERENCE_TOKENS: Record<string, number> = {
   // Swift `DensityPreset.referenceTokens`: Compact's puzzle draws 16 pt of ink, its star 12 pt.
   omnibarExtensionsGlyphSize: 27 / 0.9,
   omnibarMoreGlyphSize: 20 / 0.9,
+  omnibarTabGap: 3 / 0.9,
   omnibarIconLeading: 2,
   omnibarTextGap: 5,
   omnibarPopupTopOutset: 3,

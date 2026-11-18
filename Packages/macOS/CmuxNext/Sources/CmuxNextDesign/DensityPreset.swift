@@ -137,6 +137,10 @@ public nonisolated enum DensityPreset: String, Sendable, CaseIterable {
         // are ``starGlyphSides``.
         // The ⋮ is Helium's and Chrome's: their 3 dots on a 20 pt side, 12 pt tall and 3 pt wide.
         "omnibarExtensionsGlyphSize": 27 / 0.9, "omnibarMoreGlyphSize": 20 / 0.9,
+        // The omnibar row's extra space under the tab strip: 3 pt at Compact and Default, so the active tab sits 6 pt
+        // above the omnibar (Lucas 2026-11-18: "make the spacing of the tabs the same as helium, this means that the
+        // bottom of the tab should have an extra 3px").
+        "omnibarTabGap": 3 / 0.9,
         "omnibarIconLeading": 2, "omnibarTextGap": 5, "omnibarPopupTopOutset": 3, "omnibarPopupSideOutset": 7,
         "omnibarPopupRowGap": 2, "omnibarPopupBottomPadding": 4,
     ]
