@@ -845,7 +845,8 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
 #   (a run with anything running or waiting otherwise is left alone);
 # - a run at its pull request's current head is cancelled and its failed jobs re-run (attempt 2: each job takes its
 #   route as the variables read now); a run whose pull request closed or moved on is only cancelled, since nobody
-#   reads its result; a run whose pull request cannot be read is left alone;
+#   reads its result; a run whose pull request cannot be read is left alone; a cancel whose re-run never went out
+#   is re-run by a later pass (BACKLOG_RECOVER_WINDOW);
 # - at most BACKLOG_ACTIONS cancels and BACKLOG_READS job reads a pass (BACKLOG_IN_PROGRESS_READS of them for
 #   runs that started a job), oldest queued runs first.
 BACKLOG_STALL = dt.timedelta(minutes=30)
@@ -857,6 +858,12 @@ BACKLOG_READS = 60
 BACKLOG_IN_PROGRESS_READS = 20
 BACKLOG_SLICE = dt.timedelta(hours=3)
 BACKLOG_SETTLE_S = 120.0
+# Recovery of a cancel whose re-run never went out (the cancel settled after the pass's settle time, or the re-run
+# request failed): a later pass re-runs a run cancelled in the last BACKLOG_RECOVER_WINDOW whose cancelled jobs all
+# carry the backlog's mark (no runner, hosted Ubuntu labels only, BACKLOG_STALL or more between queue and cancel), at
+# its pull request's head, when no newer run of its workflow exists at that head. At most BACKLOG_RECOVER_READS runs.
+BACKLOG_RECOVER_WINDOW = dt.timedelta(hours=2)
+BACKLOG_RECOVER_READS = 10
 
 
 def backlog_stalled(job: Mapping[str, Any], now: dt.datetime) -> bool:
@@ -964,12 +971,76 @@ def backlog_head(client: Any, run: Mapping[str, Any]) -> str:
     return "superseded" if live else "unknown"
 
 
+def backlog_cancelled_mark(jobs: Sequence[Mapping[str, Any]]) -> bool:
+    """Every cancelled job of the run is one the backlog pass cancels: it never had a runner, asked for hosted Ubuntu
+    only, and was queued BACKLOG_STALL or more before it was cancelled; at least one job was cancelled."""
+    cancelled = [job for job in jobs if job.get("conclusion") == "cancelled"]
+    if not cancelled:
+        return False
+    for job in cancelled:
+        labels = [str(label) for label in job.get("labels") or ()]
+        created, ended = parse_time(job.get("created_at")), parse_time(job.get("completed_at"))
+        if (job.get("runner_id") or job.get("runner_name") or not labels
+                or not all(HOSTED_LABEL.match(label) for label in labels)
+                or created is None or ended is None or ended - created < BACKLOG_STALL):
+            return False
+    return True
+
+
+def backlog_recover(client: Any, *, now: dt.datetime, dry_run: bool, declared: Sequence[str] | None,
+                    lines: list[str], counts: dict[str, int]) -> None:
+    """Re-run the backlog's cancels that were never re-run (a slow settle or a failed re-run request)."""
+    repo = getattr(client, "repo", "")
+    start = now - BACKLOG_WINDOW
+    recent = now - BACKLOG_RECOVER_WINDOW
+    found: list[Mapping[str, Any]] = []
+    for event in BACKLOG_EVENTS:
+        try:
+            _, rows = backlog_listing(client, "cancelled", event, start, now)
+        except Exception as error:  # noqa: BLE001 - an unread listing only narrows this pass
+            lines.append(f"could not list cancelled {event} runs ({error})")
+            continue
+        for run in rows:
+            workflow = workflow_file(run)
+            created, updated = parse_time(run.get("created_at")), parse_time(run.get("updated_at"))
+            if (not isinstance(run.get("id"), int) or run.get("run_attempt") != 1 or run.get("status") != "completed"
+                    or run.get("conclusion") != "cancelled" or workflow is None or workflow in EXCLUDED_WORKFLOWS
+                    or created is None or updated is None or updated < recent
+                    or (repo and str((run.get("head_repository") or {}).get("full_name") or "") != repo)):
+                continue
+            # The minute pass re-runs its own cancels from its journal.
+            if created >= now - WINDOW and (declared is None or workflow in declared):
+                continue
+            found.append({**run, "_workflow": workflow})
+    for run in sorted(found, key=run_key)[:BACKLOG_RECOVER_READS]:
+        where = f"run {run['id']} ({run['_workflow']}, {run.get('event')}, {run.get('head_branch')})"
+        try:
+            if not backlog_cancelled_mark(client.jobs(run["id"])):
+                continue
+            others = client.request("GET", f"/actions/runs?head_sha={run.get('head_sha')}&per_page=100")
+            if any(isinstance(other, Mapping) and other.get("path") == run.get("path")
+                   and int(other.get("id") or 0) > run["id"] for other in others.get("workflow_runs") or ()):
+                continue
+            if backlog_head(client, run) != "current":
+                continue
+            if dry_run:
+                lines.append(f"{where}: cancelled by a backlog pass and never re-run; would re-run (dry run)")
+                continue
+            client.rerun_failed(run["id"])
+        except Exception as error:  # noqa: BLE001 - unread or refused: the next pass looks again
+            lines.append(f"{where}: cancelled by a backlog pass and never re-run; not re-run now ({error})")
+            continue
+        counts["recovered"] += 1
+        lines.append(f"{where}: cancelled by a backlog pass and never re-run; re-ran its failed jobs")
+
+
 def backlog_sweep(client: Any, *, now: dt.datetime, dry_run: bool, declared: Sequence[str] | None,
                   actions: int = BACKLOG_ACTIONS, sleep: Callable[[float], None] = time.sleep,
                   clock: Callable[[], float] = time.monotonic) -> tuple[list[str], dict[str, int]]:
     """One bounded backlog pass. Returns its log lines and counts (cancelled, superseded, rerun, ...)."""
     lines: list[str] = []
-    counts = {"candidates": 0, "read": 0, "stalled": 0, "cancelled": 0, "superseded": 0, "rerun": 0}
+    counts = {"candidates": 0, "read": 0, "stalled": 0, "cancelled": 0, "superseded": 0, "rerun": 0,
+              "recovered": 0}
     actions = max(0, min(int(actions), BACKLOG_ACTIONS_MAX))
     start, end = now - BACKLOG_WINDOW, now - BACKLOG_STALL
     minute_pass_from = now - WINDOW
@@ -977,6 +1048,7 @@ def backlog_sweep(client: Any, *, now: dt.datetime, dry_run: bool, declared: Seq
     if pool_low(client, now):
         lines.append(f"the read token's pool is down to {client.remaining} (reserve {POOL_RESERVE}); nothing read")
         return lines, counts
+    backlog_recover(client, now=now, dry_run=dry_run, declared=declared, lines=lines, counts=counts)
     listed: dict[int, Mapping[str, Any]] = {}
     for status in ("queued", "in_progress"):
         for event in BACKLOG_EVENTS:
@@ -1079,7 +1151,7 @@ def backlog_sweep(client: Any, *, now: dt.datetime, dry_run: bool, declared: Seq
                     continue
                 client.rerun_failed(run["id"])
             except Exception as error:  # noqa: BLE001
-                lines.append(f"{where}: {detail}; cancelled, re-run refused ({error}); re-run it by hand")
+                lines.append(f"{where}: {detail}; cancelled, re-run refused ({error}); a later pass re-runs it")
                 continue
             counts["rerun"] += 1
             lines.append(f"{where}: {detail}; cancelled and re-ran its failed jobs on today's routes")
@@ -1087,12 +1159,13 @@ def backlog_sweep(client: Any, *, now: dt.datetime, dry_run: bool, declared: Seq
         if waiting and clock() >= deadline:
             for run, where, detail in waiting:
                 lines.append(f"{where}: {detail}; cancelled, but the cancel did not settle in "
-                             f"{BACKLOG_SETTLE_S:.0f} s; re-run it by hand")
+                             f"{BACKLOG_SETTLE_S:.0f} s; a later pass re-runs it")
             break
         if waiting:
             sleep(SETTLE_INTERVAL_S)
     lines.append(f"{counts['candidates']} candidate runs, {counts['read']} read, {counts['stalled']} stalled, "
-                 f"{counts['cancelled']} cancelled ({counts['superseded']} superseded), {counts['rerun']} re-run")
+                 f"{counts['cancelled']} cancelled ({counts['superseded']} superseded), {counts['rerun']} re-run, "
+                 f"{counts['recovered']} earlier cancels re-run")
     return lines, counts
 
 

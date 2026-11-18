@@ -970,10 +970,14 @@ class BacklogFake:
         assert method == "GET", path
         parsed = urllib.parse.urlparse(path)
         query = dict(urllib.parse.parse_qsl(parsed.query))
+        if parsed.path == "/actions/runs" and "head_sha" in query:
+            return {"workflow_runs": [r for r in self.runs.values() if r["head_sha"] == query["head_sha"]]}
         if parsed.path == "/actions/runs":
             self.listings.append(path)
             low, high = (rescue.parse_time(part) for part in query["created"].split(".."))
-            rows = [r for r in self.runs.values() if r["status"] == query["status"] and r["event"] == query["event"]
+            # GitHub's `status` filter matches a conclusion too (status=cancelled).
+            rows = [r for r in self.runs.values()
+                    if query["status"] in (r["status"], r.get("conclusion")) and r["event"] == query["event"]
                     and low <= rescue.parse_time(r["created_at"]) <= high]
             rows.sort(key=lambda r: (r["created_at"], r["id"]), reverse=True)
             page = int(query.get("page", 1))
@@ -1160,6 +1164,51 @@ class Backlog(unittest.TestCase):
                         now=NOW)
             client = swept.call_args.args[0]
         self.assertEqual((client.token, client.write_token, client.fallback), ("bot", "bot", "workflow"))
+
+    def cancelled_run(self, run_id: int, *, waited: float = 7200, runner_id: int = 0, pr: int = 1,
+                      updated_min: float = 20) -> tuple[dict, list[dict]]:
+        run = {**backlog_run(run_id, age_min=180, pr=pr), "status": "completed", "conclusion": "cancelled",
+               "updated_at": ago(updated_min * 60)}
+        cancelled = {**job("check", status="completed", runner_id=runner_id, waited=waited + 60),
+                     "conclusion": "cancelled", "completed_at": ago(60)}
+        done = {**job("plan", status="completed", runner_id=4), "conclusion": "success", "completed_at": ago(600)}
+        return run, [cancelled, done]
+
+    def test_a_backlog_cancel_never_re_run_is_re_run_by_the_next_pass(self):
+        run, jobs = self.cancelled_run(60)
+        fake = BacklogFake([run], {60: jobs}, pulls={1: OPEN_AT_HEAD})
+        lines, counts = backlog(fake)
+        self.assertEqual(backlog_mutations(fake), [("rerun", 60)])
+        self.assertEqual(counts["recovered"], 1)
+        self.assertIn("1 earlier cancels re-run", lines[-1])
+
+    def test_recovery_leaves_a_cancel_that_is_not_the_backlogs_alone(self):
+        started, started_jobs = self.cancelled_run(61, runner_id=8)   # the cancelled job had a runner
+        short, short_jobs = self.cancelled_run(62, waited=10 * 60)     # cancelled before 30 min on hosted
+        old, old_jobs = self.cancelled_run(63, updated_min=200)        # cancelled before the recovery window
+        fake = BacklogFake([started, short, old], {61: started_jobs, 62: short_jobs, 63: old_jobs},
+                           pulls={1: OPEN_AT_HEAD})
+        _, counts = backlog(fake)
+        self.assertEqual(backlog_mutations(fake), [])
+        self.assertEqual(counts["recovered"], 0)
+
+    def test_recovery_skips_a_superseded_head_and_a_head_with_a_newer_run(self):
+        moved, moved_jobs = self.cancelled_run(64, pr=2)
+        newer_head, newer_jobs = self.cancelled_run(65)
+        newer_head["head_sha"] = "d" * 40
+        newer = {**backlog_run(66, age_min=40, pr=1, head="d" * 40), "status": "completed", "conclusion": "success"}
+        fake = BacklogFake([moved, newer_head, newer], {64: moved_jobs, 65: newer_jobs},
+                           pulls={1: {"state": "open", "head": {"sha": "d" * 40}},
+                                  2: {"state": "open", "head": {"sha": "e" * 40}}})
+        backlog(fake)
+        self.assertEqual(backlog_mutations(fake), [])
+
+    def test_recovery_in_a_dry_run_mutates_nothing(self):
+        run, jobs = self.cancelled_run(67)
+        fake = BacklogFake([run], {67: jobs}, pulls={1: OPEN_AT_HEAD})
+        lines, _ = backlog(fake, dry_run=True)
+        self.assertEqual(backlog_mutations(fake), [])
+        self.assertTrue(any("would re-run (dry run)" in line for line in lines))
 
     def test_the_workflow_is_scheduled_dispatchable_and_bounded(self):
         import yaml
