@@ -35,7 +35,7 @@ await requireBrowserLane("new-tab-create-strip-scroll.test.ts", async () => {
       const page = await browser!.newPage({ viewport: { width: 900, height: 360 }, reducedMotion: "reduce" });
       try {
         await page.goto(
-          `http://127.0.0.1:${port}/test/browser/new-tab-picker.html?template=threads&crowdedSuggestions`,
+          `http://127.0.0.1:${port}/test/browser/new-tab-picker.html?crowdedSuggestions`,
         );
         await page.addStyleTag({ content: utilities });
         await page.locator(".nt-field").waitFor();

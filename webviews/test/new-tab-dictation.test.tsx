@@ -125,8 +125,6 @@ async function renderNewTab(
         onSearch={noop}
         onShell={noop}
         onJump={noop}
-        onOpenSession={noop}
-        onShowAll={noop}
       />
     );
   }
@@ -254,8 +252,6 @@ test("a session whose New Tab field goes away ends, and never writes into the ch
         onSearch={noop}
         onShell={noop}
         onJump={noop}
-        onOpenSession={noop}
-        onShowAll={noop}
       />
     ) : (
       <textarea className="chat" aria-label="Chat" ref={chat} defaultValue="" />

@@ -100,7 +100,6 @@ test("Return on a New Tab asks the agent on the model its chip names", async () 
     callNative: async (method, params) => void calls.push({ method, params }),
     leave: noop,
     selectSession: noop,
-    showAllChats: noop,
     runShell: noop,
   });
   const root: Root = createRoot(host);
@@ -181,8 +180,6 @@ test("New Tab preflights its selected harness and keeps a refused draft", async 
               onSearch={noop}
               onShell={noop}
               onJump={noop}
-              onOpenSession={noop}
-              onShowAll={noop}
             />
           </SignInContext.Provider>
         </QueryClientProvider>,
@@ -234,7 +231,6 @@ async function newTabPage(
       <QueryClientProvider client={new QueryClient()}>
         <SignInContext.Provider value={{ signedOut: options.signedOut ?? {}, logIn: noop, readSessionAuth }}>
           <NewTabScreen
-            template="default"
             {...options.launch}
             chips={options.chips}
             snapshot={noChat()}
@@ -249,8 +245,6 @@ async function newTabPage(
             onSearch={noop}
             onShell={noop}
             onJump={noop}
-            onOpenSession={noop}
-            onShowAll={noop}
           />
         </SignInContext.Provider>
       </QueryClientProvider>,

@@ -108,8 +108,6 @@ async function render(calls: unknown[][]) {
         onSearch={(text) => calls.push(["search", text])}
         onShell={(command) => calls.push(["shell", command])}
         onJump={noop}
-        onOpenSession={noop}
-        onShowAll={noop}
       />,
     ),
   );

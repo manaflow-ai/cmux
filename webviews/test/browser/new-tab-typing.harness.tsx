@@ -35,8 +35,6 @@ function Host() {
       inputToken="opening-1"
       onInputReady={(token) => ready(token)}
       onSubmit={noop}
-      onOpenSession={noop}
-      onShowAll={noop}
     />
   ) : (
     <NewTabScreen
@@ -51,8 +49,6 @@ function Host() {
       onSearch={(value) => window.newTabSearches!.push(value)}
       onShell={(command) => window.newTabShellCommands!.push(command)}
       onJump={noop}
-      onOpenSession={noop}
-      onShowAll={noop}
     />
   );
 }

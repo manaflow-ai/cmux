@@ -260,24 +260,21 @@ Option-click on the + (a tab of the selected tab's kind) goes to the same place.
 
 ## `tabs.newTabTemplate`
 
-The layout of the New Tab page. On every template but `minimal`, the template dots under the page switch it in place and save the choice here.
+The layout of the New Tab page. On `classic`, the template dots under the page switch it in place and save the choice here.
 
 ```json
 {
-  "tabs": { "newTabTemplate": "terminal" }
+  "tabs": { "newTabTemplate": "classic" }
 }
 ```
 
 - `minimal` (the default): the composer, with its folder and machine, and nothing else.
-- `cards`: one rounded field with the Search and Ask switch (Tab switches), the project and agent chips under it, and three recent chats as tall cards.
-- `default`: one field with agent rows, recent chats as cards, and Tools.
-- `composer`: one large prompt field, with nothing else.
-- `threads`: the field and the recent chats as a list.
-- `console`: a monospace field with a `>` prompt and the recent chats as lines.
 - `classic`: the Terminal, Browser and Agent switch.
-- `terminal`: the `cards` screen. New Tab never opens a terminal by itself; pick one on the page or use New Terminal Tab.
+- `terminal`: the `minimal` screen. New Tab never opens a terminal by itself; pick one on the page or use New Terminal Tab.
 
-Cmd-T and the + button always open the New Tab page. Change the template in **Settings > General > Tabs** or with `cmux settings set tabs.newTabTemplate console`.
+The `cards`, `default`, `threads` and `console` templates no longer ship: they are looks now, built on the customization API (`tabs.newTabApp`). A saved one, like the older `composer`, loads as `minimal`.
+
+Cmd-T and the + button always open the New Tab page. Change the template in **Settings > General > Tabs** or with `cmux settings set tabs.newTabTemplate classic`.
 
 ## `tabs.newTabApp`
 

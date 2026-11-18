@@ -24,6 +24,6 @@ test("Codex's look (no split) reserves the shell glyph's column", () => {
 
 test("Claude's look (split) moves the glyph into the lead gap instead", () => {
   expect(css).toMatch(
-    /\.nt-input\[data-split\] \.nt-field-slot:not\(\[data-glyph-column\]\) \.nt-input-glyph \{[^}]*inset-inline-start:\s*calc\(-1 \* var\(--acpmux-composer-lead-gap\)\)/,
+    /\.nt-input\[data-split\] \.nt-field-slot \.nt-input-glyph \{[^}]*inset-inline-start:\s*calc\(-1 \* var\(--acpmux-composer-lead-gap\)\)/,
   );
 });

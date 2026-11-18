@@ -16,7 +16,7 @@ type Sessions = AcpmuxSnapshot["sessions"];
 
 const KEY = "cmux.acpmux.newTab.sessions.v1";
 /// The chats a New Tab lists come from the newest few; the rest only keep their transcripts from
-/// coming back as device chats (recentChatCards) and their folders in the project picker, so each
+/// coming back as device chats and their folders in the project picker, so each
 /// keeps just the fields those need.
 const FULL = 60;
 

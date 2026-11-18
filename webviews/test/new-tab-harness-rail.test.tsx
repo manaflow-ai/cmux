@@ -107,7 +107,6 @@ async function railTabs(page: "newTab" | "chat", snapshot: Snap, typed?: string)
     callNative: async () => undefined,
     leave: noop,
     selectSession: noop,
-    showAllChats: noop,
     runShell: noop,
   });
   const root: Root = createRoot(host);

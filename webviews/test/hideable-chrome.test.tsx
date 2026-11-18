@@ -104,8 +104,6 @@ async function renderNewTab(persisted: { showDictation: boolean }) {
         onSearch={noop}
         onShell={noop}
         onJump={noop}
-        onOpenSession={noop}
-        onShowAll={noop}
       />
     );
   }

@@ -25,8 +25,7 @@ import { EMPTY_OMNIBAR, stepSelection, type OmnibarContext } from "../omnibar";
 import { ComposerContext } from "../ComposerContext";
 import { OnNewTab } from "../newTabComposer";
 import type { Project } from "../ProjectChooser";
-import { firstProject, homePath, isAgentHome, mostRecentProject, projectLabel, sessionMark } from "../sessionList";
-import { leaders } from "../leads";
+import { firstProject, homePath, isAgentHome, mostRecentProject, projectLabel } from "../sessionList";
 import { WorktreeFailure } from "../startFolder";
 import { NewProjectName, NewProjectFailure, NewProjectUnsupported } from "./NewProjectName";
 import {
@@ -40,7 +39,7 @@ import { BrowseFailure } from "../BrowseFailure";
 import { browseFailureMessage } from "../browseFailureModel";
 import { type BrowseRequest } from "../AddProjectPanel";
 import { BROWSE_BUSY, type BrowseResult } from "../addProjectPanelModel";
-import { errorMessage, isStartCancelled, knownRefusalText, startErrorMessage } from "../transportErrors";
+import { isStartCancelled, knownRefusalText, startErrorMessage } from "../transportErrors";
 import { logStartFailure, startFailureCause, startFailureCode } from "../startFailure";
 import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { sandboxFailureKey, type RunMode, type RunModeRows } from "../sandboxRun";
@@ -61,10 +60,6 @@ import { AttachmentStrip } from "../composer/attachmentIntake";
 import { backspacedAttachment, useAttachmentIntake, useSendWhenAttached } from "../composer/attachmentIntakeModel";
 import { isPasteAsPlainTextKey, usePastedChips } from "../composer/pastedChips";
 import { DropOverlay } from "../composer/DropOverlay";
-import { AllChatsList } from "./AllChatsList";
-import { type LoadChatsPage } from "./allChatsListModel";
-import { ChatCards } from "./ChatCards";
-import { ClosedList } from "./ClosedList";
 import { OpenTabsList } from "./OpenTabsList";
 import { NowPlayingPlayer } from "./NowPlayingPlayer";
 import { type NowPlayingCommand } from "./nowPlayingPlayerModel";
@@ -75,7 +70,6 @@ import { useLastPick } from "../lastPick";
 import { useDeviceChats } from "./deviceChats";
 import { listingWanted, omnibarFolders } from "./launchRows";
 import { type CompleteFolder, useFolderListing } from "./omnibarReads";
-import { useRecentlyClosed } from "./recentlyClosed";
 import { initialRecentProject } from "./recentProject";
 import { rememberedStartedProject } from "./startedProject";
 import {
@@ -84,8 +78,6 @@ import {
   isAddress,
   pairingLinkRefused,
   inlineCompletion,
-  needsYouCards,
-  pageChatCards,
   profileRows,
   screenRows,
   searchWords,
@@ -95,10 +87,8 @@ import {
 } from "./screenModel";
 import { SuggestionGlyph } from "./RowGlyph";
 import { useNoEntryMotion } from "./noEntryMotion";
-import { EnvironmentCard, SuggestionsCard } from "./StageCards";
 import { FirstRunStarters, showsFirstRunStarters, type FirstRunStarterLook } from "./FirstRunStarters";
 import { type NewTabTranslate, useNt } from "./strings";
-import { DEFAULT_NEW_TAB_TEMPLATE, screenSections, screenTemplate, type ScreenTemplate } from "./templates";
 import { useT } from "../i18n";
 import { sendsHeldForHost } from "../sendWhenReady";
 import { composerPlusRegistry, composerPlusSearchExtensions } from "../composerPlusRegistry";
@@ -115,7 +105,6 @@ import { useInlineAttachments } from "../composer/inlineAttachments";
 import { ComposerFoot } from "../ComposerFoot";
 import { useRowFit } from "../composerRowFit";
 import { useMenuPressGuard } from "../menuPressGuard";
-import { useMinuteClock } from "../clock";
 import { usePasteAnywhere } from "../composer/pasteAnywhere";
 import { SlashMenu } from "../SlashMenu";
 import { ComposerListAnchor, ComposerListLayer } from "../backdropLayer";
@@ -138,7 +127,6 @@ import { openHarnessesPage } from "../harnesses/harnessesPage";
 import type { SuggestionOrder } from "./suggestionOrder";
 import { newTabComposerTrailingGapArm } from "./composerGap.experiment";
 import { newTabIconColumnArm } from "./iconColumn.experiment";
-import { elementBox, reportToastAvoidance } from "../toastAvoidance";
 import { githubIssueLink } from "../../../githubReferences";
 import { reportInputReadyWhenFocused } from "./inputReady";
 import { rememberNewChatPlace } from "../lastNewChatPlace";
@@ -184,24 +172,12 @@ export type NewTabScreenActions = NewTabCommandActions & {
   /// Enter in shell mode (`!` first): the page becomes a chat in its folder that runs `command`.
   onShell(command: string): void;
   /// `here`: an Open Tabs pick, moved into this page's pane (cx-jfo7).
-  onJump(target: "tab" | "workspace" | "here" | "closed", id: string): void;
+  onJump(target: "tab" | "workspace" | "here", id: string): void;
   /// A Commands palette action row (Cmd-Shift-P's actions, `omnibar.actions`): the host runs it as
   /// the palette would (`app.action`).
   onAction?(id: string): void;
-  onOpenSession(sessionId: string): void;
-  /// A device chat card (acpmux chat index, the sidebar's All chats): the host's Open Chat path.
-  onOpenChat?(key: string): void | Promise<unknown>;
-  /// Open in terminal from an All chats row's right-click menu.
-  onOpenChatInTerminal?(key: string): void;
-  /// A chat card's Compress Chat or Decompress Chat: acpmux's cold archive (`_acpmux/cold_archive`) of
-  /// that session. It rejects with acpmux's refusal (a chat under way), which the page shows.
-  onColdArchive?(sessionId: string, archived: boolean): Promise<unknown>;
-  onViewChat?(key: string): void;
-  /// One page of All chats from the host (`chats.page`); without it the page shows no All chats list.
-  loadChatsPage?: LoadChatsPage;
   /// The host's `folder.complete`: an absolute folder's subfolders, for a path typed in the field.
   completeFolder?: CompleteFolder;
-  onShowAll(): void;
   /// The + menu's Search chats and Search pages: runs that app action (PLUS_SEARCH_ACTIONS); it
   /// rejects when the app refused it, and the page says so. Without it the + menu leaves both rows out.
   onPlusCommand?(id: string): Promise<unknown>;
@@ -286,7 +262,6 @@ type Props = NewTabScreenActions & {
   /// The workspace's tabs to move here (a split's page, cx-jfo7).
   openTabs?: NewTabHost["openTabs"];
   inputToken?: string;
-  now?: number;
   /// The folder the tab inherited: the project picker starts there.
   cwd?: string;
   /// The folder a prompt with no pick starts in (the host's start folder, a private folder in a
@@ -330,16 +305,11 @@ type Props = NewTabScreenActions & {
   /// false: the field does not take the keyboard when the screen appears (Cmd-L gave it to the
   /// omnibar); Cmd-L on the page still focuses it when the page shows no omnibar.
   focusField?: boolean;
-  /// Which screen template draws the page (newtab/templates.ts); Minimal when unset.
-  template?: ScreenTemplate;
   /// How the first-run starters under the composer look (FirstRunStarters.tsx); the gallery's
   /// variants set it, the app leaves it unset (rows).
   starterLook?: FirstRunStarterLook;
   /// How the rows under the field rank (screenModel.ts SuggestionOrder); unset is the default.
   suggestionOrder?: SuggestionOrder;
-  /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the recent chats show where
-  /// the template would list All chats.
-  allChats?: boolean;
   /// Buttons before Send, such as the dictation mic (DictationMic).
   accessory?: React.ReactNode;
   /// Why dictation did not run (DictationNotice), under the field.
@@ -368,28 +338,18 @@ function homeOrAbove(cwd: string | undefined): boolean {
 
 /// How long the folder chip holds its place for a daemon that has not listed the chats yet.
 const RESERVE_MS = 2_000;
-const NO_DEVICE_CHATS: ReturnType<typeof useDeviceChats> = [];
 
 /// The new tab screen, variant B (plans/cmux-next/new-tab.md): the project and model pickers on
 /// top, then one field that reads what is typed (`!` a shell command, an address, or a prompt for
 /// the picked agent, R86), the rows for addresses and open tabs only when they make sense
-/// (cx-e2aa), and the recent chats as cards. A key typed anywhere on the page goes to the field.
+/// (cx-e2aa). It lists no chats (Leo 2026-10-20: "only do the composer for the default"; the
+/// templates that listed recent chats became looks, built on `tabs.newTabApp`). A key typed
+/// anywhere on the page goes to the field.
 export function NewTabScreen(props: Props) {
   const nt = useNt();
   // What the page shows or opens appears at once; exits keep their fades (noEntryMotion.ts).
   useNoEntryMotion();
-  const { snapshot, omnibar = EMPTY_OMNIBAR, location, lastAgent, home, now, inputToken } = props;
-  // NewTabPage resolves the host's unset template too, but keep this component safe when mounted
-  // directly (gallery/tests and embedders): the written default is Minimal, not the retired stage.
-  const template: ScreenTemplate = props.template ?? screenTemplate(DEFAULT_NEW_TAB_TEMPLATE);
-  const sections = screenSections(template);
-  // Minimal (Leo 2026-10-20: "only do the composer for the default") is the composer alone, about
-  // the window's middle, with no widgets (Lawrence 2026-11-09: "remove widgets completely"). The
-  // other layouts draw their own parts: the project card, the quick actions and the recent chats.
-  const minimal = template === "minimal";
-  // Claude Code desktop's new-session page (templates.ts stage, the Default template): the composer
-  // at the foot, the environment and suggestions cards over it.
-  const stage = sections.stage;
+  const { snapshot, omnibar = EMPTY_OMNIBAR, location, lastAgent, home, inputToken } = props;
   const [carried] = useState(() => props.takeDraft?.());
   // A host-provided location is literal text, not Markdown (paths can contain `_`, `*`, or `[`);
   // a carried composer draft is already serialized Markdown, including attachment tokens.
@@ -1095,104 +1055,17 @@ export function NewTabScreen(props: Props) {
   const { plainFooter, spellChecking, attachmentView } = useComposerSettings();
   // The quiet row's labels step down with the composer's width, as the chat's (composerRowFit.ts).
   const foot = useRef<HTMLDivElement>(null);
-  // Every template keeps Claude's composer and its quiet footer.
+  // The page keeps Claude's composer and its quiet footer.
   const chatBox = props.chips !== undefined;
   const split = chatBox;
   const trailingGap = newTabComposerTrailingGapArm();
   const iconColumn = newTabIconColumnArm();
-  // Footer look and template can change while this screen stays mounted.
+  // The footer look can change while this screen stays mounted.
   useRowFit(foot, `${split}:${plainFooter}`);
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
   useMenuPressGuard();
-  // Before the daemon lists the chats, the device chats wait with them (at most RESERVE_MS): a cold
-  // page fills its list once, not the device chats first and the chats above them after.
-  const [chatsReserveOver, setChatsReserveOver] = useState(false);
-  const holdChats = props.chatsPending === true && !chatsReserveOver;
-  useEffect(() => {
-    if (!holdChats) return;
-    const timer = setTimeout(() => setChatsReserveOver(true), RESERVE_MS);
-    return () => clearTimeout(timer);
-  }, [holdChats]);
-  // The device chat index's newest chats, for the cards under the field.
+  // The device chat index's chats: only whether there are any (the first-run starters).
   const pushed = useDeviceChats();
-  const device = holdChats ? NO_DEVICE_CHATS : pushed;
-  const closed = useRecentlyClosed();
-  // Ages read the shared clock (clock.ts): every page shows the same age and changes it together.
-  const clock = useMinuteClock();
-  const at = now ?? clock;
-  const cards = useMemo(
-    () => pageChatCards(sections, snapshot.sessions, at, t, device),
-    [sections, snapshot.sessions, at, t, device],
-  );
-  // With All chats on the page (the host answers `chats.page`) every chat is in that list, so
-  // the cards keep only the chats that are running or need the user. Show All Chats off
-  // (`sidebar.showChats`) keeps the recent chats in its place.
-  const allChats =
-    !minimal && sections.allChats && props.allChats !== false && !!props.loadChatsPage && !!props.onOpenChat;
-  const activeCards = useMemo(() => cards.filter((card) => card.state !== "idle"), [cards]);
-  // Every leader, once: the live chats other chats report to (leads.ts).
-  const leads = useMemo(
-    () =>
-      allChats
-        ? leaders(snapshot.sessions).map(({ entry, reports }) => ({
-            id: entry.sessionId,
-            title: entry.displayTitle ?? entry.name ?? entry.sessionId,
-            ...(entry.harness ? { harness: entry.harness } : {}),
-            state:
-              entry.indicator === "failed" ? ("failed" as const) : (sessionMark(entry, false) ?? ("idle" as const)),
-            label: nt("leads.reports", { count: String(reports.length) }),
-          }))
-        : [],
-    [allChats, snapshot.sessions, nt],
-  );
-  // The stage layout's suggested actions start with the chats waiting on the user: one asking for
-  // input, or one that hit an error or lost its agent. Picked from every chat, not the trimmed
-  // recent cards (needsYouCards).
-  const needsYou = useMemo(
-    () => (stage ? needsYouCards(snapshot.sessions, at, t) : []),
-    [stage, snapshot.sessions, at, t],
-  );
-  const openCard = (id: string) => {
-    const key = cards.find((card) => card.sessionId === id)?.chatKey;
-    if (key && props.onOpenChat) {
-      // A recent chat's native open can fail without navigating. Keep its refusal on New Tab.
-      try {
-        void Promise.resolve(props.onOpenChat(key)).catch((error: unknown) => {
-          setStartError({
-            error: errorMessage(error) || t("switch.unknownError"),
-            local: true,
-            retry: () => (setStartError(undefined), openCard(id)),
-          });
-        });
-      } catch (error) {
-        setStartError({
-          error: errorMessage(error) || t("switch.unknownError"),
-          local: true,
-          retry: () => (setStartError(undefined), openCard(id)),
-        });
-      }
-      return;
-    }
-    props.onOpenSession(id);
-  };
-  // A card's Open in Terminal, by its chat's key, as All chats opens one (only cards with a key offer it).
-  const openCardInTerminal = (id: string) => {
-    const key = cards.find((card) => card.sessionId === id)?.chatKey;
-    if (key) props.onOpenChatInTerminal?.(key);
-  };
-  // A card's Compress Chat or Decompress Chat; acpmux's refusal stays on the page, as an open's does.
-  const coldArchiveCard = (id: string, archived: boolean) => {
-    void props.onColdArchive?.(id, archived).catch((error: unknown) => {
-      setStartError({
-        error: errorMessage(error) || t("switch.unknownError"),
-        local: true,
-        retry: () => {
-          setStartError(undefined);
-          coldArchiveCard(id, archived);
-        },
-      });
-    });
-  };
   const list = useRef<HTMLDivElement>(null);
   // The rows stay in the page (they never go to the native popup host): it draws text rows only, so a list with no
   // room under the composer lost its glyphs, its Return hint and the create strip (2026-11-16). Short of room, the
@@ -1212,9 +1085,6 @@ export function NewTabScreen(props: Props) {
   // under the whole composer instead, so they never cover those controls (a press there would pick
   // a row).
   const [composer, setComposer] = useState<HTMLDivElement | null>(null);
-  // At the page's foot (the stage layout) the app's toasts lift above the composer card and never
-  // cover it (toastAvoidance.ts). Elsewhere it sits at the top or the middle, clear of them.
-  useEffect(() => (stage && composer ? reportToastAvoidance(composer, elementBox) : undefined), [stage, composer]);
   const anchor = useMemo(
     () => (split && composer && box ? suggestionsAnchor(composer, box) : split ? (composer ?? box) : box),
     [split, composer, box],
@@ -1971,10 +1841,6 @@ export function NewTabScreen(props: Props) {
     : undefined;
   const Chips = props.chips;
   const chooser = useRef<HTMLInputElement>(null);
-  /// The Cards template (u2851): the field is a pill of its own and the chips sit under it. The
-  /// chat composer's box replaces it.
-  const pill = template === "cards" && !chatBox;
-
   const onPlusCommand = props.onPlusCommand;
   const plusSearchRows = useMemo(() => composerPlusSearchExtensions(t), [t]);
   /// The + search the app refused (turned off, or not for this tab), said over the composer until
@@ -2160,73 +2026,28 @@ export function NewTabScreen(props: Props) {
         )}
         <span className="acpmux-composer-actions">
           {props.accessory}
-          {/* Send: a click does what Return does (a prompt, a row, or a shell command). Cards draws
-              none, as Aside's New Tab: Return sends. */}
-          {!pill && (
-            <button
-              type="button"
-              className={
-                text.trim() || attachments.length || reading.length
-                  ? "acpmux-send acpmux-send-ready nt-send"
-                  : "acpmux-send nt-send"
-              }
-              aria-label={t("composer.send")}
-              title={t("composer.sendTooltip")}
-              // While dictating, Send ends the session and sends what it heard.
-              disabled={!listening && !text.trim() && attachments.length === 0 && reading.length === 0}
-              data-starting={starting !== undefined ? "" : undefined}
-              onClick={send}
-            >
-              {/* While the chat starts (`starting`), in Send's own box: nothing else moves. */}
-              {starting !== undefined ? <Spinner size={14} loading /> : <ArrowUpIcon />}
-            </button>
-          )}
+          {/* Send: a click does what Return does (a prompt, a row, or a shell command). */}
+          <button
+            type="button"
+            className={
+              text.trim() || attachments.length || reading.length
+                ? "acpmux-send acpmux-send-ready nt-send"
+                : "acpmux-send nt-send"
+            }
+            aria-label={t("composer.send")}
+            title={t("composer.sendTooltip")}
+            // While dictating, Send ends the session and sends what it heard.
+            disabled={!listening && !text.trim() && attachments.length === 0 && reading.length === 0}
+            data-starting={starting !== undefined ? "" : undefined}
+            onClick={send}
+          >
+            {/* While the chat starts (`starting`), in Send's own box: nothing else moves. */}
+            {starting !== undefined ? <Spinner size={14} loading /> : <ArrowUpIcon />}
+          </button>
         </span>
       </div>
     </ChromeArea>
   );
-  // The page's lists: the open tabs to move here, Recently Closed and the recent chats. In the stage
-  // layout they sit under the cards, over the composer.
-  const lists = (
-    <>
-      {props.openTabs && <OpenTabsList tabs={props.openTabs} onMoveHere={(id) => props.onJump("here", id)} />}
-      {sections.closed && !minimal && <ClosedList items={closed} onReopen={(id) => props.onJump("closed", id)} />}
-      {sections.chats !== "none" && !allChats && !minimal && (
-        <ChatCards
-          cards={cards}
-          pending={props.chatsPending}
-          variant={sections.chats}
-          onOpen={openCard}
-          {...(props.onOpenChatInTerminal ? { onOpenInTerminal: openCardInTerminal } : {})}
-          {...(props.onColdArchive ? { onColdArchive: coldArchiveCard } : {})}
-          onShowAll={props.onShowAll}
-        />
-      )}
-      {allChats && props.loadChatsPage && props.onOpenChat && (
-        <AllChatsList
-          scrollParent=".nt-screen"
-          load={props.loadChatsPage}
-          onOpen={props.onOpenChat}
-          active={activeCards.map((card) => ({
-            id: card.sessionId,
-            title: card.title,
-            ...(card.harness ? { harness: card.harness } : {}),
-            state: card.state,
-            label:
-              card.state === "failed"
-                ? t("header.failed")
-                : nt(`card.${card.state as "input" | "running" | "error" | "unread"}`),
-          }))}
-          leads={leads}
-          onOpenActive={openCard}
-          {...(props.onOpenChatInTerminal ? { onOpenInTerminal: props.onOpenChatInTerminal } : {})}
-          {...(props.onViewChat ? { onViewOnly: props.onViewChat } : {})}
-          {...(now !== undefined ? { now } : {})}
-        />
-      )}
-    </>
-  );
-  // The composer: in the stage layout at the foot of the page, else at its top.
   // A model pick puts the keyboard back in the field (promptFocus.ts).
   const focusField = () => field.current?.focus();
   const placed = new Set(field.current?.inlineIds() ?? inlineTokenIds(text));
@@ -2303,13 +2124,12 @@ export function NewTabScreen(props: Props) {
           </output>
         )}
         {props.runMode?.mode === "cloud" && props.cloudStatus}
-        {/* Above the box: the project and machine strip, in every look (Cards draws it under the
-            field). Leo 2026-10-29: "project and cloudness at the top ... and stop making them take
+        {/* Above the box: the project and machine strip. Leo 2026-10-29: "project and cloudness at the top ... and stop making them take
             up so much space"; the quiet row under the box keeps the mode and the model. */}
         {props.cloudHint && runMode && runMode.mode !== "cloud" && (
           <CloudChatHint onUse={() => runMode.onMode("cloud")} onClose={props.cloudHint.onClose} />
         )}
-        {!pill && <div className="nt-above">{folderStrip}</div>}
+        <div className="nt-above">{folderStrip}</div>
         <div
           ref={setBox}
           className="ui-glass ui-glass-floats nt-composer-surface nt-box"
@@ -2342,15 +2162,11 @@ export function NewTabScreen(props: Props) {
             }}
           >
             {split && attachmentPicker}
-            {/* A prompt glyph (the Console's `>`) keeps a column of its own before the text; with
-              none the text starts one gap after +, and shell mode's `!` stands in that gap. */}
-            <div className="nt-field-slot" data-glyph-column={sections.prompt || undefined}>
-              {(shell || sections.prompt) && (
-                <span
-                  className={shell ? "nt-input-glyph nt-shell-glyph" : "nt-input-glyph nt-prompt-glyph"}
-                  aria-hidden="true"
-                >
-                  {shell ? "!" : ">"}
+            {/* The text starts one gap after +, and shell mode's `!` stands in that gap. */}
+            <div className="nt-field-slot">
+              {shell && (
+                <span className="nt-input-glyph nt-shell-glyph" aria-hidden="true">
+                  !
                 </span>
               )}
               {/* The shared editor keeps attachments at their place in the text. A long draft
@@ -2474,7 +2290,7 @@ export function NewTabScreen(props: Props) {
             onReorder={inline.reorder}
           />
           {command.input}
-          {!pill && !split && pickers}
+          {!split && pickers}
         </div>
         {/* Claude Code's quiet row: the mode, model and effort; the box keeps the prompt, the mic
             and Send. Folder and computer head the box (above). */}
@@ -2483,14 +2299,6 @@ export function NewTabScreen(props: Props) {
             <ComposerFoot ref={foot} plain={plainFooter}>
               <Chips snapshot={chipSnapshot} {...(chipFolder ? { cwd: chipFolder } : {})} onAddAgent={openSetup} />
             </ComposerFoot>
-          </div>
-        )}
-        {/* Cards (u2851): the project, the agent's chips and the mic are a row under the field, as
-            Aside's New Tab draws them; it steps aside while the suggestions show. */}
-        {pill && (
-          <div className="nt-toolbar">
-            {folderStrip}
-            {pickers}
           </div>
         )}
       </div>
@@ -2510,69 +2318,26 @@ export function NewTabScreen(props: Props) {
     });
   };
   const starters = showsFirstRunStarters(snapshot, {
-    allChats,
     chatsPending: props.chatsPending === true,
     deviceChats: pushed.length,
   }) && <FirstRunStarters {...(props.starterLook ? { look: props.starterLook } : {})} onPick={pickStarter} />;
-  // The stage's cards: the project card and the suggested actions, side by side in one column.
-  const stageCards = (
-    <div className="nt-stage-cards">
-      <EnvironmentCard
-        projects={props.projects ?? []}
-        {...(envFolder ? { current: envFolder } : {})}
-        noProject={none}
-        {...(props.machineName ? { machineName: props.machineName } : {})}
-        onPick={(cwd) => pickProject(cwd)}
-        onNoProject={() => pickProject(undefined)}
-        {...(browseProject ? { onBrowse: browseProject } : {})}
-      />
-      <SuggestionsCard attention={needsYou} onOpen={openCard} />
-    </div>
-  );
-  const playerAndLists = (
-    <>
-      {!allChats && <NowPlayingPlayer {...(props.onNowPlaying ? { onCommand: props.onNowPlaying } : {})} />}
-      {lists}
-    </>
-  );
   const page = (
     <div
       ref={screen}
       className="nt-screen"
       data-shell={shell || undefined}
-      data-template={template}
-      data-pill={pill || undefined}
-      data-all-chats={allChats || undefined}
-      data-layout={stage ? "stage" : undefined}
-      data-minimal={minimal || undefined}
+      data-template="minimal"
+      data-minimal
     >
-      {stage ? (
-        <>
-          {/* Claude Code desktop's new-session screen (Leo 2026-10-19): the free space over the
-                composer holds, centered, the environment card and the suggested actions card, then the
-                recent chats; the whole page scrolls together when its content exceeds the pane. */}
-          <div className="nt-stage">
-            {stageCards}
-            {playerAndLists}
-          </div>
-          {composerCard}
-          {starters}
-          {props.notice}
-          {environmentPanel}
-        </>
-      ) : (
-        <>
-          {/* Minimal keeps the old greeting's room over the composer, empty, so the composer sits
-                where it always sat (screen.css .nt-composer-room). */}
-          {minimal && <div className="nt-composer-room" />}
-          {composerCard}
-          {starters}
-          {props.notice}
-          {environmentPanel}
-          {!allChats && <NowPlayingPlayer {...(props.onNowPlaying ? { onCommand: props.onNowPlaying } : {})} />}
-          {lists}
-        </>
-      )}
+      {/* Minimal keeps the old greeting's room over the composer, empty, so the composer sits where
+          it always sat (screen.css .nt-composer-room). */}
+      <div className="nt-composer-room" />
+      {composerCard}
+      {starters}
+      {props.notice}
+      {environmentPanel}
+      <NowPlayingPlayer {...(props.onNowPlaying ? { onCommand: props.onNowPlaying } : {})} />
+      {props.openTabs && <OpenTabsList tabs={props.openTabs} onMoveHere={(id) => props.onJump("here", id)} />}
       {rows.length > 0 && anchor && (
         <Popover
           open
@@ -2580,7 +2345,7 @@ export function NewTabScreen(props: Props) {
           // never closes itself.
           onOpenChange={() => undefined}
           anchor={anchor}
-          side={stage ? "top" : "bottom"}
+          side="bottom"
           label={nt("suggestions")}
           // One row (a prompt on many lines): whole-pixel padding and row, so it sits centered (screen.css).
           className={

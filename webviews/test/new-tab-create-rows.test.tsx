@@ -93,7 +93,6 @@ async function render(calls: unknown[][], harness = "claude", actions: OmnibarAc
   await act(async () =>
     root!.render(
       <NewTabScreen
-        template="minimal"
         snapshot={noChat()}
         omnibar={omnibarContext({ ...EMPTY_OMNIBAR, workspaces: [{ id: "ws", name: "ff-scratch" }], actions })}
         lastAgent={harness}
@@ -102,8 +101,6 @@ async function render(calls: unknown[][], harness = "claude", actions: OmnibarAc
         onSearch={noop}
         onShell={noop}
         onJump={noop}
-        onOpenSession={noop}
-        onShowAll={noop}
         onAction={(id) => calls.push(["action", id])}
         onCreate={(kind) => calls.push(["create", kind])}
       />,

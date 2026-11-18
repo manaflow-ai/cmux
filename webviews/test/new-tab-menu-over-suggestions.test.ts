@@ -131,45 +131,17 @@ await requireBrowserLane("new-tab-menu-over-suggestions.test.ts", async () => {
       rows: "[role=menuitemradio]",
     },
   ];
-  const withQuery = (query: string, more: string) => `${query ? `${query}&` : "?"}${more}`;
-  // Default (the harness's unset template) is the stage layout: the composer at the foot, where the
-  // access menu reaches over its suggestions (CI on #22119 measured 2 to 3 rows). The model button's
-  // compact menu (Leo 2026-10-20) opens above the box there, clear of the suggestions under it (CI
-  // on #22800 measured 0 rows), so only its presses are checked. Threads keeps the composer at the
-  // top of the page: the model menu reaches over the suggestions there; the access menu opens clear
-  // of them (0 rows), so only its presses are checked.
-  const MENUS_ON: ((typeof MENUS)[number] & { mustOverlap: boolean })[] = [
-    ...MENUS.map((entry) => ({
-      ...entry,
-      name: `${entry.name} (Default, stage)`,
-      mustOverlap: entry.name !== "model",
-    })),
-    ...MENUS.map((entry) => ({
-      ...entry,
-      name: `${entry.name} (Threads)`,
-      query: withQuery(entry.query, "template=threads"),
-      mustOverlap: entry.name === "model",
-    })),
-  ];
+  // Minimal, the page's one layout, draws Claude Code's split: the chips sit in the quiet row under
+  // the box, and the suggestions hang under that row, never over it (greptile on #22285). The model
+  // menu reaches over the suggestions; the access menu opens clear of them (CI on #22285 measured no
+  // overlap), so only its presses are checked.
+  const MENUS_ON: ((typeof MENUS)[number] & { mustOverlap: boolean })[] = MENUS.map((entry) => ({
+    ...entry,
+    mustOverlap: entry.name === "model",
+  }));
 
-  // Cards, the app's default page, draws Claude Code's split: the chips sit in the quiet row under
-  // the box, and the suggestions hang under that row, never over it (greptile on #22285). There
-  // the model menu reaches over the suggestions; the access menu opens clear of them
-  // (CI on #22285 measured no overlap), so only the model menu has an overlap to check.
-  for (const { name, query, height, button, menu, rows } of MENUS.filter((entry) => entry.name === "model")) {
-    MENUS_ON.push({
-      name: `${name} (Cards, split)`,
-      query: `${query ? `${query}&` : "?"}template=cards`,
-      height,
-      button,
-      menu,
-      rows,
-      mustOverlap: true,
-    });
-  }
-
-  test("on Cards the suggestions open under the quiet row and leave its chips reachable", async () => {
-    const page = await openPage("?reported&template=cards", 720);
+  test("the suggestions open under the quiet row and leave its chips reachable", async () => {
+    const page = await openPage("?reported", 720);
     await suggest(page);
     const result = await page.evaluate(() => {
       const foot = document.querySelector(".nt-foot")!.getBoundingClientRect();
@@ -186,7 +158,7 @@ await requireBrowserLane("new-tab-menu-over-suggestions.test.ts", async () => {
         .filter(Boolean);
       return { gap: suggestions.top - foot.bottom, chips: chips.length, hidden };
     });
-    console.log("Cards suggestions under the quiet row", JSON.stringify(result));
+    console.log("suggestions under the quiet row", JSON.stringify(result));
     expect(result.chips).toBeGreaterThan(0);
     expect(result.gap).toBeGreaterThanOrEqual(0);
     expect(result.hidden).toEqual([]);

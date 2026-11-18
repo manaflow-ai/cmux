@@ -84,7 +84,6 @@ test("a chat started from a New Tab agent row is the next New Tab's harness", ()
     chatCwd: FOLDER,
     leave: () => {},
     selectSession: () => {},
-    showAllChats: () => {},
     runShell: () => {},
   });
   void Promise.resolve(screen.onAsk("claude-sr-internal", "", undefined, undefined, undefined)).catch(() => undefined);
@@ -104,7 +103,6 @@ test("a New Tab start remembers its pick in the folder the chat starts in, never
     chatCwd: "/a",
     leave: () => {},
     selectSession: () => {},
-    showAllChats: () => {},
     runShell: () => {},
   });
   await Promise.resolve(screen.onAsk("claude-sr-internal", "", "/b", undefined, undefined)).catch(() => undefined);

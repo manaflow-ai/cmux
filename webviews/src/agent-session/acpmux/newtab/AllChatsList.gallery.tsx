@@ -104,7 +104,7 @@ export default componentEntry<ComponentProps<typeof AllChatsList>>({
   id: "agent-pane.all-chats-list",
   title: "All chats page recovery",
   area: "Agent pane",
-  covers: ["agent-session/acpmux/newtab/AllChatsList.tsx#AllChatsList"],
+  covers: ["agent-session/acpmux/newtab/AllChatsList.tsx#AllChatsList", "agent-session/acpmux/newtab/ChatFilterMenu.tsx#ChatFilterMenu"],
   styles: () => Promise.all([import("../styles.css"), import("./screen.css")]),
   load: () => import("./AllChatsList").then((module) => module.AllChatsList),
   widths: { narrow: 420, normal: 620, wide: 820 },

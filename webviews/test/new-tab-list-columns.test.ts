@@ -1,9 +1,8 @@
 // cmux-web-test-timeout: 300
-// The New Tab page's lists (Open tabs, Recently closed, All chats) share one leading column: each
+// The New Tab page's Open tabs list and the All chats list (History) share one leading column: each
 // list's heading text and every row's first ink (its glyph) start the same distance in from the
-// list's edge, the shared row inset (`--ui-row-padding-inline`, 8 at 100%). Open tabs and Recently
-// closed rows started their glyphs 2px left of their own heading, and All chats sat 2px further in
-// than both, on an off-grid 10 (design/grid.md rules 1, 2 and 6: "Every row type starts content on
+// list's edge, the shared row inset (`--ui-row-padding-inline`, 8 at 100%). Open tabs rows started
+// their glyphs 2px left of their own heading, and All chats sat 2px further in than both, on an off-grid 10 (design/grid.md rules 1, 2 and 6: "Every row type starts content on
 // its surface's lead/text ... no row type picks its own inset"; Leo 2026-10-29: "We need to have the
 // fucking shit aligned on fucking grids and lines").
 // Real Chromium and WebKit (the app's engine) on the gallery stage. CI fails the file when it cannot
@@ -40,16 +39,7 @@ await requireBrowserLane("new-tab-list-columns.test.ts", async () => {
       entry: "agent-pane.new-tab",
       variant: "split-open-tabs",
       frame: "component",
-      list: ".nt-open-tabs:not(.nt-closed)",
-      heading: ".nt-open-tabs-head",
-      glyph: ".nt-open-tab .nt-row-glyph",
-    },
-    {
-      name: "Recently closed",
-      entry: "agent-pane.new-tab",
-      variant: "recently-closed",
-      frame: "component",
-      list: ".nt-closed",
+      list: ".nt-open-tabs",
       heading: ".nt-open-tabs-head",
       glyph: ".nt-open-tab .nt-row-glyph",
     },

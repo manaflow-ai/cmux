@@ -5,7 +5,6 @@ import { JSDOM } from "jsdom";
 import { noChat, session } from "../../../gallery/fixtures/acpmux";
 import { showsFirstRunStarters } from "./FirstRunStarters";
 import { translateNewTab } from "./strings";
-import { ClosedList } from "./ClosedList";
 import { NewTabScreen } from "./NewTabScreen";
 import { newProjectPrompt, takeProjectPreview } from "./newProject";
 import { CloudStartView } from "../CloudStartView";
@@ -132,7 +131,7 @@ function promptValue(field = container.querySelector<MarkdownFieldElement>(".nt-
   return (field?.acpmuxMarkdownField?.plainText() ?? "").replace(/\n$/, "");
 }
 
-test.each(["minimal", "default"] as const)("%s home offers creation only as matching suggestions", async (template) => {
+test("New Tab offers creation only as matching suggestions", async () => {
   const creates: string[] = [];
   const asks: unknown[][] = [];
   await act(async () =>
@@ -140,7 +139,6 @@ test.each(["minimal", "default"] as const)("%s home offers creation only as matc
       <NewTabScreen
         {...firstRunProps}
         snapshot={noChat()}
-        template={template}
         onCreate={(kind) => creates.push(kind)}
         onAsk={(...args) => asks.push(args)}
       />,
@@ -246,8 +244,6 @@ test("New Tab suggestions keep the composer's page glass", async () => {
         onSearch={() => {}}
         onShell={() => {}}
         onJump={() => {}}
-        onOpenSession={() => {}}
-        onShowAll={() => {}}
       />,
     );
   });
@@ -282,8 +278,6 @@ test("New Tab exposes the chat composer attachment menu", async () => {
         onSearch={() => {}}
         onShell={() => {}}
         onJump={() => {}}
-        onOpenSession={() => {}}
-        onShowAll={() => {}}
       />,
     );
   });
@@ -306,8 +300,6 @@ test("New Tab + offers Search chats and Search pages as app actions, and no Sear
           onSearch={() => {}}
           onShell={() => {}}
           onJump={() => {}}
-          onOpenSession={() => {}}
-          onShowAll={() => {}}
           {...(onPlusCommand ? { onPlusCommand } : {})}
         />,
       );
@@ -352,20 +344,16 @@ test("New Tab + offers Search chats and Search pages as app actions, and no Sear
 });
 
 const firstRunProps = {
-  // An unset template is Minimal.
-  template: "default" as const,
   snapshot: noChat([], { catalog: [] }),
   onAsk: () => {},
   onOpen: (_url: string) => {},
   onSearch: (_text: string) => {},
   onShell: () => {},
   onJump: () => {},
-  onOpenSession: () => {},
-  onShowAll: () => {},
 };
 
 /// What the page told the host about toasts (`pane.toastAvoidance`), with the composer card drawn
-/// 90 px tall at the page's foot.
+/// 90 px tall.
 function watchToastReports() {
   resetToastAvoidanceReports();
   const reports: unknown[] = [];
@@ -391,30 +379,11 @@ const nextTurns = () =>
     for (let turn = 0; turn < 3; turn++) await new Promise<void>((resolve) => setTimeout(resolve, 0));
   });
 
-test("in the stage layout the composer card at the page's foot is what the app's toasts avoid", async () => {
+test("the composer card, away from the page's foot, asks the toasts for nothing", async () => {
   const reports = watchToastReports();
   try {
     await act(async () => root!.render(<NewTabScreen {...firstRunProps} />));
     await nextTurns();
-    expect(container.querySelector('[data-layout="stage"] .nt-composer')).toBeTruthy();
-    expect(reports.at(-1)).toEqual([{ left: 40, top: 620, right: 860, bottom: 710 }]);
-    // The page goes: the toasts stop avoiding a composer that left.
-    act(() => root!.unmount());
-    root = undefined;
-    await nextTurns();
-    expect(reports.at(-1)).toEqual([]);
-  } finally {
-    setNativeHost(undefined);
-    resetToastAvoidanceReports();
-  }
-});
-
-test("away from the page's foot (Minimal) the composer card asks the toasts for nothing", async () => {
-  const reports = watchToastReports();
-  try {
-    await act(async () => root!.render(<NewTabScreen {...firstRunProps} template="minimal" />));
-    await nextTurns();
-    expect(container.querySelector('[data-layout="stage"]')).toBeNull();
     expect(container.querySelector(".nt-composer")).toBeTruthy();
     expect(reports).toEqual([]);
   } finally {
@@ -513,46 +482,20 @@ test("the location bar has no New Worktree control; the folder menu still offers
   expect(options).toContain("New Worktree");
 });
 
-test("a fresh New Tab exposes the no-project path in its environment card", async () => {
-  let browsed = 0;
-  await act(async () => {
-    root!.render(
-      <NewTabScreen
-        {...firstRunProps}
-        onBrowseProject={async () => {
-          browsed += 1;
-          return undefined;
-        }}
-      />,
-    );
-  });
-
-  const browse = container.querySelector<HTMLButtonElement>('[data-action="browse-project"]');
-  expect(browse).toBeTruthy();
-  await act(async () => browse!.click());
-  expect(browsed).toBe(1);
-
-  const noProject = container.querySelector<HTMLButtonElement>('.nt-env .nt-stage-row[aria-pressed="false"]');
-  expect(noProject).toBeTruthy();
-  await act(async () => noProject!.click());
-  expect(container.querySelector('.nt-env .nt-stage-row[aria-pressed="true"]')).toBeTruthy();
-});
-
 test("first run: the starters show only once acpmux answered with an agent and no chat exists", () => {
-  expect(showsFirstRunStarters(noChat([]), { allChats: false })).toBe(true);
+  expect(showsFirstRunStarters(noChat([]))).toBe(true);
   // Before acpmux answers, an empty chat list proves nothing about a first run.
-  expect(showsFirstRunStarters(noChat([], { catalog: [] }), { allChats: false })).toBe(false);
-  expect(showsFirstRunStarters(noChat([session({ sessionId: "s1" })]), { allChats: false })).toBe(false);
-  expect(showsFirstRunStarters(noChat([]), { allChats: true })).toBe(false);
+  expect(showsFirstRunStarters(noChat([], { catalog: [] }))).toBe(false);
+  expect(showsFirstRunStarters(noChat([session({ sessionId: "s1" })]))).toBe(false);
   // A cached catalog can come before the chats are listed: no starters until they are.
-  expect(showsFirstRunStarters(noChat([]), { allChats: false, chatsPending: true })).toBe(false);
-  // Chats the host indexed on this device show as recent chats: that Mac is not on a first run.
-  expect(showsFirstRunStarters(noChat([]), { allChats: false, deviceChats: 2 })).toBe(false);
+  expect(showsFirstRunStarters(noChat([]), { chatsPending: true })).toBe(false);
+  // Chats the host indexed on this device: that Mac is not on a first run.
+  expect(showsFirstRunStarters(noChat([]), { deviceChats: 2 })).toBe(false);
 });
 
 test("while the chats are still being listed, New Tab draws no starters", async () => {
   await act(async () => {
-    root!.render(<NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([])} chatsPending />);
+    root!.render(<NewTabScreen {...firstRunProps} snapshot={noChat([])} chatsPending />);
   });
   await promptField();
   expect(container.querySelector(".nt-starters")).toBeNull();
@@ -562,7 +505,7 @@ test("a starter picked in shell mode leaves shell mode, so Return asks the agent
   let shellRuns = 0;
   await act(async () => {
     root!.render(
-      <NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([])} onShell={() => void shellRuns++} />,
+      <NewTabScreen {...firstRunProps} snapshot={noChat([])} onShell={() => void shellRuns++} />,
     );
   });
   const field = await typePrompt("!");
@@ -581,7 +524,7 @@ test("a first-run starter fills the composer, sends nothing, and the rows stay w
   let asked = 0;
   await act(async () => {
     root!.render(
-      <NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([])} onAsk={() => void asked++} />,
+      <NewTabScreen {...firstRunProps} snapshot={noChat([])} onAsk={() => void asked++} />,
     );
   });
   const field = await promptField();
@@ -601,7 +544,7 @@ test("a first-run starter fills the composer, sends nothing, and the rows stay w
 test("with a chat on this Mac, New Tab draws no starters", async () => {
   await act(async () => {
     root!.render(
-      <NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([session({ sessionId: "s1" })])} />,
+      <NewTabScreen {...firstRunProps} snapshot={noChat([session({ sessionId: "s1" })])} />,
     );
   });
   await promptField();
@@ -636,8 +579,6 @@ test("No folder, then a remote machine with a folder: location and send name tha
         onSearch={() => {}}
         onShell={() => {}}
         onJump={() => {}}
-        onOpenSession={() => {}}
-        onShowAll={() => {}}
       />,
     );
   });
@@ -682,8 +623,6 @@ test("a page started on the last picked machine sends there, and a machine pick 
       onSearch={() => {}}
       onShell={() => {}}
       onJump={() => {}}
-      onOpenSession={() => {}}
-      onShowAll={() => {}}
     />
   );
   const had = "localStorage" in scope;
@@ -1058,8 +997,6 @@ test("a lone GitHub issue URL offers an explicit fix worktree action", async () 
         onSearch={() => {}}
         onShell={() => {}}
         onJump={() => {}}
-        onOpenSession={() => {}}
-        onShowAll={() => {}}
         onFixFromLink={(url, cwd) => {
           fixes.push({ url, cwd });
           return pending;
@@ -1114,8 +1051,6 @@ test("a chosen document uses the New Tab upload path and becomes sendable", asyn
         onSearch={() => {}}
         onShell={() => {}}
         onJump={() => {}}
-        onOpenSession={() => {}}
-        onShowAll={() => {}}
         upload={async (files) => {
           uploaded.push(files);
           return { paths: files.map((file) => `/tmp/${file.name}`) };
@@ -1151,8 +1086,6 @@ test("with Run as Sandboxed, a send goes to the sandbox, not a new chat, with it
         onSearch={() => {}}
         onShell={() => {}}
         onJump={() => {}}
-        onOpenSession={() => {}}
-        onShowAll={() => {}}
         environments
         runMode={{ mode: "sandboxed", onMode: () => {} }}
         onSandbox={(...args) => (sandboxed.push(args), true)}
@@ -1184,8 +1117,6 @@ test("with Cloud picked, a send goes to onCloud with its prompt, not a new chat;
         onSearch={() => {}}
         onShell={() => {}}
         onJump={() => {}}
-        onOpenSession={() => {}}
-        onShowAll={() => {}}
         environments
         runMode={{ mode: "cloud", onMode: () => {} }}
         onCloud={(...args) => (clouded.push(args), answer)}
@@ -1218,8 +1149,6 @@ for (const mode of ["cloud", "sandboxed"] as const)
           onSearch={() => {}}
           onShell={() => {}}
           onJump={() => {}}
-          onOpenSession={() => {}}
-          onShowAll={() => {}}
           environments
           onCmuxCommand={() => CMUX_PASS_THROUGH}
           runMode={{ mode, onMode: () => {} }}
@@ -1244,28 +1173,24 @@ test("with Cloud picked and No folder, a send names no folder: not even the tab'
         snapshot={noChat()}
         cwd="/repo/A"
         startCwd="/repo/A"
-        template="default"
         onAsk={() => {}}
         onOpen={() => {}}
         onSearch={() => {}}
         onShell={() => {}}
         onJump={() => {}}
-        onOpenSession={() => {}}
-        onShowAll={() => {}}
         environments
         runMode={{ mode: "cloud", onMode: () => {} }}
         onCloud={(...args) => (clouded.push(args), false)}
       />,
     );
   });
-  // No folder, from the card's chooser (the tab inherited /repo/A).
-  await act(async () => container.querySelector<HTMLButtonElement>(".nt-env .acpmux-project-button")!.click());
+  // No folder, from the location strip's folder menu (the tab inherited /repo/A).
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-location .acpmux-location-button")!.click());
   const noProject = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) =>
     row.textContent?.includes("No folder"),
   );
   expect(noProject).toBeTruthy();
   await act(async () => noProject!.click());
-  expect(container.querySelector('.nt-env .nt-stage-row[aria-pressed="true"]')).toBeTruthy();
   await typePrompt("fix the flaky test");
   await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
   // The App starts Cloud with nothing copied, preserving the base behavior.
@@ -1283,8 +1208,6 @@ test("while a Cloud start is out the box takes no edits, and takes them again on
       onSearch={() => {}}
       onShell={() => {}}
       onJump={() => {}}
-      onOpenSession={() => {}}
-      onShowAll={() => {}}
       environments
       runMode={{ mode: "cloud", onMode: () => {} }}
       onCloud={() => false}
@@ -1327,8 +1250,6 @@ test("a failed Cloud start leaves one retry send in the composer", async () => {
         onSearch={() => {}}
         onShell={() => {}}
         onJump={() => {}}
-        onOpenSession={() => {}}
-        onShowAll={() => {}}
         environments
         runMode={{ mode: "cloud", onMode: () => {} }}
         cloudStarting={false}
@@ -1372,8 +1293,6 @@ test("picking Cloud drops a saved environment picked before: the send names the 
         onSearch={() => {}}
         onShell={() => {}}
         onJump={() => {}}
-        onOpenSession={() => {}}
-        onShowAll={() => {}}
         environments
         savedEnvironments={{
           list: async () => [repoB],
@@ -1423,8 +1342,6 @@ test("with Cloud picked, a folder that is a saved folder-only environment is the
         onSearch={() => {}}
         onShell={() => {}}
         onJump={() => {}}
-        onOpenSession={() => {}}
-        onShowAll={() => {}}
         environments
         savedEnvironments={{
           list: async () => [repoC],
@@ -1517,8 +1434,6 @@ test("a page that goes with an unsent draft hands it over; an untouched page han
       onSearch={() => {}}
       onShell={() => {}}
       onJump={() => {}}
-      onOpenSession={() => {}}
-      onShowAll={() => {}}
       upload={async (files) => ({ paths: files.map((file) => `/tmp/${file.name}`) })}
       onLeaveDraft={(...args) => left.push(args)}
     />
@@ -1555,8 +1470,6 @@ test("keeps a changed machine choice while browse settles, then permits retry", 
           onSearch={() => {}}
           onShell={() => {}}
           onJump={() => {}}
-          onOpenSession={() => {}}
-          onShowAll={() => {}}
         />
       </StrictMode>,
     );
@@ -1608,7 +1521,7 @@ test("Add folder… is the host's folder panel: a second one while it is open as
     );
   });
   const addFolder = async () => {
-    await act(async () => container.querySelector<HTMLButtonElement>(".nt-env .acpmux-project-button")!.click());
+    await act(async () => container.querySelector<HTMLButtonElement>(".nt-location .acpmux-location-button")!.click());
     const options = [...document.querySelectorAll<HTMLElement>('[role="option"]')].map((row) => row.textContent ?? "");
     expect(options.some((text) => text.includes("New project") || text.includes("Add project"))).toBe(false);
     const add = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) =>
@@ -1623,21 +1536,7 @@ test("Add folder… is the host's folder panel: a second one while it is open as
   await addFolder();
   expect(calls).toBe(1);
   await act(async () => resolveBrowse("/Users/you/src/new"));
-  expect(container.querySelector(".nt-env")?.textContent).toContain("new");
-});
-
-test("a closed agent chat uses the semantic agent glyph and preserves its title", async () => {
-  await act(async () => {
-    root!.render(
-      <ClosedList
-        items={[{ id: "closed:chat", kind: "agent", title: "Pinned chat", closedAt: 1, available: true }]}
-        onReopen={() => {}}
-      />,
-    );
-  });
-
-  expect(container.querySelector('.nt-row-glyph[data-kind="agent"] svg[data-icon="agent.chat"]')).toBeTruthy();
-  expect(container.querySelector(".nt-row-title")?.textContent).toBe("Pinned chat");
+  expect(container.querySelector(".nt-location")?.textContent).toContain("new");
 });
 
 test("a project picked on the page is reported on its click (onProjectPicked), so Cloud can copy it", async () => {
@@ -1719,7 +1618,7 @@ test.each(["project", "saved"] as const)(
     now += CLOUD_TYPING_PREWARM_REFRESH_MS;
 
     if (selection === "project") {
-      await act(async () => container.querySelector<HTMLButtonElement>(".nt-env .acpmux-project-button")!.click());
+      await act(async () => container.querySelector<HTMLButtonElement>(".nt-location .acpmux-location-button")!.click());
       const row = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) =>
         item.textContent?.includes("Local project"),
       );
@@ -1812,7 +1711,6 @@ test("a first-run starter picked in the profile search leaves it, so Return asks
     root!.render(
       <NewTabScreen
         {...firstRunProps}
-        template="minimal"
         snapshot={noChat([])}
         omnibar={profileOmnibar}
         onAsk={() => void asked++}
@@ -1868,8 +1766,6 @@ async function renderNewProject(onNewProject: (name: string) => Promise<string>,
         onSearch={() => {}}
         onShell={() => {}}
         onJump={() => {}}
-        onOpenSession={() => {}}
-        onShowAll={() => {}}
       />,
     );
   });
@@ -1974,8 +1870,6 @@ test("a start refused because the agent is not installed says so in plain words,
         onSearch={() => {}}
         onShell={() => {}}
         onJump={() => {}}
-        onOpenSession={() => {}}
-        onShowAll={() => {}}
       />,
     );
   });
@@ -2052,8 +1946,6 @@ test("Cmd-T then typing at once: the field reports ready only once its page has 
         onSearch={() => {}}
         onShell={() => {}}
         onJump={() => {}}
-        onOpenSession={() => {}}
-        onShowAll={() => {}}
       />,
     );
   });
@@ -2085,8 +1977,6 @@ test("a page that has focus already reports its field ready at once, and only on
           onSearch={() => {}}
           onShell={() => {}}
           onJump={() => {}}
-          onOpenSession={() => {}}
-          onShowAll={() => {}}
         />,
       );
     });
@@ -2107,7 +1997,6 @@ test("Return runs a typed shell command in a terminal; Cmd-Return still asks the
     root!.render(
       <NewTabScreen
         {...firstRunProps}
-        template="minimal"
         snapshot={noChat([])}
         onShell={(command) => void shells.push(command)}
         onAsk={(...args) => void asks.push(args)}

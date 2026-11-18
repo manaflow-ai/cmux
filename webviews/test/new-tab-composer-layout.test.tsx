@@ -85,7 +85,6 @@ async function mount(
     machineName?: string;
     snapshot?: AcpmuxSnapshot;
     onCommands?(harness: string, cwd?: string): void;
-    template?: "cards";
     accessory?: React.ReactNode;
   } = {},
 ) {
@@ -97,7 +96,6 @@ async function mount(
     root!.render(
       <NewTabScreen
         snapshot={options.snapshot ?? noChat()}
-        {...(options.template ? { template: options.template } : {})}
         {...(options.machineName ? { machineName: options.machineName } : {})}
         lastAgent="claude"
         cwd="/Users/you"
@@ -111,8 +109,6 @@ async function mount(
         onSearch={noop}
         onShell={noop}
         onJump={noop}
-        onOpenSession={noop}
-        onShowAll={noop}
       />,
     ),
   );
@@ -164,16 +160,14 @@ test("New Tab keeps Claude and its controls when the saved chat look is Codex", 
     return <span data-control-look={useComposerLook()} />;
   }
   act(() => setComposerLook("codex"));
-  for (const template of [undefined, "cards"] as const) {
-    await mount({ template, accessory: <ControlLook /> });
-    const composer = host.querySelector<HTMLElement>(".nt-composer")!;
-    expect(composer.dataset.composerLook ?? "claude").toBe("claude");
-    expect(composer.querySelector("[data-control-look=claude]")).not.toBeNull();
-    expect(composer.querySelector(".nt-foot .acpmux-composer-foot .acpmux-chips")).not.toBeNull();
-    expect(composer.querySelector(".nt-above .acpmux-composer-context")?.textContent).toContain("app");
-    expect(composer.querySelectorAll(".acpmux-composer-context")).toHaveLength(1);
-    expect(savedComposerLook()).toBe("codex");
-  }
+  await mount({ accessory: <ControlLook /> });
+  const composer = host.querySelector<HTMLElement>(".nt-composer")!;
+  expect(composer.dataset.composerLook ?? "claude").toBe("claude");
+  expect(composer.querySelector("[data-control-look=claude]")).not.toBeNull();
+  expect(composer.querySelector(".nt-foot .acpmux-composer-foot .acpmux-chips")).not.toBeNull();
+  expect(composer.querySelector(".nt-above .acpmux-composer-context")?.textContent).toContain("app");
+  expect(composer.querySelectorAll(".acpmux-composer-context")).toHaveLength(1);
+  expect(savedComposerLook()).toBe("codex");
   act(() => setComposerLook("claude"));
 });
 

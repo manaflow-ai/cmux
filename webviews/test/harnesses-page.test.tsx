@@ -581,8 +581,6 @@ test("the New Tab page has no Integrate a harness button (and no tools row)", as
         onSearch={noop}
         onShell={noop}
         onJump={noop}
-        onOpenSession={noop}
-        onShowAll={noop}
       />,
     );
   });

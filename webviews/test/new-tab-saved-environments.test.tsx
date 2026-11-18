@@ -165,7 +165,6 @@ async function mount({
     chatCwd: startCwd,
     leave: noop,
     selectSession: noop,
-    showAllChats: noop,
     runShell: noop,
     requestFolder: (cwd, start) => void pickFolder(callNative, cwd, start),
   });
@@ -183,7 +182,6 @@ async function mount({
         }}
       >
         <NewTabScreen
-          template="default"
           snapshot={noChat([], {
             peers: ["devbox", "cloud-1"],
             peerKinds: { devbox: "ssh", "cloud-1": "cloud" },
@@ -612,7 +610,6 @@ test("a chat started on another machine starts on the model the page showed", as
     },
     leave: noop,
     selectSession: noop,
-    showAllChats: noop,
     runShell: noop,
   });
   actions.onAsk("claude", "tail the logs", undefined, "claude-opus-5-5", undefined, undefined, { peer: "devbox" });
@@ -644,7 +641,6 @@ test("a superseded SSH start never sends the retained prompt to a different chat
       leaves += 1;
     },
     selectSession: () => {},
-    showAllChats: () => {},
     runShell: () => {},
   });
   const started = Promise.resolve(
@@ -677,7 +673,6 @@ test("a direct start keeps its draft until the first prompt is accepted, includi
       left += 1;
     },
     selectSession: noop,
-    showAllChats: noop,
     runShell: noop,
   });
   const pending = Promise.resolve(

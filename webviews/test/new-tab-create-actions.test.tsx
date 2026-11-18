@@ -111,7 +111,6 @@ test("Minimal's searchable create rows open a terminal, a browser tab and a chat
     chatCwd: "/Users/you/src/app",
     leave: () => left++,
     selectSession: noop,
-    showAllChats: noop,
     runShell: noop,
   });
   // Each action on its own page: a page opens one thing, then the tab is gone.
@@ -123,7 +122,6 @@ test("Minimal's searchable create rows open a terminal, a browser tab and a chat
         root.render(
           <QueryClientProvider client={new QueryClient()}>
             <NewTabScreen
-              template="minimal"
               snapshot={noChat()}
               lastAgent="claude"
               cwd="/Users/you/src/app"
@@ -178,7 +176,6 @@ test("New chat starts empty, and a second creation opens nothing more", async ()
     chatCwd: "/Users/you/src/app",
     leave: noop,
     selectSession: noop,
-    showAllChats: noop,
     runShell: noop,
   });
   const render = async (root: Root) =>
@@ -186,7 +183,6 @@ test("New chat starts empty, and a second creation opens nothing more", async ()
       root.render(
         <QueryClientProvider client={new QueryClient()}>
           <NewTabScreen
-            template="minimal"
             snapshot={noChat()}
             lastAgent="claude"
             cwd="/Users/you/src/app"

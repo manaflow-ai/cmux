@@ -2,16 +2,14 @@
 // with the template pager under it, and its composer carries the pane's own model chip
 // (NewTabComposerChips). The host's actions answer nothing. `?reported` gives the chips a session
 // that reported its reasoning levels and access modes, so the model menu's Effort submenu and the
-// access menu show. `?template=cards` draws the Cards page, the app's default, with Claude Code's
-// split (the mode and the one model button in the quiet row under the box); with no template it
-// draws Default, the stage layout (the composer at the foot of the page). `?longSuggestions` gives the
-// omnibar rows of every kind with long titles (new-tab-row-truncation.test.ts).
+// access menu show. The page is Minimal, with Claude Code's split (the mode and the one model
+// button in the quiet row under the box). `?longSuggestions` gives the omnibar rows of every kind
+// with long titles (new-tab-row-truncation.test.ts).
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRoot } from "react-dom/client";
 import { noChat } from "../../src/gallery/fixtures/acpmux";
 import { NewTabComposerChips } from "../../src/agent-session/acpmux/App";
 import { NewTabScreen } from "../../src/agent-session/acpmux/newtab/NewTabScreen";
-import type { ScreenTemplate } from "../../src/agent-session/acpmux/newtab/templates";
 // The pane's styles, as its dev entry loads them (acpmux/dev.tsx).
 import "../../src/pages/shared/desktop.css";
 import "../../src/ui/popupSurface.css";
@@ -32,8 +30,6 @@ import "../../src/agent-session/acpmux/newtab/screen.css";
 const noop = () => {};
 const query = new URLSearchParams(location.search);
 const reported = query.has("reported");
-// Default unless the query names one: an unset NewTabScreen template is Minimal, which has no stage.
-const template = (query.get("template") ?? "default") as ScreenTemplate;
 const snapshot = noChat(
   [],
   reported
@@ -82,7 +78,6 @@ if (query.has("longSuggestions")) {
 createRoot(root).render(
   <QueryClientProvider client={client}>
     <NewTabScreen
-      {...(template ? { template } : {})}
       snapshot={snapshot}
       lastAgent="claude"
       cwd="/Users/you/src/app"
@@ -93,8 +88,6 @@ createRoot(root).render(
       onSearch={noop}
       onShell={noop}
       onJump={noop}
-      onOpenSession={noop}
-      onShowAll={noop}
       {...(query.has("crowdedSuggestions")
         ? {
             onCreate: noop,

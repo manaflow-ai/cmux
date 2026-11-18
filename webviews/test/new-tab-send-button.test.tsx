@@ -137,8 +137,6 @@ test("a click on the field's Send button asks the agent, as Return does", async 
         onSearch={noop}
         onShell={noop}
         onJump={noop}
-        onOpenSession={noop}
-        onShowAll={noop}
       />,
     ),
   );
@@ -171,8 +169,6 @@ test("New Tab /import opens the transcript flow and never sends the slash token 
         onSearch={noop}
         onShell={noop}
         onJump={noop}
-        onOpenSession={noop}
-        onShowAll={noop}
       />,
     ),
   );
@@ -208,8 +204,6 @@ test("classic New Tab intercepts /import before its omnibar can treat it as a pa
         onImportFile={(file) => {
           imported.push(file);
         }}
-        onOpenSession={noop}
-        onShowAll={noop}
       />,
     ),
   );
@@ -263,8 +257,6 @@ async function commandPage(
           },
         }
       : { importSandboxed: sandboxed }),
-    onOpenSession: noop,
-    onShowAll: noop,
     onCmuxCommand: onCmuxCommand ?? (() => "Fork is unavailable for this chat right now"),
   };
   root = createRoot(host);

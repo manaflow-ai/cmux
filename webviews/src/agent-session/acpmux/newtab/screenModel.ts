@@ -1,9 +1,7 @@
 // The new tab screen's pure state (variant B, plans/cmux-next/new-tab.md sections 3-4): the
-// rows under the field for the typed text, the `!` conversion and the chat cards. No React, no
-// host: NewTabScreen renders what these return.
+// rows under the field for the typed text and the `!` conversion. No React, no host: NewTabScreen
+// renders what these return.
 import { withoutInlineTokens } from "../attachments";
-import type { AcpmuxSnapshot } from "../model";
-import { ageLabel, recentSessions } from "../newTabModel";
 import {
   EMPTY_OMNIBAR,
   foldedScore,
@@ -14,13 +12,9 @@ import {
   type OmnibarProfile,
   type OmnibarRow,
 } from "../omnibar";
-import { activityTime, listed, normalizedSessionEntry, sessionMark, type AcpmuxSessionEntry } from "../sessionList";
 import { classifyNewTabInput, TERMINAL_PREFIX } from "../newTabIntent";
 import { commandLikeness, isMultiline } from "./commandIntent";
-import { type Translate, translate } from "../i18n";
-import type { DeviceChat } from "./deviceChats";
 import { DEFAULT_SUGGESTION_ORDER, type SuggestionOrder } from "./suggestionOrder";
-import type { ScreenSections } from "./templates";
 import { TOP_SITES } from "./topSites";
 import { translateNewTab, type NewTabTranslate } from "./strings";
 import { type FolderListing, launchRows, type LaunchAgent, type LaunchRow } from "./launchRows";
@@ -119,8 +113,6 @@ const MIN_COMPLETION_LENGTH = 3;
 export const MAX_UNNAMED_LAUNCH_ROWS = 2;
 /// Commands palette actions shown under the matches.
 export const MAX_ACTION_ROWS = 3;
-/// Chat cards under the field.
-export const CHAT_CARD_COUNT = 3;
 
 /// The catalog's agents in its order, the remembered one first.
 export function orderedAgents(agents: readonly ScreenAgent[], lastAgent?: string): ScreenAgent[] {
@@ -661,186 +653,4 @@ export function shellEntry(
   if (previous !== "" && !previousWasSelected) return undefined;
   if (!next.startsWith(TERMINAL_PREFIX)) return undefined;
   return { command: next.slice(TERMINAL_PREFIX.length).replace(/^\s+/, "") };
-}
-
-export type ChatCard = {
-  sessionId: string;
-  /// A device chat from the acpmux chat index (`harness:sessionId`): opens through the host's
-  /// shared Open Chat path (`chats.open`), not as an acpmux session.
-  chatKey?: string;
-  /// The harness chat's own id (a session's agent session id, a device chat key's `harness:` tail):
-  /// the same chat under either source, so a session replacing its device row is not a new row.
-  chatId?: string;
-  title: string;
-  harness?: string;
-  age: string;
-  message?: string;
-  /// `failed`: its last turn failed (the chat itself is fine); `error`: it lost its agent.
-  state: "idle" | "input" | "running" | "failed" | "error" | "unread";
-  /// Its log is in acpmux's cold archive: the card is drawn from the preview alone (its last
-  /// message), badged Compressed; opening it brings the log back.
-  archived?: true;
-  /// The chats its agent started (acpmux `spawnedBy`, a device chat's `parent`), newest first:
-  /// listed under it, never on their own.
-  children?: ChatCard[];
-};
-
-/// The newest chats, the ones waiting on the user first; a dropped chat is an error card. acpmux's
-/// own sessions come first (they carry live state, and the name the user gave); the device chat
-/// index (the sidebar's All chats source) fills the rest, newest first, without a chat a session
-/// card shows: the same harness chat (its `harness:id` key holds the session's agent session id,
-/// Leo 2026-10-13: each lane showed twice, once by name and once by its first prompt), or the
-/// same title. With `fold` (the list layout) a chat another chat's agent started lists under that
-/// chat's card (`children`); the card grid has no room for that, so there every chat has a card.
-export function recentChatCards(
-  sessions: AcpmuxSnapshot["sessions"],
-  now = Date.now(),
-  t: Translate = translate,
-  device: DeviceChat[] = [],
-  count = CHAT_CARD_COUNT,
-  fold = true,
-): ChatCard[] {
-  const live = liveChatCards(sessions, now, t, count, fold);
-  const shown = new Set(live.map((card) => card.title.trim().toLowerCase()));
-  // Every session's, an archived one's too: its transcript must not come back as a device chat.
-  const agents = new Set(
-    sessions.flatMap((session) => {
-      const id = normalizedSessionEntry(session as Parameters<typeof normalizedSessionEntry>[0]).agentSessionId;
-      return id ? [id] : [];
-    }),
-  );
-  const fill = [...device]
-    .sort((a, b) => b.updatedAt - a.updatedAt || a.key.localeCompare(b.key))
-    .filter((chat) => !(fold && chat.parent) && !agents.has(chat.key.slice(chat.key.indexOf(":") + 1)))
-    .filter((chat) => !shown.has((chat.title ?? "").trim().toLowerCase()))
-    .slice(0, Math.max(0, count - live.length))
-    .map((chat): ChatCard => ({
-      sessionId: chat.key,
-      chatKey: chat.key,
-      chatId: chat.key.slice(chat.key.indexOf(":") + 1),
-      title: chat.title ?? t("sidebar.newChat"),
-      harness: chat.harness,
-      age: ageLabel(chat.updatedAt, now, t),
-      state: "idle",
-    }));
-  const cards = [...live, ...fill];
-  if (!fold) return cards;
-  const parents = new Set(cards.flatMap((card) => [card.sessionId, card.chatKey].filter((id): id is string => !!id)));
-  const children = indexChildren(sessions, device, now, t, parents);
-  return cards.map((card) => withChildren(card, children));
-}
-
-/// The cards a template's page draws (`sections`): none, with no pass over the chats, on a page
-/// that lists none (Minimal, the default, and Composer). Leo 2026-11-18, on New Tab sorting every
-/// chat and carding about 2,500 child chats behind Minimal: "We literally don't even have that as
-/// a visible option at all anymore".
-export function pageChatCards(
-  sections: ScreenSections,
-  sessions: AcpmuxSnapshot["sessions"],
-  now: number,
-  t: Translate,
-  device: DeviceChat[],
-): ChatCard[] {
-  if (sections.chats === "none") return NO_CHAT_CARDS;
-  return recentChatCards(sessions, now, t, device, sections.recent, sections.chats === "list");
-}
-
-const NO_CHAT_CARDS: ChatCard[] = [];
-
-/// The stage layout's needs-you rows (NewTabScreen's suggestions card).
-export const MAX_NEEDS_YOU = 3;
-
-/// The chats waiting on the user (asking for input, or hit an error or lost their agent), newest
-/// first, picked from every chat before the cap: an older one is never hidden behind newer idle
-/// chats, as `recentChatCards`' trimmed list would hide it.
-export function needsYouCards(
-  sessions: AcpmuxSnapshot["sessions"],
-  now: number,
-  t: Translate,
-  count = MAX_NEEDS_YOU,
-): ChatCard[] {
-  // One pass keeps the waiting chats (sessionCard's state, read without building a card); only
-  // those few are sorted and carded, never the whole list (greptile on #22119).
-  const waiting = sessions.filter((raw) => {
-    const session = normalizedSessionEntry(raw as Parameters<typeof normalizedSessionEntry>[0]);
-    if (session.indicator === "failed") return true;
-    const mark = sessionMark(session, false);
-    return mark === "input" || mark === "error";
-  });
-  return liveChatCards(waiting, now, t, count, false);
-}
-
-function liveChatCards(
-  sessions: AcpmuxSnapshot["sessions"],
-  now: number,
-  t: Translate,
-  count: number,
-  fold: boolean,
-): ChatCard[] {
-  return recentSessions(sessions, count, fold).map((session) => sessionCard(session, now, t));
-}
-
-function sessionCard(session: AcpmuxSessionEntry, now: number, t: Translate): ChatCard {
-  // An archived chat's card reads its cold preview only: its last message.
-  const cold = session.coldArchive;
-  const message = cold ? (cold.last.at(-1)?.text ?? session.preview) : session.preview;
-  return {
-    sessionId: session.sessionId,
-    title: session.displayTitle ?? session.sessionId,
-    ...(session.agentSessionId ? { chatId: session.agentSessionId } : {}),
-    ...(session.harness ? { harness: session.harness } : {}),
-    age: ageLabel(activityTime(session), now, t),
-    ...(message ? { message } : {}),
-    state: session.indicator === "failed" ? "failed" : (sessionMark(session, false) ?? "idle"),
-    ...(cold && { archived: true as const }),
-  };
-}
-
-/// Child rows indexed once per snapshot, so each visible card does not rescan every session.
-type ChildCard = { parent: string; at: number; card: ChatCard };
-
-/// Only the shown cards' children (`parents`) get a card: thousands of child chats under parents
-/// past the cut cost one pass, not a card each.
-function indexChildren(
-  sessions: AcpmuxSnapshot["sessions"],
-  device: DeviceChat[],
-  now: number,
-  t: Translate,
-  parents: ReadonlySet<string>,
-): Map<string, ChildCard[]> {
-  const indexed = new Map<string, ChildCard[]>();
-  for (const raw of sessions) {
-    const session = normalizedSessionEntry(raw as Parameters<typeof normalizedSessionEntry>[0]);
-    if (!session.spawnedBy || !parents.has(session.spawnedBy)) continue;
-    if (!listed(session) || sessionMark(session, false) === "input") continue;
-    const child = { parent: session.spawnedBy, at: activityTime(session) ?? 0, card: sessionCard(session, now, t) };
-    indexed.set(session.spawnedBy, [...(indexed.get(session.spawnedBy) ?? []), child]);
-  }
-  for (const chat of device) {
-    if (!chat.parent || !parents.has(chat.parent)) continue;
-    const child = {
-      parent: chat.parent,
-      at: chat.updatedAt,
-      card: {
-        sessionId: chat.key,
-        chatKey: chat.key,
-        chatId: chat.key.slice(chat.key.indexOf(":") + 1),
-        title: chat.title ?? t("sidebar.newChat"),
-        harness: chat.harness,
-        age: ageLabel(chat.updatedAt, now, t),
-        state: "idle",
-      } satisfies ChatCard,
-    };
-    indexed.set(chat.parent, [...(indexed.get(chat.parent) ?? []), child]);
-  }
-  return indexed;
-}
-
-function withChildren(card: ChatCard, indexed: Map<string, ChildCard[]>): ChatCard {
-  const parents = [...new Set([card.sessionId, card.chatKey].filter((id): id is string => Boolean(id)))];
-  const children = parents
-    .flatMap((parent) => indexed.get(parent) ?? [])
-    .sort((a, b) => b.at - a.at || a.card.sessionId.localeCompare(b.card.sessionId))
-    .map((child) => child.card);
-  return children.length > 0 ? { ...card, children } : card;
 }

@@ -81,7 +81,6 @@ async function render(calls: unknown[][], order?: SuggestionOrder) {
   await act(async () =>
     root!.render(
       <NewTabScreen
-        template="cards"
         snapshot={noChat()}
         lastAgent="claude"
         {...(order ? { suggestionOrder: order } : {})}
@@ -91,8 +90,6 @@ async function render(calls: unknown[][], order?: SuggestionOrder) {
         onCreate={(kind) => calls.push(["create", kind])}
         onShell={noop}
         onJump={(target, id) => calls.push(["jump", target, id])}
-        onOpenSession={noop}
-        onShowAll={noop}
       />,
     ),
   );
@@ -260,8 +257,6 @@ async function classicEnter(hoverOther: boolean) {
         onSubmit={(...args) => {
           submitted.push(args);
         }}
-        onOpenSession={noop}
-        onShowAll={noop}
       />,
     ),
   );

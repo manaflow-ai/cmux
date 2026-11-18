@@ -883,8 +883,6 @@ async function mountNewTab(onNewWorktree: (cwd: string) => Promise<string | unde
         onSearch={noop}
         onShell={noop}
         onJump={noop}
-        onOpenSession={noop}
-        onShowAll={noop}
       />,
     ),
   );

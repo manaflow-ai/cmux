@@ -89,8 +89,6 @@ async function render(calls: unknown[][]) {
         onSearch={(text) => calls.push(["search", text])}
         onShell={noop}
         onJump={(target, id) => calls.push(["jump", target, id])}
-        onOpenSession={noop}
-        onShowAll={noop}
       />,
     ),
   );

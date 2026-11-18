@@ -105,11 +105,12 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
       await pickDot(page, ".nt-style", "minimal");
       await page.waitForSelector('.nt-screen[data-template="minimal"]');
       expect(await page.$(".nt-style, .nt-composer[data-composer-look]")).toBeNull();
-      await open(page, "agent-pane.new-tab", "template-cards");
+      // Minimal on a fresh load: Claude's look (the model in the quiet row under the box), no look
+      // dots, and no style dots (they show only on Classic).
+      await open(page, "agent-pane.new-tab", "minimal-default");
       expect(await page.$(".nt-composer[data-composer-look], .nt-look-dots")).toBeNull();
-      expect(await page.$(".nt-composer .nt-above")).not.toBeNull();
       expect(await page.$(".nt-composer .nt-foot .acpmux-model")).not.toBeNull();
-      expect(await page.$(".nt-style input[value=cards]:checked")).not.toBeNull();
+      expect(await page.$(".nt-style")).toBeNull();
       expect(await page.evaluate(() => localStorage.getItem("cmux.composer.look"))).toBe("codex");
     } finally {
       await context.close();

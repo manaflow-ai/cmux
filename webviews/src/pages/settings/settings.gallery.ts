@@ -926,6 +926,12 @@ Object.assign(variants, {
     steps: [click(`${row("updates.channel")} .ui-select-button`), wait(".ui-select-popup .ui-menu-item")],
     note: "Settings > Updates, the Update Channel menu open over the Check Every row.",
   }),
+  // Settings > New Tab Page with the New Tab Template menu open: Minimal, Classic and Terminal (the
+  // page templates that listed recent chats became looks, built on tabs.newTabApp).
+  "new-tab-template-open": variant("newTab", {
+    steps: [click(`${row("tabs.newTabTemplate")} .ui-select-button`), wait(".ui-select-popup .ui-menu-item")],
+    note: "Settings > New Tab Page, the New Tab Template menu open: Minimal, Classic, Terminal.",
+  }),
   "search-results": variant("general", { steps: [input("[data-settings-search]", "browser")] }),
   "search-results-font": variant("general", { steps: [input("[data-settings-search]", "font")] }),
   "search-results-theme": variant("general", {
