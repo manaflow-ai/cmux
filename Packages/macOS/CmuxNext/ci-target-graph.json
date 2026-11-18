@@ -1734,10 +1734,13 @@
         "CmuxNextDaemon",
         "CmuxNextDaemonService",
         "CmuxNextDesign",
+        "CmuxNextIcons",
         "CmuxNextMobileHost",
         "CmuxNextSettings"
       ],
-      "packages": []
+      "packages": [
+        "CmuxVisibleRows"
+      ]
     },
     "CmuxNextNowPlaying": {
       "kind": "regular",

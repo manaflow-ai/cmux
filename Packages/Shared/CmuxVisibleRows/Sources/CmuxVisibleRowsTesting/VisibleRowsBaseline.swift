@@ -13,7 +13,7 @@ public enum VisibleRowsBaseline {
     }
 
     public static let knownFailures: [String: Known] = [
-        "notifications panel": Known("a new row view for every ledger entry on every render, all measured; the ledger has no cap "
-            + "(macOS NotificationsPanelController.render; fix: visible-only-macos-lists)"),
+        "notifications panel": Known("the daemon answers each change with the whole ledger (up to 256 entries), and the panel reads "
+            + "all of it to find what changed (macOS NotificationsPanelList.show; fix: visible-only-macos-lists)", only: "items walked"),
     ]
 }
