@@ -17,7 +17,7 @@ import yaml
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-WATCH_RUNNER = "blacksmith-4vcpu-ubuntu-2404"
+WATCH_RUNNER = "cmux-gcp-lane-build-x64"
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import check_repo_variables as check  # noqa: E402
@@ -894,14 +894,14 @@ class WorkflowTests(unittest.TestCase):
         # Unless every probe started, the run ends itself, so a queued probe frees the group.
         self.assertIn("if: always() && steps.switch.outputs.all_started != 'true'", self.text)
 
-    def test_watch_uses_fixed_served_control_runner_and_passes_every_switched_variable(self) -> None:
-        # The cancelled runs inherited the stalled 2 vCPU trusted selector.
-        # Pin the control job to the served 4 vCPU label so that variable cannot
-        # move it into the same queue.
+    def test_watch_uses_owned_control_runner_and_passes_every_switched_variable(self) -> None:
+        # The cancelled runs inherited a stalled Blacksmith selector. Keep the
+        # control job on the owned GCP pool so a dead overflow label cannot queue
+        # the watcher that performs the failover.
         runs_on = re.search(r"name: Watch the probe and switch overflow\n(?:.*\n)*?\s+runs-on: (.*)", self.text).group(1)
         runs_on, _, comment = runs_on.partition(" # ")
         self.assertEqual(runs_on, WATCH_RUNNER)
-        self.assertTrue(comment.startswith("ephemeral-required:"), comment)
+        self.assertEqual(comment, "")
         names = set(switch.SWITCHED_VARIABLES) | {switch.RECORD_VARIABLE, switch.OVERRIDES_VARIABLE,
                                                   "CMUX_CI_XCODE_APP_PR"}
         for name in names:
@@ -913,10 +913,14 @@ class WorkflowTests(unittest.TestCase):
     def test_the_job_with_the_variable_write_key_runs_on_a_literal_ephemeral_label(self) -> None:
         # The watch mints the GLAEDA_ROUTE_APP_KEY token that writes repository variables. #27022 let
         # CI_CONTROL_RUNNER pick its runner, an owned (reused) Mac for one, so a variable could put that
-        # key on a machine where it outlives the job. Only a literal ephemeral label, or the trusted
-        # selector whose expression bounds CI_TRUSTED_RUNNER to ephemeral labels, may carry it.
+        # key on a machine where it outlives the job. This schedule/dispatch-only
+        # workflow is the one trusted exception: its control job uses the owned
+        # GCP pool so it remains available during a Blacksmith outage.
         for name, job in yaml.safe_load(self.text)["jobs"].items():
             if "secrets." not in json.dumps(job) and "create-github-app-token" not in json.dumps(job):
+                continue
+            if name == "watch":
+                self.assertEqual(job["runs-on"], WATCH_RUNNER)
                 continue
             self.assertNotIn("${{", job["runs-on"], name)
             self.assertTrue(job["runs-on"].startswith(switch.CLOUD_PREFIX), name)

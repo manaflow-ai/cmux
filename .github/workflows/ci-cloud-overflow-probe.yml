@@ -6,7 +6,7 @@ name: CI cloud overflow probe
 # there (LINUX_RUNNER, CI_TRUSTED_RUNNER, MACOS_RUNNER_*, CI_PAID_MACOS_OVERFLOW) are pointed at
 # the owned pools and another Blacksmith Linux size, and pointed back once it serves
 # again. One switch: `probe` asks for each Blacksmith Linux size compiles run
-# on and only prints a line; `watch`, on the fixed 4 vCPU Blacksmith control runner, waits for them.
+# on and only prints a line; `watch`, on an owned control runner, waits for them.
 # scripts/ci/cloud_overflow_switch.py has the rules:
 #
 # - Every probe starts within CI_CLOUD_PROBE_MINUTES (default 5) of being
@@ -49,10 +49,10 @@ permissions: {}
 # One probe at a time: a second waits instead of racing the first one's writes.
 # The group is fixed on purpose: the switch's variable writes and record delete
 # are separate calls, so two watches must never run at once. A run whose probe
-# never starts cannot hold it for long: the watch uses a fixed served control
-# runner rather than the CI_TRUSTED_RUNNER value that can stall at 2 vCPU,
-# decides within CI_CLOUD_PROBE_MINUTES, and force-cancels its own run. The
-# switch's Linux failover stays on Blacksmith.
+# never starts cannot hold it for long: the watch uses the owned GCP control
+# runner rather than a Blacksmith label that can stall, decides within
+# CI_CLOUD_PROBE_MINUTES, and force-cancels its own run. The switch's Linux
+# failover stays on Blacksmith.
 concurrency:
   group: ci-cloud-overflow-probe
   cancel-in-progress: false
@@ -84,10 +84,10 @@ jobs:
   watch:
     name: Watch the probe and switch overflow
     if: github.repository_owner == 'manaflow-ai'
-    # Keep this control job on the served 4 vCPU label. It must not inherit
-    # CI_TRUSTED_RUNNER, whose 2 vCPU value was the stalled selector in the
-    # cancelled runs; the switch's Linux failover remains Blacksmith-only.
-    runs-on: blacksmith-4vcpu-ubuntu-2404 # ephemeral-required: fixed served control runner
+    # Keep this control job on the owned GCP Linux pool. It must not inherit
+    # CI_TRUSTED_RUNNER or any Blacksmith label: a dead overflow label would
+    # otherwise keep this watcher queued and hold the concurrency group.
+    runs-on: cmux-gcp-lane-build-x64
     timeout-minutes: 25
     permissions:
       actions: write
