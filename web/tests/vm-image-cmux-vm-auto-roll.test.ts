@@ -429,6 +429,20 @@ describe("auto-roll workflows", () => {
     expect(stepOf(promote, "push").run).toContain('--attempt "$GITHUB_RUN_ATTEMPT"');
   });
 
+  // Roll 44282278310 (2026-11-18): with vars.LINUX_RUNNER on a 16-vCPU Blacksmith size, plan queued 41 min and
+  // promote 20+ min for that size, each a minute of work. Only the bake needs the big runner.
+  test("the roll's control jobs take the 4-vCPU pool, never LINUX_RUNNER; the bake keeps it", () => {
+    const roll = load("cloud-vm-image-roll.yml") as unknown as { jobs: Record<string, { "runs-on"?: string }> };
+    for (const job of ["platform-readiness", "plan", "promote", "report"]) {
+      const runsOn = roll.jobs[job]!["runs-on"]!;
+      expect(runsOn).not.toContain("vars.LINUX_RUNNER");
+      expect(runsOn).toMatch(/\|\| fromJSON\(vars\.RUNNER_POOLS\)\.linux_4 }}$/);
+      expect(runsOn).toContain("vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 ||");
+    }
+    const bake = load("cloud-vm-image-bake.yml") as unknown as { jobs: Record<string, { "runs-on"?: string }> };
+    expect(bake.jobs["bake"]!["runs-on"]).toContain("vars.LINUX_RUNNER");
+  });
+
   test("platform mode mints its scoped token, checks out main and passes the split checkout", () => {
     const roll = load("cloud-vm-image-roll.yml");
     const promote = roll.jobs["promote"]!;

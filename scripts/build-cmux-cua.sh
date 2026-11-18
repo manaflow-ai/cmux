@@ -650,6 +650,13 @@ if [ -n "$HELPER_APP" ]; then
   # socket, credential, and state directory.
   HELPER_DISPLAY="${CMUX_CUA_HELPER_DISPLAY_NAME:-cmux Computer Use}"
   validate_replaceable_helper_bundle "$HELPER_APP" "$HELPER_ID" "$HELPER_EXECUTABLE"
+  # The screen sharing executable this helper carries (scripts/cmux-next/bundle-screen-sharing-helper.sh:
+  # one TCC identity for screen sharing and computer use) survives a rebuild of the helper.
+  _screen_sharing_keep=""
+  if [ -f "$HELPER_APP/Contents/MacOS/cmux-screen-sharing" ]; then
+    _screen_sharing_keep="$(mktemp "${TMPDIR:-/tmp}/cmux-screen-sharing.XXXXXX")"
+    cp "$HELPER_APP/Contents/MacOS/cmux-screen-sharing" "$_screen_sharing_keep"
+  fi
   /bin/rm -rf -- "$HELPER_APP"
   mkdir -p \
     "$HELPER_APP/Contents/MacOS" \
@@ -658,6 +665,13 @@ if [ -n "$HELPER_APP" ]; then
   printf '%s\n' "$CMUX_CUA_HELPER_OWNER_VALUE" > "$HELPER_APP/Contents/Resources/$CMUX_CUA_HELPER_OWNER_FILE"
   cp "$OUTPUT" "$HELPER_APP/Contents/MacOS/$HELPER_EXECUTABLE"
   chmod 0755 "$HELPER_APP/Contents/MacOS/$HELPER_EXECUTABLE"
+  if [ -n "$_screen_sharing_keep" ]; then
+    mv "$_screen_sharing_keep" "$HELPER_APP/Contents/MacOS/cmux-screen-sharing"
+    chmod 0755 "$HELPER_APP/Contents/MacOS/cmux-screen-sharing"
+    # Nested code is signed before the bundle that seals it.
+    /usr/bin/codesign --force --sign - --timestamp=none --identifier "$HELPER_ID" \
+      "$HELPER_APP/Contents/MacOS/cmux-screen-sharing"
+  fi
   # The helper bundle is copied out of the host app before launch, so it must
   # carry its own copy of the upstream MIT notice.
   cp "$CUA_LICENSE_SRC" "$HELPER_APP/Contents/Resources/LICENSE.md"
@@ -694,20 +708,20 @@ if [ -n "$HELPER_APP" ]; then
     <key>CMUX_CUA_TELEMETRY_ENABLED</key><string>false</string>
     <key>CMUX_CUA_UPDATE_CHECK</key><string>false</string>
   </dict>
-  <key>NSAccessibilityUsageDescription</key><string>${HELPER_DISPLAY} controls apps only when you ask an agent to use Computer Use.</string>
-  <key>NSScreenCaptureUsageDescription</key><string>${HELPER_DISPLAY} sees app windows only when you ask an agent to use Computer Use.</string>
+  <key>NSAccessibilityUsageDescription</key><string>${HELPER_DISPLAY} controls apps only when you ask an agent to use Computer Use, or a device you approve to control this Mac.</string>
+  <key>NSScreenCaptureUsageDescription</key><string>${HELPER_DISPLAY} sees the screen only when you ask an agent to use Computer Use, or share this Mac with a device you approve.</string>
 </dict>
 </plist>
 PLIST
   cat > "$HELPER_APP/Contents/Resources/en.lproj/InfoPlist.strings" <<STRINGS
 "CFBundleDisplayName" = "${HELPER_DISPLAY}";
-"NSAccessibilityUsageDescription" = "${HELPER_DISPLAY} controls apps only when you ask an agent to use Computer Use.";
-"NSScreenCaptureUsageDescription" = "${HELPER_DISPLAY} sees app windows only when you ask an agent to use Computer Use.";
+"NSAccessibilityUsageDescription" = "${HELPER_DISPLAY} controls apps only when you ask an agent to use Computer Use, or a device you approve to control this Mac.";
+"NSScreenCaptureUsageDescription" = "${HELPER_DISPLAY} sees the screen only when you ask an agent to use Computer Use, or share this Mac with a device you approve.";
 STRINGS
   cat > "$HELPER_APP/Contents/Resources/ja.lproj/InfoPlist.strings" <<STRINGS
 "CFBundleDisplayName" = "${HELPER_DISPLAY}";
-"NSAccessibilityUsageDescription" = "${HELPER_DISPLAY}は、エージェントにComputer Useの使用を依頼した場合にのみアプリを操作します。";
-"NSScreenCaptureUsageDescription" = "${HELPER_DISPLAY}は、エージェントにComputer Useの使用を依頼した場合にのみアプリのウインドウを表示します。";
+"NSAccessibilityUsageDescription" = "${HELPER_DISPLAY}は、エージェントにComputer Useの使用を依頼した場合、または承認したデバイスがこのMacを操作する場合にのみアプリを操作します。";
+"NSScreenCaptureUsageDescription" = "${HELPER_DISPLAY}は、エージェントにComputer Useの使用を依頼した場合、または承認したデバイスとこのMacを共有する場合にのみ画面を表示します。";
 STRINGS
   /usr/bin/plutil -lint "$HELPER_APP/Contents/Info.plist" >/dev/null
   # An ad-hoc signature without an explicit designated requirement collapses
