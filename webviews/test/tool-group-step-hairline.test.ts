@@ -8,6 +8,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("tool-group-step-hairline.test.ts", async () => {
@@ -42,6 +43,7 @@ await requireBrowserLane("tool-group-step-hairline.test.ts", async () => {
         const port = (vite!.httpServer!.address() as { port: number }).port;
         const page = await browser!.newPage({ viewport: { width: 900, height: 640 } });
         try {
+          await installPaintedFrames(page);
           await page.addInitScript(() => localStorage.clear());
           await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant })}`);
           await page.locator(`${ROW} button[data-tool-group]`).waitFor();
@@ -65,7 +67,8 @@ await requireBrowserLane("tool-group-step-hairline.test.ts", async () => {
           const seen = { rest: 0, pad: 0, step: 0, bare: [] as string[] };
           for (let notch = 0; notch < 200; notch++) {
             const frame = await box.evaluate(async (node) => {
-              await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+              // Read once the wheel's frame has painted.
+              await window.cmuxPaintFrame();
               const found = { rest: 0, pad: 0, step: 0, bare: [] as string[] };
               for (const step of node.querySelectorAll<HTMLElement>(".cv-steps > .cv-step")) {
                 const before = step.previousElementSibling;
