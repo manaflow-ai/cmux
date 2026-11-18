@@ -2225,3 +2225,28 @@ fn a_size_refusal_names_its_sizes_for_the_start_card() {
         ensure_answer(Err(E::Status { status: 403, code: "cloud.size.locked", facts: Some(top) }));
     assert_eq!(line["size_locked"], json!({"needed": "2xl", "upgrade_plan": "nothing"}), "{line}");
 }
+
+#[test]
+fn a_projection_goes_first_and_only_a_folder_not_projected_is_seeded_or_copied() {
+    // Projected: the seed or copy never runs.
+    let projected = json!({"mode": "projected", "projected": {"name": "chat-k"}});
+    let answer = super::projected_or(
+        || Some(Ok(projected.clone())),
+        || panic!("a projected folder is never seeded or copied too"),
+    );
+    assert_eq!(answer, Ok(projected));
+
+    // Not projected (off, a machine without projection-v1, or projecting failed): the
+    // head-first seed or held copy runs, and its answer or failure is the push's.
+    let ran = std::cell::Cell::new(false);
+    let answer = super::projected_or(
+        || None,
+        || {
+            ran.set(true);
+            Err(anyhow::anyhow!("the machine went away"))
+        },
+    );
+    assert!(ran.get(), "a folder not projected is seeded or copied");
+    let failure = answer.unwrap_err();
+    assert_eq!(failure["ok"], json!(false), "{failure}");
+}
