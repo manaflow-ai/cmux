@@ -15,8 +15,10 @@ private let log = Logger(subsystem: "dev.cmux.mobile", category: "shell")
 /// a `NavigationStack`; progress is implicit.
 public struct SetupFlow: View {
     /// A setup step. `createTeam` is pushed from the space choice, never planned.
-    public enum Step: Hashable, Sendable {
-        case team, pairMac, notifications, createTeam
+    /// `intro` ("Here's how cmux works") opens setup and `firstChat` ("Start
+    /// your first agent") ends it, whenever setup has anything else to ask.
+    public enum Step: String, Hashable, Sendable, CaseIterable {
+        case intro, team, pairMac, notifications, firstChat, createTeam
     }
 
     let steps: [Step]
@@ -31,7 +33,9 @@ public struct SetupFlow: View {
     /// Signs out to Welcome, to start over with another account.
     let signOut: () -> Void
     let finish: () -> Void
-    @State private var path: [Step] = []
+    /// The first-agent page's task: setup ends and Chief opens with it.
+    let startChat: (String) -> Void
+    @State private var path: [Step]
     /// `steps` as of the latest update. A page's `next` can run on a copy of
     /// this view from before the plan was fixed (the fleet's push probe: plan
     /// [team, pairMac, notifications] logged, yet Connect your Mac ended setup
@@ -45,6 +49,8 @@ public struct SetupFlow: View {
         teamPicked: @escaping (String) -> Void = { _ in },
         personalPicked: @escaping () -> Void = {},
         teamCreated: @escaping (AppStore.AccountTeam) -> Void = { _ in },
+        initialStep: Step? = nil,
+        startChat: @escaping (String) -> Void = { _ in },
         finish: @escaping () -> Void
     ) {
         self.steps = steps
@@ -55,6 +61,10 @@ public struct SetupFlow: View {
         self.teamCreated = teamCreated
         self.signOut = signOut
         self.finish = finish
+        self.startChat = startChat
+        // DEBUG captures (`-cmux-mobile-setup-step NAME`) open on a later page with
+        // the pages before it on the stack, so Back works as it does after taps.
+        _path = State(initialValue: initialStep.map { Self.path(to: $0, in: steps) } ?? [])
     }
 
     /// Whether setup should ask for notifications: only a build that can
@@ -143,6 +153,7 @@ public struct SetupFlow: View {
 
     @ViewBuilder private func page(_ step: Step) -> some View {
         switch step {
+        case .intro: IntroStep(next: { advance(from: .intro) })
         case .team:
             TeamStep(auth: auth, store: store, picked: teamPicked, personal: personalPicked,
                      create: { path.append(.createTeam) }, next: { advance(from: .team) })
@@ -154,6 +165,16 @@ public struct SetupFlow: View {
             }
         case .pairMac: PairMacStep(email: auth.user?.email, store: store, next: { advance(from: .pairMac) })
         case .notifications: NotificationsStep(next: { advance(from: .notifications) })
+        case .firstChat:
+            FirstChatStep(onlineMac: store.activeTeam?.macs.first(where: \.isOnline)?.name,
+                          start: { prompt in
+                              log.info("setup: first agent task chosen")
+                              startChat(prompt)
+                          },
+                          skip: {
+                              log.info("setup: first agent skipped")
+                              finish()
+                          })
         }
     }
 
@@ -175,9 +196,32 @@ public struct SetupFlow: View {
     /// online) still leads to the steps planned after it, such as
     /// notifications, instead of ending setup.
     nonisolated static func step(after step: Step, in steps: [Step]) -> Step? {
-        let order: [Step] = [.team, .createTeam, .pairMac, .notifications]
         guard let rank = order.firstIndex(of: step) else { return nil }
         return steps.first { (order.firstIndex(of: $0) ?? -1) > rank }
+    }
+
+    /// Setup's pages in the order they can appear.
+    nonisolated static let order: [Step] = [.intro, .team, .createTeam, .pairMac, .notifications, .firstChat]
+
+    /// Setup's plan for an account: the space choice when it has no team or
+    /// several, Connect your Mac while no Mac is online, notifications while
+    /// the system has not asked. When any of those is asked, setup opens with
+    /// "Here's how cmux works" and ends with "Start your first agent"; when
+    /// none is, there is no setup at all (a returning account on this phone).
+    nonisolated static func plan(teamCount: Int, macOnline: Bool, asksNotifications: Bool) -> [Step] {
+        var core: [Step] = []
+        if teamCount != 1 { core.append(.team) }
+        if !macOnline { core.append(.pairMac) }
+        if asksNotifications { core.append(.notifications) }
+        guard !core.isEmpty else { return [] }
+        return [.intro] + core + [.firstChat]
+    }
+
+    /// The stack that shows `step` with the planned pages before it under it
+    /// (the root is `steps.first`, so it is not on the path).
+    nonisolated static func path(to step: Step, in steps: [Step]) -> [Step] {
+        guard let index = steps.firstIndex(of: step), index > 0 else { return [] }
+        return Array(steps[1...index])
     }
 }
 

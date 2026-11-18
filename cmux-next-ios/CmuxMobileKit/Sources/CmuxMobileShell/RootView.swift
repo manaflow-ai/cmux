@@ -34,6 +34,13 @@ public struct ShellLaunchOptions: Sendable {
     /// DEBUG: open setup on the Connect your Mac step, with no Mac until a
     /// few seconds in (the presence flip, for recordings).
     public var setupPairDemo = false
+    /// DEBUG: open setup on this page (`SetupFlow.Step` case name), the pages
+    /// before it under it (`-cmux-mobile-setup-step firstChat`).
+    public var setupStep: String?
+    /// DEBUG: setup's active space has no Mac online (`-cmux-mobile-setup-no-mac`).
+    public var setupNoMac = false
+    /// DEBUG: Welcome shows a failed sign-in's message (`-cmux-mobile-welcome-error`).
+    public var welcomeError = false
     /// DEBUG: open Settings on this page (`SettingsRoute` case name).
     public var settingsPage: String?
     /// A launch with no demo or forced page goes back to the workspace and
@@ -53,6 +60,10 @@ public struct ShellLaunchOptions: Sendable {
         initialEmail = value("-cmux-mobile-email")
         setupPairDemo = arguments.contains("-cmux-mobile-setup-pair")
         if setupPairDemo { forceSetup = true }
+        setupStep = value("-cmux-mobile-setup-step")
+        setupNoMac = arguments.contains("-cmux-mobile-setup-no-mac")
+        if setupStep != nil || setupNoMac { forceSetup = true }
+        welcomeError = arguments.contains("-cmux-mobile-welcome-error")
         settingsPage = value("-cmux-mobile-settings-page")
         restoresLastLocation = initialTab == nil && settingsPage == nil && demo == nil && !sidebarOpen
             && !arguments.contains("-CmuxMobileDemo") && DeveloperOptions.launchDemo == nil
@@ -95,6 +106,8 @@ public struct RootView: View {
     @State private var machineInvite: MachineInvite?
     /// The signed-in shell's one model, kept across this view's updates (`ShellView.init`).
     @State private var shellModel = KeptModel<ShellModel>()
+    /// The task picked on setup's "Start your first agent", for the shell to send to Chief.
+    @State private var firstChat = FirstChatHandoff()
     /// App Store plans (Settings → Plan), built once for the process so its
     /// `Transaction.updates` listener outlives every screen; nil hides Plan.
     @State private var billing: BillingModel?
@@ -146,13 +159,19 @@ public struct RootView: View {
                             signOut: { Task { await auth.signOut() } },
                             teamPicked: { _ in live?.activeTeamChanged() },
                             personalPicked: { live?.selectPersonal() },
-                            teamCreated: teamCreated
+                            teamCreated: teamCreated,
+                            initialStep: setupInitialStep,
+                            startChat: { prompt in
+                                firstChat.prompt = prompt
+                                setupComplete = true
+                            }
                         ) {
                             setupComplete = true
                             theme.haptics.success()
                         }
                     case .shell:
-                        ShellView(store: store, auth: auth, settings: settings, sidebar: sidebar, live: live, options: options, kept: shellModel)
+                        ShellView(store: store, auth: auth, settings: settings, sidebar: sidebar, live: live, options: options, kept: shellModel,
+                                  firstChat: firstChat)
                     }
                 }
                 // The launch-to-Welcome swap is a cut on both sides (an
@@ -241,6 +260,12 @@ public struct RootView: View {
                 open(opened)
             }
             if options.setupPairDemo { await runSetupPairDemo() }
+            if options.setupNoMac, let index = store.teams.firstIndex(where: { $0.id == store.activeTeamID }) {
+                store.teams[index].macs = []
+            }
+            if options.welcomeError, !auth.isSignedIn {
+                auth.errorMessage = CmuxMobileAuthModel.message(for: URLError(.notConnectedToInternet), provider: .google)
+            }
             // The hand-off's --no-auth proof (DogfoodReadiness): this launch resolved signed out.
             if !auth.isSignedIn, !auth.isMock { DogfoodReadiness().writeSignedOut(apiBase: auth.apiBaseURL) }
             #endif
@@ -316,19 +341,32 @@ public struct RootView: View {
 
     private var setupSteps: [SetupFlow.Step] {
         if options.setupPairDemo { return [.pairMac, .notifications] }
+        #if DEBUG
+        // Captures of one page: every page, in setup's order, so Back walks them all.
+        if options.setupStep != nil { return SetupFlow.order.filter { $0 != .createTeam } }
+        #endif
         // Until the team list loads, the team step shows its loading state
-        // (and a failed list still lets the user choose Personal).
-        return setupPlan ?? [.team, .pairMac] + (asksNotifications == true ? [.notifications] : [])
+        // (and a failed list still lets the user choose Personal). The intro
+        // is the root from the first frame, so the plan never swaps it.
+        return setupPlan ?? SetupFlow.plan(teamCount: 0, macOnline: false, asksNotifications: asksNotifications == true)
+    }
+
+    /// DEBUG: the page `-cmux-mobile-setup-step` opens on.
+    private var setupInitialStep: SetupFlow.Step? {
+        #if DEBUG
+        return options.setupStep.flatMap(SetupFlow.Step.init(rawValue:))
+        #else
+        return nil
+        #endif
     }
 
     /// Fixes setup's steps once the account's teams are known.
     private func planSetup() {
         guard auth.teamList.isLoaded, setupPlan == nil, let asksNotifications else { return }
-        var steps: [SetupFlow.Step] = []
         let count = auth.isMock ? store.teams.count : auth.teamList.teams.count
-        if count != 1 { steps.append(.team) }
-        if !(store.activeTeam?.macs.contains(where: \.isOnline) ?? false) { steps.append(.pairMac) }
-        if asksNotifications { steps.append(.notifications) }
+        let steps = SetupFlow.plan(teamCount: count,
+                                   macOnline: store.activeTeam?.macs.contains(where: \.isOnline) ?? false,
+                                   asksNotifications: asksNotifications)
         setupPlan = steps
         log.info("setup plan: \(String(describing: steps), privacy: .public)")
         // Nothing to set up (one team, a Mac online, notifications decided).
@@ -528,6 +566,19 @@ public struct RootView: View {
     }
 }
 
+/// The task setup's "Start your first agent" picked, held from setup's last
+/// page until the shell that sends it is up (setup and the shell are siblings).
+@MainActor
+final class FirstChatHandoff {
+    var prompt: String?
+
+    /// The task, once: a rebuilt shell never sends it twice.
+    func take() -> String? {
+        defer { prompt = nil }
+        return prompt
+    }
+}
+
 /// One model, built by the first caller and handed to every later one until `discard()`.
 @MainActor
 final class KeptModel<Model: AnyObject> {
@@ -561,8 +612,11 @@ struct ShellView: View {
     /// model is built (and wired to `live`, which writes the shared Feed and browser wiring) once, by
     /// the first creation; later ones get the same model, so no throwaway model overwrites that wiring
     /// with closures that die with it.
+    /// The task setup's "Start your first agent" picked, sent once the shell is up.
+    private let firstChat: FirstChatHandoff?
+
     init(store: AppStore, auth: CmuxMobileAuthModel, settings: SettingsStore, sidebar: SidebarModel, live: LiveCoordinator?,
-         options: ShellLaunchOptions, kept: KeptModel<ShellModel>) {
+         options: ShellLaunchOptions, kept: KeptModel<ShellModel>, firstChat: FirstChatHandoff? = nil) {
         let shell = kept.model {
             let shell = ShellModel(store: store, auth: auth, settings: settings, sidebar: sidebar)
             shell.attach(live: live)
@@ -587,6 +641,7 @@ struct ShellView: View {
         _shell = State(initialValue: shell)
         self.options = options
         self.live = live
+        self.firstChat = firstChat
     }
 
     var body: some View {
@@ -598,6 +653,8 @@ struct ShellView: View {
             content: ShellTabs(shell: shell).environment(shell.store).environment(billing)
         )
         .ignoresSafeArea()
+        // Setup's last page picked a task: Chief gets it and opens on Home.
+        .task { if let prompt = firstChat?.take() { shell.startFirstChat(prompt) } }
         #if DEBUG
         .modifier(BillingDemoSheet(billing: billing))
         #endif

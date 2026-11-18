@@ -178,8 +178,7 @@ final class InstantListPerfUITests: XCTestCase {
         app.launch()
         let row = app.buttons[Self.firstRowID]
         if !row.waitForExistence(timeout: 30) {
-            let choose = app.scrollViews["setup.teams.choose"]
-            if choose.exists { app.buttons["Manaflow"].tap() }
+            app.passFirstRunSetup(appearTimeout: 0)
             XCTAssertTrue(row.waitForExistence(timeout: 30), "first Home row\n\(app.debugDescription)")
         }
     }

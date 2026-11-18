@@ -16,8 +16,7 @@ final class ApprovalWithoutFaceIDUITests: XCTestCase {
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchArguments += ["-cmux-mobile-tab", "feed", "-cmux-mobile-no-restore"]
         app.launch()
-        let choose = app.scrollViews["setup.teams.choose"]
-        if choose.waitForExistence(timeout: 10) { app.buttons["Manaflow"].tap() }
+        app.passFirstRunSetup()
 
         let list = app.tables["feed.list"]
         XCTAssertTrue(list.waitForExistence(timeout: 30), "the Feed's table\n\(app.debugDescription)")

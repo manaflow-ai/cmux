@@ -16,8 +16,8 @@ final class HomeMacDisconnectedUITests: XCTestCase {
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-no-restore", "-cmux-mobile-demo", demo]
         app.launch()
-        let choose = app.scrollViews["setup.teams.choose"]
-        if choose.waitForExistence(timeout: 5) { app.buttons.element(boundBy: 0).tap() }
+        // The space chooser's first row (Personal).
+        app.passFirstRunSetup(appearTimeout: 5) { $0.scrollViews["setup.teams.choose"].buttons.element(boundBy: 0).tap() }
         return app
     }
 

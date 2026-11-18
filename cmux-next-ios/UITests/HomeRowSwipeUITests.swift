@@ -19,8 +19,7 @@ final class HomeRowSwipeUITests: XCTestCase {
         app.launchEnvironment["CMUX_MOBILE_LIST_PASSES"] = "0"
         app.launchArguments += ["-cmux-mobile-tab", "home", "-cmux-mobile-no-restore"]
         app.launch()
-        let choose = app.scrollViews["setup.teams.choose"]
-        if choose.waitForExistence(timeout: 10) { app.buttons["Manaflow"].tap() }
+        app.passFirstRunSetup()
         return app
     }
 
