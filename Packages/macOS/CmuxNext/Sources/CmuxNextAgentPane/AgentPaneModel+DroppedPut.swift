@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// Reads a dropped file a slice at a time, off the main actor.
@@ -10,7 +11,7 @@ private actor AgentPaneDroppedFileReader {
     }
 
     func read(_ count: Int) -> Data? {
-        try? handle.read(upToCount: count)
+        try? handle.blockingRead(upToCount: count)
     }
 
     func close() {
@@ -19,7 +20,7 @@ private actor AgentPaneDroppedFileReader {
 
     /// The size of the regular file at `file`; nil for a folder or a file that is not there.
     nonisolated static func size(_ file: URL) -> Int? {
-        guard let values = try? file.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+        guard let values = try? file.blockingResourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
               values.isRegularFile == true else { return nil }
         return values.fileSize
     }
