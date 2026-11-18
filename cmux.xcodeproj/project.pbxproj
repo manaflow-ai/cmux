@@ -162,6 +162,7 @@
 				CE7A00000000000000000032 /* Bundle optchat-chief */,
 				CE7A00000000000000000044 /* Bundle cmux-mobile-host */,
 				CE7A00000000000000000045 /* Bundle Screen Sharing helper */,
+				CE7A00000000000000000046 /* Bundle Share extension */,
 				CE7A00000000000000000017 /* Embed CEF */,
 				CE7A00000000000000000041 /* Embed remote browser host */,
 				CE7A00000000000000000042 /* Embed cmux Remote (dev) */,
@@ -591,6 +592,36 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/bundle-screen-sharing-helper.sh\"\n";
+		};
+		CE7A00000000000000000046 /* Bundle Share extension */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/scripts/cmux-next/bundle-share-extension.sh",
+				"$(SRCROOT)/scripts/cmux-next/share-extension.entitlements",
+				"$(SRCROOT)/Packages/macOS/CmuxNext/ShareExtension/ShareViewController.swift",
+				"$(PRODUCT_BUNDLE_IDENTIFIER)",
+				"$(PRODUCT_NAME)",
+				"$(CURRENT_PROJECT_VERSION)",
+				"$(MARKETING_VERSION)",
+				"$(EXPANDED_CODE_SIGN_IDENTITY)",
+				"$(ARCHS)",
+				"$(MACOSX_DEPLOYMENT_TARGET)",
+			);
+			name = "Bundle Share extension";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/PlugIns/CmuxShare.appex",
+				"$(TARGET_TEMP_DIR)/bundle-share-extension.stamp",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/bundle-share-extension.sh\"\n";
 		};
 		CE7A00000000000000000017 /* Embed CEF */ = {
 			isa = PBXShellScriptBuildPhase;

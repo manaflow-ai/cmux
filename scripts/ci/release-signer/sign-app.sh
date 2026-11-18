@@ -68,6 +68,12 @@ if [[ -n "$screen_share" ]]; then
   "${CMUX_SCREEN_HELPER_STAMP_TOOL:-$SCRIPTS_DIR/cmux-next/bundle-screen-sharing-helper.sh}" --stamp "$APP_PATH"
   find_screen_share
 fi
+# The Share extension (Contents/PlugIns/CmuxShare.appex): stamped the same way, and signed
+# with the App Sandbox in step 2, as sign-cmux-bundle.sh step 3.
+share_extension_rel="Contents/PlugIns/CmuxShare.appex"
+if [[ -d "$APP_PATH/$share_extension_rel/Contents" ]]; then
+  "$SCRIPTS_DIR/cmux-next/bundle-share-extension.sh" --stamp "$APP_PATH"
+fi
 command -v "$R" >/dev/null || { echo "error: signer binary not found ($R)" >&2; exit 1; }
 : "${APPLE_CERTIFICATE_BASE64:?}" "${APPLE_CERTIFICATE_PASSWORD:?}"
 export APPLE_CERTIFICATE_PASSWORD
@@ -279,8 +285,12 @@ PY
   echo "==> signed and re-pinned ${#signed[@]} cmux-tui SSH payload(s)"
 fi
 
-# 2. Plugins (--deep, no entitlements).
+# 2. Plugins (--deep, no entitlements), but the Share extension's executable: the App Sandbox.
 for rel in "${machos[@]}"; do [[ "$rel" == Contents/PlugIns/* ]] && clear["$rel"]=1; done
+if [[ -d "$APP_PATH/$share_extension_rel/Contents" ]]; then
+  exe_of "$APP_PATH/$share_extension_rel"; unset 'clear[$exe]'
+  ent["$exe"]="$SCRIPTS_DIR/cmux-next/share-extension.entitlements"
+fi
 
 # 3. The Chromium engine (feat-cmux-next scripts/cmux-next/sign-cef.sh, blob
 # 42525cf0): the framework, its Libraries and the shim get no entitlements;

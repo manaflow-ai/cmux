@@ -102,6 +102,8 @@ fi
 COMMON=(--force --options runtime "${TS_FLAG[@]}" --sign "$IDENTITY")
 SYSTEM_EXTENSIONS_DIR="$APP_PATH/Contents/Library/SystemExtensions"
 CEF_FRAMEWORK_NAME="Chromium Embedded Framework.framework"
+SHARE_EXTENSION=CmuxShare.appex
+SHARE_EXTENSION_ENTITLEMENTS="$SCRIPT_DIR/cmux-next/share-extension.entitlements"
 
 # Effective app entitlements: the desired file reconciled against the embedded
 # provisioning profile. Deterministic, so every CMUX_SIGN_MODE pass agrees.
@@ -153,11 +155,18 @@ if [[ "$SIGN_MODE" == "all" ]]; then
     done
   fi
 
-  # 3. Plugins
+  # 3. Plugins. The Share extension (bundle-share-extension.sh) is stamped for this app's
+  # final bundle id, name and version first (nightly and RC rename the app after the build),
+  # then signed with the App Sandbox, without which macOS does not load an app extension.
   if [[ -d "$APP_PATH/Contents/PlugIns" ]]; then
+    "$SCRIPT_DIR/cmux-next/bundle-share-extension.sh" --stamp "$APP_PATH"
     while IFS= read -r -d '' plugin; do
       echo "==> signing plugin $(basename "$plugin")"
-      "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" --deep "$plugin"
+      if [[ "$(basename "$plugin")" == "$SHARE_EXTENSION" ]]; then
+        "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" --entitlements "$SHARE_EXTENSION_ENTITLEMENTS" "$plugin"
+      else
+        "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" --deep "$plugin"
+      fi
     done < <(find "$APP_PATH/Contents/PlugIns" -mindepth 1 -maxdepth 1 -print0)
   fi
 
@@ -216,6 +225,15 @@ for screen_helper in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
   [[ -d "$screen_helper" ]] || continue
   /usr/bin/codesign --verify --strict --verbose=2 "$screen_helper"
 done
+# An unsandboxed app extension is one macOS never lists in the Share menu.
+share_extension="$APP_PATH/Contents/PlugIns/$SHARE_EXTENSION"
+if [[ -d "$share_extension" ]]; then
+  /usr/bin/codesign --verify --strict --verbose=2 "$share_extension"
+  /usr/bin/codesign -d --entitlements :- "$share_extension" 2>/dev/null | grep -q "com.apple.security.app-sandbox" || {
+    echo "error: $SHARE_EXTENSION is not signed with the App Sandbox; macOS would not load it" >&2
+    exit 1
+  }
+fi
 # The sidecar must carry exactly the slices the app does: universal for stable
 # and the transitional nightly, one architecture for thinned nightlies.
 SIDECAR_CHECK=(--archs "$(lipo -archs "$APP_PATH/Contents/MacOS/cmux")" --require-signed)
