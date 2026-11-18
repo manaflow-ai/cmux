@@ -54,9 +54,7 @@ pub enum Node {
         panes: Vec<u64>,
         expanded: u64,
     },
-    /// A node type this client does not know. Its own fields are dropped, as the app's
-    /// `LayoutNode.unknown` drops them when it decodes the daemon's tree; the node keeps its
-    /// place, so a split or a removal elsewhere in the tree leaves it there.
+    /// A node type this client does not know: kept as it is.
     #[serde(other)]
     Unknown,
 }
@@ -405,9 +403,7 @@ fn after_target(panes: &[u64], target: u64) -> usize {
 }
 
 /// A split of `target` (`split_kind.rs`: the target's column tree and row tree take it too),
-/// New Column (`column`) or New Row (`row`). None when cmux-tui would refuse it, or when the
-/// screen's tree already places `leaf` (the daemon's layout placed its pane: the split has
-/// nothing left to show, and showing it again would list the pane twice).
+/// New Column (`column`) or New Row (`row`). None when cmux-tui would refuse it.
 #[allow(clippy::too_many_arguments)]
 pub fn split(
     screen: &Screen,
@@ -419,9 +415,6 @@ pub fn split(
     column: Option<&ColumnSpec>,
     row: Option<&RowSpec>,
 ) -> Option<Placed> {
-    if screen.layout.contains(leaf) {
-        return None;
-    }
     if let Some(column) = column {
         return new_column(screen, target, leaf, column);
     }
@@ -564,14 +557,10 @@ fn new_row(
 /// A lone tab docked into a new column (`move-tab-to-column {dock}`): the column holding `leaf`
 /// leads the screen's columns (cmux-tui's `commit_tab_drag` puts a left dock first). A zoomed
 /// screen, or one with a dock on that edge already, waits for the daemon's layout:
-/// `reduce_column_dock` there moves the old holder, which this view does not show. None too when
-/// the screen's tree already places `leaf` (the daemon's layout placed the dock's pane).
+/// `reduce_column_dock` there moves the old holder, which this view does not show.
 pub fn dock_column(screen: &Screen, leaf: u64, spec: &ColumnSpec, dock: &Value) -> Option<Shown> {
     let edge = dock.get("edge").and_then(Value::as_str);
-    if screen.layout.contains(leaf)
-        || screen.zoomed_pane.is_some()
-        || screen.columns.iter().any(|c| c.dock_edge() == edge)
-    {
+    if screen.zoomed_pane.is_some() || screen.columns.iter().any(|c| c.dock_edge() == edge) {
         return None;
     }
     let mut columns = screen.columns.clone();
