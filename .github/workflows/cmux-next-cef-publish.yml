@@ -32,8 +32,8 @@ on:
 
 permissions: {}
 
-# No workflow-level concurrency group: the publish job waits for a cef-publish
-# reviewer, and a run waiting there never times out, so a workflow group let
+# No workflow-level concurrency group: while cef-publish required a reviewer the
+# publish job waited there, and a run waiting there never times out, so a workflow group let
 # one unanswered approval hold every later dispatch (cmux-next-cua-helper-dev-sign.yml,
 # run 42677635673, 2026-11-09). Two runs for one tag
 # may publish side by side: publish-cef-r2.sh writes once and reads back.
@@ -117,7 +117,7 @@ jobs:
           # One strict parser: every line well formed, and the release's
           # archives are exactly the listed ones.
           python3 -I scripts/cmux-next/check-cef-sums.py names "$work/SHA256SUMS" "$work/assets"
-          # The approval covers exactly this SHA256SUMS: publish takes no other file set.
+          # publish takes exactly this SHA256SUMS and no other file set.
           sums="$(sha256sum "$work/SHA256SUMS" | awk '{print $1}')"
           { echo "commit=$commit"; echo "branch=$branch"; echo "sums=$sums"; } >> "$GITHUB_OUTPUT"
           { echo "Release $TAG: manaflow-ai/cef $commit on $branch"; echo; echo '```'; cat "$work/SHA256SUMS"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
@@ -125,7 +125,7 @@ jobs:
   publish:
     name: Publish to R2
     needs: resolve
-    # Waits for a reviewer, so it holds no concurrency group.
+    # Holds no concurrency group: an environment wait never times out.
     environment: cef-publish
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # 45 minutes of work plus up to an hour waiting out the API budget.
@@ -192,7 +192,7 @@ jobs:
           [[ "$now" == "$COMMIT" ]] || { echo "::error::$TAG moved from $COMMIT to $now since it was checked" >&2; exit 1; }
           dir="$RUNNER_TEMP/assets"; mkdir -p "$dir"
           gh release download "$TAG" --repo manaflow-ai/cef --pattern '*.tar.xz' --pattern SHA256SUMS --dir "$dir"
-          # The SHA256SUMS approved in resolve, and exactly its archives with
+          # The SHA256SUMS checked in resolve, and exactly its archives with
           # their listed digests: anything added or replaced since is refused.
           echo "$SUMS  $dir/SHA256SUMS" | sha256sum --strict -c -
           python3 -I scripts/cmux-next/check-cef-sums.py files "$dir/SHA256SUMS" "$dir"

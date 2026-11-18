@@ -66,12 +66,23 @@ RELEASE_NEXT_JOBS = {
 # The cmux-cef-write token (CMUX_CEF_R2_WRITE_*) lives only in `cef-publish`
 # (deployment branch policy: main). It had required reviewers until Leo asked
 # "why do i have to keep approving these???" (2026-11-14): every run was a main
-# dispatch, so the reviewer checked nothing the branch policy doesn't. A job in any other environment reads it as empty: the
-# Cua Driver SDK publish (run 42278271161) and the dev helper signing asked
+# dispatch, so the reviewer checked nothing the branch policy doesn't. A job in
+# any other environment reads it as empty: the Cua Driver SDK publish (run 42278271161) and the dev helper signing asked
 # `release` for it and stopped before publishing.
 CEF_WRITE_SECRET = re.compile(r"secrets\.CMUX_CEF_R2_WRITE_[A-Z_]+")
 CEF_WRITE_ENVIRONMENT = "cef-publish"
-MAIN_GATE = re.compile(r"github\.ref\s*==\s*'refs/heads/main'")
+# The gate is the whole condition, or its first term joined by && only. A job
+# whose own `if` calls always(), cancelled() or failure() runs after a skipped
+# need, so it breaks the chain from the gate.
+MAIN_GATE = re.compile(r"^github\.ref == 'refs/heads/main'( && [^|]*)?$")
+RUNS_AFTER_SKIP = re.compile(r"\b(always|cancelled|failure)\(")
+
+
+def _condition(definition):
+    text = " ".join(str(definition.get("if", "")).split())
+    if text.startswith("${{") and text.endswith("}}"):
+        text = text[3:-2].strip()
+    return text
 
 
 def _environment(definition):
@@ -92,8 +103,11 @@ def _main_gated(jobs, job, seen=None):
     if job in seen or job not in jobs:
         return False
     seen.add(job)
-    if MAIN_GATE.search(str(jobs[job].get("if", ""))):
+    condition = _condition(jobs[job])
+    if MAIN_GATE.match(condition):
         return True
+    if RUNS_AFTER_SKIP.search(condition):
+        return False
     return any(_main_gated(jobs, need, seen) for need in _needs(jobs[job]))
 
 
