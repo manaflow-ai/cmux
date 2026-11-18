@@ -316,7 +316,12 @@ export function generate(): Record<string, string> {
     // Cloud's Google `calendar.*` family: events
     // never prompts; request_access shows the system prompt, so it needs a gesture.
     "system_calendar.events": { scope: "system_calendar:read", class: "read" },
-    "system_calendar.request_access": { scope: "system_calendar:read", class: "mutation" }
+    "system_calendar.request_access": { scope: "system_calendar:read", class: "mutation" },
+    // What plays in cmux, from the Now Playing card's sources (cmux's player, a browser tab, another
+    // app while sidebar.nowPlaying.otherApps is on), answered by the Mac app (MediaAppOps). media.control
+    // runs only on a tap (PLAYBACK_OPS in cmux-app-manifest capabilities.rs).
+    "media.get": { scope: "media:read", class: "read" },
+    "media.control": { scope: "media:control", class: "mutation" }
   }
   Object.assign(scopes, hostOps)
   const signals = loadSignals(scopes, types)
