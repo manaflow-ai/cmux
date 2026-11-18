@@ -1,5 +1,12 @@
 import { describe, expect, it } from "bun:test";
-import { continuesLiveResize, LIVE_RESIZE_MS, stepLiveResize, type LiveResizeClock } from "./liveResizeStep";
+import {
+  continuesLiveResize,
+  LIVE_RESIZE_MS,
+  LIVE_RESUME_MS,
+  resumesLiveResize,
+  stepLiveResize,
+  type LiveResizeClock,
+} from "./liveResizeStep";
 
 /// A drag, step by step: each width arrives `gap` ms after the last one was served, and serving it
 /// costs `work` ms. Returns the step counts the transcript would have seen, one per width after the
@@ -67,5 +74,21 @@ describe("stepLiveResize", () => {
 
   it("keeps the step that began a drag at 0", () => {
     expect(stepLiveResize({ at: Number.NEGATIVE_INFINITY, steps: 0 }, 1).steps).toBe(0);
+  });
+});
+
+describe("resumesLiveResize", () => {
+  it("is false before any resize settled", () => {
+    expect(resumesLiveResize({ at: 0, steps: 0 }, 1)).toBe(false);
+  });
+
+  it("takes a drag that paused on the divider up again", () => {
+    // Leo's 2026-11-18 drag paused a few hundred ms at a time: past LIVE_RESIZE_MS, so it settled,
+    // and its next width started over two steps from flow.
+    expect(resumesLiveResize({ at: 0, steps: 0, settled: 1000 }, 1000 + 300)).toBe(true);
+  });
+
+  it("starts a new resize after a long quiet", () => {
+    expect(resumesLiveResize({ at: 0, steps: 0, settled: 1000 }, 1000 + LIVE_RESUME_MS + 1)).toBe(false);
   });
 });
