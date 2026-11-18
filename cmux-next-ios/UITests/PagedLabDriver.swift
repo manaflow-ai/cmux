@@ -161,4 +161,5 @@ struct PagedLabReading {
     var diskBytes: Int { Int(number("diskBytes")) }
     var slides: Int { Int(number("slides")) }
     var slideFrames: Int { Int(number("slideFrames")) }
+    var held: Int { Int(number("held")) }
 }

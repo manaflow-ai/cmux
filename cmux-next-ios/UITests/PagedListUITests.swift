@@ -84,6 +84,32 @@ final class PagedListUITests: XCTestCase {
         XCTAssertLessThanOrEqual(reading.frameShift, 0.5, "a row moved \(reading.frameShift) pt in a frame the slide does not explain")
     }
 
+    /// A row that arrives under a resting finger (touching the list, not dragging) waits: the rows
+    /// under the finger stay, and the new row slides in when it lifts. The spring waits for the
+    /// finger instead of stalling or jumping, and the indicator never counts a row the list slid to.
+    @MainActor func testUpRowArrivingUnderARestingFingerSlidesInWhenItLifts() {
+        let lab = PagedLabDriver.launch("up:normal", test: self)
+        XCTAssertTrue(lab.row(0).waitForExistence(timeout: 10))
+        lab.settle(lab.row(0))
+        let slides = lab.reading.slides
+        // The row lands 1.5 s after the tap; the finger rests from before that until after it.
+        lab.app.buttons["lab.op.later"].tap()
+        lab.list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35)).press(forDuration: 3.5)
+        let arrived = lab.row(-2)
+        XCTAssertTrue(arrived.waitForExistence(timeout: 5), "the new row did not show")
+        lab.waitFor("the slide", timeout: 5) { lab.reading.slides > slides }
+        lab.settle(arrived)
+        lab.attach("up-resting-finger-slid-in")
+        let reading = lab.reading
+        lab.record("up-resting-finger", reading.json)
+        XCTAssertGreaterThanOrEqual(reading.held, 1, "the row did not land under the resting finger (the press came late)")
+        XCTAssertLessThanOrEqual(arrived.frame.maxY, lab.floor + 1, "the new row is under the composer")
+        XCTAssertGreaterThan(arrived.frame.maxY, lab.floor - 60, "the list did not slide on to the new row")
+        XCTAssertGreaterThan(reading.slideFrames, 5, "the new row jumped into place (\(reading.slideFrames) frames)")
+        XCTAssertFalse(lab.app.buttons["pagedList.newest"].exists, "the indicator shows for a row the list slid to")
+        XCTAssertLessThanOrEqual(reading.frameShift, 0.5, "a row moved \(reading.frameShift) pt in a frame the slide does not explain")
+    }
+
     /// The composer rides the keyboard mid-list and the rows ride with it (Telegram, Messages): the
     /// gap between the row being read and the composer stays the same, keyboard up and down.
     @MainActor func testUpComposerRidesTheKeyboardMidList() {
@@ -134,8 +160,9 @@ final class PagedListUITests: XCTestCase {
         lab.record("up-pill", lab.reading.json)
     }
 
-    /// 100,000 rows with a window of 300 in memory: flinging deep keeps memory bounded (the rest on
-    /// disk), and flinging back reads the newer rows back from disk, with no row moving under the reader.
+    /// 100,000 rows with a window of 300 in memory, under a live load: flinging deep keeps memory
+    /// bounded (the rest on disk), flinging back keeps it bounded, and the newest-rows pill takes the
+    /// list back to its newest rows, read back from disk, with no row moving under the reader.
     @MainActor func testWindowedHugeListKeepsMemoryBounded() {
         continueAfterFailure = true
         let lab = PagedLabDriver.launch("down:normal", extra: ["-cmux-mobile-paged-lab-stress", "huge", "-cmux-mobile-paged-lab-window", "300"], test: self)

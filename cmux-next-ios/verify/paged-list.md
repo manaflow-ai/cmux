@@ -58,9 +58,13 @@ new top. The spring is critically damped (no overshoot), its response is the the
 (0.35 s), it runs on a `CADisplayLink` at up to 120 Hz and places the offset for each frame's
 `targetTimestamp`. The target is read every frame, so another arrival, a row that grows or the
 keyboard mid-slide retarget it with no seam, and the spring starts each frame from where the list
-is, so the list keeping its rows in place as another row lands is not undone. A touch stops it where
-it is, and rows that arrive while a finger is on the list land out of view (the rows under the finger
-stay) and count on the indicator. Reduce Motion, or
+is, so the list keeping its rows in place as another row lands is not undone. A finger resting on the
+list (touching, not dragging) holds the slide where it is, and it carries on when the finger lifts;
+rows that arrive under a resting finger stay out of view (the rows under it don't move) and slide in
+when it lifts. A drag stops the slide, and rows held for the finger then count on the indicator; rows
+that arrive during a drag or a fling land out of view, and when the scroll ends at the newest end the
+list slides on to them. The spring ends when the offset reaches its target, also when UIKit rounds
+the offset to the pixel. Reduce Motion, or
 `.pagedAnimatesNewest(false)`, jumps instead. A reader away from the newest end is not moved: the rows
 land out of view and the newest-rows indicator counts them.
 
@@ -122,7 +126,7 @@ every direction (down, up) × speed (slow held drags, medium short flings, fast 
 | `edits` | 300 edits/s and a 2000-edit burst every 2 s |
 | `inserts` | 80 mid-list inserts/s, 20 removals and 20 moves/s |
 | `busy` | `flood` with the main thread busy 4 ms of every 50 (hitches measured, not judged) |
-| `huge` | 100,000 rows in pages of 200, in a 300-row window |
+| `huge` | 100,000 rows in pages of 200, in a 300-row window, with 10 newest rows/s, 60 edits/s, 10 mid-list inserts/s, 5 removals and 5 moves/s and a 1000-edit burst every 2 s |
 
 The lab's probe measures, after every layout pass, how far the row being read moved on screen beyond
 what the scroll explains (the finger, a fling's deceleration, scroll to top, the list's own slide or
@@ -130,10 +134,14 @@ ride). Corrections the list makes (anchoring, height changes, staying on the new
 lands above it) are not explanations: a frame where a correction left the row off its place is a
 shift. An offset move inside an update or a layout pass (a row above that sized itself, UIKit's own
 batch-update or self-sizing adjustment) is never the finger or a fling, which move it between passes,
-so it is a correction too. The sample is taken once per update and once per layout pass, after the
+so it is a correction too (the layer's layout around `layoutSubviews` counts as the pass). The sample is taken once per update and once per layout pass, after the
 list's corrections, on the row being read, or, for an `.up` list at its newest row, on the lowest row on
 screen (the list keeps that one on the bottom edge). In the lab, `worstShift` names what the list was
-doing in the worst frame. A case fails above 0.5 pt in any frame, or above
+doing in the worst frame, with a trail of every offset move since the frame before and how the
+measure read it (`c` correction, `o` the list's own move, `U`/`L`/`S` inside an update, a layout pass
+or the layer's layout, `p` a layout adjustment UIKit announced, `d`/`t`/`u` a drag, a resting finger
+or a fling, `n` none of these; `A` is an adjustment announced, `^` one made inside another scroll
+callback). A case fails above 0.5 pt in any frame, or above
 10 ms of hitches per second. Each case prints `PAGEDLIST STRESS-<direction>-<speed>-<load> {…}`;
 `scripts/bench/cmux-bench ios-pagedlist --host fleet --arg ref=SHA` runs the suite on a fleet
 simulator and records the rows (frame_shift_pt, shifted_frames, landing_shift_pt, hitch_ms_per_s,

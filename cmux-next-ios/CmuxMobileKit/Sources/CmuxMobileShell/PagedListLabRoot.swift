@@ -122,6 +122,7 @@ public struct PagedListLabRoot: View {
             probe.frameShift = { [hud] shift in hud.sampled(shift) }
             probe.shiftDetail = { [hud] shift, detail in hud.shifted(shift, detail) }
             probe.slid = { [hud] frames in hud.slid(frames) }
+            probe.held = { [hud] rows in hud.hold(rows) }
             await model.loadFirst()
         }
         .task { await model.listen() }
@@ -175,6 +176,13 @@ public struct PagedListLabRoot: View {
                 }
             }
             operation("Insert", "insert") { source.insertNewest() }
+            // A newest row 1.5 s from now: a test rests a finger on the list before it lands.
+            operation("Later", "later") {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(1.5))
+                    source.insertNewest()
+                }
+            }
             operation("Banner", "banner") { banner.toggle() }
             operation("Reload", "reload") { Task { await model.loadFirst() } }
         }
@@ -387,6 +395,8 @@ final class PagedLabHUD {
     /// Slides to the newest end, and the display frames the last one took (1: a jump).
     var slides = 0
     var slideFrames = 0
+    /// Rows that arrived under a resting finger and waited for it.
+    var heldRows = 0
     /// Row values in memory, rows known, rows on disk and the disk file's size.
     var inMemory = 0
     var total = 0
@@ -429,6 +439,10 @@ final class PagedLabHUD {
         slideFrames = frames
     }
 
+    func hold(_ rows: Int) {
+        heldRows += rows
+    }
+
     func landed(shift: CGFloat, rows: Int) {
         self.rows = rows
         landings += 1
@@ -446,7 +460,7 @@ final class PagedLabHUD {
 
     func json(edge: String, newer: String = "end", changes: Int = 0, flushes: Int = 0) -> String {
         let ratio = seconds > 0 ? hitchMs / seconds : 0
-        return #"{"edge":"\#(edge)","newer":"\#(newer)","rows":\#(rows),"landings":\#(landings),"maxShift":\#(maxShift),"frameShift":\#(frameShift),"samples":\#(samples),"shiftedFrames":\#(shiftedFrames),"frames":\#(frames),"hitches":\#(hitches),"dropped":\#(dropped),"worstMs":\#(worstMs),"hitchMsPerS":\#(ratio),"changes":\#(changes),"flushes":\#(flushes),"inMemory":\#(inMemory),"total":\#(total),"onDisk":\#(onDisk),"diskBytes":\#(diskBytes),"slides":\#(slides),"slideFrames":\#(slideFrames),"worstShift":"\#(worstShift)"}"#
+        return #"{"edge":"\#(edge)","newer":"\#(newer)","rows":\#(rows),"landings":\#(landings),"maxShift":\#(maxShift),"frameShift":\#(frameShift),"samples":\#(samples),"shiftedFrames":\#(shiftedFrames),"frames":\#(frames),"hitches":\#(hitches),"dropped":\#(dropped),"worstMs":\#(worstMs),"hitchMsPerS":\#(ratio),"changes":\#(changes),"flushes":\#(flushes),"inMemory":\#(inMemory),"total":\#(total),"onDisk":\#(onDisk),"diskBytes":\#(diskBytes),"slides":\#(slides),"slideFrames":\#(slideFrames),"held":\#(heldRows),"worstShift":"\#(worstShift)"}"#
     }
 }
 
