@@ -492,12 +492,9 @@ struct TaskComposerScreen: View {
     private var startButton: some View {
         let count = max(1, draft.picks.count)
         let enabled = blocker == nil && loadingPhotos == 0 && loadingFiles == 0 && sent == nil
-        // Where it opens (the title menu's Chat or Terminal), then Start.
+        // Where it opens is the subtitle's (the title menu's Chat or Terminal); Start says Start.
         return Button(action: start) {
-            HStack(spacing: 6) {
-                Image(systemName: draft.launch.systemImage)
-                Text("Start")
-            }
+            Text("Start")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(enabled ? theme.colors.onAccent.color : theme.colors.label3.color)
                 .padding(.horizontal, 16)
