@@ -1,0 +1,21 @@
+[package]
+name = "cmux-projfs"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Projected folders for Cloud machines: a stat-only manifest of a Mac folder, an on-disk chunk cache, the fault read path, a read-only FUSE lower layer (Linux), and the reader of an overlay upper layer."
+
+[lints]
+workspace = true
+
+[dependencies]
+libc.workspace = true
+sha2.workspace = true
+zstd.workspace = true
+
+# The FUSE lower layer exists only on the Cloud machine. Without default
+# features fuser mounts through the setuid `fusermount3` and links no libfuse.
+[target.'cfg(target_os = "linux")'.dependencies]
+fuser = { version = "0.18", default-features = false }
