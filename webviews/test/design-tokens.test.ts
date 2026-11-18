@@ -9,6 +9,7 @@ import {
   tokenOnlyFindings,
   tokenOnlyKind,
   tsTokenCopies,
+  scriptMotionFindings,
 } from "../scripts/check-design-tokens";
 import { designTokenValue, designTokens, tokenFor } from "../scripts/design-token-values";
 
@@ -83,7 +84,7 @@ describe("design token ratchet", () => {
     ["font-weight", "bold", "font-weight"],
     ["font-weight", "600", undefined],
     ["font-weight", "var(--weight-strong)", undefined],
-    ["transition", "opacity 120ms", "duration"],
+    ["transition", "opacity 120ms", "duration"], // motion-allow: scanner fixture, a raw literal
     ["transition", "opacity var(--cmux-motion-micro) var(--cmux-ease-out)", undefined],
     ["transition", "opacity var(--cmux-motion-micro) ease-out", "easing"],
     ["animation-duration", "0s", undefined],
@@ -117,6 +118,26 @@ describe("design token ratchet", () => {
     ]);
   });
 
+  // cmux#39380 moved the settle 265 -> 180 ms by hand in 14 files: a script reads the generated scale.
+  test("a script that hand-types a motion-scale step or curve is a motion-literal", () => {
+    const source = [
+      "const FOLD_MS = 180;", // motion-allow: fixture
+      "el.animate(k, { duration: 120 });", // motion-allow: fixture
+      'const css = "opacity 0.08s cubic-bezier(0.16, 1, 0.3, 1)";', // motion-allow: fixture
+      "expect(fold.durationMs).toBe(240);", // motion-allow: fixture
+      'const ok = "var(--cmux-motion-settle, 180ms)"; const wait = 180; const n = 90;', // motion-allow: fixture
+      "// motion-allow: a debounce",
+      "const DEBOUNCE_MS = 120;",
+    ].join("\n");
+    expect(scriptMotionFindings("a.ts", source).map((f) => [f.line, f.property, f.value])).toEqual([
+      [1, "number", "180"],
+      [2, "number", "120"],
+      [3, "string", "0.08s"], // motion-allow: fixture
+      [3, "string", "cubic-bezier(0.16, 1, 0.3, 1)"], // motion-allow: fixture
+      [4, "number", "240"],
+    ]);
+  });
+
   test("a new token literal fails, an allowlisted one passes, and a fixed one must shrink the baseline", () => {
     const id = "x.css\tcolor\tcolor\t#fff";
     expect(ratchetErrors(new Map([[id, 1]]), new Map())[0]).toContain("new design token violation");
@@ -131,9 +152,9 @@ describe("token-only surfaces", () => {
   test.each([
     ["--cv-since-tint", "var(--cmux-status-unread, #3982f5)", "a colour literal"],
     ["color", "rgba(0, 0, 0, 0.4)", "a colour literal"],
-    ["transition", "opacity 120ms ease-out", "a duration literal"],
-    ["transition", "opacity var(--agent-motion-in, 120ms) var(--agent-ease-out)", "a duration literal"],
-    ["transition", "opacity var(--agent-motion-in) cubic-bezier(0, 0, 0.58, 1)", "an easing literal"],
+    ["transition", "opacity 120ms ease-out", "a duration literal"], // motion-allow: scanner fixture, a raw literal
+    ["transition", "opacity var(--agent-motion-in, 120ms) var(--agent-ease-out)", "a duration literal"], // motion-allow: scanner fixture, a raw literal
+    ["transition", "opacity var(--agent-motion-in) cubic-bezier(0, 0, 0.58, 1)", "an easing literal"], // motion-allow: scanner fixture, a raw literal
     ["border-radius", "6px", "a radius that is not a token"],
   ] as const)("refuses %s: %s", (property, value, why) => {
     expect(tokenOnlyKind(property, value)).toBe(why);

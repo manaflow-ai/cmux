@@ -327,6 +327,24 @@ struct BillingRig {
         #expect(await rig.store.finished.isEmpty)
     }
 
+    /// The plans screen shows the restore result before the purchase result, so
+    /// a finished restore must not outlive a later purchase: after a failed
+    /// Restore, a successful upgrade still said "The App Store couldn't
+    /// complete the request" (Sandbox run on a Mac, 2026-11-17).
+    @Test func aPurchaseReplacesAnEarlierRestoreResult() async throws {
+        let rig = await BillingRig()
+        let offer = try await rig.loadedOffer(.pro)
+        await rig.store.configure(syncError: .system)
+        await rig.model.restorePurchases()
+        #expect(rig.model.restore == .failed(BillingFailure(StoreKitClientError.system)))
+        await rig.store.configure(purchaseResult: .success(.completed(.verified(BillingFixtures.transaction(41)))))
+
+        await rig.model.buy(offer, entryPoint: .settings)
+
+        #expect(rig.model.purchase == .completed(.pro))
+        #expect(rig.model.restore == .idle)
+    }
+
     @Test func restoreCancelledAtSignInReturnsToIdle() async throws {
         let rig = await BillingRig()
         await rig.store.configure(syncError: .userCancelled)
