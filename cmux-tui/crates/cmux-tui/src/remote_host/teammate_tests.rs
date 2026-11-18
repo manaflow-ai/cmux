@@ -216,6 +216,8 @@ fn agent_proxy_refuses_every_non_chat_entrypoint() {
         "agent-session-start",
         "agent-session-trust",
         "agent-session-children",
+        "agent-session-fork",
+        "agent-session-side",
         "agent-session-media",
         "agent-session-proxy-bind",
         "composer_set",

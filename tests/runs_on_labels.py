@@ -184,6 +184,17 @@ class _Parser:
         raise ValueError(f"unexpected {value!r}")
 
 
+def _label_array(value):
+    """fromJSON of a described variable's value: a tuple of labels, or unknown when it is not a JSON string array."""
+    try:
+        parsed = json.loads(value) if isinstance(value, str) else None
+    except ValueError:
+        parsed = None
+    if isinstance(parsed, list) and parsed and all(isinstance(label, str) for label in parsed):
+        return tuple(parsed)
+    return Unknown("fromjson(...)")
+
+
 def _truthy(value) -> bool:
     if value is NULL or value is False:
         return False
@@ -271,10 +282,15 @@ class _Evaluator:
                     out |= _compare(node[1], left, right)
             return out
         if kind == "call":
+            if node[1] == "fromjson" and len(node[2]) == 1 and node[2][0][0] == "ctx" and node[2][0][1] in self.variables:
+                # A described variable holding a JSON label array (vars.CI_SIDE_LANE_LABELS): the labels, as a tuple.
+                return {_label_array(value) for value in self(node[2][0])}
             return _call(node[1], [self(arg) for arg in node[2]])
         if kind == "prop":
             target = node[1]
             if target[:2] == ("call", "fromjson") and target[2] == [("ctx", "vars.RUNNER_POOLS")]:
+                if node[2] in RUNNER_POOLS_FLAGS:
+                    return set(RUNNER_POOLS_FLAGS[node[2]])
                 return set(pool_members(node[2]))
             return {EMPTY, NULL, False, 0.0, Unknown(f"{target[1]}(...).{node[2]}")}
         raise ValueError(f"unknown node {node!r}")
@@ -348,6 +364,12 @@ def holds_signing_material(job) -> bool:
         return True
     names = workflow_jobs.secret_names(job)
     return workflow_jobs.ALL_SECRETS in names or any(name.startswith(SIGNING_SECRET_PREFIXES) for name in names)
+
+
+# RUNNER_POOLS keys that are marks, not pools: what each can hold. `hosted_saturated` is the hosted-first valve's
+# since-time (scripts/ci/linux_pool_spill.py valve_choice()), absent (null) unless GitHub-hosted is saturated. It is
+# only ever a condition (`... && fromJSON(vars.RUNNER_POOLS).linux_2`), never a label.
+RUNNER_POOLS_FLAGS = {"hosted_saturated": (NULL, "2026-11-18T02:00:00Z")}
 
 
 def declared_pools(root: Path = ROOT) -> dict[str, list[str]]:

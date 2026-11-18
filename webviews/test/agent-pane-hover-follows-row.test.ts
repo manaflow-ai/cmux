@@ -85,16 +85,18 @@ await requireBrowserLane("agent-pane-hover-follows-row.test.ts", async () => {
       }),
     ],
   ];
-  // The recording's list, as a live turn draws it: reads, a run of two commands (a group, opened while
-  // its turn runs), a subagent, more reads, and background shells for the Background tasks panel.
+  // The recording's list, as a live turn draws it: searches, a run of two commands (a group, opened
+  // while its turn runs), a subagent, more searches, and background shells for the Background tasks
+  // panel. (Reads drew here once; a read is a plain row that does not open since 2026-11-17, so the
+  // rows the pointer lights are calls that open.)
   const extra: PapercutStep[] = [
-    ...call("a1", "read", "Read /tmp/notes/plan.md", { file_path: "/tmp/notes/plan.md" }),
+    ...call("a1", "search", "Search the notes for the plan", { pattern: "plan", path: "/tmp/notes" }),
     ...call("a2", "execute", "Check for existing bridge/messaging lanes", {
       command: "ls lanes",
       description: "Check for existing bridge/messaging lanes",
     }),
     ...call("a3", "execute", "Check review logs and messaging goals", {
-      command: "cat review.log",
+      command: "grep -n goal review.log",
       description: "Check review logs and messaging goals",
     }),
     [
@@ -133,8 +135,8 @@ await requireBrowserLane("agent-pane-hover-follows-row.test.ts", async () => {
       "tool_call_update",
       update({ sessionUpdate: "tool_call_update", toolCallId: "helper-call", status: "completed" }),
     ],
-    ...call("a4", "read", "Read /tmp/notes/goals.md", { file_path: "/tmp/notes/goals.md" }),
-    ...call("a5", "read", "Read /tmp/notes/bridge.md", { file_path: "/tmp/notes/bridge.md" }),
+    ...call("a4", "search", "Search the notes for goals", { pattern: "goal", path: "/tmp/notes" }),
+    ...call("a5", "search", "Search the notes for the bridge", { pattern: "bridge", path: "/tmp/notes" }),
     ...backgroundShell("bg1", "npm run dev"),
     ...backgroundShell("bg2", "cargo watch -x test"),
     ...backgroundShell("bg3", "tail -f /tmp/review.log"),
@@ -338,7 +340,11 @@ await requireBrowserLane("agent-pane-hover-follows-row.test.ts", async () => {
           const still = await at('button.cv-tool[data-tool-id="a4"]');
           await page.mouse.move(still.x, still.y);
           for (let n = 0; n < 4; n++) {
-            for (const step of call(`late${n}`, "read", `Read /tmp/late/${n}.md`, { file_path: `/tmp/late/${n}.md` }))
+            // Searches, which open; a read is a plain row since 2026-11-17 (readPath.ts).
+            for (const step of call(`late${n}`, "search", `Search the late notes ${n}`, {
+              pattern: `late ${n}`,
+              path: "/tmp/late",
+            }))
               pane.record(step[1], step[2], step[0]);
             pane.record(
               "agent_message_chunk",

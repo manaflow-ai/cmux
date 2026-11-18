@@ -95,7 +95,8 @@ await requireBrowserLane("transcript-toggle-under-load-browser.test.ts", async (
     row(`t${index}-answer`, "assistant", paragraphs(2, "keeper")),
   ]).flat();
   const calls = [
-    call("b1", "cat /tmp/review/output.txt"),
+    // Three commands, not a read: a finished `cat` of one file is a plain read row since 2026-11-17.
+    call("b1", "grep -c pass /tmp/review/output.txt"),
     call("b2", "git log --oneline -14 -- Sources/Cloud"),
     call("b3", "router-review manaflow-ai/cmux 9062"),
   ];
