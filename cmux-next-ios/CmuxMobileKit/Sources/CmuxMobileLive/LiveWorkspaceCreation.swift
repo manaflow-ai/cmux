@@ -152,11 +152,21 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             try WorkspaceSync.check(await client.request("bind-conversation-tab-session", params: [
                 "surface": surface, "session": session, "expected_session": NSNull(), "harness": harness,
             ]))
-        } catch let error as DaemonReplyError {
-            throw WorkspaceCreationError(error.message)
+        } catch {
+            // No tab shows the session (refused, or the Mac's own first send bound the tab first):
+            // it leaves the chat lists instead of staying there unprompted.
+            _ = try? await acpmux?.request("_acpmux/archive", .object(["sessionId": .string(session), "archived": .bool(true)]),
+                                           timeout: .seconds(20))
+            if let error = error as? DaemonReplyError { throw WorkspaceCreationError(error.message) }
+            throw error
         }
         let folder = (try? await sync.listNow())?.directories[tabID] ?? cwd ?? ""
-        try sendFirstPrompt(text, attachments: attachments, session: session, cwd: folder, failed: failed)
+        do {
+            try sendFirstPrompt(text, attachments: attachments, session: session, cwd: folder, failed: failed)
+        } catch {
+            // The tab is bound: the message comes back to the chat's composer, never thrown away.
+            failed(.notSent(AcpmuxSessionSource.message(error)))
+        }
     }
 
     /// A new chat's first message: acpmux `session/prompt`, once per `promptId`, as the chat's own

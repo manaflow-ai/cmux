@@ -600,15 +600,19 @@ the Mac.
 - **The first message of a Mac's New chat tab:** `bind-conversation-tab-session` is new on the
   allowlist, so a tab the Mac opened with no session starts from the phone's first send the way
   it starts from the Mac's: the phone makes the session with `session/new` (as above), then binds
-  it to that tab. `DaemonPolicy::bind_verdict` narrows it to `surface`, `session`, `harness`,
-  `origin`, `mutation_id` and `expected_session`, which must be `null`, so the daemon's
+  it to that tab. `DaemonPolicy::bind_verdict` narrows it to the daemon's own four fields,
+  `surface`, `session`, `harness` and `expected_session`, which must be `null`, so the daemon's
   compare-and-swap applies only to a tab with no chat and a phone never swaps the chat a tab
   shows. `Ownership::UnboundAgentTab` then confirms against the Mac's `list-workspaces` that the
   surface is an agent tab recorded for this Mac's own `install:<id>` with no session; any other
-  tab (a terminal, a `registry:` or another Mac's chat, a bound chat) is refused. Rule 2: the bind
-  runs nothing (the session behind it was made under acpmux's remote guard), changes only a tab
-  of this Mac that shows nothing yet, and reads nothing new. Without `CMUX_MOBILE_AGENT_TAB_HOST`
-  it is refused with `unavailable`; the Swift mirror refuses it (not on its list). Tests:
+  tab (a terminal, a `registry:` or another Mac's chat, a bound chat) is refused. That tree comes
+  from hostd's cache connection, which declares `agent-session-tabs-v1` so the daemon lists agent
+  tabs with their host and session (without it they read as browser tabs and every bind is
+  refused). Rule 2: the bind runs nothing (the session behind it was made under acpmux's remote
+  guard), changes only a tab of this Mac that shows nothing yet, and reads nothing new: the
+  session id it names is one the phone can already open in a tab with `new-conversation-tab`
+  (same id check), and attach over `acpmux`. Without `CMUX_MOBILE_AGENT_TAB_HOST` it is refused
+  with `unavailable`; the Swift mirror lists it and refuses it, as `new-conversation-tab`. Tests:
   `a_phone_binds_its_first_session_only_to_an_unbound_tab`,
   `the_bound_tab_is_an_unbound_agent_tab_of_this_mac` (policy).
 

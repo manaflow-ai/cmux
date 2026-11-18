@@ -70,6 +70,12 @@ def main() -> int:
     allowed = policy[policy.index("static ALLOWED_COMMANDS"):policy.index(".into_iter()")]
     if '"bind-conversation-tab-session"' not in allowed or "UnboundAgentTab" not in policy:
         failures.append("cmux-mobile-host no longer admits a phone's bind of an unbound agent tab")
+    # The bind is checked against hostd's cached tree: without this capability the daemon lists
+    # agent tabs as browser tabs and every bind is refused.
+    cache = (POLICY.parent / "workspace_cache.rs").read_text(encoding="utf-8")
+    hello = next((line for line in cache.splitlines() if "cache-hello" in line), "")
+    if "agent-session-tabs-v1" not in hello:
+        failures.append("cmux-mobile-host's cache connection no longer declares agent-session-tabs-v1")
 
     for failure in failures:
         print(f"FAIL: {failure}", file=sys.stderr)

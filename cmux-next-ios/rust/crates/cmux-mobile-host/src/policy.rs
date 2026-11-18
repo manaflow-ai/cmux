@@ -233,12 +233,9 @@ fn creation_fields(command: &str) -> Option<HashSet<&'static str>> {
         "reopen-saved-tab-group" => return Some(["saved", "pane", "transaction"].into_iter().collect()),
         "delete-saved-tab-group" => return Some(["saved"].into_iter().collect()),
         "notification-reply" => return Some(["notification", "text", "reply_id"].into_iter().collect()),
+        // The daemon's whole request: the tab, the session, its agent and the compare-and-swap.
         "bind-conversation-tab-session" => {
-            return Some(
-                ["surface", "session", "expected_session", "harness", "origin", "mutation_id"]
-                    .into_iter()
-                    .collect(),
-            );
+            return Some(["surface", "session", "expected_session", "harness"].into_iter().collect());
         }
         "new-tab" | "new-pane" => &["pane"],
         "new-pane-right" => &["pane", "width"],

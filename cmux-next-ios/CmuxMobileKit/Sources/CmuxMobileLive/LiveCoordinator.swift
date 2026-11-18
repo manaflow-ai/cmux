@@ -305,9 +305,10 @@ public final class LiveCoordinator {
             let session = owner?.tree?.agentTabs[summary.id]?.session
             self.sourcedSessions[key] = (tabID: summary.id, macID: summary.macID, session: session, provisional: false)
             guard let owner, let session else {
-                // A new chat the Mac opened: the phone's first message starts it.
+                // A new chat the Mac app opened (an `install:` host tab): the phone's first message
+                // starts it. A `registry:` tab is the daemon's own to start: it loads meanwhile.
                 var start: UnboundAgentSource.Start?
-                if let owner {
+                if let owner, owner.tree?.agentTabs[summary.id]?.host?.hasPrefix("install:") == true {
                     start = { [weak owner] text, attachments, failed in
                         guard let owner else { throw WorkspaceCreationError("Not connected") }
                         try await owner.creation.startUnboundChat(tabID: summary.id, text: text, attachments: attachments, failed: failed)
