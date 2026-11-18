@@ -144,6 +144,55 @@ client "$own" "$app"
 check '[[ $status == 1 && $took -ge 600 ]] && grep -q "is building tree" "$TMP/err"' "a candidate's own active run counts as a publisher (took $took s)"
 rm -f "$runs_dir/runs-$own"
 
+# 5c-5f. The wait follows the publisher's jobs, not only "active" (2026-11-18: nightly
+# 44243166776 waited blind on owner 44240874997, whose Linux build had failed, and on a
+# takeover run whose Linux builds sat queued on Blacksmith with no runner).
+# Job times are relative to the fake clock, which earlier cases advanced: ago <seconds>.
+ago() { date -u -d "@$(( $(awk '{ printf "%d", $1 }' "$FAKE_CLOCK_FILE") - $1 ))" +%Y-%m-%dT%H:%M:%SZ; }
+jobs_file() { mkdir -p "$TMP/api/repos/o/r/actions/runs/$1"; printf '%s\n' "$2" > "$TMP/api/repos/o/r/actions/runs/$1/jobs"; }
+# own_run <commit> <run id> [attempt]: an in-progress artifacts run of <commit>.
+own_run() { printf '%s\n' "{\"total_count\":1,\"workflow_runs\":[{\"id\":$2,\"status\":\"in_progress\",\"run_attempt\":${3:-1},\"head_sha\":\"$1\",\"head_branch\":\"feat-cmux-next\",\"created_at\":\"2023-11-14T22:00:00Z\"}]}" > "$runs_dir/runs-$1"; }
+failed_jobs='{"jobs":[{"name":"build / build aarch64-apple-darwin","status":"in_progress","runner_name":"mac-1","created_at":"2023-11-14T22:00:00Z"},{"name":"build-linux / build aarch64-unknown-linux-musl","status":"completed","conclusion":"failure","runner_name":"bs-1","created_at":"2023-11-14T22:00:00Z"}]}'
+reset_cdn; set_runs "$no_runs"; own_run "$own" 3 3; jobs_file 3 "$failed_jobs"
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 120 && $took -lt 300 ]] && grep -q "making progress" "$TMP/err" && grep -q "failed build-linux" "$TMP/err"' "a publisher whose build failed on its last attempt fails fast, not at the limit (took $took s)"
+
+# Before the last attempt cmux-tui-artifacts-retry re-runs the failed job (tree 453a2f94
+# published on such a retry): the wait goes on.
+reset_cdn; set_runs "$no_runs"; own_run "$own" 7 1; jobs_file 7 "$failed_jobs"
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 600 ]] && grep -q "is building tree" "$TMP/err"' "a failed build that a retry will re-run keeps the wait (took $took s)"
+
+# A failed primary macOS leg is rebuilt by build-darwin-fallback: not final either.
+reset_cdn; set_runs "$no_runs"; own_run "$own" 8 3
+jobs_file 8 '{"jobs":[{"name":"build / build aarch64-apple-darwin","status":"completed","conclusion":"failure","runner_name":"mac-1","created_at":"2023-11-14T22:00:00Z"}]}'
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 600 ]] && grep -q "is building tree" "$TMP/err"' "a failed primary macOS leg (the fallback rebuilds it) keeps the wait (took $took s)"
+
+reset_cdn; set_runs "$no_runs"; own_run "$own" 4
+jobs_file 4 '{"jobs":[{"name":"build / build aarch64-apple-darwin","status":"in_progress","runner_name":"mac-1","created_at":"'"$(ago 1000)"'"},{"name":"build / build aarch64-unknown-linux-musl","status":"queued","runner_name":null,"labels":["blacksmith-16vcpu-ubuntu-2404"],"created_at":"'"$(ago 1000)"'"}]}'
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 120 && $took -lt 300 ]] && grep -Eq "queued 1[6-9] min for blacksmith-16vcpu-ubuntu-2404" "$TMP/err"' "a publisher whose build has no runner past the stall bound fails fast (took $took s)"
+
+reset_cdn; set_runs "$no_runs"; own_run "$own" 5
+jobs_file 5 '{"jobs":[{"name":"build / build aarch64-unknown-linux-musl","status":"queued","runner_name":null,"labels":["blacksmith-16vcpu-ubuntu-2404"],"created_at":"'"$(ago 0)"'"}]}'
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 600 ]] && grep -q "is building tree" "$TMP/err"' "a build queued under the stall bound keeps the wait (took $took s)"
+
+# A job that does not hold the tree back (a shadow) may queue past the bound.
+reset_cdn; set_runs "$no_runs"; own_run "$own" 9
+jobs_file 9 '{"jobs":[{"name":"build / build aarch64-unknown-linux-musl","status":"in_progress","runner_name":"bs-2","created_at":"'"$(ago 1000)"'"},{"name":"macOS cross-compile shadow (Linux, compare only)","status":"queued","runner_name":null,"labels":["blacksmith-16vcpu-ubuntu-2404"],"created_at":"'"$(ago 1000)"'"}]}'
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 600 ]] && grep -q "is building tree" "$TMP/err"' "a queued job that holds no tree back keeps the wait (took $took s)"
+
+# The failed owner is passed over for another same-key run that is building.
+reset_cdn; own_run "$own" 3 3
+set_runs "{\"total_count\":2,\"workflow_runs\":[{\"id\":3,\"status\":\"in_progress\",\"head_sha\":\"$own\",\"head_branch\":\"feat-cmux-next\"},{\"id\":6,\"status\":\"in_progress\",\"head_sha\":\"$app\",\"head_branch\":\"feat-cmux-next\"}]}"
+own_run "$app" 6
+client "$own"
+check '[[ $status == 1 && $took -ge 600 ]] && grep -q "run of ${app:0:12} is building tree" "$TMP/err"' "a failed owner is passed over for a same-key run that builds (took $took s)"
+rm -f "$runs_dir/runs-$own" "$runs_dir/runs-$app"; rm -rf "$TMP/api/repos/o/r/actions/runs"
+
 # 6. Bad usage.
 status=0; (cd "$TMP/src" && bash scripts/cmux-next/await-tree-client.sh nope "$own" 2>/dev/null) || status=$?
 check '[[ $status == 2 ]]' "a malformed key is a usage error"
@@ -196,6 +245,29 @@ check '[[ $status == 0 ]] && grep -qx "tree_pending=true" "$TMP/gh-output"' "a c
 rm -f "$runs_dir/runs-$app"; set_runs "$active_run"; pending
 check '[[ $status == 0 ]] && grep -qx "tree_pending=true" "$TMP/gh-output"' "an active same-key run keeps the tip pending"
 rm -f "$runs_dir/runs-$own"; set_runs "$no_runs"
+# The resolver reads the publisher's jobs the way await-tree-client.sh does (2026-11-18: owner
+# 44223233076's build jobs sat queued 2 h with no runner; the nightly retries 44232805509 and
+# 44235456054 each took the tip as pending, and 44235456054 waited the full 45 min on it).
+# An active run that is not making progress publishes nothing in time: the resolver builds the
+# newest published tree instead.
+own_list() { set_runs "{\"total_count\":1,\"workflow_runs\":[{\"id\":$1,\"status\":\"in_progress\",\"head_sha\":\"$own\",\"head_branch\":\"feat-cmux-next\"}]}"; }
+stalled_jobs() { printf '{"jobs":[{"name":"build / build x86_64-unknown-linux-musl","status":"queued","runner_name":null,"labels":["blacksmith-32vcpu-ubuntu-2404"],"created_at":"%s"}]}' "$(ago "$1")"; }
+reset_cdn; own_run "$own" 11; own_list 11; jobs_file 11 "$(stalled_jobs 6000)"; pending
+check '[[ $status == 0 ]] && grep -qx "tree_pending=false" "$TMP/gh-output" && grep -q "making progress" "$TMP/summary" && grep -q "blacksmith-32vcpu-ubuntu-2404" "$TMP/summary"' \
+  "a tree whose only publisher has no runner past the stall bound leaves it to the resolver"
+own_run "$own" 12 3; own_list 12; jobs_file 12 "$failed_jobs"; pending
+check '[[ $status == 0 ]] && grep -qx "tree_pending=false" "$TMP/gh-output" && grep -q "failed build-linux" "$TMP/summary"' \
+  "a tree whose only publisher failed on its last attempt leaves it to the resolver"
+own_run "$own" 13; own_list 13; jobs_file 13 "$(stalled_jobs 0)"; pending
+check '[[ $status == 0 ]] && grep -qx "tree_pending=true" "$TMP/gh-output"' "a publisher queued under the stall bound keeps the tip pending"
+own_run "$own" 14 1; own_list 14; jobs_file 14 "$failed_jobs"; pending
+check '[[ $status == 0 ]] && grep -qx "tree_pending=true" "$TMP/gh-output"' "a failed build a retry will re-run keeps the tip pending"
+# A stuck owner is passed over for a same-key run that builds: still pending.
+own_run "$own" 11; jobs_file 11 "$(stalled_jobs 6000)"; own_run "$app" 15
+set_runs "{\"total_count\":2,\"workflow_runs\":[{\"id\":11,\"status\":\"in_progress\",\"head_sha\":\"$own\",\"head_branch\":\"feat-cmux-next\"},{\"id\":15,\"status\":\"in_progress\",\"head_sha\":\"$app\",\"head_branch\":\"feat-cmux-next\"}]}"
+rm -f "$runs_dir/runs-$app"; pending
+check '[[ $status == 0 ]] && grep -qx "tree_pending=true" "$TMP/gh-output"' "a stuck owner passed over for a same-key run that builds keeps the tip pending"
+rm -f "$runs_dir/runs-$own" "$runs_dir/runs-$app"; rm -rf "$TMP/api/repos/o/r/actions/runs"; set_runs "$no_runs"
 
 # Recovery: a run's await-nightly-tree-marker must have passed (or not exist).
 mkdir -p "$TMP/ghbin"

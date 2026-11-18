@@ -2365,6 +2365,11 @@ def test_cmux_tui_artifacts_never_drops_a_feat_cmux_next_push() -> None:
     nightly = "refs/heads/nightly-next"
     assert evaluate("push", nightly, "a" * 40) != evaluate("push", nightly, "b" * 40)
     assert "a" * 40 in evaluate("push", nightly, "a" * 40)
+    # 2026-11-18: nightly-next pushes the feat-cmux-next tip it promotes, and a
+    # shared push-<sha> group held the nightly-next run pending behind the
+    # feat-cmux-next run of the same commit (44243166694 behind 44242726208).
+    # The same commit on the two branches never shares a group.
+    assert evaluate("push", nightly, "a" * 40) != evaluate("push", feat, "a" * 40)
 
 def test_cmux_next_daemon_tests_take_blacksmith_linux_and_the_mac_shadow_never_the_promote_pool() -> None:
     # 2026-10-26 (Leo: "I THOUGHT THESE COULD JUST GO ON LINUX"): the

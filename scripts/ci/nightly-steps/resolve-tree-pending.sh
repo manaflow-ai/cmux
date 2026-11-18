@@ -10,7 +10,10 @@
 # A tree nothing will publish is not pending either: when every candidate's
 # cmux-tui artifacts runs ended (one at least ran) and no active run has the key
 # (pin-cmux-tui.sh runs-state and active-publisher, as await-tree-client.sh reads
-# them), the resolver builds the newest commit whose tree is published. Waiting on
+# them), or every active run with the key is stuck (pin-cmux-tui.sh tree-publisher:
+# a build failed on its last attempt, or waits for a runner past
+# CMUX_TUI_TREE_RUNNER_STALL_SECONDS), the resolver builds the newest commit whose
+# tree is published. Waiting on
 # it failed 5 builds in a row 45 min in, at "Bundle the cmux-tui client" (2026-11-09).
 # An unreadable runs list keeps the tip pending.
 # Env: TIP_SHA, GH_TOKEN (actions: read). Writes tree_pending=, and when true key=, source_commit= and
@@ -33,21 +36,20 @@ while read -r commit; do
   [[ "$(python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$commit" 2>/dev/null)" == "$key" ]] || break
   candidates=("$commit" ${candidates[@]+"${candidates[@]}"})
 done < <(git rev-list --first-parent -n 40 HEAD)
-ended=0 publisher=""
-for commit in "${candidates[@]}"; do
-  case "$(bash scripts/cmux-next/pin-cmux-tui.sh runs-state "$commit" 2>/dev/null || echo unknown)" in
-    active) publisher="$commit"; break ;;
-    unknown) publisher=unknown ;;
-    ended\ *) ended=$(( ended + 1 )) ;;
-  esac
-done
-[[ -n "$publisher" ]] || publisher="$(bash scripts/cmux-next/pin-cmux-tui.sh active-publisher "$key" 2>/dev/null || echo unknown)"
-if [[ -z "$publisher" ]] && (( ended > 0 )); then
+# The same reading as await-tree-client.sh (pin-cmux-tui.sh tree-publisher): an active
+# run counts only while its jobs make progress.
+publisher="$(bash scripts/cmux-next/pin-cmux-tui.sh tree-publisher "$key" "${candidates[@]}" 2>/dev/null || echo unknown)"
+why=""
+case "$publisher" in
+  ended) why="its artifacts runs ended, no same-key run is active" ;;
+  stuck\ *) why="no artifacts run that builds it is making progress: ${publisher#stuck }" ;;
+esac
+if [[ -n "$why" ]]; then
   echo "tree_pending=false" >> "$GITHUB_OUTPUT"
-  echo "::warning title=cmux-tui tree::tree $key of the tip is not published and nothing will publish it (its artifacts runs ended, no same-key run is active); the resolver builds the newest commit whose tree is published"
+  echo "::warning title=cmux-tui tree::tree $key of the tip is not published and nothing will publish it in time ($why); the resolver builds the newest commit whose tree is published"
   {
     echo "### Nightly build commit"
-    echo "- the tip \`$TIP_SHA\`: its cmux-tui tree \`$key\` is not published and nothing will publish it; building the newest published tree instead"
+    echo "- the tip \`$TIP_SHA\`: its cmux-tui tree \`$key\` is not published and nothing will publish it in time ($why); building the newest published tree instead"
   } >> "$GITHUB_STEP_SUMMARY"
   exit 0
 fi
