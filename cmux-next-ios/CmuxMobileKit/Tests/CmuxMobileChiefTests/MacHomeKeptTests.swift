@@ -123,14 +123,14 @@ import Testing
     /// kept rows to another's waits the bound anew, instead of inheriting the first one's wait.
     @MainActor
     @Test func anotherMacsKeptRowsWaitTheBoundAnew() async throws {
-        let gate = QuietStatusGate(delay: .milliseconds(300))
+        let gate = QuietStatusGate(delay: .seconds(1))
         gate.update(downFor: "mac-1")
-        try await Task.sleep(for: .milliseconds(200))
+        try await Task.sleep(for: .milliseconds(600))
         gate.update(downFor: "mac-2")
-        try await Task.sleep(for: .milliseconds(200))
-        // 400 ms since mac-1, 200 ms since mac-2: mac-2's wait is not over.
+        try await Task.sleep(for: .milliseconds(600))
+        // 1.2 s since mac-1 (past its bound), 0.6 s since mac-2: mac-2's wait is not over.
         #expect(!gate.isShown, "another Mac's kept rows do not inherit the first one's wait")
-        try await Task.sleep(for: .milliseconds(400))
+        try await Task.sleep(for: .milliseconds(1000))
         #expect(gate.isShown, "past the bound for mac-2 the note shows")
         gate.update(downFor: "mac-2")
         #expect(gate.isShown, "the same Mac again keeps it")
