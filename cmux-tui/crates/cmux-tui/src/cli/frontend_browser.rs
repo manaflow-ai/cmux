@@ -280,9 +280,12 @@ pub(super) fn never_ran(failure: &Failure) -> bool {
 }
 
 /// Whether an untargeted run the app refused opens on the daemon's default
-/// pane instead (the window shows a page, so there is no focused pane).
+/// pane instead (the window shows a page, so there is no focused pane). A
+/// caller the app cannot place (`caller_unavailable`) never does: the default
+/// pane is the focused workspace, Home, not the agent's own (user, 2026-11-18).
 pub(super) fn opens_on_default_pane(failure: &Failure) -> bool {
     never_ran(failure)
+        && !matches!(failure, Failure::Resource(error) if error["code"] == "caller_unavailable")
 }
 
 /// The `tab.get` selector for the shown tab of the daemon's default pane
