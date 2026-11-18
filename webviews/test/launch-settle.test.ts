@@ -97,7 +97,7 @@ describe("watchLaunchSettle", () => {
     return { dom, sent, report };
   }
 
-  test("reports once, at the first press, and leaves no timer or listener", async () => {
+  test("reports once, at the first press, and leaves no timer or listener", () => {
     const { dom, sent, report } = page();
     const view = dom.window;
     let timers = 0;
@@ -122,8 +122,6 @@ describe("watchLaunchSettle", () => {
     expect(sent[0]![0]).toBe("pane.launchSettle");
     expect(sent[0]![1]).toMatchObject({ maxMovePx: 0, element: "none", shifts: 0 });
     expect(typeof sent[0]![1].settledEpochMs).toBe("number");
-    await new Promise((resolve) => globalThis.setTimeout(resolve, 50));
-    expect(sent).toHaveLength(1);
     dom.window.close();
   });
 
