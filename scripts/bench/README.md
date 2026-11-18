@@ -80,3 +80,34 @@ with both numbers. It skips an issue with the same title that is still open.
 5. Add the bench to `scripts/measure/README.md`.
 
 Tests: `python3 -m unittest discover -s scripts/bench/tests -p 'test_*.py'` (pure Python, no app).
+
+## Composer typing under load
+
+The canonical browser diagnostic is `webviews/bench/composer-typing.bench.ts`:
+
+```sh
+cmux-ci test --setup playwright --timeout 2400 -- bash -lc 'cd webviews && bun install --frozen-lockfile && bun bench/composer-typing.bench.ts --mode L0,L1,L2,L3 --engines chromium,webkit --lengths 60 --keys 500 --gap 20'
+```
+
+`--modes idle,stream` retains its Chromium render-cost comparison. `--mode L0,L1,L2,L3`
+adds idle, focused reply/tool stream (60 chunks and 2,000 tool lines per second), ten
+other streaming documents (five visible, five hidden), and a focused 100k-row stream.
+`--stream` and `--tool-lines` change the focused load. Every load ends explicitly or
+at its 120-second safety deadline. L2 is an iframe approximation, not native tab or
+process placement; L4/L5 and daemon wakeups require the native Mac harness.
+
+`COMPOSER-TYPING` rows include exact ordered key/text integrity, load continuity/rates,
+p50/p95/p99/max, frame bursts, frame intervals over 16 ms, and raw samples. Invalid
+load/cadence receipts never meet the target. Budgets are report-only (16 ms p95 and
+33 ms p99, at least 200 keys); the browser clock starts at DOM keydown, so these
+rows cannot certify native admission or physical presentation. Long Tasks observes
+only tasks of at least 50 ms: zero means none observed above that threshold, and
+unsupported engines (including WebKit) report null, never a fabricated zero.
+`valid` establishes experiment integrity, not a latency pass. Short diagnostic runs remain
+valid but are not `acceptance_eligible`; acceptance requires `target_met` (valid load,
+at least 200 keys, and both latency limits). Consumers must never interpret `valid` alone
+as a budget pass.
+Tool output updates carry the accumulated output at each reply tick, matching the mock
+tool-update format. This deliberately stresses growing frontend payloads; it does not
+model native provider transport. Cross-document epoch receipts require wall-clock
+agreement within 2 ms or invalidate the run.

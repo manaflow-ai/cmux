@@ -27,10 +27,13 @@
 // trees in one run, interleaved A B B A for `--rounds` rounds (default 6) with a base-against-base noise floor, and
 // prints each arm's median and spread (composer-arms.ts).
 //   bun bench/composer-typing.bench.ts [--lengths 60,1500,6000] [--keys 60] [--gap 80] [--modes idle,stream] [--dev] [--profile]
-//     [--arms A=.,B=../webviews-b] [--rounds 6] [--no-floor]
+//     [--arms A=.,B=../webviews-b] [--rounds 6] [--no-floor] [--stream 60 --tool-lines 2000 [--held 4500]]
+// A long chat's shed loop: `--lengths 1500 --modes L1 --held 4500` seeds 500 turns, fills an open turn past
+// direct.ts `HELD_RECORDS` and streams a record per tool line, as test/agent-pane-older-paging-at-bottom.test.ts does.
 /// <reference types="bun" />
 import path from "node:path";
-import { chromium } from "./browsers";
+import { chromium, webkit } from "./browsers";
+import { runComposerLoad } from "./composer-load";
 import { requireProductionReact, installReactWatch } from "./support/benchPage";
 import type { Page } from "playwright";
 import { parseArms, runArms, servePane } from "./composer-arms";
@@ -46,9 +49,37 @@ const flag = (name: string) => {
 const LENGTHS = (flag("--lengths") ?? "60,1500,6000").split(",").map(Number);
 const KEYS = Number(flag("--keys") ?? 60);
 const GAP_MS = Number(flag("--gap") ?? 80);
-const MODES = (flag("--modes") ?? "idle").split(",") as ("idle" | "stream")[];
+const MODES = (flag("--mode") ?? flag("--modes") ?? "idle").split(",");
+const ENGINES = (flag("--engines") ?? "chromium").split(",");
+const STREAM = Number(flag("--stream") ?? 60);
+const TOOL_LINES = Number(flag("--tool-lines") ?? 2000);
+/// With --held N (the focused stream, L1 or stream): the load is pushed as the host pushes it, a record per tool line
+/// through the client's socket, after an open turn fills the chat to N held records, so a chat past direct.ts
+/// `HELD_RECORDS` (4,000) sheds while the keys are typed (composer-load.ts `startHostPush`). Every focused-stream run
+/// prints its sheds, older pages and refolds; one with 0 sheds says "did not reach shed".
+const HELD = flag("--held") === undefined ? undefined : Number(flag("--held"));
+if (HELD !== undefined && (!Number.isInteger(HELD) || HELD < 1 || HELD > 200_000))
+  throw new Error("--held takes a record count, 1..200000");
+if (HELD !== undefined && MODES.some((mode) => mode !== "L1" && mode !== "stream"))
+  throw new Error("--held applies to the focused stream only: --modes L1 or stream");
+if (
+  MODES.some((mode) => !["idle", "stream", "L0", "L1", "L2", "L3"].includes(mode)) ||
+  ENGINES.some((engine) => !["chromium", "webkit"].includes(engine)) ||
+  !Number.isInteger(KEYS) ||
+  KEYS < 1 ||
+  KEYS > 4096 ||
+  !Number.isFinite(GAP_MS) ||
+  GAP_MS < 1 ||
+  KEYS * GAP_MS > 90000 ||
+  LENGTHS.some((length) => !Number.isInteger(length) || length < 1)
+)
+  throw new Error("Invalid benchmark modes, engines, keys, gap or lengths (typing window must be <=90s)");
 /// With --profile: a CPU profile over the typed keys, and the functions with the most time per key (inclusive and self).
 const PROFILE = argv.includes("--profile");
+if (PROFILE && (ENGINES.includes("webkit") || MODES.some((mode) => mode.startsWith("L"))))
+  throw new Error(
+    "--profile currently supports legacy Chromium idle/stream only; L modes report observer capability explicitly",
+  );
 const DEV = argv.includes("--dev");
 /// With --trace: a Chromium trace with style invalidation tracking over the typed keys and, in stream mode, over a 2 s
 /// stream with no typing; it prints elements restyled per key and per token and what restyled them
@@ -66,6 +97,9 @@ const ARM_METRICS = [
   "to_listener_p95",
   "longest_task_ms",
   "long_tasks",
+  "sheds",
+  "older_pages",
+  "refolds",
 ] as const;
 const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
 const METRICS = [
@@ -166,10 +200,39 @@ const serveOptions = {
 };
 
 /// One length in one mode on the pane served at `port`: a fresh browser process and page, the keys typed, its row.
-async function measure(port: number, length: number, mode: "idle" | "stream"): Promise<Record<string, unknown>> {
-  const browser = await chromium.launch({ headless: true });
+async function measure(
+  port: number,
+  length: number,
+  mode: string,
+  engine: "chromium" | "webkit" = "chromium",
+): Promise<Record<string, unknown>> {
+  const browser = await (engine === "webkit" ? webkit : chromium).launch({ headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 1100, height: 820 } });
+    if (mode.startsWith("L") || engine === "webkit" || HELD !== undefined) {
+      const canonical = mode === "idle" ? "L0" : mode === "stream" ? "L1" : mode;
+      try {
+        const row = await runComposerLoad(page, {
+          port,
+          mode: canonical,
+          length,
+          keys: KEYS,
+          gap: GAP_MS,
+          stream: STREAM,
+          toolLines: TOOL_LINES,
+          held: HELD,
+        });
+        if (canonical === "L1" || canonical === "L3")
+          console.log(
+            `SHED ${canonical} ${row.rows} rows${HELD === undefined ? "" : `, held ${String(row.held_before_keys)}`}: ` +
+              `sheds ${String(row.sheds)}, older pages ${String(row.older_pages)}, refolds ${String(row.refolds)}; ${row.shed}` +
+              ` (before keys ${JSON.stringify(row.counts_before_keys)}, after keys ${JSON.stringify(row.client_after_keys)}, valid ${String(row.valid)}${row.errors.length ? `: ${row.errors.join("; ")}` : ""})`,
+          );
+        return { engine, ...row };
+      } finally {
+        await page.close();
+      }
+    }
     await page.addInitScript(longTaskProbe);
     const rows = await openChat(page, port, Math.max(1, Math.round(length / 3)));
     const cdp = await page.context().newCDPSession(page);
@@ -202,7 +265,7 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
     const streaming =
       mode === "stream"
         ? page.evaluate(
-            (seconds) =>
+            (seconds: number) =>
               (window as any).cmuxAcpmuxDebug.loadRun({ seconds, chunk_ms: 16, tool_every: 30, scroll_speed: 0 }),
             (KEYS * (GAP_MS + 20)) / 1000 + 1,
           )
@@ -309,6 +372,7 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
         .reduce((total, [, value]) => total + value, 0);
     const delta = (name: string) => (after[name] ?? 0) - (before[name] ?? 0);
     return {
+      engine,
       mode,
       rows,
       keys: typing.keys,
@@ -348,6 +412,8 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
 
 try {
   const cases = LENGTHS.flatMap((length) => MODES.map((mode) => ({ length, mode })));
+  if (ARMS && ENGINES.some((engine) => engine === "webkit"))
+    throw new Error("--engines webkit cannot be combined with --arms; run WebKit as a single source tree");
   if (ARMS) {
     // Two source trees in one run: each built and served once, then every case interleaved (composer-arms.ts).
     const ports = new Map<string, number>();
@@ -369,7 +435,9 @@ try {
   } else {
     const port = await servePane(webviews, serveOptions, releases);
     const table: Record<string, unknown>[] = [];
-    for (const { length, mode } of cases) table.push(await measure(port, length, mode));
+    for (const engine of ENGINES)
+      for (const { length, mode } of cases)
+        table.push(await measure(port, length, mode, engine as "chromium" | "webkit"));
     console.table(table.map(({ busiest: _, nativePosts: __, ...row }) => row));
     for (const row of table)
       console.log(
