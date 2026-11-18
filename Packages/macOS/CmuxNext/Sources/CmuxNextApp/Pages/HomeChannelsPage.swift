@@ -40,7 +40,7 @@ extension PageFactory {
     /// only there `cmux.host.home.switchView` answers).
     func homeChannelsWebPage(dock: HomeDockView? = nil) -> PageWebView? {
         guard let page = homeWebPage(.homeChannels, dock: dock, extra: [PageRoute(prefix: PageNativeOp.actionRun, provider: PageGestureActionProvider(page: .homeChannels, wrapping: AppPageNativeProvider(services: services, page: .homeChannels)))]) else { return nil }
-        services.home.homeDidOpen(asked: true)
+        HomeShownWatch.startChief(for: page, from: dock == nil ? "channels_tab" : "channels_dock") { [weak services] in services?.home.homeDidOpen(asked: true) }
         return page
     }
 

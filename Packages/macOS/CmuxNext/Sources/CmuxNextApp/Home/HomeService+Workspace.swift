@@ -206,7 +206,7 @@ extension HomeService {
         let view = HomeHostView(services: services, conversation: conversation)
         tabViews[tab.id] = view
         // A cloud Chief's brain runs in the cloud or on its server: no local brain host for its tab.
-        if cloudChiefs.chief(for: conversation) == nil { homeDidOpen(asked: true) }
+        if cloudChiefs.chief(for: conversation) == nil { HomeShownWatch.startChief(for: view, from: "conversation_tab") { [weak self] in self?.homeDidOpen(asked: true) } }
         return view
     }
 
