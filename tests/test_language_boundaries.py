@@ -17,6 +17,7 @@ SCRIPT = ROOT / "scripts" / "ci" / "language_boundaries.py"
 MANIFEST = ROOT / ".github" / "language-boundaries.toml"
 WORKFLOW = ROOT / ".github" / "workflows" / "language-boundaries.yml"
 FIXTURE = ROOT / "tests" / "fixtures" / "language-boundaries" / "pr-37777-name-status.tsv"
+PURE_DELETION = ROOT / "tests" / "fixtures" / "language-boundaries" / "pr-45562-name-status.tsv"
 
 spec = importlib.util.spec_from_file_location("language_boundaries", SCRIPT)
 assert spec and spec.loader
@@ -117,14 +118,58 @@ class PR37777Tests(unittest.TestCase):
         self.assertTrue(all("Leo approved" in line for line in lines[1:]))
 
 
+class PureDeletionTests(unittest.TestCase):
+    """cmux#45562 (split out of #45323) removes the plan-scope drift notice the ceremony audit ordered gone (Leo,
+    2026-11-17: "go remove this"): four web files in the chat-ui keep area deleted, five existing files edited,
+    nothing added. A removal, not a port."""
+
+    def test_45562_passes(self) -> None:
+        code, lines = run(PURE_DELETION.read_text())
+        self.assertEqual(code, 0, lines)
+        self.assertIn("Every area keeps its language", lines[-1])
+
+    def test_45562_with_a_new_swift_file_elsewhere_fails(self) -> None:
+        code, lines = run(PURE_DELETION.read_text()
+                          + "A\tPackages/macOS/CmuxNext/Sources/CmuxNextApp/Feed/PlanScopeDrift.swift\n")
+        self.assertEqual(code, 1)
+        self.assertIn("chat-ui: loses 4 web file(s) net", "\n".join(lines))
+        self.assertIn("PlanScopeDrift.swift", "\n".join(lines))
+
+
 class KeepTests(unittest.TestCase):
     def test_modifying_files_passes(self) -> None:
         self.assertEqual(run(f"M\t{HOME}/A.swift\nM\t{PANE}/x.tsx\nM\t{ACPMUX}/lib.rs\n")[0], 0)
 
-    def test_deleting_a_swift_home_file_fails(self) -> None:
-        code, lines = run(f"D\t{HOME}/Messages/HomeComposerIntake.swift\n")
+    def test_deleting_a_swift_home_file_for_another_language_fails(self) -> None:
+        for dest in ("A\tcmux-tui/crates/cmux-home/src/intake.rs\n", "A\twebviews/src/home/Intake.tsx\n",
+                     "C100\tcmux-tui/crates/x/src/a.rs\tcmux-tui/crates/y/src/a.rs\n",
+                     "R080\tPackages/Other/a.txt\tPackages/Other/a.rs\n"):
+            code, lines = run(f"D\t{HOME}/Messages/HomeComposerIntake.swift\n{dest}")
+            self.assertEqual(code, 1, dest)
+            self.assertIn("imessage-home: loses 1 swift", "\n".join(lines))
+            self.assertIn("file(s) of another language", "\n".join(lines))
+
+    def test_deletion_plus_a_new_swift_file_elsewhere_fails(self) -> None:
+        # A web area's loss with Swift brought in anywhere is the shape of a port to Swift.
+        code, lines = run(f"D\t{PANE}/acpmux/toastAvoidance.ts\n"
+                          "A\tPackages/macOS/CmuxNext/Sources/CmuxNextPages/ToastAvoidance.swift\n")
         self.assertEqual(code, 1)
-        self.assertIn("imessage-home: loses 1 swift", lines[0])
+        self.assertIn("chat-ui: loses 1 web", lines[0])
+        self.assertIn("ToastAvoidance.swift", lines[0])
+
+    def test_a_pure_deletion_passes(self) -> None:
+        # Deleting files and editing existing ones, with no new source file of another language, is a removal.
+        self.assertEqual(run(f"D\t{HOME}/Messages/HomeComposerIntake.swift\n")[0], 0)
+        self.assertEqual(run(f"D\t{HOME}/Dead.swift\nM\t{HOME}/HomeView.swift\nM\twebviews/src/x.tsx\n"
+                             f"M\t{ACPMUX}/lib.rs\nA\t{HOME}/notes.md\n")[0], 0)
+        # New code in the area's own language elsewhere is no port either.
+        self.assertEqual(run(f"D\t{PANE}/a.tsx\nA\twebviews/src/other/b.tsx\n")[0], 0)
+
+    def test_renaming_an_area_file_to_another_language_fails(self) -> None:
+        code, lines = run(f"R060\t{PANE}/acpmux/toast.ts\tcmux-tui/crates/acpmux-ui/src/toast.rs\n")
+        self.assertEqual(code, 1)
+        self.assertIn("chat-ui: loses 1 web", lines[0])
+        self.assertIn("toast.ts -> cmux-tui/crates/acpmux-ui/src/toast.rs", lines[0])
 
     def test_copying_a_foreign_file_into_a_swift_area_fails(self) -> None:
         self.assertEqual(run(f"C100\twebviews/src/x.tsx\t{HOME}/x.tsx\n")[0], 1)
@@ -133,13 +178,17 @@ class KeepTests(unittest.TestCase):
         self.assertEqual(run(f"R090\t{HOME}/A.swift\t{HOME}/Sub/A.swift\n")[0], 0)
         self.assertEqual(run(f"D\t{HOME}/Big.swift\nA\t{HOME}/Big+One.swift\n")[0], 0)
 
-    def test_renaming_out_of_the_area_fails(self) -> None:
-        code, lines = run(f"R100\t{HOME}/A.swift\tPackages/macOS/CmuxNext/Sources/CmuxNextPages/A.swift\n")
+    def test_renaming_out_of_the_area_fails_only_with_another_language_brought_in(self) -> None:
+        out = f"R100\t{HOME}/A.swift\tPackages/macOS/CmuxNext/Sources/CmuxNextPages/A.swift\n"
+        self.assertEqual(run(out)[0], 0)  # Swift moved to another Swift module stays Swift
+        code, lines = run(out + "A\twebviews/src/home/A.tsx\n")
         self.assertEqual(code, 1)
-        self.assertIn("->", lines[0])
+        self.assertIn(f"imessage-home: loses 1 swift file(s) net (1 deleted or moved away, 0 added): {HOME}/A.swift ->",
+                      "\n".join(lines))
 
     def test_rest_status_format_is_read_the_same(self) -> None:
-        self.assertEqual(run(f"removed\t{HOME}/A.swift\n")[0], 1)
+        self.assertEqual(run(f"removed\t{HOME}/A.swift\nadded\tcmux-tui/crates/x/src/a.rs\n")[0], 1)
+        self.assertEqual(run(f"removed\t{HOME}/A.swift\n")[0], 0)
         self.assertEqual(run(f"renamed\t{HOME}/Sub/A.swift\t{HOME}/A.swift\n")[0], 0)
         self.assertEqual(run(f"added\t{HOME}/page.tsx\n")[0], 1)
 
@@ -163,14 +212,17 @@ class KeepTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("chat-ui", lines[0])
 
-    def test_deleting_react_chat_ui_fails(self) -> None:
-        self.assertEqual(run(f"D\t{PANE}/acpmux/toastAvoidance.ts\n")[0], 1)
+    def test_deleting_react_chat_ui_passes_alone_and_fails_for_another_language(self) -> None:
+        self.assertEqual(run(f"D\t{PANE}/acpmux/toastAvoidance.ts\n")[0], 0)
+        self.assertEqual(run(f"D\t{PANE}/acpmux/toastAvoidance.ts\nA\t{ACPMUX}/toast.rs\n")[0], 1)
 
     def test_rust_areas_refuse_swift_but_not_their_typescript_runtimes(self) -> None:
         self.assertEqual(run(f"A\t{ACPMUX}/bridge.swift\n")[0], 1)
         self.assertEqual(run("A\tcmux-tui/crates/cmux-tui-hooks/assets/agent-hooks/x.ts\n")[0], 0)
-        self.assertEqual(run(f"D\t{ACPMUX}/old.rs\n")[0], 1)
-        self.assertEqual(run("D\tcmux-tui/crates/cmux-cloud-wire/src/a.rs\n")[0], 1)
+        self.assertEqual(run(f"D\t{ACPMUX}/old.rs\n")[0], 0)  # dead Rust deleted alone
+        self.assertEqual(run("D\tcmux-tui/crates/cmux-cloud-wire/src/a.rs\n")[0], 0)
+        self.assertEqual(run(f"D\t{ACPMUX}/old.rs\nA\tPackages/macOS/CmuxNext/Sources/CmuxNextPages/Old.swift\n")[0], 1)
+        self.assertEqual(run("D\tcmux-tui/crates/cmux-cloud-wire/src/a.rs\nA\twebviews/src/cloud/a.ts\n")[0], 1)
 
     def test_paths_outside_every_area_pass(self) -> None:
         self.assertEqual(run("D\tPackages/macOS/CmuxNext/Sources/CmuxNextPages/X.swift\nA\twebviews/src/x.swift\n")[0], 0)
@@ -201,12 +253,13 @@ class MinimalTests(unittest.TestCase):
             path = f"{HOME}/{name}"
             z = lb.parse_records_z(f"D\0{path}\0".encode())
             self.assertEqual(z, [lb.Record("removed", path)])
-            self.assertEqual(lb.check(AREAS, z, [], [], [])[0], 1, name)
+            rust = [lb.Record("added", "cmux-tui/crates/x/src/a.rs")]  # a destination: the loss is a port
+            self.assertEqual(lb.check(AREAS, z + rust, [], [], [])[0], 1, name)
             js = lb.parse_records_json(json.dumps({"status": "removed", "path": path, "old": ""}) + "\n")
-            self.assertEqual(lb.check(AREAS, js, [], [], [])[0], 1, name)
+            self.assertEqual(lb.check(AREAS, js + rust, [], [], [])[0], 1, name)
             added = lb.parse_records_z(f"A\0{CLOUD}/{name}\0".encode())
             self.assertEqual(lb.check(AREAS, added, [], [], [])[0], 1, name)
-        moved = lb.parse_records_z(f"R100\0{HOME}/A\tB.swift\0Packages/Elsewhere/A\tB.swift\0M\0x.md\0".encode())
+        moved = lb.parse_records_z(f"R100\0{HOME}/A\tB.swift\0Packages/Elsewhere/A\tB.rs\0M\0x.md\0".encode())
         self.assertEqual([r.status for r in moved], ["renamed", "modified"])
         self.assertEqual(lb.check(AREAS, moved, [], [], [])[0], 1)
 
@@ -225,7 +278,7 @@ class MinimalTests(unittest.TestCase):
                 lb.parse_records_json(line)
 
     def test_non_ascii_paths_are_matched(self) -> None:
-        self.assertEqual(run(f"D\t{HOME}/Ünïcode.swift\n")[0], 1)
+        self.assertEqual(run(f"D\t{HOME}/Ünïcode.swift\nA\twebviews/src/Ünïcode.tsx\n")[0], 1)
 
     def test_swift_moved_or_copied_into_cloud_core_fails(self) -> None:
         self.assertEqual(run(f"R100\tPackages/macOS/CmuxNext/Sources/CmuxNextApp/A.swift\t{CLOUD}/A.swift\n")[0], 1)
@@ -234,7 +287,7 @@ class MinimalTests(unittest.TestCase):
 
 
 class ApprovalTests(unittest.TestCase):
-    BAD = f"D\t{HOME}/A.swift\n"
+    BAD = f"D\t{HOME}/A.swift\nA\tcmux-tui/crates/cmux-home/src/a.rs\n"  # a loss with a destination
 
     def test_label_alone_is_not_enough(self) -> None:
         code, lines = run(self.BAD, ["leo-approved-port"], [LABEL_EVENT], [])
@@ -366,7 +419,7 @@ class CliAndWorkflowTests(unittest.TestCase):
     def test_cli_reads_files_events_and_notes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             files, events, notes = (Path(tmp) / n for n in ("f.tsv", "e.jsonl", "n.jsonl"))
-            files.write_text(f"removed\t{HOME}/A.swift\t\n")
+            files.write_text(f"removed\t{HOME}/A.swift\t\nadded\tcmux-tui/crates/x/src/a.rs\t\n")
             events.write_text(json.dumps(LABEL_EVENT) + "\n")
             notes.write_text(json.dumps(LEO_NOTE) + "\n")
             args = ["--files", str(files), "--manifest", str(MANIFEST)]
@@ -374,11 +427,12 @@ class CliAndWorkflowTests(unittest.TestCase):
             approved = args + ["--labels-json", '["leo-approved-port"]', "--events", str(events),
                                "--notes", str(notes)]
             self.assertEqual(cli(approved), 0)
-            self.assertEqual(cli(args + ["--expected-files", "2"]), 1)
+            self.assertEqual(cli(args + ["--expected-files", "3"]), 1)
             quoted = f'{HOME}/Cloud"New.swift'
             zfile, jfile = Path(tmp) / "f.z", Path(tmp) / "f.jsonl"
-            zfile.write_bytes(f"D\0{quoted}\0".encode())
-            jfile.write_text(json.dumps({"status": "removed", "path": quoted, "old": ""}) + "\n")
+            zfile.write_bytes(f"D\0{quoted}\0A\0cmux-tui/crates/x/src/a.rs\0".encode())
+            jfile.write_text(json.dumps({"status": "removed", "path": quoted, "old": ""}) + "\n"
+                             + json.dumps({"status": "added", "path": "cmux-tui/crates/x/src/a.rs", "old": ""}) + "\n")
             self.assertEqual(cli(["--files", str(zfile), "--format", "git-z", "--manifest", str(MANIFEST)]), 1)
             self.assertEqual(cli(["--files", str(jfile), "--format", "json", "--manifest", str(MANIFEST)]), 1)
             zfile.write_bytes(f"M\0{quoted}\0".encode())

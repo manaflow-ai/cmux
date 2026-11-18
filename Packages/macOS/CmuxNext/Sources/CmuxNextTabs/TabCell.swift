@@ -156,6 +156,11 @@ final class TabCell {
     // unread or showing status, close button on the selected/hovered tab.
     var spinnerLayer: StatusIndicatorLayer?
     var isSpinnerExiting = false
+    /// The unread dot about to take the leaving spinner's place fades in with its exit (`TabBusyUnreadMark`).
+    var dotFadesIn = false
+    /// The leaving spinner fades out in the status slot it held, under the dot taking its place, never in the
+    /// cluster beside it, so the title's end holds through the hand-over (`TabBusyUnreadMark`).
+    var spinnerExitsInSlot = false
     var badgeLayer: CALayer?
     var statusGlyphLayer: StatusIndicatorLayer? // a status icon set's badge mark (TabCell+StatusBadge)
     var closeBackgroundLayer: CALayer?
@@ -366,7 +371,12 @@ final class TabCell {
             applyPresenceDotColor()
             applyAudioIcon()
             let indicatorColors = StatusIndicatorLayer.Colors.current(loading: StatusIndicatorAppearance.shared.config.settings.color)
-            spinnerLayer?.colors = indicatorColors
+            var spinnerColors = indicatorColors
+            if combinedBusyUnread == .tintedSpinner {
+                spinnerColors.spinner = Palette.notificationBlue.cgColor
+                spinnerColors.working = Palette.notificationBlue.cgColor
+            }
+            spinnerLayer?.colors = spinnerColors
             statusGlyphLayer?.colors = indicatorColors
             iconLayer.contents = iconImage(tint: item.tint?.markColor ?? AgentIdentityTone.rgb(item.agentTone, tokens: themeScope.tokens)?.nsColor ?? text)
             applySeparatorColor()
@@ -384,6 +394,17 @@ final class TabCell {
 
     /// The tab draws its unread or status mark (`badgeColor`, or a status icon set's glyph).
     var hasStateMark: Bool { item.status != .none || item.isUnread }
+
+    /// How a busy tab with unread output draws (`TabStripMetrics.busyUnreadMark`, else the Debug tunable).
+    var busyUnreadLook: TabBusyUnreadMark { metrics.busyUnreadMark ?? TabTunables.busyUnreadMark.value }
+
+    /// The look the unread dot and the busy indicator share as one mark in the status slot, nil while they draw
+    /// apart (the `pair` look, no spinner showing, or a status, which keeps its own mark).
+    var combinedBusyUnread: TabBusyUnreadMark? {
+        guard item.status == .none, item.isUnread, let spinnerLayer, !isSpinnerExiting, spinnerLayer.plan.glyph != .none else { return nil }
+        let look = busyUnreadLook
+        return look == .pair ? nil : look
+    }
 
     /// theme-scoped: resolved by callers inside `themeScope.perform`.
     var badgeColor: NSColor? {
@@ -571,9 +592,7 @@ final class TabCell {
             // status holds the x's slot at rest, so the hovered x takes it with nothing else moving; an x shown at
             // rest (a narrow selected tab) keeps the status beside it.
             let statusSlot = hasStatusMark && item.isClosable && (closeRect == nil || visibility.closeReplacesStatus)
-                ? CGRect(x: pixel(bounds.width - m.contentTrailingInset - m.closeButtonSize), y: pixel(midY - m.closeButtonSize / 2),
-                         width: m.closeButtonSize, height: m.closeButtonSize)
-                : nil
+                ? statusSlotRect(pillWidth: bounds.width, midY: midY) : nil
             let visibleEnd = layoutTrailingMarks(titleX: titleX, titleEnd: titleEnd, midY: midY, onPath: onPath, statusSlot: statusSlot,
                                                  statusHidden: visibility.closeReplacesStatus,
                                                  animated: animatesCloseChange && !onPath && m.hoverCloseSwap != .instant)
