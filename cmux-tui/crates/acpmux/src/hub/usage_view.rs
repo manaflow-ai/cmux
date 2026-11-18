@@ -91,8 +91,9 @@ impl Hub {
     /// changed are told to every watcher as `session_changed`, where a list read tells them before
     /// its page (`Events::list_head`). The handle ends with it.
     pub(crate) fn read_usage_and_tell(self: &Arc<Self>) -> tokio::task::JoinHandle<()> {
-        let hub = self.clone();
-        tokio::spawn(async move {
+        let hub = Arc::downgrade(self);
+        self.scope.spawn_named("usage-read-and-tell", async move {
+            let Some(hub) = hub.upgrade() else { return };
             hub.refresh_usage_stats().await;
             hub.events.list_head();
         })
