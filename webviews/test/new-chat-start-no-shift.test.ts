@@ -59,6 +59,9 @@ await requireBrowserLane("new-chat-start-no-shift.test.ts", async () => {
     card: ".nt-box, .acpmux-composer > .acpmux-composer-box",
     composer: ".acpmux-composer",
     field: '.acpmux-composer [contenteditable="true"]',
+    /// The chat's controls (mic, Send) inside its card: they neither move in the card nor stretch as
+    /// the card morphs to its own height.
+    bar: ".acpmux-composer > .acpmux-composer-box .acpmux-composer-actions",
     newTabComposer: ".nt-composer",
     prompt: "[data-row-id]",
   };
@@ -302,6 +305,18 @@ await requireBrowserLane("new-chat-start-no-shift.test.ts", async () => {
       expect(handover).toBeGreaterThan(0);
       expectNoJumpAt(frames, handover, atHandover, 1.5);
       for (const [part, options] of checks) expectNoTeleport(frames, part, options);
+      // The card's height morphs, its content does not: the control row keeps its place in the card
+      // and its height on every frame after the handover (within the boxes' 0.1 px rounding).
+      const settled = frames.at(-1)!;
+      const barInCard = (frame: LayoutFrame) =>
+        frame.boxes.bar && frame.boxes.card ? frame.boxes.bar.y - frame.boxes.card.y : undefined;
+      expect(barInCard(settled)).toBeDefined();
+      for (const frame of frames.slice(handover)) {
+        const offset = barInCard(frame);
+        if (offset !== undefined) expect(Math.abs(offset - barInCard(settled)!)).toBeLessThanOrEqual(0.5);
+        if (frame.boxes.bar)
+          expect(Math.abs(frame.boxes.bar.height - settled.boxes.bar!.height)).toBeLessThanOrEqual(0.5);
+      }
       // The sent prompt's row never jumps once it drew.
       expectNoLayoutShift(frames, ["prompt"], 1);
     });

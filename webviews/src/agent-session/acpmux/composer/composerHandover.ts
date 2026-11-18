@@ -63,6 +63,18 @@ function moveMs(element: Element): number {
   return token.endsWith("ms") ? ms : token.endsWith("s") ? ms * 1000 : Number.isFinite(ms) ? ms : 0;
 }
 
+/// The children of ELEMENT that draw a box: a `display: contents` wrapper (the field's context-menu
+/// host, the chrome area) has none, so `scale` does nothing to it and its own children are taken.
+function drawnChildren(element: Element): HTMLElement[] {
+  const drawn: HTMLElement[] = [];
+  for (const child of Array.from(element.children)) {
+    if (!(child instanceof HTMLElement)) continue;
+    if (getComputedStyle(child).display === "contents") drawn.push(...drawnChildren(child));
+    else drawn.push(child);
+  }
+  return drawn;
+}
+
 /// The chat's card goes from New Tab's height FROM to its own TO, with no relayout. A taller card opens
 /// with a clip from the bottom. A shorter one (Claude's) starts stretched to New Tab's height from its
 /// top and settles to its own, while each of its children takes the inverse stretch about the card's
@@ -81,8 +93,7 @@ function morphCardHeight(cardElement: HTMLElement, from: number, to: number, tim
   if (hidden > -1 || !(to > 0)) return;
   const stretch = from / to;
   const top = cardElement.getBoundingClientRect().top;
-  const children: HTMLElement[] = [];
-  for (const child of Array.from(cardElement.children)) if (child instanceof HTMLElement) children.push(child);
+  const children = drawnChildren(cardElement);
   // Every child's offset is read before anything scales.
   const offsets = children.map((child) => child.getBoundingClientRect().top - top);
   cardElement.animate(
