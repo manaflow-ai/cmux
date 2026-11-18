@@ -401,6 +401,10 @@ pub(super) fn run_reporting(
     });
     if let Some(last) = live {
         let mut answer = json!({"ok": true, "machine": last.machine, "warm_until": last.warm_until, "team": team, "fresh": false});
+        // The replay says whose it is, as the platform's answer did: the App makes only the person's own spare ready.
+        if last.owner {
+            answer.set("vm_kind", json!("owner"));
+        }
         // A copy abandoned since is answered again from the record: the machine is still warm.
         if last.owner && !last.copy_given {
             answer.set("fresh", json!(true));

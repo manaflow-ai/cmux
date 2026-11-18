@@ -318,8 +318,12 @@ fn an_abandoned_copy_is_answered_again_within_the_gap() {
         (json!(true), json!(MACHINE))
     );
     assert_eq!(calls.get(), 1);
-    // Handed out again: the next warm in the gap copies nothing.
-    assert_eq!(warm(1_030_000)["fresh"], json!(false));
+    // Handed out again: the next warm in the gap copies nothing, and still says the spare is the person's own.
+    let replayed = warm(1_030_000);
+    assert_eq!(
+        (replayed["fresh"].clone(), replayed["vm_kind"].clone()),
+        (json!(false), json!("owner"))
+    );
     assert!(warm(1_040_000).get("copy").is_none());
     // Another machine's abandon is not this warm's.
     let other = r#"{"account":"user_a","abandoned":"vm_ffffffffffffffffffff"}"#;
