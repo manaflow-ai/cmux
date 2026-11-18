@@ -8,7 +8,7 @@
       "name": "--cv-text",
       "kind": "color",
       "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
-      "alsoScopedIn": ["webviews/src/agent-session/guest/guest.css"],
+      "alsoScopedIn": ["webviews/src/agent-session/guest/guest.css", "webviews/src/pages/home-channels/ledger.css"],
       "about": "The transcript's body text: prompts, replies and headings."
     },
     {
