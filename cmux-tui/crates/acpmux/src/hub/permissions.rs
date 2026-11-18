@@ -420,11 +420,15 @@ impl Hub {
             }
             "tool_call" | "tool_call_update" => {
                 let at = now_ms();
-                if let Some(url) = super::pull_requests::absorb(session, update, &mut m, at) {
+                if let Some(created) = super::pull_requests::absorb(session, update, &mut m, at) {
+                    let url = created.url;
                     self.review_index.note_pr(&session.id, &url, at);
                     self.ledger.note_pull_request(&session.id, &url);
+                    // The asks its body named link to it (`hub/asks`).
+                    self.asks.note_created(&url, created.traces, at);
                 }
-                for target in super::pull_requests::absorb_closed(session, update) {
+                let (settled, merged) = super::pull_requests::absorb_closed(session, update);
+                for target in settled {
                     let url = match target {
                         super::pull_requests::Target::Url(url) => Some(url),
                         super::pull_requests::Target::Number(n) => {
@@ -434,6 +438,7 @@ impl Hub {
                     if let Some(url) = url {
                         super::pull_requests::record_closed(&mut m, &url);
                         self.review_index.note_closed(&url);
+                        self.asks.note_settled(&url, merged, at);
                     }
                 }
                 super::touched::absorb(session, update, &mut m, replayed);

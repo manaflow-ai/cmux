@@ -171,6 +171,9 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "who-else-v1", wire: &[method::MUX_WHO_ELSE] },
     // What turns cost, indexed by day and session (`hub/ledger`).
     Capability { id: "cost-ledger-v1", wire: &[method::MUX_LEDGER] },
+    // What the person asked, linked to its chat and to the pull requests that name it
+    // (`hub/asks`).
+    Capability { id: "ask-ledger-v1", wire: &[method::MUX_ASKS, method::MUX_ASKS_LINK_PR] },
     // The team's agent spend from cmux-platform (`server/chats/team_audit.rs`).
     Capability { id: "team-audit-v1", wire: &[method::MUX_TEAM_AUDIT] },
     // Who has a shared chat open and who types in it (`hub/presence.rs`); the attach reply's
