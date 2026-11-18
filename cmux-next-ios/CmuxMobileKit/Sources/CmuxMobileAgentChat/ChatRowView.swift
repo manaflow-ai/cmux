@@ -19,6 +19,9 @@ final class ChatRowContext {
     var openURL = OpenURLAction { _ in .systemAction }
     /// A tapped disclosure holds its line while it opens or closes (the dock sets it).
     var foldHold = TranscriptFoldHold(begin: {}, end: {})
+    /// The chat's agent UI surface cards' held values and pending strips; presses go to the Mac on
+    /// the link a permission answer takes (`UISurfaceSourceActions`).
+    lazy var uiSurfaces = UISurfaceHost(actions: UISurfaceSourceActions(source: store.source))
 
     init(store: AgentChatStore, surface: AgentChatSurface) {
         self.store = store
@@ -173,6 +176,8 @@ struct ChatRowView: View {
             }
         case .whoElse(let id, let call):
             WhoElseCard(id: id, call: call, open: openWhoElse)
+        case .uiSurface(_, let surface):
+            UISurfaceCard(surface: surface, host: context.uiSurfaces)
         case .actions(let turn, let isLast):
             AnswerActionRow(turn: turn, isLast: isLast, insetsTargets: false, retryWith: RetryModelChoice(store: store, turn: turn),
                             polish: ChatPolishMenuButtons(store: store, turnID: turn.id, prompt: nil)) {

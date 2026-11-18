@@ -1628,7 +1628,7 @@ extension ChatRow {
         case .whoElse(_, let call):
             let rows = min(call.answer?.sessions.count ?? 0, WhoElseCall.rowsShown)
             return 32 + CGFloat(rows) * 48 + (call.hiddenCount(shown: rows) > 0 ? 32 : 0) + (call.unreachedNote == nil ? 0 : 20)
-        case .uiSurface(_, let surface): return surface.estimatedHeight
+        case .uiSurface(_, let surface): return CGFloat(surface.estimatedHeight)
         }
     }
 }

@@ -335,6 +335,25 @@ extension UISurface {
         return out
     }
 
+    /// A guess at the card's height before its cell measures it (rows far from the reader).
+    var estimatedHeight: Double {
+        func height(_ node: Node) -> Double {
+            switch node.nodeType {
+            case .stack, .card, .list:
+                let children = (node.children ?? []).map(height)
+                return node.axis == "h" ? (children.max() ?? 0) : children.reduce(0, +) + Double(children.count) * 10
+            case .table: return 40 + Double(node.rows?.count ?? 0) * 28
+            case .chart: return 200
+            case .approval: return 110 + Double(node.facts?.count ?? 0) * 22
+            case .review: return 90 + Double(node.options?.count ?? 0) * 46
+            case .field, .progress: return 64
+            case .divider: return 9
+            default: return 28
+            }
+        }
+        return 60 + (root.map(height) ?? 0) + (frame == nil ? 0 : 70) + (pending == nil ? 0 : 150)
+    }
+
     /// "quickstart · get-time": the server and tool the card came from.
     var sourceLine: String {
         [source.server, source.tool].compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: " · ")

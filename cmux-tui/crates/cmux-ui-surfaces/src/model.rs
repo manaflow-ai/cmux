@@ -275,6 +275,8 @@ pub enum NodeKind {
         submit: Option<NodeAction>,
         /// Where the selected option ids go in `values` (a data-model path).
         bind: String,
+        /// The option ids selected now (the value at `bind`).
+        selected: Vec<String>,
     },
     Table {
         columns: Vec<Column>,

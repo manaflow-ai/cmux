@@ -616,6 +616,13 @@ impl<'a> Builder<'a> {
                     options,
                     multi: comp.get("multi").and_then(Value::as_bool).unwrap_or(false),
                     submit,
+                    selected: match pointer::get(self.model, &bind) {
+                        Some(Value::Array(items)) => {
+                            items.iter().filter_map(Value::as_str).map(text::clean).collect()
+                        }
+                        Some(Value::String(s)) => vec![text::clean(s)],
+                        _ => Vec::new(),
+                    },
                     bind,
                 }
             }

@@ -82,6 +82,8 @@ final class UISurfaceHost {
     private var settled: Set<String> = []
     /// Surfaces with an action on its way to the Mac.
     private(set) var waiting: Set<String> = []
+    /// The actions each surface confirmed, by surface id (an approval says Approved or Denied).
+    private(set) var confirmed: [String: Set<String>] = [:]
     /// Bumped when a strip opens, so the card announces it (VoiceOver).
     private(set) var pendingShown = 0
 
@@ -135,6 +137,7 @@ final class UISurfaceHost {
     func confirm(_ surface: UISurface, _ pending: UISurface.Pending) {
         settled.insert(pending.requestId)
         answered[surface.surfaceId] = nil
+        confirmed[surface.surfaceId, default: []].insert(pending.actionId)
         actions.confirm(surfaceId: surface.surfaceId, requestId: pending.requestId)
     }
 

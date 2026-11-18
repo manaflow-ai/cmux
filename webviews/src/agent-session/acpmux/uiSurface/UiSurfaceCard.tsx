@@ -23,7 +23,7 @@ import { DialogButton } from "../../../ui/DialogButton";
 import { useT } from "../i18n";
 import { AlertCircle, Spinner } from "../conversation/icons";
 import { ranRenders } from "../conversation/renderFrame";
-import { RENDER_FRAME_URL } from "../conversation/renderCardModel";
+import { canRender, RENDER_FRAME_URL } from "../conversation/renderCardModel";
 import { UiSurfaceClientContext, type UiSurfaceClient } from "./actions";
 import { useSurfaceFrame } from "./frameBridge";
 import {
@@ -186,7 +186,7 @@ export const UiSurfaceCard = memo(function UiSurfaceCard({ surface, client: give
   });
 
   const source = sourceLine(surface.source);
-  const claimed = surface.source.verified === false;
+  const claimed = surface.source.claimed === true;
   const error = status === "error" ? (surface.error ?? t("uiSurface.error")) : undefined;
   return (
     <section
@@ -222,7 +222,8 @@ export const UiSurfaceCard = memo(function UiSurfaceCard({ surface, client: give
       )}
       <SurfaceValuesContext.Provider value={values}>
         <SurfaceActionsContext.Provider value={actions}>
-          {surface.frame ? (
+          {/* A page with no render frame (the dev server, the gallery) draws Rust's fallback root instead. */}
+          {surface.frame && canRender() ? (
             <FrameView surface={surface} client={client} />
           ) : (
             root && (

@@ -107,8 +107,8 @@ export type UiSurfaceSource = {
   tool?: string;
   resourceUri?: string;
   catalogId?: string;
-  /// False when the server is not one the person connected: the source line says "claimed".
-  verified?: boolean;
+  /// The server is not one the person connected: the source line says "claimed".
+  claimed?: boolean;
 };
 
 export type UiSurfaceFrame = { html: string; csp?: string; height?: number };
@@ -197,6 +197,14 @@ function readFieldValue(value: unknown): UiFieldValue | undefined {
   return undefined;
 }
 
+const ALIGN: Readonly<Record<string, UiTableColumn["align"]>> = {
+  start: "left",
+  left: "left",
+  center: "center",
+  end: "right",
+  right: "right",
+};
+
 /// What a node that cannot be drawn says instead.
 const fallback = (id: string, what: string): UiFallbackNode => ({ type: "fallback", id, text: capped(what) });
 
@@ -281,6 +289,7 @@ export function readNode(
         ...(min !== undefined ? { min } : {}),
         ...(max !== undefined ? { max } : {}),
         ...(bind ? { bind } : {}),
+        ...(value.secure === true ? { secure: true } : {}),
       };
     }
     case "approval": {
@@ -302,6 +311,9 @@ export function readNode(
       const submit = readAction(value.submit);
       const prompt = str(value.prompt);
       const bind = str(value.bind);
+      const selected = Array.isArray(value.selected)
+        ? value.selected.filter((id): id is string => typeof id === "string")
+        : [];
       const options = Array.isArray(value.options)
         ? value.options.flatMap((option): UiReviewOption[] => {
             if (!isRecord(option)) return [];
@@ -320,6 +332,7 @@ export function readNode(
         ...(value.multi === true ? { multi: true } : {}),
         ...(submit ? { submit } : {}),
         ...(bind ? { bind } : {}),
+        ...(selected.length ? { selected } : {}),
       };
     }
     case "table": {
@@ -327,7 +340,8 @@ export function readNode(
         ? value.columns.flatMap((column): UiTableColumn[] => {
             if (!isRecord(column)) return [];
             const key = str(column.key) ?? "";
-            const align = optionalOneOf(column.align, ["left", "center", "right"] as const);
+            // Rust writes `start` / `center` / `end` (logical, so a right-to-left page mirrors it).
+            const align = ALIGN[str(column.align) ?? ""];
             return [{ key, label: text(column.label), ...(align ? { align } : {}) }];
           })
         : [];
@@ -434,7 +448,7 @@ export function readUiSurface(value: unknown): UiSurface | undefined {
       ...(tool ? { tool: capped(tool) } : {}),
       ...(resourceUri ? { resourceUri: capped(resourceUri) } : {}),
       ...(catalogId ? { catalogId: capped(catalogId) } : {}),
-      ...(source.verified === false ? { verified: false } : {}),
+      ...(source.claimed === true ? { claimed: true } : {}),
     },
     status,
     ...(error ? { error: capped(error) } : {}),
@@ -455,6 +469,8 @@ export function initialValues(root: UiNode | undefined): UiSurfaceValues {
   const values: UiSurfaceValues = {};
   const walk = (node: UiNode) => {
     if (node.type === "field" && node.value !== undefined) values[valueKey(node)] = node.value;
+    if (node.type === "review" && node.selected)
+      values[valueKey(node)] = node.multi ? node.selected : (node.selected[0] ?? "");
     if ("children" in node) node.children.forEach(walk);
   };
   if (root) walk(root);

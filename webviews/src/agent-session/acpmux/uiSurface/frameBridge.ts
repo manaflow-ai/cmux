@@ -104,7 +104,10 @@ export function createFrameBridge(options: {
 export function framedHtml(html: string, csp: string | undefined): string {
   if (!csp) return html;
   const content = csp.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
-  return `<meta http-equiv="Content-Security-Policy" content="${content}">${html}`;
+  const meta = `<meta http-equiv="Content-Security-Policy" content="${content}">`;
+  // Inside the head when there is one, else after the doctype, so the document keeps its mode.
+  const at = /<head\b[^>]*>/i.exec(html) ?? /^\s*<!doctype[^>]*>/i.exec(html);
+  return at ? html.slice(0, at.index + at[0].length) + meta + html.slice(at.index + at[0].length) : meta + html;
 }
 
 /// Feeds an MCP App's HTML to a render frame and runs its bridge to acpmux while mounted.

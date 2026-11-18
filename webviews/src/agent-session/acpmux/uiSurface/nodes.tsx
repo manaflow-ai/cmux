@@ -243,7 +243,7 @@ function FieldNode({ node }: { node: UiFieldNode }) {
           {label}
           <Input
             id={id}
-            type={node.input}
+            type={node.input === "date" ? "date" : node.secure ? "password" : "text"}
             variant="outline"
             size="sm"
             value={typeof value === "string" ? value : ""}

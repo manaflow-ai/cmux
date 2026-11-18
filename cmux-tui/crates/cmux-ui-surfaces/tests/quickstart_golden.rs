@@ -19,8 +19,9 @@ fn dir() -> PathBuf {
 }
 
 fn samples() -> Vec<(String, PathBuf)> {
-    let mut out: Vec<_> = std::fs::read_dir(dir().join("fixtures/quickstart"))
-        .expect("fixtures dir")
+    let read = |d: &str| std::fs::read_dir(dir().join(d)).expect("fixtures dir");
+    let mut out: Vec<_> = read("fixtures/quickstart")
+        .chain(read("fixtures/cmux"))
         .filter_map(|e| e.ok())
         .map(|e| e.path())
         .filter(|p| {
@@ -140,4 +141,53 @@ fn function_message_suites_match_their_validity() {
             assert_eq!(ok, t["valid"].as_bool().unwrap(), "{file}: {}", t["description"]);
         }
     }
+}
+
+fn check_golden(name: &str, got: &Value) {
+    let golden = dir().join("golden").join(format!("{name}.json"));
+    let text = serde_json::to_string_pretty(got).unwrap() + "\n";
+    if std::env::var_os("UPDATE_GOLDEN").is_some() {
+        std::fs::write(&golden, &text).unwrap();
+    } else {
+        assert_eq!(
+            std::fs::read_to_string(&golden).ok().as_deref(),
+            Some(text.as_str()),
+            "{name} differs"
+        );
+    }
+}
+
+/// A surface with a confirm strip showing, and an MCP App frame: the two
+/// shapes no sample reaches by itself.
+#[test]
+fn pending_and_frame_goldens() {
+    let path = dir().join("fixtures/cmux/cmux-catalog-cards.json");
+    let mut store = SurfaceStore::new();
+    let source = Source {
+        kind: SourceKind::A2ui,
+        server: Some("cmux".into()),
+        tool: Some("ui_surface".into()),
+        ..Default::default()
+    };
+    store.apply_all(messages(&path), &source);
+    store.finish_all();
+    let values = serde_json::from_value(json!({"/release/reviewer": "Grace"})).unwrap();
+    store.request_action("cmux-cards", "go", &values).unwrap();
+    let s = serde_json::to_value(store.surface("cmux-cards").unwrap()).unwrap();
+    check_golden("cmux-pending", &json!({"sample": "cmux-pending", "surfaces": [s]}));
+
+    let mut store = SurfaceStore::new();
+    let source = Source {
+        kind: SourceKind::McpApp,
+        server: Some("quickstart".into()),
+        tool: Some("get-time".into()),
+        resource_uri: Some("ui://get-time/mcp-app.html".into()),
+        ..Default::default()
+    };
+    let html = "<!doctype html><html><body><p id=t>…</p><script>/* app */</script></body></html>"
+        .to_string();
+    let csp = cmux_ui_surfaces::mcp_apps::csp(None);
+    store.put_frame("get-time-1", source, html, csp, Vec::new()).unwrap();
+    let s = serde_json::to_value(store.surface("get-time-1").unwrap()).unwrap();
+    check_golden("mcp-app-frame", &json!({"sample": "mcp-app-frame", "surfaces": [s]}));
 }
