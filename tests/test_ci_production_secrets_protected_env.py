@@ -8,6 +8,12 @@ policy outside the workflow: these jobs declare the `release` environment
 (policy: branch main, tags v*), the artifacts environment, or a cloud-vm environment with its own
 policy, and their production secrets live in that environment.
 
+The cmux-cef-write token lives only in `cef-publish` (policy: branch main, no
+required reviewer). A workflow with a cef-publish job is dispatch-only: a
+pull_request_target, workflow_run or push trigger would run main's file on
+input another ref controls, which the branch policy admits. Its first job
+refuses any ref but main, and the cef-publish job needs it.
+
 The iroh release gate checks out a requested ref; its job with production
 Stack credentials also requires that ref to be the run's own revision.
 """
@@ -58,11 +64,37 @@ RELEASE_NEXT_JOBS = {
 }
 
 # The cmux-cef-write token (CMUX_CEF_R2_WRITE_*) lives only in `cef-publish`
-# (reviewers required). A job in any other environment reads it as empty: the
+# (deployment branch policy: main). It had required reviewers until Leo asked
+# "why do i have to keep approving these???" (2026-11-14): every run was a main
+# dispatch, so the reviewer checked nothing the branch policy doesn't. A job in any other environment reads it as empty: the
 # Cua Driver SDK publish (run 42278271161) and the dev helper signing asked
 # `release` for it and stopped before publishing.
 CEF_WRITE_SECRET = re.compile(r"secrets\.CMUX_CEF_R2_WRITE_[A-Z_]+")
 CEF_WRITE_ENVIRONMENT = "cef-publish"
+MAIN_GATE = re.compile(r"github\.ref\s*==\s*'refs/heads/main'")
+
+
+def _environment(definition):
+    environment = definition.get("environment")
+    if isinstance(environment, dict):
+        environment = environment.get("name")
+    return environment
+
+
+def _needs(definition):
+    needs = definition.get("needs") or []
+    return [needs] if isinstance(needs, str) else list(needs)
+
+
+def _main_gated(jobs, job, seen=None):
+    """True when job, or a job it needs (transitively), runs only from main."""
+    seen = seen if seen is not None else set()
+    if job in seen or job not in jobs:
+        return False
+    seen.add(job)
+    if MAIN_GATE.search(str(jobs[job].get("if", ""))):
+        return True
+    return any(_main_gated(jobs, need, seen) for need in _needs(jobs[job]))
 
 
 def _check(cond, msg):
@@ -97,12 +129,17 @@ def main():
             continue
         document = yaml.load(open(os.path.join(WORKFLOWS, name), encoding="utf-8"), Loader=yaml.BaseLoader)
         for job, definition in ((document or {}).get("jobs") or {}).items():
+            environment = _environment(definition)
             if CEF_WRITE_SECRET.search(yaml.dump(definition)):
-                environment = definition.get("environment")
-                if isinstance(environment, dict):
-                    environment = environment.get("name")
                 _check(environment == CEF_WRITE_ENVIRONMENT,
                        f"{name} {job} reads the cmux-cef-write token from the {CEF_WRITE_ENVIRONMENT} environment")
+            if environment == CEF_WRITE_ENVIRONMENT:
+                triggers = document.get("on")
+                triggers = [triggers] if isinstance(triggers, str) else list(triggers or [])
+                _check(triggers == ["workflow_dispatch"],
+                       f"{name} runs {CEF_WRITE_ENVIRONMENT} only on workflow_dispatch (found {triggers})")
+                _check(_main_gated(document["jobs"], job),
+                       f"{name} {job} needs a job that runs only from refs/heads/main")
     gate = yaml.load(open(os.path.join(WORKFLOWS, "iroh-release-gate.yml"), encoding="utf-8"), Loader=yaml.BaseLoader)
     condition = " ".join(str(gate["jobs"]["simulator-e2e"].get("if", "")).split())
     _check(

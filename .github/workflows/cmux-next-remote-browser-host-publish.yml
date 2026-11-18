@@ -15,8 +15,8 @@ name: cmux NEXT remote browser host publish
 # build    on a macOS runner, holding no secret: unpacks that archive (its
 #          digest checked again) and runs `cargo build --release --locked` with
 #          a job-local Rust toolchain (the one cmux-tui/rust-toolchain.toml names).
-# publish  in the cef-publish environment, which waits for one of its required
-#          reviewers and alone holds the cmux-cef-write token. Only main code
+# publish  in the cef-publish environment, which admits main only (branch
+#          policy) and alone holds the cmux-cef-write token. Only main code
 #          runs here: the binary is data. It checks the binary's digest and
 #          Mach-O arm64 header, uploads it write-once to
 #          remote-browser-host/<sha256>/cmux-remote-browser-host-macos-arm64

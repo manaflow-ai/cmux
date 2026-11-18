@@ -6,10 +6,13 @@ name: cmux NEXT CEF publish
 # ensure-cef.sh reads first, so a CEF release needs no person with the
 # bucket's write key at a Mac.
 #
-# Anyone may dispatch it. The publish job runs in the cef-publish environment:
-# it waits for one of its required reviewers to approve, and only that
+# Anyone may dispatch it from main. The publish job runs in the cef-publish
+# environment, whose deployment branch policy admits main only, and only that
 # environment holds the cmux-cef-write token (CMUX_CEF_R2_WRITE_*, Object Read
-# and Write on bucket cmux-cef only); no repository secret has it.
+# and Write on bucket cmux-cef only); no repository secret has it. No person
+# approves it: the upload is write-once, and the pin PR is the reviewed step.
+# tests/test_ci_production_secrets_protected_env.py keeps it dispatch-only and
+# gated on main.
 #
 # resolve  checks the tag, that the release's commit is the tip of a fork
 #          branch (the packager records it as fork_branch), and that every
