@@ -1,7 +1,7 @@
 //! Fleet blob seeding (hq `docs/rfd/0008-fleet-blob-seeding.md`): where a projected checkout gets
 //! the blobs its host's mirror lacks before it asks GitHub, and how a host seeds what it holds.
 //!
-//! Off unless `CMUX_PROJECTION_PEERS=1`. Then a missing blob is asked of, in order:
+//! On unless `CMUX_PROJECTION_PEERS=0`. A missing blob is asked of, in order:
 //!
 //! 1. the tailnet peers that hold it (`CMUX_PROJECTION_PEER_INDEX`: a file, or an `http(s)` URL,
 //!    of one seed base URL per line);
@@ -9,8 +9,10 @@
 //!    `CMUX_PROJECTION_CACHE_TOKEN_FILE`);
 //! 3. R2 (`CMUX_PROJECTION_R2_URL`);
 //!
-//! each as `GET <base>/objects/<id>`. Whatever none of them has goes to the existing one-request
-//! `git fetch` ([`crate::git::fetch_missing`]). Every answer is hashed and must match the id it was
+//! each as `GET <base>/objects/<id>`, then 4. git: whatever none of them has goes to the existing
+//! one-request `git fetch` ([`crate::git::fetch_missing`]). A source that is not configured is
+//! skipped, one that fails three times in a row is dropped for the rest of the mount, and nothing
+//! in the chain can fail the mount: with no source left every blob goes to git as before. Every answer is hashed and must match the id it was
 //! asked for, so any source is untrusted transport: a wrong answer is dropped and the next source
 //! is asked. A verified blob is written into the host's mirror as a loose object, so the host now
 //! seeds it too.
@@ -29,7 +31,7 @@ use std::time::{Duration, Instant};
 
 use sha1::{Digest as _, Sha1};
 
-/// The flag that turns the chain on.
+/// The flag that turns the chain off (`0`).
 pub const FLAG: &str = "CMUX_PROJECTION_PEERS";
 
 /// The git object id of a blob with these bytes: sha1 for a 40-hex id, sha256 for a 64-hex id.
@@ -76,7 +78,7 @@ pub enum Answer {
 
 /// One `GET`, so tests can stand in for the network.
 pub trait Get: Send + Sync {
-    fn get(&self, url: &str, token: Option<&str>) -> Answer;
+    fn get(&self, url: &str, token: Option<&str>, deadline: Duration) -> Answer;
 }
 
 /// The network: one blocking client with short deadlines, so a stalled source costs a deadline,
@@ -98,8 +100,8 @@ impl Http {
 }
 
 impl Get for Http {
-    fn get(&self, url: &str, token: Option<&str>) -> Answer {
-        let mut request = self.client.get(url);
+    fn get(&self, url: &str, token: Option<&str>, deadline: Duration) -> Answer {
+        let mut request = self.client.get(url).timeout(deadline);
         if let Some(token) = token {
             request = request.bearer_auth(token);
         }
@@ -121,10 +123,26 @@ pub struct Remote {
     pub token: Option<String>,
 }
 
+impl Remote {
+    /// How long one answer from this tier may take: a peer is a host on the same network, so a
+    /// slow one is dropped fast; the controller SSD and R2 are farther and get longer.
+    fn deadline(&self) -> Duration {
+        match self.tier {
+            "peer" => Duration::from_secs(2),
+            "ssd" => Duration::from_secs(10),
+            _ => Duration::from_secs(20),
+        }
+    }
+}
+
 /// Requests in flight per checkout.
 const PARALLEL: usize = 8;
 /// Peers asked for one blob before the controller SSD.
 const PEERS_PER_BLOB: usize = 2;
+/// Failures in a row (unreachable, timed out, busy, error status, wrong bytes) after which a
+/// source is skipped for the rest of a fill, so a dead peer costs three deadlines, not one per
+/// blob.
+const DEAD_AFTER: usize = 3;
 
 /// The sources, in the order they are asked.
 pub struct Chain {
@@ -140,6 +158,14 @@ pub struct Filled {
     pub r2: usize,
     /// Answers whose bytes did not hash to the id asked for (dropped).
     pub rejected: usize,
+    /// Sources skipped for the rest of the fill after [`DEAD_AFTER`] failures in a row.
+    pub dropped: usize,
+}
+
+/// Whether the chain runs, from the value of [`FLAG`]: on unless it is `0`, `false` or `off`.
+#[must_use]
+pub fn enabled(flag: Option<&str>) -> bool {
+    !matches!(flag.map(str::trim), Some("0" | "false" | "off"))
 }
 
 impl Chain {
@@ -148,27 +174,24 @@ impl Chain {
         Self { remotes, get }
     }
 
-    /// The chain the environment names, or `None` when the flag is off.
-    pub fn from_env() -> anyhow::Result<Option<Self>> {
-        if std::env::var(FLAG).ok().as_deref() != Some("1") {
-            return Ok(None);
+    /// The chain the environment names, or `None` when [`FLAG`] turns it off or no client can be
+    /// built. Nothing here can fail the mount: a source that can't be read is left out, and with
+    /// no sources every blob goes to git as before.
+    #[must_use]
+    pub fn from_env() -> Option<Self> {
+        if !enabled(std::env::var(FLAG).ok().as_deref()) {
+            return None;
         }
-        let get = Http::new()?;
+        let get = match Http::new() {
+            Ok(get) => get,
+            Err(error) => {
+                eprintln!("cmux-projection: blob sources skipped, no HTTP client: {error}");
+                return None;
+            }
+        };
         let mut remotes = Vec::new();
         if let Ok(index) = std::env::var("CMUX_PROJECTION_PEER_INDEX") {
-            let text = if index.starts_with("http://") || index.starts_with("https://") {
-                match get.get(&index, None) {
-                    Answer::Found(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
-                    _ => String::new(),
-                }
-            } else {
-                std::fs::read_to_string(&index).unwrap_or_default()
-            };
-            remotes.extend(peer_list(&text).into_iter().map(|base| Remote {
-                tier: "peer",
-                base,
-                token: None,
-            }));
+            remotes.extend(peers_in(&get, &index));
         }
         if let Ok(base) = std::env::var("CMUX_PROJECTION_CACHE_URL") {
             let token = std::env::var("CMUX_PROJECTION_CACHE_TOKEN_FILE")
@@ -180,42 +203,61 @@ impl Chain {
         if let Ok(base) = std::env::var("CMUX_PROJECTION_R2_URL") {
             remotes.push(Remote { tier: "r2", base, token: None });
         }
-        Ok(Some(Self::new(remotes, Box::new(get))))
+        Some(Self::new(remotes, Box::new(get)))
     }
 
-    /// The remotes one blob is asked of: at most [`PEERS_PER_BLOB`] peers (spread by the id, so
-    /// one checkout's blobs spread over the peers), then every non-peer source in order.
-    fn order(&self, oid: &str) -> Vec<&Remote> {
-        let peers: Vec<&Remote> =
-            self.remotes.iter().filter(|remote| remote.tier == "peer").collect();
+    /// The remotes one blob is asked of, as indexes: at most [`PEERS_PER_BLOB`] peers (spread by
+    /// the id, so one checkout's blobs spread over the peers), then every non-peer source in order.
+    fn order(&self, oid: &str) -> Vec<usize> {
+        let peers: Vec<usize> =
+            (0..self.remotes.len()).filter(|&at| self.remotes[at].tier == "peer").collect();
         let mut order = Vec::new();
         if !peers.is_empty() {
-            let start =
-                usize::from_str_radix(&oid[..4.min(oid.len())], 16).unwrap_or(0) % peers.len();
+            let prefix = oid.get(..4).unwrap_or("0");
+            let start = usize::from_str_radix(prefix, 16).unwrap_or(0) % peers.len();
             for step in 0..PEERS_PER_BLOB.min(peers.len()) {
                 order.push(peers[(start + step) % peers.len()]);
             }
         }
-        order.extend(self.remotes.iter().filter(|remote| remote.tier != "peer"));
+        order.extend((0..self.remotes.len()).filter(|&at| self.remotes[at].tier != "peer"));
         order
     }
 
-    /// The verified bytes of `oid` and the tier that gave them, or `None`.
-    fn one(&self, oid: &str, rejected: &AtomicUsize) -> Option<(&'static str, Vec<u8>)> {
-        for remote in self.order(oid) {
+    /// The verified bytes of `oid` and the tier that gave them, or `None`. `failures` counts each
+    /// source's failures in a row; one at [`DEAD_AFTER`] is not asked.
+    fn one(
+        &self,
+        oid: &str,
+        failures: &[AtomicUsize],
+        rejected: &AtomicUsize,
+    ) -> Option<(&'static str, Vec<u8>)> {
+        for at in self.order(oid) {
+            if failures[at].load(Ordering::Relaxed) >= DEAD_AFTER {
+                continue;
+            }
+            let remote = &self.remotes[at];
             let url = format!("{}/objects/{oid}", remote.base.trim_end_matches('/'));
-            if let Answer::Found(bytes) = self.get.get(&url, remote.token.as_deref()) {
-                if verify(oid, &bytes) {
+            match self.get.get(&url, remote.token.as_deref(), remote.deadline()) {
+                Answer::Found(bytes) if verify(oid, &bytes) => {
+                    failures[at].store(0, Ordering::Relaxed);
                     return Some((remote.tier, bytes));
                 }
-                rejected.fetch_add(1, Ordering::Relaxed);
+                Answer::Found(_) => {
+                    rejected.fetch_add(1, Ordering::Relaxed);
+                    failures[at].fetch_add(1, Ordering::Relaxed);
+                }
+                Answer::Absent => failures[at].store(0, Ordering::Relaxed),
+                Answer::Failed => {
+                    failures[at].fetch_add(1, Ordering::Relaxed);
+                }
             }
         }
         None
     }
 
     /// Asks the chain for each of `oids`, hands each verified blob to `keep` (which writes it into
-    /// the mirror), and returns the ids no source had, for the git fetch.
+    /// the mirror), and returns the ids no source had, for the git fetch. A blob a source or
+    /// `keep` failed on, even by panicking, is left for git.
     pub fn fill(
         &self,
         oids: &[String],
@@ -226,6 +268,7 @@ impl Chain {
         }
         let next = AtomicUsize::new(0);
         let rejected = AtomicUsize::new(0);
+        let failures: Vec<AtomicUsize> = self.remotes.iter().map(|_| AtomicUsize::new(0)).collect();
         let found: Mutex<Vec<(usize, &'static str)>> = Mutex::new(Vec::new());
         std::thread::scope(|scope| {
             for _ in 0..PARALLEL.min(oids.len()) {
@@ -233,9 +276,12 @@ impl Chain {
                     loop {
                         let at = next.fetch_add(1, Ordering::Relaxed);
                         let Some(oid) = oids.get(at) else { return };
-                        if let Some((tier, bytes)) = self.one(oid, &rejected)
-                            && keep(oid, &bytes).is_ok()
-                        {
+                        let got = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            self.one(oid, &failures, &rejected)
+                                .filter(|(_, bytes)| keep(oid, bytes).is_ok())
+                                .map(|(tier, _)| tier)
+                        }));
+                        if let Ok(Some(tier)) = got {
                             found.lock().unwrap_or_else(PoisonError::into_inner).push((at, tier));
                         }
                     }
@@ -243,7 +289,9 @@ impl Chain {
             }
         });
         let found = found.into_inner().unwrap_or_else(PoisonError::into_inner);
-        let mut filled = Filled { rejected: rejected.into_inner(), ..Filled::default() };
+        let dropped =
+            failures.iter().filter(|failed| failed.load(Ordering::Relaxed) >= DEAD_AFTER).count();
+        let mut filled = Filled { rejected: rejected.into_inner(), dropped, ..Filled::default() };
         let mut have = vec![false; oids.len()];
         for (at, tier) in found {
             have[at] = true;
@@ -257,6 +305,24 @@ impl Chain {
             oids.iter().zip(have).filter(|(_, have)| !have).map(|(oid, _)| oid.clone()).collect();
         (rest, filled)
     }
+}
+
+/// The peers a peer index names: `index` is a file, or an `http(s)` URL asked once with a short
+/// deadline. An index that can't be read names no peers, so the chain starts at the controller.
+#[must_use]
+pub fn peers_in(get: &dyn Get, index: &str) -> Vec<Remote> {
+    let text = if index.starts_with("http://") || index.starts_with("https://") {
+        match get.get(index, None, Duration::from_secs(2)) {
+            Answer::Found(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+            _ => {
+                eprintln!("cmux-projection: peer index {index} unreadable; no peers");
+                String::new()
+            }
+        }
+    } else {
+        std::fs::read_to_string(index).unwrap_or_default()
+    };
+    peer_list(&text).into_iter().map(|base| Remote { tier: "peer", base, token: None }).collect()
 }
 
 /// The seed base URLs of a peer index: one per line; blank lines and `#` comments skipped.
