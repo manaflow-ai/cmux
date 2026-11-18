@@ -77,7 +77,7 @@ import Testing
             model.setSections(base)
             let customization = Self.regroupEveryLoose(count)
             var samples: [UInt64] = []
-            for run in 0..<6 {
+            for run in 0..<10 {
                 // Alternate the settings so each set projects again (an unchanged value is skipped).
                 samples.append(Self.nanoseconds { model.sectionCustomization = run.isMultiple(of: 2) ? customization : .defaults })
             }

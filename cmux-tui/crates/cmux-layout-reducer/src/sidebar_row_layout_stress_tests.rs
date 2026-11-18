@@ -266,7 +266,13 @@ fn sidebar_row_layout_stress() {
         std::hint::black_box(respond(std::hint::black_box(&worst)));
     });
     println!("row | typical {typical_ns} ns | worst file {worst_ns} ns");
-    assert!(worst_ns < 200_000, "the worst file costs {worst_ns} ns per resolve");
+    // Relative, so a debug build or a loaded runner moves both sides: 70x after the cap, 566x
+    // before it (the 3 MiB copy).
+    let bound = typical_ns.max(50) * 200;
+    assert!(
+        worst_ns < bound,
+        "the worst file costs {worst_ns} ns per resolve vs {typical_ns} typical"
+    );
 
     // Hot reload and rapid edits at every sidebar size: the resolves per reload stay at the
     // number of (kind, agent) pairs, so a reload costs the same at 100 rows and 20,000.
