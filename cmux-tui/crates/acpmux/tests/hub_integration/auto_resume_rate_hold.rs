@@ -118,33 +118,116 @@ async fn a_529_is_capacity_and_holds_nothing() {
     assert_eq!(scheduled[0].msg["reason"], "capacity", "{scheduled:?}");
 }
 
-#[tokio::test]
-async fn stop_ends_a_rate_limit_hold_and_the_queue_goes_on() {
-    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
-    hub.config.write().await.auto_resume_delays_ms = Some(vec![25]);
-    let id = new_session(&mut c, "stopped").await;
+/// A chat cut by a 429 whose reset is ten minutes away, held, with another agent's message
+/// queued behind the hold.
+async fn held_chat(c: &mut TestClient, hub: &Hub, name: &str) -> String {
+    let id = new_session(c, name).await;
     let r = c.request(method::SESSION_PROMPT, json!({
         "sessionId": id,
         "prompt": [{"type": "text", "text": format!("recover-once: {LIMIT}; Retry-After: 600")}],
-        "_meta": {"acpmux": {"promptId": "p-stop"}}
+        "_meta": {"acpmux": {"promptId": format!("p-{name}")}}
     })).await;
     assert!(r.is_err());
-    until(&hub, &id, |k| k.iter().any(|k| k == "auto_resume_scheduled")).await;
+    until(hub, &id, |k| k.iter().any(|k| k == "auto_resume_scheduled")).await;
     c.send(method::SESSION_PROMPT, from_agent(&id, "m-late", "lane", "late report")).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
-    assert_eq!(of_kind(&hub, &id, "turn_started").len(), 1);
+    assert_eq!(of_kind(hub, &id, "turn_started").len(), 1, "{:?}", kinds(hub, &id));
+    id
+}
+
+/// Leo's Mac, 2026-11-18: after `acpmux session stop` on the coordinator in its 429 loop,
+/// another agent's message started a new turn at once. Stop on a rate-limited chat parks it:
+/// no turn starts by itself, what comes in queues, and `_acpmux/retry` sends the waiting
+/// continuation on with what queued, as one turn.
+#[tokio::test]
+async fn stop_parks_a_rate_limited_chat_until_a_retry() {
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![25]);
+    let id = held_chat(&mut c, &hub, "stopped").await;
     c.request(method::SESSION_CANCEL, json!({"sessionId": id})).await.unwrap();
-    let k = until(&hub, &id, |k| k.iter().any(|k| k == "rate_limit_lifted")).await;
-    assert!(k.iter().any(|k| k == "rate_limit_lifted"), "{k:?}");
+    let k = until(&hub, &id, |k| k.iter().any(|k| k == "rate_limit_parked")).await;
+    let parked = of_kind(&hub, &id, "rate_limit_parked");
+    assert_eq!(parked.len(), 1, "{k:?}");
+    assert_eq!(parked[0].msg["why"], "stopped", "{parked:?}");
+    let notice = json!({
+        "sessionId": id,
+        "prompt": [{"type": "text", "text": "[notice from task-watch] background task done"}],
+        "_meta": {"acpmux": {"promptId": "n-bg", "fromAgent": "task-watch"}}
+    });
+    c.send(method::SESSION_PROMPT, notice).await;
+    c.send(method::SESSION_PROMPT, from_agent(&id, "m-later", "lane-2", "later report")).await;
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    assert_eq!(of_kind(&hub, &id, "turn_started").len(), 1, "{:?}", kinds(&hub, &id));
+    assert!(of_kind(&hub, &id, "rate_limit_lifted").is_empty(), "{:?}", kinds(&hub, &id));
+    assert!(of_kind(&hub, &id, "auto_resume_stopped").is_empty(), "{:?}", kinds(&hub, &id));
     let row = hub.session_summary(&hub.resolve(&id).unwrap());
+    assert!(row["rateLimitParked"].as_u64().is_some(), "{row}");
+
+    // The retry sends the continuation on: one turn, carrying everything that queued.
+    c.request("_acpmux/retry", json!({"sessionId": id})).await.unwrap();
+    let k = until(&hub, &id, |k| k.iter().filter(|k| *k == "turn_result").count() >= 2).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(of_kind(&hub, &id, "turn_started").len(), 2, "{k:?}");
+    let last = user_messages(&hub, &id).pop().unwrap().to_string();
+    for words in ["late report", "later report", "background task done", "rate limit"] {
+        assert!(last.contains(words), "{words} missing from {last}");
+    }
+    let row = hub.session_summary(&hub.resolve(&id).unwrap());
+    assert!(row.get("rateLimitParked").is_none(), "{row}");
     assert!(row.get("rateLimitedUntil").is_none(), "{row}");
-    // The person's next prompt runs at once, its 429 long before the reset or not.
+}
+
+/// The person's own prompt resumes a chat Stop parked: it runs at once, long before the reset,
+/// carrying the continuation's words; the other agent's message goes in after it.
+#[tokio::test]
+async fn the_persons_own_prompt_resumes_a_chat_stop_parked() {
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![25]);
+    let id = held_chat(&mut c, &hub, "resumed").await;
+    c.request(method::SESSION_CANCEL, json!({"sessionId": id})).await.unwrap();
+    until(&hub, &id, |k| k.iter().any(|k| k == "rate_limit_parked")).await;
     c.request(
         method::SESSION_PROMPT,
         json!({"sessionId": id, "prompt": [{"type": "text", "text": "go on"}]}),
     )
     .await
     .unwrap();
+    let unparked = of_kind(&hub, &id, "rate_limit_unparked");
+    assert_eq!(unparked.len(), 1, "{:?}", kinds(&hub, &id));
+    assert_eq!(unparked[0].msg["why"], "prompt", "{unparked:?}");
+    let mine = user_messages(&hub, &id)
+        .into_iter()
+        .find(|m| m.to_string().contains("go on"))
+        .unwrap_or_else(|| panic!("{:?}", kinds(&hub, &id)));
+    assert!(mine.to_string().contains("rate limit"), "{mine}");
+    let k = until(&hub, &id, |k| k.iter().filter(|k| *k == "turn_result").count() >= 3).await;
+    let last = user_messages(&hub, &id).pop().unwrap().to_string();
+    assert!(last.contains("late report"), "{last} {k:?}");
+}
+
+/// `acpmux session stop` (`_acpmux/kill`) on a rate-limited chat leaves it parked too: the next
+/// message from another agent queues instead of starting its agent and a turn.
+#[tokio::test]
+async fn session_stop_leaves_a_rate_limited_chat_parked() {
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![25]);
+    let id = held_chat(&mut c, &hub, "killed").await;
+    c.request(method::MUX_KILL, json!({"sessionId": id, "purge": false})).await.unwrap();
+    let parked = of_kind(&hub, &id, "rate_limit_parked");
+    assert_eq!(parked.len(), 1, "{:?}", kinds(&hub, &id));
+    c.send(method::SESSION_PROMPT, from_agent(&id, "m-next", "lane-3", "next report")).await;
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    assert_eq!(of_kind(&hub, &id, "turn_started").len(), 1, "{:?}", kinds(&hub, &id));
+    let row = hub.session_summary(&hub.resolve(&id).unwrap());
+    assert!(row["rateLimitParked"].as_u64().is_some(), "{row}");
+    // The person's own prompt takes it back.
+    c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "go on"}]}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(of_kind(&hub, &id, "rate_limit_unparked").len(), 1, "{:?}", kinds(&hub, &id));
 }
 
 /// The wakes that fed the spiral on 2026-11-18, besides other agents' messages: a watchdog's
@@ -359,4 +442,131 @@ async fn a_turn_that_ends_well_clears_the_strikes() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert!(!k.iter().any(|k| k == "rate_limit_parked"), "{k:?}");
     assert_eq!(hub.resolve(&id).unwrap().rate_hold_strikes(), 0, "{k:?}");
+}
+
+/// A daemon over a log on disk under `dir`, so a second one over the same `dir` is the daemon
+/// after a restart, and a person's client of it.
+async fn daemon_on_disk(dir: &std::path::Path) -> (Arc<Hub>, TestClient) {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let mut agents = BTreeMap::new();
+    agents.insert(
+        "fake".to_owned(),
+        HarnessProfile {
+            kind: Default::default(),
+            argv: vec!["python3".into(), fake.into()],
+            env: BTreeMap::new(),
+            description: None,
+            fallback: None,
+            family: None,
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        },
+    );
+    let mut cfg =
+        Config { harnesses: agents, default_harness: Some("fake".into()), ..Default::default() };
+    cfg.store.mode = StoreMode::Local;
+    cfg.permission_policy = PermissionPolicy::ApproveAll;
+    cfg.agent_inbox = Some(false);
+    cfg.auto_resume_delays_ms = Some(vec![20; 6]);
+    let hub = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, dir).unwrap());
+    let c = connect(&hub).await;
+    (hub, c)
+}
+
+/// The daemon handed off as an update hands it off: its log ends where it stood (`seal`), its
+/// agents end, and a new daemon over the same log restores chat `id` and its queue.
+async fn restarted(
+    hub: Arc<Hub>,
+    c: TestClient,
+    dir: &std::path::Path,
+    id: &str,
+) -> (Arc<Hub>, TestClient) {
+    hub.flush();
+    hub.seal();
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+    let (hub, c) = daemon_on_disk(dir).await;
+    let _ = hub.resolve(id).unwrap();
+    hub.resume_queues();
+    (hub, c)
+}
+
+fn temp_dir(name: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!("acpmux-rate-hold-{name}-{}", uuid::Uuid::now_v7()))
+}
+
+/// Leo's Mac, 2026-11-18 06:50-07:00Z: claude-sr2-coord was held for a 429 when a NIGHTLY
+/// update restarted the daemon. The new daemon knew of no hold, and the chat failed 5 more
+/// turns on 429. The hold is in the chat's log: the next daemon holds it to the same deadline,
+/// the message that waited for the reset still waits, and the strikes carry over.
+#[tokio::test]
+async fn a_rate_limit_hold_survives_a_daemon_restart() {
+    let dir = temp_dir("held");
+    let (hub, mut c) = daemon_on_disk(&dir).await;
+    let id = held_chat(&mut c, &hub, "coord").await;
+    let held = of_kind(&hub, &id, "rate_limit_held").last().unwrap().msg["until"].as_u64().unwrap();
+    assert_eq!(hub.resolve(&id).unwrap().rate_hold_strikes(), 1);
+
+    let (hub, mut c) = restarted(hub, c, &dir, &id).await;
+    c.send(method::SESSION_PROMPT, from_agent(&id, "m-after", "lane-2", "after report")).await;
+    tokio::time::sleep(Duration::from_millis(1_000)).await;
+    let started = of_kind(&hub, &id, "turn_started").len();
+    let row = hub.session_summary(&hub.resolve(&id).unwrap());
+    let strikes = hub.resolve(&id).unwrap().rate_hold_strikes();
+    let k = kinds(&hub, &id);
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(started, 1, "a turn started before the reset: {k:?}");
+    assert!(row["rateLimitedUntil"].as_u64().is_some_and(|u| u >= held), "{row}");
+    assert_eq!(strikes, 1, "{k:?}");
+}
+
+/// A chat parked after six 429s in a row stays parked across a restart: no timer and no turn,
+/// another agent's message waits, its strikes carry over, and `acpmux retry` sends the
+/// continuation on with that message as one turn.
+#[tokio::test]
+async fn a_parked_chat_stays_parked_across_a_daemon_restart() {
+    let dir = temp_dir("parked");
+    let (hub, mut c) = daemon_on_disk(&dir).await;
+    let id = new_session(&mut c, "parked").await;
+    let r = c
+        .request(
+            method::SESSION_PROMPT,
+            json!({
+                "sessionId": id,
+                "prompt": [{"type": "text", "text": format!("rate-fail-n:6:{LIMIT}")}],
+                "_meta": {"acpmux": {"promptId": "p-park"}}
+            }),
+        )
+        .await;
+    assert!(r.is_err());
+    let k = until(&hub, &id, |k| k.iter().any(|k| k == "rate_limit_parked")).await;
+    assert_eq!(of_kind(&hub, &id, "turn_started").len(), 6, "{k:?}");
+    c.send(method::SESSION_PROMPT, from_agent(&id, "m-late", "lane", "late report")).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    let (hub, mut c) = restarted(hub, c, &dir, &id).await;
+    tokio::time::sleep(Duration::from_millis(1_500)).await;
+    let started = of_kind(&hub, &id, "turn_started").len();
+    let row = hub.session_summary(&hub.resolve(&id).unwrap());
+    let strikes = hub.resolve(&id).unwrap().rate_hold_strikes();
+    let k = kinds(&hub, &id);
+    if started != 6 || row["rateLimitParked"].as_u64().is_none() || strikes != 6 {
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(&dir);
+        panic!("not parked after the restart: {started} turns, {strikes} strikes, {row}, {k:?}");
+    }
+
+    c.request("_acpmux/retry", json!({"sessionId": id})).await.unwrap();
+    let k = until(&hub, &id, |k| k.iter().filter(|k| *k == "turn_result").count() >= 7).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let started = of_kind(&hub, &id, "turn_started").len();
+    let last = user_messages(&hub, &id).pop().unwrap().to_string();
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(started, 7, "{k:?}");
+    assert!(last.contains("late report") && last.contains("rate limit"), "{last}");
 }
