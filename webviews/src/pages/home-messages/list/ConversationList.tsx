@@ -15,6 +15,7 @@
 //   conversations.
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -245,9 +246,12 @@ export function ConversationList(props: ConversationListProps) {
   });
 
   // The rows' handlers: one object for the list's life, so a row that did not change keeps its props
-  // (ListRow and PinnedTile are memo). They read this render's props and state through `latest`.
+  // (ListRow and PinnedTile are memo). They read the last committed props and state through `latest`,
+  // written after each commit (never during render), before any event can reach a row.
   const latest = useRef({ props, canPin, query, unreadOnly, fetchMenu });
-  latest.current = { props, canPin, query, unreadOnly, fetchMenu };
+  useLayoutEffect(() => {
+    latest.current = { props, canPin, query, unreadOnly, fetchMenu };
+  });
   const [events] = useState<ItemEvents>(() => ({
     onClick(id: string, event: Modifiers) {
       const { props } = latest.current;

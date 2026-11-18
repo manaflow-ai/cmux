@@ -112,6 +112,19 @@ test("a parent render with unchanged data renders no row", async () => {
   expect(rowRenders.count("PinnedTile")).toBe(0);
 });
 
+test("a row clicked in the same tick as new props calls the new handler, though the row did not render", async () => {
+  const list = await mount(1_000);
+  const id = list.mounted()[4]!;
+  const calls: string[] = [];
+  rowRenders.reset();
+  list.render({ onSelect: (picked) => void calls.push(`new:${picked}`) });
+  // The rows kept their props (memo), so the click reaches the list's handler object, which must read
+  // the props this render committed, not the ones from before it.
+  host.querySelector<HTMLElement>(`[data-list-row='${id}']`)!.click();
+  expect(rowRenders.count("ListRow")).toBe(0);
+  expect(calls).toEqual([`new:${id}`]);
+});
+
 test("the minute clock (a new model, the same times) renders no row", async () => {
   const list = await mount(1_000);
   rowRenders.reset();
