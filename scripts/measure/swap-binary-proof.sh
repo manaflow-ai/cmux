@@ -118,6 +118,9 @@ launch sb-base || true
 # socket answers can miss a line that was written. A `log stream` started before the head launches is waited on for
 # up to 90 s, then `log show` from the launch is the fallback; both keep their output and errors in the report.
 stream_pid="" via=none
+# Only event records count: `log stream` and `log show` print a banner ("Filtering the log data using ... CONTAINS
+# \"swapped-in-1\"") that holds the probe text. An event line starts with its date; the banner and "Timestamp" do not.
+probe_event() { grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}[ T]' "$1" 2>/dev/null | grep -F -- "$expect" >/dev/null 2>&1; }
 if [[ -n "$expect" ]]; then
   esc="${expect//\\/\\\\}"; esc="${esc//\"/\\\"}"
   predicate="process == \"cmux\" AND eventMessage CONTAINS \"$esc\""
@@ -129,14 +132,14 @@ launch_at="$(date '+%Y-%m-%d %H:%M:%S')"
 launch sb-head || true
 if [[ -n "$expect" ]]; then
   for _ in $(seq 1 90); do
-    if grep -F "$expect" "$out/log-head-stream.txt" >/dev/null 2>&1; then seen=1 via=stream; break; fi
+    if probe_event "$out/log-head-stream.txt"; then seen=1 via=stream; break; fi
     kill -0 "$stream_pid" 2>/dev/null || break # the stream ended (its error is in log-head-stream.err)
     /bin/sleep 1
   done
   kill "$stream_pid" 2>/dev/null || true; wait "$stream_pid" 2>/dev/null || true; stream_pid=""
   if [[ -z "$seen" ]]; then
     log show --start "$launch_at" --style compact --predicate "$predicate" >"$out/log-head-show.txt" 2>"$out/log-head-show.err" || true
-    if grep -F "$expect" "$out/log-head-show.txt" >/dev/null 2>&1; then seen=1 via=show; fi
+    if probe_event "$out/log-head-show.txt"; then seen=1 via=show; fi
   fi
   why=""
   [[ -z "$seen" ]] && why=" stream_err=\"$(head -c 200 "$out/log-head-stream.err" | tr '\n"' ' ')\" show_err=\"$(head -c 200 "$out/log-head-show.err" | tr '\n"' ' ')\""
