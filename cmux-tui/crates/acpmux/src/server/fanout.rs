@@ -53,6 +53,9 @@ pub(super) fn start(
     let mut catalog = hub.catalog.subscribe();
     let mut inventory = hub.health.inventory_changes();
     let mut presence = hub.presence.subscribe();
+    // Auto chat placement's moves, to this machine's own clients only (`hub/chat_place_bus.rs`).
+    let mut moves = matches!(conn.origin, super::Origin::Local | super::Origin::LocalApp)
+        .then(|| hub.chat_place.subscribe());
     tokio::spawn(async move {
         loop {
             let ev = tokio::select! {
@@ -122,6 +125,24 @@ pub(super) fn start(
                                 send_presence(&conn, &hub.presence.snapshot(&chat));
                             }
                         }
+                        Err(broadcast::error::RecvError::Closed) => break,
+                    }
+                    continue;
+                }
+                // A move Auto asks the app to run; a lagged reader missed moves the rejudge task
+                // asks for again on its next pass.
+                note = async {
+                    match moves.as_mut() {
+                        Some(rx) => rx.recv().await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    match note {
+                        Ok(params) => conn.send(&Message::notification(
+                            crate::hub::chat_place_bus::MOVE_METHOD,
+                            params,
+                        )),
+                        Err(broadcast::error::RecvError::Lagged(_)) => {}
                         Err(broadcast::error::RecvError::Closed) => break,
                     }
                     continue;

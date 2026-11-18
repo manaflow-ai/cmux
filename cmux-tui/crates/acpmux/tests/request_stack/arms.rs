@@ -166,6 +166,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         ("_acpmux/place", Run(json!({}))),
         ("_acpmux/place_chat", Run(json!({}))),
         ("_acpmux/place_chat_event", Run(json!({"kind": "didWake"}))),
+        ("_acpmux/place_chat_settled", Run(json!({"waitMs": 0}))),
         ("_acpmux/peer_snapshots_clear", Run(json!({}))),
         (
             "_acpmux/journal_restore",

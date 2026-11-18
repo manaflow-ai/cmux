@@ -55,6 +55,8 @@ pub(crate) mod audit_log;
 mod bookmarks;
 pub(crate) mod cancel;
 mod catalog_reload;
+/// Auto chat placement's sleep state, moves and moves in flight (`server/place_auto.rs`).
+pub(crate) mod chat_place_bus;
 mod complete;
 pub mod composers;
 mod cursor_ext;
@@ -881,6 +883,9 @@ pub struct Hub {
     /// (`server/models_fanout.rs`): a remote asker meanwhile gets this
     /// daemon's own catalog, so mutual peers cannot ping-pong.
     pub models_fanouts: std::sync::atomic::AtomicUsize,
+    /// Auto chat placement: the app's sleep, the moves it is asked to run, the moves in flight
+    /// (`chat_place_bus.rs`).
+    pub(crate) chat_place: Arc<chat_place_bus::ChatPlaceBus>,
     /// The sessions that may hold an ask, and those with pull requests (`review_queue.rs`).
     pub(crate) review_index: review_queue::Index,
     /// The approvals audit trail (`audit_log.rs`).
@@ -1411,6 +1416,7 @@ impl Hub {
             usage_stats: Default::default(),
             ledger,
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
+            chat_place: Arc::default(),
             review_index: Default::default(),
             audit,
             shutdown: Notify::new(),
@@ -2728,6 +2734,8 @@ impl Hub {
         };
         if stored {
             session.note_transfer_event(&record);
+            // A move Auto started ends on its transfer record (`chat_place_bus.rs`).
+            self.chat_place.record(&session.id, &record.dir, &record.kind);
             let (save, backfill) = {
                 let mut breakdown =
                     session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());

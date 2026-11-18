@@ -430,6 +430,12 @@ impl Move {
     }
 }
 
+/// This Mac is over load or low on battery now: the clock behind [`Running::local_over_secs`]
+/// runs while this holds (the rejudge task, `server/place_auto.rs`).
+pub fn local_over(input: &Input) -> bool {
+    input.power.low_battery() || local_room(&weigh_local(input), &input.needs).is_err()
+}
+
 /// Whether Auto moves a running chat now: off this Mac at once when its lid closes or it goes to
 /// sleep, and after [`HOLD_SECS`] of load or low battery; back home when that has cleared, this
 /// Mac has room for [`BACK_ROOM_LANES`], and the chat's turn has ended. A pinned chat never moves,
@@ -441,9 +447,7 @@ pub fn rejudge(running: &Running, input: &Input) -> Option<Move> {
     if running.place == Place::Local {
         let hard = input.power.away();
         if !hard {
-            let row = weigh_local(input);
-            let over = input.power.low_battery() || local_room(&row, &input.needs).is_err();
-            if !over || running.local_over_secs < HOLD_SECS {
+            if !local_over(input) || running.local_over_secs < HOLD_SECS {
                 return None;
             }
         }
