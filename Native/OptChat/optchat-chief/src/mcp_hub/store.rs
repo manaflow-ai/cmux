@@ -1,6 +1,6 @@
 //! What the hub keeps on disk. Two folders:
 //!
-//! - The machine's shared store ([`shared_dir`], `~/.cmux/mcp/`): one file per
+//! - The machine's shared store ([`shared_dir`], `<acpmux home>/mcp/`): one file per
 //!   server in `servers/<name>.json`, and its secrets (headers, env, OAuth
 //!   tokens) in `secrets/<name>.json` (0600 in a 0700 folder). Every Chief home
 //!   on this machine and acpmux's connect card read and write it, so a server
@@ -210,14 +210,12 @@ pub struct OAuthTokens {
 }
 
 /// The machine's shared MCP store (cmux-mcp-connect's `shared`: one
-/// definition for the Chief and acpmux): `$CMUX_MCP_HOME`, else `~/.cmux/mcp`.
-pub fn shared_dir_from(env: &dyn Fn(&str) -> Option<String>) -> PathBuf {
-    cmux_mcp_connect::shared::dir(env)
-}
-
-/// [`shared_dir_from`] with the process environment.
+/// definition for the Chief and acpmux): `$CMUX_MCP_HOME`, else the mcp
+/// folder of this build's acpmux home.
 pub fn shared_dir() -> PathBuf {
-    shared_dir_from(&|k: &str| std::env::var(k).ok())
+    cmux_mcp_connect::shared::dir(&crate::acpmux_daemon::home(), &|k: &str| {
+        std::env::var(k).ok()
+    })
 }
 
 /// The hub's folders: the Chief's own, and the machine's shared store.

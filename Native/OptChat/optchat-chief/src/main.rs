@@ -10,7 +10,7 @@ use optchat_chief::paths::{Paths, mux_home};
 const USAGE: &str = "optchat-chief host --daemon-socket PATH [--mux-home DIR]   run the Chief host (one per MUX_HOME)
 optchat-chief mcp [--socket PATH | --mux-home DIR]           stdio MCP server with zoom and date
 optchat-chief integrations list | add NAME|URL|-- CMD | signin NAME | remove NAME | tools NAME | call NAME TOOL [JSON]
-                                                          the machine's MCP connections (~/.cmux/mcp, shared with every Chief)
+                                                          the MCP connections of this build (in its acpmux home, shared with every Chief and agent)
 optchat-chief zoom ID N | date ID [--socket PATH | --mux-home DIR]  the memory tools as commands (harnesses without MCP)
 optchat-chief spawn \"task\" [\"task\" ...] | tell ID \"message\"     section 9's subagent tools as commands
 optchat-chief trace [--since 1h] [--turn ID] [--json] [--mux-home DIR]  the monitoring trace as a timeline

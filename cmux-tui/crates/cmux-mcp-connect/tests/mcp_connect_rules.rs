@@ -547,10 +547,11 @@ fn mcp_connect_live_linear_401_names_its_metadata_and_scopes() {
 #[test]
 fn the_shared_store_is_one_place_for_every_chief_and_agent() {
     use cmux_mcp_connect::shared;
-    let env = |k: &str| (k == "HOME").then(|| "/Users/p".to_owned());
-    assert_eq!(shared::dir(&env), std::path::PathBuf::from("/Users/p/.cmux/mcp"));
+    let acpmux_home = std::path::Path::new("/Users/p/acpmux-home");
+    let none = |_: &str| None;
+    assert_eq!(shared::dir(acpmux_home, &none), acpmux_home.join("mcp"));
     let moved = |k: &str| (k == shared::HOME_ENV).then(|| "/tmp/m".to_owned());
-    assert_eq!(shared::dir(&moved), std::path::PathBuf::from("/tmp/m"));
+    assert_eq!(shared::dir(acpmux_home, &moved), std::path::PathBuf::from("/tmp/m"));
     assert_eq!(shared::clean_name("Hugging Face"), "hugging_face");
     let rec = shared::Remote {
         name: "Linear",

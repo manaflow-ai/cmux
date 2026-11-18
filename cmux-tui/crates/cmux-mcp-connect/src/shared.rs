@@ -4,8 +4,13 @@
 //! anywhere in cmux is connected everywhere on this machine. This module only
 //! names paths and builds records; the callers do the I/O.
 //!
+//! The store is per build, like every cmux state root: it sits in the build's
+//! acpmux home (NIGHTLY's for the person's own app), which acpmux and every
+//! Chief of that build already resolve the same way, so a dev build never
+//! reads the person's connections.
+//!
 //! ```text
-//! $CMUX_MCP_HOME (default ~/.cmux/mcp)/
+//! $CMUX_MCP_HOME (default <acpmux home>/mcp)/
 //!   servers/<name>.json   a record (never a secret), 0644
 //!   secrets/<name>.json   {headers, env, oauth}, 0600 in a 0700 folder
 //! ```
@@ -17,12 +22,12 @@ use serde_json::{Value, json};
 /// The env that moves the store (tests, a second profile).
 pub const HOME_ENV: &str = "CMUX_MCP_HOME";
 
-/// The store's folder: `$CMUX_MCP_HOME`, else `$HOME/.cmux/mcp`.
-pub fn dir(env: &dyn Fn(&str) -> Option<String>) -> PathBuf {
+/// The store's folder: `$CMUX_MCP_HOME`, else `<acpmux_home>/mcp`.
+pub fn dir(acpmux_home: &Path, env: &dyn Fn(&str) -> Option<String>) -> PathBuf {
     if let Some(d) = env(HOME_ENV).filter(|d| !d.trim().is_empty()) {
         return PathBuf::from(d);
     }
-    PathBuf::from(env("HOME").unwrap_or_else(|| "/tmp".into())).join(".cmux").join("mcp")
+    acpmux_home.join("mcp")
 }
 
 pub fn server_path(dir: &Path, name: &str) -> PathBuf {
