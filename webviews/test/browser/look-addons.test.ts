@@ -176,7 +176,7 @@ await requireBrowserLane("look-addons.test.ts", async () => {
   }
 
   /** A look's theme file, comments dropped: its terminal theme pair and its per-theme edits. */
-  function lookTheme(addon: string): { light: string; dark: string; edits: Record<string, string> } {
+  function lookTheme(addon: string): { light: string; dark: string; accent?: string; edits: Record<string, string> } {
     const text = readFileSync(path.join(repo, "examples/looks", addon, "themes", `${addon}.json`), "utf8");
     const file = JSON.parse(text.replace(/^\s*\/\/.*$/gm, "")) as Record<string, unknown>;
     const spec = String(file["appearance.theme"]);
@@ -184,6 +184,8 @@ await requireBrowserLane("look-addons.test.ts", async () => {
     return {
       light: side("light"),
       dark: side("dark"),
+      // The app accent the look picks (`theme`: its own sepia, not the gallery's neutral default).
+      accent: typeof file["appearance.accent"] === "string" ? file["appearance.accent"] : undefined,
       edits: (file["appearance.themeEdits"] ?? {}) as Record<string, string>,
     };
   }
@@ -198,7 +200,7 @@ await requireBrowserLane("look-addons.test.ts", async () => {
       .join(",");
     const port = (vite.httpServer!.address() as { port: number }).port;
     await page.goto(
-      `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: VARIANT, theme: name, colorScheme: theme, themeEdits: edits })}`,
+      `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: VARIANT, theme: name, colorScheme: theme, themeEdits: edits, accent: own.accent })}`,
     );
     await page.locator(".cv-user__bubble").first().waitFor();
     await page.evaluate(() => document.fonts.ready);

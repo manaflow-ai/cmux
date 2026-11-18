@@ -148,14 +148,32 @@ export function checkContract(contract: Contract, sheets: Map<string, string>, p
   return problems;
 }
 
-/** The words a color value may hold besides var() names: color-mix() and its color spaces. */
+/**
+ * The words a color value may hold besides var() names: color-mix(), its color spaces and hue
+ * interpolation, calc(), and `!important`.
+ */
 const COLOR_WORDS = new Set([
   "color-mix",
   "in",
   "srgb",
   "srgb-linear",
+  "display-p3",
   "oklab",
   "oklch",
+  "lab",
+  "lch",
+  "hsl",
+  "hwb",
+  "xyz",
+  "xyz-d50",
+  "xyz-d65",
+  "shorter",
+  "longer",
+  "increasing",
+  "decreasing",
+  "hue",
+  "calc",
+  "important",
   "transparent",
   "currentcolor",
 ]);
@@ -169,7 +187,8 @@ export function literalColor(value: string, readable: Set<string>): string | nul
   if (hex) return hex[0];
   for (const match of value.matchAll(/var\(\s*(--[A-Za-z0-9_-]+)/g))
     if (!readable.has(match[1]!)) return `var(${match[1]})`;
-  const rest = value.replace(/var\(\s*--[A-Za-z0-9_-]+\s*\)/g, " ");
+  // `var(--a, var(--b))`: the name and the `var(` go; a fallback's own words are checked as the rest.
+  const rest = value.replace(/var\(\s*--[A-Za-z0-9_-]+\s*,?/g, " ");
   for (const word of rest.match(/[A-Za-z][A-Za-z0-9-]*/g) ?? []) if (!COLOR_WORDS.has(word.toLowerCase())) return word;
   return null;
 }

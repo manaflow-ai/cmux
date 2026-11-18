@@ -42,6 +42,12 @@ test("a look's colors are the theme's own, so it reads in light and dark", () =>
       ":root { --cv-card-fill: color-mix(in srgb, var(--agent-text) 4%, transparent); --cv-text-dim: var(--cv-text-muted); }",
     ),
   ).toEqual([]);
+  expect(
+    kinds(
+      ":root { --cv-link: var(--agent-accent, var(--agent-text)) !important; --cv-card-fill: color-mix(in oklch longer hue, var(--agent-accent) 7%, transparent); }",
+    ),
+  ).toEqual([]);
+  expect(kinds(":root { --cv-link: var(--agent-accent, #0b63d6); }")).toEqual(["literal-color"]);
   // A length is no color: a corner may be any length.
   expect(kinds(":root { --cv-user-bubble-radius: calc(2px + 0.5em); }")).toEqual([]);
 });
