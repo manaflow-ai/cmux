@@ -1002,6 +1002,214 @@
           ]
         },
         {
+          "key": "agentPane.display.trajectory.layout",
+          "note": "The trajectory view's layout (webviews conversation/trajectory.ts, trajectory.css; Leo, 2026-11-17 standup: \"customize trajectory GUI (look into [a reference app])\"). Default: the transcript as it ships. Rail: each step's glyph hangs on one thin line down the icon column, as a timeline.",
+          "title": {
+            "key": "settings.agentPane.display.trajectory.layout",
+            "text": "Steps Layout"
+          },
+          "help": {
+            "key": "settings.agentPane.display.trajectory.layout.help",
+            "text": "How an agent's tool calls and thoughts are drawn."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "default",
+              "title": {
+                "key": "settings.choice.trajectoryLayoutDefault",
+                "text": "Default"
+              }
+            },
+            {
+              "value": "rail",
+              "title": {
+                "key": "settings.choice.trajectoryLayoutRail",
+                "text": "Timeline"
+              }
+            }
+          ],
+          "default": "default",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "transcript",
+            "trajectory",
+            "steps",
+            "tool calls",
+            "timeline",
+            "layout",
+            "rail",
+            "line"
+          ]
+        },
+        {
+          "key": "agentPane.display.trajectory.density",
+          "note": "One step row's pitch (webviews conversation/trajectory.ts TRAJECTORY_ROW_HEIGHT): Default 22 px, Compact 20, Relaxed 26, as a tool call density setting. The row estimator reads the same values.",
+          "title": {
+            "key": "settings.agentPane.display.trajectory.density",
+            "text": "Steps Density"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "default",
+              "title": {
+                "key": "settings.choice.trajectoryDensityDefault",
+                "text": "Default"
+              }
+            },
+            {
+              "value": "compact",
+              "title": {
+                "key": "settings.choice.trajectoryDensityCompact",
+                "text": "Compact"
+              }
+            },
+            {
+              "value": "relaxed",
+              "title": {
+                "key": "settings.choice.trajectoryDensityRelaxed",
+                "text": "Relaxed"
+              }
+            }
+          ],
+          "default": "default",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "transcript",
+            "trajectory",
+            "steps",
+            "tool calls",
+            "timeline",
+            "density",
+            "compact",
+            "spacing",
+            "rows"
+          ]
+        },
+        {
+          "key": "agentPane.display.trajectory.grouping",
+          "note": "Default: runs of one kind of call under one line (\"Ran 3 commands\") and runs between asides folded. Separate: every call on its own row, no run folded (webviews conversation/toolGroups.ts).",
+          "title": {
+            "key": "settings.agentPane.display.trajectory.grouping",
+            "text": "Steps Grouping"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "default",
+              "title": {
+                "key": "settings.choice.trajectoryGroupingDefault",
+                "text": "Grouped"
+              }
+            },
+            {
+              "value": "separate",
+              "title": {
+                "key": "settings.choice.trajectoryGroupingSeparate",
+                "text": "Each Step"
+              }
+            }
+          ],
+          "default": "default",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "transcript",
+            "trajectory",
+            "steps",
+            "tool calls",
+            "timeline",
+            "group",
+            "fold",
+            "collapse",
+            "separate"
+          ]
+        },
+        {
+          "key": "agentPane.display.trajectory.hide",
+          "note": "The kinds of step left out of the transcript (webviews conversation/toolGroups.ts `hiddenStep`). A failed step or one waiting for permission always shows; messages to other agents, sub-sessions and asides are never hidden.",
+          "title": {
+            "key": "settings.agentPane.display.trajectory.hide",
+            "text": "Hidden Steps"
+          },
+          "help": {
+            "key": "settings.agentPane.display.trajectory.hide.help",
+            "text": "Failed steps and permission requests always show."
+          },
+          "kind": "choice_set",
+          "choices": [
+            {
+              "value": "thinking",
+              "title": {
+                "key": "settings.choice.trajectoryStepThinking",
+                "text": "Thinking"
+              }
+            },
+            {
+              "value": "reads",
+              "title": {
+                "key": "settings.choice.trajectoryStepReads",
+                "text": "File Reads"
+              }
+            },
+            {
+              "value": "searches",
+              "title": {
+                "key": "settings.choice.trajectoryStepSearches",
+                "text": "Searches"
+              }
+            },
+            {
+              "value": "commands",
+              "title": {
+                "key": "settings.choice.trajectoryStepCommands",
+                "text": "Commands"
+              }
+            },
+            {
+              "value": "edits",
+              "title": {
+                "key": "settings.choice.trajectoryStepEdits",
+                "text": "Edits"
+              }
+            },
+            {
+              "value": "tools",
+              "title": {
+                "key": "settings.choice.trajectoryStepTools",
+                "text": "Other Tools"
+              }
+            }
+          ],
+          "default": [],
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "transcript",
+            "trajectory",
+            "steps",
+            "tool calls",
+            "timeline",
+            "hide",
+            "filter",
+            "reads",
+            "searches",
+            "commands",
+            "thinking"
+          ]
+        },
+        {
           "key": "agentPane.display.promptCoach",
           "note": "Prompt coach (webviews conversation/PromptCoachCard.tsx; Leo, 2026-11-08): after a chat in which the person corrected the agent three or more times before moving on, a card under that turn shows the chat's first prompt rewritten with what they added later, with Copy. Off: the chat asks acpmux for no rewrite (`_acpmux/prompt_coach`) and draws no card.",
           "title": {

@@ -24,6 +24,8 @@ import { KeepOpenedLine } from "./KeepOpenedLine";
 import { visibleToolItems } from "./mcpPresentation";
 import { ThoughtRow } from "./ThoughtRow";
 import { groupId, runStretches, stretchStart, toolGroups, type RunStretch, type ToolGroup } from "./toolGroups";
+import { useTrajectory } from "./trajectory";
+import "./trajectory.css";
 import type { RetryNote } from "../subagents/retryState";
 import { RowReplyButton } from "./SelectionReply";
 import { TurnActionsContext } from "./turnActions";
@@ -255,7 +257,9 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
   // Keep the original transcript for copy/export and reveal discovery calls when Find names them.
   const revealing = reveal && isRevealRow(row, reveal);
   const items = useMemo(() => visibleToolItems(row.items, Boolean(revealing)), [row.items, revealing]);
-  const groups = useMemo(() => toolGroups(items ?? []), [items]);
+  // The trajectory view (trajectory.ts) hides kinds of step and groups them its own way.
+  const view = useTrajectory();
+  const groups = useMemo(() => toolGroups(items ?? [], view), [items, view]);
   const foldRun = row.foldRun;
   const stretches = useMemo(() => runStretches({ foldRun }, groups), [foldRun, groups]);
   const thoughts = useMemo(() => thoughtIds(groups), [groups]);
@@ -310,8 +314,9 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
   // Find opens what holds its current match in this row only (chatFind.ts).
   // Ids an MCP call names, to the titles the run's other calls give them ("Read Coordination hub").
   const names = useMemo(() => mcpNames(items), [items]);
-  // Leave no child in RowFrame: its empty-row rule removes padding as well as content height.
-  if (row.items?.length && !items?.length) return null;
+  // Leave no child in RowFrame: its empty-row rule removes padding as well as content height. A row
+  // whose steps the trajectory view hides all (trajectory.ts `hide`) is empty the same way.
+  if (row.items?.length && (!items?.length || !groups.length)) return null;
   return (
     <TranscriptDisclosureProvider sessionId={sessionId}>
       <McpNamesContext.Provider value={names}>

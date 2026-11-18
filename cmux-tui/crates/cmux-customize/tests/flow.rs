@@ -112,6 +112,8 @@ fn an_agent_alone_asks_previews_and_applies_under_what_was_asked() {
     // A New Tab page in the views folder shows only once picked (ask-7fc19bd861: a Clock page
     // was written there and reported as shown while Cmd-T drew cmux's own page).
     assert!(text.contains("cmux settings set tabs.newTabApp local/customize"), "{text}");
+    // An ask about the chat's steps finds the trajectory keys (Leo, 2026-11-17: "customize trajectory GUI").
+    assert!(text.contains("agentPane.display.trajectory.layout"), "{text}");
 
     home.write("cmux-next.json", COMPACT);
     home.write("customize/main.js", "export function renderSection() {}\n");

@@ -232,9 +232,10 @@ extension SettingsSchema {
         "agentPane.display.font.ui", "agentPane.display.font.size", "agentPane.display.font.lineHeight",
         "agentPane.display.code.family", "agentPane.display.code.scale", "agentPane.display.sessionInfo.placement",
         "agentPane.display.environment.placement", "agentPane.display.minimap", "agentPane.display.transcriptView",
-        "agentPane.display.presentation", "agentPane.display.promptCoach", "agentPane.display.statusVerbs.mode",
-        "agentPane.display.statusVerbs.custom", "agentPane.display.harnessPlacement", "agentPane.display.rail.side",
-        "agentPane.display.commandLabels",
+        "agentPane.display.presentation", "agentPane.display.trajectory.layout", "agentPane.display.trajectory.density",
+        "agentPane.display.trajectory.grouping", "agentPane.display.trajectory.hide", "agentPane.display.promptCoach",
+        "agentPane.display.statusVerbs.mode", "agentPane.display.statusVerbs.custom",
+        "agentPane.display.harnessPlacement", "agentPane.display.rail.side", "agentPane.display.commandLabels",
         // The code editor's looks and editing behavior (diff-host S7); editor.importFrom is the person's.
         "editor.fontFamily", "editor.fontSize", "editor.fontWeight", "editor.fontLigatures", "editor.lineHeight",
         "editor.letterSpacing", "editor.tabSize", "editor.insertSpaces", "editor.detectIndentation", "editor.wordWrap",

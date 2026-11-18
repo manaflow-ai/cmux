@@ -615,6 +615,7 @@ import { ChatDisplaySettings } from "./ChatDisplaySettings";
 import { wrapOutputRow } from "./header/transcriptViewRow";
 import { presentationRow } from "./header/presentationRow";
 import { usePresentation } from "./conversation/presentation";
+import { DEFAULT_TRAJECTORY, useTrajectory, type Trajectory } from "./conversation/trajectory";
 import { messagesRows } from "./conversation/messagesRows";
 import { PresentationContext } from "./conversation/presentationContextModel";
 import { thinkingVerbsFor, ThinkingVerbsContext } from "./conversation/thinkingVerbs";
@@ -2783,6 +2784,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Thinking and Verbose also open each finished turn's "Worked for" (conversation/viewFolds.ts).
   // One object per view, set or toggle change, so the turns are not reshaped per event.
   const chatPresentation = usePresentation(shownSessionId);
+  // The trajectory view (conversation/trajectory.ts): which steps show and how they group.
+  const trajectoryView = useTrajectory();
   // Leo's alternate -ing verbs stay behind the explicit Rotate setting. The normal path leaves
   // this context empty so the live line remains the bare translated Thinking label.
   const statusVerbConfig = useStatusVerbConfig();
@@ -3096,6 +3099,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const lastTurns = useRef<{ sessionId: string | undefined; turns: TurnView; subagents: SubagentRows } | undefined>(
     undefined,
   );
+  /// The trajectory view `lastTurns` was shaped under.
+  const shapedTrajectory = useRef<Trajectory>(DEFAULT_TRAJECTORY);
   const supersededReplyIds = useMemo(
     () => (snapshot.supersededRows?.length ? new Set(snapshot.supersededRows) : undefined),
     [snapshot.supersededRows],
@@ -3113,7 +3118,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // The tray takes the running groups out of the rows, so the live line's wait is counted first.
     const trayAgents = subagentTray ? trayWaitAgents(startedRows) : 0;
     return acpmuxPerf.timed("app.rows", () => {
-      const last = lastTurns.current?.sessionId === shownSessionId ? lastTurns.current : undefined;
+      // A new trajectory view (conversation/trajectory.ts) shapes every turn again, as a new chat does.
+      const last =
+        lastTurns.current?.sessionId === shownSessionId && shapedTrajectory.current === trajectoryView
+          ? lastTurns.current
+          : undefined;
       if (heldCalls.current.session !== shownSessionId)
         heldCalls.current = { session: shownSessionId, keys: new Set() };
       // Null while the view follows the latest row: what was held out goes back in there. The view
@@ -3223,6 +3232,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       const displayRows = projectInboxRows(turns.rows, last?.turns.rows, turns.reusedRows);
       const subagents = subagentRowsFrom(displayRows, folds, last?.subagents);
       lastTurns.current = { sessionId: shownSessionId, turns, subagents };
+      shapedTrajectory.current = trajectoryView;
       // After the turns: a live turn's status reads its last row, the call's included.
       return withoutAskedCalls(withShellRows(subagents.rows, chatShellRuns), panelAsks);
     });
@@ -3246,6 +3256,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     workflowLabsEnabled,
     shownSessionId,
     callRelease,
+    trajectoryView,
   ]);
   // The questions the agent asked the person that still wait on them once another turn came after
   // (turns.ts `waitingAsks`): pinned in the asks stack above the composer (PendingAsks.tsx) until

@@ -300,6 +300,8 @@
           "groups": [
             {"title": {"key": "settings.pageGroup.transcript", "text": "Transcript"}, "keys": [
               "agentPane.display.transcriptView", "agentPane.display.presentation",
+              "agentPane.display.trajectory.layout", "agentPane.display.trajectory.density",
+              "agentPane.display.trajectory.grouping", "agentPane.display.trajectory.hide",
               "agentPane.display.statusVerbs.mode", "agentPane.display.statusVerbs.custom",
               "agentPane.needsYou.enabled", "agentPane.showMachineLoadWarnings"
             ]},

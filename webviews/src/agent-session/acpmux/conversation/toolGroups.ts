@@ -18,6 +18,7 @@ import { agentCall, type AgentCall } from "./agentCalls";
 import { isThought, mergeThoughts } from "./thoughts";
 import { finishedBackgroundPhrase, isFoldedRun } from "./toolRunSummary";
 import { commandGroupSaid } from "./commandActions";
+import { DEFAULT_TRAJECTORY, trajectory, type Trajectory, type TrajectoryStep } from "./trajectory";
 import { readPath } from "./readPath";
 
 /// The kinds of call that group with their neighbors.
@@ -101,7 +102,57 @@ export function toolGroupKind(tool: Tool): ToolGroupKind | undefined {
 /// App.tsx +12 -3". Calls to one MCP tool group from one call, so even a lone one reads as what it
 /// did. A lone call of any other kind keeps its own row and title. Consecutive thoughts are one
 /// thought (thoughts.ts `mergeThoughts`).
-export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
+export function toolGroups(items: readonly AcpmuxActivity[], view: Trajectory = trajectory()): ToolGroup[] {
+  // The trajectory view (trajectory.ts): its hidden kinds and its grouping, off by default.
+  if (view === DEFAULT_TRAJECTORY) return groupedCalls(items, false);
+  const hide = new Set(view.hide);
+  const shown = hide.has("thinking") ? items.filter((item) => !isThought(item)) : items;
+  const groups = groupedCalls(shown, view.grouping === "separate");
+  return hide.size ? groups.filter((group) => !hiddenStep(group, hide)) : groups;
+}
+
+/// The kind of step a group is, for the trajectory's `hide` list; undefined for what always shows
+/// (messages to other agents, sub-sessions, dispatches, asides).
+function stepKind(group: ToolGroup): TrajectoryStep | undefined {
+  if (group.type === "group") return group.kind;
+  if (group.type === "mcp") return "tools";
+  if (group.type !== "item") return undefined;
+  if (isThought(group.item)) return "thinking";
+  const tool = group.item.tool;
+  if (!tool) return undefined;
+  const kind = toolGroupKind(tool);
+  if (kind) return kind;
+  // A call toolGroupKind leaves alone (a pending edit, a shell call with no command line yet) is
+  // still the kind of step it does.
+  switch (toolKind(tool)) {
+    case "execute":
+      return "commands";
+    case "edit":
+    case "delete":
+    case "move":
+    case "fileChange":
+      return "edits";
+    default:
+      return "tools";
+  }
+}
+
+/// Whether the trajectory leaves `group` out: its kind is hidden and none of its calls failed or
+/// waits for the person's permission (those always show).
+function hiddenStep(group: ToolGroup, hide: ReadonlySet<TrajectoryStep>): boolean {
+  const kind = stepKind(group);
+  if (!kind || !hide.has(kind)) return false;
+  const items = "items" in group ? group.items : [group.item];
+  return items.every((item) => {
+    const tool = item.tool;
+    if (!tool) return true;
+    const failed = tool.status === "failed" || (tool.exitCode !== undefined && tool.exitCode !== 0);
+    return !failed && !awaitsPermission(tool);
+  });
+}
+
+/// `toolGroups` before the trajectory's choices; `separate` keeps every call of a run on its own row.
+function groupedCalls(items: readonly AcpmuxActivity[], separate: boolean): ToolGroup[] {
   const groups: ToolGroup[] = [];
   // One turn's bounded, transcript-recorded message files. A later Bash `acpmux send - <file>`
   // may use a body written by an earlier Bash call; no host filesystem read is allowed here.
@@ -136,13 +187,23 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
       else groups.push({ type: "subsessionGroup", ...subsessionGroup });
       subsessionGroup = undefined;
     }
-    if (mcp) groups.push({ type: "mcp", items: mcp.items });
+    if (mcp && separate) for (const item of mcp.items) groups.push({ type: "mcp", items: [item] });
+    else if (mcp) groups.push({ type: "mcp", items: mcp.items });
     mcp = undefined;
     if (run) {
       const lone = run.items[run.lead]!.tool!;
       // Reads never gather under a "Read N files" line: each stays its own row, as the Codex app
       // lists them (Lucas, 2026-11-14: "we shouldn't nest reading files").
       if (run.kind === "reads") for (const item of run.items) groups.push({ type: "item", item });
+      // The trajectory's `separate` grouping: each call its own row; an edit with a diff stays its
+      // own one-call group, so it still reads "Edited App.tsx +12 -3".
+      else if (separate)
+        for (const item of run.items)
+          groups.push(
+            run.kind === "edits" && item.tool?.diffs?.length
+              ? { type: "group", kind: "edits", items: [item] }
+              : { type: "item", item },
+          );
       else if (run.items.length - run.lead >= 2 || (run.kind === "edits" && lone.diffs?.length))
         groups.push({ type: "group", kind: run.kind, items: run.items });
       else for (const item of run.items) groups.push({ type: "item", item });
@@ -568,7 +629,9 @@ export function runStretches(row: Pick<AcpmuxRow, "foldRun">, groups: readonly T
     current.items.push(...items);
   });
   close();
-  if (row.foldRun !== true) for (const stretch of stretches) stretch.fold = false;
+  // The trajectory's `separate` grouping (trajectory.ts) folds no run: every step keeps its row.
+  if (row.foldRun !== true || trajectory().grouping === "separate")
+    for (const stretch of stretches) stretch.fold = false;
   return stretches;
 }
 

@@ -26,6 +26,7 @@ import {
 } from "./chatUiFont";
 import { configureStatusVerbs } from "./statusVerbs";
 import { isUnreadBannerMode, type UnreadBannerMode } from "./conversation/unreadState";
+import { configureTrajectory } from "./conversation/trajectory";
 
 /// An arm of the thread minimap experiment (`off`, `full`, `compact`, whatever its definition lists).
 export type ThreadMinimapArm = keyof typeof threadMinimapLayout.arms;
@@ -366,6 +367,9 @@ export function setChatDisplay(value: unknown): void {
   raw = (value && typeof value === "object" && !Array.isArray(value) ? { ...(value as Values) } : {}) as Values;
   configureStatusVerbs(raw);
   configureSenderIconLook(raw);
+  // The trajectory view's keys (conversation/trajectory.ts): a change is a new look, so the
+  // transcript shapes and measures its rows again (VirtualTranscript.tsx `measuredLook`).
+  const trajectoryChanged = configureTrajectory(raw);
   const next = resolveChatDisplay(raw);
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
   const pinnedPlan = raw[PINNED_PLAN_KEY] === true;
@@ -381,7 +385,7 @@ export function setChatDisplay(value: unknown): void {
   const tips = raw[FEATURE_TIPS_KEY] !== false;
   const labels = JSON.stringify(raw[COMMAND_LABELS_KEY] ?? null);
   const coach = raw[PROMPT_COACH_KEY] !== false;
-  const same = JSON.stringify(next) === JSON.stringify(current);
+  const same = JSON.stringify(next) === JSON.stringify(current) && !trajectoryChanged;
   if (
     same &&
     minimap === minimapOn &&
