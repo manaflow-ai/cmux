@@ -23,8 +23,7 @@ public struct ImportedTokenPair: Equatable, Sendable {
 /// sign-out must not revoke it on the server: ``isShared(refreshToken:)`` says so for
 /// `StackAuthClient`'s `keepsServerSession`, from the tokens this process adopted (and the refreshes of
 /// them), so it still answers after the sign-out cleared `primary` and after the other app quit. A write (a sign-in, a sign-out) before the first use ends the import
-/// for the process; the next launch with an empty `primary` adopts again. ``retryImport()`` asks the sources once
-/// more when the caller says so (a person opening sign-in), for a process whose import found nothing.
+/// for the process; the next launch with an empty `primary` adopts again.
 ///
 /// ```swift
 /// let store = ImportingTokenStore(primary: MemoryStackTokenStore(), sources: [{ await nightly.fetch() }])
@@ -41,8 +40,6 @@ public actor ImportingTokenStore: StackAuthTokenStoreProtocol {
     /// Refresh tokens of sessions this process adopted, and the ones their refreshes replaced them with.
     /// Kept for the process only, never written anywhere.
     private var adopted: Set<String> = []
-    /// A sign-in or sign-out wrote here in this process: ``retryImport()`` never adopts after one.
-    private var wrote = false
     private let log = AuthDebugLog()
 
     /// - Parameters:
@@ -114,33 +111,12 @@ public actor ImportingTokenStore: StackAuthTokenStoreProtocol {
         return await primary.getStoredRefreshToken()
     }
 
-    /// Asks the sources once more, for a process whose import found no session (the other app signed in after this
-    /// one started). Only when called (a person opening sign-in), never on a timer, and never after a write here (a
-    /// sign-in or sign-out in this process ends adopting, as at launch) or while `primary` holds a session. A source
-    /// is still only read. True when a session was adopted.
-    public func retryImport() async -> Bool {
-        await settle()
-        guard !wrote, (await primary.getStoredRefreshToken() ?? "").isEmpty else { return false }
-        for (index, source) in sources.enumerated() {
-            guard let pair = await source() else { continue }
-            // A write while the source answered wins.
-            guard !wrote, (await primary.getStoredRefreshToken() ?? "").isEmpty else { return false }
-            await primary.setTokens(accessToken: pair.accessToken, refreshToken: pair.refreshToken)
-            adopted.insert(pair.refreshToken)
-            log.log("importing.store: adopted a session from source \(index) when asked again hasAccess=\(pair.accessToken != nil)")
-            return true
-        }
-        return false
-    }
-
     public func setTokens(accessToken: String?, refreshToken: String?) async {
-        wrote = true
         await settle(skippingImport: true)
         await primary.setTokens(accessToken: accessToken, refreshToken: refreshToken)
     }
 
     public func clearTokens() async {
-        wrote = true
         await settle(skippingImport: true)
         await primary.clearTokens()
         await forgetSources?()
@@ -150,10 +126,7 @@ public actor ImportingTokenStore: StackAuthTokenStoreProtocol {
     public func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async -> Bool {
         await settle(skippingImport: true)
         let cleared = await primary.clearTokensIfCurrent(accessToken: accessToken, refreshToken: refreshToken)
-        if cleared {
-            wrote = true
-            await forgetSources?()
-        }
+        if cleared { await forgetSources?() }
         return cleared
     }
 

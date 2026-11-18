@@ -24,7 +24,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Core/SiteZoomLevels.swift	1	per 
 Packages/macOS/CmuxNext/Sources/CmuxNextBrowserAutomation/CookieBackups.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
 Packages/macOS/CmuxNext/Sources/CmuxNextBrowserCore/Core/BrowserDownloadTempFiles.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
 Packages/macOS/CmuxNext/Sources/CmuxNextBrowserCore/PageInfo/Model/SiteSettingsRegistry.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
-Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Auth/CloudAuth.swift	1	read only, shared on purpose: ~/.config/cmux/dev-account is a dev sign-in input of this Mac (AGENTS.md "Dev builds are separate"), read only to see whether a dev account is configured
 Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Bootstrap/CloudMachineSecrets+SSHReceiver.swift	1	a Cloud or SSH machine's file (written there over SSH or read by acpmux on that machine), not this Mac's state
 Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials/CloudCredentialInstaller.swift	2	a Cloud or SSH machine's file (written there over SSH or read by acpmux on that machine), not this Mac's state
 Packages/macOS/CmuxNext/Sources/CmuxNextCompat/BuildStatePaths.swift	3	the resolver: shared builds keep this path, a DEV build gets its own (BuildStatePaths, NextSupport, BuildIdentity)

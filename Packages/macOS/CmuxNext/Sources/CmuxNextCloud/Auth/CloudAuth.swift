@@ -24,18 +24,11 @@ public final class CloudAuth {
     @ObservationIgnored private let callbackRouter: AuthCallbackRouter
     @ObservationIgnored private let usesCaptureFixture: Bool
     @ObservationIgnored private var captureTokenStore: CaptureFencedTokenStore?
-    /// The store of a dev build that adopts NIGHTLY's session (``nightlyAdoptingStore(nightlySession:)``), for
-    /// ``retryNightlyAdoption()``; nil for every other build.
-    @ObservationIgnored private let nightlyAdoption: ImportingTokenStore?
     /// Prevents a new auth writer while a protected capture proves stores
     /// absent. Existing token readers are joined before deletion.
     @ObservationIgnored private var captureCleanupActive = false
     @ObservationIgnored private var activeTokenReads = 0
     @ObservationIgnored private var captureCleanupWaiters: [CheckedContinuation<Void, Never>] = []
-    /// This build's stored session (refresh token, and the access token when one is stored), read off the
-    /// main actor: what cmux NIGHTLY hands to another local cmux build (`auth.session.handoff`). Nil when
-    /// signed out. The two tokens are one pair (``consistentSession(refresh:access:)``).
-    @ObservationIgnored public nonisolated let storedSession: @Sendable () async -> (accessToken: String?, refreshToken: String)?
 
     public var isSignedIn: Bool { coordinator.isAuthenticated }
     public var isRestoring: Bool { coordinator.isRestoringSession }
@@ -168,15 +161,9 @@ public final class CloudAuth {
     /// Captures the auth launch keys; call in main before LaunchIdentity.stripInheritedEnvironment().
     public nonisolated static func captureLaunchEnvironment() { _ = launchEnvironment }
 
-    /// Asks a running cmux NIGHTLY for its session (`auth.session.handoff`); nil when there is none.
-    public typealias NightlySession = @Sendable () async -> (accessToken: String?, refreshToken: String)?
-
     /// `environment` nil reads this process's environment plus the captured auth launch keys.
-    /// `nightlySession` is where a dev build with no dev account of its own gets its session
-    /// (``adoptsNightlySession(configuration:devAccount:)``).
     public init(configuration: CloudConfiguration, environment explicitEnvironment: [String: String]? = nil,
-                defaults: UserDefaults = .standard, captureFixture: Bool = false, nightlySession: NightlySession? = nil,
-                home: String = NSHomeDirectory()) {
+                defaults: UserDefaults = .standard, captureFixture: Bool = false) {
         #if DEBUG
         let useCaptureFixture = captureFixture && configuration.isDebugBuild
         #else
@@ -193,8 +180,6 @@ public final class CloudAuth {
         let launch = useCaptureFixture ? (signIn: LaunchSignIn.noSignIn, paths: [String]())
             : Self.launchSignIn(configuration: configuration, environment: environment)
         let signIn = launch.signIn
-        let devAccount = !useCaptureFixture && Self.launchDevAccount(configuration: configuration, environment: environment, home: home)
-        var adoptingStore: ImportingTokenStore?
         let tokenStore: any StackAuthTokenStoreProtocol
         let client: any AuthClient
         let authDefaults: any CMUXAuthKeyValueStore
@@ -206,10 +191,7 @@ public final class CloudAuth {
             // A capture must not inherit or persist this machine's auth state.
             authDefaults = CaptureFixtureKeyValueStore()
         } else {
-            let productionStore = Self.tokenStore(configuration: configuration, nightlySession: nightlySession, devAccount: devAccount,
-                                                  memoryOnly: signIn.memoryOnly)
-            adoptingStore = Self.nightlyAdoption(of: productionStore, configuration: configuration, devAccount: devAccount,
-                                                 memoryOnly: signIn.memoryOnly)
+            let productionStore = Self.tokenStore(configuration: configuration, memoryOnly: signIn.memoryOnly)
             let fencedStore = CaptureFencedTokenStore(base: productionStore)
             captureTokenStore = fencedStore
             tokenStore = fencedStore
@@ -217,10 +199,7 @@ public final class CloudAuth {
             client = Self.stackClient(configuration: configuration, tokenStore: fencedStore)
         }
         #else
-        let productionStore = Self.tokenStore(configuration: configuration, nightlySession: nightlySession, devAccount: devAccount,
-                                              memoryOnly: signIn.memoryOnly)
-        adoptingStore = Self.nightlyAdoption(of: productionStore, configuration: configuration, devAccount: devAccount,
-                                             memoryOnly: signIn.memoryOnly)
+        let productionStore = Self.tokenStore(configuration: configuration, memoryOnly: signIn.memoryOnly)
         let fencedStore = CaptureFencedTokenStore(base: productionStore)
         captureTokenStore = fencedStore
         tokenStore = fencedStore
@@ -229,12 +208,6 @@ public final class CloudAuth {
         authDefaults = signIn.memoryOnly ? MemoryAuthKeyValueStore() : defaults
         client = Self.stackClient(configuration: configuration, tokenStore: fencedStore)
         #endif
-        nightlyAdoption = adoptingStore
-        let sessionStore = tokenStore
-        storedSession = {
-            await Self.consistentSession(refresh: { await sessionStore.getStoredRefreshToken() },
-                                         access: { await sessionStore.getStoredAccessToken() })
-        }
         let config = AuthConfig(
             stack: CMUXAuthConfig(projectId: configuration.stackProjectID, publishableClientKey: configuration.stackPublishableClientKey),
             magicLinkCallbackURL: configuration.authWebOrigin.appendingPathComponent("auth/callback").absoluteString,
@@ -299,99 +272,16 @@ public final class CloudAuth {
         )
     }
 
-    /// Whether a dev build takes the session of the running cmux NIGHTLY instead of keeping its own: a tagged dev
-    /// build (``CMUXBuildSpaceState/dev(_:)``, signed NEXT DEV `com.cmuxterm.app.debug.next` included) on the
-    /// production account (NIGHTLY's), and only when no dev account is configured (``devAccountConfigured(environment:home:)``).
-    /// A configured account always wins: NIGHTLY's session is then never read. The session is shared, the data is not:
-    /// every request still carries the build's own space.
-    nonisolated static func adoptsNightlySession(configuration: CloudConfiguration, devAccount: Bool) -> Bool {
-        configuration.buildSpace.space != nil && configuration.isProductionAuth && !devAccount
-    }
-
-    /// The dev-account answer a launch uses (``devAccountConfigured(environment:home:read:)``). Only a build that would
-    /// otherwise adopt NIGHTLY's session (a tagged dev build on the production account) reads the dev sign-in files:
-    /// NIGHTLY, RC, release and a staging or misconfigured dev build never open them, and answer true (they keep their
-    /// own store whatever it says).
-    nonisolated static func launchDevAccount(configuration: CloudConfiguration, environment: [String: String], home: String,
-                                             read: (String) -> DevSignInFile = readDevSignInFile) -> Bool {
-        guard adoptsNightlySession(configuration: configuration, devAccount: false) else { return true }
-        return devAccountConfigured(environment: environment, home: home, read: read)
-    }
-
-    /// One dev sign-in file as ``devAccountConfigured(environment:home:read:)`` sees it.
-    enum DevSignInFile: Equatable {
-        /// No file at the path.
-        case missing
-        /// A file (or something else) is there but could not be read as UTF-8 text: counted as an account.
-        case unreadable
-        case contents(String)
-    }
-
-    /// Reads `path`: missing only when nothing is there (`ENOENT`, `ENOTDIR`); any other failure is unreadable.
-    nonisolated static func readDevSignInFile(_ path: String) -> DevSignInFile {
-        do {
-            return .contents(try String(blockingContentsOf: URL(fileURLWithPath: path), encoding: .utf8))
-        } catch {
-            let failure = error as NSError
-            if failure.domain == NSCocoaErrorDomain, failure.code == NSFileReadNoSuchFileError { return .missing }
-            let posix = failure.domain == NSPOSIXErrorDomain ? failure : failure.userInfo[NSUnderlyingErrorKey] as? NSError
-            if let posix, posix.domain == NSPOSIXErrorDomain, [Int(ENOENT), Int(ENOTDIR)].contains(posix.code) { return .missing }
-            return .unreadable
-        }
-    }
-
-    /// Whether the dev sign-in inputs name an account: `~/.config/cmux/dev-account` or `CMUX_DEV_AUTH_ACCOUNT`, an
-    /// explicit `CMUX_AUTH_CREDENTIALS_FILE`, a `CMUX_DOGFOOD_STACK_EMAIL` or `CMUX_UITEST_STACK_EMAIL` launch key, or
-    /// one of those emails in `~/.secrets/cmuxterm-dev.env` (the profile `scripts/cmux-next/dev-signin-token.py` and
-    /// the Mac dev auto sign-in read). Only presence is read; no value leaves this function. A file that is there but
-    /// cannot be read counts as an account (fail closed: NIGHTLY's session is not adopted), and the log says which.
-    nonisolated static func devAccountConfigured(environment: [String: String], home: String,
-                                                 read: (String) -> DevSignInFile = readDevSignInFile) -> Bool {
-        let named = { (key: String) in !(environment[key] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        if ["CMUX_DEV_AUTH_ACCOUNT", "CMUX_AUTH_CREDENTIALS_FILE", "CMUX_DOGFOOD_STACK_EMAIL", "CMUX_UITEST_STACK_EMAIL"]
-            .contains(where: named) { return true }
-        // The file's name only: the home folder names the person.
-        let unreadable = { (path: String) -> Bool in
-            let name = URL(fileURLWithPath: path).lastPathComponent
-            fileLog.notice("dev account: \(name, privacy: .public) is there but unreadable; counted as configured, NIGHTLY's session not adopted")
-            return true
-        }
-        let accountPath = home + "/.config/cmux/dev-account", secretsPath = home + "/.secrets/cmuxterm-dev.env"
-        switch read(accountPath) {
-        case .contents(let account) where !account.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty: return true
-        case .unreadable: return unreadable(accountPath)
-        case .contents, .missing: break
-        }
-        let secrets: String
-        switch read(secretsPath) {
-        case .contents(let text): secrets = text
-        case .unreadable: return unreadable(secretsPath)
-        case .missing: return false
-        }
-        return secrets.split(whereSeparator: \.isNewline).contains { raw in
-            var line = raw.trimmingCharacters(in: .whitespaces)
-            if line.hasPrefix("export ") { line = String(line.dropFirst("export ".count)) }
-            let parts = line.split(separator: "=", maxSplits: 1)
-            guard parts.count == 2, ["CMUX_DOGFOOD_STACK_EMAIL", "CMUX_UITEST_STACK_EMAIL"].contains(String(parts[0])) else { return false }
-            return !parts[1].trimmingCharacters(in: CharacterSet(charactersIn: " \"'")).isEmpty
-        }
-    }
-
     /// This build's own Keychain store with its file fallback; an empty legacy default adopts, once, a session
     /// from the namespaced store its update used (``CloudConfiguration/namespacedLegacyStorage(homeDirectory:)``).
-    /// A dev build with no dev account (``adoptsNightlySession(configuration:devAccount:)``) instead keeps its session
-    /// in memory only and, when it has none, adopts the one a running cmux NIGHTLY hands over (`nightlySession`).
-    /// NIGHTLY's session is only read: a refresh here writes the memory store, never NIGHTLY's, and a sign-out here
-    /// leaves it alive on the server (``stackClient(configuration:tokenStore:)``). NIGHTLY signed out (or not running)
-    /// leaves this build signed out.
+    /// Every build keeps its own session and none reads another build's: a dev build never takes cmux NIGHTLY's
+    /// (the production cloud-api ignores `X-Cmux-Build-Space`, so it would reach NIGHTLY's data). A dev build with a
+    /// dev account configured (`scripts/setup-team-dev.sh`) is signed in to that account by the launch hand-off
+    /// (``launchSignIn(configuration:environment:home:)``); otherwise the person signs it in once, in the browser.
     /// `memoryOnly` (a launch that signs in from an explicit file, ``LaunchSignIn/memoryOnly``) keeps the session
     /// in memory and never opens the Keychain or the file fallback.
-    static func tokenStore(configuration: CloudConfiguration, nightlySession: NightlySession? = nil, devAccount: Bool = true,
-                           memoryOnly: Bool = false) -> any StackAuthTokenStoreProtocol {
+    static func tokenStore(configuration: CloudConfiguration, memoryOnly: Bool = false) -> any StackAuthTokenStoreProtocol {
         if memoryOnly { return MemoryStackTokenStore() }
-        if adoptsNightlySession(configuration: configuration, devAccount: devAccount) {
-            return nightlyAdoptingStore(nightlySession: nightlySession)
-        }
         let own = FallbackTokenStore(
             primary: KeychainStackTokenStore(service: configuration.keychainService),
             fallback: FileStackTokenStore(directory: configuration.credentialsDirectory)
@@ -415,21 +305,8 @@ public final class CloudAuth {
             magicLinkCallbackURL: configuration.authWebOrigin.appendingPathComponent("auth/callback").absoluteString,
             apiBaseURL: configuration.apiBaseURL.absoluteString
         )
-        // A session adopted from cmux NIGHTLY is NIGHTLY's own: a sign-out here leaves it alive on the server.
-        var keepsServerSession: (@Sendable (String) async -> Bool)?
-        if let importing = tokenStore as? ImportingTokenStore {
-            keepsServerSession = { (refreshToken: String) async -> Bool in
-                await importing.isShared(refreshToken: refreshToken)
-            }
-        } else if let fenced = tokenStore as? CaptureFencedTokenStore,
-                  let importing = fenced.base as? ImportingTokenStore {
-            keepsServerSession = { (refreshToken: String) async -> Bool in
-                await importing.isShared(refreshToken: refreshToken)
-            }
-        }
         return StackAuthClient(config: config, tokenStore: .custom(tokenStore),
-                               baseURL: configuration.stackBaseURL.absoluteString, noAutomaticPrefetch: true,
-                               keepsServerSession: keepsServerSession)
+                               baseURL: configuration.stackBaseURL.absoluteString, noAutomaticPrefetch: true)
     }
 
     /// Starts restoring the stored session (and dev auto sign-in).
@@ -470,15 +347,7 @@ public final class CloudAuth {
     public func beginSignIn(selectAccount: Bool = false) -> Task<Bool, Never> {
         guard !captureCleanupActive else { return Task { false } }
         let inBrowser = signInWindow().opensDefaultBrowser(defaultBrowser: CloudSignInWindow.currentDefaultBrowser())
-        // A dev build that adopts NIGHTLY's session asks NIGHTLY once more first (``retryNightlyAdoption()``): signed
-        // in there, no browser opens. Switch Account always asks the hosted page.
-        guard nightlyAdoption != nil, !selectAccount, !isSignedIn else {
-            return browserSignIn.beginSignIn(selectAccount: selectAccount, inDefaultBrowser: inBrowser)
-        }
-        return Task {
-            if await retryNightlyAdoption() { return true }
-            return await browserSignIn.beginSignIn(selectAccount: selectAccount, inDefaultBrowser: inBrowser).value
-        }
+        return browserSignIn.beginSignIn(selectAccount: selectAccount, inDefaultBrowser: inBrowser)
     }
 
     /// Opens the sign-in in progress in the default browser (the person's
@@ -561,54 +430,5 @@ public final class CloudAuth {
         let waiters = captureCleanupWaiters
         captureCleanupWaiters.removeAll()
         for waiter in waiters { waiter.resume() }
-    }
-}
-
-extension CloudAuth {
-    /// The store of a dev build that takes NIGHTLY's session: memory only, filled once per launch from
-    /// `nightlySession` when empty. NIGHTLY's store is never written: only the tokens it hands over are copied.
-    static func nightlyAdoptingStore(nightlySession: NightlySession?) -> ImportingTokenStore {
-        let sources: [ImportingTokenStore.Source] = nightlySession.map { fetch in
-            [{ await fetch().flatMap { ImportedTokenPair(accessToken: $0.accessToken, refreshToken: $0.refreshToken) } }]
-        } ?? []
-        return ImportingTokenStore(primary: MemoryStackTokenStore(), sources: sources)
-    }
-
-    /// `store` when it is the NIGHTLY-adopting store ``tokenStore(configuration:nightlySession:devAccount:memoryOnly:)``
-    /// made (a legacy-importing store is an ``ImportingTokenStore`` too, and is never asked again).
-    static func nightlyAdoption(of store: any StackAuthTokenStoreProtocol, configuration: CloudConfiguration, devAccount: Bool,
-                                memoryOnly: Bool) -> ImportingTokenStore? {
-        guard !memoryOnly, adoptsNightlySession(configuration: configuration, devAccount: devAccount) else { return nil }
-        return store as? ImportingTokenStore
-    }
-
-    /// A dev build that adopts NIGHTLY's session but found none at launch (NIGHTLY not running or signed out then)
-    /// asks NIGHTLY once more when the person opens sign-in or the Cloud page, never on a timer: a NIGHTLY signed in
-    /// after this build started then signs it in without a relaunch. Nothing is asked once this build signed in or
-    /// out itself (``ImportingTokenStore/retryImport()``). True when it ended signed in with NIGHTLY's session.
-    @discardableResult
-    public func retryNightlyAdoption() async -> Bool {
-        guard let store = nightlyAdoption, !captureCleanupActive else { return false }
-        await awaitRestored()
-        guard !isSignedIn, await store.retryImport() else { return false }
-        do {
-            try await coordinator.completeExternalSignIn()
-        } catch {
-            Self.fileLog.notice("NIGHTLY's session, adopted when asked again, did not sign in: \(String(describing: type(of: error)), privacy: .public)")
-        }
-        return isSignedIn
-    }
-
-    /// The stored pair, read so a refresh that rotates the tokens between the two reads is never handed out
-    /// half old: the refresh token is read before and after the access token, and the read is retried (three
-    /// times at most) until both agree. Nil when signed out or when the tokens keep rotating.
-    nonisolated static func consistentSession(refresh: () async -> String?, access: () async -> String?) async
-        -> (accessToken: String?, refreshToken: String)? {
-        for _ in 0 ..< 3 {
-            guard let before = await refresh(), !before.isEmpty else { return nil }
-            let accessToken = await access()
-            if await refresh() == before { return (accessToken, before) }
-        }
-        return nil
     }
 }

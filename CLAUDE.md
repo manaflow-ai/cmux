@@ -457,17 +457,12 @@ starts empty: a DEV build never imports the person's classic data); nightly, sta
 state named after the bundle id (Chief home, mobile host, Chromium profiles) uses `BuildIdentity.stateFolderName`. The gate's "Dev build state
 is its own" check (`scripts/cmux-next/check-dev-build-state.py`) refuses a new shared path without a reviewed row. The dev
 sign-in inputs `~/.config/cmux/dev-account` and `~/.secrets/cmuxterm-dev.env` stay shared on purpose.
-Sign-in on a Mac dev build (signed NEXT DEV `com.cmuxterm.app.debug.next` included) follows one rule,
-`CloudAuth.adoptsNightlySession`: when the dev sign-in inputs name an account (`~/.config/cmux/dev-account` or
-`CMUX_DEV_AUTH_ACCOUNT`, `CMUX_AUTH_CREDENTIALS_FILE`, or a `CMUX_DOGFOOD_STACK_EMAIL`/`CMUX_UITEST_STACK_EMAIL` key in
-the launch or in `~/.secrets/cmuxterm-dev.env`), the build uses that account in its own store and never reads
-nightly's session. Only when none is configured does a dev build on the production account take the running
-NIGHTLY's session (`auth.session.handoff`, team-signed builds only, so not the fleet's ad hoc ones), read-only and in
-memory: a refresh or sign-out there never writes NIGHTLY's store or revokes its server session, and NIGHTLY signed out
-or not running leaves the dev build signed out until the person opens sign-in or the Cloud page, which asks NIGHTLY
-once more (never on a timer; never after the dev build signed in or out itself). Only such a build reads the dev
-sign-in files (nightly, RC and release never open them), and one there but unreadable counts as an account (fail
-closed). Either way its backend data stays in its own build space: the session is shared, the data is not.
+Sign-in on a Mac dev build (signed NEXT DEV `com.cmuxterm.app.debug.next` included): a dev build never reuses
+NIGHTLY's session, in any form. The production cloud-api ignores `X-Cmux-Build-Space`, so a dev build on NIGHTLY's
+session would read and write NIGHTLY's real data. With a dev account configured (`scripts/setup-team-dev.sh`), the
+launch hand-off signs that account in automatically, as the build's own session; otherwise you sign each dev build in
+once, in the browser. No build's control socket hands out its session, and `CloudAuthNeverNightlySessionTests` fails
+if a dev build's store takes another build's.
 
 ## Settings on every surface
 

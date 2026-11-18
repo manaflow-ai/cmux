@@ -1,6 +1,5 @@
 import AppKit
 import CmuxNextActions
-import CmuxNextCloud
 import CmuxNextIcons
 import CmuxNextPages
 
@@ -26,10 +25,6 @@ final class CloudPageService: InternalPageProvider {
             throw ActionFailure(message: RefusalStrings.noWindowOpen)
         }
         if let route, let page = view.content as? PageWebView { page.open(route: route) }
-        // A dev build signed out because NIGHTLY was not signed in at launch asks it again (never on a timer).
-        let auth = services.cloud.auth
-        // task-owner: one handoff ask that ends on its own; nothing to cancel when the page closes.
-        Task { await auth.retryNightlyAdoption() }
     }
 
     var page: InternalPageID { .cloud }
