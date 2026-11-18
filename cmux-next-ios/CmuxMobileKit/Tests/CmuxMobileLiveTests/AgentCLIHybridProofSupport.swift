@@ -7,12 +7,15 @@ import Foundation
 /// whose few threads every async test needs to wake from a sleep or a lock. The hybrid parity
 /// replay and the 6,000-case fuzz are tens of seconds of CPU in a debug build; on the main actor
 /// they stalled the whole `swift test` run for 43 to 54 s in CI (6 vCPU), and on the pool they
-/// would take most of its threads. On a plain thread the kernel shares the cores with everyone.
+/// would take most of its threads. The thread runs at background priority: the six fuzz parts
+/// at `.utility` took enough of a 6-vCPU runner that the main actor fell 9 to 20 s behind and
+/// main-actor tests with deadlines failed (run 44211263917); the proofs have no deadline, so they
+/// take what the rest of the run leaves.
 func onProofThread<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
     await withCheckedContinuation { continuation in
         let thread = Thread { continuation.resume(returning: work()) }
         thread.name = "HYBRID_PROOF"
-        thread.qualityOfService = .utility
+        thread.qualityOfService = .background
         thread.stackSize = 8 << 20
         thread.start()
     }
