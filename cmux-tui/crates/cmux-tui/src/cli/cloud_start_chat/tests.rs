@@ -23,6 +23,10 @@ mod clone_wait;
 mod drill_start;
 #[path = "folder_tests.rs"]
 mod folder;
+#[path = "fresh_tests.rs"]
+mod fresh;
+#[path = "send_wait_tests.rs"]
+mod send_wait;
 
 /// Leo, 2026-11-10: a Cloud chat runs the Claude model the person asked for. `--model`, or
 /// `--agent claude/MODEL` as `acp ensure -m` reads it, is the run's model, asked again with it.
@@ -253,9 +257,23 @@ struct Fake {
     until: Option<Instant>,
     /// Each copy estimate asked: how many steps had run then, and the folder.
     estimated: Vec<(usize, String)>,
+    /// The progress lines the run said ([`Runner::say`]).
+    said: Vec<String>,
 }
 
 impl Fake {
+    /// How long the next step (`args`, at `ran`'s length) takes: a few seconds, or what `slow` says for it, or
+    /// `costs` for its verb.
+    fn cost(&self, args: &[String]) -> Duration {
+        let index = self.ran.len();
+        let verb = args.get(1).map(String::as_str);
+        let cost = self.slow.iter().find(|(at, _)| *at == index).map(|(_, cost)| *cost);
+        let cost = cost.or_else(|| {
+            self.costs.iter().find(|(name, _)| Some(*name) == verb).map(|(_, cost)| *cost)
+        });
+        cost.unwrap_or(Duration::from_secs(5))
+    }
+
     fn new(answers: Vec<Ran>) -> Self {
         Self {
             answers: answers.into(),
@@ -269,22 +287,34 @@ impl Fake {
             called: Vec::new(),
             until: None,
             estimated: Vec::new(),
+            said: Vec::new(),
         }
     }
 }
 
 impl Runner for Fake {
     fn cmux(&mut self, args: &[String]) -> Ran {
-        let index = self.ran.len();
+        self.clock += self.cost(args);
         self.ran.push(args.to_vec());
-        // Each step takes a few seconds of the wait, or what `slow` says for it, or `costs` for its verb.
-        let verb = args.get(1).map(String::as_str);
-        let cost = self.slow.iter().find(|(at, _)| *at == index).map(|(_, cost)| *cost);
-        let cost = cost.or_else(|| {
-            self.costs.iter().find(|(name, _)| Some(*name) == verb).map(|(_, cost)| *cost)
-        });
-        self.clock += cost.unwrap_or(Duration::from_secs(5));
         self.answers.pop_front().expect("an answer for every step")
+    }
+    /// A step that would run past `until` is killed there, as `internal::bounded::output_by` kills it: its answer
+    /// is used up and never seen.
+    fn cmux_by(&mut self, args: &[String], until: Instant) -> Ran {
+        if self.clock + self.cost(args) <= until {
+            return self.cmux(args);
+        }
+        self.ran.push(args.to_vec());
+        self.answers.pop_front().expect("an answer for every step");
+        self.clock = self.clock.max(until);
+        Ran {
+            code: internal::bounded::PAST_DEADLINE,
+            stdout: String::new(),
+            stderr: internal::bounded::past_deadline().to_string(),
+        }
+    }
+    fn say(&mut self, line: &str) {
+        self.said.push(line.to_owned());
     }
     fn pause(&mut self, duration: Duration) {
         self.paused += duration;
