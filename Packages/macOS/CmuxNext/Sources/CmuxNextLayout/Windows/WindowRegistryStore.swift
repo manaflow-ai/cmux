@@ -141,7 +141,7 @@ public final class WindowRegistryStore {
 
     /// The ones of `ids` (a window's parked workspaces) that window `id` does not list, for its `showWorkspace` (one
     /// run, counted in `closeWork`): one lookup of the owner index for each, never a set of the window's whole list
-    /// (826 ids per workspace switch and per close in the person's session). Its own list is searched only for an id
+    /// (826 ids per workspace switch and per close in a large session). Its own list is searched only for an id
     /// another window lists first (a broken invariant, `WindowRegistry.violations`); a window not registered yet
     /// answers from its launch snapshot (`provisional`), as `members(of:)` does.
     public func unlisted(_ ids: some Sequence<String>, in id: String) -> Set<String> { // perf-hot: 0.01ms workspace-switch (O(parked))

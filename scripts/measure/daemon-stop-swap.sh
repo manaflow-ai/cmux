@@ -269,9 +269,14 @@ fi
 # A depth only in a checkout that is already shallow (a CI one): never turn a full clone shallow.
 depth=""
 [[ "$(git -C "$root" rev-parse --is-shallow-repository)" != true ]] || depth=--depth=1
+# A fleet step's checkout has no `origin` remote: a commit that it does not hold then comes from
+# the repository's URL (as app-at-commit.sh).
+fetch_url="${CMUX_MEASURE_FETCH_URL:-https://github.com/manaflow-ai/cmux.git}"
 resolve() {
   git -C "$root" cat-file -e "$1^{commit}" 2>/dev/null \
-    || git -C "$root" fetch -q --no-tags --no-recurse-submodules $depth origin "$1"
+    || git -C "$root" fetch -q --no-tags --no-recurse-submodules $depth origin "$1" \
+    || git -C "$root" fetch -q --no-tags --no-recurse-submodules $depth "$fetch_url" "$1" \
+    || { echo "error: cannot fetch $1 from origin or from $fetch_url" >&2; return 1; }
   git -C "$root" rev-parse "$1^{commit}"
 }
 old_sha="$(resolve "$old")"

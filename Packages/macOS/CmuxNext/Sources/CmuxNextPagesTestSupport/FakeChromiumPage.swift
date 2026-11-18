@@ -59,6 +59,8 @@ public final class FakeChromiumPage: PageChromiumPage {
     public var answer: ((_ method: String, _ params: [String: any Sendable]) -> String?)?
     /// Runs when the host closes the page.
     public var onClose: (() -> Void)?
+    /// Runs after each ``load(_:)`` and ``reload()``, once it is recorded: a new document starts.
+    public var onNavigate: (() -> Void)?
     /// The page's own area and its docked DevTools' area (``contentView`` coordinates), while a
     /// test has DevTools docked beside the page; nil: no docked DevTools.
     public var dockedDevTools: (page: CGRect, devTools: CGRect)?
@@ -101,6 +103,7 @@ public final class FakeChromiumPage: PageChromiumPage {
     public func load(_ url: URL) {
         if loaded.isEmpty { seeThroughAtFirstLoad = .some(seeThrough) }
         loaded.append(url)
+        onNavigate?()
     }
 
     /// Records the value in ``seeThrough``.
@@ -110,7 +113,10 @@ public final class FakeChromiumPage: PageChromiumPage {
     /// How often the page was reloaded.
     public private(set) var reloads = 0
     /// Counts the reload in ``reloads``.
-    public func reload() { reloads += 1 }
+    public func reload() {
+        reloads += 1
+        onNavigate?()
+    }
     /// Records the value in ``zoom``.
     public func setZoom(_ zoom: Double) { self.zoom = zoom }
     /// Every focus ask, in order.

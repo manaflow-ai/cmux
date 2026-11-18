@@ -429,8 +429,32 @@ impl Mux {
         Ok((surface, commit.replayed))
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(in crate::mux) fn commit_resource_topology_operation(
+        self: &Arc<Self>,
+        operation: ResourceOperation,
+        selectors: ResourceSelectors,
+        fields: Map<String, Value>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        // An agent's layout change marks the views it can make smaller before the commit: a view's report can
+        // arrive before the commit returns.
+        let agent_layout = self.mark_agent_layout_change(&mutation.actor, operation);
+        let result = self.commit_unmarked_topology_operation(
+            operation,
+            selectors,
+            fields,
+            expected_revision,
+            mutation,
+        );
+        if let Some(marks) = &agent_layout {
+            self.settle_agent_layout_marks(marks, operation, &result);
+        }
+        result
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn commit_unmarked_topology_operation(
         self: &Arc<Self>,
         operation: ResourceOperation,
         selectors: ResourceSelectors,
@@ -461,7 +485,6 @@ impl Mux {
         {
             selectors.pane = Some(pane.as_str().to_string());
         }
-        let agent_layout = self.mark_agent_layout_change(&mutation.actor, operation);
         let commit = match operation {
             ResourceOperation::WorkspaceFocus => {
                 self.resource_focus_workspace(selectors, expected_revision, mutation, &fingerprint)?
@@ -588,9 +611,6 @@ impl Mux {
             )?,
             _ => anyhow::bail!("unsupported topology operation {}", operation_name(operation)),
         };
-        if let Some(at) = agent_layout {
-            self.narrow_agent_layout_marks(at, &commit.result);
-        }
         Ok(commit)
     }
 
