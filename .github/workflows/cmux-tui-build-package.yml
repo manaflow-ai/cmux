@@ -368,8 +368,21 @@ jobs:
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y binutils clang libclang-dev musl-tools pkg-config
+          packages=(binutils clang libclang-dev musl-tools pkg-config)
+          missing=()
+          for package in "${packages[@]}"; do
+            if ! dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -qx 'install ok installed'; then
+              missing+=("$package")
+            fi
+          done
+          if ((${#missing[@]})); then
+            if ! sudo -n true 2>/dev/null; then
+              echo "::error::Linux runner is missing ${missing[*]} and has no noninteractive sudo; bake them into the runner image" >&2
+              exit 1
+            fi
+            sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update
+            sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y "${missing[@]}"
+          fi
 
       # A GitHub-hosted Linux runner (4 vCPU, 16 GB, about 20 GB free on /) is
       # far smaller than the Blacksmith legs this job was sized on, and it gets
