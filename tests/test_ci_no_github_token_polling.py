@@ -117,6 +117,8 @@ ALLOWED: dict[str, str] = {
         'only when CMUX_NEXT_BATCH_ENABLED=1: one debounce sleep between two run listings, then a dispatch; the flagged loop (GraphQL paging with one 10 s retry) is in the batch subcommand this step does not run',
     "gallery-advisory.yml: Update the PR's gallery section":
         'pr_status.py: a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds',
+    "pr-checks.yml: Update the PR's Swift logic line":
+        'pr_status.py: a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds',
     "pr-checks.yml: Update the PR's review line":
         'pr_status.py: a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds',
     'pr-status.yml: Write the line':
