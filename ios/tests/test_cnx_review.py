@@ -274,12 +274,23 @@ if phone_launch_and_check {PHONE} client-1 {session} "{pair_url}"; then echo "PA
         r, _, _ = self.launch('restored', self.linked, backend=self.STACK)
         self.assertIn('FAIL: restored launch: the receipt names no cloud_backend', r.stdout)
 
-    def test_the_default_clears_a_kept_backend_and_checks_nothing(self):
-        r, _, env = self.launch('auto_login', self.linked)
+    DEFAULT = 'https://cmux-api-development.debussy.workers.dev'
+
+    def test_the_default_clears_a_kept_backend_and_proves_it(self):
+        # `default` (not an empty value a launcher may drop) clears the kept override...
+        r, _, env = self.launch('auto_login', {'cloud_backend': self.DEFAULT, **self.linked})
         self.assertIn('PASS: signed in (auto_login)', r.stdout, r.stderr)
-        self.assertEqual(env['DEVICECTL_CHILD_CMUX_NEXT_CLOUD_BACKEND'], '', 'an empty value clears the kept override')
-        _, _, env = self.launch('restored', self.linked)
+        self.assertEqual(env['DEVICECTL_CHILD_CMUX_NEXT_CLOUD_BACKEND'], 'default', 'the first launch clears the kept override')
+        _, _, env = self.launch('restored', {'cloud_backend': self.DEFAULT, **self.linked})
         self.assertNotIn('DEVICECTL_CHILD_CMUX_NEXT_CLOUD_BACKEND', env, 'no ambient value leaks into a launch')
+
+    def test_the_default_fails_when_the_phone_kept_an_earlier_override(self):
+        # ...and the receipt must show it took: a phone still on a kept stack or preview fails.
+        for kept in (self.STACK, 'https://cmux-api-preview-7.debussy.workers.dev'):
+            r, _, _ = self.launch('restored', {'cloud_backend': kept, **self.linked})
+            self.assertIn(f'FAIL: restored launch: the app still uses the kept Cloud backend {kept}', r.stdout)
+        r, _, _ = self.launch('restored', self.linked)
+        self.assertIn('FAIL: restored launch: the receipt names no cloud_backend', r.stdout)
 
     def test_a_receipt_from_another_launch_never_passes(self):
         r, _, _ = self.launch('restored', {'nonce': 'old', **self.linked})
