@@ -8,12 +8,12 @@
 // `#/settings/keys` (the request's notification). The list is read with the section
 // (sectionQueries), after each gesture and on the host's `cmux.settings.keys.changed`; no polling.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { memo, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { Fragment, memo, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useStableHandlers } from "../../../agent-session/acpmux/stableHandlers";
 import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
 import { useStore } from "../context";
-import { useCardWindow } from "../cardWindow";
+import { useCardWindow, windowGap } from "../cardWindow";
 import { keepUnchangedKeys, keyDate, keyRequestRows, keyRows, type KeyRequestRow, type KeyRow } from "../keys";
 import { startOfDay } from "../sharedLinks";
 import { KEYS_KEY, keysQuery } from "../sectionQueries";
@@ -43,14 +43,29 @@ export function KeysCard({ reveal = false }: { reveal?: boolean }) {
   }
   const keys = useMemo(() => rows.map((row) => row.id), [rows]);
   // A row draws its purpose and who added it only when the record has them.
-  const rowWindow = useCardWindow(keys, KEY_ESTIMATE, (index) => {
-    const row = rows[index];
-    return row ? `${row.purpose ? "p" : ""}${keyAddedBy(row) ? "a" : ""}` : "";
-  });
+  // Rows whose Revoke is asking first: they stay mounted while it asks, wherever the page scrolls.
+  const [confirmOpen, setConfirmOpen] = useState<ReadonlySet<string>>(() => new Set());
+  const rowWindow = useCardWindow(
+    keys,
+    KEY_ESTIMATE,
+    (index) => {
+      const row = rows[index];
+      return row ? `${row.purpose ? "p" : ""}${keyAddedBy(row) ? "a" : ""}` : "";
+    },
+    confirmOpen,
+  );
   // A row's dates need only whether a date is today.
   const today = startOfDay(now);
   const refresh = () => queryClient.invalidateQueries({ queryKey: KEYS_KEY });
-  const { onRevoke } = useStableHandlers({
+  const { onRevoke, onConfirming } = useStableHandlers({
+    onConfirming: (id: string, open: boolean) =>
+      setConfirmOpen((current) => {
+        if (current.has(id) === open) return current;
+        const next = new Set(current);
+        if (open) next.add(id);
+        else next.delete(id);
+        return next;
+      }),
     onRevoke: async (id: string) => {
       const error = await store.revokeKey(id);
       await refresh();
@@ -90,7 +105,7 @@ export function KeysCard({ reveal = false }: { reveal?: boolean }) {
           className="rows"
           ref={rowWindow.list}
           role={listing ? "list" : undefined}
-          style={{ paddingTop: rowWindow.padTop, paddingBottom: rowWindow.padBottom }}
+          style={{ paddingBottom: rowWindow.padBottom }}
           onFocus={rowWindow.onFocus}
           onBlur={rowWindow.onBlur}
         >
@@ -105,16 +120,19 @@ export function KeysCard({ reveal = false }: { reveal?: boolean }) {
               </span>
             </div>
           ) : (
-            rowWindow.items.map(({ index, key }) => (
-              <KeyRowView
-                key={key}
-                row={rows[index]!}
-                index={index}
-                count={rows.length}
-                today={today}
-                onRevoke={onRevoke}
-                measure={rowWindow.measure}
-              />
+            rowWindow.items.map(({ index, key, gap }) => (
+              <Fragment key={key}>
+                {windowGap(gap)}
+                <KeyRowView
+                  row={rows[index]!}
+                  index={index}
+                  count={rows.length}
+                  today={today}
+                  onRevoke={onRevoke}
+                  onConfirming={onConfirming}
+                  measure={rowWindow.measure}
+                />
+              </Fragment>
             ))
           )}
         </div>
@@ -271,6 +289,7 @@ const KeyRowView = memo(function KeyRowView({
   count,
   today,
   onRevoke,
+  onConfirming,
   measure,
 }: {
   row: KeyRow;
@@ -278,9 +297,15 @@ const KeyRowView = memo(function KeyRowView({
   count: number;
   today: number;
   onRevoke: (id: string) => Promise<string | null>;
+  /** The row's Revoke opened or closed its confirmation. */
+  onConfirming: (id: string, open: boolean) => void;
   measure: (node: HTMLElement | null) => void;
 }) {
-  const [confirming, setConfirming] = useState(false);
+  const [confirming, setConfirmingState] = useState(false);
+  const setConfirming = (open: boolean) => {
+    setConfirmingState(open);
+    onConfirming(row.id, open);
+  };
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const revoke = async () => {

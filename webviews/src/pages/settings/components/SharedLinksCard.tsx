@@ -6,12 +6,12 @@
 // Opened at this card by `#/settings/privacy?focus=card.sharedLinks`. The list is read with the
 // section (sectionQueries) and after each revoke; it does not poll.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { memo, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, memo, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useStableHandlers } from "../../../agent-session/acpmux/stableHandlers";
 import { Button } from "../../../ui/Button";
 import { useStore } from "../context";
 import { SHARES_KEY, sharesQuery } from "../sectionQueries";
-import { useCardWindow, type CardWindow } from "../cardWindow";
+import { useCardWindow, windowGap, type CardWindow } from "../cardWindow";
 import { keepUnchangedLinks, shareDate, sharedLinkRows, startOfDay, type SharedLinkRow } from "../sharedLinks";
 import { locale, t } from "../strings";
 
@@ -60,7 +60,7 @@ export function SharedLinksCard({ reveal = false }: { reveal?: boolean }) {
         className="rows"
         ref={rowWindow.list}
         role={listing ? "list" : undefined}
-        style={{ paddingTop: rowWindow.padTop, paddingBottom: rowWindow.padBottom }}
+        style={{ paddingBottom: rowWindow.padBottom }}
         onFocus={rowWindow.onFocus}
         onBlur={rowWindow.onBlur}
       >
@@ -168,21 +168,23 @@ export function SharedLinksList({
   rowWindow?: CardWindow;
 }) {
   const today = startOfDay(now);
-  const items = rowWindow?.items ?? rows.map((row, index) => ({ index, key: row.id }));
+  const items = rowWindow?.items ?? rows.map((row, index) => ({ index, key: row.id, gap: 0 }));
   return (
     <>
-      {items.map(({ index, key }) => (
-        <SharedLinkItem
-          key={key}
-          row={rows[index]!}
-          index={index}
-          count={rows.length}
-          today={today}
-          busy={busy}
-          layout={layout}
-          onRevoke={onRevoke}
-          measure={rowWindow?.measure}
-        />
+      {items.map(({ index, key, gap }) => (
+        <Fragment key={key}>
+          {windowGap(gap)}
+          <SharedLinkItem
+            row={rows[index]!}
+            index={index}
+            count={rows.length}
+            today={today}
+            busy={busy}
+            layout={layout}
+            onRevoke={onRevoke}
+            measure={rowWindow?.measure}
+          />
+        </Fragment>
       ))}
     </>
   );

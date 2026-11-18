@@ -10,3 +10,18 @@ export function settingsCardSizes(element: HTMLElement): number {
   if (element.hasAttribute("data-key")) return KEY_HEIGHT;
   return 0;
 }
+
+/**
+ * jsdom lays nothing out, so every rect is at 0 and a list's place in the scroller would read as the
+ * scroller's own offset (cardWindow.ts reads `rect.top - scrollerRect.top + scrollTop`). A card's
+ * `.rows` here sits at the top of the scroller's content, so it moves up as the page scrolls.
+ */
+export function installCardRects(window: { HTMLElement: { prototype: HTMLElement } }): void {
+  const original = window.HTMLElement.prototype.getBoundingClientRect;
+  window.HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+    const scroller = this.classList.contains("rows") ? this.closest<HTMLElement>("main.content") : null;
+    if (!scroller) return original.call(this);
+    const top = -scroller.scrollTop;
+    return { x: 0, y: top, top, left: 0, right: 0, bottom: top, width: 0, height: 0, toJSON: () => ({}) } as DOMRect;
+  };
+}

@@ -1,10 +1,16 @@
 // A Settings card whose rows grow with the person's data (Shared Links, Keys) mounts only the rows
 // near the page's viewport. The card's rows scroll with the page (`main.content`), not in a box of
-// their own, so the window is placed by the list's offset in that scroller (`scrollMargin`), and the
-// rows above and below the window are the list's own padding: the rows stay the `.rows` element's
-// children, so the card's outline and hairlines are unchanged.
+// their own, so the window is placed by the list's offset in that scroller (`scrollMargin`). The rows
+// stay the `.rows` element's children, so the card's outline and hairlines are unchanged; the room
+// of the rows not mounted is a spacer before each mounted row that follows a gap.
+// A row away from the window is still reached as when every row was mounted: the focused row's
+// neighbours and the first and last rows stay mounted, so the browser's own Tab and Shift-Tab go on
+// in list order and enter the list at its first or last row (no key handler); a row the card says to
+// keep (a Revoke asking first) stays mounted, so its state survives a scroll.
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type FocusEvent } from "react";
+import { createElement, useCallback, useLayoutEffect, useMemo, useRef, useState, type FocusEvent } from "react";
+
+const NO_KEYS: ReadonlySet<string> = new Set();
 
 /** About one viewport of rows each side (a row is 60 to 90 px; the page is 600 to 1,000 tall). */
 const OVERSCAN = 12;
@@ -20,15 +26,16 @@ function scrollParent(node: HTMLElement): HTMLElement | null {
   return null;
 }
 
-export type CardWindowItem = { index: number; key: string };
+/** A mounted row: its place, its key and the room of the rows not mounted just before it. */
+export type CardWindowItem = { index: number; key: string; gap: number };
 
 export interface CardWindow {
   /** The `.rows` element's ref. */
   list: (node: HTMLElement | null) => void;
-  /** The `.rows` element's top and bottom padding: the rows outside the window. */
-  padTop: number;
+  /** The `.rows` element's bottom padding: the rows after the last one mounted (none while the
+   * last row is kept mounted; kept for a list with no rows). */
   padBottom: number;
-  /** The rows to mount, in order. */
+  /** The rows to mount, in order; a row with a `gap` follows a spacer of that height. */
   items: CardWindowItem[];
   /** Each mounted row's ref; the row carries `data-index`. */
   measure: (node: HTMLElement | null) => void;
@@ -47,6 +54,8 @@ export function useCardWindow(
   keys: readonly string[],
   estimate: number,
   kindOf: (index: number) => string = () => "",
+  /** Rows that stay mounted wherever the page scrolls (a row with a confirmation open). */
+  keep: ReadonlySet<string> = NO_KEYS,
 ): CardWindow {
   const [node, setNode] = useState<HTMLElement | null>(null);
   // undefined until the list mounts; null when nothing above it scrolls.
@@ -76,6 +85,10 @@ export function useCardWindow(
   const place = useMemo(() => new Map(keys.map((key, index) => [key, index])), [keys]);
   const [focused, setFocused] = useState<string | null>(null);
   const focusedIndex = focused === null ? -1 : (place.get(focused) ?? -1);
+  // The browser's next tab stops from the focused row, and into the list from either side.
+  const kept =
+    focusedIndex >= 0 ? [focusedIndex, focusedIndex - 1, focusedIndex + 1, 0, keys.length - 1] : [0, keys.length - 1];
+  for (const key of keep) kept.push(place.get(key) ?? -1);
   const getItemKey = useCallback((index: number) => keys[index]!, [keys]);
   const learned = useRef(new Map<string, number>());
   const kinds = useRef(kindOf);
@@ -92,12 +105,9 @@ export function useCardWindow(
     overscan: OVERSCAN,
     scrollMargin,
     rangeExtractor: (range: Range) => {
-      const indexes = defaultRangeExtractor(range);
-      if (focusedIndex >= 0 && !indexes.includes(focusedIndex)) {
-        indexes.push(focusedIndex);
-        indexes.sort((a, b) => a - b);
-      }
-      return indexes;
+      const indexes = new Set(defaultRangeExtractor(range));
+      for (const index of kept) if (index >= 0 && index < keys.length) indexes.add(index);
+      return [...indexes].sort((a, b) => a - b);
     },
   });
   const measure = useCallback(
@@ -122,25 +132,35 @@ export function useCardWindow(
   if (scroller === null) {
     return {
       list,
-      padTop: 0,
       padBottom: 0,
-      items: keys.map((key, index) => ({ index, key })),
+      items: keys.map((key, index) => ({ index, key, gap: 0 })),
       measure,
       onFocus,
       onBlur,
     };
   }
   const virtual = virtualizer.getVirtualItems();
-  const first = virtual[0];
   const last = virtual.at(-1);
   const total = virtualizer.getTotalSize();
+  let end = scrollMargin;
+  const items = virtual.map((item) => {
+    const gap = Math.max(0, item.start - end);
+    end = item.end;
+    return { index: item.index, key: String(item.key), gap };
+  });
   return {
     list,
-    padTop: first ? first.start - scrollMargin : 0,
     padBottom: last ? Math.max(0, total - (last.end - scrollMargin)) : total,
-    items: virtual.map((item) => ({ index: item.index, key: String(item.key) })),
+    items,
     measure,
     onFocus,
     onBlur,
   };
+}
+
+/** The room of the rows not mounted before a mounted row: no role, nothing to read. */
+export function windowGap(gap: number) {
+  return gap > 0
+    ? createElement("div", { className: "card-window-gap", "aria-hidden": true, style: { height: gap } })
+    : null;
 }

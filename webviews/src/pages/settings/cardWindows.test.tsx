@@ -7,7 +7,12 @@ import { afterAll, afterEach, expect, setSystemTime, test } from "bun:test";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
 import { installVirtualSizes } from "../../../test/support/virtualSizes";
-import { KEY_HEIGHT, SHARED_LINK_HEIGHT, settingsCardSizes } from "../../../test/support/settingsCardSizes";
+import {
+  installCardRects,
+  KEY_HEIGHT,
+  SHARED_LINK_HEIGHT,
+  settingsCardSizes,
+} from "../../../test/support/settingsCardSizes";
 import { manyKeys, manyShares } from "../../../test/support/settingsCardFixtures";
 import { rowPropsRenders } from "../../../test/support/rowPropsRenders";
 
@@ -17,6 +22,7 @@ afterAll(() => {
   restore();
 });
 installVirtualSizes({ HTMLElement: globalThis.window.HTMLElement }, settingsCardSizes);
+installCardRects({ HTMLElement: globalThis.window.HTMLElement });
 const { renderPage, settle, click } = await import("./testing");
 const { SHARES_KEY, KEYS_KEY } = await import("./sectionQueries");
 
