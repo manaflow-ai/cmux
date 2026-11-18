@@ -338,22 +338,102 @@ function inMotion(element: Element, moving: Set<Element>): boolean {
 /** Most frames one tracker keeps (about 33 s at 60 Hz); a longer run scores its first frames. */
 const MAX_FRAMES = 2000;
 
-/** Samples every frame until `stop`, which scores what it saw. */
+/** What `afterEachPaint` schedules with: a window, or a stand-in in a unit test. */
+export interface PaintClock {
+  requestAnimationFrame(callback: (time: number) => void): number;
+  cancelAnimationFrame(handle: number): void;
+  /** Posts `then` as a task: a message posted from a frame callback runs after that frame renders. */
+  afterThisFrame(then: () => void): void;
+  /** Adds a capturing listener for the input events that come before a pending read. */
+  onInput?(listener: () => void): () => void;
+}
+
+/** Input that can change the page between a frame and the read after it (paintedFrames.ts). */
+const INPUT_EVENTS = [
+  "keydown",
+  "beforeinput",
+  "input",
+  "pointerdown",
+  "pointerup",
+  "mousedown",
+  "mouseup",
+  "click",
+  "wheel",
+];
+
+export function windowPaintClock(view: Window): PaintClock {
+  return {
+    requestAnimationFrame: (callback) => view.requestAnimationFrame(callback),
+    cancelAnimationFrame: (handle) => view.cancelAnimationFrame(handle),
+    afterThisFrame(then) {
+      const channel = new view.MessageChannel();
+      channel.port1.onmessage = () => {
+        channel.port1.close();
+        then();
+      };
+      channel.port2.postMessage(null);
+    },
+    onInput(listener) {
+      for (const kind of INPUT_EVENTS) view.addEventListener(kind, listener, { capture: true, passive: true });
+      return () => {
+        for (const kind of INPUT_EVENTS) view.removeEventListener(kind, listener, { capture: true });
+      };
+    },
+  };
+}
+
+/**
+ * Calls `read` once after each painted frame until the returned stop. A frame callback runs before
+ * the frame's style, layout, ResizeObserver callbacks and paint, so a read there can see a layout
+ * no frame paints (the transcript's lift before its dock observer ran, #46151): the read waits for
+ * a task posted from the frame callback instead. An input event before that task runs the read
+ * first, on the state the frame painted.
+ */
+export function afterEachPaint(clock: PaintClock, read: () => void): () => void {
+  let stopped = false;
+  let handle = 0;
+  // The frame whose read has not run yet; a read runs at most once, and only while it is pending.
+  let pending = 0;
+  let frames = 0;
+  const runFor = (frameNumber: number) => {
+    if (stopped || frameNumber === 0 || pending !== frameNumber) return;
+    pending = 0;
+    read();
+  };
+  const offInput = clock.onInput?.(() => runFor(pending)) ?? (() => {});
+  const frame = () => {
+    if (stopped) return;
+    // A read whose task did not come before the next frame would see this frame's unpainted layout:
+    // it is dropped (the next read sees both frames' moves).
+    const frameNumber = ++frames;
+    pending = frameNumber;
+    clock.afterThisFrame(() => runFor(frameNumber));
+    handle = clock.requestAnimationFrame(frame);
+  };
+  handle = clock.requestAnimationFrame(frame);
+  return () => {
+    stopped = true;
+    pending = 0;
+    clock.cancelAnimationFrame(handle);
+    offInput();
+  };
+}
+
+/** Samples after every painted frame until `stop`, which scores what it saw. */
 export function startBoxTracker(
   doc: Document,
   options: { target?: StepTargets; extra?: () => Element[]; firstMoveFree?: boolean; restedAtStart?: boolean } = {},
 ): { stop(): BoxShift } {
   const frames: BoxFrame[] = [];
   const view = doc.defaultView!;
-  let handle = 0;
   const sample = () => {
     if (frames.length < MAX_FRAMES) frames.push(sampleBoxes(doc, options.target ?? null, options.extra?.() ?? []));
-    handle = view.requestAnimationFrame(sample);
   };
   sample();
+  const stopSampling = afterEachPaint(windowPaintClock(view), sample);
   return {
     stop() {
-      view.cancelAnimationFrame(handle);
+      stopSampling();
       frames.push(sampleBoxes(doc, options.target ?? null, options.extra?.() ?? []));
       const shift = scoreBoxFrames(frames, { width: view.innerWidth, height: view.innerHeight }, options);
       return { ...shift, follow: judgeFollowFrames(frames, options) };
