@@ -6,7 +6,7 @@
 // each, with their live state, an unread dot, how many messages wait for them and what a working
 // one does now; a click opens its chat beside this one (`onOpenSession`). After them, the other
 // chats the agent started (`sessions`, session-info/ChildSessionRows.tsx), each opening its chat.
-import { useContext } from "react";
+import { useContext, useState } from "react";
 
 import { formatDuration } from "../conversation/turns";
 import { AgentLine } from "../subagents/AgentLine";
@@ -36,6 +36,9 @@ import { agentTone } from "../subagents/agentTones";
 import { useSenderIconLook } from "../subagents/senderIconLook";
 import { orderedSubagents } from "./subagentOrder";
 import { subagentStatus, subagentStateText, SUBSESSION_STATUS } from "./subagentStatusListModel";
+import { heightAbove, useFoldMotion } from "../session-info/foldMotion";
+import { SUBAGENTS_SHOWN } from "../session-info/subagentsSectionModel";
+import { WindowedRows } from "../session-info/WindowedRows";
 
 const ROW_ICON = rowIconSize(12);
 const NO_SESSIONS: readonly StartedSession[] = [];
@@ -100,6 +103,46 @@ export function SubagentStatusList({
     agents.filter((agent) => subagentStatus(agent, waiting) === "running").length +
     subsessions.filter((session) => session.state === "working" || sessionRetry(session).kind === "retrying").length +
     sessions.filter((child) => sessionStatus(child) === "running").length;
+  // The first SUBAGENTS_SHOWN lines, attention first, then "Show N more" for the rest, as Session Info's
+  // Subagents section caps its list: a coordinator's card listed every subagent its chat ever ran
+  // (chat-100k-flat CASES=coordinator: 280 card elements at 2k records, 2,386 at 20k). Opened, the rest
+  // draw only as they scroll into view (WindowedRows), and the list grows and shrinks in one motion with
+  // what is under it (foldMotion.ts).
+  const [more, setMore] = useState(false);
+  const moreFold = useFoldMotion<HTMLUListElement>(more, (list) => heightAbove(list, list.children[SUBAGENTS_SHOWN]));
+  const lines = ordered(agents, waiting);
+  const hidden = lines.length - SUBAGENTS_SHOWN;
+  const shown = hidden > 0 && !moreFold.drawn ? lines.slice(0, SUBAGENTS_SHOWN) : lines;
+  const agentRow = ({ agent, depth }: { agent: Subagent; depth: number }) => {
+    const status = subagentStatus(agent, waiting);
+    return (
+      <li key={agent.id}>
+        {/* The tray's own line (subagents/AgentLine.tsx): a subagent reads the same here and above the composer. */}
+        <AgentLine
+          name={agent.name}
+          icon={SUBAGENT_FALLBACK}
+          mark={foreignHarness(agent.harness, chatHarness, senderBadge)}
+          status={status}
+          state={subagentStateText(t, agent, waiting)}
+          working={Boolean(retrying(agent))}
+          time={formatDuration(elapsed(agent, now))}
+          iconSize={ROW_ICON}
+          depth={depth}
+          current={agent.id === current}
+          // Its kind is no subtitle on the line (Leo, 2026-10-31: "a lot of these subtitles
+          // are bad"): the tooltip keeps it under its task.
+          title={
+            [agent.task, agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) ? agent.kind : undefined]
+              .filter(Boolean)
+              .join("\n") || undefined
+          }
+          tone={agentTone(agent.id)}
+          onOpen={onOpen ? () => onOpen(agent.id) : undefined}
+          after={resume && <ResumeControl agent={agent} actions={resume} />}
+        />
+      </li>
+    );
+  };
   const heading = counts
     ? `${title} · ${counts}`
     : live > 0
@@ -117,38 +160,22 @@ export function SubagentStatusList({
           heading
         )}
       </h3>
-      <ul className="acpmux-summary-list">
+      {/* The subagents' list, then the rest's: two lists with no margin or padding draw as one. */}
+      <ul ref={moreFold.ref} className="acpmux-summary-list">
         {agents.length === 0 && stack.length > 0 && <SubagentStack subagents={stack} />}
-        {ordered(agents, waiting).map(({ agent, depth }) => {
-          const status = subagentStatus(agent, waiting);
-          return (
-            <li key={agent.id}>
-              {/* The tray's own line (subagents/AgentLine.tsx): a subagent reads the same here and above the composer. */}
-              <AgentLine
-                name={agent.name}
-                icon={SUBAGENT_FALLBACK}
-                mark={foreignHarness(agent.harness, chatHarness, senderBadge)}
-                status={status}
-                state={subagentStateText(t, agent, waiting)}
-                working={Boolean(retrying(agent))}
-                time={formatDuration(elapsed(agent, now))}
-                iconSize={ROW_ICON}
-                depth={depth}
-                current={agent.id === current}
-                // Its kind is no subtitle on the line (Leo, 2026-10-31: "a lot of these subtitles
-                // are bad"): the tooltip keeps it under its task.
-                title={
-                  [agent.task, agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) ? agent.kind : undefined]
-                    .filter(Boolean)
-                    .join("\n") || undefined
-                }
-                tone={agentTone(agent.id)}
-                onOpen={onOpen ? () => onOpen(agent.id) : undefined}
-                after={resume && <ResumeControl agent={agent} actions={resume} />}
-              />
-            </li>
-          );
-        })}
+        <WindowedRows items={shown} render={agentRow} />
+      </ul>
+      {hidden > 0 && (
+        <button
+          type="button"
+          className="acpmux-summary-more"
+          aria-expanded={more}
+          onClick={() => moreFold.toggle(!more, setMore)}
+        >
+          {more ? t("sessionInfo.subagents.less") : t("sessionInfo.subagents.more", { n: hidden })}
+        </button>
+      )}
+      <ul className="acpmux-summary-list">
         {subsessions.map((session) => (
           <li key={`session:${session.sessionId}`}>
             <SubsessionStatusRow session={session} onOpen={onOpenSession} />
