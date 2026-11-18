@@ -140,8 +140,51 @@ await requireBrowserLane("agent-pane-send-motion-contract.test.ts", async () => 
     };
   }
 
-  /// Until the transcript, the stack and every finite animation hold still over 12 painted frames.
+  /// `work`, or a failure naming what never happened past `ms`: a wait that never ends fails here, with
+  /// its reason, instead of sitting out the file's 400 s timeout.
+  async function within<T>(work: Promise<T>, ms: number, what: () => Promise<string>): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_, reject) => {
+      // fixed-wait: a deadline, not a wait; work that ends clears it at once.
+      timer = setTimeout(() => {
+        // A page too stuck to answer still fails: its reading gets five seconds.
+        const unread = new Promise<string>((done) => setTimeout(() => done("(the page did not answer)"), 5_000));
+        void Promise.race([what(), unread])
+          .catch((error: unknown) => `(the page could not be read: ${String(error)})`)
+          .then((reason) => reject(new Error(`${reason} (in ${ms} ms)`)));
+      }, ms);
+    });
+    try {
+      return await Promise.race([work, deadline]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  /// What the page shows now, for a failure's reason.
+  const pageState = (page: Page) =>
+    page
+      .evaluate(() => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+        const field = document.querySelector<HTMLElement>(".acpmux-composer-box [contenteditable=true]");
+        return JSON.stringify({
+          scrollTop: scroller?.scrollTop,
+          scrollHeight: scroller?.scrollHeight,
+          composer: field?.innerText.slice(0, 80),
+          focused: document.activeElement?.className,
+          running: document.getAnimations().filter((animation) => animation.playState === "running").length,
+        });
+      })
+      .catch((error: unknown) => `unreadable: ${String(error)}`);
+
+  /// Until the transcript, the stack and every finite animation hold still over 12 painted frames, or
+  /// 900 frames went by. A page that stops drawing fails within two minutes, saying so.
   const settle = (page: Page) =>
+    within(
+      stillFrames(page),
+      120_000,
+      async () => `the pane drew neither 12 still frames nor 900 frames: ${await pageState(page)}`,
+    );
+  const stillFrames = (page: Page) =>
     page.evaluate(
       ({ MAIN_DOCK }) =>
         new Promise<void>((resolve) => {
@@ -192,7 +235,12 @@ await requireBrowserLane("agent-pane-send-motion-contract.test.ts", async () => 
     const asked = pane.sent("session/prompt", pane.methods.filter((method) => method === "session/prompt").length);
     await mark(page, "send");
     await page.keyboard.press("Enter");
-    await asked;
+    await within(
+      asked,
+      60_000,
+      async () =>
+        `Enter never sent session/prompt for "${text}" (the page's last sends: ${pane.methods.slice(-8).join(", ")}): ${await pageState(page)}`,
+    );
     return pane.prompts[before]?._meta?.acpmux?.promptId as string;
   }
 
