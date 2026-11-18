@@ -33,6 +33,10 @@ case "${1:-}" in
   final)
     mkdir -p final-dmg
     cp "$CHANNEL_DMG_PREFIX"-*.dmg appcast*.xml final-dmg/
+    # This build's deltas (appcast-with-nearest-deltas.sh), never one a past build left in the kept workspace.
+    for delta in "$CHANNEL_DMG_PREFIX"-*-"$NIGHTLY_BUILD"-*.delta; do
+      if [ -f "$delta" ]; then cp "$delta" final-dmg/; fi
+    done
     ;;
   source)
     [[ "$NIGHTLY_BUILD" =~ ^[0-9]+$ && "$BUILD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "invalid build $NIGHTLY_BUILD at $BUILD_SHA" >&2; exit 1; }
@@ -50,6 +54,7 @@ case "${1:-}" in
       find "$tmp" -mindepth 1 -maxdepth 1 ! -name '_*' -exec rm -rf {} +
     fi
     rm -rf signed signed-app-handoff final-dmg nightly-out tested cef-runtime
+    rm -f "${CHANNEL_DMG_PREFIX:-cmux-nightly-next-macos}"-*.delta
     python3 "$(dirname "$0")/../nightly_build_state.py" release || true
     ;;
   *) echo "usage: one-job.sh paths|inputs|signed|final|source|wipe" >&2; exit 2 ;;
