@@ -134,13 +134,16 @@ extension VerticalTabListView {
         guard let press else { return }
         switch press.target {
         case .tab(let id):
+            let wasActive = drag?.isActive == true
             if drag == nil {
                 guard hypot(point.x - press.start.x, point.y - press.start.y) > TabTunables.dragStartDistance.value else { return }
                 drag = VerticalTabDrag(id: id)
                 hoverTimer.cancel()
             }
             autoscroll(toward: point)
-            if let item = listLayout.row(ofTab: id).flatMap { listLayout.item($0) } { drag?.slot = listLayout.slot(at: contentPoint(point), dragging: item) }
+            if let item = listLayout.row(ofTab: id).flatMap({ listLayout.item($0) }) { drag?.slot = listLayout.slot(at: contentPoint(point), dragging: item) }
+            // The dragged row dims once the drag is active (its band redraws); the drop mark is a layer (`updateLayer`).
+            if drag?.isActive == true, !wasActive { invalidate(listLayout.row(ofTab: id)) }
             needsDisplay = true
         default:
             updateHover(at: point)
@@ -253,9 +256,8 @@ extension VerticalTabListView {
         if !event.hasPreciseScrollingDeltas { delta *= 12 }
         scrollOffset -= delta
         clampScroll()
-        // The view's rows redraw (a binary search finds them); no row element is touched: each reads its frame when
-        // asked (`TabAccessibilityElement.frameInParent`).
-        invalidateAll()
+        // The bands move; only the ones the scroll reveals draw (`updateBands`). No row element is touched: each reads
+        // its frame when asked (`TabAccessibilityElement.frameInParent`).
         updateHover(at: convert(event.locationInWindow, from: nil))
     }
 }

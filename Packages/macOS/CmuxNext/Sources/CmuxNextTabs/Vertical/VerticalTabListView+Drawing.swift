@@ -7,6 +7,7 @@ import CmuxNextIcons
 extension VerticalTabListView {
     typealias Row = VerticalTabListLayout.Row
 
+    /// The view drawn whole: for an image of it (`cacheDisplay`); on screen the rows are bands (`updateLayer`).
     override func draw(_ dirtyRect: NSRect) {
         performWithTheme {
             if isHoverExpanded {
@@ -16,49 +17,53 @@ extension VerticalTabListView {
                 Palette.separator.setFill()
                 CGRect(x: bounds.maxX - 1, y: 0, width: 1, height: bounds.height).fill()
             }
-            // What AppKit asked for (one row's rect after a hover or a tab change, the view after a scroll), in content
-            // coordinates; only the rows there are read (binary search), at any tab count.
             let visible = CGRect(x: 0, y: scrollOffset, width: bounds.width, height: bounds.height)
                 .intersection(dirtyRect.offsetBy(dx: 0, dy: scrollOffset))
             guard !visible.isNull else { return }
-            let look = VerticalNoColorGroupLook.tunable.value
-            let panes = look == .plain ? 0..<0 : VerticalTabListLayout.lineRange(listLayout.groupPanes, minY: visible.minY, maxY: visible.maxY)
-            let lines = VerticalTabListLayout.lineRange(listLayout.groupLines, minY: visible.minY, maxY: visible.maxY)
-            let rows = listLayout.rowRange(minY: visible.minY - 1, maxY: visible.maxY + 1)
-            listWork.walked(rows.count)
-            // A group with no color: one neutral pane behind its header and tabs, with a hairline rim and no hue
-            // (Leo 2026-11-05: "at least slightly distinguishing from, like, literally depicting it as if it were
-            // unhovered"), as the sidebar's no-color group and the strip's band draw it. Under every row, so hover and
-            // selection draw over it.
-            for pane in listLayout.groupPanes[panes] where pane.frame.intersects(visible) {
-                guard model.group(pane.group)?.tint.isNone == true else { continue }
-                let rect = viewRect(pane.frame)
-                Palette.sidebarStep.setFill()
-                NSBezierPath(roundedRect: rect, xRadius: metrics.cornerRadius, yRadius: metrics.cornerRadius).fill()
-                guard look == .rimmed else { continue }
-                // The `group` surface role's rim, a hairline inset half a pixel so it stays inside the pane.
-                let rim = FloatingGlassStyle.group.look(isDark: themeTokens.isDark).rimTop
-                let inset = 0.5 / scale, radius = metrics.cornerRadius - inset
-                let path = NSBezierPath(roundedRect: rect.insetBy(dx: inset, dy: inset), xRadius: radius, yRadius: radius)
-                rim.nsColor.setStroke()
-                path.lineWidth = 1 / scale
-                path.stroke()
-            }
-            for line in listLayout.groupLines[lines] where line.frame.intersects(visible) {
-                guard let group = model.group(line.group) else { continue }
-                group.tint.headerFill.setFill()
-                NSBezierPath(roundedRect: viewRect(line.frame), xRadius: line.frame.width / 2, yRadius: line.frame.width / 2).fill()
-            }
-            // The rows with area in the rect: a row's drawing stays inside its frame.
-            for row in listLayout.rows[rows] where row.frame.maxY > visible.minY && row.frame.minY < visible.maxY {
-                listWork.configured()
-                drawRow(row)
-            }
+            drawRows(in: visible)
             if let drag, drag.isActive, let slot = drag.slot {
                 Palette.accent.setFill()
                 let mark = viewRect(slot.indicator)
                 NSBezierPath(roundedRect: mark, xRadius: min(mark.width, mark.height) / 2, yRadius: min(mark.width, mark.height) / 2).fill()
             }
+        }
+    }
+
+    /// Draws the group panes, group lines and rows with area in content rect `visible` (a band, or the view), in the
+    /// theme scope the caller set; only the rows there are read (binary search), at any tab count.
+    func drawRows(in visible: CGRect) {
+        let look = VerticalNoColorGroupLook.tunable.value
+        let panes = look == .plain ? 0..<0 : VerticalTabListLayout.lineRange(listLayout.groupPanes, minY: visible.minY, maxY: visible.maxY)
+        let lines = VerticalTabListLayout.lineRange(listLayout.groupLines, minY: visible.minY, maxY: visible.maxY)
+        let rows = listLayout.rowRange(minY: visible.minY - 1, maxY: visible.maxY + 1)
+        listWork.walked(rows.count)
+        // A group with no color: one neutral pane behind its header and tabs, with a hairline rim and no hue
+        // (Leo 2026-11-05: "at least slightly distinguishing from, like, literally depicting it as if it were
+        // unhovered"), as the sidebar's no-color group and the strip's band draw it. Under every row, so hover and
+        // selection draw over it.
+        for pane in listLayout.groupPanes[panes] where pane.frame.intersects(visible) {
+            guard model.group(pane.group)?.tint.isNone == true else { continue }
+            let rect = viewRect(pane.frame)
+            Palette.sidebarStep.setFill()
+            NSBezierPath(roundedRect: rect, xRadius: metrics.cornerRadius, yRadius: metrics.cornerRadius).fill()
+            guard look == .rimmed else { continue }
+            // The `group` surface role's rim, a hairline inset half a pixel so it stays inside the pane.
+            let rim = FloatingGlassStyle.group.look(isDark: themeTokens.isDark).rimTop
+            let inset = 0.5 / scale, radius = metrics.cornerRadius - inset
+            let path = NSBezierPath(roundedRect: rect.insetBy(dx: inset, dy: inset), xRadius: radius, yRadius: radius)
+            rim.nsColor.setStroke()
+            path.lineWidth = 1 / scale
+            path.stroke()
+        }
+        for line in listLayout.groupLines[lines] where line.frame.intersects(visible) {
+            guard let group = model.group(line.group) else { continue }
+            group.tint.headerFill.setFill()
+            NSBezierPath(roundedRect: viewRect(line.frame), xRadius: line.frame.width / 2, yRadius: line.frame.width / 2).fill()
+        }
+        // The rows with area in the rect: a row's drawing stays inside its frame.
+        for row in listLayout.rows[rows] where row.frame.maxY > visible.minY && row.frame.minY < visible.maxY {
+            listWork.configured()
+            drawRow(row)
         }
     }
 
