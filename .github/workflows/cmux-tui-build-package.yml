@@ -467,22 +467,36 @@ jobs:
           if [[ "$RUNNER_OS" == macOS ]]; then
             export CARGO_PROFILE_RELEASE_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed
           fi
-          cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host --release --locked --target ${{ matrix.build_target }}
-          # The terminal holder (std and libc only), its own invocation so its
-          # features do not unify with the daemon's. The daemon starts every
-          # holder from a copy of it found beside its own executable.
-          cargo build -p cmux-holder --bin cmux-holder --release --locked --target ${{ matrix.build_target }}
-          # The app host runs each app's JS next to the daemon, which finds it
-          # beside its own executable (cmux-tui-core::apps). Unix only.
-          cargo build -p cmux-app-host --bin cmux-app-host --release --locked --target ${{ matrix.build_target }}
-          cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
-          cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
+          # One cargo per package, all at once, each in its own target directory (building them in
+          # one cargo would unify their features), as the Linux legs do (scripts/ci/cargo-groups.sh).
+          # One after another, each fat-LTO link ran alone on one core: the aarch64 leg on a mini
+          # took 42.1-65.0 min (runs 44165730243, 44173464956, 44171269072, 44240874997, 2026-11-17/18,
+          # two cancelled by the job timeout) against 13-15 min built on Linux, and the NEXT
+          # nightly waits for this tree (run 44243166776 waited 37.9 min at "Bundle the cmux-tui client").
+          # tests/test_ci_cmux_tui_mac_legs_cargo_groups.py.
+          t=${{ matrix.build_target }}
+          cb() { echo "cargo build --timings --release --locked --target $t"; }
+          # The terminal holder (std and libc only) is its own invocation so its features do not unify
+          # with the daemon's; the daemon starts every holder from a copy found beside its executable.
+          # The app host runs each app's JS next to the daemon (cmux-tui-core::apps). Unix only.
           # The script prints one `--features=...` argument or nothing.
-          acpmux_features="$(../scripts/ci/acpmux-build-features.sh crates/acpmux/Cargo.toml ${{ matrix.build_target }} acpmux)"
-          cargo build -p acpmux-standalone --bin acpmux-standalone --release --locked --target ${{ matrix.build_target }} \
-            ${acpmux_features:+"$acpmux_features"}
+          acpmux_features="$(../scripts/ci/acpmux-build-features.sh crates/acpmux/Cargo.toml "$t" acpmux)"
+          ../scripts/ci/cargo-groups.sh "$PWD/target" "$t" \
+            "cmux-tui cmux-tui-hook cmux-tui-host" "$(cb) -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host" \
+            "cmux-holder" "$(cb) -p cmux-holder --bin cmux-holder" \
+            "cmux-app-host" "$(cb) -p cmux-app-host --bin cmux-app-host" \
+            "cmux-relay" "$(cb) -p cmux-relay --bin cmux-relay" \
+            "chatmux-relay" "$(cb) -p chatmux-relay --bin chatmux-relay" \
+            "acpmux-standalone" "$(cb) -p acpmux-standalone --bin acpmux-standalone $acpmux_features"
+          # cargo-groups.sh gathers the binaries only; the dSYM upload reads every .dSYM from
+          # target/<triple>/release, so bring each group's beside its binary.
+          for dsym in target/groups/*/"$t"/release/*.dSYM; do
+            [[ -d "$dsym" ]] || continue
+            rm -rf "target/$t/release/${dsym##*/}"
+            cp -Rp "$dsym" "target/$t/release/"
+          done
           # As the Linux legs: the build id only in this binary, staged as acpmux.
-          cp "target/${{ matrix.build_target }}/release/acpmux-standalone" "target/${{ matrix.build_target }}/release/acpmux"
+          cp "target/$t/release/acpmux-standalone" "target/$t/release/acpmux"
 
       # Warm start for the shipped fat-LTO legs on feat-cmux-next pushes (both musl targets and
       # the macOS targets built on Linux): the previous build's whole target dir and cargo
@@ -681,22 +695,36 @@ jobs:
           if [[ "$RUNNER_OS" == macOS ]]; then
             export CARGO_PROFILE_RELEASE_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed
           fi
-          cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host --release --locked --target ${{ matrix.build_target }}
-          # The terminal holder (std and libc only), its own invocation so its
-          # features do not unify with the daemon's. The daemon starts every
-          # holder from a copy of it found beside its own executable.
-          cargo build -p cmux-holder --bin cmux-holder --release --locked --target ${{ matrix.build_target }}
-          # The app host runs each app's JS next to the daemon, which finds it
-          # beside its own executable (cmux-tui-core::apps). Unix only.
-          cargo build -p cmux-app-host --bin cmux-app-host --release --locked --target ${{ matrix.build_target }}
-          cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
-          cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
+          # One cargo per package, all at once, each in its own target directory (building them in
+          # one cargo would unify their features), as the Linux legs do (scripts/ci/cargo-groups.sh).
+          # One after another, each fat-LTO link ran alone on one core: the aarch64 leg on a mini
+          # took 42.1-65.0 min (runs 44165730243, 44173464956, 44171269072, 44240874997, 2026-11-17/18,
+          # two cancelled by the job timeout) against 13-15 min built on Linux, and the NEXT
+          # nightly waits for this tree (run 44243166776 waited 37.9 min at "Bundle the cmux-tui client").
+          # tests/test_ci_cmux_tui_mac_legs_cargo_groups.py.
+          t=${{ matrix.build_target }}
+          cb() { echo "cargo build --timings --release --locked --target $t"; }
+          # The terminal holder (std and libc only) is its own invocation so its features do not unify
+          # with the daemon's; the daemon starts every holder from a copy found beside its executable.
+          # The app host runs each app's JS next to the daemon (cmux-tui-core::apps). Unix only.
           # The script prints one `--features=...` argument or nothing.
-          acpmux_features="$(../scripts/ci/acpmux-build-features.sh crates/acpmux/Cargo.toml ${{ matrix.build_target }} acpmux)"
-          cargo build -p acpmux-standalone --bin acpmux-standalone --release --locked --target ${{ matrix.build_target }} \
-            ${acpmux_features:+"$acpmux_features"}
+          acpmux_features="$(../scripts/ci/acpmux-build-features.sh crates/acpmux/Cargo.toml "$t" acpmux)"
+          ../scripts/ci/cargo-groups.sh "$PWD/target" "$t" \
+            "cmux-tui cmux-tui-hook cmux-tui-host" "$(cb) -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host" \
+            "cmux-holder" "$(cb) -p cmux-holder --bin cmux-holder" \
+            "cmux-app-host" "$(cb) -p cmux-app-host --bin cmux-app-host" \
+            "cmux-relay" "$(cb) -p cmux-relay --bin cmux-relay" \
+            "chatmux-relay" "$(cb) -p chatmux-relay --bin chatmux-relay" \
+            "acpmux-standalone" "$(cb) -p acpmux-standalone --bin acpmux-standalone $acpmux_features"
+          # cargo-groups.sh gathers the binaries only; the dSYM upload reads every .dSYM from
+          # target/<triple>/release, so bring each group's beside its binary.
+          for dsym in target/groups/*/"$t"/release/*.dSYM; do
+            [[ -d "$dsym" ]] || continue
+            rm -rf "target/$t/release/${dsym##*/}"
+            cp -Rp "$dsym" "target/$t/release/"
+          done
           # As the Linux legs: the build id only in this binary, staged as acpmux.
-          cp "target/${{ matrix.build_target }}/release/acpmux-standalone" "target/${{ matrix.build_target }}/release/acpmux"
+          cp "target/$t/release/acpmux-standalone" "target/$t/release/acpmux"
 
       - name: Build cmux-cloud app server
         # The first-party Cloud app server (cmux/cloud) is its own Cargo
