@@ -95,7 +95,10 @@ for name in dict.fromkeys(r["row"] for r in rows):
     runs = [r for r in rows if r["row"] == name and r.get("rep") != "T" and r.get("mode") == "first"]
     table = {"row": name, "n": len(runs), "errors": sum(1 for r in runs if r.get("error")),
              "translocated": sum(1 for r in runs if r.get("translocated")),
-             "prompted": sum(1 for r in runs if isinstance(r.get("prompt"), (int, float)))}
+             "prompted": sum(1 for r in runs if isinstance(r.get("prompt"), (int, float))),
+             # Launches that started with an unanswered prompt of an earlier launch on screen, and that left one.
+             "prompts_before": sum(1 for r in runs if r.get("prompts_before")),
+             "prompt_left": sum(1 for r in runs if r.get("prompt_left"))}
     for key in ("prompt", "prompt_gone", "start", "main", "window", "usable", "main_start",
                 "syspolicyd_ms", "xprotect_ms", "amfid_ms", "trustd_ms", "mount_ms", "prepare_checker_ms", "prewarm_ms"):
         table[key] = med([r.get(key) for r in runs])

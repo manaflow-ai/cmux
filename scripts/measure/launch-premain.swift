@@ -329,9 +329,13 @@ case "first":
         CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
     }
     func owner(_ info: [String: Any]) -> String { info[kCGWindowOwnerName as String] as? String ?? "?" }
+    func windowID(_ info: [String: Any]) -> Int { info[kCGWindowNumber as String] as? Int ?? -1 }
+    // CoreServicesUIAgent windows already on screen before the request (a prompt an earlier launch left unanswered)
+    // are not this launch's prompt: only a window that came after the request is.
+    let agentBefore = Set(onScreen().filter { owner($0) == "CoreServicesUIAgent" }.map(windowID))
     func agentWindow(_ list: [[String: Any]]) -> (pid: Int32, id: Int)? {
-        for info in list where owner(info) == "CoreServicesUIAgent" {
-            if let pid = info[kCGWindowOwnerPID as String] as? Int32, let id = info[kCGWindowNumber as String] as? Int { return (pid, id) }
+        for info in list where owner(info) == "CoreServicesUIAgent" && !agentBefore.contains(windowID(info)) {
+            if let pid = info[kCGWindowOwnerPID as String] as? Int32 { return (pid, windowID(info)) }
         }
         return nil
     }
@@ -393,7 +397,8 @@ case "first":
         "prompt": since(prompt), "prompt_gone": since(promptGone), "pressed": since(pressed), "press": press,
         "start": since(start), "main": fromRequest("main_start"), "window": since(window), "usable": fromRequest("window_usable"),
         "main_start": json(mainAt), "translocated": path.contains("/AppTranslocation/"), "ran_from": path,
-        "marks": marks.mapValues(round1), "new_window_owners": newOwners,
+        "marks": marks.mapValues(round1), "new_window_owners": newOwners, "prompts_before": agentBefore.count,
+        "prompt_left": agentWindow(onScreen()) != nil,
     ]
     row.merge(fields) { $1 }
     if let failure { row["error"] = failure } else if window == nil { row["error"] = "no window in 60 s" }
