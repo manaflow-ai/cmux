@@ -177,10 +177,10 @@ public struct PagedListLabRoot: View {
                 }
             }
             operation("Insert", "insert") { source.insertNewest() }
-            // A newest row 1.5 s from now: a test rests a finger on the list before it lands.
+            // A newest row 2.5 s from now: a test rests a finger on the list before it lands.
             operation("Later", "later") {
                 Task { @MainActor in
-                    try? await Task.sleep(for: .seconds(1.5))
+                    try? await Task.sleep(for: .seconds(2.5))
                     source.insertNewest()
                 }
             }

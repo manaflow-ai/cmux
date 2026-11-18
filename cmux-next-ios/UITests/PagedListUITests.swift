@@ -92,9 +92,9 @@ final class PagedListUITests: XCTestCase {
         XCTAssertTrue(lab.row(0).waitForExistence(timeout: 10))
         lab.settle(lab.row(0))
         let slides = lab.reading.slides
-        // The row lands 1.5 s after the tap; the finger rests from before that until after it.
+        // The row lands 2.5 s after the tap; the finger rests from before that until after it.
         lab.app.buttons["lab.op.later"].tap()
-        lab.list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35)).press(forDuration: 3.5)
+        lab.list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35)).press(forDuration: 5)
         let arrived = lab.row(-2)
         XCTAssertTrue(arrived.waitForExistence(timeout: 5), "the new row did not show")
         lab.waitFor("the slide", timeout: 5) { lab.reading.slides > slides }

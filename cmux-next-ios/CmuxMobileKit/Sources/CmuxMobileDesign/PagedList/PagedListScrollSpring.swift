@@ -34,6 +34,9 @@ final class PagedListScrollSpring {
     /// Without motion (Reduce Motion, or the screen turned it off): one jump on the first frame no
     /// finger holds it.
     private var jumps = false
+    /// A finger holds it (the display link runs slowly meanwhile).
+    private var held = false
+    private static let sliding = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
     private var lastTime: CFTimeInterval = 0
     private var frames = 0
 
@@ -46,14 +49,19 @@ final class PagedListScrollSpring {
     /// Starts from `from` (or carries on from where it is, when running). `jump`: no motion, one
     /// jump once no finger holds it.
     func run(from: CGFloat, jump: Bool = false) {
-        guard link == nil else { return }
+        guard link == nil else {
+            // Running already: it carries on (and jumps from here if motion went away).
+            if jump { jumps = true }
+            return
+        }
         position = from
         applied = current?()
         velocity = 0
         frames = 0
         jumps = jump
         let link = CADisplayLink(target: PagedListSpringTick(self), selector: #selector(PagedListSpringTick.tick(_:)))
-        link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
+        link.preferredFrameRateRange = Self.sliding
+        held = false
         link.add(to: .main, forMode: .common)
         self.link = link
         lastTime = CACurrentMediaTime()
@@ -71,10 +79,19 @@ final class PagedListScrollSpring {
         lastTime = now
         if let current, let applied { position += current() - applied }
         if holds() {
-            // A resting finger: wait where the rows are, and start again from rest when it lifts.
+            // A resting finger: wait where the rows are, and start again from rest when it lifts
+            // (at a low frame rate meanwhile).
             velocity = 0
             applied = current?()
+            if !held {
+                held = true
+                link.preferredFrameRateRange = CAFrameRateRange(minimum: 10, maximum: 30, preferred: 15)
+            }
             return
+        }
+        if held {
+            held = false
+            link.preferredFrameRateRange = Self.sliding
         }
         frames += 1
         let goal = target()
