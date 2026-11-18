@@ -263,7 +263,8 @@ const LIST_OVERSCAN = 16;
 /**
  * The catalog, windowed: only the rows near the viewport are mounted (a grid row holds as many
  * cards as the grid has columns), plus the selected and the focused row so focus and the split's
- * selection are never unmounted. The first measured row of each kind sizes the rows not yet
+ * selection are never unmounted, and the focused row's neighbours and the first and last rows, so
+ * the browser's own Tab and Shift-Tab keep listing order (no key handler). The first measured row of each kind sizes the rows not yet
  * mounted. Rows and cards are memoized on their listings, so a change to one listing draws its own
  * card, and a scroll step draws only the rows it brings in.
  */
@@ -318,9 +319,13 @@ function CatalogList({
     return next;
   }, [apps, columns]);
   const { rows, rowOf } = model;
-  // The listing that holds focus (a click or Tab focuses one) stays mounted however far it scrolls.
+  // The listing that holds focus (a click or Tab focuses one) stays mounted however far it scrolls;
+  // so do the rows before and after it and the first and last rows, the browser's next tab stops:
+  // Tab and Shift-Tab go on in listing order, and into the catalog at its first or last listing.
   const [focused, setFocused] = useState<string | undefined>(undefined);
-  const kept = [selected, focused].map((id) => (id === undefined ? -1 : (rowOf.get(id) ?? -1)));
+  const focusedRow = focused === undefined ? -1 : (rowOf.get(focused) ?? -1);
+  const kept = [0, rows.length - 1, selected === undefined ? -1 : (rowOf.get(selected) ?? -1)];
+  if (focusedRow >= 0) kept.push(focusedRow - 1, focusedRow, focusedRow + 1);
   const kind = grid ? `grid:${card}` : "list";
   const sizes = useRef(new Map<string, number>());
   const itemKey = useCallback((index: number) => rows[index]![0]!.id, [rows]);
@@ -334,12 +339,8 @@ function CatalogList({
     scrollMargin: box.margin,
     rangeExtractor: (range: Range) => {
       const indexes = defaultRangeExtractor(range);
-      for (const index of kept)
-        if (index >= 0 && !indexes.includes(index)) {
-          indexes.push(index);
-          indexes.sort((a, b) => a - b);
-        }
-      return indexes;
+      for (const index of kept) if (index >= 0 && index < rows.length && !indexes.includes(index)) indexes.push(index);
+      return indexes.sort((a, b) => a - b);
     },
   });
   // The first mounted row of each kind sizes every one not yet mounted, so the rows a scroll brings
