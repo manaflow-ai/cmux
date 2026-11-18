@@ -1641,6 +1641,11 @@ export type ConversationLayout = {
 /// text font, its line and the code sizes follow the user's chat look (chatDisplay.ts), 14px
 /// system-ui on 22.75px lines and 12px code on 20px lines by default.
 const metrics = () => currentChatMetrics();
+/// Whether the row being measured is the agent's reply, whose prose a font pack can set apart
+/// (chatDisplay.ts `replyMeasureFont`, conversation.css `.cv-reply`); layoutConversation sets it around each row.
+let measuringReply = false;
+/// The canvas font of the text being measured: the reply's while a reply is, else the chat's.
+const proseFont = () => (measuringReply ? metrics().replyMeasureFont : metrics().measureFont);
 /// Codex's user bubble keeps 10px padding on each side, at the chat's density text scale (`.cv-user__bubble`:
 /// the grid's Interface Size scale times the bubble's own, which together are the text scale).
 const userBubblePadding = () => 5 * gridLength("base") * chatDensityTextScale();
@@ -2652,9 +2657,12 @@ export function measuredText(tokens: Token[] | undefined, fallback: string): str
 }
 
 /// The prepared text cache is per row, so its key is the text revision (and the font that measured
-/// it). Keep enough entries for the current blocks plus a bounded tail of older streaming revisions.
-const PREPARED_CACHE_MIN = 64;
-const PREPARED_CACHE_PER_BLOCK = 4;
+/// it). A streamed tail never goes back to an earlier text, so a revision the row's last measure did
+/// not use is dead: the cache keeps the ones it used and this many more, the most recent (a font or
+/// look that flips back). It kept max(64, 4 x blocks) before, each a whole prepared block, in every
+/// row of every chat in the renderer the chats share, and a session of streaming agents grew that
+/// renderer's live heap until it stopped answering input (cmux#45888).
+export const PREPARED_CACHE_SPARE = 4;
 
 /// The rows whose prepared text (PreparedRow) the transcript keeps, the most recently measured: the
 /// rows around the view and the live ones, which every pass measures, and a short tail of the rest.
@@ -2723,12 +2731,8 @@ function trimPreparedRows(cache: Map<string, PreparedRow>): void {
   }
 }
 
-function trimPreparedCache(
-  prepared: Map<string, PreparedText | null>,
-  blockCount: number,
-  used: ReadonlySet<string>,
-): void {
-  const limit = Math.max(PREPARED_CACHE_MIN, PREPARED_CACHE_PER_BLOCK * blockCount, used.size);
+function trimPreparedCache(prepared: Map<string, PreparedText | null>, used: ReadonlySet<string>): void {
+  const limit = used.size + PREPARED_CACHE_SPARE;
   if (prepared.size <= limit) return;
   for (const key of prepared.keys()) {
     if (prepared.size <= limit) break;
@@ -2744,7 +2748,7 @@ function textHeight(
   /// The rows' line height when it is not the prose's (a folded note's 20px lines).
   lineHeight = metrics().lineHeight,
 ): number {
-  const { measureFont } = metrics();
+  const measureFont = proseFont();
   // Keyed by font too: a new chat font measures the text again.
   const key = `${measureFont}\n${text}`;
   used?.add(key);
@@ -3144,7 +3148,7 @@ function measuredRowHeight(
   // A stream changes only its tail block. Preserve prepared entries for the unchanged blocks and
   // trim stale revisions once per row, never once per token or across the transcript. `usedPrepared`
   // includes list items, whose text count can be much larger than the block count.
-  trimPreparedCache(entry.prepared, entry.blocks.length, usedPrepared);
+  trimPreparedCache(entry.prepared, usedPrepared);
   // A long prompt opens collapsed to its first lines over Show more (conversation/UserBubble.tsx); a
   // Chief's draws its own bubble (ChiefPromptBubble.tsx).
   if (row.kind === "user" && row.from !== "chief" && !chiefEnvelope(row.text))
@@ -3180,12 +3184,13 @@ function preparedLines(
   prepared: PreparedRow["prepared"],
   used: Set<string>,
 ): PreparedTextWithSegments | null {
-  const key = `lines\n${metrics().measureFont}\n${text}`;
+  const font = proseFont();
+  const key = `lines\n${font}\n${text}`;
   used.add(key);
   let measured = prepared.get(key) as PreparedTextWithSegments | null | undefined;
   if (measured === undefined) {
     try {
-      measured = prepareWithSegments(text, metrics().measureFont, {
+      measured = prepareWithSegments(text, font, {
         whiteSpace: "pre-wrap",
       });
       notePreparedText(text.length);
@@ -3541,20 +3546,26 @@ export function layoutConversation(
         height = kept.height;
         remembered = true;
       } else {
-        height = custom
-          ? customHeight
-          : edge === LIVE_STEP_EDGE
-            ? TRANSCRIPT_LIVE_STEP_HEIGHT * chromeScale
-            : measuredRowHeight(
-                row,
-                width,
-                cache,
-                edge?.startsWith("footer") === true,
-                edge?.startsWith("last-turn") === true,
-                sessionId,
-                edge?.startsWith("continuation") === true,
-                edge?.endsWith(ACTIONS_EDGE) === true,
-              );
+        // A reply's text measures in the reply's face (`proseFont`).
+        measuringReply = row.kind === "assistant";
+        try {
+          height = custom
+            ? customHeight
+            : edge === LIVE_STEP_EDGE
+              ? TRANSCRIPT_LIVE_STEP_HEIGHT * chromeScale
+              : measuredRowHeight(
+                  row,
+                  width,
+                  cache,
+                  edge?.startsWith("footer") === true,
+                  edge?.startsWith("last-turn") === true,
+                  sessionId,
+                  edge?.startsWith("continuation") === true,
+                  edge?.endsWith(ACTIONS_EDGE) === true,
+                );
+        } finally {
+          measuringReply = false;
+        }
         // A row that draws nothing stays at 0; a custom renderer's height is its own.
         if (!custom && height > 0) height += statusDelta(row, statusEdge(row, rows[nextDrawn], prev));
         known?.set(row, { width, height, edge, scale });
