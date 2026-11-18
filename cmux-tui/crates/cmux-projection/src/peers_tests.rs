@@ -21,12 +21,16 @@ impl Fake {
     }
 }
 
-/// A source at `http://down*` is unreachable; one at `http://panics*` panics.
+/// A source at `http://down*` is unreachable, one at `http://busy*` is at its limit, and one at
+/// `http://panics*` panics.
 impl Get for Arc<Fake> {
     fn get(&self, url: &str, _token: Option<&str>, _deadline: Duration) -> Answer {
         self.asked.lock().unwrap().push(url.to_owned());
         if url.starts_with("http://down") {
             return Answer::Failed;
+        }
+        if url.starts_with("http://busy") {
+            return Answer::Busy;
         }
         assert!(!url.starts_with("http://panics"), "source panicked");
         self.answers.get(url).map_or(Answer::Absent, |bytes| Answer::Found(bytes.clone()))
@@ -164,6 +168,19 @@ fn a_dead_source_is_dropped_after_three_failures() {
     assert_eq!(filled.dropped, 1);
     // Workers already past the check when the third failure lands may ask once more each.
     assert!(fake.asked.lock().unwrap().len() < DEAD_AFTER + PARALLEL);
+}
+
+/// A seed answers 503 when more checkouts ask it than it serves at once (8 requests in flight
+/// against its 4 connections); that is the seed working, so it must not get the seed dropped.
+#[test]
+fn a_busy_source_falls_through_but_is_never_dropped() {
+    let fake = Arc::new(Fake::new(&[]));
+    let chain = Chain::new(vec![remote("peer", "http://busy-peer")], Box::new(fake.clone()));
+    let oids: Vec<String> = (0..50).map(|at| format!("{at:040x}")).collect();
+    let (rest, filled) = chain.fill(&oids, &|_, _| Ok(()));
+    assert_eq!(rest, oids);
+    assert_eq!(filled.dropped, 0);
+    assert_eq!(fake.asked.lock().unwrap().len(), oids.len());
 }
 
 #[test]
