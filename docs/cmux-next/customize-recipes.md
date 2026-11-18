@@ -132,6 +132,32 @@ Or ask: "let me move between panes with ctrl-cmd-h, j, k and l"
 
 ## App looks
 
+Each of these changes the whole window at once: the colors, the sidebar, the chat and the
+composer. Each turns on a theme file of its own and a chat stylesheet, so to make one your own,
+edit `~/.config/cmux/themes/NAME.json` and `~/.config/cmux/agent-pane/theme.css` after you apply it.
+
+### Like the Codex app
+
+A gray sidebar of your chats by project with how long ago each ran, a white page, your prompts
+in gray pills, and a large rounded composer.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/codex-app.json
+```
+
+Or ask: "make cmux look and work like the Codex app"
+
+### True black, chats by project
+
+True black, a dense sidebar of chats by project with the branch under each name, a narrow chat
+column and an indigo accent.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/true-black.json
+```
+
+Or ask: "make cmux true black with a dense sidebar of chats by project"
+
 ### Like the Claude desktop app
 
 The Claude desktop app's Code tab, dark, with colors measured from the real app: a #191919 page,
