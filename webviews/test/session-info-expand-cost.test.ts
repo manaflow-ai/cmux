@@ -152,6 +152,60 @@ await requireBrowserLane("session-info-expand-cost.test.ts", async () => {
     }
   });
 
+  // Outputs' list and the ended subagents' list each scroll themselves (capped, overflow-y auto): their
+  // own scroll, not the panel's, moves the window.
+  for (const [list, selector] of [
+    ["outputs", "ul[data-section=outputs]"],
+    ["subagents", ".acpmux-session-info-subagents__list"],
+  ] as const) {
+    test(`${list}: a list that is its own scroller mounts the rows its scroll reaches`, async () => {
+      const { port } = vite!.httpServer!.address() as { port: number };
+      const page = await browser!.newPage({ viewport: { width: 900, height: HEIGHT } });
+      try {
+        await page.goto(`http://127.0.0.1:${port}${PAGE}?list=${list}&n=500`);
+        await page.waitForFunction(() => typeof window.__expand === "function");
+        await page.evaluate(() => window.__expand());
+        await page.waitForFunction(() => !document.querySelector("[data-folding]"));
+        expect(await page.evaluate((s) => getComputedStyle(document.querySelector(s)!).overflowY, selector)).toBe(
+          "auto",
+        );
+        await page.evaluate((s) => {
+          const scroller = document.querySelector(s)!;
+          scroller.scrollTop = scroller.scrollHeight;
+        }, selector);
+        // Two frames for the scroll event and the commit it makes.
+        await page.evaluate(
+          () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+        );
+        const seen = await page.evaluate((s) => {
+          const scroller = document.querySelector(s)!;
+          const view = scroller.getBoundingClientRect();
+          const rows = [...scroller.querySelectorAll(":scope > li:not([data-rows-rest])")];
+          const inView = rows.filter((row) => {
+            const box = row.getBoundingClientRect();
+            return box.bottom > view.top && box.top < view.bottom;
+          });
+          const last = rows.at(-1);
+          return {
+            mounted: rows.length,
+            inView: inView.length,
+            lastPlace: Number(last?.getAttribute("aria-posinset") ?? 0),
+            size: Number(last?.getAttribute("aria-setsize") ?? 0),
+            lastText: last?.textContent ?? "",
+          };
+        }, selector);
+        console.log(`SESSION-INFO-EXPAND ${list} scrolled to its own end (500): ${JSON.stringify(seen)}`);
+        // Rows fill the list's view at its end, the true last row among them, not a blank box.
+        expect(seen.inView).toBeGreaterThan(0);
+        expect(seen.mounted).toBeLessThanOrEqual(BOUND);
+        if (seen.size > 0) expect(seen.lastPlace).toBe(seen.size);
+        if (list === "outputs") expect(seen.lastText).toContain("file-499");
+      } finally {
+        await page.close();
+      }
+    });
+  }
+
   for (const list of ["tasks", "subagents", "outputs", "sources", "changes", "usage", "alsoHere"]) {
     test(`${list}: opening the list draws only the rows that can show, at any length`, async () => {
       const { port } = vite!.httpServer!.address() as { port: number };

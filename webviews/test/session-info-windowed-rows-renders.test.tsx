@@ -232,3 +232,29 @@ test("Shift-Tab into the list from below lands on its true last row without moun
   expect(list.mounted().length).toBeLessThanOrEqual(BOUND + 1);
   await list.unmount();
 });
+
+test("a list that is itself the scroller moves its window with its own scroll", async () => {
+  const { WindowedRows } = await import("../src/agent-session/acpmux/session-info/WindowedRows");
+  const host = dom.window.document.createElement("div");
+  dom.window.document.body.append(host);
+  const root = createRoot(host);
+  const items = itemsOf(10_000);
+  await act(async () =>
+    root.render(
+      <ul data-scroller style={{ overflowY: "auto", height: VIEW }}>
+        <WindowedRows items={items} render={(item) => <ProbeRow key={item.id} item={item} onOpen={open} />} />
+      </ul>,
+    ),
+  );
+  const list = host.querySelector<HTMLElement>("ul")!;
+  list.scrollTop = 5_000 * ROW;
+  await act(async () => list.dispatchEvent(new dom.window.Event("scroll")));
+  const mounted = [...host.querySelectorAll("li[data-i]")].map((row) => Number(row.getAttribute("data-i")));
+  console.log(
+    `WINDOWED-ROWS list is its own scroller: mounted=${mounted.length} range=${Math.min(...mounted)}..${Math.max(...mounted)}`,
+  );
+  expect(mounted).toContain(5_000);
+  expect(mounted.length).toBeLessThanOrEqual(BOUND);
+  await act(async () => root.unmount());
+  host.remove();
+});

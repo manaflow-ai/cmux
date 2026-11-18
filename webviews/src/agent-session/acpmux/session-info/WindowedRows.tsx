@@ -30,11 +30,13 @@ const FOCUSABLE = 'button:not([disabled]), a[href], input, select, textarea, [ta
 
 const viewHeight = () => (typeof window === "undefined" ? 800 : window.innerHeight || 800);
 
-/// The elements that scroll `node`, nearest first: a row shows where all of them show it.
+/// The elements that scroll the rows of list `node`, nearest first: the list itself when it scrolls
+/// (Outputs' and the ended subagents' capped lists), then its ancestors that do. A row shows where all
+/// of them show it.
 function scrollersOf(node: Element): HTMLElement[] {
   const view = node.ownerDocument.defaultView;
   const scrollers: HTMLElement[] = [];
-  for (let at: Element | null = node.parentElement; at; at = at.parentElement) {
+  for (let at: Element | null = node; at; at = at.parentElement) {
     const overflow = view?.getComputedStyle(at).overflowY;
     if (overflow === "auto" || overflow === "scroll") scrollers.push(at as HTMLElement);
   }
