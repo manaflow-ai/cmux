@@ -91,8 +91,9 @@ validate_replaceable_helper_bundle() {
   # when their exact TCC identity and executable prove they are our generated
   # build output. Never remove an arbitrary directory merely because it lives
   # at the computed output path.
-  existing_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$helper_app/Contents/Info.plist" 2>/dev/null || true)"
-  existing_executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$helper_app/Contents/Info.plist" 2>/dev/null || true)"
+  existing_id="" existing_executable=""
+  [[ -f "$helper_app/Contents/Info.plist" ]] && existing_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$helper_app/Contents/Info.plist" 2>/dev/null || true)"
+  [[ -f "$helper_app/Contents/Info.plist" ]] && existing_executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$helper_app/Contents/Info.plist" 2>/dev/null || true)"
   local legacy_id=false
   case "$existing_id" in
     com.cmuxterm.*.computer-use|com.cmuxterm.app.computer-use)

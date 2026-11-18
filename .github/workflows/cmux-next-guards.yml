@@ -9,7 +9,9 @@ name: cmux-next guards
 # shows on the push that caused it.
 #
 # A push runs the group in nightly-guards, judged at its tip, so a base red
-# still fails the push that caused it. A pull request runs it inside the CI
+# still fails the push that caused it, and in the CI guard group, so the merge
+# gate's base-red excuse finds a base verdict for every release-notary step a
+# pull request's guard group can fail. A pull request runs it inside the CI
 # guard group's head-and-base comparison instead (ci-guard-group, below), which
 # fails only on a step red on the change and not on its base, and only when the
 # change reaches what the group reads: release, notary and signing paths, the
@@ -229,7 +231,7 @@ jobs:
   # never ran for feat-cmux-next (tests/pr-lane-exemptions.json). This job runs them too: --feat-routes picks
   # the groups a pull request's paths route to (detect_linux_guard_changes.classify_feat, workflow_guard_groups.py's
   # ownership), and every routed group on a push. The main-only release-ios group never runs here; release-notary runs here
-  # on a pull request that reaches its inputs (compared with its base) and in nightly-guards on a push (judged at the tip).
+  # on a pull request that reaches its inputs (compared with its base) and on every push (here, and in nightly-guards).
   ci-guard-group:
     name: cmux-next CI guard group
     # 32 vCPU, a guard worker per core: the head and the base each run every routed group, on every pull request
@@ -357,26 +359,23 @@ jobs:
           persist-credentials: false
 
       # A pull request routes release-notary by its paths like the other groups (classify_feat,
-      # RELEASE_NOTARY_INPUTS); a push leaves it out here, since nightly-guards runs it at the tip (header).
+      # RELEASE_NOTARY_INPUTS). A push runs every routed group, release-notary included, so every guard step a pull
+      # request's run can fail has a verdict in the base's newest push run of this job, the run the merge gate's
+      # base-red excuse reads (base_red_excuse.py GUARD_GROUP_JOB). While a push left release-notary to
+      # nightly-guards, a release-notary red on a pull request had no base verdict here and was never excused
+      # (cmux#45374, cmux#44413).
       - name: Run the ci guard group and the routed groups
         env:
           CMUX_GUARDS_BASE_SHA: ${{ steps.changes.outputs.base }}
           GUARDS_AT_TIP: ${{ steps.changes.outputs.tip }}
-          EVENT_NAME: ${{ github.event_name }}
         run: |
           # The job ends at 25 minutes; the base pass gets what the head pass leaves of 23, so a slow base ends in a
           # verdict (with unfinished base steps deferred to the merge gate) instead of a cancelled job that merge_hold waits on.
           step_started=$(date +%s)
           # The base checkout is untracked in this workspace; the workload profile refuses a dirty checkout.
           echo "/.guard-base/" >> .git/info/exclude
-          # The groups are literal flags so scripts/ci/pr_test_lanes.py sees what a pull request runs.
-          groups=()
-          if [ "$EVENT_NAME" = pull_request ]; then
-            scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" --results "$RUNNER_TEMP/guards-head.json" || true
-          else
-            groups=(--skip-group release-notary)
-            scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" --skip-group release-notary --results "$RUNNER_TEMP/guards-head.json" || true
-          fi
+          # The same call on a pull request and a push: a push has no changed-files list, so --feat-routes routes every group.
+          scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" --results "$RUNNER_TEMP/guards-head.json" || true
           # The base re-runs only the steps red on the head (guards_new_reds.py --red-steps): a step green on the
           # head is never the change's, and the full base pass doubled the job once release-notary joined it.
           steps=()
@@ -388,7 +387,7 @@ jobs:
             budget=$(( 23 * 60 - ( $(date +%s) - step_started ) ))
             if [ "$budget" -lt 60 ]; then budget=60; fi
             timeout --kill-after=10 "$budget" \
-              scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" "${groups[@]}" --feat-routes "$RUNNER_TEMP/changed-files.txt" "${steps[@]}" --root .guard-base \
+              scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" "${steps[@]}" --root .guard-base \
               --results "$RUNNER_TEMP/guards-base.json" > "$RUNNER_TEMP/guards-base.log" 2>&1 \
               || echo "::warning::the base re-run ended early (exit $?, budget ${budget}s); unfinished steps are deferred to the merge gate"
             tail -1 "$RUNNER_TEMP/guards-base.log"
