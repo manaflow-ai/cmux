@@ -23,7 +23,9 @@ const row = (id: string, kind: "user" | "assistant", text: string, at: number): 
   at,
 });
 
-/// The open's first chunk: the chat's latest page, the newest rows.
+/// The open's first chunk: the chat's latest page, the newest rows. It runs past the pane, as a real
+/// first page does (a kept tail holds up to 400 events, an attach's page 2,000): a chat short
+/// enough to leave the pane part empty comes whole in its first page, and nothing lands above it.
 const FIRST: AcpmuxRow[] = [
   row("load-user-2", "user", "Can it load faster?", 3),
   row(
@@ -32,8 +34,22 @@ const FIRST: AcpmuxRow[] = [
     "Usually it does: a kept tail draws on the first frame. When it cannot, the rows fade in instead of popping.",
     4,
   ),
-  row("load-user-3", "user", "And the rest of the chat?", 5),
-  row("load-answer-3", "assistant", "The read lands right after, above these, and fades in the same way.", 6),
+  row("load-user-3", "user", "What does the kept tail hold?", 5),
+  row(
+    "load-answer-3",
+    "assistant",
+    "The chat's newest events, up to a few hundred of them, so it covers more than one screen of the transcript and the pane opens on the latest turn at once.",
+    6,
+  ),
+  row("load-user-4", "user", "And when the daemon answers?", 7),
+  row(
+    "load-answer-4",
+    "assistant",
+    "Its page holds the whole recent chat. Rows the tail drew stay where they are; the older ones go above them, out of sight until you scroll up.",
+    8,
+  ),
+  row("load-user-5", "user", "And the rest of the chat?", 9),
+  row("load-answer-5", "assistant", "The read lands right after, above these, and fades in the same way.", 10),
 ];
 /// The read: the whole chat, its older rows above the first page.
 const OLDER: AcpmuxRow[] = [

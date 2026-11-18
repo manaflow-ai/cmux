@@ -218,44 +218,41 @@ await requireBrowserLane("transcript-open-history-no-remount-browser.test.ts", a
     await page.close();
   });
 
-  // A chat shorter than the pane loads the same way (Leo: "the correctness of the layout shifts"):
-  // its latest page draws while the read loads, and the read lands with the older rows above. The
-  // rows drawn first hold their pixel on every painted frame; only the read's rows appear, above.
-  test("a short chat's read landing above its first page moves no row drawn already", async () => {
+  // The same open, by pixel (Leo: "the correctness of the layout shifts"): the latest page draws
+  // while the read loads, and the read lands with the older turns above. Every row on screen,
+  // the turn footers and dates the transcript adds included, holds its pixel on every painted frame;
+  // the read's rows appear above, out of sight.
+  test("older history landing above the followed bottom moves no row on screen", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
     await installPaintedFrames(page);
     await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
     await page.waitForFunction(() => "__showLoadingRows" in window);
 
-    const short: Row[] = [
-      row("t1", "user", "Why does the pane open blank after a restart?"),
-      row("t2", "assistant", "The page shows before the daemon has answered the attach."),
-      row("t3", "user", "Can it load faster?"),
-      row("t4", "assistant", "Usually it does: a kept tail draws on the first frame."),
-      row("t5", "user", "And the rest of the chat?"),
-      row("t6", "assistant", "The read lands right after, above the rows drawn."),
-    ];
     await show(page, [], true);
-    await show(page, short.slice(2), true);
+    await show(page, chat.slice(-24), true);
     await settle(page);
-    // Every drawn row's viewport top and height (`top+height`), the turn footers the transcript adds
-    // too, now and then after each painted frame until the read has settled.
-    const boxes = () => {
+    // Each mounted row's viewport top and height, or only the rows on screen; now, then after each
+    // painted frame until the read has settled.
+    const boxes = (onScreen: boolean) => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const view = scroller.getBoundingClientRect();
       const out: Record<string, [number, number]> = {};
-      for (const node of document.querySelectorAll<HTMLElement>(".acpmux-scroll article.acpmux-row")) {
+      for (const node of scroller.querySelectorAll<HTMLElement>("article.acpmux-row")) {
         const box = node.getBoundingClientRect();
+        if (onScreen && !(box.height > 0 && box.bottom > view.top && box.top < view.bottom)) continue;
         out[node.dataset.rowId!] = [Math.round(box.top), Math.round(box.height)];
       }
       return out;
     };
     await page.evaluate(`window.__rowBoxes = ${boxes.toString()}`);
     const first = await page.evaluate(() =>
-      (window as unknown as { __rowBoxes(): Record<string, [number, number]> }).__rowBoxes(),
+      (window as unknown as { __rowBoxes(onScreen: boolean): Record<string, [number, number]> }).__rowBoxes(true),
     );
-    expect(Object.keys(first)).toEqual(expect.arrayContaining(["t3", "t4", "t5", "t6"]));
+    expect(Object.keys(first)).toContain("s40");
     await page.evaluate(() => {
-      const read = (window as unknown as { __rowBoxes(): Record<string, [number, number]> }).__rowBoxes;
+      const read = () =>
+        (window as unknown as { __rowBoxes(onScreen: boolean): Record<string, [number, number]> }).__rowBoxes(false);
       const frames: Record<string, [number, number]>[] = [];
       const stopFrames = window.cmuxAfterPaint(() => void frames.push(read()));
       (window as unknown as { __stopBoxes(): unknown }).__stopBoxes = () => {
@@ -263,7 +260,7 @@ await requireBrowserLane("transcript-open-history-no-remount-browser.test.ts", a
         return frames;
       };
     });
-    await show(page, short, false);
+    await show(page, chat, false);
     await settle(page);
     const frames = await page.evaluate(() =>
       (window as unknown as { __stopBoxes(): Record<string, [number, number]>[] }).__stopBoxes(),
@@ -277,8 +274,10 @@ await requireBrowserLane("transcript-open-history-no-remount-browser.test.ts", a
       ),
     );
     // On a failure, the rows before and after say which box changed.
-    expect({ moved, ...(moved.length && { before: first, after: frames.at(-1) }) }).toEqual({ moved: [] });
-    expect(Object.keys(frames.at(-1)!)).toEqual(expect.arrayContaining(["t1", "t2", "t3", "t4", "t5", "t6"]));
+    expect({ moved: moved.slice(0, 30), ...(moved.length && { before: first, after: frames.at(-1) }) }).toEqual({
+      moved: [],
+    });
+    expect(Object.keys(frames.at(-1)!)).toContain("s40");
     await page.close();
   });
 });
