@@ -63,6 +63,15 @@ Orphaned runs are a separate pass (find_orphans): a job the runner scheduler
 lost holds nothing on any pool, so that pass ignores the queue threshold,
 has its own cap, and may end main schedules, nightly and TestFlight runs,
 which the categories above never touch.
+
+Concurrency holders are a third pass (find_concurrency_holders), Linux-only
+workflows included: a pull request run parked `pending` behind its
+concurrency group, whose holder is an older run of the same workflow and
+branch at a superseded head with nothing able to run (every unfinished job
+queued with no runner), gets that holder force-cancelled under its own cap.
+cancel-in-progress has already cancelled such a holder, but an `if: always()`
+job still queued keeps it in flight, so its group never frees. Any pull
+request run parked over PARKED_ALERT_AGE is printed as an ::error::.
 """
 
 from __future__ import annotations
@@ -128,6 +137,21 @@ GHOST_GIVE_UP_AGE = dt.timedelta(hours=72)
 # a sweep spends on runs GitHub refuses to cancel.
 DEFAULT_MAX_ORPHAN_CANCELS = 5
 MAX_ORPHAN_CANCELS_LIMIT = 10
+# Concurrency holders (find_concurrency_holders): a pull request run `pending` this long behind its concurrency
+# group, held by an older run of the same workflow and branch at a superseded head whose only unfinished jobs have
+# sat `queued` with no runner HOLDER_JOB_WAIT. On 2026-11-18 cancel-in-progress cancelled such runs (web-validation's
+# gate is `if: always()`, so its cancelled run still queued that job, on the GitHub-hosted label its pre-fix
+# workflow named), GitHub never served the label, and each run held its group: 453 runs sat `pending` with no jobs
+# (168 of them Web validation, the oldest since 11-17 23:50Z), so merge_hold refused cmux#45922 and #45929 for hours.
+# A plain cancel was already applied by the concurrency group; only force-cancel ends such a run.
+HOLDER_PENDING_AGE = dt.timedelta(minutes=10)
+HOLDER_JOB_WAIT = dt.timedelta(minutes=10)
+DEFAULT_MAX_HOLDER_CANCELS = 20
+MAX_HOLDER_CANCELS_LIMIT = 25
+# One branch listing and at most one job listing per parked run, oldest parked first.
+MAX_HOLDER_LOOKUPS = 25
+# A pull request run parked this long is annotated as an error on the sweep, whether or not a holder was found.
+PARKED_ALERT_AGE = dt.timedelta(minutes=20)
 # How long to let a cancel settle before checking whether it took.
 ORPHAN_RECHECK_SECONDS = 20
 # An orphan is never cancelled from a release pipeline or the merge queue: a
@@ -1217,6 +1241,170 @@ def build_orphan_plan(
     return decisions
 
 
+def parked_pull_request_runs(
+    runs: Sequence[Mapping[str, Any]],
+    *,
+    now: dt.datetime,
+    min_age: dt.timedelta = HOLDER_PENDING_AGE,
+) -> list[Mapping[str, Any]]:
+    """Pull request runs `pending` behind their concurrency group for min_age, oldest first."""
+    parked = []
+    for run in runs:
+        created = parse_time(run.get("created_at"))
+        if (run.get("status") == "pending" and run.get("event") in PULL_REQUEST_EVENTS and run.get("head_branch")
+                and run.get("workflow_id") and created is not None and now - created >= min_age):
+            parked.append(run)
+    return sorted(parked, key=lambda run: (str(run.get("created_at") or ""), run["id"]))
+
+
+def holder_candidates(parked: Mapping[str, Any], branch_runs: Iterable[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """Older in-flight runs of parked's workflow and branch at another head, oldest first."""
+    parked_at = parse_time(parked.get("created_at"))
+    found = []
+    for run in branch_runs:
+        created = parse_time(run.get("created_at"))
+        if (run.get("id") != parked.get("id") and run.get("status") in ("queued", "in_progress")
+                and run.get("event") in PULL_REQUEST_EVENTS
+                and run.get("workflow_id") == parked.get("workflow_id")
+                and run.get("head_branch") == parked.get("head_branch")
+                and run.get("head_sha") != parked.get("head_sha")
+                and created is not None and parked_at is not None and created < parked_at):
+            found.append(run)
+    return sorted(found, key=lambda run: (str(run.get("created_at") or ""), run["id"]))
+
+
+def concurrency_holder(
+    parked: Mapping[str, Any],
+    candidates: Sequence[Mapping[str, Any]],
+    jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]],
+    *,
+    now: dt.datetime,
+    min_wait: dt.timedelta = HOLDER_JOB_WAIT,
+) -> Orphan | None:
+    """The superseded run holding parked's group with nothing that can run, as an Orphan, or None.
+
+    A holder is never running anything: every unfinished job is `queued` with no runner for min_wait (a job in
+    `waiting` is an environment approval and keeps the run). Its output is for a head the pull request has moved
+    past, which category (b) already treats as waste on any pool.
+    """
+    parked_at = parse_time(parked.get("created_at"))
+    for holder in candidates:
+        jobs = jobs_by_run.get(holder["id"])
+        if jobs is None:
+            continue
+        unfinished = [job for job in jobs if job.get("status") != "completed"]
+        if any(not never_assigned(job) for job in unfinished):
+            continue
+        times = [parse_time(job.get("created_at")) for job in unfinished]
+        if any(when is None or now - when < min_wait for when in times):
+            continue
+        holder_at = parse_time(holder.get("created_at")) or now
+        if not unfinished and now - holder_at < min_wait:
+            continue
+        since = min(when for when in times if when is not None) if times else holder_at
+        parked_for = format_age(now - parked_at) if parked_at else "-"
+        head = str(holder.get("head_sha") or "")[:9]
+        lead = (f"superseded at {head}, holds the concurrency group of pending run {parked['id']} "
+                f"(head {str(parked.get('head_sha') or '')[:9]}, parked {parked_for})")
+        if unfinished:
+            names = ", ".join(f"`{job.get('name')}`" for job in unfinished[:3])
+            evidence = (f"{lead}; its only unfinished job(s) {names} queued {format_age(now - since)} "
+                        f"with no runner on `{job_pool_key(unfinished[0])}`")
+        else:
+            evidence = f"{lead}; every job finished but the run still reads {holder.get('status')}"
+        return Orphan(holder, evidence, str(unfinished[0].get("name") or "") if unfinished else "", since, 0)
+    return None
+
+
+def find_concurrency_holders(
+    github: "GitHub",
+    runs: Sequence[Mapping[str, Any]],
+    *,
+    now: dt.datetime,
+    limit: int = MAX_HOLDER_LOOKUPS,
+) -> tuple[list[Orphan], list[str]]:
+    """Look up the holder of each parked pull request run, oldest parked first, up to `limit` lookups.
+
+    The in-flight listing reads MAX_RUN_PAGES pages per status, newest first, so during a backlog the holder (the
+    oldest queued run) is often not in it: each lookup lists the parked run's own workflow and branch instead. A
+    failed read skips that run and is reported; it never fails the sweep.
+    """
+    holders: list[Orphan] = []
+    errors: list[str] = []
+    seen: set[int] = set()
+    for parked in parked_pull_request_runs(runs, now=now)[:limit]:
+        try:
+            candidates = [run for run in holder_candidates(
+                parked, github.branch_runs(int(parked["workflow_id"]), str(parked["head_branch"])))
+                if run["id"] not in seen]
+            jobs = {run["id"]: github.jobs(run["id"]) for run in candidates[:1]}
+        except RuntimeError as error:
+            errors.append(f"run {parked['id']}: {error}")
+            continue
+        holder = concurrency_holder(parked, candidates[:1], jobs, now=now)
+        if holder is not None:
+            seen.add(holder.run["id"])
+            holders.append(holder)
+    return holders, errors
+
+
+def render_holder_summary(
+    decisions: Sequence[OrphanDecision],
+    parked: Sequence[Mapping[str, Any]],
+    *,
+    dry_run: bool,
+    now: dt.datetime,
+    errors: Sequence[str] = (),
+    results: Mapping[int, str] | None = None,
+) -> str:
+    results = results or {}
+    lines = [
+        "",
+        "### Concurrency holders",
+        "",
+        f"Pull request runs `pending` {format_age(HOLDER_PENDING_AGE)} behind their concurrency group, held by an "
+        f"older run at a superseded head whose only unfinished jobs queued {format_age(HOLDER_JOB_WAIT)} with no "
+        "runner. A plain cancel does not end such a run, so it is force-cancelled.",
+        "",
+    ]
+    late = [run for run in parked if (parse_time(run.get("created_at")) or now) <= now - PARKED_ALERT_AGE]
+    if late:
+        oldest = late[0]
+        lines.append(f"{len(late)} pull request run(s) parked over {format_age(PARKED_ALERT_AGE)}; oldest "
+                     f"{format_age(now - (parse_time(oldest.get('created_at')) or now))}: "
+                     f"{oldest.get('html_url') or oldest.get('id')}.")
+        lines.append("")
+    for error in errors:
+        lines.append(f"- lookup failed: {error}")
+    if not decisions:
+        lines.append("No concurrency holders found.")
+        return "\n".join(lines) + "\n"
+    lines.append("| Decision | Run | Workflow | Evidence |")
+    lines.append("| --- | --- | --- | --- |")
+    for decision in decisions:
+        run = decision.orphan.run
+        if decision.action == "cancel":
+            verb = results.get(run["id"]) or ("would force-cancel" if dry_run else "cancel")
+        else:
+            verb = f"keep ({decision.note})"
+        name = str(run.get("name") or run.get("path") or "").replace("|", "\\|")
+        evidence = decision.orphan.evidence.replace("|", "\\|")
+        lines.append(f"| {verb.replace('|', '/')} | {run.get('html_url') or run.get('id')} | {name} | {evidence} |")
+    return "\n".join(lines) + "\n"
+
+
+def parked_alert(parked: Sequence[Mapping[str, Any]], *, now: dt.datetime) -> str | None:
+    """One ::error:: workflow command when any pull request run is parked over PARKED_ALERT_AGE."""
+    late = [run for run in parked if (parse_time(run.get("created_at")) or now) <= now - PARKED_ALERT_AGE]
+    if not late:
+        return None
+    oldest = late[0]
+    age = format_age(now - (parse_time(oldest.get("created_at")) or now))
+    return (f"::error title=Runs parked behind a concurrency group::{len(late)} pull request run(s) pending over "
+            f"{format_age(PARKED_ALERT_AGE)} with no jobs; oldest {age} ({oldest.get('name')}, "
+            f"{oldest.get('html_url') or oldest.get('id')})")
+
+
 def _cancel_refused(error: RuntimeError) -> bool:
     """Whether GitHub rejected a cancellation because the run cannot be cancelled."""
     return "(409)" in str(error)
@@ -1514,6 +1702,13 @@ class GitHub:
             result.update(parse_graphql_prs(response, chunk))
         return result
 
+    def branch_runs(self, workflow_id: int, branch: str) -> list[dict[str, Any]]:
+        """One page of a workflow's queued pull request runs on one branch: a parked run's possible holders."""
+        query = urllib.parse.urlencode({"branch": branch, "event": "pull_request", "status": "queued",
+                                        "per_page": 20})
+        payload = self.request("GET", f"/repos/{self.repo}/actions/workflows/{workflow_id}/runs?{query}")
+        return list(payload.get("workflow_runs") or [])
+
     def run(self, run_id: int) -> dict[str, Any]:
         return self.request("GET", f"/repos/{self.repo}/actions/runs/{run_id}")
 
@@ -1543,6 +1738,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--pull-request-policy", default=os.environ.get("CI_PULL_REQUEST_SUITE", ""))
     parser.add_argument("--orphan-minutes", type=int, default=None)
     parser.add_argument("--max-orphan-cancels", type=int, default=None)
+    parser.add_argument("--max-holder-cancels", type=int, default=None)
     parser.add_argument("--workflows-dir", type=Path,
                         default=Path(__file__).resolve().parents[2] / ".github" / "workflows")
     parser.add_argument("--pool-load", type=Path, default=(
@@ -1578,6 +1774,15 @@ def main(argv: Sequence[str] | None = None) -> int:
               f"within 0..{MAX_ORPHAN_CANCELS_LIMIT}", file=sys.stderr)
         return 2
     orphan_age = dt.timedelta(minutes=orphan_minutes)
+    try:
+        max_holder_cancels = (args.max_holder_cancels if args.max_holder_cancels is not None
+                              else env_int("MAX_HOLDER_CANCELS", DEFAULT_MAX_HOLDER_CANCELS))
+    except ValueError:
+        print("queue-janitor: MAX_HOLDER_CANCELS must be an integer", file=sys.stderr)
+        return 2
+    if not 0 <= max_holder_cancels <= MAX_HOLDER_CANCELS_LIMIT:
+        print(f"queue-janitor: max holder cancels must be within 0..{MAX_HOLDER_CANCELS_LIMIT}", file=sys.stderr)
+        return 2
 
     github = GitHub(token, args.repo)
     now = utc_now()
@@ -1588,7 +1793,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Orphans read only what is already fetched; their PR branches join
         # the one batched GraphQL lookup for the no-janitor label.
         orphans = find_orphans(runs, jobs_by_run, min_age=orphan_age, now=now)
-        branches = sorted(set(branches_to_resolve(runs, jobs_by_run)) | set(orphan_branches(orphans, now)))
+        # Parked runs are found in the listing; their holders are looked up per workflow and branch.
+        parked = parked_pull_request_runs(runs, now=now)
+        holders, holder_errors = (find_concurrency_holders(github, runs, now=now) if max_holder_cancels
+                                  else ([], []))
+        branches = sorted(set(branches_to_resolve(runs, jobs_by_run)) | set(orphan_branches(orphans, now))
+                          | {str(h.run["head_branch"]) for h in holders})
         prs_by_branch = github.pull_requests(branches) if branches else {}
     except RuntimeError as error:
         print(f"queue-janitor: {error}", file=sys.stderr)
@@ -1655,9 +1865,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         orphan_results, orphan_failures = cancel_orphans(github, orphan_decisions)
         failures += orphan_failures
 
+    # A holder is cancelled, then force-cancelled when the cancel leaves it in flight (cancel_orphans), under its
+    # own cap: it holds a current head's required check, so it never waits behind the orphan cap.
+    holder_decisions = build_orphan_plan(
+        holders, prs_by_branch, max_cancels=max_holder_cancels,
+        exclude_ids={candidate.run["id"] for candidate in plan.to_cancel()}
+        | {d.orphan.run["id"] for d in orphan_decisions if d.action == "cancel"}, now=now,
+    )
+    holder_results: dict[int, str] = {}
+    if not args.dry_run:
+        holder_results, holder_failures = cancel_orphans(github, holder_decisions)
+        failures += holder_failures
+
     summary = render_summary(plan, dry_run=args.dry_run, now=now, results=results)
     summary += render_orphan_summary(orphan_decisions, dry_run=args.dry_run, now=now, min_age=orphan_age,
                                      results=orphan_results)
+    summary += render_holder_summary(holder_decisions, parked, dry_run=args.dry_run, now=now,
+                                     errors=holder_errors, results=holder_results)
+    alert = parked_alert(parked, now=now)
+    if alert:
+        print(alert)
     summary += f"\n_{len(runs)} in-flight runs, {len(jobs_by_run)} job listings, {len(branches)} PR branches, " \
                f"{len(orphans)} orphans, {github.calls} API calls._\n"
     summary += f"\n_{render_rate_limits(github.rate_limits)}_\n"
