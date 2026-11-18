@@ -67,15 +67,21 @@ extension PageWebView {
     /// ``chromiumClock``: true when it ended, false when the wait ran out first. The wait for `start`
     /// keeps running after a timeout until the start ends (closing the view cancels it).
     func chromiumStartEnded(_ start: Task<Void, Never>) async -> Bool {
-        let timer = DemandTimer(owner: "page.chromium.script-wait", clock: chromiumClock)
+        await ended(start, within: chromiumScriptWait, owner: "page.chromium.script-wait")
+    }
+
+    /// Waits for `task` at most `wait` on ``chromiumClock`` (`owner` names the timer): true when it
+    /// ended, false when the wait ran out first. `task` keeps running after a timeout until it ends.
+    func ended<Value: Sendable>(_ task: Task<Value, Never>, within wait: Duration, owner: String) async -> Bool {
+        let timer = DemandTimer(owner: owner, clock: chromiumClock)
         let race = PageStartRace()
-        let wait = chromiumScriptWait
         return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
             race.continuation = continuation
             timer.schedule(after: wait) { @MainActor in race.finish(false) }
-            // task-owner: ends with `start`, which the view cancels when it closes or falls back.
+            // task-owner: ends with `task`, which its owner bounds (a Chromium start the view
+            // cancels when it closes or falls back, a DevTools call with its own deadline).
             Task { @MainActor in
-                await start.value
+                _ = await task.value
                 timer.cancel()
                 race.finish(true)
             }
@@ -83,7 +89,8 @@ extension PageWebView {
     }
 }
 
-/// The first of a Chromium start and its deadline to end resumes the waiting call, once.
+/// The first of a task (a Chromium start, a DevTools answer) and its deadline to end resumes the
+/// waiting call, once.
 @MainActor
 private final class PageStartRace {
     var continuation: CheckedContinuation<Bool, Never>?

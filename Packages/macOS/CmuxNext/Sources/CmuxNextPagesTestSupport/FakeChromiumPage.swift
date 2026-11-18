@@ -57,6 +57,18 @@ public final class FakeChromiumPage: PageChromiumPage {
     public var onCall: (() -> Void)?
     /// Answers a call by its method and params before the defaults (nil: the defaults answer).
     public var answer: ((_ method: String, _ params: [String: any Sendable]) -> String?)?
+    /// Methods whose calls are recorded at once but answered only on ``release(_:)`` (a call that
+    /// only a later renderer answers, or none).
+    public var held: Set<String> = []
+    private var holds: [(continuation: CheckedContinuation<Void, Never>, method: String)] = []
+
+    /// Answers the held calls of `method`, now and from now on.
+    public func release(_ method: String) {
+        held.remove(method)
+        let released = holds.filter { $0.method == method }
+        holds.removeAll { $0.method == method }
+        for hold in released { hold.continuation.resume() }
+    }
     /// Runs when the host closes the page.
     public var onClose: (() -> Void)?
     /// Runs after each ``load(_:)`` and ``reload()``, once it is recorded: a new document starts.
@@ -77,6 +89,7 @@ public final class FakeChromiumPage: PageChromiumPage {
     public func devTools(_ method: String, params: [String: any Sendable]) async throws -> String {
         calls.append((method, params))
         defer { onCall?() }
+        if held.contains(method) { await withCheckedContinuation { holds.append(($0, method)) } }
         if let answered = answer?(method, params) { return answered }
         if method == "Page.addScriptToEvaluateOnNewDocument" { return #"{"identifier":"test-script"}"# }
         if method == "Runtime.evaluate", params["expression"] as? String == "[location.href, window === window.top]" {

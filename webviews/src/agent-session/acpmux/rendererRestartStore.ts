@@ -26,14 +26,35 @@ function set(next: string | undefined): void {
   for (const listener of listeners) listener();
 }
 
-/// Reads the app's flag now (the module's load, the late script's hook, tests).
+/// The documents whose line the person sent or closed. The app's script can come after that (it sets
+/// the global again and calls the hook), so the dismissal is kept per document, not in the global.
+const dismissedIn = new WeakSet<object>();
+
+/// This document (the module's globals where there is none, as in a test without a DOM).
+function thisDocument(): object {
+  return typeof document === "undefined" ? globals : document;
+}
+
+/// Reads the app's flag now (the module's load, the late script's hook, tests); nothing once this
+/// document's line was dismissed.
 export function bootRendererRestart(): void {
+  if (dismissedIn.has(thisDocument())) return;
   const line = readRendererRestart(globals[RENDERER_RESTART_GLOBAL]);
   if (line) set(line);
 }
 
-/// The person sent or closed it: the line goes, and this document does not show it again.
+/// The person sent or closed it: the line goes, and this document does not show it again, even
+/// when the app's script runs after this.
 export function dismissRendererRestart(): void {
+  dismissedIn.add(thisDocument());
+  delete globals[RENDERER_RESTART_GLOBAL];
+  set(undefined);
+}
+
+/// The gallery's reset, which shows several states in one document: no line, and no dismissal, so
+/// the next state's boot draws its line. The app never calls it.
+export function resetRendererRestart(): void {
+  dismissedIn.delete(thisDocument());
   delete globals[RENDERER_RESTART_GLOBAL];
   set(undefined);
 }
