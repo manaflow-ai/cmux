@@ -19,8 +19,8 @@
 // sent prompt draws once the composer is home, so nothing in the chat moves after it shows (Leo,
 // 2026-11-18: "it still does a 2 part animation going from as if it had an invisible split, then
 // into the main page"; test/agent-pane-new-chat-settles.test.ts). Before, the chat drew its first
-// message over a composer still parked where New Tab's stood, mid-page as in a split, and the glide
-// ran only once the chat's first frames were done: a pause there, then the drop.
+// message over a composer still parked where New Tab's stood, mid-page as in a split, then the
+// composer dropped to the dock under it.
 import { useSyncExternalStore } from "react";
 import { MOTION_EASE_OUT, MOTION_SPRING } from "../../../motion/scale.generated";
 import { motionMode, springEasing } from "../../../ui/motion/motionMode";
@@ -121,14 +121,7 @@ function glide(form: HTMLElement, from: Held): Animation[] {
   const field = place(fieldElement);
   if (!card) return [];
   const animations: Animation[] = [];
-  // Each part starts on this frame's clock, not when the chat's first frames let the compositor
-  // take it: a pending start held the box where New Tab's stood, then it dropped (the two parts).
-  const start = form.ownerDocument.timeline?.currentTime ?? null;
-  const play = (element: HTMLElement, keyframes: Keyframe[]) => {
-    const animation = element.animate(keyframes, timing);
-    if (start !== null) animation.startTime = start;
-    animations.push(animation);
-  };
+  const play = (element: HTMLElement, keyframes: Keyframe[]) => animations.push(element.animate(keyframes, timing));
   const timing: KeyframeAnimationOptions = {
     duration,
     easing: mode === "full" ? springEasing(MOTION_SPRING, MOTION_EASE_OUT, form.ownerDocument) : MOTION_EASE_OUT,
