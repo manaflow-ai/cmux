@@ -1050,12 +1050,12 @@ impl Spawner {
         // Its workspace's name, also its name on an approval card it is in.
         let name = crate::workspaces::title(task);
         // A Claude subagent under the goal runs on Opus 5.5 unless the spawn
-        // or the engine named a model (goal.rs).
+        // or the engine named a model (goal.rs); a Codex one keeps its own.
         let goal = self.goal_for(admitted.family, peer.is_some());
-        let model = s
-            .model
-            .clone()
-            .or_else(|| goal.then(|| crate::goal::MODEL.to_owned()));
+        let model = s.model.clone().or_else(|| {
+            (goal && admitted.family == crate::acpmux::Family::Claude)
+                .then(|| crate::goal::MODEL.to_owned())
+        });
         let spec = SessionSpec {
             name: format!("{}-{id}", s.prefix),
             cwd: s.cwd.clone(),
@@ -1345,7 +1345,10 @@ impl Spawner {
     fn goal_for(&self, family: crate::acpmux::Family, on_peer: bool) -> bool {
         self.goal
             && !on_peer
-            && family == crate::acpmux::Family::Claude
+            && matches!(
+                family,
+                crate::acpmux::Family::Claude | crate::acpmux::Family::Codex
+            )
             && crate::goal::on(self.user_document().as_ref())
     }
 
