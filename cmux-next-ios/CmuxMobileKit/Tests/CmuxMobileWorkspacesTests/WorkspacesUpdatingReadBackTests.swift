@@ -1,0 +1,85 @@
+#if os(iOS)
+import CmuxMobileDesign
+import CmuxMobileModel
+import Foundation
+import SwiftUI
+import Testing
+import UIKit
+@testable import CmuxMobileWorkspaces
+
+/// Read-back of the Workspaces page's "Updating…" subtitle on the real screen (Leo, 2026-11-14:
+/// "i also want all our connectivity stuff to shut the f*** up and load faster"): `WorkspacesList`
+/// in a window over rows the phone has, while the team's refresh never ends. At 3 s the subtitle
+/// says nothing about it; past the quiet bound (10 s, on the real clock the screen uses) it says
+/// "Updating…". Each state is saved as a screenshot attachment.
+@MainActor
+@Suite(.serialized, .timeLimit(.minutes(2))) struct WorkspacesUpdatingReadBackTests {
+    @Test func readBackRefreshAt3sAndPast10s() throws {
+        let store = AppStore.mock()
+        // A refresh that does not end while the rows show.
+        store.teamDataState = .loading
+        let creator = WorkspaceCreator(store: store, backend: MockWorkspaceCreationBackend(latency: .zero))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        window.rootViewController = UIHostingController(rootView: NavigationStack {
+            WorkspacesList(store: store, creator: creator, open: { _ in })
+        })
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        let shown = ContinuousClock.now
+
+        var log: [String] = []
+        pump(until: shown.advanced(by: .seconds(3)))
+        let early = updating(in: window)
+        log.append(line("1-refresh-3s-silent", since: shown, updating: early))
+        record(window, named: "workspaces-1-refresh-3s.png")
+        #expect(!early, "no Updating subtitle at 3 s of a refresh: \(subtitles(in: window))")
+
+        pump(until: shown.advanced(by: QuietStatusGate.threshold + .seconds(1)))
+        let late = updating(in: window)
+        log.append(line("2-refresh-past-10s-updating", since: shown, updating: late))
+        record(window, named: "workspaces-2-refresh-past-10s.png")
+        #expect(late, "past the quiet bound the subtitle says Updating: \(subtitles(in: window))")
+
+        Attachment.record(log.joined(separator: "\n") + "\n", named: "workspaces-readback.txt")
+        print(log.joined(separator: "\n"))
+    }
+
+    private func pump(until deadline: ContinuousClock.Instant) {
+        while ContinuousClock.now < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        }
+    }
+
+    /// The navigation subtitles and every label in the window.
+    private func subtitles(in window: UIWindow) -> [String] {
+        func navigations(_ controller: UIViewController?) -> [UINavigationController] {
+            guard let controller else { return [] }
+            return ((controller as? UINavigationController).map { [$0] } ?? []) + controller.children.flatMap { navigations($0) }
+        }
+        func labels(_ view: UIView) -> [String] {
+            ((view as? UILabel)?.text.map { [$0] } ?? []) + view.subviews.flatMap(labels)
+        }
+        let items = navigations(window.rootViewController).flatMap(\.viewControllers).compactMap { $0.navigationItem.subtitle }
+        return items + labels(window)
+    }
+
+    private func updating(in window: UIWindow) -> Bool {
+        subtitles(in: window).contains("Updating…")
+    }
+
+    private func line(_ name: String, since start: ContinuousClock.Instant, updating: Bool) -> String {
+        let parts = (ContinuousClock.now - start).components
+        let ms = parts.seconds * 1000 + parts.attoseconds / 1_000_000_000_000_000
+        return "\(name.padding(toLength: 28, withPad: " ", startingAt: 0)) t=\(ms)ms  updating=\(updating)"
+    }
+
+    private func record(_ window: UIWindow, named name: String) {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 2
+        let shot = UIGraphicsImageRenderer(bounds: window.bounds, format: format).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        if let png = shot.pngData() { Attachment.record(png, named: name) }
+    }
+}
+#endif
