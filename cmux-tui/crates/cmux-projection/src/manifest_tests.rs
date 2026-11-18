@@ -67,7 +67,11 @@ fn a_bad_or_doubled_path_is_refused() {
 #[test]
 #[ignore = "large acceptance fixture; run on the Linux fleet"]
 fn a_manifest_accepts_one_point_five_million_files() {
-    let items = (0..1_500_000).map(|index| file(&format!("files/{index:07}.dat"), 1)).collect();
+    // Keep the fixture's directory fan-out realistic so the acceptance run exercises the
+    // manifest's large-entry path without making one BTreeMap hold every file in the folder.
+    let items = (0..1_500_000)
+        .map(|index| file(&format!("files/{:04}/{index:07}.dat", index / 150), 1))
+        .collect();
     let manifest = Manifest::build(1, items).unwrap();
     assert_eq!(manifest.totals(), (1_500_000, 1_500_000));
     let encoded = manifest.encode().unwrap();
