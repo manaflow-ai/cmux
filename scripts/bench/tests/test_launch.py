@@ -107,6 +107,18 @@ class LaunchIngest(unittest.TestCase):
         self.assertEqual(bench.nightly_args["arms"], "h,a,k")
         self.assertEqual(bench.harness, "scripts/measure/launch-premain.sh")
 
+    def test_engines_arg(self) -> None:
+        # engines=chromium,webkit reaches the harness and gives the second side its own time.
+        bench = load_all()["launch"]
+        build = dict(NIGHTLY, url="https://example.com/a.dmg")
+        ctx = Context(bench=bench, build=build, host_role="fleet", args={"runs": "10", "engines": "chromium,webkit"})
+        args, timeout = bench.ready_args(ctx)
+        self.assertIn("engines=chromium,webkit", args)
+        self.assertEqual(timeout, 2700)
+        args, timeout = bench.ready_args(Context(bench=bench, build=build, host_role="fleet", args={}))
+        self.assertFalse(any(a.startswith("engines=") for a in args))
+        self.assertEqual(timeout, 1800)
+
     def test_registered(self) -> None:
         bench = load_all()["launch"]
         self.assertTrue(bench.nightly)

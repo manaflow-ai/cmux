@@ -9,6 +9,7 @@ import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { VirtualTranscript } from "../App";
 import type { AcpmuxRow } from "../model";
+import { MOTION_MS } from "../../../motion/scale.generated";
 
 type Variant = "pop" | "micro" | "standard" | "large" | "linear" | "stagger";
 
@@ -130,7 +131,7 @@ export default componentEntry<{ variant: Variant; frozen?: boolean }>({
     micro: {
       props: { variant: "micro" },
       play: atEnd,
-      note: "Selected: the host's fade-in token (micro, 120 ms), ease-out. Fast enough to read as a load, not an effect.",
+      note: `Selected: the host's fade-in token (micro, ${MOTION_MS.micro} ms), ease-out. Fast enough to read as a load, not an effect.`,
     },
     "micro-mid": {
       props: { variant: "micro", frozen: true },
@@ -139,22 +140,22 @@ export default componentEntry<{ variant: Variant; frozen?: boolean }>({
     standard: {
       props: { variant: "standard" },
       play: atEnd,
-      note: "180 ms (standard), ease-out: softer, starts to read as an animation.",
+      note: `${MOTION_MS.standard} ms (standard), ease-out: softer, starts to read as an animation.`,
     },
     large: {
       props: { variant: "large" },
       play: atEnd,
-      note: "240 ms (large), ease-out: the ceiling; visibly slow on a restart.",
+      note: `${MOTION_MS.large} ms (large), ease-out: the ceiling; visibly slow on a restart.`,
     },
     linear: {
       props: { variant: "linear" },
       play: atEnd,
-      note: "120 ms, linear: the text stays faint longer before it is legible.",
+      note: `${MOTION_MS.micro} ms, linear: the text stays faint longer before it is legible.`,
     },
     stagger: {
       props: { variant: "stagger" },
       play: atEnd,
-      note: "120 ms with each row 16 ms after the last: reads as a cascade, not a load.",
+      note: `${MOTION_MS.micro} ms with each row 16 ms after the last: reads as a cascade, not a load.`,
     },
     pop: { props: { variant: "pop" }, play: atEnd, note: "Before: no fade; the rows pop in from blank in one frame." },
   },

@@ -15,6 +15,7 @@ import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import type { AcpmuxSnapshot } from "../model";
 import { TRANSIENT_SHOW_MS } from "../afterDelay";
+import { MOTION_MS } from "../../../motion/scale.generated";
 import { useShownQueue } from "./queuedMessages";
 
 type Variant = "hold-200" | "hold-150-fade" | "fade-only";
@@ -40,7 +41,7 @@ const STEPS: [number, Queue][] = [
 
 const HOLD_MS: Record<Variant, number> = { "hold-200": TRANSIENT_SHOW_MS, "hold-150-fade": 150, "fade-only": 0 };
 /// How long a leaving row fades out (`fade-only`), the host's fade-in token.
-const LEAVE_MS = 120;
+const LEAVE_MS = MOTION_MS.micro;
 
 /// The queue as drawn, with leaving rows kept for their fade-out when `fadeOut`.
 function useWithLeaving(queue: Queue, fadeOut: boolean): { entry: Queue[number]; leaving: boolean }[] {
@@ -122,6 +123,7 @@ function QueuedTransientGallery({ variant }: { variant: Variant }) {
       <header className="queued-transient-gallery__header">
         <div>
           <h1>A Queued entry at a turn's end</h1>
+          {/* motion-allow: how long the first message sits in the queue, not a motion */}
           <p>A message queued for 180 ms, then one that waits 1.2 s.</p>
         </div>
         <button type="button" className="ui-button" onClick={() => setRun((value) => value + 1)}>
@@ -161,16 +163,19 @@ export default componentEntry<{ variant: Variant }>({
     "hold-200": {
       props: { variant: "hold-200" },
       play: settled,
+      // motion-allow: prose naming the queued message's 180 ms dwell and the fade the variant plays
       note: "Picked: an entry shows only once it has stayed 200 ms, with no fade. The 180 ms message never paints; the one that waits shows 200 ms after it came and goes at once when it runs.",
     },
     "hold-150-fade": {
       props: { variant: "hold-150-fade" },
       play: settled,
+      // motion-allow: prose naming the queued message's 180 ms dwell and the fade the variant plays
       note: "Held 150 ms, then a 120 ms fade-in: the 180 ms message still paints for 30 ms, faint. A softer flash, still a flash.",
     },
     "fade-only": {
       props: { variant: "fade-only" },
       play: settled,
+      // motion-allow: prose naming the queued message's 180 ms dwell and the fade the variant plays
       note: "No hold: every entry fades in and out over 120 ms. The 180 ms message reads as a blink, and the queue moves on each.",
     },
   },
