@@ -512,9 +512,17 @@ fn a_round_trip_from_the_cloud_to_a_mini_and_home_loses_nothing() {
         .env("OPTCHAT_MOVE_SSH", &ssh)
         .env_remove("CMUX_CLOUD_SESSION_TOKEN")
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stderr(std::fs::File::create(dir.path().join("watch.log")).unwrap())
         .spawn()
         .unwrap();
+    // What the watcher said and the last move's report, for a failed assertion.
+    let said = || {
+        format!(
+            "watcher: {}\nmove.json: {}",
+            std::fs::read_to_string(dir.path().join("watch.log")).unwrap_or_default(),
+            std::fs::read_to_string(src.join("state/move.json")).unwrap_or_default()
+        )
+    };
     let on_mini = remote.join(".cmux/chief/src");
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
     // Bounded wait for the watcher's first move: its flip (moved.json naming the mini) comes
@@ -528,7 +536,7 @@ fn a_round_trip_from_the_cloud_to_a_mini_and_home_loses_nothing() {
     while !flipped() && std::time::Instant::now() < deadline {
         std::thread::sleep(std::time::Duration::from_millis(200));
     }
-    assert!(on_mini.join("state/moved-in.json").exists());
+    assert!(on_mini.join("state/moved-in.json").exists(), "{}", said());
     let moved: Value =
         serde_json::from_str(&std::fs::read_to_string(src.join("state/moved.json")).unwrap())
             .unwrap();
