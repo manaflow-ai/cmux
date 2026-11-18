@@ -14,6 +14,7 @@ pub mod git;
 pub mod link;
 pub mod manifest;
 pub mod overlay;
+pub mod peers;
 pub mod wire;
 
 #[cfg(target_os = "linux")]
