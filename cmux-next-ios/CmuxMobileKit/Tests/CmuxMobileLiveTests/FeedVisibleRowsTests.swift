@@ -114,7 +114,7 @@ import UIKit
     static func staleRows(_ list: FeedListController) -> [String] {
         guard let table = list.collectionView else { return ["no table"] }
         let width = Int(table.bounds.width.rounded())
-        return (table.indexPathsForVisibleRows ?? []).filter { $0.section == 1 }.compactMap { indexPath in
+        return (table.indexPathsForVisibleRows ?? []).filter { $0.section == 1 }.compactMap { (indexPath: IndexPath) -> String? in
             guard let cell = table.cellForRow(at: indexPath) as? FeedRowCell, let layout = cell.layout else { return "e\(indexPath.row):no cell" }
             let height = table.rectForRow(at: indexPath).height
             guard layout.key.width != width || abs(height - layout.height) > 0.5 else { return nil }
