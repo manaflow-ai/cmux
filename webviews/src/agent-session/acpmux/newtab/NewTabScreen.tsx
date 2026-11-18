@@ -40,7 +40,8 @@ import { BrowseFailure } from "../BrowseFailure";
 import { browseFailureMessage } from "../browseFailureModel";
 import { type BrowseRequest } from "../AddProjectPanel";
 import { BROWSE_BUSY, type BrowseResult } from "../addProjectPanelModel";
-import { errorMessage, isStartCancelled, knownRefusalText } from "../transportErrors";
+import { errorMessage, isStartCancelled, knownRefusalText, startErrorMessage } from "../transportErrors";
+import { logStartFailure, startFailureCause, startFailureCode } from "../startFailure";
 import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { sandboxFailureKey, type RunMode, type RunModeRows } from "../sandboxRun";
 import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
@@ -72,8 +73,8 @@ import { Spinner } from "../conversation/icons";
 import { newTabStart, useNewTabChipModel } from "./chipDefaults";
 import { useLastPick } from "../lastPick";
 import { useDeviceChats } from "./deviceChats";
-import { listingWanted, omnibarChats, omnibarFolders } from "./launchRows";
-import { type CompleteFolder, useChatSearch, useFolderListing } from "./omnibarReads";
+import { listingWanted, omnibarFolders } from "./launchRows";
+import { type CompleteFolder, useFolderListing } from "./omnibarReads";
 import { useRecentlyClosed } from "./recentlyClosed";
 import { initialRecentProject } from "./recentProject";
 import { rememberedStartedProject } from "./startedProject";
@@ -84,8 +85,8 @@ import {
   pairingLinkRefused,
   inlineCompletion,
   needsYouCards,
+  pageChatCards,
   profileRows,
-  recentChatCards,
   screenRows,
   searchWords,
   shellEntry,
@@ -140,6 +141,7 @@ import { newTabIconColumnArm } from "./iconColumn.experiment";
 import { elementBox, reportToastAvoidance } from "../toastAvoidance";
 import { githubIssueLink } from "../../../githubReferences";
 import { reportInputReadyWhenFocused } from "./inputReady";
+import { rememberNewChatPlace } from "../lastNewChatPlace";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 /// Where a browser pick of the page opens: by default it navigates the page's own tab; `beside` asks for a
@@ -303,6 +305,9 @@ type Props = NewTabScreenActions & {
   /// Return that sends keeps its own gesture for the start.
   onProjectPicked?(cwd: string): void;
   onCloudMachinePicked?(machine: CloudMachine | undefined): void;
+  /// The machine acpmux lists that the person last picked for a new chat (lastNewChatPlace.ts,
+  /// cmux#46019): the page starts there, as if picked, until a place is picked here.
+  startMachine?: string;
   /// true until this page's daemon connection has listed the chats (`listedSessions`), while no
   /// chat is known: the recent project may still come, so the folder chip holds its place.
   chatsPending?: boolean;
@@ -429,6 +434,14 @@ export function NewTabScreen(props: Props) {
   // Another machine acpmux lists, picked in the location row's machine list: the chat starts there
   // (screenActions onAsk with its `peer`), in a folder on it once one is picked.
   const [machine, setMachine] = useState<{ peer: string; folder?: string }>();
+  /// A place was picked on this page (a machine, a folder, New project, a run mode): the last pick's
+  /// machine (`startMachine`) no longer replaces it, even when acpmux lists that machine only later.
+  const placePicked = useRef(false);
+  useEffect(() => {
+    if (!props.startMachine || placePicked.current) return;
+    placePicked.current = true;
+    setMachine({ peer: props.startMachine });
+  }, [props.startMachine]);
   const folderless = !props.cwd || props.cwd === home || isAgentHome(props.cwd);
   const startsRecent = !picked && folderless && !props.startCwd;
   const candidate = useMemo(
@@ -684,6 +697,7 @@ export function NewTabScreen(props: Props) {
   const runMode = props.runMode && {
     ...props.runMode,
     onMode: (mode: RunMode) => {
+      placePicked.current = true;
       // Cloud and Sandboxed start no chat in a folder of this Mac: New project ends.
       if (mode !== "persistent") {
         // A folder still on its way, or made for a start that failed, is no longer this draft's.
@@ -749,11 +763,15 @@ export function NewTabScreen(props: Props) {
       // A cancelled start (Not now, a newer folder request, another chat taking the page) is no
       // failure: the draft stays and nothing says it failed. A real refusal still says why.
       if (isStartCancelled(error)) return;
-      const code = (error as { code?: unknown } | undefined)?.code;
+      const code = startFailureCode(error);
+      const cause = startFailureCause(error);
+      // A start HarnessSwitch failed is in the log already (its prompts come back with `startCause`).
+      if (!(error as { startCause?: unknown } | undefined)?.startCause) logStartFailure(args[0], undefined, cause);
       setStartError({
         harness: args[0],
-        error: errorMessage(error) || t("switch.unknownError"),
-        ...(typeof code === "string" ? { code } : {}),
+        error: startErrorMessage(error) || t("switch.unknownError"),
+        ...(code ? { code } : {}),
+        ...(cause ? { cause } : {}),
         // A chat on another machine installs nothing here: its agent is set up on that machine.
         local: !args[6]?.peer,
         // Retry asks the same agent again with the draft as it is now (`continueAfterSetup`).
@@ -998,16 +1016,9 @@ export function NewTabScreen(props: Props) {
     [typed, shell, machine, environment, props.runMode?.mode, attachments.length],
   );
   const profiles = props.onOpenInProfile && props.onOpenInNewProfile ? omnibar.profiles : undefined;
-  // The omnibar's agent sources (launchRows.ts): the chats it searches, the folders and agents it
-  // starts. The device index's search and a typed path's folder listing answer later
-  // (omnibarReads.ts), never in the keystroke's turn.
+  // The omnibar's agent sources (launchRows.ts): the folders and agents it starts. A typed path's
+  // folder listing answers later (omnibarReads.ts), never in the keystroke's turn.
   const barText = touched && !shell && !commandTyping && !profilePick ? typed : "";
-  const pushed = useDeviceChats();
-  const barSearched = useChatSearch(barText, props.loadChatsPage);
-  const barChats = useMemo(
-    () => omnibarChats(snapshot.sessions, barSearched, pushed),
-    [snapshot.sessions, barSearched, pushed],
-  );
   const barFolders = useMemo(
     () => omnibarFolders(props.projects, snapshot.sessions),
     [props.projects, snapshot.sessions],
@@ -1037,7 +1048,6 @@ export function NewTabScreen(props: Props) {
                 translate: nt,
                 create: props.onCreate ? ["terminal", "browser", "chat"] : ["chat"],
                 ...(ask ? { ask } : {}),
-                chats: barChats,
                 folders: barFolders,
                 agents: barAgents,
                 ...(harness ? { defaultAgent: harness } : {}),
@@ -1060,7 +1070,6 @@ export function NewTabScreen(props: Props) {
       props.suggestionOrder,
       props.onCreate,
       nt,
-      barChats,
       barFolders,
       barAgents,
       harness,
@@ -1104,14 +1113,16 @@ export function NewTabScreen(props: Props) {
     const timer = setTimeout(() => setChatsReserveOver(true), RESERVE_MS);
     return () => clearTimeout(timer);
   }, [holdChats]);
+  // The device chat index's newest chats, for the cards under the field.
+  const pushed = useDeviceChats();
   const device = holdChats ? NO_DEVICE_CHATS : pushed;
   const closed = useRecentlyClosed();
   // Ages read the shared clock (clock.ts): every page shows the same age and changes it together.
   const clock = useMinuteClock();
   const at = now ?? clock;
   const cards = useMemo(
-    () => recentChatCards(snapshot.sessions, at, t, device, sections.recent, sections.chats === "list"),
-    [snapshot.sessions, at, t, device, sections.recent, sections.chats],
+    () => pageChatCards(sections, snapshot.sessions, at, t, device),
+    [sections, snapshot.sessions, at, t, device],
   );
   // With All chats on the page (the host answers `chats.page`) every chat is in that list, so
   // the cards keep only the chats that are running or need the user. Show All Chats off
@@ -1319,10 +1330,11 @@ export function NewTabScreen(props: Props) {
         return props.onOpenInProfile?.(row.url, row.id, how);
       case "newProfile":
         return props.onOpenInNewProfile?.(row.url, row.name);
-      case "chat":
-        return openChatRow(row.id, row.key);
       case "launch":
         return launch(row.harness, row.folder);
+      case "run":
+        touch();
+        return props.onShell(row.command);
     }
   };
   /// Open in Profile…: the field empties to search the profiles; the rows list them all.
@@ -1485,23 +1497,6 @@ export function NewTabScreen(props: Props) {
     const asked = askChat(harness, "", project, chipModel);
     // A Sandboxed New chat that started nothing (no prompt, a refusal) leaves the page's creates open.
     if (asked === false) created.current = false;
-  };
-  /// A chat row (launchRows.ts): a device chat opens through the host's Open Chat path, a live
-  /// session in this page, as its card does.
-  const openChatRow = (id: string, key?: string) => {
-    touch();
-    if (!key || !props.onOpenChat) return openCard(id);
-    const failed = (error: unknown) =>
-      setStartError({
-        error: errorMessage(error) || t("switch.unknownError"),
-        local: true,
-        retry: () => (setStartError(undefined), openChatRow(id, key)),
-      });
-    try {
-      void Promise.resolve(props.onOpenChat(key)).catch(failed);
-    } catch (error) {
-      failed(error);
-    }
   };
   /// A launch row ("Codex in ~/fun/cmux"): that agent's chat starts in that folder with no prompt,
   /// as New chat does there; the host asks about a folder the person has not trusted yet.
@@ -1775,6 +1770,9 @@ export function NewTabScreen(props: Props) {
   }, []);
   const [browseError, setBrowseError] = useState<string>();
   const chooseNewProject = () => {
+    placePicked.current = true;
+    // A new folder is this Mac's: the next new chat starts on This Mac too (lastNewChatPlace.ts).
+    if (machine) rememberNewChatPlace({ kind: "local" });
     projectChoice.current += 1;
     setBrowseError(undefined);
     setNewProjectError(undefined);
@@ -1791,6 +1789,9 @@ export function NewTabScreen(props: Props) {
     requestAnimationFrame(() => field.current?.focus());
   };
   const pickProject = (cwd?: string) => {
+    placePicked.current = true;
+    // A folder here moves the chat off another machine onto This Mac, for the next new chat too.
+    if (machine) rememberNewChatPlace({ kind: "local" });
     projectChoice.current += 1;
     setBrowseError(undefined);
     setNewProject(undefined);
@@ -1816,6 +1817,9 @@ export function NewTabScreen(props: Props) {
   // A machine picked in the location row: the chat starts there, and the prompt takes the keyboard
   // back, as after a folder pick (the picker returns no focus itself).
   const pickMachine = (next?: { peer: string; folder?: string }) => {
+    placePicked.current = true;
+    // The next new chat, here or in a new workspace, starts on this machine too (cmux#46019).
+    rememberNewChatPlace(next ? { kind: "machine", peer: next.peer } : { kind: "local" });
     // A newer choice than any worktree still on its way (`projectChoice`).
     projectChoice.current += 1;
     setBrowseError(undefined);
@@ -2578,7 +2582,10 @@ export function NewTabScreen(props: Props) {
           anchor={anchor}
           side={stage ? "top" : "bottom"}
           label={nt("suggestions")}
-          className="nt-composer-surface nt-popover"
+          // One row (a prompt on many lines): whole-pixel padding and row, so it sits centered (screen.css).
+          className={
+            rows.length === 1 ? "nt-composer-surface nt-popover nt-popover-single" : "nt-composer-surface nt-popover"
+          }
           hostGlass={false}
           initialFocus={false}
           finalFocus={false}
@@ -2607,11 +2614,7 @@ export function NewTabScreen(props: Props) {
                   activate(row, event.altKey || event.metaKey);
                 }}
               >
-                {rowFavicon(row) ? (
-                  <img className="nt-row-glyph nt-row-favicon" src={rowFavicon(row)} alt="" draggable={false} />
-                ) : (
-                  <SuggestionGlyph row={row} />
-                )}
+                <SuggestionGlyph row={row} />
                 <span className="nt-row-title">{rowTitle(nt, row)}</span>{" "}
                 {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
                 {row.type === "action" && !!row.keycaps?.length && (
@@ -2703,18 +2706,11 @@ function rowKey(row: ScreenRow): string {
       return `action:${row.id}`;
     case "profile":
       return `profile:${row.id}`;
-    case "chat":
-      return `chat:${row.key ?? row.id}`;
     case "launch":
       return `launch:${row.harness}:${row.folder}`;
     default:
       return row.type;
   }
-}
-
-/// A tab's or visited page's favicon (cx-d0d.8): it takes the glyph's place when the host sent one.
-function rowFavicon(row: ScreenRow): string | undefined {
-  return row.type === "tab" || row.type === "history" ? row.icon : undefined;
 }
 
 function rowTitle(nt: NewTabTranslate, row: ScreenRow): string {
@@ -2738,10 +2734,10 @@ function rowTitle(nt: NewTabTranslate, row: ScreenRow): string {
       return row.name ? nt("row.openInNamedProfile", { name: row.name }) : nt("row.openInNewProfile");
     case "profile":
       return nt("row.openInThisProfile", { name: row.name });
-    case "chat":
-      return row.title;
     case "launch":
       return nt("row.launch", { agent: row.agent, folder: homePath(row.folder) });
+    case "run":
+      return nt("row.runInTerminal");
   }
 }
 
@@ -2760,8 +2756,6 @@ function rowDetail(row: ScreenRow): string | undefined {
     case "newProfile":
     case "profile":
       return shortHost(row.url);
-    case "chat":
-      return row.harness ? agentName(row.harness) : undefined;
     default:
       return undefined;
   }
