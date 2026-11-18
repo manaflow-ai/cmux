@@ -63,13 +63,17 @@ extension CloudStartChat {
         try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
         let listed = cloud.listedMachineIDs
         let ensureProject = CloudStartCore().ensuresProject(account: account, platform: cloud.configuration.artifactsAPIBaseURL(), production: cloud.auth.configuration.isProductionAuth)
-        let install = start.reservationKey != nil ? try await cloud.installIdentity.installToken() : nil
-        let access = try? await (ensureProject || start.reservationKey != nil ? cloud.auth.tokens().access : nil)
+        // The install token and the session's access token are two reads of their own: together, not one after the other (cmux#45953).
+        let reserved = start.reservationKey != nil
+        async let installRead = { @MainActor in reserved ? try await cloud.installIdentity.installToken() : nil }()
+        async let accessRead = { @MainActor in ensureProject || reserved ? try await cloud.auth.tokens().access : nil }()
+        let access = try? await accessRead, install = try await installRead
         let request = Self.planRequest(key: start.key, account: account, workspace: workspace, user: cloud.auth.user?.id,
                                        machines: machines.cloud.filter { listed.contains($0.machineID) }, local: start.home ? nil : start.uploadRoot ?? start.cwd,
                                        stored: machines.cloud.map(\.machine).keptForPin(listed: listed), environment: start.environment, access: access != nil,
                                        reservationKey: start.reservationKey, platform: cloud.configuration.artifactsAPIBaseURL()?.absoluteString, ensureProject: ensureProject, size: start.size, bytes: start.folderBytes, planMax: start.planMax)
         var plan = try Self.checked(await cli.startChatPlan(request: request, access: access, install: install))
+        timeline?.mark("machine.plan") // the list, the tokens and the plan (a reservation's claim)
         var invocation = invocation
         if let id = plan.machine, !listed.contains(id) {
             await cloud.refresh() // List a platform-reserved or project machine before attaching.
@@ -104,10 +108,18 @@ extension CloudStartChat {
         }
         let id = invocation.arguments["machine"]?.stringValue, text = CloudStartCore().accountText(account)
         return try await cli.releasing(made: plan.madeForStart ? id : nil, key: start.key, account: text, sameAccount: { account == cloud.account }, delete: { try await cloud.deleteMachine($0) }) { // a failed pin, attach or route deletes a machine made for this start
-            if let id, plan.machine == nil { _ = try Self.checked(await cli.startChatPin(key: start.key, account: text, machine: id, workspace: workspace)) } // unpinned, a retry could open the chat elsewhere
-            let session = try await CloudMove(services: services).machine(invocation, pick: pick), machineID = session.machineID
-            // The machine reaches models through its edge (the Mac as the gateway), on the app's machine software; a chat that carries its own connection starts on an unrouted one too.
-            try await CloudMachineRoute(api: cloud.machineAPI, machineID: machineID).prepare(serves: { services.agentTabs.holdsTabs(session.daemon) && session.daemon.supports(AgentSessionAttachClient.startCredentialsCapability) }, carriesConnection: connection != nil) { @MainActor [services] in _ = await CloudMachineUpdates.updateNow(machineID, services: services) } // checked first: updated only when it lacks what a start uses
+            // The pin (unpinned, a retry could open the chat elsewhere) is this Mac's own record: it runs beside the link's connect, which
+            // runs nothing on the machine, and both end before anything does (cmux#45953). A failed pin still ends the start here.
+            let pinMachine = plan.machine == nil ? id : nil, key = start.key
+            async let pinned: Void = { @MainActor in if let pinMachine { _ = try Self.checked(await cli.startChatPin(key: key, account: text, machine: pinMachine, workspace: workspace)) } }()
+            let session: CloudMachineSession
+            do { session = try await CloudMove(services: services).machine(invocation, pick: pick) } catch { _ = try? await pinned; throw error }
+            try await pinned
+            timeline?.mark("machine.connect")
+            let machineID = session.machineID
+            // The chat's agent reaches a model: the machine's edge, its own sign-in there (a `claude setup-token` token), or the chat's own connection with its launch.
+            try await CloudMachineRoute(api: cloud.machineAPI, machineID: machineID).prepare(serves: { services.agentTabs.holdsTabs(session.daemon) && session.daemon.supports(AgentSessionAttachClient.credentialsCapability(harness: start.harness)) }, carriesConnection: connection != nil, family: CloudSetup.family(of: start.harness)) { @MainActor [services] in _ = await CloudMachineUpdates.updateNow(machineID, services: services) } // checked first: updated only when it lacks what a start uses
+            timeline?.mark("machine.route")
             return (session, plan)
         }
     }
