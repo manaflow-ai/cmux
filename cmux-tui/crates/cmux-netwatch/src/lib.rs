@@ -313,4 +313,45 @@ mod tests {
         drop(writer);
         thread.join().unwrap();
     }
+
+    /// A router advertisement every few seconds refreshes the lifetimes of the addresses it
+    /// gave: the kernel sends RTM_NEWADDR for an address it already has. That is no change of
+    /// network; counting it redialed every parked peer link at each advertisement.
+    #[test]
+    fn a_lifetime_refresh_of_an_address_already_held_is_no_change() {
+        use std::os::fd::{AsRawFd, FromRawFd};
+        let generation = NetworkWatch::manual();
+        let receiver = generation.subscribe();
+        let mut fds = [0; 2];
+        // SAFETY: socketpair(2) fills two fds this test owns.
+        assert_eq!(
+            unsafe { libc::socketpair(libc::AF_UNIX, libc::SOCK_DGRAM, 0, fds.as_mut_ptr()) },
+            0
+        );
+        // SAFETY: fresh fds from socketpair, owned once each.
+        let (reader, writer) = unsafe {
+            (std::os::fd::OwnedFd::from_raw_fd(fds[0]), std::os::fd::OwnedFd::from_raw_fd(fds[1]))
+        };
+        let owner = Arc::new(());
+        let alive = Arc::downgrade(&owner);
+        let counted = generation;
+        let thread = std::thread::spawn(move || {
+            run(imp::Socket(reader), || alive.strong_count() > 0, || counted.signal());
+        });
+        // Three advertisements, each settled apart: this machine's addresses stay the same.
+        let mut message = [0u8; 16];
+        message[4..6].copy_from_slice(&libc::RTM_NEWADDR.to_ne_bytes());
+        for _ in 0..3 {
+            // SAFETY: a valid buffer of the given length.
+            let sent = unsafe {
+                libc::send(writer.as_raw_fd(), message.as_ptr().cast(), message.len(), 0)
+            };
+            assert_eq!(sent, message.len() as isize);
+            std::thread::sleep(SETTLE * 3);
+        }
+        assert_eq!(*receiver.borrow(), 0, "a refresh of addresses already held is no change");
+        drop(owner);
+        drop(writer);
+        thread.join().unwrap();
+    }
 }
