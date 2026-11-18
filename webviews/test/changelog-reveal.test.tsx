@@ -3,7 +3,9 @@
 // rows of every group under the view, wherever the group starts in the card (UpdatedNotes
 // useRowsBelow, each group's measurements past its own start); a link to a change of a day far
 // down a long What's New index draws that day, scrolls to the change and marks it (SheetPage
-// useFocusDay, useFocusScroll).
+// useFocusDay, useFocusScroll); J and K find the next day drawn; and the row or day holding the
+// keyboard focus stays drawn, and focused, however far the list scrolls (JournalPage useDayWindow,
+// UpdatedNotes WindowedRows).
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -82,12 +84,18 @@ beforeAll(() => {
       const top = groups.indexOf(this) * GROUP * ROW - card.scrollTop;
       return { top, bottom: top, left: 0, right: 0, width: 0, height: 0, x: 0, y: top, toJSON() {} } as DOMRect;
     }
+    // A drawn day stands at its place in the index (the day list starts at the page's top).
+    const index = this.getAttribute("data-index");
+    if (this.classList.contains("clj-section") && index !== null) {
+      const top = Number(index) * DAY - window.scrollY;
+      return { top, bottom: top + DAY, left: 0, right: 0, width: 0, height: DAY, x: 0, y: top, toJSON() {} } as DOMRect;
+    }
     return rect.call(this);
   };
   window.HTMLElement.prototype.scrollIntoView = function (this: HTMLElement) {
     scrolled.push(this.textContent ?? "");
   };
-  Object.assign(window, { ResizeObserver, scrollTo: () => {} });
+  Object.assign(window, { ResizeObserver, scrollTo: () => {}, matchMedia: () => ({ matches: false }) });
   Object.assign(scope, {
     window,
     document: window.document,
@@ -230,6 +238,15 @@ async function page(count: number, focus?: ChangelogFocus, span?: UpdateSpan, de
 }
 const sheet = (count: number, focus: ChangelogFocus, span?: UpdateSpan) => page(count, focus, span);
 
+async function scrollWindow(y: number) {
+  Object.defineProperty(dom.window, "scrollY", { configurable: true, value: y });
+  await act(async () => void dom.window.dispatchEvent(new dom.window.Event("scroll")));
+  await settle();
+}
+
+const drawnDays = (host: HTMLElement) =>
+  [...host.querySelectorAll<HTMLElement>(".clj-section[data-index]")].map((day) => Number(day.dataset.index));
+
 describe("a link to a change of a day far down What's New", () => {
   const far = index(1_000)[900]!;
 
@@ -268,4 +285,82 @@ describe("a focus on a long What's New index waits for its target", () => {
     expect(host.querySelectorAll(".cls-day").length).toBeLessThanOrEqual(14);
     expect(scrolled.length).toBe(1);
   }, 60_000);
+});
+
+describe("the keyboard on a long What's New index", () => {
+  for (const design of ["sheet", "journal"] as const) {
+    test(`${design}: J and K from the middle of a long index find the next and previous day drawn`, async () => {
+      const host = await page(1_000, undefined, undefined, design);
+      await scrollWindow(500 * DAY);
+      const days = drawnDays(host);
+      expect(days).toContain(499);
+      expect(days).toContain(501);
+      expect(days.length).toBeLessThanOrEqual(12);
+      const at = host.querySelector<HTMLElement>(".clj-section[data-index='500']")!;
+      for (const [key, next] of [
+        ["j", 501],
+        ["k", 499],
+      ] as const) {
+        scrolled.length = 0;
+        await act(async () => void at.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key, bubbles: true })));
+        const want = host.querySelector(`.clj-section[data-index='${next}'] time`)!.getAttribute("dateTime")!;
+        expect(scrolled.length).toBe(1);
+        expect(scrolled[0]).toContain(want.slice(0, 4));
+      }
+    }, 60_000);
+
+    test(`${design}: the day holding the focus stays drawn and focused when the page scrolls far away`, async () => {
+      const host = await page(1_000, undefined, undefined, design);
+      const control = host.querySelector<HTMLElement>(
+        ".clj-section[data-index='0'] button, .clj-section[data-index='0'] summary",
+      )!;
+      expect(control).not.toBeNull();
+      await act(async () => control.focus());
+      await scrollWindow(600 * DAY);
+      expect(control.isConnected).toBe(true);
+      expect(dom.window.document.activeElement).toBe(control);
+      expect(drawnDays(host)).toContain(0);
+      expect(drawnDays(host).length).toBeLessThanOrEqual(13);
+    }, 60_000);
+  }
+});
+
+describe("the Updated card's row holding the focus", () => {
+  for (const look of ["release", "sections", "flat"] as const)
+    test(`${look}: stays drawn and focused when the card scrolls far away`, async () => {
+      const { UpdatedNotes } = await import("../src/pages/changelog/UpdatedNotes");
+      const card = await mount(
+        <UpdatedNotes
+          data={update()}
+          strings={await strings()}
+          actions={{ openChangelog: () => {} }}
+          mode="beside"
+          look={look}
+        />,
+      );
+      const first = card.querySelector<HTMLElement>(".wn-notes-row")!;
+      const title = first.textContent;
+      await act(async () => first.focus());
+      const scroller = card.querySelector<HTMLElement>(".wn-notes")!;
+      const group = first.closest<HTMLElement>("ul")!;
+      // Scrolled within its group, then past it: the row stays, and the group keeps its height
+      // (its padding, the room between the focused row and the rows near the view, and the rows).
+      for (const offset of [60 * ROW, (2 * GROUP + 50) * ROW]) {
+        Object.defineProperty(scroller, "scrollTop", { configurable: true, value: offset });
+        await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+        await settle();
+        expect(first.isConnected).toBe(true);
+        expect(dom.window.document.activeElement).toBe(first);
+        expect(first.textContent).toBe(title);
+        const rows = group.querySelectorAll("li[data-index]").length;
+        const room = [...group.querySelectorAll<HTMLElement>("li[aria-hidden]")].reduce(
+          (sum, li) => sum + Number.parseFloat(li.style.height),
+          0,
+        );
+        const padding = Number.parseFloat(group.style.paddingTop) + Number.parseFloat(group.style.paddingBottom);
+        expect(padding + room + rows * ROW).toBe((look === "flat" ? 3 * GROUP : GROUP) * ROW);
+        // The rows near the view drawn, and that one; the rest stays room.
+        expect(card.querySelectorAll(".wn-notes-row").length).toBeLessThanOrEqual(3 * 45);
+      }
+    }, 60_000);
 });
