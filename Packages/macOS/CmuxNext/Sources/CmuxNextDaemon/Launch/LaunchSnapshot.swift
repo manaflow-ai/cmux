@@ -76,7 +76,8 @@ public struct LaunchSnapshot: Sendable {
         var tree = file.tree
         tree.personal = file.personal
         let sidebarDoc = file.sidebarDoc.flatMap { $0 == .null ? nil : try? JSONEncoder().encode($0) }
-        return LaunchSnapshot(tree: tree, windows: windows, sidebarDoc: sidebarDoc, session: file.session, writtenAtMs: file.writtenAtMs)
+        return LaunchSnapshot(tree: tree, windows: windows, sidebarDoc: sidebarDoc, session: file.session, writtenAtMs: file.writtenAtMs,
+                              knownRegistryID: nil) // `saved` fills it from this home's record
     }
 
     /// The snapshot the last run of `session` left, read and decoded on the calling thread; nil when there is
