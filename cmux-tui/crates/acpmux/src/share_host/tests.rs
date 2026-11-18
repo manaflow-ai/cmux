@@ -152,6 +152,23 @@ fn a_ticket_the_consent_refuses_is_ended_and_asks_for_what_is_missing() {
     assert_eq!(link::decide_for_tests(&shared, &view, none), ("screen", None));
     assert_eq!(link::decide_for_tests(&shared, &full, screen), ("control", None));
     assert_eq!(link::decide_for_tests(&shared, &view, screen), ("daemon", Some(true)));
+    // The hub's own-account ticket serves with no consent (Leo, 2026-11-16, ask-da398bba67);
+    // any other owner, or none (an older hub), still asks.
+    let owned = |push: &Value, kind: &str| {
+        let mut push = push.clone();
+        push["ownerKind"] = json!(kind);
+        push
+    };
+    assert_eq!(
+        link::decide_for_tests(&shared, &owned(&full, "user"), none),
+        ("daemon", Some(false))
+    );
+    assert_eq!(
+        link::decide_for_tests(&shared, &owned(&view, "user"), none),
+        ("daemon", Some(true))
+    );
+    assert_eq!(link::decide_for_tests(&shared, &owned(&view, "team"), none), ("screen", None));
+    assert_eq!(link::decide_for_tests(&shared, &owned(&full, "shared"), screen), ("control", None));
     // A ticket that does not agree with its JWS is ended too.
     let mut forged = view.clone();
     forged["sessionId"] = json!("s9");
