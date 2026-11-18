@@ -38,6 +38,9 @@ let loaded = false;
 let stale = false;
 /// The page's last snapshot came while it showed a New Tab (`publishSessions`'s `posts`).
 let newTabPage = false;
+/// A chat page's newest list, not written: its New Tab, if it shows one again, writes it then
+/// unless the store has a newer one, so the store never lags a page that had the newest list.
+let held: { sessions: Sessions; at: number } | undefined;
 /// The newest list this page received and has not written yet, and the window's timer: it is
 /// armed only while a write went out in the last `PUBLISH_MS`, and ends when a window passes
 /// with nothing to write. A page that hides or goes away writes what it holds first.
@@ -189,7 +192,15 @@ export function publishSessions(
   posts = true,
 ): void {
   newTabPage = posts;
-  if (!posts || !publishable(snapshot)) return;
+  if (!publishable(snapshot)) return;
+  if (!posts) {
+    // A chat page keeps only its newest list's reference, written if it shows a New Tab again
+    // (`subscribe`). What it held back as a New Tab is older than any page's next write.
+    held = { sessions: snapshot.sessions, at };
+    pending = undefined;
+    return;
+  }
+  held = undefined;
   load();
   // Every snapshot (one per transcript row while a turn streams) builds a new list of the same
   // entries (the direct client keeps an unchanged session's entry): compare entries, not the list.
@@ -209,6 +220,8 @@ function endWindow(): void {
 /// Writes the list held back from the last window, unless another page wrote a newer one meanwhile:
 /// a held-back list carries the `at` it arrived with, and must not replace a newer page's list.
 function flushPending(): void {
+  // Another page wrote while this one was a chat page: compare with what the store holds now.
+  if (pending && stale) load();
   if (pending && current && pending.at < current.at) pending = undefined;
   writePending();
 }
@@ -248,6 +261,15 @@ export function sharedSessions(own: Sessions): Sessions {
 
 function subscribe(listener: () => void): () => void {
   load();
+  // A chat page that shows a New Tab again: the list it heard last goes in, unless the store is
+  // newer (`flushPending`). Its next snapshot would write it anyway; this one is for the frame now.
+  const own = held;
+  held = undefined;
+  if (own && !sameEntries(own.sessions, lastPublished)) {
+    lastPublished = own.sessions;
+    pending = own;
+    flushPending();
+  }
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
@@ -299,6 +321,7 @@ export function reloadChatStoreForTests(): void {
   loaded = false;
   stale = false;
   newTabPage = false;
+  held = undefined;
   current = undefined;
   lastPublished = undefined;
   lastText = undefined;
@@ -317,4 +340,9 @@ export const CHAT_STORE_KEY_FOR_TESTS = KEY;
 /// What a page writes to the store for `sessions` received at `at` (tests stand in for another page).
 export function encodeChatStoreForTests(sessions: Sessions, at: number): string {
   return encode(sessions, at);
+}
+
+/// A New Tab starting to list the store (`useSharedSessions` enabled), for tests.
+export function subscribeChatStoreForTests(listener: () => void): () => void {
+  return subscribe(listener);
 }

@@ -33,10 +33,13 @@ let hooked: Window | undefined;
 
 /// Keeps the newest chat folders of `snapshot`, a list this Mac's daemon sent (`origin` local).
 /// An empty list keeps the last one: a connection lists nothing before its first answer.
-export function rememberRecentFolders(snapshot: Pick<AcpmuxSnapshot, "origin" | "sessions">): void {
+/// `now`: a New Tab page (the hidden spare among them, which never hides) writes them as it hears
+/// them, as every page did; a chat page only holds the list.
+export function rememberRecentFolders(snapshot: Pick<AcpmuxSnapshot, "origin" | "sessions">, now = false): void {
   if (snapshot.origin !== "local" || snapshot.sessions === lastSessions) return;
   lastSessions = snapshot.sessions;
   held = snapshot.sessions;
+  if (now) writeHeld();
   // Hooked on the page's own window, which a test that brings its own document replaces.
   const page = globalThis.window;
   if (!page || hooked === page) return;
