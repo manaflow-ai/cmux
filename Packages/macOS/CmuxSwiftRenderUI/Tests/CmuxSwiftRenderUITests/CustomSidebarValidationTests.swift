@@ -400,6 +400,26 @@ struct CustomSidebarSampleContextTests {
         #expect(remote["target"] == .string("aws-m4pro-1"))
         #expect(remote["connected"] == .bool(true))
         #expect(populated["latestAt"] == .int(1_779_999_400))
+        #expect(populated["prs"] == .array([.object(pr)]))
+        #expect(populated["status"] == .string("working"))
+
+        // clock is the builder's object, its fields read from one instant.
+        let clock = try #require(SwiftValue.objectFields(CustomSidebarValidator.defaultDataContext["clock"]))
+        let epoch = 1_780_000_000
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = try #require(TimeZone(identifier: "UTC"))
+        let parts = utc.dateComponents([.hour, .minute, .second, .weekday],
+                                       from: Date(timeIntervalSince1970: TimeInterval(epoch)))
+        let hour = try #require(parts.hour), minute = try #require(parts.minute)
+        let second = try #require(parts.second), weekday = try #require(parts.weekday)
+        #expect(clock == [
+            "time": .string(String(format: "%02d:%02d:%02d", hour, minute, second)),
+            "hour": .int(hour),
+            "minute": .int(minute),
+            "second": .int(second),
+            "weekday": .int(weekday),
+            "epoch": .int(epoch),
+        ])
 
         // The quiet sample: optionals the builder omits when absent are absent
         // here too, so the omitted-optional path is reachable in validation.

@@ -227,7 +227,7 @@ public struct CustomSidebarValidator {
                 "ports": .array([]),
                 "portCount": .int(0),
                 "unread": .int(0),
-                "status": .string("idle"),
+                "status": .string("todo"),
                 "tabs": .array([]),
                 "tabCount": .int(0),
             ]),
@@ -245,12 +245,14 @@ public struct CustomSidebarValidator {
         "selectedTitle": .string("Sample Workspace"),
         "selectedId": .string("workspace-sample"),
         "unreadTotal": .int(2),
+        // One instant: epoch 1_780_000_000 is Thursday 20:26:40 UTC (Calendar
+        // weekday 5), ten minutes after the sample latestAt.
         "clock": .object([
-            "time": .string("12:00:00"),
-            "hour": .int(12),
-            "minute": .int(0),
-            "second": .int(0),
-            "weekday": .int(4),
+            "time": .string("20:26:40"),
+            "hour": .int(20),
+            "minute": .int(26),
+            "second": .int(40),
+            "weekday": .int(5),
             "epoch": .int(1_780_000_000),
         ]),
     ]
