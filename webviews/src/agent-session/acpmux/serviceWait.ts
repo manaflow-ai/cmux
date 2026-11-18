@@ -25,6 +25,8 @@ export function readAgentServiceWait(reply: unknown): AgentServiceWait | undefin
 /// host's probe is a pid file read and one local socket connect; the verdict is Rust's
 /// (cmux-agent-pane-policy service_wait.rs). The page only draws what it is told.
 export const SERVICE_WAIT_ASK_MS = 5_000;
+/// How long before the line shows the pane asks first.
+export const SERVICE_WAIT_LEAD_MS = 1_000;
 
 /// What the host says of the daemon a handshake has waited on since `since` (`Date.now()` time),
 /// asked from the moment the waiting line shows (`HOST_ERROR_DEADLINE_MS`) and every
@@ -52,7 +54,9 @@ export function useAgentServiceWait(
           timer = setTimeout(askNow, SERVICE_WAIT_ASK_MS);
         });
     };
-    timer = setTimeout(askNow, Math.max(0, since + HOST_ERROR_DEADLINE_MS - Date.now()));
+    // A second before the line shows, so its first frame already says busy or down (no Restart
+    // drawn and then taken away).
+    timer = setTimeout(askNow, Math.max(0, since + HOST_ERROR_DEADLINE_MS - SERVICE_WAIT_LEAD_MS - Date.now()));
     return () => {
       stopped = true;
       if (timer !== undefined) clearTimeout(timer);
