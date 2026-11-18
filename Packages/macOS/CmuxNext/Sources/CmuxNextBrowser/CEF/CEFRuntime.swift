@@ -213,10 +213,32 @@ final class CEFRuntime {
 
     private init() { libraryLoader = { CEFRuntime.loadLibrary($0) } }
 
-    /// An idle runtime whose framework load is `libraryLoader` (tests).
-    init(libraryLoader: @escaping LibraryLoader) {
+    /// An idle runtime whose framework load is `libraryLoader`, its profiles under `storage` (tests).
+    init(libraryLoader: @escaping LibraryLoader, storage: CEFProfileStorage? = nil) {
         self.libraryLoader = libraryLoader
+        if let storage { self.storage = storage }
     }
+
+    /// The disk work `CefInitialize` needs done first, read off the main thread from the moment a launch
+    /// predicts Chromium (``preload(layout:)``) or a page asks, so the main thread's start does none of it:
+    /// the profile root exists, the last run's log is kept (``CEFProfileStorage/prepareForLaunch()``), and the
+    /// person's own uBlock Origin is looked up (``CEFBuiltInExtensions/personAdBlocker(profiles:fileManager:)``
+    /// reads and parses each profile's preference files). The value is that lookup. Once per runtime.
+    /// task-owner: launchPrepTask (start awaits it); ends when the reads end.
+    @discardableResult
+    func beginLaunchPrep() -> Task<Int?, Never> {
+        if let launchPrepTask { return launchPrepTask }
+        let storage = storage
+        let task = Task.detached(priority: .userInitiated) { () -> Int? in
+            storage.prepareForLaunch()
+            return CEFBuiltInExtensions.personAdBlocker(profiles: storage.root)
+        }
+        launchPrepTask = task
+        return task
+    }
+
+    /// The launch prep (``beginLaunchPrep()``).
+    private(set) var launchPrepTask: Task<Int?, Never>?
 
     /// Takes the engine's early load (`CEFEngine.beginEarlyLoad`).
     func adopt(earlyLoad: CEFEarlyLoad) {
@@ -343,15 +365,17 @@ final class CEFRuntime {
             loadTask = task
         }
         let keychain = keychainTask ?? beginKeychainStep(environment: environment)
+        let prep = beginLaunchPrep()
         // A utility-priority preload may still be running; the await below
         // raises its priority to this task's.
         let loaded = await task.value
         if let outcome = await keychain.value { logger.notice("keychain item: \(String(describing: outcome), privacy: .public)") }
+        let person = await prep.value
         if await Self.waitForInitializeGate(initializeAfter) { CEFStartSteps.shared.point("first_frame_waited") }
         // Another awaiter finished first, or the app began to quit.
         if let error = startError() { throw error }
         if state == .ready { return }
-        try finishStart(loaded, environment: environment, trigger: trigger)
+        try finishStart(loaded, person: person, environment: environment, trigger: trigger)
     }
 
     /// Returns once `gate` is open (at once when it is nil or already open); true when it waited.
@@ -370,6 +394,10 @@ final class CEFRuntime {
         preloaded = true
         let task = newLoadTask(candidate, priority: .utility)
         loadTask = task
+        // The reads before CefInitialize (keychain item, profile root, the person's ad blocker) run off the main
+        // thread now, while the first window builds, not after the frame (CMUX-571).
+        _ = keychainTask ?? beginKeychainStep(environment: ProcessInfo.processInfo.environment)
+        beginLaunchPrep()
         Task { [weak self] in
             _ = await task.value
             self?.libraryLoaded = true
@@ -383,7 +411,8 @@ final class CEFRuntime {
     ) throws(BrowserEngineError) {
         if let error = startError() { throw error }
         if state == .ready { return }
-        try finishStart(Self.loadLibrary(candidate), environment: environment, trigger: "debugWindow")
+        try finishStart(Self.loadLibrary(candidate), person: CEFBuiltInExtensions.personAdBlocker(profiles: storage.root),
+                        environment: environment, trigger: "debugWindow")
     }
 
     private func startError() -> BrowserEngineError? {
@@ -396,6 +425,7 @@ final class CEFRuntime {
 
     private func finishStart(
         _ loaded: Result<CEFLoadedLibrary, BootError>,
+        person: Int?,
         environment: [String: String],
         trigger: String
     ) throws(BrowserEngineError) {
@@ -403,7 +433,7 @@ final class CEFRuntime {
             let library = try loaded.get()
             let clock = ContinuousClock()
             let started = clock.now
-            try CEFStartSteps.shared.initialize { () throws(BootError) in try initialize(library, environment: environment) }
+            try CEFStartSteps.shared.initialize { () throws(BootError) in try initialize(library, person: person, environment: environment) }
             state = .ready
             CEFStartSteps.shared.timed("ready_hooks") {
                 startChildMonitor(); windowGuard.start(); ChromiumPageWindowMain.install()
@@ -523,7 +553,7 @@ final class CEFRuntime {
     }
 
     /// The main-thread part: NSApp check, message pump, `CefInitialize`.
-    private func initialize(_ library: CEFLoadedLibrary, environment: [String: String]) throws(BootError) {
+    private func initialize(_ library: CEFLoadedLibrary, person: Int?, environment: [String: String]) throws(BootError) {
         let shim = library.shim
         let layout = library.layout
         // The app's NSApplication subclass must conform (CmuxApplication);
@@ -540,9 +570,9 @@ final class CEFRuntime {
         self.pump = pump
         pump.start()
 
-        storage.prepareForLaunch()
+        // The profile root and the kept log, and the person's ad blocker (`person`), were read ahead off the main thread.
         let builtInPlan = CEFBuiltInExtensions(adBlockerEnabled: builtInAdBlockerSetting())
-            .plan(resources: Bundle.main.resourceURL, profiles: storage.root)
+            .plan(resources: Bundle.main.resourceURL, person: person, fileExists: { FileManager.checked.fileExists(atPath: $0) })
         var switchSet = CEFSwitches.current(
             forkAPIVersion: shim.forkAPIVersion(), rendererPaths: CEFForkFeatures(shim).rendererPaths,
             bundleIdentifier: Bundle.main.bundleIdentifier,
