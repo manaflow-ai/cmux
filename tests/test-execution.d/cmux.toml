@@ -70,7 +70,15 @@ path = "tests/test_cmux_next_base_autofix_finishes.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_base_merge_carry.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_base_tier.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_bench_cli_calls.py"
 lane = "linux-guard"
 
 [[test]]
@@ -311,6 +319,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_static_capability_runtime_only.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_tab_switch_gate.py"
 lane = "linux-guard"
 
 [[test]]

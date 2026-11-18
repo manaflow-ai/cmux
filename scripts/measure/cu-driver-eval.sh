@@ -82,7 +82,7 @@ finish() {
 fetch() {
   local file="$cache/$3-$(basename "$2")"
   if [[ ! -s "$file" ]]; then
-    curl -fsSL --retry 3 -o "$file.part" "$2" || { rm -f "$file.part"; return 1; }
+    curl -fsSL --retry 3 --retry-all-errors -o "$file.part" "$2" || { rm -f "$file.part"; return 1; }
     mv "$file.part" "$file"
   fi
   if [[ "$(shasum -a 256 "$file" | awk '{print $1}')" != "$3" ]]; then

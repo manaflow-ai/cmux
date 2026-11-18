@@ -160,8 +160,11 @@ public final class PlusButtonLook {
         let square = CGRect(x: bounds.minX + (bounds.width - side) / 2, y: bounds.minY + (bounds.height - side) / 2, width: side, height: side)
         let split = segment == .leading && !showsChevron
         let fill = split ? bounds : showsChevron ? bounds.insetBy(dx: Metrics.space1, dy: (bounds.height - side) / 2) : square
-        let corner = split ? Metrics.tabCornerRadius
-            : hoverStyle == .circle && !showsChevron ? side / 2 : Metrics.tabCornerRadius // radius-allow: the opt-in circle hover look
+        // Every fill rounds by its own short side at the tabs' ratio (Lucas 2026-11-15: one shape at every density);
+        // the split's leading segment takes the + width beside a tab's height, as its ⌄ does (`splitCornerRadius`).
+        let corner = split ? splitCornerRadius
+            : hoverStyle == .circle && !showsChevron ? side / 2 // radius-allow: the opt-in circle hover look
+            : Metrics.buttonCornerRadius(proportionalTo: min(fill.width, fill.height))
         let corners: CACornerMask = split ? [.layerMinXMinYCorner, .layerMinXMaxYCorner] : allCorners
         // In the split look the + leans half a step toward its ⌄, which leans back, so the pair reads as one control.
         let lean = split ? Metrics.space1 / 2 : 0
@@ -169,6 +172,12 @@ public final class PlusButtonLook {
         let center = CGPoint(x: ((square.midX - (showsChevron ? Metrics.space2 : 0) + lean) * scale).rounded() / scale,
                              y: (square.midY * scale).rounded() / scale)
         return Geometry(fill: fill, cornerRadius: corner, corners: corners, glyphCenter: center)
+    }
+
+    /// The split control's corner: the tabs' ratio on the +'s own short side (its width beside a tab's height), so the
+    /// `+ ⌄` hover keeps one shape at every density instead of a tab's radius on a narrower button (Lucas 2026-11-15).
+    public static var splitCornerRadius: CGFloat {
+        Metrics.buttonCornerRadius(proportionalTo: min(TitlebarBandButton.side, Metrics.tabHeight))
     }
 
     /// The fill for `state`: the hover fill under the pointer, the pressed fill while held, half the hover fill on a

@@ -14,6 +14,7 @@
 import { afterAll, beforeAll, describe, expect, setSystemTime, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { teardownDom } from "./support/domTeardown";
+import { RUNNING_TRAY_LINE, RUNNING_TRAY_LIST_LINE } from "../src/agent-session/acpmux/subagents/subagentSelectors";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -386,7 +387,7 @@ describe("the tray", () => {
       expect(opened).toEqual([]);
       expect(head.getAttribute("aria-expanded")).toBe("true");
       expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("1 subagent running");
-      const lines = [...root.querySelectorAll(".acpmux-running-tray .acpmux-agent-line")];
+      const lines = [...root.querySelectorAll(RUNNING_TRAY_LINE)];
       expect(lines.length).toBe(1);
       const text = (selector: string) => lines[0]!.querySelector(selector)?.textContent;
       expect(text(".acpmux-summary-agent__name")).toBe("Explore the daemon");
@@ -723,7 +724,7 @@ describe("the tray", () => {
       { open: true },
     );
     try {
-      const lines = [...root.querySelectorAll<HTMLElement>(".acpmux-running-tray .acpmux-agent-line")];
+      const lines = [...root.querySelectorAll<HTMLElement>(RUNNING_TRAY_LINE)];
       const running = lines.find((line) => line.dataset.status === "running")!;
       const finished = lines.find((line) => line.dataset.status === "done")!;
       expect(running.hasAttribute("data-timed")).toBe(true);
@@ -1011,7 +1012,7 @@ describe("a tray line says what it is and what a click does", () => {
     try {
       const head = root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head");
       if (head && head.getAttribute("aria-expanded") !== "true") await act(async () => head.click());
-      const lines = [...root.querySelectorAll<HTMLElement>(".acpmux-running-tray__list .acpmux-agent-line")];
+      const lines = [...root.querySelectorAll<HTMLElement>(RUNNING_TRAY_LIST_LINE)];
       expect(lines).toHaveLength(2);
       for (const line of lines) {
         // One glyph: no word and no second icon before the name.
@@ -1859,7 +1860,7 @@ describe("subagents show their harness logos", () => {
 
 // A plan with nothing running has no lines to stack: the header's slot stays blank, never the 3/4
 // ring Leo rejected (2026-11-01).
-test("a plan-only tray's header keeps a blank slot, not the ring", async () => {
+test("a plan-only tray's header draws the Plan mode mark over its rows' status column, not the ring (2026-11-14)", async () => {
   const { root, done } = await render(
     createElement(SubagentTray, {
       items: [],
@@ -1872,7 +1873,9 @@ test("a plan-only tray's header keeps a blank slot, not the ring", async () => {
   try {
     const head = root.querySelector(".acpmux-running-tray__head")!;
     expect(head.querySelector(".acpmux-running-tray__stack")).toBeNull();
-    expect(head.querySelector(".acpmux-lineage__icon")?.hasAttribute("data-blank")).toBe(true);
+    const mark = head.querySelector(".acpmux-lineage__icon");
+    expect(mark?.hasAttribute("data-blank")).toBe(false);
+    expect(mark?.querySelector('[data-icon="mode.plan"]')).not.toBeNull();
   } finally {
     await done();
   }

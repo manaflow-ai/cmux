@@ -6,9 +6,13 @@ public import Foundation
 public nonisolated struct VerificationOffer: Sendable, Hashable {
     public let emailID: String
     public let tab: BrowserTabID
-    /// The registrable domain the email and the page share ("github.com"),
-    /// shown as "from github.com".
+    /// The registrable domain of the sender's address ("github.com"), shown as "from github.com".
+    /// It equals ``pageSite`` unless a reviewed sender map entry admitted the email
+    /// (``VerificationSenderMap``: codes for chatgpt.com come from openai.com).
     public let senderSite: String
+    /// The registrable domain of the page the offer was made on: the tab must still show it when
+    /// the person accepts.
+    public let pageSite: String
     /// The page's origin when the offer was made ("https://github.com"): the
     /// tab must still show it when the person clicks.
     public let pageOrigin: String
@@ -19,10 +23,12 @@ public nonisolated struct VerificationOffer: Sendable, Hashable {
     /// When the offer stops being shown (the email's arrival plus the window).
     public let expiresAt: Date
 
-    public init(emailID: String, tab: BrowserTabID, senderSite: String, pageOrigin: String, code: String?, link: URL?, expiresAt: Date) {
+    public init(emailID: String, tab: BrowserTabID, senderSite: String, pageSite: String? = nil, pageOrigin: String,
+                code: String?, link: URL?, expiresAt: Date) {
         self.emailID = emailID
         self.tab = tab
         self.senderSite = senderSite
+        self.pageSite = pageSite ?? senderSite
         self.pageOrigin = pageOrigin
         self.code = code
         self.link = link
@@ -36,6 +42,6 @@ extension VerificationOffer: CustomStringConvertible, CustomDebugStringConvertib
     }
     public var debugDescription: String { description }
     public var customMirror: Mirror {
-        Mirror(self, children: ["emailID": emailID, "tab": tab, "senderSite": senderSite, "pageOrigin": pageOrigin], displayStyle: .struct)
+        Mirror(self, children: ["emailID": emailID, "tab": tab, "senderSite": senderSite, "pageSite": pageSite, "pageOrigin": pageOrigin], displayStyle: .struct)
     }
 }
