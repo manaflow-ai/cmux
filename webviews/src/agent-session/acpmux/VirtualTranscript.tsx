@@ -4003,10 +4003,6 @@ function TranscriptView({
     // rest keep the last layout's heights (O(rows in view), not O(rows)). Its settle (`resizeSettled`)
     // measures every row at the width that held; a partial layout is never a base to keep rows from.
     void resizeSettled;
-    // A chat shown again takes its rows' heights from the layout it left, by id, version and text: its
-    // estimate measures only the rows that changed since (conversation/keptLayouts.ts).
-    const heights = rowHeights.current.heights;
-    if (sessionId !== undefined) keptLayouts.seed(sessionId, rows, heights, gridScale());
     // What the last pass left, read once for this one (`estimateFrom`).
     const { kept, resizing, partial } = estimateFrom(
       fresh ? undefined : lastEstimate.current,
@@ -4021,7 +4017,11 @@ function TranscriptView({
       rowWidth,
       cache,
       (row, measureWidth) => registry[rowKind(row)]?.measure?.(row, measureWidth),
-      measurementSession.current === sessionId ? heights : undefined,
+      // A chat shown again takes its rows' heights from the layout it left, by id, version and text: its
+      // estimate measures only the rows that changed since (conversation/keptLayouts.ts).
+      measurementSession.current === sessionId
+        ? keptLayouts.seed(sessionId, rows, rowHeights.current.heights, gridScale())
+        : undefined,
       kept,
       sessionId,
       resizing,

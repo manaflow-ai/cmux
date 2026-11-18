@@ -95,10 +95,10 @@ export class KeptLayouts<D, R extends KeptRow = KeptRow> {
 
   /// Gives each of `rows` with no estimate in `into` yet the height `sessionId`'s kept layout holds for it
   /// (same id, version, text length and scale), so the estimate keeps it instead of measuring it. Stops
-  /// after SEED_PASSES passes and SEED_MS.
-  seed(sessionId: string, rows: readonly R[], into: WeakMap<R, RowHeight>, scale: number): void {
-    const seeding = this.seeding.get(sessionId);
-    if (!seeding) return;
+  /// after SEED_PASSES passes and SEED_MS. Returns `into`.
+  seed<M extends WeakMap<R, RowHeight>>(sessionId: string | undefined, rows: readonly R[], into: M, scale: number): M {
+    const seeding = sessionId === undefined ? undefined : this.seeding.get(sessionId);
+    if (sessionId === undefined || !seeding) return into;
     for (const row of rows) {
       if (into.has(row)) continue;
       const kept = keptHeightFor(seeding.heights, row, scale);
@@ -113,6 +113,7 @@ export class KeptLayouts<D, R extends KeptRow = KeptRow> {
     seeding.passes += 1;
     seeding.since ??= this.now();
     if (seeding.passes >= SEED_PASSES && this.now() - seeding.since >= SEED_MS) this.seeding.delete(sessionId);
+    return into;
   }
 
   /// `sessionId` is measured with another look or registry: nothing it kept places a row now.
