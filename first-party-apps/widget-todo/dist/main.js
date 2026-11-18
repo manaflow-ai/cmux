@@ -16,6 +16,8 @@
   };
   var exports_main = {};
   __export(exports_main, {
+    COLORS: () => COLORS,
+    listColor: () => listColor,
     renderTodo: () => renderTodo
   });
   var events_default = {
@@ -2329,6 +2331,44 @@
       "workspace.open_url"
     ]
   };
+  var WIDGET_TYPE = { bigNumber: 34, title: 15, label: 13, body: 13, caption: 12, footnote: 11 };
+  var WIDGET_INSET = { newtab: 16, sidebar: 12 };
+  function WidgetFrame(children, options = {}) {
+    const inset = options.place === "sidebar" ? WIDGET_INSET.sidebar : WIDGET_INSET.newtab;
+    const frame = VStack({ spacing: options.spacing ?? 4, alignment: "leading" }, children).padding(inset).frame({ maxWidth: "infinity", maxHeight: "infinity" });
+    return options.background ? frame.background(options.background) : frame;
+  }
+  function Caption(text) {
+    return Text(text).font(WIDGET_TYPE.caption).color("secondary").lineLimit(1);
+  }
+  function checkbox(item) {
+    const side = WIDGET_TYPE.body + 6;
+    return () => item().done ? Circle().fill(item().tint ?? "accent").size(side) : Circle().stroke("tertiary").strokeWidth(1.5).size(side);
+  }
+  function RowList(items, options = {}) {
+    const max = options.max ?? 4;
+    return VStack({ spacing: options.spacing ?? 6, alignment: "leading" }, [
+      ForEach({ items: () => (items() ?? []).slice(0, max), key: (item) => item.id }, (item) => {
+        const leading = item().check ? checkbox(item) : item().symbol ? Icon(() => item().symbol ?? "").size(WIDGET_TYPE.label).color(() => item().tint ?? "accent") : VStack([]).frame({ width: 3, minHeight: 28 }).background(() => item().tint ?? "accent").cornerRadius(1.5);
+        const row = HStack({ spacing: 8 }, [
+          leading,
+          VStack({ spacing: 1, alignment: "leading" }, [
+            Text(() => item().title).font(WIDGET_TYPE.body).weight(item().check ? "regular" : "semibold").lineLimit(1).strikethrough(() => item().done === true).color(() => item().done ? "secondary" : "primary").animation("smooth"),
+            () => item().detail ? Caption(() => item().detail ?? "") : null
+          ]),
+          Spacer(),
+          () => item().trailing ? Text(() => item().trailing ?? "").font(WIDGET_TYPE.caption).color("secondary") : null
+        ]);
+        row.transition("slide");
+        const { onTap, menu, help } = item();
+        if (help)
+          row.help(help);
+        if (menu)
+          row.contextMenu(menu);
+        return onTap ? row.cursor("pointer").onTap(onTap) : row;
+      })
+    ]);
+  }
   var API_VERSION = scopes_default.apiVersion;
   var g = globalThis;
   var RUNTIME_VERSION = String(globalThis.__cmuxAppRuntimeVersion ?? "");
@@ -2437,10 +2477,10 @@
     return out;
   }
   var byCreated = (a, b) => a.created - b.created || a.id.localeCompare(b.id);
-  function split(items, settling = new Set) {
+  function split(items) {
     const live = [...items].filter((i) => !i.deleted);
-    const open = live.filter((i) => !i.done || settling.has(i.id)).sort(byCreated);
-    const done = live.filter((i) => i.done && !settling.has(i.id)).sort((a, b) => (b.doneAt ?? b.updated) - (a.doneAt ?? a.updated));
+    const open = live.filter((i) => !i.done).sort(byCreated);
+    const done = live.filter((i) => i.done).sort((a, b) => (b.doneAt ?? b.updated) - (a.doneAt ?? a.updated));
     const remaining = live.filter((i) => !i.done).length;
     return { open, done, remaining };
   }
@@ -2455,8 +2495,6 @@
   var [items, setItems] = signal(new Map);
   var [loaded, setLoaded] = signal(false);
   var [problem, setProblem] = signal(null);
-  var [settling, setSettling] = signal(new Set);
-  var SETTLE_MS = 1200;
   var device = "";
   var nextId = 0;
   var reading = null;
@@ -2570,54 +2608,35 @@
     put(item);
     return item;
   }
-  var timers = new Map;
-  function settle(id, on) {
-    const old = timers.get(id);
-    if (old !== undefined)
-      cmux.timer.clear(old);
-    timers.delete(id);
-    setSettling((s) => {
-      const next = new Set(s);
-      if (on)
-        next.add(id);
-      else
-        next.delete(id);
-      return next;
-    });
-    if (on) {
-      timers.set(id, cmux.timer.after(SETTLE_MS, () => {
-        timers.delete(id);
-        settle(id, false);
-      }));
-    }
-  }
   function toggle(id) {
     const item = items().get(id);
     if (!item || item.deleted)
       return;
     const done = !item.done;
     put(stamp(item, done ? { done, doneAt: Date.now() } : { done, doneAt: undefined }));
-    settle(id, done);
   }
   function remove(id) {
     const item = items().get(id);
     if (!item || item.deleted)
       return;
-    settle(id, false);
     put(stamp(item, { deleted: true }));
   }
   function clearCompleted() {
-    const shown = settling();
     for (const item of items().values())
-      if (item.done && !item.deleted && !shown.has(item.id))
+      if (item.done && !item.deleted)
         remove(item.id);
   }
-  var TYPE = { bigNumber: 34, smallNumber: 28, title: 15, label: 13, body: 13, caption: 12, footnote: 11 };
-  var INSET = { newtab: 16, sidebar: 12 };
-  var accent = cmux.theme.accent;
+  var COLORS = {
+    red: "#FF3B30",
+    orange: "#FF9500",
+    yellow: "#FFCC00",
+    green: "#34C759",
+    blue: "#007AFF",
+    purple: "#AF52DE",
+    brown: "#A2845E"
+  };
   var stored = {
     items,
-    settling,
     loaded,
     problem,
     add: (text) => void add(text),
@@ -2630,37 +2649,39 @@
     const entry = (id, text, done = false) => [id, { id, text, done, created: at + id.charCodeAt(0), updated: at, by: "" }];
     const items = new Map([entry("a", t("sample.1", "Buy milk")), entry("b", t("sample.2", "Call the dentist")), entry("c", t("sample.3", "Water the plants")), entry("d", t("sample.4", "Book flights"), true)]);
     const none = () => {};
-    return { items: () => items, settling: () => new Set, loaded: () => true, problem: () => null, add: none, toggle: none, remove: none, clearCompleted: none };
+    return { items: () => items, loaded: () => true, problem: () => null, add: none, toggle: none, remove: none, clearCompleted: none };
   }
-  function listName(ctx) {
-    const own = ctx.settings?.title;
+  function setting(ctx, key) {
+    const own = ctx.settings?.[key];
     if (typeof own === "string" && own.trim())
       return own.trim();
-    const app = cmux.app.settings().title;
-    if (typeof app === "string" && app.trim())
-      return app.trim();
-    return t("title", "To Do");
+    const app = cmux.app.settings()[key];
+    return typeof app === "string" ? app.trim() : "";
   }
-  function checkbox(done, size) {
-    const side = size === "small" ? 15 : 19;
-    return () => done() ? Circle().fill(accent).size(side) : Circle().stroke(cmux.theme.text.tertiary).strokeWidth(1.5).size(side);
+  var listName = (ctx) => setting(ctx, "title") || t("title", "To Do");
+  function listColor(ctx) {
+    const value = setting(ctx, "color");
+    if (/^#[0-9a-f]{6}$/i.test(value))
+      return value.toUpperCase();
+    return COLORS[value.toLowerCase()] ?? COLORS.blue;
   }
-  function row(source, item, size) {
-    const settling = () => source.settling().has(item().id);
-    const label = () => item().done ? t("row.uncheck", "Mark as not done") : t("row.check", "Mark as done");
-    return HStack({ spacing: size === "small" ? 6 : 9 }, [
-      checkbox(() => item().done, size),
-      Text(() => item().text).font(size === "small" ? TYPE.caption : TYPE.body).color(() => item().done && !settling() ? cmux.theme.text.secondary : cmux.theme.text.primary).lineLimit(1),
-      Spacer()
-    ]).opacity(() => settling() ? 0.45 : 1).cursor("pointer").help(label).onTap(() => source.toggle(item().id)).contextMenu(() => [Button(label(), () => source.toggle(item().id)), Button(t("row.delete", "Delete"), () => source.remove(item().id)).destructive()]);
+  function rows(source, list, tint, max) {
+    const items = () => list().map((item) => {
+      const label = item.done ? t("row.uncheck", "Mark as not done") : t("row.check", "Mark as done");
+      return {
+        id: item.id,
+        title: item.text,
+        done: item.done,
+        check: true,
+        tint,
+        help: label,
+        onTap: () => source.toggle(item.id),
+        menu: () => [Button(label, () => source.toggle(item.id)), Button(t("row.delete", "Delete"), () => source.remove(item.id)).destructive()]
+      };
+    });
+    return RowList(items, { max, spacing: 8 });
   }
-  function rows(source, list, size) {
-    return ForEach({ items: list, key: (i) => i.id, spacing: size === "small" ? 3 : 0 }, (item, key) => VStack({ spacing: 0 }, [
-      () => size !== "small" && list()[0]?.id !== key ? Divider().padding({ leading: 28 }) : null,
-      size === "small" ? row(source, item, size) : row(source, item, size).paddingVertical(5)
-    ]));
-  }
-  function newItemField(source, size) {
+  function newItemField(source, tint) {
     const [draft, setDraft] = signal("");
     const submit = (text) => {
       const value = cleanText(text);
@@ -2668,25 +2689,25 @@
       if (value)
         source.add(value);
     };
-    const line = HStack({ spacing: size === "small" ? 6 : 9 }, [
-      Icon("action.add").size(size === "small" ? 15 : 19).color(accent),
-      TextField(draft, { placeholder: t("new.placeholder", "New item"), onEdit: setDraft, onSubmit: submit }).font(size === "small" ? TYPE.caption : TYPE.body)
+    return HStack({ spacing: 8 }, [
+      Icon("action.add").size(WIDGET_TYPE.body + 6).color(tint),
+      TextField(draft, { placeholder: t("new.placeholder", "New item"), onEdit: setDraft, onSubmit: submit }).font(WIDGET_TYPE.body)
     ]);
-    return size === "small" ? line : line.paddingVertical(5);
   }
-  function header(ctx, size, remaining) {
-    const count = Text(remaining).font(size === "small" ? TYPE.smallNumber : TYPE.bigNumber).weight("semibold").lineLimit(1);
-    const name = Text(() => listName(ctx)).font(size === "small" ? TYPE.label : TYPE.title).weight("semibold").color(accent).lineLimit(1);
+  function header(ctx, size, tint, remaining) {
+    const count = Text(remaining).font(size === "small" ? 28 : WIDGET_TYPE.bigNumber).weight("semibold").lineLimit(1).contentTransition("numericText");
+    const name = Text(() => listName(ctx)).font(size === "small" ? WIDGET_TYPE.label : WIDGET_TYPE.title).weight("semibold").color(tint).lineLimit(1);
     return VStack({ alignment: "leading", spacing: 0 }, [count, name]);
   }
-  var more = (count) => Text(() => t("more", "{count} more", { count: count() })).font(TYPE.caption).color(cmux.theme.text.secondary);
+  var more = (count) => Text(() => t("more", "{count} more", { count: count() })).font(WIDGET_TYPE.caption).color("secondary");
   function renderTodo(context = {}) {
     const source = context.preview ? sample() : stored;
     if (!context.preview)
       start();
     const size = normalizeSize(context.size);
-    const inset = context.place === "sidebar" ? INSET.sidebar : INSET.newtab;
-    const lists = computed(() => split(source.items().values(), source.settling()));
+    const place = context.place === "sidebar" ? "sidebar" : "newtab";
+    const tint = listColor(context);
+    const lists = computed(() => split(source.items().values()));
     const [showDone, setShowDone] = signal(false);
     const doneRows = computed(() => size === "large" && showDone() ? Math.min(2, lists().done.length) : 0);
     const openRows = () => {
@@ -2697,50 +2718,43 @@
     const hidden = computed(() => Math.max(0, lists().open.length - openRows()));
     const remaining = () => lists().remaining;
     const empty = () => source.loaded() && lists().open.length === 0;
-    const problem = () => source.problem() ? Text(() => t("problem", "Couldn't save: {message}", { message: source.problem() ?? "" })).font(TYPE.footnote).color(cmux.theme.warning).lineLimit(2) : null;
-    const nothing = () => empty() ? Text(t("empty", "Nothing to do")).font(size === "small" ? TYPE.caption : TYPE.body).color(cmux.theme.text.secondary) : null;
+    const problem = () => source.problem() ? Text(() => t("problem", "Couldn't save: {message}", { message: source.problem() ?? "" })).font(WIDGET_TYPE.footnote).color(cmux.theme.warning).lineLimit(2) : null;
+    const nothing = () => empty() ? Text(t("empty", "Nothing to do")).font(WIDGET_TYPE.body).color("secondary") : null;
     if (size === "small") {
-      return VStack({ alignment: "leading", spacing: 6 }, [
-        header(context, size, remaining),
-        rows(source, open, size),
+      return WidgetFrame([
+        header(context, size, tint, remaining),
+        rows(source, open, tint, ROWS.small),
         () => hidden() > 0 ? more(hidden) : null,
         nothing,
-        () => empty() ? newItemField(source, size) : null,
+        () => empty() ? newItemField(source, tint) : null,
         problem
-      ]).padding(inset).frame({ maxWidth: "infinity", maxHeight: "infinity" });
+      ], { place, spacing: 6 });
     }
     if (size === "medium") {
-      return HStack({ spacing: 14 }, [
-        VStack({ alignment: "leading", spacing: 4 }, [header(context, size, remaining), () => hidden() > 0 ? more(hidden) : null]).frame({ width: 104, maxHeight: "infinity" }),
-        VStack({ alignment: "leading", spacing: 0 }, [nothing, rows(source, open, size), () => open().length > 0 ? Divider().padding({ leading: 28 }) : null, newItemField(source, size), problem]).frame({ maxWidth: "infinity", maxHeight: "infinity" })
-      ]).padding(inset).frame({ maxWidth: "infinity", maxHeight: "infinity" });
+      return HStack({ spacing: 14, alignment: "top" }, [
+        VStack({ alignment: "leading", spacing: 4 }, [header(context, size, tint, remaining), () => hidden() > 0 ? more(hidden) : null]).frame({ width: 104, maxHeight: "infinity" }),
+        VStack({ alignment: "leading", spacing: 8 }, [nothing, rows(source, open, tint, ROWS.medium), newItemField(source, tint), problem]).frame({ maxWidth: "infinity", maxHeight: "infinity" })
+      ]).padding(WIDGET_INSET[place]).frame({ maxWidth: "infinity", maxHeight: "infinity" });
     }
     const done = computed(() => lists().done);
     const shownDone = computed(() => done().slice(0, doneRows()));
-    return VStack({ alignment: "leading", spacing: 8 }, [
-      header(context, size, remaining),
-      Divider(),
-      VStack({ alignment: "leading", spacing: 0 }, [
-        nothing,
-        rows(source, open, size),
-        () => hidden() > 0 ? more(hidden).padding({ leading: 28, top: 4, bottom: 4 }) : null,
-        () => open().length > 0 ? Divider().padding({ leading: 28 }) : null,
-        newItemField(source, size)
-      ]),
-      () => done().length > 0 ? VStack({ alignment: "leading", spacing: 0 }, [
+    return WidgetFrame([
+      header(context, size, tint, remaining),
+      VStack({ alignment: "leading", spacing: 8 }, [nothing, rows(source, open, tint, ROWS.large), () => hidden() > 0 ? more(hidden) : null, newItemField(source, tint)]),
+      () => done().length > 0 ? VStack({ alignment: "leading", spacing: 8 }, [
         HStack({ spacing: 6 }, [
-          Icon(() => showDone() ? "disclosure.expanded" : "disclosure.collapsed").size(TYPE.caption).color(cmux.theme.text.secondary),
-          Text(() => t("completed", "{count} Completed", { count: done().length })).font(TYPE.caption).color(cmux.theme.text.secondary),
+          Icon(() => showDone() ? "disclosure.expanded" : "disclosure.collapsed").size(WIDGET_TYPE.caption).color("secondary"),
+          Text(() => t("completed", "{count} Completed", { count: done().length })).font(WIDGET_TYPE.caption).color("secondary"),
           Spacer(),
           () => showDone() ? Button(t("clear", "Clear"), () => {
             source.clearCompleted();
             setShowDone(false);
-          }).font(TYPE.caption) : null
+          }).font(WIDGET_TYPE.caption) : null
         ]).cursor("pointer").onTap(() => setShowDone((v) => !v)),
-        rows(source, shownDone, size)
+        rows(source, shownDone, tint, 2)
       ]) : null,
       problem
-    ]).padding(inset).frame({ maxWidth: "infinity", maxHeight: "infinity" });
+    ], { place, spacing: 10 });
   }
   globalThis.__cmuxAppExports = { ...exports_main };
 })();
