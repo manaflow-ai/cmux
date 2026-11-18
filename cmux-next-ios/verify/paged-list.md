@@ -75,8 +75,20 @@ file in Caches, an index in memory, one serial queue off the main thread) and va
 read back from it. The list shows the contiguous run in memory and an edge (spinner) at a side still
 reading from disk, the same edge a page read shows. All lists' files share a 1 GB cap
 (`PagedListSpillBudget`); past it a row stays in memory, so nothing is lost. Files go with their model,
-and an earlier launch's files are deleted at the first spill. A live arrival beyond the window counts
-toward the indicator's `unseen`; the jump brings the newest rows back first.
+and an earlier launch's files are deleted when the first windowed list is made. A live arrival beyond
+the window counts toward the indicator's `unseen`; the jump brings the newest rows back first.
+
+The window's own guards:
+
+- Reaching the window's end moves it around the row being read, which ends a quarter window from the
+  side the window leaves. Asking again, before or after the rows are back, moves nothing, and no move
+  starts while a disk read runs, so the window never passes the reader.
+- A row changed while its disk read runs keeps the change: the read's older value is dropped and the
+  row read again. A list read again from its first page drops every older read's answer.
+- A row the disk cannot give back (a failed read, a damaged record) is dropped from the list once
+  (`lostRows`), not asked for forever.
+- Rows read back from disk at the newer edge are not new rows: they don't count on the newest-rows
+  indicator, and the list does not follow them (only a list that holds its newest row follows it).
 
 Why disk and not only dropping values to refetch them: a live list's rows (edits, inserts, moves) are
 not what the server pages return any more, so a refetch would lose changes. SQLite would add a schema

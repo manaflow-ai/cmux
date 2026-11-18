@@ -393,6 +393,9 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         let newerEdgeChanged = newNewerEdge != newerEdge
         let newShowsEdge = newEdge != .end || edgeHasEndView
         let newShowsNewerEdge = newNewerEdge != .end
+        // Rows a windowed model brings back from disk at its newer edge are not new: only rows that
+        // land while the list holds its newest rows arrive.
+        let heldNewest = newerEdge == .end
         edge = newEdge
         newerEdge = newNewerEdge
         guard newOrder != order || newShowsEdge != showsEdge || newShowsNewerEdge != showsNewerEdge || !changed.isEmpty
@@ -402,7 +405,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         // Rows that arrived at the newest end: the rows now on the newest side of the old newest row.
         let oldNewest = newestID(in: order)
         var arrivals = 0
-        if loaded, let oldNewest, oldNewest != newestID(in: newOrder), let at = newOrder.firstIndex(of: oldNewest) {
+        if loaded, heldNewest, let oldNewest, oldNewest != newestID(in: newOrder), let at = newOrder.firstIndex(of: oldNewest) {
             arrivals = direction == .down ? at : newOrder.count - 1 - at
         }
         let animates = animatesNewest && !UIAccessibility.isReduceMotionEnabled && !collectionView.isTracking
@@ -805,9 +808,11 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         pullToRefresh?.scrolled()
         if scrollView.isTracking || scrollView.isDecelerating {
             let wasFollowing = followsNewest
+            // At the end of the rows shown is the newest row only when the list holds it: a windowed
+            // list's newer-edge spinner is not followed (its rows come from disk, not live).
             switch direction {
-            case .up: followsNewest = maxOffsetY - y <= 4
-            case .down: followsNewest = y + scrollView.adjustedContentInset.top <= 4
+            case .up: followsNewest = maxOffsetY - y <= 4 && newerEdge == .end
+            case .down: followsNewest = y + scrollView.adjustedContentInset.top <= 4 && newerEdge == .end
             }
             if followsNewest, !wasFollowing { newest.arrived = 0 }
             if onReading != nil, let id = readingRowID() { report(id) }

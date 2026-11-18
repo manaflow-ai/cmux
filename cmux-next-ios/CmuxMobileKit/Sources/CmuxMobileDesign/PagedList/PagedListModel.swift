@@ -108,6 +108,11 @@ public final class PagedListModel<Item: Identifiable & Equatable & Sendable> whe
     /// The row being read (the list reports it), which the window keeps in its middle half.
     @ObservationIgnored private var reader: Item.ID?
     @ObservationIgnored private var reads: Set<Item.ID> = []
+    /// Disk reads belong to this generation: a list read again from its first page drops older answers.
+    @ObservationIgnored private var readGeneration = 0
+    /// Rows that changed while their disk read ran: that read's value is older than the change, so
+    /// it is dropped and the row read again.
+    @ObservationIgnored private var staleReads: Set<Item.ID> = []
     @ObservationIgnored private let spill: Spill?
 
     @ObservationIgnored private var loader: Loader
@@ -131,6 +136,9 @@ public final class PagedListModel<Item: Identifiable & Equatable & Sendable> whe
     /// Pages a source answered with a cursor it had already given, or a run of empty pages, that
     /// the model stopped at (tests).
     @ObservationIgnored public private(set) var stoppedLoops = 0
+    /// Rows the disk could not give back (a failed read, a damaged record): dropped from the list
+    /// once, never asked for again (tests).
+    @ObservationIgnored public private(set) var lostRows = 0
     /// The text a failure shows.
     @ObservationIgnored public var message: (any Error) -> String = { _ in String(localized: "Check your connection and try again.") }
 
@@ -244,8 +252,7 @@ public final class PagedListModel<Item: Identifiable & Equatable & Sendable> whe
     /// the source's next page. Does nothing while a read runs, at the end, or before the first page.
     public func loadMore() async {
         if windowSize != nil, let last = windowIDs.last, last != order.tail {
-            reader = last
-            rebuild()
+            moveWindow(older: true, end: last)
             return
         }
         guard phase == .loaded, firstRead == nil, sourceEdge == .more || isFailed(sourceEdge), let cursor else { return }
@@ -282,7 +289,27 @@ public final class PagedListModel<Item: Identifiable & Equatable & Sendable> whe
     /// Reads the newer rows a windowed model holds on disk (the reader neared the newer edge).
     public func loadNewer() {
         guard windowSize != nil, let first = windowIDs.first, first != order.head else { return }
-        reader = first
+        moveWindow(older: false, end: first)
+    }
+
+    /// Moves a windowed model's window toward the rows on disk past `end`, its older or newer end,
+    /// around the row being read (`end` when the list hasn't reported one): that row ends a quarter
+    /// window from the side the window leaves. So the window never passes the reader, and asking
+    /// again, before or after the rows are back, moves nothing. One move at a time: none while a
+    /// disk read runs.
+    private func moveWindow(older: Bool, end: Item.ID) {
+        guard let size = windowSize, reads.isEmpty else { return }
+        let target = reader.flatMap { windowIDs.contains($0) ? $0 : nil } ?? end
+        guard let at = windowIDs.firstIndex(of: target) else { return }
+        if older {
+            // Already a quarter window or less from the newer side: the window can't go further.
+            guard at > size / 4 else { return }
+        } else {
+            guard at < size * 3 / 4 else { return }
+        }
+        let start = order.walkBack(from: target, steps: older ? size / 4 : size * 3 / 4)
+        windowStart = start == order.head ? nil : start
+        reader = target
         rebuild()
     }
 
@@ -385,6 +412,7 @@ public final class PagedListModel<Item: Identifiable & Equatable & Sendable> whe
     private func store(_ item: Item) {
         values[item.id] = item
         if spill != nil { dirty.insert(item.id) }
+        if reads.contains(item.id) { staleReads.insert(item.id) }
     }
 
     private func replaceAll(_ fresh: [Item]) {
@@ -392,6 +420,8 @@ public final class PagedListModel<Item: Identifiable & Equatable & Sendable> whe
         values.removeAll(keepingCapacity: true)
         dirty.removeAll()
         reads.removeAll()
+        staleReads.removeAll()
+        readGeneration += 1
         spill?.removeAll()
         windowStart = nil
         reader = nil
@@ -463,13 +493,10 @@ public final class PagedListModel<Item: Identifiable & Equatable & Sendable> whe
         let missing = ids.filter { values[$0] == nil && !reads.contains($0) }
         if !missing.isEmpty {
             reads.formUnion(missing)
+            let run = readGeneration
             spill?.read(missing) { [weak self] found in
-                guard let self else { return }
-                self.reads.subtract(missing)
-                // A change that came while the read ran is newer than the disk's value.
-                let wanted = Set(self.windowIDs)
-                for (id, value) in found where self.values[id] == nil && wanted.contains(id) { self.values[id] = value }
-                self.rebuild()
+                guard let self, run == self.readGeneration else { return }
+                self.landRead(missing, found)
             }
         }
 
@@ -498,6 +525,33 @@ public final class PagedListModel<Item: Identifiable & Equatable & Sendable> whe
         newerEdge = headShown || order.isEmpty ? .end : (reads.isEmpty ? .more : .loading)
         edge = tailShown || order.isEmpty ? sourceEdge : (reads.isEmpty ? .more : .loading)
         if headShown { unseenNewest = 0 }
+    }
+
+    /// A disk read's answer: the rows still wanted take their values; a row changed while the read
+    /// ran is read again (its change is newer); a row the disk didn't have is dropped, so it is not
+    /// asked for forever.
+    private func landRead(_ asked: [Item.ID], _ found: [Item.ID: Item]) {
+        reads.subtract(asked)
+        let wanted = Set(windowIDs)
+        var lost: [Item.ID] = []
+        for id in asked {
+            if staleReads.remove(id) != nil { continue }
+            guard values[id] == nil, order.contains(id) else { continue }
+            if let value = found[id] {
+                if wanted.contains(id) { values[id] = value }
+            } else {
+                lost.append(id)
+            }
+        }
+        if !lost.isEmpty {
+            for id in lost {
+                order.remove(id)
+                dirty.remove(id)
+            }
+            spill?.remove(lost)
+            lostRows += lost.count
+        }
+        rebuild()
     }
 
     private func isFailed(_ edge: PagedListEdge) -> Bool {

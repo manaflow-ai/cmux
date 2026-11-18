@@ -178,7 +178,8 @@ final class PagedListSpill<Item: Codable & Sendable & Identifiable>: @unchecked 
     }
 
     private func truncate() {
-        guard let handle = openHandle() else { return }
+        // Nothing written yet: no file to make just to empty it.
+        guard end > 0, let handle = openHandle() else { return }
         try? handle.truncate(atOffset: 0)
         PagedListSpillBudget.shared.release(Int(end))
         end = 0
@@ -186,7 +187,7 @@ final class PagedListSpill<Item: Codable & Sendable & Identifiable>: @unchecked 
 }
 
 /// The disk all lists' spill files share: a cap (1 GB by default) and this launch's folder (files
-/// left by an earlier launch are deleted when the first list spills).
+/// left by an earlier launch are deleted when the first windowed list is made).
 final class PagedListSpillBudget: Sendable {
     static let shared = PagedListSpillBudget()
 
