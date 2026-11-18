@@ -634,7 +634,7 @@ class Workflow(unittest.TestCase):
         done = subprocess.run(["bash", "-c", scripts[0]], cwd=ROOT, env=env, capture_output=True, text=True)
         self.assertNotEqual(done.returncode, 0)  # no look result is never green
         self.assertIn(f"cancel {step}", calls.read_text(), (done.stdout, done.stderr))
-        # A job cancelled while it waits (a newer push's run, the 75 min limit) cancels its step too.
+        # A job cancelled while it waits (a newer push's run, the job's time limit) cancels its step too.
         self.assertTrue(any("cancelled()" in line for line in self.job_block("look")), "no step runs on cancel")
         calls.unlink()
         (temp / "look.log").write_text(f"submitted step {step}\n")
@@ -727,9 +727,13 @@ class Workflow(unittest.TestCase):
                 subprocess.run(["bash", "-c", self.look_steps()[0]], cwd=ROOT, env=env, capture_output=True, text=True)
                 run = next(c for c in calls.read_text().splitlines() if c.startswith("run "))
                 self.assertIn(f"--queue-timeout {bound} ", run)
-        # The job outlives the longest bound plus the step's own run limit (2400 s) and the artifact read.
+        # The job outlives a fast first try (120 s), the longest bound, the step's own run limit (2400 s) and the reads.
         limit = next(int(line.split(":")[1]) for line in self.job_block("look") if line.strip().startswith("timeout-minutes:"))
-        self.assertGreaterEqual(limit * 60, 10800 + 2400 + 600)
+        self.assertGreaterEqual(limit * 60, 120 + 10800 + 2400 + 600)
+        # Whatever the controller sends, the bound is a number in range.
+        for text in ("[]", '"x"', "null", '{"step_queue_wait_p90_seconds": null}', '{"step_queue_wait_p90_seconds": {"light": -Infinity}}',
+                     '{"step_queue_wait_p90_seconds": {"light": NaN}}', '{"step_queue_wait_p90_seconds": {"light": ' + "9" * 400 + "}}"):
+            self.assertIn(hv.queue_bound(text), (1800, 10800), text)
 
     def test_a_look_rejoins_its_head_step_at_that_steps_hq_commit(self) -> None:
         # #45082, 2026-11-17: its head step hv-45082-70e741a61349 was queued at 23:06 at HQ 1848f209. A run at 23:38 sent

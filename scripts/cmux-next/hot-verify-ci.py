@@ -468,9 +468,9 @@ def queue_bound(text: str, step_class: str = "light") -> int:
     try:
         data = json.loads(text)
         value = float(data["step_queue_wait_p90_seconds"][step_class])
-    except (ValueError, TypeError, KeyError):
+    except (ValueError, TypeError, KeyError, OverflowError):
         return QUEUE_FLOOR
-    if value != value:  # NaN
+    if not value >= QUEUE_FLOOR:  # NaN, -inf and short waits
         return QUEUE_FLOOR
     return int(max(QUEUE_FLOOR, min(QUEUE_CAP, -(-value // 1))))  # clamped before int(): inf stays out of it
 
