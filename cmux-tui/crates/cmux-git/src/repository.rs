@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::MAX_SMALL_OUTPUT_BYTES;
+use crate::own_work_tree::{self, is_one_folder, two_folders};
 use crate::run::{
     DEADLINE, GitFailure, GitOutput, Override, run_git_records_within, run_git_within,
 };
@@ -40,6 +41,14 @@ impl std::fmt::Display for OpenError {
 
 impl std::error::Error for OpenError {}
 
+/// What [`Repository::open`] says of a work tree that it does not open
+/// because its top folder's name is not UTF-8.
+const TOP_FOLDER_NOT_UTF8: &str = "the work tree's top folder has a name that is not UTF-8";
+
+/// What [`Repository::open`] says when git's answer is not one top folder
+/// and one git folder that are there.
+const NOT_TWO_FOLDERS: &str = "git did not name one top folder and one git folder for this folder";
+
 impl Repository {
     /// The repository `directory` is in.
     pub fn open(directory: &Path) -> Result<Self, OpenError> {
@@ -53,24 +62,68 @@ impl Repository {
     }
 
     fn open_until(directory: &Path, deadline: Option<Instant>) -> Result<Self, OpenError> {
-        let arguments = ["rev-parse", "--show-toplevel"];
+        Self::open_unfiltered(directory, deadline)?.filtered().map_err(OpenError::Git)
+    }
+
+    /// [`Repository::open`], and the `core`, `diff` and `filter` settings of
+    /// every config file as git prints them: the settings that can change a
+    /// diff of the same files. The run that finds the filter drivers reads
+    /// them, so they cost no run of their own. `None` when they are too many
+    /// to keep.
+    pub fn open_with_diff_settings(directory: &Path) -> Result<(Self, Option<Vec<u8>>), OpenError> {
+        let unfiltered = Self::open_unfiltered(directory, None)?;
+        let (overrides, settings) =
+            diff_settings_within(&unfiltered.root, remaining(None)).map_err(OpenError::Git)?;
+        Ok((Self { root: unfiltered.root, overrides, deadline: None }, settings))
+    }
+
+    /// The repository `directory` is in, with no filter driver blanked: for
+    /// the runs that read no file content (a ref, a config value, a path of
+    /// the repository). Crate-private, so that only such a run gets one
+    /// ([`crate::head::Checkout`]); a run that can read content takes
+    /// [`Repository::filtered`] first.
+    pub(crate) fn open_unfiltered(
+        directory: &Path,
+        deadline: Option<Instant>,
+    ) -> Result<Self, OpenError> {
+        // One run gives the top folder and the git folder that git uses
+        // for `directory`.
+        let arguments = ["rev-parse", "--show-toplevel", "--absolute-git-dir"];
         let left = remaining(deadline);
         let output = match run_git_within(directory, &[], &arguments, MAX_SMALL_OUTPUT_BYTES, left)
         {
             Ok(output) => output,
-            Err(GitFailure::Exit(stderr)) if stderr.contains("not a git repository") => {
+            Err(GitFailure::Exit(stderr)) if says_no_repository(&stderr) => {
                 return Err(OpenError::NotARepository);
             }
             Err(failure) => return Err(OpenError::Git(failure)),
         };
-        let root = String::from_utf8_lossy(&output.stdout).trim_end_matches('\n').to_string();
-        if root.is_empty() {
-            return Err(OpenError::NotARepository);
+        let folders = if output.truncated { None } else { two_folders(&output.stdout) };
+        let Some((root, git_dir)) = folders else {
+            // An older git gives a git folder and no top folder, with no
+            // error, for a folder that is in no work tree.
+            return Err(if is_one_folder(&output.stdout) {
+                OpenError::NotARepository
+            } else {
+                OpenError::Git(GitFailure::Exit(NOT_TWO_FOLDERS.to_string()))
+            });
+        };
+        // The top folder is text for each user of it (a reply, a key). A
+        // name that is not UTF-8 has no such text, and a text with other
+        // characters in its place is the name of another folder: refused.
+        if root.to_str().is_none() {
+            return Err(OpenError::Git(GitFailure::Exit(TOP_FOLDER_NOT_UTF8.to_string())));
         }
-        let root = PathBuf::from(root);
-        let overrides =
-            filter_overrides_within(&root, remaining(deadline)).map_err(OpenError::Git)?;
-        Ok(Self { root, overrides, deadline })
+        let setting = || core_worktree(&git_dir, deadline);
+        own_work_tree::check(directory, &root, &git_dir, setting).map_err(OpenError::Git)?;
+        Ok(Self { root, overrides: Vec::new(), deadline })
+    }
+
+    /// This repository with every configured filter driver blanked, as
+    /// [`Repository::open`] gives it.
+    pub(crate) fn filtered(&self) -> Result<Self, GitFailure> {
+        let overrides = filter_overrides_within(&self.root, remaining(self.deadline))?;
+        Ok(Self { root: self.root.clone(), overrides, deadline: self.deadline })
     }
 
     /// This repository with its runs stopped at `deadline` too (the earlier
@@ -249,15 +302,138 @@ impl Repository {
     pub fn main_checkout(&self) -> Option<PathBuf> {
         let arguments = ["rev-parse", "--path-format=absolute", "--git-common-dir", "--git-dir"];
         let output = self.run(&arguments, MAX_SMALL_OUTPUT_BYTES).ok()?;
-        let text = String::from_utf8_lossy(&output.stdout).into_owned();
-        let mut lines = text.lines();
-        let common = std::fs::canonicalize(lines.next()?).ok()?;
-        let own = std::fs::canonicalize(lines.next()?).ok()?;
+        let (common, own) = two_folders(&output.stdout)?;
+        let (common, own) = (std::fs::canonicalize(common).ok()?, std::fs::canonicalize(own).ok()?);
         if common == own {
             return None;
         }
         main_root(&common).map(Path::to_path_buf)
     }
+}
+
+/// Whether git's error text `stderr` is its error for a folder that is in no
+/// repository. git starts that error with these words. A search of the whole
+/// text for them finds them also in a folder's name, in an error of another
+/// kind. A line of a warning or of a hint can come before the error.
+fn says_no_repository(stderr: &str) -> bool {
+    stderr
+        .lines()
+        .find(|line| !line.starts_with("warning: ") && !line.starts_with("hint: "))
+        .is_some_and(|line| line.starts_with("fatal: not a git repository"))
+}
+
+/// The `core.worktree` setting that git takes for the git folder `git_dir`,
+/// when one is set: the bytes of its value.
+///
+/// git takes this setting from the file `config` of the git folder and,
+/// with the extension `worktreeConfig`, from the file `config.worktree` of
+/// the git folder after it. It takes it from no other place: not from a
+/// file that one of the two includes, and not from a config file of the
+/// user or of the system. So each of the two files is read alone (`--file`,
+/// `--no-includes`). A read of the whole config (`git config --get`) gives
+/// also a setting that git does not use for the work tree.
+///
+/// For a git folder with no common folder only: [`own_work_tree::check`]
+/// asks for the setting of no other git folder.
+fn core_worktree(git_dir: &Path, deadline: Option<Instant>) -> Result<Option<Vec<u8>>, GitFailure> {
+    let own = file_settings(git_dir, "config", deadline)?;
+    if !own.tree_config {
+        return Ok(own.worktree);
+    }
+    let tree = file_settings(git_dir, "config.worktree", deadline)?;
+    Ok(tree.worktree.or(own.worktree))
+}
+
+/// What one config file of a git folder says of the work tree.
+#[derive(Default)]
+struct FileSettings {
+    /// The last `core.worktree` value of the file.
+    worktree: Option<Vec<u8>>,
+    /// Whether the last `extensions.worktreeConfig` value of the file is on.
+    tree_config: bool,
+}
+
+/// What [`core_worktree`] says when the records of the two settings in one
+/// config file are longer than are kept.
+const WORK_TREE_SETTINGS_TOO_LONG: &str =
+    "a config file of the git folder has work tree settings that are longer than are read";
+
+/// The settings of the file `name` of the git folder `git_dir`, and of no
+/// file that it includes. The run is in the git folder and names the file
+/// by `name`, so a git folder whose path is not UTF-8 is read too.
+///
+/// git is asked for the two settings only. A record of another setting is
+/// no part of the output, at any length.
+///
+/// A limit: when the records of the two settings in the file are together
+/// longer than 64 KiB (each record with the byte that ends it), the open is
+/// refused. A part of the records can lack the last value of a setting, and
+/// git takes the last value, so no setting is taken from a part. The
+/// refusal is also for a work tree that git itself opens, when this read is
+/// asked for its git folder.
+fn file_settings(
+    git_dir: &Path,
+    name: &str,
+    deadline: Option<Instant>,
+) -> Result<FileSettings, GitFailure> {
+    // git takes a file that is not there as a file with no setting.
+    let missing = |error: &std::io::Error| error.kind() == std::io::ErrorKind::NotFound;
+    if std::fs::metadata(git_dir.join(name)).is_err_and(|error| missing(&error)) {
+        return Ok(FileSettings::default());
+    }
+    // `--null --get-regexp` prints each setting whose name the pattern
+    // matches as a record: the name in lower case, a line break and the
+    // value, or the name alone when the file gives it no value.
+    let pattern = r"^(core\.worktree|extensions\.worktreeconfig)$";
+    let arguments = ["config", "--file", name, "--no-includes", "--null", "--get-regexp", pattern];
+    let left = remaining(deadline);
+    let output = match run_git_within(git_dir, &[], &arguments, MAX_SMALL_OUTPUT_BYTES, left) {
+        Ok(output) if output.truncated => {
+            return Err(GitFailure::Exit(WORK_TREE_SETTINGS_TOO_LONG.to_string()));
+        }
+        Ok(output) => output,
+        // `--get-regexp` exits 1, with no text, when the file has neither
+        // setting.
+        Err(GitFailure::Exit(stderr)) if stderr.is_empty() => {
+            return Ok(FileSettings::default());
+        }
+        Err(failure) => return Err(failure),
+    };
+    let mut settings = FileSettings::default();
+    for record in output.stdout.split(|byte| *byte == 0).filter(|record| !record.is_empty()) {
+        let mut parts = record.splitn(2, |byte| *byte == b'\n');
+        let key = parts.next().unwrap_or_default();
+        let value = parts.next();
+        if key == b"core.worktree" {
+            // A name with no value: a setting is there, and it leads to no
+            // folder.
+            settings.worktree = Some(value.unwrap_or_default().to_vec());
+        } else if key == b"extensions.worktreeconfig" {
+            settings.tree_config = is_on(value);
+        }
+    }
+    Ok(settings)
+}
+
+/// Whether git reads the value of an on-off setting as on: no value,
+/// `true`, `yes`, `on`, or a decimal number that is not zero.
+///
+/// A limit: git reads other forms of a number as on too (a hexadecimal
+/// number, a number with a unit). Such a form is off here, and the file
+/// `config.worktree` is then not read. git gave the top folder with that
+/// file read, so a `core.worktree` setting that is not seen here names the
+/// top folder; the open then reads the git folder as one that names no
+/// work tree.
+fn is_on(value: Option<&[u8]>) -> bool {
+    let Some(value) = value else { return true };
+    let text = String::from_utf8_lossy(value).to_ascii_lowercase();
+    if matches!(text.as_str(), "true" | "yes" | "on") {
+        return true;
+    }
+    let digits = text.strip_prefix(['-', '+']).unwrap_or(&text);
+    !digits.is_empty()
+        && digits.bytes().all(|digit| digit.is_ascii_digit())
+        && digits.bytes().any(|digit| digit != b'0')
 }
 
 /// Whether git's `stderr` says a submodule's `.git` file names no repository.
@@ -273,7 +449,7 @@ const MAX_GITLINK_LISTING_BYTES: usize = 1024 * 1024;
 const MAX_SUBMODULES: usize = 256;
 
 /// A path git printed, byte for byte where the platform allows.
-fn path_from_bytes(bytes: &[u8]) -> PathBuf {
+pub(crate) fn path_from_bytes(bytes: &[u8]) -> PathBuf {
     #[cfg(unix)]
     {
         use std::os::unix::ffi::OsStrExt;
@@ -321,8 +497,49 @@ fn filter_overrides_within(root: &Path, deadline: Duration) -> Result<Vec<Overri
         Err(GitFailure::Exit(stderr)) if stderr.is_empty() => return Ok(Vec::new()),
         Err(failure) => return Err(failure),
     };
+    blanked(output.stdout.split(|byte| *byte == 0).filter(|key| !key.is_empty()))
+}
+
+/// The most settings output [`Repository::open_with_diff_settings`] keeps.
+const MAX_DIFF_SETTINGS_BYTES: usize = 1024 * 1024;
+
+/// The overrides of [`filter_overrides_within`], and the output of the one
+/// run that gives them: every `core`, `diff` and `filter` setting, each as
+/// its name, a line feed, its value and a NUL.
+fn diff_settings_within(
+    root: &Path,
+    deadline: Duration,
+) -> Result<(Vec<Override>, Option<Vec<u8>>), GitFailure> {
+    let arguments = ["config", "--null", "--get-regexp", r"^(core|diff|filter)\."];
+    let output = match run_git_within(root, &[], &arguments, MAX_DIFF_SETTINGS_BYTES, deadline) {
+        // A cut list could lack a driver: take the drivers from their own run.
+        Ok(output) if output.truncated => {
+            return Ok((filter_overrides_within(root, deadline)?, None));
+        }
+        Ok(output) => output,
+        // `--get-regexp` exits 1 when nothing matches.
+        Err(GitFailure::Exit(stderr)) if stderr.is_empty() => {
+            return Ok((Vec::new(), Some(Vec::new())));
+        }
+        Err(failure) => return Err(failure),
+    };
+    let names = output.stdout.split(|byte| *byte == 0).filter_map(|setting| {
+        // A setting with no value has no line feed.
+        let name = setting.split(|byte| *byte == b'\n').next()?;
+        let driver_setting = name.starts_with(b"filter.")
+            && [b".clean".as_slice(), b".smudge", b".process", b".required"]
+                .iter()
+                .any(|suffix| name.ends_with(suffix));
+        driver_setting.then_some(name)
+    });
+    Ok((blanked(names)?, Some(output.stdout)))
+}
+
+/// The overrides that blank each filter driver the setting names `keys`
+/// (`filter.<driver>.<setting>`) name.
+fn blanked<'a>(keys: impl Iterator<Item = &'a [u8]>) -> Result<Vec<Override>, GitFailure> {
     let mut drivers = BTreeSet::new();
-    for key in output.stdout.split(|byte| *byte == 0).filter(|key| !key.is_empty()) {
+    for key in keys {
         // A lossy copy would blank some other driver and leave this one.
         let Ok(key) = std::str::from_utf8(key) else {
             return Err(GitFailure::Exit("a filter driver name is not UTF-8".to_string()));

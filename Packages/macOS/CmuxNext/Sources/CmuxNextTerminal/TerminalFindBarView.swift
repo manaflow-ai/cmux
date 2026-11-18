@@ -34,6 +34,18 @@ final class TerminalFindBarView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    /// Renders the controller's state now, without waiting for observation's
+    /// main-actor hop: the host calls it in the event that opened find.
+    func update() {
+        render()
+    }
+
+    /// A focus request made while the bar had no window is served here.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { render() }
+    }
+
     /// Clicks pass through to the terminal while the pill is hidden.
     override func hitTest(_ point: NSPoint) -> NSView? {
         pill.isHidden ? nil : super.hitTest(point)
@@ -76,7 +88,9 @@ final class TerminalFindBarView: NSView {
             pill.showCount(text, noMatches: false)
         }
         pill.setPresented(presented)
-        if presented, focusRequest != shownFocusRequest {
+        // Kept pending until the bar is in a window: making a field first
+        // responder there is a no-op, and the request would be lost.
+        if presented, focusRequest != shownFocusRequest, window != nil {
             shownFocusRequest = focusRequest
             pill.focusField()
         }

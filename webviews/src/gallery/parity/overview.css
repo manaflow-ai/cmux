@@ -1,0 +1,15 @@
+.parity-overview__groups { position: sticky; top: var(--parity-toolbar-height, 7rem); z-index: var(--layer-raised); display: flex; flex-wrap: wrap; gap: var(--ds-space-2) var(--ds-space-4); padding: var(--ds-space-3) 0; background: var(--ds-color-surface); border-bottom: var(--cmux-hairline) solid var(--ds-color-separator); }
+.parity-overview__groups a { font-size: var(--text-detail); line-height: var(--text-detail--line-height); }
+.parity-overview__instructions { max-width: 75ch; color: var(--ds-color-muted); font-size: var(--text-detail); line-height: var(--text-detail--line-height); padding-block: var(--ds-space-3); }
+.parity-overview__group { margin-top: var(--ds-space-5); scroll-margin-top: calc(var(--parity-toolbar-height, 7rem) + 5rem); }
+.parity-overview__group > h2 { margin-bottom: var(--ds-space-3); }
+.parity-overview__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 32rem), 1fr)); gap: var(--ds-space-4); }
+.parity-overview__card { min-width: 0; border: var(--cmux-hairline) solid var(--ds-color-separator); border-radius: var(--ds-radius-control); overflow: hidden; }
+.parity-overview__card-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--ds-space-2) var(--ds-space-3); padding: var(--ds-space-3) var(--ds-space-3) 0; }
+.parity-overview__card h3 { margin: 0; font-size: var(--text-body); line-height: var(--text-body--line-height); font-weight: var(--weight-strong); }
+.parity-overview__card-heading a { font-size: var(--text-detail); line-height: var(--text-detail--line-height); }
+.parity-overview__inspect { padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-3); color: var(--ds-color-muted); font-size: var(--text-detail); line-height: var(--text-detail--line-height); min-height: calc(3 * var(--text-detail--line-height) + 2 * var(--ds-space-3)); }
+.parity-overview__preview { position: relative; width: 100%; max-width: 760px; aspect-ratio: 760 / 560; margin-inline: auto; overflow: hidden; background: var(--ds-color-hover); border-top: var(--cmux-hairline) solid var(--ds-color-separator); }
+.parity-overview__preview > span { position: absolute; inset: 0; display: grid; place-items: center; color: var(--ds-color-faint); font-size: var(--text-detail); }
+.parity-overview__scaled { position: absolute; inset: 0; }
+.parity-overview__scaled iframe { display: block; width: 760px;  border: 0; transform-origin: top left; pointer-events: none; }

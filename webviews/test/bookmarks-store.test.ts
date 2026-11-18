@@ -117,7 +117,12 @@ test("a bad URL keeps the editor open without an apply; a refusal shows inline",
   second.store.startAddBookmark();
   second.store.setEditor({ title: "x", url: "example.com" });
   expect(await second.store.commitEditor()).toBe(false);
-  expect(second.store.getSnapshot().editor?.error).toEqual({ kind: "refused", message: "Too many." });
+  // The refusal shows inline as the plain sentence; the daemon's own text stays in the log.
+  expect(second.store.getSnapshot().editor?.error).toEqual({
+    kind: "refused",
+    message: "Something went wrong. Try again.",
+  });
+  expect(JSON.stringify(second.store.getSnapshot())).not.toContain("Too many.");
 });
 
 test("a Save whose reply was lost is retried with the same key; a second Save in flight sends nothing", async () => {

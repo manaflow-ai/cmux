@@ -157,7 +157,7 @@ public final class BookmarkPageHostProvider: PageProvider {
 
     private func ownerTree(_ host: any BookmarkPageHost) async throws -> BookmarkTree {
         do { return try await host.bookmarkOwnerTree(profile) } catch {
-            throw PageError(code: "cmux.bookmarkPage.unavailable", message: String(describing: error))
+            throw PageError.failed(error, code: "cmux.bookmarkPage.unavailable")
         }
     }
 

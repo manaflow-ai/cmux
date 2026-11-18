@@ -118,7 +118,15 @@ export function SandboxReceiptCard({ receipt }: { receipt: SandboxReceipt }) {
           </>
         )}
         <dt>{t("sandbox.vm")}</dt>
-        <dd>{t(receipt.cleanup === "destroyed" ? "sandbox.vmDestroyed" : "sandbox.vmPending")}</dd>
+        <dd>
+          {t(
+            receipt.cleanup === "destroyed"
+              ? "sandbox.vmDestroyed"
+              : receipt.cleanup === "abandoned"
+                ? "sandbox.vmAbandoned"
+                : "sandbox.vmPending",
+          )}
+        </dd>
       </dl>
     </section>
   );

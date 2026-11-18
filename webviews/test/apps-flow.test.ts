@@ -204,10 +204,13 @@ await requireBrowserLane("apps-flow.test.ts", async () => {
         }
       });
 
-      test("shows the owner error and preserves the toolbar", async () => {
+      test("shows the owner error as a plain sentence and preserves the toolbar", async () => {
         const page = await open(engine, "error");
         try {
-          expect(await page.locator(".apps-error").innerText()).toContain("catalog is unavailable");
+          // The owner's failure shows as a plain sentence; its own text stays in the log.
+          const said = await page.locator(".apps-error").innerText();
+          expect(said).toContain("Something went wrong. Try again.");
+          expect(said).not.toContain("catalog is unavailable");
           expect(await page.getByRole("button", { name: "Reload", exact: true }).count()).toBeGreaterThan(0);
           expect(await page.getByRole("searchbox", { name: "Search apps" }).isVisible()).toBe(true);
         } finally {
@@ -246,7 +249,8 @@ await requireBrowserLane("apps-flow.test.ts", async () => {
         try {
           const state = page.locator('[data-detail-state="error"]');
           await state.waitFor();
-          expect(await state.innerText()).toContain("temporarily unavailable");
+          expect(await state.innerText()).toContain("Something went wrong. Try again.");
+          expect(await state.innerText()).not.toContain("temporarily unavailable");
           await state.getByRole("button", { name: "Reload", exact: true }).click();
           await page.locator(".apps-detail-name").waitFor();
           expect(await page.locator(".apps-detail-name").innerText()).toBe("CodeRouter");

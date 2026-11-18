@@ -638,9 +638,9 @@ fn daemon_usage_patterns_follow_the_setting_while_it_runs() {
     /// about 0.1 s after the write.
     const ON: Duration = Duration::from_secs(5);
     /// From the write that turns the setting on to the file on disk. The
-    /// first timed write comes `FLUSH_EVERY` after the daemon reads that
-    /// setting, so a file inside this limit was written because the setting
-    /// went off.
+    /// first timed write comes `FLUSH_EVERY` after the first command that
+    /// the daemon counts, so a file inside this limit was written because
+    /// the setting went off.
     const LIMIT: Duration = Duration::from_secs(20);
     const { assert!(LIMIT.as_secs() < cmux_usage_patterns::FLUSH_EVERY.as_secs()) };
 

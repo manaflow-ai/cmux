@@ -13,7 +13,7 @@ import { elapsed } from "../../subagents/subagentGroupModel";
 import { subagentProgress } from "../../subagents/subagentProgress";
 import { namedAction } from "../../subagents/trayDetail";
 import { retrying } from "../../subagents/retryState";
-import { canResume, type ResumeRun } from "../../subagents/resumeState";
+import { canResume, subsessionResumeRow, type ResumeRun } from "../../subagents/resumeState";
 import { subagentStateText, subagentStatus, type SubagentStatus } from "../../summary/subagentStatusListModel";
 import { orderedSessions, sessionStatus, sessionStateText } from "../childSessionRowsModel";
 import type { SubsessionLimits } from "../../model";
@@ -97,6 +97,8 @@ export function subagentsSection(
     key: string;
     identity: string;
     agent?: Subagent;
+    /// A stopped sub-session's row, for its Resume (resumeState.ts ``subsessionResumeRow``).
+    resumeRow?: Subagent;
     name: string;
     detail?: string;
     status: SubagentStatus;
@@ -153,6 +155,7 @@ export function subagentsSection(
       depth: 0,
       at: child.createdAt ?? 0,
       open: input.onOpenSession && (() => input.onOpenSession!(child.sessionId)),
+      resumeRow: subsessionResumeRow(child),
     };
   };
   const runningAgents = nestAgents(
@@ -180,7 +183,7 @@ export function subagentsSection(
   };
   const resume = input.resume;
   const line = (item: SubagentLine, waveIndex?: number): NativeInfoRow => {
-    const agent = item.agent;
+    const agent = item.agent ?? item.resumeRow;
     // A stopped one's Resume, as every surface of a stopped helper offers it (Leo, 2026-11-12: "A
     // Resume button in cmux on a stopped helper's row and tab").
     const resumable = resume && agent && canResume(agent, resume.capabilities) ? resume : undefined;

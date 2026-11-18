@@ -38,6 +38,8 @@ afterAll(async () => {
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
+const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
+const { translatorFor } = await import("../src/agent-session/acpmux/i18n");
 const { TurnFooter } = await import("../src/agent-session/acpmux/conversation/TurnRows");
 const {
   installMessageMenuReporter,
@@ -46,6 +48,7 @@ const {
   openForkMenu,
   openMessageMenu,
   setMessageMenuSource,
+  withSendPromptAgain,
 } = await import("../src/agent-session/acpmux/conversation/messageMenu");
 
 const prompt: AcpmuxRow = { id: "prompt", version: 1, at: 1, kind: "user", text: "Make the chart" };
@@ -190,6 +193,44 @@ test("a pin menu becomes a no-op when the chat changes before its action runs", 
   expect(messageMenuSessionMatches("chat-a", "chat-a", "chat-a")).toBe(true);
   expect(messageMenuSessionMatches("chat-a", "chat-b", "chat-b")).toBe(false);
   expect(messageMenuSessionMatches("chat-a", "chat-a", "chat-b")).toBe(false);
+});
+
+test("an already nonblank reply ending on tools opens its action-only menu from More", async () => {
+  const toolFooter: AcpmuxRow = {
+    ...summary,
+    status: "completed",
+    retryable: true,
+    retryTarget: true,
+    retryRowId: prompt.id,
+    prompt: prompt.text,
+    turnCopy: [{ text: "Reviewed before the tool finished." }],
+  };
+  const state = {
+    sessionId: "chat-a",
+    selectedSessionId: "chat-a",
+    drawnSessionId: "chat-a",
+    canSend: true,
+    rows: [prompt, toolFooter],
+    models: [],
+  };
+  setMessageMenuSource((rowId) => withSendPromptAgain(undefined, rowId, state, translatorFor("en")));
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider value={{ canSendPromptAgain: true }}>
+        <TurnFooter row={toolFooter} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(doc.querySelector(".cv-turn-actions--empty")).toBeNull();
+  expect(doc.querySelector(".cv-turn-retry")).toBeNull();
+  const button = doc.querySelector<HTMLButtonElement>('button[aria-label="More"]')!;
+  expect(button).not.toBeNull();
+  expect(await press(button)).toMatchObject({
+    text: "",
+    sessionId: "chat-a",
+    sendPromptAgain: { sessionId: "chat-a", rowId: toolFooter.id },
+  });
+  setMessageMenuSource((rowId) => messageMenuTarget(snapshot, rowId));
 });
 
 test("a footer with no answer has no More", async () => {

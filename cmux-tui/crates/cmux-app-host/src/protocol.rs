@@ -68,6 +68,12 @@ pub enum ToHost {
         #[serde(default)]
         payload: Value,
     },
+    /// A widget mount's host-owned tick (`cmux.widget/1`), at `now_ms` (Unix
+    /// ms): the runtime sets the mount's `now()` clock; nothing else runs.
+    Tick {
+        mount: String,
+        now_ms: u64,
+    },
     Resolve {
         cb: u64,
         ok: bool,

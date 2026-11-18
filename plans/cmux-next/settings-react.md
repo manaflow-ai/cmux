@@ -97,6 +97,8 @@ mutation carries an `idempotency_key`. Shapes follow settings-surfaces.md:
   path of the settings file the owner reads and writes (the configured path, not a symlink's target).
 - `settings.set {key | path, value, if_revision?}`, `settings.reset {key | path}`,
   `settings.reset_all {}` (mutations).
+- `settings.edit {edits, if_revision?}` (mutation): several `set`, `set_unset`, `reset` and
+  `reset_unchanged` edits in one publish (section 7, items 2 and 3).
 - `settings.domains.publish {themes, font_families, sounds}` and `settings.team_policy.set {layer}`
   (mutations meant only for the hosting app). Coordinator decision 2026-10-04: the daemon REFUSES
   both for every caller (`operation.failed`, `required_authority: attested_hosting_app`). A
@@ -263,11 +265,17 @@ unreachable, Settings shows "Settings are read only until cmux reconnects" and r
 | e | Default `settings.surface = web`; delete the native Settings views and `SettingsWindowModel` after one dogfood round | dogfood |
 | f | Schema authored in `config/settings/schema.json`; Swift descriptors, `web/data/cmux.schema.json` and TS types generated; `cmux-tui.json` overlapping keys fold into cmux.json | generator `--check` in CI |
 
-State before slice b (2026-11-10): the Swift writer still exists and no Swift caller sends
-`settings.set` yet. Until it does, `CmuxConfigFile` holds the owner's lock (`.cmux-next.json.lock`,
-the `flock` of `cmux-config` `lock_config`; Swift `SettingsFileLock`) from each read of the file to
-its publish, so an app write and a daemon write no longer replace each other's edit. Slice b needs
-these from the daemon first:
+State of slice b (2026-11-15): the Swift writer is gone. `CmuxConfigFile` sends every write as one
+`settings.edit` to the home daemon (`SettingsFileWriter`, the app fills it with `DaemonService.settingsFile`), in
+call order, each edit naming the app's file (`file`; an owner serving another file refuses it with
+`settings.file_mismatch`), its sets as `set_exact` (the app already chose keep or remove); with no
+live daemon serving `settings-edit-v2`, or another file, a write throws `SettingsWriterDisconnected`
+and nothing queues. The app lock (`SettingsFileLock`, #40464) went with the writer: the owner's own
+lock now covers every write. The launch passes run once the home daemon is live. A launch that names
+its file (`CMUX_NEXT_CONFIG_FILE`) passes it to `server ensure`. Still open below: item 4 (the
+launch passes in the daemon), item 5 (an object write above schema rows, which the owner refuses),
+`prepareLaunchFile`'s first-launch seed, and deleting the app socket's `settings.set/reset/unset`
+(scripts use them; they now write through the daemon too). The items as they were planned:
 
 1. The owner's settings file path on the wire (`settings.snapshot` or identify). The app reads its
    file directly. The daemon picks its file from its own environment (`$HOME`,
@@ -311,8 +319,27 @@ these from the daemon first:
 2. Several edits in one publish (Swift `CmuxConfigFile.apply`), or the rules that need them in the
    owner's `settings.set`: a renamed row's old key goes with the write, the window background's
    opacity and material change together, a built-in density ends the custom one.
+   Daemon half, done: `settings.edit {edits, file?, if_revision?, origin?}` (capability
+   `settings-edit-v2`; v2 added `file` and `op: set_exact`, a set that keeps a default-valued
+   key). Each edit is `{op, key | path, value?}`; the owner applies them in order
+   to the file text and publishes once, with one revision and one `settings-changed`. Each edit
+   passes the checks of `settings.set` (`op: set`) or `settings.reset` (`op: reset`): kind,
+   managed keys, agent policy, removed keys, the overlap rule. One refused edit refuses the op
+   and nothing is written. At most 1000 edits; apps never get it. The app computes the linked
+   edits (the window background pair needs the Ghostty material, a host fact) and sends them
+   in one op. Moving the portable rules (renamed key, density) into the owner's `settings.set`
+   stays open. Test: `cmux-tui/crates/cmux-config/tests/settings_edit.rs`.
 3. Conditional edits: set only when unset (`setUnset`) and remove only when unchanged
    (`removeUnchanged`, the stored-defaults pass). `if_revision` covers the whole file only.
+   Daemon half, done: the `settings.edit` ops `set_unset` (sets only while the file has no value
+   at the path; JSON null is a value) and `reset_unchanged` (resets only while the file still
+   holds `value` there; `1` and `1.0` are one value; it removes like `settings.reset`, so a schema
+   key takes the objects it empties with it). A condition reads
+   the file as the edits before it in the same op left it, under the owner's lock, so no write
+   lands between the check and the publish. A skipped edit writes nothing and is not checked.
+   The result's `applied` lists the indexes of the edits that applied (Swift's returned paths).
+   Not in the op: `removeUnchanged`'s record beside the file (`recordBeside`, written before the
+   publish) and the text before it. They belong to the launch passes, so they move with item 4.
 4. The launch passes (`runLaunchMigrations`) in the daemon, because they run at launch with no
    wait for a daemon connection: the quit behavior, workspace row and pane toolbar buttons
    migrations, the classic imports (`ClassicSettingsMigration`, `ClassicShortcutImport`,

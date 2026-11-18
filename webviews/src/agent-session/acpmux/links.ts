@@ -1,4 +1,5 @@
 import { userScrollIntent } from "./conversation/userScroll";
+import { holdMomentum } from "./threadMinimap/momentumHold";
 
 /// cmux:// links the page copies (the deep links contract). The host hands over this build's URL
 /// scheme in the handshake (`linkScheme`, with the other bootstrap values); the page never hardcodes
@@ -52,6 +53,20 @@ export const MESSAGE_REVEAL = "message:";
 export const revealedMessage = (value: string) =>
   value.startsWith(MESSAGE_REVEAL) ? value.slice(MESSAGE_REVEAL.length) || undefined : undefined;
 
+/// The row a link scrolled to stays centered through the momentum of a fling under way
+/// (holdMomentum), read from where it draws, so rows that land above move the hold with it.
+function holdCentered(row: HTMLElement): void {
+  const scroller = row.closest<HTMLElement>(".acpmux-scroll");
+  if (!scroller) return;
+  holdMomentum(scroller, () => {
+    if (!row.isConnected) return scroller.scrollTop;
+    const box = row.getBoundingClientRect();
+    const view = scroller.getBoundingClientRect();
+    const by = box.top + box.height / 2 - (view.top + view.height / 2);
+    return Math.max(0, Math.min(scroller.scrollHeight - scroller.clientHeight, scroller.scrollTop + by));
+  });
+}
+
 /// Marks a row without moving the virtual transcript a second time.
 function markRow(row: HTMLElement): true {
   row.classList.add(REVEALED_TURN_CLASS);
@@ -65,6 +80,7 @@ export function scrollToTurn(turnId: string, root: ParentNode = document): boole
   for (const row of root.querySelectorAll<HTMLElement>("[data-turn-id]")) {
     if (row.dataset.turnId !== turnId) continue;
     row.scrollIntoView({ block: "center" });
+    holdCentered(row);
     return markRow(row);
   }
   return false;
@@ -77,6 +93,7 @@ export function scrollToRow(rowId: string, root: ParentNode = document): boolean
   for (const row of root.querySelectorAll<HTMLElement>("[data-row-id]")) {
     if (row.dataset.rowId !== rowId && row.dataset.rowId !== `${rowId}:fold`) continue;
     row.scrollIntoView({ block: "center" });
+    holdCentered(row);
     return markRow(row);
   }
   return false;

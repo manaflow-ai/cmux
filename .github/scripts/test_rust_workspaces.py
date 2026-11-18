@@ -21,7 +21,10 @@ import unittest
 SCRIPT = Path(__file__).with_name("rust-workspaces.py")
 FAKE_CARGO = """#!/usr/bin/env bash
 printf '%s|%s\\n' "$PWD" "$*" >> "$CARGO_LOG"
-[[ "$1" == "${FAIL_SUBCOMMAND:-none}" ]] && exit 101
+if [[ "$1" == "${FAIL_SUBCOMMAND:-none}" ]]; then
+  [[ -n "${STALE_LOCK:-}" ]] && echo "error: cannot update the lock file $PWD/Cargo.lock because --locked was passed to prevent this" >&2
+  exit 101
+fi
 exit 0
 """
 LIST = """
@@ -391,6 +394,21 @@ class RustWorkspacesTests(unittest.TestCase):
         self.assertEqual([args.split()[0] for _, args in self.calls()], ["clippy", "test"])
         self.assertIn("::error title=solo clippy::", result.stdout)
         self.assertIn("solo: red (clippy)", result.stdout)
+
+    def test_a_stale_lock_is_named_as_the_cause_and_an_ordinary_red_is_not(self) -> None:
+        stale = self.script("run", "ws/crates/own", env={**self.env, "FAIL_SUBCOMMAND": "clippy", "STALE_LOCK": "1"})
+        self.assertEqual(stale.returncode, 1)
+        self.assertIn("--locked was passed", stale.stderr)  # cargo's own line still reaches the log
+        said = stale.stdout + stale.stderr
+        self.assertIn("stale Cargo.lock: ws/crates/own/Cargo.lock does not match its manifests on this ref", said)
+        self.assertIn("scripts/cmux-next/cargo-locks.py fix", said)
+        self.assertIn("::error title=ws/crates/own clippy::a stale Cargo.lock in ws/crates/own", stale.stdout)
+        self.assertNotIn("` failed in ws/crates/own", stale.stdout)
+        self.assertEqual([args.split()[0] for _, args in self.calls()], ["clippy", "test"])
+        red = self.script("run", "ws/crates/own", env={**self.env, "FAIL_SUBCOMMAND": "clippy"})
+        self.assertEqual(red.returncode, 1)
+        self.assertIn("` failed in ws/crates/own", red.stdout)
+        self.assertNotIn("stale Cargo.lock", red.stdout + red.stderr)
 
     def test_run_refuses_a_root_that_is_not_a_run_entry(self) -> None:
         result = self.script("run", "ws")

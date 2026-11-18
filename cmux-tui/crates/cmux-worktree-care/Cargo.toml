@@ -11,6 +11,7 @@ description = "Machines that clean up after their agents: an inventory of every 
 workspace = true
 
 [dependencies]
+cmux-file-lock.workspace = true
 cmux-git.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -77,7 +77,7 @@ codesign -dv --verbose=2 "$APP/Contents/Resources/libexec/cmux-server-helper" > 
 # 2. XPC round trip: Lawrence's click in A.3 is the round trip (apply). Capture the result:
 pmset -g custom                                   > "$OUT/pmset-after-fix.txt"
 diff "$OUT/pmset-before.txt" "$OUT/pmset-after-fix.txt" > "$OUT/pmset-fix.diff"
-ls -l "$HOME/Library/Application Support/cmux/server-fix-ledger/" > "$OUT/ledger.txt"
+ls -l "$HOME/Library/Application Support/cmux-next/server-fix-ledger/" > "$OUT/ledger.txt"
 sudo ls -l "/Library/Application Support/cmux/server-helper/" > "$OUT/helper-priors.txt"
 log show --last 15m --predicate "process == \"cmux-server-helper\"" > "$OUT/helper-log.txt"
 
@@ -86,7 +86,7 @@ pmset -g custom                                   > "$OUT/pmset-after-stop.txt"
 diff "$OUT/pmset-before.txt" "$OUT/pmset-after-stop.txt" > "$OUT/pmset-stop.diff"   # must be empty
 launchctl print "gui/$(id -u)/$AGENT"             > "$OUT/agent-after.txt" 2>&1     # must be "not found"
 sudo launchctl print "system/$BID.server-helper"  > "$OUT/helper-after.txt" 2>&1    # must be "not found"
-ls -l "$HOME/Library/Application Support/cmux/server-fix-ledger/" > "$OUT/ledger-after.txt"
+ls -l "$HOME/Library/Application Support/cmux-next/server-fix-ledger/" > "$OUT/ledger-after.txt"
 ```
 
 Pass criteria (each one is evidence in the report):

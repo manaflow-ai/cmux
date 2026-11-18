@@ -12,3 +12,15 @@
 .scroll-area-motion-gallery__viewport { height: 116px; padding: 4px 10px 4px 4px; }
 .scroll-area-motion-gallery__item { padding: 6px 8px; border-radius: 6px; background: color-mix(in srgb, currentColor 7%, transparent); }
 .scroll-area-motion-gallery__item + .scroll-area-motion-gallery__item { margin-top: 4px; }
+
+/* Scroll area focus ring (ScrollArea.focus.gallery.tsx): its rows and viewport are the motion stage's.
+   Only the comparison looks are drawn here; `inset` is the component's own. */
+.scroll-area-focus-gallery__item { white-space: nowrap; }
+.scroll-area-focus-gallery[data-look="outer"] .scroll-area-focus-gallery__scroll:has(.scroll-area-motion-gallery__viewport:focus-visible) {
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--cmux-focus-ring-color, currentColor);
+  outline-offset: 1px;
+}
+.scroll-area-focus-gallery[data-look="edge-glow"] .scroll-area-focus-gallery__scroll:has(.scroll-area-motion-gallery__viewport:focus-visible) {
+  box-shadow: inset 0 0 0 1px var(--cmux-focus-ring-color, currentColor),
+    inset 0 0 12px color-mix(in srgb, var(--cmux-focus-ring-color, currentColor) 60%, transparent);
+}

@@ -14,7 +14,8 @@ import Testing
 ///
 /// The rule, from the view tree at every manual 120 Hz tick: each pane's own ground (for a terminal, its terminal host,
 /// which paints the terminal's ground and padding) covers the pane's content area (`PaneHostView.roundedRect`: the pane
-/// less its padding and tab strip), and a closed pane's place is covered by pane hosts until its neighbours cover it.
+/// less its padding and tab strip), and a closed pane's place is never open. A close is one commit: the place shows
+/// the closed pane's own host until the frame that shows the close, and the panes beside it from that frame on.
 /// A miss names the first layer, from the pane host down to the ground, that stops short of the area. A divider drag
 /// already follows (the surface keeps its size inside a host that follows): a guard. A page's own pixels are S5's.
 @MainActor
@@ -208,8 +209,12 @@ struct PaneGroundCoversPaneTests {
         #expect(found.isEmpty, "\(found.count) pane frames show no ground of their own (the shell shows there); first: \(found.prefix(3)), last: \(found.suffix(1))")
     }
 
-    /// (c) Cmd-W on the middle of three split panes; (d) on the middle of three columns. At every tick the closed pane's
-    /// place is covered by panes (the closing one shrinking on its neighbours' spring) beyond the gap it rests at.
+    /// (c) Cmd-W on the middle of three split panes; (d) on the middle of three columns. A close is one commit, so the
+    /// closed pane's place is never open. (c) resizes the panes that stay: until one frame tick shows the new layout,
+    /// the screen shows the old one, with the closed pane's own host in its place. (d) resizes no pane (the columns that
+    /// stay keep their widths): the close shows in its own turn, with the column on the right in the place. In the
+    /// close's turn, at that tick and after the closed pane's host is torn down, the place is covered by panes beyond
+    /// the gap it rests at and each pane's ground covers its content area; the tick asks for no other frame.
     @Test(arguments: [false, true])
     func aCloseLeavesNoHoleWhereThePaneWas(columns: Bool) throws {
         let layout: ScreenLayout = columns
@@ -225,24 +230,39 @@ struct PaneGroundCoversPaneTests {
         _ = try #require(rig.model.showPaneClose("p2"), "p2 did not close in the key's turn")
         rig.root.syncWithModel()
         rig.root.layoutSubtreeIfNeeded()
+        // The close's own turn: (c) still shows the old layout, (d) shows the new one.
         let first = try rig.uncoveredWidth(of: place)
-        var holes: [(frame: Int, width: CGFloat)] = [(0, first)]
+        var holes: [(when: String, width: CGFloat)] = [("the close's turn", first)]
+        var found: [String] = rig.misses().map { "the close's turn: \($0)" }
+        let hiddenInItsTurn = closing.isHidden
+        // The frame tick that shows a close that waited for it, then each tick that the one before asked for.
         var frames = 0
-        while frames < 240, rig.frame() {
+        var moving = rig.frame()
+        let atTick = try rig.uncoveredWidth(of: place)
+        holes.append(("the first frame tick", atTick))
+        found += rig.misses().map { "the first frame tick: \($0)" }
+        let hiddenAfterTick = closing.isHidden
+        while moving, frames < 240 {
             frames += 1
+            moving = rig.frame()
             let width = try rig.uncoveredWidth(of: place)
-            holes.append((frames, width))
+            holes.append(("frame tick \(frames + 1)", width))
+            found += rig.misses().map { "frame tick \(frames + 1): \($0)" }
         }
         rig.commit()
         let rest = try rig.uncoveredWidth(of: place)
         let open = holes.filter { $0.width > rest + 1 }
         let state = closing.isHidden ? "hidden" : "shown"
+        let turnState = hiddenInItsTurn ? "hid" : "still showed"
         let widest = String(format: "%.1f", open.map(\.width).max() ?? 0), resting = String(format: "%.1f", rest)
-        let firstOpen = open.prefix(3).map { "frame \($0.frame): \(String(format: "%.1f", $0.width))" }
-        #expect(frames > 3, "the close did not spring (\(frames) frames)")
-        #expect(open.isEmpty, "\(open.count) frames show a hole where p2 was (the shell shows there; its host is \(state)), resting gap \(resting) pt; widest \(widest) pt; first \(firstOpen)")
-        let found = rig.misses()
-        #expect(found.isEmpty, "after the close a pane shows no ground of its own: \(found)")
+        let firstOpen = open.prefix(3).map { "\($0.when): \(String(format: "%.1f", $0.width))" }
+        #expect(frames == 0, "the close did not show whole at one frame tick: \(frames) more ticks moved a pane")
+        #expect(hiddenInItsTurn == columns,
+                "the close's own turn \(turnState) the closed pane's host: a close that resizes a pane waits for its frame tick, one that resizes none shows in its turn")
+        #expect(hiddenAfterTick, "the closed pane's host still shows after the frame tick that shows the close")
+        #expect(open.isEmpty, "\(open.count) samples show a hole where p2 was (the shell shows there; its host is \(state)), resting gap \(resting) pt; widest \(widest) pt; first \(firstOpen)")
+        found += rig.misses().map { "after the close: \($0)" }
+        #expect(found.isEmpty, "\(found.count) pane frames show no ground of their own in the close: \(found.prefix(3))")
     }
 
     /// (e) Guard: a divider drag lays the panes out live; each terminal's ground follows its pane in every step.

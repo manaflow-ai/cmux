@@ -3,7 +3,8 @@
 # that cmux-action-catalog's swift_parity test (english_catalog_equals_the_swift_dump)
 # compares with the Rust catalog, on a fleet step (never on a laptop).
 # ActionCatalogDumpTests writes it in a Debug test build under CMUX_UPDATE_ACTION_SURFACES=1;
-# no other reviewed fleet script runs that suite. Standalone: no autofix calls it.
+# regenerate-action-exports.sh runs it with the other exports for automatic repairs.
+# This standalone command keeps the single-dump artifact for manual diagnosis.
 #   cmux-ci run --class exclusive --script scripts/measure/export-action-catalog-dump.sh \
 #     --ref <sha on feat-cmux-next> --key <key> --artifact .build/action-catalog.patch
 #   cmux-ci artifact <step id> action-catalog.patch

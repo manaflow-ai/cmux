@@ -58,9 +58,17 @@ public final class DaemonSidebarDocRemote: SidebarDocRemote {
             switch error {
             // No connection yet (between asks, a reconnect): an earlier ask may still have reached the daemon.
             case .timedOut, .connectionClosed, .daemonShutdown, .notConnected, .connectFailed: throw SidebarDocUnsettled()
-            default: throw error
+            default: throw refusal(error) ?? error
             }
         }
+    }
+
+    /// The reducer's refusal a daemon error carries (`validation.invalid`, `details.reason`: `nesting`,
+    /// `cross_machine`, ...), so the person reads its own reason, not a failure; nil for any other error.
+    nonisolated static func refusal(_ error: DaemonError) -> SidebarMirror.Refusal? {
+        guard case let .command(_, message, code, details, _) = error, code == "validation.invalid" else { return nil }
+        let reason = details?["reason"]?.stringValue ?? message
+        return reason.isEmpty ? nil : SidebarMirror.Refusal(code: reason)
     }
 
     private static func reply(_ mutation: SidebarDocMutation) throws -> SidebarDocReply {
@@ -84,7 +92,7 @@ public final class DaemonSidebarDocRemote: SidebarDocRemote {
 public final class SidebarDocSections {
     private var groups: [String: WorkspaceGroupModel] = [:]
     /// Where the daemon's create puts a new workspace (`workspaces.newPlacement`): first in its machine section
-    /// (`top`), right below the window's current workspace (`afterCurrent`, the default; first when there is
+    /// (`top`, the default), right below the window's current workspace (`afterCurrent`; first when there is
     /// none), or last (`bottom`). A live workspace the document does not place yet lists at that slot, so its
     /// item's arrival moves nothing, and none made by the CLI or an agent shows at the sidebar's end first and
     /// then jumps (Leo 2026-11-06; plans/cmux-next/sidebar-ordering-DESIGN.md).

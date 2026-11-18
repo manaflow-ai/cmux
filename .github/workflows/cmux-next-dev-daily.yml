@@ -302,7 +302,7 @@ jobs:
           path: signed-handoff/*
           compression-level: 0
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 1  # a same-run hand-off (the publish jobs below); 208 MB a run
 
       - name: Cleanup signing keychain
         if: always()

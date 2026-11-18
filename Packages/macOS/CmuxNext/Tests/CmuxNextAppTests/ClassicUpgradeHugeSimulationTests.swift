@@ -68,7 +68,7 @@ struct ClassicUpgradeHugeSimulationTests {
             #expect(ptys.isEmpty, "\(ptys.count) workspaces found no free PTY")
             #expect(outcome.failures.isEmpty, "\(outcome.failures.values.prefix(3))")
             await run.sim.settle()
-            try run.sim.verify(profile, classicBefore: run.before)
+            try await run.sim.verify(profile, classicBefore: run.before)
             let clock = ContinuousClock()
             let start = clock.now
             let again = try await run.sim.relaunch()

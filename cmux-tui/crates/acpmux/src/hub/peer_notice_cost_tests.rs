@@ -104,9 +104,9 @@ fn a_peer_notice_among_fifty_peers_copies_no_row_and_lands_on_its_own() {
     assert_eq!(rows.values().filter(|r| r.peer == peer.name).count(), ROWS);
     let last = NOTICES - 4;
     let (_, changed) = rows.find_mux(&peer.name, &format!("s{}", last % ROWS)).unwrap();
-    assert_eq!(changed.summary["updatedAt"], json!(last + 2));
+    assert_eq!(changed.summary.updated_ms(), (last + 2) as u64);
     // No other peer's row moved.
-    assert!(rows.values().filter(|r| r.peer != peer.name).all(|r| r.summary["updatedAt"] == 1));
+    assert!(rows.values().filter(|r| r.peer != peer.name).all(|r| r.summary.updated_ms() == 1));
 }
 
 /// A peer's whole list again (every reconnect sends one) parses each row from its text and
@@ -134,7 +134,7 @@ fn a_whole_list_again_keeps_each_unchanged_row_and_replaces_a_changed_one() {
     assert!(Arc::ptr_eq(&first, &held("s0")), "an unchanged row is kept, not copied");
     let changed = held("s399");
     assert!(!Arc::ptr_eq(&last, &changed));
-    assert_eq!(changed.summary["status"], "idle");
+    assert_eq!(changed.summary.status(), Some("idle"));
 }
 
 /// The cost guard, a ratio of two wall-clock times: a peer notice costs about the same among 50

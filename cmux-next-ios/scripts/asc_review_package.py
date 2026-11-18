@@ -11,9 +11,9 @@ Subcommands, all through the public App Store Connect API with the CI key:
 
   sync-notes          Render AppStoreReview/review-notes-asc.txt and write it to
                       the version's App Review notes. The demo account, public
-                      inbox and contact come from App Store Connect; the values
-                      App Store Connect has no field for come from the
-                      environment (REVIEW_ENV_VALUES). Any placeholder left empty
+                      inbox and contact come from App Store Connect (a value
+                      it has no field for would come from the environment,
+                      REVIEW_ENV_VALUES; none today). Any placeholder left empty
                       fails the run before anything is written, so live values
                       never live in git and unfilled notes never reach a
                       reviewer. Template lines starting with "##" are notes for
@@ -32,7 +32,8 @@ ASC_API_KEY_P8_BASE64 (the production lane's names), or ASC_KEY_ID, ASC_ISSUER_I
 and ASC_PRIVATE_KEY_PATH (the INTERNAL builder's names). The JWT is signed with
 openssl, so no Python package is installed next to the key.
 
-The app sells no digital goods, so there is no subscription step here.
+The app's subscriptions (cmux Go, Pro and Max) are set up in App Store Connect,
+not by this script; the notes only tell App Review where they are.
 """
 
 from __future__ import annotations
@@ -64,10 +65,9 @@ PLACEHOLDER = re.compile(r"\{\{([A-Z_]+)\}\}")
 TEMPLATE_COMMENT = re.compile(r"^##.*(?:\n|$)", re.MULTILINE)
 MAILINATOR_URL = re.compile(r"https?://(?:www\.)?mailinator\.com/[^\s)]+", re.IGNORECASE)
 # Placeholders App Store Connect has no field for, by the environment variable
-# that carries each (the App Store workflow maps them from repository variables).
-REVIEW_ENV_VALUES = {
-    "REVIEW_CHIEF_NAME": "CMUX_IOS_REVIEW_CHIEF_NAME",
-}
+# that carries each. None today: the review path opens the demo account's Hosted
+# Chief, which Home shows as Chief whatever it is named (#40831).
+REVIEW_ENV_VALUES: dict[str, str] = {}
 
 
 class PackageError(RuntimeError):

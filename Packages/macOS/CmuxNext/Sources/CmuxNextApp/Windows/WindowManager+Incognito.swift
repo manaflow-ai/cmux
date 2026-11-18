@@ -45,7 +45,7 @@ extension WindowManager {
         // Claimed before anything else runs: the pending claim keeps the session alive until the window opens.
         let key = WorkspaceKey.generate()
         claimNew(workspaceID: key.rawValue, window: windowID)
-        recordIncognitoWorkspaces() // phones hide it before the daemon creates it (PhoneIncognitoHiding)
+        recordIncognitoWorkspaces() // the ledger has it before the daemon creates it
         Task { [services] in
             guard let connection = daemon.connection else {
                 claims.pending[key.rawValue] = nil
@@ -54,7 +54,7 @@ extension WindowManager {
             do {
                 _ = try await WorkspaceCreation.create(key, name: nil, on: connection, repair: services.emptyWorkspaces, terminalFirst: false) { created in
                     if let space { try await pinToIncognitoSpace(key, space, on: daemon) }
-                    let terminal = try await WorkspaceCreation.firstTerminal(in: created, cwd: daemon.defaultCwd ?? NSHomeDirectory(), on: connection)
+                    let terminal = try await WorkspaceCreation.firstTerminal(in: created, cwd: NewTerminalStart.defaultFolder(on: daemon) ?? NSHomeDirectory(), on: connection)
                     if let pane = terminal.pane {
                         _ = try await browserTabs.open(choice, in: pane, on: daemon, url: address, incognito: true)
                         if let surface = terminal.surface { try await connection.closeTab(surface) }
@@ -127,7 +127,6 @@ extension WindowManager {
         for (workspace, window) in claims.pending where value.isIncognito(window) { ids.insert(workspace) }
         // The daemon closes ephemeral workspaces itself; the ledger keeps only incognito workspaces it does not know as such.
         incognitoLedger.record(ids.filter { !EphemeralWorkspaces.isEphemeral($0, self) }, spaces: Set(incognitoSpaces.values.map(\.rawValue)))
-        PhoneIncognitoHiding.publish(ids, self)
     }
 
     /// Pins the incognito window's workspace `key` on `daemon` to its incognito space, so the window, which shows

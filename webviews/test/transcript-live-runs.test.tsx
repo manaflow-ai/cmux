@@ -41,7 +41,7 @@ const live = [
   row("u", "user"),
   text("plan"),
   run("reads", [call("README.md", "read"), call("retry.py", "read"), call("ls src", "execute")]),
-  // Text long enough to stand between the runs (a short note folds into them: turns.ts mergeShortNotes).
+  // Commentary stands between the runs regardless of its length.
   row("between", "assistant", { text: "between ".repeat(30) }),
   run("commands", [call("git log", "execute"), call("wc -l retry.py", "execute", "in_progress")]),
 ];
@@ -139,10 +139,9 @@ test("a pending harness prompt keeps one thinking line in place", () => {
   expect(ready.filter((entry) => entry.status !== undefined)).toHaveLength(0);
 });
 
-// Review of #41213 (codex, read-only): a short note joins an earlier run to the latest one while a
-// call of the earlier run still runs in the background; the merged run is the latest, whose calls in
-// flight are the live line's, but the line names only the latest call, so the earlier one keeps its row.
-test("a background call still running keeps its row when a short note joins its run to the latest", () => {
+// An earlier background call keeps its own row while commentary separates its run from the latest.
+// The live line names only the latest foreground call.
+test("a background call keeps its row across commentary and a newer foreground run", () => {
   const rows = [
     row("u2", "user"),
     run("watch", [call("cargo watch", "execute", "in_progress"), call("git status", "execute")]),
@@ -155,6 +154,7 @@ test("a background call still running keeps its row when a short note joins its 
     .flatMap((entry) => (entry.items ?? []).map((item) => item.tool?.id));
   expect(ids).toContain("cargo watch");
   expect(ids).toContain("bun test");
+  expect(shaped.find((entry) => entry.id === "note")?.text).toBe("Now the tests.");
   // The latest call in flight is the live line's alone.
   expect(ids).not.toContain("tsc");
 });

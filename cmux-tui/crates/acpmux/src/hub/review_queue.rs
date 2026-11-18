@@ -12,7 +12,10 @@
 //! - Kinds: `plan` (Claude Code's ExitPlanMode, Gemini's `exit_plan_mode` naming a plan file),
 //!   `question` (an agent's question, `questions::needs_person`), else `approval`; `pr` for a
 //!   pull request of a session whose turn is not running, opened within [`PR_WINDOW_MS`],
-//!   without a review verdict in the audit log (`audit_log.rs`, `_acpmux/review_verdict`).
+//!   without a review verdict in the audit log (`audit_log.rs`, `_acpmux/review_verdict`), and
+//!   not merged or closed by any session's `gh pr merge` or `gh pr close`
+//!   (`pull_requests::absorb_closed`, [`Index::note_closed`]): an agent that lands its own pull
+//!   request leaves nothing waiting on the person, so a fleet's merged work does not fill the page.
 //! - Impact (an integer): a base for the kind ([`BASE_ASK`] for an ask, which blocks its turn:
 //!   `blocksTurn`; [`BASE_PR`] for a pull request), plus [`PER_QUEUED`] per prompt queued behind
 //!   the session (`queuedPrompts:N`, at most [`MAX_COUNTED`] counted), plus [`PER_DOLLAR`] per
@@ -27,7 +30,7 @@
 
 use super::*;
 use cmux_json::JsonSet as _;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// A pull request older than this leaves the queue (and the index).
 pub(crate) const PR_WINDOW_MS: u64 = 14 * 24 * 60 * 60 * 1000;
@@ -118,6 +121,9 @@ struct Inner {
     /// Reads never walk them; each read drops the expired ones.
     settling: HashMap<(String, String), (Ask, u64)>,
     prs: HashMap<String, Vec<Pr>>,
+    /// Pull requests a session merged or closed (`SessionMeta::closed_pull_requests`): none is
+    /// noted or listed again, whichever session opened it.
+    closed: HashSet<String>,
     noted: u64,
 }
 
@@ -186,10 +192,37 @@ impl Index {
     /// The pull request at `url` that `session` opened at `at`.
     pub(crate) fn note_pr(&self, session: &str, url: &str, at: u64) {
         let mut inner = self.lock();
+        if inner.closed.contains(url) {
+            return;
+        }
         let prs = inner.prs.entry(session.to_owned()).or_default();
         if !prs.iter().any(|p| p.url == url) {
             prs.push(Pr { url: url.to_owned(), at });
         }
+    }
+
+    /// The pull request at `url` was merged or closed: it leaves every session's list, and is
+    /// never noted again.
+    pub(crate) fn note_closed(&self, url: &str) {
+        let mut inner = self.lock();
+        if !inner.closed.insert(url.to_owned()) {
+            return;
+        }
+        inner.prs.retain(|_, list| {
+            list.retain(|p| p.url != url);
+            !list.is_empty()
+        });
+    }
+
+    /// The one pull request the index holds numbered `n`, in whatever repository: a bare
+    /// `gh pr merge 5` names no repository. `None` when none or several have it.
+    pub(crate) fn pr_by_number(&self, n: u64) -> Option<String> {
+        let suffix = format!("/pull/{n}");
+        let inner = self.lock();
+        let mut urls =
+            inner.prs.values().flatten().map(|p| &p.url).filter(|u| u.ends_with(&suffix));
+        let first = urls.next()?.clone();
+        urls.all(|u| *u == first).then_some(first)
     }
 
     /// Drops the pull requests of `session` past the window from its list as it is now (one
@@ -368,6 +401,9 @@ impl Hub {
     /// activity, so an old pull request does not come back into the window.
     pub(super) fn note_session_prs(&self, session: &Session) {
         let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        for url in &m.closed_pull_requests {
+            self.review_index.note_closed(url);
+        }
         for url in &m.pull_requests {
             let at = m.pull_request_times.get(url).copied().unwrap_or(m.created_at);
             self.review_index.note_pr(&session.id, url, at);

@@ -11,12 +11,12 @@ import Testing
 
 @MainActor
 struct LaunchPolishVisibilityTests {
-    @Test func appStoreStaysInStoredLayoutButIsFilteredWhenPreviewFeaturesAreOff() {
+    /// The App Store is drawn like any other item (Leo 2026-11-14, no Labs gate).
+    @Test func appStoreIsDrawnFromTheStoredLayout() {
         let stored = SidebarLayoutDocument.defaults
-        let hidden = SidebarRows.visibleLayout(stored, showAppStore: false)
         #expect(stored.firstItem(with: .app("cmux/app-store")) != nil)
-        #expect(hidden.firstItem(with: .app("cmux/app-store")) == nil)
-        #expect(SidebarRows.visibleLayout(stored, showAppStore: true) == stored.withoutChats)
+        #expect(SidebarRows.visibleLayout(stored) == stored.withoutChats)
+        #expect(SidebarRows.visibleLayout(stored).firstItem(with: .app("cmux/app-store")) != nil)
     }
     @Test func whatsNewCardShowsAfterAnUpdateWithPreviewsOffByDefault() async throws {
         // User 13935: What's New shows after every update, no Labs gate; a Settings toggle turns it off.
@@ -47,17 +47,9 @@ struct LaunchPolishVisibilityTests {
         #expect(center.isUpdated, "hiding the card preserves the update")
     }
 
-    /// Leo 2026-10-29: "why the fuck does See What's New not fucking open the What's New tab
-    /// anymore?" What's New shows with Labs off (user 13935), so its page is no Labs preview:
-    /// with it gated the tab, top page and strip all answered nil and nothing opened.
-    @Test func whatsNewPageIsNotALabsPreviewPageButTheAppStoreIs() {
-        #expect(!InternalPageTabStore.isPreviewPage(InternalPageID.changelog.rawValue))
-        #expect(InternalPageTabStore.isPreviewPage(InternalPageID.appStore.rawValue))
-    }
-
     /// Leo 2026-10-30: "WHAT GOOD REASON DO WE HAVE IN THE FIRST PLACE TO KEEP THIS SHIT IN FUCKING
     /// LABS IF I FUCKING ASKED FOR THESE FUCKING FEATURES". The palette's and Help menu's What's New
-    /// (`updates.whatsNew`) is available with Labs off, the default; the App Store stays a Labs preview.
+    /// (`updates.whatsNew`) is available with Labs off, the default, and so is the App Store (Leo 2026-11-14).
     @Test func whatsNewActionIsAvailableWithLabsOff() {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
@@ -65,7 +57,7 @@ struct LaunchPolishVisibilityTests {
         #expect(services.settings?.snapshot.previewFeatures != true)
         #expect(services.registry.unavailableReason(for: "updates.whatsNew") == nil,
                 "What's New in the palette and Help menu is still behind Labs")
-        #expect(services.registry.settingOffReason("appStore.show") != nil, "the App Store stays a Labs preview")
+        #expect(services.registry.settingOffReason("appStore.show") == nil, "the App Store is still behind Labs")
     }
 
     /// The update this launch came from, as the old build recorded it.

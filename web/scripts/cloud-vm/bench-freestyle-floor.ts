@@ -108,7 +108,7 @@ function probeCommand(instanceId: string | null): string {
   const id = instanceId === null ? `i=$(${INSTANCE_ID_COMMAND})` : `i=${shellQuote(instanceId)}`;
   return `${id}; l=0; grep -qi ':0539 ' /proc/net/tcp6 2>/dev/null && l=1; r=0; pgrep -f 'cmux-tui server [s]tart' >/dev/null 2>&1 && r=1; m=0; [ -f /etc/cmux/bake-instance-id ] && m=1; v=0; [ "$m" = 1 ] && [ -n "$i" ] && [ "$(cat /etc/cmux/daemon-instance-id 2>/dev/null)" = "$i" ] && v=1; echo "$l $r $m $v $i"`;
 }
-const WORK_USER_ENV = "setpriv --reuid=cmux --regid=cmux --init-groups env HOME=/home/cmux USER=cmux LOGNAME=cmux SHELL=/bin/bash TERM=xterm-256color TERM_PROGRAM=ghostty";
+const WORK_USER_ENV = "setpriv --reuid=cmux --regid=cmux --init-groups env HOME=/home/cmux USER=cmux LOGNAME=cmux SHELL=/bin/bash TERM=xterm-256color TERM_PROGRAM=cmux";
 // Each wrapper prints the elapsed milliseconds and then exits with the
 // measured command's own status, so a shell that failed or was killed by
 // `timeout` is a failed sample, not a fast one.

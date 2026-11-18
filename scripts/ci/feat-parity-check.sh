@@ -249,18 +249,20 @@ if [[ "$mode" == swift-portable ]]; then
   # The packages of swift-linux-packages.yml's portable matrix groups (`packages:` lines and `>-` blocks).
   python3 -I - "$root/.github/workflows/swift-linux-packages.yml" "$pkg" <<'PY' || { echo "error: $pkg is not a package of swift-linux-packages.yml's matrix" >&2; exit 2; }
 import re, sys
+# A repo-relative package path: Packages/... or vendor/..., never absolute or with a .. part.
+PATH = r"(?!/)(?!.*(?:^|/)\.\.(?:/|$))[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)+"
 listed, block = set(), None
 for line in open(sys.argv[1], encoding="utf-8"):
     indent = len(line) - len(line.lstrip())
     if re.match(r"\s*packages:\s*>-\s*$", line):
         block = indent
         continue
-    one = re.fullmatch(r"\s*packages:\s*(Packages/[A-Za-z0-9._/-]+)\s*", line)
+    one = re.fullmatch(r"\s*packages:\s*(" + PATH + r")\s*", line)
     if one:
         listed.add(one.group(1))
         continue
     if block is not None:
-        if line.strip() and indent > block and re.fullmatch(r"Packages/[A-Za-z0-9._/-]+", line.strip()):
+        if line.strip() and indent > block and re.fullmatch(PATH, line.strip()):
             listed.add(line.strip())
             continue
         block = None
