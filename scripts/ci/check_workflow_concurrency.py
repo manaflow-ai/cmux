@@ -232,6 +232,117 @@ def check(path: Path) -> list[str]:
     return findings
 
 
+# --- Title, body and comment events (pattern pr-edit-fans-out-ci) -------------
+#
+# A third rule fails on its own. On 2026-11-17 an agent rewrote 130 PR bodies (HOLD lines) and
+# Blacksmith Linux sat at about 3,100 queued jobs against about 800 vCPU running: 495 of the newest
+# 600 queued runs came from pull_request, pull_request_target and issue_comment events (Leo: "why
+# is there so much stuck in blacksmith queue?"). So a PR-triggered workflow:
+#   - has a concurrency group, at workflow level or on every job, keyed per pull request
+#     (EXEMPT_CONCURRENCY names the ones that serialise on purpose);
+#   - listens to `edited` only to read the description, or skips a title or body edit in every
+#     job's `if` (METADATA_EDIT), unless EDIT_RUNS says why every edit must run it;
+#   - on issue_comment, admits only the comment it serves: every job's `if` reads
+#     github.event.comment.body, so an ordinary comment takes no runner.
+
+PR_TRIGGERS = ("pull_request", "pull_request_target")
+DESCRIPTION_READS = ("pull_request.body", "pull_request.title", "changes.body", "changes.title")
+METADATA_EDIT = "github.event.action == 'edited' && !github.event.changes.base"
+PER_PR = re.compile(r"pull_request\.number|issue\.number|github\.ref\b|head_ref")
+# A job gated first on a non-PR event never runs on a pull request.
+NOT_ON_PR = re.compile(r"^(\$\{\{ *)?github\.event_name (== '(push|schedule|workflow_dispatch)'|!= 'pull_request(_target)?')( *\}\})?$")
+
+# PR-triggered workflows with no per-PR cancelling group, and why.
+EXEMPT_CONCURRENCY: dict[str, str] = {
+    "cla.yml": "one CLA ledger writer at a time per pull request (job-level, never cancelled)",
+    "cla-policy-guard.yml": "a required check on main; a metadata event must not cancel its verdict (#13871)",
+    "contributor-welcome.yml": "opened only: one run per pull request",
+    "merge-receipt.yml": "closed only: one run per pull request",
+    "backend-migrations.yml": "applies database migrations; a cancel could stop one between applying and recording it",
+    "fleet-artifact-cdn.yml": "deploys the fleet artifact Worker; path-filtered to workers/fleet-artifacts, serialised",
+    "labels-sync.yml": "writes the repository's labels; path-filtered to labels.json, one writer at a time",
+    "repair-nightly-appcast-content-types.yml": "writes nightly R2 objects; path-filtered, serialised",
+    "required-checks-drift.yml": "reads the live ruleset; path-filtered to its own files, rare",
+}
+
+# Workflows that run on every `edited` without reading the description in their own text, and why.
+EDIT_RUNS: dict[str, str] = {
+    "backend-migrations.yml": "`backend migrations applied` is required on main: a skipped run would read as a pass",
+    "cla-policy-guard.yml": "`CLA policy guard` is required on main and must publish a verdict on every edit (#13871)",
+    "risk-tier.yml": "scripts/ci/risk_tier.py reads the body's author footer and `Takes back #N` lines over the API",
+}
+
+
+def pr_types(doc: dict) -> dict[str, list[str] | None]:
+    on = doc.get("on", doc.get(True))
+    out: dict[str, list[str] | None] = {}
+    if not isinstance(on, dict):
+        return {str(e): None for e in ([on] if isinstance(on, str) else on or []) if e in PR_TRIGGERS}
+    for event in PR_TRIGGERS:
+        if event in on:
+            config = on[event]
+            types = config.get("types") if isinstance(config, dict) else None
+            out[event] = [types] if isinstance(types, str) else (list(types) if types is not None else None)
+    return out
+
+
+def flat(value) -> str:
+    return " ".join(str(value or "").split())
+
+
+def check_fanout(path: Path) -> list[str]:
+    try:
+        text = path.read_text(encoding="utf-8")
+        doc = yaml.safe_load(text)
+    except (OSError, yaml.YAMLError) as error:
+        return [f"cannot read {path.name}: {error}"]
+    if not isinstance(doc, dict):
+        return []
+    jobs = {name: job for name, job in (doc.get("jobs") or {}).items() if isinstance(job, dict)}
+    on = doc.get("on", doc.get(True))
+    findings = []
+    events = pr_types(doc)
+    if events and path.name not in EXEMPT_CONCURRENCY:
+        on_pr = [job for job in jobs.values() if not NOT_ON_PR.match(flat(job.get("if")))]
+        groups = [doc.get("concurrency")] if doc.get("concurrency") else [job.get("concurrency") for job in on_pr]
+        if not groups or any(
+            not group_of(c) or not PER_PR.search(group_of(c) or "") or not (isinstance(c, dict) and c.get("cancel-in-progress"))
+            for c in groups
+        ):
+            findings.append(
+                f"{path.name}: a PR-triggered workflow needs a concurrency group keyed per pull request with "
+                "cancel-in-progress (at workflow level, or on every job), so a newer event replaces the "
+                "older run; or name it in EXEMPT_CONCURRENCY with a reason"
+            )
+    edited = any(types and "edited" in types for types in events.values())
+    reads = any(marker in text for marker in DESCRIPTION_READS)
+    if edited and not reads and path.name not in EDIT_RUNS:
+        for name, job in jobs.items():
+            if job.get("needs") and not re.search(r"\b(always|cancelled|failure)\(\)", flat(job.get("if"))):
+                continue  # it skips with the job it needs
+            if f"!({METADATA_EDIT})" not in flat(job.get("if")):
+                findings.append(
+                    f"{path.name}: job {name} runs on every title or body edit, and nothing here reads the "
+                    f"description: add `!({METADATA_EDIT})` to its if (`edited` stays for a base change), "
+                    "give the skipped run another name, and a '-metadata' concurrency suffix"
+                )
+    if isinstance(on, dict) and "issue_comment" in on:
+        for name, job in jobs.items():
+            if job.get("needs"):
+                continue  # it skips with the job it needs
+            if "github.event.comment.body" not in flat(job.get("if")):
+                findings.append(
+                    f"{path.name}: job {name} takes a runner for every pull request comment: admit only the "
+                    "command it serves in its if (github.event.comment.body)"
+                )
+    return findings
+
+
+def stale_exemptions(workflows: Path) -> list[str]:
+    return [f"{name} is exempted in check_workflow_concurrency.py but no longer exists: drop it"
+            for name in sorted({*EXEMPT_CONCURRENCY, *EDIT_RUNS}) if not (workflows / name).exists()]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
@@ -246,12 +357,19 @@ def main(argv: list[str] | None = None) -> int:
     for path in sorted([*workflows.glob("*.yml"), *workflows.glob("*.yaml")]):
         for finding in check_approval(path):
             errors.append((path, finding))
+    fanout = []  # stale exemptions: tests/test_ci_workflow_concurrency.py (this may run on another root)
+    for path in sorted([*workflows.glob("*.yml"), *workflows.glob("*.yaml")]):
+        for finding in check_fanout(path):
+            fanout.append((path, finding))
     for path, finding in findings:
         print(f"::warning file=.github/workflows/{path.name},title=workflow concurrency::{finding}")
     for path, finding in errors:
         print(f"::error file=.github/workflows/{path.name},title=approval holds a concurrency group::{finding}")
-    print(f"{len(findings)} workflow concurrency warning(s), {len(errors)} approval-hold error(s).", file=sys.stderr)
-    return 1 if errors or (findings and args.strict) else 0
+    for path, finding in fanout:
+        print(f"::error file=.github/workflows/{path.name},title=PR event fans out (pr-edit-fans-out-ci)::{finding}")
+    print(f"{len(findings)} workflow concurrency warning(s), {len(errors)} approval-hold error(s), "
+          f"{len(fanout)} PR fan-out error(s).", file=sys.stderr)
+    return 1 if errors or fanout or (findings and args.strict) else 0
 
 
 if __name__ == "__main__":

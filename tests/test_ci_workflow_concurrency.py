@@ -263,6 +263,75 @@ class WorkflowConcurrencyTests(unittest.TestCase):
             self.assertTrue((ROOT / ".github" / "workflows" / name).is_file(), name)
             self.assertTrue(reason.strip(), name)
 
+    # --- pattern pr-edit-fans-out-ci ---------------------------------------
+
+    def fanout(self, text: str, name: str = "w.yml") -> list[str]:
+        path = self.root / ".github" / "workflows" / name
+        path.write_text(textwrap.dedent(text), encoding="utf-8")
+        return lint.check_fanout(path)
+
+    def test_a_pr_workflow_without_a_per_pr_cancelling_group_fails(self):
+        for concurrency in ("", "concurrency: {group: w, cancel-in-progress: true}",
+                            "concurrency: {group: 'w-${{ github.event.pull_request.number }}', cancel-in-progress: false}"):
+            text = f"""
+            on: {{pull_request: {{types: [opened, synchronize]}}}}
+            {concurrency}
+            jobs:
+              t: {{runs-on: ubuntu-24.04, steps: [{{run: x}}]}}
+            """
+            self.assertTrue(any("keyed per pull request" in f for f in self.fanout(text)), concurrency)
+        good = """
+        on: {pull_request: {types: [opened, synchronize]}}
+        concurrency: {group: 'w-${{ github.event.pull_request.number }}', cancel-in-progress: true}
+        jobs:
+          t: {runs-on: ubuntu-24.04, steps: [{run: x}]}
+        """
+        self.assertEqual(self.fanout(good), [])
+
+    def test_an_edit_that_reads_nothing_must_skip(self):
+        # language-boundaries.yml before this fix: every HOLD-line body edit queued a Blacksmith job.
+        before = """
+        on: {pull_request_target: {types: [opened, synchronize, edited]}}
+        concurrency: {group: 'w-${{ github.event.pull_request.number }}', cancel-in-progress: true}
+        jobs:
+          t: {name: t, runs-on: ubuntu-24.04, steps: [{run: x}]}
+        """
+        [finding] = self.fanout(before)
+        self.assertIn("every title or body edit", finding)
+        after = before.replace("{name: t,", "{name: t, if: \"${{ !(" + lint.METADATA_EDIT + ") }}\",")
+        self.assertEqual(self.fanout(after), [])
+        reads = before.replace("run: x", "run: 'echo ${{ github.event.pull_request.body }}'")
+        self.assertEqual(self.fanout(reads), [])
+
+    def test_a_comment_workflow_admits_only_its_command(self):
+        # cmux-next-defaults-guard-review.yml before this fix took a runner for every PR comment.
+        before = """
+        on: {issue_comment: {types: [created]}}
+        jobs:
+          t: {if: "github.event.issue.pull_request != null", runs-on: ubuntu-24.04, steps: [{run: x}]}
+        """
+        [finding] = self.fanout(before)
+        self.assertIn("every pull request comment", finding)
+        after = before.replace("!= null", "!= null && contains(github.event.comment.body, '@claude')")
+        self.assertEqual(self.fanout(after), [])
+
+    def test_the_repository_has_no_fan_out(self):
+        workflows = ROOT / ".github" / "workflows"
+        found = [f for p in sorted(workflows.glob("*.y*ml")) for f in lint.check_fanout(p)]
+        self.assertEqual(found + lint.stale_exemptions(workflows), [])
+
+    def test_every_fan_out_exemption_is_still_needed(self):
+        workflows = ROOT / ".github" / "workflows"
+        for table in (lint.EXEMPT_CONCURRENCY, lint.EDIT_RUNS):
+            for name, reason in list(table.items()):
+                self.assertTrue(reason.strip(), name)
+                self.assertTrue((workflows / name).is_file(), f"{name} is exempted but no longer exists: drop it")
+                del table[name]
+                try:
+                    self.assertTrue(lint.check_fanout(workflows / name), f"{name} no longer needs its exemption")
+                finally:
+                    table[name] = reason
+
 
 if __name__ == "__main__":
     unittest.main()
