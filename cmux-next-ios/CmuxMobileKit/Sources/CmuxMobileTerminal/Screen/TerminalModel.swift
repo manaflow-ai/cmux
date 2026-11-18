@@ -185,7 +185,22 @@ public final class TerminalModel {
         sizeClaimer = TerminalSizeClaimer(clock: ContinuousClock()) { [weak self] claims in
             self?.session.setClaimsSize(claims)
         }
+        streamGate = TerminalStreamGate(clock: ContinuousClock()) { [weak self] streaming in
+            guard let self else { return }
+            self.outputStreaming = streaming
+            self.session.setStreaming(streaming)
+        }
     }
+
+    // MARK: Output stream (`TerminalStreamGate`)
+
+    /// Whether the session receives the Mac's output now: off screen past
+    /// its grace the page stops it and keeps what it shows as the cache.
+    @ObservationIgnored private var streamGate: TerminalStreamGate<ContinuousClock>!
+    /// The session receives output now. False: the page shows its cache, so
+    /// its snapshot is not the terminal's screen and a grid card reads the
+    /// Mac's screen instead (`TerminalCardLiveRefresh`).
+    @ObservationIgnored public private(set) var outputStreaming = true
 
     // MARK: Size claim (PROTOCOL.md, "Terminal size claims")
 
@@ -198,12 +213,14 @@ public final class TerminalModel {
     /// screen, behind another tab, zoomed out to the grid, mid-swipe.
     public func setPageShown(_ shown: Bool) {
         sizeClaimer.set(pageShown: shown)
+        streamGate.set(pageShown: shown)
     }
 
     /// The app is in the foreground (false: background, locked).
     public func setAppActive(_ active: Bool) {
         controller?.appActiveChanged(active)
         sizeClaimer.set(appActive: active)
+        streamGate.set(appActive: active)
     }
 
     /// A sheet of the page's own covers it (Files and Links, the photo

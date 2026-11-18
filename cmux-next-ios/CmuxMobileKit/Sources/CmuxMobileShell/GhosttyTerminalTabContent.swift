@@ -17,13 +17,15 @@ private let warmLog = Logger(subsystem: "dev.cmux.mobile", category: "terminal")
 /// owns the status bar area and the toolbar, the terminal's actions go into
 /// the page menu, and the grid card is a snapshot of the page (no second live
 /// surface). One host (model + controller) per tab. The `warmLimit` most
-/// recently shown tabs keep their surface and attached session, so switching
-/// between them needs no reattach and no new surface; an older one is cooled
-/// (session detached, surface released) and keeps its last frame, which its
-/// page shows at once, dimmed, while it reattaches.
+/// recently shown tabs keep their surface and parsed grid, so switching
+/// between them needs no new surface; an older one is cooled (session
+/// detached, surface released) and keeps its last frame, which its page
+/// shows at once, dimmed, while it reattaches. A warm tab is a cache, not a
+/// live stream: off screen past its grace its session closes its attach
+/// (`TerminalStreamGate`), and shown again it attaches once to catch up.
 @MainActor
 final class GhosttyTerminalTabContent: TerminalTabContent {
-    /// Live Ghostty surfaces (and Mac attaches) kept across tab switches.
+    /// Ghostty surfaces (parsed grids) kept across tab switches.
     static let warmLimit = 4
     private var hosts: [String: TerminalTabHost] = [:]
     private var warm = TerminalWarmSet<String>(limit: GhosttyTerminalTabContent.warmLimit)
@@ -608,8 +610,11 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         let known = tabs.filter { hosts[$0.id] != nil }
         let states = known.compactMap { tab -> TerminalCardLiveRefresh.Tab? in
             guard let model = hosts[tab.id]?.model, !tab.hasEndedShell else { return nil }
+            // A page whose output stream stopped (off screen past its grace) shows its cache:
+            // its card reads the Mac's screen instead of copying the page.
             return TerminalCardLiveRefresh.Tab(id: tab.id, pageStarted: model.pageStarted,
-                                               capturable: model.pageStarted && model.canCaptureCard, behind: model.cardIsBehind)
+                                               capturable: model.pageStarted && model.canCaptureCard && model.outputStreaming,
+                                               behind: model.cardIsBehind)
         }
         for action in liveRefresh.due(states, now: CACurrentMediaTime()) {
             switch action {

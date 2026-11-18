@@ -3507,6 +3507,167 @@ public func FfiConverterTypeTerminalChatPairing_lower(_ value: TerminalChatPairi
 
 
 /**
+ * A terminal page's states. Times are milliseconds since the state began,
+ * on one monotonic clock Swift picks.
+ */
+public struct TerminalStreamFacts: Equatable, Hashable {
+    /**
+     * The page is on screen, settled and taking input.
+     */
+    public var pageShown: Bool
+    /**
+     * The app is in the foreground.
+     */
+    public var appActive: Bool
+    /**
+     * Since the page left the screen (`None` while it is shown).
+     */
+    public var offScreenMs: UInt64?
+    /**
+     * Since the app left the foreground (`None` while it is active).
+     */
+    public var backgroundMs: UInt64?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The page is on screen, settled and taking input.
+         */pageShown: Bool, 
+        /**
+         * The app is in the foreground.
+         */appActive: Bool, 
+        /**
+         * Since the page left the screen (`None` while it is shown).
+         */offScreenMs: UInt64?, 
+        /**
+         * Since the app left the foreground (`None` while it is active).
+         */backgroundMs: UInt64?) {
+        self.pageShown = pageShown
+        self.appActive = appActive
+        self.offScreenMs = offScreenMs
+        self.backgroundMs = backgroundMs
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension TerminalStreamFacts: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTerminalStreamFacts: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TerminalStreamFacts {
+        return
+            try TerminalStreamFacts(
+                pageShown: FfiConverterBool.read(from: &buf), 
+                appActive: FfiConverterBool.read(from: &buf), 
+                offScreenMs: FfiConverterOptionUInt64.read(from: &buf), 
+                backgroundMs: FfiConverterOptionUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TerminalStreamFacts, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.pageShown, into: &buf)
+        FfiConverterBool.write(value.appActive, into: &buf)
+        FfiConverterOptionUInt64.write(value.offScreenMs, into: &buf)
+        FfiConverterOptionUInt64.write(value.backgroundMs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalStreamFacts_lift(_ buf: RustBuffer) throws -> TerminalStreamFacts {
+    return try FfiConverterTypeTerminalStreamFacts.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalStreamFacts_lower(_ value: TerminalStreamFacts) -> RustBuffer {
+    return FfiConverterTypeTerminalStreamFacts.lower(value)
+}
+
+
+/**
+ * What the session does now, and when to ask again.
+ */
+public struct TerminalStreamPlan: Equatable, Hashable {
+    /**
+     * Keep (or open) the output stream; false: close it, keep the cache.
+     */
+    public var stream: Bool
+    /**
+     * Ask again this many milliseconds from now, with no new state
+     * (`None`: nothing changes until a state does).
+     */
+    public var recheckInMs: UInt64?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Keep (or open) the output stream; false: close it, keep the cache.
+         */stream: Bool, 
+        /**
+         * Ask again this many milliseconds from now, with no new state
+         * (`None`: nothing changes until a state does).
+         */recheckInMs: UInt64?) {
+        self.stream = stream
+        self.recheckInMs = recheckInMs
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension TerminalStreamPlan: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTerminalStreamPlan: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TerminalStreamPlan {
+        return
+            try TerminalStreamPlan(
+                stream: FfiConverterBool.read(from: &buf), 
+                recheckInMs: FfiConverterOptionUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TerminalStreamPlan, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.stream, into: &buf)
+        FfiConverterOptionUInt64.write(value.recheckInMs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalStreamPlan_lift(_ buf: RustBuffer) throws -> TerminalStreamPlan {
+    return try FfiConverterTypeTerminalStreamPlan.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalStreamPlan_lower(_ value: TerminalStreamPlan) -> RustBuffer {
+    return FfiConverterTypeTerminalStreamPlan.lower(value)
+}
+
+
+/**
  * One step of a dial, `millis` after `connect` was called.
  */
 public struct TimingMark: Equatable, Hashable {
@@ -5060,6 +5221,16 @@ public func terminalChatSwap(facts: TerminalChatFacts, shown: TabFace, to: TabFa
     )
 })
 }
+/**
+ * Whether the page's output stream stays open now (see the module docs).
+ */
+public func terminalStreamPlan(facts: TerminalStreamFacts) -> TerminalStreamPlan  {
+    return try!  FfiConverterTypeTerminalStreamPlan_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_stream_plan(
+        FfiConverterTypeTerminalStreamFacts_lower(facts),$0
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -5131,6 +5302,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_chat_swap() != 57193) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_stream_plan() != 31789) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_close() != 40361) {

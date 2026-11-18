@@ -1220,6 +1220,47 @@ history); a Mac app whose lane refuses the field gets the same attach without
 it; a phone that does not declare the capability keeps getting whole
 `resized` replays.
 
+## Hidden terminals stream nothing (phone; added 2026-11-14)
+
+Leo, 2026-11-14: "surely we don't need to stream the f***ing thing". A
+terminal page nobody looks at receives no output. The phone keeps up to 4
+warm pages (their Ghostty grids and last frames) as a cache, not as live
+streams. No wire change: the phone closes and reopens its own attach channel.
+
+- **When (phone, `terminal_stream_plan` in cmux-mobile-link-ffi,
+  `TerminalStreamGate`).** A page on screen and taking input in the
+  foreground app streams. Off screen (another tab, the tab grid, the
+  workspace list, mid-swipe) it streams for 3 s, then stops: a tab flip, a
+  peek at the grid or a swipe across tabs comes back inside it and finds the
+  page live. On screen when the app goes to the background it streams for
+  45 s, the size claim's grace above (an app switch or a lock inside it
+  changes nothing). Off screen and in the background: the 3 s from when it
+  left the screen.
+- **Stop (phone, `DaemonTerminalSession.setStreaming(false)`).** As a
+  session stop does: a claimed size is released (`release-surface-size`, at
+  most 2 s) before the attach channel closes, so the daemon never reads it as
+  a dropped link. The page keeps its grid and last frame and says nothing
+  (no "Reattaching…"); its grid card reads the Mac's screen (`read-screen`)
+  while the grid shows, as for a tab not started. A link that comes back
+  while stopped does not reattach it. Output with nobody watching costs the
+  phone 0 bytes. The terminal's Feed events and notifications ride other
+  channels and are unaffected.
+- **Shown again (phone, `setStreaming(true)`).** One attach, as a reattach
+  after a dropped link: sized when the page claims, the latest screen first
+  with the history the reader already had (`replay_history_rows`), the
+  mirror reset and replayed under the page's frozen last frame, and the
+  reader's place put back (`TerminalScrollRestore`). The daemon has no
+  "nothing changed since" answer for a bytes attach, so a quiet terminal is
+  replayed too (one screen); a release and a reclaim change the grid
+  generation anyway whenever the Mac shows the terminal at another size.
+
+| Path | Output stream |
+| --- | --- |
+| Tab flip, grid peek, swipe across tabs (< 3 s) | stays open: no attach, no replay |
+| Another tab, the grid or the workspace list for 3 s or more | closed; one attach and one replay when shown |
+| App in the background, the page on screen | open 45 s, then closed |
+| Tab cooled out of the warm set of 4 | session stopped (as before) |
+
 ## Push notifications (API 0.13.0)
 
 Rich, interactive notifications (`verify/rich-push.md`). Every field below is
