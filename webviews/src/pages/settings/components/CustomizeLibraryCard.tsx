@@ -136,9 +136,12 @@ export function CustomizeLibraryView({
   const confirmTitle = removing ? t("settingsPage.customizeLibrary.removeTitle", removing) : "";
   const card = useRef<HTMLElement>(null);
   const confirm = useRef<HTMLDivElement>(null);
+  // The route's reveal waits for the window (cardWindow.ts `ready`): before it, the rows' room is not
+  // drawn and the window's start would move the page back. A grid of tiles has no window.
+  const ready = !windowed || rowWindow.ready;
   useLayoutEffect(() => {
-    if (reveal) card.current?.scrollIntoView?.({ block: "start" });
-  }, [reveal]);
+    if (reveal && ready) card.current?.scrollIntoView?.({ block: "start" });
+  }, [reveal, ready]);
   // The confirmation draws under the whole list, so with many entries it opens screens below the row
   // its Remove was on: it scrolls into view and takes focus on Cancel, the safe answer.
   useLayoutEffect(() => {

@@ -42,12 +42,13 @@ const { client, provider } = createMockClient();
 if (card === "keys") provider.keys = manyKeys(n, NOW);
 else if (card === "library") provider.library = mockLongLibrary(n);
 else provider.shares = manyShares(n, NOW);
-// The route the page reads: the card's section.
+// The route the page reads: the card's section, or (`reveal=1`) the card's deep link.
+const reveal = params.get("reveal") === "1";
 location.hash = {
   keys: "#/settings/keys",
-  library: "#/settings/personalization",
+  library: reveal ? "#/settings/personalization?focus=card.customizeLibrary" : "#/settings/personalization",
   search: "#/settings/general",
-  shares: "#/settings/privacy",
+  shares: reveal ? "#/settings/privacy?focus=card.sharedLinks" : "#/settings/privacy",
 }[card];
 const store = new SettingsStore(client);
 createRoot(document.getElementById("root")!).render(<SettingsPage store={store} />);

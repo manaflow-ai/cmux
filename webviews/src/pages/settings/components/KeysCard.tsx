@@ -29,10 +29,6 @@ export function KeysCard({ reveal = false }: { reveal?: boolean }) {
   const drawn = query.isFetched;
   const requests = keyRequestRows(state);
   const asking = requests.length > 0;
-  // The deep link (a request's notification) lands on the requests when any wait, else on the keys.
-  useLayoutEffect(() => {
-    if (drawn && reveal) (asking ? requestsCard : card).current?.scrollIntoView?.({ block: "start" });
-  }, [drawn, reveal, asking]);
   const [now] = useState(() => Date.now());
   // The rows change with the list the host sends; a key whose record did not change keeps its row.
   const [kept, setKept] = useState(() => ({ state, rows: keyRows(state, now) }));
@@ -54,6 +50,12 @@ export function KeysCard({ reveal = false }: { reveal?: boolean }) {
     },
     confirmOpen,
   );
+  // The deep link (a request's notification) lands on the requests when any wait, else on the keys,
+  // once the keys' window is drawn (cardWindow.ts `ready`).
+  const ready = rowWindow.ready;
+  useLayoutEffect(() => {
+    if (drawn && reveal && ready) (asking ? requestsCard : card).current?.scrollIntoView?.({ block: "start" });
+  }, [drawn, reveal, asking, ready]);
   // A row's dates need only whether a date is today.
   const today = startOfDay(now);
   const refresh = () => queryClient.invalidateQueries({ queryKey: KEYS_KEY });

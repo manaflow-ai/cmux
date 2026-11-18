@@ -25,9 +25,6 @@ export function SharedLinksCard({ reveal = false }: { reveal?: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const card = useRef<HTMLElement>(null);
   const drawn = query.isFetched;
-  useLayoutEffect(() => {
-    if (drawn && reveal) card.current?.scrollIntoView?.({ block: "start" });
-  }, [drawn, reveal]);
   // The rows change with the list the host sends, not with the card's own state (busy, confirming):
   // a share that ends drops at the next read (the list is read with the section and after each revoke).
   const [kept, setKept] = useState(() => ({ state, rows: sharedLinkRows(state, Date.now()) }));
@@ -39,6 +36,12 @@ export function SharedLinksCard({ reveal = false }: { reveal?: boolean }) {
   const keys = useMemo(() => rows.map((row) => row.id), [rows]);
   // A row with guests draws one more line.
   const rowWindow = useCardWindow(keys, SHARED_LINK_ESTIMATE, (index) => (rows[index]?.guests.length ? "guests" : ""));
+  // The route's reveal waits for the window (cardWindow.ts `ready`): the card and its rows' room are
+  // drawn, and the window's start no longer moves the page.
+  const ready = rowWindow.ready;
+  useLayoutEffect(() => {
+    if (drawn && reveal && ready) card.current?.scrollIntoView?.({ block: "start" });
+  }, [drawn, reveal, ready]);
   const revoke = async (ids: string[]) => {
     setBusy(true);
     try {
