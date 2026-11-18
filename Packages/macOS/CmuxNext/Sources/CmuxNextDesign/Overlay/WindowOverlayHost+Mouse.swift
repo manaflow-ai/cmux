@@ -84,7 +84,7 @@ extension WindowOverlayHost {
         let screen = source.convertPoint(toScreen: event.locationInWindow)
         switch event.type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel:
-            guard acceptsMouse(at: panel.convertPoint(fromScreen: screen)) else {
+            guard HelperWindowStack(window: window).target(atScreen: screen) == .overlay else {
                 // A press elsewhere: a taken press whose release never came (a menu loop took it) is over.
                 if event.type != .scrollWheel {
                     takenButton = nil
@@ -213,6 +213,13 @@ extension WindowOverlayHost {
         case .mouseMoved, .mouseEntered, .mouseExited:
             routeMouse(at: NSEvent.mouseLocation)
             return false
+        case .scrollWheel:
+            // A scroll off every overlay (the panel had not let go yet) goes to what is under the overlays there; it
+            // went nowhere before.
+            let screen = HelperWindowStack.screenPoint(of: event)
+            guard !isAppHost, let window, !acceptsMouse(at: panel.convertPoint(fromScreen: screen)) else { return false }
+            HelperWindowStack(window: window).deliver(event, atScreen: screen, under: .overlay)
+            return true
         default:
             return false
         }
@@ -228,13 +235,13 @@ extension WindowOverlayHost {
         }
     }
 
-    /// The window under a click outside every interactive region: the
-    /// window itself over an occluder (the sidebar, where page frames run
-    /// under it), else the frontmost page window there, else the window.
+    /// The window under a click outside every interactive region: what is under the overlays there
+    /// (``HelperWindowStack``): a divider catcher, the window itself over an occluder (the sidebar, where page frames run
+    /// under it), the front page window, else the window. A divider catcher counts: a press there is the divider's, not
+    /// the page's under the catcher.
     func forwardingTarget(for screenPoint: NSPoint, in window: NSWindow) -> NSWindow {
-        let windowPoint = window.convertPoint(fromScreen: screenPoint)
-        if occluderRects.contains(where: { $0.contains(windowPoint) }) { return window }
-        return Self.frontPageWindow(at: screenPoint, in: window) ?? window
+        let stack = HelperWindowStack(window: window)
+        return stack.window(of: stack.target(atScreen: screenPoint, under: .overlay))
     }
 
     /// The frontmost visible page window (``isPageWindow(_:)``) of `window` under `screenPoint`, as the window
@@ -265,32 +272,9 @@ extension WindowOverlayHost {
         if let forwarded = addressed(event, to: target, screen: screen) { target.sendEvent(forwarded) }
     }
 
-    /// `event` as the window server would have sent it to `target` at `screen` (a screen point); nil for a scroll that
-    /// cannot be addressed there, which goes nowhere rather than to the wrong window.
+    /// `event` as the window server would have sent it to `target` at `screen` (``HelperWindowStack/addressed(_:to:screen:)``).
     func addressed(_ event: NSEvent, to target: NSWindow, screen: NSPoint) -> NSEvent? {
-        // A copy of the real event keeps its drag deltas (pointer lock, page
-        // drags use them); only the window and location change.
-        if let copy = event.cgEvent?.copy() {
-            copy.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(target.windowNumber))
-            copy.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(target.windowNumber))
-            if let forwarded = NSEvent(cgEvent: copy) {
-                let addressed = Self.relocated(forwarded, to: target, screen: screen)
-                if addressed == nil, forwarded.type == .scrollWheel { return nil }
-                return addressed ?? forwarded
-            }
-        }
-        return Self.relocated(event, to: target, screen: screen)
-    }
-
-    /// `event` addressed to `target` at the screen point (deltas are lost: a fallback only). Nil for a scroll, which
-    /// has no such constructor: its copy above is the only way, and with no copy the scroll goes nowhere.
-    static func relocated(_ event: NSEvent, to target: NSWindow, screen: NSPoint) -> NSEvent? {
-        guard event.window !== target else { return event }
-        guard event.type != .scrollWheel else { return nil }
-        return NSEvent.mouseEvent(with: event.type, location: target.convertPoint(fromScreen: screen),
-                                  modifierFlags: event.modifierFlags, timestamp: event.timestamp,
-                                  windowNumber: target.windowNumber, context: nil, eventNumber: event.eventNumber,
-                                  clickCount: event.clickCount, pressure: event.pressure)
+        HelperWindowStack.addressed(event, to: target, screen: screen)
     }
 
     func removeMouseMonitor() {

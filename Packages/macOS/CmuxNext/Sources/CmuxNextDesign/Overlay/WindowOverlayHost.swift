@@ -83,6 +83,8 @@ public final class WindowOverlayHost {
     /// Another window (not the panel nor the overlay's own window) became key while a modal
     /// showed: dismissing it leaves the keyboard there (`focusMoved`).
     var otherWindowTookKey = false
+    /// The last window that took the keyboard while a modal showed (``otherWindowTookKey``), while it lives.
+    weak var keyTaker: NSWindow?
     /// A tab dialog (a modal with a region) showed: the rest of the window took clicks, so
     /// a first responder change there is a move. Kept here, as `endModal` runs after it left.
     var modalLeftWindowUsable = false

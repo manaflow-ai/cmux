@@ -19,6 +19,7 @@ extension WindowOverlayHost {
                 restoreSelection = nil
             }
             otherWindowTookKey = false
+            keyTaker = nil
             modalLeftWindowUsable = false
             keyObserver = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil,
                                                                  queue: .main) { [weak self] note in
@@ -31,8 +32,10 @@ extension WindowOverlayHost {
                     // not a move: a click into it shows as a first responder change instead.
                     if window == ObjectIdentifier(self.panel) {
                         self.otherWindowTookKey = false
+                        self.keyTaker = nil
                     } else if ![self.restoreWindow, self.window].contains(where: { $0.map(ObjectIdentifier.init) == window }) {
                         self.otherWindowTookKey = true
+                        self.keyTaker = NSApp.windows.first { ObjectIdentifier($0) == window }
                     }
                 }
             }
@@ -95,8 +98,15 @@ extension WindowOverlayHost {
     /// it, or, beside a tab dialog (the rest of the window takes clicks), the
     /// person clicked into the window: its first responder is no longer the
     /// one the modal took the keyboard from.
+    ///
+    /// Another window that took the keyboard counts only while it still shows: one that left again (a popover, a sheet,
+    /// Settings closed) took the keyboard with it, and the dialog gives it back. A page window of the dialog's own window
+    /// counts only beside a tab dialog, where the person can click it: under a question over the whole window a page
+    /// that took key (a Chromium page takes it when it shows or wakes) was no move of the person's (a127, cmux#45851).
     var focusMoved: Bool {
-        if otherWindowTookKey { return true }
+        if otherWindowTookKey, let taker = keyTaker, taker.isVisible, taker.parent !== window || modalLeftWindowUsable {
+            return true
+        }
         guard modalLeftWindowUsable, let window = restoreWindow ?? window, let saved = restoreResponder else { return false }
         var current = window.firstResponder
         if let editor = current as? NSTextView, editor.isFieldEditor { current = editor.delegate as? NSResponder }

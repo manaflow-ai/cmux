@@ -316,10 +316,12 @@ final class DividerMouseCatcherView: NSView {
     override func otherMouseDown(with event: NSEvent) { forward(event) }
     override func otherMouseUp(with event: NSEvent) { forward(event) }
 
+    /// A scroll here is for what is under the catcher at its point (``HelperWindowStack``): the page the person sees
+    /// there, or the window's own view, through that window's `sendEvent`. A hit test in the parent window gave a scroll
+    /// over a page to the pane hidden under the page, and the page got nothing.
     override func scrollWheel(with event: NSEvent) {
-        guard let parent = window?.parent, let content = parent.contentView else { return }
-        let point = content.convert(parent.convertPoint(fromScreen: screenPoint(of: event)), from: nil)
-        content.hitTest(point)?.scrollWheel(with: event)
+        guard let parent = window?.parent else { return }
+        HelperWindowStack(window: parent).deliver(event, atScreen: screenPoint(of: event), under: .catcher)
     }
 
     /// The event's screen point. The pointer leaves the panel while a divider drags, so
