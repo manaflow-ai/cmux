@@ -19,13 +19,7 @@ import {
   memo,
 } from "react";
 import { Autocomplete } from "@base-ui/react/autocomplete";
-import {
-  measureElement,
-  useVirtualizer,
-  type Virtualizer,
-  defaultRangeExtractor,
-  type Range,
-} from "@tanstack/react-virtual";
+import { useVirtualizer, type Virtualizer, defaultRangeExtractor, type Range } from "@tanstack/react-virtual";
 import { usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup } from "./popupHost";
 import { cx } from "./cx";
@@ -701,10 +695,14 @@ function VirtualRows({
     // and its margin-top pushes it down (a section heading drawn in that margin), so a slot of the
     // border box alone would let it cover the next row. A size the library answers from its cache
     // (no resize entry) was measured here already and holds the margins.
+    // The border box is taken fractional: the library's own measure rounds it (a 30.8 px row at an
+    // interface scale of 1.1 counts as 31, and the list grows a pixel every five rows).
     measureElement: (element, entry, instance) => {
-      const size = measureElement(element, entry, instance);
-      if (!entry && instance.itemSizeCache.has(instance.options.getItemKey(instance.indexFromElement(element))))
-        return size;
+      if (!entry) {
+        const cached = instance.itemSizeCache.get(instance.options.getItemKey(instance.indexFromElement(element)));
+        if (cached !== undefined) return cached;
+      }
+      const size = entry?.borderBoxSize?.[0]?.blockSize ?? element.getBoundingClientRect().height;
       const style = element.ownerDocument.defaultView?.getComputedStyle(element);
       return virtualRowSize(size, style?.marginTop ?? "", style?.marginBottom ?? "");
     },
@@ -767,10 +765,11 @@ export function virtualRowKey(item: string, sizeKey?: (item: string) => string):
 }
 
 /// A virtual row's slot height: its border-box height and its computed vertical margins (CSS pixel
-/// strings such as "20px"). A value that does not parse counts as 0, so the size is never NaN.
+/// strings such as "20px"), fractional as laid out. A value that does not parse counts as 0, so the
+/// size is never NaN.
 export function virtualRowSize(borderBox: number, marginTop: string, marginBottom: string): number {
   const px = (value: number) => (Number.isFinite(value) ? value : 0);
-  return Math.round(px(borderBox) + px(Number.parseFloat(marginTop)) + px(Number.parseFloat(marginBottom)));
+  return px(borderBox) + px(Number.parseFloat(marginTop)) + px(Number.parseFloat(marginBottom));
 }
 
 /// The nearest ancestor of `node` that scrolls vertically (a pinned list's ScrollArea viewport

@@ -320,4 +320,50 @@ await requireBrowserLane("visible-lists-combobox.browser.test.ts", async () => {
       });
     }
   }
+
+  test("300 rows at an interface scale of 1.1 (30.8 px): rows edge to edge, the scroll length their sum", async () => {
+    const open = await server.open("combobox&scale=1.1", 300);
+    const { page } = open;
+    const heights = new Map<string, number>();
+    for (let top = 0; ; top += 150) {
+      const atEnd = await page.evaluate((top) => {
+        const scroller = (
+          window as unknown as { __visibleListControls: { scroller(): HTMLElement } }
+        ).__visibleListControls.scroller();
+        scroller.scrollTop = top;
+        return scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 1;
+      }, top);
+      await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+      const rows = await page.evaluate(() =>
+        [...document.querySelectorAll<HTMLElement>("[role='option']")]
+          .map((row) => ({ text: row.textContent ?? "", rect: row.getBoundingClientRect() }))
+          .map(({ text, rect }) => ({ text, top: rect.top, bottom: rect.bottom }))
+          .sort((a, b) => a.top - b.top),
+      );
+      for (const [index, row] of rows.entries()) {
+        heights.set(row.text, row.bottom - row.top);
+        const before = rows[index - 1];
+        if (before)
+          expect({ row: row.text, gap: Math.abs(row.top - before.bottom) <= 0.5 }).toEqual({
+            row: row.text,
+            gap: true,
+          });
+      }
+      if (atEnd) break;
+    }
+    expect(heights.size).toBe(300);
+    const sum = [...heights.values()].reduce((total, height) => total + height, 0);
+    const length = await page.evaluate(() => {
+      const scroller = (
+        window as unknown as { __visibleListControls: { scroller(): HTMLElement } }
+      ).__visibleListControls.scroller();
+      const spacer = scroller.querySelector<HTMLElement>("[role='presentation']");
+      return spacer?.getBoundingClientRect().height ?? 0;
+    });
+    expect({ length: Math.round(length), sum: Math.round(sum) }).toEqual({
+      length: Math.round(sum),
+      sum: Math.round(sum),
+    });
+    await open.close();
+  });
 });
