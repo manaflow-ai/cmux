@@ -126,8 +126,10 @@ mod mac {
             } else {
                 None
             };
-            let _ = writeln!(text, "{index:>4}: {}", name.as_deref().unwrap_or("<unknown>"));
-            let _ = writeln!(text, "             at {image} + 0x{:x}", address.wrapping_sub(base));
+            // One line per frame, so the log's 16 KiB keeps as many as std's text did.
+            let name = name.as_deref().unwrap_or("<unknown>");
+            let offset = address.wrapping_sub(base);
+            let _ = writeln!(text, "{index:>4}: {name} ({image} + 0x{offset:x})");
         }
         text
     }

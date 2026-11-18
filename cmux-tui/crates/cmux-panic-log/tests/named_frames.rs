@@ -43,7 +43,7 @@ fn the_executable_frames_are_named_from_the_side_map() {
         "{text}"
     );
     // Every frame keeps its image and offset, which the build's dSYM resolves to a line.
-    assert!(text.contains(" at named_frames-"), "{text}");
+    assert!(text.contains(" (named_frames-"), "{text}");
     // Names are demangled as std prints them, without the hash.
     assert!(!text.contains("17h"), "{text}");
 }
