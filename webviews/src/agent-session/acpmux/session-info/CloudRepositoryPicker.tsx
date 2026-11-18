@@ -134,10 +134,10 @@ const CloudRepositoryOption = memo(function CloudRepositoryOption({
     if (button) onWidth(naturalWidth(button));
   }, [fullName, detail, onWidth]);
   return (
-    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a row of the windowed list.
     <div
       ref={measure}
       data-index={index}
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a row of the windowed list.
       role="listitem"
       className="acpmux-cloud-repository-row"
       style={style}
@@ -346,6 +346,7 @@ export function CloudRepositoryPicker({
         {loading && <div className="acpmux-cloud-repository-progress">{t("cloudRepository.searching")}</div>}
         {!loading && repos.length > 0 && (
           <VirtualList
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the windowed list renders its rows as divs.
             role="list"
             id={listId}
             className="acpmux-cloud-repository-list"
