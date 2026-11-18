@@ -82,13 +82,14 @@ extension CloudMoveCLI {
             refused = try container.decodeIfPresent([Refused].self, forKey: .refused) ?? []
         }
 
-        /// The answer as Bring Back's own pull (`link seed pull`) gives it, so its conflicts and refusals show the way that
-        /// pull's do: a pull that kept both sides of a file, or would not write one, is `sync_conflict` naming those files
-        /// (the bring back stops there and the person's Retry goes on); a failed pull is its code and sentence.
+        /// The answer as Bring Back's own pull (`link seed pull`) gives it: a pull that kept both sides of a file is
+        /// `sync_conflict` naming those files (the bring back stops there and the person's Retry goes on, the next
+        /// pull naming none of them again); a failed pull is its code and sentence. `refused` paths (a secret, an
+        /// ignored file, a kind this Mac cannot hold) are named on every pull, so they never fail one: they stay on
+        /// the machine, as a copy's pull leaves them.
         public var answer: Answer {
             guard ok else { return Answer(ok: false, errorCode: code ?? CloudMoveCLI.badAnswer, error: message) }
-            let files = conflicts.map(\.path) + refused.map(\.path)
-            return files.isEmpty ? Answer(ok: true) : Answer(ok: false, errorCode: "sync_conflict", conflicts: files)
+            return conflicts.isEmpty ? Answer(ok: true) : Answer(ok: false, errorCode: "sync_conflict", conflicts: conflicts.map(\.path))
         }
     }
 

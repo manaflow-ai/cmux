@@ -14,10 +14,11 @@ import os
 ///
 /// A child that exits on its own starts again after a growing wait on the injected clock (at most 30 s); one that says
 /// its record is gone (`record_missing`) is not started again. The ``CloudService`` that owns this ends the children
-/// with the rest of the account's Cloud children: every machine list (``listed(machines:account:current:)``) stops the
-/// mounts of machines no longer in it, removes their records and adopts this account's records of listed machines (so a
-/// launch serves again what the last one served); a sign-out or an account switch stops them all (``stopAll()``); app
-/// quit stops them and waits for their exits (``stopAllAndWait()``).
+/// with the rest of the account's Cloud children: every machine list (``listed(machines:destroyed:account:current:)``)
+/// adopts this account's records of listed machines (so a launch serves again what the last one served) and stops the
+/// mounts of a machine two lists in a row left out; a record is removed only for a machine known destroyed (a list
+/// that says so, or ``destroyed(_:)``), never for one a list merely left out; a sign-out or an account switch stops
+/// them all (``stopAll()``); app quit stops them and waits for their exits (``stopAllAndWait()``).
 @MainActor
 public final class CloudProjectedFolders {
     /// One running `project-serve` child: its stdout lines, its exit status, and its SIGTERM.
@@ -59,6 +60,8 @@ public final class CloudProjectedFolders {
         var child: Child?
         var restart: Task<Void, Never>?
         var relaunch = Backoff(initial: .seconds(1), maximum: .seconds(30))
+        /// The machine lists in a row that left its machine out.
+        var missed = 0
     }
 
     private let launch: @MainActor (Record) async -> Child?
@@ -102,9 +105,29 @@ public final class CloudProjectedFolders {
     /// A Cloud start's folder on a projection, or nil for the copy: nil unless `on` (`cloud.projectedFolders`), the
     /// machine's `socket` is known and the folder is past the copy's limits; nil too, logged, when `project` refuses or
     /// fails. A projection starts its serve child and is trusted on the machine as the copy would be (`acpmuxHome`).
+    ///
+    /// `tooBig` is the size refusal the start let this folder past only so that it could be projected
+    /// (``AgentPaneCloudStart/sized(_:local:projecting:)``): with no projection that refusal stands and is thrown, so a
+    /// folder no machine holds is never copied onto one.
     public func start(on: Bool, cli: CloudMoveCLI, key: String, account: String, machine: String, socket: String?, local: String,
-                      subpath: String, workRoots: [String], acpmuxHome: String?) async -> Started? {
-        guard on, let socket, await cli.startChatPastCopyLimits(local: local) else { return nil }
+                      subpath: String, workRoots: [String], acpmuxHome: String?,
+                      tooBig: CloudMoveCLI.StartChatPreflightRefusal? = nil) async throws -> Started? {
+        guard let started = await projected(on: on, cli: cli, key: key, account: account, machine: machine, socket: socket, local: local,
+                                            subpath: subpath, workRoots: workRoots, acpmuxHome: acpmuxHome, pastLimits: tooBig != nil) else {
+            if let tooBig { throw tooBig }
+            return nil
+        }
+        return started
+    }
+
+    private func projected(on: Bool, cli: CloudMoveCLI, key: String, account: String, machine: String, socket: String?, local: String,
+                           subpath: String, workRoots: [String], acpmuxHome: String?, pastLimits: Bool) async -> Started? {
+        guard on, let socket else { return nil }
+        // The start's own preflight already said so when it refused the size; else cmux-tui answers again from the
+        // decision it keeps for two minutes.
+        if !pastLimits {
+            guard await cli.startChatPastCopyLimits(local: local) else { return nil }
+        }
         let projection: CloudMoveCLI.StartChatProjection
         do {
             projection = try await cli.startChatProject(key: key, account: account, machine: machine, socket: socket, local: local,
@@ -114,6 +137,9 @@ public final class CloudProjectedFolders {
             return nil
         } catch {
             logger.error("projected folder did not run (\(String(describing: type(of: error)), privacy: .public)): the start copies the folder")
+            // It may have kept its record before it was stopped: a record of this send that nothing serves would be
+            // adopted by the next machine list and served for a mount no chat uses.
+            if let folder { await Self.remove(await Self.records(in: folder).filter { Self.kept($0, by: key, machine: machine, local: local) }.map(\.mount), in: folder) }
             return nil
         }
         serve(Record(mount: projection.mount, account: account, machine: machine, localRoot: local, machinePath: projection.machinePath,
@@ -125,12 +151,48 @@ public final class CloudProjectedFolders {
         return (CloudMoveCLI.Answer(ok: true), (chat: projection.machinePath, folder: projection.folder, copied: true, sourceTrusted: trusted))
     }
 
+    /// Whether `record` is the one a `project` of the send `key` keeps for `local` on `machine` (cmux-tui names the
+    /// mount `p-<key, lowercased>-<8 hex>`).
+    nonisolated static func kept(_ record: Record, by key: String, machine: String, local: String) -> Bool {
+        record.machine == machine && record.localRoot == local && record.mount.hasPrefix("p-" + key.lowercased() + "-")
+    }
+
     /// A Bring Back's pull of the chat folder `folder` on `machine`: `project-pull` for a projection, else `orCopy`
-    /// (Bring Back's own `link seed pull`). Both answer in the same shape, so conflicts show the same way.
+    /// (Bring Back's own `link seed pull`). Both answer in the same shape. A file changed on both sides is a
+    /// `sync_conflict` naming it, as the copy's pull names one (both versions are on this Mac by then, the machine's
+    /// beside the file, and the next pull goes on). A path the pull would not write here (a secret, an ignored file,
+    /// a kind it cannot hold) never stops the bring back: a copy's pull leaves those on the machine too.
     public func pull(machine: String, folder: String, socket: String, cli: CloudMoveCLI,
                      orCopy: () async throws -> CloudMoveCLI.Answer) async throws -> CloudMoveCLI.Answer {
-        guard let record = record(machine: machine, folder: folder) else { return try await orCopy() }
-        return try await cli.startChatProjectPull(mount: record.mount, socket: socket).answer
+        guard let record = await projection(machine: machine, folder: folder) else { return try await orCopy() }
+        let pulled = try await cli.startChatProjectPull(mount: record.mount, socket: socket)
+        if pulled.ok, !pulled.refused.isEmpty { logger.notice("projected folder \(record.mount, privacy: .public): \(pulled.refused.count) path(s) stay on the machine") }
+        return pulled.answer
+    }
+
+    /// The pull that follows a bring back's move: what the machine wrote between ``pull(machine:folder:socket:cli:orCopy:)``
+    /// and the chat's freeze (a turn that was still running) comes back too. The chat is on this Mac by now, so nothing
+    /// here fails the bring back: a conflict's two versions are both on this Mac, and a pull that did not run is logged.
+    public func settle(machine: String, folder: String, socket: String, cli: CloudMoveCLI) async {
+        guard let record = await projection(machine: machine, folder: folder) else { return }
+        do {
+            let pulled = try await cli.startChatProjectPull(mount: record.mount, socket: socket)
+            if !pulled.ok || !pulled.conflicts.isEmpty || !pulled.refused.isEmpty {
+                logger.notice("projected folder \(record.mount, privacy: .public) after the move: ok \(pulled.ok), \(pulled.conflicts.count) kept beside, \(pulled.refused.count) left on the machine (\(pulled.code ?? "", privacy: .public))")
+            }
+        } catch {
+            logger.error("projected folder \(record.mount, privacy: .public) after the move: the pull did not run (\(String(describing: type(of: error)), privacy: .public))")
+        }
+    }
+
+    /// The projection `folder` on `machine` is: the served one, else its record on this Mac (a serve child that
+    /// could not start, or a launch whose machine list has not adopted it yet), which is then served again.
+    private func projection(machine: String, folder: String) async -> Record? {
+        if let served = record(machine: machine, folder: folder) { return served }
+        guard let records = self.folder,
+              let kept = await Self.records(in: records).first(where: { $0.machine == machine && $0.folder == folder }) else { return nil }
+        serve(kept)
+        return kept
     }
 
     /// Serves `record`'s mount (once; a served mount stays).
@@ -161,23 +223,42 @@ public final class CloudProjectedFolders {
         for child in children { _ = await child.exited() }
     }
 
-    /// A machine list for `account` (``CloudStartCore/accountText(_:)``) that names `machines`: its records of listed
-    /// machines are served (a launch adopts what the last one served), and the mounts of machines it no longer names
-    /// stop and their records are removed. Another account's records stay as they are. `current` says the list is still
-    /// the signed-in account's after the records are read (a sign-out or a switch meanwhile serves nothing).
-    public func listed(machines: Set<String>, account: String, current: @MainActor () -> Bool) async {
+    /// A machine list for `account` (``CloudStartCore/accountText(_:)``) that names `machines` as there and `destroyed`
+    /// as gone: its records of listed machines are served (a launch adopts what the last one served). A machine the
+    /// list leaves out may still exist (a list fetched before the machine was made, a row the service filters), so
+    /// its mount stops only after two lists in a row left it out, and its record stays: only `destroyed` removes one.
+    /// Another account's records stay as they are. `current` says the list is still the signed-in account's after the
+    /// records are read (a sign-out or a switch meanwhile serves nothing).
+    public func listed(machines: Set<String>, destroyed: Set<String> = [], account: String, current: @MainActor () -> Bool) async {
+        for machine in destroyed { _ = await self.destroyed(machine)?.value }
         // SIGTERM only: a list never waits on a child's exit.
-        for entry in served.values where !machines.contains(entry.record.machine) {
+        for mount in Array(served.keys) {
+            guard var entry = served[mount] else { continue }
+            entry.missed = machines.contains(entry.record.machine) ? 0 : entry.missed + 1
+            served[mount] = entry
+            guard entry.missed >= 2 else { continue }
             entry.restart?.cancel()
             entry.child?.stop()
-            served[entry.record.mount] = nil
+            served[mount] = nil
         }
         guard let folder else { return }
         let records = await Self.records(in: folder).filter { $0.account == account }
         guard current() else { return }
         for record in records where machines.contains(record.machine) { serve(record) }
-        let gone = records.filter { !machines.contains($0.machine) && served[$0.mount] == nil }.map(\.mount)
-        if !gone.isEmpty { await Self.remove(gone, in: folder) }
+    }
+
+    /// `machine` is destroyed (the service said so): its mounts stop and their records on this Mac are removed. The
+    /// removal runs off the main actor; its task is handed back for a caller that waits for it.
+    @discardableResult
+    public func destroyed(_ machine: String) -> Task<Void, Never>? {
+        for entry in served.values where entry.record.machine == machine {
+            entry.restart?.cancel()
+            entry.child?.stop()
+            served[entry.record.mount] = nil
+        }
+        guard let folder else { return nil }
+        // task-owner: CloudProjectedFolders.destroyed: one bounded removal of a destroyed machine's record folders, off the main actor.
+        return Task { await Self.remove(await Self.records(in: folder).filter { $0.machine == machine }.map(\.mount), in: folder) }
     }
 
     private func spawn(_ mount: String) {

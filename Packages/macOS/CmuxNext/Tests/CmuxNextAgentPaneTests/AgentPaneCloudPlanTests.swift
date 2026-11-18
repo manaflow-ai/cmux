@@ -190,11 +190,15 @@ struct AgentPaneCloudPlanTests {
         let noMachineHoldsIt = CloudMoveCLI.StartChatPreflight.passed(bytes: 300 * gib, size: nil)
         #expect(throws: CloudMoveCLI.StartChatPreflightRefusal.self) { try start.sized(tooBig, local: "/tmp/p", projecting: false) }
         #expect(throws: CloudMoveCLI.StartChatPreflightRefusal.self) { try start.sized(noMachineHoldsIt, local: "/tmp/p", projecting: false) }
+        // The refusal it passed over comes back with it: it stands again when the folder is not projected after all.
         let projected = try start.sized(noMachineHoldsIt, local: "/tmp/p", projecting: true)
-        #expect(projected.size == nil && projected.folderBytes == nil)
-        #expect(try start.sized(tooBig, local: "/tmp/p", projecting: true).size == nil)
+        #expect(projected.start.size == nil && projected.start.folderBytes == nil && projected.tooBig != nil)
+        let refused = try start.sized(tooBig, local: "/tmp/p", projecting: true)
+        #expect(refused.start.size == nil && refused.tooBig != nil)
         // Within the limits the switch changes nothing.
         let small = CloudMoveCLI.StartChatPreflight.passed(bytes: 2 * gib, size: .sm)
-        #expect(try start.sized(small, local: "/tmp/p", projecting: true) == start.sized(small, local: "/tmp/p"))
+        let within = try start.sized(small, local: "/tmp/p", projecting: true)
+        #expect(try within.start == start.sized(small, local: "/tmp/p"))
+        #expect(within.tooBig == nil)
     }
 }

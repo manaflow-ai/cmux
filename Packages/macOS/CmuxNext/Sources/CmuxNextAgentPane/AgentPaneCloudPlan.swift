@@ -21,16 +21,18 @@ extension AgentPaneCloudStart {
     }
 
     /// ``sized(_:local:)``, except that with `projecting` (`cloud.projectedFolders` on) a folder too big to copy is not
-    /// refused before its machine: the start goes on at the chat size, with no folder bytes, and projects the folder
-    /// (``CloudProjectedFolders``). Off, it is ``sized(_:local:)`` exactly.
-    public func sized(_ preflight: CloudMoveCLI.StartChatPreflight, local: String, projecting: Bool) throws -> Self {
+    /// refused before its machine: the start goes on at the chat size, with no folder bytes, to project the folder
+    /// (``CloudProjectedFolders``), and the refusal it passed over comes back as `tooBig`, which stands again if the
+    /// folder is not projected after all. Off, it is ``sized(_:local:)`` exactly, with no `tooBig`.
+    public func sized(_ preflight: CloudMoveCLI.StartChatPreflight, local: String,
+                      projecting: Bool) throws -> (start: Self, tooBig: CloudMoveCLI.StartChatPreflightRefusal?) {
         do {
-            return try sized(preflight, local: local)
-        } catch is CloudMoveCLI.StartChatPreflightRefusal where projecting {
+            return (try sized(preflight, local: local), nil)
+        } catch let refusal as CloudMoveCLI.StartChatPreflightRefusal where projecting {
             var sized = self
             sized.size = nil
             sized.folderBytes = nil
-            return sized
+            return (sized, refusal)
         }
     }
 
