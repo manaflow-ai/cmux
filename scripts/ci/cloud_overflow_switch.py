@@ -121,11 +121,19 @@ LINUX_VARIABLES = (LINUX_VARIABLE, TRUSTED_VARIABLE)
 # Any of these a signing job reads (signing_runner_variables) keeps its value: on
 # 2026-10-28 the failover pointed MACOS_RUNNER_26 at the std pool and turned
 # cmux-next-guards.yml's signing-runner-variables red on every PR.
-STD_VARIABLES = ("MACOS_RUNNER_15", "MACOS_RUNNER_26", "MACOS_RUNNER_26_LARGE", "MACOS_RUNNER_PR",
-                 "MACOS_RUNNER_DUAL_XCODE")
+STD_VARIABLES = ("MACOS_RUNNER_15", "MACOS_RUNNER_26", "MACOS_RUNNER_26_LARGE", "MACOS_RUNNER_PR")
+# swift-package-tests reads this one, and on a full suite that checks the
+# Release build it first builds the Release helper against an SDK 15 Xcode.
+# No owned pool carries one (the minis have the lane's Xcode alone), so the
+# std pool is no failover for it: on 2026-11-16 the switch pointed it there
+# and the job failed "No Xcode.app found under /Applications with macOS SDK
+# major 15" on every main full suite. It has no default failover: its jobs
+# wait for Blacksmith, and CI_CLOUD_FAILOVER can still name one.
+SDK15_VARIABLE = "MACOS_RUNNER_DUAL_XCODE"
 GUI_VARIABLE = "MACOS_RUNNER_DISPLAY"
 IOS_VARIABLE = "MACOS_RUNNER_IOS"
-SWITCHED_VARIABLES = (*LINUX_VARIABLES, *STD_VARIABLES, GUI_VARIABLE, IOS_VARIABLE, PAID_OVERFLOW_VARIABLE)
+SWITCHED_VARIABLES = (*LINUX_VARIABLES, *STD_VARIABLES, SDK15_VARIABLE, GUI_VARIABLE, IOS_VARIABLE,
+                      PAID_OVERFLOW_VARIABLE)
 # What CI_CLOUD_FAILOVER may name: the workflow passes each one's live value,
 # so a restore never guesses what a variable held. MACOS_RUNNER_26 is not
 # one: every value an override could give it is refused (GitHub-hosted, a
@@ -345,7 +353,8 @@ def plan_on(record: Mapping[str, Any], current: Mapping[str, str | None],
 
 
 def plan_resume(record: Mapping[str, Any], current: Mapping[str, str | None],
-                started: Iterable[str] | None = None) -> list[Resume]:
+                started: Iterable[str] | None = None,
+                failover: Mapping[str, str] | None = None) -> list[Resume]:
     """What a stalled probe should retry after a partial failover write.
 
     A value still at the recorded ``before`` value was never switched, so it
@@ -353,7 +362,11 @@ def plan_resume(record: Mapping[str, Any], current: Mapping[str, str | None],
     at ``after`` or was edited by someone else and is left alone. A record
     written before signing variables were kept ephemeral may name one with an
     owned ``after``; that is never applied (on 2026-10-28 a retry re-applied
-    MACOS_RUNNER_26 eight minutes after it was put back by hand).
+    MACOS_RUNNER_26 eight minutes after it was put back by hand). Given
+    ``failover`` (this run's), a non-Linux variable it no longer names is
+    never applied either: on 2026-11-16 the record held
+    MACOS_RUNNER_DUAL_XCODE on the std pool, which has no SDK 15 Xcode, after
+    the failover stopped naming it. The Linux variables follow ``started``.
     """
     resumes: list[Resume] = []
     for name, change in sorted((record.get("changed") or {}).items()):
@@ -373,6 +386,10 @@ def plan_resume(record: Mapping[str, Any], current: Mapping[str, str | None],
         if name in LINUX_VARIABLES and HOSTED_LINUX_LABEL.match(after.lower()):
             # No job runs on GitHub-hosted Ubuntu (Leo, 2026-10-27), whatever an older record says.
             resumes.append(Resume(name, after, "a GitHub-hosted Ubuntu failover from an older record; left alone"))
+            continue
+        if (failover is not None and name not in LINUX_VARIABLES and name != PAID_OVERFLOW_VARIABLE
+                and name not in failover):
+            resumes.append(Resume(name, after, "no failover now; left alone (the record still restores it)"))
             continue
         if name in LINUX_VARIABLES and started is not None and after not in set(started):
             resumes.append(Resume(name, after, f"{after} did not start a probe in this run; left alone"))
@@ -876,7 +893,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                         log(f"- {item.name}: moved from GitHub-hosted Ubuntu to {item.value}")
                     record = migrated
                     current = {**current, **{item.name: item.value for item in moves}}
-            resumes = plan_resume(migrated if args.dry_run else record, current, started)
+            resumes = plan_resume(migrated if args.dry_run else record, current, started, failover)
             if args.dry_run:
                 for item in resumes:
                     if item.skipped:
