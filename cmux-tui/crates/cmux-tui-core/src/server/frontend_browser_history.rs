@@ -132,6 +132,10 @@ pub(crate) struct NewTabParams {
     /// `workspace` or `split`.
     #[serde(default)]
     transaction: Option<String>,
+    /// `private-tabs-v1`: the tab is private (incognito) in any workspace,
+    /// beside normal tabs (`state/private_tabs.rs`).
+    #[serde(default)]
+    private: bool,
 }
 
 const fn activate_by_default() -> bool {
@@ -156,6 +160,7 @@ pub(super) fn create(mux: &Arc<Mux>, client: u64, params: NewTabParams) -> anyho
         split,
         place,
         transaction,
+        private,
     } = params;
     anyhow::ensure!(
         workspace.is_none() || (pane.is_none() && split.is_none()),
@@ -222,6 +227,11 @@ pub(super) fn create(mux: &Arc<Mux>, client: u64, params: NewTabParams) -> anyho
         }
     };
     placing.made(surface.id);
+    // A replayed create marks again: the mark is idempotent, and a crash
+    // between the create and its mark is what the retry repairs.
+    if private {
+        mux.mark_tab_private(surface.id)?;
+    }
     let identity = surface.resource_identity();
     let mut reply = json!({
         "surface": surface.id,
@@ -229,6 +239,9 @@ pub(super) fn create(mux: &Arc<Mux>, client: u64, params: NewTabParams) -> anyho
         "content_resource_id": identity.map(|identity| identity.content_id.as_str()),
         "replayed": replayed,
     });
+    if private && let Some(fields) = reply.as_object_mut() {
+        fields.insert("private".to_string(), Value::Bool(true));
+    }
     if let (Some(transaction), Some(fields)) = (transaction, reply.as_object_mut()) {
         fields.insert("transaction".to_string(), Value::String(transaction));
     }
@@ -418,6 +431,10 @@ mod keys_tests;
 #[cfg(test)]
 #[path = "frontend_browser_reuse_tests.rs"]
 mod reuse_tests;
+
+#[cfg(test)]
+#[path = "frontend_browser_private_tests.rs"]
+mod private_tests;
 
 #[cfg(test)]
 #[path = "frontend_browser_activate_tests.rs"]

@@ -51,6 +51,8 @@ impl TabStateRow {
 /// What the state tables hold for one tab.
 struct TabRows {
     pinned: bool,
+    /// `private-tabs-v1`: the tab carries its own private mark.
+    private: bool,
     group: Option<String>,
     state: Option<TabStateRow>,
     /// The owner and the profile of a frontend-rendered browser.
@@ -65,6 +67,9 @@ fn fields(rows: TabRows) -> anyhow::Result<Map<String, Value>> {
     let mut fields = Map::new();
     if rows.pinned {
         fields.insert("pinned".into(), json!(true));
+    }
+    if rows.private {
+        fields.insert("private".into(), json!(true));
     }
     if let Some(group) = rows.group {
         fields.insert("tab_group_id".into(), json!(group));
@@ -163,6 +168,7 @@ pub(super) fn tab_extra(
     .optional()?;
     fields(TabRows {
         pinned,
+        private: crate::state::private_tabs::is_marked(connection, tab_id)?,
         group,
         state,
         frontend,
@@ -178,6 +184,7 @@ pub(super) fn tab_extra(
 /// and `kept_tabs` are pruned by their writers and are read as they are.
 pub(super) struct SessionTabExtras {
     pinned: HashSet<String>,
+    private: HashSet<String>,
     groups: HashMap<String, String>,
     states: HashMap<String, TabStateRow>,
     frontends: HashMap<String, (Option<String>, Option<String>)>,
@@ -229,6 +236,7 @@ impl SessionTabExtras {
             .collect::<Result<HashMap<_, _>, _>>()?;
         Ok(Self {
             pinned,
+            private: crate::state::private_tabs::marked_tabs(connection)?,
             groups,
             states,
             frontends,
@@ -248,6 +256,7 @@ impl SessionTabExtras {
     pub(super) fn take(&mut self, tab_id: &str) -> anyhow::Result<Map<String, Value>> {
         fields(TabRows {
             pinned: self.pinned.contains(tab_id),
+            private: self.private.contains(tab_id),
             group: self.groups.remove(tab_id),
             state: self.states.remove(tab_id),
             frontend: self.frontends.remove(tab_id),

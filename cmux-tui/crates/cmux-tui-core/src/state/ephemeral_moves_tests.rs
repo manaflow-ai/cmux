@@ -198,20 +198,19 @@ fn a_move_out_of_a_normal_workspace_stays_normal_and_recorded() {
     mux.shutdown();
 }
 
-/// Tabs and screens never move between an ephemeral workspace and an
-/// existing normal one, in either direction, through the v2 operation the
-/// CLI sends (with the refusal message) or a raw command; the content stays
-/// where it was.
+/// Screens never move between an ephemeral workspace and an existing normal
+/// one, in either direction (with the refusal message). Tabs do since
+/// `private-tabs-v1` (Leo, 2026-11-18: "drop the 9/30 rule and allow private
+/// tabs anywhere"), through the v2 operation the CLI sends and a raw command;
+/// one that leaves the ephemeral workspace stays private
+/// (`private_tabs_tests`).
 #[test]
-fn moves_between_an_ephemeral_and_a_normal_workspace_are_refused() {
+fn screen_moves_between_an_ephemeral_and_a_normal_workspace_are_refused() {
     let mux = Mux::new_for_test("ephemeral-move-refused", SurfaceOptions::default());
-    let (normal, normal_tabs) = workspace_with_tabs(&mux, "normal", false, 2);
-    let (incognito, incognito_tabs) = workspace_with_tabs(&mux, "incognito", true, 2);
+    let (normal, normal_tabs) = workspace_with_tabs(&mux, "normal", false, 3);
+    let (incognito, incognito_tabs) = workspace_with_tabs(&mux, "incognito", true, 3);
 
-    for (tab, from, to) in [
-        (incognito_tabs[0], &incognito, normal_tabs[1]),
-        (normal_tabs[0], &normal, incognito_tabs[1]),
-    ] {
+    for (tab, to) in [(incognito_tabs[0], normal_tabs[1]), (normal_tabs[0], incognito_tabs[1])] {
         let params = json!({
             "tab": tab_id(&mux, tab),
             "destination_workspace": workspace_of(&mux, to),
@@ -219,13 +218,12 @@ fn moves_between_an_ephemeral_and_a_normal_workspace_are_refused() {
             "destination_pane": pane_id(&mux, to),
             "index": 0,
         });
-        let error = send(&mux, "tab.move", params, Some(&format!("move-{tab}"))).unwrap_err();
-        assert!(error.message.contains("ephemeral"), "{error:?}");
-        assert!(
-            mux.move_tab_to_workspace(tab, Some(internal_id(&mux, &workspace_of(&mux, to))))
-                .is_err()
-        );
-        assert_eq!(&workspace_of(&mux, tab), from);
+        send(&mux, "tab.move", params, Some(&format!("move-{tab}"))).unwrap();
+        assert_eq!(workspace_of(&mux, tab), workspace_of(&mux, to));
+    }
+    for (tab, to) in [(incognito_tabs[2], &normal), (normal_tabs[2], &incognito)] {
+        mux.move_tab_to_workspace(tab, Some(internal_id(&mux, to))).unwrap();
+        assert_eq!(&workspace_of(&mux, tab), to);
     }
 
     for (from, to) in [(&incognito, &normal), (&normal, &incognito)] {

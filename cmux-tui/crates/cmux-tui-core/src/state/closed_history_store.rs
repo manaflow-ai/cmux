@@ -251,8 +251,13 @@ pub(super) fn is_ephemeral(connection: &Connection, workspace_id: &str) -> anyho
 }
 
 /// What reopen needs of one closed tab. `terminal_id` (the public terminal
-/// id) lets reopen attach a new view to a terminal that still runs.
+/// id) lets reopen attach a new view to a terminal that still runs. A
+/// private tab (`private-tabs-v1`) has none: closed history never keeps it,
+/// alone or in the group, screen or workspace that closes with it.
 fn tab_record(connection: &Connection, tab_id: &str) -> anyhow::Result<Option<Value>> {
+    if crate::state::private_tabs::is_marked(connection, tab_id)? {
+        return Ok(None);
+    }
     let row = connection
         .query_row(
             "SELECT content_kind, content_id, name FROM resource_tabs

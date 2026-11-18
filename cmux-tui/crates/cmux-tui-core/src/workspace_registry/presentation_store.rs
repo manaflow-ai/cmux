@@ -314,6 +314,8 @@ pub struct PresentationSnapshot {
     pub workspaces: HashMap<String, WorkspacePresentationRecord>,
     /// Public ids (`tab_...`) of pinned live tabs.
     pub pinned_tabs: HashSet<String>,
+    /// Public ids (`tab_...`) of the tabs marked private (`private-tabs-v1`).
+    pub private_tabs: HashSet<String>,
     /// The page each pinned browser tab was pinned on, by public tab id.
     pub pinned_urls: HashMap<String, String>,
     /// Frontend-rendered browser contents keyed by public browser id

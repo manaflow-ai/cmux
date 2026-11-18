@@ -271,6 +271,15 @@ pub(super) fn pane_json(
             {
                 tab.insert("app", app.wire());
             }
+            // `private-tabs-v1`: present only on a private tab (its own mark, not its workspace's).
+            if state
+                .resource_indexes
+                .tab_ids
+                .get(sid)
+                .is_some_and(|tab| notifications.presentation.private_tabs.contains(tab.as_str()))
+            {
+                tab.insert("private", Value::Bool(true));
+            }
             let remote = content_resource_id
                 .and_then(|id| notifications.presentation.remote_terminals.get(id));
             super::remote_terminal_tabs_wire::apply(&mut tab, remote);

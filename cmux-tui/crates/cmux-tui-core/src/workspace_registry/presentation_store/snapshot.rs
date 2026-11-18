@@ -66,6 +66,7 @@ impl WorkspaceRegistry {
             .filter_map(|(tab, url)| url.clone().map(|url| (tab.clone(), url)))
             .collect::<HashMap<_, _>>();
         let pinned_tabs = pins.into_iter().map(|(tab, _)| tab).collect::<HashSet<_>>();
+        let private_tabs = crate::state::private_tabs::marked_tabs(&db)?;
         let mut frontend_browsers = HashMap::new();
         {
             let db = self.connection.get();
@@ -114,6 +115,7 @@ impl WorkspaceRegistry {
             groups,
             workspaces,
             pinned_tabs,
+            private_tabs,
             pinned_urls,
             frontend_browsers,
             conversation_tabs,
