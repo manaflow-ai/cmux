@@ -28,6 +28,14 @@
 #   machines=N   before every launch after the priming one, each side's sidebar snapshot gets N Cloud machine sections
 #                with no workspaces (0 to 200; default 0), as a person signed in to Cloud with N machines quits with
 #                (launch-ready-machines.py, LR-MACHINES). A fleet Mac has no Cloud sign-in, so its own quits save none.
+#   snapshot=foreign  every measured launch starts with its side's cmuxNext.launchSnapshotPath.<session> naming another
+#                session's launch snapshot (hq#12660, cmux#45272): after each side's priming launch, a donor
+#                (foreign-SIDE: a second copy of the side's own app, with its own home, so its own daemon and registry)
+#                launches and quits once; before each measured launch its saved snapshot path is planted in the side's
+#                own defaults plist, which the load then imports into the run's set-aside domain (restored at the end
+#                like the rest). The launch should land on Home and log "launch snapshot stale (otherSession)".
+#                Prints LR-STALE-SNAPSHOT per launch and per side (stale_verdict); runs= at least 5. Default
+#                snapshot=own.
 #   copy=fresh   each measured launch is the first exec of a new copy: just before it, the side's copy is deleted and
 #                copied again from the DMG's (new files at the same path, the same code signature), as an update in
 #                place leaves it. The home stays. Default copy=same: every launch runs the one copy.
@@ -51,6 +59,7 @@ main() {
   local out="$PWD/.build/launch-ready" dmg=nightly base="" headsha="" runs=5 profile=0 session=small prerun=0 copy=same machines=0 late=0 arg rc=0 i side
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
   LR_STATE=kept
+  LR_SNAPSHOT=own
   # Each side's control socket (SIDE.sock). A socket path must fit sun_path (104 bytes with its NUL), and on a fleet
   # worker "$out/home-SIDE/app.sock" is 112: the app bound no socket there and stress3's seed never got an answer.
   LR_SOCKETS="$(mktemp -d /tmp/lr.XXXXXX)" && chmod 0777 "$LR_SOCKETS" || exit 3
@@ -64,6 +73,7 @@ main() {
       runs=*) runs="${arg#runs=}" ;;
       profile=0|profile=1) profile="${arg#profile=}" ;;
       state=kept|state=bare) LR_STATE="${arg#state=}" ;;
+      snapshot=own|snapshot=foreign) LR_SNAPSHOT="${arg#snapshot=}" ;;
       session=small|session=stress3) session="${arg#session=}" ;;
       prerun=*) prerun="${arg#prerun=}" ;;
       copy=same|copy=fresh) copy="${arg#copy=}" ;;
@@ -74,6 +84,7 @@ main() {
   done
   [[ "$runs" =~ ^([1-9]|10)$ ]] || { echo "runs= must be 1 to 10" >&2; exit 2; }
   [[ "$machines" =~ ^[0-9]+$ && "$machines" -le 200 ]] || { echo "machines= takes 0 to 200" >&2; exit 2; }
+  [[ "$LR_SNAPSHOT" == own || "$runs" -ge 5 ]] || { echo "snapshot=foreign reports flash_ms over runs=5 or more" >&2; exit 2; }
   [[ "$LR_STATE" == kept || ( "$session" == small && "$machines" == 0 ) ]] \
     || { echo "state=bare empties the home before each launch: it takes no session=$session or machines=$machines" >&2; exit 2; }
   [[ "$prerun" =~ ^[0-9]+$ && "$prerun" -le 600 ]] || { echo "prerun= takes 0 to 600 seconds" >&2; exit 2; }
@@ -81,7 +92,7 @@ main() {
   LR_LATE="$late"
   [[ -z "$base" || ( "$dmg" == build && "$base" =~ ^[0-9a-f]{40}$ ) ]] || { echo "base= takes a 40-hex commit, with dmg=build" >&2; exit 2; }
   [[ -z "$headsha" || ( "$dmg" == build && "$headsha" =~ ^[0-9a-f]{40}$ ) ]] || { echo "head= takes a 40-hex commit, with dmg=build" >&2; exit 2; }
-  echo "LR state $LR_STATE"
+  echo "LR state $LR_STATE snapshot $LR_SNAPSHOT"
   echo "LR host $(hostname -s) chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername)"
   # Everything this run reads from the checkout is compiled or copied now: the builds below check out other commits.
   xcrun swiftc -O -o "$out/launch-ready" scripts/measure/launch-ready.swift >"$out/swiftc.log" 2>&1 \
@@ -145,6 +156,9 @@ main() {
     probe "$out" "$side" prime 10 0 || rc=1
     if [[ "$session" == stress3 ]]; then seed "$out" "$side" || rc=1; fi
   done
+  if [[ "$LR_SNAPSHOT" == foreign ]]; then
+    for side in "${sides[@]}"; do donor "$out" "$side" "$session" || rc=1; done
+  fi
   for ((i = 1; i <= runs; i++)); do
     for side in "${sides[@]}"; do
       if [[ "$prerun" != 0 ]]; then probe "$out" "$side" "full$i" "$prerun" 0 || rc=1; fi
@@ -160,7 +174,7 @@ import json, statistics, sys
 from collections import Counter
 rows = [json.loads(line) for line in open(sys.argv[1]) if line.strip()]
 bare = sys.argv[2] == "bare"
-for side in dict.fromkeys(r["side"] for r in rows):
+for side in dict.fromkeys(r["side"] for r in rows if not r["side"].startswith("foreign-")):  # not a donor
     done = [r for r in rows if r["side"] == side and r["label"].startswith("run") and r.get("window_on_screen") is not None]
     loads = [r["load_1m"] for r in done if r.get("load_1m") is not None]
     med = {"n": len(done), "max_load_1m": max(loads) if loads else None}
@@ -208,6 +222,7 @@ for side in dict.fromkeys(r["side"] for r in rows):
     print("LR-REOPENED", side, med["reopened"], flush=True)
     print("LR-USABLE", side, med["usable"], flush=True)
 PY
+  if [[ "$LR_SNAPSHOT" == foreign ]]; then stale_verdict "$out" "$runs" || rc=1; fi
   tar -czf "$out.tgz" -C "$out" --exclude '*.dmg' --exclude '*.app' --exclude '*.trace' . 2>/dev/null && mv "$out.tgz" "$out/report.tgz"
   exit "$rc"
 }
@@ -230,6 +245,16 @@ probe() {
   # defaults.plist, so the load leaves the side's domain clear). Only this run's own home is removed; a daemon the
   # last launch kept has its socket in the removed home and ends with the others at the end.
   if [[ "$LR_STATE" == bare ]]; then rm -rf "$out/home-$side/h" "$out/home-$side/t" "$out/home-$side/defaults.plist"; fi
+  local since="" planted="" kv allow=() # snapshot=foreign: the donor's paths, the only foreign ones check lets pass
+  if [[ "${LR_SNAPSHOT:-own}" == foreign && "$label" == run* && "$side" != foreign-* ]]; then
+    since="$(date '+%Y-%m-%d %H:%M:%S')"
+    planted="$(GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh python3 -I "$out/defaults.py" plant \
+      "$out/home-$side/defaults.plist" "$out/home-foreign-$side/defaults.plist")" \
+      || { echo "LR-FAIL $side $label no foreign launch snapshot to plant"; return 1; }
+    while IFS= read -r kv; do
+      [[ -n "$kv" ]] && allow+=(--allow "$kv") && echo "LR-PLANT $side $label $kv"
+    done <<<"$planted"
+  fi
   side_defaults "$out" load "$app" "$out/home-$side/defaults.plist" \
     || { echo "LR-FAIL $side $label defaults not loaded"; return 1; }
   load="$(load_1m)"
@@ -247,7 +272,7 @@ probe() {
   # Every launch snapshot path the launch left must be in its own home: one in the other side's means it read that.
   # Unsaved defaults fail the same way, and the stale copy goes: the side's next launch starts empty, not from it.
   if side_defaults "$out" save "$app" "$out/home-$side/defaults.plist"; then
-    cross="$(python3 -I "$out/defaults.py" check "$out/home-$side/defaults.plist" "$out/home-$side/")"
+    cross="$(python3 -I "$out/defaults.py" check "$out/home-$side/defaults.plist" "$out/home-$side/" ${allow[@]+"${allow[@]}"})"
   else
     rm -f "$out/home-$side/defaults.plist"
     cross='{"defaults_not_saved": true}'
@@ -262,8 +287,95 @@ probe() {
   if [[ -n "$recorder" && -d "$trace" ]]; then
     python3 -I "$out/profile.py" "$trace" "${line#LR-RUN }" "$side" 2>>"$out/xctrace.log" || echo "LR-PROFILE $side no profile (xctrace.log)"
   fi
+  if [[ -n "$since" ]]; then
+    printf '%s\t%s\t%s\n' "$side" "$label" "$(stale_reason "$(echo "$line" | sed -n 's/.*"pid":\([0-9]*\).*/\1/p')" "$since")" \
+      >>"$out/stale.tsv"
+  fi
   [[ -z "$cross" ]] || { echo "LR-CROSS-ARM $side $label $cross"; return 1; }
   [[ "$line" != *'"error"'* ]]
+}
+
+# donor OUT SIDE SESSION: snapshot=foreign's other session for SIDE. foreign-SIDE is a second copy of SIDE's app (the
+# same build, so the same session name and launch snapshot schema) with its own home, hence its own daemon and
+# registry id: its launch snapshot is another session's. It launches and quits once (and is seeded as SIDE was), so
+# its saved defaults name a snapshot file to plant; it is never measured.
+donor() {
+  local out="$1" side="$2" app
+  app="$(find "$out/$side" -maxdepth 1 -name '*.app' | head -1)"
+  mkdir -p "$out/foreign-$side" && ditto "$app" "$out/foreign-$side/$(basename "$app")" || return 1
+  probe "$out" "foreign-$side" prime 10 0 || return 1
+  if [[ "$3" == stress3 ]]; then seed "$out" "foreign-$side" || return 1; fi
+}
+
+# stale_reason PID SINCE: the verdict the app logged for its launch snapshot ("launch snapshot stale (VERDICT)",
+# WindowRules+Launch.swift, subsystem com.cmuxterm.app.next) in the unified log since SINCE: the verdict, none when
+# it logged none (the snapshot was current, or nothing was drawn from it), unknown when the log could not be read.
+stale_reason() {
+  local text
+  [[ -n "$1" ]] || { echo unknown; return; }
+  text="$(log show --style compact --start "$2" \
+    --predicate "processIdentifier == $1 AND eventMessage CONTAINS \"launch snapshot stale\"" 2>/dev/null)" \
+    || { echo unknown; return; }
+  text="$(printf '%s\n' "$text" | sed -n 's/.*launch snapshot stale (\([A-Za-z]*\)).*/\1/p' | head -1)"
+  echo "${text:-none}"
+}
+
+# stale_verdict OUT RUNS: snapshot=foreign's verdict from OUT/runs.jsonl and OUT/stale.tsv. Per measured launch:
+# shown (Home when the front at quit had Home on top, else what it had), the logged reason, flash_ms (the foreign
+# windows on screen: daemon.first_tree_applied - launch_snapshot_shown; 0 when no launch window was drawn from the
+# snapshot) and whether a workspace was made (the front's workspace count above the side's launch before). Per side:
+# LR-STALE-SNAPSHOT SIDE shown=Home reason=otherSession flash_ms=MEDIAN flash_ms_max=MAX n=N. Fails when a launch
+# showed anything but Home, made a workspace, or a side has fewer than RUNS launches.
+stale_verdict() {
+  python3 -I - "$1/runs.jsonl" "$1/stale.tsv" "$2" <<'PY'
+import json, os, statistics, sys
+rows = [json.loads(line) for line in open(sys.argv[1]) if line.strip()]
+reasons = {}
+if os.path.exists(sys.argv[2]):
+    for line in open(sys.argv[2]):
+        side, label, reason = (line.rstrip("\n").split("\t") + ["", "", ""])[:3]
+        reasons[(side, label)] = reason or "unknown"
+failed = False
+for side in dict.fromkeys(r["side"] for r in rows if not r["side"].startswith("foreign-")):
+    prev, shown_all, reason_all, flashes, n = None, [], [], [], 0
+    for r in (r for r in rows if r["side"] == side):
+        front = r.get("front") or {}
+        if r["label"].startswith("run"):
+            n += 1
+            marks = r.get("marks") or {}
+            shown = "Home" if front.get("top_page") == "home" else str(front.get("top_page") or front.get("error") or "none")
+            reason = reasons.get((side, r["label"]), "unknown")
+            if "launch_snapshot_shown" not in marks:
+                flash = 0.0
+            elif "daemon.first_tree_applied" in marks:
+                flash = round(float(marks["daemon.first_tree_applied"] - marks["launch_snapshot_shown"]), 1)
+            else:
+                flash = None
+            before, after = (prev or {}).get("workspaces"), front.get("workspaces")
+            made = isinstance(before, int) and isinstance(after, int) and after > before
+            print("LR-STALE-SNAPSHOT", side, r["label"], f"shown={shown} reason={reason}",
+                  f"flash_ms={'unknown' if flash is None else flash}",
+                  f"first_reveal={r.get('first_reveal') or 'none'} workspaces={before}->{after}", flush=True)
+            if shown != "Home" or made:
+                failed = True
+                why = [f"showed {shown}"] * (shown != "Home") + ["made a workspace"] * made
+                print("LR-FAIL", side, r["label"], "stale snapshot launch", " and ".join(why), flush=True)
+            shown_all.append(shown)
+            reason_all.append(reason)
+            if flash is not None:
+                flashes.append(flash)
+        prev = front
+    if n < int(sys.argv[3]):
+        failed = True
+        print("LR-FAIL", side, f"stale snapshot launches {n}, want {sys.argv[3]}", flush=True)
+    shown = "Home" if shown_all and all(s == "Home" for s in shown_all) else ",".join(sorted(set(shown_all))) or "none"
+    reason = ",".join(sorted(set(reason_all))) or "none"
+    med = round(statistics.median(flashes), 1) if flashes else "unknown"
+    top = max(flashes) if flashes else "unknown"
+    print("LR-STALE-SNAPSHOT", side, f"shown={shown} reason={reason} flash_ms={med} flash_ms_max={top}",
+          f"drawn={sum(1 for f in flashes if f)}/{n} n={n}", flush=True)
+sys.exit(1 if failed else 0)
+PY
 }
 
 # seed OUT SIDE: one more launch of SIDE's copy with SIDE's home, in which launch-ready-seed.py makes the stress3
