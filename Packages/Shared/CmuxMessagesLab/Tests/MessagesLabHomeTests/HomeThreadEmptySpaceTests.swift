@@ -138,6 +138,38 @@ import Testing
         #expect(r.view.debugOpenThreadPath.count >= 2, "a click on the \"1 Reply\" words did not open the branch")
     }
 
+    /// The same hole on a drilled branch's breadcrumb line ("< Back  Thread › Reply"): a click beside its words, at
+    /// the far side of the pane, did nothing instead of closing the view.
+    @Test func aClickBesideTheBreadcrumbClosesTheThread() async throws {
+        let r = try await threadRig()
+        defer { r.stop() }
+        let replies = r.store.transcript(for: HomeChatRig.conversation).filter { $0.plainText.contains("floating Chief reply") }
+        let parent = try #require(replies.dropFirst().first?.messageID, "the second Chief reply")
+        let root = try #require(replies.first?.threadRoot)
+        #expect(await r.post([.text("\(HomeChatRig.tag) nested answer")], key: IdempotencyKey("crumb-nested-1"), threadRoot: root, parent: parent))
+        for _ in 0..<4 { r.frame() }
+        let demo = try #require(r.view.controller.demo)
+        let (p, _) = try opener(demo)
+        try open(r, at: p)
+        let path = try #require(r.view.debugOpenBranch(text: "\(HomeChatRig.tag) floating Chief reply 2"), "no \"1 Reply\" under the reply")
+        for _ in 0..<4 { r.frame() }
+        try #require(path.count >= 2, "the branch did not open")
+        let crumb = try #require(zip(demo.threadViews, demo.threadSpecs).first { $0.1.key == MessagesWindowView.crumbKey }, "no breadcrumb")
+        let y = crumb.0.frame.minY + RowDraw.margin + crumb.1.height / 2
+        for x in [crumb.0.frame.minX + 16, crumb.0.frame.maxX - 16] {
+            let spot = CGPoint(x: x, y: y)
+            guard demo.hit(spot) == nil else { continue }
+            if r.view.debugOpenThread == nil {
+                try open(r, at: p)
+                _ = r.view.debugOpenBranch(text: "\(HomeChatRig.tag) floating Chief reply 2")
+                for _ in 0..<4 { r.frame() }
+            }
+            r.view.controller.clicked(spot)
+            for _ in 0..<4 { r.frame() }
+            #expect(r.view.debugOpenThread == nil, "a click beside the breadcrumb at \(spot) did not close the thread")
+        }
+    }
+
     @Test func aClickOnABubbleOrTheMessageBoxKeepsTheThreadOpen() async throws {
         let r = try await threadRig()
         defer { r.stop() }
