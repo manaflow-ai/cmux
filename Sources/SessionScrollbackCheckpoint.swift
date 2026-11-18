@@ -297,8 +297,18 @@ struct SessionScrollbackCheckpointStore: Sendable {
                 failedSurfaceIds.insert(capture.surfaceId)
             }
         }
+        // `prune` sweeps every invalidated aside when live panel ids are
+        // present, so removals only need the canonical unlink then; without
+        // them one listing covers the whole loop instead of one per removal.
+        let asideNames = batch.livePanelIds == nil
+            ? (try? fileManager.contentsOfDirectory(atPath: directoryURL.path)) ?? []
+            : []
         for panelId in removals {
-            removeCheckpointFiles(panelId: panelId, fileManager: fileManager)
+            try? fileManager.removeItem(at: fileURL(panelId: panelId))
+            let asidePrefix = "\(panelId.uuidString).json.invalidated-"
+            for name in asideNames where name.hasPrefix(asidePrefix) {
+                try? fileManager.removeItem(at: directoryURL.appendingPathComponent(name, isDirectory: false))
+            }
         }
         if let livePanelIds = batch.livePanelIds {
             prune(keeping: livePanelIds, fileManager: fileManager)
@@ -324,16 +334,6 @@ struct SessionScrollbackCheckpointStore: Sendable {
         let source = fileURL(panelId: panelId)
         let aside = source.appendingPathExtension("invalidated-\(UUID().uuidString)")
         return (try? fileManager.moveItem(at: source, to: aside)) != nil
-    }
-
-    /// Deletes the checkpoint file and every invalidated aside for `panelId`.
-    func removeCheckpointFiles(panelId: UUID, fileManager: FileManager = .default) {
-        try? fileManager.removeItem(at: fileURL(panelId: panelId))
-        let asidePrefix = "\(panelId.uuidString).json.invalidated-"
-        guard let names = try? fileManager.contentsOfDirectory(atPath: directoryURL.path) else { return }
-        for name in names where name.hasPrefix(asidePrefix) {
-            try? fileManager.removeItem(at: directoryURL.appendingPathComponent(name, isDirectory: false))
-        }
     }
 
     func prune(keeping livePanelIds: Set<UUID>, fileManager: FileManager = .default) {
@@ -412,9 +412,11 @@ struct SessionScrollbackCheckpointPersister: Sendable {
     ///
     /// A removal means the panel stopped being eligible (for example a command
     /// started running). `invalidate` renames its checkpoint aside on the
-    /// caller — one metadata operation per removal — so the file is already
-    /// unreachable to `loadRecords` when `persist` returns: a crash before the
-    /// queue drains cannot leave it for the next unclean restore to merge.
+    /// caller — one metadata operation per removal — so any file already on
+    /// disk is unreachable to `loadRecords` when `persist` returns. A capture
+    /// still queued can recreate the file before the removal's apply runs —
+    /// the residual crash window is one queued batch's apply, not the whole
+    /// backlog a `queue.sync` delete used to wait out on the caller.
     /// The serial queue still applies the batch after every earlier queued
     /// write, so the delete reclaims the file and its asides only after they
     /// land. What changes is who waits: the caller no longer sits in
