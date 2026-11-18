@@ -48,9 +48,9 @@ public final class GitHubConnections {
     public var busy: Bool { workingScope != nil && workingScope == scope() }
     public var currentConnections: [JSONValue] { loadedScope == scope() ? connections : [] }
     /// `integration.connect`'s params: GitHub, and the app's completion link when one is set (``completionLink``).
-    var connectParams: JSONValue {
+    func connectParams(returning: Bool) -> JSONValue {
         var params: [String: JSONValue] = ["provider": "github"]
-        if let completionLink { params["return_to"] = .string(completionLink) }
+        if returning, let completionLink { params["return_to"] = .string(completionLink) }
         return .object(params)
     }
     public var connected: Bool { currentConnections.contains { $0["status"]?.stringValue == "active" && (canDisconnect($0) || $0["sharing"]?.stringValue == "team") } }
@@ -101,7 +101,11 @@ public final class GitHubConnections {
                     open(authorization.url)
                 } else {
                     if connectKeys[bound] == nil { connectKeys[bound] = UUID().uuidString }
-                    let value = try await call(bound, "integration.connect", connectParams, connectKeys[bound])
+                    // An API from before the completion link refuses its params (nothing ran): the console finishes it.
+                    let value: JSONValue
+                    do { value = try await call(bound, "integration.connect", connectParams(returning: true), connectKeys[bound]) } catch GitHubFailure.refused where completionLink != nil {
+                        value = try await call(bound, "integration.connect", connectParams(returning: false), connectKeys[bound])
+                    }
                     guard scope() == bound, generation == ticket else { return }
                     guard let raw = value["authorize_url"]?.stringValue, let url = Self.installationURL(raw),
                           let id = value["connection"]?["id"]?.stringValue, !id.isEmpty else { throw GitHubFailure.invalidReply }

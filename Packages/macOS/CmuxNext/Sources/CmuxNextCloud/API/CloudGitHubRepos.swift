@@ -344,7 +344,13 @@ public struct CloudGitHubPicker {
             }
         }
         let returnTo = CloudGitHubCompletion.link(scheme: auth.configuration.callbackScheme)
-        guard let page = await connects.page(team: owner.team, now: Date(), ask: { await client.gitHubConnect(key: $0, returnTo: returnTo) }) else { return .failed }
+        // An API from before the completion link refuses its params (nothing ran): ask again without it, and the console
+        // finishes the connection as before.
+        guard let page = await connects.page(team: owner.team, now: Date(), ask: { key in
+            let answer = await client.gitHubConnect(key: key, returnTo: returnTo)
+            guard case .refused = answer else { return answer }
+            return await client.gitHubConnect(key: key)
+        }) else { return .failed }
         return .open(page)
     }
 }
