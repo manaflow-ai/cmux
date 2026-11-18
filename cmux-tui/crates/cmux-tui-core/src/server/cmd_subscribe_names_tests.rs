@@ -37,11 +37,7 @@ fn subscribed_event_name_matches_the_wire_event() {
     ];
     for event in &events {
         let wire = subscribed_event_json(event);
-        assert_eq!(
-            subscribed_event_name(event),
-            wire["event"].as_str(),
-            "{wire}",
-        );
+        assert_eq!(subscribed_event_name(event), wire["event"].as_str(), "{wire}",);
     }
     for event in [
         MuxEvent::ChatsChanged { revision: 1 },
@@ -56,7 +52,6 @@ fn subscribed_event_name_matches_the_wire_event() {
 /// and no terminal's output.
 #[test]
 fn each_page_relay_takes_its_page_router_events() {
-
     let output = MuxEvent::SurfaceOutput(3);
     for page in ["history", "stash", "apps", "bookmarks", "tasks", "feed"] {
         let names = crate::request_origin::page_router_table::page_events(page);

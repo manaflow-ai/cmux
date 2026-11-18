@@ -144,7 +144,8 @@ fn relay_threads() -> (u64, u64) {
             continue;
         }
         let schedstat = std::fs::read_to_string(path.join("schedstat")).unwrap_or_default();
-        cpu += schedstat.split_whitespace().next().and_then(|ns| ns.parse::<u64>().ok()).unwrap_or(0);
+        cpu +=
+            schedstat.split_whitespace().next().and_then(|ns| ns.parse::<u64>().ok()).unwrap_or(0);
         let status = std::fs::read_to_string(path.join("status")).unwrap_or_default();
         wakes += status
             .lines()
