@@ -1,0 +1,127 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44246212069",
+  "recorded_at": "2026-11-18T06:50:31Z",
+  "reason": "cmux-tui ee7b4aa38c53 changes the image's cmux-tui (pinned 6c77648369b2)",
+  "dry_run": false,
+  "cmux_tui": "ee7b4aa38c53c4de2bef7a7171da5bad35b0fc16",
+  "fixes": [
+    {
+      "sha": "f2189ce99dd6e137561f5c5662b85ff6c42b2996",
+      "mergedAt": "2026-11-17T17:53:58-08:00",
+      "subject": "cmux-action-catalog: Roll Back and single-pick history removes are not destructive (step A) (#45499)"
+    },
+    {
+      "sha": "1defa594d7a92715e00839897a7d8e3e4da37ba5",
+      "mergedAt": "2026-11-17T17:53:36-08:00",
+      "subject": "perf(next launch): cmux-window-rules restore order, served as the FFI op window_restore_order (#45664)"
+    },
+    {
+      "sha": "0882f95f74aadcefc868d8c38860d6d07e194633",
+      "mergedAt": "2026-11-18T01:12:44Z",
+      "subject": "acpmux share host: base reds fixed (help examples, home_fs writes, an EINTR read ended a share as lost signaling) (#45133)"
+    },
+    {
+      "sha": "4c62e78b50d3f824be978e32ab791aef40aba69a",
+      "mergedAt": "2026-11-17T16:51:42-08:00",
+      "subject": "iPhone: the Mac gets its width back in seconds, and the phone never draws an unasked grid (#42327)"
+    },
+    {
+      "sha": "cc3a063e5681af6a4536bfbfcfbc48c0b88bef92",
+      "mergedAt": "2026-11-17T16:19:25-08:00",
+      "subject": "Cloud start from the app's page works; review fixes for the start speed work (#45771)"
+    },
+    {
+      "sha": "d587b27ef8ee3bb6a061e8b9c0da17d8824c4f3d",
+      "mergedAt": "2026-11-17T15:57:07-08:00",
+      "subject": "Cloud start: less in sequence, fewer round trips (speed work) (#45728)"
+    },
+    {
+      "sha": "545a988d3663ee5eba383ed4ef8b8b331b5501ad",
+      "mergedAt": "2026-11-17T15:56:56-08:00",
+      "subject": "8c D: authenticated controls carrier (#44471)"
+    },
+    {
+      "sha": "3cf6f3c65b20293c2eab61c1e23ebd8d2da72681",
+      "mergedAt": "2026-11-17T15:52:08-08:00",
+      "subject": "attach_mode_bench: time and size one real resize per attach kind (#45448)"
+    },
+    {
+      "sha": "7c4b7b60d6a5da33d56a8017e378e1410d4639d1",
+      "mergedAt": "2026-11-17T15:30:27-08:00",
+      "subject": "cmux NEXT: a port watch pass at a busy connection keeps no registry lock (#45636)"
+    },
+    {
+      "sha": "9b130dcc20d61dbcb1203d0383bd49c522aa6a40",
+      "mergedAt": "2026-11-17T14:30:26-08:00",
+      "subject": "cmux-tui + cmux-next: the daemon marks its Recovered terminals workspace (workspace-recovered-v1) and the first launch reads the mark; the names stay as the fallback for older daemons (classic handoff B16)"
+    },
+    {
+      "sha": "f46ceff7142efc728499be47266b157a63acb0d4",
+      "mergedAt": "2026-11-17T14:30:26-08:00",
+      "subject": "cmux-tui + cmux-next: test that the daemon marks its Recovered terminals workspace and the first launch reads the mark (red, classic handoff B16)"
+    },
+    {
+      "sha": "c74a1844964f93b165d5a5eb5cecfae74880ce9d",
+      "mergedAt": "2026-11-17T14:02:23-08:00",
+      "subject": "Cloud: a start asks the floor's size, grown only under a plan known (#45711)"
+    },
+    {
+      "sha": "7c6fb5a07a4791e1f9f752cd6cac775914da8c08",
+      "mergedAt": "2026-11-17T13:57:23-08:00",
+      "subject": "Cloud: size machines from 1.5x the folder with a grown disk; cmux NEXT Pro and Max plans (#45684)"
+    },
+    {
+      "sha": "9842089fccf72079d2746fb232ffa0a8e8c45ec2",
+      "mergedAt": "2026-11-17T13:50:33-08:00",
+      "subject": "cmux-rd 0.2.7 (#45503)"
+    },
+    {
+      "sha": "7e10109303f291b5e26516bf80272d063d83b386",
+      "mergedAt": "2026-11-17T12:51:37-08:00",
+      "subject": "test(acpmux): await book tee actor readiness (#45356)"
+    },
+    {
+      "sha": "f764935e26b495958689973466c70039b17af64e",
+      "mergedAt": "2026-11-17T12:50:16-08:00",
+      "subject": "v2.pr07d B: add page session-list store and receiver (#44602)"
+    },
+    {
+      "sha": "0aa1e04168825b1487f389e894d1e366b796bc3d",
+      "mergedAt": "2026-11-17T12:50:04-08:00",
+      "subject": "v2 row 11b: followed-chat acts and queue transitions (#44569)"
+    },
+    {
+      "sha": "c0f823b8086460b59dacbb6700dfefa1fd420cbf",
+      "mergedAt": "2026-11-17T12:43:17-08:00",
+      "subject": "Sidebar extensions: one save reloads at the same cost with 200 local apps (#44991)"
+    },
+    {
+      "sha": "96b7b7e7c41dfdea03c1d7b6ab130d5855208e24",
+      "mergedAt": "2026-11-17T14:02:21-06:00",
+      "subject": "Cloud: GitHub App onboarding end to end, machine size from the folder, plan gate and pricing card (#45274)"
+    },
+    {
+      "sha": "bcb6bcd3504031f1aa7b997eb0dfb96cbb44c65e",
+      "mergedAt": "2026-11-17T11:29:24-08:00",
+      "subject": "acpmux: relay seam follow-ups (decision 299, keys progress, relay doc, sid budget) (#44162)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-18T06:50:31Z",
+    "snapshot_id": "sh-bdaea312bae547e6b57f5629ec9993ab",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44246212069): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d7a9cfe0a4d155419f58f39104e630568524de56",
+    "image": "cloud-native-auto-ee7b4aa3-44246212069-1",
+    "revision": "ci-44246212069-1",
+    "at": "2026-11-18T06:50:31Z"
+  },
+  "rolled_back": false
+}
