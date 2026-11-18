@@ -16,6 +16,11 @@ export type StreamOptions = {
   nominal_ms?: number;
   /** Non-zero: also return the transcript's scrollTop and scrollHeight on every frame (golden.py). */
   trace?: number;
+  /** An agent UI surface card streaming instead of a reply (surfaceStreamDebug.ts): `cmux-catalog-cards`, or
+   * `none` for the same tool row with no surface; `updates` at `hz` (40 at 60 by default). */
+  surface?: string;
+  updates?: number;
+  hz?: number;
 };
 
 const SAMPLE = [

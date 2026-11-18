@@ -186,8 +186,10 @@ streamed `updateComponents` re-renders only changed nodes; the card reserves its
 first `createSurface` (`minHeight` grows, never shrinks while streaming), so the transcript below does
 not jump. Measurement: `webviews/bench/ui-surface-stream-frames.bench.ts` streams a 40-update
 surface into a 1,500-row transcript and reports frames over 16 ms against the same transcript
-without it; on a fleet Mac, `scripts/cmux-next/ui-surface-frames-live.py` records `debug.frames` in
-the live pane.
+without it; on a fleet Mac, golden.py's `ui_surface_stream` scenario
+(`scripts/ci/frame-pacing/ui_surface_stream.py`, `debug.agent_pane` `stream` with `surface`) streams the same
+fixture (`webviews/src/agent-session/acpmux/uiSurfaceStreamFixture.ts`) in the live pane, with and without the
+card, and reports its frames (report only).
 
 ## Not in the prototype
 

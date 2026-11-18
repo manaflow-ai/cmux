@@ -1746,6 +1746,7 @@ export function mergeToolItem(
 }
 
 /// A call's agent UI surface: the update's own, else the one an earlier update left on the call.
+// perf-hot: 1ms ui-surface-stream-update
 function uiSurfaceOf(update: any, before: UiSurface | undefined) {
   const surface = readUiSurface(update?.uiSurface ?? update?._meta?.acpmux?.uiSurface) ?? before;
   return surface ? { uiSurface: surface } : {};

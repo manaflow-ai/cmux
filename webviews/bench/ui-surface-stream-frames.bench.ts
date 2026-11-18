@@ -7,9 +7,10 @@
 // (loadFixture.ts, about 6 rows each: 250 turns is about 1,500 rows), then a running turn. Labs
 // `labs.agentUiSurfaces` is on in both arms (`cmuxAcpmuxBridge.applyAgentUiSurfaces(true)`).
 // Arms, alternating, `--rounds` each, each in a fresh page:
-//   with      a tool call whose updates carry `_meta.acpmux.uiSurface` (cmux.ui-surface/1, as Rust emits it): the
-//             traveller form growing by one node per update while `streaming`, its progress value moving, `ready`
-//             on the last update
+//   with      a tool call whose updates carry `_meta.acpmux.uiSurface` (cmux.ui-surface/1, as Rust emits it): Rust's
+//             golden `cmux-catalog-cards` (approval, table, charts, progress...) growing a node every few updates
+//             while `streaming`, its progress moving, `ready` on the last (uiSurfaceStreamFixture.ts, the fixture the
+//             live pane's golden.py `ui_surface_stream` streams too)
 //   without   the same tool call and the same 40 updates, with no surface
 // Rows: ui_surface_stream.<arm>.frame_gap_ms p50 / p95 / max (rAF intervals from the first update to 200 ms after
 // the last), .frames_over_16ms (count), .long_tasks (> 50 ms), .cls (layout shift). Headless Chromium has no real
@@ -23,6 +24,13 @@ import { chromium } from "./browsers";
 import type { Browser, Page } from "playwright";
 import type { EventRecord } from "../src/agent-session/acpmux/direct";
 import { loadTurn } from "../src/agent-session/acpmux/loadFixture";
+import {
+  UI_SURFACE_STREAM_CALL,
+  UI_SURFACE_STREAM_HZ,
+  UI_SURFACE_STREAM_TITLE,
+  UI_SURFACE_STREAM_UPDATES,
+  uiSurfaceStreamAt,
+} from "../src/agent-session/acpmux/uiSurfaceStreamFixture";
 import { perfRow } from "./perfRow";
 import { toRecord, type Step } from "./replayLogs";
 
@@ -32,12 +40,12 @@ const flag = (name: string) => {
   return at >= 0 ? argv[at + 1] : undefined;
 };
 const TURNS = Number(flag("--turns") ?? 250);
-const UPDATES = Number(flag("--updates") ?? 40);
-const HZ = Number(flag("--hz") ?? 60);
+const UPDATES = Number(flag("--updates") ?? UI_SURFACE_STREAM_UPDATES);
+const HZ = Number(flag("--hz") ?? UI_SURFACE_STREAM_HZ);
 const ROUNDS = Number(flag("--rounds") ?? 3);
 const webviews = path.resolve(import.meta.dir, "..");
 const sessionId = "ui-surface-stream";
-const CALL = "ui-surface-call";
+const CALL = UI_SURFACE_STREAM_CALL;
 
 /// The chat before the stream: `TURNS` finished turns, then the running turn's prompt and a line of reply.
 function prefix(start: number): EventRecord[] {
@@ -46,73 +54,12 @@ function prefix(start: number): EventRecord[] {
   for (let turn = 0; turn < TURNS; turn += 1)
     for (const step of loadTurn(turn)) push(start + turn * 60_000, step as Step);
   const at = start + TURNS * 60_000;
-  push(at, { mux: "user_message", msg: { text: "Collect the traveller's details" } });
+  push(at, { mux: "user_message", msg: { text: "Show the release status." } });
   push(at, { mux: "turn_started" });
   push(at + 500, {
-    update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Here's a form for that." } },
+    update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Here's where it stands." } },
   });
   return events;
-}
-
-/// The surface after update `index` (0-based) of `UPDATES`: Rust's whole normalized tree each time.
-function surfaceAt(index: number) {
-  const fields = [
-    { id: "title", type: "text", text: "Who is travelling?", style: "heading" },
-    { id: "name", type: "field", label: "Full name (as on passport)", input: "text", bind: "/traveler/name" },
-    { id: "email", type: "field", label: "Email", input: "text", bind: "/traveler/email" },
-    {
-      id: "seat",
-      type: "field",
-      label: "Seat",
-      input: "choice",
-      options: [
-        { value: "window", label: "Window" },
-        { value: "aisle", label: "Aisle" },
-      ],
-      bind: "/traveler/seat",
-    },
-    {
-      id: "facts",
-      type: "approval",
-      title: "Book UA 857?",
-      risk: "medium",
-      facts: [
-        { label: "Departs", value: "Fri 12 Dec, 11:05" },
-        { label: "Fare", value: "$1,148.20" },
-      ],
-      approve: { id: "a-book", name: "book", privileged: true },
-      deny: { id: "a-skip", name: "skip", privileged: true },
-    },
-    { id: "save", type: "button", label: "Save traveller", variant: "primary", action: { id: "a-save", name: "save" } },
-  ];
-  // One more node per few updates, a progress line that moves every update.
-  const shown = fields.slice(0, Math.min(fields.length, 1 + Math.floor((index * fields.length) / UPDATES)));
-  const last = index === UPDATES - 1;
-  return {
-    schema: "cmux.ui-surface/1",
-    surfaceId: "bench-surface",
-    source: { kind: "a2ui", server: "travel", tool: "collect-traveler" },
-    status: last ? "ready" : "streaming",
-    title: "Traveller",
-    root: {
-      id: "root",
-      type: "stack",
-      axis: "v",
-      children: [
-        ...shown,
-        {
-          id: "progress",
-          type: "progress",
-          label: "Checking fares",
-          value: index + 1,
-          max: UPDATES,
-          state: last ? "done" : "running",
-        },
-      ],
-    },
-    frame: null,
-    pending: null,
-  };
 }
 
 function updateStep(index: number, withSurface: boolean): Step {
@@ -120,9 +67,10 @@ function updateStep(index: number, withSurface: boolean): Step {
     update: {
       sessionUpdate: index === 0 ? "tool_call" : "tool_call_update",
       toolCallId: CALL,
-      ...(index === 0 ? { kind: "other", title: "travel · collect-traveler" } : {}),
+      ...(index === 0 ? { kind: "other", title: UI_SURFACE_STREAM_TITLE } : {}),
       status: index === UPDATES - 1 ? "completed" : "in_progress",
-      ...(withSurface ? { _meta: { acpmux: { uiSurface: surfaceAt(index) } } } : {}),
+      // The shared golden stream (uiSurfaceStreamFixture.ts), as the live pane's golden.py `ui_surface_stream` plays it.
+      ...(withSurface ? { _meta: { acpmux: { uiSurface: uiSurfaceStreamAt(index, UPDATES) } } } : {}),
     },
   };
 }
