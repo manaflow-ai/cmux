@@ -1,10 +1,11 @@
 import AppKit
 import CmuxNextDesign
+import CmuxVisibleRows
 
 extension SidebarRegionView {
     /// Icon + label width of every item of an inline section. The profile
     /// control is the avatar alone, never a labeled chip (Leo and Lawrence 2026-10-20).
-    static func labelWidths(_ content: Content, width: CGFloat) -> [LayoutItemID: CGFloat] {
+    static func labelWidths(_ content: Content, width: CGFloat, meter: ListWorkMeter? = nil) -> [LayoutItemID: CGFloat] {
         var widths: [LayoutItemID: CGFloat] = [:]
         let font = SidebarStyle.titleFont
         // Inline lines and span grids (R53) draw labeled items with icon and label.
@@ -13,11 +14,22 @@ extension SidebarRegionView {
             for item in section.items {
                 let info = content.infos[item.id] ?? .fallback(for: item)
                 if info.avatar == nil, item.showsLabel {
-                    widths[item.id] = SidebarItemRowView.chipWidth(title: info.title, font: font, badge: info.badge, dot: info.unreadDot, activity: info.activity != .idle)
+                    widths[item.id] = SidebarItemRowView.chipWidth(title: info.title, font: font, badge: info.badge, dot: info.unreadDot,
+                                                                   activity: info.activity != .idle, meter: meter)
                 }
             }
         }
         return widths
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        contextMenuProvider?(emptySpaceTarget)
+    }
+
+    /// Up and Down from a focused item walk the whole sidebar (`SidebarArrowWalk`).
+    override func keyDown(with event: NSEvent) {
+        if let item = window?.firstResponder as? SidebarItemRowView, SidebarArrowWalk.step(from: item, event) { return }
+        super.keyDown(with: event)
     }
 
     /// Edit mode on an item: never on a client-only item (What's New) or a drag's gap.
@@ -38,7 +50,9 @@ extension SidebarRegionView {
             // Before the band has its height (a new window's first update): the first screenful, where a band starts.
             let visible = clip.bounds.height > 0 ? convert(clip.bounds, from: clip)
                 : NSRect(x: 0, y: 0, width: bounds.width, height: window?.frame.height ?? NSScreen.main?.frame.height ?? 1_000)
-            return NSRect(x: -1e6, y: visible.minY - SidebarStyle.overscan, width: 2e6, height: visible.height + SidebarStyle.overscan * 2)
+            // The list's overscan past each edge, never more than one band's height (a short band keeps a short window).
+            let overscan = min(SidebarStyle.overscan, visible.height)
+            return NSRect(x: -1e6, y: visible.minY - overscan, width: 2e6, height: visible.height + overscan * 2)
         }
     }
 
@@ -73,4 +87,11 @@ final class SidebarBandClipView: NSClipView {
         super.setFrameSize(newSize)
         onMove?()
     }
+}
+
+/// A band or a list block under the visible-rows contract (`VisibleRowsContract`): an item given new content, an item
+/// placed at its frame, a label measured, and the items each layout reads count on `listWork`.
+extension SidebarRegionView: VisibleRowsList {
+    /// Item views in the region: the region keeps no parked ones.
+    var rowViewsAlive: Int { itemViews.count }
 }

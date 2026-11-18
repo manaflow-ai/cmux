@@ -126,7 +126,6 @@ class SidebarItemRowView: NSView {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        SidebarPerfCounters.add(.itemViewsMade)
         wantsLayer = true
         for decoration in [pill, chip] {
             decoration.actions = ["backgroundColor": NSNull(), "bounds": NSNull(), "position": NSNull(),
@@ -171,7 +170,6 @@ class SidebarItemRowView: NSView {
 
     func configure(_ info: SidebarItemInfo, style: Style) {
         guard info != self.info || style != self.style else { return }
-        SidebarPerfCounters.add(.itemConfigures)
         // A selection change paints at once (SIDEBAR-SELECTION-NO-TRAVEL-ANIMATION).
         if info.isActive != self.info.isActive || info.isSecondarySelected != self.info.isSecondarySelected { fadesNextFill = false }
         self.info = info

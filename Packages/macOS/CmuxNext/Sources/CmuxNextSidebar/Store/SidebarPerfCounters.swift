@@ -41,11 +41,6 @@ import Foundation
 ///   with no feed (every row it lists): one new workspace maps its own row, at 60 workspaces as at 826 (WORKSPACE LIST 800).
 /// - `slot_rows`: rows `SidebarSection.withoutPlaceholders` walked and copied (a new workspace's slot rule).
 /// - `doc_reshows`: `SidebarDocStore.reshow` calls (a create's placement: one, with one read of every live ref).
-/// - `item_views_made`: item views a region made (`SidebarRegionView`, a band or a list block): the items its window
-///   reaches, never every item of a long band.
-/// - `item_configures`: item views configured with content that changed (`SidebarItemRowView.configure`): one changed
-///   item configures one view, a selection change the old and new item.
-/// - `label_measures`: inline item labels measured (`SidebarItemRowView.chipWidth`): only a label not measured before.
 nonisolated enum SidebarPerfCounters {
     enum Counter: String, CaseIterable, Sendable {
         case rebuilds
@@ -81,12 +76,6 @@ nonisolated enum SidebarPerfCounters {
         case slotRows = "slot_rows"
         /// `SidebarDocStore.reshow` calls.
         case docReshows = "doc_reshows"
-        /// Item views a region made.
-        case itemViewsMade = "item_views_made"
-        /// Item views configured with changed content.
-        case itemConfigures = "item_configures"
-        /// Inline item labels measured.
-        case labelMeasures = "label_measures"
     }
 
     private static let counts = Mutex<[Counter: Int]>([:])

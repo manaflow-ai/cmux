@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxVisibleRows
 import QuartzCore
 
 /// One pinned region (top or bottom) of the sidebar: the item sections of
@@ -21,6 +22,8 @@ final class SidebarRegionView: NSView {
     }
 
     let region: SidebarRegion
+    /// The items this region configured, placed and read (the visible-rows contract, `SidebarRegionView+Items`).
+    let listWork = ListWorkMeter()
     var onActivate: ((LayoutItemID) -> Void)?
     /// An item's trailing control was pressed.
     var onActivateWithModifiers: ((LayoutItemID, NSEvent.ModifierFlags) -> Void)?
@@ -157,7 +160,7 @@ final class SidebarRegionView: NSView {
         }
         SidebarPerfCounters.add(.bandUpdates)
         let shown = displayed(content)
-        let result = Self.layout(shown, width: width)
+        let result = Self.layout(shown, width: width, meter: listWork)
         guard content != self.content || result != layoutResult else {
             self.width = width
             if appViewsReplaced(content) { apply(shown) }
@@ -197,14 +200,16 @@ final class SidebarRegionView: NSView {
         self.content = content
         self.width = width
         let shown = displayed(content)
-        layoutResult = Self.layout(shown, width: width)
+        layoutResult = Self.layout(shown, width: width, meter: listWork)
         springsFrames = true
         apply(shown)
         springsFrames = false
     }
 
     /// The layout of `content` at `width` (a list block's height and hit test).
-    static func layout(of content: Content, width: CGFloat) -> SidebarRegionLayout { layout(content, width: width) }
+    static func layout(of content: Content, width: CGFloat, meter: ListWorkMeter? = nil) -> SidebarRegionLayout {
+        layout(content, width: width, meter: meter)
+    }
 
     /// The lines `layout` draws, each keyed: its separators where `drawsLines` (`appearance.borders`), else, in a
     /// look that separates sections, a tonal step on every other section after Home's (no step under Home,
@@ -221,7 +226,7 @@ final class SidebarRegionView: NSView {
         guard let content else { return }
         let shown = displayed(content)
         let height = layoutResult.height
-        layoutResult = Self.layout(shown, width: width)
+        layoutResult = Self.layout(shown, width: width, meter: listWork)
         if layoutResult.height != height { onHeightChange?() }
         guard animated else { return apply(shown) }
         Motion.sidebar.animate(.move, in: self, {
@@ -250,10 +255,10 @@ final class SidebarRegionView: NSView {
         return shown
     }
 
-    private static func layout(_ content: Content, width: CGFloat) -> SidebarRegionLayout {
+    private static func layout(_ content: Content, width: CGFloat, meter: ListWorkMeter? = nil) -> SidebarRegionLayout {
         SidebarRegionLayout.make(sections: content.sections, width: width, look: content.look,
                                  collapsed: content.collapsed, metrics: content.metrics,
-                                 labelWidths: labelWidths(content, width: width), appHeights: content.appHeights)
+                                 labelWidths: labelWidths(content, width: width, meter: meter), appHeights: content.appHeights)
     }
 
     private func place(_ view: NSView, _ frame: CGRect, new: Bool = false) {
@@ -378,6 +383,7 @@ final class SidebarRegionView: NSView {
             for item in section.items where itemIndex[item.id] == nil { itemIndex[item.id] = (item, section.id) }
         }
         itemRowIndex.removeAll(keepingCapacity: true)
+        listWork.walked(itemIndex.count + layoutResult.rows.count) // the layout and this index read every item
         tallestRow = 0
         for (index, row) in layoutResult.rows.enumerated() {
             tallestRow = max(tallestRow, row.frame.height)
@@ -393,7 +399,8 @@ final class SidebarRegionView: NSView {
     private func mustRealize(_ id: LayoutItemID) -> Bool {
         if id == SidebarListBlocks.gapID || id == docPressedItem { return true }
         guard let view = itemViews[id] else { return false }
-        return reorder?.hidden.contains(where: { $0 === view }) == true || docList?.inlineRename.session?.pinnedRow === view || window?.firstResponder === view
+        if window?.firstResponder === view { return true }
+        return reorder?.hidden.contains(where: { $0 === view }) == true || docList?.inlineRename.session?.pinnedRow === view
     }
 
     /// Makes or updates item `id`'s view at `row`; false when its section no longer holds it.
@@ -417,7 +424,9 @@ final class SidebarRegionView: NSView {
         var info = activeInfo(content.infos[id] ?? .fallback(for: item), id)
         info.leadingPin = !style.isIconOnly && style != .chip && section.id == SidebarLayoutDocument.pinnedSectionID
             && item.ref.kind == LayoutItemRef.workspaceKind
+        if new || info != view.info || style != view.style { listWork.configured() }
         view.configure(info, style: style)
+        listWork.laidOut()
         view.setAccessibilityIdentifier("cmux.sidebar.item.\(id.rawValue)")
         view.activatesOnPress = item.ref.activatesOnPress
         view.isMovable = item.isMovable // Home's press never drags (`LayoutItem.isMovable`)
@@ -536,10 +545,6 @@ final class SidebarRegionView: NSView {
         needsDisplay = true
     }
 
-    override func menu(for event: NSEvent) -> NSMenu? {
-        contextMenuProvider?(emptySpaceTarget)
-    }
-
     /// `info` drawn active when `id` is the selected item, and as part of the multi-selection when its workspace is.
     private func activeInfo(_ info: SidebarItemInfo, _ id: LayoutItemID) -> SidebarItemInfo {
         var info = info
@@ -550,10 +555,4 @@ final class SidebarRegionView: NSView {
 
     /// The item view for `id` (tests, hover cards).
     func itemView(_ id: LayoutItemID) -> SidebarItemRowView? { itemViews[id] }
-
-    /// Up and Down from a focused item walk the whole sidebar (`SidebarArrowWalk`).
-    override func keyDown(with event: NSEvent) {
-        if let item = window?.firstResponder as? SidebarItemRowView, SidebarArrowWalk.step(from: item, event) { return }
-        super.keyDown(with: event)
-    }
 }

@@ -64,7 +64,7 @@ import Testing
 
     /// One phase's work.
     struct Work: CustomStringConvertible {
-        var reloads = 0, folds = 0, rowConfigures = 0, rowViewsMade = 0, itemViewsMade = 0, itemConfigures = 0
+        var reloads = 0, folds = 0, rowConfigures = 0, rowViewsMade = 0, itemsRemoved = 0, itemsAdded = 0, itemsConfigured = 0
         /// Rows `SidebarLayout.make` laid out (every listed row per full layout).
         var layoutRows = 0
         /// Realized rows before the phase whose key now has another view (removed and re-added).
@@ -76,7 +76,7 @@ import Testing
         var blockFrameHeight: CGFloat = 0, blockContentHeight: CGFloat = 0
         var description: String {
             "(reloads: \(reloads), layoutRows: \(layoutRows), groupFolds: \(folds), rowConfigures: \(rowConfigures)/\(realizedBefore) realized, rowViewsMade: \(rowViewsMade), "
-                + "swapped: \(swapped), realizedAfter: \(realizedAfter), itemViewsMade: \(itemViewsMade), itemConfigures: \(itemConfigures), "
+                + "swapped: \(swapped), realizedAfter: \(realizedAfter), itemsRemoved: \(itemsRemoved), itemsAdded: \(itemsAdded), itemsConfigured: \(itemsConfigured), "
                 + "blockItems: \(blockItemsBefore)->\(blockItemsAfter), blockFrame: \(blockFrameHeight) content: \(blockContentHeight))"
         }
     }
@@ -85,7 +85,9 @@ import Testing
         var work = Work()
         let before = h.list.rowViews.mapValues { ObjectIdentifier($0) }
         work.realizedBefore = before.count
-        work.blockItemsBefore = h.block?.region.itemViews.count ?? 0
+        let items = Set((h.block?.region.itemViews.values).map { $0.map { ObjectIdentifier($0) } } ?? [])
+        work.blockItemsBefore = items.count
+        _ = h.block?.region.listWork.take()
         _ = SidebarPerfCounters.report(reset: true)
         h.model.noteUserIntent()
         body()
@@ -95,7 +97,10 @@ import Testing
         let r = SidebarPerfCounters.report(reset: true)
         (work.reloads, work.folds, work.rowConfigures) = (r["list_reloads"] ?? 0, r["group_folds"] ?? 0, r["row_configures"] ?? 0)
         work.layoutRows = r["layout_rows"] ?? 0
-        (work.rowViewsMade, work.itemViewsMade, work.itemConfigures) = (r["row_views_made"] ?? 0, r["item_views_made"] ?? 0, r["item_configures"] ?? 0)
+        work.rowViewsMade = r["row_views_made"] ?? 0
+        let after = Set((h.block?.region.itemViews.values).map { $0.map { ObjectIdentifier($0) } } ?? [])
+        (work.itemsRemoved, work.itemsAdded) = (items.subtracting(after).count, after.subtracting(items).count)
+        work.itemsConfigured = h.block?.region.listWork.take().rowsConfigured ?? 0
         work.swapped = before.filter { key, id in h.list.rowViews[key].map { ObjectIdentifier($0) != id } ?? false }.count
         work.realizedAfter = h.list.rowViews.count
         work.blockItemsAfter = h.block?.region.itemViews.count ?? 0
