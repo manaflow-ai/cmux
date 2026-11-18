@@ -48,6 +48,14 @@ export interface MenuProps {
 
 const POINTER_SLOP = 4;
 type PointerSession = { pointerId: number; x: number; y: number; moved: boolean; handled: boolean };
+/** What a row asks of its menu: one object for the menu's life (MenuRowContext), so a menu that draws
+ * again does not draw every mounted row again; only a row whose own props changed does. */
+interface MenuRowActions {
+  movePointer(event: PointerEvent<HTMLElement>): void;
+  /** `keepOpen`: the row shows or hides rows of its own menu (`MenuItem` `closeOnClick={false}`). */
+  activatePointer(event: PointerEvent<HTMLElement>, activate: () => void, keepOpen?: boolean): boolean;
+  endPointer(): void;
+}
 interface MenuContextValue {
   isOpen: boolean;
   nativeAvailable: boolean;
@@ -60,12 +68,9 @@ interface MenuContextValue {
   beginPointer(event: PointerEvent<HTMLElement>): void;
   /** Whether a mouse press already opened or closed the menu on its pointerdown (once per press). */
   takePress(): boolean;
-  movePointer(event: PointerEvent<HTMLElement>): void;
-  /** `keepOpen`: the row shows or hides rows of its own menu (`MenuItem` `closeOnClick={false}`). */
-  activatePointer(event: PointerEvent<HTMLElement>, activate: () => void, keepOpen?: boolean): boolean;
-  endPointer(): void;
 }
 const MenuContext = createContext<MenuContextValue | null>(null);
+const MenuRowContext = createContext<MenuRowActions | null>(null);
 
 /** A menu: a `MenuButton` and a `MenuPopup`. Non-modal, so the page keeps scrolling. */
 export function Menu({ open, onOpenChange, onOpenChangeComplete, native, children }: MenuProps) {
@@ -105,6 +110,32 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, native, childre
     if (open === undefined) setInternalOpen(next);
     onOpenChange?.(next);
   };
+  // The rows' actions close through this render's setMenuOpen, read when a row is picked.
+  const closeMenu = useRef(() => {});
+  useLayoutEffect(() => {
+    closeMenu.current = () => setMenuOpen(false);
+  });
+  const [rowActions] = useState<MenuRowActions>(() => ({
+    movePointer(event) {
+      const current = session.current;
+      if (!current || current.pointerId !== event.pointerId) return;
+      if (!current.moved)
+        current.moved = Math.hypot(event.clientX - current.x, event.clientY - current.y) >= POINTER_SLOP;
+    },
+    activatePointer(event, activate, keepOpen) {
+      const current = session.current;
+      if (!current || current.pointerId !== event.pointerId || !current.moved) return false;
+      if (current.handled) return true;
+      current.handled = true;
+      activate();
+      if (!keepOpen) closeMenu.current();
+      return true;
+    },
+    endPointer() {
+      // Pointerup is handled by the press session's document listener (pressRelease.ts) so the row
+      // remains selectable while the original trigger still owns pointer capture.
+    },
+  }));
   const context: MenuContextValue = {
     isOpen,
     nativeAvailable: native !== undefined && nativePopup.available,
@@ -168,25 +199,6 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, native, childre
       pressed.current = false;
       return taken;
     },
-    movePointer(event) {
-      const current = session.current;
-      if (!current || current.pointerId !== event.pointerId) return;
-      if (!current.moved)
-        current.moved = Math.hypot(event.clientX - current.x, event.clientY - current.y) >= POINTER_SLOP;
-    },
-    activatePointer(event, activate, keepOpen) {
-      const current = session.current;
-      if (!current || current.pointerId !== event.pointerId || !current.moved) return false;
-      if (current.handled) return true;
-      current.handled = true;
-      activate();
-      if (!keepOpen) setMenuOpen(false);
-      return true;
-    },
-    endPointer() {
-      // Pointerup is handled by the press session's document listener (pressRelease.ts) so the row
-      // remains selectable while the original trigger still owns pointer capture.
-    },
   };
   // A menu opened through `open` (automation, a parent's state) skips setMenuOpen: record what has
   // focus now, unless the popup already took it, so a close never returns to a past session's opener.
@@ -203,9 +215,16 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, native, childre
   }, [isOpen]);
   return (
     <MenuContext value={context}>
-      <BaseMenu.Root modal={false} open={isOpen} onOpenChange={setMenuOpen} onOpenChangeComplete={onOpenChangeComplete}>
-        {children}
-      </BaseMenu.Root>
+      <MenuRowContext value={rowActions}>
+        <BaseMenu.Root
+          modal={false}
+          open={isOpen}
+          onOpenChange={setMenuOpen}
+          onOpenChangeComplete={onOpenChangeComplete}
+        >
+          {children}
+        </BaseMenu.Root>
+      </MenuRowContext>
     </MenuContext>
   );
 }
@@ -559,7 +578,7 @@ export function MenuItem({
   /** A disclosure row: the id of the rows it shows and hides. */
   controls?: string;
 }) {
-  const context = use(MenuContext);
+  const context = use(MenuRowContext);
   const handledClick = useRef(false);
   return (
     <BaseMenu.Item
@@ -608,7 +627,7 @@ export interface MenuCheckboxItemProps extends Omit<MenuItemProps, "onSelect"> {
 }
 
 export function MenuCheckboxItem({ className, disabled, checked, onCheckedChange, children }: MenuCheckboxItemProps) {
-  const context = use(MenuContext);
+  const context = use(MenuRowContext);
   const handledClick = useRef(false);
   return (
     <BaseMenu.CheckboxItem
@@ -676,7 +695,7 @@ export function MenuRadioItem({
   /** The row's tooltip. */
   title?: string;
 } & Omit<MenuItemProps, "onSelect">) {
-  const context = use(MenuContext);
+  const context = use(MenuRowContext);
   return (
     <BaseMenu.RadioItem
       className={cx("ui-menu-item", className)}
