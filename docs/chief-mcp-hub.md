@@ -133,6 +133,30 @@ The person asked for no card: the Chief's own turn adds a server at once. What r
 
 The card flow of mcp-connect-DESIGN.md stays the design for agents other than the Chief.
 
+### 2h. One store of connections for the machine (2026-11-18, a1229)
+
+Ask (Lawrence, 2026-11-18): "u know how cmux mcp has integrations thing? we need that in chief, so i
+can ask you to connect to linear or slack or whatever and it needs to just work".
+
+What failed before (tried live with Linear and Slack, 2026-11-18):
+
+| Gap | Before | Now |
+|---|---|---|
+| Where connections live | per Chief home (`<optchat root>/mcp/servers.json`): a server one Chief connected was unknown to every other Chief, to its subagents' Chief after a move, and to cmux's own connect card | one store per build in its acpmux home (`<acpmux home>/mcp/servers/<name>.json`, secrets `secrets/<name>.json` 0600), path and record shape defined once in `cmux-mcp-connect::shared`; each hub reloads it on every action, so a server added, signed in or removed anywhere shows at once everywhere. An older `servers.json` moves over on first load |
+| cmux connect card -> Chief | the acpmux card (`connect_mcp_server`, still behind `CMUX_MCP_CONNECT_PREVIEW=1`) kept nothing after approval | an approved remote server (scope other than "this chat") is kept in the store, `connected` or `needs sign-in`, a typed key only in its 0600 secrets file; the Chief's `mcp signin` finishes the sign-in |
+| Subagents | `mcp add` refused for every subagent ("only the Chief adds") | a subagent adds a known service by name (registry URL exactly, verified, no headers, env, name or replace) and signs in to a verified one; custom URLs, commands, keys and removal stay the Chief's |
+| Slack | `mcp.slack.com` has no dynamic client registration: "the server's sign-in takes no new apps" | the registry carries cmux's own Slack app ("cmux MCP", Manaflow workspace, PKCE on so it is a public client with no secret, redirect `http://localhost:3118/callback`, comma-joined scopes, and Agents > "Enable Slack MCP Server" on: without it a signed-in token gets HTTP 400 "App is not enabled for Slack MCP server access"); the hub uses a registered client when the registry names one |
+| Token life | refresh only when the stored expiry was near; a token with no expiry or revoked early sent the person back to sign in; two Chiefs could spend one refresh token | a 401 with a refresh token in the store refreshes once before asking for a sign-in; refreshes take a machine-wide lock per server |
+| A shell surface | none | `optchat-chief integrations list | add NAME | signin NAME | remove NAME | tools NAME | call NAME TOOL [JSON]`: the same hub on the same store; a sign-in prints the page and waits |
+
+Proven live 2026-11-18 with the branch's optchat-chief on this Mac: Linear (DCR client, 70 tools, `list_teams` answered) and Slack (cmux MCP app, PKCE token with no secret, 27 tools, `slack_search_users` answered), both in `~/.acpmux/mcp` with tokens only in the 0600 secrets files.
+
+Still open: cmux agents other than the Chief do not run stored servers yet (the acpmux proxy, design
+step 2b-ii of mcp-connect-DESIGN.md, so `connect_mcp_server` stays behind its preview flag); Settings has no
+MCP Servers page; the Slack app is internal to the Manaflow workspace (people in other workspaces
+need it published in the Slack Marketplace); scopes are machine-wide (a card's scope is recorded, not
+enforced per Chief); the Cloud Chief has no hub.
+
 ## 3. Verification
 
 `tests/mcp_hub.rs` against `fake_mcp.py` (stdio both eras, Streamable HTTP with a GET stream, HTTP
@@ -150,5 +174,6 @@ Live: DeepWiki (`https://mcp.deepwiki.com/mcp`, no auth, 2025-11-25) added by na
   Chief and the task waits.
 - SEP-3415 Events extension and webhooks.
 - The Cloud Chief (pi-durable engine) has no hub: `mcp` is host-only.
+- See 2h for the shared store's open items.
 - Client ID Metadata Documents (the 2026 preferred registration) need a hosted metadata URL; the
   hub uses DCR, which 2026-07-28 keeps for compatibility.

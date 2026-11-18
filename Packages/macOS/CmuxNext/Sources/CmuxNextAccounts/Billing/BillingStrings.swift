@@ -32,6 +32,8 @@ extension BillingStrings {
     package static func planName(_ plan: String) -> String {
         switch plan {
         case "max": "cmux Max"
+        case "next_pro": "cmux NEXT Pro"
+        case "next_max": "cmux NEXT Max"
         case "team": "cmux Team"
         case "go": "cmux Plus"
         default: "cmux Pro"

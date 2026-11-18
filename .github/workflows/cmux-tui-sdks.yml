@@ -221,6 +221,9 @@ jobs:
       - name: Test published artifact manifest verifier
         run: python3 -m unittest discover -s cmux-tui/scripts -p 'test_verify_published_manifest.py' -v
 
+      - name: Test folder sync bench harness
+        run: python3 -m unittest discover -s cmux-tui/scripts -p 'test_sync_bench.py' -v
+
       - name: Test SDK schema drift checker
         run: python3 cmux-tui/scripts/test_check_sdk_schema.py
 
@@ -358,6 +361,11 @@ jobs:
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: 0.15.2
+          # Its own cache saves a new entry per run; zig-global-cache keys it stably.
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        if: matrix.language == 'zig'
+        uses: ./.github/actions/zig-global-cache
 
       - name: Test and install Python SDK
         if: matrix.language == 'python'
@@ -551,6 +559,11 @@ jobs:
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: 0.15.2
+          # Its own cache saves a new entry per run; zig-global-cache keys it stably.
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        if: matrix.language == 'zig'
+        uses: ./.github/actions/zig-global-cache
 
       - name: Test Python agent watchdog
         if: matrix.language == 'python'
@@ -760,6 +773,10 @@ jobs:
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
+          # Its own cache saves a new entry per run; zig-global-cache keys it stably.
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        uses: ./.github/actions/zig-global-cache
 
       - name: Install TypeScript adapter build tools
         working-directory: cmux-tui/bindings/typescript
@@ -818,6 +835,10 @@ jobs:
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: 0.15.2
+          # Its own cache saves a new entry per run; zig-global-cache keys it stably.
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        uses: ./.github/actions/zig-global-cache
 
       - name: Run shared fake and live protocol contract
         env:
