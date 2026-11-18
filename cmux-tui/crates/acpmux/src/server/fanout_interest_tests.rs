@@ -263,8 +263,8 @@ async fn fanout_wake_cost() {
                 hub.append(&sessions[at], "in", "agent_message_chunk", chunk(&sid(at), "w "));
             }
         }
-        for i in 1..connections {
-            hub.append(&sessions[i], "in", "agent_message_chunk", chunk(&sid(i), "cost-end"));
+        for (i, pane_session) in sessions.iter().enumerate().take(connections).skip(1) {
+            hub.append(pane_session, "in", "agent_message_chunk", chunk(&sid(i), "cost-end"));
         }
         hub.append(&sessions[0], "mux", "renamed", json!({"name": "cost-end"}));
         watcher.until("\"recordKind\":\"renamed\"").await;
