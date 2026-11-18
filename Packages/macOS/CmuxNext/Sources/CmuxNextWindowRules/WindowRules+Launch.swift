@@ -1,3 +1,4 @@
+public import CmuxNextDaemon
 import os
 
 /// The launch snapshot's standing once the live tree applied (cmux-window-rules `launch`, cmuxterm-hq#12660).
@@ -88,6 +89,24 @@ extension WindowRules {
         else { return nil }
         if reply.kind == "workspace", let workspace = reply.workspace { return .workspace(workspace, pane: reply.pane, tab: reply.tab) }
         return reply.kind == "home" ? .home(why: reply.why ?? "") : nil
+    }
+
+    /// ``launchLanding(last:workspaceLive:tab:)`` for the relaunch's front saved window `record`, `workspace` the live
+    /// tree's lookup. Its top page Home, or the home workspace, is Home; else its workspace and the tab its focused pane
+    /// showed (a tab whose process ended after a reboot is `ended`: the daemon relaunches it). Nil for a window on
+    /// another top page (Settings, History), which reopens on that page as saved, and when the FFI does not answer.
+    @MainActor
+    public func launchLanding(front record: WindowRecord, workspace: (String) -> WorkspaceModel?) -> LaunchLanding? {
+        if let page = record.page, page != "home" { return nil }
+        guard record.page == nil, let id = record.workspaceKey?.rawValue else {
+            return launchLanding(last: record.page == nil ? .nothing : .home, workspaceLive: false, tab: .gone)
+        }
+        let live = workspace(id)
+        if live?.isAnyHome == true { return launchLanding(last: .home, workspaceLive: true, tab: .gone) }
+        let pane = record.focusedPanes[id] ?? record.focusedPane, tab = pane.flatMap { record.selectedTabs[$0] }
+        let saved = live?.screens.lazy.flatMap(\.panes).first { $0.id == pane }?.tabs.first { $0.id == tab }
+        let standing: TabStanding = saved.map { $0.dead || $0.relaunch != nil ? .ended : .live } ?? .gone
+        return launchLanding(last: .workspace(id, pane: pane, tab: tab), workspaceLive: live != nil, tab: standing)
     }
 
     private static let launchLog = Logger(subsystem: "com.cmuxterm.app.next", category: "window-rules")
