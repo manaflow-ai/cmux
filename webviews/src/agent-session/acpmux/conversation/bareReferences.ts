@@ -21,8 +21,9 @@ import { createContext } from "react";
 import { githubReferences, isGithubOwner } from "../../../githubReferences";
 import type { AcpmuxRow } from "../model";
 import { LayeredMap } from "./layeredMap";
-import { rowsDelta } from "./rowsDelta";
+import { rowsDelta, type RowsDelta } from "./rowsDelta";
 
+/// `at` is a row's place (ReferenceScopeCache `base`): only its order with other places is read.
 type Mention = { at: number; repo: string };
 
 /** What the whole transcript says, shared by every row. */
@@ -35,7 +36,8 @@ export type ReferenceEvidence = {
   smallest: ReadonlyMap<string, number>;
 };
 
-/** A turn's evidence: the transcript's, its own (rule a), and where it starts. */
+/** A turn's evidence: the transcript's, its own (rule a), and where it starts (a place, ordered
+ *  with the mentions' places: rule b reads the mentions before it). */
 export type ReferenceScope = { evidence: ReferenceEvidence; turn: ReadonlyMap<number, string>; at: number };
 
 /** The row a chip draws in (App.tsx VirtualTranscript); null outside a transcript. */
@@ -45,6 +47,9 @@ export const ReferenceScopeContext = createContext<ReferenceScope | null>(null);
 export const MAX_CANDIDATES = 3;
 
 type Named = { number?: number; repo: string };
+
+/** The fields of a client row the reading reads. */
+type ReadRow = Pick<AcpmuxRow, "id" | "kind" | "text" | "items">;
 
 // A repository's address, with the pull request or issue it names; `.git` is not part of a name.
 const ADDRESS =
@@ -87,7 +92,7 @@ function rowNamed(row: Pick<AcpmuxRow, "kind" | "text" | "items">): readonly Nam
   return named;
 }
 
-/** What the transcript named up to a row: where it named each number, each repository by its
+/** What the transcript named up to a row (each row by its place: ReferenceScopeCache `base`): where it named each number, each repository by its
  *  lowercase name (its first spelling; the map's order is the order they were last named), each turn's own numbers
  *  and where it starts, by the id of the prompt that opened it ("" before the first), and the turn
  *  open at that row. A copy shares arrays and maps with its source, so they are replaced, never
@@ -118,14 +123,41 @@ export type ReferenceScopeCache = {
   rowTurn: Map<string, string>;
   evidence?: { key: string; value: ReferenceEvidence };
   scopes: Map<string, { key: string; scope: ReferenceScope }>;
+  /// Row `i`'s place is `i + base`, the number the readings keep for it (a mention's and a turn's
+  /// `at`). A page of older history above the first row lowers it by the page's rows, so every row
+  /// read before keeps its place, and the page is read alone and put in front (`inFront`): the
+  /// reading of a page costs the page, not the chat (bench/transcript-render-scale.bench.ts).
+  base: number;
+  /// The pages put in front, newest last, with what the reading was before each: a page taken away
+  /// again (and nothing read since) puts it back.
+  pages: Page[];
 };
+
+/// A page put in front of the reading (ReferenceScopeCache `pages`).
+type Page = {
+  count: number;
+  /// The prefix it made, and the prefix and turn start before it.
+  after: Reading;
+  prefix: Reading;
+  turnStart?: { at: number; reading: Reading };
+  /// The rows after it, before their first prompt, that its open turn took (their turn was "").
+  led: readonly string[];
+};
+
+/// The most pages kept to take away again.
+const MAX_PAGES = 8;
 
 export const newReferenceScopeCache = (): ReferenceScopeCache => ({
   prefixLength: 0,
   generation: 0,
   rowTurn: new Map(),
   scopes: new Map(),
+  base: 0,
+  pages: [],
 });
+
+/// Where the turn before the first prompt starts: before every place.
+const BEFORE_FIRST = -Infinity;
 
 const empty = (): Reading => ({
   mentions: new Map(),
@@ -164,34 +196,73 @@ function read(reading: Reading, row: Pick<AcpmuxRow, "id" | "kind" | "text" | "i
     if (!(number >= (reading.smallest.get(key) ?? Infinity))) reading.smallest.set(key, number);
     reading.mentions.set(number, [...(reading.mentions.get(number) ?? []), { at, repo: spelled }]);
     if (!reading.turns.has(reading.turn))
-      reading.turns = reading.turns.with(new Map([[reading.turn, { at: 0, named: new Map() }]]));
+      reading.turns = reading.turns.with(new Map([[reading.turn, { at: BEFORE_FIRST, named: new Map() }]]));
     reading.turns.get(reading.turn)!.named.set(number, spelled);
   }
+}
+
+/** The reading of `page`'s rows followed by `rest`'s, each read alone, `page`'s at places before
+ *  `rest`'s: the reading of both from the first row. Costs what `page` named, the numbers and
+ *  repositories `rest` named (copied maps) and `rest`'s rows before its first prompt: never `rest`'s
+ *  rows. Undefined where a repository `page` names first is spelled otherwise in `rest` (its
+ *  first spelling would change in every turn of `rest`): read from the first row then. */
+function inFront(page: Reading, rest: Reading): Reading | undefined {
+  for (const [key, { repo }] of page.repos) {
+    const later = rest.repos.get(key);
+    if (later && later.repo !== repo) return undefined;
+  }
+  const mentions = new Map(rest.mentions);
+  for (const [number, list] of page.mentions) mentions.set(number, [...list, ...(rest.mentions.get(number) ?? [])]);
+  // Last named last: the repositories `rest` names were named after every one `page` names.
+  const repos = new Map<string, Mention>();
+  for (const [key, mention] of page.repos) if (!rest.repos.has(key)) repos.set(key, mention);
+  for (const [key, mention] of rest.repos) repos.set(key, mention);
+  const smallest = new Map(rest.smallest);
+  for (const [key, number] of page.smallest)
+    if (!(number >= (smallest.get(key) ?? Infinity))) smallest.set(key, number);
+  // `rest`'s rows before its first prompt were read in the turn before the first ("") and are in
+  // `page`'s open turn. The open turn is its own map: a reading reads on into it.
+  const changes = new Map<string, { at: number; named: Map<number, string> } | undefined>();
+  for (const key of page.turns.keys()) changes.set(key, page.turns.get(key));
+  const lead = rest.turns.get("");
+  const open = page.turns.get(page.turn);
+  if (lead || (open && !rest.turn)) {
+    const named = new Map(open?.named ?? []);
+    for (const [number, repo] of lead?.named ?? []) named.set(number, repo);
+    changes.set(page.turn, { at: open?.at ?? BEFORE_FIRST, named });
+    if (page.turn !== "" && lead && !page.turns.has("")) changes.set("", undefined);
+  }
+  return { mentions, repos, smallest, turns: rest.turns.with(changes), turn: rest.turn || page.turn };
 }
 
 /** The scope of each turn, by the id of the prompt that opened it. `source` is the client's rows,
  *  which still hold the work a closed "Worked for" folds away and the prompts it hides
  *  (conversation/turns.ts). A turn starts at each prompt (an agent's message is one). */
 export function referenceScopes(
-  source: readonly Pick<AcpmuxRow, "id" | "kind" | "text" | "items">[],
+  source: readonly ReadRow[],
   cache: ReferenceScopeCache = newReferenceScopeCache(),
 ): (opener: string) => ReferenceScope {
   // The kept reading stands when every row it read is still the same object at the same place
   // (rowsDelta.ts: found once for the transcript's passes, and told by the rows' maker).
-  const same = cache.prefix && cache.source ? rowsDelta(cache.source, source).from : -1;
+  const delta = cache.prefix && cache.source ? rowsDelta(cache.source, source) : undefined;
+  // A page of older history above the first row, or the last one taken away again: the rows read
+  // before keep their places (`base`), and only the page is read.
+  const paged = delta && (inFrontOf(cache, source, delta) || takenAway(cache, source, delta));
+  const same = paged ? source.length : delta ? delta.from : -1;
   let kept = source.length > cache.prefixLength && same >= cache.prefixLength;
   // A changed row of the last turn the prefix read (a streamed reply with the live line under it)
   // reads again from that turn's prompt, over a copy of the reading before it: the same reading as
   // one from row 0, as a new generation, for the rows of one turn.
+  const restartAt = cache.turnStart ? cache.turnStart.at - cache.base : -1;
   const restart =
-    !kept && cache.turnStart && same >= cache.turnStart.at && source.length > cache.turnStart.at
-      ? cache.turnStart
-      : undefined;
+    !kept && cache.turnStart && same >= restartAt && source.length > restartAt ? cache.turnStart : undefined;
   if (!kept) {
     cache.generation += 1;
     if (!restart) {
       cache.rowTurn.clear();
       cache.turnStart = undefined;
+      cache.base = 0;
+      cache.pages = [];
     }
   }
   const last = source.length - 1;
@@ -205,15 +276,16 @@ export function referenceScopes(
       ? copy(restart.reading)
       : empty();
   if (restart) kept = true;
-  const start = restart ? restart.at : kept ? cache.prefixLength : 0;
+  const start = restart ? restartAt : kept ? cache.prefixLength : 0;
   // The last prompt this pass reads, whose reading before it is kept (`turnStart`): found from the
   // end, over the last turn's rows.
   let lastPrompt = last - 1;
   while (lastPrompt >= start && source[lastPrompt]!.kind !== "user") lastPrompt -= 1;
   for (let index = start; index < last; index++) {
     // A restart from that prompt keeps the reading it started from.
-    if (index === lastPrompt && index !== restart?.at) cache.turnStart = { at: index, reading: copy(reading) };
-    read(reading, source[index]!, index);
+    if (index === lastPrompt && index !== (restart ? restartAt : -1))
+      cache.turnStart = { at: index + cache.base, reading: copy(reading) };
+    read(reading, source[index]!, index + cache.base);
     cache.rowTurn.set(source[index]!.id, reading.turn);
   }
   cache.source = source;
@@ -225,7 +297,7 @@ export function referenceScopes(
   const changes = lastRow !== undefined && (lastRow.kind === "user" || rowNamed(lastRow).length > 0);
   const whole = changes ? copy(reading) : reading;
   if (lastRow) {
-    if (changes) read(whole, lastRow, last);
+    if (changes) read(whole, lastRow, last + cache.base);
     cache.rowTurn.set(lastRow.id, whole.turn);
   }
   // The prefix's reading changes only with a new generation or a longer prefix; the last row is
@@ -240,7 +312,7 @@ export function referenceScopes(
   const evidence = cache.evidence.value;
   if (cache.scopes.size > MAX_KEPT_TURNS) cache.scopes.clear();
   return (opener) => {
-    const turn = whole.turns.get(opener) ?? { at: 0, named: NONE };
+    const turn = whole.turns.get(opener) ?? { at: BEFORE_FIRST, named: NONE };
     const key = `${turn.at}:${JSON.stringify([...turn.named])}`;
     const scope = cache.scopes.get(opener);
     if (scope?.key === key) return scope.scope;
@@ -248,6 +320,104 @@ export function referenceScopes(
     cache.scopes.set(opener, { key, scope: next });
     return next;
   };
+}
+
+/** `delta` without the rows at the end of its change that read alike (`readsAlike`): a row the
+ *  change made again at the same place after its rows (the first turn's rows, shaped again under
+ *  a page above them) is read as the row it replaced. O(rows changed). */
+function readAlike(
+  before: readonly ReadRow[],
+  source: readonly ReadRow[],
+  delta: RowsDelta,
+): { from: number; end: number; baseEnd: number } {
+  let { end, baseEnd } = delta;
+  while (end > delta.from && baseEnd > delta.from && readsAlike(before[baseEnd - 1]!, source[end - 1]!)) {
+    end -= 1;
+    baseEnd -= 1;
+  }
+  return { from: delta.from, end, baseEnd };
+}
+
+/** Two rows the reading reads the same from: the same id and kind, naming the same repositories. */
+function readsAlike(a: ReadRow, b: ReadRow): boolean {
+  if (a === b) return true;
+  if (a.id !== b.id || a.kind !== b.kind) return false;
+  const named = rowNamed(a);
+  const other = rowNamed(b);
+  return (
+    named.length === other.length &&
+    named.every((each, at) => each.repo === other[at]!.repo && each.number === other[at]!.number)
+  );
+}
+
+/** A row the reading reads nothing from: no prompt, nothing named. */
+const inert = (row: ReadRow) => row.kind !== "user" && rowNamed(row).length === 0;
+
+/** `source` is the rows the cache read with a page above them (`delta`: every row kept after it):
+ *  the page is read alone, at the places before the first row's, and put in front of the prefix
+ *  and the turn start (`inFront`). Whether it was. */
+function inFrontOf(cache: ReferenceScopeCache, source: readonly ReadRow[], changed: RowsDelta): boolean {
+  const before = cache.source! as readonly ReadRow[];
+  const delta = readAlike(before, source, changed);
+  const count = delta.end;
+  if (delta.from !== 0 || count === 0 || count >= source.length || delta.baseEnd >= before.length) return false;
+  if (cache.prefixLength !== before.length - 1) return false;
+  // The rows it took the place of (the first row's date line, drawn again over the page) read as
+  // nothing: the reading of the rows after them is the reading without them.
+  for (let index = 0; index < delta.baseEnd; index++) if (!inert(before[index]!)) return false;
+  const base = cache.base + delta.baseEnd - count;
+  const page = empty();
+  const turns: string[] = [];
+  for (let index = 0; index < count; index++) {
+    read(page, source[index]!, index + base);
+    turns.push(page.turn);
+  }
+  const prefix = inFront(page, cache.prefix!);
+  const turnStart = cache.turnStart && inFront(page, cache.turnStart.reading);
+  if (!prefix || (cache.turnStart && !turnStart)) return false;
+  for (let index = 0; index < delta.baseEnd; index++) cache.rowTurn.delete(before[index]!.id);
+  for (let index = 0; index < count; index++) cache.rowTurn.set(source[index]!.id, turns[index]!);
+  // The rows read before the first prompt after the page are in the page's open turn.
+  const led: string[] = [];
+  if (page.turn !== "")
+    for (let index = count; index < source.length && source[index]!.kind !== "user"; index++) {
+      const id = source[index]!.id;
+      if (cache.rowTurn.get(id) !== "") continue;
+      cache.rowTurn.set(id, page.turn);
+      led.push(id);
+    }
+  cache.pages.push({ count, after: prefix, prefix: cache.prefix!, turnStart: cache.turnStart, led });
+  if (cache.pages.length > MAX_PAGES) cache.pages.shift();
+  cache.prefix = prefix;
+  cache.turnStart = cache.turnStart && { at: cache.turnStart.at, reading: turnStart! };
+  cache.prefixLength += count - delta.baseEnd;
+  cache.base = base;
+  cache.source = source;
+  cache.generation += 1;
+  return true;
+}
+
+/** `source` is the rows the cache read without the last page put in front (and nothing read
+ *  since): the reading before it stands again. Whether it was. */
+function takenAway(cache: ReferenceScopeCache, source: readonly ReadRow[], changed: RowsDelta): boolean {
+  const page = cache.pages.at(-1);
+  const before = cache.source! as readonly ReadRow[];
+  const delta = readAlike(before, source, changed);
+  if (!page || cache.prefix !== page.after || delta.from !== 0 || delta.baseEnd !== page.count) return false;
+  if (delta.end >= source.length) return false;
+  // Rows that read as nothing may come back in its place (the first row's date line).
+  for (let index = 0; index < delta.end; index++) if (!inert(source[index]!)) return false;
+  for (let index = 0; index < page.count; index++) cache.rowTurn.delete((before[index] as ReadRow).id);
+  for (const id of page.led) cache.rowTurn.set(id, "");
+  for (let index = 0; index < delta.end; index++) cache.rowTurn.set(source[index]!.id, "");
+  cache.pages.pop();
+  cache.prefix = page.prefix;
+  cache.turnStart = page.turnStart;
+  cache.prefixLength += delta.end - page.count;
+  cache.base += page.count - delta.end;
+  cache.source = source;
+  cache.generation += 1;
+  return true;
 }
 
 /** The id of the prompt that opened the turn drawn row `rows[index]` is in: its own row's (an

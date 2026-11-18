@@ -14,8 +14,8 @@ import React, {
   useEffectEvent,
 } from "react";
 import { flushSync } from "react-dom";
-import { rowPresence, type RowPresenceHints } from "./conversation/rowPresence";
-import { movedIndex, rowsDelta } from "./conversation/rowsDelta";
+import { rowPresence, type RowPresenceHints, movedHints } from "./conversation/rowPresence";
+import { rowsDelta } from "./conversation/rowsDelta";
 import { LayeredMap } from "./conversation/layeredMap";
 import { isAgentMotionOff } from "../shared/motion";
 import { LOAD_FADE_CLASS, LoadFadeWindow } from "../shared/loadFade";
@@ -2903,16 +2903,14 @@ function TranscriptView({
     // row down): rowPresence then finds it there instead of walking the chat for it.
     const hinted = presenceRows.current;
     presenceRows.current = rows;
-    if (hinted && hinted !== rows) {
-      const delta = rowsDelta(hinted, rows);
-      const hints = presenceHints.current;
-      for (const key of ["active", "anchor", "focus"] as const) {
-        const at = hints[key];
-        if (at === undefined) continue;
-        const moved = movedIndex(delta, at);
-        if (moved >= 0) hints[key] = moved;
-      }
-    }
+    // One whose row was taken out (an older page's date line, drawn again over the page) is looked
+    // for among the rows that came in, not walked for.
+    if (hinted && hinted !== rows)
+      movedHints(presenceHints.current, rows, rowsDelta(hinted, rows), {
+        active: activeRowRef.current,
+        anchor: transcriptRangeRef.current?.anchorId,
+        focus: transcriptRangeRef.current?.focusId,
+      });
     if (sessionChanged) {
       setSelectionSessionKey(sessionKey);
       setActiveRowId(rows[0]?.id);
@@ -2933,6 +2931,8 @@ function TranscriptView({
       presenceHints.current,
     );
     setActiveRowId((current) => (current && presence.active ? current : rows[0]?.id));
+    // The first row takes the tab stop where the one asked for is not drawn: found there next time.
+    if (!(activeRowRef.current && presence.active)) presenceHints.current.active = 0;
     setTranscriptRange((current) => {
       if (!current) return current;
       return presence.anchor && presence.focus ? current : undefined;
