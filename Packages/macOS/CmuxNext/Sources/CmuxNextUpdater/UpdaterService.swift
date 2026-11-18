@@ -323,7 +323,7 @@ public final class UpdaterService {
         // person's app: with the lines before the quit, the file says what relaunched cmux.
         log.append("launch \(identity.shortVersion) build \(identity.build) (\(identity.track)), pid \(ProcessInfo.processInfo.processIdentifier)"
             + (CommandLine.arguments.contains(UpdateRelaunchFocus.reopenArgument) ? ", reopened behind by an automatic install" : ""))
-        relaunchMomentHold = UpdateRelaunchMomentHold(clock: clock, log: { [log] in log.append($0) })
+        relaunchMomentHold = UpdateRelaunchMomentHold(clock: clock, now: now, log: { [log] in log.append($0) })
         releasePush = ReleasePushListener(runningBuild: identity.build, clock: clock, log: { [log] in log.append($0) })
         // The managed policy is re-read by the driver on every start and check,
         // so it is not a reason to skip building it.
@@ -640,7 +640,8 @@ public final class UpdaterService {
             ring: ring,
             card: card,
             cardPresentation: cardPresentation,
-            badge: footerPill?.title
+            badge: footerPill?.title,
+            relaunchHold: relaunchHold
         )
     }
 
