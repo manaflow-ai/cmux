@@ -4,7 +4,7 @@
 
 use std::cell::RefCell;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use cmux_customize::setup::Reference;
 use cmux_customize::{Customize, Roots};
@@ -12,7 +12,8 @@ use serde_json::{Value, json};
 
 use super::super::super::OutputMode;
 use super::{
-    Apps, Checkout, Failure, Request, card_text, inert, install, install_as, parse, remove, update,
+    Apps, Checkout, Failure, Request, card_text, inert, install, install_as, order, parse, remove,
+    set_on, update,
 };
 
 fn words(text: &[&str]) -> Vec<String> {
@@ -340,7 +341,7 @@ fn install_takes_a_folder_and_as_only_with_one() {
 }
 
 #[test]
-fn a_folder_installs_like_a_repo_and_is_kept_as_local() {
+fn a_folder_installs_like_a_repo_and_is_kept_as_its_source() {
     let root = tempfile::tempdir().unwrap();
     let world = world(root.path());
     let home = root.path().join("home");
@@ -350,8 +351,9 @@ fn a_folder_installs_like_a_repo_and_is_kept_as_local() {
     let answer = install(&customize, &world, OutputMode::Json, &folder, true).unwrap();
     let installed = &answer["installed"];
     assert_eq!(installed["id"], json!("manaflow-ai/cmux-setup-sample"));
-    assert_eq!(installed["local"], json!(world.repo.canonicalize().unwrap()));
-    assert_eq!(installed["reference"]["host"], json!("local"));
+    assert_eq!(installed["source"]["kind"], json!("folder"));
+    assert_eq!(installed["source"]["path"], json!(world.repo.canonicalize().unwrap()));
+    assert!(installed.get("reference").is_none() && installed.get("local").is_none());
     assert!(installed["commit"].as_str().unwrap().starts_with("local-"), "{installed}");
     assert_eq!(answer["page"], Value::Null);
     assert_eq!(answer["undo"], json!("cmux setup remove manaflow-ai/cmux-setup-sample"));
@@ -412,4 +414,93 @@ fn as_names_a_local_try_and_a_repo_refuses_it() {
     };
     assert_eq!(failure.code, "setup.not_a_setup");
     assert_eq!(customize.setups().unwrap().len(), 1);
+}
+
+/// A setup folder with views: `customize/cmux-app.json` as `local/customize`
+/// (as a repo holds it) and one script.
+fn views_setup(root: &Path, id: &str, theme: &str) -> PathBuf {
+    let dir = root.join(id.replace('/', "-"));
+    fs::create_dir_all(dir.join("customize")).unwrap();
+    fs::create_dir_all(dir.join("themes")).unwrap();
+    fs::write(
+        dir.join(format!("themes/{theme}.json")),
+        "{ \"name\": \"T\", \"colors\": { \"background\": \"#101010\" } }\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("cmux-setup.json"),
+        format!(
+            r#"{{"cmuxSetup": 1, "id": "{id}", "name": "{id}", "cmuxProfile": 1,
+               "settings": {{"appearance.themeFile": "{theme}"}}}}"#
+        ),
+    )
+    .unwrap();
+    fs::write(dir.join("customize/main.js"), format!("// {id}\nvar __cmuxAppExports = {{}};\n"))
+        .unwrap();
+    fs::write(
+        dir.join("customize/cmux-app.json"),
+        r#"{"manifestVersion": 2, "id": "local/customize", "name": "Views", "version": "1.0.0",
+            "description": "A view", "engines": {"cmux": "^2.0"}, "runtime": {"main": "main.js"},
+            "files": ["main.js"]}"#,
+    )
+    .unwrap();
+    dir
+}
+
+#[test]
+fn two_folders_stack_as_layers_that_turn_off_reorder_and_remove_alone() {
+    let root = tempfile::tempdir().unwrap();
+    let world = world(root.path());
+    let home = root.path().join("home");
+    let customize = Customize::open(Roots::under(&home));
+    let mine = home.join("config/customize/main.js");
+    fs::create_dir_all(mine.parent().unwrap()).unwrap();
+    fs::write(&mine, "// mine\n").unwrap();
+    let dusk = views_setup(root.path(), "leo/dusk", "dusk");
+    let dawn = views_setup(root.path(), "leo/dawn", "dawn");
+    for dir in [&dusk, &dawn] {
+        install(&customize, &world, OutputMode::Json, dir.to_str().unwrap(), true).unwrap();
+    }
+    let setups = home.join("config/setups");
+    let index = |setups: &Path| -> Vec<String> {
+        let index: Value =
+            serde_json::from_str(&fs::read_to_string(setups.join("layers.json")).unwrap()).unwrap();
+        index["layers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| row["app"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    assert_eq!(index(&setups), ["local/setup-leo-dawn", "local/setup-leo-dusk"], "newest on top");
+    let manifest: Value = serde_json::from_str(
+        &fs::read_to_string(setups.join("setup-leo-dusk/cmux-app.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(manifest["id"], json!("local/setup-leo-dusk"));
+    assert_eq!(fs::read_to_string(&mine).unwrap(), "// mine\n", "your own views are not written");
+
+    let off = parse(&words(&["off", "leo/dawn"])).unwrap();
+    assert_eq!(off, Request::On { which: Some("leo/dawn".to_owned()), on: false });
+    set_on(&customize, &world, Some("leo/dawn"), false).unwrap();
+    assert_eq!(index(&setups), ["local/setup-leo-dusk"]);
+    assert!(setups.join("setup-leo-dawn/main.js").exists(), "off keeps it installed");
+    set_on(&customize, &world, Some("leo/dawn"), true).unwrap();
+    order(&customize, &world, &["leo/dusk".to_owned()]).unwrap();
+    assert_eq!(index(&setups), ["local/setup-leo-dusk", "local/setup-leo-dawn"]);
+
+    remove(&customize, &world, Some(dusk.to_str().unwrap())).unwrap();
+    assert_eq!(index(&setups), ["local/setup-leo-dawn"]);
+    assert!(!setups.join("setup-leo-dusk").exists());
+    assert!(setups.join("setup-leo-dawn/main.js").exists());
+    assert_eq!(fs::read_to_string(&mine).unwrap(), "// mine\n");
+
+    // One id, one install: the same id from another folder needs --as.
+    let twin = root.path().join("twin");
+    copy(&dawn, &twin);
+    let Err(failure) = install(&customize, &world, OutputMode::Json, twin.to_str().unwrap(), true)
+    else {
+        panic!()
+    };
+    assert_eq!(failure.code, "setup.id_taken");
 }

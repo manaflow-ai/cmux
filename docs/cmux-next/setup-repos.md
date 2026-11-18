@@ -14,13 +14,54 @@ cmux fetches the repo at one commit and shows a card with everything it changes 
 anything. `--yes` answers the card for you (needed with `--json` or without a terminal).
 
 - `cmux setup install ./DIR` installs a setup folder on this machine the same way, with the same
-  card, so you can try a look before you publish it. It's kept under its id, marked local. Use
-  `--as OWNER/NAME` to try it under an id of your own (for a look that names another owner, or
-  one you haven't named yet); only a folder takes `--as`.
-- `cmux setup installed` lists what is installed.
-- `cmux setup update [REPO]` moves one to the newest commit of the ref it came from (a local one:
-  to what its folder holds now).
-- `cmux setup remove [REPO]` takes it off: its layer, its actions, and the extensions it installed.
+  card, so you can try a look before you publish it. Its receipt names the folder as its source.
+  Use `--as OWNER/NAME` to try it under an id of your own (for a look that names another owner, one
+  you haven't named yet, or one whose id is installed already); only a folder takes `--as`.
+- `cmux setup installed` lists what is installed, top layer first, each on or off.
+- `cmux setup update [REPO|ID|DIR]` moves one to the newest commit of the ref it came from (a
+  folder: to what it holds now). It keeps its place in the order, and stays off if it was off.
+- `cmux setup remove [REPO|ID|DIR]` takes off its layer and only its layer: its settings, views,
+  actions, and the extensions it installed.
+- `cmux setup off ID` turns its layer off and keeps it installed in its place; `cmux setup on ID`
+  turns it back on.
+- `cmux setup order ID [ID]...` puts the setups in that order, top first.
+
+## Setups stack, like dotfiles
+
+Every setup is a layer of its own. Install two looks and both are there: the newer one on top.
+
+- **Your own customization is never written by a setup.** Your views app,
+  `~/.config/cmux/customize` (`local/customize`), stays yours. A setup's `customize/` files go to
+  a folder of its own, `~/.config/cmux/setups/setup-OWNER-NAME/`, and load as the app
+  `local/setup-OWNER-NAME` (its `cmux-app.json` is written with that id; the repo keeps
+  `local/customize`). It installs with its read scopes and the sandbox, as your own views app
+  does; more waits for you.
+- **What you change after installing stays above it.** A setting you change, a shortcut, a theme
+  you pick: each is a layer of its own above the setups (the library, `cmux customize library`).
+  Updating a setup puts its new version back in its old place, below them.
+- **A key two setups set takes the higher one's value.** `cmux setup order` changes which is
+  higher; `cmux setup off` lets the one below show.
+- **Removing one touches nothing else.** The other setups' settings, themes and views, and your
+  own, stay byte for byte. An action another setup or you changed since stays; one a later setup
+  had replaced now goes back to what was there before both.
+
+On disk:
+
+```text
+~/.config/cmux/setups/layers.json          the layers that are on, top first (cmux reads it)
+~/.config/cmux/setups/setup-OWNER-NAME/    one setup's views
+~/.local/state/cmux/customize/setups.json  the receipts: source (repo or folder), id, order, on/off
+```
+
+`layers.json` is `{"cmuxSetupLayers": 1, "layers": [{"id", "app", "dir"}]}`. cmux loads only the
+folders it names, in its order; an app id starting `local/setup-` anywhere else is refused.
+`setups.json` (`"cmuxSetups": 2`) keeps one receipt per id with its `source`
+(`{"kind": "repo", "reference": ...}` or `{"kind": "folder", "path": ...}`); a file from before
+(a `reference`, and `local` for a folder) reads the same.
+
+The sidebar's row decorations (`cmux.sidebar.rows/1`) and the hover card (`cmux.hovercard/1`)
+are drawn from your own `local/customize` app only for now; a setup's views layer draws its
+sections, panels and pages.
 
 ## Make one
 

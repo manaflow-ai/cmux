@@ -389,6 +389,7 @@ fn fixture_safe(defaults: &[&str], idle: Duration, root: TempDir, safe_mode_env:
                 extra: vec![root.0.join("extra")],
                 local: Some(state.join("apps/local")),
                 customize: None,
+                setups: None,
                 defaults: Some(defaults.iter().map(|s| s.to_string()).collect()),
             },
             idle_stop: idle,
@@ -990,6 +991,7 @@ fn the_shipped_first_party_directory_is_the_default_set() {
         extra: vec![],
         local: None,
         customize: None,
+        setups: None,
         defaults: None,
     });
     assert_eq!(catalog.defaults, vec!["cmux/coderouter".to_string()]);
@@ -1005,6 +1007,7 @@ fn the_shipped_first_party_directory_is_the_default_set() {
         extra: vec![],
         local: None,
         customize: None,
+        setups: None,
         defaults: Some(vec![]),
     });
     assert!(overridden.defaults.is_empty());
@@ -1045,6 +1048,7 @@ fn every_bundled_first_party_app_loads_and_is_installed_by_default() {
                 extra: vec![],
                 local: None,
                 customize: None,
+                setups: None,
                 defaults: None,
             },
             idle_stop: Duration::from_secs(60),
@@ -1062,6 +1066,7 @@ fn every_bundled_first_party_app_loads_and_is_installed_by_default() {
         extra: vec![],
         local: None,
         customize: None,
+        setups: None,
         defaults: None,
     });
     let list = supervisor.list();

@@ -137,6 +137,7 @@ impl Setup {
 
 pub mod check;
 mod export;
+pub mod layers;
 mod reference;
 mod secrets;
 pub use check::{
@@ -409,6 +410,10 @@ pub struct Plan {
     pub extensions: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub requires: Option<String>,
+    /// The app its views install as, in a layer of its own
+    /// (`local/setup-OWNER-NAME`); your own customize folder is not touched.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub layer: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -424,7 +429,8 @@ pub struct PlannedSetting {
 pub struct PlannedFile {
     pub path: String,
     pub part: Part,
-    /// A file of yours at that path that it changes.
+    /// A file of yours at that path that it changes (never a view: views
+    /// go to the setup's own layer).
     pub replaces: bool,
 }
 
@@ -458,14 +464,63 @@ pub struct Installed {
     /// The install made the library entry `applied` names (`false`: the
     /// apply matched one you already had).
     pub library_created: bool,
+    /// The folder of its own views layer (its `customize/` files), under
+    /// the setups folder; `None` when it carries no views.
+    pub layer: Option<String>,
 }
 
-/// An installed setup, as `update` and `remove` read it.
+/// Where an installed setup came from: a repo at a reference, or a folder
+/// on this machine (`cmux setup install ./DIR`), which `update` reads again.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum SetupSource {
+    Repo { reference: Reference },
+    Folder { path: PathBuf },
+}
+
+impl SetupSource {
+    /// What a second install of the same source matches on: the repo's
+    /// reference key (`host/owner/repo[/path]`), or the folder.
+    pub fn key(&self) -> String {
+        match self {
+            SetupSource::Repo { reference } => reference.key(),
+            SetupSource::Folder { path } => path.display().to_string(),
+        }
+    }
+
+    pub fn reference(&self) -> Option<&Reference> {
+        match self {
+            SetupSource::Repo { reference } => Some(reference),
+            SetupSource::Folder { .. } => None,
+        }
+    }
+
+    pub fn folder(&self) -> Option<&Path> {
+        match self {
+            SetupSource::Folder { path } => Some(path),
+            SetupSource::Repo { .. } => None,
+        }
+    }
+}
+
+impl std::fmt::Display for SetupSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SetupSource::Repo { reference } => write!(f, "{reference}"),
+            SetupSource::Folder { path } => write!(f, "{}", path.display()),
+        }
+    }
+}
+
+/// An installed setup, as `update`, `remove`, `on`, `off` and `order` read
+/// it. Keyed by its id: one install per id, whatever its source.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(try_from = "ReceiptWire")]
 pub struct Receipt {
     pub id: String,
     pub name: String,
-    pub reference: Reference,
+    pub source: SetupSource,
+    /// The repo it names (`github.com/OWNER/REPO`), or the folder.
     pub repository: String,
     pub commit: String,
     pub sha256: String,
@@ -492,16 +547,123 @@ pub struct Receipt {
     #[serde(default)]
     pub extensions: Vec<ExtensionReceipt>,
     pub installed_ms: u64,
-    /// Installed from a folder on this machine (`cmux setup install ./DIR`),
-    /// not a repo: the folder, which `update` reads again. Its reference's
-    /// host is [`LOCAL_HOST`].
+    /// Whether its layer is on (`cmux setup off ID` keeps it installed).
+    pub on: bool,
+    /// Its own views layer: the folder under the setups folder that holds
+    /// its `customize/` files as the app `local/<layer>` ([`layers`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub local: Option<String>,
+    pub layer: Option<String>,
 }
 
-/// The host of a setup installed from a folder: no repo reference parses
-/// to it, so a local install never shares a receipt with a published one.
-pub const LOCAL_HOST: &str = "local";
+impl Receipt {
+    /// The receipt of `setup` installed from `source` at `commit`.
+    pub fn new(
+        setup: &Setup,
+        installed: &Installed,
+        source: SetupSource,
+        commit: &str,
+        extensions: Vec<ExtensionReceipt>,
+        now_ms: u64,
+    ) -> Receipt {
+        let repository = match &source {
+            SetupSource::Repo { reference } => reference.repository(),
+            SetupSource::Folder { path } => path.display().to_string(),
+        };
+        Receipt {
+            id: setup.manifest.id.clone(),
+            name: setup.manifest.name.clone(),
+            source,
+            repository,
+            commit: commit.to_owned(),
+            sha256: setup.sha256.clone(),
+            version: setup.manifest.version.clone(),
+            generation: installed.applied.as_ref().map(|applied| applied.generation.n),
+            before: installed.before,
+            library: installed.applied.as_ref().and_then(|applied| applied.library.clone()),
+            library_created: installed.library_created,
+            actions: setup.actions().clone(),
+            prior_actions: installed.prior_actions.clone(),
+            extensions,
+            installed_ms: now_ms,
+            on: true,
+            layer: installed.layer.clone(),
+        }
+    }
+}
+
+/// A receipt as `setups.json` holds it: the current form (`source`), or the
+/// first one (a repo `reference`, and `local` for a folder), read the same.
+#[derive(Deserialize)]
+struct ReceiptWire {
+    id: String,
+    name: String,
+    #[serde(default)]
+    source: Option<SetupSource>,
+    #[serde(default)]
+    reference: Option<Reference>,
+    #[serde(default)]
+    local: Option<PathBuf>,
+    repository: String,
+    commit: String,
+    sha256: String,
+    #[serde(default)]
+    version: Option<String>,
+    #[serde(default)]
+    generation: Option<u32>,
+    #[serde(default)]
+    before: Option<u32>,
+    #[serde(default)]
+    library: Option<String>,
+    #[serde(default)]
+    library_created: bool,
+    #[serde(default)]
+    actions: BTreeMap<String, Value>,
+    #[serde(default)]
+    prior_actions: PriorActions,
+    #[serde(default)]
+    extensions: Vec<ExtensionReceipt>,
+    installed_ms: u64,
+    #[serde(default = "on")]
+    on: bool,
+    #[serde(default)]
+    layer: Option<String>,
+}
+
+fn on() -> bool {
+    true
+}
+
+impl TryFrom<ReceiptWire> for Receipt {
+    type Error = String;
+
+    fn try_from(wire: ReceiptWire) -> Result<Receipt, String> {
+        let source = match (wire.source, wire.local, wire.reference) {
+            (Some(source), _, _) => source,
+            (None, Some(path), _) => SetupSource::Folder { path },
+            (None, None, Some(reference)) => SetupSource::Repo { reference },
+            (None, None, None) => return Err(format!("the setup {} names no source", wire.id)),
+        };
+        Ok(Receipt {
+            id: wire.id,
+            name: wire.name,
+            source,
+            repository: wire.repository,
+            commit: wire.commit,
+            sha256: wire.sha256,
+            version: wire.version,
+            generation: wire.generation,
+            before: wire.before,
+            library: wire.library,
+            library_created: wire.library_created,
+            actions: wire.actions,
+            prior_actions: wire.prior_actions,
+            extensions: wire.extensions,
+            installed_ms: wire.installed_ms,
+            on: wire.on,
+            layer: wire.layer,
+        })
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExtensionReceipt {
@@ -514,11 +676,18 @@ pub struct ExtensionReceipt {
     pub installed_by_setup: bool,
 }
 
+/// `<state dir>/setups.json`: the installed setups, top layer first.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct ReceiptsFile {
+    /// 2 since receipts name their source and are kept in layer order; a
+    /// file without it is the first form, read the same ([`ReceiptWire`]).
+    #[serde(rename = "cmuxSetups", default)]
+    format: u32,
     #[serde(default)]
     setups: Vec<Receipt>,
 }
+
+const RECEIPTS_FORMAT: u32 = 2;
 
 /// What a remove put back.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -527,6 +696,9 @@ pub struct Removed {
     /// The library entry taken off.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub library: Option<String>,
+    /// The views layer deleted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub layer: Option<String>,
     /// Actions taken out or put back to yours.
     pub actions: Vec<String>,
     /// Actions left as they are: you changed them after the install.
@@ -573,28 +745,36 @@ impl Customize {
         }
     }
 
+    /// Writes the receipts, and the layer index the daemon reads from them
+    /// (every receipt that is on and has views, in the same order).
     fn write_setup_receipts(&self, file: &ReceiptsFile) -> Result<(), Error> {
-        let mut text = serde_json::to_string_pretty(file).map_err(std::io::Error::other)?;
+        let file = ReceiptsFile { format: RECEIPTS_FORMAT, setups: file.setups.clone() };
+        let mut text = serde_json::to_string_pretty(&file).map_err(std::io::Error::other)?;
         text.push('\n');
         cmux_config::fsio::write_atomic(&self.setup_receipts_path(), text.as_bytes())?;
+        layers::write_index(&self.roots().setups_dir(), &file.setups)?;
         Ok(())
     }
 
-    /// The installed setups, newest first.
+    /// The installed setups, top layer first.
     pub fn setups(&self) -> Result<Vec<Receipt>, Error> {
         Ok(self.read_setup_receipts()?.setups)
     }
 
-    /// The installed setup `which` names: its reference (any form), or id.
+    /// The installed setup `which` names: its id, its repo reference (any
+    /// form), or its folder.
     pub fn setup(&self, which: &str) -> Result<Option<Receipt>, Error> {
         let key = Reference::parse(which).ok().map(|reference| reference.key());
-        Ok(self
-            .setups()?
-            .into_iter()
-            .find(|receipt| receipt.id == which || Some(receipt.reference.key()) == key))
+        let folder = std::fs::canonicalize(which).ok();
+        Ok(self.setups()?.into_iter().find(|receipt| {
+            receipt.id == which
+                || Some(receipt.source.key()) == key
+                || folder.as_deref().is_some_and(|dir| receipt.source.folder() == Some(dir))
+        }))
     }
 
-    /// Keeps `receipt`, replacing one for the same repo.
+    /// Keeps `receipt`: in place of the one with its id (an update keeps
+    /// its place in the order), else on top.
     pub fn record_setup(&self, receipt: Receipt) -> Result<(), Error> {
         let _lock = self.store().lock()?;
         self.put_receipt_locked(receipt)
@@ -602,9 +782,67 @@ impl Customize {
 
     fn put_receipt_locked(&self, receipt: Receipt) -> Result<(), Error> {
         let mut file = self.read_setup_receipts()?;
-        file.setups.retain(|old| old.reference.key() != receipt.reference.key());
-        file.setups.insert(0, receipt);
+        match file.setups.iter().position(|old| old.id == receipt.id) {
+            Some(at) => file.setups[at] = receipt,
+            None => file.setups.insert(0, receipt),
+        }
         self.write_setup_receipts(&file)
+    }
+
+    /// Turns installed setup `id` on or off: its library entry (its
+    /// settings, theme, shortcuts, styles) and its views layer, as one
+    /// generation. Off keeps it installed, in its place in the order.
+    pub fn set_setup_on(
+        &self,
+        id: &str,
+        on: bool,
+        origin: &str,
+        now_ms: u64,
+    ) -> Result<Receipt, Error> {
+        self.no_preview_open()?;
+        self.ensure_baseline(now_ms)?;
+        let _lock = self.store().lock()?;
+        let mut file = self.read_setup_receipts()?;
+        let Some(receipt) = file.setups.iter_mut().find(|receipt| receipt.id == id) else {
+            return Err(Error::Setup(format!("{id} is not an installed setup")));
+        };
+        if let Some(name) = &receipt.library {
+            let label = format!("setup {id}: {}", if on { "on" } else { "off" });
+            self.library_set_on_locked(name, on, &label, origin, now_ms)?;
+        }
+        receipt.on = on;
+        let receipt = receipt.clone();
+        self.write_setup_receipts(&file)?;
+        Ok(receipt)
+    }
+
+    /// Puts the installed setups in `ids`' order, top first (any not named
+    /// keep their order, below them). Their library entries take the same
+    /// order among the slots setups hold, so a key two setups set takes the
+    /// higher one's value; entries of your own stay where they are.
+    pub fn order_setups(
+        &self,
+        ids: &[String],
+        origin: &str,
+        now_ms: u64,
+    ) -> Result<Vec<Receipt>, Error> {
+        self.no_preview_open()?;
+        self.ensure_baseline(now_ms)?;
+        let _lock = self.store().lock()?;
+        let mut file = self.read_setup_receipts()?;
+        for id in ids {
+            if !file.setups.iter().any(|receipt| &receipt.id == id) {
+                return Err(Error::Setup(format!("{id} is not an installed setup")));
+            }
+        }
+        let rank =
+            |receipt: &Receipt| ids.iter().position(|id| id == &receipt.id).unwrap_or(ids.len());
+        file.setups.sort_by_key(rank);
+        let order: Vec<String> =
+            file.setups.iter().filter_map(|receipt| receipt.library.clone()).collect();
+        self.library_reorder_locked(&order, "setups: order", origin, now_ms)?;
+        self.write_setup_receipts(&file)?;
+        Ok(file.setups)
     }
 
     /// Checks `setup` whole, writing nothing, and says what it would change.
@@ -644,7 +882,11 @@ impl Customize {
             .collect();
         let mut files = Vec::new();
         for (path, text) in &setup.profile.files {
-            let mine = tree::read(self.roots(), path)?;
+            // Views go to the setup's own layer: never over a file of yours.
+            let mine = match layers::is_view(path) {
+                true => None,
+                false => tree::read(self.roots(), path)?,
+            };
             files.push(PlannedFile {
                 path: path.clone(),
                 part: Part::of(path),
@@ -688,14 +930,18 @@ impl Customize {
             actions,
             extensions: manifest.extensions.clone(),
             requires: manifest.engines.cmux.clone(),
+            layer: installed_layer_name(setup).map(|_| layers::app_id(&manifest.id)),
         })
     }
 
     /// Applies `setup` as one generation (and one library entry): its
     /// profile through the same path `cmux customize use` takes, then its
-    /// actions into the settings file, then apply. The caller showed the
-    /// plan ([`Customize::plan_setup`]) and has the person's yes. A preview
-    /// that is open is kept by number first, as a profile import keeps it.
+    /// actions into the settings file, then apply. Its views (`customize/`
+    /// files) never go into your own customize folder: they are written as
+    /// its own layer, the app `local/setup-OWNER-NAME` in the setups folder
+    /// ([`layers`]). The caller showed the plan ([`Customize::plan_setup`])
+    /// and has the person's yes. A preview that is open is kept by number
+    /// first, as a profile import keeps it.
     pub fn install_setup(
         &self,
         setup: &Setup,
@@ -722,8 +968,10 @@ impl Customize {
 
     /// Updates `old` to `setup` as one change, under one hold of the store
     /// lock (no other change can land between its steps): `old` comes off,
-    /// `setup` goes on, and when a step fails, `old` is back as it was (the
-    /// library file, what was live, its receipt).
+    /// `setup` goes on in `old`'s place in the order (above it stays what
+    /// was above it, your own later changes included), and when a step
+    /// fails, `old` is back as it was (the library file, what was live, its
+    /// views layer, its receipt).
     pub fn replace_setup(
         &self,
         old: &Receipt,
@@ -738,18 +986,54 @@ impl Customize {
         let _lock = self.store().lock()?;
         let before = self.current_generation()?;
         let library = self.library_snapshot()?;
+        let receipts = self.read_setup_receipts()?;
+        let setups_dir = self.roots().setups_dir();
+        let slot = old
+            .library
+            .as_ref()
+            .and_then(|name| self.library_names().ok()?.iter().position(|entry| entry == name));
+        let stash = layers::stash(&setups_dir, old.layer.as_deref())?;
         let replaced = self.remove_setup_locked(old, origin, now_ms).and_then(|_| {
             let between = self.current_generation()?;
             let installed = self.install_setup_locked(setup, label, origin, now_ms)?;
+            if let (Some(at), Some(name)) =
+                (slot, installed.applied.as_ref().and_then(|applied| applied.library.as_ref()))
+            {
+                let label = format!("setup {}: keeps its place", setup.manifest.id);
+                self.library_move_locked(name, at, &label, origin, now_ms)?;
+            }
             Ok(Installed { before: between, ..installed })
         });
-        if replaced.is_err() {
-            let _ = self.library_write_back(library.as_deref());
-            if let Some(n) = before {
-                let why = format!("setup {}: update failed", old.id);
-                let _ = self.restore_locked(n, Kind::Discarded, origin, &why, now_ms);
+        match &replaced {
+            Ok(installed) => {
+                layers::drop_stash(stash);
+                // Its place in the order, until the caller records the new
+                // receipt over it (by id).
+                // The file as the remove left it (other setups' actions
+                // spliced), with `old` back where it was.
+                let mut file = self.read_setup_receipts()?;
+                let at = receipts.setups.iter().position(|receipt| receipt.id == old.id);
+                let mut held = old.clone();
+                held.library =
+                    installed.applied.as_ref().and_then(|applied| applied.library.clone());
+                held.layer = installed.layer.clone();
+                held.on = true;
+                let at = at.unwrap_or(0).min(file.setups.len());
+                file.setups.insert(at, held);
+                self.write_setup_receipts(&file)?;
             }
-            let _ = self.put_receipt_locked(old.clone());
+            Err(_) => {
+                if let Some(layer) = &installed_layer_name(setup) {
+                    let _ = layers::remove_layer(&setups_dir, layer);
+                }
+                let _ = layers::restore_stash(stash);
+                let _ = self.library_write_back(library.as_deref());
+                if let Some(n) = before {
+                    let why = format!("setup {}: update failed", old.id);
+                    let _ = self.restore_locked(n, Kind::Discarded, origin, &why, now_ms);
+                }
+                let _ = self.write_setup_receipts(&receipts);
+            }
         }
         replaced
     }
@@ -776,8 +1060,22 @@ impl Customize {
         origin: &str,
         now_ms: u64,
     ) -> Result<Installed, Error> {
+        let id = &setup.manifest.id;
+        let layer_name = layers::name(id);
+        if let Some(other) = self
+            .read_setup_receipts()?
+            .setups
+            .iter()
+            .find(|receipt| &receipt.id != id && receipt.layer.as_deref() == Some(&layer_name))
+        {
+            return Err(Error::Setup(format!(
+                "{id} and the installed setup {} would share the views layer {layer_name}; remove it first",
+                other.id
+            )));
+        }
+        let (profile, views) = layers::split_views(&setup.profile);
         let had = self.library_names()?;
-        self.preview_profile_locked(&setup.profile, origin, now_ms)?;
+        self.preview_profile_locked(&profile, origin, now_ms)?;
         let mut prior_actions = BTreeMap::new();
         if !setup.actions().is_empty() {
             let mut text = settings_text(self)?;
@@ -798,14 +1096,18 @@ impl Customize {
             .as_ref()
             .and_then(|applied| applied.library.as_ref())
             .is_some_and(|name| !had.contains(name));
-        Ok(Installed { applied, before: None, prior_actions, library_created })
+        let layer = layers::write_layer(&self.roots().setups_dir(), id, &views)?;
+        Ok(Installed { applied, before: None, prior_actions, library_created, layer })
     }
 
-    /// Undoes an installed setup: its library entry off (and removed when
-    /// the install made it; what was under it comes back), its actions out
-    /// (or back to yours), its receipt dropped. An action you changed since
-    /// stays as you left it. Extensions are the caller's (it names them in
-    /// the receipt).
+    /// Undoes an installed setup, and only it: its library entry off (and
+    /// removed when the install made it; what was under it comes back), its
+    /// views layer deleted, its actions out (or back to yours), its receipt
+    /// dropped. An action you, or a setup installed after it, changed since
+    /// stays as it is; a setup installed after it that replaced its action
+    /// now puts back what this one had replaced. Your own customize folder
+    /// and every other setup's layer are not touched. Extensions are the
+    /// caller's (it names them in the receipt).
     pub fn remove_setup(
         &self,
         receipt: &Receipt,
@@ -856,10 +1158,40 @@ impl Customize {
             }
         }
         let mut file = self.read_setup_receipts()?;
-        file.setups.retain(|old| old.reference.key() != receipt.reference.key());
+        file.setups.retain(|old| old.id != receipt.id);
+        // A setup that replaced one of this one's actions would put this
+        // one's back on its own remove: it puts back what this one replaced.
+        for other in &mut file.setups {
+            for (name, value) in &receipt.actions {
+                if let Some(prior) = other.prior_actions.get_mut(name)
+                    && prior.as_ref() == Some(value)
+                {
+                    *prior = receipt.prior_actions.get(name).cloned().flatten();
+                }
+            }
+        }
         self.write_setup_receipts(&file)?;
-        Ok(Removed { id: receipt.id.clone(), library, actions, kept_actions })
+        if let Some(layer) = &receipt.layer {
+            layers::remove_layer(&self.roots().setups_dir(), layer)?;
+        }
+        Ok(Removed {
+            id: receipt.id.clone(),
+            library,
+            layer: receipt.layer.clone(),
+            actions,
+            kept_actions,
+        })
     }
+}
+
+/// The views layer `setup` installs as, when it carries views.
+fn installed_layer_name(setup: &Setup) -> Option<String> {
+    setup
+        .profile
+        .files
+        .keys()
+        .any(|path| layers::is_view(path))
+        .then(|| layers::name(&setup.manifest.id))
 }
 
 fn settings_error(error: jsonc::JsoncError) -> Error {
