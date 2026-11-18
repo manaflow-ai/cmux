@@ -125,7 +125,7 @@ struct CloudStartChat {
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id), origin: .user)
         let folderName = URL(fileURLWithPath: chat).lastPathComponent
-        let start = try await start.sized(cli.startChatPreflightAnswer(local: folder.root), local: folder.root, projecting: CloudNewWorkspaceSetting().projectedFolders(in: services.settings?.snapshot.root ?? .object([:]))) // before any machine or lease: the size its copy needs, or its refusal (none when projected)
+        let (start, tooBig) = try await start.sized(cli.startChatPreflightAnswer(local: folder.root), local: folder.root, projecting: CloudNewWorkspaceSetting().projectedFolders(in: services.settings?.snapshot.root ?? .object([:]))) // before any machine or lease: the size its copy needs, or its refusal (kept in `tooBig` when it may be projected)
         report(.init(name: "machine", folder: folderName))
         let gateway = services.cloud.gateway.onlineBeside(within: .seconds(10)) // No login step (PersonalGateway): only the first prompt needs it, so it comes up beside the start
         // The machine, the pin and the keys are cmux-tui's (`cmux link start-chat`, +Machine).
@@ -146,7 +146,7 @@ struct CloudStartChat {
                 // A refused git seed copies the folder with no question; a copy the machine's disk cannot hold ends the start with its reason (CloudSeedRefusal), Retry kept on this machine.
                 let copy: Copied
                 do {
-                    copy = try await copyFolder(folder, key: start.key, account: account, to: machine, cli: cli,
+                    copy = try await copyFolder(folder, key: start.key, account: account, to: machine, cli: cli, tooBig: tooBig,
                                                 declined: { CloudMove.Failure(message: $0.tooLarge, code: $0.pageCode, retry: again) },
                                                 // Timed out or didn't launch: Retry copies again on this machine, into a new folder.
                                                 failed: { CloudMove.Failure(message: CloudMoveStrings.syncFailed(name, CloudStrings.errorText($0)), retry: again) }) {
@@ -184,12 +184,12 @@ struct CloudStartChat {
     /// never copied again: that would overwrite what its chat changed. `progress` gets the copy's progress lines.
     /// A machine that can't clone the folder from its git remote gets the whole folder copied, never asked; a copy its
     /// disk cannot hold (``CloudSeedRefusal``) throws `declined(refusal)`. A copy that times out or doesn't launch throws `failed(error)`.
-    func copyFolder(_ folder: CloudMoveFolder, key: String, account: [String?], to machine: CloudMachineSession, cli: CloudMoveCLI,
+    func copyFolder(_ folder: CloudMoveFolder, key: String, account: [String?], to machine: CloudMachineSession, cli: CloudMoveCLI, tooBig: CloudMoveCLI.StartChatPreflightRefusal? = nil,
                     declined: (CloudSeedRefusal) -> any Error, failed: (any Error) -> any Error,
                     progress: (SeedProgress) -> Void) async throws -> Copied {
         let name = machine.machine.title, storeAccess = await services.cloud.auth.startChatStoreAccess(account: account), home = QuitAgents.environment(services)?.home.path
-        // With `cloud.projectedFolders` on, a folder past the copy's limits is projected, not copied (CloudProjectedFolders); any refusal copies it as below.
-        if let projected = await services.cloud.projected.start(on: CloudNewWorkspaceSetting().projectedFolders(in: services.settings?.snapshot.root ?? .object([:])), cli: cli, key: key, account: CloudStartCore().accountText(account), machine: machine.machineID, socket: await machine.daemon.connection?.endpoint?.socketPath, local: folder.root, subpath: folder.subpath, workRoots: services.cloud.move.workRoots, acpmuxHome: home) { return projected }
+        // With `cloud.projectedFolders` on, a folder past the copy's limits is projected, not copied (CloudProjectedFolders); a refusal copies it as below, or throws `tooBig` (a folder no machine holds is never copied).
+        if let projected = try await services.cloud.projected.start(on: CloudNewWorkspaceSetting().projectedFolders(in: services.settings?.snapshot.root ?? .object([:])), cli: cli, key: key, account: CloudStartCore().accountText(account), machine: machine.machineID, socket: await machine.daemon.connection?.endpoint?.socketPath, local: folder.root, subpath: folder.subpath, workRoots: services.cloud.move.workRoots, acpmuxHome: home, tooBig: tooBig) { return projected }
         // A machine whose older cmux-tui refuses the copy is updated to this app's build, then copied again on its new link (CloudOutdatedMachine); the copy's progress lines go to the clone row as they come, about 4 a second (SeedProgress.feed).
         return try await CloudSeedRefusal.copying(machine: name, diskMb: machine.machine.size?.storageMb, declined: declined) { refusal in do {
                 return try await CloudOutdatedMachine.copy(socket: { await machine.daemon.connection?.endpoint?.socketPath },

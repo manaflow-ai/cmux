@@ -203,7 +203,7 @@ struct CloudBringBack {
             throw Failure(message: CloudBringBackStrings.syncFailed(name, CloudStrings.errorText(error)), retry: again)
         } }
         guard pulled.ok else {
-            // A conflict changed nothing here: the chat stays on the machine until the files are settled.
+            // A conflict stops the move: the chat stays on the machine until the files are settled (a projected folder's pull already kept both sides).
             if pulled.errorCode == "sync_conflict" { throw Failure(message: CloudBringBackStrings.conflict(pulled.conflicts), retry: again) }
             if pulled.errorCode == CloudMoveStrings.outdatedCode { throw Failure(message: CloudBringBackStrings.outdatedMachine(name), retry: again.updating) }
             throw Failure(message: CloudBringBackStrings.syncFailed(name, pulled.error ?? pulled.errorCode ?? ""), retry: again)
@@ -258,7 +258,7 @@ struct CloudBringBack {
         let back = CloudMovedChats.BroughtBack(session: session, key: moved.transferID ?? session)
         var committed = entry
         committed.broughtBack = back
-        services.cloud.movedChats.record(committed)
+        services.cloud.movedChats.record(committed); await services.cloud.projected.settle(machine: entry.machineID, folder: entry.remoteFolder, socket: machineSocket, cli: cli) // a projected folder: what the machine wrote between the pull and the freeze
         // The chat is back: its grants on the machine end (never failing the bring back).
         services.cloud.accessAsks.chatBroughtBack(machineID: entry.machineID, session: entry.session, services: services)
         try await finish(committed.shown(back), tab: tab)

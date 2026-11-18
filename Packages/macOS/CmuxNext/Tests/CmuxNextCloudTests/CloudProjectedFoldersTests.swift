@@ -100,14 +100,14 @@ struct CloudProjectedFoldersTests {
         let (cli, log) = try fakeCLI(in: dir, preflight: firstPass, project: mounted)
         let children = Children()
         let folders = CloudProjectedFolders(folder: nil) { children.launch($0) }
-        let off = await folders.start(on: false, cli: cli, key: "k", account: "u/", machine: "vm", socket: "/s", local: "/l", subpath: "", workRoots: ["/w"], acpmuxHome: nil)
+        let off = try await folders.start(on: false, cli: cli, key: "k", account: "u/", machine: "vm", socket: "/s", local: "/l", subpath: "", workRoots: ["/w"], acpmuxHome: nil)
         #expect(off == nil && calls(log).isEmpty && folders.mounts.isEmpty)
-        let noSocket = await folders.start(on: true, cli: cli, key: "k", account: "u/", machine: "vm", socket: nil, local: "/l", subpath: "", workRoots: ["/w"], acpmuxHome: nil)
+        let noSocket = try await folders.start(on: true, cli: cli, key: "k", account: "u/", machine: "vm", socket: nil, local: "/l", subpath: "", workRoots: ["/w"], acpmuxHome: nil)
         #expect(noSocket == nil && calls(log).isEmpty)
 
         let whole = #"{"ok":true,"estimate":{"mode":"whole"},"estimate_bytes":5,"needed_size":"sm"}"#
         let (small, smallLog) = try fakeCLI(in: try temporaryFolder(), preflight: whole, project: mounted)
-        let under = await folders.start(on: true, cli: small, key: "k", account: "u/", machine: "vm", socket: "/s", local: "/l", subpath: "", workRoots: ["/w"], acpmuxHome: nil)
+        let under = try await folders.start(on: true, cli: small, key: "k", account: "u/", machine: "vm", socket: "/s", local: "/l", subpath: "", workRoots: ["/w"], acpmuxHome: nil)
         #expect(under == nil && calls(smallLog) == ["preflight"] && folders.mounts.isEmpty && children.launched.isEmpty)
     }
 
@@ -122,7 +122,7 @@ struct CloudProjectedFoldersTests {
         let children = Children()
         var launches = children.launches.makeAsyncIterator()
         let folders = CloudProjectedFolders(folder: nil) { children.launch($0) }
-        let started = try #require(await folders.start(on: true, cli: cli, key: "k", account: "u/", machine: "vm", socket: "/s", local: "/l", subpath: "sub", workRoots: ["/w"], acpmuxHome: nil))
+        let started = try #require(try await folders.start(on: true, cli: cli, key: "k", account: "u/", machine: "vm", socket: "/s", local: "/l", subpath: "sub", workRoots: ["/w"], acpmuxHome: nil))
         #expect(started.0.ok && started.0.leftOnMac == nil)
         #expect(started.1.chat == "/w/big/sub" && started.1.folder == "/w/big")
         #expect(calls(log) == ["preflight", "project"])
@@ -132,8 +132,42 @@ struct CloudProjectedFoldersTests {
         let refused = #"{"ok":false,"code":"mount_failed","message":"no helper","fallback":"copy"}"#
         let (refusing, _) = try fakeCLI(in: try temporaryFolder(), preflight: firstPass, project: refused)
         let other = CloudProjectedFolders(folder: nil) { children.launch($0) }
-        #expect(await other.start(on: true, cli: refusing, key: "k", account: "u/", machine: "vm", socket: "/s", local: "/l", subpath: "", workRoots: ["/w"], acpmuxHome: nil) == nil)
+        #expect(try await other.start(on: true, cli: refusing, key: "k", account: "u/", machine: "vm", socket: "/s", local: "/l", subpath: "", workRoots: ["/w"], acpmuxHome: nil) == nil)
         #expect(other.mounts.isEmpty && children.launched == ["p-k-1"])
+    }
+
+    /// A folder the start let past its size refusal only to project it: projected, no second preflight runs; not
+    /// projected (the setting's `project` refused, or no socket), that refusal stands, so it is never copied.
+    @Test func aFolderNoMachineHoldsIsProjectedOrRefusedNeverCopied() async throws {
+        let dir = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let tooBig = CloudMoveCLI.StartChatPreflightRefusal(message: "too big", folder: "~/big")
+        let mounted = #"{"ok":true,"mode":"projected","mount":"p-k-1","machine_path":"/w/big","folder":"/w/big"}"#
+        let (cli, log) = try fakeCLI(in: dir, preflight: "{}", project: mounted)
+        let children = Children()
+        let folders = CloudProjectedFolders(folder: nil) { children.launch($0) }
+        let started = try await folders.start(on: true, cli: cli, key: "k", account: "u/", machine: "vm", socket: "/s", local: "/l", subpath: "", workRoots: ["/w"], acpmuxHome: nil, tooBig: tooBig)
+        #expect(started?.1.folder == "/w/big" && calls(log) == ["project"])
+
+        let refused = #"{"ok":false,"code":"mount_failed","message":"no helper","fallback":"copy"}"#
+        let (refusing, _) = try fakeCLI(in: try temporaryFolder(), preflight: "{}", project: refused)
+        let other = CloudProjectedFolders(folder: nil) { children.launch($0) }
+        await #expect(throws: CloudMoveCLI.StartChatPreflightRefusal.self) {
+            _ = try await other.start(on: true, cli: refusing, key: "k", account: "u/", machine: "vm", socket: "/s", local: "/l", subpath: "", workRoots: ["/w"], acpmuxHome: nil, tooBig: tooBig)
+        }
+        await #expect(throws: CloudMoveCLI.StartChatPreflightRefusal.self) {
+            _ = try await other.start(on: true, cli: refusing, key: "k", account: "u/", machine: "vm", socket: nil, local: "/l", subpath: "", workRoots: ["/w"], acpmuxHome: nil, tooBig: tooBig)
+        }
+        #expect(other.mounts.isEmpty)
+    }
+
+    /// The record a stopped `project` may have kept is this send's alone: same machine, same folder, its key in the mount.
+    @Test func onlyTheSendsOwnRecordIsAnOrphan() {
+        let kept = CloudProjectedFolders.Record(mount: "p-abc-1f2e3d4c", account: "u/", machine: "vm", localRoot: "/l", machinePath: "/w/x", folder: "/w/x")
+        #expect(CloudProjectedFolders.kept(kept, by: "ABC", machine: "vm", local: "/l"))
+        #expect(!CloudProjectedFolders.kept(kept, by: "ab", machine: "vm", local: "/l"))
+        #expect(!CloudProjectedFolders.kept(kept, by: "abc", machine: "vm-2", local: "/l"))
+        #expect(!CloudProjectedFolders.kept(kept, by: "abc", machine: "vm", local: "/other"))
     }
 
     @Test func aServeChildThatExitsStartsAgainAfterAGrowingWait() async throws {
@@ -176,52 +210,91 @@ struct CloudProjectedFoldersTests {
         #expect(!CloudProjectedFolders.recordMissing("not json"))
     }
 
-    /// A machine list adopts this account's records of listed machines (a launch serves again), removes the records of
-    /// machines it no longer names and stops their children; another account's records stay.
-    @Test func aMachineListAdoptsRecordsAndRemovesThoseOfGoneMachines() async throws {
-        let folder = try temporaryFolder()
-        defer { try? FileManager.default.removeItem(at: folder) }
-        for (mount, account, machine) in [("p-a-1", "u/", "vm-1"), ("p-b-1", "u/", "vm-gone"), ("p-c-1", "other/", "vm-3")] {
+    private func keep(_ records: [(mount: String, account: String, machine: String)], in folder: URL) throws {
+        for (mount, account, machine) in records {
             let dir = folder.appendingPathComponent(mount, isDirectory: true)
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             let json = #"{"mount":"\#(mount)","account":"\#(account)","machine":"\#(machine)","local_root":"/l","machine_path":"/w/x","folder":"/w/x","state_dir":"/w/.projfs","socket":"/s","made_at":1}"#
             try Data(json.utf8).write(to: dir.appendingPathComponent("record.json"))
         }
+    }
+
+    /// A machine list adopts this account's records of listed machines (a launch serves again). A machine it leaves
+    /// out may still exist: its child stops only after two lists in a row, and its record stays. Only a machine the
+    /// list names destroyed loses its record. Another account's records stay.
+    @Test func aMachineListAdoptsRecordsAndOnlyADestroyedMachineLosesItsRecord() async throws {
+        let folder = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try keep([("p-a-1", "u/", "vm-1"), ("p-b-1", "u/", "vm-gone"), ("p-c-1", "other/", "vm-3")], in: folder)
         let children = Children()
         var launches = children.launches.makeAsyncIterator(), stops = children.stops.makeAsyncIterator()
         let folders = CloudProjectedFolders(folder: folder) { children.launch($0) }
-        folders.serve(record("p-z-1", machine: "vm-old"))
+        folders.serve(record("p-z-1", machine: "vm-new"))
         #expect(await launches.next() == 1)
+        // One list that leaves a machine out (fetched before the machine was made) stops nothing.
         await folders.listed(machines: ["vm-1", "vm-3"], account: "u/") { true }
-        #expect(await stops.next() == "p-z-1")
         #expect(await launches.next() == 2)
-        #expect(folders.mounts == ["p-a-1"] && children.launched.last == "p-a-1")
-        let left = Set(try FileManager.default.contentsOfDirectory(atPath: folder.path))
-        #expect(left == ["p-a-1", "p-c-1"])
+        #expect(folders.mounts == ["p-a-1", "p-z-1"] && children.launched.last == "p-a-1")
+        // A list that names it again clears the count; two in a row that leave it out stop its child.
+        await folders.listed(machines: ["vm-1", "vm-new"], account: "u/") { true }
+        await folders.listed(machines: ["vm-1"], account: "u/") { true }
+        #expect(folders.mounts == ["p-a-1", "p-z-1"])
+        await folders.listed(machines: ["vm-1"], account: "u/") { true }
+        #expect(await stops.next() == "p-z-1")
+        #expect(folders.mounts == ["p-a-1"])
+        // The record of a machine merely left out stays on this Mac.
+        #expect(Set(try FileManager.default.contentsOfDirectory(atPath: folder.path)) == ["p-a-1", "p-b-1", "p-c-1"])
+        // A machine the list names destroyed: its child stops and its record goes; no other machine's does.
+        await folders.listed(machines: [], destroyed: ["vm-1"], account: "u/") { true }
+        #expect(await stops.next() == "p-a-1")
+        #expect(folders.mounts.isEmpty)
+        #expect(Set(try FileManager.default.contentsOfDirectory(atPath: folder.path)) == ["p-b-1", "p-c-1"])
         // A list that is no longer the signed-in account's adopts nothing.
-        folders.stopAll()
-        await folders.listed(machines: ["vm-1"], account: "u/") { false }
+        await folders.listed(machines: ["vm-gone"], account: "u/") { false }
         #expect(folders.mounts.isEmpty)
     }
 
-    /// The way back: a projected folder's pull is `project-pull`, its conflicts and refusals the copy pull's
-    /// `sync_conflict` naming the files; a copied folder's is the copy's own pull.
+    /// The way back: a projected folder's pull is `project-pull`. A file changed on both sides is the copy pull's
+    /// `sync_conflict` naming it; a path the pull would not write here never stops the bring back. A copied folder's
+    /// pull is the copy's own.
     @Test func bringingBackAProjectedFolderPullsItAndNamesItsConflicts() async throws {
         let dir = try temporaryFolder()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let pulled = #"{"ok":true,"mount":"p-k-1","applied":2,"conflicts":[{"path":"a.txt","kept":"mac","beside":"a.cloud.txt"}],"refused":[{"path":"b","reason":"symlink"}]}"#
+        let pulled = #"{"ok":true,"mount":"p-k-1","applied":2,"conflicts":[{"path":"a.txt","kept":"mac","beside":"a.txt.cmux-sync-conflict"}],"refused":[{"path":"b","reason":"symlink"}]}"#
         let (cli, log) = try fakeCLI(in: dir, preflight: "{}", pull: pulled)
         let children = Children()
         let folders = CloudProjectedFolders(folder: nil) { children.launch($0) }
         folders.serve(record("p-k-1"))
         var copied = 0
         let answer = try await folders.pull(machine: "vm-1", folder: "/w/chats/k/1/big", socket: "/s", cli: cli) { copied += 1; return .init(ok: true) }
-        #expect(answer.errorCode == "sync_conflict" && answer.conflicts == ["a.txt", "b"] && copied == 0)
+        #expect(answer.errorCode == "sync_conflict" && answer.conflicts == ["a.txt"] && copied == 0)
         #expect(calls(log) == ["project-pull"])
         let other = try await folders.pull(machine: "vm-1", folder: "/w/elsewhere", socket: "/s", cli: cli) { copied += 1; return .init(ok: true) }
         #expect(other.ok && copied == 1)
         #expect(CloudMoveCLI.StartChatProjectPull(ok: true).answer.ok)
+        #expect(CloudMoveCLI.StartChatProjectPull(ok: true, refused: [.init(path: ".env", reason: "secret")]).answer.ok)
         #expect(CloudMoveCLI.StartChatProjectPull(ok: false, code: "record_missing").answer.errorCode == "record_missing")
+        // After the move the folder is pulled once more (what the machine wrote before the chat froze); a copied folder is not.
+        await folders.settle(machine: "vm-1", folder: "/w/chats/k/1/big", socket: "/s", cli: cli)
+        await folders.settle(machine: "vm-1", folder: "/w/elsewhere", socket: "/s", cli: cli)
+        #expect(calls(log) == ["project-pull", "project-pull"])
+    }
+
+    /// A projection whose record is on this Mac but that nothing serves (its child could not start, or the machine
+    /// list has not adopted it yet) is still pulled as a projection, never through the copy's pull, and served again.
+    @Test func aProjectionKnownOnlyByItsRecordIsPulledAsOne() async throws {
+        let dir = try temporaryFolder(), folder = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: dir); try? FileManager.default.removeItem(at: folder) }
+        try keep([("p-a-1", "u/", "vm-1")], in: folder)
+        let (cli, log) = try fakeCLI(in: dir, preflight: "{}", pull: #"{"ok":true,"mount":"p-a-1","applied":1}"#)
+        let children = Children()
+        var launches = children.launches.makeAsyncIterator()
+        let folders = CloudProjectedFolders(folder: folder) { children.launch($0) }
+        var copied = 0
+        let answer = try await folders.pull(machine: "vm-1", folder: "/w/x", socket: "/s", cli: cli) { copied += 1; return .init(ok: true) }
+        #expect(answer.ok && copied == 0 && calls(log) == ["project-pull"])
+        #expect(await launches.next() == 1)
+        #expect(folders.mounts == ["p-a-1"])
     }
 
     @Test func theRecordsFolderIsCmuxTuisStateFolders() {

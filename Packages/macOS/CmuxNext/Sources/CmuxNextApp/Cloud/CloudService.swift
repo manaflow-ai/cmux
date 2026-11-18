@@ -477,7 +477,7 @@ final class CloudService {
             hasLoadedMachines = true
             loadedAccount = account
             listedMachineIDs = Set(list.filter { $0.status != .destroyed }.map(\.id))
-            listLoadedAt = .now; await projected.listed(machines: listedMachineIDs, account: CloudStartCore().accountText(account)) { [weak self] in self?.listAccount == account } // serves this account's projected folders of listed machines, ends the others
+            listLoadedAt = .now; await projected.listed(machines: listedMachineIDs, destroyed: Set(list.filter { $0.status == .destroyed }.map(\.id)), account: CloudStartCore().accountText(account)) { [weak self] in self?.listAccount == account } // serves this account's projected folders of listed machines; only a destroyed machine loses its records
             return true
         } catch {
             guard listGeneration == generation, auth.isSignedIn, listAccount == account, unavailableReason == nil, !Task.isCancelled else { return false }
@@ -568,8 +568,8 @@ final class CloudService {
 
     /// Remove the app session after an authoritative omission or destroyed detail; an omission may be a
     /// filtered retired-provider row while the VM survives.
-    private func removeConfirmedMachine(_ machineID: String, destructionConfirmed _: Bool) {
-        deferredRecordRemovals[machineID] = nil
+    private func removeConfirmedMachine(_ machineID: String, destructionConfirmed: Bool) {
+        deferredRecordRemovals[machineID] = nil; if destructionConfirmed { projected.destroyed(machineID) }
         guard machines.session(machineID) != nil else { return }
         changes.removed(machineID)
         creations.machineRemoved(machineID)
