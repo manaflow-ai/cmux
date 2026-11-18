@@ -1,5 +1,4 @@
 import CmuxMobileModel
-import Darwin
 import Foundation
 import Testing
 @testable import CmuxMobileAgentChat
@@ -134,47 +133,38 @@ import Testing
 
     /// Without a spill, a chat held every turn; with the window its memory stays flat. 1000
     /// turns of 16 KB replies arrive 100 at a time, with the window applied after each arrival
-    /// as the list does at rest, then without. Measured as live heap bytes (malloc's size in
-    /// use, with the store alive), which allocator reuse between the runs does not skew.
-    ///
-    /// The live bytes are what letting go of the store and its spill frees, read just before
-    /// and just after: malloc's size in use is the whole process's, and read across the fill
-    /// (seconds) it would count other suites' bytes as the store's (FeedSpillTests'
-    /// memoryWithSpill did, PR #45399).
+    /// as the list does at rest, then without. Measured as what the store holds in memory
+    /// (`residentBytes`), not malloc's bytes in use for the whole process, which counted whatever
+    /// other tests allocated meanwhile (the 16 MB `neighbor` below stands for them).
     @Test func memoryStaysFlatWithTheWindow() async {
-        func run(windowed: Bool) -> (live: Int, held: Int) {
-            var alive = 0
-            var held = 0
-            do {
-                let store = Self.store()
-                for chunk in 0..<10 {
-                    Self.fill(store, count: 100, replyBytes: 16_384, from: chunk * 100)
-                    if windowed, store.turns.count > AgentChatStore.windowTrigger { store.spillOlder(keeping: AgentChatStore.windowKeep) }
-                }
-                store.spill?.flush()
-                held = store.turns.count
-                alive = Self.heapInUse()
-                store.spill?.reset()
+        func run(windowed: Bool) async -> (live: Int, held: Int) {
+            let store = Self.store()
+            for chunk in 0..<10 {
+                // The store is main-actor code: give the main actor back between arrivals.
+                await Task.yield()
+                Self.fill(store, count: 100, replyBytes: 16_384, from: chunk * 100)
+                if windowed, store.turns.count > AgentChatStore.windowTrigger { store.spillOlder(keeping: AgentChatStore.windowKeep) }
             }
-            return (alive - Self.heapInUse(), held)
+            // What another test (the hybrid proofs, say) holds meanwhile is not the chat's: a guard
+            // against going back to a process-wide reading, which counts these 16 MB and fails.
+            let neighbor = windowed ? [UInt8](repeating: 0xA5, count: 16 << 20) : []
+            store.spill?.flush()
+            let live = store.residentBytes()
+            withExtendedLifetime(neighbor) {}
+            let held = store.turns.count
+            store.spill?.reset()
+            return (live, held)
         }
-        let before = run(windowed: false)
-        let after = run(windowed: true)
+        let before = await run(windowed: false)
+        let after = await run(windowed: true)
         let line = "MEMBENCH agent-chat turns=1000 reply=16KB before=\(before.live >> 10)KB held=\(before.held) after=\(after.live >> 10)KB held=\(after.held)"
         print(line)
         Attachment.record(line, named: "membench.txt")
         #expect(after.held <= AgentChatStore.windowTrigger)
         #expect(before.held == 1000)
-        // Letting the store go frees at least its replies, so the reading sees the store.
+        // The reading sees every turn the chat held: 1000 replies of 16 KB.
         #expect(before.live >= 1000 * 16_384)
         #expect(after.live < before.live / 4)
-    }
-
-    /// Bytes malloc holds for live allocations, in every zone.
-    static func heapInUse() -> Int {
-        var stats = malloc_statistics_t()
-        malloc_zone_statistics(nil, &stats)
-        return Int(stats.size_in_use)
     }
 
 }
