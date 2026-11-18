@@ -1246,11 +1246,60 @@ class Backlog(unittest.TestCase):
         self.assertEqual(backlog_mutations(fake), [("cancel", 760), ("rerun", 760)])
         self.assertEqual(counts["recovered"], 1)
 
+    def test_another_pull_requests_target_run_at_the_same_base_does_not_stand_in_for_the_re_run(self):
+        # A pull_request_target run's head_sha is the base commit, shared by every pull request on that base.
+        mine = {**backlog_run(770, event="pull_request_target", head="b" * 40, pr=1, pr_head=HEAD),
+                "status": "completed", "conclusion": "cancelled"}
+        theirs = {**backlog_run(771, event="pull_request_target", head="b" * 40, pr=2, pr_head="e" * 40),
+                  "status": "completed", "conclusion": "success"}
+        fake = BacklogFake([mine, theirs], {}, pulls={1: OPEN_AT_HEAD, 2: {"state": "open", "head": {"sha": "e" * 40}}})
+        fake.record_pass(rescue.journal_lines({770: rescue.Journalled(NOW - dt.timedelta(minutes=20))}))
+        backlog(fake)
+        self.assertEqual(backlog_mutations(fake), [("rerun", 770)])
+
+    def test_an_unread_newer_log_keeps_its_cancels_for_a_later_pass(self):
+        # The newest pass's log fails to read twice: falling back to an older whole journal would drop that pass's
+        # cancels. This pass holds current-head cancels and writes a partial journal; the next reads past it.
+        runs = [{**backlog_run(780, pr=1), "status": "completed", "conclusion": "cancelled"}, backlog_run(781, pr=1)]
+        pulls = own_heads(runs)
+        fake = BacklogFake(runs, {781: [job("x", waited=6000)]}, pulls=pulls)
+        fake.record_pass(rescue.journal_lines({}), minutes_ago=30)
+        fake.record_pass(rescue.journal_lines({780: rescue.Journalled(NOW - dt.timedelta(minutes=15))}))
+        newest_job = fake.passes[-1][0] + 1
+        real_log, failures = fake.job_log, [0]
+
+        def flaky(job_id):
+            if job_id == newest_job and failures[0] < 2:
+                failures[0] += 1
+                raise RuntimeError("HTTP 502")
+            return real_log(job_id)
+        fake.job_log = flaky
+        lines, counts = backlog(fake)
+        self.assertEqual(backlog_mutations(fake), [])
+        self.assertTrue(lines[-1].startswith(rescue.JOURNAL_PARTIAL))
+        backlog(fake, now=NOW + dt.timedelta(minutes=10))
+        self.assertEqual(backlog_mutations(fake), [("rerun", 780), ("cancel", 781)])
+
+    def test_a_cancel_whose_answer_was_lost_is_journalled(self):
+        runs = [backlog_run(790, pr=1)]
+        fake = BacklogFake(runs, {790: [job("x", waited=6000)]}, pulls=own_heads(runs))
+        real_cancel = fake.cancel
+
+        def timed_out(run_id):
+            real_cancel(run_id)
+            raise RuntimeError("POST /actions/runs/790/cancel: timed out")
+        fake.cancel = timed_out
+        _, counts = backlog(fake)
+        self.assertEqual((counts["journalled"], counts["pending"]), (1, 1))
+        _, counts = backlog(fake, now=NOW + dt.timedelta(minutes=10))
+        self.assertEqual(backlog_mutations(fake)[-1], ("rerun", 790))
+
     def test_a_journal_entry_someone_re_ran_or_superseded_is_dropped(self):
         rerun_meanwhile = {**backlog_run(750, pr=1), "run_attempt": 2, "status": "completed", "conclusion": "success"}
         moved = {**backlog_run(751, pr=2), "status": "completed", "conclusion": "cancelled"}
         newer_head = {**backlog_run(752, pr=1), "status": "completed", "conclusion": "cancelled"}
-        newer = {**backlog_run(753, age_min=40, pr=1), "status": "completed", "conclusion": "success"}
+        newer = {**backlog_run(753, age_min=40, pr=1), "status": "completed", "conclusion": "success",
+                 "head_branch": "lane/752"}
         fake = BacklogFake([rerun_meanwhile, moved, newer_head, newer], {},
                            pulls={1: OPEN_AT_HEAD, 2: {"state": "open", "head": {"sha": "e" * 40}}})
         fake.record_pass(rescue.journal_lines({i: rescue.Journalled(NOW - dt.timedelta(minutes=20))
