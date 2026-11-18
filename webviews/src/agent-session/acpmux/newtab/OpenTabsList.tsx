@@ -27,11 +27,7 @@ export function OpenTabsList({ tabs, onMoveHere }: { tabs: OmnibarContext["tabs"
           items={[{ id: "move", label: nt("moveHere"), onSelect: () => onMoveHere(tab.id) }]}
         >
           <button type="button" className="nt-row nt-open-tab" onClick={() => onMoveHere(tab.id)}>
-            {tab.icon ? (
-              <img className="nt-row-glyph nt-row-favicon" src={tab.icon} alt="" draggable={false} />
-            ) : (
-              <RowGlyph kind={tab.kind} />
-            )}
+            <RowGlyph kind={tab.kind} {...(tab.icon ? { icon: tab.icon } : {})} />
             <span className="nt-row-title">{tab.title}</span>
             {tab.detail && <span className="nt-row-detail">{tab.detail}</span>}
             <span className="nt-row-action">{nt("moveHere")}</span>

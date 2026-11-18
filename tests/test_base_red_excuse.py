@@ -1027,67 +1027,6 @@ class PortableGhLog(unittest.TestCase):
         self.assertTrue(text.endswith("tail\n"))
 
 
-class AgentApiUnavailable(unittest.TestCase):
-    """The iOS App Review gate's agent pass (cmux-next-ios/scripts/app_review_agent_pass.py) ends red with one
-    `agent.api-unavailable {json}` marker when the CLI's result showed the API never served it. That red is the shared
-    account's, not the PR's, but only for the marker with zero recorded API usage, on the agent pass step alone. Gate
-    run 43637095919 (job 132576237860): the weekly limit, duration_api_ms 0, no tokens, on every PR."""
-
-    NAME, STEP = "Reviewer path (appstore, ipad)", "Agent reviewer pass"
-    EVIDENCE = {"message": "agent pass: API unavailable (rate limited)", "duration_api_ms": 0, "input_tokens": 0,
-                "api_error_status": 429, "api_error_type": "rate_limit_error", "api_error": "usage_limit_reached",
-                "limit": "weekly", "resets": "Nov 18 at 3am (UTC)", "attempts": 1}
-
-    def setUp(self):
-        self.gh = FakeGitHub()
-        self.gh.jobs[1] = failed_job(1, 10, HEAD, name=self.NAME, step=self.STEP)
-        self.gh.jobs[2] = failed_job(2, 20, BASE_SHA, name=self.NAME, step=self.STEP)
-        self.gh.logs[2] = log(self.NAME, self.STEP, "##[error]agent reviewer pass: the agent wrote a verdict without "
-                              "one screenshot of the app", "##[error]Process completed with exit code 1.")
-
-    def head(self, *errors):
-        self.gh.logs[1] = log(self.NAME, self.STEP, "agent pass: retrying", *errors,
-                              "##[error]Process completed with exit code 1.")
-
-    def marker(self, **changes):
-        return "##[error]agent.api-unavailable " + json.dumps(dict(self.EVIDENCE, **changes), separators=(",", ":"))
-
-    def judged(self) -> str:
-        try:
-            return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh))
-        except excuse.Refused as why:
-            return f"refused: {why}"
-
-    def test_a_zero_usage_marker_is_not_this_prs_red(self):
-        self.head(self.marker())
-        text = self.judged()
-        self.assertIn(f"excused '{self.NAME}': not this PR (agent API unavailable)", text)
-        self.assertIn("duration_api_ms=0", text)
-        self.assertIn("resets Nov 18 at 3am (UTC)", text)
-
-    def test_a_marker_with_api_usage_stays_the_prs(self):
-        for changes in ({"input_tokens": 5200}, {"duration_api_ms": 41000}, {"input_tokens": None},
-                        {"duration_api_ms": False}):
-            self.head(self.marker(**changes))
-            self.assertNotIn("agent API unavailable", self.judged(), changes)
-
-    def test_failure_text_without_the_marker_stays_the_prs(self):
-        for line in ("##[error]agent reviewer pass: You've hit your weekly limit · resets Nov 18 at 3am (UTC)",
-                     "##[error]agent reviewer pass: agent pass: API unavailable (rate limited): duration_api_ms=0",
-                     "##[error]rate limit: agent.api-unavailable " + json.dumps(self.EVIDENCE)):
-            self.head(line)
-            self.assertNotIn("agent API unavailable", self.judged(), line)
-
-    def test_the_marker_beside_another_red_stays_the_prs(self):
-        self.head(self.marker(), "##[error]agent reviewer pass: the agent wrote a verdict without one screenshot")
-        self.assertNotIn("agent API unavailable", self.judged())
-        # Or another step of the job failed too: the walk itself is judged, not set aside.
-        self.gh.jobs[1]["steps"].insert(2, {"name": "Walk the reviewer path on ipad", "status": "completed",
-                                            "conclusion": "failure"})
-        self.head(self.marker())
-        self.assertNotIn("agent API unavailable", self.judged())
-
-
 class Excusing(unittest.TestCase):
     def setUp(self):
         self.gh = FakeGitHub()
@@ -10999,8 +10938,6 @@ RAW_LOG_READERS = {
     "summary_red": "a gate: only refuses",
     "summary_no_verdict": "a gate: only refuses",
     "generated_no_verdict": "a gate: only refuses",
-    "agent_api_unavailable": "a gate: the agent pass's one marker line, read for its zero-usage evidence; compares "
-                             "nothing",
     "tree_handoff_quota_only": "a gate: parses the published-tree hand-off's one quota annotation; only refuses",
     "guard_red_steps": "a parser of the guard group's own verdict lines (guard_group: the head's from its failed_view)",
     "gallery_replay_crash": "the gallery health gate; the verdict compares gallery artifacts (gallery_classify)",
@@ -14609,7 +14546,6 @@ SCANNERS = {
     "base_red_excuse.summary_red": lambda f: excuse.summary_red(f.log),
     "base_red_excuse.summary_no_verdict": lambda f: excuse.summary_no_verdict(f.log),
     "base_red_excuse.generated_no_verdict": lambda f: excuse.generated_no_verdict(f.log),
-    "base_red_excuse.agent_api_unavailable": lambda f: excuse.agent_api_unavailable(f.job, f.log),
     "base_red_excuse.ratchet_red": lambda f: excuse.ratchet_red(f.view),
     "base_red_excuse.crash_signals": lambda f: excuse.crash_signals(f.view),
     "base_red_excuse.refused_at_setup": lambda f: excuse.refused_at_setup(f.job, f.log),
@@ -15254,12 +15190,15 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
     NOT_GUARD_WORKFLOWS = {
         "product builds and tests (Swift, Rust, web, backend, cloud, iOS), whose reds read product code": (
             "app-platform.yml", "auth-refresh-tests.yml", "automation-bench.yml", "backend-migrations.yml",
+            # The Billing lane (cmux#42867): billing web, DB and iOS package tests.
+            "billing.yml",
             "backend.yml", "ci.yml", "cloud-journey-pr.yml", "cloud-vm-guest-install.yml", "cloud-vm-image-lock.yml",
             "cloudflare-relay.yml", "device-hub.yml", "cmux-cloud-cli.yml", "cmux-next-crash-class.yml", "cmux-next-cua-helper-identity.yml",
             "cmux-next-media.yml", "cmux-next-hot-verify.yml", "cmux-next-motion-golden.yml", "cmux-next-remote-daemon.yml",
             "cmux-next-shell-integration.yml", "cmux-next-shim-cpp.yml", "cmux-tui-sdks.yml", "cmux-tui-spec.yml",
             "cmux-tui-windows-check.yml", "cmux-vm-clients.yml", "cmux-vm-cloud.yml", "cmux-vm.yml", "cmux-vnc.yml",
-            "coderouter-ci.yml", "fleet-test-compile.yml", "gallery-advisory.yml", "gallery-health.yml",
+            "coderouter-ci.yml", "fleet-test-compile.yml", "fleet-rd-host-macos.yml", "gallery-advisory.yml",
+            "gallery-health.yml",
             "indexnow-tests.yml", "ios-e2e.yml", "ios-reliability-matrix.yml", "ios-review-gate.yml", "iroh-v2.yml", "mux.yml",
             "nightly-next-canary.yml", "nightly-next-cua-signed-host.yml", "nightly-next-launch-smoke.yml",
             "r2-upload-tests.yml", "relay-tls.yml", "rust-workspaces.yml", "signing-keychain-macos.yml",
