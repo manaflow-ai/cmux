@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 623,
+  "count": 622,
   "sections": [
     {
       "id": "general",
@@ -345,6 +345,14 @@
           "kind": "toggle",
           "default": true,
           "group": "Guidance and Skills"
+        },
+        {
+          "key": "agents.mcpServers.enabled",
+          "title": "Saved Servers in Agent Chats",
+          "help": "New chats can use the servers listed above.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Agent Chats"
         },
         {
           "key": "agents.modelRouter.model",
@@ -5987,7 +5995,7 @@
           "title": "Show Chief When Opening Workspaces",
           "help": "Links in the Chief open their workspace with the Chief over it. Esc hides it.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Chief Dock"
         },
         {
@@ -6085,31 +6093,6 @@
       "id": "keyboard",
       "title": "Keyboard",
       "rows": [
-        {
-          "key": "app.keyStyle",
-          "title": "Key Style",
-          "help": "Vim moves through lists with j, k, gg, G and /. Emacs uses Control-N, P, F, B, A and E.",
-          "kind": "choice",
-          "default": "standard",
-          "group": "Key Style",
-          "values": [
-            "standard",
-            "vim",
-            "emacs"
-          ]
-        },
-        {
-          "key": "app.shortcutLayout",
-          "title": "Keyboard Layout",
-          "help": "Keep QWERTY Positions puts shortcuts on the US keys, for Dvorak, Colemak, AZERTY and QWERTZ.",
-          "kind": "choice",
-          "default": "followLayout",
-          "group": "Key Style",
-          "values": [
-            "followLayout",
-            "qwertyPositions"
-          ]
-        },
         {
           "key": "macScreen.systemShortcuts",
           "title": "Send System Shortcuts to the Remote Mac",
