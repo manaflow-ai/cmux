@@ -49,7 +49,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `fresh-home-launch.sh` | Fresh-home launch of any commit's app on a fleet Mac. | - | 2026-11-14 | active |
 | `nightly-fresh-launch.sh` | Where a published nightly's fresh-home launch spends its time. | CMUX-571 | 2026-11-15 | active |
 | `nightly-fresh-launch.py` | Python driver for nightly-fresh-launch.sh. | CMUX-571 | 2026-11-15 | active |
-| `relaunch-restore.sh` | Quit to usable time after Quit and Keep Sessions, on a published build. | hq#7149 L5 | 2026-11-05 | active |
+| `relaunch-restore.sh` | Quit to usable time after Quit and Keep Sessions, on a published build; `base=SHA head=SHA` runs two builds as interleaved pairs with the load (`relaunch-restore-pairs.py`). | hq#7149 L5 | 2026-11-05 | active |
 | `relaunch-shift.sh` | Layout shift when the app relaunches after an update. | - | 2026-11-04 | active |
 | `first-load-after-restart.sh` | A chat's first load after a restart, frame by frame, at commits (shift and blank frames, settle time). | - | 2026-11-16 | active |
 | `update-click-ab.sh` | Real Sparkle update, Restart to Update clicked soon after staging, base vs head. | CMUX-571 | 2026-11-15 | active |
