@@ -20,7 +20,7 @@
 #define CMUX_LAUNCH_DRAFT_ABI_VERSION 1
 
 /*
- Kept until the Chief is named.
+ Kept, after the sends before it, until it is handed to the Chief.
  */
 #define CMUX_LAUNCH_DRAFT_HELD 0
 
@@ -33,11 +33,6 @@
  The key was already handed to the Chief in `*chief_out`: answer with it again.
  */
 #define CMUX_LAUNCH_DRAFT_ALREADY_DELIVERED 2
-
-/*
- The Chief in `*chief_out` is named and the key is new: send it there now.
- */
-#define CMUX_LAUNCH_DRAFT_DELIVER_NOW 3
 
 /*
  The hold was cancelled first: refused.
@@ -94,9 +89,9 @@ void cmux_launch_draft_string_free(char *text);
 
 /*
  Holds a send: `parts_json` (the parts JSON) under `key`. Returns one of
- the outcome constants, or an error constant. For ALREADY_DELIVERED and
- DELIVER_NOW, `*chief_out` gets the Chief's id (the caller frees it);
- otherwise null. `chief_out` may be null.
+ the outcome constants, or an error constant. For ALREADY_DELIVERED,
+ `*chief_out` gets the Chief's id (the caller frees it); otherwise null.
+ `chief_out` may be null.
 
  # Safety
 
@@ -106,28 +101,83 @@ void cmux_launch_draft_string_free(char *text);
 int32_t cmux_launch_draft_hold(CmuxLaunchDraft *draft, const char *key, const char *parts_json, char **chief_out);
 
 /*
- Names the real Chief `chief` and returns the held sends to deliver to it,
- in order, as a JSON array of `{"key": "...", "parts": [...]}` (each key
- once). Once: a later call, or one after a cancel, returns `[]`. Null when
- an argument is null or not UTF-8.
+ Names the real Chief `chief`: the held sends go to it, `_next` first.
+ Once: true for the call that named it; false for a later call, one after a
+ cancel, or an argument null or not UTF-8.
 
  # Safety
 
  `draft` is a live handle used by one thread at a time; `chief` is
  NUL-terminated.
  */
-char *cmux_launch_draft_resolve(CmuxLaunchDraft *draft, const char *chief);
+bool cmux_launch_draft_resolve(CmuxLaunchDraft *draft, const char *chief);
 
 /*
- Ends the hold before the Chief was named and returns the held sends'
- text, one send per paragraph ("" after a resolve or a second cancel).
- Null when `draft` is null.
+ The send to hand to the Chief now, as `{"key": "...", "parts": [...]}`:
+ the first one held, once the Chief is named, the same until
+ `_delivered`. Null when there is none (or `draft` is null).
+
+ # Safety
+
+ `draft` is a live handle used by one thread at a time.
+ */
+char *cmux_launch_draft_next(const CmuxLaunchDraft *draft);
+
+/*
+ The send under `key` was handed to the Chief: it leaves the hold, and a
+ resend of its key is ALREADY_DELIVERED. False when no Chief is named, no
+ send is held under `key`, or an argument is null or not UTF-8.
+
+ # Safety
+
+ `draft` is a live handle used by one thread at a time; `key` is
+ NUL-terminated.
+ */
+bool cmux_launch_draft_delivered(CmuxLaunchDraft *draft, const char *key);
+
+/*
+ The sends not handed over yet, in order, as a JSON array of
+ `{"key": "...", "parts": [...]}`. Null when `draft` is null.
+
+ # Safety
+
+ `draft` is a live handle used by one thread at a time.
+ */
+char *cmux_launch_draft_held(const CmuxLaunchDraft *draft);
+
+/*
+ Ends the hold before the Chief was named (later sends are CANCELLED) and
+ returns the held sends, in order, as a JSON array of
+ `{"key": "...", "parts": [...]}` (`[]` after a resolve or a second
+ cancel). Null when `draft` is null.
 
  # Safety
 
  `draft` is a live handle used by one thread at a time.
  */
 char *cmux_launch_draft_cancel(CmuxLaunchDraft *draft);
+
+/*
+ True once the hold was cancelled (by `_cancel` or `_park`); false before,
+ or when `draft` is null.
+
+ # Safety
+
+ `draft` is a live handle used by one thread at a time.
+ */
+bool cmux_launch_draft_is_cancelled(const CmuxLaunchDraft *draft);
+
+/*
+ The text of `sends_json`, a JSON array of sends' parts arrays
+ (`[[part, ...], ...]`): one send per paragraph, its text parts joined,
+ sends with no text left out (what a cancel gives back to the draft). Null
+ when the argument is null, not UTF-8 or not that JSON.
+
+ # Safety
+
+ `sends_json` is null or NUL-terminated.
+ */
+char *cmux_launch_draft_text_of(const char *sends_json);
 
 /*
  The real Chief's id once named; null before (or when `draft` is null).

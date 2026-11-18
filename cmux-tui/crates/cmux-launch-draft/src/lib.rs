@@ -9,8 +9,10 @@
 //!
 //! - [`LaunchDraft::hold`] keeps a send under its key, in order; the same key
 //!   again joins the first and is never kept twice.
-//! - [`LaunchDraft::resolve`] names the real Chief once and returns the held
-//!   sends to deliver, in order, each key once.
+//! - [`LaunchDraft::resolve`] names the real Chief once; from then on
+//!   [`LaunchDraft::next`] is the send to hand over and
+//!   [`LaunchDraft::delivered`] marks it handed over: in order, each key once.
+//!   A send made after that waits behind the ones before it.
 //! - [`LaunchDraft::cancel`] ends the hold before that and gives the held
 //!   sends back (their text: [`text_of`]).
 //! - [`append_draft`] puts typed text after the Chief's own draft.
@@ -23,10 +25,12 @@ pub mod ffi;
 
 /// One part of a held send, in the order the composer had them.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Part {
-    Text(String),
-    /// An attachment the app owns, by its id (opaque here).
-    Attachment(String),
+pub struct Part {
+    /// What a text part shows; None for any other part (an attachment, a
+    /// link, ...), which has no text here.
+    pub text: Option<String>,
+    /// The part as the app encoded it, handed back as it came (opaque here).
+    pub raw: String,
 }
 
 /// One send made before the Chief was named, under its intent's key.
@@ -39,7 +43,8 @@ pub struct HeldSend {
 /// What [`LaunchDraft::hold`] did with a send.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HoldOutcome {
-    /// Kept, after the sends held before it, until the Chief is named.
+    /// Kept, after the sends held before it, until it is handed to the Chief
+    /// (named or not yet).
     Held,
     /// The key was already held: the sender waits on that send (its parts
     /// stay the first send's).
@@ -47,9 +52,6 @@ pub enum HoldOutcome {
     /// The key was already handed to this Chief: the same answer again, sent
     /// no second time.
     AlreadyDelivered { chief: String },
-    /// The Chief is named and the key is new: the caller sends it to `chief`
-    /// now. The key counts as delivered from here.
-    DeliverNow { chief: String },
     /// The hold was cancelled first: refused.
     Cancelled,
 }
@@ -57,6 +59,8 @@ pub enum HoldOutcome {
 /// The held message box of one bare launch.
 #[derive(Debug, Default)]
 pub struct LaunchDraft {
+    /// Not handed over yet, in order: before the Chief is named, and after
+    /// it until each is [`delivered`](Self::delivered).
     held: Vec<HeldSend>,
     delivered: HashSet<String>,
     chief: Option<String>,
@@ -77,12 +81,13 @@ impl LaunchDraft {
         self.cancelled
     }
 
-    /// The sends still waiting for the Chief, in order.
+    /// The sends not handed over yet, in order (the one being handed over
+    /// first).
     pub fn held(&self) -> &[HeldSend] {
         &self.held
     }
 
-    /// Keeps `parts` under `key` until the Chief is named.
+    /// Keeps `parts` under `key` until it is handed to the Chief.
     pub fn hold(&mut self, key: &str, parts: Vec<Part>) -> HoldOutcome {
         if self.delivered.contains(key)
             && let Some(chief) = &self.chief
@@ -92,10 +97,6 @@ impl LaunchDraft {
         if self.cancelled {
             return HoldOutcome::Cancelled;
         }
-        if let Some(chief) = &self.chief {
-            self.delivered.insert(key.to_owned());
-            return HoldOutcome::DeliverNow { chief: chief.clone() };
-        }
         if self.held.iter().any(|send| send.key == key) {
             return HoldOutcome::Joined;
         }
@@ -103,17 +104,37 @@ impl LaunchDraft {
         HoldOutcome::Held
     }
 
-    /// The real Chief is `chief`: returns every held send to deliver to it, in
-    /// order, each key once. Once; a later call, or one after
-    /// [`cancel`](Self::cancel), returns none and changes nothing.
-    pub fn resolve(&mut self, chief: &str) -> Vec<HeldSend> {
+    /// The real Chief is `chief`: the held sends go to it, [`next`](Self::next)
+    /// first. Once; false for a later call, or one after
+    /// [`cancel`](Self::cancel), which changes nothing.
+    pub fn resolve(&mut self, chief: &str) -> bool {
         if self.chief.is_some() || self.cancelled {
-            return Vec::new();
+            return false;
         }
         self.chief = Some(chief.to_owned());
-        let sends = std::mem::take(&mut self.held);
-        self.delivered.extend(sends.iter().map(|send| send.key.clone()));
-        sends
+        true
+    }
+
+    /// The send to hand to the Chief now: the first one held, once the Chief
+    /// is named. The same until it is [`delivered`](Self::delivered).
+    pub fn next(&self) -> Option<&HeldSend> {
+        self.chief.as_ref()?;
+        self.held.first()
+    }
+
+    /// The send under `key` was handed to the Chief: it leaves the hold and a
+    /// resend of its key gets [`HoldOutcome::AlreadyDelivered`]. False (and
+    /// nothing changes) when no Chief is named or no send is held under `key`.
+    pub fn delivered(&mut self, key: &str) -> bool {
+        if self.chief.is_none() {
+            return false;
+        }
+        let Some(index) = self.held.iter().position(|send| send.key == key) else {
+            return false;
+        };
+        let send = self.held.remove(index);
+        self.delivered.insert(send.key);
+        true
     }
 
     /// Ends the hold before the Chief was named: later sends are refused and
@@ -143,21 +164,15 @@ impl LaunchDraft {
     }
 }
 
-/// The text of one send: its text parts joined, attachments left out.
-fn send_text(send: &HeldSend) -> String {
-    send.parts
-        .iter()
-        .filter_map(|part| match part {
-            Part::Text(text) => Some(text.as_str()),
-            Part::Attachment(_) => None,
-        })
-        .collect()
+/// The text of one send: its text parts joined, other parts left out.
+fn parts_text(parts: &[Part]) -> String {
+    parts.iter().filter_map(|part| part.text.as_deref()).collect()
 }
 
-/// The text of `sends`, one send per paragraph, sends with no text left out
-/// (what a cancel gives back to the draft).
-pub fn text_of(sends: &[HeldSend]) -> String {
-    join_lines(sends.iter().map(send_text))
+/// The text of `sends` (each one's parts), one send per paragraph, sends with
+/// no text left out (what a cancel gives back to the draft).
+pub fn text_of<'a>(sends: impl IntoIterator<Item = &'a [Part]>) -> String {
+    join_lines(sends.into_iter().map(parts_text))
 }
 
 /// Non-empty pieces, a line apart.
@@ -191,7 +206,11 @@ const PARKED_MAGIC: &str = "cmux.launch-draft/1\n";
 
 impl Parked {
     fn new(held: &[HeldSend], typed: &str) -> Self {
-        let held = held.iter().map(send_text).filter(|text| !text.is_empty()).collect();
+        let held = held
+            .iter()
+            .map(|send| parts_text(&send.parts))
+            .filter(|text| !text.is_empty())
+            .collect();
         Self { held, typed: typed.to_owned() }
     }
 
@@ -251,12 +270,32 @@ impl Parked {
 mod tests {
     use super::*;
 
+    /// A text part (its raw form is any string the app chose).
+    fn text_part(s: &str) -> Part {
+        Part { text: Some(s.to_owned()), raw: format!("text:{s}") }
+    }
+
+    /// A part with no text, such as an attachment.
+    fn other(raw: &str) -> Part {
+        Part { text: None, raw: raw.to_owned() }
+    }
+
     fn text(s: &str) -> Vec<Part> {
-        vec![Part::Text(s.to_owned())]
+        vec![text_part(s)]
     }
 
     fn keys(sends: &[HeldSend]) -> Vec<&str> {
         sends.iter().map(|send| send.key.as_str()).collect()
+    }
+
+    /// Hands every send over as the app does: `next`, then `delivered`.
+    fn deliver_all(draft: &mut LaunchDraft) -> Vec<HeldSend> {
+        let mut sent = Vec::new();
+        while let Some(send) = draft.next().cloned() {
+            assert!(draft.delivered(&send.key));
+            sent.push(send);
+        }
+        sent
     }
 
     #[test]
@@ -269,24 +308,33 @@ mod tests {
     }
 
     #[test]
+    fn nothing_is_handed_over_before_the_chief_is_named() {
+        let mut draft = LaunchDraft::new();
+        draft.hold("a", text("one"));
+        assert_eq!(draft.next(), None);
+        assert!(!draft.delivered("a"));
+        assert_eq!(keys(draft.held()), ["a"]);
+    }
+
+    #[test]
     fn same_key_joins_the_first_and_is_never_duplicated() {
         let mut draft = LaunchDraft::new();
         draft.hold("a", text("one"));
         assert_eq!(draft.hold("a", text("other")), HoldOutcome::Joined);
         assert_eq!(draft.held(), [HeldSend { key: "a".into(), parts: text("one") }]);
-        let sends = draft.resolve("chief");
-        assert_eq!(keys(&sends), ["a"]);
+        assert!(draft.resolve("chief"));
+        assert_eq!(keys(&deliver_all(&mut draft)), ["a"]);
     }
 
     #[test]
-    fn resolve_returns_held_sends_in_order_with_attachments() {
+    fn resolve_hands_held_sends_over_in_order_with_their_parts() {
         let mut draft = LaunchDraft::new();
-        let parts = vec![Part::Text("look".into()), Part::Attachment("att-1".into())];
+        let parts = vec![text_part("look"), other(r#"{"attachment":"att-1"}"#)];
         draft.hold("a", parts.clone());
         draft.hold("b", text("two"));
-        let sends = draft.resolve("chief-1");
+        assert!(draft.resolve("chief-1"));
         assert_eq!(
-            sends,
+            deliver_all(&mut draft),
             [HeldSend { key: "a".into(), parts }, HeldSend { key: "b".into(), parts: text("two") }]
         );
         assert_eq!(draft.chief(), Some("chief-1"));
@@ -294,12 +342,27 @@ mod tests {
     }
 
     #[test]
+    fn a_send_being_handed_over_is_still_held_and_joined() {
+        let mut draft = LaunchDraft::new();
+        draft.hold("a", text("one"));
+        draft.resolve("chief-1");
+        assert_eq!(draft.next().map(|send| send.key.as_str()), Some("a"));
+        // Not handed over yet: a resend waits on it, and a quit keeps its text.
+        assert_eq!(draft.hold("a", text("one")), HoldOutcome::Joined);
+        assert_eq!(draft.save_for_quit("").text(), "one");
+        assert!(draft.delivered("a"));
+        assert!(!draft.delivered("a"));
+        assert_eq!(draft.next(), None);
+    }
+
+    #[test]
     fn resolve_runs_once() {
         let mut draft = LaunchDraft::new();
         draft.hold("a", text("one"));
-        assert_eq!(draft.resolve("chief-1").len(), 1);
-        assert!(draft.resolve("chief-2").is_empty());
+        assert!(draft.resolve("chief-1"));
+        assert!(!draft.resolve("chief-2"));
         assert_eq!(draft.chief(), Some("chief-1"));
+        assert_eq!(keys(&deliver_all(&mut draft)), ["a"]);
     }
 
     #[test]
@@ -307,20 +370,21 @@ mod tests {
         let mut draft = LaunchDraft::new();
         draft.hold("a", text("one"));
         draft.resolve("chief-1");
+        deliver_all(&mut draft);
         assert_eq!(
             draft.hold("a", text("one")),
             HoldOutcome::AlreadyDelivered { chief: "chief-1".into() }
         );
+        assert_eq!(draft.next(), None);
     }
 
     #[test]
-    fn new_key_after_resolve_is_delivered_now_and_once() {
+    fn new_key_after_resolve_waits_behind_the_held_ones_and_goes_once() {
         let mut draft = LaunchDraft::new();
+        draft.hold("a", text("one"));
         draft.resolve("chief-1");
-        assert_eq!(
-            draft.hold("b", text("late")),
-            HoldOutcome::DeliverNow { chief: "chief-1".into() }
-        );
+        assert_eq!(draft.hold("b", text("late")), HoldOutcome::Held);
+        assert_eq!(keys(&deliver_all(&mut draft)), ["a", "b"]);
         assert_eq!(
             draft.hold("b", text("late")),
             HoldOutcome::AlreadyDelivered { chief: "chief-1".into() }
@@ -333,19 +397,20 @@ mod tests {
         let mut draft = LaunchDraft::new();
         draft.hold("a", text("one"));
         draft.cancel();
-        assert!(draft.resolve("chief-1").is_empty());
+        assert!(!draft.resolve("chief-1"));
         assert_eq!(draft.chief(), None);
+        assert_eq!(draft.next(), None);
     }
 
     #[test]
     fn cancel_returns_held_text_one_send_per_paragraph() {
         let mut draft = LaunchDraft::new();
-        draft.hold("a", vec![Part::Text("hel".into()), Part::Text("lo".into())]);
-        draft.hold("b", vec![Part::Attachment("att-1".into())]);
+        draft.hold("a", vec![text_part("hel"), text_part("lo")]);
+        draft.hold("b", vec![other("att-1")]);
         draft.hold("c", text("world"));
         let held = draft.cancel();
         assert_eq!(keys(&held), ["a", "b", "c"]);
-        assert_eq!(text_of(&held), "hello\nworld");
+        assert_eq!(text_of(held.iter().map(|send| send.parts.as_slice())), "hello\nworld");
         assert!(draft.is_cancelled());
     }
 
@@ -364,6 +429,7 @@ mod tests {
         resolved.resolve("chief-1");
         assert!(resolved.cancel().is_empty());
         assert!(!resolved.is_cancelled());
+        assert_eq!(keys(&deliver_all(&mut resolved)), ["a"]);
         assert_eq!(
             resolved.hold("a", text("one")),
             HoldOutcome::AlreadyDelivered { chief: "chief-1".into() }
@@ -387,7 +453,7 @@ mod tests {
     fn save_for_quit_keeps_held_then_typed_and_the_hold_goes_on() {
         let mut draft = LaunchDraft::new();
         draft.hold("a", text("one"));
-        draft.hold("b", vec![Part::Attachment("att".into())]);
+        draft.hold("b", vec![other("att")]);
         let parked = draft.save_for_quit("typed");
         assert_eq!(parked, Parked { held: vec!["one".into()], typed: "typed".into() });
         assert_eq!(parked.text(), "one\ntyped");
