@@ -46,7 +46,7 @@ enum QuitStrings {
 
     static func unsavedRefused(_ titles: String) -> String {
         String(format: String(localized: "quit.unsaved.refused",
-                              defaultValue: "Not quitting: unsaved changes in %@ could not be saved. Save or close them in the app, then quit again.",
+                              defaultValue: "Not quitting: %@ could not be saved. Save or close it, then quit again.",
                               table: "Quit", bundle: .module), titles)
     }
 
@@ -56,7 +56,7 @@ enum QuitStrings {
 
     static func recoveredChanged(_ title: String) -> String {
         String(format: String(localized: "recovery.noticeChanged",
-                              defaultValue: "Recovered unsaved changes in %@. The file changed on disk since; review before saving.",
+                              defaultValue: "Recovered unsaved changes in %@. The file changed on disk since.",
                               table: "Quit", bundle: .module), title)
     }
 
@@ -65,7 +65,7 @@ enum QuitStrings {
     /// acpmux is already shutting down; it may not have ended its agents.
     static var agentsShutdownInProgress: String {
         String(localized: "quit.failed.agentsShutdownInProgress",
-               defaultValue: "Agents are still shutting down. Retry waits for them to finish.",
+               defaultValue: "Agents are still shutting down.",
                table: "Quit", bundle: .module)
     }
 
@@ -80,7 +80,7 @@ enum QuitStrings {
     }
 
     static var failedKeepRunning: String {
-        String(localized: "quit.failed.keepRunning", defaultValue: "If you quit anyway, the terminals that did not end keep running.",
+        String(localized: "quit.failed.keepRunning", defaultValue: "Quit Anyway leaves them running.",
                table: "Quit", bundle: .module)
     }
 

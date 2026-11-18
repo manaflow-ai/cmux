@@ -1031,9 +1031,12 @@ export type PresenceNote = {
 
 export interface PrewarmParams {
   _meta?: RequestMeta;
+  credentials?: unknown;
   cwd?: unknown;
   harness?: unknown;
+  model?: unknown;
   release?: unknown;
+  workspaceId?: unknown;
 }
 
 /**

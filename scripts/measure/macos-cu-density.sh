@@ -269,7 +269,24 @@ for _ in $(seq 1 90); do
   lume ssh "$vm" -t 10 true >/dev/null 2>&1 && { booted=1; break; }
   sleep 5
 done
-[[ $booted == 1 ]] || { tail -20 "$out/run.log"; finish "the guest's SSH never answered (run.log)"; exit 4; }
+if [[ $booted != 1 ]]; then
+  # Say why, not only that: is the VM process alive, what Lume reports for it (status, IP), how many
+  # macOS VMs this host runs (two at most: another owner's VM takes a slot), and the vmnet DHCP leases.
+  {
+    echo "== lume run alive: $(kill -0 "$run_pid" 2>/dev/null && echo yes || echo no)"
+    echo "== lume get $vm"; lume get "$vm" -f json 2>&1 | head -40
+    echo "== lume ls"; lume ls 2>&1 | head -20
+    echo "== Virtualization.framework VM processes on this host"
+    pgrep -fl com.apple.Virtualization.VirtualMachine 2>&1 | head -10
+    echo "== vmnet DHCP leases: $(grep -c ip_address= /var/db/dhcpd_leases 2>/dev/null || echo unreadable)"
+    echo "== lume ssh $vm (last try)"; lume ssh "$vm" -t 10 true 2>&1 | tail -5
+  } >"$out/guest-unreachable.txt" 2>&1
+  tail -20 "$out/run.log"
+  cat "$out/guest-unreachable.txt"
+  vms=$(pgrep -f com.apple.Virtualization.VirtualMachine 2>/dev/null | wc -l | tr -d ' ')
+  finish "the guest's SSH never answered: lume run $(kill -0 "$run_pid" 2>/dev/null && echo alive || echo exited), $vms VM process(es) on the host (guest-unreachable.txt, run.log)"
+  exit 4
+fi
 note "guest $vm answered lume ssh $(( $(date +%s) - t0 )) s after clone"
 keydir="$lume_home/tmp/key-$vm"
 mkdir -p "$keydir" && chmod 700 "$keydir"
