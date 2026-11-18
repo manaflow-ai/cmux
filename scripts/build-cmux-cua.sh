@@ -91,8 +91,9 @@ validate_replaceable_helper_bundle() {
   # when their exact TCC identity and executable prove they are our generated
   # build output. Never remove an arbitrary directory merely because it lives
   # at the computed output path.
-  existing_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$helper_app/Contents/Info.plist" 2>/dev/null || true)"
-  existing_executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$helper_app/Contents/Info.plist" 2>/dev/null || true)"
+  existing_id="" existing_executable=""
+  [[ -f "$helper_app/Contents/Info.plist" ]] && existing_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$helper_app/Contents/Info.plist" 2>/dev/null || true)"
+  [[ -f "$helper_app/Contents/Info.plist" ]] && existing_executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$helper_app/Contents/Info.plist" 2>/dev/null || true)"
   local legacy_id=false
   case "$existing_id" in
     com.cmuxterm.*.computer-use|com.cmuxterm.app.computer-use)
@@ -130,6 +131,8 @@ Environment:
   CMUX_CUA_SRC          existing cmux-cua checkout to read instead of cloning/fetching
   CMUX_CUA_CACHE_DIR    default cache dir override
   CMUX_CUA_REPO_URL     repo URL override, defaults to manaflow-ai/cmux-cua
+  CMUX_CUA_SOURCE_BUNDLE git bundle holding the pinned commit; an empty cache
+                         clones from it instead of from CMUX_CUA_REPO_URL
 USAGE
 }
 
@@ -375,7 +378,41 @@ else
       exit 1
     fi
     TMPDIR_CLONE="$(mktemp -d "$CACHE_DIR/.cmux-cua-clone.XXXXXX")"
-    git clone "$CMUX_CUA_REPO_URL" "$TMPDIR_CLONE"
+    # CMUX_CUA_SOURCE_BUNDLE: a git bundle that holds the pinned commit (the nightly's
+    # cmux-cua-source.pin.json, from the controller store or R2), so an empty cache needs no
+    # network at all. Its origin is still CMUX_CUA_REPO_URL; the SHA gate below checks the tree.
+    seeded=""
+    if [[ -n "${CMUX_CUA_SOURCE_BUNDLE:-}" ]]; then
+      if git clone --quiet --no-checkout "$CMUX_CUA_SOURCE_BUNDLE" "$TMPDIR_CLONE" \
+        && git -C "$TMPDIR_CLONE" cat-file -e "$CMUX_CUA_PINNED_SHA^{commit}" 2>/dev/null; then
+        git -C "$TMPDIR_CLONE" remote set-url origin "$CMUX_CUA_REPO_URL"
+        echo "cmux-cua source seeded from $CMUX_CUA_SOURCE_BUNDLE"
+        seeded=1
+      else
+        echo "warning: $CMUX_CUA_SOURCE_BUNDLE does not hold $CMUX_CUA_PINNED_SHA; fetching it" >&2
+        rm -rf "$TMPDIR_CLONE" && mkdir -p "$TMPDIR_CLONE"
+      fi
+    fi
+    if [[ -z "$seeded" ]]; then
+      # Fetch only the pinned commit, not the repository's whole history (about 260 MB):
+      # a cold cache on the nightly signer (cmux15, run 44232805509) spent 9.5 min in a
+      # full `git clone` before the transfer stalled and failed the nightly. A stalled
+      # transfer (under 1 KB/s for 60 s) is ended and retried, at most 3 attempts.
+      git init --quiet "$TMPDIR_CLONE"
+      git -C "$TMPDIR_CLONE" remote add origin "$CMUX_CUA_REPO_URL"
+      fetched=""
+      for attempt in 1 2 3; do
+        if GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=60 \
+          git -C "$TMPDIR_CLONE" fetch --quiet --depth 1 origin "$CMUX_CUA_PINNED_SHA"; then
+          fetched=1
+          break
+        fi
+        echo "warning: cmux-cua fetch attempt $attempt of 3 failed" >&2
+        # A stalled transfer leaves its partial pack behind; drop it so it never moves into the cache.
+        find "$TMPDIR_CLONE/.git/objects/pack" -name 'tmp_pack_*' -delete 2>/dev/null || true
+      done
+      [[ -n "$fetched" ]] || { echo "error: could not fetch cmux-cua $CMUX_CUA_PINNED_SHA" >&2; exit 1; }
+    fi
     printf '%s\n' "$CMUX_CUA_SOURCE_OWNER_VALUE" > "$TMPDIR_CLONE/$CMUX_CUA_SOURCE_OWNER_FILE"
     /bin/mv "$TMPDIR_CLONE" "$SRC_ROOT"
     TMPDIR_CLONE=""
@@ -391,7 +428,8 @@ else
   # builds keep working offline (or through GitHub outages) after the first
   # successful build.
   if ! git -C "$SRC_ROOT" cat-file -e "$CMUX_CUA_PINNED_SHA^{commit}" 2>/dev/null; then
-    git -C "$SRC_ROOT" fetch --quiet origin "$CMUX_CUA_PINNED_SHA"
+    GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=60 \
+      git -C "$SRC_ROOT" fetch --quiet --depth 1 origin "$CMUX_CUA_PINNED_SHA"
   fi
   # Materialize the exact pinned tree. A plain `checkout --detach` at the
   # already-checked-out commit silently keeps modified tracked files, so a
@@ -612,6 +650,13 @@ if [ -n "$HELPER_APP" ]; then
   # socket, credential, and state directory.
   HELPER_DISPLAY="${CMUX_CUA_HELPER_DISPLAY_NAME:-cmux Computer Use}"
   validate_replaceable_helper_bundle "$HELPER_APP" "$HELPER_ID" "$HELPER_EXECUTABLE"
+  # The screen sharing executable this helper carries (scripts/cmux-next/bundle-screen-sharing-helper.sh:
+  # one TCC identity for screen sharing and computer use) survives a rebuild of the helper.
+  _screen_sharing_keep=""
+  if [ -f "$HELPER_APP/Contents/MacOS/cmux-screen-sharing" ]; then
+    _screen_sharing_keep="$(mktemp "${TMPDIR:-/tmp}/cmux-screen-sharing.XXXXXX")"
+    cp "$HELPER_APP/Contents/MacOS/cmux-screen-sharing" "$_screen_sharing_keep"
+  fi
   /bin/rm -rf -- "$HELPER_APP"
   mkdir -p \
     "$HELPER_APP/Contents/MacOS" \
@@ -620,6 +665,13 @@ if [ -n "$HELPER_APP" ]; then
   printf '%s\n' "$CMUX_CUA_HELPER_OWNER_VALUE" > "$HELPER_APP/Contents/Resources/$CMUX_CUA_HELPER_OWNER_FILE"
   cp "$OUTPUT" "$HELPER_APP/Contents/MacOS/$HELPER_EXECUTABLE"
   chmod 0755 "$HELPER_APP/Contents/MacOS/$HELPER_EXECUTABLE"
+  if [ -n "$_screen_sharing_keep" ]; then
+    mv "$_screen_sharing_keep" "$HELPER_APP/Contents/MacOS/cmux-screen-sharing"
+    chmod 0755 "$HELPER_APP/Contents/MacOS/cmux-screen-sharing"
+    # Nested code is signed before the bundle that seals it.
+    /usr/bin/codesign --force --sign - --timestamp=none --identifier "$HELPER_ID" \
+      "$HELPER_APP/Contents/MacOS/cmux-screen-sharing"
+  fi
   # The helper bundle is copied out of the host app before launch, so it must
   # carry its own copy of the upstream MIT notice.
   cp "$CUA_LICENSE_SRC" "$HELPER_APP/Contents/Resources/LICENSE.md"
@@ -656,20 +708,20 @@ if [ -n "$HELPER_APP" ]; then
     <key>CMUX_CUA_TELEMETRY_ENABLED</key><string>false</string>
     <key>CMUX_CUA_UPDATE_CHECK</key><string>false</string>
   </dict>
-  <key>NSAccessibilityUsageDescription</key><string>${HELPER_DISPLAY} controls apps only when you ask an agent to use Computer Use.</string>
-  <key>NSScreenCaptureUsageDescription</key><string>${HELPER_DISPLAY} sees app windows only when you ask an agent to use Computer Use.</string>
+  <key>NSAccessibilityUsageDescription</key><string>${HELPER_DISPLAY} controls apps only when you ask an agent to use Computer Use, or a device you approve to control this Mac.</string>
+  <key>NSScreenCaptureUsageDescription</key><string>${HELPER_DISPLAY} sees the screen only when you ask an agent to use Computer Use, or share this Mac with a device you approve.</string>
 </dict>
 </plist>
 PLIST
   cat > "$HELPER_APP/Contents/Resources/en.lproj/InfoPlist.strings" <<STRINGS
 "CFBundleDisplayName" = "${HELPER_DISPLAY}";
-"NSAccessibilityUsageDescription" = "${HELPER_DISPLAY} controls apps only when you ask an agent to use Computer Use.";
-"NSScreenCaptureUsageDescription" = "${HELPER_DISPLAY} sees app windows only when you ask an agent to use Computer Use.";
+"NSAccessibilityUsageDescription" = "${HELPER_DISPLAY} controls apps only when you ask an agent to use Computer Use, or a device you approve to control this Mac.";
+"NSScreenCaptureUsageDescription" = "${HELPER_DISPLAY} sees the screen only when you ask an agent to use Computer Use, or share this Mac with a device you approve.";
 STRINGS
   cat > "$HELPER_APP/Contents/Resources/ja.lproj/InfoPlist.strings" <<STRINGS
 "CFBundleDisplayName" = "${HELPER_DISPLAY}";
-"NSAccessibilityUsageDescription" = "${HELPER_DISPLAY}は、エージェントにComputer Useの使用を依頼した場合にのみアプリを操作します。";
-"NSScreenCaptureUsageDescription" = "${HELPER_DISPLAY}は、エージェントにComputer Useの使用を依頼した場合にのみアプリのウインドウを表示します。";
+"NSAccessibilityUsageDescription" = "${HELPER_DISPLAY}は、エージェントにComputer Useの使用を依頼した場合、または承認したデバイスがこのMacを操作する場合にのみアプリを操作します。";
+"NSScreenCaptureUsageDescription" = "${HELPER_DISPLAY}は、エージェントにComputer Useの使用を依頼した場合、または承認したデバイスとこのMacを共有する場合にのみ画面を表示します。";
 STRINGS
   /usr/bin/plutil -lint "$HELPER_APP/Contents/Info.plist" >/dev/null
   # An ad-hoc signature without an explicit designated requirement collapses

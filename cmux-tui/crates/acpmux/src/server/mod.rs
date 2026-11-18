@@ -2361,10 +2361,10 @@ mod cancel_classes_tests;
 #[path = "cancel_prompt_tests.rs"]
 mod cancel_prompt_tests;
 mod client_request;
-pub(crate) mod controls;
 #[cfg(test)]
 #[path = "connection_token_tests.rs"]
 mod connection_token_tests;
+pub(crate) mod controls;
 mod in_flight;
 pub(crate) use crate::clock_text::{civil_from_days, iso};
 pub(crate) use change_kind::session_change_kind;
@@ -2419,6 +2419,7 @@ mod review_queue;
 mod run_elsewhere;
 mod sign_in_follow;
 pub use pairing::serve_connection_device;
+pub(crate) mod host_power;
 pub mod peer_auth;
 mod peer_forward;
 pub(crate) mod peer_status;

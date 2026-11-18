@@ -561,6 +561,17 @@ pub(super) fn push_seed_only(
     push_full(socket, local, remote, head_first, false)
 }
 
+/// A copy of `local`, never a seed: a chat started from a folder on this Mac that could not be
+/// projected gets the folder itself, never a clone of its remote (which may need a GitHub
+/// install the machine does not have, and holds the agent until it finishes).
+pub(super) fn push_copy_only(socket: &Path, local: &Path, remote: &str) -> anyhow::Result<Pushed> {
+    let machine = Machine::read(socket)?;
+    let local = std::fs::canonicalize(local).map_err(|error| {
+        SeedError::new("sync_failed", format!("cannot open {}: {error}", local.display()))
+    })?;
+    copy(&machine, &local, remote, None)
+}
+
 fn push_full(
     socket: &Path,
     local: &Path,
