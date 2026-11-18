@@ -756,8 +756,9 @@ jobs:
       # The pre-merge pipeline (backend-migrations.yml) applies a migration to staging and production
       # only, and migrations-development runs only for previews, so nothing else brings development up
       # to the tree: one landed migration refused every development deploy after it (0008_build_space,
-      # 2026-11-18). This tree's files are expand-only and already on staging and production (the
-      # required `backend migrations applied` gate), so apply the pending ones here, then verify.
+      # 2026-11-18). Every file in this tree is already applied to staging and production (the required
+      # `backend migrations applied` gate; a contract file only after production runs it), so apply the
+      # pending ones here, then verify.
       - name: Development schema matches this commit
         if: steps.source.outputs.deploy == 'true'
         working-directory: backend/db
