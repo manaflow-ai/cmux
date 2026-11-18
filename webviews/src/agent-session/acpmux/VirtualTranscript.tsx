@@ -1,5 +1,6 @@
 import { MARK_INDICATOR, MARK_PROMPT, rowMark, TRANSCRIPT_COMPOSER_GAP, transcriptLiveVars } from "./transcriptGrid";
 import React, {
+  startTransition,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -19,6 +20,7 @@ import { isAgentMotionOff } from "../shared/motion";
 import { LOAD_FADE_CLASS, LoadFadeWindow } from "../shared/loadFade";
 import { entranceAllowed, pageAway } from "../shared/pageReveal";
 import { holdEntranceForFirstFrame } from "./conversation/entranceClock";
+import { HISTORY_VIEWPORTS, WARM_VIEWPORTS, scrollLeadAt, scrollRangesAt, warmAnchorTop } from "./scrollWindow";
 import {
   layoutConversation,
   type ConversationLayout,
@@ -30,7 +32,6 @@ import {
   placeRowsIndexed,
   transcriptRowWidth,
   mergeRowRanges,
-  scrollLeadRanges,
   visibleLayoutRange,
   type AcpmuxRow,
   nextDrawnRow,
@@ -198,6 +199,7 @@ import {
   pressJumpUp,
   type JumpBack,
   type PromptScan,
+  type IdleMark,
   IdleTracker,
 } from "./jumpUp";
 import { topZoneOffset } from "./overlayLayout";
@@ -1077,11 +1079,6 @@ function settleFollowBottom(node: HTMLElement, latest: number): boolean {
   return moved;
 }
 
-/// Scroll steps of rows mounted ahead in the scroll direction, capped in viewports.
-/// A scroll commits from its event, a frame after the offset moved, so without the
-/// lead a fling shows a blank edge on every frame.
-const SCROLL_LEAD_STEPS = 2;
-
 /// Once a fling stops, keep its lead only briefly. A stale direction keeps rows mounted far ahead
 /// of the reader and makes every later render pay for a scroll that already ended.
 // motion-allow: a scroll idle timeout, not a motion
@@ -1164,26 +1161,6 @@ class OlderRowFade {
 /// How far around the last mounted range a row whose drawn height changed is looked for; farther
 /// (a jump), the whole transcript is placed again.
 const DRAWN_SEARCH_ROWS = 64;
-
-const MAX_SCROLL_LEAD_VIEWPORTS = 4;
-
-/// Viewports of just-passed rows kept mounted behind a moving scroll (scrollLeadRanges `trail`), so a
-/// quick reversal finds them drawn.
-const SCROLL_TRAIL_VIEWPORTS = 1;
-
-/// Viewports of rows kept mounted either side of the reader, built between frames.
-const WARM_VIEWPORTS = 1;
-
-/// Viewports of history mounted above the reader, in the commit that draws the view: a chat opens
-/// with rows to scroll up into already drawn, and the warm rows keep that much above while the reader
-/// scrolls (Leo, 2026-11-12: "if you try to scroll up, you can't really scroll much of anything up at
-/// all. Like it doesn't load enough"). Rows the transcript already holds only; older pages still come
-/// by OLDER_AHEAD_VIEWPORTS. Above the view, so a followed view's end anchors them: their heights
-/// land in the offset in the frame they are measured and no visible row moves.
-const HISTORY_VIEWPORTS = 4;
-
-/// How far the reader scrolls, in viewports, before the warm rows move with them.
-const WARM_STEP_VIEWPORTS = 0.5;
 
 /// How far above the latest message the reader is before Jump to latest shows.
 const JUMP_LATEST_DISTANCE = 80;
@@ -1289,35 +1266,114 @@ function restingAnchor(
   return atLatest || !row ? null : { rowId: row.id, offset: top - layoutGeometry(placed).topAt(index) };
 }
 
-/// Where the warm rows are built from, as a row and how far into it: one string, so the deferred
-/// render that builds them runs only when it moves. A row holds its content as rows page in above
-/// it or a followed end moves under it; an offset into the whole stack did not, and a deferred one
-/// from the frame before picked rows turns away (`warmTop`). The row's index is a hint for the read.
-function warmAnchor(
-  placed: Parameters<typeof visibleLayoutRange>[0],
-  shown: readonly { id: string }[],
-  at: number,
-  step: number,
-) {
-  const index = visibleLayoutRange(placed, at, 0, 0).first;
-  const row = shown[index];
-  // In steps too: a row above that settles to its drawn height moves the row, not the anchor.
-  return row ? `${Math.round((at - layoutGeometry(placed).topAt(index)) / step) * step}\n${index}\n${row.id}` : "";
+/// What a commit drew of the offset (TranscriptView `windowKey`), as one string: whether Jump to latest
+/// and Jump up show, and the mounted rows (`mountedRangeKey`). The warm rows' place (`warmAt`) is
+/// apart: a move of it alone is the deferred render's, not the frame's (`commitScroll`).
+/// `ScrollWindowInputs` are that commit's, for `scrollWindowAt` to read a scroll offset against.
+type ScrollWindowInputs = {
+  layout: PlacedLayout;
+  rows: readonly AcpmuxRow[];
+  lift: number;
+  height: number;
+  deferredWarmAt: string;
+  heldIndices: readonly number[];
+  behind: boolean;
+  upTop: number | undefined;
+  topInset: number;
+  dockSpace: number;
+  idle: IdleTracker;
+  idleMark: IdleMark["mark"];
+  switched: boolean;
+  /// What a frame reads live: the scroller, the layout the placement pass last placed and the one it is
+  /// placing, the reader's intent, the warm rows' held place and a bottom fold in flight.
+  live: {
+    scroller: React.RefObject<HTMLDivElement | null>;
+    placed: React.RefObject<PlacedLayout | null>;
+    placing: React.RefObject<PlacedLayout | undefined>;
+    following: React.RefObject<boolean>;
+    heldWarmAt: React.RefObject<string | undefined>;
+    bottomStackFold: React.RefObject<BottomStackFold | undefined>;
+  };
+};
+/// What a render would draw of `scroll` (TranscriptView `scrollRef`) against the commit `drawn`, worked
+/// out as the render does (scrollLeadAt, scrollRangesAt, `behind`, `upOff`), with the soft edges at it.
+/// Undefined where only a render can tell: another chat's first commit, a layout the placement pass has
+/// not placed (`placed`: the render projects the offset onto it), or an idle mark the reader's scroll
+/// just dropped (Jump up's target moves).
+function scrollWindowAt(
+  drawn: ScrollWindowInputs | undefined,
+  scroll: { top: number; delta: number },
+): { key: string; warmAt: string; fades: TranscriptFades } | undefined {
+  if (!drawn) return undefined;
+  const { layout, rows, lift, height, heldIndices, live } = drawn;
+  const node = live.scroller.current;
+  // The placement pass places the commit's layout as it runs: a render it asks for reads it placed.
+  const placed = live.placed.current === layout || live.placing.current === layout;
+  if (drawn.switched || !node || !placed || drawn.idle.mark !== drawn.idleMark) return undefined;
+  const following = live.following.current;
+  const top = scroll.top - scrollOrigin(node);
+  const lead = scrollLeadAt(layout, rows, top, scroll.delta, lift, height, live.heldWarmAt.current);
+  const scrolled = scrollRangesAt(layout, rows, lead, drawn.deferredWarmAt, following, height);
+  // With the rows the commit held mounted (TranscriptView `mountedRanges`).
+  const mounted =
+    heldIndices.length === 0
+      ? scrolled
+      : mergeRowRanges([...scrolled, ...heldIndices.map((index) => ({ first: index, last: index + 1 }))]);
+  const below = layout.totalHeight - height - top;
+  const behind =
+    following || below <= FOLLOW_BOTTOM_DEADBAND_PX
+      ? false
+      : below > JUMP_LATEST_DISTANCE && !live.bottomStackFold.current
+        ? true
+        : drawn.behind;
+  const upOff = placeOffView(drawn.upTop, {
+    shownTop: lead.shownTop,
+    height,
+    threadTop: THREAD_TOP,
+    topInset: drawn.topInset,
+    dockSpace: drawn.dockSpace,
+  });
+  return {
+    key: `${behind ? 1 : 0}${upOff ? 1 : 0}|${mounted.map(({ first, last }) => `${first}:${last}`).join(",")}`,
+    warmAt: lead.warmAt,
+    fades: transcriptFades(top, below, following),
+  };
 }
 
-/// The offset of `anchor` (warmAnchor) in `placed`: its row at the index it was found at, else looked
-/// for (older history paged in above it, once, until the deferred anchor catches up). Undefined once
-/// it is gone.
-function warmAnchorTop(
-  placed: Parameters<typeof visibleLayoutRange>[0],
-  shown: readonly { id: string }[],
-  anchor: string,
-) {
-  const [offset, hint, id] = anchor.split("\n");
-  if (id === undefined) return undefined;
-  const at = Number(hint);
-  const index = shown[at]?.id === id ? at : shown.findIndex((row) => row.id === id);
-  return index < 0 ? undefined : layoutGeometry(placed).topAt(index) + Number(offset);
+/// The scroller's soft edges at an offset (conversation.css): `top` and `below` in layout px. The top
+/// one once scrolled from the start, the bottom one while more lies below. A followed reply has nothing
+/// below it, even while its growth outruns the offset. The bottom one takes follow's deadband: a reader
+/// resting at the end saw the band above the composer flicker on and off as a row's measure or the stack
+/// moved the end by a pixel (Leo, 2026-10-23: "that little bit above composer can flicker"). How deep
+/// each draws (transcriptFadeReach): none at that end of the chat, deeper the farther the view is from
+/// it; non-inherited (conversation.css), so a scroll restyles the scroller alone.
+/// Written to the node, never rendered: they change with every scroll frame near either end, and a
+/// render for them redrew the whole transcript.
+type TranscriptFades = { top: boolean; bottom: boolean; topReach: number; bottomReach: number };
+function transcriptFades(top: number, below: number, following: boolean): TranscriptFades {
+  return {
+    top: top > 0.5,
+    bottom: fadesBelow(following, below),
+    topReach: transcriptFadeReach(top),
+    bottomReach: following ? 0 : transcriptFadeReach(below - FOLLOW_BOTTOM_DEADBAND_PX),
+  };
+}
+function paintTranscriptFades(node: HTMLElement, fades: TranscriptFades) {
+  // "true" as React wrote them (`data-fade-top={true}`), which tests and readers of `dataset` compare.
+  for (const [name, on] of [
+    ["data-fade-top", fades.top],
+    ["data-fade-bottom", fades.bottom],
+  ] as const)
+    if (node.hasAttribute(name) !== on) {
+      if (on) node.setAttribute(name, "true");
+      else node.removeAttribute(name);
+    }
+  const topReach = String(fades.topReach);
+  const bottomReach = String(fades.bottomReach);
+  if (node.style.getPropertyValue("--acpmux-fade-top-reach") !== topReach)
+    node.style.setProperty("--acpmux-fade-top-reach", topReach);
+  if (node.style.getPropertyValue("--acpmux-fade-bottom-reach") !== bottomReach)
+    node.style.setProperty("--acpmux-fade-bottom-reach", bottomReach);
 }
 
 /// Where a view whose reader's place is held (`heldPlace`) goes in this pass: the place itself once
@@ -1951,7 +2007,36 @@ function TranscriptView({
     dockTrayRef,
   } = useTranscriptScroll({ rows, sessionId, width: lastTranscriptBox.width, onAnchor });
   const scrollLeadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /// What the last commit drew of the offset (`windowKey` below) and what it drew it from, for a scroll
+  /// frame to read its offset against (scrollWindowAt). The offset itself is `scrollRef`, never state: a
+  /// render reads it there.
+  const renderedWindowRef = useRef<{ key: string; warmAt: string } | undefined>(undefined);
+  const scrollWindowRef = useRef<ScrollWindowInputs | undefined>(undefined);
+  /// The layout the placement pass is placing while it runs (`anchorPass`).
+  const placingLayoutRef = useRef<PlacedLayout | undefined>(undefined);
+  /// Renders the transcript for a new window: set only when the rows it mounts, Jump to latest or Jump up
+  /// change, or the warm rows' place (`commitScroll`).
   const [, setScroll] = useState(scrollRef.current);
+  /// Commits the offset in `scrollRef`. A render only when it draws another window than the last commit
+  /// did; else the frame writes only what moves with every pixel (the soft edges) to the scroller. A
+  /// render each scroll frame redrew the whole transcript (a 100k-row fling's long frames were mostly
+  /// that, p50 67 ms) for rows it left mounted as they were. The warm rows' place moving alone is a
+  /// transition: the render it brings is the one that builds them between frames (`useDeferredValue`
+  /// below), with no urgent render first that would draw the window as it was.
+  const commitScroll = () => {
+    const next = scrollWindowAt(scrollWindowRef.current, scrollRef.current);
+    const drawn = renderedWindowRef.current;
+    if (next === undefined || drawn === undefined || next.key !== drawn.key) {
+      setScroll(scrollRef.current);
+      return;
+    }
+    const node = ref.current;
+    if (node) paintTranscriptFades(node, next.fades);
+    if (next.warmAt !== drawn.warmAt) {
+      const scroll = scrollRef.current;
+      startTransition(() => setScroll(scroll));
+    }
+  };
   const scheduleScrollLeadReset = () => {
     clearTimeout(scrollLeadTimer.current);
     if (scrollRef.current.delta === 0) {
@@ -1962,22 +2047,33 @@ function TranscriptView({
       scrollLeadTimer.current = undefined;
       if (scrollRef.current.delta === 0) return;
       scrollRef.current = { ...scrollRef.current, delta: 0 };
-      setScroll(scrollRef.current);
+      commitScroll();
     }, SCROLL_LEAD_IDLE_MS);
   };
   const setScrollAt = (top: number, delta?: number) => {
     const next = { top, delta: delta ?? top - scrollRef.current.top };
     scrollRef.current = next;
-    setScroll(next);
+    commitScroll();
     scheduleScrollLeadReset();
   };
   /// The view follows the latest row (scrolledTo.atLatest, as of the last scroll). Jump to latest shows
   /// when it does not and the latest message is more than JUMP_LATEST_DISTANCE below, read each render,
   /// so a reply growing below or a session switch updates it without a scroll.
   const [following, setFollowing] = useState(true);
+  /// The last `following` asked of React, committed or not: a scroll frame asks again only for another
+  /// value (`pacedScroll`), so a frame that changes nothing renders nothing.
+  const followingAskedRef = useRef(true);
+  const askFollowing = (next: boolean) => {
+    if (followingAskedRef.current === next) return;
+    followingAskedRef.current = next;
+    setFollowing(next);
+  };
   /// Jump to latest is shown (`behind`, below): set past JUMP_LATEST_DISTANCE, cleared only back at
   /// the latest message. Each render's answer is the next one's start (set during render).
   const [jumpShown, setJumpShown] = useState(false);
+  /// The rows' tab stop while the active row is not mounted (`tabStopId`): the last render's answer is
+  /// the next one's start (set during render), so a scroll moves it only once its row is gone.
+  const [keptTabStop, setKeptTabStop] = useState<string | undefined>(undefined);
   /// Jump up (jumpUp.ts): the reader's idle stretch and the mark it pinned (this chat's, kept across
   /// reloads), the way back a press holds (a second press or Esc returns there), and the row lookups'
   /// hints.
@@ -2079,7 +2175,7 @@ function TranscriptView({
     if (next) heldPlaceRef.current = undefined;
     followingRef.current = next;
     onFollowingChange?.(next);
-    setFollowing(next);
+    askFollowing(next);
   };
   const followRef = useRef(follow);
   useInsertionEffect(() => {
@@ -2110,16 +2206,16 @@ function TranscriptView({
       // intent ref agree; a stale queued `atLatest` must not retake a parked reader.
       flushSync(() => {
         followRef.current(atLatest, "pacer");
-        setScroll(scrollRef.current);
+        commitScroll();
       });
       return;
     }
     acpmuxPerf.timed("flush.scroll", () => {
       flushSync(() => {
-        setScroll(scrollRef.current);
+        commitScroll();
         // Upward intent can arrive before the browser's default moves the offset. Even at the
         // queued frame's exact position, its old follow state must not replace that live intent.
-        setFollowing(followingRef.current);
+        askFollowing(followingRef.current);
       });
     });
   };
@@ -4389,21 +4485,18 @@ function TranscriptView({
           : undefined;
   const renderScroll = projectedTop === undefined ? unplacedScroll : { ...unplacedScroll, top: projectedTop + origin };
   const renderFollowing = sessionSwitched || followingRef.current;
+  // How far the latest message is below the view: Jump to latest (`behind`) and the bottom soft edge.
+  const below = layout.totalHeight - height - (renderScroll.top - origin);
+  // The soft edges at this commit's offset, written to the scroller (paintTranscriptFades) before any
+  // other layout effect of the commit, where React wrote them as attributes: a placement pass that moves
+  // the offset after it writes them again for where it put the view (`commitScroll`).
+  const fades = transcriptFades(renderScroll.top - origin, below, renderFollowing);
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (node) paintTranscriptFades(node, fades);
+  });
   // The content in view starts at the offset less `lift`: rows drawn up by it show content that much
-  // further down.
-  const shownTop = renderScroll.top - lift - origin;
-  const ahead = scrollLeadRanges(
-    layout,
-    shownTop,
-    renderScroll.delta,
-    height,
-    SCROLL_LEAD_STEPS,
-    height * MAX_SCROLL_LEAD_VIEWPORTS,
-    height * SCROLL_TRAIL_VIEWPORTS,
-  );
-  // The run of mounted rows the reader sees.
-  const view = visibleLayoutRange(layout, shownTop, height);
-  const range = ahead.find((each) => each.first <= view.first && view.first < each.last) ?? view;
+  // further down (`shownTop`). The run of mounted rows the reader sees is `range`.
   // The rows a viewport either side of where the reader was also mount, in a deferred render
   // between frames: a scroll then finds the rows it brings in already drawn and measured instead
   // of building them in its own frame. A jump past them mounts only what it shows.
@@ -4421,32 +4514,37 @@ function TranscriptView({
   // where they were: each frame's deferred render built a viewport either side of a view the next
   // frame had already left, a second transcript render and up to three viewports of rows a frame
   // that no frame showed. They catch up once the scroll's lead decays (SCROLL_LEAD_IDLE_MS).
-  const warmStep = Math.max(1, height * WARM_STEP_VIEWPORTS);
-  const liveWarmAt = Math.round((renderScroll.top - origin) / warmStep) * warmStep;
-  const warmOutrun = Math.abs(unplacedScroll.delta) * SCROLL_LEAD_STEPS > height * WARM_VIEWPORTS;
-  const warmAt =
-    warmOutrun && heldWarmAtRef.current !== undefined
-      ? heldWarmAtRef.current
-      : warmAnchor(layout, rows, liveWarmAt, warmStep);
-  heldWarmAtRef.current = sessionSwitched ? undefined : warmAt;
-  const warmTop = warmAnchorTop(layout, rows, useDeferredValue(warmAt)) ?? liveWarmAt;
-  // Above the view the warm rows reach HISTORY_VIEWPORTS: history to scroll up into, built between
-  // frames as the rest of them are.
-  const warm = visibleLayoutRange(
+  // Worked out as scrollWindow.ts's scrollLeadAt and scrollRangesAt do, which a scroll frame runs
+  // (`scrollWindowAt`): a frame that leaves them as this commit drew them renders nothing. The ranges are
+  // inline here (scrollRangesAt says why).
+  const lead = scrollLeadAt(
     layout,
-    warmTop - height * HISTORY_VIEWPORTS - warmStep / 2,
-    height * (1 + HISTORY_VIEWPORTS + WARM_VIEWPORTS) + warmStep,
+    rows,
+    renderScroll.top - origin,
+    renderScroll.delta,
+    lift,
+    height,
+    heldWarmAtRef.current,
   );
-  // A followed view (a chat as it opens, at its latest row) mounts that history in the commit that
-  // draws it, not a deferred render later: the deferred anchor of a chat's first commit is the top of
-  // its rows, nowhere near the view, so its first painted frame held only the rows in view and
+  const { shownTop, view, range, warmAt } = lead;
+  heldWarmAtRef.current = sessionSwitched ? undefined : warmAt;
+  const deferredWarmAt = useDeferredValue(warmAt);
+  // A followed view (a chat as it opens, at its latest row) mounts the history above it in the commit
+  // that draws it, not a deferred render later: the deferred anchor of a chat's first commit is the top
+  // of its rows, nowhere near the view, so its first painted frame held only the rows in view and
   // nothing to scroll up into. A followed view is anchored at its end, so rows drawn above it at their
   // estimate and measured move the offset, never a visible row. Scrolled up, the warm rows hold it.
+  const warmTop = warmAnchorTop(layout, rows, deferredWarmAt) ?? lead.liveWarmAt;
+  const warm = visibleLayoutRange(
+    layout,
+    warmTop - height * HISTORY_VIEWPORTS - lead.warmStep / 2,
+    height * (1 + HISTORY_VIEWPORTS + WARM_VIEWPORTS) + lead.warmStep,
+  );
   const history = renderFollowing
     ? visibleLayoutRange(layout, shownTop - height * HISTORY_VIEWPORTS, height * HISTORY_VIEWPORTS, 0)
     : undefined;
   const scrolledRanges = mergeRowRanges([
-    ...(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]),
+    ...(warm.last < range.first || warm.first > range.last ? lead.ahead : [...lead.ahead, warm]),
     ...(history ? [history] : []),
   ]);
   // A held row (gutterSelect.ts) is at its index, or as far from the end as it was when older history
@@ -4642,19 +4740,33 @@ function TranscriptView({
     (index: number, event: React.KeyboardEvent<HTMLElement>) => rowKeyDownRef.current(index, event),
     [],
   );
-  // Avoid allocating a new slice on every scroll/follow commit. Long transcripts can dispatch
-  // several state commits per frame while the reader is moving; the mounted range is already
-  // bounded, so a direct scan keeps the check allocation-free.
-  let activeVisible = false;
-  if (effectiveActiveRowId) {
-    for (let index = range.first; index < range.last; index += 1) {
-      if (rows[index]?.id === effectiveActiveRowId) {
-        activeVisible = true;
-        break;
+  // The rows' one tab stop (roving tabindex): the active row while it is mounted; else the last
+  // render's stop while its row is, and once it is gone the first row in view. Either moves only as
+  // its row mounts or unmounts, so a scroll that leaves the mounted rows as they were moves no stop and
+  // redraws no row for one. Read against the run in view (`range`), the stop moved with every scroll
+  // that moved the run, and two mounted rows drew again each time. A stop out of view is as it was (the
+  // run's first row was a viewport above the view while the reader scrolled down): Tab into the
+  // transcript goes to a row on screen (ui/tabReach.ts keepTabOnScreen).
+  // A direct scan of the mounted rows (bounded), with no slice: a long transcript can commit several
+  // times a frame while the reader moves.
+  let activeMounted = false;
+  let keptMounted = false;
+  if (effectiveActiveRowId !== undefined || keptTabStop !== undefined)
+    for (let at = 0; at < mountedRanges.length && !activeMounted; at += 1)
+      for (let index = mountedRanges[at]!.first; index < mountedRanges[at]!.last; index += 1) {
+        const id = rows[index]?.id;
+        if (id !== undefined && id === effectiveActiveRowId) {
+          activeMounted = true;
+          break;
+        }
+        if (id !== undefined && id === keptTabStop) keptMounted = true;
       }
-    }
-  }
-  const tabStopId = activeVisible ? effectiveActiveRowId : rows[range.first]?.id;
+  const tabStopId = activeMounted
+    ? effectiveActiveRowId
+    : keptMounted
+      ? keptTabStop
+      : (rows[view.first]?.id ?? rows[range.first]?.id);
+  if (!activeMounted && tabStopId !== keptTabStop) setKeptTabStop(tabStopId);
   useLayoutEffect(() => {
     const spans = mountedRanges.map(({ first, last }): MountedSpan => [
       layout.geometry.topAt(first),
@@ -5352,10 +5464,11 @@ function TranscriptView({
     minimapPlaced.current?.();
   });
   // openAt is read once, at the first open.
-  useLayoutEffect(
-    () => anchorPass(),
-    [anchorPass, layout, rows, range.first, height, width, dockSpace, room, lift, sessionId, followResume],
-  );
+  useLayoutEffect(() => {
+    placingLayoutRef.current = layout;
+    anchorPass();
+    placingLayoutRef.current = undefined;
+  }, [anchorPass, layout, rows, range.first, height, width, dockSpace, room, lift, sessionId, followResume]);
   // The turn that just ended folds from the rows drawn then to the rows placed now (turnEndFold.ts).
   useLayoutEffect(() => {
     const capture = turnEndCapture.current;
@@ -6969,8 +7082,8 @@ function TranscriptView({
     pointedTurn.current = footer;
     markTurns();
   };
-  // Jump to latest remains shown once the reader is far behind, avoiding flicker near the threshold.
-  const below = layout.totalHeight - height - (renderScroll.top - origin);
+  // Jump to latest remains shown once the reader is far behind, avoiding flicker near the threshold
+  // (`below`, above).
   // A fold the reader closed at the very bottom keeps the view at its end on each of its frames
   // (`beginBottomStackFold`; an open there grows down and stops following): a render mid-fold that
   // lays out ahead of that pin (a call that joins the group) is not the reader falling behind, and
@@ -7029,6 +7142,42 @@ function TranscriptView({
   // stacked are "a bit extra"). A held way back is still Esc's, and Jump to latest goes there too.
   const latestShown = jumpButton && (behind || (needsYou?.elsewhere ?? 0) > 0);
   const upShown = jumpUp && !latestShown && jumpUpShown(upOff, jumpBackHeld);
+  // What this commit draws of the offset, for a scroll frame to read its own against (`commitScroll`,
+  // scrollWindowAt): the rows it mounts, the warm rows' place, and whether Jump to latest and Jump up
+  // show. A frame that reads the same draws nothing; another one renders. The run in view (`range`) is
+  // not among them: with the mounted rows the same, the row tab stop, the turn marks and the pending
+  // focus it keys find the rows as the last commit left them. Built inline, not by a call: a call that
+  // took the mounted rows this late kept them open to change past the effects that read them, and the
+  // compiler then read those effects as render code.
+  const windowKey = `${behind ? 1 : 0}${upOff ? 1 : 0}|${mountedRangeKey}`;
+  // Handed over in the commit's insertion effect; read only by a scroll frame (scrollWindowAt).
+  const windowInputs: ScrollWindowInputs = {
+    layout,
+    rows,
+    lift,
+    height,
+    deferredWarmAt,
+    heldIndices,
+    behind,
+    upTop,
+    topInset,
+    dockSpace,
+    idle,
+    idleMark: idleNow.mark,
+    switched: sessionSwitched,
+    live: {
+      scroller: ref,
+      placed: previousLayoutRef,
+      placing: placingLayoutRef,
+      following: followingRef,
+      heldWarmAt: heldWarmAtRef,
+      bottomStackFold: bottomStackFoldRef,
+    },
+  };
+  useInsertionEffect(() => {
+    renderedWindowRef.current = { key: windowKey, warmAt };
+    scrollWindowRef.current = windowInputs;
+  });
   // What a press reads (`pressUp`), as of the last commit (useTranscriptScroll.ts `upTopRef`).
   useLayoutEffect(() => {
     upTopRef.current = { top: upTop, place: upTarget };
@@ -7148,13 +7297,8 @@ function TranscriptView({
           // Its thin scrollbar stays shown while the chat overflows, as in every agent app, and never
           // flashes as rows arrive or the view follows them (scrollers.ts, Leo 2026-10-21).
           {...{ [SHOWN_SCROLLER_ATTRIBUTE]: "" }}
-          // Soft edges (conversation.css): the top once scrolled from the start, the bottom while more
-          // lies below. A followed reply has nothing below it, even while its growth outruns the offset.
-          // The bottom one takes follow's deadband: a reader resting at the end saw the band above the
-          // composer flicker on and off as a row's measure or the stack moved the end by a pixel (Leo,
-          // 2026-10-23: "that little bit above composer can flicker").
-          data-fade-top={renderScroll.top - origin > 0.5 || undefined}
-          data-fade-bottom={fadesBelow(renderFollowing, below) || undefined}
+          // Soft edges (conversation.css), `data-fade-top` and `data-fade-bottom` with how deep each
+          // draws (`--acpmux-fade-*-reach`): written to this node by paintTranscriptFades, not here.
           // Jump to latest stands in that band: the fade reaches past it, so rows (a date line) pass
           // out of sight behind it instead of reading through its glass.
           data-jump-shown={(jumpButton && behind) || undefined}
@@ -7164,15 +7308,8 @@ function TranscriptView({
           // A subagent's view keeps its "Subagent of" pill pinned over the top (pinnedPill below): rows
           // pass out of sight under it.
           data-pinned-top={pinnedPill ? "" : undefined}
-          // How deep each soft edge draws (threadMinimap/model.ts transcriptFadeReach): none at that end
-          // of the chat, deeper the farther the view is from it. Non-inherited (conversation.css), so a
-          // scroll restyles the scroller alone.
           style={
             {
-              "--acpmux-fade-top-reach": transcriptFadeReach(renderScroll.top - origin),
-              "--acpmux-fade-bottom-reach": renderFollowing
-                ? 0
-                : transcriptFadeReach(below - FOLLOW_BOTTOM_DEADBAND_PX),
               ...(dockSpace > 0 ? { "--acpmux-dock-space": `${dockSpace}px` } : {}),
               ...(pinnedPill ? { "--acpmux-view-top": `${pinAt.pad + topInset + SUBAGENT_OF_HEIGHT}px` } : {}),
               // The live line's box and the gap over it in a run, from their one source (transcriptGrid.ts).
