@@ -195,6 +195,82 @@ test("a prompt with two files, one made and one failed, gives the made one back 
   expect(h.intake().attachments).toEqual([]);
 });
 
+/// A file as a drop gives it whose bytes never come: a header read of it (a video's shape, an
+/// image's size or picture) never answers.
+function unreadable(name: string, type: string, size: number): File {
+  const file = new File([], name, { type });
+  Object.defineProperty(file, "size", { value: size });
+  const never = () => new Promise<never>(() => {});
+  const stalled = { arrayBuffer: never, text: never, bytes: never, size, type };
+  Object.defineProperty(file, "slice", { value: () => stalled });
+  for (const read of ["arrayBuffer", "text", "bytes"] as const) Object.defineProperty(file, read, { value: never });
+  return file;
+}
+
+// Leo, 2026-11-18: "you can just have that be the thing that gets attached ... you can just send it
+// instantly. Like, stop blocking." A drop in a chat on this Mac: each chip shows in the drop's own
+// render, never held unseen for its header or picture, and Send takes it at once; once the host
+// says where the file is, it is its chip, with no wait for anything else.
+test("a drop in a chat on this Mac: every chip shows and is sendable at once, and is its path once the host answers", async () => {
+  root = createRoot(installDom());
+  let answer!: (items: { path: string; folder: boolean }[]) => void;
+  const localPaths = () => new Promise<{ path: string; folder: boolean }[]>((resolve) => (answer = resolve));
+  let intake!: ReturnType<typeof useAttachmentIntake>;
+  function Probe() {
+    intake = useAttachmentIntake({ allowImages: true, pasteTarget: () => undefined, localPaths, scope: "chat" });
+    return null;
+  }
+  await act(async () => root!.render(<Probe />));
+  const files = [
+    unreadable("Screen Recording.mov", "video/quicktime", 60 * MB),
+    unreadable("dataset.bin", "application/octet-stream", 1024 * MB),
+    unreadable("Screenshot.png", "image/png", 3 * MB),
+    unreadable("my-project", "", 0),
+  ];
+  await act(async () => void intake.attach(files, true, "drop"));
+  // Shown: none held unseen for a header or a picture that has not come.
+  expect(intake.pending.map((chip) => [chip.name, "sizing" in chip && Boolean(chip.sizing)])).toEqual([
+    ["Screen Recording.mov", false],
+    ["dataset.bin", false],
+    ["Screenshot.png", false],
+    ["my-project", false],
+  ]);
+  // Sendable: Send hands all four to the prompt now.
+  let handed: ReturnType<typeof intake.sendWith>;
+  await act(async () => {
+    handed = intake.sendWith();
+  });
+  expect(handed!.standIns.map((chip) => chip.name)).toEqual([
+    "Screen Recording.mov",
+    "dataset.bin",
+    "Screenshot.png",
+    "my-project",
+  ]);
+  await act(async () => handed!.giveBack());
+  // The host answers: the recording, the file and the folder are their paths in the same turn,
+  // never after the recording's header read (VIDEO_HEADER_WAIT_MS).
+  await act(async () =>
+    answer([
+      { path: "/Users/leo/Desktop/Screen Recording.mov", folder: false },
+      { path: "/Users/leo/Desktop/dataset.bin", folder: false },
+      { path: "/Users/leo/Desktop/Screenshot.png", folder: false },
+      { path: "/Users/leo/Desktop/my-project", folder: true },
+    ]),
+  );
+  await settle();
+  expect(intake.attachments.map((chip) => chip.path)).toEqual(
+    expect.arrayContaining([
+      "/Users/leo/Desktop/Screen Recording.mov",
+      "/Users/leo/Desktop/dataset.bin",
+      "/Users/leo/Desktop/my-project",
+    ]),
+  );
+  expect(intake.attachments.find((chip) => chip.name === "dataset.bin")).toMatchObject({
+    size: 1024 * MB,
+    mimeType: "application/octet-stream",
+  });
+});
+
 function rows(sends: StartingSends, snapshotRows: { id: string; kind: string }[] = []) {
   const snapshot = { ...emptySnapshot(), rows: snapshotRows } as ReturnType<typeof emptySnapshot>;
   return withStartingPrompt(snapshot, sends.rows as StartingSend[]).rows.map((row) => `${row.kind}:${row.text}`);
