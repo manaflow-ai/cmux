@@ -93,8 +93,9 @@ final class PaneCommitMotion {
     var moved: [(layer: CALayer, key: String)] = []
     /// The pane hosts that show ground strips, and the largest size each showed in this motion.
     var grounds: [ObjectIdentifier: (layer: CALayer, extent: CGSize)] = [:]
-    /// The contents that keep their own old picture until the motion's end (``PaneCommitMotionHolding``), by pane host.
-    var holds: [ObjectIdentifier: any PaneCommitMotionHolding] = [:]
+    /// The contents that keep their own old picture until the motion's end (``PaneCommitMotionHolding``), by pane host,
+    /// each with that host: the content's view can leave its pane before the end (a tab that closes), the host stays.
+    var holds: [ObjectIdentifier: (host: PaneHostView, holder: any PaneCommitMotionHolding)] = [:]
     /// The hosts of the panes that a close took out, under every other pane until the motion's end, each with the
     /// `zPosition` that its layer had.
     var under: [(host: PaneHostView, z: CGFloat)] = []
@@ -154,7 +155,7 @@ final class PaneCommitMotion {
             guard let host = screen.context.hosts[pane], let old = armed.frames[ObjectIdentifier(host)], holds[ObjectIdentifier(host)] == nil,
                   let new = screen.paneFrames[pane]?.targetRect, new.width < old.width - 0.5 || new.height < old.height - 0.5,
                   let holder = host.content.paneCommitMotionHolder, holder.paneCommitMotionHoldKind == .ownPicture else { continue }
-            holds[ObjectIdentifier(host)] = holder
+            holds[ObjectIdentifier(host)] = (host: host, holder: holder)
             holder.beginPaneCommitMotionHold()
         }
         guard act == .unzoom, taken == nil, let host = armed.panes.first.flatMap({ screen.context.hosts[$0] }) else { return }
@@ -225,7 +226,7 @@ final class PaneCommitMotion {
         // An unzoom moves when its one pane has its old picture for the room that its clip still shows (its last frame,
         // or its own hold), and its screen has no floating pane: the pane goes above each other pane of its screen.
         let closes = act != .unzoom || (changes.count == 1 && screen.baseGeometry.floatingCards.isEmpty
-            && (last?.host === changes[0].host || holds[ObjectIdentifier(changes[0].host)] != nil))
+            && (last?.host === changes[0].host || changes[0].host.holdsContentForMove))
         guard !changes.isEmpty, time > 0, covered, closes, riders.allSatisfy({ $0.content.paneRidesCommitMotion }) else {
             finish()
             return nil
@@ -305,7 +306,7 @@ final class PaneCommitMotion {
         remaining = 0
         let held = Array(holds.values)
         holds = [:]
-        for holder in held { holder.endPaneCommitMotionHold() }
+        for hold in held { endHold(hold.holder, of: hold.host) }
         if !moved.isEmpty || !grounds.isEmpty || !under.isEmpty || lastFrame != nil || raised != nil {
             CATransaction.begin()
             CATransaction.setDisableActions(true)

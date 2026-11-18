@@ -113,6 +113,37 @@ extension PaneContentRidesTests {
         #expect(rest.isShown(by: Commit.shown(screen)), "after the close the screen does not show the two panes that stay: \(Commit.shown(screen).panes)")
     }
 
+    /// A page's view can leave its pane while that pane moves: its tab closes, or another pane takes its tab. The
+    /// motion's end still reaches the pane host that held the content: that host has no held size after it, and its
+    /// content has the pane's size, taken one time. The pane that took the view holds nothing.
+    @Test(arguments: ["its tab closes", "another pane takes its tab"])
+    func aPageThatLeavesAHeldPaneInTheMoveLeavesNoHeldSize(_ leave: String) throws {
+        let begun = try Self.begin(Motion.split)
+        defer { begun.harness.window.closeAfterTest() }
+        let harness = begun.harness, screen = begun.screen
+        let hosts = Motion.hosts(of: screen)
+        let host = try #require(hosts[Commit.left], "the split's old pane does not show")
+        let other = try #require(hosts[Commit.right], "the pane beside it does not show")
+        let picture = try #require(begun.pictures[Commit.left])
+        try #require(Motion.inFlight(screen) && host.clipView.moveHeldSize != nil, "SETUP: the split's old pane is not held")
+        for _ in 0..<3 { _ = harness.root.advanceFrame(Motion.dt) }
+        try #require(Motion.inFlight(screen), "SETUP: the motion ended before the page's view left its pane")
+
+        if leave == "its tab closes" {
+            picture.removeFromSuperview()
+        } else {
+            let area = try #require(begun.pictures[Commit.right]?.superview, "SETUP: the pane beside it shows no page")
+            area.addSubview(picture)
+        }
+        _ = Motion.toTheEnd(harness, screen)
+        Commit.rest(harness)
+
+        #expect(host.clipView.moveHeldSize == nil, "\(leave): after the motion's end the pane keeps its content at the old size \(String(describing: host.clipView.moveHeldSize))")
+        #expect(other.clipView.moveHeldSize == nil, "\(leave): after the motion's end the pane beside it holds its content")
+        #expect(host.content.frame == host.clipView.bounds, "\(leave): after the motion's end the content is \(host.content.frame) in a clip of \(host.clipView.bounds)")
+        #expect(begun.took(Commit.left) == 1, "\(leave): the pane's content took \(begun.took(Commit.left)) sizes; it takes its pane's size one time")
+    }
+
     /// A split, and three frames later a zoom of another pane: the zoom covers the pane whose content is held and
     /// keeps it for the unzoom. Its content takes its pane's size one time, at the end of the hold, so the unzoom
     /// brings the pane back with its content at the pane's size and with no other resize.

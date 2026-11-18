@@ -21,6 +21,10 @@ extension PaneHostView: PaneCommitMotionContentHost {
     /// The held content's frame in the clip; nil with no hold.
     var moveContentFrame: CGRect? { clipView.moveHeldSize.map { CGRect(origin: clipView.bounds.origin, size: $0) } }
 
+    /// Whether this host keeps its content at an old size now. A host can refuse a hold that its content asks for
+    /// (``holdPaneContentForMove()``), so an unzoom asks here whether its pane has its old picture, not the motion.
+    var holdsContentForMove: Bool { clipView.moveHeldSize != nil }
+
     func holdPaneContentForMove() {
         // A key resize's hold and a layout spring place the content themselves.
         guard clipView.moveHeldSize == nil, !awaitsOwnLanding else { return }
@@ -49,5 +53,13 @@ extension PaneCommitMotion {
     func moveClip(of change: Change, _ token: MotionSpring) {
         guard holds[ObjectIdentifier(change.host)] != nil, let clip = change.host.clipView.layer else { return }
         move(clip, token, origin: .zero, size: change.size)
+    }
+
+    /// The end of one hold. The holder hears it, and a page's view passes it to the host that it is in. That view
+    /// can be out of its pane by now (its tab closed, or another pane took it), so the host that began the hold is
+    /// told here too: no host keeps its content at an old size after the motion's end. A host with no hold does nothing.
+    func endHold(_ holder: any PaneCommitMotionHolding, of host: PaneHostView) {
+        holder.endPaneCommitMotionHold()
+        host.releasePaneContentAfterMove()
     }
 }
