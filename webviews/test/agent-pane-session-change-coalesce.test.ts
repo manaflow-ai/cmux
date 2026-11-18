@@ -296,10 +296,10 @@ function chunk(socket: FakeAcpmux, seq: number): void {
   });
 }
 
-// A hidden page leaves its reply's text growing for when it shows, the bulk of a running chat's
-// events. Everything else still draws within 50 ms, and a turn starting or ending at once, since the
-// page's effects act on them while hidden (App.tsx `pane.tabState`, a subagent's own pane).
-test("a hidden pane draws its chat's turns and new replies, not its reply's text growing", async () => {
+// A hidden page leaves every record but a new tool call for when it shows: its reply's text, the
+// bulk of a running chat's events, a tool's progress and the plan. A new tool call still draws within
+// 50 ms (a subagent's own pane) and a turn starting or ending at once (App.tsx `pane.tabState`).
+test("a hidden pane draws its chat's turns and new tool calls, not its reply or tools growing", async () => {
   const { socket, client, snapshots } = await openPane();
   jest.useFakeTimers();
   try {
@@ -313,13 +313,13 @@ test("a hidden pane draws its chat's turns and new replies, not its reply's text
     record(socket, 402, "turn_started");
     jest.advanceTimersByTime(50);
     expect(snapshots() - before).toBe(2);
-    // The reply's first text is a new row: it draws. The 59 chunks that grow it wait.
+    // The reply's first text waits for the show as the 58 chunks that grow it do.
     chunk(socket, 403);
     jest.advanceTimersByTime(50);
-    expect(snapshots() - before).toBe(3);
+    expect(snapshots() - before).toBe(2);
     for (let seq = 404; seq < 462; seq++) chunk(socket, seq);
     jest.advanceTimersByTime(10_000);
-    expect(snapshots() - before).toBe(3);
+    expect(snapshots() - before).toBe(2);
     // A tool call (a subagent's start among them, which opens its own pane) draws within 50 ms.
     socket.notify("_acpmux/event", {
       sessionId: SELECTED,
@@ -336,13 +336,13 @@ test("a hidden pane draws its chat's turns and new replies, not its reply's text
       },
     });
     jest.advanceTimersByTime(50);
-    expect(snapshots() - before).toBe(4);
+    expect(snapshots() - before).toBe(3);
     // Its progress waits for the show, as the text does: a busy agent's tools draw a hidden tab nothing.
     for (const [index, status] of ["in_progress", "in_progress", "completed"].entries())
       socket.notify("_acpmux/event", {
         sessionId: SELECTED,
-        seq: 470 + index,
-        at: 470 + index,
+        seq: 469 + index,
+        at: 469 + index,
         dir: "in",
         kind: "tool_call_update",
         msg: {
@@ -350,22 +350,37 @@ test("a hidden pane draws its chat's turns and new replies, not its reply's text
           params: { sessionId: SELECTED, update: { sessionUpdate: "tool_call_update", toolCallId: "read-1", status } },
         },
       });
+    // So does any other record but a new tool call: the plan, usage and the rest draw a hidden tab nothing.
+    socket.notify("_acpmux/event", {
+      sessionId: SELECTED,
+      seq: 472,
+      at: 472,
+      dir: "in",
+      kind: "plan",
+      msg: {
+        method: "session/update",
+        params: {
+          sessionId: SELECTED,
+          update: { sessionUpdate: "plan", entries: [{ content: "Read", priority: "high", status: "pending" }] },
+        },
+      },
+    });
     jest.advanceTimersByTime(10_000);
-    expect(snapshots() - before).toBe(4);
+    expect(snapshots() - before).toBe(3);
     record(socket, 473, "turn_end");
     jest.advanceTimersByTime(50);
-    expect(snapshots() - before).toBe(5);
+    expect(snapshots() - before).toBe(4);
     // A turn that starts and ends at once still draws both: the header refreshes on the end.
     record(socket, 474, "turn_started");
     record(socket, 475, "turn_end");
-    expect(snapshots() - before).toBe(7);
+    expect(snapshots() - before).toBe(6);
     // Nothing waits for the show: those snapshots carried the stream too.
     setVisibility("visible");
     flushFrames();
-    expect(snapshots() - before).toBe(7);
+    expect(snapshots() - before).toBe(6);
     chunk(socket, 476);
     flushFrames();
-    expect(snapshots() - before).toBe(8);
+    expect(snapshots() - before).toBe(7);
   } finally {
     jest.useRealTimers();
     client.close();

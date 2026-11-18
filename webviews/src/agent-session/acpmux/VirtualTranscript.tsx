@@ -12,6 +12,7 @@ import React, {
   useInsertionEffect,
 } from "react";
 import { flushSync } from "react-dom";
+import { pageScrollQuiet } from "./scrollQuiet";
 import { rowPresence, type RowPresenceHints } from "./conversation/rowPresence";
 import { LayeredMap } from "./conversation/layeredMap";
 import { isAgentMotionOff } from "../shared/motion";
@@ -6943,6 +6944,8 @@ function TranscriptView({
   // A wheel up with the view already at the loaded rows' top moves nothing, so no scroll event says the reader
   // wants more: it asks itself, unless an ask is still out.
   const onWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    // Every agent page holds other chats' changes until this scroll rests (scrollQuiet.ts).
+    pageScrollQuiet()?.scrolled();
     // Held at the loaded rows' top, a wheel up moves nothing: the reader is still scrolling up (`rising`).
     if (event.deltaY < 0) olderAhead.wheeledUp(performance.now());
     const loadedTop = layout.origin ?? 0;
