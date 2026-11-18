@@ -326,6 +326,7 @@ final class PaneCommitMotion {
     /// changed, the screen goes out of sight or away, or panes stopped animating. What the screen showed before the
     /// change is not where its panes show now, so a change that comes before that one's pass does not move either.
     func cancel() {
+        if let act = armed?.act { MotionTrace.note("layout.commit: \(act) in one frame (cancelled before its frame)") }
         armed?.act = nil
         armed?.still = true
         taken = nil

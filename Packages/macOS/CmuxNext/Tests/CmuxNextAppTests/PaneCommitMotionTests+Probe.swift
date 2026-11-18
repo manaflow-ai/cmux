@@ -37,17 +37,26 @@ extension PaneCommitMotionTests {
         #expect(Self.traced().samples.count == ticks, "a frame after the move's end gave a sample")
     }
 
-    /// With the motion off an act gives no sample, and one note that says that the panes do not move at a commit.
-    @Test(arguments: acts)
-    func aProbeSaysWhyAnActShowsInOneFrame(_ act: Act) throws {
+    /// With the motion off an act gives no sample, and one note of its cause. With Reduce Motion the frame tick lands
+    /// the layout, which cancels the act before its frame. With the pane animations off the panes do not move at a
+    /// commit.
+    @Test(arguments: acts, ["Reduce Motion", "pane animations off"])
+    func aProbeSaysWhyAnActShowsInOneFrame(_ act: Act, off: String) throws {
+        // The setting is the app's own (`ui.paneAnimations`). This function has no suspension point, so no other test
+        // on the main actor runs between the change and its restore.
+        let setting = DesignSettings.shared.paneAnimations
+        if off != "Reduce Motion" { DesignSettings.shared.paneAnimations = false }
+        defer { DesignSettings.shared.paneAnimations = setting }
         defer { MotionTrace.stop() }
-        let begun = try Self.begin(act, off: "Reduce Motion") { _ in MotionTrace.start() }
+        let begun = try Self.begin(act, off: off) { _ in MotionTrace.start() }
         defer { begun.harness.window.closeAfterTest() }
         _ = begun.harness.root.advanceFrame(Self.dt)
         let traced = Self.traced()
+        // Movement that snaps for another cause (the Mac's own Reduce Motion) lands the layout in the frame tick too.
+        let cause = begun.harness.root.context.reduceMotion ? "cancelled before its frame" : "the panes move at a commit: false"
         #expect(traced.samples.isEmpty, "an act with the motion off gave samples of a move: \(traced.samples)")
-        #expect(traced.notes.count == 1 && traced.notes[0].contains("the panes move at a commit: false"),
-                "an act with the motion off did not write one note of its cause: \(traced.notes)")
+        #expect(traced.notes.count == 1 && traced.notes[0].contains(cause),
+                "an act with the motion off (\(off)) did not write one note with `\(cause)`: \(traced.notes)")
     }
 
     /// A view of a kind that does not ride: a page's stand-in, with a class name that a note can tell.
