@@ -10,7 +10,8 @@
 // - the card: New Tab's sits under its location strip, so the chat's whole composer glides from New
 //   Tab's card top, not from its strip;
 // - the card's height: the two cards differ (Codex's chat card is taller than New Tab's, Claude's is
-//   shorter: 48 px against 50.8), so the chat's card morphs from New Tab's height to its own either way;
+//   shorter: 48 px against 50.8), so the chat's card morphs from New Tab's height to its own either way,
+//   never with a layout property;
 // - the field: New Tab's leads with the input glyph, so the chat's field slides in from where New
 //   Tab's text stood.
 // No new element draws: the same card and field move.
@@ -59,38 +60,40 @@ function moveMs(element: Element): number {
   return token.endsWith("ms") ? ms : token.endsWith("s") ? ms * 1000 : Number.isFinite(ms) ? ms : 0;
 }
 
-/// The chat's card goes from New Tab's height FROM to its own TO. A taller card opens with a clip from
-/// the bottom (no relayout). A shorter one starts drawn at New Tab's height and closes to its own: a
-/// negative bottom margin of the difference keeps its footprint at its own height, so nothing around
-/// it relays out and its top stays where New Tab's was.
+/// The chat's card goes from New Tab's height FROM to its own TO, with no relayout. A taller card opens
+/// with a clip from the bottom. A shorter one (Claude's) starts stretched to New Tab's height from its
+/// top and settles to its own, while each of its children takes the inverse stretch about the card's
+/// top, so the glass morphs and nothing inside it moves or scales. `scale`, not `transform`: it
+/// composes with any transform the card or a child already has.
 function morphCardHeight(cardElement: HTMLElement, from: number, to: number, timing: KeyframeAnimationOptions): void {
-  const style = getComputedStyle(cardElement);
-  const radius = style.borderBottomLeftRadius || "0px";
   const hidden = to - from;
   if (hidden >= 1) {
+    const radius = getComputedStyle(cardElement).borderBottomLeftRadius || "0px";
     cardElement.animate(
       [{ clipPath: `inset(0 0 ${hidden}px 0 round ${radius})` }, { clipPath: `inset(0 0 0 0 round ${radius})` }],
       timing,
     );
     return;
   }
-  if (hidden > -1) return;
-  // `height` is the content box unless the card says border-box.
-  const edges =
-    style.boxSizing === "border-box"
-      ? 0
-      : ["paddingTop", "paddingBottom", "borderTopWidth", "borderBottomWidth"].reduce(
-          (sum, key) => sum + (Number.parseFloat(style[key as "paddingTop"]) || 0),
-          0,
-        );
-  const margin = Number.parseFloat(style.marginBottom) || 0;
+  if (hidden > -1 || !(to > 0)) return;
+  const stretch = from / to;
+  const top = cardElement.getBoundingClientRect().top;
+  const children = Array.from(cardElement.children).filter(
+    (child): child is HTMLElement => child instanceof HTMLElement,
+  );
+  // Every child's offset is read before anything scales.
+  const offsets = children.map((child) => child.getBoundingClientRect().top - top);
   cardElement.animate(
-    [
-      { height: `${from - edges}px`, marginBottom: `${margin + hidden}px` },
-      { height: `${to - edges}px`, marginBottom: `${margin}px` },
-    ],
+    [{ scale: `1 ${stretch}`, transformOrigin: "50% 0" }, { scale: "1 1", transformOrigin: "50% 0" }],
     timing,
   );
+  children.forEach((child, index) => {
+    const origin = `50% ${-offsets[index]}px`;
+    child.animate(
+      [{ scale: `1 ${1 / stretch}`, transformOrigin: origin }, { scale: "1 1", transformOrigin: origin }],
+      timing,
+    );
+  });
 }
 
 /** Called once as the chat's composer mounts: settles it from New Tab's held places, if they are fresh. */
@@ -113,6 +116,14 @@ export function glideComposerFromHeld(form: HTMLElement | null): void {
     field,
     fieldTag: fieldElement ? `${fieldElement.tagName}.${fieldElement.className}` : null,
   };
+  requestAnimationFrame(() => {
+    const probe = (window as unknown as Record<string, Record<string, unknown>>).__cmuxGlideProbe;
+    probe.after = {
+      editable: place(form.querySelector('[contenteditable="true"]')),
+      root: place(form.querySelector(".acpmux-md-root")),
+      animations: fieldElement?.getAnimations().length,
+    };
+  });
   const timing: KeyframeAnimationOptions = {
     duration,
     easing: mode === "full" ? springEasing(MOTION_SPRING, MOTION_EASE_OUT, form.ownerDocument) : MOTION_EASE_OUT,

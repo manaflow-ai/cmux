@@ -244,7 +244,8 @@ await requireBrowserLane("new-chat-start-no-shift.test.ts", async () => {
       { timeout: ms + 30_000 },
     );
     const frames = await page.evaluate(() => (window as unknown as { startFrames: LayoutFrame[] }).startFrames);
-    console.log("PROBE", look, JSON.stringify(await page.evaluate(() => (window as unknown as Record<string, unknown>).__cmuxGlideProbe)));
+    const probe = await page.evaluate(() => (window as unknown as Record<string, unknown>).__cmuxGlideProbe);
+    console.log("PROBE", look, JSON.stringify(probe));
     await page.close();
     return frames;
   }
@@ -295,7 +296,8 @@ await requireBrowserLane("new-chat-start-no-shift.test.ts", async () => {
         ["fieldLeftInCard", fieldLeftInCard],
       ];
       console.log(
-        describeJumps(findJumpsAt(frames, handover, atHandover, 1.5)).join("\n") || `handover frame ${handover}: no jump`,
+        describeJumps(findJumpsAt(frames, handover, atHandover, 1.5)).join("\n") ||
+          `handover frame ${handover}: no jump`,
       );
       // The box, its card and its field go from New Tab's place and size to the dock's by moving, not
       // in one frame (Leo, 2026-11-17: "chats settle with no unnecessary layout shifts after they start").
