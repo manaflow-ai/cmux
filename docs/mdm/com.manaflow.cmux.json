@@ -4902,6 +4902,12 @@
       "title" : "Show Priority View",
       "type" : "boolean"
     },
+    "sidebar.relativeTimestamps" : {
+      "default" : false,
+      "description" : "With Show Timestamps on, a change today reads as its age, such as 5m or 2h, not its time.",
+      "title" : "Relative Timestamps",
+      "type" : "boolean"
+    },
     "sidebar.sectionLook" : {
       "default" : "quiet",
       "description" : "How the sections above and below the workspace list draw.",
