@@ -557,6 +557,32 @@ struct CloudStartSessionTests {
         #expect(!services.machines.cloud.contains { $0.machine.title == name })
     }
 
+    /// `cmux chat --on vm:new --harness codex` on a Mac whose only Codex sign-in is the CLI's (`codex-login`, which
+    /// serves no Cloud chat, model-connections.md Revision 2) and no team key: the composer shows Set up Cloud, and
+    /// the run now refuses the same way before any machine, instead of starting one whose first turn fails on
+    /// "Missing environment variable: `OPENAI_API_KEY`". A Cloud-serving ChatGPT connection goes on past it.
+    @Test func aRunWithNothingServingItsAgentInCloudTakesNoMachineAndSaysWhereToConnect() async throws {
+        let services = Self.fixture().services
+        let name = "codex-\(UUID().uuidString.prefix(6).lowercased())"
+        let cliLogin = CloudSetup.Connection(id: "codex-login", families: ["codex"], servesCloud: false)
+        services.cloud.setup.read = { CloudSetup.Snapshot(personal: [cliLogin], organization: []) }
+        let invoke = try #require(services.registry.action(for: CloudStartSession.action)?.invoke)
+        let refused = services.registry.capturingRun { invoke(Self.invocation(["agent": .string("codex"), "name": .string(name)])) }
+        guard case .failure(let failure) = await (try #require(refused.results.first, "start-session tracked no result")).value else {
+            Issue.record("a run with nothing serving codex in Cloud went on")
+            return
+        }
+        let request = CloudStartSession.Request(machineID: nil, name: name, agent: "codex", cwd: nil)
+        #expect(failure.message == CloudStartSessionStrings.setupRequired(agent: "codex", command: request.command), "\(failure.message)")
+        #expect(failure.message.contains("Continue with ChatGPT") && failure.message.contains("`cmux cloud start-session --name \(name) --agent codex`"))
+        #expect(!services.machines.cloud.contains { $0.machine.title == name })
+        // A ChatGPT connection that serves Cloud passes the gate (the unread machine list refuses next).
+        services.cloud.setup.read = { CloudSetup.Snapshot(personal: [cliLogin, CloudSetup.Connection(id: "chatgpt-plan-1", families: ["codex"])], organization: []) }
+        let served = services.registry.capturingRun { invoke(Self.invocation(["agent": .string("codex"), "name": .string(name + "-plan")])) }
+        guard case .failure(let next) = await (try #require(served.results.first, "start-session tracked no result")).value else { return }
+        #expect(next.message != failure.message && next.message.hasPrefix("Couldn't read your Cloud machines"), "\(next.message)")
+    }
+
     /// A run asked in one account stops before its next step once another is signed in: the
     /// refusal says so and gives the command, and nothing is created.
     @Test func aRunAskedInAnotherAccountStartsNothing() async throws {

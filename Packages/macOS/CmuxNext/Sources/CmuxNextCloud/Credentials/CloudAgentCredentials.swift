@@ -11,7 +11,8 @@ public struct CloudAgentCredential: Sendable, Equatable, CustomStringConvertible
     public let connectionID: String
     /// `claude` or `codex`.
     public let family: String
-    /// `claude-token`, `api-key` or `chatgpt-plan`.
+    /// `claude-token`, `api-key`, `chatgpt-plan`, or `codex-login` / `subscription` (a Codex CLI
+    /// ChatGPT login's access token, cmux#45774).
     public let kind: String
     public let env: [String: String]
     public let expiresAt: Date?
@@ -29,8 +30,9 @@ public struct CloudAgentCredential: Sendable, Equatable, CustomStringConvertible
         self.init(connectionID: connectionID, family: family, kind: kind, env: env, expiresAt: expires)
     }
 
-    /// A ChatGPT plan token the Mac pushes again before it expires.
-    public var refreshes: Bool { kind == Self.chatGPTPlan && expiresAt != nil }
+    /// A token the Mac pushes again before it expires: every credential acpmux gives an expiry (a
+    /// ChatGPT plan token, a Codex CLI login's access token); a Claude token or an API key has none.
+    public var refreshes: Bool { expiresAt != nil }
 
     public var description: String { "CloudAgentCredential(\(connectionID), \(kind), \(env.keys.sorted().joined(separator: ",")))" }
     public var debugDescription: String { description }
