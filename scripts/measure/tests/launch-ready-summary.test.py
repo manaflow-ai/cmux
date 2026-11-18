@@ -73,8 +73,8 @@ class ReopenTests(unittest.TestCase):
     def test_tab_when_last_front_was_home_fails_and_home_passes(self):
         result, lines = run([row("head", "prime", HOME), row("head", "run1", TAB, TAB_MARKS, "tabs"),
                              row("head", "run2", HOME, HOME_MARKS, "home")])
-        # run2's last front is run1's tab: Home there fails too (the launch reopens exactly where it was).
-        self.assertEqual(result["head"]["failed"], ["run1", "run2"])
+        # Every launch is judged against the priming launch's Home: run1's tab fails, run2's Home passes.
+        self.assertEqual(result["head"]["failed"], ["run1"])
         self.assertTrue(any("last front was Home" in l for l in lines))
         result, _ = run([row("head", "prime", HOME), row("head", "run1", HOME, HOME_MARKS, "home")])
         self.assertEqual(result["head"]["failed"], [])
@@ -151,6 +151,51 @@ class ReopenTests(unittest.TestCase):
         result, lines = run(rows)
         self.assertEqual(result["head"]["failed"], [])
         self.assertIn("LR-REOPENED head 1/1 case=kept", lines)
+
+
+class PrimeAnchorTests(unittest.TestCase):
+    """Every launch after the priming one is judged against the priming launch's front, the preruns included."""
+
+    def test_recorded_front_change_at_the_first_prerun_fails_every_launch(self):
+        # cmux#44491's drop-one, head arm (launch-ready on cmux17, 2026-11-18): the prime left Home in workspace
+        # 1b6a8f6d tab 1644489e; the first relaunch (full1) opened a new workspace a30987fb tab 78f29802 and every
+        # launch after reopened that one. Compared with the launch before, it read "LR-REOPENED head 5/5".
+        prime = {"workspace": "1b6a8f6d", "tab": "1644489e", "page": "home-dock", "home": True, "top_page": None,
+                 "windows": 1}
+        moved = {"workspace": "a30987fb", "tab": "78f29802", "page": "agent-newtab", "home": False, "top_page": None,
+                 "windows": 1}
+        rows = [row("head", "prime", prime, HOME_MARKS, "home")]
+        for i in range(1, 6):
+            rows += [row("head", f"full{i}", moved, TAB_MARKS, "tabs"), row("head", f"run{i}", moved, TAB_MARKS, "tabs")]
+        result, lines = run(rows)
+        self.assertEqual(result["head"]["failed"], ["run1", "run2", "run3", "run4", "run5"] +
+                         ["full1", "full2", "full3", "full4", "full5"])
+        self.assertIn("LR-REOPENED head 0/5 (front changed at full1,full2,full3,full4,full5) case=kept", lines)
+        self.assertTrue(any(l.startswith("LR-FAIL head full1 landed on workspace=a30987fb tab=78f29802") for l in lines))
+
+    def test_a_prerun_that_changes_the_front_and_back_fails_the_arm(self):
+        rows = [row("head", "prime", TAB), row("head", "full1", TAB), row("head", "run1", TAB, TAB_MARKS, "tabs"),
+                row("head", "full2", OTHER_TAB), row("head", "run2", TAB, TAB_MARKS, "tabs")]
+        result, lines = run(rows)
+        self.assertEqual(result["head"]["failed"], ["full2"])
+        self.assertIn("LR-REOPENED head 2/2 (front changed at full2) case=kept", lines)
+
+    def test_home_in_front_without_homes_page_fails_when_the_prime_drew_it(self):
+        rows = [row("head", "prime", HOME, HOME_MARKS, "home"), row("head", "run1", HOME, {"reveal.tabs": 1.0}, "tabs")]
+        result, lines = run(rows)
+        self.assertEqual(result["head"]["failed"], ["run1"])
+        self.assertTrue(any("Home's page did not draw" in l for l in lines))
+
+    def test_the_stress3_seed_moves_the_anchor(self):
+        rows = [row("head", "prime", HOME, HOME_MARKS, "home"), row("head", "seed", TAB),
+                row("head", "full1", TAB), row("head", "run1", TAB, TAB_MARKS, "tabs")]
+        result, _ = run(rows)
+        self.assertEqual(result["head"]["failed"], [])
+
+    def test_case_update_still_compares_with_the_launch_before(self):
+        rows = [row("head", "prime", HOME), row("head", "old1", TAB), row("head", "run1", TAB, TAB_MARKS, "tabs")]
+        result, _ = run(rows, "update")
+        self.assertEqual(result["head"]["failed"], [])
 
 
 class SurfaceTests(unittest.TestCase):
