@@ -97,12 +97,48 @@ struct NewTabHoldMovesItsPageTests {
         pane.orderedIDs.map(\.rawValue).filter { services.agentTabs.isNewTabPage($0) }
     }
 
-    /// The setup of each row: an empty pool, each page view that the store builds or adopts noted, and ONE New Tab
-    /// key with its frame. `body` gets the count of page views that the pane's New Tab tabs have after that key.
+    /// Asks the window for its made-ahead workspace (the workspace of the next New Workspace key,
+    /// `WindowController.reservedContent`) and waits until the window has it. The window makes it as idle work after
+    /// it shows a workspace, with a page view for its New Tab page, at a time that a row does not fix. A row asks
+    /// for it before its count, so that page view is made before the count and not in it. The wait has a deadline,
+    /// and the setup fails when the window has no such workspace then, or when that workspace's tab has no page view.
+    /// It prints the page views that the store built in the wait, and how many of them were for that tab.
+    static func makesItsWorkspaceAhead(_ controller: WindowController, _ services: AppServices, row: String) async throws {
+        let tabs = services.agentTabs, store = services.daemon.store, built = Built()
+        let had = controller.reservedContent.ready != nil, wired = tabs.onPageBuilt
+        tabs.onPageBuilt = { key in
+            built.keys.append(key)
+            wired?(key)
+        }
+        defer { tabs.onPageBuilt = wired }
+        controller.reservedContent.fill()
+        try await PasswordManagerRouteTests.until({ controller.reservedContent.ready != nil && store.reservedWorkspace != nil },
+                                                  within: .seconds(10), report: { "setup: the window made no workspace ahead" })
+        let ahead = try #require(store.reservedWorkspace?.tabKey, "setup: the store has no made-ahead workspace after the wait")
+        let forIt = built.keys.filter { $0 == ahead }.count, has = tabs.existingView(ahead) != nil
+        print("""
+            NewTabHoldMovesItsPageTests: setup of \(row): the window \(had ? "had" : "did not have") its made-ahead workspace before the \
+            row asked for it; the store built \(built.keys.count) page views in the wait, \(forIt) of them for the tab of the \
+            made-ahead workspace; that tab has \(has ? "a page view" : "no page view") before the row's count
+            """)
+        try #require(has, "setup: the tab of the window's made-ahead workspace has no page view before the row's count")
+    }
+
+    /// The keys of the page views that the store built in a wait of the setup (`makesItsWorkspaceAhead`).
+    @MainActor final class Built {
+        var keys: [String] = []
+    }
+
+    /// The setup of each row: an empty pool, the window's made-ahead workspace (`makesItsWorkspaceAhead`: else its
+    /// page view is made in the count of a row at one run and not at the next), each page view that the store builds
+    /// or adopts noted, and ONE New Tab key with its frame. `body` gets the count of page views that the pane's New
+    /// Tab tabs have after that key.
     static func row(_ install: String,
                     _ body: (AppServices, PaneController, Views, Int) async throws -> Void) async throws {
         try await NewTabPageAtItsFrameTests.withAnEmptyPool(install) { services, _, pane, _ in
             let tabs = services.agentTabs, views = Views()
+            let window = try #require(services.windows.active, "setup: no window")
+            try await makesItsWorkspaceAhead(window, services, row: install)
             let wired = tabs.onPageBuilt
             tabs.onPageBuilt = { key in
                 if let view = tabs.existingView(key) { views.note(view) }
