@@ -436,13 +436,28 @@ test("a session that reports no options takes none of the held picks", async () 
   expect(wire).toEqual(["new claude", "model claude-opus-5-5", "prompt hello"]);
 });
 
-test("a held effort the opened session does not offer is not sent, and no other level stands in", async () => {
+test("a held effort the opened session's own model does not offer is not sent, and no other level stands in", async () => {
+  const { wire, pickCombo, send } = await mountNewTab({
+    model: "claude-opus-5-5",
+    opened: [effortOption("effort", ["low", "medium"]), fastOption()],
+  });
+  await pickCombo("opus high fast", "Opus 5.5");
+  await send("hello");
+  expect(wire).toEqual(["new claude", "fast-mode=on", "prompt hello"]);
+});
+
+// The levels the opened session lists are its start model's. After the switch sets the picked model
+// they no longer apply, so the effort the composer offered for that model goes after it, as picked
+// (Leo 2026-11-17: picks "don't randomly change to other things").
+test("after a model switch a held effort goes even when the start model's levels did not list it", async () => {
   const { wire, pickCombo, send } = await mountNewTab({
     opened: [effortOption("effort", ["low", "medium"]), fastOption()],
   });
   await pickCombo("opus high fast", "Opus 5.5");
   await send("hello");
-  expect(wire).toEqual(["new claude", "model claude-opus-5-5", "fast-mode=on", "prompt hello"]);
+  expect(wire.slice(0, 2)).toEqual(["new claude", "model claude-opus-5-5"]);
+  expect(wire.slice(2, 4).sort()).toEqual(["effort=high", "fast-mode=on"]);
+  expect(wire[4]).toBe("prompt hello");
 });
 
 // Codex review of #24509: a combo for another harness sent only its model into the switch, so the

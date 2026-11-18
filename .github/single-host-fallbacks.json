@@ -74,6 +74,10 @@
     "glaeda-trusted-next-nightly"
   ],
   "variables": {
+    "CI_RELEASE_PIN_SLOT": {
+      "fallback": "an off switch, not a host: unset sends app-ffi-release's build to glaeda-nightly-std-xcode-26.6, one nightly slot runner on every owned std mini (not one host); `off` restores the promote pool, vars.CI_SIDE_LANE_RUNNER and Blacksmith routes after it",
+      "after_minutes": 5
+    },
     "CI_FFI_RELEASE_POOL": {
       "fallback": "unset falls back to the build's earlier routes (the promote pool, vars.CI_SIDE_LANE_RUNNER, Blacksmith); set, a build no runner took in 20 minutes is re-dispatched to Blacksmith macOS by the workflow's rescue job",
       "after_minutes": 20
@@ -139,6 +143,10 @@
       "after_minutes": 5
     },
     "CI_PR_POOL_OWNED": {
+      "fallback": "the route-defined owned-pool or Blacksmith fallback",
+      "after_minutes": 5
+    },
+    "CI_RD_HOST_GATEWAY": {
       "fallback": "the route-defined owned-pool or Blacksmith fallback",
       "after_minutes": 5
     },
@@ -284,7 +292,7 @@
       "after_minutes": 25
     },
     "CI_BLACKSMITH_MACOS": {
-      "fallback": "an off switch, not a host: unset sends each cmux-next Mac job to vars.CI_SIDE_LANE_RUNNER, the owned side lane; pr-rescue moves only cmux-next pull-request jobs past a 45-min owned wait or on a re-run (docs/ci/cmux-next-workflow-notes.md#note-350)",
+      "fallback": "an off switch, not a host: unset sends each cmux-next Mac job to vars.CI_SIDE_LANE_RUNNER, the owned side lane; pr-rescue moves only cmux-next pull-request jobs past a 45-min owned wait, a re-run only through the placement's retry label (docs/ci/cmux-next-workflow-notes.md#note-350)",
       "after_minutes": 5
     },
     "CI_CLASSIC_NIGHTLY_MINI": {

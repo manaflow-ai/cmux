@@ -65,6 +65,16 @@
       "surface": "action",
       "name": "import.suggest",
       "reason": "keep: an agent asks to show a site's cookie import card (`cmux import suggest`); a person imports with the palette's Import from Browser (importFromBrowser)"
+    },
+    {
+      "surface": "menu",
+      "name": "notificationRow",
+      "reason": "keep: every row runs a palette-offered action: notificationOpen, notificationCopy, notificationToggleRead, notificationDismiss; Customize Menu… is settings.customizeMenus"
+    },
+    {
+      "surface": "menu",
+      "name": "agentPaneMessage",
+      "reason": "keep: rows act on the message, image, code/path/link part or selection under the pointer (or that message's More button), which the palette cannot name; Point at Element is agentPane.togglePointerInspector and empty space shows the registry's agentChat rows"
     }
   ],
   "cli_source": "cmux-tui 70e5c08f8b72156ad732bf96c593a067fc010b39",
@@ -310,27 +320,32 @@
       "reason": "keep: agent-to-agent messaging that agents and scripts send; a person writes in the chat pane"
     },
     {
-      "verb": "agent plugin install"
+      "verb": "agent plugin install",
+      "reason": "keep: a plugin author's install, build and switch of the daemon's agent screen-detection plugin from a git URL, run in a terminal; nothing in it for a person to pick in the palette"
     },
     {
       "verb": "agent plugin list",
       "reason": "keep: a read for scripts and agents (installed agent plugins); the app shows the same state on screen"
     },
     {
-      "verb": "agent plugin remove"
+      "verb": "agent plugin remove",
+      "reason": "keep: a plugin author's install, build and switch of the daemon's agent screen-detection plugin from a git URL, run in a terminal; nothing in it for a person to pick in the palette"
     },
     {
-      "verb": "agent plugin update"
+      "verb": "agent plugin update",
+      "reason": "keep: a plugin author's install, build and switch of the daemon's agent screen-detection plugin from a git URL, run in a terminal; nothing in it for a person to pick in the palette"
     },
     {
-      "verb": "agent plugin use"
+      "verb": "agent plugin use",
+      "reason": "keep: a plugin author's install, build and switch of the daemon's agent screen-detection plugin from a git URL, run in a terminal; nothing in it for a person to pick in the palette"
     },
     {
       "verb": "agent report",
       "reason": "keep: harness hook wiring: harnesses call emit and report, and install/uninstall write a harness's hook config for setup scripts"
     },
     {
-      "verb": "agent resume"
+      "verb": "agent resume",
+      "palette": "history.resumeAgentSession"
     },
     {
       "verb": "agent start",
@@ -638,7 +653,8 @@
       "verb": "chief edit"
     },
     {
-      "verb": "chief engine"
+      "verb": "chief engine",
+      "palette": "home.toggleChiefSettings"
     },
     {
       "verb": "chief list",
@@ -702,11 +718,11 @@
     },
     {
       "verb": "closed clear",
-      "palette": "history.clear"
+      "palette": "closed.clear"
     },
     {
       "verb": "closed delete",
-      "reason": "keep: deletes closed groups by the ids `closed list` prints; a person removes a closed item in Show History (history.show)"
+      "palette": "closed.delete"
     },
     {
       "verb": "closed list",
@@ -805,7 +821,8 @@
       "reason": "keep: a read (the customization library's entries)"
     },
     {
-      "verb": "customize library off"
+      "verb": "customize library off",
+      "palette": "openSettings"
     },
     {
       "verb": "customize library reset"
@@ -899,10 +916,12 @@
       "palette": "remote.forget"
     },
     {
-      "verb": "device revoke"
+      "verb": "device revoke",
+      "palette": "machine.joined.revoke"
     },
     {
-      "verb": "device rotate"
+      "verb": "device rotate",
+      "palette": "machine.joined.rotate"
     },
     {
       "verb": "device show",
@@ -918,7 +937,7 @@
     },
     {
       "verb": "errors clear",
-      "reason": "keep: clears entries of the error journal `cmux errors` reads, for agents and scripts diagnosing the app"
+      "palette": "errors.clear"
     },
     {
       "verb": "events",
@@ -1072,7 +1091,8 @@
       "palette": "agent.harness.doctor"
     },
     {
-      "verb": "harness enable"
+      "verb": "harness enable",
+      "palette": "agentPane.switchModel"
     },
     {
       "verb": "harness guide",
@@ -1130,7 +1150,8 @@
       "reason": "keep: removes entries by the ids `history list` prints; a person removes entries in Show History (history.show)"
     },
     {
-      "verb": "history remove-site"
+      "verb": "history remove-site",
+      "palette": "history.removeSite"
     },
     {
       "verb": "history restore",
@@ -1281,10 +1302,12 @@
       "reason": "keep: a read for scripts and agents (the machine catalog); the app shows the same state on screen"
     },
     {
-      "verb": "machine revoke"
+      "verb": "machine revoke",
+      "palette": "machine.joined.revoke"
     },
     {
-      "verb": "machine rotate"
+      "verb": "machine rotate",
+      "palette": "machine.joined.rotate"
     },
     {
       "verb": "machine show",
@@ -1482,7 +1505,8 @@
       "palette": "workspace.moveToSpace"
     },
     {
-      "verb": "room unpin"
+      "verb": "room unpin",
+      "palette": "workspace.unpinFromSpace"
     },
     {
       "verb": "room update",
@@ -2042,7 +2066,8 @@
       "verb": "terminal project"
     },
     {
-      "verb": "terminal resume"
+      "verb": "terminal resume",
+      "palette": "history.resumeAgentSession"
     },
     {
       "verb": "terminal run",
