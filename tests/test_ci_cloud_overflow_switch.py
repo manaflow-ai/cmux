@@ -95,9 +95,6 @@ class FakeActions:
     def rerun(self, run_id: int) -> None:
         self.calls.append(("rerun", run_id))
 
-    def rerun_failed(self, run_id: int) -> None:
-        self.calls.append(("rerun-failed", run_id))
-
 
 class FakeSwitch:
     """The App token side: variable writes, in order."""
@@ -946,7 +943,7 @@ class DeadLabelRescueTests(unittest.TestCase):
         actions = self.stranded()
         summary = self.rescue(actions)
         # Only the cancelled jobs re-run: jobs that already passed keep their result.
-        self.assertEqual(actions.calls, [("force-cancel", 10), ("rerun-failed", 10)])
+        self.assertEqual(actions.calls, [("force-cancel", 10), ("rerun", 10)])
         # Protected (publish, signing, promotion) and already re-run runs leave before the window is cut.
         for run in actions.in_flight:
             reason = switch.protected_reason(run, dead=True)
@@ -960,7 +957,7 @@ class DeadLabelRescueTests(unittest.TestCase):
         jobs = {run["id"]: [self.DEAD_16] for run in [*retried, fresh]}
         actions = FakeActions(None, [*retried, fresh], jobs)
         self.rescue(actions)
-        self.assertEqual(actions.calls, [("force-cancel", 500), ("rerun-failed", 500)])
+        self.assertEqual(actions.calls, [("force-cancel", 500), ("rerun", 500)])
 
     def test_a_macos_label_is_never_rescued(self) -> None:
         # MACOS_RUNNER_* variables, which no pool step moves, can still name it.
@@ -983,10 +980,73 @@ class DeadLabelRescueTests(unittest.TestCase):
         self.assertEqual(run_main({"GH_TOKEN": "t"}, actions, writer, argv=["--rescue-dead"])[0], 0)
         self.assertEqual(actions.calls, [])
 
-    def test_falls_back_to_the_job_start_value(self) -> None:
+    def test_only_a_live_pool_read_may_cancel(self) -> None:
+        # The job-start value predates the pools step: it may describe a pass (dry run), never cancel.
         actions = self.stranded()
-        run_main({"GH_TOKEN": "t", "RUNNER_POOLS": json.dumps(self.POOLS)}, actions, None, argv=["--rescue-dead"])
-        self.assertEqual(actions.calls, [("force-cancel", 10), ("rerun-failed", 10)])
+        start = {"GH_TOKEN": "t", "RUNNER_POOLS": json.dumps(self.POOLS)}
+        _, _, summary = run_main(start, actions, None, argv=["--rescue-dead"])
+        self.assertEqual(actions.calls, [])
+        self.assertIn("no live RUNNER_POOLS read", summary)
+        _, _, summary = run_main({**start, "DRY_RUN": "true"}, actions, None, argv=["--rescue-dead"])
+        self.assertEqual(actions.calls, [])
+        self.assertIn("run 10 (cmux-tui artifacts, push)", summary)
+        # A variable the API says is unset is a live read of nothing, not a fallback.
+        writer = FakeSwitch({})
+        run_main(start, actions, writer, argv=["--rescue-dead"])
+        self.assertEqual(actions.calls, [])
+
+    def test_a_run_mid_publish_is_left_alone(self) -> None:
+        actions = self.stranded()
+        actions.run_jobs[10] = [self.DEAD_16, {"name": "publish to R2", "status": "in_progress", "labels": []}]
+        summary = self.rescue(actions)
+        self.assertEqual(actions.calls, [])
+        self.assertIn("`publish to R2` is running", summary)
+
+    def test_a_run_that_changed_since_the_listing_is_left_alone(self) -> None:
+        actions = self.stranded()
+        actions.run = lambda run_id: {"id": run_id, "status": "queued", "run_attempt": 2}  # type: ignore[method-assign]
+        summary = self.rescue(actions)
+        self.assertEqual(actions.calls, [])
+        self.assertIn("run 10: changed since it was listed", summary)
+
+    def test_a_lost_cancel_answer_reruns_only_a_cancelled_run(self) -> None:
+        for conclusion, expected in (("cancelled", [("rerun", 10)]), ("success", [])):
+            actions = self.stranded()
+            state = {"status": "queued"}
+            actions.run = lambda run_id, state=state: {"id": run_id, **state}  # type: ignore[method-assign]
+            def lost(run_id: int, state: dict = state, conclusion: str = conclusion) -> None:
+                state.update(status="completed", conclusion=conclusion)
+                raise RuntimeError(f"POST /actions/runs/{run_id}/force-cancel failed (TimeoutError)")
+            actions.force_cancel = lost  # type: ignore[method-assign]
+            self.rescue(actions)
+            self.assertEqual(actions.calls, expected, conclusion)
+        refused = self.stranded()
+        def no(run_id: int) -> None:
+            raise RuntimeError(f"POST /actions/runs/{run_id}/force-cancel failed (409)")
+        refused.force_cancel = no  # type: ignore[method-assign]
+        summary = self.rescue(refused)
+        self.assertEqual(refused.calls, [])
+        self.assertIn("force-cancel refused", summary)
+
+    def test_pull_request_runs_keep_a_share_of_the_window(self) -> None:
+        live = {**self.DEAD_16, "labels": ["blacksmith-2vcpu-ubuntu-2404"]}
+        pushes = [{"id": 100 + n, "status": "queued", "event": "push", "name": "CI", "created_at": ago(300 - n)}
+                  for n in range(switch.MAX_RUN_LISTINGS + 5)]
+        pr = {"id": 700, "status": "queued", "event": "pull_request", "name": "CI", "created_at": ago(10)}
+        jobs = {run["id"]: [live] for run in pushes}
+        jobs[700] = [self.DEAD_16]
+        actions = FakeActions(None, [*pushes, pr], jobs)
+        self.rescue(actions)
+        self.assertEqual(actions.calls, [("force-cancel", 700), ("rerun", 700)])
+
+    def test_a_truncated_body_is_a_failed_call(self) -> None:
+        import http.client
+        api = switch.GitHub("t", "o/r")
+        def cut(*_: object) -> None:
+            raise http.client.IncompleteRead(b"{", 10)
+        api._send = cut  # type: ignore[method-assign]
+        with self.assertRaises(RuntimeError):
+            api.run(1)
 
     def test_the_overflow_rescue_keeps_oldest_first_and_whole_reruns(self) -> None:
         # The all-stalled rescue is unchanged: no push-first order, a whole re-run, attempt 2 still moves.
@@ -1012,6 +1072,7 @@ class DeadLabelRescueTests(unittest.TestCase):
         self.assertLess(pools, rescue)
         self.assertLess(rescue, end)
         self.assertIn("cloud_overflow_switch.py --rescue-dead", text[rescue:end])
+        self.assertIn("steps.pools.outcome == 'success'", text[rescue:end])
 
 
 class WorkflowTests(unittest.TestCase):

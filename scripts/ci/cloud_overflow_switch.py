@@ -64,6 +64,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import datetime as dt
+import http.client
 import json
 import os
 import re
@@ -172,6 +173,11 @@ PROTECTED_WORKFLOW = re.compile(r"release|publish|notar|testflight|app[-_ ]?stor
 # dead label, and a second cancel would only repeat that.
 DEAD_PROTECTED_WORKFLOW = re.compile(r"sign|deploy|promot|rollback|nightly|train", re.IGNORECASE)
 DEAD_MAX_RESCUES = 10
+# Of MAX_RUN_LISTINGS, the share kept for runs other than pushes, so pushes queued on live labels cannot
+# push a stranded pull request run out of every pass.
+DEAD_NON_PUSH_LISTINGS = 20
+# A run with one of these jobs in progress is mid-publish or mid-sign: a force-cancel would cut it.
+DEAD_BUSY_JOB = re.compile(r"publish|upload|sign|notar|deploy|promot|release", re.IGNORECASE)
 DEAD_CANCEL_WAIT_SECONDS = 120
 
 
@@ -612,7 +618,7 @@ class GitHub:
             raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.code})") from error
         except urllib.error.URLError as error:
             raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.reason})") from error
-        except (OSError, ValueError) as error:
+        except (OSError, ValueError, http.client.HTTPException) as error:
             # A read timeout (TimeoutError) or a body that is not JSON: a failed call like any other, so a
             # rescue that already force-cancelled runs still re-runs the rest.
             raise RuntimeError(f"{method} {path.split('?')[0]} failed ({type(error).__name__})") from error
@@ -634,10 +640,6 @@ class GitHub:
 
     def rerun(self, run_id: int) -> None:
         self.request("POST", f"/actions/runs/{run_id}/rerun")
-
-    def rerun_failed(self, run_id: int) -> None:
-        # Re-runs the cancelled and failed jobs (and what depends on them); jobs that passed keep their result.
-        self.request("POST", f"/actions/runs/{run_id}/rerun-failed-jobs")
 
     def get_variable(self, name: str) -> str | None:
         try:
@@ -737,8 +739,8 @@ def rescue_stuck_runs(api: GitHub, *, own_run_id: int, minutes: int, now: Callab
     With `only` (--rescue-dead), push runs are listed and looked at first: one listing holds
     the newest 100 runs, and with thousands queued (2026-11-18) the branch pushes a nightly
     waits on (the cmux-tui tree owners) fell outside it. That mode also protects more
-    (protected_reason(dead=True)), touches at most DEAD_MAX_RESCUES runs, and re-runs only the
-    cancelled jobs, so jobs that already passed keep their result.
+    (protected_reason(dead=True), busy_reason()), touches at most DEAD_MAX_RESCUES runs, and
+    cancels and re-runs through _cancel_and_rerun_once().
     """
     lines: list[str] = []
     dead = only is not None
@@ -756,23 +758,29 @@ def rescue_stuck_runs(api: GitHub, *, own_run_id: int, minutes: int, now: Callab
         # Protected and already re-run runs leave the window before it is cut, so they cannot fill it
         # pass after pass (a re-run keeps its created_at, so it stays oldest).
         seen = {run_id: run for run_id, run in seen.items() if not protected_reason(run, dead)}
-    candidates = sorted((run for run_id, run in seen.items() if run_id != own_run_id),
-                        key=lambda run: (dead and run.get("event") != "push",
-                                         str(run.get("created_at") or "")))[:MAX_RUN_LISTINGS]
+    ordered = sorted((run for run_id, run in seen.items() if run_id != own_run_id),
+                     key=lambda run: (dead and run.get("event") != "push", str(run.get("created_at") or "")))
+    if dead:
+        pushes = [run for run in ordered if run.get("event") == "push"]
+        others = [run for run in ordered if run.get("event") != "push"]
+        keep_others = others[:max(DEAD_NON_PUSH_LISTINGS, MAX_RUN_LISTINGS - len(pushes))]
+        candidates = (pushes[:MAX_RUN_LISTINGS - len(keep_others)] + keep_others)[:MAX_RUN_LISTINGS]
+    else:
+        candidates = ordered[:MAX_RUN_LISTINGS]
     most = DEAD_MAX_RESCUES if dead else MAX_RESCUES
-    wait_seconds = DEAD_CANCEL_WAIT_SECONDS if dead else CANCEL_WAIT_SECONDS
     chosen: list[tuple[dict[str, Any], Mapping[str, Any]]] = []
     for run in candidates:
         if len(chosen) >= most:
             break
         try:
-            job = stuck_job(api.jobs(int(run["id"])), now(), minutes, failovers, linux_moves, only)
+            jobs = api.jobs(int(run["id"]))
         except RuntimeError as error:
             lines.append(f"run {run['id']}: could not list jobs ({error})")
             continue
+        job = stuck_job(jobs, now(), minutes, failovers, linux_moves, only)
         if job is None:
             continue
-        why = protected_reason(run, dead)
+        why = protected_reason(run, dead) or (dead and busy_reason(jobs))
         label = ",".join(str(label) for label in job.get("labels") or ())
         if why:
             lines.append(f"run {run['id']} ({run.get('name')}): `{job.get('name')}` stuck on {label}; left "
@@ -785,17 +793,17 @@ def rescue_stuck_runs(api: GitHub, *, own_run_id: int, minutes: int, now: Callab
                      f"{label}" + (" (dry run)" if dry_run else ""))
     if dry_run or not chosen:
         return lines
+    if dead:
+        return lines + _cancel_and_rerun_once(api, chosen, minutes=minutes, now=now, sleep=sleep, log=log,
+                                              only=only or ())
     cancelled: list[int] = []
     for run, _ in chosen:
         try:
             api.force_cancel(int(run["id"]))
             cancelled.append(int(run["id"]))
-            if dead:
-                # Logged now: if the step is killed before the re-run, its log still names the run.
-                log(f"run {run['id']}: force-cancelled; re-running it once it ends")
         except RuntimeError as error:
             lines.append(f"run {run['id']}: force-cancel failed ({error})")
-    deadline = now() + dt.timedelta(seconds=wait_seconds)
+    deadline = now() + dt.timedelta(seconds=CANCEL_WAIT_SECONDS)
     pending = list(cancelled)
     while pending:
         still: list[int] = []
@@ -806,7 +814,7 @@ def rescue_stuck_runs(api: GitHub, *, own_run_id: int, minutes: int, now: Callab
                 status = None
             if status == "completed":
                 try:
-                    (api.rerun_failed(run_id) if dead else api.rerun(run_id))
+                    api.rerun(run_id)
                     lines.append(f"run {run_id}: force-cancelled and re-run")
                 except RuntimeError as error:
                     lines.append(f"run {run_id}: force-cancelled, re-run failed ({error}); re-run it by hand")
@@ -815,7 +823,87 @@ def rescue_stuck_runs(api: GitHub, *, own_run_id: int, minutes: int, now: Callab
         pending = still
         if pending and now() >= deadline:
             for run_id in pending:
-                lines.append(f"run {run_id}: force-cancelled but still finishing after {wait_seconds} s; "
+                lines.append(f"run {run_id}: force-cancelled but still finishing after {CANCEL_WAIT_SECONDS} s; "
+                             "re-run it by hand")
+            break
+        if pending:
+            sleep(10)
+    return lines
+
+
+def busy_reason(jobs: Iterable[Mapping[str, Any]]) -> str:
+    """Why a run must not be cut now: a publish, upload, signing or deploy job of it is running."""
+    for job in jobs:
+        if job.get("status") == "in_progress" and DEAD_BUSY_JOB.search(str(job.get("name") or "")):
+            return f"`{job.get('name')}` is running"
+    return ""
+
+
+def _http_code(error: RuntimeError) -> int | None:
+    found = re.search(r"failed \((\d{3})\)", str(error))
+    return int(found.group(1)) if found else None
+
+
+def _cancel_and_rerun_once(api: GitHub, chosen: Sequence[tuple[Mapping[str, Any], Mapping[str, Any]]], *,
+                           minutes: int, now: Callable[[], dt.datetime], sleep: Callable[[float], None],
+                           log: Callable[[str], None], only: Iterable[str]) -> list[str]:
+    """--rescue-dead's cancel and re-run.
+
+    - Each run is read again first: one re-run or started since the listing is left alone.
+    - The re-run is a whole one (`/rerun`), never rerun-failed-jobs: that keeps the outputs of jobs that
+      passed, and a planner's output can name the dead label (cmux-tui-build-package.yml's plan-build
+      writes LINUX_RUNNER into the build matrix), so the build would queue there again.
+    - A force-cancel whose answer was lost (no HTTP status, or a 5xx) may have gone through: the run is
+      watched like a cancelled one and re-run only if it ends cancelled. A 4xx refusal is final.
+    """
+    lines: list[str] = []
+    pending: dict[int, bool] = {}  # run id -> whether the cancel is known to have gone through
+    for run, _ in chosen:
+        run_id = int(run["id"])
+        try:
+            current = api.run(run_id)
+            still = (current.get("status") != "completed"
+                     and int(current.get("run_attempt") or 1) == int(run.get("run_attempt") or 1)
+                     and stuck_job(api.jobs(run_id), now(), minutes, only=only) is not None)
+        except RuntimeError as error:
+            lines.append(f"run {run_id}: could not read it again ({error}); left alone")
+            continue
+        if not still:
+            lines.append(f"run {run_id}: changed since it was listed; left alone")
+            continue
+        try:
+            api.force_cancel(run_id)
+            pending[run_id] = True
+            # Logged now: if the step is killed before the re-run, its log still names the run.
+            log(f"run {run_id}: force-cancelled; re-running it once it ends")
+        except RuntimeError as error:
+            code = _http_code(error)
+            if code is not None and code < 500:
+                lines.append(f"run {run_id}: force-cancel refused ({error})")
+                continue
+            pending[run_id] = False
+            log(f"run {run_id}: force-cancel answer lost ({error}); re-running it only if it ends cancelled")
+    deadline = now() + dt.timedelta(seconds=DEAD_CANCEL_WAIT_SECONDS)
+    while pending:
+        for run_id, known in list(pending.items()):
+            try:
+                current = api.run(run_id)
+            except RuntimeError:
+                continue
+            if current.get("status") != "completed":
+                continue
+            del pending[run_id]
+            if not known and current.get("conclusion") != "cancelled":
+                lines.append(f"run {run_id}: ended {current.get('conclusion')}; the cancel did not take, no re-run")
+                continue
+            try:
+                api.rerun(run_id)
+                lines.append(f"run {run_id}: force-cancelled and re-run")
+            except RuntimeError as error:
+                lines.append(f"run {run_id}: force-cancelled, re-run failed ({error}); re-run it by hand")
+        if pending and now() >= deadline:
+            for run_id in pending:
+                lines.append(f"run {run_id}: force-cancelled but still finishing after {DEAD_CANCEL_WAIT_SECONDS} s; "
                              "re-run it by hand")
             break
         if pending:
@@ -852,13 +940,19 @@ def rescue_dead(api: GitHub, switch: GitHub | None, env: Mapping[str, str], *, o
                 dry_run: bool) -> int:
     """`--rescue-dead`: after the pools step, re-run runs stranded on a dead label no pool names."""
     raw = None
+    fresh = False
     if switch is not None:
         try:
-            raw = switch.get_variable(POOLS_VARIABLE)
+            raw = switch.get_variable(POOLS_VARIABLE) or ""  # None: the API says the variable is unset
+            fresh = True
         except RuntimeError as error:
-            log(f"::warning title=Dead label rescue::could not read {POOLS_VARIABLE} ({error}); "
-                "using the job-start value")
-    if raw is None:
+            log(f"::warning title=Dead label rescue::could not read {POOLS_VARIABLE} ({error})")
+    if not fresh:
+        # The job-start value predates the pools step, which may have cleared or added a mark since: it may
+        # only describe what a live pass would do, never cancel anything.
+        if not dry_run:
+            log(f"no live {POOLS_VARIABLE} read (switch token missing or refused); nothing cancelled this pass")
+            return 0
         raw = env.get(POOLS_VARIABLE) or ""
     try:
         value = json.loads(raw) if raw.strip() else {}
