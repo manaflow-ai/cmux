@@ -171,6 +171,85 @@ await requireBrowserLane("visible-lists-listbox-measure.browser.test.ts", async 
     });
   });
 
+  /** Scrolls through the whole list, 150 px a step: each row's height as drawn (rows in order sit
+   * edge to edge), their sum, and the list's scroll length without its padding. */
+  async function rowsThrough(page: Page) {
+    const heights = new Map<number, number>();
+    for (let top = 0; ; top += 150) {
+      const atEnd = await page.evaluate((top) => {
+        const scroller = (
+          window as unknown as { __visibleListControls: { scroller(): HTMLElement } }
+        ).__visibleListControls.scroller();
+        scroller.scrollTop = top;
+        return scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 1;
+      }, top);
+      await nextFrames(page);
+      const rows = await page.evaluate(() => {
+        const scroller = (
+          window as unknown as { __visibleListControls: { scroller(): HTMLElement } }
+        ).__visibleListControls.scroller();
+        return [...scroller.querySelectorAll<HTMLElement>("[role='option']")]
+          .map((row) => ({ place: Number(row.getAttribute("aria-posinset")), rect: row.getBoundingClientRect() }))
+          .map(({ place, rect }) => ({ place, top: rect.top, bottom: rect.bottom }))
+          .sort((a, b) => a.place - b.place);
+      });
+      for (const [index, row] of rows.entries()) {
+        heights.set(row.place, row.bottom - row.top);
+        const before = rows[index - 1];
+        if (before && before.place === row.place - 1)
+          expect({ place: row.place, gap: Math.abs(row.top - before.bottom) <= 0.5 }).toEqual({
+            place: row.place,
+            gap: true,
+          });
+      }
+      if (atEnd) break;
+    }
+    const sum = [...heights.values()].reduce((total, height) => total + height, 0);
+    const length = await page.evaluate(() => {
+      const scroller = (
+        window as unknown as { __visibleListControls: { scroller(): HTMLElement } }
+      ).__visibleListControls.scroller();
+      const style = getComputedStyle(scroller);
+      return scroller.scrollHeight - Number.parseFloat(style.paddingTop) - Number.parseFloat(style.paddingBottom);
+    });
+    return { heights, sum, length };
+  }
+
+  test("200 rows of one and three lines: rows edge to edge, the scroll length their sum, a key reveals its row", async () => {
+    const open = await server.open("listbox-variable", 200);
+    const { page } = open;
+    // Every third row has two lines; growing it gives three. The rest have one.
+    await page.evaluate(() => {
+      for (let index = 0; index < 200; index += 3)
+        (window as unknown as { __growRow(index: number): void }).__growRow(index);
+    });
+    await nextFrames(page);
+    const { heights, sum, length } = await rowsThrough(page);
+    expect(new Set([...heights.values()].map(Math.round)).size).toBe(2);
+    expect(heights.size).toBe(200);
+    expect(Math.abs(length - sum)).toBeLessThanOrEqual(1);
+    await scrollToTop(page);
+    await focusKeys(page);
+    const outside = () =>
+      page.evaluate(() => {
+        const scroller = (
+          window as unknown as { __visibleListControls: { scroller(): HTMLElement } }
+        ).__visibleListControls.scroller();
+        const row = document.getElementById(scroller.getAttribute("aria-activedescendant") ?? "");
+        if (!row) return Number.POSITIVE_INFINITY;
+        const view = scroller.getBoundingClientRect();
+        const box = row.getBoundingClientRect();
+        return Math.max(0, view.top - box.top, box.bottom - view.bottom);
+      });
+    for (const key of [...Array<string>(199).fill("ArrowDown"), "Home", "End"]) {
+      await page.keyboard.press(key);
+      await nextFrames(page);
+      const off = await outside();
+      expect({ key, off: off <= 1 }).toEqual({ key, off: true });
+    }
+    await open.close();
+  });
+
   // The callers: their own rows, styles and keys.
   describe("SteerQueue, 60 chats", () => {
     for (const look of ["rows", "compact"]) {
@@ -213,4 +292,66 @@ await requireBrowserLane("visible-lists-listbox-measure.browser.test.ts", async 
       }
     });
   }
+
+  // While the list is open: the interface scale (Text Size) changes, or the steer queue's look.
+  const setScale = (page: Page, scale: string) =>
+    page.evaluate((scale) => (window as unknown as { __setScale(scale: string): void }).__setScale(scale), scale);
+
+  for (const [name, title] of [
+    ["mention-menu-scaled", "MentionMenu"],
+    ["recent-list", "RecentList"],
+  ] as const) {
+    test(`${title}: the interface scale changes while it is open, scrolled through once: no blank, the scroll length the rows' sum`, async () => {
+      const open = await server.open(name, 300);
+      const { page } = open;
+      // Every row measured at the first scale, then the view left mid-list.
+      await rowsThrough(page);
+      await page.evaluate(() => {
+        const scroller = (
+          window as unknown as { __visibleListControls: { scroller(): HTMLElement } }
+        ).__visibleListControls.scroller();
+        scroller.scrollTop = (scroller.scrollHeight - scroller.clientHeight) * 0.4;
+      });
+      await nextFrames(page);
+      for (const scale of ["1.25", "1.1"]) {
+        await setScale(page, scale);
+        await nextFrames(page);
+        await nextFrames(page);
+        const cover = await coverage(page);
+        expect({ scale, blanks: cover.blanks, overlaps: cover.overlaps }).toEqual({ scale, blanks: [], overlaps: 0 });
+        const { sum, length } = await rowsThrough(page);
+        expect({ scale, length: Math.round(length), sum: Math.round(sum) }).toEqual({
+          scale,
+          length: Math.round(sum),
+          sum: Math.round(sum),
+        });
+      }
+      await scrollToTop(page);
+      await focusKeys(page);
+      await walk(page, 60, "ArrowDown", 1, 300);
+      await open.close();
+    });
+  }
+
+  test("SteerQueue: the look switches while it is open, the active row deep in the list: no blank, the active row in view", async () => {
+    const open = await server.open("steer-queue&look=rows", 60);
+    const { page } = open;
+    await focusKeys(page);
+    await walk(page, 40, "ArrowDown", 1, 60);
+    for (const look of ["compact", "rows", "compact"]) {
+      await page.evaluate((look) => (window as unknown as { __setLook(look: string): void }).__setLook(look), look);
+      await nextFrames(page);
+      await nextFrames(page);
+      const cover = await coverage(page);
+      expect({ look, blanks: cover.blanks, overlaps: cover.overlaps }).toEqual({ look, blanks: [], overlaps: 0 });
+      // The next key brings the active row into view at the new heights.
+      await page.keyboard.press("ArrowUp");
+      await page.keyboard.press("ArrowDown");
+      await nextFrames(page);
+      expect({ look, ...(await activeInView(page)) }).toEqual({ look, mounted: true, inView: true, posinset: "41" });
+      const { sum, length } = await rowsThrough(page);
+      expect({ look, off: Math.abs(length - sum) <= 1 }).toEqual({ look, off: true });
+    }
+    await open.close();
+  });
 });

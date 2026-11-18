@@ -1,7 +1,9 @@
 // l10n-allow-file: test fixture chats, not shipped UI.
 // The steer queue (acpmux/steerQueue/SteerQueue.tsx) with N chats, its rows of different heights: a
 // chat the person stepped into has a third line (its `said` line), and a step the person takes adds
-// that line to a row after it mounted. `?look=compact` draws one line per chat, with compact padding.
+// that line to a row after it mounted. `?look=compact` draws one line per chat, with compact padding;
+// `window.__setLook(look)` switches the look while the queue is open.
+import { useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import type { SteerItem, SteerReason } from "../../../src/agent-session/acpmux/steerQueue/model";
@@ -34,17 +36,25 @@ function steerItems(n: number): SteerItem[] {
 const pending = () => new Promise<never>(() => {});
 const actions: SteerActions = { steer: pending, redirect: pending, stop: pending, fork: pending, open: pending };
 
+/** The queue, its look switchable while it is open (`window.__setLook("compact")`). */
+function CaseSteerQueue({ n, initialLook }: { n: number; initialLook: SteerQueueLook }) {
+  const [items] = useState(() => steerItems(n));
+  const [look, setLook] = useState(initialLook);
+  // In an effect, not at render (see listbox.case.tsx).
+  useEffect(() => {
+    (window as unknown as { __setLook(look: SteerQueueLook): void }).__setLook = (next) =>
+      flushSync(() => setLook(next));
+  }, []);
+  return <SteerQueue items={items} now={NOW} actions={actions} onClose={() => undefined} look={look} />;
+}
+
 const steerQueueCase: VisibleListCase = {
   mount(root, n) {
     applyCaseScale();
     const look = (new URLSearchParams(location.search).get("look") ?? "rows") as SteerQueueLook;
     root.className = "acpmux-shell";
     root.style.cssText = "position: relative; height: 520px; width: 560px;";
-    flushSync(() =>
-      createRoot(root).render(
-        <SteerQueue items={steerItems(n)} now={NOW} actions={actions} onClose={() => undefined} look={look} />,
-      ),
-    );
+    flushSync(() => createRoot(root).render(<CaseSteerQueue n={n} initialLook={look} />));
     const list = () => root.querySelector<HTMLElement>("[role='listbox']")!;
     return {
       rowSelector: '[role="option"]',

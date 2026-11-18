@@ -24,7 +24,7 @@ import {
   type Ref,
   type UIEventHandler,
 } from "react";
-import { defaultRangeExtractor, measureElement, useVirtualizer, type Range } from "@tanstack/react-virtual";
+import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import { cx } from "./cx";
 import { useScrollEdges } from "./scrollEdges";
 import "./popupSurface.css";
@@ -155,8 +155,19 @@ export function Listbox<T>({
       }
       return indexes;
     },
-    // A DOM with no layout measures 0: keep the estimate there.
-    measureElement: (element, entry, instance) => measureElement(element, entry, instance) || estimate,
+    // A row's height as laid out, fractional: the library's own measure rounds it (a 30.8 px row at
+    // an interface scale of 1.1 counts as 31, and the list grows a pixel every five rows). With no
+    // resize entry (a row mounting), a size measured before stands, as the library does. A DOM with
+    // no layout measures 0: keep the estimate there.
+    measureElement: (element, entry, instance) => {
+      const box = entry?.borderBoxSize?.[0];
+      if (box) return box.blockSize || estimate;
+      if (!entry) {
+        const cached = instance.itemSizeCache.get(instance.options.getItemKey(instance.indexFromElement(element)));
+        if (cached !== undefined) return cached;
+      }
+      return element.getBoundingClientRect().height || estimate;
+    },
   });
   useLayoutEffect(() => {
     if (!ownWindow || firstRowPx > 0) return;
@@ -250,14 +261,15 @@ export function Listbox<T>({
       onKeyDown={onKeyDown}
       onScroll={onScroll}
     >
-      {/* One flat keyed array: a row that moves between segments keeps its element. */}
+      {/* One flat keyed array: a row that moves between segments keeps its element. Rows' keys and
+          spacers' keys have their own prefixes, so no key a caller's getKey gives can match a spacer. */}
       {segments.flatMap((segment, place) => [
-        segment.before > 0 && <div key={`space-${place}`} aria-hidden="true" style={{ height: segment.before }} />,
+        segment.before > 0 && <div key={`space:${place}`} aria-hidden="true" style={{ height: segment.before }} />,
         ...items.slice(segment.start, segment.end).map((item, offset) => {
           const index = segment.start + offset;
           return (
             <ListboxRow
-              key={getKey(item)}
+              key={`row:${getKey(item)}`}
               index={index}
               id={getItemId?.(item, index) ?? `${id}-${index}`}
               className={rowClassName}
