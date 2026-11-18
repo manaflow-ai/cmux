@@ -398,6 +398,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // The page the person waits for: the next spare is made once it arrived (`CEFArrivingPages`).
         if navigates, host.visibleTab === self, !isAgentDriven { runtime.arriving.began(id) }
         CEFAgentURLGuard.applyShimGuard(self)
+        // Before any load: an agent tab's page never reaches a passkey ceremony.
+        applyWebAuthnRefusal()
         // An address committed during creation replaces the page creation was started with (and an
         // agent tab's deferred load of that page): it is the tab's one navigation.
         let committed = loadSinceCreation
