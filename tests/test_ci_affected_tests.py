@@ -330,6 +330,13 @@ class Replay(unittest.TestCase):
         self.assertNotIn("new", graph)
         self.assertIn("new", self.replay.meta_graph(meta))
 
+    def test_an_open_window_lists_runs_from_since(self):
+        # `created=SINCE..9999` (the --until default) made GitHub answer total_count 0 for every
+        # workflow; `>=SINCE` lists them (ci.yml: 0 vs 256 failed runs since 2026-11-17).
+        self.assertEqual(self.replay.created_range("2026-11-17T00:00:00Z", "9999"), ">=2026-11-17T00:00:00Z")
+        self.assertEqual(self.replay.created_range("2026-11-17T00:00:00Z", "2026-11-18T10:00:00Z"),
+                         "2026-11-17T00:00:00Z..2026-11-18T10:00:00Z")
+
     def test_per_head_metadata_is_the_heads_own_graph_or_none(self):
         from unittest import mock
         with mock.patch.object(self.replay.shutil, "which", return_value=None):

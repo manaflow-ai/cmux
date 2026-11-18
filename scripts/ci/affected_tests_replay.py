@@ -144,6 +144,12 @@ def failures_in_log(log: str) -> list[dict]:
     return list(found.values())
 
 
+def created_range(since: str, until: str) -> str:
+    """The runs search's `created` qualifier. GitHub answers a range whose end is not a date (the
+    open default `9999`) with no runs at all, so an open window is `>=SINCE`."""
+    return f"{since}..{until}" if re.fullmatch(r"\d{4}-\d\d-\d\d(T[\d:]+Z)?", until) else f">={since}"
+
+
 def collect(since: str, until: str, out: Path, max_runs: int, runs_since: str = "") -> int:
     prs = []
     for page in range(1, 6):
@@ -161,7 +167,7 @@ def collect(since: str, until: str, out: Path, max_runs: int, runs_since: str = 
         runs_in_workflow = 0
         for page in range(1, 11):
             data = json.loads(gh("api", f"repos/{REPO}/actions/workflows/{workflow}/runs?status=failure&event=pull_request"
-                                        f"&created={runs_since or since}..{until}&per_page=100&page={page}"))
+                                        f"&created={created_range(runs_since or since, until)}&per_page=100&page={page}"))
             for run in data.get("workflow_runs", []):
                 pr = by_branch.get(run["head_branch"]) or next(iter({p["number"] for p in run.get("pull_requests") or []} & numbers), None)
                 if not pr or runs_in_workflow >= max_runs:
