@@ -295,16 +295,15 @@ final class KeyRouter: BrowserKeyRouting, ParkedTypingRouter {
     }
 
     func run(_ candidate: Candidate, context: KeyContext, window: String) {
-        services?.personInput.hostMarks.ranAction(for: inputDispatch.event); lastInterception = (candidate.id, window, true) // first: the key is the app's, so a page whose view saw it is not touched by it (New Tab reads that)
+        services?.personInput.hostMarks.ranAction(for: inputDispatch.event) // first: the key is the app's, so a page whose view saw it is not touched by it (New Tab reads that)
+        lastInterception = (candidate.id, window, true)
         let ran: Bool
         switch candidate.source {
         case .registry(let argument):
             ran = RegistryKeyBindings(registry).run(KeyBinding(keys: [], command: candidate.id, argument: argument, arguments: candidate.arguments),
                                                     keyContext: context.bits)
         case .ghostty(let arguments):
-            var invocation = ActionInvocation(arguments: arguments)
-            invocation.keyContext = context.bits
-            ran = registry.perform(candidate.id, invocation: invocation)
+            ran = registry.perform(candidate.id, invocation: ActionInvocation(arguments: arguments, keyContext: context.bits))
         }
         // A refused run (Cmd-W on a top page) is still a cmux shortcut; debug.key says it did not run.
         lastInterception = (candidate.id, window, ran)

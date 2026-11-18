@@ -72,6 +72,8 @@ struct NewTabPageAtItsFrameTests {
             let pool = services.newTabSpares, tabs = services.agentTabs
             pool.dropAll()
             pool.makeSpare = { _ in nil }
+            // No idle page either: the pane's own first New Tab page counts as used, so the first key's tab does not take its view.
+            NewTabOpenFramesTests.useEachNewTabPage(services)
             // Each page view that the tab store builds or adopts tells this; the app's own listener still hears it.
             var pages: [BuiltPage] = [], engines: [String] = []
             let wired = tabs.onPageBuilt
@@ -111,8 +113,11 @@ struct NewTabPageAtItsFrameTests {
             #expect(built() == 1, "\(built()) page views were made for 4 keys of one turn at the one frame after them")
             #expect(pane.currentTabKey == pane.stripModel.selectedID?.rawValue, "the pane does not show its selected tab")
 
-            // Keys over frames: no page in a key's own turn, and one page at its frame.
+            // Keys over frames, each from a page that the person used: no page in a key's own turn, and one page at its
+            // frame. (From an untouched page the new tab takes that page's view in the key's turn and no page is made:
+            // `NewTabHoldMovesItsPageTests`. The frame rule is for a cold page.)
             for index in 1...3 {
+                NewTabOpenFramesTests.useEachNewTabPage(services)
                 let before = built()
                 NewTabPage.open(in: pane, seed: nil)
                 #expect(built() == before, "key \(index) of 3 made \(built() - before) page views in its own turn")

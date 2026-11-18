@@ -19,6 +19,7 @@ import Testing
 ///   page view that a pane keeps and does not show has the pane's frame too, and gets no input.
 /// - The start of a scroll over the page sets the mark, and so does a tick of a wheel with no phases. A scroll
 ///   beside the page, and an event of a scroll that is under way, set none.
+/// - A paste and a file drop that the page's web view reports set the mark.
 ///
 /// The app and its setup are those of `NewTabHoldMovesItsPageTests`: each row starts with one New Tab key, so the
 /// pane shows a New Tab tab with a page view that got no input. A key or a mouse event goes to the page's view
@@ -27,8 +28,10 @@ import Testing
 /// monitor calls for each scroll event), with the window and the place that a real event has.
 ///
 /// Limits. The package's tests have no Chromium host, so each page view is a WebKit one. The rows do not prove that
-/// AppKit calls the monitors before a page gets an event. A paste, a file drop and the app's dictation set the mark
-/// in the page view's own hooks; no row sends one.
+/// AppKit calls the monitors before a page gets an event. A paste and a file drop set the mark in the reports of the
+/// page's web view: their row calls those reports, and sends no paste and no drag. The app's dictation sets the mark
+/// in the page view's own hook; no row sends one. A key that the key router queues for a page that is not ready sets
+/// the mark too: the rows of `LetterBetweenTwoNewTabKeysTests` hold it (a letter stays with the tab of its page).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"),
                   .closesItsWindows)
 struct NewTabHostMarkTests {
@@ -142,6 +145,26 @@ struct NewTabHostMarkTests {
             #expect(!atBeside, "a scroll beside the page set the host's mark")
             #expect(!underWay, "an event of a scroll that is under way set the host's mark: only a start does a hit test")
             #expect(page.model.hostTouch.marked && page.model.hostTouch.by == "scroll", "a scroll over the page set no mark of a scroll: \(Self.state(page)); the views at the page's middle, from the hit one up: \(chain)")
+        }
+    }
+
+    /// The row calls the report of the page's web view: the one that the web view's own `paste(_:)` calls before
+    /// WebKit's paste, and the one that its `performDragOperation(_:)` calls with the files of the drag. No pasteboard
+    /// is read and nothing goes to the page.
+    @Test(arguments: ["paste", "drop"]) func aPasteOrAFileDropThatThePagesWebViewReportsMarksThePage(input: String) async throws {
+        try await Rows.row("cn-host-mark-\(input)") { services, pane, _, _ in
+            let (page, _) = try Self.shownPage(services, pane)
+            let web = try #require(page.webView as? AgentPaneWKWebView, "setup: the page's web view is not the package's WebKit one")
+            if input == "paste" {
+                let report = try #require(web.onPaste, "setup: the page's web view has no report of a paste")
+                report()
+            } else {
+                let report = try #require(web.onFilesDropped, "setup: the page's web view has no report of a file drop")
+                report([FileManager.default.temporaryDirectory.appending(path: "cn-host-mark-drop.txt")])
+            }
+            print("NewTabHostMarkTests: a \(input) that the page's web view reported: \(Self.state(page))")
+            #expect(page.model.hostTouch.marked && page.model.hostTouch.by == input, "a \(input) that the page's web view reported set no mark of a \(input): \(Self.state(page))")
+            #expect(page.model.userTouched, "a page with the host's mark of a \(input) does not count as a touched one")
         }
     }
 }

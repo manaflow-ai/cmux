@@ -7,7 +7,8 @@ public import AppKit
 /// an untouched New Tab page can be given to another tab. So the host marks the page at the place that sees the
 /// input first: a key-down with the page focused and a mouse-down on the page (``AgentPaneView/judge(_:eventWindow:)``),
 /// the start of a scroll over the page (``AgentPaneHostMarks/scrolled(_:in:at:)``), a paste and a file drop that the
-/// page's view reports, and text of the app's dictation.
+/// page's view reports, text of the app's dictation, and a key that the app's key router queues for a page that is
+/// not ready for typing (the queue gives the text to the view, so the view must stay with its tab).
 ///
 /// The mark is never taken back, but for one case: a key that the app's key router then runs as an app action
 /// (New Tab, Close Tab, a tab switch) was the app's key, not the page's (``AgentPaneHostMarks/ranAction(for:)``).
@@ -19,7 +20,7 @@ public import AppKit
 @MainActor public final class AgentPaneHostTouch {
     /// Input went to the page.
     public private(set) var marked = false
-    /// What set the mark first (`key`, `mouse`, `scroll`, `paste`, `drop`, `dictation`), for diagnostics.
+    /// What set the mark first (`key`, `mouse`, `scroll`, `paste`, `drop`, `dictation`, `type-ahead`), for diagnostics.
     public private(set) var by: String?
     /// The app's marks (``AgentPaneHostMarks``); nil (a pane made with no shared objects): a key's mark stays.
     var marks: AgentPaneHostMarks?
@@ -85,5 +86,15 @@ public import AppKit
         var view = content.hitTest(content.superview?.convert(place, from: nil) ?? place)
         while let current = view, !(current is AgentPaneView) { view = current.superview }
         (view as? AgentPaneView)?.model.hostTouch.mark("scroll")
+    }
+}
+
+extension AgentPaneView {
+    /// This view shows a New Tab page that nobody used: no input (the page's report or the host's mark), no draft,
+    /// no chat, no shell run, no crash notice. Only such a page can serve another New Tab tab, because nothing of
+    /// its tab is in it. The caller checks what the view cannot know (the tab's record and its machine).
+    public var isUntouchedNewTab: Bool {
+        guard let page = model.newTab, !model.userTouched, !model.remoteChat else { return false }
+        return page.draft?.isEmpty != false && model.sessionId == nil && !model.shell.hasRuns && !showsCrashNotice
     }
 }

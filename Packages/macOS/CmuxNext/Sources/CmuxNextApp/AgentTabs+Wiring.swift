@@ -589,6 +589,7 @@ extension AgentTabStore {
         }
         tabs.onPageBuilt = { [weak services, weak tabs] key in services?.cache.hibernation?.agentPages?.pages.pageBuilt(key); services?.paneOwedWork.hand(to: tabs?.views.values.map { $0 } ?? []) } // a pane made now takes what its chat owes
         tabs.onCollectingPages = { [weak services] held in services?.cache.hibernation?.agentPages?.pages.holdAwake(held) }
+        tabs.idlePanes = ({ [weak services] in services?.cache.isRendering($0) ?? true }, { [weak services] in services?.cache.presenter(of: $0)?.surfaceWasDisplaced($0) })
         services.madeAgentTabs = tabs
         return tabs
     }

@@ -178,7 +178,7 @@ final class AgentTabStore {
         }
         set { resolvedLocalHost = newValue }
     }
-    var views: AgentTabMap<AgentPaneView> = .init()
+    var views: AgentTabMap<AgentPaneView> = .init(marking: { $0.model.newTab != nil }) // `marked`: the New Tab page views (`idlePage`)
     /// The machine link each pane's composer strip shows, and the reconnect a chat's use of a down machine runs.
     let machineLink = AgentPaneMachineLink()
     /// Agent tabs whose view waits for the launch's first pane content (`deferAtLaunch`).
@@ -205,6 +205,9 @@ final class AgentTabStore {
     var recycle: ((AgentPaneView) -> Bool)?
     /// The prewarmed New Tab page, for a first page that has no view yet (NewTabSparePool); the next one follows as `refill` says.
     var takeSpare: ((AgentPaneSpareRefill) -> AgentPaneView?)?
+    /// What ``idlePage(for:leaving:take:)`` asks of the panes: whether a pane draws tab `key` now (with no panes: each tab counts as drawn, so no
+    /// page is idle), and that a pane which holds the tab off screen lets go of the view that the tab gave away.
+    var idlePanes: (draws: (String) -> Bool, letGo: (String) -> Void) = ({ _ in true }, { _ in })
     /// The prewarmed page once it is connected and drawn, for a tab opening an existing chat of
     /// this Mac (``AgentPaneSpareAdoption``); nil leaves the spare in the pool.
     var takeConnectedSpare: (() -> AgentPaneView?)?
@@ -553,7 +556,7 @@ final class AgentTabStore {
         // composer (``wakeStates``) gets its own page: the spare's handshake is past. A reserved Cmd-N page (`known`) asked the pool
         // already as idle work (``reserveWorkspace(on:cwd:)``): a take here was a cold open on an empty pool, marking a launch's pool used.
         if known == nil, local, kind == .local, sessions[tabKey] == nil, record.session == nil, let newTab = newTabPages[tabKey],
-           seed?.holdsOnlyFolder ?? true, wakeStates[tabKey] == nil, !relaunchWake.mayHold(tabKey.relaunchKeyCandidates), let spare = takeSpare?(.now) {
+           seed?.holdsOnlyFolder ?? true, wakeStates[tabKey] == nil, !relaunchWake.mayHold(tabKey.relaunchKeyCandidates), let spare = warmPage(.now) {
             adoptSpare(spare, key: tabKey, page: newTab.page.listing(newTab.handler.places(tabKey.key)))
             track(key, in: store, machine: tabKey.machine)
             onPageBuilt?(key)

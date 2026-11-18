@@ -59,7 +59,7 @@ extension AgentTabStore {
         if session == nil, chat == nil { newTabPages[scoped] = firstPage(cwd: cwd, token: token) }
         if reserved == nil {
             track(tabKey, in: store, machine: daemon.machineID)
-            if let page = newTabPages[scoped]?.page, let spare = takeSpare?(.now) { adoptSpare(spare, key: scoped, page: page) }
+            if let page = newTabPages[scoped]?.page, let spare = warmPage(.now) { adoptSpare(spare, key: scoped, page: page) }
         } else if let page = newTabPages[scoped]?.page {
             // The reserved page takes the press's context: its token alone keeps the screen; another folder remounts it.
             if reservedPage?.drawsSameScreen(as: page) != true { BenchSpans.mark("cmdN.reserved.recontext") }
@@ -102,7 +102,7 @@ extension AgentTabStore {
         let record = AgentSessionRef(host: localHost, hostName: localHostName, session: nil), tab = ProvisionalTab(), scoped = AgentTabKey(machine: daemon.machineID, key: tab.id)
         newTabPages[scoped] = made
         track(tab.id, in: store, machine: daemon.machineID)
-        if let spare = takeSpare?(.idle) { adoptSpare(spare, key: scoped, page: made.page) } else if view(for: tab.id, machine: daemon.machineID, known: (record: record, store: store)) == nil { release(tab.id, machine: daemon.machineID); return nil }
+        if let spare = warmPage(.idle) { adoptSpare(spare, key: scoped, page: made.page) } else if view(for: tab.id, machine: daemon.machineID, known: (record: record, store: store)) == nil { release(tab.id, machine: daemon.machineID); return nil }
         return store.reserveWorkspace(ProvisionalWorkspace(key: WorkspaceKey.generate(), name: "", tab: tab.conversation(ConversationTabRef(agentSession: record)))).model
     }
 
@@ -112,4 +112,23 @@ extension AgentTabStore {
         BenchSpans.mark(reason.span)
         release(tabKey, machine: tabStores.entries.first { $0.key.key == tabKey && $0.value === store }?.key.machine)
     }
+
+    /// The page view of an untouched New Tab tab that no pane draws, or of tab `leaving` (its pane leaves it now): the page view that the New Tab
+    /// tab which a pane shows next gets, so no page is made while such a one waits behind a tab. Each of these pages draws one screen until the
+    /// person touches it, and the view takes the next tab's own page at once (``adoptSpare(_:key:page:)``). `take` takes the view from its tab,
+    /// which gets a page view again at its own next show. Never the reserved workspace's page (the next Cmd-N's), never a page of another
+    /// machine's tab. `tab`: nil also when that tab takes no such view at its show (the conditions of the spare branch of ``view(for:machine:known:)``).
+    func idlePage(for tab: AgentTabKey? = nil, leaving: String? = nil, take: Bool = false) -> AgentPaneView? {
+        guard tab.map({ newTabPages[$0] != nil && sessions[$0] == nil && seeds[$0]?.holdsOnlyFolder ?? true && wakeStates[$0] == nil }) ?? true else { return nil }
+        guard let idle = views.firstMarked(take: take, where: { key, view in
+            view.isUntouchedNewTab && !view.model.neverPooled && sessions[key] == nil && newTabPages[key] != nil && tabStores[key]?.reservedWorkspace?.tabKey != key.key
+                && (leaving.map { key.key == resolve($0) } == true || !aliases.names(key.key, where: idlePanes.draws))
+        }) else { return nil }
+        if take { idlePanes.letGo(idle.key.key) }
+        return idle.value
+    }
+
+    /// A page view that is there already, for a New Tab page that has none: an idle one first (``idlePage(for:leaving:take:)``), else the pool's
+    /// spare (``takeSpare``).
+    func warmPage(_ refill: AgentPaneSpareRefill) -> AgentPaneView? { idlePage(take: true) ?? takeSpare?(refill) }
 }

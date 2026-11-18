@@ -60,16 +60,34 @@ struct NewTabHoldMovesItsPageTests {
     @MainActor final class Views {
         private var seen: [AgentPaneView] = []
         var count: Int { seen.count }
+        /// The reads at which the store's index of its New Tab page views (`AgentTabMap.marked`, which the pull reads
+        /// in place of each view) did not agree with a walk over each view. Each row wants none (`row`).
+        private(set) var indexFaults: [String] = []
+        private var reads = 0
 
         func note(_ view: AgentPaneView) {
             if !seen.contains(where: { $0 === view }) { seen.append(view) }
         }
 
-        /// The page views that the pane's New Tab tabs have now.
+        /// The page views that the pane's New Tab tabs have now. Each read compares the store's index with a walk.
         func read(_ pane: PaneController, _ services: AppServices) -> [AgentPaneView] {
             let now = NewTabHoldMovesItsPageTests.newTabs(of: pane, services).compactMap { services.agentTabs.existingView($0) }
             now.forEach(note)
+            reads += 1
+            let all = services.agentTabs.views
+            let walked = Set(all.entries.filter { $0.value.model.newTab != nil }.map(\.key))
+            let missing = walked.subtracting(all.marked).count, dead = all.marked.filter { all[$0] == nil }.count
+            if missing + dead > 0 {
+                indexFaults.append("read \(reads): \(missing) New Tab page views are not in the index, \(dead) keys of the index have no view")
+            }
             return now
+        }
+
+        /// The page views of this row that no tab has now: the store let go of each (a close of the view, or its
+        /// return to the pool of pages made ahead).
+        func gone(_ services: AppServices) -> Int {
+            let held = services.agentTabs.views.values
+            return seen.filter { view in !held.contains { $0 === view } }.count
         }
     }
 
@@ -98,6 +116,9 @@ struct NewTabHoldMovesItsPageTests {
             try #require(tabs.isNewTabPage(shown), "setup: the pane shows no New Tab tab after the row's own New Tab key")
             try #require(tabs.existingView(shown) != nil, "setup: the row's own New Tab tab has no page view at its frame")
             try await body(services, pane, views, views.read(pane, services).count)
+            _ = views.read(pane, services)
+            #expect(views.indexFaults.isEmpty,
+                    "the store's index of its New Tab page views did not agree with a walk over each view at \(views.indexFaults.count) reads of the row: \(views.indexFaults.prefix(3))")
         }
     }
 
@@ -157,7 +178,11 @@ struct NewTabHoldMovesItsPageTests {
             #expect(held.most <= atStart,
                     "the pane's New Tab tabs had \(held.most) page views at one time in the hold, \(atStart) before it: want no more")
             let shown = try #require(pane.currentTabKey, "the pane shows no tab after the hold")
-            #expect(services.agentTabs.existingView(shown) != nil, "the tab that the pane shows after the hold has no page view")
+            let page = services.agentTabs.existingView(shown)
+            #expect(page != nil, "the tab that the pane shows after the hold has no page view")
+            // The view that went from tab to tab is in the pane's window and not hidden: the pane shows it, it does not only have it.
+            let inThePane = page.map { $0.window != nil && $0.window === pane.view.window && !$0.isHiddenOrHasHiddenAncestor } ?? false
+            #expect(inThePane, "the page view of the tab that the pane shows after the hold is hidden or in no window of the pane")
         }
     }
 
@@ -238,7 +263,8 @@ struct NewTabHoldMovesItsPageTests {
 
     /// Row 4, what must stay. A New Tab tab and a terminal tab. The person shows the 2 tabs in turn 20 times, one
     /// tab at each frame. Want: no page view is made, and the New Tab tab has the same page view each time that the
-    /// pane shows it.
+    /// pane shows it. The row counts each round by itself: a round that makes a page view, or in which the store lets
+    /// go of one, is a fault also when the next round gives it back.
     @Test func aNewTabTabAndATerminalTabShownInTurnMakeNoPageView() async throws {
         try await Self.row("cn-hold-moves-page-turns") { services, pane, views, _ in
             let tabs = services.agentTabs
@@ -247,7 +273,10 @@ struct NewTabHoldMovesItsPageTests {
             let terminal = try await Self.terminalTab(in: pane, services)
             let made = views.count
             var withNoPage = 0, withAnotherPage = 0
+            // For each round: the page views made in it, and the page views that the store let go of in it.
+            var rounds: [(made: Int, gone: Int)] = []
             for _ in 0..<20 {
+                let (madeBefore, goneBefore) = (views.count, views.gone(services))
                 let newTab = try #require(Self.newTabs(of: pane, services).dropFirst(index).first, "setup: the pane lost its New Tab tab")
                 try await Self.show(newTab, in: pane, services)
                 let now = tabs.existingView(newTab)
@@ -255,12 +284,15 @@ struct NewTabHoldMovesItsPageTests {
                 _ = views.read(pane, services)
                 try await Self.show(terminal, in: pane, services)
                 _ = views.read(pane, services)
+                rounds.append((views.count - madeBefore, views.gone(services) - goneBefore))
             }
+            let costly = rounds.enumerated().filter { $0.element.made + $0.element.gone > 0 }.map { "round \($0.offset + 1): \($0.element.made) made, \($0.element.gone) let go" }
             print("""
                 NewTabHoldMovesItsPageTests: row 4, a New Tab tab and a terminal tab shown in turn 20 times: \(views.count - made) \
                 page views made in the turns; \(withNoPage) times the New Tab tab had no page view when the pane showed it, \
-                \(withAnotherPage) times another page view
+                \(withAnotherPage) times another page view; rounds that made a page view or let go of one: \(costly)
                 """)
+            #expect(costly.isEmpty, "\(costly.count) of 20 rounds made a page view or let go of one, want 0 in each round: \(costly)")
             #expect(views.count == made, "the 20 turns made \(views.count - made) page views, want 0")
             #expect(withNoPage == 0, "\(withNoPage) of 20 times the New Tab tab had no page view, one frame after the pane showed it")
             #expect(withAnotherPage == 0, "\(withAnotherPage) of 20 times the New Tab tab had another page view than before the turns")
