@@ -435,9 +435,18 @@ jobs:
               # A test target the change adds is not on the merge parent, and cargo refuses the
               # whole run for one unknown `--test`: every red then read as the change's own
               # (#45327, which adds tests/permission_matrix.rs). The replay names only targets
-              # the parent has.
+              # the parent has. A crate the change adds is the same: cargo refuses the run for one
+              # unknown `-p` (#46379 adds acpmux-transcript-search), so the replay names only the
+              # crates the parent has (each lives at crates/<package name>).
               base_suites=()
               for ((i = 0; i < ${#suites[@]}; i++)); do
+                if [[ "${suites[i]}" == -p ]]; then
+                  i=$((i + 1))
+                  if [[ -f "$RUNNER_TEMP/acpmux-base/cmux-tui/crates/${suites[i]}/Cargo.toml" ]]; then
+                    base_suites+=(-p "${suites[i]}")
+                  fi
+                  continue
+                fi
                 if [[ "${suites[i]}" != --test ]]; then
                   base_suites+=("${suites[i]}")
                   continue

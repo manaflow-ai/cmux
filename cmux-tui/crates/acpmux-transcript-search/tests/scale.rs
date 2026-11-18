@@ -292,7 +292,7 @@ fn search_at_500_mb_and_across_a_machine() {
     // A machine's other sessions.
     let files = env_num("SCALE_HOST_FILES", 200);
     let file_mb = env_num("SCALE_HOST_FILE_MB", 5);
-    let mut sources = vec![src.clone()];
+    let mut sources = vec![src];
     for k in 0..files {
         let path = dir.path().join(format!("s{k}.jsonl"));
         write_transcript(&path, file_mb, 1000 + k, (k % 50 == 0).then_some(3));

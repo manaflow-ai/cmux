@@ -274,7 +274,7 @@ impl Index {
             let mut insert = tx.prepare_cached(
                 "INSERT INTO docs(rowid, text, role, at, turn, line) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             )?;
-            for raw in buf[..whole].split(|b| *b == b'\n') {
+            for raw in buf.get(..whole).unwrap_or_default().split(|b| *b == b'\n') {
                 if raw.is_empty() {
                     continue;
                 }
@@ -508,7 +508,13 @@ fn snippet(text: &str, lower: &str, context: usize) -> (String, usize, usize, bo
     while !text.is_char_boundary(end) {
         end += 1;
     }
-    (text[start..end].to_owned(), at - start, len, start > 0, end < text.len())
+    (
+        text.get(start..end).unwrap_or_default().to_owned(),
+        at - start,
+        len,
+        start > 0,
+        end < text.len(),
+    )
 }
 
 /// A row a search read: rowid, time, role, turn, line, text.

@@ -307,11 +307,15 @@ fn capped(role: Role, mut text: String) -> Doc {
 /// `2026-11-18T09:00:00.123Z` (or with an offset) in ms since the epoch.
 pub fn parse_rfc3339_ms(text: &str) -> Option<i64> {
     let b = text.as_bytes();
-    if b.len() < 19 || b[4] != b'-' || b[7] != b'-' || (b[10] != b'T' && b[10] != b' ') {
+    if b.len() < 19
+        || b.get(4) != Some(&b'-')
+        || b.get(7) != Some(&b'-')
+        || !matches!(b.get(10), Some(b'T' | b' '))
+    {
         return None;
     }
     let num = |r: std::ops::Range<usize>| -> Option<i64> {
-        std::str::from_utf8(&b[r]).ok()?.parse::<i64>().ok()
+        std::str::from_utf8(b.get(r)?).ok()?.parse::<i64>().ok()
     };
     let (y, mo, d) = (num(0..4)?, num(5..7)?, num(8..10)?);
     let (h, mi, s) = (num(11..13)?, num(14..16)?, num(17..19)?);
@@ -320,10 +324,10 @@ pub fn parse_rfc3339_ms(text: &str) -> Option<i64> {
     if b.get(i) == Some(&b'.') {
         i += 1;
         let start = i;
-        while i < b.len() && b[i].is_ascii_digit() {
+        while b.get(i).is_some_and(u8::is_ascii_digit) {
             i += 1;
         }
-        let frac = &text[start..i];
+        let frac = text.get(start..i)?;
         let digits: String = frac.chars().chain("000".chars()).take(3).collect();
         ms = digits.parse().ok()?;
     }
