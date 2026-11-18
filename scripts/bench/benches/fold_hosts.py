@@ -1,15 +1,16 @@
 """fold-hosts: bytes, start time and idle memory of the programs bin/cmux runs by argv[0] (CMUX-570), base vs head.
 
 Wraps scripts/measure/fold-hosts.sh: on one Linux runner it builds stripped release binaries of a base commit and of
-the caller's PR head (bin/cmux, bin/cmux-tui-host, bin/cmux-agent-screen-detection, bin/cmux-cloud), lays each out as
+the caller's PR head (bin/cmux, bin/cmux-tui-host, bin/cmux-agent-screen-detection, bin/cmux-cloud, bin/cmux-mobile-host), lays each out as
 the bundle does (the folded names become links to cmux), then samples both folders in turns (fold-hosts.py).
 
 Rows (labels: side = base or head, program; better = lower):
   bytes (MB, label file): each regular file of bin/, a link counts 0; total (MB): their sum.
   start_ms (ms): `cmux-agent-screen-detection list`, the Cloud server's first line, `cmux-tui-host --version`,
-    `cmux --version`.
+    `cmux --version`, `cmux-mobile-host --print-device-id`.
+  ready_ms (ms): the iPhone host supervised against the fake backend, spawn to its `online` event.
   idle_rss_kb, idle_pss_kb, idle_pss_anon_kb, idle_private_dirty_kb (kB): the detector under a headless daemon, the
-    Cloud server waiting on stdin, the terminal host of one terminal (`cmux-tui-host@full`: that host run from
+    Cloud server waiting on stdin, the iPhone host after `online`, the terminal host of one terminal (`cmux-tui-host@full`: that host run from
     bin/cmux instead, the cost of folding it).
 
 Run: `cmux-bench fold-hosts --build SHA [--arg base=SHA]` sends the harness through `cmux-ci test` (at the caller's
@@ -83,7 +84,7 @@ class FoldHosts(Bench):
         if found < 2:
             raise BenchError(f"{path}: fewer than two FOLD-AT lines (not a fold-hosts.sh log, or a build failed)")
         for (side, program, metric), values in samples.items():
-            unit = "ms" if metric == "start_ms" else "kB"
+            unit = "ms" if metric in ("start_ms", "ready_ms") else "kB"
             ctx.row(metric, unit=unit, samples=values, labels={"side": side, "program": program})
 
 
