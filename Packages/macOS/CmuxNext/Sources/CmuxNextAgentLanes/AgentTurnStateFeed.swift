@@ -194,9 +194,12 @@ public final class AgentTurnStateFeed {
     /// answering the last pass's numbers, or none when nothing asked since it started. The watch's
     /// own list carries only those, so the hover card's usage row stayed empty or stale. Asked
     /// once each time the watch (re)connects, never on a timer: after it, each chat's turn end
-    /// brings its own fresh numbers over `_acpmux/session_changed`.
+    /// brings its own fresh numbers over `_acpmux/session_changed`. `usageOnly`: acpmux answers no
+    /// rows and sends the chats the read changed over the watch as `_acpmux/session_changed`; it
+    /// sent the whole list a second time (31-38 MB at 10,790 chats). An older acpmux ignores it and
+    /// answers the list, which these pages still read.
     static func usageRequest(cursor: String?) -> Data {
-        var params: [String: Any] = ["usage": true]
+        var params: [String: Any] = ["usage": true, "usageOnly": true]
         if let cursor { params["cursor"] = cursor }
         let request: [String: Any] = ["jsonrpc": "2.0", "id": 3, "method": "_acpmux/sessions", "params": params]
         var line = (try? JSONSerialization.data(withJSONObject: request)) ?? Data()

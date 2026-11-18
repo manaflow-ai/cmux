@@ -354,6 +354,20 @@ const LANE_STEP_CHARS: usize = 240;
 /// that starts before it is still whole.
 const LANE_SCAN_CHARS: usize = 4096;
 
+/// Sets `key` to `value` unless it holds nothing (null, false, `[]`): a key every reader takes
+/// absent as empty (`server/summary_bytes_tests.rs` `READERS`), left out of each of the list's
+/// rows and every `session_changed`.
+fn set_unless_empty(summary: &mut Value, key: &str, value: Value) {
+    let empty = match &value {
+        Value::Null | Value::Bool(false) => true,
+        Value::Array(items) => items.is_empty(),
+        _ => false,
+    };
+    if !empty {
+        summary.set(key, value);
+    }
+}
+
 /// Set the summary's derived fields: its status dot and its lane.
 /// A summary that is not an object (a peer's bad row) is left as it is.
 pub fn decide(summary: &mut Value) {
@@ -751,7 +765,6 @@ impl Hub {
             spawned_by: self.spawned_by(&m),
             parent: lineage.as_ref().map(|l| l.parent.clone()),
             root: lineage.as_ref().map_or_else(|| m.id.clone(), |l| l.root.clone()),
-            spawn_tool_call_id: lineage.as_ref().and_then(|l| l.tool_call_id.clone()),
             created_by: m.created_by.clone(),
             pull_requests: m.pull_requests.clone(),
             started_by: m.subsession.as_ref().map(|l| l.started_by.clone()),
@@ -927,13 +940,25 @@ impl Hub {
             summary.set(super::additional_dirs::FIELD, dirs);
         }
         // Since when work it started runs on past its own turn (`work_below.rs`).
-        summary.set("subagentsWorkingSince", json!(self.work_below_since(session)));
+        set_unless_empty(
+            &mut summary,
+            "subagentsWorkingSince",
+            json!(self.work_below_since(session)),
+        );
         // Other sessions' messages its Claude Code holds (`native_messaging.rs`): `acpmux pending`.
-        summary.set("heldMessages", super::native_messaging::held_messages(session));
+        set_unless_empty(
+            &mut summary,
+            "heldMessages",
+            super::native_messaging::held_messages(session),
+        );
         // How many open sub-sessions below it wait on the person, and since when (`asks_below.rs`).
         let waiting = self.subsessions_waiting(session);
         summary.set("subsessionsWaiting", json!(waiting.map_or(0, |(count, _)| count)));
-        summary.set("subsessionsWaitingSince", json!(waiting.map(|(_, since)| since)));
+        set_unless_empty(
+            &mut summary,
+            "subsessionsWaitingSince",
+            json!(waiting.map(|(_, since)| since)),
+        );
         // What runs below it now (the sidebar hover card, Leo 2026-11-01: "this hover preview
         // being able to see the # of associated subagents and whatnot"): its running subagents,
         // their first names, and its running background commands (`running_work`).
@@ -943,19 +968,21 @@ impl Hub {
             self.running_processes_read(session),
         );
         summary.set("subagentsRunning", json!(work.subagents));
-        summary.set("subagentNames", json!(work.names));
+        set_unless_empty(&mut summary, "subagentNames", json!(work.names));
         summary.set("commandsRunning", json!(work.commands));
         // The build its live agent host runs, and whether it differs from this daemon's: a
         // host that has not hibernated since an update (`views/host_build.rs`).
         let host_build = host_build::live_host_build(session);
-        summary.set("hostBuildDiffers", json!(host_build_differs(host_build.as_deref(), build())));
-        summary.set("hostBuild", json!(host_build));
+        let differs = json!(host_build_differs(host_build.as_deref(), build()));
+        set_unless_empty(&mut summary, "hostBuildDiffers", differs);
+        set_unless_empty(&mut summary, "hostBuild", json!(host_build));
         if notice && let Some(turn) = summary.get_mut("turn").and_then(Value::as_object_mut) {
             // A History of the person's prompts leaves it out (`turn.notice`).
             turn.insert("notice".into(), Value::Bool(true));
         }
         // Its agent restarts on its profile's new launch when the turn ends (`profile_respawn.rs`).
-        summary.set(
+        set_unless_empty(
+            &mut summary,
             "respawnPending",
             json!(
                 session
@@ -967,7 +994,7 @@ impl Hub {
         // The usage rules it breaks (`usage_warnings.rs`), read from `usageStats` above.
         let limits = *self.usage_limits.lock().unwrap_or_else(|e| e.into_inner());
         let warnings = super::usage_warnings::usage_warnings(&summary, &limits);
-        summary.set("usageWarnings", json!(warnings));
+        set_unless_empty(&mut summary, "usageWarnings", json!(warnings));
         decide(&mut summary);
         summary
     }

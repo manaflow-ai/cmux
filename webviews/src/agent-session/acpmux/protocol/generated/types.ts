@@ -1613,8 +1613,6 @@ export type SessionDetail = {
   shortName?: (string | null);
   /** Some attached client shows the chat. */
   shown: boolean;
-  /** The parent's tool call that started it, when acpmux could tell. */
-  spawnToolCallId?: (string | null);
   /**
    * The session whose agent started this one, kept only while that parent
    * is listed and is a root itself: one level, for lists that fold one level.
@@ -1770,7 +1768,9 @@ export interface SessionSetModelParams {
  * One session as every list shows it (`Hub::session_summary`). A peer's
  * session arrives as the peer daemon's own summary plus `peer`, with
  * `status` `unreachable` while the peer is gone; a peer on an older
- * acpmux may lack newer fields, so nullable ones are optional here.
+ * acpmux may lack newer fields, so nullable ones are optional here. A key that holds nothing is
+ * left out only where every reader takes absent as empty; each key's readers, and whether it is
+ * sent empty, are in `server/summary_bytes_tests.rs` (`READERS`).
  */
 export type SessionSummary = {
   agentSessionId?: (string | null);
@@ -1933,8 +1933,6 @@ export type SessionSummary = {
   shortName?: (string | null);
   /** Some attached client shows the chat. */
   shown: boolean;
-  /** The parent's tool call that started it, when acpmux could tell. */
-  spawnToolCallId?: (string | null);
   /**
    * The session whose agent started this one, kept only while that parent
    * is listed and is a root itself: one level, for lists that fold one level.
@@ -2062,6 +2060,13 @@ export interface SessionsParams {
    * rows carry what the last read found.
    */
   usage?: (boolean | null);
+  /**
+   * `_acpmux/sessions` with `usage` only: start that read and answer no rows (the app's usage
+   * trigger on each connect). The rows the read changed reach every watcher as
+   * `session_changed`; a watch's own list carries the rest. An older acpmux ignores it and
+   * answers the list.
+   */
+  usageOnly?: (boolean | null);
   /** Include tool inventories explicitly; default census rows omit them. */
   withTools?: (boolean | null);
 }

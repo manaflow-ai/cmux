@@ -86,6 +86,18 @@ impl Hub {
         self.read_usage(self.usage_candidates(now), true).await;
     }
 
+    /// [`Self::refresh_usage_stats`] for a read that lists nothing (`_acpmux/sessions {usage,
+    /// usageOnly}`), on its own task so it ends however long its caller waits: then the rows it
+    /// changed are told to every watcher as `session_changed`, where a list read tells them before
+    /// its page (`Events::list_head`). The handle ends with it.
+    pub(crate) fn read_usage_and_tell(self: &Arc<Self>) -> tokio::task::JoinHandle<()> {
+        let hub = self.clone();
+        tokio::spawn(async move {
+            hub.refresh_usage_stats().await;
+            hub.events.list_head();
+        })
+    }
+
     /// The chats a whole pass may read: the live ones, and those the kept list order
     /// (`list_order.rs`) places as changed in the last day, once each. Every chat the pass reads
     /// is one of them (an open chat, or a closed one whose `updatedAt` is inside the day), and

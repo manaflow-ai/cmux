@@ -503,7 +503,8 @@ async fn a_live_host_on_the_daemons_build_does_not_differ() {
     let info = rpc.call("_acpmux/info", json!({"sessionId": session})).await;
     assert_eq!(info["hostBuild"], host["host_build"], "{info}");
     assert_eq!(info["hostBuild"], status["build"], "the host runs the daemon's build");
-    assert_eq!(info["hostBuildDiffers"], false, "{info}");
+    // The same build: `hostBuildDiffers` is left out, as every false key no reader needs.
+    assert_eq!(info.get("hostBuildDiffers"), None, "{info}");
     assert_eq!(status["hostsOnOtherBuilds"], 0, "{status}");
     assert_eq!(status["liveAgents"], 1, "{status}");
 }

@@ -2551,6 +2551,13 @@ async fn dispatch_request_with_identity(
             // `usage: true` (`ls --wide`, `--json`): each chat's usage as its harness recorded it
             // until now first (`hub/usage_view.rs`); else rows carry the last pass's.
             if params.get("usage") == Some(&Value::Bool(true)) {
+                // `usageOnly` (the app's trigger on each connect): the read alone, no rows. It
+                // read the whole list a second time for the numbers (31-38 MB at 10,790 chats).
+                if params.get("usageOnly") == Some(&Value::Bool(true)) {
+                    let read = hub.read_usage_and_tell();
+                    let _ = tokio::time::timeout(crate::hub::USAGE_READ_WAIT, read).await;
+                    return Ok(json!({"sessions": []}));
+                }
                 let read = hub.refresh_usage_stats();
                 let _ = tokio::time::timeout(crate::hub::USAGE_READ_WAIT, read).await;
             }

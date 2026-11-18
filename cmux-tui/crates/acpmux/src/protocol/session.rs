@@ -42,7 +42,9 @@ pub struct ForkParams {
 /// One session as every list shows it (`Hub::session_summary`). A peer's
 /// session arrives as the peer daemon's own summary plus `peer`, with
 /// `status` `unreachable` while the peer is gone; a peer on an older
-/// acpmux may lack newer fields, so nullable ones are optional here.
+/// acpmux may lack newer fields, so nullable ones are optional here. A key that holds nothing is
+/// left out only where every reader takes absent as empty; each key's readers, and whether it is
+/// sent empty, are in `server/summary_bytes_tests.rs` (`READERS`).
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionSummary {
@@ -65,25 +67,25 @@ pub struct SessionSummary {
     #[serde(default)]
     #[schemars(default)]
     pub state: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(default)]
     pub stuck_reason: Option<crate::session_liveness::StuckReason>,
     /// Unix milliseconds when the third failure established stuck. Omitted for peers.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(default)]
     pub stuck_since: Option<u64>,
     /// Last classified error, redacted and bounded. Omitted for peers.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(default)]
     pub stuck_error: Option<String>,
     /// A live repeated-tool episode (`hub/loop_detector.rs`), if this turn is looping.
     /// Additive so older clients and peers can omit it.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(default)]
     pub loop_episode: Option<LoopEpisodeSummary>,
     /// Unix milliseconds when its harness first refused a command because the harness's own
     /// sandbox did not start (`hub/harness_sandbox.rs`). Omitted for peers.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(default)]
     pub harness_sandbox_failed: Option<u64>,
     /// Whether its harness refuses commands now for that reason; a completed command or a new
@@ -130,15 +132,11 @@ pub struct SessionSummary {
     #[serde(default)]
     #[schemars(default)]
     pub root: String,
-    /// The parent's tool call that started it, when acpmux could tell.
-    #[serde(default)]
-    #[schemars(default)]
-    pub spawn_tool_call_id: Option<String>,
     /// Who created it (`hub/created_by.rs`): `{kind: "person"|"agent"|"script", workspace?,
     /// session?}`, decided by the daemon from the connection, never from a request value.
     /// Null for a fork, a moved-in session and one saved before it existed; absent from a
     /// peer on an older acpmux.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(default)]
     pub created_by: Option<crate::store::CreatedBy>,
     /// The pull request URLs its `gh pr create` calls printed, oldest first;
@@ -162,7 +160,7 @@ pub struct SessionSummary {
     /// Who supplied `title`: `prompt` is the first-prompt fallback, while
     /// `harness`, `generated` and `adopted` are real chat titles. Older peers
     /// may omit this field.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(default)]
     pub title_source: Option<String>,
     pub last_prompt: Option<String>,
@@ -860,6 +858,12 @@ pub struct SessionsParams {
     /// rows carry what the last read found.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<bool>,
+    /// `_acpmux/sessions` with `usage` only: start that read and answer no rows (the app's usage
+    /// trigger on each connect). The rows the read changed reach every watcher as
+    /// `session_changed`; a watch's own list carries the rest. An older acpmux ignores it and
+    /// answers the list.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage_only: Option<bool>,
     /// Page size, at least 1. Without it the reply is the whole list.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(range(min = 1))]

@@ -6229,14 +6229,6 @@
           "description": "Some attached client shows the chat.",
           "type": "boolean"
         },
-        "spawnToolCallId": {
-          "default": null,
-          "description": "The parent's tool call that started it, when acpmux could tell.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "spawnedBy": {
           "description": "The session whose agent started this one, kept only while that parent\nis listed and is a root itself: one level, for lists that fold one level.\n`parent` without those rules, else an older client's `spawnedBy` tag.",
           "type": [
@@ -6568,7 +6560,7 @@
       "type": "object"
     },
     "SessionSummary": {
-      "description": "One session as every list shows it (`Hub::session_summary`). A peer's\nsession arrives as the peer daemon's own summary plus `peer`, with\n`status` `unreachable` while the peer is gone; a peer on an older\nacpmux may lack newer fields, so nullable ones are optional here.",
+      "description": "One session as every list shows it (`Hub::session_summary`). A peer's\nsession arrives as the peer daemon's own summary plus `peer`, with\n`status` `unreachable` while the peer is gone; a peer on an older\nacpmux may lack newer fields, so nullable ones are optional here. A key that holds nothing is\nleft out only where every reader takes absent as empty; each key's readers, and whether it is\nsent empty, are in `server/summary_bytes_tests.rs` (`READERS`).",
       "properties": {
         "agentSessionId": {
           "type": [
@@ -6926,14 +6918,6 @@
           "description": "Some attached client shows the chat.",
           "type": "boolean"
         },
-        "spawnToolCallId": {
-          "default": null,
-          "description": "The parent's tool call that started it, when acpmux could tell.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "spawnedBy": {
           "description": "The session whose agent started this one, kept only while that parent\nis listed and is a root itself: one level, for lists that fold one level.\n`parent` without those rules, else an older client's `spawnedBy` tag.",
           "type": [
@@ -7220,6 +7204,13 @@
         },
         "usage": {
           "description": "`_acpmux/sessions` only: read each chat's usage from its harness's records first\n(`usageStats`; at most one read every 5 s, waited for at most 750 ms). Without it the\nrows carry what the last read found.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "usageOnly": {
+          "description": "`_acpmux/sessions` with `usage` only: start that read and answer no rows (the app's usage\ntrigger on each connect). The rows the read changed reach every watcher as\n`session_changed`; a watch's own list carries the rest. An older acpmux ignores it and\nanswers the list.",
           "type": [
             "boolean",
             "null"
