@@ -66,6 +66,9 @@ const ASKED_PAGE_SIZE = process.env.SMALL_PAGES !== "1";
 /// into the wait for its records, its fold, React's render and commit, and style and layout, plus the frames over
 /// 16.7 ms and long tasks by what filled them (olderPageSplit.ts `OLDER-SPLIT` lines).
 const SPLIT = process.env.SPLIT === "1";
+/// RESTYLE=1 (Chromium): a timeline trace of the run, and the elements each frame restyled (UpdateLayoutTree's
+/// elementCount, summed per painted frame). Its own runs: the trace slows the page, so read no frame times there.
+const RESTYLE = process.env.RESTYLE === "1";
 const PROFILE = process.env.PROFILE === "1" || SPLIT;
 
 // The chat: the generated ordinary log at TURNS turns, its records as the stand-in daemon's lead steps; the
@@ -86,7 +89,8 @@ const prompts = FLAT ? chatTurns : log.events.filter((event) => event.kind === "
 /// top of the whole chat once that row is drawn at the view's top, not only at the loaded rows' top.
 const FIRST_PROMPT = FLAT ? "user-1" : `user-${log.events.find((event) => event.kind === "user_message")!.seq}`;
 
-type Frame = { scrollTop: number; scrollHeight: number; clientHeight: number; paint: number };
+/// `mounted`: rows (`.acpmux-row`) that came into the DOM since the frame before (a full mount each).
+type Frame = { scrollTop: number; scrollHeight: number; clientHeight: number; paint: number; mounted: number };
 
 const percentile = (values: number[], p: number) => {
   if (!values.length) return 0;
@@ -246,14 +250,28 @@ async function run(name: string, engine: BrowserType) {
       } catch {
         observer = undefined;
       }
-      const stop = window.cmuxAfterPaint((paint) => {
+      // Rows mounted since the last painted frame: each `.acpmux-row` added under the scroller.
+      let mounted = 0;
+      const rowsIn = new MutationObserver((records) => {
+        for (const record of records)
+          for (const node of record.addedNodes)
+            if (node instanceof HTMLElement && node.classList.contains("acpmux-row")) mounted += 1;
+      });
+      rowsIn.observe(scroller, { childList: true, subtree: true });
+      const stopPaint = window.cmuxAfterPaint((paint) => {
         frames.push({
           paint,
           scrollTop: scroller.scrollTop,
           scrollHeight: scroller.scrollHeight,
           clientHeight: scroller.clientHeight,
+          mounted,
         });
+        mounted = 0;
       });
+      const stop = () => {
+        stopPaint();
+        rowsIn.disconnect();
+      };
       holder.__upWatch = {
         frames,
         long,
@@ -273,6 +291,12 @@ async function run(name: string, engine: BrowserType) {
     // The trace through CDP, as much as the browser keeps: Playwright's `startTracing` records until its buffer is
     // full, which a fling at 100k rows filled within its first two pages.
     const tracer = splitting ? await page.context().newCDPSession(page) : undefined;
+    const restyler = RESTYLE && !tracer && name === "chromium" ? await page.context().newCDPSession(page) : undefined;
+    if (restyler)
+      await restyler.send("Tracing.start", {
+        transferMode: "ReturnAsStream",
+        traceConfig: { recordMode: "recordAsMuchAsPossible", includedCategories: ["devtools.timeline"] },
+      });
     if (tracer)
       await tracer.send("Tracing.start", {
         transferMode: "ReturnAsStream",
@@ -530,6 +554,38 @@ async function run(name: string, engine: BrowserType) {
         longSpans: watched.spans,
       });
     }
+    // RESTYLE=1: the elements restyled over the run, per painted frame and per style pass.
+    let restyled: { perFrame: number; passP95: number; passMax: number; lost: boolean } | undefined;
+    if (restyler) {
+      const complete = new Promise<{ stream?: string; dataLossOccurred?: boolean }>((done) =>
+        restyler.once("Tracing.tracingComplete", done),
+      );
+      await restyler.send("Tracing.end");
+      const { stream, dataLossOccurred } = await complete;
+      const chunks: string[] = [];
+      for (;;) {
+        const read = await restyler.send("IO.read", { handle: stream! });
+        chunks.push(read.base64Encoded ? Buffer.from(read.data, "base64").toString() : read.data);
+        if (read.eof) break;
+      }
+      await restyler.send("IO.close", { handle: stream! });
+      const parsed = JSON.parse(chunks.join("")) as { traceEvents?: unknown[] } | unknown[];
+      const events = (Array.isArray(parsed) ? parsed : (parsed.traceEvents ?? [])) as {
+        name?: string;
+        ph?: string;
+        args?: { elementCount?: number; data?: { elementCount?: number } };
+      }[];
+      const passes = events
+        .filter((event) => event.name === "UpdateLayoutTree" && (event.ph === "X" || event.ph === "E"))
+        .map((event) => event.args?.elementCount ?? event.args?.data?.elementCount ?? 0);
+      const painted = Math.max(1, watched.frames.length);
+      restyled = {
+        perFrame: round2(passes.reduce((sum, count) => sum + count, 0) / painted),
+        passP95: percentile(passes, 95),
+        passMax: Math.max(0, ...passes),
+        lost: dataLossOccurred === true,
+      };
+    }
     const reachedTop = rounds < MAX_ROUNDS;
     const pages = pane.methods.filter((method) => method === "_acpmux/events").length;
     const samples = traces.flatMap((trace) => trace.samples);
@@ -613,6 +669,23 @@ async function run(name: string, engine: BrowserType) {
         ),
       ),
       wireKiBMax: round2(Math.max(0, ...wire.pages.map((each) => each.bytes / 1024))),
+      // Rows mounted per painted frame while the run scrolled (`Frame.mounted`).
+      mountedRowsP95: percentile(
+        watched.frames.map((frame) => frame.mounted),
+        95,
+      ),
+      mountedRowsMax: Math.max(0, ...watched.frames.map((frame) => frame.mounted)),
+      mountedRowsPerFrame: round2(
+        watched.frames.reduce((sum, frame) => sum + frame.mounted, 0) / Math.max(1, watched.frames.length),
+      ),
+      ...(restyled
+        ? {
+            restyledPerFrame: restyled.perFrame,
+            restyledPassP95: restyled.passP95,
+            restyledPassMax: restyled.passMax,
+            restyleTraceLost: restyled.lost,
+          }
+        : {}),
     };
     for (const [key, value] of Object.entries(summary))
       if (key !== "engine") console.log(`transcript-scroll-up ${name} ${key}: ${JSON.stringify(value)}`);
