@@ -28,14 +28,19 @@ import Testing
 ///   tab has the page view that the pane showed before the key.
 /// - Row 7, what must stay: a New Tab tab in whose page the person typed a letter or clicked keeps its page view
 ///   at the next New Tab key.
-/// - Row 8, what must stay: a hover over a New Tab tab with no page view makes none.
+/// - Row 8: a hover over a New Tab tab with no page view makes none. The hover load takes each chat tab that has a
+///   record of its host (`TabModel.loadsAheadOnHover`), and a New Tab tab has that record with no chat in it, so
+///   the pane's hover load asks the store for the tab's view (`PaneController.loadOnHover`).
+/// - Rows 9, 10 and 12 (a split, a terminal of another folder, a hold of New Workspace keys) are
+///   `NewTabHoldOtherScreensTests`; row 11 (the tabs that a store restored) is `NewTabPagesOfRestoredTabsTests`.
 ///
 /// The app is the package's own, with a daemon of this tree and an empty pool of pages made ahead, so each new
 /// page view here is a cold one (the setup of `NewTabPageAtItsFrameTests`). That setup's pane starts with a New
 /// Tab page of its own, so each row starts with one New Tab key: the tab that the pane shows then is one that a
 /// key made, with a page view, whatever the pane had before. A frame is the app's own: a row waits for one by an
 /// event. Each key is the New Tab action's own call (`NewTabPage.open`), each tab switch is the pane's own call
-/// (`select`), each close is the pane's own call (`close`). Rows 1 to 5 and 8 send no key event. Row 6 sends its New
+/// (`select`), each close is the pane's own call (`close`), the hover of row 8 is the pane's own call
+/// (`loadOnHover`, which the hover's dwell calls). Rows 1 to 5 and 8 send no key event. Row 6 sends its New
 /// Tab key as a key-down event: first to the page's view (`AgentPaneView.judge`, which the app's event monitor
 /// calls), then through the key router (`KeyRouter.interceptKeyDown`). Row 7 sends its letter or its click to the
 /// page's view only.
@@ -120,9 +125,10 @@ struct NewTabHoldMovesItsPageTests {
         try #require(pane.currentTabKey == key, "setup: the pane does not show the tab that the row selected, one frame after the select")
     }
 
-    /// Opens a terminal tab in the pane and waits until the daemon made it and the pane shows it. Returns its key.
-    static func terminalTab(in pane: PaneController, _ services: AppServices) async throws -> String {
-        pane.newTerminalTab()
+    /// Opens a terminal tab in the pane (in the folder `cwd`, when the row gives one) and waits until the daemon made
+    /// it and the pane shows it. Returns its key.
+    static func terminalTab(in pane: PaneController, _ services: AppServices, cwd: String? = nil) async throws -> String {
+        pane.newTerminalTab(cwd: cwd)
         try await PasswordManagerRouteTests.until({
             pane.pane.tabs.contains { $0.kind == .pty && !ProvisionalTab.isProvisional(surface: $0.surface) }
         }, report: { "setup: the daemon made no terminal tab in the pane" })
@@ -373,10 +379,10 @@ struct NewTabHoldMovesItsPageTests {
         }
     }
 
-    /// Row 8, what must stay. 3 New Tab keys in one turn of the main thread: no frame shows the first 2 of their
-    /// tabs, so those have no page view. The pointer rests on each of the 2. Want: the hover makes no page view,
-    /// and the 2 tabs have none after it: a New Tab tab that the person did not touch gets its page view when a pane
-    /// shows it, not before.
+    /// Row 8. 3 New Tab keys in one turn of the main thread: no frame shows the first 2 of their tabs, so those have
+    /// no page view. The pointer rests on each of the 2. Want: the hover makes no page view, and the 2 tabs have
+    /// none after it: a New Tab tab that the person did not touch gets its page view when a pane shows it, not
+    /// before.
     @Test func aHoverOverANewTabTabWithNoPageViewMakesNone() async throws {
         try await Self.row("cn-hold-moves-page-hover") { services, pane, views, _ in
             let tabs = services.agentTabs

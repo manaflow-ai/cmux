@@ -30,8 +30,8 @@ import Testing
 /// - Row 3, what must stay: a letter that the person types in the SECOND new tab before its page reported waits
 ///   for that page and is typed into it.
 /// - Row 4: a Delete in the first new tab is not kept by the second tab's hold.
-/// - Row 5: a letter in a tab that is no New Tab page (a tab that the pane had before the 2 keys) is not kept by
-///   the second tab's hold, is typed into no page, and is not dropped at the hold's limit.
+/// - Row 5: a letter in a terminal tab (a tab that the pane had before the 2 keys, and that is no New Tab page) is
+///   not kept by the second tab's hold, is typed into no page, and is not dropped at the hold's limit.
 ///
 /// The rows do not say how many page views the 2 new tabs have. In an app that gives each new tab a page view of
 /// its own, the 2 tabs have 2 pages. In an app where a new tab takes the page view of a New Tab tab that the person
@@ -510,22 +510,24 @@ struct NewTabHoldInTheFirstNewTabTests {
         }
     }
 
-    /// Row 5. The person goes to a tab that is no New Tab page (a tab that the pane had before the 2 keys) while the
-    /// key hold of the second New Tab key is still open, and types a letter there. The test's view has the keyboard,
-    /// in the place of that tab's own view. Want: the hold does not keep the letter, the app types it into no page,
-    /// and no key is dropped when the hold's limit passes.
+    /// Row 5. The person goes to a terminal tab (a tab that the pane had before the 2 keys; the row picks it by the
+    /// store's kind and stops when it is a New Tab page) while the key hold of the second New Tab key is still open,
+    /// and types a letter there. The test's view has the keyboard, in the place of that tab's own view. Want: the
+    /// hold does not keep the letter, the app types it into no page, and no key is dropped when the hold's limit
+    /// passes.
     @Test func aLetterInATabThatIsNoNewTabPageIsNotKeptByTheSecondTabsHold() async throws {
         try await Self.withScene { scene in
             let typed = Typed()
             let tabs = scene.services.agentTabs
             let two = try await scene.twoNewTabs(typed)
-            let other = try #require(scene.pane.orderedIDs.first { !tabs.isNewTabPage($0.rawValue) },
-                                     "setup: the pane has no tab that is no New Tab page")
+            let terminal = try #require(scene.pane.pane.tabs.first { $0.kind == .pty }?.id, "setup: the pane has no terminal tab")
+            let other = try #require(scene.pane.orderedIDs.first { $0.rawValue == terminal }, "setup: the terminal tab is not in the strip")
             scene.pane.select(other)
             await NewTabHoldInTheFirstNewTabTests.frame(scene.services)
             await LargeSessionWindowFixture.drainMain()
             try #require(scene.pane.currentTabKey == other.rawValue,
-                         "setup: the pane does not show the tab that is no New Tab page, one frame after the tab switch (it shows \(scene.pane.currentTabKey ?? "no tab"))")
+                         "setup: the pane does not show the terminal tab, one frame after the tab switch (it shows \(scene.pane.currentTabKey ?? "no tab"))")
+            try #require(!tabs.isNewTabPage(other.rawValue), "setup: the terminal tab is a New Tab page after the pane showed it")
             try #require(scene.window.makeFirstResponder(scene.old) && scene.window.firstResponder === scene.old,
                          "setup: the test's view did not take the keyboard after the tab switch")
             let holdBefore = scene.input.isHolding(in: scene.window), keptBefore = scene.kept.count, keysBefore = scene.old.keys
@@ -545,7 +547,7 @@ struct NewTabHoldInTheFirstNewTabTests {
                 return "\(one.edit) in the page of \(place)"
             }
             print("""
-                NewTabHoldInTheFirstNewTabTests: row 5, a letter in a tab that is no New Tab page, the second tab's hold open: \
+                NewTabHoldInTheFirstNewTabTests: row 5, a letter in a terminal tab that is no New Tab page, the second tab's hold open: \
                 the key router took the letter: \(key.took); the hold kept \(kept) keys; a key hold was there before the \
                 letter: \(holdBefore), after it: \(holdAfter); the hold's lines of dropped keys: \(dropped); the app's edits \
                 in pages: \(edits); the test's view got \(scene.old.keys - keysBefore) keys after the tab switch; the 2 new \
