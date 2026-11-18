@@ -274,11 +274,12 @@ class OneKeyTests(unittest.TestCase):
         self.assertEqual((got["key_work_ms"], got["zero"]), (33.0, nsf.ZERO))
         self.assertEqual(got["content_first"], {"frame": 9, "ms": 75.0, "file": "frame-007.png"})
         # The app's `before` row is 25 ms after the key: frame 3. The 2 frames before it (inside the key's own work)
-        # have no row, and this recording has none at the reply's zero (frame 4). No one of them is directly before
-        # the page's row, so the page cannot have come earlier; the row is still INVALID: 3 frames after the key have no row.
+        # have no row, and this recording has none at the reply's zero (frame 4). Each of them is before a row that
+        # still shows the old picture, so the page cannot have come earlier: the row is valid for its time, and it
+        # says in how many frames a partial state is not seen.
         self.assertEqual((got["frames_after_key"], got["frames_not_delivered"], got["first_is_final"]), (241, 3, True))
         self.assertEqual((got["first_frame_span"]["no_row_frames"], got["first_frame_span"]["early_ms_at_most"]), ([1, 2, 4], 0.0))
-        self.assertEqual([reason.split(":")[0] for reason in got["invalid"]], ["no-row"])
+        self.assertEqual((got["invalid"], got.get("partial_state_not_seen")), ([], 3))
         self.assertEqual(got["pictures"]["before"], "frame-001.png")
         at_zero = nsf.one_key(take([(OLD, ROW_OLD)] * 4 + [(NEW, ROW_NEW)] * 236, before=1), "n", asked_hz=120)
         self.assertEqual((at_zero["key_work_ms"], at_zero["content_first"]["frame"], at_zero["content_first"]["ms"]), (0.0, 5, 42))
@@ -307,8 +308,9 @@ class OneKeyTests(unittest.TestCase):
         got = nsf.one_key(reply, "n", asked_hz=120)
         self.assertEqual((got["key_work_ms"], got["zero"]), (40.0, ZERO_SENT))
         self.assertEqual(got["content_first"], {"frame": 10, "ms": 82.0, "file": "frame-007.png"})
-        # The 3 frames inside the key's 40 ms and the one at the reply's zero have no row: no proved first frame.
-        self.assertEqual((got["first_frame_span"]["no_row_frames"], [reason.split(":")[0] for reason in got["invalid"]]), ([1, 2, 3, 5], ["no-row"]))
+        # The 3 frames inside the key's 40 ms and the one at the reply's zero have no row. Rows of the old picture
+        # come after each of them (frames 6 to 9), so the first frame's time is proved.
+        self.assertEqual((got["first_frame_span"]["no_row_frames"], got["invalid"], got.get("partial_state_not_seen")), ([1, 2, 3, 5], [], 4))
         self.assertNotEqual(ZERO_SENT, nsf.ZERO)
         # The key's send time is the zero also when the spans have no opening mark of the key.
         bare = nsf.one_key(take([(NEW, ROW_NEW)] * 240, spans=[], before_send_ms=12.5, at_zero=True), "n", asked_hz=120)
@@ -822,11 +824,25 @@ class FirstFrameSpanTests(unittest.TestCase):
         self.assertEqual(got["invalid"], ["no-row: 1 of the 3 frames from the key to content_first have no row (frames 2; the longest "
                                           "step between rows 17 ms): content_first can be at most 8.3 ms early"])
 
-    def test_a_frame_with_no_row_before_a_row_that_shows_the_old_picture_is_invalid_too_and_cannot_hide_the_page(self):
-        # Frame 1 has no row; frame 2's row still shows the picture before the key, so the page was not there in frame 1.
+    def test_a_frame_with_no_row_before_a_row_that_shows_the_old_picture_leaves_the_time_proved_and_a_partial_state_not_seen(self):
+        # Frame 1 has no row; frame 2's row still shows the picture before the key, so the page's first frame is not
+        # frame 1. The time is proved. What frame 1 showed is not: a page that came and went is not seen.
         got = nsf.one_key(take([None, (OLD, ROW_OLD)] + [(NEW, ROW_NEW)] * 238), "n", asked_hz=120)
         span = got.get("first_frame_span") or {}
         self.assertEqual((span.get("no_row"), span.get("no_row_frames"), span.get("early_ms_at_most")), (1, [1], 0.0))
+        self.assertEqual((got["invalid"], got.get("partial_state_not_seen", "no such field")), ([], 1))
+        # A row with a row for each frame says 0, and a row with the frame directly before the page says its count too.
+        whole = nsf.one_key(take([(OLD, ROW_OLD)] * 2 + [(NEW, ROW_NEW)] * 238), "n", asked_hz=120)
+        direct = nsf.one_key(take([(OLD, ROW_OLD), None] + [(NEW, ROW_NEW)] * 238), "n", asked_hz=120)
+        self.assertEqual((whole.get("partial_state_not_seen", "no such field"), direct.get("partial_state_not_seen", "no such field")), (0, 1))
+
+    def test_a_frame_with_no_row_before_a_row_that_is_not_the_old_picture_can_hide_the_page(self):
+        # Frame 2 has no row and frame 3's row is blank: not the page, and not the old picture. No row of the old
+        # picture is between frame 2 and the page's row (frame 4), so the page can have come in frame 2.
+        blank = dict(content=(0.9, 0.9), outside=ROW_OLD, blank=True)
+        got = nsf.one_key(take([(OLD, ROW_OLD), None, blank] + [(NEW, ROW_NEW)] * 237), "n", asked_hz=120)
+        span = got.get("first_frame_span") or {}
+        self.assertEqual((got["content_first"]["frame"], span.get("no_row_frames"), span.get("early_ms_at_most")), (4, [2], 8.3))
         self.assertEqual([reason.split(":")[0] for reason in got["invalid"]], ["no-row"])
 
     def test_the_still_part_of_a_recording_is_not_judged_by_the_step_of_its_rows(self):
@@ -856,13 +872,18 @@ class FirstFrameSpanTests(unittest.TestCase):
     def test_a_case_says_the_frames_with_no_row_of_each_of_its_rows_also_of_the_invalid_ones(self):
         good = nsf.one_key(take([(OLD, ROW_OLD)] * 2 + [(NEW, ROW_NEW)] * 238), "n", asked_hz=120)
         holed = nsf.one_key(take([(OLD, ROW_OLD), None] + [(NEW, ROW_NEW)] * 238), "n", asked_hz=120)
-        case = nsf.summarize([good, holed])
-        self.assertEqual((case["valid"], case["invalid"]), (1, ["no-row"]))
-        self.assertEqual(case.get("first_frame_no_row"), {"rows": 2, "with_a_frame_with_no_row": 1, "no_row": {"p50": 0.5, "max": 1},
-                                                          "longest_gap_ms": {"p50": 13.0, "max": 17.0},
-                                                          "early_ms_at_most": {"p50": 4.15, "max": 8.3}})
-        self.assertIn("frames with no row from the key to content_first, over EACH of 2 rows (also the INVALID ones): in 1 rows, "
-                      "p50 0.5 max 1, the longest step between rows max 17 ms, content_first at most 8.3 ms early", nsf.cell(case))
+        # A third row: its one frame with no row is before a row of the old picture. The case counts the 2 kinds apart.
+        before_old = nsf.one_key(take([None, (OLD, ROW_OLD)] + [(NEW, ROW_NEW)] * 238), "n", asked_hz=120)
+        case = nsf.summarize([good, holed, before_old])
+        self.assertEqual((case["valid"], case["invalid"]), (2, ["no-row"]))
+        self.assertEqual(case.get("first_frame_no_row"), {"rows": 3, "with_a_frame_with_no_row": 2, "time_not_proved": 1,
+                                                          "time_proved_partial_state_not_seen": 1, "no_row": {"p50": 1, "max": 1},
+                                                          "longest_gap_ms": {"p50": 17.0, "max": 17.0},
+                                                          "early_ms_at_most": {"p50": 0.0, "max": 8.3}})
+        self.assertIn("frames with no row from the key to content_first, over EACH of 3 rows (also the INVALID ones): in 2 rows "
+                      "(1 with one directly before content_first: the time is not proved; 1 with each before a row of the old picture: "
+                      "the time is proved, a partial state is not seen), p50 1 max 1, the longest step between rows max 17 ms, "
+                      "content_first at most 8.3 ms early", nsf.cell(case))
 
 
 class SecondFirstTests(unittest.TestCase):
@@ -891,6 +912,17 @@ class SecondFirstTests(unittest.TestCase):
                                                                          "longest_gap_ms": 17.0, "early_ms_at_most": 8.3}))
         self.assertEqual(got["invalid"], ["no-row: 1 of the 3 frames from the second key's mark to second_first have no row (frames 2; "
                                           "the longest step between rows 17 ms): second_first can be at most 8.3 ms early"])
+
+    def test_a_frame_with_no_row_before_a_row_in_which_the_tabs_region_did_not_move_leaves_the_second_keys_time_proved(self):
+        # The second key's row comes in the FOURTH frame after its due time. The second frame has no row, and the third
+        # frame's row has the region as the first frame's: the second key's change was not in the frame with no row.
+        pictures = [(OLD, ROW_OLD)] * 3 + [(NEW, HALF)] * 12 + [(NEW, ROW_NEW)] * 240
+        pictures[13] = None
+        got = nsf.one_key(take(pictures, spans=self.MARKS), "n", gap_ms=100, asked_hz=120)
+        second = got.get("second_first") or {}
+        self.assertEqual((second.get("frame"), second.get("span")), (4, {"frames": 4, "rows": 3, "no_row": 1, "no_row_frames": [2],
+                                                                         "longest_gap_ms": 17.0, "early_ms_at_most": 0.0}))
+        self.assertEqual(got["invalid"], [])
 
     def test_a_row_says_why_it_has_no_second_first(self):
         one = nsf.one_key(take([(NEW, ROW_NEW)] * 240), "n", asked_hz=120)
@@ -986,12 +1018,27 @@ class ScreenRowTests(unittest.TestCase):
         report, said = self.run_mode(FakeApp(self.folder, [(OLD, ROW_OLD), None] + [(NEW, ROW_NEW)] * 238), keys="n", runs=1)
         line = next(line for line in said.splitlines() if "-ROW cmd-n-idle-0" in line)
         self.assertIn("INVALID no-row: 1 of the 3 frames from the key to content_first have no row", line)
-        self.assertIn(" no_row_to_content_first=1/3 longest_gap_ms=17 early_ms_at_most=8.3", line)
-        self.assertIn("over EACH of 1 rows (also the INVALID ones): in 1 rows, p50 1 max 1", said)
+        self.assertIn(" no_row_to_content_first=1/3 longest_gap_ms=17 early_ms_at_most=8.3 partial state: not seen in 1 frames", line)
+        self.assertIn("over EACH of 1 rows (also the INVALID ones): in 1 rows (1 with one directly before content_first: the time is "
+                      "not proved; 0 with each before a row of the old picture: the time is proved, a partial state is not seen), p50 1 max 1", said)
         self.assertEqual(report["cases"]["cmd-n/idle"]["valid"], 0)
         valid, said = self.run_mode(FakeApp(self.folder, [(OLD, ROW_OLD)] * 2 + [(NEW, ROW_NEW)] * 238), keys="n", runs=1)
         self.assertIn(": valid ", said)
         self.assertIn(" no_row_to_content_first=0/3 longest_gap_ms=9 early_ms_at_most=0", said)
+        self.assertNotIn("partial state", said)
+
+    def test_a_rows_line_says_that_a_partial_state_is_not_seen_when_its_time_is_proved(self):
+        # Frame 1 has no row and frame 2's row shows the old picture: a valid row, with the count and the words.
+        report, said = self.run_mode(FakeApp(self.folder, [None, (OLD, ROW_OLD)] + [(NEW, ROW_NEW)] * 238), keys="n", runs=1)
+        line = next(line for line in said.splitlines() if "-ROW cmd-n-idle-0" in line)
+        self.assertIn(": valid ", line)
+        self.assertIn(" no_row_to_content_first=1/3 longest_gap_ms=17 early_ms_at_most=0 partial state: not seen in 1 frames", line)
+        self.assertEqual((report["cases"]["cmd-n/idle"]["valid"], report["rows"][0].get("partial_state_not_seen")), (1, 1))
+        # The same for the second key's own span: the second frame after its due time has no row, the third did not move.
+        pictures = [(OLD, ROW_OLD)] * 3 + [(NEW, HALF)] * 10 + [None, (NEW, HALF)] + [(NEW, ROW_NEW)] * 240
+        report, said = self.run_mode(FakeApp(self.folder, pictures), keys="n", gaps="100", runs=1)
+        self.assertEqual(report["rows"][0]["invalid"], [])
+        self.assertIn(" second_no_row=1/4 second_early_ms_at_most=0 second key's partial state: not seen in 1 frames moving_at_the_mark=False", said)
 
     def test_a_row_of_two_keys_says_the_second_keys_own_first_frame_and_keeps_its_picture(self):
         app = FakeApp(self.folder, [(OLD, ROW_OLD)] * 3 + [(NEW, HALF)] * 11 + [(NEW, ROW_NEW)] * 240)
