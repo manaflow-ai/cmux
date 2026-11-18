@@ -1,6 +1,26 @@
-// When the pane draws a snapshot the direct client sent (App.tsx, the direct client's snapshot callback):
-// `drawsAtOnce` names the snapshots that answer what the person just did or open another chat. For now
-// every snapshot draws at once, as a default-lane update; the next commit makes the rest a transition.
+// When the pane draws a snapshot the direct client sent: at once, or as a transition a key can go
+// before (App.tsx, the direct client's snapshot callback).
+//
+// A snapshot that is not a streamed chunk redraws the whole pane: the transcript, the composer's
+// chrome, Session Info. As a default-lane update that render ran in one piece, and a key typed while
+// it ran waited for all of it before the page's keydown listener (24% of the renderer main-thread
+// time keys waited behind while a reply streamed, bench/shared-renderer-typing.bench.ts --trace).
+// As a transition React renders it from scheduler tasks in 5 ms slices with input between them.
+//
+// What stays consistent while a transition is pending: nothing of it shows until React commits it
+// whole, so the transcript's rows, its follow and pin to bottom, the fold set and the scroll
+// position are the last committed snapshot's until then, and its list places, measures and scrolls
+// once, on commit. The streaming row's draw (streamingRow.ts) is a transition too: React renders
+// all pending transitions together, so the pane's rows and the live row commit in one render, and
+// the live row's `drawnText` matches the row it draws over. Updates keep their order: React applies
+// a state's queued updates in the order they were made, so a later snapshot always wins, including
+// over a pending one an urgent draw overtook.
+//
+// What draws at once (urgent): the first snapshot, another chat's (a chat switch), and one that
+// carries what the person just did: a sent prompt's row, a queued or steered prompt, a stop. Those
+// answer the person's own gesture, and the composer that sent them redraws at once too: a sent
+// message must not leave the composer a frame before the transcript shows it.
+import { startTransition } from "react";
 import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
 
 /// The id of the last row the person wrote, scanning back from the end (a sent prompt is appended
@@ -69,8 +89,8 @@ export function drawPaneSnapshot(
   pending: PendingPaneDraw,
   draw: () => void,
 ): void {
-  // For now every snapshot draws at once.
-  void drawsAtOnce;
-  pending.drew(next, true);
-  draw();
+  const urgent = drawsAtOnce(drawn, next);
+  pending.drew(next, urgent);
+  if (urgent) draw();
+  else startTransition(draw);
 }
