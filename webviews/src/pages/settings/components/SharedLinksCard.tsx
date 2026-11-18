@@ -6,11 +6,13 @@
 // Opened at this card by `#/settings/privacy?focus=card.sharedLinks`. The list is read with the
 // section (sectionQueries) and after each revoke; it does not poll.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLayoutEffect, useRef, useState } from "react";
+import { memo, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useStableHandlers } from "../../../agent-session/acpmux/stableHandlers";
 import { Button } from "../../../ui/Button";
 import { useStore } from "../context";
 import { SHARES_KEY, sharesQuery } from "../sectionQueries";
-import { shareDate, sharedLinkRows, type SharedLinkRow } from "../sharedLinks";
+import { useCardWindow, type CardWindow } from "../cardWindow";
+import { keepUnchangedLinks, shareDate, sharedLinkRows, startOfDay, type SharedLinkRow } from "../sharedLinks";
 import { locale, t } from "../strings";
 
 export function SharedLinksCard({ reveal = false }: { reveal?: boolean }) {
@@ -26,8 +28,17 @@ export function SharedLinksCard({ reveal = false }: { reveal?: boolean }) {
   useLayoutEffect(() => {
     if (drawn && reveal) card.current?.scrollIntoView?.({ block: "start" });
   }, [drawn, reveal]);
-  const now = Date.now();
-  const rows = sharedLinkRows(state, now);
+  // The rows change with the list the host sends, not with the card's own state (busy, confirming):
+  // a share that ends drops at the next read (the list is read with the section and after each revoke).
+  const [kept, setKept] = useState(() => ({ state, rows: sharedLinkRows(state, Date.now()) }));
+  let rows = kept.rows;
+  if (kept.state !== state) {
+    rows = keepUnchangedLinks(kept.rows, sharedLinkRows(state, Date.now()));
+    setKept({ state, rows });
+  }
+  const keys = useMemo(() => rows.map((row) => row.id), [rows]);
+  // A row with guests draws one more line.
+  const rowWindow = useCardWindow(keys, SHARED_LINK_ESTIMATE, (index) => (rows[index]?.guests.length ? "guests" : ""));
   const revoke = async (ids: string[]) => {
     setBusy(true);
     try {
@@ -38,12 +49,21 @@ export function SharedLinksCard({ reveal = false }: { reveal?: boolean }) {
       setConfirming(false);
     }
   };
+  const { onRevoke } = useStableHandlers({ onRevoke: (id: string) => void revoke([id]) });
   const unavailable = drawn && (state === null || !state.available);
+  const listing = !unavailable && rows.length > 0;
   const confirmTitle = t("settingsPage.sharedLinks.revokeAllTitle");
   return (
     <section className="group" data-card="sharedLinks" id="shared-links" ref={card}>
       <h3 className="group-title">{t("settingsPage.sharedLinks.title")}</h3>
-      <div className="rows">
+      <div
+        className="rows"
+        ref={rowWindow.list}
+        role={listing ? "list" : undefined}
+        style={{ paddingTop: rowWindow.padTop, paddingBottom: rowWindow.padBottom }}
+        onFocus={rowWindow.onFocus}
+        onBlur={rowWindow.onBlur}
+      >
         {unavailable ? (
           <div className="row" data-shared-links-unavailable="">
             <span className="row-help">{t("settingsPage.sharedLinks.unavailable")}</span>
@@ -53,7 +73,7 @@ export function SharedLinksCard({ reveal = false }: { reveal?: boolean }) {
             <span className="row-help">{t("settingsPage.sharedLinks.empty")}</span>
           </div>
         ) : (
-          <SharedLinksList rows={rows} now={now} busy={busy} onRevoke={(id) => void revoke([id])} />
+          <SharedLinksList rows={rows} now={Date.now()} busy={busy} onRevoke={onRevoke} rowWindow={rowWindow} />
         )}
       </div>
       {rows.length > 1 &&
@@ -123,88 +143,140 @@ export function sharedLinkDetail(row: SharedLinkRow, now: number): string {
  * `table` gives each fact its own column like ChatGPT's Shared links; `compact` is one line per chat. */
 export type SharedLinksLayout = "rows" | "table" | "compact";
 
+/** A row's height before one is measured (the `rows` layout: title, detail and guests). */
+const SHARED_LINK_ESTIMATE = 72;
+
+/**
+ * The rows, as memo rows: each takes its own share, the start of today (all its dates need of the
+ * clock) and one stable `onRevoke`, so a revoke, a read that changed one share or a new reading of
+ * the clock draws only the rows it changed. With `rowWindow` (the card), only the rows near the
+ * viewport mount; without (the gallery), every row.
+ */
 export function SharedLinksList({
   rows,
   now,
   busy,
   onRevoke,
   layout = "rows",
+  rowWindow,
 }: {
   rows: SharedLinkRow[];
   now: number;
   busy: boolean;
   onRevoke: (id: string) => void;
   layout?: SharedLinksLayout;
+  rowWindow?: CardWindow;
 }) {
-  const lang = locale();
+  const today = startOfDay(now);
+  const items = rowWindow?.items ?? rows.map((row, index) => ({ index, key: row.id }));
   return (
     <>
-      {rows.map((row) => {
-        const chat = row.chat ?? t("settingsPage.sharedLinks.untitled");
-        const revoke = (
-          <span className="row-control">
-            <Button
-              danger
-              variant="ghost"
-              className="button"
-              data-shared-link-action="revoke"
-              aria-label={t("settingsPage.sharedLinks.revokeChat", chat)}
-              disabled={busy}
-              onClick={() => onRevoke(row.id)}
-            >
-              {t("settingsPage.sharedLinks.revoke")}
-            </Button>
-          </span>
-        );
-        const guests = row.guests.length > 0 && (
-          <div className="row-help" data-shared-link-guests="">
-            {t("settingsPage.sharedLinks.inChat", row.guests.join(", "))}
-          </div>
-        );
-        if (layout === "table") {
-          return (
-            <div className="row shared-links-table" data-shared-link={row.id} key={row.id}>
-              <div className="row-main">
-                <div className="row-label">
-                  <div className="row-title">{chat}</div>
-                  {guests}
-                </div>
-                <span className="row-help">{sharedLinkKind(row)}</span>
-                <span className="row-help">{shareDate(row.createdAt, now, lang)}</span>
-                <span className="row-help">{shareDate(row.expiresAt, now, lang)}</span>
-                {revoke}
-              </div>
-            </div>
-          );
-        }
-        if (layout === "compact") {
-          return (
-            <div className="row" data-shared-link={row.id} key={row.id} title={sharedLinkDetail(row, now)}>
-              <div className="row-main">
-                <span className="row-label">
-                  <span className="row-title">{chat}</span>
-                  <span className="row-help"> · {sharedLinkKind(row)}</span>
-                </span>
-                {revoke}
-              </div>
-            </div>
-          );
-        }
-        return (
-          <div className="row" data-shared-link={row.id} key={row.id}>
-            <div className="row-main">
-              <div className="row-label">
-                <div className="row-title">{chat}</div>
-                <div className="row-help" data-shared-link-detail="">
-                  {sharedLinkDetail(row, now)}
-                </div>
-                {guests}
-              </div>
-              {revoke}
-            </div>
-          </div>
-        );
-      })}
+      {items.map(({ index, key }) => (
+        <SharedLinkItem
+          key={key}
+          row={rows[index]!}
+          index={index}
+          count={rows.length}
+          today={today}
+          busy={busy}
+          layout={layout}
+          onRevoke={onRevoke}
+          measure={rowWindow?.measure}
+        />
+      ))}
     </>
   );
 }
+
+const SharedLinkItem = memo(function SharedLinkItem({
+  row,
+  index,
+  count,
+  today,
+  busy,
+  layout,
+  onRevoke,
+  measure,
+}: {
+  row: SharedLinkRow;
+  index: number;
+  count: number;
+  today: number;
+  busy: boolean;
+  layout: SharedLinksLayout;
+  onRevoke: (id: string) => void;
+  measure?: (node: HTMLElement | null) => void;
+}) {
+  const lang = locale();
+  const chat = row.chat ?? t("settingsPage.sharedLinks.untitled");
+  const place = {
+    ref: measure,
+    "data-index": index,
+    role: "listitem",
+    "aria-posinset": index + 1,
+    "aria-setsize": count,
+  };
+  const revoke = (
+    <span className="row-control">
+      <Button
+        danger
+        variant="ghost"
+        className="button"
+        data-shared-link-action="revoke"
+        aria-label={t("settingsPage.sharedLinks.revokeChat", chat)}
+        disabled={busy}
+        onClick={() => onRevoke(row.id)}
+      >
+        {t("settingsPage.sharedLinks.revoke")}
+      </Button>
+    </span>
+  );
+  const guests = row.guests.length > 0 && (
+    <div className="row-help" data-shared-link-guests="">
+      {t("settingsPage.sharedLinks.inChat", row.guests.join(", "))}
+    </div>
+  );
+  if (layout === "table") {
+    return (
+      <div className="row shared-links-table" data-shared-link={row.id} {...place}>
+        <div className="row-main">
+          <div className="row-label">
+            <div className="row-title">{chat}</div>
+            {guests}
+          </div>
+          <span className="row-help">{sharedLinkKind(row)}</span>
+          <span className="row-help">{shareDate(row.createdAt, today, lang)}</span>
+          <span className="row-help">{shareDate(row.expiresAt, today, lang)}</span>
+          {revoke}
+        </div>
+      </div>
+    );
+  }
+  if (layout === "compact") {
+    return (
+      <div className="row" data-shared-link={row.id} title={sharedLinkDetail(row, today)} {...place}>
+        <div className="row-main">
+          <span className="row-label">
+            <span className="row-title">{chat}</span>
+            <span className="row-help"> · {sharedLinkKind(row)}</span>
+          </span>
+          {revoke}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="row" data-shared-link={row.id} {...place}>
+      <div className="row-main">
+        <div className="row-label">
+          <div className="row-title">{chat}</div>
+          <div className="row-help" data-shared-link-detail="">
+            {sharedLinkDetail(row, today)}
+          </div>
+          {guests}
+        </div>
+        {revoke}
+      </div>
+    </div>
+  );
+});
