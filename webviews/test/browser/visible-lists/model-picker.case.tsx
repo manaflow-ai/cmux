@@ -3,7 +3,7 @@
 // in the middle of the list, as it opens on the chat's model. Each model is its own family's newest,
 // so all N list without the More models fold; the search field is the typing step's filter.
 // A row is the PickerOption each model row renders (the base had no row component of its own).
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { ModelPicker } from "../../../src/agent-session/acpmux/ModelPicker";
@@ -28,16 +28,20 @@ let changeOne = () => {};
 
 function CaseModelPicker({ n }: { n: number }) {
   const [catalog, setCatalog] = useState(() => catalogOf(n));
-  changeOne = () =>
-    setCatalog((previous) =>
-      previous.map((entry) => ({
-        ...entry,
-        // The model the picker opens on, so the changed row is a mounted one.
-        models: entry.models.map((model, index) =>
-          index === Math.floor(n / 2) ? { ...model, name: `${model.name}!` } : model,
-        ),
-      })),
-    );
+  // In an effect, not at render, as the other cases do: a component that writes outside itself at
+  // render is one the compiler leaves uncompiled.
+  useEffect(() => {
+    changeOne = () =>
+      setCatalog((previous) =>
+        previous.map((entry) => ({
+          ...entry,
+          // The model the picker opens on, so the changed row is a mounted one.
+          models: entry.models.map((model, index) =>
+            index === Math.floor(n / 2) ? { ...model, name: `${model.name}!` } : model,
+          ),
+        })),
+      );
+  }, [n]);
   return (
     // The chat column the picker keeps inside; its chip sits low, as the composer's does, so it opens above.
     <div className="acpmux-main" style={{ position: "relative", height: 680, display: "flex", alignItems: "flex-end" }}>

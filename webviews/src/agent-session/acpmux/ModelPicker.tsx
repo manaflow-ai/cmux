@@ -1288,22 +1288,25 @@ export function ModelPicker(props: ModelPickerProps) {
       setLocalRefreshStatus("error");
     }
   };
-  const toggleFavorite = useCallback((modelId: string) => {
-    setFavorites((current) => {
-      const next = new Set(current);
-      if (next.has(modelId)) next.delete(modelId);
-      else next.add(modelId);
-      try {
-        globalThis.localStorage?.setItem("cmux.model-picker.favorites", JSON.stringify([...next]));
-      } catch {
-        // Storage is optional in gallery and private browsing contexts.
-      }
-      return next;
-    });
-  }, []);
+  const toggleFavorite = useCallback(
+    (modelId: string) => {
+      setFavorites((current) => {
+        const next = new Set(current);
+        if (next.has(modelId)) next.delete(modelId);
+        else next.add(modelId);
+        try {
+          globalThis.localStorage?.setItem("cmux.model-picker.favorites", JSON.stringify([...next]));
+        } catch {
+          // Storage is optional in gallery and private browsing contexts.
+        }
+        return next;
+      });
+    },
+    [setFavorites],
+  );
   // The model rows' handlers take the row's index and stay the same functions, so a memoized row
   // re-renders only when its own values change; a pick reads the list as last drawn.
-  const hoverRow = useCallback((index: number) => setActive(index), []);
+  const hoverRow = useCallback((index: number) => setActive(index), [setActive]);
   const pickLatest = useRef<(index: number) => void>(() => {});
   useLayoutEffect(() => {
     pickLatest.current = (index) => {
