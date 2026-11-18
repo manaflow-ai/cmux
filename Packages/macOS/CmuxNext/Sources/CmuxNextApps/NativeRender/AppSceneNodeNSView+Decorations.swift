@@ -5,7 +5,11 @@ import CmuxNextDesign
 /// `minHeight`, `maxHeight`; a number or `"infinity"`) sizes the node around its padding; `background` fills it, `borderColor` and
 /// `borderWidth` (1 by default) stroke it inside, `cornerRadius` rounds and clips both;
 /// `hoverBackground` washes it while the pointer is over it (local, no script round trip);
-/// `rotation` turns it clockwise by that many degrees about its center.
+/// `rotation` turns it clockwise by that many degrees about its center. `glass` (`chrome`, `popover`,
+/// `menu` or `chip`) puts the App's own glass at that level under the node's content: Liquid Glass on
+/// macOS 26, the vibrancy material before, the level's opaque surface under Reduce Transparency, rounded
+/// by `cornerRadius`. It is paint only: the node's size and its children's frames never change with it,
+/// so a look that adds or drops glass moves nothing. An unknown level draws no glass.
 extension AppSceneNodeNSView {
     /// One `frame` dimension: a number, or `"infinity"` (fill).
     func frameDimension(_ key: String) -> CGFloat? {
@@ -54,6 +58,7 @@ extension AppSceneNodeNSView {
         layer.cornerRadius = cornerRadius
         layer.masksToBounds = cornerRadius > 0
         layer.borderWidth = node.props["borderColor"]?.stringValue == nil ? 0 : CGFloat(node.number("borderWidth") ?? 1)
+        configureGlass()
         // Painted now too, so a node reads right before its first draw.
         performWithTheme { paintDecorations() }
     }
@@ -66,8 +71,54 @@ extension AppSceneNodeNSView {
         layer.borderColor = node.props["borderColor"]?.sceneColor?.cgColor
     }
 
+    /// The level a `glass` prop names; nil for none or an unknown one.
+    var glassLevel: GlassLevel? { node.string("glass").flatMap(GlassLevel.init(rawValue:)) }
+
+    /// Adds, swaps or drops the glass view for the node's `glass` level. A glass view is not a child: it
+    /// sits below every subview, takes no clicks, and only its own frame follows the node's bounds.
+    private func configureGlass() {
+        guard let level = glassLevel else {
+            decorationGlass?.view.removeFromSuperview()
+            decorationGlass = nil
+            return
+        }
+        if let current = decorationGlass, current.level == level {
+            Self.shapeGlass(current.view, radius: cornerRadius)
+            return
+        }
+        decorationGlass?.view.removeFromSuperview()
+        let view = Self.makeGlass(level, radius: cornerRadius)
+        view.frame = bounds
+        addSubview(view, positioned: .below, relativeTo: nil)
+        decorationGlass = (level, view)
+    }
+
+    /// The App's surface for `level`: docked (`chrome`) is the sidebar card's glass (a `Panel`'s); the
+    /// floating levels are the overlay roles' glass, as the agent pane's host glass draws them.
+    static func makeGlass(_ level: GlassLevel, radius: CGFloat) -> NSView {
+        let view: NSView
+        switch level {
+        case .chrome:
+            let card = CardSurfaceView(cornerRadius: radius)
+            card.takesThemeTint = true
+            view = card
+        case .popover: view = Glass.makeSurface(.popover, cornerRadius: radius, interactive: false)
+        case .menu: view = Glass.makeSurface(.menu, cornerRadius: radius, interactive: false)
+        case .chip: view = Glass.makeSurface(.tooltip, cornerRadius: radius, interactive: false)
+        }
+        view.translatesAutoresizingMaskIntoConstraints = true
+        return view
+    }
+
+    /// Follows a changed `cornerRadius` on the glass already in place.
+    static func shapeGlass(_ view: NSView, radius: CGFloat) {
+        if let surface = view as? OverlaySurfaceView, surface.cornerRadius != radius { surface.cornerRadius = radius }
+        if let card = view as? CardSurfaceView, card.cornerRadius != radius { card.cornerRadius = radius }
+    }
+
     /// The rotation about the node's center (on each layout, since it depends on the size).
     func layoutDecorations() {
+        if let glass = decorationGlass?.view, glass.frame != bounds { glass.frame = bounds }
         guard let layer else { return }
         let degrees = node.number("rotation") ?? 0
         guard degrees != 0 else {

@@ -14,7 +14,7 @@ import { Spinner } from "../../agent-session/acpmux/conversation/icons";
 import { Switch } from "../../ui/Switch";
 import { SceneContextMenu, SceneMenu } from "./sceneMenus";
 import { SceneSymbol } from "./SceneSymbol";
-import { sceneColor, sceneNumber, sceneStyle, sceneText, textStyle } from "./sceneStyle";
+import { sceneColor, sceneGlass, sceneNumber, sceneStyle, sceneText, textStyle } from "./sceneStyle";
 import type { SceneNode, SceneStore } from "./store";
 import "./scene.css";
 
@@ -382,7 +382,9 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch }: NodeP
     "data-disabled": disabled ? "" : undefined,
     "data-hover": sceneColor(props.hoverBackground) ? "" : undefined,
     "data-style": node.type === "Panel" ? (props.style === "card" ? "card" : "glass") : undefined,
-    className: `cmux-app-scene-node cmux-app-scene-${node.type.toLowerCase()}`,
+    // `glass`: the page's glass at that level (ui/glass/glass.css), the web twin of the App's material.
+    "data-glass-level": sceneGlass(props.glass),
+    className: `cmux-app-scene-node cmux-app-scene-${node.type.toLowerCase()}${sceneGlass(props.glass) ? " ui-glass" : ""}`,
     style,
     title: sceneText(props.help) || undefined,
   };

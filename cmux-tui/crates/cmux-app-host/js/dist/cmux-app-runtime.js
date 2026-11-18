@@ -670,6 +670,9 @@
     hoverBackground(v) {
       return this.set("hoverBackground", v);
     }
+    glass(level = "popover") {
+      return this.set("glass", level);
+    }
     cornerRadius(v) {
       return this.set("cornerRadius", v);
     }

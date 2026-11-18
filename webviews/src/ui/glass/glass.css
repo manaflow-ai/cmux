@@ -459,3 +459,27 @@
   --surface-sheet-rim-bottom: light-dark(color-mix(in srgb, var(--ds-material-rim-shade) 10%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 5%, transparent));
 }
 /* surface-roles:end */
+
+/* PUBLIC GLASS LEVELS. A region a page or a customize scene asks to put on glass (kit/Glass.tsx, a
+   scene node's `glass` prop) names a level of the design scale with data-glass-level: chrome,
+   popover, menu or chip, the same levels as the App's material (CmuxNextDesign GlassLevel). In plain
+   glass the region takes that level's tint and frost; the lens draws its own; Reduce Transparency
+   keeps the opaque surface (no level override applies there). Paint only: no box changes. */
+@media not (prefers-reduced-transparency: reduce) {
+  :root:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency]) .ui-glass[data-glass-level="chrome"] {
+    --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-chrome-tint), transparent);
+    --glass-backdrop: var(--ds-glass-chrome-blur);
+  }
+  :root:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency]) .ui-glass[data-glass-level="popover"] {
+    --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-popover-tint), transparent);
+    --glass-backdrop: var(--ds-glass-popover-blur);
+  }
+  :root:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency]) .ui-glass[data-glass-level="menu"] {
+    --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-menu-tint), transparent);
+    --glass-backdrop: var(--ds-glass-menu-blur);
+  }
+  :root:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency]) .ui-glass[data-glass-level="chip"] {
+    --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-chip-tint), transparent);
+    --glass-backdrop: var(--ds-glass-chip-blur);
+  }
+}

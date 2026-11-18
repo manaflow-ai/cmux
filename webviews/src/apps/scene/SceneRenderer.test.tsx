@@ -591,3 +591,29 @@ test("failure copy matches the native AppFailureCopy cases", () => {
     detail: "the host stopped",
   });
 });
+
+test("a node's glass puts it on the page glass at that level, replaces its fill and changes no box", () => {
+  const { container, store } = render([
+    { op: "create", id: "root", type: "VStack", props: { padding: 8, background: "#112233", cornerRadius: 12 } },
+    { op: "root", id: "root" },
+  ]);
+  const node = () => container.querySelector<HTMLElement>("[data-app-node=root]")!;
+  const box = () => ({ padding: node().style.padding, radius: node().style.borderRadius });
+  const before = box();
+  expect(node().classList.contains("ui-glass")).toBe(false);
+  expect(node().style.backgroundColor).not.toBe("");
+
+  act(() => store.apply([{ op: "update", id: "root", props: { glass: "chip" } }]));
+  expect(node().classList.contains("ui-glass")).toBe(true);
+  expect(node().getAttribute("data-glass-level")).toBe("chip");
+  expect(node().style.backgroundColor).toBe("");
+  expect(box()).toEqual(before);
+
+  act(() => store.apply([{ op: "update", id: "root", props: { glass: "frosted" } }]));
+  expect(node().classList.contains("ui-glass")).toBe(false);
+  expect(node().hasAttribute("data-glass-level")).toBe(false);
+
+  act(() => store.apply([{ op: "update", id: "root", props: { glass: null } }]));
+  expect(node().classList.contains("ui-glass")).toBe(false);
+  expect(node().style.backgroundColor).not.toBe("");
+});

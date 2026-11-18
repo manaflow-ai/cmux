@@ -60,6 +60,8 @@ export class ViewNode {
   // Surface
   background(v: Bindable<string | null>) { return this.set("background", v) }
   hoverBackground(v: Bindable<string | null>) { return this.set("hoverBackground", v) }
+  /** The App's own glass at `level` under the node (paint only; null drops it). Levels: chrome, popover, menu, chip. */
+  glass(level: Bindable<"chrome" | "popover" | "menu" | "chip" | null> = "popover") { return this.set("glass", level) }
   cornerRadius(v: Bindable<number>) { return this.set("cornerRadius", v) }
   borderColor(v: Bindable<string | null>) { return this.set("borderColor", v) }
   borderWidth(v: Bindable<number>) { return this.set("borderWidth", v) }

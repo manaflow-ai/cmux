@@ -503,7 +503,7 @@ interface CmuxView {
   marquee(delaySeconds?: number): this; fade(width: Bindable<number>): this
   padding(v?: Bindable<number | Record<string, number>>): this; paddingHorizontal(v: Bindable<number>): this; paddingVertical(v: Bindable<number>): this
   frame(v: Bindable<Record<string, number | string>>): this; layoutPriority(v: Bindable<number>): this; fixedSize(axis?: "both" | "horizontal" | "vertical"): this
-  background(v: Bindable<string | null>): this; hoverBackground(v: Bindable<string | null>): this; cornerRadius(v: Bindable<number>): this
+  background(v: Bindable<string | null>): this; hoverBackground(v: Bindable<string | null>): this; glass(level?: Bindable<"chrome" | "popover" | "menu" | "chip" | null>): this; cornerRadius(v: Bindable<number>): this
   borderColor(v: Bindable<string | null>): this; borderWidth(v: Bindable<number>): this; opacity(v: Bindable<number>): this
   fill(v: Bindable<string | null>): this; stroke(v: Bindable<string | null>): this; strokeWidth(v: Bindable<number>): this; size(v: Bindable<number>): this
   rotation(degrees: Bindable<number>): this; cursor(v: "pointer" | "default"): this; help(v: Bindable<string>): this
