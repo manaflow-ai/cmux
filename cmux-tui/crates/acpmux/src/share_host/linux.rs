@@ -298,7 +298,9 @@ pub(crate) fn stop_host() -> Result<(), String> {
 pub(crate) fn still_running(pid: Option<u32>, disabled: bool) -> String {
     format!(
         "the screen host may still be running ({}){}; stop it with: {}",
-        pid.map_or("its pid is unknown".into(), |pid| format!("pid {pid}")),
+        pid.map_or("its pid is unknown: a host of an older build records none".into(), |pid| {
+            format!("pid {pid}")
+        }),
         if disabled { "" } else { "; systemctl --user disable --now did not finish" },
         pid.map_or(format!("systemctl --user kill --signal=KILL {HOST_UNIT}"), |pid| {
             format!("kill -KILL {pid}")
