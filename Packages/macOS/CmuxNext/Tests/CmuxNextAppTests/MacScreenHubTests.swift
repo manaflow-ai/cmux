@@ -589,25 +589,26 @@ struct MacScreenHubViewerTests {
         #expect(ends.items == ["s1 failed"])
     }
 
-    /// A ticket that comes in time cancels the wait: the hub is not asked again.
-    @Test func aTicketInTimeCancelsTheTicketWait() async throws {
+    /// `/reattach` answers with the viewer ticket and also pushes it: the second copy of the ticket
+    /// for the stream already running starts nothing (a second connect would replay the ticket).
+    @Test func theReattachedTicketsPushStartsNoSecondStream() async throws {
         let hub = testHub()
         let viewer = MacScreenHubViewer(deviceID: hostID) { hub }
-        let asked = CallLog()
-        viewer.reattachSession = { _, id in
-            asked.items.append(id)
-            return ticket(id)
-        }
+        viewer.reattachSession = { _, id in ticket(id) }
         viewer.makeSignaling = { _, _ in IdleSignaling() }
+        var started = 0
+        viewer.startStream = { started += 1 }
         let clock = ManualClock()
         viewer.ticketDeadline = DemandTimer(owner: "test.mac-screen.hub-ticket-wait", clock: clock)
         viewer.phase = .requesting(.full)
         viewer.requestAnswered(.success(HubSession(id: "s1", state: .approved, scope: .full)), scope: .full, hub: hub)
-        viewer.accept(ticket("s1"))
+        try await clock.waitForSleeper()
         clock.advance(by: viewer.ticketWait)
-        for _ in 0..<50 { await Task.yield() }
+        for _ in 0..<500 where started == 0 { await Task.yield() }
+        // The push of the same ticket comes after the HTTP answer.
+        viewer.accept(ticket("s1"))
         #expect(viewer.phase == .streaming(sessionID: "s1", scope: .full))
-        #expect(asked.items.isEmpty)
+        #expect(started == 1)
     }
 
     /// Full lowered to View: the card says the access changed and offers View Only.

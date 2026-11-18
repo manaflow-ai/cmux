@@ -284,6 +284,9 @@ public final class MacScreenHubViewer {
     /// The session is approved: its signaling goes to the stream.
     func accept(_ ticket: SessionTicket) {
         // The request's answer may still be out: it finds this session running and changes nothing.
+        // A repeated ticket for the stream already running changes nothing either: `/reattach`
+        // answers with the ticket and also pushes it, and a second connect would replay it.
+        if case let .streaming(id, _) = phase, id == ticket.sessionId { return }
         approvalExpiry.cancel()
         ticketDeadline.cancel()
         guard let hub = hub() else { return }
