@@ -40,7 +40,9 @@ watch job, every 10 minutes, with the token the overflow switch already uses) it
   only on a pass whose evidence covers its label (evidence_covers()): the probe's health for the sizes
   it probes, the janitor's snapshot for the rest. Unknown stays unknown: in watch run 41279880300
   (2026-11-01 06:12-06:23Z) every read returned 403, the marks expired with no evidence at all, and
-  the linux pool went from 16 back to the stalled 32 vCPU size;
+  the linux pool went from 16 back to the stalled 32 vCPU size. A refused snapshot read is no evidence either: its
+  pass marks nothing new from a probe stall, since only the janitor's `label_started` tells a size capped by the
+  org's vCPU limit from a dead one (2026-11-18 13:18Z);
 - points each pool at its first member with no mark. With every member marked it keeps its first member: a pool
   never names a label outside its declared members (allowed()). A release valve to the next smaller size
   (cmux#45852) sent linux_16 and linux_8 to 2 vCPU on 2026-11-18 from 13:18Z, where cmux-tui's thin legs took
@@ -58,7 +60,7 @@ label outside the pool.
 
 Other variables hold one raw Blacksmith Linux label that runs-on reads ahead of a pool (RAW_LABEL_VARS:
 LINUX_BUILD_RUNNER, LINUX_RUNNER_DARWIN_CROSS, CI_TRUSTED_RUNNER, ...). Each pass moves one that names a `_dead`
-label to the nearest live size of the same image, records the label it left in RUNNER_POOLS' `_raw_home`, and
+label to the nearest live member of the pool that label leads (raw_substitute()), records the label it left in RUNNER_POOLS' `_raw_home`, and
 moves it back once that label leaves `_dead` (raw_homes(), raw_writes()); each move is a workflow warning. A value
 that is not a Blacksmith Linux pool label is left alone.
 
@@ -388,17 +390,19 @@ def mirror_writes(value: Mapping[str, Any], live: Mapping[str, str | None], *,
 
 
 def raw_substitute(label: str, dead: Iterable[str], pools: Mapping[str, Mapping[str, Any]]) -> str | None:
-    """The live Blacksmith Linux pool label a RAW_LABEL_VARS variable takes while `label` is dead: a member of a pool
-    that declares `label` (so the same arch, and a size that pool's jobs were declared to fit), the largest size at
-    most `label`'s, else the smallest larger one. None when no such member is live: the variable stays, as a pool
-    with every member dead keeps its first member, rather than move a 32 vCPU build onto 2 vCPU (2026-11-18)."""
+    """The live Blacksmith Linux pool label a RAW_LABEL_VARS variable takes while `label` is dead: a member of the
+    variable's own pool, one whose first member is `label` (so the same arch, and a size that pool's jobs were
+    declared to fit), the largest size at most `label`'s, else the smallest larger one. None when no such member is
+    live: the variable stays, as a pool with every member dead keeps its first member, rather than move a 32 vCPU
+    build onto 2 vCPU (2026-11-18). A pool that only lists `label` as a fallback is not its pool: through linux_2 or
+    promotion a 4 vCPU variable would step down to 2 vCPU."""
     match = BLACKSMITH_LINUX.match(label)
     if not match:
         return None
     size, image, dead = int(match.group(1)), match.group(2), set(dead)
     sizes: dict[str, int] = {}
     for spec in pools.values():
-        if label not in members(spec):
+        if members(spec)[:1] != [label]:
             continue
         for member in members(spec):
             other = BLACKSMITH_LINUX.match(member)
@@ -751,6 +755,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     if api is None and env.get("GH_TOKEN") and repo:
         api = pr_runner_pool.GitHub(str(env["GH_TOKEN"]), repo)
     snapshot = None
+    refused = False
     if api is not None:
         try:
             snapshot = api.snapshot(now=now)
@@ -760,7 +765,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                     and repo:
                 fallback = pr_runner_pool.GitHub(fallback_token, repo)
             if fallback is None:
-                print(f"::warning title=Runner pools::no janitor snapshot ({error}); judging on the probe alone")
+                refused = True
+                print(f"::warning title=Runner pools::no janitor snapshot ({error}); a probe stall marks nothing")
             else:
                 # The cmux-bot read budget is org-wide and runs out: on 2026-11-18 from 11:18Z every read was
                 # refused (403), every probe but 2 vCPU waited out its minutes under the vCPU cap, and with no
@@ -770,14 +776,23 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                     snapshot = fallback.snapshot(now=now)
                     print(f"::notice title=Runner pools::janitor snapshot read with the fallback token ({error})")
                 except Exception as second:  # noqa: BLE001 - as above
+                    refused = True
                     print(f"::warning title=Runner pools::no janitor snapshot ({error}; fallback: {second}); "
-                          "judging on the probe alone")
+                          "a probe stall marks nothing")
     health = _health(switch, env)
     dead, started, notes = label_evidence(health, snapshot, now=now)
+    covered = evidence_covers(health, snapshot, pools, now=now)
+    if refused:
+        # A refused read is no evidence, not a dead size: at 13:18Z on 2026-11-18 both reads were refused and the 4, 8,
+        # 16 and 32 vCPU probes waited out their minutes behind the org's vCPU cap while those sizes kept starting
+        # jobs. Without the janitor's `label_started` a stall cannot be told from the cap, so it marks nothing new and
+        # lets no mark expire; a probe that started still clears its size's mark.
+        if dead:
+            print(f"probe stalls on {', '.join(sorted(dead))} mark nothing: the janitor snapshot was refused")
+        dead, covered = set(), covered & started
     for note in notes:
         print(note)
-    value, lines = reconcile(current, pools, dead_now=dead, served_now=started, now=now,
-                             covered=evidence_covers(health, snapshot, pools, now=now))
+    value, lines = reconcile(current, pools, dead_now=dead, served_now=started, now=now, covered=covered)
     # The mirrored and raw-label variables and the switch's record, read live: the switch step just before this
     # one may have moved them, so the job-start values could undo its failover.
     live, record, readable = _live(switch, env)
