@@ -85,6 +85,27 @@ public final class FilesPaneView: NSView {
         model.stop()
     }
 
+    // A pane nobody sees (a background tab, a closed window) does no work for the folder's changes: the model notes
+    // them and catches up once when the pane shows again (audit 2026-11-18 section 16).
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateShown()
+    }
+
+    override public func viewDidHide() {
+        super.viewDidHide()
+        updateShown()
+    }
+
+    override public func viewDidUnhide() {
+        super.viewDidUnhide()
+        updateShown()
+    }
+
+    private func updateShown() {
+        model.setShown(window != nil && !isHiddenOrHasHiddenAncestor)
+    }
+
     override public var acceptsFirstResponder: Bool { true }
 
     override public func becomeFirstResponder() -> Bool {

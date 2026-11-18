@@ -518,11 +518,11 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
         return super.performKeyEquivalent(with: event)
     }
 
-    /// The Chromium fork adds each page window as a child ordered above
-    /// everything, the overlay panel included. Lift the overlay (and the app
-    /// panels above it) in the same call, before the window server shows a
-    /// frame with the page over the focus ring; the notifications that
-    /// follow the page would come a frame late.
+    /// The Chromium fork adds each page window as a child ordered above everything, the overlay panel included. Lift
+    /// the overlay (and the app panels above it) in the same call, before the window server shows a frame with the page
+    /// over the focus ring; the notifications that follow the page would come a frame late. A removal has the overlay
+    /// check its placement at the next event (`WindowOverlayHost.childWindowRemoved`).
+    override func removeChildWindow(_ childWin: NSWindow) { super.removeChildWindow(childWin); WindowOverlayHost.childWindowRemoved(of: self) }
     override func addChildWindow(_ childWin: NSWindow, ordered place: NSWindow.OrderingMode) {
         // Only the overlay host panel and page windows belong here (debug and test builds record the rest).
         ChildWindowPolicy.check(childWin, parent: self)

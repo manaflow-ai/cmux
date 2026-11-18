@@ -2,8 +2,6 @@ public import AppKit
 public import CmuxNextActions
 public import CmuxNextAgentActivity
 public import CmuxNextAgentPane
-import CmuxNextCompat
-import CmuxNextWakeups
 
 /// What the app does for the Dock menu's rows; the App forwards each to the path its own
 /// controls take (`palette.newAgentChat`, a `cmux://session/<id>` link).
@@ -29,23 +27,23 @@ public protocol DockMenuHost: AnyObject {
 /// (harness, machine), Continue "<last chat>", then Unread and Recent sections of three chats
 /// each with More ▸ (Leo 2026-11-03, after Claude's and Codex's Dock menus).
 ///
-/// The menu never waits: `menu()` builds only from values this controller already holds. The
-/// chats are rebuilt off the main thread from a copy of the lane store and the Priority marks
-/// after they change, at most once a second while agents stream (the copy is a copy-on-write
-/// handle; the filter and sort run detached). The harnesses and machines are read at `start()`
-/// and again each time the menu opens, for the next open, never for this one.
+/// The chats are built when the menu opens (`menu()`), from the lane store and the Priority marks
+/// as they are then: one pass over the chats that keeps only the few newest (`DockMenuChats.make`),
+/// about a millisecond for 10,789 chats. Nothing is built while the menu is closed: it was rebuilt
+/// from every chat up to once a second while agents streamed, for a menu read only on a
+/// right-click (Leo, 2026-11-18: "Why should non visible thing even affect the renderer thread
+/// anyways?"). The harnesses and machines are read at `start()` and again each time the menu
+/// opens, for the next open, never for this one (they come from acpmux and the network).
 @MainActor
 public final class DockMenuController: NSObject {
     private let lanes: AgentLaneStore
     private let marks: AgentPriorityMarks
     private weak var host: (any DockMenuHost)?
-    private let throttle: Duration
-    /// The cached rows; `menu()` reads only these.
+    /// The rows the menu last opened with.
     public private(set) var chats = DockMenuChats.empty
     public private(set) var choices = DockMenuChoices.empty
     /// How many times the chats were built (tests: none while the menu is closed).
     public private(set) var builds = 0
-    private var watch: Task<Void, Never>?
     private var choicesRead: Task<Void, Never>?
     /// A row picked while no window was open: it runs once the window that opened for it mounts
     /// its first pane (`windowDidShowContent`, called by the App's pane mount), with the harness or
@@ -53,38 +51,18 @@ public final class DockMenuController: NSObject {
     public private(set) var waiting: DockMenuAction?
     public var isWaiting: Bool { waiting != nil }
 
-    public init(lanes: AgentLaneStore = .shared, marks: AgentPriorityMarks = .shared, host: any DockMenuHost,
-                throttle: Duration = .seconds(1)) {
+    public init(lanes: AgentLaneStore = .shared, marks: AgentPriorityMarks = .shared, host: any DockMenuHost) {
         self.lanes = lanes
         self.marks = marks
         self.host = host
-        self.throttle = throttle
     }
 
-    /// Starts keeping the rows current. Ends with `stop()` (app quit); the App owns the one instance.
+    /// Reads the harnesses and machines for the first menu. Ends with `stop()` (app quit); the App owns the one instance.
     public func start() {
-        guard watch == nil else { return }
-        let (lanes, marks, throttle) = (lanes, marks, throttle)
-        // task-owner: this controller; cancelled by stop()
-        watch = Task { [weak self] in
-            for await _ in ObservationStream({ _ = lanes.lanes; _ = marks.state }) {
-                let (copy, state) = (lanes.lanes, marks.state)
-                let made = await Task.detached(priority: WorkPriority.bestEffort.taskPriority) {
-                    DockMenuChats.make(lanes: copy.values, marks: state)
-                }.value
-                guard !Task.isCancelled, let self else { return }
-                builds += 1
-                if made != chats { chats = made }
-                // wakeup-allow: one sleep per change burst while agents stream; the stream coalesces the changes meanwhile and nothing wakes when nothing changes
-                try? await Task.sleep(for: throttle)
-            }
-        }
         refreshChoices()
     }
 
     public func stop() {
-        watch?.cancel()
-        watch = nil
         choicesRead?.cancel()
         choicesRead = nil
     }
@@ -104,9 +82,11 @@ public final class DockMenuController: NSObject {
         }
     }
 
-    /// The menu from the cached rows; also asks for fresh harnesses and machines for the next open.
+    /// The menu, with its chats built now; also asks for fresh harnesses and machines for the next open.
     public func menu() -> NSMenu {
         defer { refreshChoices() }
+        builds += 1
+        chats = DockMenuChats.make(lanes: lanes.lanes.values, marks: marks.state)
         return DockMenuBuilder.menu(chats: chats, choices: choices, target: self, action: #selector(pick(_:)))
     }
 

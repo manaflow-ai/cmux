@@ -1,6 +1,7 @@
 import CmuxNextAgentActivity
 @testable import CmuxNextAgentLanes
 import CmuxNextBridge
+import CmuxNextDaemon
 import Foundation
 import Testing
 
@@ -222,6 +223,28 @@ struct TurnStateFeedListFollowTests {
         #expect(lanes.lanes["s3"]?.state == .working && lanes.lanes["new"]?.state == .working)
         #expect(lanes.lanes["s7"] == nil && lanes.lanes["s8"]?.state == .idle, "a row the follow does not name stands")
         #expect(lanes.working == ["s3", "new"])
+    }
+
+    /// A watch that closes with a cursor moves the list out of the stores as they clear; the reconnect's follow puts
+    /// it back with its rows, and a push that came between is kept.
+    @Test func aReconnectsFollowPutsBackTheListTheStoresDropped() throws {
+        let (feed, turns, lanes) = try listedFeed(50)
+        turns.localHost = "install:test"
+        let ref = { (session: String) in AgentSessionRef(host: "install:test", session: session) }
+        #expect(turns.state(for: ref("s1")) == .needsInput)
+        feed.closed()
+        #expect(lanes.lanes.isEmpty && turns.state(for: ref("s1")) == nil, "a closed watch shows no stale state")
+        #expect(feed.heldListRows == 50, "the list the stores dropped is kept for the follow")
+        feed.handle(try message(["jsonrpc": "2.0", "method": "_acpmux/session_changed",
+                                 "params": ["sessionId": "s9", "kind": "status", "listSeq": 3, "session": laned("s9", indicator: "working", state: "working")]]))
+        feed.handle(try followReply(4, changing: ["s3"], gone: ["s7"]))
+        #expect(feed.heldListRows == 0)
+        #expect(lanes.lanes.count == 49)
+        #expect(turns.state(for: ref("s1")) == .needsInput, "a row the follow does not name comes back as it was")
+        #expect(turns.state(for: ref("s3")) == .working && lanes.lanes["s3"]?.state == .working)
+        #expect(turns.state(for: ref("s9")) == .working && lanes.lanes["s9"]?.state == .working, "the push between stays")
+        #expect(turns.state(for: ref("s7")) == nil && lanes.lanes["s7"] == nil)
+        #expect(turns.title(for: ref("s1")) == "S1")
     }
 
     /// 10,789 chats (Leo's Mac, 2026-11-18): a follow of three changed rows, timed on the main actor, costs about what

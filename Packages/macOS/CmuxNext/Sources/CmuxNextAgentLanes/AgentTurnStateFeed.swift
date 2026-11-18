@@ -11,7 +11,8 @@ import os
 /// When the socket is absent it waits for a directory change on the socket's
 /// path; a lost connection clears the states and reconnects with `Backoff`. An acpmux that
 /// follows a cursor (`session-list-follow-v1`, ``AgentListFollow``) is then asked only the rows
-/// changed since, laid over the list the feed held.
+/// changed since, changed in place in the stores (after a reconnect, laid over the list they
+/// dropped when the watch closed).
 @MainActor
 public final class AgentTurnStateFeed {
     /// The app's one feed (nil until `ChatsFeed.started` makes it).
@@ -52,16 +53,17 @@ public final class AgentTurnStateFeed {
     /// A watch result whose later pages are still being read (``AgentWatchPage``): the pages so far,
     /// what a push changed meanwhile (newer than the pages, so kept: this Mac's sessions by id, a
     /// peer's rows by session id and peer) and the cursors asked.
-    /// `notices`: those pushes, laid over the list the feed holds (`held`) once it is whole.
-    private var paging: (page: AgentWatchPage, changed: Set<String>, changedPeers: [String: Set<String>], cursors: Set<String>,
-                         notices: [Message])?
+    private var paging: (page: AgentWatchPage, changed: Set<String>, changedPeers: [String: Set<String>], cursors: Set<String>)?
     /// The list position applied and whether acpmux follows one: kept across reconnects.
     private var listFollow = AgentListFollow()
-    /// The whole list as last applied (a page or a follow, and every push since), kept across
-    /// reconnects while a cursor is: a follow's rows are laid over it.
-    private var held: AgentWatchPage?
-    /// The rows of a second copy of the list the feed keeps beside the stores (tests).
-    var heldListRows: Int { held?.lanes.count ?? 0 }
+    /// The list the stores dropped when the watch closed while a cursor was held (moved out of them, never a copy
+    /// kept beside them), with every push since: the reconnect's follow lays its rows over it and puts it back. Nil
+    /// while the watch is open: the stores hold the list, and a follow there changes its rows in place
+    /// (``applyFollow(_:)``). It kept a second whole copy for the whole session and replaced every row from it on each
+    /// follow (audit 2026-11-18 section 16).
+    private var parked: AgentWatchPage?
+    /// The rows of a list the feed keeps beside the stores (tests: none while the watch is open).
+    var heldListRows: Int { parked?.lanes.count ?? 0 }
     /// The cursor of the later page asked last (nil: the watch's first page): a refused one is
     /// asked again from there (``retryPage()``), never the whole list from its start.
     private var pageAsked: String?
@@ -316,6 +318,52 @@ public final class AgentTurnStateFeed {
         if self.lanes.lanes != lanes { self.lanes.lanes = lanes }
     }
 
+    /// Lays a follow's reply over the stores, which hold the list: each row it names is set as acpmux sent it, each
+    /// row that went goes, and no other row is read or written (O(rows changed), as ``AgentWatchPage/lay(_:)`` does to
+    /// a list).
+    private func applyFollow(_ reply: AgentWatchFollow) {
+        backoff.reset()
+        if !isMirror, !turns.watching { turns.watching = true }
+        let rows = reply.page
+        for row in reply.rows {
+            let id = row.session
+            if let peer = row.peer {
+                if let peerRow = rows.peers[id]?[peer] { turns.setPeerRow(peerRow, session: id, source: source) } else { turns.removePeerRow(peer, session: id) }
+                if let lane = rows.lanes[id], lane.peer == peer, lanes.lanes[id] != lane { lanes.set(id, lane) }
+                continue
+            }
+            turns.apply(session: id, sessionName: rows.sessionNames[id], state: rows.states[id], lastMessage: rows.lastMessages[id],
+                        muted: rows.muted.contains(id), title: rows.titles[id], generatedTitle: rows.generatedTitles[id],
+                        detail: rows.details[id], source: source)
+            turns.setStartedBy(rows.startedBy[id], session: id, source: source)
+            if lanes.lanes[id] != rows.lanes[id] { lanes.set(id, rows.lanes[id]) }
+        }
+        for row in reply.gone {
+            let id = row.session
+            if let peer = row.peer {
+                turns.removePeerRow(peer, session: id)
+                if lanes.lanes[id]?.peer == peer { lanes.set(id, nil) }
+            } else {
+                turns.apply(session: id, state: nil, lastMessage: nil, muted: false, title: nil, detail: nil, source: source)
+                turns.setStartedBy(nil, session: id, source: source)
+                if lanes.lanes[id] != nil { lanes.set(id, nil) }
+            }
+        }
+    }
+
+    /// The list as the stores hold it for this watch, moved into a page as they clear (``lost(_:)``).
+    private func parkList() -> AgentWatchPage {
+        var page = AgentWatchPage()
+        for (id, facts) in turns.liveFacts(source: source) {
+            page.setSession(id, state: facts.state, lastMessage: facts.lastMessage, muted: facts.muted, title: facts.title,
+                            generatedTitle: facts.generatedTitle, sessionName: facts.sessionName, detail: facts.detail, lane: nil,
+                            startedBy: facts.startedBy)
+            for (peer, row) in facts.peers { page.setPeerRow(id, peer: peer, row: row) }
+        }
+        page.lanes = lanes.lanes
+        return page
+    }
+
     func handle(_ message: Message) {
         switch message {
         case .page(let page, let continued):
@@ -323,7 +371,7 @@ public final class AgentTurnStateFeed {
                 guard paging != nil else { return }
                 paging?.page.merge(page)
             } else {
-                paging = (page, [], [:], [], [])
+                paging = (page, [], [:], [])
             }
             guard var held = paging else { return }
             // The rest of a list too large for one message: ask for its next page (a cursor
@@ -338,31 +386,29 @@ public final class AgentTurnStateFeed {
             pageAsked = nil
             pageBackoff.reset()
             // A whole list (a first, a reset, or an older acpmux's): the cursor starts at its
-            // position, and the list held for a follow is it with the pushes since laid over it.
+            // position, and the stores hold the list a later follow changes.
             listFollow.listed(seq: held.page.listSeq, epoch: held.page.listEpoch)
-            if listFollow.cursor != nil {
-                var whole = held.page
-                for notice in held.notices { Self.hold(notice, in: &whole) }
-                whole.addUsage(usageRead.numbers)
-                self.held = whole
-            } else {
-                self.held = nil
-            }
+            parked = nil
             applyPage(held.page, keeping: held.changed, keepingPeers: held.changedPeers)
             listRead()
         case .follow(let reply):
-            // Only a watch with a cursor is answered so, and the list it follows is held; without
-            // it, the whole list again.
-            guard var whole = held else {
+            if var whole = parked {
+                // The watch reconnected: the list the stores dropped when it closed comes back with the rows
+                // changed since laid over it (the stores are empty, so this is the one whole write).
+                parked = nil
+                whole.lay(reply)
+                listFollow.followed(reply)
+                applyPage(whole, keeping: [], keepingPeers: [:])
+            } else if listFollow.cursor != nil {
+                // On an open watch the stores hold the list: only the rows the reply names change.
+                applyFollow(reply)
+                listFollow.followed(reply)
+            } else {
+                // Only a watch with a cursor is answered so; without one, the whole list again.
                 listFollow.listed(seq: nil, epoch: nil)
                 resyncing = false
                 return resync()
             }
-            held = nil // one copy while it changes
-            whole.lay(reply)
-            held = whole
-            listFollow.followed(reply)
-            applyPage(whole, keeping: [], keepingPeers: [:])
             if reply.more {
                 // Cut at a page's size: the rest from where it stopped.
                 subscription?.send(Self.watchOnlyRequest(listFollow.watchParams))
@@ -379,12 +425,12 @@ public final class AgentTurnStateFeed {
                      let startedBy, let deleted, let peer, let sessionName, let peerRow, let listSeq):
             // A push older than the row held (a reply built after it) changes nothing.
             guard listFollow.admits(AgentListRow(session: session, peer: peerRow?.name), listSeq: listSeq) else { return }
-            if paging != nil {
-                paging?.notices.append(message)
-            } else if var whole = held {
-                held = nil // one copy while it changes
+            // While the watch reconnects, the list the stores dropped takes the push too (a page in progress
+            // replaces it).
+            if paging == nil, var whole = parked {
+                parked = nil // one copy while it changes
                 Self.hold(message, in: &whole)
-                held = whole
+                parked = whole
             }
             if let peerRow { paging?.changedPeers[session, default: []].insert(peerRow.name) } else { paging?.changed.insert(session) }
             // Most session records leave the indicator as it was: the store writes (and so
@@ -401,7 +447,7 @@ public final class AgentTurnStateFeed {
             usageRead.pages += 1
             if usageRead.paged {
                 turns.applyUsage(numbers, source: source)
-                held?.addUsage(numbers)
+                parked?.addUsage(numbers)
             }
             if let next, usageRead.pages < Self.usagePages { subscription?.send(Self.usageRequest(cursor: next)) }
         case .peerState(let peer, let state):
@@ -423,7 +469,7 @@ public final class AgentTurnStateFeed {
         if !usageRead.numbers.isEmpty { turns.applyUsage(usageRead.numbers, source: source) }
     }
 
-    /// Lays push `message` over `page`, the list held for a follow, as the store takes it.
+    /// Lays push `message` over `page`, the list the stores dropped (``parked``), as the store takes it.
     static func hold(_ message: Message, in page: inout AgentWatchPage) {
         guard case .change(let session, let state, let lastMessage, let muted, let title, let generatedTitle, let detail, let lane,
                            let startedBy, _, _, let sessionName, let peerRow, _) = message else { return }
@@ -435,13 +481,20 @@ public final class AgentTurnStateFeed {
     private func lost(_ connection: AgentActivityLineConnection) {
         guard subscription === connection else { return }
         subscription = nil
+        closed()
+    }
+
+    /// The watch closed (``lost(_:)``): the stores clear and it reconnects after a wait.
+    func closed() {
         paging = nil
         pageAsked = nil
         resyncing = false
         pageRetry?.cancel()
         pageRetry = nil
-        // A closed watch knows nothing: no stale working dots until it reconnects. The cursor and
-        // the list held stay (`listFollow`, `held`): the reconnect follows them.
+        // A closed watch knows nothing: no stale working dots until it reconnects. The cursor stays
+        // (`listFollow`) and the list the stores drop moves to `parked`: the reconnect follows them. A
+        // second loss before the follow keeps the first (the stores are empty by then).
+        if listFollow.cursor != nil, parked == nil { parked = parkList() }
         if !isMirror { turns.watching = false }
         // Titles stay: a tab keeps reading as its chat while the watch reconnects.
         turns.clearLive(source: source)

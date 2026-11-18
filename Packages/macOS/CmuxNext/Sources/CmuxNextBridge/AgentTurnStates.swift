@@ -533,6 +533,38 @@ public final class AgentTurnStateStore {
         }
     }
 
+    /// Sets peer `row.name`'s row of session `session` (a follow's row), leaving every other fact of the session.
+    public func setPeerRow(_ row: AgentPeerRow, session: String, source: String = AgentTurnStateStore.localSource) {
+        if sessions[session] == nil { record(session).source = source }
+        let record = record(session)
+        if record.peers[row.name] != row { record.peers[row.name] = row }
+    }
+
+    /// One session's facts as a watch wrote them (``liveFacts(source:)``).
+    public struct SessionFacts: Sendable {
+        public var state: AgentTurnState?
+        public var lastMessage: String?
+        public var muted: Bool
+        public var title: String?
+        public var generatedTitle: String?
+        public var sessionName: String?
+        public var detail: AgentChatDetail?
+        public var peers: [String: AgentPeerRow]
+        public var startedBy: String?
+    }
+
+    /// Every session `source`'s watch wrote, with its facts as they are now: a watch that closes while it can follow
+    /// its cursor keeps them (``clearLive(source:)`` drops them next) to lay the reconnect's changes over.
+    public func liveFacts(source: String = AgentTurnStateStore.localSource) -> [String: SessionFacts] {
+        var facts: [String: SessionFacts] = [:]
+        for (id, record) in sessions where record.source == source {
+            facts[id] = SessionFacts(state: record.state, lastMessage: record.lastMessage, muted: record.muted, title: record.title,
+                                     generatedTitle: record.generatedTitle, sessionName: record.sessionName, detail: record.detail,
+                                     peers: record.peers, startedBy: record.startedBy)
+        }
+        return facts
+    }
+
     /// Peer `peer` purged its session `session`: its row goes (another peer's row of that id stays).
     public func removePeerRow(_ peer: String, session: String) {
         guard let record = sessions[session], record.peers[peer] != nil else { return }

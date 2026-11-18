@@ -11,8 +11,9 @@ import CmuxNextWakeups
 /// host keeps one transparent child panel per main window (`OverlayHostPanel`,
 /// the size of the window) above every page window: it re-asserts that order
 /// whenever the window's children change (`childWindowsDidChange(of:)`, called
-/// by the window's `addChildWindow` override) and on every event cycle of the
-/// window while it shows. Overlays presented on it (tooltips, popovers,
+/// by the window's `addChildWindow` override) and at the window's next event
+/// cycle after a child or the window showed, hid, closed, moved or took key
+/// (``orderOwed``; never at one that changed none). Overlays presented on it (tooltips, popovers,
 /// toasts, menus, drag ghosts, dialogs) are therefore always above pages.
 ///
 /// The panel ignores the mouse except over interactive overlays (and the
@@ -49,6 +50,13 @@ public final class WindowOverlayHost {
     /// The text selection of a restored text field (making it first responder again selects everything).
     var restoreSelection: [NSValue]?
     var isReordering = false
+    /// A child window or the window itself was added, removed, shown, hidden, closed, moved or made key since the
+    /// last check: the next event cycle checks the child order (``reassertOrder()``) and the overlay layer's
+    /// placement (``takePlacementCheck()``). An event cycle that changed none of them checks nothing: both checks
+    /// read every child window and ran after every event, twice per window (audit 2026-11-18 section 16; Leo: "Why
+    /// should non visible thing even affect the renderer thread anyways?").
+    var orderOwed = true
+    var placementOwed = true
     /// A detach waiting for its empty frame to be drawn before the panel orders out
     /// (``detachAfterEmptyFrame()``); a re-attach meanwhile cancels it.
     var detachGeneration = 0
@@ -141,7 +149,41 @@ public final class WindowOverlayHost {
             // main-proof: observer on queue: .main
             MainActor.assumeIsolated { host?.tearDown() }
         })
+        host.observeOrderChanges(of: window)
         return host
+    }
+
+    /// Marks the order and placement owed whenever a child of `window`, or `window` itself, shows, hides, closes,
+    /// moves, resizes or takes key or main (held in `observers`, removed at teardown).
+    private func observeOrderChanges(of window: NSWindow) {
+        let names = [NSWindow.didChangeOcclusionStateNotification, NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
+                     NSWindow.didBecomeMainNotification, NSWindow.willCloseNotification, NSWindow.didMoveNotification,
+                     NSWindow.didResizeNotification, NSWindow.didDeminiaturizeNotification, NSWindow.didEnterFullScreenNotification,
+                     NSWindow.didExitFullScreenNotification, NSWindow.didChangeScreenNotification]
+        for name in names {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self, weak window] note in
+                let changed = note.object as? NSWindow
+                // main-proof: observer on queue: .main
+                MainActor.assumeIsolated {
+                    guard let self, let window, let changed, changed === window || changed.parent === window else { return }
+                    self.orderOwed = true
+                    self.placementOwed = true
+                }
+            })
+        }
+    }
+
+    /// `window` removed a child window (its `removeChildWindow` override): the overlay layer checks its placement at
+    /// the next event cycle (the last page gone takes the overlay back into the window). A removal puts no window
+    /// above another, so the order needs no check.
+    public static func childWindowRemoved(of window: NSWindow) {
+        existingHost(for: window)?.placementOwed = true
+    }
+
+    /// Whether the overlay layer's placement is owed (see ``orderOwed``); clears it.
+    public func takePlacementCheck() -> Bool {
+        defer { placementOwed = false }
+        return placementOwed
     }
 
     /// `window` is closing (its controller tears down): its host tears down, also a host made
@@ -172,7 +214,10 @@ public final class WindowOverlayHost {
     /// the panel goes back above every page window before the window
     /// server composites a frame.
     public static func childWindowsDidChange(of window: NSWindow) {
-        existingHost(for: window)?.reassertOrder()
+        guard let host = existingHost(for: window) else { return }
+        host.reassertOrder()
+        // And once more after the event, placement too: the fork may add another meanwhile.
+        (host.orderOwed, host.placementOwed) = (true, true)
     }
 
     /// Occluder rects (window coordinates), sorted by id.
@@ -339,7 +384,12 @@ public final class WindowOverlayHost {
         let center = NotificationCenter.default
         windowObservers.append(center.addObserver(forName: NSWindow.didUpdateNotification, object: window, queue: .main) { [weak self] _ in
             // main-proof: observer on queue: .main
-            MainActor.assumeIsolated { self?.reassertOrder() }
+            MainActor.assumeIsolated {
+                // Only after an event that could have moved a window (``orderOwed``).
+                guard let self, self.orderOwed else { return }
+                self.orderOwed = false
+                self.reassertOrder()
+            }
         })
         for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification, NSWindow.didEnterFullScreenNotification,
                      NSWindow.didExitFullScreenNotification, NSWindow.didChangeScreenNotification] {

@@ -67,11 +67,22 @@ public final class FileBrowserModel {
     /// The selected entries in display order.
     public var selectedEntries: [FileEntry] { entries.filter { selection.contains($0.name) } }
 
-    /// Whether the pane shows (its view is in a window and not hidden); the pane's view sets it.
-    @ObservationIgnored public var isShown = true
+    /// Whether the pane shows (its view is in a window and not hidden; ``setShown(_:)``). While it does not, watched
+    /// changes are only noted, and showing it catches up once.
+    @ObservationIgnored public private(set) var isShown = true
     /// Sorts of the whole folder run (tests and the perf panel).
     @ObservationIgnored public internal(set) var fullSorts = 0
-    @ObservationIgnored var all: [FileEntry] = []
+    /// Every item of the folder, sorted by ``allOrder``; ``entries`` is it filtered.
+    @ObservationIgnored var all: [FileEntry] = [] { didSet { if !isSplicing { byName = nil } } }
+    /// The order ``all`` is sorted in (``sortOrder`` once a re-sort lands).
+    @ObservationIgnored var allOrder = FileSortOrder()
+    /// ``all`` by name, made when a watched change first needs it and dropped when ``all`` is listed again.
+    @ObservationIgnored private var byName: [String: FileEntry]?
+    @ObservationIgnored private var isSplicing = false
+    /// Watched changes while the pane was hidden: the names, or the whole folder (a rescan, or too many names).
+    @ObservationIgnored private var owed: (names: Set<String>, rescan: Bool) = ([], false)
+    /// More changed names than this in one batch (or owed while hidden) list the folder again.
+    static let namedChangesLimit = 500
     @ObservationIgnored private var backStack: [URL] = []
     @ObservationIgnored private var forwardStack: [URL] = []
     @ObservationIgnored var undoStack: [FileUndoAction] = []
@@ -171,11 +182,28 @@ public final class FileBrowserModel {
         await show(folder, select: nil, keepSelection: true)
     }
 
-    /// The pane was shown or hidden.
+    /// The pane was shown or hidden (its view moved into or out of a window, or was hidden). Showing it applies what
+    /// changed meanwhile, once: the noted items, or the folder listed again after a rescan. Returns that catch-up's
+    /// task (nil: nothing was owed).
     @discardableResult
     public func setShown(_ shown: Bool) -> Task<Void, Never>? {
+        guard shown != isShown else { return nil }
         isShown = shown
-        return nil
+        guard shown, owed.rescan || !owed.names.isEmpty else { return nil }
+        let target = folder
+        // task-owner: one catch-up; ends when the owed changes are applied
+        return Task { [weak self] in await self?.catchUp(in: target) }
+    }
+
+    private func catchUp(in target: URL) async {
+        guard isShown, target == folder else { return }
+        let (names, rescan) = owed
+        owed = ([], false)
+        if rescan {
+            await show(folder, select: nil, keepSelection: true)
+        } else if !names.isEmpty {
+            await apply(.items(Array(names)), in: target)
+        }
     }
 
     /// Stops watching (the pane closed).
@@ -200,6 +228,7 @@ public final class FileBrowserModel {
             }
         }
         phase = .loading
+        owed = ([], false) // this listing has every change noted so far
         startWatching(target, token: token)
         let started = DispatchTime.now().uptimeNanoseconds
         do {
@@ -208,6 +237,7 @@ public final class FileBrowserModel {
             let listed = try await Self.listSorted(target, lister: lister, order: order)
             guard token == generation else { return }
             all = listed
+            allOrder = order
             lastLoadMilliseconds = Double(DispatchTime.now().uptimeNanoseconds - started) / 1_000_000
             phase = .ready
             refilter()
@@ -247,29 +277,95 @@ public final class FileBrowserModel {
         }
     }
 
-    /// Applies one watched change (single rows, or a full listing on rescan).
+    /// Applies one watched change (single rows, or a full listing on rescan). While the pane is hidden it is only
+    /// noted (``setShown(_:)`` applies it); a shown pane reads each changed item and splices it into place
+    /// (``splice(_:)``). It read and re-sorted the whole folder per FSEvents batch, shown or not (audit 2026-11-18
+    /// section 16; Leo: "Why should non visible thing even affect the renderer thread anyways?").
     func apply(_ change: FolderChange, in target: URL) async {
         guard target == folder else { return }
+        guard isShown else {
+            switch change {
+            case .rescan: owed = ([], true)
+            case .items(let names):
+                guard !owed.rescan else { return }
+                owed.names.formUnion(names)
+                if owed.names.count > Self.namedChangesLimit { owed = ([], true) }
+            }
+            return
+        }
         switch change {
         case .rescan:
             await show(folder, select: nil, keepSelection: true)
         case .items(let names):
-            if names.count > 500 { await show(folder, select: nil, keepSelection: true); return }
-            var byName = Dictionary(all.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
+            if names.count > Self.namedChangesLimit { await show(folder, select: nil, keepSelection: true); return }
+            var read: [(name: String, entry: FileEntry?)] = []
             for name in Set(names) {
                 let url = folder.appendingPathComponent(name)
-                if let entry = await lister.entry(at: url) {
-                    byName[name] = FileEntry(name: name, in: folder, kind: entry.kind, size: entry.size, modified: entry.modified,
-                                            created: entry.created, isHidden: entry.isHidden)
-                } else {
-                    byName[name] = nil
+                let entry = await lister.entry(at: url).map {
+                    FileEntry(name: name, in: folder, kind: $0.kind, size: $0.size, modified: $0.modified, created: $0.created,
+                              isHidden: $0.isHidden)
                 }
+                read.append((name, entry))
             }
             guard target == folder else { return }
-            fullSorts += 1
-            all = await Self.sortOff(Array(byName.values), order: sortOrder)
-            refilter()
+            splice(read)
         }
+    }
+
+    /// Puts each changed item (nil: gone) at its place in ``all`` and ``entries``, which stay sorted: a binary search
+    /// per item and an insert or removal, never a sort or a filter of the folder.
+    private func splice(_ changes: [(name: String, entry: FileEntry?)]) {
+        if byName == nil { byName = Dictionary(all.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a }) }
+        let order = allOrder
+        let matcher = FileNameMatcher(filterText)
+        let hidden = showHidden
+        func listed(_ entry: FileEntry) -> Bool { (hidden || !entry.isHidden) && matcher.matches(entry.name) }
+        // `shown` is the only reference to the rows while they change: no copy of the folder.
+        var shown = entries
+        entries = []
+        isSplicing = true
+        var unlisted: [String] = []
+        for (name, entry) in changes {
+            if let old = byName?[name] {
+                if let index = Self.index(of: old, in: all, order: order) { all.remove(at: index) }
+                if listed(old), let index = Self.index(of: old, in: shown, order: order) { shown.remove(at: index) }
+            }
+            byName?[name] = entry
+            guard let entry else {
+                unlisted.append(name)
+                continue
+            }
+            all.insert(entry, at: Self.insertionIndex(of: entry, in: all, order: order))
+            if listed(entry) {
+                shown.insert(entry, at: Self.insertionIndex(of: entry, in: shown, order: order))
+            } else {
+                unlisted.append(name)
+            }
+        }
+        isSplicing = false
+        entries = shown
+        indexCache = nil
+        for name in unlisted {
+            if selection.contains(name) { selection.remove(name) }
+            if cursor == name { cursor = nil }
+        }
+    }
+
+    /// Where `entry` goes in `list` (sorted by `order`): the first row it does not come after.
+    private static func insertionIndex(of entry: FileEntry, in list: [FileEntry], order: FileSortOrder) -> Int {
+        var low = 0
+        var high = list.count
+        while low < high {
+            let middle = (low + high) / 2
+            if order.inOrder(list[middle], entry) { low = middle + 1 } else { high = middle }
+        }
+        return low
+    }
+
+    /// The row of `entry` in `list` (sorted by `order`; names are unique, so the order is total).
+    private static func index(of entry: FileEntry, in list: [FileEntry], order: FileSortOrder) -> Int? {
+        let index = insertionIndex(of: entry, in: list, order: order)
+        return index < list.count && list[index].name == entry.name ? index : nil
     }
 
     private func resort() {
@@ -279,7 +375,9 @@ public final class FileBrowserModel {
         Task { [weak self] in
             let sorted = await Self.sortOff(snapshot, order: order)
             guard let self, token == self.generation else { return }
+            self.fullSorts += 1
             self.all = sorted
+            self.allOrder = order
             self.refilter()
         }
     }

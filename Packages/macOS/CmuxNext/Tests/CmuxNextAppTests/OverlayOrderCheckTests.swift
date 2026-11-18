@@ -45,7 +45,7 @@ import Testing
         window.overlayLayer.evaluate()
         #expect(window.overlayLayer.placement == .overlayWindow)
         let host = try #require(WindowOverlayHost.existingHost(for: window))
-        update(window) // the setup's own changes are checked once
+        update(window, times: 2) // the setup's own changes are checked (and a check's own re-add once more)
         #expect(window.overlayLayer.isOverlayAboveContent)
         // Both checks end in the host's order check: the layer's evaluate reasserts the order through it.
         let checks = host.orderChecks
