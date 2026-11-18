@@ -180,7 +180,11 @@ fn registering_the_same_checkout_again_leaves_head_untouched() {
     let old = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000);
     std::fs::File::options().write(true).open(&head).unwrap().set_modified(old).unwrap();
     Worktree::write(&git_dir, "projected", &at, &commit, b"index", &[]).unwrap();
-    assert_eq!(std::fs::metadata(&head).unwrap().modified().unwrap(), old, "a build script watches HEAD");
+    assert_eq!(
+        std::fs::metadata(&head).unwrap().modified().unwrap(),
+        old,
+        "a build script watches HEAD"
+    );
 }
 
 #[test]

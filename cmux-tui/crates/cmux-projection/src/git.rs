@@ -18,7 +18,9 @@
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{ChildStdin, ChildStdout};
+
+use cmux_process::{Child, Command, Stdio};
 use std::sync::{Mutex, PoisonError};
 
 use sha1::{Digest as _, Sha1};
@@ -512,9 +514,10 @@ pub fn link_texts(git_dir: &Path, items: &[TreeItem]) -> anyhow::Result<HashMap<
 
 /// One long-lived `git cat-file --batch`.
 struct CatFile {
-    child: Child,
     stdin: ChildStdin,
     stdout: BufReader<ChildStdout>,
+    /// Held so the process ends with this handle, after its stdin (above) closes.
+    _child: Child,
 }
 
 impl CatFile {
@@ -528,7 +531,7 @@ impl CatFile {
         let stdin = child.stdin.take().ok_or_else(|| anyhow::anyhow!("no stdin"))?;
         let stdout =
             BufReader::new(child.stdout.take().ok_or_else(|| anyhow::anyhow!("no stdout"))?);
-        Ok(Self { child, stdin, stdout })
+        Ok(Self { _child: child, stdin, stdout })
     }
 
     fn blob(&mut self, oid: &str) -> Result<Vec<u8>, FetchError> {
@@ -546,13 +549,6 @@ impl CatFile {
         self.stdout.read_exact(&mut bytes).map_err(|_| FetchError::Failed)?;
         bytes.pop();
         Ok(bytes)
-    }
-}
-
-impl Drop for CatFile {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
     }
 }
 
