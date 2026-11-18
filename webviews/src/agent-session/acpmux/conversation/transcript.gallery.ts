@@ -166,7 +166,7 @@ const bubbleInkChat = chat([
   summary(5.9, { status: "completed", durationMs: 24_000, toolCount: 1 }),
 ]);
 const BUBBLE_PILL_TINT =
-  "--cv-user-bubble-tint: light-dark(color-mix(in srgb, var(--agent-accent) 78%, var(--agent-text)), color-mix(in srgb, var(--agent-accent) 38%, var(--agent-page-bg)));";
+  "--cv-user-bubble-tint: light-dark(color-mix(in srgb, var(--agent-accent) 78%, var(--agent-text)), color-mix(in srgb, var(--agent-accent) 30%, var(--agent-page-bg)));";
 const BUBBLE_PILL_INK = "--cv-user-bubble-text: light-dark(var(--agent-page-bg), var(--agent-text));";
 /// A play that sends `css` as the person's agent-pane/theme.css (AgentPaneCustomization.swift's path).
 const applyLookCss =
@@ -1783,7 +1783,7 @@ export default agentPaneEntry({
       play: applyLookCss(`:root { ${BUBBLE_PILL_TINT} }`),
     },
     "user-bubble-ink-pill": {
-      note: "A filled pill: the accent tint with --cv-user-bubble-text from the theme's own colors (white on blue in light and dark). The quote takes the ink at 78%, inline code a wash of it. Capture in light and dark.",
+      note: "A filled pill: the accent tint with --cv-user-bubble-text from the theme's own colors (white on blue in light and dark). The quote takes the ink at 88%, inline code a wash of it. Capture in light and dark.",
       snapshot: bubbleInkChat,
       play: applyLookCss(`:root { ${BUBBLE_PILL_TINT} ${BUBBLE_PILL_INK} }`),
     },

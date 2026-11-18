@@ -283,9 +283,14 @@
    sets both ink and tint keeps its tint as the Reduce Transparency fill too (--cv-bubble-plate is
    the tint, valid only when the ink is set), so its ink never lands on the grey plate. */
 .cv-user__bubble {
-  --cv-bubble-ink-soft: color-mix(in srgb, var(--cv-user-bubble-text) 78%, transparent);
-  --cv-bubble-ink-wash: color-mix(in srgb, var(--cv-user-bubble-text) 16%, transparent);
+  --cv-bubble-ink-soft: color-mix(in srgb, var(--cv-user-bubble-text) 88%, transparent);
+  --cv-bubble-ink-wash: color-mix(in srgb, var(--cv-user-bubble-text) 10%, transparent);
   --cv-bubble-plate: color-mix(in srgb, var(--cv-user-bubble-tint) 100%, var(--cv-user-bubble-text) 0%);
+}
+/* A prompt drawn as Markdown (PromptText.tsx .cv-user__markdown, a .cv-md) and its headings set
+   their own --cv-text color; in the bubble they take the ink. */
+.cv-user__bubble :is(.cv-md, .cv-h) {
+  color: var(--cv-user-bubble-text, var(--cv-text));
 }
 .cv-user__bubble :is(.cv-quote, .cv-user__pasted-from, .cv-expand-row.cv-user__more) {
   color: var(--cv-bubble-ink-soft, var(--cv-text-muted));

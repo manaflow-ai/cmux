@@ -32,7 +32,7 @@ change often, so a look sets only these custom properties, on `:root`
 | `--cv-card-fill`, `--cv-card-ring` | every card in the transcript (tool output, code, edited files) and its hairline; unset, each card keeps its own strength |
 | `--cv-user-bubble-tint`, `--cv-user-bubble-edge` | the prompt bubble's glass tint and its hairline |
 | `--cv-user-bubble-radius` | the prompt bubble's corner |
-| `--cv-user-bubble-text` | the prompt bubble's text, for a filled bubble: its quiet lines take it at 78%, a skill's `/name` and inline code follow it; unset, the transcript's text |
+| `--cv-user-bubble-text` | the prompt bubble's text, for a filled bubble: its quiet lines take it at 88%, a skill's `/name` and inline code follow it; unset, the transcript's text |
 
 A filled pill, as Codex draws its prompt in dark (`light-dark()` picks a mix per appearance, and
 both ends come from the theme, so it reads over a light theme and a dark one):
@@ -41,7 +41,7 @@ both ends come from the theme, so it reads over a light theme and a dark one):
 :root {
   --cv-user-bubble-tint: light-dark(
     color-mix(in srgb, var(--agent-accent) 78%, var(--agent-text)),
-    color-mix(in srgb, var(--agent-accent) 38%, var(--agent-page-bg))
+    color-mix(in srgb, var(--agent-accent) 30%, var(--agent-page-bg))
   );
   --cv-user-bubble-text: light-dark(var(--agent-page-bg), var(--agent-text));
 }

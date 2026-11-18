@@ -328,7 +328,7 @@ await requireBrowserLane("look-addons.test.ts", async () => {
   // and stay readable in both appearances; the same fill without the ink, or the ink over a pale
   // fill, must fail the contrast check, so the check guards the token and not only the tint.
   const PILL_TINT =
-    "--cv-user-bubble-tint: light-dark(color-mix(in srgb, var(--agent-accent) 78%, var(--agent-text)), color-mix(in srgb, var(--agent-accent) 38%, var(--agent-page-bg)));";
+    "--cv-user-bubble-tint: light-dark(color-mix(in srgb, var(--agent-accent) 78%, var(--agent-text)), color-mix(in srgb, var(--agent-accent) 30%, var(--agent-page-bg)));";
   const PILL_INK = "--cv-user-bubble-text: light-dark(var(--agent-page-bg), var(--agent-text));";
   // Over a blue accent (the pill Codex draws) and over the neutral one, where the theme's accent is
   // its own text color, so the pill's mix must still leave room for the ink.
@@ -341,7 +341,8 @@ await requireBrowserLane("look-addons.test.ts", async () => {
     test(`a filled pill with its own ink (${theme}, ${accent ?? "neutral"} accent): lands, moves no box, reads`, async () => {
       const page = await browser.newPage({ viewport: { width: 1000, height: 900 } });
       try {
-        await open(page, VARIANT, theme, accent);
+        // The bubble-ink arm: its first prompt is Markdown (a quote, inline code), its second plain text.
+        await open(page, "user-bubble-ink-default", theme, accent);
         const plain = await boxes(page);
         const plainLines = await readability(page);
         await applyLook(page, `:root { ${PILL_TINT} ${PILL_INK} }`);
