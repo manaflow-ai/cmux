@@ -17,6 +17,7 @@ import {
   visibleChanges,
   type SessionInfoPullRequestStatus,
 } from "../src/agent-session/acpmux/session-info/changesSectionModel";
+import type { PrFeedbackKind } from "../src/agent-session/acpmux/session-info/prFeedback";
 import type { SummaryPullRequest } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { transcriptPullRequests } from "../src/agent-session/acpmux/summary/transcriptPullRequests";
 import { settleReact } from "./support/domTeardown";
@@ -76,10 +77,18 @@ async function render(
   pullRequests: readonly SummaryPullRequest[],
   statuses: Record<string, SessionInfoPullRequestStatus> = {},
   onOpenBeside?: (url: string) => void,
+  onDraftFeedback?: (url: string, kind: PrFeedbackKind) => void,
 ) {
   await act(async () => {
     root ??= createRoot(container);
-    root.render(<ChangesSection pullRequests={pullRequests} statuses={statuses} onOpenBeside={onOpenBeside} />);
+    root.render(
+      <ChangesSection
+        pullRequests={pullRequests}
+        statuses={statuses}
+        onOpenBeside={onOpenBeside}
+        onDraftFeedback={onDraftFeedback}
+      />,
+    );
   });
 }
 
@@ -274,6 +283,59 @@ test("the whole lit row is one target: its owner chip opens the pull request, an
   // The link's own content stays above that overlay, so its tooltips (the state glyph's and the
   // check dot's titles, the line counts' by-kind breakdown) still get the pointer.
   expect(css).toMatch(/\.acpmux-session-info-pr__link > \* \{\s*position: relative;/);
+});
+
+test("Labs: the ⋯ menu drafts a message about the branch's own reds or its review comments", async () => {
+  const container = installDom();
+  const drafted: string[] = [];
+  const own = pr("example/project", 42);
+  const base = pr("example/project", 43);
+  const merged = pr("example/project", 44, "merged");
+  const statuses: Record<string, SessionInfoPullRequestStatus> = {
+    [own.url]: { state: "open", checks: "failing", failing: 3, failingOnBase: 1 },
+    [base.url]: { state: "open", checks: "failing", failing: 2, failingOnBase: 2 },
+    [merged.url]: { state: "merged", checks: "failing", failing: 1 },
+  };
+  const items = async (number: number) => {
+    const row = rows(container).find((each) => each.textContent?.includes(`#${number}`))!;
+    await act(async () => {
+      row.querySelector<HTMLButtonElement>("button.acpmux-session-info-pr__more")!.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const menu = dom!.window.document.body.querySelector('[role="menu"]')!;
+    const found = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+    const labels = found.map((item) => item.textContent ?? "");
+    await act(async () => {
+      dom!.window.document.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    return { labels, found };
+  };
+  // Without the callback (preview features off), neither item.
+  await render(container, [own, base, merged], statuses);
+  expect((await items(42)).labels).not.toContain("Send Review Comments");
+  await render(container, [own, base, merged], statuses, undefined, (url, kind) => drafted.push(`${kind} ${url}`));
+  const ownItems = await items(42);
+  expect(ownItems.labels).toContain("Fix Failing Checks");
+  expect(ownItems.labels).toContain("Send Review Comments");
+  // Every red also fails on base: nothing of its own to fix.
+  const baseItems = await items(43);
+  expect(baseItems.labels).not.toContain("Fix Failing Checks");
+  expect(baseItems.labels).toContain("Send Review Comments");
+  const mergedItems = await items(44);
+  expect(mergedItems.labels).not.toContain("Fix Failing Checks");
+  expect(mergedItems.labels).not.toContain("Send Review Comments");
+  // Selecting one asks for that pull request's message of that kind.
+  const row = rows(container).find((each) => each.textContent?.includes("#42"))!;
+  await act(async () => {
+    row.querySelector<HTMLButtonElement>("button.acpmux-session-info-pr__more")!.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  const fix = [...dom!.window.document.body.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')].find(
+    (item) => item.textContent === "Fix Failing Checks",
+  )!;
+  await act(async () => fix.click());
+  expect(drafted).toEqual([`checks ${own.url}`]);
 });
 
 test("open ones come first, the most recently touched first, then the merged and closed", () => {

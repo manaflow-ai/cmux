@@ -6787,6 +6787,12 @@ export class AcpmuxDirectClient {
     return this.request("_acpmux/draft_set", { sessionId, text });
   }
 
+  /// A message for the chat's agent about pull request `pr`: its own failing checks or its open
+  /// review comments (`{draft, empty, ...}`; session-info/prFeedback.ts). acpmux reads GitHub for it.
+  prFeedback(sessionId: string, pr: string, kind: "checks" | "comments"): Promise<unknown> {
+    return this.request("_acpmux/pr_feedback", { sessionId, pr, kind }, 35_000);
+  }
+
   /// The session's prompt bookmarks (`{bookmarks: [seq...]}`), kept in acpmux (threadMinimap/bookmarks.ts).
   readBookmarks(sessionId: string): Promise<unknown> {
     return this.request("_acpmux/bookmark_get", { sessionId });

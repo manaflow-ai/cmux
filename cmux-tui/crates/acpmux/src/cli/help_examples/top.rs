@@ -39,6 +39,19 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "pr-feedback",
+        &[
+            (
+                "Print this branch's own failing checks with their log tails",
+                "acpmux pr-feedback 1234 --repo octo/app",
+            ),
+            (
+                "Put the unresolved review comments in a chat's composer, unsent",
+                "acpmux pr-feedback 1234 --kind comments --session my-chat",
+            ),
+        ],
+    ),
+    (
         "who-else",
         &[
             (

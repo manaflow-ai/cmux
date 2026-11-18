@@ -106,6 +106,7 @@ import type { ChatPlace } from "../chatMachine";
 import { samePanelProps } from "./samePanelProps";
 import type { AlsoHere } from "./alsoHere";
 import "./sessionInfo.css";
+import type { PrFeedbackKind } from "./prFeedback";
 import {
   type SessionInfoPlacement,
   type RailLayout,
@@ -378,6 +379,7 @@ export function SessionInfo({
   remoteControl,
   onSaveEnvironment,
   onReconnectMcp,
+  onDraftFeedback,
   onCompact,
   onViewPrompt,
   onOpenFolder,
@@ -473,6 +475,9 @@ export function SessionInfo({
   onSaveEnvironment?: () => Promise<unknown> | void;
   /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
   onReconnectMcp?: (server: string) => Promise<unknown>;
+  /// Labs: drafts a message about a pull request's own failing checks or its review comments into
+  /// the composer, unsent (prFeedback.ts); Changes' two menu items hide without it.
+  onDraftFeedback?: (url: string, kind: PrFeedbackKind) => void;
   /// Sends the chat's agent its `/compact`: Context's Compact session (ContextSection), live while a
   /// turn runs (the /compact queues behind it), and Usage's next step for its context (UsageSection.tsx).
   onCompact?: () => void;
@@ -761,7 +766,12 @@ export function SessionInfo({
       meta={pullRequests.length > 0 ? value(String(pullRequests.length)) : undefined}
     >
       {pullRequests.length > 0 && (
-        <ChangesSection pullRequests={pullRequests} statuses={statuses} onOpenBeside={onOpenUrl} />
+        <ChangesSection
+          pullRequests={pullRequests}
+          statuses={statuses}
+          onOpenBeside={onOpenUrl}
+          onDraftFeedback={onDraftFeedback}
+        />
       )}
     </SessionInfoSection>
   );

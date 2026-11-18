@@ -4,8 +4,9 @@
 // Docs), its comments, and at the end its failing checks (with how many already fail on its base
 // branch, dimmed: those are not this pull request's) or a green dot when they pass. Its state is
 // the glyph's shape and color alone (PullRequestGlyph), never a word. A click opens it beside the
-// chat; its ⋯ menu also opens its diff (View diff), or copies the link or the reference. Five rows
-// show, then Show more.
+// chat; its ⋯ menu also opens its diff (View diff), or copies the link or the reference, and in Labs
+// drafts a message about its own failing checks or its review comments into the composer
+// (prFeedback.ts). Five rows show, then Show more.
 import { Counts } from "../changes/Counts";
 import { copyText } from "../conversation/clipboard";
 
@@ -37,6 +38,7 @@ import {
   changesOrder,
 } from "./changesSectionModel";
 import { WindowedRows } from "./WindowedRows";
+import { prFeedbackKinds, type PrFeedbackKind } from "./prFeedback";
 
 const ROW_ICON = rowIconSize(12);
 const KIND_LABELS: Record<ChangeKind, StringKey> = {
@@ -49,6 +51,12 @@ const KIND_LABELS: Record<ChangeKind, StringKey> = {
 const CHECK_LABELS: Record<string, StringKey> = {
   passing: "rail.checksPassing",
   pending: "rail.checksPending",
+};
+
+/// Labs' drafted messages (prFeedback.ts), by kind.
+const FEEDBACK_LABELS: Record<PrFeedbackKind, StringKey> = {
+  checks: "sessionInfo.changes.fixFailingChecks",
+  comments: "sessionInfo.changes.sendReviewComments",
 };
 
 /// The state glyph's label, for screen readers only: the row shows no state word.
@@ -65,6 +73,7 @@ export function ChangesSection({
   statuses,
   onOpenBeside,
   onDismiss,
+  onDraftFeedback,
 }: {
   /// In any order: Changes sorts them (changesOrder).
   pullRequests: readonly SummaryPullRequest[];
@@ -74,6 +83,9 @@ export function ChangesSection({
   /// Opens a pull request in the browser beside the chat; the menu item hides without it, and a
   /// row's click follows its link instead.
   onOpenBeside?: (url: string) => void;
+  /// Labs: drafts a message about the pull request's own failing checks or its review comments into
+  /// the composer, unsent (prFeedback.ts); the two menu items hide without it.
+  onDraftFeedback?: (url: string, kind: PrFeedbackKind) => void;
 }) {
   const t = useT();
   const [all, setAll] = useState(false);
@@ -94,6 +106,7 @@ export function ChangesSection({
               live={statuses[pr.url] ?? {}}
               onOpenBeside={onOpenBeside}
               onDismiss={onDismiss}
+              onDraftFeedback={onDraftFeedback}
             />
           )}
         />
@@ -117,11 +130,13 @@ function PullRequestRow({
   live,
   onOpenBeside,
   onDismiss,
+  onDraftFeedback,
 }: {
   pr: SummaryPullRequest;
   live: SessionInfoPullRequestStatus;
   onOpenBeside?: (url: string) => void;
   onDismiss?: (url: string) => void;
+  onDraftFeedback?: (url: string, kind: PrFeedbackKind) => void;
 }) {
   const t = useT();
   const hover = useHoverCard();
@@ -139,6 +154,7 @@ function PullRequestRow({
   const comments = live.comments ?? 0;
   const stateLabel = t(STATE_LABELS[state]);
   const diffUrl = onOpenBeside ? pullRequestDiffUrl(pr.url) : undefined;
+  const feedback = onDraftFeedback ? prFeedbackKinds(ended(state), failing, onBase) : [];
   return (
     // The whole row lights on hover, so the whole row is one target: the link's hit area stretches
     // over the row's own gap and padding (sessionInfo.css), with only the ⋯ button above it. The
@@ -277,6 +293,15 @@ function PullRequestRow({
           <MenuItem className="acpmux-session-info-menu__item" onSelect={() => void copyText(reference)}>
             {t("sessionInfo.changes.copyReference")}
           </MenuItem>
+          {feedback.map((kind) => (
+            <MenuItem
+              key={kind}
+              className="acpmux-session-info-menu__item"
+              onSelect={() => onDraftFeedback?.(pr.url, kind)}
+            >
+              {t(FEEDBACK_LABELS[kind])}
+            </MenuItem>
+          ))}
           {onDismiss && (
             <MenuItem className="acpmux-session-info-menu__item" onSelect={() => onDismiss(pr.url)}>
               {t("prDock.dismiss", { number: pr.number })}

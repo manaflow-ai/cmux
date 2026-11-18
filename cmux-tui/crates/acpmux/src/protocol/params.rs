@@ -189,6 +189,8 @@ keyed! {
     MemoryResolveParams: ["sessionId", "offerId", "file", "accept", "dismiss"];
     /// `_acpmux/prompt_coach`.
     PromptCoachParams: ["sessionId", "coachId"];
+    /// `_acpmux/pr_feedback`.
+    PrFeedbackParams: ["sessionId", "pr", "repo", "kind"];
     /// `_acpmux/btw`.
     BtwParams: ["sessionId", "question", "model", "inline", "targetHarness"];
     /// `_acpmux/chat/route.set`.

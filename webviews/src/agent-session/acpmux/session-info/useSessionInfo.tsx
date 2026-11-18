@@ -83,6 +83,7 @@ import { useStepAside } from "./stepAside";
 import { usageEntries } from "./usageEntries";
 import { chatPlace } from "../chatMachine";
 import { useAlsoHere } from "./alsoHereSectionModel";
+import type { PrFeedbackKind } from "./prFeedback";
 
 /// How long after an output click a narrowing counts as that diff's split.
 const SPLIT_SETTLE_MS = 2000;
@@ -239,6 +240,7 @@ export function useSessionInfo({
   beside,
   wide = false,
   onReconnectMcp,
+  onDraftFeedback,
   remoteControl,
   onCompact,
   onViewPrompt,
@@ -322,6 +324,9 @@ export function useSessionInfo({
   split?: boolean;
   /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
   onReconnectMcp?: (server: string) => Promise<unknown>;
+  /// Labs: drafts a message about a pull request's own failing checks or its review comments into
+  /// the composer, unsent (prFeedback.ts); Changes' two menu items hide without it.
+  onDraftFeedback?: (url: string, kind: PrFeedbackKind) => void;
   /// Environment's Remote Control switch (App.tsx, remoteControl.ts): absent, no row.
   remoteControl?: { on: boolean; set: (on: boolean) => void };
   /// Sends the chat's agent its `/compact` (Context's and Usage's Compact); unset where it cannot reach.
@@ -471,6 +476,7 @@ export function useSessionInfo({
   const stableOnOpenChanges = useStableCallback(onOpenChanges);
   const stableOnSaveEnvironment = useStableCallback(onSaveEnvironment);
   const stableOnReconnectMcp = useStableCallback(onReconnectMcp);
+  const stableOnDraftFeedback = useStableCallback(onDraftFeedback);
   const stableOnCompact = useStableCallback(onCompact);
   const stableOnViewPrompt = useStableCallback(onViewPrompt);
   const stableOnOpenChat = useStableCallback(onOpenChat);
@@ -599,6 +605,8 @@ export function useSessionInfo({
         onOpenChanges={subagent ? undefined : stableOnOpenChanges}
         onSaveEnvironment={stableOnSaveEnvironment}
         onReconnectMcp={stableOnReconnectMcp}
+        // A subagent's panel lists the chat's pull requests' rows too; the draft goes to the chat's composer.
+        onDraftFeedback={subagent ? undefined : stableOnDraftFeedback}
         remoteControl={remoteControl}
         onCompact={stableOnCompact}
         onViewPrompt={stableOnViewPrompt}
@@ -882,6 +890,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onOpenChanges,
   onSaveEnvironment,
   onReconnectMcp,
+  onDraftFeedback,
   remoteControl,
   onCompact,
   onViewPrompt,
@@ -954,6 +963,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onOpenChanges?: () => void;
   onSaveEnvironment?: () => Promise<unknown>;
   onReconnectMcp?: (server: string) => Promise<unknown>;
+  onDraftFeedback?: (url: string, kind: PrFeedbackKind) => void;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
   onCompact?: () => void;
   onViewPrompt?: () => void;
@@ -1495,6 +1505,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         // Save keeps the chat's machine and folder, not a subagent's.
         onSaveEnvironment={scope ? undefined : onSaveEnvironment}
         onReconnectMcp={onReconnectMcp}
+        onDraftFeedback={scope ? undefined : onDraftFeedback}
         remoteControl={scope ? undefined : remoteControl}
         // Compact ends the chat's context, not a subagent's.
         onCompact={scope ? undefined : onCompact}

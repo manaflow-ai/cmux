@@ -247,6 +247,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     match command {
         Some(Command::Gh { args }) => crate::cli::gh_shim::run(args).await,
         Some(Command::PrWait(args)) => crate::cli::pr_wait::run(args, json_out).await,
+        Some(Command::PrFeedback(args)) => crate::cli::pr_feedback::run(args, json_out).await,
         // Before anything that reads or writes the home: this runs as root.
         #[cfg(target_os = "linux")]
         Some(Command::DaemonEnroll { person_key_fd }) => {

@@ -188,6 +188,7 @@ import { CloudComposeReservation, reservedCloudCall } from "./cloudComposeReserv
 import { harnessProfiles } from "./harnessProfiles";
 import { setStartModeSource } from "./startMode";
 import { setPromptSurfaces } from "./surfaces/promptSurface";
+import { prFeedbackDispatcher, setPrFeedbackPreview, usePrFeedbackPreview } from "./session-info/prFeedback";
 import type { MockScript } from "./mock";
 import { preparedMockTransport } from "./mockTransport";
 import { BridgeSocket } from "./bridgeSocket";
@@ -5979,6 +5980,28 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         : undefined,
     [restartChat, compactOffered],
   );
+  /// Quote in Reply picks made while no composer is mounted (a Sandboxed receipt or a handoff review
+  /// in its place): they go in after the draft, in order, when it mounts (composerRestore.ts).
+  const heldQuotes = useRef<string[] | undefined>(undefined);
+  // Labs: Changes' Fix Failing Checks and Send Review Comments put acpmux's message into the chat's
+  // composer after what is typed, never sent (session-info/prFeedback.ts); an empty answer or a
+  // failure is a toast.
+  const prFeedbackOn = usePrFeedbackPreview();
+  const [draftFeedback] = useState(() =>
+    prFeedbackDispatcher({
+      request: (url, kind) => {
+        const chat = sessionIdRef.current;
+        const client = directClient.current;
+        return {
+          answer: chat && client ? client.prFeedback(chat, url, kind) : Promise.reject(new Error()),
+          stillShown: () => sessionIdRef.current === chat,
+        };
+      },
+      quote: (markdown) => quoteIntoComposer(composerHandle, heldQuotes, markdown),
+      notice: (text) => notices.transient(text),
+      failed: (text) => notices.failed(text),
+    }),
+  );
   const sessionInfo = useSessionInfo({
     snapshot: sessionInfoSnapshot,
     split: sessionInfoSplit,
@@ -6017,6 +6040,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     onSaveEnvironment: undefined,
     // A failed MCP server's Reconnect in Connectors, where acpmux offers it (a Claude Code chat's).
     onReconnectMcp: snapshot.reconnectsMcp ? reconnectMcp : undefined,
+    onDraftFeedback: quick || !prFeedbackOn ? undefined : draftFeedback,
     remoteControl: sessionInfoRemoteControl,
     // A Usage row opens that chat, this Mac's or a peer's, beside this one or in the tab showing it.
     onOpenChat: openSenderChat,
@@ -6805,9 +6829,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// What the new chat shown leaves when its tab opens another chat (set below, cmux#32276).
   const newChatLeftover = useRef<() => { leave: () => void; cancel: () => void } | undefined>(() => undefined);
   const heldBack = useRef<{ text: string; attachments: ComposerAttachment[] }[] | undefined>(undefined);
-  /// Quote in Reply picks made while no composer is mounted (a Sandboxed receipt or a handoff review
-  /// in its place): they go in after the draft, in order, when it mounts (composerRestore.ts).
-  const heldQuotes = useRef<string[] | undefined>(undefined);
   // The subagent pane's composer (SubagentComposer.tsx) while it shows: Quote in Reply goes there,
   // never held for the chat's composer, which a subagent pane does not mount.
   const subagentQuote = useRef<{ quoteReply(markdown: string): void } | null>(null);
@@ -8139,6 +8160,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // Cloud's own checks stay: Cloud allowed by policy, a signed-in account, and an explicit
         // pick; nothing creates a paid VM without one.
         setPromptSurfaces(on === true);
+        setPrFeedbackPreview(on === true);
         // Workflows no longer follow Advanced > Labs; only applyWorkflowLabs switches them.
       },
       applyWorkflowLabs(on) {

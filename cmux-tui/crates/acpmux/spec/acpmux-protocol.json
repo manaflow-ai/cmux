@@ -645,6 +645,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/pr_feedback",
+      "params": {
+        "$ref": "#/types/PrFeedbackParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/prompt_withdraw",
       "params": true,
       "result": true
@@ -4960,6 +4968,19 @@
         "folder",
         "reason"
       ],
+      "type": "object"
+    },
+    "PrFeedbackParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "kind": true,
+        "pr": true,
+        "repo": true,
+        "sessionId": true
+      },
       "type": "object"
     },
     "PresenceNote": {

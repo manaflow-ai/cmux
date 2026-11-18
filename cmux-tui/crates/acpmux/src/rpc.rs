@@ -666,6 +666,9 @@ pub mod method {
     pub const MUX_MEMORY_RESOLVE: &str = "_acpmux/memory_resolve";
     /// The rewrite of a chat's prompt coach offer, made once (`server/prompt_coach.rs`).
     pub const MUX_PROMPT_COACH: &str = "_acpmux/prompt_coach";
+    /// A pull request's own failing checks or unresolved review comments as a draft for its
+    /// chat's composer (`server/pr_feedback.rs`, `pr_feedback.rs`).
+    pub const MUX_PR_FEEDBACK: &str = "_acpmux/pr_feedback";
     pub const MUX_ASK: &str = "_acpmux/ask";
     /// A side session about a chat (`/btw`, `hub/btw.rs`): read-only, on a
     /// cheap model, sent the question; answers with its session id at once.

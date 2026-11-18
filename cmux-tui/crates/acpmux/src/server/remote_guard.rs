@@ -77,6 +77,9 @@
 //!   (`hub/subagent_transcript.rs`): the unix socket, the app and a peer
 //!   forwarding for either. Nor `_acpmux/native_history`, which reads a
 //!   chat's older turns from its Claude Code transcript (`hub/native_history.rs`).
+//! - Web only: no `_acpmux/pr_feedback` (`prFeedback.remote`), which reads a pull request's
+//!   checks, job logs and review threads with this machine's GitHub sign-in (`pr_feedback.rs`):
+//!   the unix socket, the app and a peer forwarding for either.
 //!
 //! The unix socket keeps today's behavior.
 
@@ -634,6 +637,14 @@ async fn check_inner(
             "workflows.remote: the daemon's workflows are listed only for the app or over the local unix socket",
         )
         .with_data(serde_json::json!({"reason": "workflows.remote"})));
+    }
+    // A pull request's checks, logs and reviews are read with this machine's GitHub sign-in.
+    if m == method::MUX_PR_FEEDBACK && control_of(origin, auth, params) == crate::hub::Control::Web
+    {
+        return Err(RpcError::invalid_params(
+            "prFeedback.remote: a pull request's checks and reviews are read only for the app or over the local unix socket",
+        )
+        .with_data(serde_json::json!({"reason": "prFeedback.remote"})));
     }
     // After the folder checks: what the request starts from, and its mode.
     if web {
