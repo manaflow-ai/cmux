@@ -330,6 +330,8 @@ final class WindowManager {
         // Its New Tab page or Home; not after the person closed a window meanwhile: revealing it
         // opens a window again (the Home workspace shows before the restore finished).
         if restoreClosed.windows.isEmpty { FirstWorkspaceLaunch(manager: self).land(firstWorkspace, leftover: leftover) }
+        // A relaunch lands where the person was: that workspace and tab, or Home (cmux-window-rules `launch::landing`).
+        if restoreClosed.windows.isEmpty, firstWorkspace == nil, !opensFresh { RelaunchLanding(manager: self).land(document.windows) }
         // Classic cmux's session comes over once, after restore so the restored
         // registry never overwrites where its workspaces land.
         let onboarding = AppOnboardingServices(owner: services.onboarding)

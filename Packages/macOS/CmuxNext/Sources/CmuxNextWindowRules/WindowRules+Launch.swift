@@ -52,5 +52,43 @@ extension WindowRules {
                                                          live: named.filter(isLive).sorted()))
     }
 
+    /// Where the person last was, from the daemon's saved front window: Home is said, never read off a missing tab.
+    public nonisolated enum LastFront: Equatable, Sendable {
+        /// No saved window: a true first launch.
+        case nothing
+        /// The home workspace, or classic Home's top page.
+        case home
+        case workspace(String, pane: String?, tab: String?)
+    }
+
+    /// The saved tab in the live tree: listed and running, listed with its process ended (the daemon relaunches it),
+    /// or not listed.
+    public nonisolated enum TabStanding: String, Encodable, Sendable { case live, ended, gone }
+
+    /// Where the launch's front window lands (cmux-window-rules `launch::landing`).
+    public nonisolated enum LaunchLanding: Equatable, Sendable {
+        /// `why`: `firstLaunch`, `lastWasHome` or `unknownWorkspace`.
+        case home(why: String)
+        case workspace(String, pane: String?, tab: String?)
+    }
+
+    /// Where a launch lands (Leo 2026-11-18: "if it's not first time and the user was on a workspace and a tab, obv
+    /// just take them there"; "ofc reopening home if they were prev on home is fine"). Nil when the FFI does not
+    /// answer (one pinned before `window_launch_landing`): the restore keeps what it showed, as before.
+    public func launchLanding(last: LastFront, workspaceLive: Bool, tab: TabStanding) -> LaunchLanding? {
+        struct Last: Encodable { var kind: String; var workspace: String?; var pane: String?; var tab: String? }
+        struct Facts: Encodable { var last: Last; var workspaceLive: Bool; var tab: TabStanding }
+        struct Reply: Decodable { var kind: String; var why: String?; var workspace: String?; var pane: String?; var tab: String? }
+        let encoded: Last = switch last {
+        case .nothing: Last(kind: "nothing")
+        case .home: Last(kind: "home")
+        case let .workspace(id, pane, tab): Last(kind: "workspace", workspace: id, pane: pane, tab: tab)
+        }
+        guard let reply = call("window_launch_landing", Facts(last: encoded, workspaceLive: workspaceLive, tab: tab), as: Reply.self)
+        else { return nil }
+        if reply.kind == "workspace", let workspace = reply.workspace { return .workspace(workspace, pane: reply.pane, tab: reply.tab) }
+        return reply.kind == "home" ? .home(why: reply.why ?? "") : nil
+    }
+
     private static let launchLog = Logger(subsystem: "com.cmuxterm.app.next", category: "window-rules")
 }
