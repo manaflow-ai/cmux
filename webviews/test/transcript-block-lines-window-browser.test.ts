@@ -5,10 +5,13 @@
 // same for 1,000 and 10,000. The page is browser/transcript-block-lines.harness.tsx. With
 // BLOCK_LINES_MEASURE=1 it prints the counts and timings the PR quotes.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import type { BlockKind } from "./browser/transcript-block-lines.harness";
-import { devHighlightWorker } from "./support/devHighlightWorker";
+import { HIGHLIGHT_WORKER_FILE } from "../src/agent-session/acpmux/conversation/highlightPool";
+import { builtHighlightWorker, devHighlightWorker } from "./support/devHighlightWorker";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -17,19 +20,48 @@ await requireBrowserLane("transcript-block-lines-window-browser.test.ts", async 
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
   const PAGE = "/test/browser/transcript-block-lines.html";
+  // By default the page is a production build (vite.config.ts's build, the harness as its one input),
+  // served as static files with the shipped highlight worker beside it, as the app loads it; with
+  // BLOCK_LINES_DEV=1, the Vite dev server with Pierre's own worker. The build takes about 6 s.
+  const built = process.env.BLOCK_LINES_DEV !== "1";
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
+  let statics: ReturnType<typeof Bun.serve> | undefined;
+  let out: string | undefined;
+  let origin = "";
   let browser: Browser;
   beforeAll(async () => {
-    vite = await createServer({
-      root: webviews,
-      configFile: path.join(webviews, "vite.config.ts"),
-      server: { port: 0, host: "127.0.0.1", strictPort: false },
-      logLevel: "error",
-      // The dev server serves no built highlight worker (#25876): a highlighted read runs Pierre's own.
-      plugins: [devHighlightWorker()],
-    });
-    await vite.listen();
-    await warmViteServer(vite, PAGE);
+    if (built) {
+      out = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "block-lines-build-"));
+      await buildPage(out);
+      const root = out;
+      statics = Bun.serve({
+        port: 0,
+        hostname: "127.0.0.1",
+        // The config's base is relative ("./"): the page at test/browser/ asks for its chunks, assets and
+        // worker beside it, and they are written at the build's root.
+        async fetch(request) {
+          const wanted = decodeURIComponent(new URL(request.url).pathname);
+          for (const candidate of [wanted, wanted.replace(/^\/test\/browser\//, "/")]) {
+            const file = Bun.file(path.join(root, candidate));
+            if (await file.exists()) return new Response(file);
+          }
+          return new Response("not found", { status: 404 });
+        },
+      });
+      origin = `http://127.0.0.1:${statics.port}`;
+    } else {
+      vite = await createServer({
+        root: webviews,
+        configFile: path.join(webviews, "vite.config.ts"),
+        server: { port: 0, host: "127.0.0.1", strictPort: false },
+        logLevel: "error",
+        // The dev server serves no built highlight worker (#25876): a highlighted read runs Pierre's own.
+        plugins: [devHighlightWorker()],
+      });
+      await vite.listen();
+      await warmViteServer(vite, PAGE);
+      origin = `http://127.0.0.1:${(vite.httpServer!.address() as { port: number }).port}`;
+    }
     browser = await chromium.launch({
       headless: true,
       ...(process.env.CMUX_BROWSER_EXECUTABLE ? { executablePath: process.env.CMUX_BROWSER_EXECUTABLE } : {}),
@@ -38,12 +70,60 @@ await requireBrowserLane("transcript-block-lines-window-browser.test.ts", async 
   afterAll(async () => {
     await browser?.close();
     await vite?.close();
+    await statics?.stop(true);
+    if (out) fs.rmSync(out, { recursive: true, force: true });
   });
 
+  /// The production build of the page into `outDir`: the app's Vite config (its plugins, chunking and
+  /// minification) with the harness as its only input, and the pane's highlight worker built as
+  /// build-agent-pane-web.sh builds it, beside the page, where the pool starts it.
+  async function buildPage(outDir: string) {
+    const { build, loadConfigFromFile } = await import("vite");
+    // bun test sets NODE_ENV=test, which makes the JSX transform emit its dev calls against React's
+    // production build: build as `vite build` does, then put it back.
+    const nodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    const loaded = await loadConfigFromFile(
+      { command: "build", mode: "production" },
+      path.join(webviews, "vite.config.ts"),
+    );
+    const config = loaded!.config;
+    await build({
+      ...config,
+      configFile: false,
+      root: webviews,
+      logLevel: "error",
+      plugins: [...(config.plugins ?? []), builtHighlightWorker()],
+      build: {
+        ...config.build,
+        outDir,
+        emptyOutDir: true,
+        rolldownOptions: { ...config.build?.rolldownOptions, input: { harness: path.join(webviews, PAGE.slice(1)) } },
+      },
+    }).finally(() => {
+      process.env.NODE_ENV = nodeEnv;
+    });
+    const worker = Bun.spawnSync(
+      [
+        "bun",
+        "scripts/agent-pane/bundle.mjs",
+        "node_modules/@pierre/diffs/dist/worker/worker.js",
+        "src/agent-session/acpmux/shiki",
+        path.join(outDir, HIGHLIGHT_WORKER_FILE),
+      ],
+      { cwd: webviews, stderr: "pipe" },
+    );
+    if (worker.exitCode !== 0) throw new Error(`highlight worker bundle failed: ${worker.stderr.toString()}`);
+  }
+
+  /// The highlight worker scripts each page started: in the build, the shipped highlight-worker.js.
+  const workers = new WeakMap<Page, string[]>();
   const open = async (kind: BlockKind, lines: number, reveal = 0): Promise<Page> => {
     const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
-    const { port } = vite!.httpServer!.address() as { port: number };
-    await page.goto(`http://127.0.0.1:${port}${PAGE}`);
+    const started: string[] = [];
+    workers.set(page, started);
+    page.on("worker", (worker) => started.push(new URL(worker.url()).pathname));
+    await page.goto(`${origin}${PAGE}`);
     await page.waitForFunction(() => "__blockLines" in window);
     await page.evaluate(
       ([kind, lines, reveal]) =>
@@ -256,7 +336,11 @@ await requireBrowserLane("transcript-block-lines-window-browser.test.ts", async 
   }
   // A read within the highlight limits draws in Pierre's shadow root (HighlightedLines.tsx), windowed
   // by Pierre's own virtualizer on the read's box (usePierreCode.ts), its gutter in step with it.
-  const painted = (page: Page) =>
+  const painted = async (page: Page) => {
+    await paintedLines(page);
+    if (built) expect(workers.get(page)).toContain(`/test/browser/${HIGHLIGHT_WORKER_FILE}`);
+  };
+  const paintedLines = (page: Page) =>
     page.waitForFunction(() => {
       const host = document.querySelector("[data-preview] diffs-container");
       // Tokens colored: the worker's highlight has come back.
