@@ -79,9 +79,13 @@ private struct AppMark: View {
     var body: some View {
         Image(systemName: "chevron.right")
             .font(theme.type.meta.weight(.heavy))
-            .foregroundStyle(theme.colors.accent)
+            // The home-screen icon's gradient (WelcomeArt.iconGradient) on black, in both modes.
+            .foregroundStyle(LinearGradient(colors: [Color(hex: "#06CDFE"), Color(hex: "#2AA0F9"), Color(hex: "#5170F3")],
+                                            startPoint: .top, endPoint: .bottom))
             .frame(width: min(size, 48), height: min(size, 48))
             .background(Color.black, in: .rect(cornerRadius: min(size, 48) * 0.24, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: min(size, 48) * 0.24, style: .continuous)
+                .strokeBorder(theme.colors.separator.color, lineWidth: 0.5))
             .accessibilityHidden(true)
     }
 }
