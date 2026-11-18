@@ -155,5 +155,5 @@ extension WindowRules {
         return facts.classicHome || !facts.homeEnsured ? .newTab : .home
     }
 
-    private static let launchLog =Logger(subsystem: "com.cmuxterm.app.next", category: "window-rules")
+    private static let launchLog = Logger(subsystem: "com.cmuxterm.app.next", category: "window-rules")
 }
