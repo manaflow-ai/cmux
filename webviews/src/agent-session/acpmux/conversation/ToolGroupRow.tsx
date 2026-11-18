@@ -60,7 +60,20 @@ type StepEntry = { at: number; key: string; thought: number };
 /// takes another's place), never when a call already listed streams output: the transcript replaces
 /// only that call's activity, so the entries, keyed by tool id and place, stay as they were.
 function useStepEntries(items: readonly AcpmuxActivity[]): StepEntry[] {
-  const last = useRef<{ items: readonly AcpmuxActivity[]; entries: StepEntry[] } | undefined>(undefined);
+  const last = useRef<StepEntriesMemo["current"]>(undefined);
+  return useKeptStepEntries(last, items);
+}
+
+/// The last items and their entries, kept across renders (`useStepEntries`).
+type StepEntriesMemo = { current: { items: readonly AcpmuxActivity[]; entries: StepEntry[] } | undefined };
+
+/// A hook of its own, the memo read in a plain function: a hook that reads its ref during render
+/// (or counts with `++` in a closure) stays out of the React Compiler.
+function useKeptStepEntries(last: StepEntriesMemo, items: readonly AcpmuxActivity[]): StepEntry[] {
+  return keptStepEntries(last, items);
+}
+
+function keptStepEntries(last: StepEntriesMemo, items: readonly AcpmuxActivity[]): StepEntry[] {
   const prior = last.current;
   if (
     prior &&
@@ -290,7 +303,7 @@ function StepList({
     const node = list.current;
     if (!node || !keeping) return;
     if (rest > 0) {
-      slot.current ??= stepSlot(node.querySelectorAll<HTMLElement>(":scope > .cv-step"));
+      if (slot.current === undefined) slot.current = stepSlot(node.querySelectorAll<HTMLElement>(":scope > .cv-step"));
       if (spacer.current) spacer.current.style.height = `${rest * slot.current}px`;
     }
     // The rows under the run are placed before each frame paints while its rows draw (VirtualTranscript),
@@ -372,7 +385,7 @@ export function ToolGroupRow({
   findTitle,
   inherits,
   closedBy,
-  thoughtId = (n) => `${disclosureKey}:thought:${n}`,
+  thoughtId: thoughtIdOf,
 }: {
   kind: ToolGroupKind;
   items: readonly AcpmuxActivity[];
@@ -388,6 +401,8 @@ export function ToolGroupRow({
   /// drawn on its own before a call joined it to this group.
   thoughtId?: (n: number) => string;
 }) {
+  // Not a default parameter: the React Compiler cannot compile a default that is an arrow.
+  const thoughtId = thoughtIdOf ?? ((n: number) => `${disclosureKey}:thought:${n}`);
   const t = useT();
   const reveal = useContext(FindReveal);
   const showFindTitle = Boolean(findTitle && reveal?.needle && foldFind(findTitle).includes(reveal.needle));
@@ -408,6 +423,8 @@ export function ToolGroupRow({
   });
   const pin = useFoldPin(disclosureKey);
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
+  // Read off the hook's result once: `ref={fold.headerRef}` makes the compiler treat `fold` as a ref.
+  const { headerRef } = fold;
   // Whether the reader's click opened the run: only then do its rows past the window draw after the
   // fold (StepList). Find opens it with every row drawn, so its match is there to show.
   const [byClick, setByClick] = useState(false);
@@ -439,7 +456,7 @@ export function ToolGroupRow({
         data-tool-group={disclosureKey}
         aria-expanded={open}
         aria-controls={open ? detailsId : undefined}
-        ref={fold.headerRef}
+        ref={headerRef}
         onClick={(event) => {
           // The click itself, so a drag across the line opens nothing (useAnchoredCollapse `deliberateClick`).
           const opening = !open;

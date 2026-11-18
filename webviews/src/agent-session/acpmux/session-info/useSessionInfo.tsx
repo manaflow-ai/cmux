@@ -1,5 +1,16 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useInsertionEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { flushSync } from "react-dom";
+import { useKept } from "./keptValue";
 import { usePresence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
 import { CHAT_LAYOUT_EVENT, chatColumnOf, useChatSizing } from "../chatWidth";
@@ -423,7 +434,7 @@ export function useSessionInfo({
       next.delete(heldKey);
       return next;
     });
-  }, [heldKey]);
+  }, [heldKey, setHeldChats]);
   // What the panel lists of the rows, read here as the pane renders, and what else it is handed,
   // each the same value while it holds the same things: the panel (SessionInfoPresence, memoized)
   // renders when what it shows changed, not on every pane render (bench/delta-renders.bench.ts).
@@ -736,17 +747,19 @@ function useSessionInfoLists({
   const working = snapshot.isWorking;
   const any = rows.length > 0;
   const galleryRows = useRef({ rows, chat, any, gallery, listing, working, outputFiles, toolCalls });
-  if (
-    galleryRows.current.chat !== chat ||
-    galleryRows.current.any !== any ||
-    galleryRows.current.gallery !== gallery ||
-    galleryRows.current.listing !== listing ||
-    galleryRows.current.working !== working ||
-    galleryRows.current.outputFiles !== outputFiles ||
-    galleryRows.current.toolCalls !== toolCalls
-  )
-    galleryRows.current = { rows, chat, any, gallery, listing, working, outputFiles, toolCalls };
-  const sectionRows = galleryRows.current.rows;
+  // Read and written through useKept (keptValue.ts): a ref read during render keeps this hook out of
+  // the React Compiler.
+  const sectionRows = useKept(galleryRows, (last) =>
+    last.chat !== chat ||
+    last.any !== any ||
+    last.gallery !== gallery ||
+    last.listing !== listing ||
+    last.working !== working ||
+    last.outputFiles !== outputFiles ||
+    last.toolCalls !== toolCalls
+      ? { rows, chat, any, gallery, listing, working, outputFiles, toolCalls }
+      : last,
+  ).rows;
   const rowCount = rows.length;
   const lists = useMemo<SessionInfoLists>(
     () => ({
@@ -783,8 +796,7 @@ function useSessionInfoLists({
     ],
   );
   const held = useRef(lists);
-  if (drawn) held.current = lists;
-  return held.current;
+  return useKept(held, (last) => (drawn ? lists : last));
 }
 
 /// The snapshot Session Info's panel reads: `rows` in place of its own (the sections' rows,
@@ -793,11 +805,12 @@ function useSessionInfoLists({
 /// update, which changes only the rows, hands the panel the same snapshot.
 function usePanelSnapshot(snapshot: AcpmuxSnapshot, rows: readonly AcpmuxRow[]): AcpmuxSnapshot {
   const held = useRef<{ source: AcpmuxSnapshot; value: AcpmuxSnapshot } | undefined>(undefined);
-  const before = held.current;
-  if (before && before.value.rows === rows && sameButRows(before.source, snapshot)) return before.value;
-  const value = rows === snapshot.rows ? snapshot : { ...snapshot, rows: rows as AcpmuxRow[] };
-  held.current = { source: snapshot, value };
-  return value;
+  // Read and written through useKept (keptValue.ts), as useSessionInfoLists's.
+  return useKept(held, (before) =>
+    before && before.value.rows === rows && sameButRows(before.source, snapshot)
+      ? before
+      : { source: snapshot, value: rows === snapshot.rows ? snapshot : { ...snapshot, rows: rows as AcpmuxRow[] } },
+  )!.value;
 }
 
 /// Every own field of the two snapshots is the same object, except `rows`.
@@ -816,7 +829,11 @@ function sameButRows(previous: AcpmuxSnapshot, next: AcpmuxSnapshot): boolean {
 /// state, so a fresh inline callback would defeat the SessionInfoPresence memo.
 function useStableCallback<T extends (...args: never[]) => unknown>(callback: T | undefined): T | undefined {
   const current = useRef<T | undefined>(callback);
-  current.current = callback;
+  // The latest, written as the render commits: its one reader is the returned callback, never the
+  // render (a write during render keeps this hook out of the React Compiler).
+  useInsertionEffect(() => {
+    current.current = callback;
+  });
   const enabled = callback !== undefined;
   return useMemo(
     () => (enabled ? (((...args: Parameters<T>) => current.current?.(...args)) as T) : undefined),
@@ -831,6 +848,15 @@ const closeSessionInfo = () => {
   document.querySelector<HTMLElement>(SESSION_INFO_TOGGLE)?.focus({ preventScroll: true });
   setSessionInfoOpen(false);
 };
+
+// The pane shell's data attributes, written through plain functions: the React Compiler treats a prop
+// (`shell`) as read-only and leaves a component that writes one uncompiled.
+function setData(element: HTMLElement, key: string, value: string): void {
+  element.dataset[key] = value;
+}
+function dropData(element: HTMLElement, key: string): void {
+  delete element.dataset[key];
+}
 
 /// No chat held closed yet (a stable value).
 const NO_HELD_CHATS: ReadonlySet<string> = new Set();
@@ -1067,16 +1093,16 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     if (!shell) return;
     if (!drawn) {
       wasDrawn.current = false;
-      delete shell.dataset.sessionInfoChatPlacement;
-      delete shell.dataset.sessionInfoLeaving;
-      delete shell.dataset.sessionInfoSliding;
+      dropData(shell, "sessionInfoChatPlacement");
+      dropData(shell, "sessionInfoLeaving");
+      dropData(shell, "sessionInfoSliding");
       shell.style.removeProperty("--acpmux-header-room");
       shell.style.removeProperty(SESSION_INFO_COLUMN);
       shell.style.removeProperty(SESSION_INFO_ROOM);
       shell.dispatchEvent(new (shell.ownerDocument.defaultView?.Event ?? Event)(CHAT_LAYOUT_EVENT));
       return;
     }
-    shell.dataset.sessionInfoChatPlacement = push ? "push" : "overlay";
+    setData(shell, "sessionInfoChatPlacement", push ? "push" : "overlay");
     // Pushing, the transcript's column keeps the width it has in the whole pane on every frame of the
     // slide, and only moves left (pushKeepsColumn, sessionInfo.css).
     // Beside the computer use card (App.tsx data-cu-preview on the chat), the column the chat has
@@ -1090,10 +1116,10 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     const shift = push && !native && !leaving ? room : 0;
     const opening = !wasDrawn.current;
     wasDrawn.current = true;
-    if (push && !native && (opening || leaving)) shell.dataset.sessionInfoSliding = "";
+    if (push && !native && (opening || leaving)) setData(shell, "sessionInfoSliding", "");
     // A change that is no open or leave (a resize, a stage the new width picks) after the slide ended:
     // no transition, even before the slide's transitionend has come.
-    else if ("sessionInfoSliding" in shell.dataset && !columnSliding(shell)) delete shell.dataset.sessionInfoSliding;
+    else if ("sessionInfoSliding" in shell.dataset && !columnSliding(shell)) dropData(shell, "sessionInfoSliding");
     shell.style.setProperty(SESSION_INFO_ROOM, `${shift}px`);
     shell.toggleAttribute("data-session-info-leaving", leaving);
     shell.dispatchEvent(new (shell.ownerDocument.defaultView?.Event ?? Event)(CHAT_LAYOUT_EVENT));
@@ -1130,7 +1156,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     const ended = (event: TransitionEvent) => {
       if (!("sessionInfoSliding" in shell.dataset)) return;
       if (event.target === main ? event.propertyName === SHIFT : !columnSliding(shell))
-        delete shell.dataset.sessionInfoSliding;
+        dropData(shell, "sessionInfoSliding");
     };
     shell.addEventListener("transitionend", ended);
     shell.addEventListener("transitioncancel", ended);
@@ -1142,12 +1168,12 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   useLayoutEffect(() => {
     if (!shell) return;
     return () => {
-      delete shell.dataset.sessionInfoSliding;
-      delete shell.dataset.sessionInfoChatPlacement;
+      dropData(shell, "sessionInfoSliding");
+      dropData(shell, "sessionInfoChatPlacement");
       shell.style.removeProperty("--acpmux-header-room");
       shell.style.removeProperty(SESSION_INFO_COLUMN);
       shell.style.removeProperty(SESSION_INFO_ROOM);
-      delete shell.dataset.sessionInfoLeaving;
+      dropData(shell, "sessionInfoLeaving");
       shell.dispatchEvent(new (shell.ownerDocument.defaultView?.Event ?? Event)(CHAT_LAYOUT_EVENT));
     };
   }, [shell]);

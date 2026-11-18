@@ -29,7 +29,6 @@ src/agent-session/acpmux/ComposerContext.tsx	1
 src/agent-session/acpmux/composerFocus.ts	1
 src/agent-session/acpmux/ComposerPickers.tsx	3
 src/agent-session/acpmux/ComposerQueue.tsx	1
-src/agent-session/acpmux/conversation/AgentMessageRow.tsx	1
 src/agent-session/acpmux/conversation/ArtifactPanel.tsx	2
 src/agent-session/acpmux/conversation/BackgroundTaskNote.tsx	1
 src/agent-session/acpmux/conversation/BlockParts.tsx	1
@@ -57,14 +56,11 @@ src/agent-session/acpmux/conversation/SentMessageLine.tsx	1
 src/agent-session/acpmux/conversation/SentUIPick.tsx	1
 src/agent-session/acpmux/conversation/skillWords.ts	1
 src/agent-session/acpmux/conversation/ThoughtRow.tsx	2
-src/agent-session/acpmux/conversation/ToolGroupRow.tsx	3
 src/agent-session/acpmux/conversation/ToolOutputBody.tsx	1
-src/agent-session/acpmux/conversation/ToolRow.tsx	1
 src/agent-session/acpmux/conversation/toolRowCount.ts	1
 src/agent-session/acpmux/conversation/ToolRun.tsx	1
 src/agent-session/acpmux/conversation/ToolRunSteps.tsx	1
 src/agent-session/acpmux/conversation/useAnchoredCollapse.ts	1
-src/agent-session/acpmux/conversation/UserBubble.tsx	1
 src/agent-session/acpmux/conversation/Walkthrough.tsx	1
 src/agent-session/acpmux/dictation.ts	1
 src/agent-session/acpmux/EnvironmentPicker.tsx	1
@@ -84,7 +80,6 @@ src/agent-session/acpmux/header/worktreeOps.ts	1
 src/agent-session/acpmux/HomeInbox.tsx	1
 src/agent-session/acpmux/ledger/LedgerScreen.tsx	1
 src/agent-session/acpmux/locationPopover.ts	2
-src/agent-session/acpmux/MarkdownField.tsx	1
 src/agent-session/acpmux/ModelPicker.tsx	1
 src/agent-session/acpmux/needsYou/useNeedsYou.ts	1
 src/agent-session/acpmux/newtab/allChatsListModel.ts	1
@@ -126,7 +121,6 @@ src/agent-session/acpmux/session-info/stepAside.ts	1
 src/agent-session/acpmux/session-info/subagentLimitStepperModel.ts	1
 src/agent-session/acpmux/session-info/SubagentsSection.tsx	1
 src/agent-session/acpmux/session-info/TasksSection.tsx	1
-src/agent-session/acpmux/session-info/useSessionInfo.tsx	5
 src/agent-session/acpmux/slashCommands.ts	1
 src/agent-session/acpmux/stableHandlers.ts	1
 src/agent-session/acpmux/stableProps.ts	1

@@ -1,10 +1,11 @@
-import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef } from "react";
+import React, { useCallback, useEffect, useImperativeHandle, useInsertionEffect, useLayoutEffect, useRef } from "react";
 import { PASTE_FILE_CHARS } from "./pastedText";
 import { escapeDefinitions, insertReplyQuote } from "./quoteReply";
 import { pasteIsOnlyFileNames } from "./attachments";
 import { isPasteAsPlainTextKey, PLAIN_PASTE_MS } from "./composer/pastedChips";
 import { htmlHasBlocks, htmlMarkdown, looksLikeMarkdown } from "./richClipboard";
 import { COMPOSER_READY_EVENT } from "./composerFocus";
+import { holdFlag } from "./heldFlag";
 import { liftInlineImages, withoutMarkdownImages } from "./inlineImages";
 import { isImeKeyEvent } from "../../pages/shared/imeKeys";
 import { activeFormats, applyFormat, type MarkdownFormat } from "./markdownFormat";
@@ -700,6 +701,26 @@ function plainPosition(doc: ProseNode, offset: number): number {
   return resolved.parent.inlineContent ? low : TextSelection.near(resolved, 1).from;
 }
 
+/// The same `/word` at the caret, or none both times. A function of its own: the React Compiler cannot
+/// compile these optional reads inside the field.
+function sameTrigger(next: SlashTrigger | undefined, told: SlashTrigger | undefined): boolean {
+  return next?.query === told?.query && next?.length === told?.length && next?.leading === told?.leading;
+}
+
+/// The plain field's keys (`literal` / `plainInput`), in place of the rich keymap. Plain omnibar input
+/// still needs the browser's editing shortcuts: the rich keymap that normally provides these is removed
+/// with formatting shortcuts in plain mode.
+function literalKeymap(lines: { readonly current: boolean }): Plugin {
+  return keymap({
+    ...baseKeymap,
+    "Mod-a": selectAll,
+    "Shift-Enter": (state, dispatch, editorView) => !lines.current || baseKeymap.Enter!(state, dispatch, editorView),
+    "Mod-z": undo,
+    "Shift-Mod-z": redo,
+    "Mod-y": redo,
+  });
+}
+
 /// The composer's prompt, edited inline as formatted markdown (spec S5, Milkdown): typing
 /// `**bold**`, a backtick span, `- ` or a fence turns into the formatted node, with no toolbar
 /// and no syntax reveal. Enter is the composer's (send or pick a command); Shift-Enter starts a
@@ -746,21 +767,12 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   const literalNow = useRef(literal);
   // When Paste as Plain Text last started (⌘⇧V or `plainPaste`): the next paste goes in plain.
   const plainPasteAt = useRef(-Infinity);
-  literalNow.current = literal;
   const plainInputNow = useRef(plainInput || literal);
-  plainInputNow.current = plainInput || literal;
   const richPlugins = useRef<readonly Plugin[]>([]);
+  const lines = useRef(multiline);
+  // Made the first time the field goes plain (literalKeymap): made during render, the field would read
+  // a ref there and stay out of the React Compiler.
   const literalKeys = useRef<Plugin | undefined>(undefined);
-  literalKeys.current ??= keymap({
-    ...baseKeymap,
-    // Plain omnibar input still needs the browser's editing shortcuts. The rich keymap that
-    // normally provides these is removed with formatting shortcuts in plain mode.
-    "Mod-a": selectAll,
-    "Shift-Enter": (state, dispatch, editorView) => !lines.current || baseKeymap.Enter!(state, dispatch, editorView),
-    "Mod-z": undo,
-    "Shift-Mod-z": redo,
-    "Mod-y": redo,
-  });
   const configureLiteral = useCallback(() => {
     const current = view.current;
     if (!current || !richPlugins.current.length) return;
@@ -779,7 +791,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
             return !plugin.spec.isInputRules && !keymapOnly;
           }),
           // Specialized handlers (such as deleting an adjacent attachment) run first.
-          literalKeys.current!,
+          (literalKeys.current = literalKeys.current ?? literalKeymap(lines)),
         ]
       : richPlugins.current;
     // A new plugin list remakes every plugin view, and Milkdown's root view then unwraps and wraps
@@ -813,26 +825,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onPasteFirst,
     onSlash,
   });
-  latest.current = {
-    onChange,
-    onCaret,
-    onKeyDown,
-    onCompositionChange,
-    onBeforeInput,
-    onSubmit,
-    onReturnInput,
-    onFirstInput,
-    onReady,
-    onUnplacedQuotes,
-    onInlineViews,
-    isInlineAttachment,
-    onCopy,
-    onWholeSelection,
-    onPasteFirst,
-    onSlash,
-  };
   const slashNamesNow = useRef(slashNames);
-  slashNamesNow.current = slashNames;
   const composing = useRef(false);
   /// The `/word` last told to `onSlash`.
   const slashTold = useRef<SlashTrigger | undefined>(undefined);
@@ -843,7 +836,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     if (!tell || composing.current) return;
     const next = slashTriggerAt(state);
     const told = slashTold.current;
-    if (next?.query === told?.query && next?.length === told?.length && next?.leading === told?.leading) return;
+    if (sameTrigger(next, told)) return;
     slashTold.current = next;
     tell(next);
   };
@@ -855,12 +848,37 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   // It belongs to the `selectionKey` it was kept under, not to the text: two chats can hold the same draft.
   const refocus = useRef<{ doc: ProseNode; selection: Selection; until: number; owner?: string } | null>(null);
   const owner = useRef(selectionKey);
-  owner.current = selectionKey;
   const surfacePlugins = useRef(plugins);
-  const lines = useRef(multiline);
   const empty = useRef<HTMLSpanElement>(null);
   const attrs = useRef(attributes);
-  attrs.current = attributes;
+  // The latest props, written as the render commits (before the layout effects and the ref attach
+  // that read them): every reader is a handler, an effect, the editor's plugins or `mount`, never the
+  // render, and a write during render keeps the field out of the React Compiler.
+  useInsertionEffect(() => {
+    literalNow.current = literal;
+    plainInputNow.current = plainInput || literal;
+    latest.current = {
+      onChange,
+      onCaret,
+      onKeyDown,
+      onCompositionChange,
+      onBeforeInput,
+      onSubmit,
+      onReturnInput,
+      onFirstInput,
+      onReady,
+      onUnplacedQuotes,
+      onInlineViews,
+      isInlineAttachment,
+      onCopy,
+      onWholeSelection,
+      onPasteFirst,
+      onSlash,
+    };
+    slashNamesNow.current = slashNames;
+    owner.current = selectionKey;
+    attrs.current = attributes;
+  });
   const applyAttributes = () => {
     const dom = view.current?.dom;
     if (!dom) return;
@@ -925,6 +943,41 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     event.clipboardData?.setData("text/plain", copy.text);
     if (cut) editorView.dispatch(editorView.state.tr.deleteSelection().scrollIntoView().setMeta("uiEvent", "cut"));
     return true;
+  };
+
+  /// Replaces the document with `markdown`. Parsing drops the spaces at its end ("/review "),
+  /// so they go back where the caret goes. It drops a blank line at its end too: after a block
+  /// that is not a paragraph (a quote put in for the reply), an empty paragraph takes the caret,
+  /// so typing goes on below the block, not inside it.
+  const setDocument = (markdown: string, undoable = true) => {
+    holdFlag(applyingValue, true, () => replaceDocument(markdown, undoable));
+  };
+  const replaceDocument = (markdown: string, undoable: boolean) => {
+    // A field with placed attachments reads the value's tokens as their nodes in the same edit
+    // (composer/inlineNode.ts placeTokensIn): undo and redo bring back nodes, and token text typed
+    // or pasted is never read so. The editor's first document (`undoable` false) is not an edit to
+    // undo: undo would bring back the tokens it was made with as text.
+    if (inlineOn.current)
+      editor.current?.action((ctx) => {
+        const parsed = ctx.get(parserCtx)(markdown);
+        const current = ctx.get(editorViewCtx);
+        if (!parsed) return;
+        const { tr, doc } = current.state;
+        tr.replace(0, doc.content.size, new Slice(parsed.content, 0, 0));
+        current.dispatch(placeTokensIn(tr, inlineKnown).setMeta("addToHistory", undoable));
+      });
+    else editor.current?.action(replaceAll(markdown));
+    const current = view.current;
+    if (!current) return;
+    const tail = /[ \t]+$/.exec(markdown)?.[0];
+    if (tail && !trailingSpaces(current)) {
+      current.dispatch(current.state.tr.insertText(tail, current.state.doc.content.size - 1));
+      return;
+    }
+    const { doc, schema } = current.state;
+    if (!/\n[ \t]*\n$/.test(markdown) || !doc.lastChild || doc.lastChild.type === schema.nodes.paragraph) return;
+    const tr = current.state.tr.insert(doc.content.size, schema.nodes.paragraph.create());
+    current.dispatch(tr.setSelection(TextSelection.create(tr.doc, tr.doc.content.size - 1)));
   };
 
   const mount = useCallback(
@@ -1476,46 +1529,6 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     },
     [configureLiteral],
   );
-
-  /// Replaces the document with `markdown`. Parsing drops the spaces at its end ("/review "),
-  /// so they go back where the caret goes. It drops a blank line at its end too: after a block
-  /// that is not a paragraph (a quote put in for the reply), an empty paragraph takes the caret,
-  /// so typing goes on below the block, not inside it.
-  const setDocument = (markdown: string, undoable = true) => {
-    applyingValue.current = true;
-    try {
-      replaceDocument(markdown, undoable);
-    } finally {
-      applyingValue.current = false;
-    }
-  };
-  const replaceDocument = (markdown: string, undoable: boolean) => {
-    // A field with placed attachments reads the value's tokens as their nodes in the same edit
-    // (composer/inlineNode.ts placeTokensIn): undo and redo bring back nodes, and token text typed
-    // or pasted is never read so. The editor's first document (`undoable` false) is not an edit to
-    // undo: undo would bring back the tokens it was made with as text.
-    if (inlineOn.current)
-      editor.current?.action((ctx) => {
-        const parsed = ctx.get(parserCtx)(markdown);
-        const current = ctx.get(editorViewCtx);
-        if (!parsed) return;
-        const { tr, doc } = current.state;
-        tr.replace(0, doc.content.size, new Slice(parsed.content, 0, 0));
-        current.dispatch(placeTokensIn(tr, inlineKnown).setMeta("addToHistory", undoable));
-      });
-    else editor.current?.action(replaceAll(markdown));
-    const current = view.current;
-    if (!current) return;
-    const tail = /[ \t]+$/.exec(markdown)?.[0];
-    if (tail && !trailingSpaces(current)) {
-      current.dispatch(current.state.tr.insertText(tail, current.state.doc.content.size - 1));
-      return;
-    }
-    const { doc, schema } = current.state;
-    if (!/\n[ \t]*\n$/.test(markdown) || !doc.lastChild || doc.lastChild.type === schema.nodes.paragraph) return;
-    const tr = current.state.tr.insert(doc.content.size, schema.nodes.paragraph.create());
-    current.dispatch(tr.setSelection(TextSelection.create(tr.doc, tr.doc.content.size - 1)));
-  };
 
   // A value from outside (a send cleared it, the menu wrote a command) replaces the document.
   useLayoutEffect(() => {

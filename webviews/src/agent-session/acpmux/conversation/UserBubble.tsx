@@ -21,6 +21,7 @@ import {
   memo,
   useCallback,
   useContext,
+  useEffectEvent,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -491,14 +492,15 @@ export function PromptEditor({
   const [value, setValue] = useState(initial);
   const [sending, setSending] = useState(false);
   const field = useRef<HTMLTextAreaElement>(null);
-  // Opened to type in: the caret at the end, the field as tall as the prompt.
-  useLayoutEffect(() => {
+  // Opened to type in: the caret at the end, the field as tall as the prompt. Focused once, when it
+  // opens: `autoFocus` is read then, never a reason to focus again.
+  const focusOnOpen = useEffectEvent(() => {
     const element = field.current;
     if (!element || !autoFocus) return;
     element.focus();
     element.setSelectionRange(element.value.length, element.value.length);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- focus once, when it opens
-  }, []);
+  });
+  useLayoutEffect(() => focusOnOpen(), []);
   useLayoutEffect(() => {
     const element = field.current;
     if (!element) return;

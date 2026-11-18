@@ -82,6 +82,8 @@ export const ToolRow = memo(function ToolRow({
     },
   );
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
+  // Read off the hook's result once: `ref={fold.headerRef}` makes the compiler treat `fold` as a ref.
+  const { headerRef } = fold;
   const detailsId = useId();
   const tool = item.tool!;
   const hasDiff = Boolean(tool.diffs?.length);
@@ -271,7 +273,7 @@ export const ToolRow = memo(function ToolRow({
             aria-controls={
               open && (shell || files.length > 0 || body || fields || images.length > 0) ? detailsId : undefined
             }
-            ref={fold.headerRef}
+            ref={headerRef}
             onClick={fold.toggle}
           >
             {content}

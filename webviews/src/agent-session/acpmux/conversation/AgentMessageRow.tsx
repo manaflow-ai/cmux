@@ -136,6 +136,8 @@ export function AgentMessageRow({
     animates: animates ?? never,
     fadeIn: false,
   });
+  // Read off the hook's result once: `ref={collapse.headerRef}` makes the compiler treat `collapse` as a ref.
+  const { headerRef } = collapse;
   // A click on the line (its words, its chevron) that closes the message hands focus to the toggle,
   // the line's one control, so focus inside the closing card (a reply's editor) is never dropped.
   const toggleRef = useRef<HTMLButtonElement>(null);
@@ -167,11 +169,12 @@ export function AgentMessageRow({
       {/* The entire header toggles except its own buttons; preserve the shared selection guard. */}
       {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
       <div
-        ref={collapse.headerRef}
+        ref={headerRef}
         className={`cv-tool cv-agentmsg__line${live ? " is-live" : " is-strong"}${lineClassName ? ` ${lineClassName}` : ""}`}
         {...lineAttributes}
         {...{ [HEADER_TOGGLE_ATTRIBUTE]: "" }}
-        onClick={headerToggleClick(closeToToggle)}
+        // Built at the click, not in render: `closeToToggle` reads a ref, which render may not reach.
+        onClick={(event) => headerToggleClick(closeToToggle)(event)}
       >
         <span className="cv-tool__icon cv-agentmsg__icon">
           {icon}
