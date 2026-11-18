@@ -81,7 +81,10 @@ afterAll(async () => {
 });
 
 const { createRoot } = await import("react-dom/client");
-const { useState } = await import("react");
+const { useRef, useState, useSyncExternalStore } = await import("react");
+const { HomeChannelsStore } = await import("../src/pages/home-channels/store");
+const { HomeOps } = await import("../src/pages/home-channels/types");
+const { withChiefNames } = await import("../src/pages/home-channels/model");
 const { ConversationList } = await import("../src/pages/home-channels/ConversationList");
 const { createStrings } = await import("../src/pages/shared/i18n");
 const table = (await import("../src/pages/home-channels/generated/strings.json")).default as Record<
@@ -256,4 +259,67 @@ test("the active row, the focused row and the Pinned label stay mounted far from
   const shown = ids().map((id) => Number(id.slice(1)));
   expect(shown).toEqual([...shown].sort((a, b) => a - b));
   expect(rows().length).toBeLessThanOrEqual(50);
+});
+
+test("a full reload that changes one conversation draws that row alone, a renamed Chief's row too", async () => {
+  // Conversation 1 is a Chief's direct message the Chief's record renames (withChiefNames).
+  const reply = (edited: boolean) => ({
+    me: { id: ME, kind: "human", name: "Me", chief: false },
+    rev: 1,
+    // Every reload sends every conversation as new objects, as the owner does.
+    conversations: Array.from({ length: 1_000 }, (_, index) => {
+      const c = conversation(index, 0);
+      if (index === 1) c.participants[1] = { ...c.participants[1]!, kind: "agent", chief: true };
+      return edited && index === 4 ? { ...c, rev: 2, lastText: "Edited" } : c;
+    }),
+  });
+  let edited = false;
+  const client = {
+    call: async (op: string) => {
+      if (op === HomeOps.inbox) return reply(edited);
+      throw new Error(`not in this test: ${op}`);
+    },
+  };
+  const store = new HomeChannelsStore(client as never);
+  const chiefs = new Map([["p1", { name: "Renamed Chief" }]]);
+  const none = new Set<string>();
+  function Page() {
+    const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
+    const renamed = useRef(new Map());
+    const conversations = withChiefNames(snap.conversations, none, ME, chiefs, renamed.current);
+    return (
+      <ConversationList
+        conversations={conversations}
+        channels={none}
+        people={new Map()}
+        activity={new Map()}
+        me={ME}
+        selected={undefined}
+        strings={strings}
+        onSelect={() => undefined}
+        onOpenPalette={() => undefined}
+        actions={{
+          canPin: true,
+          onPin: () => undefined,
+          onMarkUnread: () => undefined,
+          onMarkRead: () => undefined,
+          onCopyLink: () => undefined,
+        }}
+      />
+    );
+  }
+  host = dom.window.document.getElementById("root")!;
+  root = createRoot(host);
+  await act(async () => root!.render(<Page />));
+  await act(async () => store.reloadInbox());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(host.querySelector('[data-list-row="c1"]')?.getAttribute("data-name")).toBe("Renamed Chief");
+
+  renders.mark();
+  edited = true;
+  await act(async () => store.reloadInbox());
+  const reload = renders.since();
+  console.log(JSON.stringify({ reload }));
+  expect(host.querySelector('[data-list-row="c4"]')?.textContent).toContain("Edited");
+  expect(reload).toBeLessThanOrEqual(1);
 });

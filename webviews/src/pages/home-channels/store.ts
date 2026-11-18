@@ -9,7 +9,7 @@ import { subscribePageStreams } from "../shared/pageStreams";
 import { AttachmentService, messageGroups } from "./attachmentService";
 import { AvatarService } from "./avatars";
 import { DraftBook, type HomeDraft } from "./drafts";
-import { hashLink, mergeMessages, parseConversationLink, threadOf } from "./model";
+import { hashLink, keepUnchanged, mergeMessages, parseConversationLink, threadOf } from "./model";
 import { conversationHash, hashConversation, setHash } from "./panes";
 import { LiveBook } from "./live";
 import { readPresentation } from "./presentation";
@@ -420,7 +420,9 @@ export class HomeChannelsStore {
     if (!this.client) return;
     try {
       const inbox = await this.client.call<HomeInbox>(HomeOps.inbox, {});
-      const conversations = new Map(inbox.conversations.map((c) => [c.id, c]));
+      // The conversations the reply did not change stay the objects the list holds (their rows keep).
+      const listed = keepUnchanged(this.snapshot.conversations, inbox.conversations);
+      const conversations = new Map(listed.map((c) => [c.id, c]));
       const selected =
         this.snapshot.selected && conversations.has(this.snapshot.selected)
           ? this.snapshot.selected
