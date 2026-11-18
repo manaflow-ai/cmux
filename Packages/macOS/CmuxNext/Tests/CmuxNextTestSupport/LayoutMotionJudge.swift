@@ -118,7 +118,8 @@ public nonisolated func judgeLayoutMotion(_ frames: [LayoutMotionFrame], contrac
         guard contract.moves[sample.surface]?.contains(declaration.event) == true else { return false }
         if declaration.scope == .all || sample.targeted { return true }
         let straight = abs(dx) <= contract.slackPx
-        if sample.after, dy > 0, straight { return true }
+        // Pushed down by what opened above it, or pulled up by what closed there (a fold, Wrap lines).
+        if sample.after, straight { return true }
         return sample.before && dy < 0 && straight
     }
     for index in frames.indices.dropFirst() {

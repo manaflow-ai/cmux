@@ -7,7 +7,7 @@
     "stream-append": "A reply grows at the end of the transcript. The growing last row may grow; rows above it rise with it only while the view follows the end.",
     "user-scroll": "The person scrolls (wheel, keys, a jump button, a scroll a play makes). Everything in the scroller moves together.",
     "resize": "The window, a split divider or the sidebar toggle changes a surface's width or height. Each box may move once, to its new place; a second move in the same resize is a bounce.",
-    "expand": "The person opens or closes a fold, a group, a tool row or a card. The opened element, what it holds, and what follows it pushed straight down may move; the rows above rise only when the fold is at the very bottom of a followed transcript.",
+    "expand": "The person opens or closes a fold, a group, a tool row or a card. The opened or closed element, what it holds, and what follows it (pushed straight down by an open, pulled straight up by a close) may move; the rows above rise only when the fold is at the very bottom of a followed transcript.",
     "older-history": "An older page of the transcript lands above the view. The view keeps the rows on screen in place (the scroll anchor), so on screen nothing moves.",
     "composer-growth": "The composer's field gains or loses a line. The composer box and the rows the list lifts with it move together, on the field's curve.",
     "menu": "A menu, popover or picker opens or closes. Only the popup and its rows move.",

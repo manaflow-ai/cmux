@@ -89,6 +89,32 @@
       "undeclared": 0
     },
     {
+      "name": "a close shrinks its target and pulls what follows straight up",
+      "frames": [
+        { "samples": { "fold": { "surface": "transcript-row", "box": [0, 0, 400, 120], "targeted": true }, "next": { "surface": "transcript-row", "box": [0, 120, 400, 20], "after": true } } },
+        { "samples": { "fold": { "surface": "transcript-row", "box": [0, 0, 400, 120], "targeted": true }, "next": { "surface": "transcript-row", "box": [0, 120, 400, 20], "after": true } } },
+        { "samples": { "fold": { "surface": "transcript-row", "box": [0, 0, 400, 120], "targeted": true }, "next": { "surface": "transcript-row", "box": [0, 120, 400, 20], "after": true } } },
+        {
+          "samples": { "fold": { "surface": "transcript-row", "box": [0, 0, 400, 20], "targeted": true }, "next": { "surface": "transcript-row", "box": [0, 20, 400, 20], "after": true } },
+          "declared": [{ "key": 1, "event": "expand", "scope": "targets" }]
+        }
+      ],
+      "undeclared": 0
+    },
+    {
+      "name": "a close does not cover a row after it moving sideways",
+      "frames": [
+        { "samples": { "fold": { "surface": "transcript-row", "box": [0, 0, 400, 120], "targeted": true }, "next": { "surface": "transcript-row", "box": [0, 120, 400, 20], "after": true } } },
+        { "samples": { "fold": { "surface": "transcript-row", "box": [0, 0, 400, 120], "targeted": true }, "next": { "surface": "transcript-row", "box": [0, 120, 400, 20], "after": true } } },
+        { "samples": { "fold": { "surface": "transcript-row", "box": [0, 0, 400, 120], "targeted": true }, "next": { "surface": "transcript-row", "box": [0, 120, 400, 20], "after": true } } },
+        {
+          "samples": { "fold": { "surface": "transcript-row", "box": [0, 0, 400, 20], "targeted": true }, "next": { "surface": "transcript-row", "box": [8, 20, 400, 20], "after": true } },
+          "declared": [{ "key": 1, "event": "expand", "scope": "targets" }]
+        }
+      ],
+      "undeclared": 1
+    },
+    {
       "name": "an expand does not cover a row above it rising, away from the very bottom",
       "frames": [
         { "samples": { "above": { "surface": "transcript-row", "box": [0, 0, 400, 20] }, "fold": { "surface": "transcript-row", "box": [0, 20, 400, 20], "targeted": true } } },

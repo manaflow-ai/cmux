@@ -10,6 +10,7 @@ import type { StageContext } from "./context";
 import { installChipHost } from "./chips";
 import { resetSummaryCards } from "../../agent-session/acpmux/summary/cardState";
 import { setChatDisplay } from "../../agent-session/acpmux/chatDisplay";
+import { setEditedFilesSettings } from "../../agent-session/acpmux/turnChanges/settings";
 import { prepareMockTransport } from "../../agent-session/acpmux/mockTransport";
 import { savedComposerLook, setComposerLook } from "../../agent-session/acpmux/composerLook";
 
@@ -239,5 +240,8 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
   // after every copy, so the shipped order wins.
   const paneSheet = document.querySelector('style[data-vite-dev-id$="/agent-pane.virtual.css"]');
   if (paneSheet) document.head.append(paneSheet);
+  // Before the chat draws, as the app pushes it at start: a card that drew and then went would move
+  // every row with it.
+  setEditedFilesSettings(state.editedFiles ?? {});
   mountAcpmux(initialChat);
 }
