@@ -5044,9 +5044,14 @@ function TranscriptView({
             // lines take up the room they would have come down into: the fold reads the rows again
             // now, in the pass that placed them, and they stay where they were drawn. Lines past
             // that room end the hold, and the fold raises the rows by them from there, on a clock
-            // of its own (the chase landed them at once, 12.7 px in a frame).
+            // of its own (the chase landed them at once, 12.7 px in a frame). It reads them in every
+            // pass of the drain, not only the one that read the growth: the reply's drawn height can
+            // grow a pass before the layout takes it, and the view's offset then moves to the new
+            // end in the next pass, in the same frame. The fold's own read of that move waits for
+            // the scroll event, a frame later, so the rows painted up by the offset's move and back
+            // down (agent-pane.streaming-follow-motion#eased-follow: 34.7 px up, 34.8 px down).
             const fold = turnEnd.current;
-            if (grew > 0.5 && (fold?.held?.() ?? 0) > 0) fold!.place?.();
+            if ((fold?.held?.() ?? 0) > 0) fold!.place?.();
             else if (chase && grew > 0.5) {
               chase.resume();
               // After Jump to latest the reply's lines keep to the room (chaseHeld), as they do
