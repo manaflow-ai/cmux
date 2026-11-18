@@ -258,6 +258,9 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     private var keeping = false
     /// A layout pass runs (an inset it changes calls back into it).
     private var laying = false
+    /// A snapshot is being applied and the reader put back: its layout passes are not frames anyone
+    /// sees (the frame-shift measure samples once, after it).
+    private var updating = false
     /// Rows are landing at the newest end of an `.up` list (the spring takes it there, not a jump).
     private var arriving = false
     /// The status bar's scroll to top is running: it moves the list on purpose.
@@ -431,6 +434,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         snapshot.reconfigureItems(reconfigure)
         applies += 1
         arriving = direction == .up && followsNewest && arrivals > 0 && animates
+        updating = true
         // No diff animation: a page lands out of view, or under a reader who stays put; rows that
         // arrive at the newest end slide in on the list's spring below.
         dataSource.apply(snapshot, animatingDifferences: false)
@@ -441,7 +445,10 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         let used = anchor.flatMap { restore($0) }
         keepReader()
         if !loaded, direction == .up { scrollToNewest() }
+        updating = false
         loaded = true
+        // The state this update leaves is what the next frame draws: measure it once, here.
+        sampleShift()
         if arrivals > 0 {
             if followsNewest {
                 if animates {
@@ -568,7 +575,10 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.collectionView.layoutIfNeeded()
-            let shift = self.windowY(of: row.id).map { abs($0 - row.windowY) } ?? 0
+            // While the reader scrolls, the scroll moves the row between the landing and this
+            // turn: the per-frame measure (`frameShift`) judges those landings, not this one.
+            let scrolling = self.collectionView.isTracking || self.collectionView.isDecelerating
+            let shift = scrolling ? 0 : self.windowY(of: row.id).map { abs($0 - row.windowY) } ?? 0
             probe.pageLanded?(shift, rows)
         }
     }
@@ -686,7 +696,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     /// last pass, where it is now, less what the scroll explains. Skipped across a rotation, and
     /// when that row left or moved (a removal or move is not a shift of what is read).
     private func sampleShift() {
-        guard let report = probe?.frameShift, loaded, collectionView.window != nil else { return }
+        guard !updating, let report = probe?.frameShift, loaded, collectionView.window != nil else { return }
         let width = collectionView.bounds.width
         let current = firstReadable()
         defer {

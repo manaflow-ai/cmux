@@ -100,7 +100,7 @@ final class PagedListHostController: UIViewController {
 
     // MARK: What the screen pins
 
-    func setAccessory(_ content: AnyView?, followsKeyboard: Bool) {
+    func setAccessory(_ content: AnyView?, background: AnyShapeStyle? = nil, followsKeyboard: Bool) {
         self.followsKeyboard = followsKeyboard
         guard let content else {
             if hasAccessory {
@@ -113,7 +113,7 @@ final class PagedListHostController: UIViewController {
         }
         hasAccessory = true
         dock.isHidden = false
-        accessoryHost.rootView = AnyView(PagedListAccessoryRoot(content: content) { [weak self] height in
+        accessoryHost.rootView = AnyView(PagedListAccessoryRoot(content: content, background: background) { [weak self] height in
             self?.accessoryChanged(height: height)
         })
     }
@@ -208,13 +208,22 @@ final class PagedListDockView: UIView {
 /// The accessory at the bottom of its tall host, reporting its height as laid out.
 private struct PagedListAccessoryRoot: View {
     let content: AnyView
+    let background: AnyShapeStyle?
     let measured: (CGFloat) -> Void
+    /// How far the background reaches below the accessory: past the home indicator and any
+    /// keyboard (the hosting view does not clip, and touches there go to the keyboard).
+    static let reach: CGFloat = 1200
 
     var body: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
             content
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { measured($0) }
+                .background(alignment: .top) {
+                    if let background {
+                        Rectangle().fill(background).padding(.bottom, -Self.reach)
+                    }
+                }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
     }

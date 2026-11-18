@@ -65,24 +65,22 @@ final class PagedListGalleryUITests: XCTestCase {
         lab.app.terminate()
 
         // The edge: loading (6 s pages), failed with Try Again, the end with its label.
-        lab = open("down:slow")
-        if lab.row(0).waitForExistence(timeout: 15) {
+        for direction in ["down", "up"] {
+            // A page takes 6 s here: fling to the edge and shoot the moment its spinner shows.
+            lab = open("\(direction):slow")
             let loading = any(lab.app, "lab.list.edge.loading")
-            for _ in 0..<12 where !(loading.exists && loading.isHittable) { lab.list.swipeUp(velocity: .fast) }
-            shot(lab, "edge-loading-down", when: loading, timeout: 3)
-        } else {
-            missing.append("edge-loading-down")
+            if lab.row(0).waitForExistence(timeout: 15) {
+                for _ in 0..<16 where !loading.exists {
+                    if direction == "down" { lab.list.swipeUp(velocity: .fast) } else { lab.list.swipeDown(velocity: .fast) }
+                }
+            }
+            if loading.exists {
+                lab.attach("gallery-edge-loading-\(direction)-\(look)")
+            } else {
+                missing.append("edge-loading-\(direction)")
+            }
+            lab.app.terminate()
         }
-        lab.app.terminate()
-        lab = open("up:slow")
-        if lab.row(0).waitForExistence(timeout: 15) {
-            let loading = any(lab.app, "lab.list.edge.loading")
-            for _ in 0..<12 where !(loading.exists && loading.isHittable) { lab.list.swipeDown(velocity: .fast) }
-            shot(lab, "edge-loading-up", when: loading, timeout: 3)
-        } else {
-            missing.append("edge-loading-up")
-        }
-        lab.app.terminate()
         lab = open("down:morefail")
         if lab.row(0).waitForExistence(timeout: 10) {
             let failed = any(lab.app, "lab.list.edge.failed")

@@ -12,7 +12,8 @@ struct PagedListOrderTests {
         for id in 1...5 { order.append(id) }
         order.insertAtHead(0)
         #expect(order.all() == [0, 1, 2, 3, 4, 5])
-        #expect(order.insert(9, after: 2))
+        let inserted = order.insert(9, after: 2)
+        #expect(inserted)
         #expect(order.all() == [0, 1, 2, 9, 3, 4, 5])
         // A member moves.
         order.insert(5, after: 0)
@@ -24,8 +25,10 @@ struct PagedListOrderTests {
         order.remove(42)
         #expect(order.all() == [0, 5, 1, 2, 9])
         #expect(order.head == 0 && order.tail == 9 && order.count == 5)
-        #expect(!order.insert(7, after: 42), "an anchor not in the list")
-        #expect(!order.insert(1, after: 1), "a row after itself")
+        let afterMissing = order.insert(7, after: 42)
+        let afterItself = order.insert(1, after: 1)
+        #expect(!afterMissing, "an anchor not in the list")
+        #expect(!afterItself, "a row after itself")
         #expect(order.ids(from: 5, count: 3) == [5, 1, 2])
         #expect(order.ids(from: 2, count: 10) == [2, 9])
         #expect(order.walkBack(from: 2, steps: 2) == 5)

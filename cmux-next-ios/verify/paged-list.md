@@ -44,6 +44,10 @@ view grows on its own (SwiftUI) animation inside a tall transparent host, and to
 the rows. `followsKeyboard: false` keeps it at the bottom (a toolbar that the keyboard covers). The
 first page's states (loading, failed, empty) show over the rows so the accessory keeps its focus.
 A screen with no accessory and no newest-rows indicator keeps the plain list (no host controller).
+`.pagedBottomAccessory(background: .bar) { composer }` gives the view a background that reaches down
+past the home indicator and behind the keyboard, so no row shows under or below the composer; without
+`background:` the view draws its own (or none). The host ignores only the keyboard and the bottom
+container safe area when an accessory is set, so the rows still stop under a navigation bar or banner.
 
 ## New rows at the newest end
 

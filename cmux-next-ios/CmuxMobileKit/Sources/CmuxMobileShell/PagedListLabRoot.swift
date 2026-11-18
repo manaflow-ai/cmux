@@ -93,10 +93,12 @@ public struct PagedListLabRoot: View {
         NavigationStack {
             Group {
                 if direction == .up {
-                    // The chat's bottom stack rides the keyboard; the rows ride it.
-                    list.pagedBottomAccessory { bottomStack }
+                    // The chat's bottom stack rides the keyboard on a bar that reaches the screen's
+                    // bottom edge; the rows ride it.
+                    list.pagedBottomAccessory(background: .bar) { bottomStack }
                 } else {
-                    list.safeAreaInset(edge: .bottom, spacing: 0) { bottomStack }
+                    // A clean screenshot has nothing under the rows: no bar either.
+                    list.safeAreaInset(edge: .bottom, spacing: 0) { bottomStack.background(clean ? AnyShapeStyle(.clear) : AnyShapeStyle(.bar)) }
                 }
             }
             .safeAreaInset(edge: .top, spacing: 0) {
@@ -177,7 +179,6 @@ public struct PagedListLabRoot: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(.bar)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("lab.ops")
     }
@@ -201,7 +202,6 @@ public struct PagedListLabRoot: View {
             .foregroundStyle(theme.colors.label2.color)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 4)
-            .background(.bar)
             .accessibilityIdentifier("lab.hud")
             .accessibilityValue(hud.json(edge: edgeName, newer: newerEdgeName, changes: model.changesApplied, flushes: model.flushes))
     }
@@ -232,7 +232,6 @@ public struct PagedListLabRoot: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(.bar)
     }
 }
 

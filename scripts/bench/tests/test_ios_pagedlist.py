@@ -62,6 +62,21 @@ class StressLines(unittest.TestCase):
             ctx = ingest(z)
         self.assertEqual(find(ctx, "shifted_frames", load="huge")["value"], 2)
 
+    def test_attachments_with_an_empty_console(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            z = Path(tmp) / "evidence.zip"
+            record = '{"direction":"down","speed":"slow","load":"inserts","window":null,"hud":{"frameShift":0.25,"hitchMsPerS":1.5}}'
+            manifest = ('[{"testIdentifier":"PagedListStressUITests/testDownSlowInserts()","attachments":['
+                        '{"suggestedHumanReadableName":"PAGEDLIST-STRESS-down-slow-inserts_0_ABC.txt","exportedFileName":"ABC.txt"},'
+                        '{"suggestedHumanReadableName":"STRESS-down-slow-inserts-deep_0_DEF.png","exportedFileName":"DEF.png"}]}]')
+            with zipfile.ZipFile(z, "w") as out:
+                out.writestr("ui-console.txt", "")
+                out.writestr("ui-attachments/manifest.json", manifest)
+                out.writestr("ui-attachments/ABC.txt", record)
+            ctx = ingest(z)
+        self.assertAlmostEqual(find(ctx, "frame_shift_pt", direction="down", speed="slow", load="inserts")["value"], 0.25)
+        self.assertAlmostEqual(find(ctx, "hitch_ms_per_s", load="inserts")["value"], 1.5)
+
     def test_nothing_to_read(self):
         with tempfile.TemporaryDirectory() as tmp:
             empty = Path(tmp) / "ui-console.txt"

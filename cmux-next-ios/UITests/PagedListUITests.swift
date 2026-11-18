@@ -149,8 +149,10 @@ final class PagedListUITests: XCTestCase {
         XCTAssertGreaterThan(deep.total, 1000, "the flings did not read deep (\(deep.total) rows)")
         XCTAssertLessThanOrEqual(deep.inMemory, 450, "\(deep.inMemory) row values in memory with a window of 300")
         XCTAssertGreaterThan(deep.onDisk, 0, "nothing went to disk")
-        for _ in 0..<60 where !lab.row(0).exists { lab.scroll(towardOlder: false, direction: "down", speed: .fast) }
-        XCTAssertTrue(lab.row(0).waitForExistence(timeout: 10), "flinging back did not bring the newest rows back from disk")
+        // Back to the newest end: the newer edge (rows read back from disk) ends there. Not row 0: the
+        // load removes and moves rows at the head too.
+        for _ in 0..<80 where lab.reading.newer != "end" { lab.scroll(towardOlder: false, direction: "down", speed: .fast) }
+        lab.waitFor("the newest rows back from disk", timeout: 10) { lab.reading.newer == "end" }
         lab.settle(lab.list.cells.firstMatch)
         lab.attach("huge-back-at-top")
         let back = lab.reading
