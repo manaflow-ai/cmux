@@ -119,8 +119,8 @@ impl CacheClock {
         let read = usage.get_u64("cache_read_input_tokens").unwrap_or(0);
         let write = usage.get_u64("cache_creation_input_tokens").unwrap_or(0);
         let prompt = input + read + write;
-        if prompt > 0 {
-            self.hit_milli.store(read * 1000 / prompt + 1, Ordering::SeqCst);
+        if let Some(milli) = (read * 1000).checked_div(prompt) {
+            self.hit_milli.store(milli + 1, Ordering::SeqCst);
         }
         // Only a chat whose calls use the cache misses it.
         let caching = self.ttl_ms.load(Ordering::SeqCst) > 0;
