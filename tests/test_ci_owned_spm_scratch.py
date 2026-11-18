@@ -948,7 +948,7 @@ class SeedRoot(unittest.TestCase):
     def test_the_workflow_restores_the_seed_on_an_owned_mini_behind_the_setting(self):
         text = NEXT_WORKFLOW.read_text()
         job = text[text.index("\n  fast-tier:\n"):text.index("\n  fast-tier-cargo:\n")]
-        self.assertIn("CMUX_FAST_TIER_OWNED_SEED: ${{ vars.CI_FAST_TIER_OWNED_SEED != '0' && '1' || '' }}", job)
+        self.assertIn("CMUX_FAST_TIER_OWNED_SEED: ${{ (vars.CI_FAST_TIER_OWNED_SEED || '1') != '0' && '1' || '' }}", job)
         for step in ("Compute fast-tier cache keys", "Restore the CmuxNext build"):
             block = job[job.index(f"- name: {step}"):]
             block = block[:block.index("\n      - name:", 10)]
