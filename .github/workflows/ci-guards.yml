@@ -152,6 +152,12 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fix_cause_labels_start_no_jobs.py
 
+      # A title or description edit, or a comment that is not a command, starts no runner unless a
+      # job reads what changed.
+      - name: Validate edits and comments start no runner
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_edit_events_start_no_runner.py
+
       - name: Validate machine-failure detection for focused reruns
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_machine_failure.py

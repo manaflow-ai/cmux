@@ -25,15 +25,18 @@ on:
 permissions: {}
 
 concurrency:
-  group: thunderdome-label-${{ github.event.pull_request.number || 'backfill' }}
+  group: thunderdome-label-${{ github.event.pull_request.number || 'backfill' }}${{ github.event.action == 'edited' && !github.event.changes.title && !github.event.changes.base && format('-edit-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 jobs:
   label:
+    # An edit re-labels only when it changed the title or the base; a description edit starts no runner
+    # (tests/test_ci_edit_events_start_no_runner.py).
     if: >-
       github.event_name == 'pull_request_target' &&
       contains(github.event.pull_request.title, 'thunderdome') &&
-      !contains(github.event.pull_request.labels.*.name, 'thunderdome')
+      !contains(github.event.pull_request.labels.*.name, 'thunderdome') &&
+      (github.event.action != 'edited' || github.event.changes.title || github.event.changes.base)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     timeout-minutes: 5
     permissions:
