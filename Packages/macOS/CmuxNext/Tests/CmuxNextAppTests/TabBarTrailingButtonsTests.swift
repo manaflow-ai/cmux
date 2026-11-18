@@ -81,10 +81,26 @@ import Testing
         #expect(fills.count == 1, "one fill: \(fills.map { "\($0.bounds.size)" })")
         let fill = try #require(fills.first)
         #expect(fill.frame == chooser.bounds, "the fill is the whole segment")
-        #expect(fill.cornerRadius == NewTabButtonView.splitCornerRadius)
+        #expect(fill.cornerRadius == Metrics.buttonCornerRadius(proportionalTo: min(chooser.bounds.width, chooser.bounds.height)))
         #expect(fill.maskedCorners == [.layerMaxXMinYCorner, .layerMaxXMaxYCorner], "only the group's trailing corners round")
         chooser.isHighlighted = false
         #expect(filledLayers(layer).isEmpty, "no fill once the menu closes and the pointer is away")
+    }
+
+    /// While its menu is open the pane's "…" shows one plate over its whole frame at the tabs' corner, as the ⌄ does
+    /// in the default split look (`tabs.trailingButtons`).
+    @Test func thePaneMoreShowsOnePlateWhileItsMenuIsOpen() throws {
+        let toolbar = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 80, height: TabStripView.preferredHeight))
+        toolbar.show(more: true, lit: false)
+        toolbar.layoutSubtreeIfNeeded()
+        toolbar.moreButton.showsMenu = true
+        toolbar.moreButton.updateLayer()
+        let layer = try #require(toolbar.moreButton.layer)
+        let fills = filledLayers(layer)
+        #expect(fills.count == 1, "one plate: \(fills.map { "\($0.bounds.size)" })")
+        let plate = try #require(fills.first)
+        #expect(plate.bounds.size == toolbar.moreButton.bounds.size)
+        #expect(plate.cornerRadius == PaneToolbarView.moreCornerRadius(inset: PaneToolbarView.trailingGap))
     }
 
     @Test func theChevronIsDrawnAtThePlusStrokeWeight() throws {
@@ -111,9 +127,11 @@ import Testing
         #expect(cell.titleLayer.mask != nil, "the clipped title fades out at the tab's trailing end")
     }
 
-    @Test func aTabTitleIsChromesTwelvePoints() {
+    /// The density's `tabTitleSize`, 12.75 pt at Default (9 pt capitals, Lucas 2026-11-15), else Chrome's 12.
+    @Test func aTabTitleIsTheDensitysTitleSize() {
         let harness = Harness()
         defer { harness.window.closeAfterTest() }
-        for cell in harness.strip.cells.values { #expect(cell.titleFont.pointSize == 12 * Typography.userScale) }
+        let size = CGFloat(DesignSettings.shared.densityTokens.tokens["tabTitleSize"] ?? 12) * Typography.userScale
+        for cell in harness.strip.cells.values { #expect(cell.titleFont.pointSize == size) }
     }
 }

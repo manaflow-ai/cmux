@@ -96,12 +96,33 @@ fi
 TIMED=1  # a push with commits to check: report the phase times (header)
 phase setup
 HOOK_DIR="$(cd "${BASH_SOURCE[0]%/*}" && pwd -P)"
+# The Python every check runs under, picked on this host (hook_python.sh says why): the one the install recorded
+# when it runs and imports yaml, else the first candidate that does, else the first that runs. Never one in the
+# checkout: the pushing work tree and its git dir are passed as roots no candidate may resolve into.
 PYTHON_PATH_FILE="$HOOK_DIR/python3-path"
-if [[ ! -r "$PYTHON_PATH_FILE" ]] || ! IFS= read -r PYTHON3_BIN < "$PYTHON_PATH_FILE" \
-    || [[ "$PYTHON3_BIN" != /* ]] || [[ ! -x "$PYTHON3_BIN" ]]; then
-    echo "pre-push: trusted Python interpreter metadata is missing; rerun scripts/install-git-hooks.sh." >&2
+RECORDED_PYTHON=""
+if [[ -r "$PYTHON_PATH_FILE" ]]; then
+    IFS= read -r RECORDED_PYTHON < "$PYTHON_PATH_FILE" || true
+fi
+if [[ ! -f "$HOOK_DIR/hook_python.sh" ]]; then
+    echo "pre-push: the hook's Python picker (hook_python.sh) is missing; rerun scripts/install-git-hooks.sh." >&2
     exit 1
 fi
+# shellcheck source=hook_python.sh
+source "$HOOK_DIR/hook_python.sh"
+PICK_ROOTS=("$(git rev-parse --absolute-git-dir 2>/dev/null || true)")
+if [[ "$(git rev-parse --is-inside-work-tree 2>/dev/null)" == true ]]; then
+    PICK_ROOTS+=("$(cd "$(git rev-parse --show-toplevel)" && pwd -P)")
+fi
+if ! hook_python_pick 1 "$RECORDED_PYTHON" "${PICK_ROOTS[@]}"; then
+    echo "pre-push: no Python 3.9+ on this host can run the checks. Tried: $HOOK_PYTHON_TRIED. Next: install one" \
+        "with PyYAML (macOS: brew install python pyyaml; Debian or Ubuntu: sudo apt-get install -y python3" \
+        "python3-yaml), then rerun scripts/install-git-hooks.sh." >&2
+    exit 1
+fi
+PYTHON3_BIN="$HOOK_PYTHON"
+# The gate's PyYAML refusal names these, so its fix is not for one interpreter alone.
+export CMUX_HOOK_PYTHON_TRIED="$HOOK_PYTHON_TRIED"
 
 # The queue (header, 0a). The hook runs again as the child of a python3 that holds one of the slot locks until
 # the child exits, as install-git-hooks.sh holds install.lock: only that parent has the lock file open (Python
@@ -173,6 +194,10 @@ if [[ "$CMUX_PREPUSH_QUEUE_HELD" =~ ^[0-9]+$ ]]; then
     PHASE_TIMES="queue ${CMUX_PREPUSH_QUEUE_HELD}s"  # the wait for a turn, first in the hook-times line
 fi
 unset CMUX_PREPUSH_QUEUE_HELD  # a push a check starts (none does today) queues for itself
+if [[ -n "$HOOK_PYTHON_TRIED" ]]; then
+    echo "pre-push: checking with $PYTHON3_BIN; passed over: $HOOK_PYTHON_TRIED." \
+        "scripts/install-git-hooks.sh records the best one." >&2
+fi
 # One id per run of this hook (its refs file is unique while the run lasts): push_range.py's base-fetch stamp holds
 # for this run's checks only, so the same push tried again after the base moved fetches it again (cmux#41310 review).
 export CMUX_PREPUSH_RUN="$$:$REFS_FILE"

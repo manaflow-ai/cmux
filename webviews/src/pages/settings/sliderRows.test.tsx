@@ -29,7 +29,7 @@ describe("slider rows", () => {
     expect(card.querySelector(`[data-row-key="${key}"]`)).not.toBeNull();
     expect(page.container.querySelectorAll(`[data-row-key="${key}"]`).length).toBe(1);
     const compact = () => card.querySelector('[data-density="compact"] .density-preview')!;
-    expect(compact().getAttribute("data-body")).toBe("12");
+    expect(compact().getAttribute("data-body")).toBe("12.6");
     await run(() => page!.store.set(key, 15));
     expect(compact().getAttribute("data-body")).toBe("15");
   });

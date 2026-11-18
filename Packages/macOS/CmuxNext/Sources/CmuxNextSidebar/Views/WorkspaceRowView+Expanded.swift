@@ -18,8 +18,12 @@ extension WorkspaceRowView {
         let stackTop = (b.height - th - CGFloat(lines) * sh) / 2
         // The title centers its capitals on its line of the stack (#27598).
         let titleCenter = stackTop + th / 2
-        let top = SidebarStyle.columns(rowWidth: b.width).textOriginY(centerY: titleCenter, baseline: title.font.ascender,
-                                                                    capHeight: title.font.capHeight)
+        // A browser density places the baseline as its tab does (`SidebarStyle.capCenteredBaseline`); the marquee label
+        // draws its baseline one ascender, on a whole pixel, under its top (`titlePenOrigin`).
+        let scale = window?.backingScaleFactor ?? 2
+        let top = SidebarStyle.capCenteredBaseline(title.font, centerY: titleCenter, scale: scale).map { $0 - (title.font.ascender * scale).rounded() / scale }
+            ?? SidebarStyle.columns(rowWidth: b.width).textOriginY(centerY: titleCenter, baseline: title.font.ascender,
+                                                                 capHeight: title.font.capHeight)
         // The icon and the trailing marks center on the whole row, one line or two (Leo 2026-10-14: "wait that's
         // not centered? why is it superscript?"); only an expanded row puts them on its title's line.
         return (th, sh, top, isExpanded ? titleCenter : b.midY)

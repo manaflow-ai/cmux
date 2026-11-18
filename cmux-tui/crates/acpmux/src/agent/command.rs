@@ -155,7 +155,7 @@ pub(crate) fn harness_command(
     // The caller token and its socket are acpmux's own (`hub/person.rs` (a)):
     // this env is layered after `caller_env`, so a profile, preset or
     // request value would replace them.
-    for key in crate::hub::person::CALLER_ENV_KEYS {
+    for key in crate::person_tokens::CALLER_ENV_KEYS {
         env.remove(key);
     }
     // So is the CLI an agent runs (`cli_caller.rs`): never a profile's.
@@ -255,7 +255,7 @@ pub(crate) fn harness_command(
             // With its home: a socket pairs only with an explicit home (`config::autostart_refusal`).
             .env("ACPMUX_HOME", crate::config::home())
             // Its caller token and the socket it is for (hub/person.rs (a)); the cmux CLI's caller.
-            .envs(crate::hub::person::caller_env(id))
+            .envs(crate::person_tokens::caller_env(id))
             .env(crate::agent_tools::AGENT_SESSION_ENV, id);
         // This daemon's own acpmux, by absolute path: a login profile's PATH may find an older
         // one, which proves no caller (`cli_caller.rs`, bench round 4 A5).
@@ -278,7 +278,9 @@ pub(crate) fn harness_command(
                 let blank = |key: &str| env.get(key).is_some_and(|v| v.is_empty());
                 // SAFETY: getuid has no preconditions.
                 let uid = unsafe { libc::getuid() };
-                cmd.envs(session_tmp::env_for(&dir, agent, blank, cfg!(target_os = "macos"), uid));
+                let runtime = session_tmp::user_runtime_dir(uid);
+                let mac = cfg!(target_os = "macos");
+                cmd.envs(session_tmp::env_for(&dir, agent, blank, mac, runtime.as_deref(), uid));
             }
         }
     }
@@ -337,8 +339,8 @@ pub(crate) fn harness_command(
         // through acpmux (`hub/native_messaging.rs`). A value the profile or login set wins.
         // Undocumented in Claude Code: if it renames it, the PreToolUse gate still refuses a
         // SendMessage to an acpmux session; only the cross-daemon peer list comes back.
-        if get(crate::hub::native_messaging::SWITCH_ENV).is_none() {
-            cmd.env(crate::hub::native_messaging::SWITCH_ENV, "0");
+        if get(crate::claude_stdio::native_messaging::SWITCH_ENV).is_none() {
+            cmd.env(crate::claude_stdio::native_messaging::SWITCH_ENV, "0");
         }
         if let Some(headers) = crate::subrouter_session::custom_headers(get) {
             cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
@@ -357,7 +359,7 @@ pub(crate) fn harness_command(
     // for this entrypoint.
     if profile.kind == crate::config::HarnessKind::ClaudeStdio {
         let format = preview_format(profile).claude_value();
-        cmd.env(crate::hub::questions::PREVIEW_FORMAT_ENV, format);
+        cmd.env(crate::questions::PREVIEW_FORMAT_ENV, format);
     }
     // A Claude agent's sign-in inputs, for a clear message if it has none (plain Claude Code)
     // and for `/status` (every Claude family, a launcher's too: `session_status.rs`).
@@ -374,7 +376,7 @@ pub(crate) fn harness_command(
     }
     #[cfg(target_os = "linux")]
     if remote_environment {
-        crate::hub::remote_sandbox::scrub_loader_env(&mut cmd);
+        crate::linux_sandbox::scrub_loader_env(&mut cmd);
     }
     Ok(cmd)
 }
@@ -405,8 +407,8 @@ fn ask_opencode(cmd: &mut Command, name: &str, inherit_ambient: bool) {
 /// `CLAUDE_CODE_QUESTION_PREVIEW_FORMAT`, a reference resolved as the launch
 /// resolves it. The hub labels the questions with it (`hub/tools.rs`) and
 /// `harness_command` pins the agent to it, so the two never disagree.
-pub(crate) fn preview_format(profile: &HarnessProfile) -> crate::hub::questions::PreviewFormat {
-    use crate::hub::questions::{PREVIEW_FORMAT_ENV, PreviewFormat};
+pub(crate) fn preview_format(profile: &HarnessProfile) -> crate::questions::PreviewFormat {
+    use crate::questions::{PREVIEW_FORMAT_ENV, PreviewFormat};
     let claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
     let Some(value) = profile.env.get(PREVIEW_FORMAT_ENV).filter(|_| claude) else {
         return PreviewFormat::Monospace;
@@ -419,8 +421,8 @@ pub(crate) fn preview_format(profile: &HarnessProfile) -> crate::hub::questions:
 /// The preview format `harness_command` pinned on `cmd`: what the agent it starts writes. The hub
 /// records this one (`Hub::record_preview_format`), never a second resolution of the profile,
 /// which a pooled agent started minutes earlier could disagree with.
-pub(crate) fn pinned_preview_format(cmd: &Command) -> crate::hub::questions::PreviewFormat {
-    use crate::hub::questions::{PREVIEW_FORMAT_ENV, PreviewFormat};
+pub(crate) fn pinned_preview_format(cmd: &Command) -> crate::questions::PreviewFormat {
+    use crate::questions::{PREVIEW_FORMAT_ENV, PreviewFormat};
     let mut envs = cmd.as_std().get_envs();
     let pinned = envs.find(|(name, _)| *name == PREVIEW_FORMAT_ENV).and_then(|(_, value)| value);
     match pinned {
@@ -627,7 +629,7 @@ mod tests {
     #[test]
     fn claude_code_is_pinned_to_the_preview_format_the_hub_records() {
         use crate::config::HarnessKind;
-        use crate::hub::questions::{PREVIEW_FORMAT_ENV, PreviewFormat};
+        use crate::questions::{PREVIEW_FORMAT_ENV, PreviewFormat};
         let profile = |kind, value: &str| {
             let mut p: HarnessProfile =
                 serde_json::from_value(serde_json::json!({"argv": ["/usr/bin/true"]})).unwrap();
@@ -728,9 +730,12 @@ mod tests {
         assert_eq!(var(&env, SESSION_TMPDIR_ENV), Some(dir_a.clone()));
         // Without a runtime dir (when this test process has none): a Mac gives
         // the session its folder as TMPDIR and pins the socket base the agent
-        // resolved before (the TMPDIR it has without a session); elsewhere
-        // TMPDIR stays.
+        // resolved before (the TMPDIR it has without a session); Linux gives it
+        // its folder and the user's systemd runtime dir when there is one, else
+        // TMPDIR stays and Claude Code's own folder is the session's.
         if std::env::var_os("XDG_RUNTIME_DIR").is_none_or(|v| v.is_empty()) {
+            // SAFETY: getuid has no preconditions.
+            let runtime = super::super::session_tmp::user_runtime_dir(unsafe { libc::getuid() });
             let plain: HarnessProfile =
                 serde_json::from_value(serde_json::json!({"argv": ["/usr/bin/true"]})).unwrap();
             let unsessioned =
@@ -738,15 +743,24 @@ mod tests {
             let before = var(&command_env(&unsessioned), "TMPDIR").filter(|v| !v.is_empty());
             let env = session_env(&base, a, serde_json::json!({}));
             assert_eq!(var(&env, SESSION_TMPDIR_ENV), Some(dir_a.clone()));
-            match before.filter(|_| cfg!(target_os = "macos")) {
-                Some(before) => {
+            match (before.filter(|_| cfg!(target_os = "macos")), &runtime) {
+                (Some(before), _) => {
                     assert_eq!(var(&env, "TMPDIR"), Some(dir_a.clone()));
                     assert_eq!(var(&env, "XDG_RUNTIME_DIR"), Some(before));
                 }
-                None => assert_eq!(
-                    var(&env, "TMPDIR").filter(|v| !v.is_empty()),
-                    var(&command_env(&unsessioned), "TMPDIR").filter(|v| !v.is_empty())
-                ),
+                (None, Some(runtime)) => {
+                    assert_eq!(var(&env, "TMPDIR"), Some(dir_a.clone()));
+                    assert_eq!(var(&env, "XDG_RUNTIME_DIR"), Some(runtime.display().to_string()));
+                }
+                (None, None) => {
+                    assert_eq!(
+                        var(&env, "TMPDIR").filter(|v| !v.is_empty()),
+                        var(&command_env(&unsessioned), "TMPDIR").filter(|v| !v.is_empty())
+                    );
+                    if !cfg!(target_os = "macos") {
+                        assert_eq!(var(&env, "CLAUDE_CODE_TMPDIR"), Some(dir_a.clone()));
+                    }
+                }
             }
             // A profile's TMPDIR still wins there too; the pinned base is that TMPDIR, the
             // base the agent resolves its sockets under.

@@ -99,15 +99,18 @@ nonisolated enum AcpmuxDaemonLauncher {
     }
 
     /// ``launch(_:deadline:)`` with whether this launch started the daemon (``Launched``).
-    @concurrent static func launchReporting(_ environment: AcpmuxEnvironment, deadline: Duration = .seconds(20)) async throws -> Launched {
-        try await launch(environment, deadline: deadline, onSpawn: { _ in })
+    @concurrent static func launchReporting(_ environment: AcpmuxEnvironment, deadline: Duration = .seconds(20),
+                                            adoption: AcpmuxAdoptionGate = .live) async throws -> Launched {
+        try await launch(environment, deadline: deadline, adoption: adoption, onSpawn: { _ in })
     }
 
     /// `onSpawn` gets the launch shell's pid (tests check that it was reaped).
     @concurrent static func launch(_ environment: AcpmuxEnvironment, deadline: Duration,
+                                   adoption: AcpmuxAdoptionGate = .live,
                                    onSpawn: @Sendable (pid_t) -> Void) async throws -> Launched {
-        // cmux NEXT's one-time adoption of its old acpmux home ends before any daemon starts (cx-is1kf.9).
-        await AcpmuxEnvironment.adoptBuildHomes()
+        // cmux NEXT's one-time adoption of its old acpmux home ends before a daemon of a home it may
+        // still change starts (cx-is1kf.9); a home it no longer changes starts at once (``AcpmuxAdoptionGate``).
+        if adoption.mayChange(environment.home) { await adoption.untilEnded() }
         guard AcpmuxServerPeer.executableSignedByAppTeam(environment.executable) else {
             throw Failure.untrustedExecutable(environment.executable.path)
         }

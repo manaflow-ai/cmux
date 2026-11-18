@@ -169,6 +169,9 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   one thread per call: its pipe write blocks only it; it ends when the child has read the request or closed its
   stdin, and a kill at the call's deadline or a cancel closes it, so it never outlives the child; CloudMachineIO),
   `com.cmuxterm.next.remote-fetch`, `cmux.remote-view.render`, `cmux.remote-view.rd-transport`,
+  `cmux.backdrop-shader.render` (the living wallpapers' Metal frames, user-initiated, serial: it blocks only on
+  `CAMetalLayer.nextDrawable`, bounded by the layer's one-second timeout; one frame in flight per window, the
+  next is skipped while it is busy, so no back-pressure; BackdropShaderRenderer),
   `cmux.daemon-bridge.stream` (one Cloud desktop session's `link dial --service desktop` bridge socket,
   user-initiated, serial: DispatchIO delivers the stream's bytes here and it blocks on nothing; the rd transport
   reads them in order, a few MB/s of H.264 at most, and the session's end closes it; DaemonBridgeStream),
@@ -208,7 +211,11 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   `cmux.next.agent-pane.acpmux-socket-wait` (one person-socket exchange's readiness wait, userInitiated, serial, one
   queue per wait: a dispatch source wakes it, nothing blocks it; it ends at readiness, the daemon's close or the
   caller's cancel),
-  `cmux.agent-activity.socket`, `cmux.acpmux-client`, `cmux.acpmux-client.driver`, `com.cmuxterm.app.next.chief-settle`, `com.cmuxterm.app.next.tasks.socket`,
+  `cmux.agent-activity.socket`, `cmux.acpmux-client`, `cmux.acpmux-client.driver`,
+  `cmux.acpmux-chat-rows` (a pane's chat rows host, AcpmuxChatRowsHost, utility, serial: the page's `chat.rows.*`
+  calls and each batch the driver hands it; it builds the page's one call per batch and hops to main once for it; the
+  page's `taken` is its back-pressure, one batch of at most 64 KiB out at a time, and it blocks only on the client
+  handle's own queue), `com.cmuxterm.app.next.chief-settle`, `com.cmuxterm.app.next.tasks.socket`,
   `cua-helper-v2-reap`, `cua-helper-v2-stdout`, `cmux-remote-device` (one per open channel to cmux Remote's Screen
   Sharing worker: a blocking read(2) that ends at the channel's EOF; answers and hub pushes go to their waiters, pushes
   bounded at 256, docs/cmux-remote.md)

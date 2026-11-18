@@ -90,9 +90,9 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
     var bandPins: [NSLayoutConstraint] = []
     /// Whether the strip is pinned to a browser's header band.
     var isBandActive: Bool { !bandPins.isEmpty }
-    private var reportedChrome: (header: CGFloat, footer: CGFloat, framed: Bool) = (-1, -1, true)
+    private var reportedChrome: (header: CGFloat, footer: CGFloat, leading: CGFloat, framed: Bool) = (-1, -1, -1, true)
     /// The outgoing view kept while the shown one has not painted (`PaneContentView+PaintHold`).
-    let paintHold = PanePaintHold(owner: "pane.paint-hold")
+    let paintHold = PanePaintHold(owner: "pane.paint-hold"), stripHold = PaneStripHold(owner: "pane.strip-hold")
     /// The strip the hold's outgoing view showed under, kept until the swap.
     var holdKeepsStrip = false
     /// An agent page's last image under the content at launch (`PaneContentView+LaunchImage`).
@@ -191,9 +191,9 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
         contentHost.paintsRestingGround = rowTools <= 0
         let listWidth = layoutVerticalList()
         if listWidth > 0 { (hostFrame.origin.x, hostFrame.size.width) = (hostFrame.minX + listWidth, max(0, hostFrame.width - listWidth)) }
-        reportHeaderIfChanged()
         let hostChanged = contentHost.frame != hostFrame
         if hostChanged { contentHost.frame = hostFrame; paintHold.placeKept() } // a kept outgoing view stays where it shows until the swap
+        reportHeaderIfChanged() // after the host's frame: its leading edge is the list's width
         if launchImageView != nil, !held, let shown = launchImageSizes.first, shown != .zero, !launchImageSizes.contains(where: { abs($0.width - contentHost.bounds.width) <= 2 && abs($0.height - contentHost.bounds.height) <= 2 }) {
             // A move cover owns the clear callback that reveals the page on its next frame. A resize drops old-size pixels, but
             // not a grow to the image's own size (±2 pt of pixel rounding): a restored chat's tools joining the tab row (Leo 10-24).
@@ -311,7 +311,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
     }
 
     private func reportHeaderIfChanged() {
-        let chrome = (header: paneHeaderHeight, footer: paneFooterHeight, framed: paneFramesContent)
+        let chrome = (header: paneHeaderHeight, footer: paneFooterHeight, leading: contentHost.frame.minX, framed: paneFramesContent)
         guard chrome != reportedChrome else { return }
         reportedChrome = chrome
         onPaneHeaderHeightChange?()
@@ -335,14 +335,12 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
         // Another pane may have reparented `previous` already (a moved tab):
         // only a view still installed here is removed.
         let hosted = previous.flatMap { $0.superview === contentHost ? $0 : nil }
-        // An agent page draws nothing until it paints: what this pane showed
-        // stays until then (`beginPaintHold`), not an empty pane. Not a
-        // browser whose header band the strip leaves now (its header would
-        // jump while it stays). While an earlier switch waits, what shows is
-        // the content it keeps.
+        // An agent page draws nothing until it paints: what this pane showed stays until then
+        // (`beginPaintHold`), not an empty pane. Not a browser whose header band the strip leaves
+        // now (its header would jump while it stays). While an earlier switch waits, what shows is the content it keeps.
         let kept = paintHold.kept.flatMap { $0.superview === contentHost ? $0 : nil }
         let shown = kept ?? hosted
-        let holds = !isBandActive && holdsForFirstPaint(view, replacing: shown)
+        let holds = !isBandActive && PanePaintHold.holds(view, replacing: shown)
         // The strip's band pins end before the browser leaves (R109).
         if hosted !== view { releaseBand() }
         if holds, kept != nil {
@@ -377,6 +375,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
             }
         }
         content = view
+        stripHold.follow(view, strip: stripView, first: previous == nil && view is InternalPageView) // a new pane's tab shows with its page
         refreshNativeToolOwner()
         // After the incoming view is in: a browser that leaves stays parked
         // here, and the keyboard it held goes to what shows now.

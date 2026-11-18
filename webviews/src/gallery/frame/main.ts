@@ -277,6 +277,7 @@ function finishLoad(): void {
     shifts: loadShifts.slice(0, 24),
     boxShift: boxes.score,
     boxMoves: boxes.moves,
+    boxFollow: boxes.follow,
   };
 }
 

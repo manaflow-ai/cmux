@@ -31,7 +31,7 @@ use crate::machine_record::home_copy_state;
 pub(super) use crate::machine_record::load_at;
 pub use crate::machine_record::{
     CONSENT_REQUIRED, Consent, ConsentState, MachineCredential, SIGNED_IN_MACHINES,
-    require_consent, require_joined_consent,
+    require_consent, require_joined_consent, signed_in_machines_granted,
 };
 use crate::machine_record::{
     CREDENTIAL_FILE, CopyState, authority, consent_home, copied_here, copy_state, load, other_box,
@@ -499,46 +499,19 @@ fn load_consent() -> Consent {
 
 /// Held until redeem and both local writes complete. A competing installer exits
 /// without redeeming; it can safely retry after this process finishes.
-#[cfg(unix)]
 pub(crate) fn join_lock() -> Result<HeldLock> {
     crate::config::private_state_dir(&state_dir())?;
     join_lock_at(&state_dir())
 }
 
 /// [`join_lock`] in acpmux home `home` (made private by the caller).
-#[cfg(unix)]
 fn join_lock_in(home: &std::path::Path) -> Result<HeldLock> {
     join_lock_at(home)
 }
 
-#[cfg(unix)]
 fn join_lock_at(dir: &std::path::Path) -> Result<HeldLock> {
     let file = crate::config::private_state_rw(&dir.join("machine-join.lock"))?;
-    #[cfg(unix)]
-    {
-        use std::os::fd::AsRawFd;
-        // SAFETY: this process owns the opened regular-file descriptor.
-        anyhow::ensure!(
-            unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0,
-            "another machine join is in progress; retry when it finishes"
-        );
-    }
-    Ok(HeldLock(file))
-}
-
-#[cfg(not(unix))]
-pub(crate) fn join_lock() -> Result<HeldLock> {
-    anyhow::bail!("machine join requires macOS or Linux")
-}
-
-#[cfg(not(unix))]
-fn join_lock_at(_: &std::path::Path) -> Result<HeldLock> {
-    anyhow::bail!("machine join requires macOS or Linux")
-}
-
-#[cfg(not(unix))]
-fn join_lock_in(_: &std::path::Path) -> Result<HeldLock> {
-    join_lock()
+    HeldLock::take(file, "another machine join is in progress; retry when it finishes")
 }
 
 pub(crate) fn credential_present() -> Result<bool> {
@@ -736,6 +709,13 @@ pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
 /// this Mac's admin (`consent_admin.rs`). A plain shell has no person key and no admin proof.
 pub(crate) fn set_consent_for_person(surface: &str, granted: bool) -> Result<Consent> {
     authority()?.set(surface, granted)
+}
+
+/// This machine's consent and the account it is joined as, read now (blocking file reads).
+pub fn signed_in_machines_granted_here() -> (bool, Option<String>) {
+    let account = machine_user_id();
+    let granted = signed_in_machines_granted(&consent_status_for(&json!({})), account.as_deref());
+    (granted, account)
 }
 
 /// `_acpmux/machine_consent_get`'s answer. With `{"use": "localComputerUse"}` (the app asking

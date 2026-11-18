@@ -118,7 +118,7 @@ pub(crate) fn mask_of(scalars: &[char]) -> u64 {
     scalars.iter().fold(0, |mask, &scalar| mask | mask_bit(scalar))
 }
 
-fn boundary_bonus(previous: CharClass, current: CharClass, first: bool) -> i64 {
+fn boundary_bonus(previous: CharClass, current: CharClass, first: bool) -> u8 {
     use CharClass::*;
     match (previous, current) {
         (_, Delimiter) => 0,
@@ -143,7 +143,8 @@ fn boundary_bonus(previous: CharClass, current: CharClass, first: bool) -> i64 {
 pub(crate) struct FoldedText {
     pub original: Vec<char>,
     pub folded: Vec<char>,
-    pub bonus: Vec<i64>,
+    /// Word-start bonuses (at most 10): one byte each, so a large catalog stays in cache.
+    pub bonus: Vec<u8>,
     pub initials: Vec<char>,
     pub mask: u64,
     words: OnceCell<Vec<Vec<char>>>,
@@ -202,6 +203,8 @@ pub(crate) struct Query {
     pub mask: u64,
     pub joined: Vec<char>,
     pub phrase: Vec<char>,
+    /// [`whole_key`] of the raw query, for whole-title comparisons.
+    pub whole: String,
 }
 
 impl Query {
@@ -213,7 +216,15 @@ impl Query {
         let mask = token_masks.iter().fold(0, |value, token_mask| value | token_mask);
         let joined = tokens.concat();
         let phrase = words.join(" ").chars().map(fold_scalar).collect();
-        Self { raw: raw.to_owned(), tokens, token_masks, mask, joined, phrase }
+        Self {
+            raw: raw.to_owned(),
+            tokens,
+            token_masks,
+            mask,
+            joined,
+            phrase,
+            whole: whole_key(raw),
+        }
     }
 
     pub(crate) fn is_empty(&self) -> bool {
@@ -225,19 +236,19 @@ pub(crate) fn has_prefix(value: &[char], prefix: &[char]) -> bool {
     value.starts_with(prefix)
 }
 
+/// The text a whole-title comparison reads: trimmed, without a trailing ellipsis, lowercased.
+pub(crate) fn whole_key(text: &str) -> String {
+    let trimmed = js_trim(text);
+    let cut =
+        trimmed.strip_suffix('\u{2026}').or_else(|| trimmed.strip_suffix("...")).unwrap_or(trimmed);
+    js_trim(cut).to_lowercase()
+}
+
 /// Whether `title` (or a keyword) is the whole query, ignoring case, surrounding space and a
 /// trailing ellipsis.
 pub(crate) fn title_is_query(title: &str, raw: &str) -> bool {
-    fn normalize(text: &str) -> String {
-        let trimmed = js_trim(text);
-        let cut = trimmed
-            .strip_suffix('\u{2026}')
-            .or_else(|| trimmed.strip_suffix("..."))
-            .unwrap_or(trimmed);
-        js_trim(cut).to_lowercase()
-    }
-    let query = normalize(raw);
-    !query.is_empty() && normalize(title) == query
+    let query = whole_key(raw);
+    !query.is_empty() && whole_key(title) == query
 }
 
 /// `a < b` for JavaScript strings: UTF-16 code unit order.
