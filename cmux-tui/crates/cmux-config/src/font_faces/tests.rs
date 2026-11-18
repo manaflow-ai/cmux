@@ -1,7 +1,7 @@
 //! The cases of Swift `ChatFontFacesTests` (CmuxNextSettingsTests), so both
 //! readers agree on which faces load.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value, json};
 
@@ -14,7 +14,7 @@ fn scratch(name: &str) -> PathBuf {
     dir
 }
 
-fn file_value(path: &std::path::Path) -> Value {
+fn file_value(path: &Path) -> Value {
     json!(format!("file:{}", path.display()))
 }
 
