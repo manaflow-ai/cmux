@@ -8,6 +8,11 @@
   "keep": [
     {
       "surface": "menu",
+      "name": "remoteBrowserPage",
+      "reason": "keep: Debug builds only; its rows are a remote page's own right-click menu and <select> options, sent by that page and answered back to it (RemoteBrowserNativeUI, RT5), which the palette cannot name"
+    },
+    {
+      "surface": "menu",
       "name": "terminalPaste",
       "reason": "keep: every row runs a palette-offered action: terminalCopy, terminalPaste, terminal.selectAll"
     },
@@ -320,27 +325,32 @@
       "reason": "keep: agent-to-agent messaging that agents and scripts send; a person writes in the chat pane"
     },
     {
-      "verb": "agent plugin install"
+      "verb": "agent plugin install",
+      "reason": "keep: a plugin author's install, build and switch of the daemon's agent screen-detection plugin from a git URL, run in a terminal; nothing in it for a person to pick in the palette"
     },
     {
       "verb": "agent plugin list",
       "reason": "keep: a read for scripts and agents (installed agent plugins); the app shows the same state on screen"
     },
     {
-      "verb": "agent plugin remove"
+      "verb": "agent plugin remove",
+      "reason": "keep: a plugin author's install, build and switch of the daemon's agent screen-detection plugin from a git URL, run in a terminal; nothing in it for a person to pick in the palette"
     },
     {
-      "verb": "agent plugin update"
+      "verb": "agent plugin update",
+      "reason": "keep: a plugin author's install, build and switch of the daemon's agent screen-detection plugin from a git URL, run in a terminal; nothing in it for a person to pick in the palette"
     },
     {
-      "verb": "agent plugin use"
+      "verb": "agent plugin use",
+      "reason": "keep: a plugin author's install, build and switch of the daemon's agent screen-detection plugin from a git URL, run in a terminal; nothing in it for a person to pick in the palette"
     },
     {
       "verb": "agent report",
       "reason": "keep: harness hook wiring: harnesses call emit and report, and install/uninstall write a harness's hook config for setup scripts"
     },
     {
-      "verb": "agent resume"
+      "verb": "agent resume",
+      "palette": "history.resumeAgentSession"
     },
     {
       "verb": "agent start",
@@ -645,10 +655,12 @@
       "palette": "home.deleteChief"
     },
     {
-      "verb": "chief edit"
+      "verb": "chief edit",
+      "palette": "openSettings"
     },
     {
-      "verb": "chief engine"
+      "verb": "chief engine",
+      "palette": "home.toggleChiefSettings"
     },
     {
       "verb": "chief list",
@@ -712,11 +724,11 @@
     },
     {
       "verb": "closed clear",
-      "palette": "history.clear"
+      "palette": "closed.clear"
     },
     {
       "verb": "closed delete",
-      "reason": "keep: deletes closed groups by the ids `closed list` prints; a person removes a closed item in Show History (history.show)"
+      "palette": "closed.delete"
     },
     {
       "verb": "closed list",
@@ -815,7 +827,8 @@
       "reason": "keep: a read (the customization library's entries)"
     },
     {
-      "verb": "customize library off"
+      "verb": "customize library off",
+      "palette": "openSettings"
     },
     {
       "verb": "customize library reset"
@@ -909,10 +922,12 @@
       "palette": "remote.forget"
     },
     {
-      "verb": "device revoke"
+      "verb": "device revoke",
+      "palette": "machine.joined.revoke"
     },
     {
-      "verb": "device rotate"
+      "verb": "device rotate",
+      "palette": "machine.joined.rotate"
     },
     {
       "verb": "device show",
@@ -928,7 +943,7 @@
     },
     {
       "verb": "errors clear",
-      "reason": "keep: clears entries of the error journal `cmux errors` reads, for agents and scripts diagnosing the app"
+      "palette": "errors.clear"
     },
     {
       "verb": "events",
@@ -1082,7 +1097,8 @@
       "palette": "agent.harness.doctor"
     },
     {
-      "verb": "harness enable"
+      "verb": "harness enable",
+      "palette": "agentPane.switchModel"
     },
     {
       "verb": "harness guide",
@@ -1125,7 +1141,8 @@
       "palette": "palette.quickAgentChat"
     },
     {
-      "verb": "harness secret"
+      "verb": "harness secret",
+      "reason": "keep: stores a secret value for a harness env key, read from a hidden prompt or stdin and never from a command line; the palette has no hidden text field, so the value never goes into it"
     },
     {
       "verb": "history clear-range",
@@ -1140,7 +1157,8 @@
       "reason": "keep: removes entries by the ids `history list` prints; a person removes entries in Show History (history.show)"
     },
     {
-      "verb": "history remove-site"
+      "verb": "history remove-site",
+      "palette": "history.removeSite"
     },
     {
       "verb": "history restore",
@@ -1291,10 +1309,12 @@
       "reason": "keep: a read for scripts and agents (the machine catalog); the app shows the same state on screen"
     },
     {
-      "verb": "machine revoke"
+      "verb": "machine revoke",
+      "palette": "machine.joined.revoke"
     },
     {
-      "verb": "machine rotate"
+      "verb": "machine rotate",
+      "palette": "machine.joined.rotate"
     },
     {
       "verb": "machine show",
@@ -1492,7 +1512,8 @@
       "palette": "workspace.moveToSpace"
     },
     {
-      "verb": "room unpin"
+      "verb": "room unpin",
+      "palette": "workspace.unpinFromSpace"
     },
     {
       "verb": "room update",
@@ -2052,7 +2073,8 @@
       "verb": "terminal project"
     },
     {
-      "verb": "terminal resume"
+      "verb": "terminal resume",
+      "palette": "history.resumeAgentSession"
     },
     {
       "verb": "terminal run",
@@ -2099,7 +2121,8 @@
       "reason": "keep: short-lived VM API access tokens for a process, no app; nothing for a person to pick"
     },
     {
-      "verb": "vm archive-machine"
+      "verb": "vm archive-machine",
+      "palette": "palette.openCloudPane"
     },
     {
       "verb": "vm client-session create",
@@ -2126,7 +2149,8 @@
       "palette": "palette.cloud.fork"
     },
     {
-      "verb": "vm keep-machine"
+      "verb": "vm keep-machine",
+      "palette": "palette.openCloudPane"
     },
     {
       "verb": "vm key",
@@ -2172,7 +2196,8 @@
       "verb": "vm secret rm"
     },
     {
-      "verb": "vm secret set"
+      "verb": "vm secret set",
+      "reason": "keep: stores a secret value, read from a hidden prompt or stdin and never from a command line; the palette has no hidden text field, so the value never goes into it"
     },
     {
       "verb": "vm show",
