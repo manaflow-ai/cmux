@@ -31,6 +31,10 @@
 #   DSS-KILL, DSS-DISK, DSS-END  the cleanup (finish below)
 # and .build/daemon-stop-swap/report.json with all of them. Exit 0 when each round gave two stops,
 # else 1. A round that the check failed, or that was slower than budget, still counts its stops.
+# Three rounds in a row that gave no stop end the run there (exit 1): a broken run does not hold
+# its host for all the rounds.
+# A stop from outside (SIGTERM, SIGINT, SIGHUP: a step's time limit, a cancel) ends the build or
+# the check that runs, then cleans up as each other exit does.
 #
 # What it cannot show: the check starts the next daemon only after the old process is gone, so no
 # start here meets a daemon that gave up its session and still runs. The drill's session is new and
@@ -61,7 +65,8 @@ fi
 out="$root/.build/daemon-stop-swap"
 
 # summary rows NUMBER FOLDER LEFT: the stops of one round, from the check's report, its exit and
-# the daemons' logs in FOLDER; appended to $out/stops.jsonl and $out/rounds.jsonl.
+# the daemons' logs in FOLDER; appended to $out/stops.jsonl and $out/rounds.jsonl; exit 3 when the
+# round gave no stop.
 # summary sums OLD NEW ROUNDS: the sums of those files and $out/report.json; exit 1 unless each of
 # ROUNDS rounds gave two stops.
 summary() {
@@ -178,6 +183,7 @@ def round_rows(number, folder, left):
                 print(f"DSS-RAW round={number} kind={row['kind']} build={row['build']}: {line[:400]}",
                       flush=True)
             file.write(json.dumps(row, sort_keys=True) + "\n")
+    return stops
 
 
 def spread(rows, key):
@@ -228,7 +234,7 @@ def sums(old, new, asked):
 
 
 if mode == "rows":
-    round_rows(int(sys.argv[4]), Path(sys.argv[5]), int(sys.argv[6]))
+    sys.exit(0 if round_rows(int(sys.argv[4]), Path(sys.argv[5]), int(sys.argv[6])) else 3)
 else:
     sys.exit(sums(sys.argv[4], sys.argv[5], int(sys.argv[6])))
 PY
@@ -245,7 +251,7 @@ if [[ -n "$summary_of" ]]; then
     number="${folder%/}"
     number="${number##*/w}"
     [[ -d "$folder" && "$number" =~ ^[0-9]+$ ]] || continue
-    summary rows "$number" "${folder%/}" 0
+    summary rows "$number" "${folder%/}" 0 || [[ $? == 3 ]]
     count=$((count + 1))
   done
   summary sums "$old" "$new" "$count"
@@ -284,7 +290,9 @@ done
 # SCRATCH/wN/cmux-swap-XXXXXXXX/terminals/mux.sock, and a socket path has at most 104 bytes on
 # macOS.
 scratch="$(mktemp -d "${CMUX_DSS_SCRATCH:-/tmp}/cmux-dss.XXXXXX")"
-stage=setup rounds_done=0 left_count=0
+stage=setup rounds_done=0 left_count=0 empty_rounds=0
+# The pid of the long child that runs now (a build or a round's check); empty between them.
+child_pid=""
 
 # The processes whose command line has DIR/, where DIR is the folder that this run made, or one
 # round's folder in it. No other pattern: a process of another run never has this path.
@@ -307,6 +315,67 @@ end_left() {
     kill -KILL "$pid" 2>/dev/null || true
   done < <(left_of "$1" || true)
 }
+# A long child runs as a job and the script waits for it with `wait`: bash runs a trap at once
+# when a signal comes in `wait`, but only after the child's end when the child is in the
+# foreground. The child's exit is the function's exit.
+wait_child() {
+  local code=0
+  wait "$child_pid" || code=$?
+  child_pid=""
+  return "$code"
+}
+# A job of a shell with no job control starts with SIGINT and SIGQUIT ignored, and a process keeps
+# an ignored signal through each exec: the compilers, the daemons and their shells would have it.
+# This runs the command in the job's own process with both signals at their default.
+with_plain_signals() {
+  exec python3 -c 'import os, signal, sys
+signal.signal(signal.SIGINT, signal.SIG_DFL)
+signal.signal(signal.SIGQUIT, signal.SIG_DFL)
+os.execvp(sys.argv[1], sys.argv[1:])' "$@"
+}
+# PID and each process below it. Read before a signal: a process whose parent ended has another
+# parent.
+tree_of() {
+  ps -A -o pid= -o ppid= | awk -v top="$1" '
+    { parent[$1] = $2 }
+    END {
+      below[top] = 1; print top
+      do {
+        more = 0
+        for (pid in parent) if (!(pid in below) && (parent[pid] in below)) { below[pid] = 1; print pid; more = 1 }
+      } while (more)
+    }'
+}
+# A process that runs (one that ended and waits for its parent's read does not).
+runs() {
+  local state
+  state="$(ps -o stat= -p "$1" 2>/dev/null)" || return 1
+  [[ -n "$state" && "$state" != Z* ]]
+}
+# Ends the long child that still runs, and each process below it (a build's compilers have no
+# path of this run in their command line, or not all of them): DSS-KILL and SIGTERM for each, then
+# SIGKILL to those still there 3 s later.
+end_child() {
+  local pids pid sent=0
+  [[ -n "$child_pid" ]] || return 0
+  pids="$(tree_of "$child_pid" || true)"
+  for pid in $pids; do
+    runs "$pid" || continue
+    echo "DSS-KILL pid=$pid SIGTERM cmd=$(ps -ww -o command= -p "$pid" 2>/dev/null | cut -c1-400)"
+    kill -TERM "$pid" 2>/dev/null || true
+    sent=1
+  done
+  if (( sent )); then
+    sleep 3
+    for pid in $pids; do
+      runs "$pid" || continue
+      echo "DSS-KILL pid=$pid SIGKILL cmd=$(ps -ww -o command= -p "$pid" 2>/dev/null | cut -c1-400)"
+      kill -KILL "$pid" 2>/dev/null || true
+    done
+  fi
+  wait "$child_pid" 2>/dev/null || true
+  child_pid=""
+}
 # The copies of the two commits and the target directory: their sizes (DSS-DISK), then gone.
 drop_builds() {
   local dir
@@ -317,14 +386,16 @@ drop_builds() {
   done
 }
 # Each exit: no process of this run stays, nothing of it stays on the disk, and the last line
-# says where the run ended.
+# says where the run ended. A second signal does not cut the cleanup short.
 finish() {
   local code=$?
   trap - EXIT
+  trap '' TERM INT HUP
   set +e
+  end_child
   end_left "$scratch"
   drop_builds
-  if [[ -s "$out/stops.jsonl" && ! -f "$out/report.json" ]]; then
+  if [[ -s "$out/rounds.jsonl" && ! -f "$out/report.json" ]]; then
     summary sums "$old_sha" "$new_sha" "$rounds"
   fi
   echo "DSS-DISK scratch $(du -sk "$scratch" 2>/dev/null | cut -f1) KiB, removed"
@@ -334,6 +405,7 @@ finish() {
 trap finish EXIT
 trap 'exit 143' TERM
 trap 'exit 130' INT
+trap 'exit 129' HUP
 if (( ${#scratch} + ${#rounds} + 41 > 100 )); then
   echo "error: $scratch is too long for the check's socket path" >&2; exit 2
 fi
@@ -349,10 +421,14 @@ build_at() {
   git -C "$root" archive "$sha" | tar -x -C "$scratch/src-$side"
   echo "DSS build $side $sha: start"
   started=$(date +%s)
-  (cd "$scratch/src-$side/cmux-tui" && CMUX_GHOSTTY_SRC="$root/ghostty-next" \
-    CARGO_TARGET_DIR="$scratch/target" CMUX_TUI_BUILD_COMMIT="$sha" \
-    CMUX_TUI_GHOSTTY_COMMIT="$here_ghostty" \
-    cargo build --release --locked -p cmux-tui --bin cmux-tui --bin cmux-tui-host)
+  (
+    cd "$scratch/src-$side/cmux-tui"
+    export CMUX_GHOSTTY_SRC="$root/ghostty-next" CARGO_TARGET_DIR="$scratch/target"
+    export CMUX_TUI_BUILD_COMMIT="$sha" CMUX_TUI_GHOSTTY_COMMIT="$here_ghostty"
+    with_plain_signals cargo build --release --locked -p cmux-tui --bin cmux-tui --bin cmux-tui-host
+  ) &
+  child_pid=$!
+  wait_child
   cp "$scratch/target/release/cmux-tui" "$scratch/target/release/cmux-tui-host" "$scratch/bin-$side/"
   echo "DSS build $side $sha: built in $(( $(date +%s) - started )) s"
 }
@@ -370,15 +446,27 @@ for ((r = 1; r <= rounds; r++)); do
   else
     first="$scratch/bin-new/cmux-tui" second="$scratch/bin-old/cmux-tui"
   fi
+  with_plain_signals python3 "$root/scripts/cmux-next/daemon-swap-check.py" --old "$first" \
+    --new "$second" --phases terminals --drill --keep --budget "$budget" --work-root "$work" \
+    > "$work/report.json" 2> "$work/check.err" &
+  child_pid=$!
   code=0
-  python3 "$root/scripts/cmux-next/daemon-swap-check.py" --old "$first" --new "$second" \
-    --phases terminals --drill --keep --budget "$budget" --work-root "$work" \
-    > "$work/report.json" 2> "$work/check.err" || code=$?
+  wait_child || code=$?
   echo "$code" > "$work/exit"
   # A process that the round left does not load the next round.
   end_left "$work"
-  summary rows "$r" "$work" "$left_count"
+  code=0
+  summary rows "$r" "$work" "$left_count" || code=$?
   rounds_done=$r
+  case "$code" in
+    0) empty_rounds=0 ;;
+    3) empty_rounds=$((empty_rounds + 1)) ;;
+    *) exit "$code" ;;
+  esac
+  if (( empty_rounds >= 3 )); then
+    echo "DSS early end: $empty_rounds rounds in a row gave no stop (the last one is round $r of $rounds)"
+    exit 1
+  fi
 done
 stage=sums
 summary sums "$old_sha" "$new_sha" "$rounds"
