@@ -99,8 +99,10 @@ export function Listbox<T>({
   };
   const focused = useRef(false);
   const listEdges = useScrollEdges();
+  const scroller = useRef<HTMLDivElement | null>(null);
   const attachList = useCallback(
     (element: HTMLDivElement | null) => {
+      scroller.current = element;
       listEdges(element);
       if (typeof externalListRef === "function") externalListRef(element);
       else if (externalListRef) externalListRef.current = element;
@@ -122,7 +124,6 @@ export function Listbox<T>({
 
   // The list's own window: the scroller's offset and height, and a row's measured height.
   const ownWindow = visibleWindow === undefined && items.length > LISTBOX_WINDOW_AFTER;
-  const scroller = useRef<HTMLDivElement | null>(null);
   const [view, setView] = useState({ top: 0, height: 0 });
   const [rowPx, setRowPx] = useState(0);
   const readView = useCallback(() => {
@@ -147,7 +148,8 @@ export function Listbox<T>({
     if (!ownWindow || rowPx > 0) return;
     const row = scroller.current?.querySelector<HTMLElement>(":scope > [role='option']");
     if (row && row.offsetHeight > 0) setRowPx(row.offsetHeight);
-  });
+    // Again when the rows change, until one has a height (a list laid out after it mounted).
+  }, [ownWindow, rowPx, items]);
   const segments = ownWindow
     ? listboxSegments(items.length, current, view.top, view.height, rowPx || ESTIMATED_ROW_PX)
     : visibleWindow
@@ -157,13 +159,6 @@ export function Listbox<T>({
     ? Math.max(0, items.length - (segments.at(-1)?.end ?? 0)) * (rowPx || ESTIMATED_ROW_PX)
     : (visibleWindow?.bottomSpace ?? 0);
   const windowed = ownWindow || visibleWindow !== undefined;
-  const attachScroller = useCallback(
-    (element: HTMLDivElement | null) => {
-      scroller.current = element;
-      attachList(element);
-    },
-    [attachList],
-  );
   // The rows' handlers are stable (a memoized row must not re-render for a new closure); they read
   // the list's latest state when they run.
   const latest = useRef({ current, items, onOpen, setCurrentHighlight });
@@ -213,7 +208,7 @@ export function Listbox<T>({
 
   const list = (
     <div
-      ref={attachScroller}
+      ref={attachList}
       id={listId}
       className={cx("ui-listbox ui-scroll-edge-fade", shellClassName !== undefined && "ui-popup-scroll", className)}
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a native select cannot hold rich rows.
