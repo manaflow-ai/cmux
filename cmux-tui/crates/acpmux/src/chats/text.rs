@@ -39,6 +39,7 @@ use cmux_chat_index::{ChatEntry, IndexedChat};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use super::deep::{Deep, DeepHit};
 use super::follow::{self, Follow};
 use super::key_text;
 use super::search::{Needle, flatten, snippet_around};
@@ -335,9 +336,12 @@ pub struct ChatText {
     inner: Mutex<Inner>,
     /// The followed transcripts by chat key (`follow.rs`): only the text thread reads them.
     follows: Mutex<HashMap<String, Follow>>,
-    /// The generation of the text: a window recomputes when it moves.
-    changed: tokio::sync::watch::Sender<u64>,
+    /// The generation of the text: a window recomputes when it moves (and when [`Self::deep`]'s
+    /// answer to a query comes).
+    changed: Arc<tokio::sync::watch::Sender<u64>>,
     path: PathBuf,
+    /// What the transcript index finds past what is held here (`deep.rs`).
+    deep: Deep,
 }
 
 #[derive(Default)]
@@ -377,12 +381,52 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 impl ChatText {
     /// An empty index saved at `path`; [`Self::load`] reads what an earlier run saved.
     pub fn new(path: PathBuf) -> Self {
+        let changed = Arc::new(tokio::sync::watch::channel(0).0);
         Self {
             inner: Mutex::default(),
             follows: Mutex::default(),
-            changed: tokio::sync::watch::channel(0).0,
+            deep: Deep::new(changed.clone()),
+            changed,
             path,
         }
+    }
+
+    /// The transcript index's answers past the held text (`deep.rs`): asks nothing until the
+    /// daemon gives it the index ([`Deep::set_search`]).
+    pub fn deep(&self) -> &Deep {
+        &self.deep
+    }
+
+    /// What the transcript index found for `needle`'s words, by chat key, and whether a newer
+    /// answer is coming. Never waits for the index.
+    pub fn deep_search(&self, needle: &Needle) -> (Option<super::deep::Found>, bool) {
+        self.deep.answer(&super::deep::indexable(needle.words()))
+    }
+
+    /// A row's `match` for a chat the transcript index found ([`DeepHit`]): [`Self::hit`]'s
+    /// shape, with `at`, the message's time (ms since the epoch), when the transcript gave one.
+    pub fn deep_hit(hit: &DeepHit, needle: &Needle) -> Value {
+        let flat = flatten(&hit.text);
+        let mut snippet =
+            snippet_around(&flat, needle.find(&flat).unwrap_or(0), ROW_BEFORE, ROW_SNIPPET);
+        // Where the index cut the message, as where this cut it.
+        if hit.cut_before && !snippet.starts_with('…') {
+            snippet.insert(0, '…');
+        }
+        if hit.cut_after && !snippet.ends_with('…') {
+            snippet.push('…');
+        }
+        let mut said = json!({
+            "turn": hit.turn,
+            "role": if hit.answer { "answer" } else { "prompt" },
+            "highlights": needle.highlights(&snippet),
+            "snippet": snippet,
+            "matches": hit.matches,
+        });
+        if let Some(at) = hit.at_ms {
+            said["at"] = json!(at);
+        }
+        said
     }
 
     /// Takes the text an earlier run saved; a missing, damaged or older copy is read past.

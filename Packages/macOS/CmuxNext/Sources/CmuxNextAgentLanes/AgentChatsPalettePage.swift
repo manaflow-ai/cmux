@@ -173,9 +173,12 @@ public struct AgentChatsPalettePage {
 
     /// The `revealTurn` value that opens a chat at the message a query found in it: the newest
     /// prompt or answer row whose text holds every word (the agent page's `said:` reveal,
-    /// webviews/src/agent-session/acpmux/links.ts).
+    /// webviews/src/agent-session/acpmux/links.ts). A message the transcript index found (it has a
+    /// time, older than the text acpmux holds of the chat) opens Find in Chat at the index hit
+    /// nearest that time instead (`find:<atMs>:<query>`).
     static func saidReveal(_ said: AcpmuxChat.Said, query: String) -> String {
-        "said:" + (said.isAnswer ? "answer" : "prompt") + ":" + query
+        if let atMs = said.atMs { return "find:\(atMs):" + query }
+        return "said:" + (said.isAnswer ? "answer" : "prompt") + ":" + query
     }
 
     static func items(_ chats: [AcpmuxChat], query: String = "", windows: AcpmuxChatWindows,

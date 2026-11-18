@@ -99,6 +99,7 @@ pub fn params(args: &SearchArgs) -> Result<Params> {
         limit: args.limit.clamp(1, search::MAX_LIMIT),
         context: args.context,
         host: args.host.clone(),
+        ..Params::default()
     })
 }
 

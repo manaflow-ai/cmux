@@ -324,7 +324,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_TEAM_ACK, Request),
         untyped(method::MUX_HISTORY, Request),
         untyped(method::MUX_SESSION_SEARCH, Request),
-        untyped(method::MUX_TRANSCRIPT_SEARCH, Request),
+        keyed::<params::TranscriptSearchParams>(method::MUX_TRANSCRIPT_SEARCH, Request),
         untyped(method::MUX_COMPLETE, Request),
         untyped(method::MUX_HUNK_SUMMARY, Request),
         untyped(method::MUX_WAIT, Request),

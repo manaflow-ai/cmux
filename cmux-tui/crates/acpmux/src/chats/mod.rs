@@ -14,6 +14,7 @@ use cmux_json::JsonSet as _;
 
 mod activity;
 pub(crate) mod brand;
+pub mod deep;
 mod follow;
 #[cfg(target_os = "macos")]
 mod fsevents;
@@ -727,6 +728,9 @@ impl crate::hub::Hub {
         // Every transcript into the search index, then each one the chat index sees change.
         #[cfg(not(test))]
         crate::transcript_search::warm(service.clone());
+        // A chats window's content search also asks that index, past each chat's held text.
+        #[cfg(not(test))]
+        service.text().deep().set_search(crate::transcript_search::chat_search());
         // Taken under the waiters' lock after the set: a later waiter sees the index.
         let waiters = std::mem::take(&mut *lock(&self.chats_waiters));
         for waiter in waiters {
