@@ -7,8 +7,8 @@ const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
 const saved = { window: scope.window, document: scope.document };
 scope.window = dom.window;
-const { MockPageStreams } = await import("../src/pages/shared/pageStreams");
 scope.document = dom.window.document;
+const { MockPageStreams } = await import("../src/pages/shared/pageStreams");
 afterAll(() => {
   Object.assign(scope, saved);
   dom.window.close();

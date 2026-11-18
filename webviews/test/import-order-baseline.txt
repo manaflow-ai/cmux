@@ -5,16 +5,6 @@
 # One path per line, from webviews/.
 
 # test/
-test/agent-pane-new-tab-cached-chat.test.ts
-test/agent-pane-remote-resync-frames.test.ts
-test/agent-pane-session-change-coalesce.test.ts
-test/apps-discover-home.test.tsx
-test/composer-draft-orderings.test.tsx
-test/composer-folderless-cloud-chip.test.tsx
-test/pickers-last-known.test.tsx
-test/sidebar-chats-page.test.tsx
-test/stash-page.test.tsx
-test/workflow-tasks.test.tsx
 
 # src/
 src/agent-session/acpmux/AddAccountDialog.test.tsx

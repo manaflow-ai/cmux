@@ -53,38 +53,57 @@ const keyName = (name: ts.PropertyName | ts.Expression): string | undefined =>
 
 const isFunctionLike = (node: ts.Node): boolean => ts.isFunctionLike(node) || ts.isClassLike(node);
 
-const objectHasDomKey = (node: ts.ObjectLiteralExpression): boolean =>
-  node.properties.some((property) => property.name !== undefined && DOM_KEYS.has(keyName(property.name) ?? ""));
+/// The DOM keys (window, document) an object literal sets.
+const domKeysOf = (node: ts.ObjectLiteralExpression): string[] =>
+  node.properties.flatMap((property) => {
+    const key = property.name === undefined ? undefined : keyName(property.name);
+    return key && DOM_KEYS.has(key) ? [key] : [];
+  });
+const BOTH = [...DOM_KEYS];
 
 type Scan = {
   /// Object literals bound by name in the file (`const replacements = { window, document }`).
-  domObjects: Set<string>;
+  domObjects: Map<string, string[]>;
   /// File-local functions that install a DOM global when called.
   installers: Set<string>;
 };
 
-/// Whether `node` itself (not its children) puts window or document onto a global.
-function installsHere(node: ts.Node, scan: Scan, calls: Set<string>): boolean {
+/// The DOM globals (window, document) `node` itself (not its children) puts onto a global. A helper or
+/// a file-local install function counts as both.
+function keysHere(node: ts.Node, scan: Scan, calls: Set<string>): string[] {
   if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
     const left = node.left;
-    if (ts.isPropertyAccessExpression(left)) return DOM_KEYS.has(left.name.text);
-    if (ts.isElementAccessExpression(left)) return DOM_KEYS.has(keyName(left.argumentExpression) ?? "");
+    const key = ts.isPropertyAccessExpression(left)
+      ? left.name.text
+      : ts.isElementAccessExpression(left)
+        ? keyName(left.argumentExpression)
+        : undefined;
+    return key && DOM_KEYS.has(key) ? [key] : [];
   }
-  if (!ts.isCallExpression(node)) return false;
+  if (!ts.isCallExpression(node)) return [];
   const callee = node.expression;
-  if (ts.isIdentifier(callee)) return calls.has(callee.text) || scan.installers.has(callee.text);
-  if (!ts.isPropertyAccessExpression(callee)) return false;
+  if (ts.isIdentifier(callee)) return calls.has(callee.text) || scan.installers.has(callee.text) ? BOTH : [];
+  if (!ts.isPropertyAccessExpression(callee)) return [];
   const name = callee.getText();
-  if (name === "GlobalRegistrator.register") return true;
-  const args = node.arguments.slice(1);
-  if (name === "Object.defineProperty") return DOM_KEYS.has(keyName(node.arguments[1] ?? callee) ?? "");
-  if (name !== "Object.assign" && name !== "Object.defineProperties") return false;
-  return args.some(
-    (arg) =>
-      (ts.isObjectLiteralExpression(arg) && objectHasDomKey(arg)) ||
-      (ts.isIdentifier(arg) && scan.domObjects.has(arg.text)),
-  );
+  if (name === "GlobalRegistrator.register") return BOTH;
+  if (name === "Object.defineProperty") {
+    const key = node.arguments[1] && keyName(node.arguments[1]);
+    return key && DOM_KEYS.has(key) ? [key] : [];
+  }
+  if (name !== "Object.assign" && name !== "Object.defineProperties") return [];
+  return node.arguments
+    .slice(1)
+    .flatMap((arg) =>
+      ts.isObjectLiteralExpression(arg)
+        ? domKeysOf(arg)
+        : ts.isIdentifier(arg)
+          ? (scan.domObjects.get(arg.text) ?? [])
+          : [],
+    );
 }
+
+/// Whether `node` itself (not its children) puts window or document onto a global.
+const installsHere = (node: ts.Node, scan: Scan, calls: Set<string>): boolean => keysHere(node, scan, calls).length > 0;
 
 /// Whether anything under `node` installs, not descending into functions when `topLevel`.
 function installsUnder(node: ts.Node, scan: Scan, calls: Set<string>, topLevel: boolean): boolean {
@@ -94,11 +113,11 @@ function installsUnder(node: ts.Node, scan: Scan, calls: Set<string>, topLevel: 
 }
 
 function scanOf(file: ts.SourceFile): Scan {
-  const scan: Scan = { domObjects: new Set(), installers: new Set() };
+  const scan: Scan = { domObjects: new Map(), installers: new Set() };
   const visit = (node: ts.Node) => {
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
-      if (ts.isObjectLiteralExpression(node.initializer) && objectHasDomKey(node.initializer))
-        scan.domObjects.add(node.name.text);
+      const keys = ts.isObjectLiteralExpression(node.initializer) ? domKeysOf(node.initializer) : [];
+      if (keys.length > 0) scan.domObjects.set(node.name.text, keys);
     }
     ts.forEachChild(node, visit);
   };
@@ -199,19 +218,34 @@ export function importOrderFindings(source: string, fileName: string): ImportOrd
     if (loads) add(declaration, specifier, loads, "imports");
   }
 
-  // Then the body: a top-level `await import()` counts until the first top-level install.
-  let installed = false;
+  // Then the body: a top-level `await import()` counts until every DOM global the file installs at the
+  // top level is in place, so one placed between `window` and `document` counts too.
+  const topKeys = new Set<string>();
+  const collect = (node: ts.Node): void => {
+    if (isFunctionLike(node)) return;
+    for (const key of keysHere(node, scan, INSTALL_CALLS)) topKeys.add(key);
+    ts.forEachChild(node, collect);
+  };
+  for (const statement of file.statements) if (!ts.isImportDeclaration(statement)) collect(statement);
+  const installed = new Set<string>();
+  const complete = () => topKeys.size > 0 && [...topKeys].every((key) => installed.has(key));
   const visit = (node: ts.Node): void => {
-    if (installed || isFunctionLike(node)) return;
-    if (installsHere(node, scan, INSTALL_CALLS)) {
-      installed = true;
+    if (complete() || isFunctionLike(node)) return;
+    const keys = keysHere(node, scan, INSTALL_CALLS);
+    if (keys.length > 0) {
+      for (const key of keys) installed.add(key);
       return;
     }
     if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
       const argument = node.arguments[0];
       if (argument && ts.isStringLiteralLike(argument)) {
         const loads = loadsSource(argument.text, fileName);
-        if (loads) add(node, argument.text, loads, "loads (top-level await import)");
+        const missing = [...topKeys].filter((key) => !installed.has(key));
+        const how =
+          installed.size > 0
+            ? `loads (top-level await import, after ${[...installed].join(" and ")} but before ${missing.join(" and ")} is installed)`
+            : "loads (top-level await import)";
+        if (loads) add(node, argument.text, loads, how);
       }
     }
     ts.forEachChild(node, visit);
@@ -345,6 +379,10 @@ test("opens", () => { installDom(); });
       `const { a } = await importWithDom(() => import("../src/a"));\nconst { b } = await import("../src/b");\nbeforeAll(() => { globalThis.window = w; });\n`,
     ),
   ).toEqual([2]);
+  // An import placed between the file's two DOM installs: window is set, document is not yet.
+  const between = `const dom = new JSDOM("");\nscope.window = dom.window;\nconst { a } = await import("../src/a");\nscope.document = dom.window.document;\nconst { b } = await import("../src/b");\n`;
+  expect(lines(between)).toEqual([3]);
+  expect(importOrderFindings(between, name)[0]!.message).toContain("after window but before document is installed");
   // A value and a type from one import still load the module.
   expect(lines(`import { a, type B } from "../src/a";\nglobalThis.document = d;\n`)).toEqual([1]);
 });
