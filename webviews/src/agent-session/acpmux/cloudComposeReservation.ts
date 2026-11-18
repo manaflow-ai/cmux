@@ -22,6 +22,11 @@ type Attempt = {
   failures: number;
   /// The empty local chat this compose's Send would replace (App.tsx `emptyLocalChat`), named on each reserve.
   replacesChat?: string;
+  /// An abandoned compose's release, settled: the next compose reserves only after it, since the native
+  /// pane owns one key at a time and refuses a second while the first's release is still out.
+  gone?: Promise<void>;
+  /// The one `cloud.releaseReservation` for this key, once sent.
+  releasing?: Promise<void>;
 };
 
 /// While the person still means to send (Cloud picked, typing), the same compose key is reserved
@@ -60,7 +65,11 @@ export class CloudComposeReservation {
     this.stopRelease();
     const now = this.clock.now();
     const before = this.attempt;
-    if (before && !before.transferred && !before.abandoned && before.replacesChat !== replacesChat) this.abandon();
+    let after: Promise<unknown> = Promise.resolve();
+    if (before && !before.transferred && !before.abandoned && before.replacesChat !== replacesChat) {
+      this.abandon();
+      after = before.gone ?? after;
+    }
     const live = this.attempt;
     if (live && !live.abandoned && !live.released) {
       live.intentAt = now;
@@ -84,7 +93,7 @@ export class CloudComposeReservation {
       ...(replacesChat ? { replacesChat } : {}),
     };
     this.attempt = attempt;
-    this.reserve(attempt, Promise.resolve());
+    this.reserve(attempt, after);
     this.watchIdle(attempt, RESERVATION_IDLE_RELEASE_MS);
   }
 
@@ -108,7 +117,7 @@ export class CloudComposeReservation {
         attempt.failures = ready ? 0 : attempt.failures + 1;
         // A close/switch can race the allocation. Release after it settles so a late successful
         // create cannot arrive after the page's DELETE and leak until expiry.
-        if (attempt.abandoned && !attempt.transferred) this.release(attempt);
+        if (attempt.abandoned && !attempt.transferred) void this.release(attempt);
         return ready;
       });
   }
@@ -195,7 +204,7 @@ export class CloudComposeReservation {
     const attempt = this.attempt;
     if (!attempt || attempt.transferred || attempt.abandoned) return;
     attempt.abandoned = true;
-    void attempt.ready.then(() => this.release(attempt));
+    attempt.gone = attempt.ready.then(() => this.release(attempt));
   }
 
   reset(): void {
@@ -213,10 +222,14 @@ export class CloudComposeReservation {
     this.cancelIdle = undefined;
   }
 
-  private release(attempt: Attempt): void {
-    if (attempt.released) return;
+  private release(attempt: Attempt): Promise<void> {
+    if (attempt.releasing) return attempt.releasing;
     attempt.released = true;
-    void this.call("cloud.releaseReservation", { composeKey: attempt.key }).catch(() => undefined);
+    attempt.releasing = this.call("cloud.releaseReservation", { composeKey: attempt.key }).then(
+      () => undefined,
+      () => undefined,
+    );
+    return attempt.releasing;
   }
 }
 

@@ -279,6 +279,8 @@ struct AgentPaneHandOff {
                 return AgentPaneReply.failure(code: "unavailable_now", message: "unavailable_now")
             }
             start.reservationKey = nil
+        } else if let reservationKey = start.reservationKey {
+            model.markCloudReservationSent(reservationKey)
         }
         // A Send without the reservation: one still out is this pane's to release as it answers.
         if start.reservationKey == nil { model.dropCloudReservation() }
@@ -311,8 +313,8 @@ struct AgentPaneHandOff {
                           signInGrant: grantKey) { [start] replacements in
             let reply = await run(start)
             // A chat that started on the machine keeps the hold: this pane never starts one too,
-            // also when the App could not close it.
-            if reply["ok"] as? Bool != true { replacements.endSandbox() }
+            // also when the App could not close it. Its reservation is spent with it.
+            if reply["ok"] as? Bool != true { replacements.endSandbox() } else if let key = start.reservationKey { model.cloudReservationBound(key) }
             return reply
         }
     }

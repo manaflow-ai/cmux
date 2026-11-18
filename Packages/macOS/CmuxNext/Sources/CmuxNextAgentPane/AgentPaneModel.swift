@@ -123,8 +123,22 @@ public final class AgentPaneModel {
     /// but the page's release of each still reaches Rust, so none waits out the platform's hold.
     @ObservationIgnored private var cloudReservationsLeft: Set<String> = []
 
+    /// A Send named the pane's reservation: it is that start's from here on, whether or not its answer arrives.
+    @ObservationIgnored private var cloudReservationSent = false
+
     /// Whether a Cloud start may bind the pane's currently live reservation.
     func ownsCloudReservation(_ key: String) -> Bool { cloudReservationComposeKey == key }
+
+    /// A Send names the pane's reservation `key`: a chat change after this never leaves it to a cold Send
+    /// (``releaseLeftCloudReservation(_:)``), since a retry of a Send whose answer was lost must not make a second machine.
+    func markCloudReservationSent(_ key: String) { if cloudReservationComposeKey == key { cloudReservationSent = true } }
+
+    /// The start that named `key` began its chat on that machine: the reservation is spent, and no longer this pane's.
+    func cloudReservationBound(_ key: String) {
+        guard cloudReservationComposeKey == key else { return }
+        cloudReservationComposeKey = nil
+        cloudReservationReplaces = nil
+    }
 
     /// A Send that names a reservation this pane left when its chat changed (the page sent before it reset its
     /// compose): that machine is released here, as the page no longer will (it handed the key off), and true:
@@ -792,6 +806,7 @@ public final class AgentPaneModel {
                 guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
                 cloudReservationComposeKey = composeKey
                 cloudReservationReplaces = request.replacesChat
+                cloudReservationSent = false
             }
             cloudReserveOut = (composeKey, false)
             let reply = await onCloudReservation(request)
@@ -955,7 +970,7 @@ public final class AgentPaneModel {
         // The reservation stays this pane's only for the empty chat it was made for (a reserve that went before
         // the host adopted that chat); another chat leaves it to the page's release.
         if let key = cloudReservationComposeKey, cloudReservationReplaces != id {
-            cloudReservationsLeft.insert(key)
+            if !cloudReservationSent { cloudReservationsLeft.insert(key) } // one a Send named is that start's, never released or sent cold here
             cloudReservationComposeKey = nil
         }
         newTab = nil

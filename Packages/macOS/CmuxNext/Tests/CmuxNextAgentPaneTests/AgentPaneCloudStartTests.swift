@@ -798,6 +798,40 @@ struct AgentPaneCloudReservationTests {
         #expect(Self.code(await model.respond(to: Self.send("chat-2", reservation: UUID().uuidString))) == "unavailable_now")
     }
 
+    /// A reservation a Send named is that start's: once the chat started on it the pane owns it no longer, and a
+    /// chat change after a Send whose answer failed neither releases it nor lets a later Send go cold with it
+    /// (a retry of a Send whose answer was lost must never make a second machine).
+    @Test func aReservationASendNamedIsNeverReleasedOrSentColdAfterAChatChange() async {
+        let recorded = Recorded()
+        let model = Self.pane(recorded)
+        let key = UUID().uuidString
+        model.transport.gestures.record()
+        #expect(await model.respond(to: Self.reserve(key))["ok"] as? Bool == true)
+        model.transport.gestures.record()
+        #expect(await model.respond(to: Self.send(nil, reservation: key))["ok"] as? Bool == true)
+        #expect(!model.ownsCloudReservation(key))
+        model.adoptSession("cloud-chat")
+        #expect(await model.respond(to: Self.reserve(key, release: true))["ok"] as? Bool == true)
+        #expect(recorded.reservations.map(\.release) == [false])
+
+        let failing = Self.pane(recorded, sessionId: "chat-1")
+        failing.onCloudStartChat = { start in
+            recorded.starts.append(start)
+            return AgentPaneReply.failure(code: "cloud_start_failed", message: "cloud_start_failed")
+        }
+        let lost = UUID().uuidString
+        failing.transport.gestures.record()
+        #expect(await failing.respond(to: Self.reserve(lost, replacing: "chat-1"))["ok"] as? Bool == true)
+        failing.transport.gestures.record()
+        #expect(Self.code(await failing.respond(to: Self.send("chat-1", reservation: lost))) == "cloud_start_failed")
+        failing.adoptSession("chat-2")
+        failing.transport.gestures.record()
+        #expect(Self.code(await failing.respond(to: Self.send("chat-2", reservation: lost))) == "unavailable_now")
+        #expect(await failing.respond(to: Self.reserve(lost, release: true))["ok"] as? Bool == true)
+        #expect(recorded.reservations.filter(\.release).isEmpty)
+        #expect(recorded.starts.count == 2)
+    }
+
     /// A reserve that went before the host adopted the empty chat it names stays the pane's once that chat is adopted;
     /// a no-chat compose's reservation is left to the page's release when a chat opens, which reaches Rust.
     @Test func aReserveBeforeItsChatWasAdoptedStaysOwnedAndANoChatOneIsReleasedWhenAChatOpens() async {
