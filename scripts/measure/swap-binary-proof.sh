@@ -6,7 +6,7 @@
 #     --ref <feat-cmux-next sha> --arg head=<sha> [--arg expect=TEXT] [--arg base=nightly|commit] [--arg nightly=URL] \
 #     --artifact .build/swap-binary-proof/report.tgz --timeout 5400
 #   head=SHA     the commit to swap in (its diff from the nightly's commit must be one a swap carries)
-#   expect=TEXT  a line the head's launch writes to the unified log (or /tmp/cmux-swap-probe.txt): the change, seen
+#   expect=TEXT  a line the head's launch writes to the unified log (its NSLog at launch): the change, seen
 #   base=commit  (default) first build the nightly's own commit the same way: the warm build the head's edit then
 #                pays for (the edit-to-launchable time), and a fidelity check of that build against the nightly's
 #                shipped binary (SB-FIDELITY: size, load commands); base=nightly skips that build
@@ -92,7 +92,6 @@ done
 launch() {
   local name="$1" sock t0 pid
   sock="$("$side" socket "$name")"
-  rm -f /tmp/cmux-swap-probe.txt
   t0="$(python3 -I -c 'import time; print(int(time.time() * 1000))')"
   "$side" launch "$name" >"$out/launch-$name.log" 2>&1 || { echo "SB-LAUNCH $name failed"; return 1; }
   pid="$(cat "$CMUX_SIDE_ROOT/$name/pid")"
@@ -114,11 +113,10 @@ seen=""
 launch sb-base || true
 "$side" stop sb-base >/dev/null 2>&1 || true
 launch sb-head || true
-sleep 3 # the probe's own log line, after the socket (measurement only)
+# The probe's line is written at main(), before the socket exists: it is in the log once the socket answers.
 pid="$(cat "$CMUX_SIDE_ROOT/sb-head/pid" 2>/dev/null || true)"
 if [[ -n "$expect" ]]; then
-  if grep -qF "$expect" /tmp/cmux-swap-probe.txt 2>/dev/null \
-    || log show --last 5m --style compact --predicate "processID == ${pid:-0}" 2>/dev/null | grep -qF "$expect"; then
+  if log show --last 5m --style compact --predicate "processID == ${pid:-0}" 2>/dev/null | grep -F "$expect" >/dev/null; then # not -q: an early exit fails the pipe (pipefail)
     seen=1
   fi
   echo "SB-SEEN expect=\"$expect\" seen=${seen:-0}"
