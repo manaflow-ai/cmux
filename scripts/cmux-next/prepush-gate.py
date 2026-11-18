@@ -899,6 +899,60 @@ def dropped_baseline_pairs(repo: Path, head: str, trusted_scripts: Path | None) 
     return installed - pushed if installed is not None and pushed is not None else frozenset()
 
 
+def deps_check_files(repo: Path, base: str, head: str, changed: list[str], dropped,
+                     trusted_scripts: Path | None) -> tuple[list[str], bool]:
+    """The files the dependency check's trees hold on a push that changes the manifest or drops IMPORT_BASELINE lines,
+    and whether they are the whole package. A target judges alike on both sides when its kind, declared dependencies
+    and path are the same in both manifests and the pair it names in a baseline line names no target the push adds or
+    removes: its unchanged files give both sides the same findings, which cancel (new_records, and deps_findings'
+    stale lines against the base). So the trees hold, on both sides, every file of each target whose entry differs or
+    that a dropped or affected baseline pair names, the files of any target that mention a target the push adds (an
+    `import X` of what was no local target is judged only now), and the push's own changed and deleted package files
+    (CHANGED holds both).
+    A manifest either side cannot parse, or a checker that will not load, takes the whole package, as before.
+    2026-11-18: two pushes' whole-package checks (12,863 Swift files written twice each, then scanned) were the gate's
+    top cost on a person's Mac at load 21 on 15 cores (check-package-dependency-lists.py at 128% CPU, x2)."""
+    def whole() -> tuple[list[str], bool]:
+        return sorted({p for rev in (base, head) for prefix in MANIFEST_SOURCES
+                       for p in ls_tree(repo, rev, prefix) if p.endswith(".swift")} | {MANIFEST}), True
+    script = (trusted_scripts / Path(DEPS_CHECKER).name) if trusted_scripts else repo / DEPS_CHECKER
+    saved = list(sys.path)
+    try:
+        spec = importlib.util.spec_from_file_location("cmux_next_deps_checker", script)
+        checker = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(checker)
+        sides = [checker.manifest_targets(git(repo, "show", f"{rev}:{MANIFEST}").decode(errors="replace"))
+                 for rev in (base, head)]
+        installed = frozenset(checker.IMPORT_BASELINE)
+    except (Exception, SystemExit):  # a checker or manifest this cannot read: the whole package
+        return whole()
+    finally:
+        sys.path[:] = saved  # the checker puts its own folders first
+    before, after = sides
+    if not before or not after:
+        return whole()
+    added, removed = set(after) - set(before), set(before) - set(after)
+    affected = {name for name in set(before) | set(after) if before.get(name) != after.get(name)}
+    for pair in installed | (pushed_import_baseline(repo, head) or frozenset()) | set(dropped):
+        target, _, module = pair.partition(": ")
+        if pair in dropped or target in affected or module in added | removed:
+            affected.add(target)
+
+    def folder(entry: tuple, name: str) -> str:
+        kind, _, path = entry
+        return f"{PKG}/{(path or (('Tests' if kind == 'testTarget' else 'Sources') + '/' + name)).rstrip('/')}/"
+    folders = tuple({folder(side[name], name) for side in sides for name in affected if name in side})
+    files = {p for p in changed if p.startswith(MANIFEST_SOURCES) and p.endswith(".swift")} | {MANIFEST}
+    for rev in (base, head):
+        if folders:
+            files |= {p for p in ls_tree(repo, rev, PKG + "/") if p.startswith(folders) and p.endswith(".swift")}
+        if added:  # a file that names an added target (git grep exits 1 on no match)
+            patterns = [arg for name in sorted(added) for arg in ("-e", name)]
+            out = git(repo, "grep", "-l", "-z", "-F", *patterns, rev, "--", *MANIFEST_SOURCES, check=False).decode()
+            files |= {p.split(":", 1)[1] for p in out.split("\0") if p.endswith(".swift")}
+    return sorted(files), False
+
+
 def stale_pairs(output: str) -> set[str]:
     """The `Target: Module` pairs the dependency check calls stale IMPORT_BASELINE lines in OUTPUT."""
     return {m.group(1) for r in records(output) for m in [STALE_PAIR.search(r)] if m}
@@ -906,7 +960,7 @@ def stale_pairs(output: str) -> set[str]:
 
 def deps_findings(repo: Path, base: str, head: str, base_out: str, head_out: str, head_code: int, *,
                   full_package: bool, cmd: list[str], work: Path,
-                  trusted_scripts: Path | None) -> tuple[str, int]:
+                  trusted_scripts: Path | None, manifest_trees: bool | None = None) -> tuple[str, int]:
     """The dependency check's head output with its "IMPORT_BASELINE lists ...: drop its line" findings judged.
 
     Missing imports always come from the installed checker (a push cannot weaken it). Which baseline lines are stale
@@ -915,12 +969,15 @@ def deps_findings(repo: Path, base: str, head: str, base_out: str, head_out: str
     With FULL_PACKAGE (the push changed the manifest) the trees hold every Swift file, so a stale finding is true.
     Without it the trees hold only the changed files: a module no file there imports may still be imported by an
     untouched one. So a stale line is kept only when this push made it stale (not stale in the base tree, which holds
-    the same files at the base) and the whole package at the head confirms it (WORK gets that tree, only then)."""
+    the same files at the base) and the whole package at the head confirms it (WORK gets that tree, only then).
+    MANIFEST_TREES (default FULL_PACKAGE): the trees are deps_check_files', which hold every file of each dropped
+    pair's target, whole package or not; their other stale lines are judged as without FULL_PACKAGE."""
     pushed = pushed_import_baseline(repo, head)
     head_stale = stale_pairs(head_out)
     # A pair the push dropped from IMPORT_BASELINE that the installed checker (which still excuses it) does not call
-    # stale is still imported and undeclared: CI's pushed checker fails on it. The trees hold the whole package then.
-    dropped = dropped_baseline_pairs(repo, head, trusted_scripts) if full_package else frozenset()
+    # stale is still imported and undeclared: CI's pushed checker fails on it. The trees hold its target's every file.
+    manifest_trees = full_package if manifest_trees is None else manifest_trees
+    dropped = dropped_baseline_pairs(repo, head, trusted_scripts) if manifest_trees else frozenset()
     missing = [f"{MANIFEST}: {target}: imports {module} but does not declare it in its dependencies, and this push "
                f"drops its IMPORT_BASELINE line. Fix: add \"{module}\" to the dependencies of {target}, or keep the line"
                for target, module in (p.split(": ", 1) for p in sorted(dropped - head_stale))]
@@ -2932,6 +2989,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         lock = config_root / SCRIPTS / "lint-tools.lock"
         jobs: dict[str, tuple] = {}
         trees_for: dict[str, tuple[Path, Path]] = {}
+        deps_whole = True
         has_package = (head_tree / MANIFEST).is_file()
         for name, cmd, prefixes in SCANNERS:
             script = next(Path(c) for c in fill(cmd, head_tree) if c.startswith(str(head_tree / SCRIPTS)))
@@ -2948,9 +3006,8 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
             jobs[DEPS_CHECK] = ("cmd", next(cmd for name, cmd, _ in SCANNERS if name == DEPS_CHECK))
         if DEPS_CHECK in jobs and (MANIFEST in changed or dropped):
             # Each side's own Swift files, so a finding both sides have still cancels out. Its own list: `sources` is
-            # ast-grep's, the changed production files only.
-            package = sorted({p for rev in (base, head) for prefix in MANIFEST_SOURCES
-                              for p in ls_tree(repo, rev, prefix) if p.endswith(".swift")} | {MANIFEST})
+            # ast-grep's, the changed production files only. Only the targets the push can judge differently.
+            package, deps_whole = deps_check_files(repo, base, head, changed + deleted, dropped, trusted_scripts)
             # Not indexed: the check reads files, never ls-files, and indexing 9,000 files twice was most of the cost.
             trees_for[DEPS_CHECK] = build_trees(repo, base, head, package, absolute(Path(tmp)) / "deps", trusted_scripts,
                                                 index=False)
@@ -3025,7 +3082,8 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                     base_out = ""
                 if name == DEPS_CHECK:
                     head_out, head_code = deps_findings(repo, base, head, base_out, head_out, head_code,
-                                                        full_package=name in trees_for, cmd=jobs[name][1],
+                                                        manifest_trees=name in trees_for,
+                                                        full_package=name in trees_for and deps_whole, cmd=jobs[name][1],
                                                         work=absolute(Path(tmp)) / "deps-head", trusted_scripts=trusted_scripts)
                 if head_code == 0:
                     continue  # passing on the head: what it prints is a warning tier, as in CI
