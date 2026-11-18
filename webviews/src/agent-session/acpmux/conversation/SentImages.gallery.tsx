@@ -175,6 +175,18 @@ const pasted: Props["images"] = [
   { id: "c", mimeType: "image/png", name: "image.png", shot: { width: 780, height: 1688, hue: 30 } },
 ];
 
+/// A strip cut from a chat, named with the size acpmux reads from its header and records with the
+/// prompt (prompt_images.rs, image_size.rs): its slot is the strip's own box from its first frame,
+/// so nothing moves when the bytes land (cmuxterm-hq#13423).
+const strip: Props["images"][number] = {
+  id: "w",
+  mimeType: "image/png",
+  name: "image.png",
+  width: 1568,
+  height: 74,
+  shot: { width: 1568, height: 74, hue: 250 },
+};
+
 export default componentEntry<Props>({
   id: "agent-pane.sent-images",
   title: "Sent prompt images",
@@ -193,13 +205,13 @@ export default componentEntry<Props>({
     "wide-strip": {
       note: "A strip cut from a chat (1568×74, Leo's 2026-11-05 capture): the whole strip at 320px wide, never a magnified crop of its middle.",
       props: {
-        images: [{ id: "w", mimeType: "image/png", name: "image.png", shot: { width: 1568, height: 74, hue: 250 } }],
+        images: [strip],
       },
     },
     narrow: {
       note: "The wide strip in a narrow chat, above a legacy prompt and placed mid-text in another: each in the block above its bubble, scaled down whole, never past its edge.",
       props: {
-        images: [{ id: "w", mimeType: "image/png", name: "image.png", shot: { width: 1568, height: 74, hue: 250 } }],
+        images: [strip],
         inline: true,
       },
     },

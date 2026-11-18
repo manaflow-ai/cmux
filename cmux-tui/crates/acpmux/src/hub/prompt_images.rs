@@ -1,6 +1,8 @@
 //! Images sent with a prompt (Leo, 2026-10-13: a sent prompt's images vanished). Each image's
 //! bytes are kept once, named by their SHA-256, under `<ACPMUX_HOME>/attachments`, and the
-//! prompt's `user_message` names them (`images: [{id, mimeType, name}]`), so a chat shows its
+//! prompt's `user_message` names them (`images: [{id, mimeType, name, width, height}]`, the size
+//! read from the image's header by `image_size.rs`, so a client reserves its box before it reads
+//! the bytes), so a chat shows its
 //! images after it is sent, after a restart, and in a fork (which copies the log).
 //! A queued prompt's `queued` and `queue_updated` records name its images the same way, so its
 //! row shows them before it runs. `_acpmux/attachment` reads one back for a session whose log
@@ -121,8 +123,8 @@ pub(crate) fn named_ids(msg: &Value) -> impl Iterator<Item = &str> {
     images.filter_map(|named| named.get("id").and_then(Value::as_str))
 }
 
-/// An `image` block's bytes, and what a record names it by (`{id, mimeType, name?}`, the id
-/// the SHA-256 of the bytes). `None` for any other block, or image data that is not base64.
+/// An `image` block's bytes, and what a record names it by (`{id, mimeType, name?, width?,
+/// height?}`, the id the SHA-256 of the bytes, the size its header's). `None` for any other block, or image data that is not base64.
 fn decode(block: &Value) -> Option<(Vec<u8>, Value)> {
     use base64::Engine;
     use sha2::Digest;
@@ -136,6 +138,12 @@ fn decode(block: &Value) -> Option<(Vec<u8>, Value)> {
     let mut named = json!({"id": id, "mimeType": mime});
     if let Some(name) = block.get("name").and_then(Value::as_str) {
         named.set("name", json!(name));
+    }
+    // Its pixel size from its header, so every client reserves the image's own box before it
+    // reads the bytes: nothing moves when they land (cmuxterm-hq#13423).
+    if let Some((width, height)) = crate::image_size::pixel_size(&bytes) {
+        named.set("width", json!(width));
+        named.set("height", json!(height));
     }
     Some((bytes, named))
 }
@@ -807,6 +815,25 @@ mod tests {
         assert_eq!(parts[1]["id"], kept[0]["id"]);
         assert_eq!(parts[3]["size"], 5);
         assert!(parts.iter().all(|part| part.get("data").is_none()));
+    }
+
+    #[test]
+    fn a_recorded_image_names_its_size_so_its_box_is_known_before_its_bytes() {
+        use base64::Engine;
+        // A 1568x74 strip cut from a chat (the narrow sent-images gallery state, cmuxterm-hq#13423).
+        let mut png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+        png.extend(1568u32.to_be_bytes());
+        png.extend(74u32.to_be_bytes());
+        png.extend([8, 6, 0, 0, 0]);
+        let data = base64::engine::general_purpose::STANDARD.encode(&png);
+        let image = json!({"type": "image", "mimeType": "image/png", "data": data});
+        let named = decode(&image).unwrap().1;
+        assert_eq!((named["width"].clone(), named["height"].clone()), (json!(1568), json!(74)));
+        let parts = inline_parts(std::slice::from_ref(&image), std::slice::from_ref(&named), None);
+        assert_eq!((parts[0]["width"].clone(), parts[0]["height"].clone()), (json!(1568), json!(74)));
+        // Bytes whose header names no size record none: the client keeps its square slot.
+        let no_size = decode(&json!({"type": "image", "mimeType": "image/png", "data": "AQID"})).unwrap().1;
+        assert!(no_size.get("width").is_none() && no_size.get("height").is_none());
     }
 
     #[test]
