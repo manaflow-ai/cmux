@@ -34,6 +34,10 @@
 #   late=MS      a third side, late: its own copy of the head's DMG and its own home, interleaved after head, whose measured
 #                launches wait MS ms (0 to 10000) between the previous launch's quit and their open request. It tells a
 #                head cost that comes from overlapping the quit before it from one the head pays anyway. Default 0.
+
+#   preflight=1  just before the first launch, ~10 s of top: a system indexer (launch-ready-preflight.sh's INDEXERS)
+#                above preflight_cpu=N % CPU (default 30), or cmux-ci's CMUX_CI_HOST_NOISY=1, fails the step with
+#                LR-HOT-HOST and exit 5. preflight=0 skips it.
 # Each side gets one copy of the app and one home. The priming launch makes the home's state (a person's second
 # launch on), then every measured launch is a relaunch through LaunchServices, activated, as a Dock click is.
 # scripts/measure/launch-ready.swift times each one: finished_launching (the Dock's bounce ends), the first
@@ -52,6 +56,8 @@ set -uo pipefail
 main() {
   cd "$(dirname "$0")/../.." || exit 3
   local out="$PWD/.build/launch-ready" dmg=nightly base="" headsha="" runs=5 profile=0 session=small prerun=0 copy=same machines=0 late=0 arg rc=0 i side
+
+  local preflight=1 preflight_cpu=30
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
   LR_STATE=kept
   # Each side's control socket (SIDE.sock). A socket path must fit sun_path (104 bytes with its NUL), and on a fleet
@@ -72,11 +78,14 @@ main() {
       copy=same|copy=fresh) copy="${arg#copy=}" ;;
       late=*) late="${arg#late=}" ;;
       machines=*) machines="${arg#machines=}" ;;
+      preflight=0|preflight=1) preflight="${arg#preflight=}" ;;
+      preflight_cpu=*) preflight_cpu="${arg#preflight_cpu=}" ;;
       *) echo "unknown argument: $arg" >&2; exit 2 ;;
     esac
   done
   [[ "$runs" =~ ^([1-9]|10)$ ]] || { echo "runs= must be 1 to 10" >&2; exit 2; }
   [[ "$machines" =~ ^[0-9]+$ && "$machines" -le 200 ]] || { echo "machines= takes 0 to 200" >&2; exit 2; }
+  [[ "$preflight_cpu" =~ ^[1-9][0-9]*$ ]] || { echo "preflight_cpu= takes a whole percent >= 1" >&2; exit 2; }
   [[ "$LR_STATE" == kept || ( "$session" == small && "$machines" == 0 ) ]] \
     || { echo "state=bare empties the home before each launch: it takes no session=$session or machines=$machines" >&2; exit 2; }
   [[ "$prerun" =~ ^[0-9]+$ && "$prerun" -le 600 ]] || { echo "prerun= takes 0 to 600 seconds" >&2; exit 2; }
@@ -93,6 +102,7 @@ main() {
   cp scripts/measure/launch-ready-seed.py "$out/seed.py"
   cp scripts/measure/launch-ready-machines.py "$out/machines.py"
   cp scripts/measure/launch-ready-defaults.py "$out/defaults.py"
+  cp scripts/measure/launch-ready-preflight.sh "$out/preflight.sh"
   cp scripts/ci/fresh_home_launch_smoke.py "$out/fresh_home_launch_smoke.py"
   echo "LR session $session prerun $prerun copy $copy machines $machines"
   local sides=(head)
@@ -132,6 +142,9 @@ main() {
   source scripts/ci/lib/signing-runtime-guard.sh
   cmux_signing_runtime_guard || exit 3
   [[ "$late" == 0 ]] || sides+=(late)
+
+  # A system indexer busy now (mediaanalysisd, Spotlight) voids every launch: fail in ~10 s, not after the run.
+  if [[ "$preflight" == 1 ]]; then bash "$out/preflight.sh" "$preflight_cpu" || { echo "LR-FAIL hot host: a system indexer above ${preflight_cpu}% CPU or cmux-ci's noisy mark (preflight=0 skips this check)"; exit 5; }; fi
   for side in "${sides[@]}"; do
     local mount="$out/mnt-$side" image="$side"
     [[ "$side" != late ]] || image=head # the late side runs the head's build
