@@ -107,7 +107,11 @@ class Scope(unittest.TestCase):
             self.assertTrue((ROOT / ".github" / "workflows" / name).is_file(), name)
 
     def test_reusable_declarations_bring_their_callers(self):
-        runners = json.loads((ROOT / ".github" / "runners.json").read_text())
+        # The live table is empty since 2026-11-18 (every light job runs on Blacksmith, cmux#45735), so
+        # the caller walk reads a declaration of the reusable workflows it used to hold.
+        self.assertEqual(rescue.declared_workflows(json.loads((ROOT / ".github" / "runners.json").read_text())), [])
+        runners = {"hosted_light_jobs": {"pr-red-checks-comment.yml#comment": {}, "ci-guards.yml#guard-status": {},
+                                         "ci.yml#changes": {}, "pr-checks.yml#size": {}}}
         names = rescue.with_callers(rescue.declared_workflows(runners), ROOT / ".github" / "workflows")
         for caller in ("cmux-next.yml", "cmux-next-guards.yml", "ci.yml", "pr-checks.yml"):
             self.assertIn(caller, names)

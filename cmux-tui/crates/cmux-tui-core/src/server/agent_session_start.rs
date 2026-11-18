@@ -67,6 +67,11 @@
 //! Durations only: no folder, harness or session value is in it.
 
 use crate::panic_free::JsonFields;
+
+#[path = "agent_session_prewarm.rs"]
+mod prewarm;
+pub use prewarm::AGENT_SESSION_PREWARM_CAPABILITY;
+pub(super) use prewarm::prewarm;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
