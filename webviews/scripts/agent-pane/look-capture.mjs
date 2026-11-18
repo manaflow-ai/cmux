@@ -93,8 +93,10 @@ async function live(browser) {
   try {
     await page.waitForFunction(() => window.cmuxAcpmuxActions?.["chat.send"], null, { timeout: 120000 });
     await page.evaluate((prompt) => window.cmuxAcpmuxActions["chat.send"]({ text: prompt }), fixture.prompt);
-    await page.waitForSelector(".cv-worked--live", { timeout: 30000 }).catch(() => undefined);
-    await page.waitForTimeout(1200);
+    // The mock's steps come 350 ms apart: catch the live line on the frame it shows.
+    await page
+      .waitForFunction(() => document.querySelector(".cv-worked--live"), null, { polling: "raf", timeout: 30000 })
+      .catch(() => undefined);
     await shot(page, "chat-live", errors);
   } finally {
     await context.close();

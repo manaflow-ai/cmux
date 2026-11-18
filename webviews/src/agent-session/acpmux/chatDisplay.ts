@@ -346,8 +346,7 @@ let trayTuckedOn = false;
 let trayHandle: TrayHandleSide = "middle";
 let unreadBanner: UnreadBannerMode = "off";
 let threadMinimapArm: ThreadMinimapArm | null = null;
-// This look branch opens each finished turn's work, as Claude Code desktop lists its tool rows inline.
-let transcriptView: TranscriptView = "thinking";
+let transcriptView: TranscriptView = "normal";
 let presentation: Presentation = "transcript";
 let featureTipsOn = true;
 let commandLabels = "null";
