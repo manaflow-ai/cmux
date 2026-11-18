@@ -394,6 +394,8 @@ impl Hub {
             };
             meta.wait_start = wait_start;
             meta.throwaway = throwaway;
+            // A flag only: after a restart its agent waits for the owner's Mac (`credentials.rs`).
+            meta.owner_credential = credential.is_some();
             let session = self.make_session(meta);
             session.person.store(person, Ordering::SeqCst);
             // Before the session is published, so its first spawn already has it; memory only.
@@ -1819,6 +1821,9 @@ impl Hub {
         // then what any agent start needs; never every other chat's adoption (`startup.rs`).
         self.wait_adopted(session).await;
         self.wait_spawn_ready().await;
+        // A chat on the owner's Cloud credential this daemon no longer holds (it restarted)
+        // waits for the owner's Mac to send it again, and never starts on the machine's route.
+        self.owner_credential_ready(session).await?;
         let meta = session.meta();
         let agent = meta.harness.clone();
         let (profile, defaults) = {

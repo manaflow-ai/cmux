@@ -612,7 +612,7 @@ final class CloudService {
                                           localIdentity: { [weak local] in local?.identity }, mainWork: mainWork)
         session.daemon.workTracker = machines.local.workTracker
         session.daemon.onPaneNotReady = machines.local.onPaneNotReady
-        session.daemon.paneNotReadyText = machines.local.paneNotReadyText
+        session.daemon.paneNotReadyText = machines.local.paneNotReadyText; agentCredentials.watchLink(session.daemon.store, machine: machine.id) // its chats' credentials again on each reconnect
         // An attach to a paused machine resumes it through Resume Machine's own path.
         session.resumer = { [weak self] id, origin in try await self?.resumeMachine(id, origin: origin == .user ? .user : .script) }
         // An attach reads a record that may be stale (paused behind the app) again first.

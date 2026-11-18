@@ -48,6 +48,12 @@ impl Hub {
             *held = Some(credential);
             changed
         };
+        // A start waiting for it goes on now (`owner_credential_ready`).
+        session.credential_set.notify_waiters();
+        if !meta.owner_credential {
+            session.meta.lock().unwrap_or_else(|e| e.into_inner()).owner_credential = true;
+            self.save_meta(&session);
+        }
         if !changed || session.child.lock().await.is_none() {
             // The next start runs on it.
             return Ok(json!({"sessionId": session.id, "restart": "none"}));
@@ -66,6 +72,58 @@ impl Hub {
         };
         Ok(json!({"sessionId": session.id, "restart": restart}))
     }
+
+    /// Before a start of `session`'s agent: a chat on the owner's credential
+    /// (`SessionMeta::owner_credential`) that this daemon no longer holds (it restarted: a
+    /// machine paused and resumed) waits up to [`OWNER_CREDENTIAL_WAIT`] for the owner's Mac to
+    /// send it again (the Mac does when its link to the machine comes back), and is then refused
+    /// with a named reason ([`needs_mac`]): never started on the machine's own route, whose
+    /// harness would only say "Not logged in". A live agent (a host this daemon adopted keeps
+    /// the env it started with) needs nothing.
+    pub(super) async fn owner_credential_ready(&self, session: &Session) -> Result<(), RpcError> {
+        if !session.read_meta(|m| m.owner_credential) {
+            return Ok(());
+        }
+        let deadline = tokio::time::Instant::now() + OWNER_CREDENTIAL_WAIT;
+        loop {
+            // Made before the check: a send between the two still wakes it.
+            let set = session.credential_set.notified();
+            if session.credential.lock().unwrap_or_else(|e| e.into_inner()).is_some() {
+                return Ok(());
+            }
+            if let Some(child) = session.child.lock().await.as_ref()
+                && child.is_alive().await
+            {
+                return Ok(());
+            }
+            if tokio::time::timeout_at(deadline, set).await.is_err() {
+                tracing::warn!(session = %session.id, "no owner's credential: the chat waits for the Mac");
+                return Err(needs_mac(&session.meta().harness));
+            }
+        }
+    }
+}
+
+/// How long a start waits for the owner's Mac to send the credential again: about one
+/// reconnect's re-send, so a turn sent as the link comes back takes the credential.
+#[cfg(not(test))]
+pub(super) const OWNER_CREDENTIAL_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+#[cfg(test)]
+pub(super) const OWNER_CREDENTIAL_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// The words the pane shows (`webviews/src/agent-session/acpmux/failureCopy.ts` `NEEDS_MAC`).
+pub const NEEDS_MAC_TEXT: &str = "needs the Mac to sign in: open cmux";
+
+/// The refusal of a start with no owner's credential: typed [`crate::recovery::kind::NEEDS_MAC`].
+pub(super) fn needs_mac(harness: &str) -> RpcError {
+    let name = if harness.starts_with("codex") { "Codex" } else { "Claude" };
+    RpcError::new(-32001, format!("{name} {NEEDS_MAC_TEXT}")).with_data(json!({
+        "reason": crate::recovery::kind::NEEDS_MAC,
+        "errorKind": crate::recovery::kind::NEEDS_MAC,
+        "recovery": "This chat signs in with the credential your Mac sends, and this machine has none \
+                     since it resumed. Open cmux on your Mac: it sends the credential again when it \
+                     reconnects to this machine. Then send the message again.",
+    }))
 }
 
 #[cfg(test)]

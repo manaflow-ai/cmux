@@ -2788,12 +2788,28 @@ export function launchCredentialStartProgram(session: string, agent: string, nam
   const slash = agent.indexOf("/");
   const meta: Record<string, unknown> = { name: session, harness: slash < 0 ? agent : agent.slice(0, slash), credentials: { env: { [name]: value } } };
   if (slash >= 0) meta.model = agent.slice(slash + 1);
-  const params = JSON.stringify({ mcpServers: [], _meta: { acpmux: meta } });
+  return acpmuxCallProgram("session/new", { mcpServers: [], _meta: { acpmux: meta } }, "'@@session ' + str((r or {}).get('sessionId'))", true);
+}
+
+/**
+ * The app's re-send when its link to the machine comes back (CloudAgentCredentials.linkReturned): the machine paused
+ * and resumed, its acpmux restarted and forgot the chat's credential (memory only), and the owner's Mac sends it again,
+ * `agent/credentials.update {sessionId, env}` on the machine's acpmux socket as the guest cmux-tui's
+ * `agent-session-credentials` relays it. The value goes on stdin, never on a command line.
+ */
+export function launchCredentialResendProgram(sessionId: string, name: string, value: string): string {
+  return acpmuxCallProgram("agent/credentials.update", { sessionId, env: { [name]: value } }, "'@@resent ' + str((r or {}).get('restart'))", false);
+}
+
+/** One call on the machine's acpmux socket after `initialize`; `out` is the Python expression printed from its result `r`. */
+function acpmuxCallProgram(method: string, call: Record<string, unknown>, out: string, withCwd: boolean): string {
+  const params = JSON.stringify(call);
   return `python3 -I - <<'CMUX_JOURNEY_START'
 import json, os, socket, sys
 params = json.loads(${JSON.stringify(params)})
-params['cwd'] = os.environ.get('HOME') or '/home/cmux'
-home = params['cwd']
+home = os.environ.get('HOME') or '/home/cmux'
+if ${withCwd ? "True" : "False"}:
+    params['cwd'] = home
 paths = [p for p in (os.environ.get('ACPMUX_SOCKET'), home + '/.cmux/acpmux/acpmux.sock', home + '/.acpmux/acpmux.sock') if p]
 def call(f, s, i, method, p):
     s.sendall((json.dumps({'jsonrpc': '2.0', 'id': i, 'method': method, 'params': p}) + '\\n').encode())
@@ -2816,8 +2832,8 @@ for path in paths:
         s.connect(path)
         f = s.makefile('r')
         call(f, s, 1, 'initialize', {'protocolVersion': 1, 'clientCapabilities': {}, 'clientInfo': {'name': 'cloud-journey', 'version': '1'}})
-        r = call(f, s, 2, 'session/new', params)
-        print('@@session ' + str((r or {}).get('sessionId')))
+        r = call(f, s, 2, ${JSON.stringify(method)}, params)
+        print(${out})
         sys.exit(0)
     except Exception as e:
         errors.append(path + ': ' + str(e))
@@ -4320,6 +4336,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
     const session = `journey-${tag}`;
+    /** acpmux's id of the chat started on the launch credential: the app sends it again there after a resume. */
+    let credentialSessionId: string | undefined;
     // One turn's reply: the session's last message once `acp wait` says the turn ended, or the turn's own error.
     const awaitReply = async (): Promise<string> => {
       const t0 = Date.now();
@@ -4410,6 +4428,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const r = await exec(`${GUEST}${launchCredentialStartProgram(session, agent, "CLAUDE_CODE_OAUTH_TOKEN", login)}`, 120_000);
           const id = /@@session (\S+)/.exec(r.stdout)?.[1];
           if (r.code !== 0 || !id) throw new Error(scrub(r.stdout.slice(-400) || r.stderr.slice(-400), [login]));
+          credentialSessionId = id;
           J.firstText.mark("session_ready");
           return { value: null, detail: `session ${session}, on the person's model connection (its launch credential)` };
         }
@@ -4702,6 +4721,17 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         });
       } else {
         J.skip("carrier dial after resume", "--cmux is required for a carrier dial");
+      }
+      // The app's link to the machine came back: it sends each live chat's credential again
+      // (CloudAgentCredentials.linkReturned), since the resumed machine's acpmux forgot it (memory only, cmux#40159).
+      if (lifecycle && credentialSessionId) {
+        const id = credentialSessionId;
+        await J.step("credential re-sent on the link's return", async () => {
+          const r = await exec(`${GUEST}${launchCredentialResendProgram(id, "CLAUDE_CODE_OAUTH_TOKEN", login)}`, 120_000);
+          const restart = /@@resent (\S+)/.exec(r.stdout)?.[1];
+          if (r.code !== 0 || !restart) throw new Error(scrub(r.stdout.slice(-400) || r.stderr.slice(-400), [login]));
+          return { value: null, detail: `agent/credentials.update: restart ${restart}` };
+        });
       }
       if (lifecycle) await J.step("turn after resume", async () => laterTurn("Back after a pause: answer in one short sentence."));
       else J.skip("turn after resume", only.has("lifecycle") ? "--skip lifecycle" : `agent ${agent}`);
