@@ -188,7 +188,7 @@ Connections (all held on the Mac: acpmux routes + Keychain references):
   provider anthropic, family claude). An Anthropic API key (`api-key`, anthropic) also serves Claude.
 - **Codex**: `chatgpt-plan` (Sign in with ChatGPT, lane A as built), an OpenAI API key, or the
   Mac's Codex CLI ChatGPT login (`codex-login`, an added Codex account `subscription`) while it
-  holds an access token with at least 15 minutes left (cmux#45774, `codex_login_access.rs`).
+  holds an access token with at least 5 minutes left (cmux#45774, `codex_login_access.rs`).
 - The Claude Code login (`claude-login`) stays listed for local chats but does not serve Cloud
   (`serves_cloud: false`). A Codex CLI login signed in with an API key, kept in the Keychain, or
   with no token left does not either.

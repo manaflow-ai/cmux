@@ -26,9 +26,11 @@ use serde_json::Value;
 pub const BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 /// The header that names the ChatGPT account (workspace) the token acts for.
 pub const ACCOUNT_HEADER: &str = "chatgpt-account-id";
-/// A token with less left than this (seconds) is not offered: more than the app's refresh lead
-/// (`CloudAgentCredentialRefresher.lead`, 10 min), so a chat never starts on a token already due.
-pub const MINIMUM_LIFETIME_SECS: i64 = 15 * 60;
+/// A token with less left than this (seconds) is not offered. Under the app's refresh lead
+/// (`CloudAgentCredentialRefresher.lead`, 10 min), so the refresh read at that lead still answers
+/// (the same token until the Mac's Codex renews it, which the app pushes then), and the connection
+/// does not drop out of Cloud for the last minutes of every token.
+pub const MINIMUM_LIFETIME_SECS: i64 = 5 * 60;
 /// `auth.json` is a few KiB; anything larger is not Codex's.
 #[cfg(unix)]
 const SIZE_LIMIT: u64 = 64 * 1024;
@@ -55,7 +57,7 @@ pub fn read(folder: &Path, now: i64) -> Option<Access> {
     if !uses_file_store(&folder.join("config.toml")) {
         return None;
     }
-    access(&private_file(&folder.join("auth.json"), true)?, now)
+    access(&private_file(&folder.join("auth.json"), true, false)?, now)
 }
 
 #[cfg(not(unix))]
@@ -126,11 +128,18 @@ fn uses_file_store(config: &Path) -> bool {
     if let Err(error) = std::fs::symlink_metadata(config) {
         return error.kind() == std::io::ErrorKind::NotFound;
     }
-    let Some(text) = private_file(config, false).and_then(|data| String::from_utf8(data).ok())
+    // An added account's home links the base's `config.toml` (`route_shadow::link`), and a person's
+    // may be a dotfiles link: follow it, then check the file it names.
+    let Some(text) =
+        private_file(config, false, true).and_then(|data| String::from_utf8(data).ok())
     else {
         return false;
     };
     for line in text.lines() {
+        // A top-level key only: a table's keys (`[profiles.x]`) start after the first header.
+        if line.trim_start().starts_with('[') {
+            break;
+        }
         let Some((key, value)) = line.split_once('=') else { continue };
         if key.trim() != "cli_auth_credentials_store" {
             continue;
@@ -141,17 +150,15 @@ fn uses_file_store(config: &Path) -> bool {
     true
 }
 
-/// A regular file of this user's, not a symlink, within the size limit; `require_private` also
-/// requires no group or other access (Codex writes `auth.json` 0600).
+/// A regular file of this user's within the size limit, not a symlink unless `follow` (then the
+/// file it names is checked); `require_private` also requires no group or other access (Codex
+/// writes `auth.json` 0600).
 #[cfg(unix)]
-fn private_file(path: &Path, require_private: bool) -> Option<Vec<u8>> {
+fn private_file(path: &Path, require_private: bool, follow: bool) -> Option<Vec<u8>> {
     use std::io::Read as _;
     use std::os::unix::fs::{MetadataExt as _, OpenOptionsExt as _};
-    let file = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(path)
-        .ok()?;
+    let flags = if follow { libc::O_NONBLOCK } else { libc::O_NOFOLLOW | libc::O_NONBLOCK };
+    let file = std::fs::OpenOptions::new().read(true).custom_flags(flags).open(path).ok()?;
     let metadata = file.metadata().ok()?;
     // SAFETY: getuid has no preconditions.
     let uid = unsafe { libc::getuid() };
