@@ -177,6 +177,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           # The cadence: request-nightly-next.sh dispatches a promotion only from here.
           NIGHTLY_NEXT_PROMOTE: "1"
+          # The tree-yield kill switch (repo variable; unset is on): request-nightly-next.sh cuts the
+          # newest published-tree commit since the feed while the tip's tree build is queued, unless 0.
+          TREE_YIELD_SUPERSEDED: ${{ vars.TREE_YIELD_SUPERSEDED }}
         run: |
           set -euo pipefail
           # The tip's cmux-tui tree is often still publishing, so walk back
