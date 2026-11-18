@@ -236,7 +236,7 @@ public extension MacScreenViewerGrantGate {
     }
 }
 
-extension L {
+nonisolated extension L {
     /// Touch ID's reason when this Mac signs a host's grant challenge ("cmux is trying to …").
     static func grantReason(_ host: String) -> String { String(format: t("macScreen.grant.reason", "view the screen of “%@”"), host) }
 }
