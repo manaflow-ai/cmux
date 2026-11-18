@@ -115,6 +115,12 @@ fail "one more hit than the row" visible-only-reload-data \
   "$MAC\tvisible-only-reload-data\t1\n" "$MAC=$(func '    table.reloadData()\n    other.reloadData()')"
 fail "a row of another rule does not cover it" visible-only-reload-data \
   "$MAC\tvisible-only-subviews-teardown\t1\n" "$MAC=$(func '    table.reloadData()')"
+# Two eager calls on one line are two hits: a row of 1 does not cover the second.
+pass "two calls on one line, a row of 2" "$MAC\tvisible-only-reload-data\t2\n" "$MAC=$(func '    table.reloadData(); other.reloadData()')"
+fail "two calls on one line, a row of 1" visible-only-reload-data \
+  "$MAC\tvisible-only-reload-data\t1\n" "$MAC=$(func '    table.reloadData(); other.reloadData()')"
+fail "two identical calls on one line, a row of 1" visible-only-reload-data \
+  "$MAC\tvisible-only-reload-data\t1\n" "$MAC=$(func '    table.reloadData(); table.reloadData()')"
 code=0
 check "$MAC\tvisible-only-reload-data\t2\n" "$MAC=$(func '    table.reloadData()')" || code=$?
 [[ $code -eq 1 ]] || { echo "FAIL: fewer hits than the row must fail until it is lowered (got $code)" >&2; exit 1; }
