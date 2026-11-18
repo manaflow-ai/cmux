@@ -1,0 +1,31 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>passkey fallback</title>
+<style>body { font: 16px -apple-system, sans-serif; margin: 40px; } button { font-size: 18px; padding: 10px 18px; }</style>
+<h1>Confirm access</h1>
+<button id="signin">Use passkey</button>
+<pre id="status">idle</pre>
+<script>
+  // A relying party on localhost: register() makes a discoverable credential on the DevTools virtual authenticator
+  // (a create is not taken by the extension), signIn() is the modal get the extension takes first.
+  const bytes = (n) => crypto.getRandomValues(new Uint8Array(n));
+  const status = (text) => { document.getElementById("status").textContent = text; window.__status = text; };
+  window.register = async () => {
+    const credential = await navigator.credentials.create({ publicKey: {
+      rp: { id: "localhost", name: "cmux probe" }, user: { id: bytes(16), name: "probe", displayName: "Probe" },
+      challenge: bytes(32), pubKeyCredParams: [{ type: "public-key", alg: -7 }],
+      authenticatorSelection: { residentKey: "required", userVerification: "preferred" }, timeout: 20000 } });
+    return credential.id;
+  };
+  window.signIn = async () => {
+    status("waiting");
+    try {
+      const credential = await navigator.credentials.get({ publicKey: {
+        rpId: "localhost", challenge: bytes(32), userVerification: "preferred", timeout: 60000 } });
+      status(`signed in ${credential.id.slice(0, 12)}`);
+    } catch (error) {
+      status(`failed ${error.name}: ${error.message}`);
+    }
+  };
+  document.getElementById("signin").onclick = () => window.signIn();
+</script>
