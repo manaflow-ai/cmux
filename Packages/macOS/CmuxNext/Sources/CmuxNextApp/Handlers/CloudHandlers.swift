@@ -184,12 +184,12 @@ enum CloudHandlers {
         context.services.registry.track(task)
     }
 
-    /// Shows `workspaceID` in the active window (or a new one); a Cloud chat's own in place of `origin`, the workspace on this Mac its Send began in
-    /// (never Home): in that one's window, right above its row, which closes once empty, so after Enter the row sent from is the Cloud workspace.
+    /// Shows `workspaceID` in the active window (or a new one); a Cloud chat's own in the window of `origin`, the workspace on this Mac its Send
+    /// began in (never Home), which then closes once empty: after Enter that window holds one workspace for the chat, its Cloud one.
     static func show(_ workspaceID: String, _ context: AppActionContext, replacing origin: String? = nil) {
         let windows = context.services.windows
         if let origin, origin != workspaceID, origin != NewWorkspacePlacements.home(context.services.machines), let state = windows.actingWindow(for: origin).flatMap({ windows.states[$0] }) {
-            windows.claim(workspaceID: workspaceID, in: state); windows.place(newWorkspace: workspaceID, in: state.id, at: .above(origin))
+            windows.claim(workspaceID: workspaceID, in: state)
         } else if let state = windows.active?.state { windows.show(workspaceID: workspaceID, in: state) } else { windows.openWindow(workspaces: [workspaceID]) }
     }
 

@@ -3,7 +3,6 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextCloud
 @testable import CmuxNextDaemon
-import CmuxNextSidebar
 import CmuxNextTestSupport
 import Foundation
 import Testing
@@ -302,9 +301,9 @@ struct UnopenedCloudMachinesTests {
         #expect(registry.owner(of: "ws-image-terminal") != nil && registry.owner(of: "ws-chat") != nil)
     }
 
-    /// After Enter, the workspace the person sent from is the Cloud one: the chat's workspace takes its window and its row
-    /// (right above it, which then closes empty), selected, and the machine's starter stays out. No second row elsewhere.
-    @Test func aCloudChatsWorkspaceTakesTheRowItWasSentFrom() throws {
+    /// After Enter, the chat's Cloud workspace goes to the window it was sent from, shown there (the one sent from then
+    /// closes empty), and the machine's starter stays out: one workspace for the chat, in no other window.
+    @Test func aCloudChatsWorkspaceTakesTheWindowItWasSentFrom() throws {
         let services = Self.services()
         defer { Self.closeWindows(services) }
         services.machines.local.store.apply(snapshot: DaemonTree(registryID: "s-local", workspaces: [
@@ -324,13 +323,8 @@ struct UnopenedCloudMachinesTests {
         #expect(registry.owner(of: "ws-chat") == "w-person", "the chat's workspace went to another window than the one it was sent from")
         #expect(services.windows.states["w-person"]?.workspaceID == "ws-chat", "the chat's workspace is not the one shown")
         #expect(registry.owner(of: "ws-image-terminal") == nil, "the machine's starter terminal workspace joined the sidebar")
-        let sidebar = try #require(services.windows.controller(for: "w-person")?.sidebar)
-        let rows = WindowManager.placementSections(in: sidebar).flatMap(\.nodes).compactMap { node -> String? in
-            if case let .workspace(workspace) = node { return workspace.id.rawValue }
-            return nil
-        }
-        #expect(rows.firstIndex(of: "ws-chat").map { rows.index(after: $0) } == rows.firstIndex(of: "ws-sent-from"),
-                "the chat's workspace is not at the row it was sent from: \(rows)")
+        // Its row lists under its Cloud machine's section (each machine's workspaces list in their own), not beside the one sent from.
+        #expect(registry.lists("ws-chat", in: "w-person"))
     }
 
     @Test func onlyAWorkspaceOfAgentChatsLeavesItsMachineUnopened() {
