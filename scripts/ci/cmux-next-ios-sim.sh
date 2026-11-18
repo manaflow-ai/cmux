@@ -1519,6 +1519,14 @@ if [[ "$mode" == pair-e2e ]]; then
     ./scripts/download-prebuilt-ghosttykit.sh >"$work/ghosttykit.log" 2>&1 ||
       { tail -20 "$work/ghosttykit.log"; echo "error: could not download GhosttyKit.xcframework" >&2; exit 1; }
   fi
+  # The fleet's pinned Zig (the worker's tools, as its probe reports): PATH can name an
+  # older /usr/local Zig the tree refuses ("Your Zig version v0.16.0 does not meet the
+  # required build version of v0.17.0", steps e00987962032845838c55ef5 and
+  # b9658de920bf40d484a998ac), and ghostty-vt-sys takes CMUX_ZIG first.
+  fleet_zig=/Users/Shared/cmux-build-fleet/tools/bin/zig
+  if [[ -z "${CMUX_ZIG:-}${ZIG:-}" && -x "$fleet_zig" ]]; then
+    export CMUX_ZIG="$fleet_zig" PATH="${fleet_zig%/zig}:$PATH"
+  fi
   # A fleet build (CMUX_FLEET_BUILD_TAG) builds acpmux, optchat-chief and
   # cmux-mobile-host on a cache miss and requires them in the bundle.
   set +e
