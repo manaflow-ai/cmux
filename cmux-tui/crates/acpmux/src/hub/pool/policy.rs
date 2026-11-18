@@ -358,12 +358,15 @@ impl<T> Pool<T> {
     }
 
     /// Take the ready session for `key`. A session in the same slot under
-    /// another key is removed and handed back for ending.
+    /// another key is removed and handed back for ending. The claim calls
+    /// [`take_or_keep`](Self::take_or_keep); the policy tests call this.
+    #[cfg(test)]
     pub fn take(&mut self, key: &PoolKey) -> Take<T> {
         self.take_or_keep(key, true)
     }
 
-    /// [`take`](Self::take); with `discard_other` false, a session in the same
+    /// Take the ready session for `key`. A session in the same slot under another key is
+    /// removed and handed back for ending; with `discard_other` false, a session in the same
     /// slot under another key stays (a miss): a credentialed start never ends
     /// the uncredentialed spare of its folder, which it could never take.
     pub fn take_or_keep(&mut self, key: &PoolKey, discard_other: bool) -> Take<T> {
