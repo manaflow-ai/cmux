@@ -254,7 +254,7 @@ public final class MacScreenDevicesSettings {
         let sharing = hub.thisDevice.map { _ in
             State.Sharing(on: hubHost.isSharing, busy: hubHost.busy, permissions: [
                 .init(id: "screenRecording", title: L.t("macScreen.home.screenRecording", "Screen Recording"),
-                      detail: L.t("macScreen.home.screenRecordingDetail", "Lets cmux send this screen. macOS may ask you to quit and reopen cmux."),
+                      detail: MacScreenGrantCopy.screenRecordingDetail(share.grantHolderName),
                       granted: share.screenRecordingGranted),
                 .init(id: "accessibility", title: L.t("macScreen.home.accessibility", "Accessibility"),
                       detail: L.t("macScreen.home.accessibilityDetail", "Lets the other Mac click and type here. Without it, it can only watch."),
@@ -444,6 +444,7 @@ public final class MacScreenDevicesSettings {
         case .peerOffline: L.t("devices.history.offline", "A device went offline")
         case .failed: L.t("devices.history.failed", "The stream could not start")
         case .expired: L.t("devices.history.expired", "No answer in time")
+        case .consentRequired: String(format: L.t("devices.history.consentRequired", "%@ hasn’t allowed screen sharing"), host)
         case .approveFailed: L.t("devices.history.approveFailed", "Approved, but the session couldn’t start")
         case .other: L.t("devices.history.other", "Ended")
         }

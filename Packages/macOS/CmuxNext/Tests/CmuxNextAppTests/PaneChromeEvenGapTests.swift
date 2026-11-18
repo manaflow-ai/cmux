@@ -128,13 +128,15 @@ import Testing
         let reload = topLeft(chrome.reloadButton.bounds, in: chrome.reloadButton, window: window)
         let bar = topLeft(chrome.addressBar.bounds, in: chrome.addressBar, window: window)
         let page = topLeft(chrome.contentContainer.bounds, in: chrome.contentContainer, window: window)
-        // The toolbar buttons are the location bar's height (Helium's `kToolbarButtonHeight`, 28 at Default).
-        let row = OmnibarStyle.barHeight
-        #expect(reload.width == row && reload.height == row, "\(style): the reload button is \(reload.size), the bar \(row)")
+        // The toolbar buttons are the location bar's height (Helium's `kToolbarButtonHeight`), Compact's 28 at Default on
+        // its 34 pt bar (#44875: Compact's padding), centered in the row.
+        let row = OmnibarStyle.buttonSize
+        #expect(reload.width == row && reload.height == row, "\(style): the reload button is \(reload.size), want \(row)")
+        let centering = (OmnibarStyle.rowContentHeight() - row) / 2
         #expect(abs(reload.midY - bar.midY) <= 0.5, "\(style): the omnibar's center is \(bar.midY), the buttons' \(reload.midY)")
         let above = Metrics.paneBorder == .subtle ? reload.minY - top - (Metrics.paneBorderWidth ?? 1 / window.backingScaleFactor) : reload.minY - top + gap
         let below = page.minY - reload.maxY
-        #expect(abs(above - gap) <= 0.5, "\(style): \(above) pt above the buttons, the gap is \(gap)")
-        #expect(abs(below - gap) <= 0.5, "\(style): \(below) pt below the buttons, the gap is \(gap)")
+        #expect(abs(above - (gap + centering)) <= 0.5, "\(style): \(above) pt above the buttons, want the gap \(gap) + \(centering)")
+        #expect(abs(below - (gap + centering)) <= 0.5, "\(style): \(below) pt below the buttons, want the gap \(gap) + \(centering)")
     }
 }
