@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useMemo, useRef, useSyncExternalStore } from "react";
+import { useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { AppSceneMount } from "../../../apps/scene/appSceneMount";
 import { appPanelsDevClient } from "../../../apps/scene/panelsClient";
 import {
@@ -83,10 +83,13 @@ export function NewTabAppPage({
     return reportInputReadyWhenFocused(globalThis.window, () => report(inputToken));
   }, [inputToken, drawn, composes]);
   // The latest caller's callback behind one host value: a re-render of the caller re-registers nothing.
+  // Updated after commit (render stays pure); a scene effect or a click reads them later.
   const giveComposer = useRef(onComposer);
-  giveComposer.current = onComposer;
   const opener = useRef(onOpen);
-  opener.current = onOpen;
+  useLayoutEffect(() => {
+    giveComposer.current = onComposer;
+    opener.current = onOpen;
+  });
   const hosts = !!onComposer;
   const opens = !!onOpen;
   const host = useMemo((): SceneHost | undefined => {
