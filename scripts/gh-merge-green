@@ -343,7 +343,7 @@ fi
 # transport/auth/query failures remain hard refusals. REST metadata is
 # normalized to the fields used below so fork and exact-head checks are kept.
 graphql_quota_error() {
-  grep -Eiq '(^|[^[:alnum:]])(api[[:space:]]+rate[[:space:]]+limit[[:space:]]+exceeded|secondary[[:space:]]+rate[[:space:]]+limit|rate[[:space:]]+limit[[:space:]]+exceeded|graphql[^[:cntrl:]]*(api[[:space:]]+rate[[:space:]]+limit|secondary[[:space:]]+rate[[:space:]]+limit|quota))([^[:alnum:]]|$)' "$1"
+  grep -Eiq '(^|[^[:alnum:]])(api[[:space:]]+rate[[:space:]]+limit[[:space:]]+exceeded|secondary[[:space:]]+rate[[:space:]]+limit|rate[[:space:]]+limit[[:space:]]+exceeded|rate[[:space:]]+limit[[:space:]]+is[[:space:]]+spent|graphql[^[:cntrl:]]*(api[[:space:]]+rate[[:space:]]+limit|secondary[[:space:]]+rate[[:space:]]+limit|quota))([^[:alnum:]]|$)' "$1"
 }
 
 # A GitHub read that hit the API rate limit refuses at once, with each pool's reset time

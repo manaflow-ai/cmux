@@ -376,6 +376,11 @@ class InstallGhMergeGreenTests(unittest.TestCase):
         stale = self.gh_merge_green("x#15")
         self.assertEqual(stale.stdout, "v1 x#15\n")
         self.assertIn("more than 3 days ago", stale.stderr)
+        # A leading zero is decimal, not a bash octal error that stops the launcher.
+        self.env["GH_MERGE_GREEN_STALE_DAYS"] = "08"
+        quiet = self.gh_merge_green("x#18")
+        self.assertEqual(quiet.stdout, "v1 x#18\n", quiet.stderr)
+        self.assertNotIn("confirmed current", quiet.stderr)
         self.env["GH_MERGE_GREEN_STALE_DAYS"] = "0"
         self.assertNotIn("confirmed current", self.gh_merge_green("x#16").stderr)
 

@@ -50,6 +50,7 @@ esac
 # stale (2026-11-04 to 11-18 on one of Leo's Macs: 14 days, unseen). Say so on every run.
 stale_days="${GH_MERGE_GREEN_STALE_DAYS:-3}"
 case "$stale_days" in ''|*[!0-9]*) stale_days=3 ;; esac
+stale_days=$((10#$stale_days))  # decimal: "08" is no octal error, "00" is off like "0"
 # Minutes, not -mtime: that counts whole days, so "+3" first matched at four (cmux#46263's review).
 if [ "$stale_days" != 0 ] && [ -f "$GH_MERGE_GREEN_HOME/checked" ] &&
    [ -n "$(find "$GH_MERGE_GREEN_HOME/checked" -mmin +"$((stale_days * 1440))" 2>/dev/null)" ]; then

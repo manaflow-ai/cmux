@@ -21,9 +21,11 @@ import time
 from typing import Callable
 
 # The same phrases gh-merge-green's graphql_quota_error matches: GitHub's primary and
-# secondary limits, from GraphQL or REST. "remaining=0" alone is not one.
+# secondary limits, from GraphQL or REST, and the gh-quota shim's latch ("GitHub's GraphQL
+# rate limit is spent for login until 08:37Z", cmux#45937). "remaining=0" alone is not one.
 QUOTA = re.compile(
     r"(^|[^0-9A-Za-z])(api\s+rate\s+limit\s+(already\s+)?exceeded|secondary\s+rate\s+limit|rate\s+limit\s+exceeded"
+    r"|rate\s+limit\s+is\s+spent"
     r"|graphql[^\x00-\x1f]*(api\s+rate\s+limit|secondary\s+rate\s+limit|quota))([^0-9A-Za-z]|$)",
     re.IGNORECASE)
 POOLS = ("graphql", "core")

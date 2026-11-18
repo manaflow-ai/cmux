@@ -332,7 +332,11 @@ def read_pr(repo: str, number: str, run: Runner = _gh) -> dict:
     status, out, err = run(["api", "graphql", "-f", f"query={QUERY}", "-f", f"owner={owner}", "-f", f"name={name}",
                             "-F", f"number={number}"])
     if status == 0:
-        return unwrap(json.loads(out))
+        # A 200 can still carry a refusal (`errors`: RATE_LIMITED) or a cut-off body; REST answers those too.
+        try:
+            return unwrap(json.loads(out))
+        except (Refused, ValueError) as graphql:
+            err = str(graphql)
     # GraphQL and REST are separate pools. On 2026-11-18 a Mac's gh-quota shim refused this read with "GitHub's
     # GraphQL rate limit is spent" while REST had quota, and the gate refused the merge (cmux#45937).
     try:
@@ -383,8 +387,11 @@ def read_pr_rest(repo: str, number: str, run: Runner = _gh) -> dict:
     pull = _rest(run, f"repos/{repo}/pulls/{number}")
     if not isinstance(pull, dict) or not (pull.get("head") or {}).get("sha"):
         raise Refused(f"gh api repos/{repo}/pulls/{number} returned no head")
-    reviews = _rest_list(run, f"repos/{repo}/pulls/{number}/reviews")[-REVIEWS_WINDOW:]
-    comments = _rest_list(run, f"repos/{repo}/issues/{number}/comments")[-COMMENTS_WINDOW:]
+    # The newest by time, whatever order REST lists them in. A pending review has no submitted_at; it is the newest.
+    reviews = sorted(_rest_list(run, f"repos/{repo}/pulls/{number}/reviews"),
+                     key=lambda item: item.get("submitted_at") or "~")[-REVIEWS_WINDOW:]
+    comments = sorted(_rest_list(run, f"repos/{repo}/issues/{number}/comments"),
+                      key=lambda item: item.get("created_at") or "~")[-COMMENTS_WINDOW:]
     return {
         "headRefOid": pull["head"]["sha"],
         "labels": {"nodes": [{"name": label.get("name")} for label in pull.get("labels") or []]},

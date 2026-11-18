@@ -588,6 +588,41 @@ class Command(unittest.TestCase):
         # An approval of the head, read over REST, passes the gate as it does over GraphQL.
         self.assertTrue(receipt.receipt(pr_read, HEAD))
 
+    def test_the_shims_spent_pool_refusal_on_both_reads_exits_3(self):
+        def run(args):
+            pool = "GraphQL" if args[1] == "graphql" else "REST"
+            return 3, "", f"gh-quota: refused: GitHub's {pool} rate limit is spent for login until 08:37Z (reset)"
+
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            status = receipt.main(["manaflow-ai/cmux", "42", HEAD], run=run)
+        self.assertEqual(status, 3, err.getvalue())
+
+    def test_a_graphql_200_that_carries_a_rate_limit_error_reads_over_rest(self):
+        run, calls = self.rest_github(comments=[SHIP])
+
+        def graphql_200(args):
+            if args[1] == "graphql":
+                calls.append(args)
+                return 0, json.dumps({"errors": [{"type": "RATE_LIMITED", "message": "API rate limit exceeded"}]}), ""
+            return run(args)
+
+        self.assertEqual(receipt.read_pr("manaflow-ai/cmux", "42", run=graphql_200)["headRefOid"], HEAD)
+        self.assertTrue(any(args[1].endswith("/pulls/42") for args in calls), calls)
+
+    def test_the_rest_read_takes_the_newest_items_whatever_their_order(self):
+        run, _ = self.rest_github(comments=["noise"] * 45 + [SHIP])
+
+        def newest_first(args):
+            status, out, err = run(args)
+            if "/comments?" in args[1]:
+                out = json.dumps(list(reversed(json.loads(out))))
+            return status, out, err
+
+        nodes = receipt.read_pr("manaflow-ai/cmux", "42", run=newest_first)["comments"]["nodes"]
+        self.assertEqual(len(nodes), 40)
+        self.assertIn(SHIP, [node["body"] for node in nodes])
+
     def test_an_unreadable_pull_request_refuses(self):
         def run(args):
             return 1, "", "HTTP 502"
