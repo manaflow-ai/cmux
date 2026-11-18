@@ -87,6 +87,14 @@ enum HomeHeaderPanels {
         }
     }
 
+    /// A bare launch's first frame (stage 0, before `AppServices`): the buttons a local Chief's page
+    /// shows, off and without shortcuts (only their tooltips name one), as the page draws them at the swap.
+    static func launchItems(panels: [HomeHeaderPanel] = all, enabled: Bool = HomeTunables.headerPanelToggles.value) -> [HomeHeaderPanelItem] {
+        panels.filter { enabled || $0.alwaysShown }.map { panel in
+            HomeHeaderPanelItem(id: panel.id, symbol: panel.symbol, onSymbol: panel.onSymbol, label: panel.label(), isOn: false)
+        }
+    }
+
     /// A click on toggle `id`: its action, as the person's own run.
     @discardableResult
     static func toggle(_ id: String, _ context: HomeHeaderPanelContext, panels: [HomeHeaderPanel] = all) -> Bool {

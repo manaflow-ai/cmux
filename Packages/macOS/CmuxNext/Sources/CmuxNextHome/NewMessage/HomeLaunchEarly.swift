@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxHomeCore
 public import CmuxNextDesign
+import CmuxNextHomeModel
 
 /// A bare launch's message box in stage 0's first frame (`LaunchShellContent.bare`), before
 /// `AppServices` and the real window exist: the Chief's own view over the launch store, taking
@@ -21,6 +22,7 @@ public final class HomeLaunchEarly {
     private var ready: (@MainActor () -> Void)?
     private var isUp = false
     private let title: @MainActor () -> String
+    private let panels: @MainActor () -> [HomeHeaderPanelItem]
     private let mark: @MainActor (String) -> Void
 
     /// The launch store and hold behind stage 0's box, and its view.
@@ -47,10 +49,13 @@ public final class HomeLaunchEarly {
 
     /// - Parameters:
     ///   - title: The Chief's name (`HomeStrings.chiefName`), read when stage 0 asks.
+    ///   - panels: The header toggles a local Chief's page shows, all off (`HomeHeaderPanels.launchItems`).
     ///   - mark: The box's launch marks (`home.launch_early`, and `window_usable` when it takes
     ///     the keyboard in a key window), as Home's page in the real window marks them.
-    public init(title: @escaping @MainActor () -> String, mark: @escaping @MainActor (String) -> Void) {
+    public init(title: @escaping @MainActor () -> String, panels: @escaping @MainActor () -> [HomeHeaderPanelItem],
+                mark: @escaping @MainActor (String) -> Void) {
         self.title = title
+        self.panels = panels
         self.mark = mark
     }
 
@@ -70,9 +75,15 @@ public final class HomeLaunchEarly {
     /// Stage 0's content for this launch: makes the box and its view.
     func start(frame: CGRect) -> NSView {
         let mark = mark
+        let panels = panels()
         let box = Box(title: title(), frame: frame) { store in
-            HomeNativeTranscriptView(store: store, conversation: HomeLaunchChiefSource.conversation, me: Self.me.id,
-                                     composerFocused: { mark($0.window?.isKeyWindow == true ? "window_usable" : "home.composer_focused_not_key") })
+            let view = HomeNativeTranscriptView(store: store, conversation: HomeLaunchChiefSource.conversation, me: Self.me.id,
+                                                composerFocused: { mark($0.window?.isKeyWindow == true ? "window_usable" : "home.composer_focused_not_key") })
+            // What Home's page over this conversation shows at the swap: its header toggles (off), and the
+            // first-run panel hidden on a fresh install, where the welcome plays in the chat (HomeHostView).
+            view.setHeaderPanels(panels)
+            view.welcomesInChat = ChiefIntroStore(defaults: .standard).welcomePending
+            return view
         }
         self.box = box
         mark("home.launch_early")

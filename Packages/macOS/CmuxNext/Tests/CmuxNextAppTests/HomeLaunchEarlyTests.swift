@@ -15,7 +15,7 @@ struct HomeLaunchEarlyTests {
 
     @Test func thePageTakesStage0sTextAndHeldSends() async throws {
         let marks = Marks()
-        let early = HomeLaunchEarly(title: { "Chief" }) { marks.add($0) }
+        let early = HomeLaunchEarly(title: { "Chief" }, panels: { [] }) { marks.add($0) }
         let view = early.start(frame: Self.frame)
         #expect(view.frame == Self.frame)
         #expect(marks.all == ["home.launch_early"])
@@ -37,7 +37,7 @@ struct HomeLaunchEarlyTests {
     }
 
     @Test func aParkedDraftGoesAfterStage0sText() async throws {
-        let early = HomeLaunchEarly(title: { "Chief" }) { _ in }
+        let early = HomeLaunchEarly(title: { "Chief" }, panels: { [] }) { _ in }
         _ = early.start(frame: Self.frame)
         try #require(early.box).store.setDraft("new", for: Self.launch)
         let home = Self.home()
@@ -50,7 +50,7 @@ struct HomeLaunchEarlyTests {
     }
 
     @Test func theSwapWaitsForTheRealBox() async throws {
-        let early = HomeLaunchEarly(title: { "Chief" }) { _ in }
+        let early = HomeLaunchEarly(title: { "Chief" }, panels: { [] }) { _ in }
         _ = early.start(frame: Self.frame)
         var swapped = 0
         early.whenUp { swapped += 1 }
@@ -73,7 +73,7 @@ struct HomeLaunchEarlyTests {
     }
 
     @Test func withNoPageTheChiefTakesTheTextAndSends() async throws {
-        let early = HomeLaunchEarly(title: { "Chief" }) { _ in }
+        let early = HomeLaunchEarly(title: { "Chief" }, panels: { [] }) { _ in }
         _ = early.start(frame: Self.frame)
         let box = try #require(early.box)
         box.store.setDraft("typed", for: Self.launch)
@@ -94,7 +94,7 @@ struct HomeLaunchEarlyTests {
     }
 
     @Test func aQuitBeforeAnyPageKeepsStage0sText() async throws {
-        let early = HomeLaunchEarly(title: { "Chief" }) { _ in }
+        let early = HomeLaunchEarly(title: { "Chief" }, panels: { [] }) { _ in }
         _ = early.start(frame: Self.frame)
         let box = try #require(early.box)
         box.store.setDraft("typed", for: Self.launch)
@@ -108,6 +108,14 @@ struct HomeLaunchEarlyTests {
         #expect(box.hold.heldParts == [[.text("held")]])
         box.hold.resolve(Self.chief) { _, _, _ in }
         _ = try await send.value
+    }
+
+    /// Stage 0 draws the header toggles it is given (the page's, off), so the swap moves none.
+    @Test func stage0ShowsThePagesHeaderToggles() throws {
+        let item = HomeHeaderPanelItem(id: "screenShare", symbol: "display", onSymbol: "record.circle", label: "Share Screen", isOn: false)
+        let early = HomeLaunchEarly(title: { "Chief" }, panels: { [item] }) { _ in }
+        let transcript = try #require(HomeNativeTranscriptView.first(in: early.start(frame: Self.frame)))
+        #expect(transcript.headerPanelItems == [item])
     }
 
     static func home() -> HomeStore {
