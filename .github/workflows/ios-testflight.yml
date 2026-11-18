@@ -758,11 +758,13 @@ jobs:
           fi
           # TestFlight uses production APNs. Both capabilities must be present
           # in the installed profile or export can silently strip them.
+          # plist-exists: security cms -D wrote $TMP_PLIST above, and the unsilenced APP_ID read already failed on a missing one
           APS_ENVIRONMENT="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:aps-environment" "$TMP_PLIST" 2>/dev/null || echo "")"
           if [ -z "$APS_ENVIRONMENT" ] || [ "$APS_ENVIRONMENT" != "production" ]; then
             echo "$IOS_BETA_PROFILE_TYPE provisioning profile aps-environment is '${APS_ENVIRONMENT:-<absent>}', expected 'production'" >&2
             exit 1
           fi
+          # plist-exists: security cms -D wrote $TMP_PLIST above, and the unsilenced APP_ID read already failed on a missing one
           TIME_SENSITIVE="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.developer.usernotifications.time-sensitive" "$TMP_PLIST" 2>/dev/null || echo "")"
           if [ "$TIME_SENSITIVE" != "true" ]; then
             echo "$IOS_BETA_PROFILE_TYPE provisioning profile com.apple.developer.usernotifications.time-sensitive is '${TIME_SENSITIVE:-<absent>}', expected 'true'" >&2

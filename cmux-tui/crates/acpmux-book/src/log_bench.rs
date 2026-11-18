@@ -23,6 +23,7 @@
 //! `cargo test -p acpmux-book --release --lib god_vs_small -- --ignored --nocapture`
 //! The kill-at-every-byte tests are in `recover_tests.rs` and run with the ordinary suite.
 
+use crate::gate_rounds::{self, best_p95};
 use crate::log::{Anchor, Edge, Log, MAX_PAGE_BYTES, RawRange, StateWriter, section};
 use crate::testkit::{open, text};
 use std::fmt::Write as _;
@@ -54,21 +55,19 @@ struct Dist {
     /// The lowest p95 of `ROUNDS` equal groups of the samples, in the order they were taken:
     /// what the 1.2x bars compare, so one noisy stretch of a shared CI machine fails nothing.
     best_p95: u64,
+    /// Those groups, for [`gate_rounds::report`].
+    rounds: Vec<Vec<u128>>,
 }
 
 fn dist(samples: &[u64]) -> Dist {
     let mut sorted = samples.to_vec();
     sorted.sort_unstable();
-    let best_p95 = samples
+    let rounds: Vec<Vec<u128>> = samples
         .chunks(samples.len().div_ceil(ROUNDS))
-        .map(|group| {
-            let mut group = group.to_vec();
-            group.sort_unstable();
-            percentile(&group, 0.95)
-        })
-        .min()
-        .unwrap();
-    Dist { p50: percentile(&sorted, 0.5), p95: percentile(&sorted, 0.95), best_p95 }
+        .map(|group| group.iter().copied().map(u128::from).collect())
+        .collect();
+    let best_p95 = best_p95(&rounds) as u64;
+    Dist { p50: percentile(&sorted, 0.5), p95: percentile(&sorted, 0.95), best_p95, rounds }
 }
 
 /// Append, rather than replace, so one runner can collect several crate-local gates.
@@ -93,6 +92,7 @@ fn gate_p95(small: &Dist, god: &Dist) -> (u64, u64) {
 }
 
 fn emit_timing(name: &str, small: &Dist, god: &Dist) {
+    gate_rounds::report(name, &[("small", &small.rounds), ("god", &god.rounds)]);
     let (small, god) = gate_p95(small, god);
     emit_measure(name, small, god, "ns");
 }

@@ -133,6 +133,19 @@ describe("judgeLoss", () => {
     expect(v.text).toContain("the client is missing step 4");
   });
 
+  test("a gap names the journal's kind of each skipped seq", () => {
+    const j = turn(10).map((e) => e.seq === 47 ? { ...e, kind: "agent_message_chunk" } : e);
+    const client = j.filter((e) => e.seq !== 47);
+    const v = judgeLoss({ n: 10, journal: j, client });
+    expect(v.text).toContain("the client's stream jumps 46->48 [agent_message_chunk]");
+    const many = turn(10).filter((e) => e.seq < 45 || e.seq > 49);
+    expect(judgeLoss({ n: 10, journal: turn(10), client: many }).text).toContain("44->50 [?,?,?,...]");
+  });
+
+  test("journalEvent keeps the record's kind", () => {
+    expect(journalEvent("t", { seq: 7, kind: "agent_message_chunk", msg: {} })?.kind).toBe("agent_message_chunk");
+  });
+
   test("a delivery received twice is doubled output", () => {
     const j = turn(10);
     const client = [...j.slice(0, 12), j[11], ...j.slice(12)];
@@ -293,7 +306,7 @@ describe("journalEvent", () => {
     rawOutput: `chaos-t-${k}\n`, content: [{ type: "content", content: { type: "text", text: `chaos-t-${k}` } }], ...extra });
   test("a stored tool update counts its step once, keyed by its call", () => {
     const e = journalEvent("t", { seq: 7, at: 1, dir: "in", kind: "tool_call_update", msg: { jsonrpc: "2.0", method: "session/update", params: { sessionId: "s", update: update(12) } } });
-    expect(e).toEqual({ seq: 7, ks: [12], call: "toolu_12" });
+    expect(e).toEqual({ seq: 7, ks: [12], call: "toolu_12", kind: "tool_call_update" });
   });
   test("the call's command, a replayed load and a raw transcript event carry no step", () => {
     const call = { sessionUpdate: "tool_call", toolCallId: "toolu_3", rawInput: { command: "sleep 0.2; printf '%s-%s-%s\\n' chaos t 3" } };
@@ -321,7 +334,7 @@ describe("journalCommand", () => {
       const r = spawnSync("sh", ["-c", `c=${join(bin, "c")}; ${journalCommand("ses-1", 4)}`], { encoding: "utf8" });
       expect(r.stdout.trim().split("\n").pop()).toBe("@@exit 0");
       const events = r.stdout.split("\n").filter((l) => l.startsWith("{")).map((l) => journalEvent("t", JSON.parse(l)));
-      expect(events).toEqual([{ seq: 5, ks: [] }, { seq: 6, ks: [1], call: "a" }]);
+      expect(events).toEqual([{ seq: 5, ks: [], kind: "agent_message_chunk" }, { seq: 6, ks: [1], call: "a", kind: "tool_call_update" }]);
       expect(r.stdout).not.toContain("xxxxx");
       expect(spawnSync("cat", [join(bin, "args")], { encoding: "utf8" }).stdout.trim()).toBe("acp tail ses-1 --since 4");
     } finally {
@@ -764,5 +777,28 @@ describe("the felt time after a send", () => {
 
   test("the felt prompt never plays the counting turn", () => {
     expect(new RegExp(countingTurnScript().match).test(chaos.feltMarker("t-0"))).toBe(false);
+  });
+});
+
+describe("the machine at a stall", () => {
+  test("names acpmux's queues and the logs' attachment lines, and runs where journalctl is missing", () => {
+    const dir = mkdtempSync(join(tmpdir(), "chaos-stall-"));
+    try {
+      const c = join(dir, "c");
+      writeFileSync(c, `#!/bin/sh\nprintf '{"pid":7,\\n"gauges":{"queues":{"connections":3,"bytes":512,"overruns":0,"largest":[]}}}\\n'\n`);
+      chmodSync(c, 0o755);
+      const log = join(dir, ".acpmux");
+      spawnSync("mkdir", ["-p", log]);
+      writeFileSync(join(log, "daemon.log"), "INFO quiet\nWARN conn 4 lagged dropped 12\n");
+      const r = spawnSync("sh", ["-c", `c=${c}; ${chaos.STALL_FACTS_COMMAND}`], { encoding: "utf8", env: { HOME: dir, PATH: "/usr/bin:/bin" } });
+      expect(r.status).toBe(0);
+      expect(r.stdout).toContain('@@queues "queues":{"connections":3,"bytes":512,"overruns":0');
+      expect(r.stdout).toContain("@@acpmux.service");
+      expect(r.stdout).toContain("@@cmux-host.service");
+      expect(r.stdout).toContain("WARN conn 4 lagged dropped 12");
+      expect(r.stdout).not.toContain("INFO quiet");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

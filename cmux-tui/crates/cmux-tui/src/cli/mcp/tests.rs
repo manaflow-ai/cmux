@@ -19,8 +19,6 @@ struct Fake {
     actions: Value,
     fail_resources: bool,
     fail_apps: bool,
-    /// The app socket is absent; remote screen controls may use the worker.
-    app_absent: bool,
     /// The app refuses every `action.run`, as for a path it cannot open.
     refuse_actions: bool,
     /// The app applied an open action but lost the acknowledgement.
@@ -31,9 +29,6 @@ struct Fake {
     resource_result: Option<Value>,
     /// A refusal from the resource owner, passed through unchanged.
     resource_error: Option<Value>,
-    /// Answer and error controls for cmux Remote's legacy daemon calls.
-    daemon_result: Option<Value>,
-    daemon_error: Option<Value>,
     /// The app's transport drops after a `feed.*` request is sent, as
     /// `transport::app_method` reports it.
     lose_app_transport: bool,
@@ -100,6 +95,10 @@ struct Live {
     oldest: usize,
     /// Every daemon read fails.
     daemon_down: bool,
+    /// The daemon's `chat.list` rows (its chat index); none when unset.
+    chats: Option<Value>,
+    /// Only the daemon's `chat.list` read fails.
+    chats_down: bool,
     changes: Vec<(Instant, Change)>,
 }
 
@@ -124,6 +123,10 @@ enum Change {
     Expire(usize),
     /// Daemon reads fail (true) or answer again (false).
     DaemonDown(bool),
+    /// The daemon's chat index (`chat.list` rows) now.
+    Chats(Value),
+    /// The daemon's `chat.list` read fails (true) or answers again (false).
+    ChatsDown(bool),
 }
 
 impl Live {
@@ -143,6 +146,8 @@ impl Live {
                 Change::Generation(generation) => self.generation = Some(generation.to_owned()),
                 Change::Expire(oldest) => self.oldest = oldest,
                 Change::DaemonDown(down) => self.daemon_down = down,
+                Change::Chats(rows) => self.chats = Some(rows),
+                Change::ChatsDown(down) => self.chats_down = down,
             }
         }
     }
@@ -264,6 +269,12 @@ impl Backend for Fake {
         if live.daemon_down {
             return Err(CallFailure::local(FailureKind::NotRun, "transport.unavailable", "down"));
         }
+        if request["operation"] == "chat.list" {
+            if live.chats_down {
+                return Err(CallFailure::local(FailureKind::NotRun, "app.timeout", "no answer"));
+            }
+            return Ok(live.chats.clone().unwrap_or_else(|| json!([])));
+        }
         if let Some(daemon) = &live.daemon {
             let mut daemon = daemon.clone();
             if let Some(journal) = &live.journal {
@@ -298,9 +309,6 @@ impl Backend for Fake {
             "key": idempotency_key,
             "mutation": mutation,
         }));
-        if self.app_absent {
-            return Err(CallFailure::local(FailureKind::NotRun, "app.not_found", "no cmux app"));
-        }
         if self.lose_app_transport && method.starts_with("feed.") {
             let keyed = idempotency_key.is_some();
             return Err(CallFailure {
@@ -353,25 +361,6 @@ impl Backend for Fake {
             }
             _ => Ok(json!({"ran": true})),
         }
-    }
-
-    fn daemon(&self, request: Value) -> Result<Value, CallFailure> {
-        self.sent.borrow_mut().push(json!({"kind": "daemon", "request": request}));
-        if let Some(error) = &self.daemon_error {
-            return Err(CallFailure {
-                kind: FailureKind::Rejected,
-                error: error.clone(),
-                idempotency_key: None,
-            });
-        }
-        if let Some(result) = &self.daemon_result {
-            return Ok(result.clone());
-        }
-        Err(CallFailure::local(
-            FailureKind::NotRun,
-            "daemon.unavailable",
-            "this server cannot reach the daemon",
-        ))
     }
 
     /// The daemon's stream: its snapshot, then a delta when a daemon change
@@ -968,6 +957,8 @@ fn json_rpc_lifecycle_and_errors() {
         "window_list",
         "agents_snapshot",
         "app_new_window",
+        "device_setup",
+        "device_start",
     ] {
         assert!(names.contains(expected), "missing {expected}");
     }
@@ -1969,79 +1960,6 @@ fn open_url_without_an_app_stays_on_the_daemon() {
     );
 }
 
-#[test]
-fn remote_screen_stop_uses_the_app_action_when_it_is_present() {
-    let fake = Fake::default();
-    let mut server = Server::new(fake, None);
-    let result = server
-        .call(&json!({"name": "remote_stop_session", "arguments": {}}))
-        .expect("a tool result");
-    assert_eq!(result["isError"], false, "{result}");
-    let sent = server.backend.sent.borrow();
-    let app = sent.iter().find(|item| {
-        item["kind"] == "app"
-            && item["method"] == "action.run"
-            && item["params"]["action"] == "macScreen.stopSharing"
-    });
-    let app = app.unwrap_or_else(|| panic!("{sent:?}"));
-    assert_eq!(app["params"]["wait"], true, "{app}");
-    assert_eq!(app["params"]["origin"], "cli", "{app}");
-    assert!(!sent.iter().any(|item| item["kind"] == "daemon"), "{sent:?}");
-}
-
-#[test]
-fn remote_screen_stop_falls_back_to_the_worker_only_when_the_app_is_absent() {
-    let fake =
-        Fake { app_absent: true, daemon_result: Some(json!({"stopped": true})), ..Fake::default() };
-    let mut server = Server::new(fake, None);
-    let result = server
-        .call(&json!({"name": "remote_stop_session", "arguments": {}}))
-        .expect("a tool result");
-    assert_eq!(result["isError"], false, "{result}");
-    assert_eq!(result["structuredContent"]["stopped"], true, "{result}");
-    let sent = server.backend.sent.borrow();
-    assert!(
-        sent.iter()
-            .any(|item| item["kind"] == "daemon"
-                && item["request"]["method"] == "screen.stop_session"),
-        "{sent:?}"
-    );
-}
-
-#[test]
-fn remote_screen_stop_does_not_hide_an_app_refusal_in_the_worker() {
-    let fake = Fake {
-        refuse_actions: true,
-        daemon_result: Some(json!({"should_not": "run"})),
-        ..Fake::default()
-    };
-    let mut server = Server::new(fake, None);
-    let result = server
-        .call(&json!({"name": "remote_stop_session", "arguments": {}}))
-        .expect("a tool result");
-    assert_eq!(result["isError"], true, "{result}");
-    assert_eq!(result["structuredContent"]["error"]["code"], "invalid_argument", "{result}");
-    let sent = server.backend.sent.borrow();
-    assert!(!sent.iter().any(|item| item["kind"] == "daemon"), "{sent:?}");
-}
-
-#[test]
-fn remote_share_off_uses_the_app_action_and_the_same_absent_app_fallback() {
-    let fake =
-        Fake { app_absent: true, daemon_result: Some(json!({"shared": false})), ..Fake::default() };
-    let mut server = Server::new(fake, None);
-    let result = server
-        .call(&json!({"name": "remote_share", "arguments": {"on": false}}))
-        .expect("a tool result");
-    assert_eq!(result["isError"], false, "{result}");
-    let sent = server.backend.sent.borrow();
-    assert!(
-        sent.iter()
-            .any(|item| item["kind"] == "daemon" && item["request"]["method"] == "screen.share"),
-        "{sent:?}"
-    );
-}
-
 /// What models write and the code mode now takes (tests/tool-evals, 11-model panel
 /// 2026-10-27): a call's `.catch()`, a script wrapped as one async function, and a
 /// missing selector or a timer that names its fix.
@@ -2528,5 +2446,43 @@ fn a_terminal_named_by_its_tab_through_terminal() {
     assert_eq!(
         last["request"]["params"]["terminal"], "term_00000000000000000000000000000abc",
         "{last}"
+    );
+}
+
+/// `device_setup` and `device_start` are listed, say they grant nobody access, and refuse wrong
+/// arguments before running anything.
+#[test]
+fn device_tools_are_listed_and_check_their_arguments() {
+    let mut server = Server::new(Fake::default(), None);
+    let listed =
+        server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
+    let tools = listed["result"]["tools"].as_array().cloned().unwrap();
+    for name in [device_tools::SETUP, device_tools::START] {
+        let tool = tools.iter().find(|t| t["name"] == name).unwrap_or_else(|| panic!("{name}"));
+        let description = tool["description"].as_str().unwrap();
+        assert!(description.contains("grants nobody access"), "{description}");
+    }
+    for (name, arguments) in [
+        (device_tools::SETUP, json!({})),
+        (device_tools::SETUP, json!({"device": "studio-mac", "all": true})),
+        (device_tools::SETUP, json!({"device": "--all"})),
+        (device_tools::START, json!({})),
+    ] {
+        let answer = server
+            .handle(&json!({"jsonrpc": "2.0", "id": "c", "method": "tools/call",
+                            "params": {"name": name, "arguments": arguments}}))
+            .unwrap();
+        assert_eq!(answer["result"]["isError"], true, "{name} {arguments}: {answer}");
+    }
+    let words =
+        |name: &str, arguments: Value| device_tools::words(name, arguments.as_object().unwrap());
+    assert_eq!(
+        words(device_tools::SETUP, json!({"device": "studio-mac"})).unwrap(),
+        ["setup", "studio-mac"]
+    );
+    assert_eq!(words(device_tools::SETUP, json!({"all": true})).unwrap(), ["setup", "--all"]);
+    assert_eq!(
+        words(device_tools::START, json!({"device": "studio-mac"})).unwrap(),
+        ["start", "studio-mac"]
     );
 }
