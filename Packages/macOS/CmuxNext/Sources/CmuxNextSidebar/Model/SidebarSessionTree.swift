@@ -167,7 +167,8 @@ public final class SidebarSessionTree {
             // Only the agents' states moved (a lane's turn started or ended, many a second across 10,000 sessions):
             // `statesRevision`, which redraws no row unless a folded parent rolls them up. Anything else: the shape.
             var (now, was) = (state, oldValue)
-            (now?.states, was?.states) = ([:], [:])
+            now?.states = [:]
+            was?.states = [:]
             if now != was { shapeRevision &+= 1 } else { statesRevision &+= 1 }
         }
     }
