@@ -36,6 +36,30 @@ fn a_machine_without_control_consent_gets_no_computer_use_server() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// A `cmux` without `mcp serve` (the static `cmux 0.1.0` lane VMs had) is no `cmux` server, so
+/// the other servers stay listed on their own instead of folding behind one that exits at once.
+#[test]
+fn a_cmux_without_mcp_serve_is_no_server_and_folds_nothing() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("acpmux-cmux-no-mcp-{}", uuid::Uuid::now_v7()));
+    let names = |cmux: &str| -> Vec<String> {
+        let bin = root.join(uuid::Uuid::now_v7().to_string());
+        std::fs::create_dir_all(&bin).unwrap();
+        for (name, body) in [("cmux", cmux), ("optchat-chief", "exit 0")] {
+            std::fs::write(bin.join(name), format!("#!/bin/sh\n{body}\n")).unwrap();
+            std::fs::set_permissions(bin.join(name), std::fs::Permissions::from_mode(0o755))
+                .unwrap();
+        }
+        let inputs = memory_inputs(&bin, Some(r#"{"agents":{"memory":{"enabled":true}}}"#));
+        resolve(&inputs).folded().servers.into_iter().map(|s| s.name).collect()
+    };
+    let serves = names("exit 0");
+    assert_eq!(serves, ["cmux"], "the other servers fold behind it");
+    let old = names(r#"echo 'cmux: unknown resource scope "mcp".' >&2; exit 2"#);
+    assert_eq!(old, [super::MEMORY_SERVER_NAME], "listed on its own, not lost");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 #[test]
 fn chief_turn_tools_contain_no_mac_app_actions() {
     let tools: Vec<_> = super::CHIEF_TURN_TOOLS.split(',').map(str::trim).collect();

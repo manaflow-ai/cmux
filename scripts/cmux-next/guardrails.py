@@ -2195,7 +2195,14 @@ RULES = (
          "// index-allow: <why the index is valid here>",
          line_rule(r"\.(clickedRow|clickedColumn|selectedColumn)\b|\bitem\(atRow:|\bselectedRow\(inColumn:",
                    "index-allow:")),
-    Rule("phone-width", "An iPhone layout that assumes a phone's width: a grid with a fixed column count "
+    Rule("module-strings", "A string read from `bundle: .module` (CMUX-570)",
+         "the app ships English only: the other languages are downloaded packs, read through `Bundle.l10n` "
+         "(`Bundle.module.strings`); a lookup in `.module` stays English after the person's pack lands (14 came in "
+         "from feat-cmux-next in the day #45928 was open)",
+         "`bundle: .l10n` (the module's Bundle+L10n.swift); in CmuxNextApp, `bundle: .module.strings`",
+         "// module-strings-allow: <why this is not a localized string (an image, a resource file)>",
+         line_rule(r"\bbundle:\s*\.module\b(?!\.strings)", "module-strings-allow:")),
+    Rule("phone-width","An iPhone layout that assumes a phone's width: a grid with a fixed column count "
          "(`GridItem(...), count: N`, two or more literal `GridItem(.flexible())`) or a literal iPhone screen width "
          "(375, 390, 393, 402, 414, 428, 430, 440) as a width",
          "an unfolded foldable iPhone's window grows to about 800 pt (nearly square) with no rotation: a fixed "

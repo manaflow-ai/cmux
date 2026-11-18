@@ -42,9 +42,9 @@ struct PaneZoomMarkFrameTests {
     private static let zoom: ActionID = "toggleSplitZoom"
     /// One frame of the layout's time at 120 Hz.
     private static let dt = 1.0 / 120
-    /// The most frames a test steps for one change, as a failure limit only. A zoom's dim holds the zoom for at most
-    /// `PaneZoomDim.longest` (30 frames at `dt`); a change then waits at most `ScreenContentView.commitBound` frames
-    /// more for its panes.
+    /// The most frames a test steps for one change, as a failure limit only. An unzoom's dim goes in at most
+    /// `PaneZoomDim.longest` (30 frames at `dt`); a change waits at most `ScreenContentView.commitBound` frames
+    /// for its panes.
     private static let frames = 60
 
     /// One workspace with one screen: pane 1 on the left, pane 2 on its right, one tab each.
@@ -394,6 +394,7 @@ struct PaneZoomMarkFrameTests {
         shown.left.presentsPage = false
         try #require(shown.layoutZooms, "SETUP: the layout model does not have the store's zoom after the page's time")
         shown.layOut()
+        try #require(shown.exitZoom == nil, "SETUP: the Exit Zoom control shows before the screen's next pass")
         shown.screen.applyPresentation()
         shown.layOut()
         try #require(shown.shows(shown.left) && !shown.shows(shown.right), "SETUP: the screen does not show the zoomed pane alone after the page's time")
