@@ -143,7 +143,7 @@ const real = (pack: boolean): AgentPaneVariant => ({
   snapshot: richChat,
   ready: { cwd: CWD },
   display: pack ? FOLIO_PACK : {},
-  height: 1700,
+  height: 1150,
   ...(pack && { play: packLoaded }),
 });
 

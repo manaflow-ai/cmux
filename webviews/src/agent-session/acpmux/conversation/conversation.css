@@ -1202,6 +1202,12 @@
   font-family: var(--cv-reply-font, var(--cv-font));
   letter-spacing: var(--cv-reply-tracking, var(--cv-tracking, 0px));
 }
+/* A code block's header (its language, its buttons) is chrome, not prose: the chat's font, as in a
+   prompt, never the reply's serif. Without a pack the two are the same font. */
+.cv-md.cv-reply .cv-codeblock__header {
+  font-family: var(--cv-font);
+  letter-spacing: var(--cv-tracking, 0px);
+}
 .cv-md > :first-child {
   margin-top: 0;
 }
