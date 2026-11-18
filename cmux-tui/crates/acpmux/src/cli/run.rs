@@ -32,6 +32,8 @@ pub(crate) mod transfer;
 pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: bool) -> Result<()> {
     if let Command::DetachParent { session } = &cmd {
         crate::cli::detach::run(session, json_out).await
+    } else if let Command::Rewind(args) = &cmd {
+        crate::cli::rewind::run(args, json_out).await
     } else if standard::handles(&cmd) {
         standard::run(cmd, json_out, suppress_reads).await
     } else {

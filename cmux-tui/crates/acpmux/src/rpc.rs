@@ -881,6 +881,11 @@ pub mod method {
     pub const MUX_WORKTREE_REPORT: &str = "_acpmux/worktree/report";
     pub const MUX_WORKTREE_CLEAN: &str = "_acpmux/worktree/clean";
     pub const MUX_WORKTREE_RESTORE: &str = "_acpmux/worktree/restore";
+    /// Back to before this turn on this machine (`server/rewind.rs`, `hub/turn_rewind.rs`):
+    /// `{sessionId, promptId | seq, conversation, files, dryRun?}`.
+    pub const MUX_REWIND: &str = "_acpmux/rewind";
+    /// A rewind's files back: `{sessionId, safetyCheckpointId}` -> `{filesRestored}`.
+    pub const MUX_REWIND_UNDO: &str = "_acpmux/rewind_undo";
     /// Compact closed chats' event logs (`hub/retention.rs`): `{dryRun?, archive?,
     /// olderThanDays?, only?}` -> the pass's report.
     pub const MUX_RETENTION: &str = "_acpmux/retention";

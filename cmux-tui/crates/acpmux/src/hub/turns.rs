@@ -1184,6 +1184,9 @@ impl Hub {
         session.stderr_tail.lock().unwrap().clear();
         // Under the turn lock: this turn ends a person's Stop's hold only if it began under it.
         session.turn_hold.store(session.stop_hold.load(Ordering::SeqCst), Ordering::SeqCst);
+        // Back to before this turn (`turn_rewind.rs`, a setting, off by default): the folder's
+        // checkpoint, before the prompt reaches the agent. Off: nothing waits.
+        self.take_turn_checkpoint(session, &turn_id).await;
         let turn_seq = self
             .append(
                 session,
@@ -1815,7 +1818,9 @@ impl Hub {
             // After the agent's own reason: its fallback could not take the turn, and why.
             super::fallback_start::say_fallback(e);
         }
-        let git = super::turn_git::turn_git(session).await;
+        let mut git = super::turn_git::turn_git(session).await;
+        // The checkpoint before its prompt, when one was taken (`turn_rewind.rs`).
+        git.extend(self.turn_checkpoint_fields(session, turn_id));
         // The end is written from here with no wait, under the shutdown's lock: a shutdown that
         // settled the turn meanwhile wrote its end (Quit Everything) or handed it on, and its
         // sweep finds this one either written or still to settle (`shutdown.rs` `settle_ends`).

@@ -154,6 +154,10 @@ pub(super) async fn route(
     if let Some(reply) = super::worktrees::retention(hub, conn, m, &params).await {
         return reply;
     }
+    // And Back to before this turn (`rewind.rs`): files in this machine's folders.
+    if let Some(reply) = heap(|| super::rewind::dispatch(hub, conn, m, &params)).await {
+        return reply;
+    }
     if let Some(reply) = super::processes::dispatch(hub, conn, m, &params).await {
         return reply;
     }

@@ -275,6 +275,7 @@ mod stalled_turn;
 mod start_retry;
 mod start_watch;
 pub(crate) mod tasks;
+pub(crate) mod turn_rewind;
 pub use session::{Session, live_tags};
 
 /// [`Hub::withdraws`]: each withdraw's answer once its notice is accepted or refused.
@@ -2106,6 +2107,7 @@ impl Hub {
             sign_in_refused_turn: StdMutex::new(None),
             last_model_at: AtomicU64::new(0),
             silent_turn: StdMutex::new(None),
+            turn_checkpoint: StdMutex::new(None),
             turn_cap_timer: StdMutex::new(None),
             inbox_state: StdMutex::new(inbox::Inbox::default()),
             inbox_loaded: AtomicBool::new(false),

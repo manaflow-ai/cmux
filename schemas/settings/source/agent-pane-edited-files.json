@@ -108,6 +108,30 @@
             "turn",
             "agent"
           ]
+        },
+        {
+          "key": "agents.turnCheckpoints",
+          "note": "acpmux reads it at each turn (cmux-tui/crates/acpmux/src/hub/turn_rewind.rs): a git checkpoint of the chat's folder before each prompt, which Back to Before This Turn resets the files to, with Undo. Off by default: it adds the checkpoint's time to each turn's start.",
+          "title": {
+            "key": "settings.agents.turnCheckpoints",
+            "text": "Save a Checkpoint Before Each Chat Turn"
+          },
+          "help": {
+            "key": "settings.agents.turnCheckpoints.help",
+            "text": "Back to Before This Turn on a prompt can then reset the chat's files too, with Undo."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "checkpoint",
+            "rewind",
+            "undo",
+            "restore",
+            "turn",
+            "back",
+            "files",
+            "agent"
+          ]
         }
       ]
     }

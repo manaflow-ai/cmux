@@ -14,6 +14,9 @@ extension AgentPaneEditedFilesSetting {
     public nonisolated static let scopePath = ["agentPane", "editedFiles", "scope"]
     public nonisolated static let scopeDefault = "turn"
     public nonisolated static let scopeValues = ["turn", "session"]
+    /// `agents.turnCheckpoints`: acpmux reads it at each turn (cmux-tui/crates/acpmux/src/hub/turn_rewind.rs): a git checkpoint of the chat's folder before each prompt, which Back to Before This Turn resets the files to, with Undo. Off by default: it adds the checkpoint's time to each turn's start.
+    public nonisolated static let turnCheckpointsPath = ["agents", "turnCheckpoints"]
+    public nonisolated static let turnCheckpointsDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -56,6 +59,16 @@ nonisolated enum AgentPaneEditedFilesSettingsSchema {
                 ]),
                 default: .string(AgentPaneEditedFilesSetting.scopeDefault),
                 keywords: ["edited", "files", "session", "turn", "agent"]
+            ),
+            SettingDescriptor(
+                AgentPaneEditedFilesSetting.turnCheckpointsPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.turnCheckpoints", "Save a Checkpoint Before Each Chat Turn"),
+                help: SettingsText.keyed("settings.agents.turnCheckpoints.help", "Back to Before This Turn on a prompt can then reset the chat's files too, with Undo."),
+                kind: .toggle,
+                default: .bool(AgentPaneEditedFilesSetting.turnCheckpointsDefault),
+                keywords: ["checkpoint", "rewind", "undo", "restore", "turn", "back", "files", "agent"]
             ),
         ]
     }

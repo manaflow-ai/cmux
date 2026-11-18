@@ -599,6 +599,8 @@ pub enum Command {
     #[command(hide = true)]
     DetachParent { session: String },
     #[command(hide = true)]
+    Rewind(crate::cli::rewind::RewindArgs),
+    #[command(hide = true)]
     Fork {
         session: String,
         #[arg(long, short)]
@@ -1013,6 +1015,14 @@ pub enum SessionCmd {
     /// Detach a session from the session that started it: its turns stop showing in that
     /// session's chat, and its `lane.reportsTo` tag goes. The session keeps running.
     Detach { session: String },
+    /// Go back to before a prompt: the conversation (a new chat cut before it; this one stays),
+    /// with --files the chat's files too (the checkpoint `agents.turnCheckpoints` took before
+    /// it), or --files --files-only the files alone. --dry-run says what it would do; --undo
+    /// puts a rewind's files back. Refuses the files while another chat works in the folder.
+    #[command(
+        after_help = "Examples:\n  acpmux session rewind review --seq 41 --dry-run\n  acpmux session rewind review --seq 41 --files\n  acpmux session rewind review --undo ckpt_0193..."
+    )]
+    Rewind(crate::cli::rewind::RewindArgs),
     /// Run the queued prompts a failed turn held. An agent or a script may resume a
     /// queue; only answering a permission or a question needs the cmux app. On a machine a
     /// person works at, a stopped chat first moves to a fleet machine, as `session move --machine
@@ -1494,6 +1504,7 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Restart { session } => Command::RestartAgent { session },
             SessionCmd::Rename { session, new_name } => Command::Rename { session, new_name },
             SessionCmd::Detach { session } => Command::DetachParent { session },
+            SessionCmd::Rewind(args) => Command::Rewind(args),
             SessionCmd::Resume { session, open, mesh } if !mesh.mesh => {
                 Command::ResumeQueue { session, open }
             }

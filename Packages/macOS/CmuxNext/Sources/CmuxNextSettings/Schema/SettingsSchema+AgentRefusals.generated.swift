@@ -16,6 +16,8 @@ extension SettingsSchema {
         "cloud.agentsStartWithoutAsking": .userOnly,
         // Turn checkpoints save the person's whole Cloud machine to their snapshot storage after every turn: only the person turns that on.
         "cloud.turnCheckpoints": .userOnly,
+        // Turn checkpoints let Back to Before This Turn reset the person's files, and add time to every turn's start: only the person turns that on.
+        "agents.turnCheckpoints": .userOnly,
         "agents.chats.roots": .privacy, "agents.chats.discovery": .privacy,
         "agentPane.scrollToBottomOnSend": .userOnly,
         "agents.chats.enabled": .privacy,
