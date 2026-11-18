@@ -360,8 +360,10 @@ pub const HARNESS_2: Argument = Argument { name: "harness", title: t("ActionCata
 pub const MODEL: Argument = Argument { name: "model", title: t("ActionCatalog", "argument.agent.model", "Model"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const HOST: Argument = Argument { name: "host", title: t("Localizable", "argument.agent.host", "Session Host"), kind: ArgKind::Target("machine"), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+/// An acpmux session of this machine, by id; the palette lists them from acpmux `session/list`
+/// (newest first, by title), as `agent open` and `agent open-tab` take them.
 #[rustfmt::skip]
-pub const SESSION: Argument = Argument { name: "session", title: t("Localizable", "argument.agent.session", "Session"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+pub const SESSION: Argument = Argument { name: "session", title: t("Localizable", "argument.agent.session", "Session"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "op:session/list", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const NAME_4: Argument = Argument { name: "name", title: t("Localizable", "argument.agent.workspaceName", "Workspace Name"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
