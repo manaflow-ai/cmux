@@ -34,7 +34,7 @@ const fileSearchCase: VisibleListCase = {
     input.dispatchEvent(new Event("input", { bubbles: true }));
     const list = () => root.querySelector<HTMLElement>("[role='listbox']")!;
     while (list().querySelectorAll("[role='option']").length < Math.min(n, 1))
-      await new Promise((done) => setTimeout(done, 10));
+      await new Promise((done) => requestAnimationFrame(done));
     return {
       rowSelector: '[role="option"]',
       rowComponents: ["FileResultRow"],
