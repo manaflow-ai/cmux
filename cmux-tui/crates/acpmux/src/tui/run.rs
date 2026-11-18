@@ -252,7 +252,7 @@ pub(super) fn make_app(
     Ok(App {
         client: client.clone(),
         tx: tx.clone(),
-        sessions,
+        sessions: sessions.into(),
         selected: 0,
         transcripts: HashMap::new(),
         details: HashMap::new(),
@@ -335,6 +335,7 @@ pub(super) fn make_app(
         sidebar_nav: Vec::new(),
         sidebar_nav_pos: 0,
         sidebar_offset: 0,
+        sidebar_layout: render::SidebarLayout::default(),
         toast: None,
         last_click: None,
         pointer_shape: false,
@@ -365,8 +366,12 @@ async fn reconnect(app: &mut App) -> Result<tokio::sync::mpsc::Receiver<Message>
                     .ok_or_else(|| anyhow::anyhow!("notifications already taken"))?;
                 let build = c.daemon_build().unwrap_or_else(|| "?".into());
                 app.client = c;
-                app.sessions =
-                    sessions.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
+                app.sessions = sessions
+                    .get("sessions")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default()
+                    .into();
                 app.sort_sessions();
                 app.refresh_harnesses();
                 if let Some(id) = app.selected_id() {

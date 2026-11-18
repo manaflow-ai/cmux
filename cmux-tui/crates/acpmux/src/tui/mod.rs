@@ -43,6 +43,8 @@ pub mod markdown;
 mod recovery_tests;
 pub mod scroll;
 mod session_ops;
+mod sessions;
+pub use sessions::Sessions;
 pub mod shimmer;
 pub mod skills;
 pub mod theme;
@@ -122,7 +124,7 @@ impl Reread {
 pub struct App {
     pub(super) client: Arc<Client>,
     pub(super) tx: mpsc::UnboundedSender<AppMsg>,
-    pub sessions: Vec<Value>,
+    pub sessions: Sessions,
     pub selected: usize,
     pub transcripts: HashMap<String, Transcript>,
     pub(super) details: HashMap<String, Value>,
@@ -228,6 +230,8 @@ pub struct App {
     pub sidebar_nav: Vec<SidebarNav>,
     pub sidebar_nav_pos: usize,
     pub sidebar_offset: usize,
+    /// The sidebar's grouped list, kept between frames (render/sidebar.rs).
+    pub(crate) sidebar_layout: render::SidebarLayout,
     pub toast: Option<(String, Instant)>,
     pub(super) last_click: Option<(Instant, u16, u16, u8)>,
     pub(super) pointer_shape: bool,
@@ -872,7 +876,8 @@ pub(super) mod interaction_tests {
         app.sessions = vec![
             json!({"sessionId": "steers", "status": "running", "steering": true}),
             json!({"sessionId": "stops", "status": "running", "steering": false}),
-        ];
+        ]
+        .into();
         app.selected = app.drafts.len();
         assert!(app.selected_supports_steer(), "a steering session does not offer steer");
         app.selected = app.drafts.len() + 1;
@@ -888,7 +893,8 @@ pub(super) mod interaction_tests {
             json!({"sessionId": "steers", "status": "running", "steering": true}),
             json!({"sessionId": "stops", "status": "running", "steering": false}),
             json!({"sessionId": "idle", "status": "idle", "steering": true}),
-        ];
+        ]
+        .into();
         async fn sent(
             app: &mut App,
             requests: &mut mpsc::UnboundedReceiver<Value>,
@@ -951,7 +957,7 @@ pub(super) mod interaction_tests {
     async fn lagged_recovery_replays_from_each_transcript_cursor() {
         let (mut app, mut requests) = app().await;
         let id = "test-session";
-        app.sessions = vec![json!({"sessionId": id})];
+        app.sessions = vec![json!({"sessionId": id})].into();
         app.selected = 0;
         app.attached.insert(id.into());
         let mut transcript = Transcript::default();
@@ -1105,7 +1111,7 @@ pub(super) mod interaction_tests {
             }
         }
         app.drafts.clear();
-        app.sessions = vec![json!({"sessionId":"test-session","harness":"fake","cwd":root})];
+        app.sessions = vec![json!({"sessionId":"test-session","harness":"fake","cwd":root})].into();
         app.selected = 0;
         let mut transcript = Transcript::default();
         transcript.available_commands = vec!["compact".into()];

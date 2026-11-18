@@ -33,6 +33,7 @@ use dialogs::{
     draw_add_host, draw_confirm, draw_directory, draw_help, draw_new_session, draw_permission_card,
     draw_picker,
 };
+pub(crate) use sidebar::SidebarLayout;
 use sidebar::draw_sidebar;
 use status::draw_status;
 use transcript::draw_transcript;

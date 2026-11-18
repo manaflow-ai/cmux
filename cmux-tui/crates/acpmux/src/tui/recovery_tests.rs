@@ -140,7 +140,7 @@ fn older_user(seq: u64, text: &str) -> Value {
 async fn reaching_the_top_pages_older_history_until_none_remain() {
     let (mut app, mut requests) = super::interaction_tests::app().await;
     let id = "test-session";
-    app.sessions = vec![json!({"sessionId": id})];
+    app.sessions = vec![json!({"sessionId": id})].into();
     app.selected = app.drafts.len();
     app.on_msg(AppMsg::Attached {
         id: id.into(),
@@ -203,7 +203,7 @@ async fn reaching_the_top_pages_older_history_until_none_remain() {
 async fn an_error_before_an_empty_attach_still_pages_older_history() {
     let (mut app, _requests) = super::interaction_tests::app().await;
     let id = "test-session";
-    app.sessions = vec![json!({"sessionId": id})];
+    app.sessions = vec![json!({"sessionId": id})].into();
     app.selected = app.drafts.len();
     app.report_error("send failed".into());
     app.on_msg(AppMsg::Attached {

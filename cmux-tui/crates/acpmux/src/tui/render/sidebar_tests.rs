@@ -208,3 +208,36 @@ async fn sidebar_frame_numbers() {
         );
     }
 }
+
+/// A frame reads no session it read before; a one-row change, set in place or moved to the top
+/// (`events.rs`' `MUX_SESSION_CHANGED`), reads that row alone, at any number of sessions.
+#[tokio::test]
+async fn a_frame_reads_only_the_rows_that_changed() {
+    for n in [1_000, 10_000] {
+        let (mut app, _) = app().await;
+        app.sessions = sessions(n).into();
+        app.selected = app.drafts.len();
+        let mut frames = Frames::new();
+        frames.draw(&mut app);
+        assert_eq!(app.sidebar_layout.rows_read, n, "the first frame reads every row once");
+        let read = |app: &mut App, frames: &mut Frames| {
+            let before = app.sidebar_layout.rows_read;
+            frames.draw(app);
+            app.sidebar_layout.rows_read - before
+        };
+        assert_eq!(read(&mut app, &mut frames), 0, "an idle frame read rows");
+        app.hover = Some((5, 6));
+        app.selected += 1;
+        assert_eq!(read(&mut app, &mut frames), 0, "a hover and a step read rows");
+        app.sessions[3]["status"] = json!("waiting");
+        assert_eq!(read(&mut app, &mut frames), 1, "a status change read other rows");
+        let row = app.sessions.remove(n / 2);
+        app.sessions.insert(0, row);
+        assert_eq!(read(&mut app, &mut frames), 1, "a row moved to the top read other rows");
+        assert_eq!(app.sidebar_order, plain_order(&app));
+        // A sort is not followed row by row: it reads the list again, and the order holds.
+        app.sessions.sort_by_key(|s| std::cmp::Reverse(s["updatedAt"].as_u64()));
+        assert_eq!(read(&mut app, &mut frames), n);
+        assert_eq!(app.sidebar_order, plain_order(&app));
+    }
+}
