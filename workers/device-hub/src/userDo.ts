@@ -638,6 +638,9 @@ export class UserDO extends DurableObject<Env> {
     this.sql.exec("DELETE FROM offline WHERE device_id = ?", me.id);
     // Everyone refetches, including this device: its cached list may say it is offline.
     this.broadcast({ type: "devices.changed" });
+    // A request waiting on this host went to a socket it no longer has (it dropped, or this one
+    // replaces it): send it again so the prompt reaches the host it waits on.
+    await this.resendPendingRequests(me.id);
     // The silence check: a device that never pings after connecting goes offline at the bound.
     await this.scheduleAlarm();
     return new Response(null, { status: 101, webSocket: pair[0] });
@@ -963,13 +966,28 @@ export class UserDO extends DurableObject<Env> {
       await this.approveOrEnd(this.session(id)!, c);
     } else {
       await this.scheduleAlarm();
-      this.send(hostId, {
-        type: "session.request",
-        session: { id, viewerId: me.id, viewerName: me.name, viewerKeyFingerprint: await keyFingerprint(me.signing_key), scope },
-      });
+      this.send(hostId, await this.sessionRequest(id, me, scope));
     }
     const s = this.session(id)!;
     return json({ session: { id: s.id, state: s.state, scope: s.scope } });
+  }
+
+  private async sessionRequest(id: string, viewer: DeviceRow, scope: Scope) {
+    return {
+      type: "session.request",
+      session: { id, viewerId: viewer.id, viewerName: viewer.name, viewerKeyFingerprint: await keyFingerprint(viewer.signing_key), scope },
+    };
+  }
+
+  /** Sends `hostId` every request still pending on it, oldest first. */
+  private async resendPendingRequests(hostId: string) {
+    const pending = this.sql
+      .exec("SELECT * FROM sessions WHERE state = 'pending' AND host_id = ? ORDER BY created_at", hostId)
+      .toArray() as unknown as SessionRow[];
+    for (const s of pending) {
+      const viewer = this.device(s.viewer_id);
+      if (viewer) this.send(hostId, await this.sessionRequest(s.id, viewer, s.scope));
+    }
   }
 
   /** Approves, or ends the session (approve_failed) when the Session DO or tickets cannot be set up. */
