@@ -58,6 +58,17 @@
 //!   ([`Hub::park_at_stop`], `rate_limit_parked` with `why: "stopped"`): it starts no turn by
 //!   itself; other agents' messages, notices and its continuation wait; `acpmux retry` or the
 //!   person's own prompt sends it on, as above. Any other chat's Stop is as before.
+//!
+//! A 429 storm on a long-context chat lost messages (`tests/hub_integration/auto_resume_429_storm.rs`,
+//! 9 of 58): the turn a reset folded them into failed on the 429 again, and its continuation's
+//! "continue" carried none of them. A 429 refuses the request before the model reads it:
+//!
+//! - A turn that failed on the limit with no sign of its model ([`Hub::unread_by_limit`]) puts
+//!   every agent message in it back in the queue, held, the one that led it too (`digest.rs`
+//!   `requeue_unread`), however often the limit refuses them; the next reset's one turn takes
+//!   them in, and a turn that completes with them puts none back. The leading message's sender
+//!   had the turn's error; the others' sends wait on. A turn its model began is continued as
+//!   before, and its messages go back once (`requeue_joined`).
 
 use super::*;
 use std::sync::Mutex as StdMutex;
@@ -321,6 +332,30 @@ impl Hub {
         let until = reset.max(not_before).unwrap_or(now + MIN_HOLD_MS);
         self.hold_for_rate_limit(session, turn, until, false);
         false
+    }
+
+    /// Whether the turn of `session` that started at `turn_seq` failed with `error` on the
+    /// account's limit before its model read a word: the limit's error, and no record since its
+    /// start shows the model at work (`tap.rs` `logged_from_the_model`) but Claude Code's own line
+    /// of that error (`model: "<synthetic>"`). Read back from the log's end to the first sign.
+    pub(super) fn unread_by_limit(&self, session: &Session, turn_seq: u64, error: &str) -> bool {
+        if super::turn_errors::resume_cause(error, error) != Some("rate_limit") {
+            return false;
+        }
+        let mut heard = false;
+        let scanned = self.store.scan_back(
+            &session.id,
+            turn_seq,
+            u64::MAX,
+            &|dir, _| dir != b"in",
+            &mut |e: EventRecord| {
+                let synthetic =
+                    e.msg.pointer("/message/model").and_then(Value::as_str) == Some("<synthetic>");
+                heard = super::tap::logged_from_the_model(&e) && !synthetic;
+                !heard
+            },
+        );
+        scanned.is_ok() && !heard
     }
 
     /// A turn of `session` ended well: its strikes are cleared.

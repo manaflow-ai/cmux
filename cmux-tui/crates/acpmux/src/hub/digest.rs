@@ -19,7 +19,9 @@
 //!   leaves the queue with a `dequeued` record naming the turn (`joinedTurnId`), and its
 //!   `session/prompt` answers with that turn's answer (`joined_reply`). When that turn fails,
 //!   the joined messages go back to the head of the queue, held, once (`requeue_joined`):
-//!   none is lost to a turn the agent may never have read. A turn that never reached its agent
+//!   none is lost to a turn the agent may never have read. A turn the account's rate limit
+//!   refused before its model read it puts them back every time, the one that led it too
+//!   (`requeue_unread`, `rate_hold.rs`). A turn that never reached its agent
 //!   (its agent could not start, or it was refused) holds nothing: they go back unheld and each
 //!   gets its own try. A reply in place to any of them finds it in that turn's provenance
 //!   (`withdraw.rs` `app_reply_fits`).
@@ -433,10 +435,69 @@ impl Hub {
         digest: &DigestTurn,
         hold: bool,
     ) {
+        self.requeue(session, digest, hold, false);
+    }
+
+    /// After a turn the account's rate limit refused before its model read a word
+    /// (`rate_hold.rs` `unread_by_limit`): its agent messages go back as [`Hub::requeue_joined`]
+    /// puts them, held, however often a turn put them back before (the limit, not they, failed
+    /// it), and so does the one that led it, at the head under a new turn id, run by a task of
+    /// its own (`start_restored`); its sender has had the turn's error. The reset's turn takes
+    /// them all in once (`rate_hold_due`).
+    pub(super) fn requeue_unread(self: &Arc<Self>, session: &Arc<Session>, digest: &DigestTurn) {
+        let lead = digest.lead.lock().unwrap_or_else(|e| e.into_inner()).take();
+        let lead = lead.filter(|_| session.meta().status != SessionStatus::Closed);
+        if let Some(lead) = &lead {
+            let q = QueuedPrompt {
+                prompt_id: lead.prompt_id.clone(),
+                turn_id: uuid::Uuid::now_v7().to_string(),
+                client: lead.client.clone(),
+                preview: short_text(super::inbox::relay_body(&prompt_text(&lead.run.blocks)), 200),
+                queued_at: now_ms(),
+                withdraw: Arc::new(Notify::new()),
+                run: lead.run.clone(),
+                restored: false,
+                resume: false,
+                steer: false,
+                steer_on_start: false,
+                held: false,
+                awaiting_owner: false,
+                revision: 0,
+                declined: Default::default(),
+                sent_now: false,
+                joined: Arc::new(StdMutex::new(None)),
+                requeued: false,
+                retries: 0,
+            };
+            digest.taken.lock().unwrap_or_else(|e| e.into_inner()).insert(0, q);
+        }
+        self.requeue(session, digest, true, true);
+        let Some(lead) = lead else { return };
+        // Its task claims it as a restored prompt's does (`queue_slot`).
+        {
+            let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let Some(q) = queue.iter_mut().find(|q| q.prompt_id == lead.prompt_id) else { return };
+            q.resume = true;
+            let mut restored = session.restored.lock().unwrap_or_else(|e| e.into_inner());
+            restored.push((q.prompt_id.clone(), q.turn_id.clone()));
+        }
+        if !self.hold_in_protected_folder(session) {
+            self.start_restored(session);
+        }
+    }
+
+    /// [`Hub::requeue_joined`]; `again`: also the messages a failed turn put back before.
+    fn requeue(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        digest: &DigestTurn,
+        hold: bool,
+        again: bool,
+    ) {
         let mut taken =
             std::mem::take(&mut *digest.taken.lock().unwrap_or_else(|e| e.into_inner()));
         // Once: a message that fails every turn it is in must not hold the queue again and again.
-        taken.retain(|q| !q.requeued);
+        taken.retain(|q| again || !q.requeued);
         if taken.is_empty() || session.meta().status == SessionStatus::Closed {
             // None go back: what an inbox digest charged for them goes (`queue_admission.rs`).
             let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -534,6 +595,7 @@ impl Hub {
 pub(super) fn forget_joined(joined: Option<&DigestTurn>) {
     if let Some(joined) = joined {
         joined.taken.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        joined.lead.lock().unwrap_or_else(|e| e.into_inner()).take();
     }
 }
 
@@ -542,9 +604,34 @@ pub(super) struct DigestTurn {
     taken: StdMutex<Vec<QueuedPrompt>>,
     /// What it charges `Session::digest_bytes` for the messages it took (`queue_admission.rs`).
     charged: std::sync::atomic::AtomicU64,
+    /// The agent message that started the turn ([`DigestTurn::lead`]).
+    lead: StdMutex<Option<Lead>>,
+}
+
+/// The agent message a turn started with: what puts it back in the queue when the account's
+/// limit refuses that turn unread ([`Hub::requeue_unread`]).
+struct Lead {
+    prompt_id: String,
+    client: String,
+    run: Arc<PromptRun>,
 }
 
 impl DigestTurn {
+    /// Notes `prompt_id`, the prompt the turn started with, when it is another agent's message
+    /// that can go back to the queue as it came: not an inbox digest (its messages are in
+    /// `taken`) nor a trigger's.
+    pub(super) fn lead(&self, prompt_id: &str, client: &str, run: &Arc<PromptRun>) {
+        if run.agent.is_none()
+            || inbox_digest::is_digest(run.provenance.as_ref())
+            || crate::prompt_provenance::is_trigger(run.provenance.as_ref())
+        {
+            return;
+        }
+        let lead =
+            Lead { prompt_id: prompt_id.to_owned(), client: client.to_owned(), run: run.clone() };
+        *self.lead.lock().unwrap_or_else(|e| e.into_inner()) = Some(lead);
+    }
+
     /// Charges the session's queue for `taken`, which leave it for this digest. `_queue` is the
     /// queue's guard: the charge is made in the critical section that takes them out.
     pub(super) fn charge(
@@ -574,6 +661,7 @@ impl Default for DigestTurn {
             answer: tokio::sync::watch::channel(None).0,
             taken: StdMutex::new(Vec::new()),
             charged: std::sync::atomic::AtomicU64::new(0),
+            lead: StdMutex::new(None),
         }
     }
 }

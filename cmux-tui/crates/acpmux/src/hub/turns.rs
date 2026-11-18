@@ -944,6 +944,9 @@ impl Hub {
         // the turn has started, so none leaves the queue for a turn that never runs. A forum push
         // is no agent's message: it never leads one.
         let parts = self.take_joined(session, &run, &prompt_id, &turn_id, joined);
+        // The message that leads it goes back with them when the account's limit refuses the
+        // turn before its model read it (`digest.rs` `requeue_unread`).
+        joined.lead(&prompt_id, client, &run);
         // This turn answers the questions its prompt and the joined ones carry
         // (`question_replies.rs`).
         for id in std::iter::once(&prompt_id).chain(parts.iter().map(|part| &part.prompt_id)) {
@@ -1755,8 +1758,14 @@ impl Hub {
         }
         // The agent messages that went in with it go back before anything here waits, so one sent
         // from now on goes behind them (`digest.rs`).
-        if let (Err(_), Some(joined)) = (&result, joined) {
-            self.requeue_joined(session, joined, true);
+        // A turn the account's limit refused before its model read a word: every agent message in
+        // it goes in again with the next turn, the one that led it too (`rate_hold.rs`).
+        if let (Err(e), Some(joined)) = (&result, joined) {
+            if self.unread_by_limit(session, turn_seq, &e.message) {
+                self.requeue_unread(session, joined);
+            } else {
+                self.requeue_joined(session, joined, true);
+            }
         }
         // A failure on a bound route names the route and its fallback
         // (route_switch.rs), in the error's data and the turn result.

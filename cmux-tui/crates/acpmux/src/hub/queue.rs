@@ -1508,8 +1508,15 @@ impl Hub {
                     drop(ledger);
                     // Refused before its turn (its harness is gone, or it may not start under
                     // the chat's control): it leaves the queue, so the prompts behind it still
-                    // run, and its `prompt_refused` says why, so it never just disappears.
+                    // run, and its `prompt_refused` says why, so it never just disappears. Only
+                    // this copy: a turn that ran it and failed may have put it back under a new
+                    // turn id (`digest.rs` `requeue_unread`), and that one waits on.
+                    let waiting = || {
+                        let queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
+                        queue.iter().any(|w| w.turn_id == q.turn_id)
+                    };
                     if let Err(e) = result
+                        && waiting()
                         && hub.remove_queued(&session, &q.prompt_id)
                     {
                         tracing::warn!(session = %session.id, prompt = %q.prompt_id, "restored prompt refused: {}", e.message);
