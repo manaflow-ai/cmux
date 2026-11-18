@@ -1734,6 +1734,7 @@ const githubConnection = {
   busy: false,
   connect: "Connect GitHub",
   disconnect: "Disconnect",
+  reconfigure: "Reconfigure",
   confirm: "Disconnect GitHub? Agents will lose access through this connection.",
   cancel: "Cancel",
   refresh: "Refresh",
@@ -1742,6 +1743,7 @@ const githubConnection = {
     {
       id: "sample-github",
       canDisconnect: true,
+      canReconfigure: true,
       account: "sample-team",
       status: "Connected",
       permissions: ["contents:write", "pull_requests:write"],
@@ -1895,6 +1897,7 @@ export default settingsPageEntry({
     "pages/settings/components/AccountsTeams.tsx",
     "pages/settings/components/AgentHarnesses.tsx",
     "pages/settings/components/AgentIntegrations.tsx",
+    "pages/settings/components/McpServersCard.tsx",
     "pages/settings/components/ComputerUseCard.tsx",
     "pages/settings/components/DevicesCard.tsx",
     "pages/settings/components/ChiefsCard.tsx#ChiefsCard",

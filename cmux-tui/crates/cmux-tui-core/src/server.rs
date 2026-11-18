@@ -142,13 +142,13 @@ pub(crate) use agent_session_attach::agent_session_link::chat_marks::ChatMarkErr
 pub use agent_session_attach::{
     AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_FOLDERS_CAPABILITY,
     AGENT_SESSION_FORK_CAPABILITY, AGENT_SESSION_PREWARM_CAPABILITY,
-    AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_CREDENTIALS_CAPABILITY,
-    AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_MODE_CAPABILITY,
-    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_NO_CWD_CAPABILITY,
-    AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY, AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY,
-    AGENT_SESSION_START_VM_KIND_CAPABILITY, AGENT_SESSION_TRUST_CAPABILITY,
-    AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
-    set_link_share_app_scheme, start_link_share_bridge,
+    AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY,
+    AGENT_SESSION_START_CREDENTIALS_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
+    AGENT_SESSION_START_MODE_CAPABILITY, AGENT_SESSION_START_MODEL_CAPABILITY,
+    AGENT_SESSION_START_NO_CWD_CAPABILITY, AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY,
+    AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY,
+    AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter,
+    AgentStartHost, AgentStartHostSource, set_link_share_app_scheme, start_link_share_bridge,
 };
 #[cfg(unix)]
 pub(crate) use agent_session_attach::{
@@ -1931,6 +1931,8 @@ enum Command {
     MoveColumn(column_move::MoveColumnParams),
     /// `floating-panes-v1`: float a pane above the tiled layout, put it back, or move it.
     FloatPane(floating_panes::FloatPaneParams),
+    /// `quick-terminal-v1`: make the quick terminal of a screen, show it with the focus, or hide it.
+    QuickTerminal(floating_panes::QuickTerminalParams),
     /// Drop a tab on the sidebar: a new workspace holding the tab.
     MoveTabToNewWorkspace {
         surface: SurfaceId,
@@ -3094,10 +3096,6 @@ fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> 
     mux.surface(id)
         .filter(|surface| !surface.is_dead())
         .ok_or_else(|| anyhow::anyhow!("unknown surface {id}"))
-}
-
-fn surface_has_view_placement(mux: &Mux, id: SurfaceId) -> bool {
-    mux.with_state(|state| state.pane_of(id).is_some())
 }
 
 fn require_pty(surface: &crate::Surface) -> anyhow::Result<()> {

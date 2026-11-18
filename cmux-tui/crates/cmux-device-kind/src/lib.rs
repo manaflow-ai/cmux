@@ -9,12 +9,11 @@
 //!
 //! A machine says what it is itself ([`this_device`]): acpmux puts it in its `host_health` reply,
 //! so a peer's row carries its kind. On macOS that is the hardware model (`sysctl hw.model`, read
-//! once); on Linux whether a desktop is installed or running, the DMI chassis and whether it is a
-//! virtual machine. A Cloud machine is one by where its record comes from ([`DeviceKind::Cloud`]),
+//! once); on Linux whether a desktop is installed or running, whether a cmux screen host is set up
+//! for the user acpmux runs as, the DMI chassis and whether it is a virtual machine. A Cloud machine is one by where its record comes from ([`DeviceKind::Cloud`]),
 //! not by anything it reports. A kind nothing tells is [`DeviceKind::Generic`].
 
 use serde::{Deserialize, Serialize};
-use std::sync::OnceLock;
 
 /// What a device is, as a person names it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -27,7 +26,8 @@ pub enum DeviceKind {
     IMac,
     MacStudio,
     MacPro,
-    /// A Linux machine with a desktop (installed or running), or a Linux laptop or desktop chassis.
+    /// A Linux machine with a desktop (installed or running, or the virtual display a cmux screen
+    /// host starts on demand), or a Linux laptop or desktop chassis.
     LinuxDesktop,
     /// A Linux machine with no desktop: a server, a VM or a container.
     LinuxServer,
@@ -186,13 +186,19 @@ pub struct LinuxFacts {
     pub chassis_type: Option<u8>,
     /// A hypervisor or container runs it (the `hypervisor` CPU flag, a VM's DMI vendor, `/.dockerenv`).
     pub virtual_machine: bool,
+    /// A cmux screen host is set up for this user ([`screen_host_installed`]): `cmux-rd linux-host
+    /// enable` wrote its user unit. On a machine with no graphical session the host makes its
+    /// virtual display (Xvfb) when a share starts, so before that there is no X socket to see;
+    /// the unit is what says the screen can be shared.
+    pub screen_host: bool,
 }
 
 impl LinuxFacts {
-    /// The kind these facts tell: a desktop installed or running is a desktop; else a laptop or
-    /// desktop chassis on bare metal is; everything else (a VM, a rack, no DMI) is a server.
+    /// The kind these facts tell: a desktop installed or running, or a screen host set up (its
+    /// virtual display is a desktop the hub shares), is a desktop; else a laptop or desktop
+    /// chassis on bare metal is; everything else (a VM, a rack, no DMI) is a server.
     pub fn kind(&self) -> DeviceKind {
-        if self.desktop_installed || self.display_running {
+        if self.desktop_installed || self.display_running || self.screen_host {
             return DeviceKind::LinuxDesktop;
         }
         // SMBIOS chassis types of a machine a person sits at: desktop, low profile, pizza box,
@@ -225,9 +231,39 @@ const VM_WORDS: [&str; 14] = [
     "hetzner",
 ];
 
-/// Reads [`LinuxFacts`] from `root` (`/` on a real machine; a fixture directory in tests). Only
-/// small files and directory listings: no process is started.
+/// The screen host's user unit, as `cmux-rd linux-host enable` writes it under the user's
+/// systemd unit directory (`cmux-rd-host`'s `linux_host/setup.rs`, `HOST_UNIT`).
+pub const SCREEN_HOST_UNIT: &str = "cmux-screen-host.service";
+
+/// Whether a cmux screen host is set up under `config_home` (`$XDG_CONFIG_HOME`, else
+/// `$HOME/.config`): its user unit `systemd/user/cmux-screen-host.service` is there. One stat.
+pub fn screen_host_installed(config_home: &std::path::Path) -> bool {
+    config_home.join("systemd").join("user").join(SCREEN_HOST_UNIT).is_file()
+}
+
+/// This user's config home (`$XDG_CONFIG_HOME`, else `$HOME/.config`), as `cmux-rd` resolves it.
+#[cfg(target_os = "linux")]
+fn user_config_home() -> Option<std::path::PathBuf> {
+    match std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()) {
+        Some(dir) => Some(dir.into()),
+        None => std::env::var_os("HOME")
+            .filter(|v| !v.is_empty())
+            .map(|home| std::path::PathBuf::from(home).join(".config")),
+    }
+}
+
+/// Reads [`LinuxFacts`] from `root` (`/` on a real machine; a fixture directory in tests), with no
+/// screen host. Only small files and directory listings: no process is started.
 pub fn linux_facts(root: &std::path::Path) -> LinuxFacts {
+    linux_facts_for(root, None)
+}
+
+/// [`linux_facts`], and whether a screen host is set up under `config_home` (the user's config
+/// home; a fixture directory in tests).
+pub fn linux_facts_for(
+    root: &std::path::Path,
+    config_home: Option<&std::path::Path>,
+) -> LinuxFacts {
     let read = |path: &str| std::fs::read_to_string(root.join(path)).unwrap_or_default();
     let listed = |path: &str| {
         std::fs::read_dir(root.join(path)).is_ok_and(|mut entries| {
@@ -270,11 +306,13 @@ pub fn linux_facts(root: &std::path::Path) -> LinuxFacts {
             || VM_WORDS.iter().any(|w| dmi.contains(w))
             || root.join(".dockerenv").exists()
             || !read("sys/hypervisor/type").trim().is_empty(),
+        screen_host: config_home.is_some_and(screen_host_installed),
     }
 }
 
-/// This machine's own kind and, on a Mac, its model identifier. Read once per process and kept:
-/// a machine does not change what it is while it runs.
+/// This machine's own kind and, on a Mac, its model identifier. The hardware is read once per
+/// process; whether a Linux machine's screen host is set up is checked on every ask (one stat),
+/// so a host enabled after acpmux started makes the machine viewable without a restart.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct ThisDevice {
     pub kind: DeviceKind,
@@ -282,28 +320,35 @@ pub struct ThisDevice {
     pub model: Option<String>,
 }
 
-/// This machine's [`ThisDevice`], read the first time it is asked.
-pub fn this_device() -> &'static ThisDevice {
-    static THIS: OnceLock<ThisDevice> = OnceLock::new();
-    THIS.get_or_init(read_this_device)
-}
-
+/// This machine's [`ThisDevice`]: the model read the first time it is asked.
 #[cfg(target_os = "macos")]
-fn read_this_device() -> ThisDevice {
-    let model = mac_model();
-    ThisDevice {
-        kind: model.as_deref().map(DeviceKind::from_mac_model).unwrap_or(DeviceKind::Generic),
-        model,
-    }
+pub fn this_device() -> ThisDevice {
+    static THIS: std::sync::OnceLock<ThisDevice> = std::sync::OnceLock::new();
+    THIS.get_or_init(|| {
+        let model = mac_model();
+        ThisDevice {
+            kind: model.as_deref().map(DeviceKind::from_mac_model).unwrap_or(DeviceKind::Generic),
+            model,
+        }
+    })
+    .clone()
 }
 
+/// This machine's [`ThisDevice`]: the hardware and desktop read the first time it is asked,
+/// the screen host on every ask.
 #[cfg(target_os = "linux")]
-fn read_this_device() -> ThisDevice {
-    ThisDevice { kind: linux_facts(std::path::Path::new("/")).kind(), model: None }
+pub fn this_device() -> ThisDevice {
+    static FACTS: std::sync::OnceLock<LinuxFacts> = std::sync::OnceLock::new();
+    let facts = LinuxFacts {
+        screen_host: user_config_home().is_some_and(|home| screen_host_installed(&home)),
+        ..FACTS.get_or_init(|| linux_facts(std::path::Path::new("/"))).clone()
+    };
+    ThisDevice { kind: facts.kind(), model: None }
 }
 
+/// This machine's [`ThisDevice`]: nothing tells the kind here.
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-fn read_this_device() -> ThisDevice {
+pub fn this_device() -> ThisDevice {
     ThisDevice { kind: DeviceKind::Generic, model: None }
 }
 

@@ -36,6 +36,35 @@ fn a_machine_without_control_consent_gets_no_computer_use_server() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// A `cmux` without `mcp serve` (the static `cmux 0.1.0` lane VMs had) is no `cmux` server, so
+/// the other servers stay listed on their own instead of folding behind one that exits at once.
+#[test]
+fn a_cmux_without_mcp_serve_is_no_server_and_folds_nothing() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("acpmux-cmux-no-mcp-{}", uuid::Uuid::now_v7()));
+    let names = |cmux: &str| -> Vec<String> {
+        let bin = root.join(uuid::Uuid::now_v7().to_string());
+        std::fs::create_dir_all(&bin).unwrap();
+        for (name, body) in [("cmux", cmux), ("optchat-chief", "exit 0")] {
+            std::fs::write(bin.join(name), format!("#!/bin/sh\n{body}\n")).unwrap();
+            std::fs::set_permissions(bin.join(name), std::fs::Permissions::from_mode(0o755))
+                .unwrap();
+        }
+        let inputs = memory_inputs(&bin, Some(r#"{"agents":{"memory":{"enabled":true}}}"#));
+        resolve(&inputs).folded().servers.into_iter().map(|s| s.name).collect()
+    };
+    let serves = names("exit 0");
+    assert_eq!(serves, ["cmux"], "the other servers fold behind it");
+    let old = names(r#"echo 'cmux: unknown resource scope "mcp".' >&2; exit 2"#);
+    // The saved MCP servers (the optchat-chief stub beside it) are listed on their own too.
+    assert_eq!(
+        old,
+        [super::MEMORY_SERVER_NAME, super::SAVED_SERVERS_NAME],
+        "listed on their own, not lost"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 #[test]
 fn chief_turn_tools_contain_no_mac_app_actions() {
     let tools: Vec<_> = super::CHIEF_TURN_TOOLS.split(',').map(str::trim).collect();
@@ -714,5 +743,40 @@ fn leased_desktops_are_off_until_the_env_names_a_binary_and_owned_by_the_session
     assert_eq!(server.args, ["mcp"]);
     let owners: Vec<_> = server.env.iter().filter(|(k, _)| k == "DESKTOP_LEASE_OWNER").collect();
     assert_eq!(owners, [&("DESKTOP_LEASE_OWNER".to_owned(), "s2".to_owned())]);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The person's saved MCP servers reach every chat as one upstream of `cmux`
+/// (`optchat-chief integrations serve`, tool `mcp_servers`), with the chat's session id so the
+/// server shows only the servers the person's scope gives it; cmux.json turns it off.
+/// Settings > MCP Servers' switch (schemas/settings/source/mcp-servers.json) is the key the
+/// daemon reads, on unless the person turns it off.
+#[test]
+fn the_saved_servers_switch_is_the_settings_row() {
+    const SOURCE: &str = include_str!("../../../../schemas/settings/source/mcp-servers.json");
+    let doc: serde_json::Value = serde_json::from_str(SOURCE).unwrap();
+    let row = &doc["lists"][0]["rows"][0];
+    assert_eq!(row["key"], serde_json::json!(super::SAVED_SERVERS_SETTING));
+    assert_eq!(row["kind"], serde_json::json!("toggle"));
+    assert_eq!(row["default"], serde_json::json!(true));
+}
+
+#[test]
+fn a_chat_gets_the_saved_mcp_servers_with_its_session() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("acpmux-saved-mcp-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let chief = root.join("optchat-chief");
+    std::fs::write(&chief, "#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(&chief, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let name = super::SAVED_SERVERS_NAME;
+    let on = resolve(&memory_inputs(&root, None)).for_session("s1");
+    let server = on.servers.iter().find(|s| s.name == name).expect("the saved servers");
+    assert_eq!(server.command, chief);
+    assert_eq!(server.args, ["integrations", "serve"]);
+    assert_eq!(server.env, [(super::AGENT_SESSION_ENV.to_owned(), "s1".to_owned())]);
+    let off =
+        resolve(&memory_inputs(&root, Some(r#"{"agents":{"mcpServers":{"enabled":false}}}"#)));
+    assert!(off.servers.iter().all(|s| s.name != name), "{:?}", off.servers);
     let _ = std::fs::remove_dir_all(&root);
 }
