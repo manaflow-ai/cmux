@@ -315,6 +315,15 @@ export class MockAcpmuxSocket {
       this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "purged", session } });
     },
   );
+  /// The list watch, as acpmux keeps it per connection: `_acpmux/watch {enabled: false}` stops the
+  /// connection's `session_changed` notices until a watch turns it on again.
+  private watching = true;
+  /// The list's row log when `initialize` names `session-list-follow-v1` (hub/row_log.rs): each
+  /// change gets the next `listSeq`, and a watch with `afterSeq` answers only the rows changed since.
+  private listSeq = 0;
+  private readonly listEpoch = `mock-${Math.random().toString(36).slice(2)}`;
+  private rowSeq = new Map<string, number>();
+  private gone = new Map<string, number>();
   private events: EventRecord[] = [];
   /// Light load sessions (`seedLoadSession` `light`): attach answers their whole log.
   private openWhole = new Set<string>();
@@ -621,7 +630,7 @@ export class MockAcpmuxSocket {
           typeof params.model === "string" ? params.model : undefined,
         );
       case "_acpmux/watch":
-        return { sessions: this.sessions };
+        return this.watch(params);
       // A session this daemon lists (mockFixture.ts `mockResolvable`), by link, id or HOST/NAME.
       case "_acpmux/resolve": {
         const query = String(params.query ?? "").trim();
@@ -1328,7 +1337,45 @@ export class MockAcpmuxSocket {
     this.deliver({ jsonrpc: "2.0", method: "_acpmux/event", params: this.record(target, step, at) });
   }
 
+  private follows(): boolean {
+    return (globalThis as MockAuthGlobals).cmuxAcpmuxMockCapabilities?.includes("session-list-follow-v1") === true;
+  }
+
+  /// `_acpmux/watch`: off stops the notices; on answers the list, or with a cursor of this run
+  /// (`follows`) the rows changed since it, as one whole page.
+  private watch(params: Record<string, any>): Record<string, unknown> {
+    if (params.enabled === false) {
+      this.watching = false;
+      return {};
+    }
+    this.watching = true;
+    if (!this.follows()) return { sessions: this.sessions };
+    const at = { listSeq: this.listSeq, listEpoch: this.listEpoch };
+    const after = Number(params.afterSeq);
+    if (params.listEpoch !== this.listEpoch || !Number.isSafeInteger(after)) return { sessions: this.sessions, ...at };
+    const sessions = this.sessions.filter((session) => (this.rowSeq.get(String(session.sessionId)) ?? 0) > after);
+    const gone = [...this.gone].filter(([, seq]) => seq > after).map(([sessionId]) => ({ sessionId }));
+    return { follow: true, sessions, gone, more: false, ...at };
+  }
+
+  /// Every `session_changed` the mock sends, counted (`cmuxAcpmuxMockNotices`, bench/session-scale-scroll.bench.ts),
+  /// stamped with its list position when the list follows, and kept from a connection whose watch is off.
   private deliver(message: unknown): void {
+    const notice = message as { method?: string; params?: { kind?: string; session?: { sessionId?: unknown } } };
+    if (notice.method === "_acpmux/session_changed") {
+      const id = String(notice.params?.session?.sessionId ?? "");
+      if (this.follows()) {
+        this.listSeq += 1;
+        if (notice.params?.kind === "purged") {
+          this.rowSeq.delete(id);
+          this.gone.set(id, this.listSeq);
+        } else this.rowSeq.set(id, this.listSeq);
+        (notice.params as Record<string, unknown>).listSeq = this.listSeq;
+      }
+      if (!this.watching) return;
+      const globals = globalThis as { cmuxAcpmuxMockNotices?: number };
+      globals.cmuxAcpmuxMockNotices = (globals.cmuxAcpmuxMockNotices ?? 0) + 1;
+    }
     queueMicrotask(() => {
       if (this.readyState === 1) this.onmessage?.({ data: JSON.stringify(message) });
     });
