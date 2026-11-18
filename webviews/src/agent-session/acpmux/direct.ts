@@ -1424,6 +1424,37 @@ export function firstHeldFrom(events: readonly EventRecord[], seq: number): numb
   return low;
 }
 
+/// The index of the last record in `events` (oldest first) at or before `seq`, -1 when none is. A row's order need
+/// not be a held seq (a prompt drawn before its record comes back sits at `latest + 0.5`, `placeLocalLast`; a page read
+/// with a kinds filter leaves holes), so a cut moved back to where a row begins steps to the record before it, never
+/// to the same record again (`spanCut`).
+export function heldAtOrBefore(events: readonly EventRecord[], seq: number): number {
+  const at = firstHeldFrom(events, seq);
+  return events[at]?.seq === seq ? at : at - 1;
+}
+
+/// Where a cut at `events[cut]` goes back to so that no row is drawn from records on both sides of it: to where the
+/// row spanning it begins (`spanningFrom`), until none spans it. Each pass moves the cut to an older record, so it ends
+/// within `cut` passes; 0 or less when that reaches the oldest record held. Stepping to the first record at or after
+/// where the row begins instead (`firstHeldFrom`) found the same cut again when no held record lay between, and spun
+/// with the page's main thread held: Leo's NIGHTLY renderer at 100% CPU and 14 GB, its pages unclosable.
+export function spanCut(events: readonly EventRecord[], cut: number, spanningFrom: (seq: number) => number): number {
+  while (cut > 0) {
+    const { seq } = events[cut]!;
+    const from = spanningFrom(seq);
+    if (from >= seq) break;
+    const older = heldAtOrBefore(events, from);
+    // ends: `older` holds a seq at or before `from`, below `seq`, so the cut moves to an older record every pass. A
+    // pass that does not (a `spanningFrom` that breaks that) is logged and keeps the cut, never spins.
+    if (older >= cut) {
+      console.error(`agent pane: a shed cut at seq ${seq} did not move back (row from ${from}); kept`);
+      break;
+    }
+    cut = older;
+  }
+  return cut;
+}
+
 /// Where a rebuild of `events` (held, oldest first) starts folding again: 0 to fold them all, when
 /// they fit `window` (`REBUILD_WINDOW`); else the turn start at or before both the newest `window`
 /// records and `changedFrom`, the oldest record that changed, and before `openSince` (when a
@@ -1468,7 +1499,7 @@ export function midTurnCut(
     while (at > 0 && events[at]!.at >= openSince) at -= 1;
     if (at <= 0) return 0;
     const from = spanningFrom(events[at]!.seq);
-    if (from < events[at]!.seq) at = firstHeldFrom(events, from);
+    if (from < events[at]!.seq) at = heldAtOrBefore(events, from);
     if (at <= 0) return 0;
     if (at === moved) return at;
   }
@@ -8066,14 +8097,12 @@ export class AcpmuxDirectClient {
     // end comes later, a subagent that goes on): the cut goes back to where it began, until none does, so the rows
     // kept are what a fold of the records kept draws, and none is folded again.
     const chosen = cut;
-    while (cut > 0) {
-      const { seq } = this.events[cut]!;
+    cut = spanCut(this.events, cut, (seq) => {
       let from = this.rows.spanningFrom(seq);
       for (const [id, first] of this.subagentFirstSeen)
         if (first < seq && (this.subagentLastSeen.get(id) ?? -Infinity) >= seq) from = Math.min(from, first);
-      if (from >= seq) break;
-      cut = firstHeldFrom(this.events, from);
-    }
+      return from;
+    });
     if (cut <= 0) return;
     // Moved, the cut starts a turn the one before it ended, or the kept rows open under their turn's prompt.
     if (cut !== chosen) {
