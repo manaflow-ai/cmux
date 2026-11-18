@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44282278310",
+  "recorded_at": "2026-11-18T12:23:00Z",
+  "reason": "cmux-tui c0d76c17160c changes the image's cmux-tui (pinned 29729ad314d6)",
+  "dry_run": false,
+  "cmux_tui": "c0d76c17160c25045f350feffbd6230c3a92af10",
+  "fixes": [
+    {
+      "sha": "c0d76c17160c25045f350feffbd6230c3a92af10",
+      "mergedAt": "2026-11-18T01:05:16-08:00",
+      "subject": "feat(quick terminal): the daemon's state of the quick terminal (quick-terminal-v1) (#45715)"
+    },
+    {
+      "sha": "49a7fe6ae64f8fb2c54320c2cbd1ae7145d2b824",
+      "mergedAt": "2026-11-18T00:54:01-08:00",
+      "subject": "daemon tests: the owner link refuses set-layout-sizes from other stamps (#46077)"
+    },
+    {
+      "sha": "9d514c685e482df8816f1ceb37e49a83d1873ac9",
+      "mergedAt": "2026-11-18T00:41:44-08:00",
+      "subject": "cmux NEXT: a relaunch reopens the last workspace and tab, or Home only when Home was last or on a first launch (#45973)"
+    },
+    {
+      "sha": "fe184e915fad73c2c2c13667d162a225f54c9aab",
+      "mergedAt": "2026-11-18T00:28:33-08:00",
+      "subject": "acpmux: the pool's `take` is a test-only method (#46044)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-18T12:23:00Z",
+    "snapshot_id": "sh-f82ee5f9d38d4a8bbeede3bcf56bfe7e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44282278310): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "3c3d39eba67a812afdb3ed966e6f68239e57af59",
+    "image": "cloud-native-auto-c0d76c17-44282278310-1",
+    "revision": "ci-44282278310-1",
+    "at": "2026-11-18T12:23:00Z"
+  },
+  "rolled_back": false
+}
