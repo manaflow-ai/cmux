@@ -16,7 +16,7 @@ import "./styles.css";
 export function mountServerCards(root: HTMLElement, client: PageClient | null = defaultClient()): void {
   const strings = createStrings(table);
   document.documentElement.lang = strings.language;
-  document.title = strings.t("approver.title");
+  document.title = strings.t("panel.title");
   createRoot(root).render(<ServerCardsPage client={client} strings={strings} />);
 }
 

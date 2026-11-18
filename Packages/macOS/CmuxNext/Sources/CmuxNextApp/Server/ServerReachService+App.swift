@@ -52,7 +52,11 @@ extension ServerMenuBarController {
             guard let services else { return nil }
             return CloudPairingSource.app(feed: services.feed, auth: services.cloud.auth, cli: services.bundledCLI,
                                    chiefPlaced: { [weak services] in services?.home.refreshChiefTab() })
-        }, makeCards: { [weak services] cards in services.flatMap { WebCardPanel.serverCards(services: $0, with: cards) } },
+        }, makeAddServer: { [person = PersonInputCheck(sources: services.personInput.sources)] model in
+            let card = AddServerDialog(model: model)
+            card.isPersonEvent = { person.isPerson($0) }
+            return card
+        },
         makeInvite: { [weak services] in services.map(PairInviteDialog.app) },
         qr: { [qrCode = PairingQRCode()] in qrCode.pngDataURL(for: $0) })
     }
@@ -83,15 +87,5 @@ extension PairInviteDialog {
             qr: { qrCode.pngData(for: $0) }))
         dialog.isPersonEvent = { [person = PersonInputCheck(sources: services.personInput.sources)] in person.isPerson($0) }
         return dialog
-    }
-}
-
-extension WebCardPanel {
-    /// The App's server card panel, kept warm: the menu bar item's own `cards` (Add Server).
-    @MainActor
-    static func serverCards(services: AppServices, with cards: [any WebCard] = []) -> WebCardPanel? {
-        guard let panel = WebCardPanel(descriptor: .serverCards, cards: cards, overlayProcess: services.overlayProcess) else { return nil }
-        panel.isPersonEvent = { [person = PersonInputCheck(sources: services.personInput.sources)] in person.isPerson($0) }
-        return panel
     }
 }

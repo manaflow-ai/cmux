@@ -2,7 +2,6 @@ import AppKit
 import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextIcons
-import CmuxNextPages
 import CmuxNextServer
 import os
 
@@ -11,8 +10,8 @@ import os
 /// DEV and NIGHTLY prototype: the item shows a projection of `server.status`
 /// (`LocalServerSource` in the App, `MockServerSource` in previews) on the server card page
 /// (webviews/src/pages/server-cards/server): the panel, Health and the pairing code in the item's
-/// popover, Add Server in the floating card panel. The item owns no server state: every change is
-/// an intent to the source, through one ``ServerModel`` and its ``ServerPageProvider``.
+/// popover; Add Server is a native card (``AddServerDialog``). The item owns no server state: every
+/// change is an intent to the source, through one ``ServerModel`` and its ``ServerPageProvider``.
 @MainActor
 final class ServerMenuBarController: NSObject {
     /// The popover's routes on the server card page.
@@ -27,14 +26,13 @@ final class ServerMenuBarController: NSObject {
     /// The model's page provider; its model's source runs while `running` (`hide()` stops it).
     private var provider: ServerPageProvider?
     private var running = false
-    /// The floating web card (Add Server), made on the first opening and kept warm.
-    private var cards: WebCardPanel?
+    /// The native Add Server card, made on the first opening and kept.
+    private var addServer: AddServerDialog?
     /// The native Pair Another Machine card, made on its first opening (nil without the App's services).
     private lazy var invite: PairInviteDialog? = makeInvite()
     private let makeInvite: @MainActor () -> PairInviteDialog?
-    /// Makes the web card panel with this item's own cards (Add Server): nil without the App's
-    /// services (previews and tests).
-    private let makeCards: @MainActor (_ cards: [any WebCard]) -> WebCardPanel?
+    /// Makes the Add Server card on the item's model (the App's sets its person check).
+    private let makeAddServer: @MainActor (ServerModel) -> AddServerDialog
     /// Makes the model's source: the cloud pairing source in the App, the
     /// mock alone in previews and tests. Nil once the App's services are gone.
     private let makeSource: @MainActor () -> (any ServerSource)?
@@ -43,10 +41,10 @@ final class ServerMenuBarController: NSObject {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.server-menu")
 
     init(makeSource: @escaping @MainActor () -> (any ServerSource)? = { MockServerSource(scenario: .healthyMac) },
-         makeCards: @escaping @MainActor (_ cards: [any WebCard]) -> WebCardPanel? = { _ in nil },
+         makeAddServer: @escaping @MainActor (ServerModel) -> AddServerDialog = { AddServerDialog(model: $0) },
          makeInvite: @escaping @MainActor () -> PairInviteDialog? = { nil }, qr: @escaping (String) -> String? = { _ in nil }) {
         self.makeSource = makeSource
-        self.makeCards = makeCards
+        self.makeAddServer = makeAddServer
         self.makeInvite = makeInvite
         self.qr = qr
         super.init()
@@ -71,7 +69,7 @@ final class ServerMenuBarController: NSObject {
     /// Removes the item and closes its popover and cards (Add Server; an open invite's session ends).
     func hide() {
         popover?.close()
-        cards.take()?.dismiss()
+        addServer?.close()
         invite?.close()
         if running { provider?.model.stop() }
         running = false
@@ -95,11 +93,11 @@ final class ServerMenuBarController: NSObject {
     /// keys for the code field; a code that arrived from outside (a pairing link, a script without
     /// the words) shows without taking them, so the person's typing goes on until they click the card.
     func openAddServer(code: String? = nil) {
-        guard let provider = currentProvider(), let panel = currentCards(provider) else {
-            return Self.logger.fault("server card: no source or card page (the App's services are gone)")
-        }
+        guard let provider = currentProvider() else { return Self.logger.fault("server card: no source (the App's services are gone)") }
         if let code { provider.model.beginApproval(code: code) } else { provider.model.beginApproval() }
-        panel.present(card: ServerPageProvider.route, over: Self.frontWindow(), takeKeys: code == nil)
+        let card = addServer ?? makeAddServer(provider.model)
+        addServer = card
+        card.open(over: Self.frontWindow(), takeKeys: code == nil)
     }
 
     /// Shows the native Pair Another Machine card top center over the front cmux window, with the keys, and mints a
@@ -119,11 +117,6 @@ final class ServerMenuBarController: NSObject {
         } else {
             open(.panel)
         }
-    }
-
-    private func currentCards(_ provider: ServerPageProvider) -> WebCardPanel? {
-        cards = cards ?? makeCards([provider])
-        return cards
     }
 
     /// The model and its page provider, made on the first opening; a source stopped by `hide()` starts

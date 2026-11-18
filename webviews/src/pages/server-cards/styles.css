@@ -1,81 +1,8 @@
-/* The server cards (design/server-cards.md): one card per route on the floating panel's glass. The
-   page is transparent; the panel's glass is the background. The card's own box sets the panel's
-   size (host.ts reports it), so nothing here scrolls. The QR stays dark on white in every theme. */
+/* The server page (design/server-cards.md): the menu bar popover's routes. The page is transparent; the
+   popover is the background. Each route's own box sets the popover's size (host.ts reports it), so nothing
+   here scrolls. */
 html,
 body {
   background: transparent;
   overflow: hidden;
-}
-
-.server-card-frame {
-  display: flow-root;
-  width: 460px;
-}
-
-.server-card {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding: 24px 24px 16px;
-  user-select: text;
-}
-
-.server-card-title {
-  margin: 0;
-  font-size: var(--text-title);
-  line-height: var(--text-title--line-height);
-  letter-spacing: var(--text-title--letter-spacing);
-  font-weight: 600;
-}
-
-.server-card-text,
-.server-card-caption,
-.server-card-waiting {
-  margin: 0;
-}
-
-.server-card-text {
-  color: var(--page-text-2);
-}
-
-.server-card-text.is-primary,
-.server-card-text.is-emphasized {
-  color: var(--page-text);
-}
-
-.server-card-text.is-emphasized {
-  font-weight: 600;
-}
-
-.server-card-text.is-danger {
-  color: var(--cmux-app-danger, #e5484d);
-}
-
-.server-card-caption {
-  color: var(--page-text-3);
-  font-size: var(--text-caption);
-  line-height: var(--text-caption--line-height);
-  letter-spacing: var(--text-caption--letter-spacing);
-}
-
-.server-card-waiting {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--page-text-2);
-}
-
-.server-card-spinner {
-  flex: none;
-  color: var(--page-text-2);
-}
-
-.server-card-footer {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.server-card-footer-gap {
-  flex: 1;
 }
