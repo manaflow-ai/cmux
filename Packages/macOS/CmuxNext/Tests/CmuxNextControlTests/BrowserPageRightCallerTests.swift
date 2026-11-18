@@ -88,6 +88,22 @@ import Testing
         #expect(executor.last?.besideCaller == false)
     }
 
+    /// `cmux browser tab new` opens a tab: an agent with no browser in its own workspace gets one beside it,
+    /// never a tab beside the nearest browser of another workspace (here Home's, which its page verbs drive).
+    @Test func aNewBrowserTabStaysInTheAgentsWorkspaceWhenTheNearestBrowserIsInAnother() async throws {
+        var snapshot = Self.snapshot()
+        snapshot.topology.windows[0].workspaceIDs = snapshot.topology.workspaces.map(\.id)
+        let suite = BrowserPageRightTests()
+        let (router, executor) = suite.install(snapshot)
+        _ = try await router.handle(ControlRequest(method: "browser.page.new_tab", params: [
+            "caller": Self.worker, "url": "https://example.com/",
+        ])).get()
+        let run = try #require(executor.last)
+        #expect(run.target == ControlTargetRef(kind: "tab", id: "tab_work"), "beside its own chat, not in Home: \(String(describing: run.target))")
+        #expect(run.besideCaller)
+        #expect(run.newColumnBeside)
+    }
+
     /// Agents with one name (the CLI's default) in two places each keep the tab they opened there.
     @Test func twoAgentsWithOneNameKeepOneTabEach() async throws {
         let suite = BrowserPageRightTests()
