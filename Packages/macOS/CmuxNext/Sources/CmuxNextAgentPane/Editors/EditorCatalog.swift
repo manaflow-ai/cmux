@@ -49,21 +49,23 @@ public import CmuxNextWindowRules
 
     private let applications: any EditorApplications
     private let configured: @MainActor () -> String?
+    private let textEditor: @MainActor () -> String?
     private let table: @MainActor () -> [WindowRules.Editor]?
     private let pick: @MainActor ([String], String?) -> WindowRules.EditorPick?
     private let now: () -> Date
     private var cachedTable: [WindowRules.Editor]?
     private var cached: (at: Date, configured: String?, detected: Detected)?
 
-    /// `configured`: cmux.json `editor.default` (nil for the first installed one). `table` and
-    /// `pick` default to the Rust ops; a test passes its own.
+    /// `configured`: cmux.json `editor.default` (nil for `auto`); `textEditor`: `files.textEditor`, which picks the
+    /// default under `auto` when it names an editor of the table. `table` and `pick` default to the Rust ops; a test passes its own.
     public init(applications: any EditorApplications = WorkspaceEditorApplications(),
-                configured: @escaping @MainActor () -> String?,
+                configured: @escaping @MainActor () -> String?, textEditor: @escaping @MainActor () -> String? = { nil },
                 table: @escaping @MainActor () -> [WindowRules.Editor]? = { WindowRules().editorsTable() },
                 pick: @escaping @MainActor ([String], String?) -> WindowRules.EditorPick? = { WindowRules().pickEditor(installed: $0, configured: $1) },
                 now: @escaping () -> Date = { Date() }) {
         self.applications = applications
         self.configured = configured
+        self.textEditor = textEditor
         self.table = table
         self.pick = pick
         self.now = now
@@ -71,10 +73,10 @@ public import CmuxNextWindowRules
 
     /// The installed editors now, the default first; empty when none is installed or the FFI does not answer.
     public func detected() -> Detected {
-        let configured = configured()
-        if let cached, cached.configured == configured, now().timeIntervalSince(cached.at) < Self.reuseInterval { return cached.detected }
         let rows = cachedTable ?? table() ?? []
         if !rows.isEmpty { cachedTable = rows }
+        let configured = configured() ?? Self.tableID(of: textEditor(), in: rows)
+        if let cached, cached.configured == configured, now().timeIntervalSince(cached.at) < Self.reuseInterval { return cached.detected }
         var apps: [String: URL] = [:]
         for row in rows {
             // Installed: any of its bundle ids names an app, the first in the row's order wins.
@@ -86,6 +88,13 @@ public import CmuxNextWindowRules
         let detected = Detected(ordered: order.compactMap { id in byID[id].flatMap { row in apps[id].map { Installed(editor: row, app: $0) } } })
         cached = (now(), configured, detected)
         return detected
+    }
+
+    /// The table editor `app` names (`files.textEditor`: an app name, bundle id or app path), if it names one.
+    nonisolated static func tableID(of app: String?, in rows: [WindowRules.Editor]) -> String? {
+        guard let app = app?.trimmingCharacters(in: .whitespaces), !app.isEmpty else { return nil }
+        let name = ((app as NSString).lastPathComponent as NSString).deletingPathExtension.lowercased()
+        return rows.first { $0.bundleIds.contains(app) || $0.id == app.lowercased() || $0.name.lowercased() == name || $0.name.lowercased() == app.lowercased() }?.id
     }
 
     /// Forgets the last detection (an editor installed meanwhile shows at the next open).
@@ -170,18 +179,22 @@ public nonisolated struct EditorRefusal: Error, Equatable {
     public var reason: String
 }
 
-/// The page's `file.open where: editor` app: the configured or default editor, else the Mac's
-/// app for source code or plain text (``AgentPaneFileOpen/editorApplication(workspace:)``).
+/// The page's `file.open where: editor` app, as a path's Open in Text Editor: `files.textEditor` when set, else
+/// `editor.default`'s editor, else the Mac's app for source code or plain text (``AgentPaneFileOpen/editorApplication(workspace:)``).
 @MainActor public final class CatalogEditorApps: AgentPaneEditorApps {
     private let catalog: EditorCatalog
+    private let textEditor: @MainActor () -> String?
     private let fallback: any AgentPaneEditorApps
 
-    public init(catalog: EditorCatalog, fallback: any AgentPaneEditorApps = AgentPaneWorkspaceEditors()) {
+    public init(catalog: EditorCatalog, textEditor: @escaping @MainActor () -> String? = { nil }, fallback: any AgentPaneEditorApps = AgentPaneWorkspaceEditors()) {
         self.catalog = catalog
+        self.textEditor = textEditor
         self.fallback = fallback
     }
 
-    public func application() -> URL? { catalog.application() ?? fallback.application() }
+    public func application() -> URL? {
+        textEditor().flatMap { $0.isEmpty ? nil : EditorCatalog.application(named: $0) } ?? catalog.application() ?? fallback.application()
+    }
 
     public func open(_ url: URL, withApplicationAt app: URL) { fallback.open(url, withApplicationAt: app) }
 }

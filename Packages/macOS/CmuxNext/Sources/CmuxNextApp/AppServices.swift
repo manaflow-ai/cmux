@@ -101,8 +101,8 @@ final class AppServices {
     /// Tests replace it to record the intent without ordering windows in.
     var showJumpWindow: @MainActor (NSWindow, WindowActivation.Intent) -> Void = { WindowActivation.show($0, $1) }
     /// The editor `file.open {where: editor}` opens with (`editor.default` first); tests replace it to record the open.
-    lazy var editorApps: any AgentPaneEditorApps = CatalogEditorApps(catalog: editorCatalog)
-    lazy var editorCatalog = EditorCatalog(configured: { [weak self] in self?.settings?.snapshot.editorDefault.editor })
+    lazy var editorApps: any AgentPaneEditorApps = CatalogEditorApps(catalog: editorCatalog, textEditor: { [weak self] in self?.settings?.snapshot.textEditor.application })
+    lazy var editorCatalog = EditorCatalog(configured: { [weak self] in self?.settings?.snapshot.editorDefault.editor }, textEditor: { [weak self] in self?.settings?.snapshot.textEditor.application })
     /// The app's key window, from the composition root (AppServices never reads the global `NSApp`, nil in a
     /// test process). Tests and `debug.key` replace it: a window only becomes key in a running, active app.
     var keyWindowSource: @MainActor () -> NSWindow?
