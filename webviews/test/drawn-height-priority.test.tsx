@@ -18,10 +18,10 @@ const source = readFileSync(
 const comparisonStart = source.indexOf("function sameDrawn(");
 const comparisonEnd = source.indexOf("\n}\n", source.indexOf("function changesDrawn(")) + 3;
 const comparison = source.slice(comparisonStart, comparisonEnd);
-// flushDrawn alone, up to its own `}, []);`: other callbacks (reportRow, placeRowNow) sit between it and
+// flushDrawn alone, up to its own `}, [foldRideRef]);`: other callbacks (reportRow, placeRowNow) sit between it and
 // the observer and need the pane's other refs.
 const flushStart = source.indexOf("  const flushDrawn = useCallback(");
-const flushEnd = "\n  }, []);\n";
+const flushEnd = "\n  }, [foldRideRef]);\n";
 const productionCallback = source.slice(flushStart, source.indexOf(flushEnd, flushStart) + flushEnd.length);
 // The mutation run must fail the priority regression: rendered state alone misses queued work.
 const callback =
@@ -49,12 +49,12 @@ type Inputs = {
   changedDrawn: Ref<Set<string>>;
   setDrawn: (update: (current: Drawn) => Drawn) => void;
   /// The transcript's fold ride (conversation/foldRide.ts), let go before rows are placed; none rides here.
-  foldRide: Ref<{ release(): void } | undefined>;
+  foldRideRef: Ref<{ release(): void } | undefined>;
 };
 const useFlush = compileFunction(
   new Bun.Transpiler({ loader: "ts" }).transformSync(`
 ${comparison}
-function useFlush({ drawnRef, pendingDrawn, changedDrawn, setDrawn, foldRide }) {
+function useFlush({ drawnRef, pendingDrawn, changedDrawn, setDrawn, foldRideRef }) {
 ${callback}
 return flushDrawn;
 }`) + "\nreturn useFlush;",
@@ -118,7 +118,7 @@ async function setup() {
       drawnRef,
       pendingDrawn,
       changedDrawn,
-      foldRide: { current: undefined },
+      foldRideRef: { current: undefined },
       setDrawn: (update) => {
         control.calls += 1;
         setDrawn(update);

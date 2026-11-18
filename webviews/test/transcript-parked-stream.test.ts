@@ -49,8 +49,8 @@ await requireBrowserLane("transcript-parked-stream.test.ts", async () => {
             let source = readFileSync(process.env.CMUX_PARKED_SOURCE ?? id, "utf8");
             const inserts = [
               [
-                "const top = scrollAnchorBase(live, scrolledTo.current.top, readerLeft);",
-                'globalThis.__geometry?.("anchor-base", {live, stored: scrolledTo.current.top, top, readerLeft});',
+                "const top = scrollAnchorBase(live, scrolledToRef.current.top, readerLeft);",
+                'globalThis.__geometry?.("anchor-base", {live, stored: scrolledToRef.current.top, top, readerLeft});',
               ],
               [
                 "const nextTop = held ? held.top : kept;",
@@ -62,7 +62,7 @@ await requireBrowserLane("transcript-parked-stream.test.ts", async () => {
                 'globalThis.__probe?.("queueScroll", atLatest, atLatest); globalThis.__geometry?.("queueScroll", {top, atLatest});',
               ],
               [
-                "if (didOpenAtLatest.current && atLatest) {",
+                "if (didOpenAtLatestRef.current && atLatest) {",
                 'globalThis.__probe?.("layout-follow", followingRef.current, atLatest);',
               ],
               [
@@ -71,11 +71,11 @@ await requireBrowserLane("transcript-parked-stream.test.ts", async () => {
               ],
               [
                 "if (layoutDriven) {",
-                'globalThis.__probe?.("scroll-layout", followingRef.current, scrolledTo.current.atLatest);',
+                'globalThis.__probe?.("scroll-layout", followingRef.current, scrolledToRef.current.atLatest);',
               ],
               [
-                "followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);",
-                'globalThis.__probe?.("snapshot", followingRef.current, scrolledTo.current.atLatest);',
+                "followTrace.update(node, layout.totalHeight, scrolledToRef.current.atLatest);",
+                'globalThis.__probe?.("snapshot", followingRef.current, scrolledToRef.current.atLatest);',
               ],
             ];
             for (const [needle, probe] of inserts) {
@@ -84,7 +84,7 @@ await requireBrowserLane("transcript-parked-stream.test.ts", async () => {
             }
             source = source.replace(
               "if (acpmuxPerf.enabled && renderStart > 0) {",
-              'globalThis.__probe?.("commit", followingRef.current, scrolledTo.current.atLatest); if (acpmuxPerf.enabled && renderStart > 0) {',
+              'globalThis.__probe?.("commit", followingRef.current, scrolledToRef.current.atLatest); if (acpmuxPerf.enabled && renderStart > 0) {',
             );
             return source;
           },

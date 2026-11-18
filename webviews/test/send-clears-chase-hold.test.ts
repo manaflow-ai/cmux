@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 const source = readFileSync(new URL("../src/agent-session/acpmux/VirtualTranscript.tsx", import.meta.url), "utf8");
 
 test("a send from the latest row ends Jump to latest's hold on the chase", () => {
-  const start = source.indexOf("const fromLatest = followingRef.current && jumpTarget.current === undefined;");
+  const start = source.indexOf("const fromLatest = followingRef.current && jumpTargetRef.current === undefined;");
   expect(start).toBeGreaterThan(0);
   const branch = /if \(fromLatest\) \{([\s\S]*?)\} else stopJump\(\);/.exec(source.slice(start))?.[1] ?? "";
   expect(branch).toContain("stopScroll(node);");
