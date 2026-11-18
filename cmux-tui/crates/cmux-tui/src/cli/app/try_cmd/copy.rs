@@ -166,7 +166,7 @@ pub(super) fn run(
         };
     }
     // Its log goes to this terminal as it runs; its last stdout line is the result.
-    process.stderr(std::process::Stdio::inherit());
+    process.stderr(cmux_process::Stdio::inherit());
     let output = match process.output() {
         Ok(output) => output,
         Err(error) => return cannot_run(global, &error.to_string()),
