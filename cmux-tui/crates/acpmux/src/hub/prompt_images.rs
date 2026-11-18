@@ -830,9 +830,13 @@ mod tests {
         let named = decode(&image).unwrap().1;
         assert_eq!((named["width"].clone(), named["height"].clone()), (json!(1568), json!(74)));
         let parts = inline_parts(std::slice::from_ref(&image), std::slice::from_ref(&named), None);
-        assert_eq!((parts[0]["width"].clone(), parts[0]["height"].clone()), (json!(1568), json!(74)));
+        assert_eq!(
+            (parts[0]["width"].clone(), parts[0]["height"].clone()),
+            (json!(1568), json!(74))
+        );
         // Bytes whose header names no size record none: the client keeps its square slot.
-        let no_size = decode(&json!({"type": "image", "mimeType": "image/png", "data": "AQID"})).unwrap().1;
+        let no_size =
+            decode(&json!({"type": "image", "mimeType": "image/png", "data": "AQID"})).unwrap().1;
         assert!(no_size.get("width").is_none() && no_size.get("height").is_none());
     }
 
