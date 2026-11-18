@@ -11,7 +11,7 @@ import Testing
 /// `cmux ai-accounts list` failed with "The Cloud VM request failed." whatever went wrong (#21754).
 /// AI account requests share the Cloud VM socket wrapper, which replaced every error it did not
 /// know with that line, including the accounts client's own text naming the real cause.
-@Suite struct AIAccountsSocketErrorTextTests {
+@Suite @MainActor struct AIAccountsSocketErrorTextTests {
     private static let cloudVMFallback = String(
         localized: "socket.cloudVM.requestFailed",
         defaultValue: "The Cloud VM request failed. Retry, or check the machine's status with `cmux vm ls`."
