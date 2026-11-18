@@ -94,6 +94,13 @@ extension CloudOwnerAPIClient {
         return (CloudGitHubApp(status: answer.status, body: answer.body), CloudGitHubApp.reposScope(status: answer.status, body: answer.body))
     }
 
+    /// Where Settings' Reconfigure opens for `team`'s ready GitHub connection (``CloudGitHubApp/reconfigureURL(status:body:)``);
+    /// nil when it is not ready or the status route did not answer.
+    public func gitHubReconfigureURL(team: String) async -> URL? {
+        guard let path = CloudGitHubApp.path(team: team), let answer = await person(path) else { return nil }
+        return CloudGitHubApp.reconfigureURL(status: answer.status, body: answer.body)
+    }
+
     /// `GET /v1/integrations/github/repos?team=&query=` with the person's own session.
     public func gitHubRepos(team: String, query: String?) async -> Result<CloudGitHubRepos, CloudGitHubRepos.Failure> {
         guard let path = CloudGitHubRepos.path(team: team, query: query), let answer = await person(path) else { return .failure(.unavailable) }
@@ -102,8 +109,12 @@ extension CloudOwnerAPIClient {
 
     /// `integration.connect {provider: "github"}` on `/v1/ops`, as the person, in ``teamID``'s team (`x-cmux-team`), under
     /// `key`: a replay of the key answers the same pending connection and page.
-    public func gitHubConnect(key: String) async -> CloudGitHubConnects.Answer {
-        let body: [String: Any] = ["op": "integration.connect", "params": ["provider": "github"], "origin": "user", "idempotency_key": key]
+    /// `returnTo` is the app's completion link (``CloudGitHubCompletion/link(scheme:)``): GitHub's redirect comes back
+    /// to this app, which finishes the connection with its own sign-in (#46018).
+    public func gitHubConnect(key: String, returnTo: String? = nil) async -> CloudGitHubConnects.Answer {
+        var params = ["provider": "github"]
+        if let returnTo { params["return_to"] = returnTo }
+        let body: [String: Any] = ["op": "integration.connect", "params": params, "origin": "user", "idempotency_key": key]
         guard let json = try? JSONSerialization.data(withJSONObject: body), let answer = await person("/v1/ops", post: json) else { return .noAnswer }
         return CloudGitHubConnects.answer(status: answer.status, body: answer.body)
     }
@@ -332,7 +343,8 @@ public struct CloudGitHubPicker {
             case nil: return .failed
             }
         }
-        guard let page = await connects.page(team: owner.team, now: Date(), ask: { await client.gitHubConnect(key: $0) }) else { return .failed }
+        let returnTo = CloudGitHubCompletion.link(scheme: auth.configuration.callbackScheme)
+        guard let page = await connects.page(team: owner.team, now: Date(), ask: { await client.gitHubConnect(key: $0, returnTo: returnTo) }) else { return .failed }
         return .open(page)
     }
 }

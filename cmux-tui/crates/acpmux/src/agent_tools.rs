@@ -75,6 +75,7 @@ use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
 
 pub mod claude_plugin_dirs;
+mod cmux_mcp;
 pub(crate) mod cua_helper;
 pub mod project_mcp;
 
@@ -95,6 +96,13 @@ pub const INHERITED_CALLER_ENV: [&str; 4] =
 
 /// The agent memory server's name (`optchat-chief agent-memory mcp`).
 pub const MEMORY_SERVER_NAME: &str = "cmux-agent-memory";
+/// The person's saved MCP servers (`optchat-chief integrations serve`): one `mcp_servers` tool
+/// that lists, signs in to and calls the servers of the machine's store this chat may use (the
+/// scope the person picked on the connect card, `cmux_mcp_connect::shared::visible`). Off with
+/// `agents.mcpServers.enabled` false in cmux.json.
+pub const SAVED_SERVERS_NAME: &str = "cmux-mcp";
+/// The cmux.json switch for the saved servers (Settings > MCP Servers), on when absent.
+pub const SAVED_SERVERS_SETTING: &str = "agents.mcpServers.enabled";
 
 /// A session env key passed to `cmux-cua mcp`: exact bundle ids the
 /// session's computer use may target although the guard refuses them.
@@ -838,7 +846,7 @@ fn resolve_with_cua_helper(
                 .collect(),
         });
     }
-    if let Some(cmux) = executable("cmux")
+    if let Some(cmux) = executable("cmux").filter(|cmux| cmux_mcp::serves_mcp(cmux))
         && !inputs.cmux_json.as_deref().is_some_and(mcp_disabled)
     {
         servers.push(McpServer {
@@ -855,6 +863,16 @@ fn resolve_with_cua_helper(
             name: MEMORY_SERVER_NAME.into(),
             command: chief,
             args: vec!["agent-memory".into(), "mcp".into()],
+            env: vec![],
+        });
+    }
+    if let Some(chief) = executable("optchat-chief")
+        && !inputs.cmux_json.as_deref().is_some_and(saved_servers_off)
+    {
+        servers.push(McpServer {
+            name: SAVED_SERVERS_NAME.into(),
+            command: chief,
+            args: vec!["integrations".into(), "serve".into()],
             env: vec![],
         });
     }
@@ -982,7 +1000,10 @@ impl AgentTools {
                 .cloned()
                 .collect();
             server.env.retain(|(k, _)| k != AGENT_SESSION_ENV);
-            if server.name == "cmux" || server.name == MEMORY_SERVER_NAME {
+            if server.name == "cmux"
+                || server.name == MEMORY_SERVER_NAME
+                || server.name == SAVED_SERVERS_NAME
+            {
                 server.env.push((AGENT_SESSION_ENV.to_owned(), session_id.to_owned()));
             }
             if server.name == DESKTOP_LEASE_SERVER {
@@ -1308,6 +1329,12 @@ fn mcp_disabled(text: &str) -> bool {
 /// Agent memory is on only when the settings file says
 /// `agents.memory.enabled` is `true`: it reads the user's memory files, so
 /// a missing key, another value or an unreadable file leaves it off.
+fn saved_servers_off(text: &str) -> bool {
+    crate::user_settings::document(text)
+        .and_then(|doc| crate::user_settings::value(&doc, SAVED_SERVERS_SETTING))
+        == Some(Value::Bool(false))
+}
+
 fn memory_enabled(text: &str) -> bool {
     crate::user_settings::document(text)
         .and_then(|doc| crate::user_settings::value(&doc, "agents.memory.enabled"))
