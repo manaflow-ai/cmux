@@ -166,11 +166,11 @@ impl StatedDigests {
     /// The bytes that this entry keeps, besides its key.
     #[cfg(test)]
     fn retained_bytes(&self) -> usize {
-        std::mem::size_of::<Self>()
+        size_of::<Self>()
             + self.workspace.as_ref().map_or(0, |workspace| {
-                std::mem::size_of::<WorkspaceDigests>()
+                size_of::<WorkspaceDigests>()
                     + (workspace.fields.capacity() + workspace.extra.capacity())
-                        * std::mem::size_of::<ValueDigest>()
+                        * size_of::<ValueDigest>()
             })
     }
 }
@@ -334,7 +334,7 @@ impl PublicTopologyFold {
             let key = (resource.to_string(), id.to_string());
             match kind {
                 "upsert" => {
-                    self.values.insert(key, change["value"].clone());
+                    self.values.insert(key, StatedDigests::new(resource, &change["value"]));
                 }
                 "delete" => {
                     self.values.remove(&key);
