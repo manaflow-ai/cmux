@@ -245,10 +245,14 @@ probe() {
     [[ "${PIPESTATUS[0]}" == 0 ]] || { echo "LR-FAIL $side $label no sidebar snapshot to seed machines into"; return 1; }
   fi
   quiesce "$app" "$side" "$label"
-  # state=bare: the launch finds an empty home (launch-ready.swift makes its folders again) and empty defaults (no
-  # defaults.plist, so the load leaves the side's domain clear). Only this run's own home is removed; a daemon the
-  # last launch kept has its socket in the removed home and ends with the others at the end.
-  if [[ "$LR_STATE" == bare ]]; then rm -rf "$out/home-$side/h" "$out/home-$side/t" "$out/home-$side/defaults.plist"; fi
+  # state=bare: the launch finds no daemon (the ones the last launch kept end first, as daemon=cold ends them: a kept
+  # daemon survived the emptied home, and the next launch's ensure found it, so it never showed Home's first page), an
+  # empty home (launch-ready.swift makes its folders again) and empty defaults (no defaults.plist, so the load leaves
+  # the side's domain clear). Only this run's own copy's processes and home.
+  if [[ "$LR_STATE" == bare ]]; then
+    cold_daemon "$out" "$side" "$label" | sed 's/^LR-COLD /LR-BARE-STOP /'
+    rm -rf "$out/home-$side/h" "$out/home-$side/t" "$out/home-$side/defaults.plist"
+  fi
   side_defaults "$out" load "$app" "$out/home-$side/defaults.plist" \
     || { echo "LR-FAIL $side $label defaults not loaded"; return 1; }
   # daemon=cold: a measured launch finds no daemon running.
