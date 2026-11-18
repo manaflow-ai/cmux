@@ -171,8 +171,15 @@ struct Start {
     folder: PathBuf,
 }
 
-/// `cmux link start-chat copy` of `local`, projection on or off.
-fn start_chat(state: &Path, socket: &Path, local: &Path, work: &Path, projected: bool) -> Start {
+/// `cmux link start-chat copy` of `local`, projection on or off, with `extra` flags.
+fn start_chat(
+    state: &Path,
+    socket: &Path,
+    local: &Path,
+    work: &Path,
+    projected: bool,
+    extra: &[&str],
+) -> Start {
     let started = Instant::now();
     let output = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
         .env("CMUX_TUI_STATE_DIR", state)
@@ -185,6 +192,7 @@ fn start_chat(state: &Path, socket: &Path, local: &Path, work: &Path, projected:
         .arg(local)
         .arg("--work-root")
         .arg(work)
+        .args(extra)
         .output()
         .unwrap();
     let took = started.elapsed();
@@ -263,7 +271,7 @@ fn a_folder_past_the_limits_is_projected_whole_and_reads_come_from_the_mac() {
     }
     let w = world(500);
     let state = w.home.parent().unwrap().join("state");
-    let start = start_chat(&state, &w.socket, &w.local, &w.home.join("work"), true);
+    let start = start_chat(&state, &w.socket, &w.local, &w.home.join("work"), true, &[]);
     let folder = &start.folder;
     assert_eq!(start.answer["mode"], "projected", "{}", start.answer);
     // One projection per chat, named by its start key: Bring Back finds the chat's edits by it.
@@ -293,6 +301,24 @@ fn a_folder_past_the_limits_is_projected_whole_and_reads_come_from_the_mac() {
     stop(&state, folder);
 }
 
+/// The App's first copy asks (`--on-seed-refusal ask`) and ends a start whose folder its
+/// machine's disk cannot hold, so that copy has to project too, before any seed or copy.
+#[test]
+fn the_apps_asking_copy_projects_too() {
+    if !fuse_here() {
+        eprintln!("skipping: no FUSE here");
+        return;
+    }
+    let w = world(50);
+    let state = w.home.parent().unwrap().join("state");
+    let work = w.home.join("work");
+    let start = start_chat(&state, &w.socket, &w.local, &work, true, &["--on-seed-refusal", "ask"]);
+    assert_eq!(start.answer["mode"], "projected", "{}", start.answer);
+    let image = std::fs::metadata(start.folder.join("Downloads/disk.img")).unwrap();
+    assert_eq!(image.len(), 21 * 1024 * 1024 * 1024);
+    stop(&state, &start.folder);
+}
+
 #[test]
 #[ignore = "a bench: CMUX_PROJECT_BENCH_FILES=200000 cargo test --test link_project -- --ignored --nocapture"]
 fn a_bench_of_the_first_turn() {
@@ -308,7 +334,7 @@ fn a_bench_of_the_first_turn() {
     let mut rows = Vec::new();
     for projected in [false, true] {
         let state = w.home.parent().unwrap().join(if projected { "state-p" } else { "state-c" });
-        let start = start_chat(&state, &w.socket, &w.local, &w.home.join("work"), projected);
+        let start = start_chat(&state, &w.socket, &w.local, &w.home.join("work"), projected, &[]);
         let (turn, read, status) = first_turn(&start.folder);
         let row = json!({
             "path": if projected { "projected" } else { "first pass (today)" },

@@ -177,7 +177,7 @@ pub(super) fn run(args: &[String]) -> i32 {
             }
             copy.run(&ledger, &|socket: &Path, local: &Path, remote: &str| {
                 if copy.seed_only {
-                    push_seed_only(socket, local, remote, &copy.subpath)
+                    push_seed_only(socket, local, remote, &copy.subpath, &copy.key)
                 } else {
                     push(socket, local, remote, &copy.subpath, &copy.key)
                 }
@@ -1195,32 +1195,47 @@ fn push(
     subpath: &str,
     chat: &str,
 ) -> Result<Value, Value> {
-    // A folder past the copy's limits is projected when that is on (sync_cli/project.rs): the
-    // chat opens on all of it at once, its files read from this Mac on first use. Anything else,
-    // and any failure to project, copies as before.
-    match super::sync_cli::project::start(socket, local, remote, chat) {
-        Ok(Ok(answer)) => {
-            return Ok(json!({"mode": "projected", "projected": answer.get("data").cloned()}));
-        }
-        Ok(Err(_)) => {}
-        Err(error) => eprintln!(
-            "cmux link start-chat: projecting {} failed: {error:#}; copying it",
-            local.display()
-        ),
+    if let Some(projected) = project_first(socket, local, remote, chat) {
+        return Ok(projected);
     }
     super::seed_cli::push(socket, local, remote, Some(subpath))
         .map(|pushed| pushed_fields(&pushed.json()))
         .map_err(|error| super::seed_cli::failure(&error))
 }
 
+/// A folder past the copy's limits is projected when that is on (sync_cli/project.rs): the chat
+/// opens on all of it at once, its files read from this Mac on first use. None for anything
+/// else, and for any failure to project, so the caller seeds or copies as before. Both pushes
+/// try it first: the App's first copy asks (`--on-seed-refusal ask`), and a folder its machine's
+/// disk cannot hold would end there, refused, before a projection that needs no room was tried.
+fn project_first(socket: &Path, local: &Path, remote: &str, chat: &str) -> Option<Value> {
+    match super::sync_cli::project::start(socket, local, remote, chat) {
+        Ok(Ok(answer)) => {
+            Some(json!({"mode": "projected", "projected": answer.get("data").cloned()}))
+        }
+        Ok(Err(_)) => None,
+        Err(error) => {
+            eprintln!(
+                "cmux link start-chat: projecting {} failed: {error:#}; copying it",
+                local.display()
+            );
+            None
+        }
+    }
+}
+
 /// [`push`] that never copies: a refused seed is `seed_refused`
-/// (`--on-seed-refusal ask`).
+/// (`--on-seed-refusal ask`). A projection is no copy: it is tried first, as in [`push`].
 fn push_seed_only(
     socket: &Path,
     local: &Path,
     remote: &str,
     subpath: &str,
+    chat: &str,
 ) -> Result<Value, Value> {
+    if let Some(projected) = project_first(socket, local, remote, chat) {
+        return Ok(projected);
+    }
     super::seed_cli::push_seed_only(socket, local, remote, Some(subpath))
         .map(|pushed| pushed_fields(&pushed.json()))
         .map_err(|error| super::seed_cli::failure(&error))
