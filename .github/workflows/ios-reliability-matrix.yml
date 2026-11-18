@@ -15,6 +15,11 @@ on:
 
 permissions: {}
 
+# At most one queued run: a newer schedule run replaces a pending one.
+concurrency:
+  group: ios-reliability-matrix
+  cancel-in-progress: false
+
 jobs:
   # No secrets: it only dispatches this workflow on feat-cmux-next.
   start:
