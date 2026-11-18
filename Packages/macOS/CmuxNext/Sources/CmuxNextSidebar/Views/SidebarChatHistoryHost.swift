@@ -161,7 +161,7 @@ final class SidebarChatHistoryHost: NSView {
     /// Sends the slice on the next display frame (the latest wins).
     func needsSlice() { sliceFrame.activate() }
 
-    /// Sends the slice now when it moved by a whole px (the display frame's work).
+    /// Sends the slice now when it moved by a whole px or the block changed (the display frame's work).
     func sendSlice() {
         if provider.push(currentSlice) { listWork.configured() }
     }

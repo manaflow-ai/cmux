@@ -11,7 +11,7 @@ import Testing
 /// Leo 2026-11-18 (ask-1105ee4cc6): "we draw the visible area, right? Like, that's what we're supposed to do." A chat
 /// history block's page is as tall as the block and the list scrolls it, so every row is in the page's own viewport.
 /// The host streams the part on screen (`cmux.sidebarChats.slice`) for the page to draw only those rows: at most once a
-/// display frame, nothing when it did not move by a whole px, height 0 off screen, the latest to a page that
+/// display frame, nothing when neither the block nor its whole px changed, height 0 off screen, the latest to a page that
 /// subscribes again, and the same work per scroll at 100 and 10,000 chats.
 @MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarChatsSliceTests {
@@ -44,10 +44,16 @@ struct SidebarChatsSliceTests {
         #expect(events.count == 1)
         #expect(block.host.listWork.take().rowsConfigured == 0)
 
+        // A block push: the same px at the new revision (the page drops a slice older than its block).
+        block.rename(2)
+        block.host.sendSlice()
+        #expect(events.count == 2)
+        #expect(events.last?["revision"]?.intValue == block.host.provider.revision)
+
         // Scrolled past the block: height 0.
         block.scroll(to: block.host.frame.maxY + 50)
         block.host.sendSlice()
-        #expect(events.count == 2)
+        #expect(events.count == 3)
         #expect(events.last?["height"]?.doubleValue == 0)
 
         // A page that subscribes again (a reload) gets the latest at once.
