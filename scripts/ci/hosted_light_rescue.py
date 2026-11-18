@@ -847,8 +847,10 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
 #   route as the variables read now); a run whose pull request closed or moved on is only cancelled, since nobody
 #   reads its result; a run whose pull request cannot be read is left alone; a cancel whose re-run never went out
 #   is re-run by a later pass (BACKLOG_RECOVER_WINDOW);
-# - at most BACKLOG_ACTIONS cancels and BACKLOG_READS job reads a pass (BACKLOG_IN_PROGRESS_READS of them for
-#   runs that started a job), oldest queued runs first.
+# - at most BACKLOG_ACTIONS cancels and BACKLOG_READS GitHub reads a pass, every read counted (listings, jobs, pull
+#   requests, the re-read before a cancel and the settle reads); at most BACKLOG_IN_PROGRESS_READS job reads for runs
+#   that started a job; oldest queued runs first. Recovery stops once a third of the reads are spent, listings stop
+#   walking pages at half, and a run is read only while the reads to cancel it and re-run every chosen run remain.
 BACKLOG_STALL = dt.timedelta(minutes=30)
 BACKLOG_WINDOW = dt.timedelta(hours=24)
 BACKLOG_EVENTS = ("pull_request", "pull_request_target")
@@ -864,6 +866,47 @@ BACKLOG_SETTLE_S = 120.0
 # its pull request's head, when no newer run of its workflow exists at that head. At most BACKLOG_RECOVER_READS runs.
 BACKLOG_RECOVER_WINDOW = dt.timedelta(hours=2)
 BACKLOG_RECOVER_READS = 10
+# The most reads one candidate takes before its cancel (its jobs, its pull request, the re-read of the run and its
+# jobs), and the reads held back to settle and re-run each cancelled run (the run, its pull request).
+BACKLOG_RUN_READS = 4
+BACKLOG_SETTLE_READS = 2
+
+
+class BacklogReadsSpent(RuntimeError):
+    """The pass has made BACKLOG_READS reads; nothing more is read until the next pass."""
+
+
+class BacklogReads:
+    """The pass's client, every GitHub read through it counted against one budget; writes pass straight through."""
+
+    def __init__(self, client: Any, budget: int) -> None:
+        self._client, self.budget, self.spent = client, budget, 0
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._client, name)
+
+    @property
+    def reads_left(self) -> int:
+        return self.budget - self.spent
+
+    def _take(self) -> None:
+        if self.spent >= self.budget:
+            raise BacklogReadsSpent(f"the pass's {self.budget} reads are spent")
+        self.spent += 1
+
+    def request(self, method: str, path: str, *payload: Any) -> Any:
+        if method == "GET":
+            self._take()
+        return self._client.request(method, path, *payload)
+
+    def jobs(self, run_id: int) -> list[dict[str, Any]]:
+        self._take()
+        return self._client.jobs(run_id)
+
+
+def reads_left(client: Any) -> float:
+    """Reads the pass may still make (unbounded for a client that does not count them)."""
+    return getattr(client, "reads_left", float("inf"))
 
 
 def backlog_stalled(job: Mapping[str, Any], now: dt.datetime) -> bool:
@@ -906,7 +949,7 @@ def backlog_oldest(client: Any, status: str, event: str, start: dt.datetime, end
         return oldest_pages(client, status, event, start, end, total, want)
     found: list[dict[str, Any]] = []
     cut = start
-    while cut < end and len(found) < want:
+    while cut < end and len(found) < want and reads_left(client) > BACKLOG_READS // 2:
         upper = min(end, cut + BACKLOG_SLICE)
         part_total, part = backlog_listing(client, status, event, cut, upper)
         if part_total > LIST_PAGE:
@@ -921,7 +964,7 @@ def oldest_pages(client: Any, status: str, event: str, start: dt.datetime, end: 
     """The last pages of a listing of `total` runs (the oldest), back to at least `want` runs."""
     found: list[dict[str, Any]] = []
     page = -(-total // LIST_PAGE)
-    while page >= 1 and len(found) < want:
+    while page >= 1 and len(found) < want and reads_left(client) > BACKLOG_READS // 2:
         found.extend(backlog_listing(client, status, event, start, end, page=page)[1])
         page -= 1
     return found
@@ -1013,6 +1056,10 @@ def backlog_recover(client: Any, *, now: dt.datetime, dry_run: bool, declared: S
                 continue
             found.append({**run, "_workflow": workflow})
     for run in sorted(found, key=run_key)[:BACKLOG_RECOVER_READS]:
+        # Recovery spends at most a third of the pass's reads; the rest are for stalled runs.
+        if reads_left(client) <= BACKLOG_READS * 2 // 3:
+            lines.append("recovery stopped: a third of the pass's reads are spent")
+            break
         where = f"run {run['id']} ({run['_workflow']}, {run.get('event')}, {run.get('head_branch')})"
         try:
             if not backlog_cancelled_mark(client.jobs(run["id"])):
@@ -1048,6 +1095,7 @@ def backlog_sweep(client: Any, *, now: dt.datetime, dry_run: bool, declared: Seq
     if pool_low(client, now):
         lines.append(f"the read token's pool is down to {client.remaining} (reserve {POOL_RESERVE}); nothing read")
         return lines, counts
+    client = BacklogReads(client, BACKLOG_READS)
     backlog_recover(client, now=now, dry_run=dry_run, declared=declared, lines=lines, counts=counts)
     listed: dict[int, Mapping[str, Any]] = {}
     for status in ("queued", "in_progress"):
@@ -1076,7 +1124,10 @@ def backlog_sweep(client: Any, *, now: dt.datetime, dry_run: bool, declared: Seq
     chosen: list[tuple[Mapping[str, Any], str, str]] = []
     in_progress_reads = 0
     for run in order:
-        if counts["read"] >= BACKLOG_READS or counts["cancelled"] >= actions:
+        if counts["cancelled"] >= actions:
+            break
+        if client.reads_left < BACKLOG_RUN_READS + BACKLOG_SETTLE_READS * (len(chosen) + 1):
+            lines.append(f"stopped: the pass's {BACKLOG_READS} reads are spent or held for re-runs")
             break
         if run.get("status") != "queued":
             # A run that started something is usually still working: read a few a pass, not every old one.
@@ -1156,16 +1207,17 @@ def backlog_sweep(client: Any, *, now: dt.datetime, dry_run: bool, declared: Seq
             counts["rerun"] += 1
             lines.append(f"{where}: {detail}; cancelled and re-ran its failed jobs on today's routes")
         waiting = left
-        if waiting and clock() >= deadline:
+        if waiting and (clock() >= deadline or client.reads_left < BACKLOG_SETTLE_READS):
             for run, where, detail in waiting:
                 lines.append(f"{where}: {detail}; cancelled, but the cancel did not settle in "
-                             f"{BACKLOG_SETTLE_S:.0f} s; a later pass re-runs it")
+                             f"{BACKLOG_SETTLE_S:.0f} s or the pass's reads; a later pass re-runs it")
             break
         if waiting:
             sleep(SETTLE_INTERVAL_S)
     lines.append(f"{counts['candidates']} candidate runs, {counts['read']} read, {counts['stalled']} stalled, "
                  f"{counts['cancelled']} cancelled ({counts['superseded']} superseded), {counts['rerun']} re-run, "
-                 f"{counts['recovered']} earlier cancels re-run")
+                 f"{counts['recovered']} earlier cancels re-run; {client.spent} of {BACKLOG_READS} GitHub reads")
+    counts["requests"] = client.spent
     return lines, counts
 
 

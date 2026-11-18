@@ -965,9 +965,11 @@ class BacklogFake:
         self.calls: list[tuple] = []
         self.listings: list[str] = []
         self.started_meanwhile: set[int] = set()
+        self.reads = 0
 
     def request(self, method, path):
         assert method == "GET", path
+        self.reads += 1
         parsed = urllib.parse.urlparse(path)
         query = dict(urllib.parse.parse_qsl(parsed.query))
         if parsed.path == "/actions/runs" and "head_sha" in query:
@@ -991,6 +993,7 @@ class BacklogFake:
         raise AssertionError(path)
 
     def jobs(self, run_id):
+        self.reads += 1
         if run_id in self.started_meanwhile and any(c == ("jobs", run_id) for c in self.calls):
             return [job("x", status="in_progress", runner_id=7)]
         self.calls.append(("jobs", run_id))
@@ -1146,6 +1149,26 @@ class Backlog(unittest.TestCase):
         cancelled = [c[1] for c in backlog_mutations(fake) if c[0] == "cancel"]
         self.assertEqual(cancelled, [2099, 2098, 2097])
         self.assertLessEqual(counts["read"], rescue.BACKLOG_READS)
+
+    def test_every_github_read_of_a_pass_counts_against_the_read_bound(self):
+        # Each stalled run costs its jobs, its pull request, the re-read before the cancel and the settle reads, and
+        # earlier cancels cost their own reads: counting only the first jobs read let a pass make about twice
+        # BACKLOG_READS reads.
+        runs = [backlog_run(400 + i, age_min=100 + i, pr=1) for i in range(40)]
+        jobs = {r["id"]: [job("x", waited=6000)] for r in runs}
+        for i in range(rescue.BACKLOG_RECOVER_READS):
+            earlier, earlier_jobs = self.cancelled_run(500 + i)
+            runs.append(earlier)
+            jobs[500 + i] = earlier_jobs
+        fake = BacklogFake(runs, jobs, pulls={1: OPEN_AT_HEAD})
+        lines, counts = backlog(fake, actions=rescue.BACKLOG_ACTIONS_MAX)
+        self.assertLessEqual(fake.reads, rescue.BACKLOG_READS)
+        self.assertEqual(counts["requests"], fake.reads)
+        cancelled = [c[1] for c in backlog_mutations(fake) if c[0] == "cancel"]
+        reran = [c[1] for c in backlog_mutations(fake) if c[0] == "rerun" and c[1] < 500]
+        self.assertTrue(cancelled)
+        self.assertEqual(reran, cancelled)   # every run it cancelled had the reads to be re-run
+        self.assertIn(f"of {rescue.BACKLOG_READS} GitHub reads", lines[-1])
 
     def test_main_reads_tokens_and_the_action_bound_from_the_environment(self):
         fake = BacklogFake([backlog_run(50, pr=1), backlog_run(51, age_min=210, pr=1)],
