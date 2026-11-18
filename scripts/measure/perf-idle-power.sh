@@ -10,6 +10,7 @@
 #     [--arg=scenarios=terminal,tab1] [--arg=settings={"browser":{...}}]
 #     [--arg=freeze=SECONDS] [--arg=neighbors=0..3]  (browser.freezeHiddenTabs and
 #     browser.keepNeighborTabsAwake without JSON, which the fleet's argument check refuses)
+#     [--arg=extension=mv3-all-sites]  (a minimal all-sites MV3 extension loaded: bench_power.py --extension)
 # Each idle scenario settles 120 s first (Chromium's post-load work), so a
 # full run takes about 25 minutes.
 # The idle-CPU stop condition (40 open chats, 60 s settle, 120 s measured, every
@@ -34,6 +35,7 @@ scenarios=""
 settings="{}"
 freeze=""
 neighbors=""
+extension=""
 for arg in "$@"; do
   case "$arg" in
     measure=*) measure="${arg#measure=}"; [[ "$measure" =~ ^[0-9]+$ ]] || { echo "perf-idle-power.sh: measure=SECONDS" >&2; exit 2; } ;;
@@ -46,6 +48,7 @@ for arg in "$@"; do
     settings=*) settings="${arg#settings=}" ;;
     freeze=*) freeze="${arg#freeze=}"; [[ "$freeze" =~ ^[0-9]+$ ]] || { echo "perf-idle-power.sh: freeze=SECONDS" >&2; exit 2; } ;;
     neighbors=*) neighbors="${arg#neighbors=}"; [[ "$neighbors" =~ ^[0-3]$ ]] || { echo "perf-idle-power.sh: neighbors=0..3" >&2; exit 2; } ;;
+    extension=*) extension="${arg#extension=}"; [[ "$extension" =~ ^[a-z0-9-]+$ ]] || { echo "perf-idle-power.sh: extension=NAME" >&2; exit 2; } ;;
     *) echo "perf-idle-power.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
@@ -84,5 +87,6 @@ extra=()
 [ -n "$chats" ] && extra+=(--load-local "$chats")
 [ -n "$rounds" ] && extra+=(--relaunch-rounds "$rounds")
 [ -n "$budget" ] && extra+=(--process-budget "$budget")
+[ -n "$extension" ] && extra+=(--extension "$extension")
 python3 scripts/cmux-next/bench_power.py --app "$app" --config "$settings" \
   --out artifacts/perf-idle-power.json --md artifacts/perf-idle-power.md ${extra[@]+"${extra[@]}"}

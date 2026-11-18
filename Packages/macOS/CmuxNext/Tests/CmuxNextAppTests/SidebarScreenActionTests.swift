@@ -15,6 +15,25 @@ import Testing
         return CmuxNextSidebar.SidebarSection(kind: .machine(machine), nodes: [.workspace(SidebarWorkspace(id: WorkspaceID("ws-" + id), title: "A project with a long descriptive title", directory: "~/Projects"))])
     }
 
+    static func sharedLocal() -> CmuxNextSidebar.SidebarSection {
+        var section = section("local", name: "This Mac", kind: SidebarMachine.Kind.local)
+        guard case var .machine(machine) = section.kind else { return section }
+        machine.screenShared = true
+        section.kind = .machine(machine)
+        return section
+    }
+
+    static func lay(_ row: SidebarRowView, hovered: Bool? = nil, selected: Bool? = nil) {
+        if let hovered { row.isHovered = hovered }
+        if let selected { row.isSelected = selected }
+        row.needsLayout = true
+        row.layoutSubtreeIfNeeded()
+    }
+
+    static func customAction(_ row: NSView, named name: String) -> NSAccessibilityCustomAction? {
+        row.accessibilityCustomActions()?.first { $0.name.hasPrefix(name) }
+    }
+
     /// Every view in the row's whole subtree whose identifier ends in `.screen`.
     static func screenControls(in view: NSView) -> [NSView] {
         view.subviews.flatMap { sub in (sub.accessibilityIdentifier().hasSuffix(".screen") ? [sub] : []) + screenControls(in: sub) }
@@ -74,6 +93,27 @@ import Testing
         }
     }
 
+    @Test func headersShowTheScreenButtonOnHoverOrAsTheSharingBadge() throws {
+        _ = NSApplication.shared
+        let model = SidebarModel(sections: [Self.sharedLocal()] + Self.examples.dropFirst())
+        model.groupsByComputer = true
+        let list = SidebarListView(model: model)
+        list.frame = NSRect(x: 0, y: 0, width: 300, height: 1000)
+        list.reload(animated: false)
+        list.layoutSubtreeIfNeeded()
+        let local = try #require(list.rowViews[SidebarRowKey.section(SectionID.machine(MachineID("local")))] as? SectionHeaderRowView)
+        #expect(local.showsScreenButton, "This Mac's header shows the sharing badge at rest while it shares")
+        #expect(local.screenButton.icon == .remoteDisplay)
+        #expect(local.screenButton.tintOverride == Palette.accent)
+        #expect(local.screenButton.label == Strings.sharingScreen)
+        let cloud = try #require(list.rowViews[SidebarRowKey.section(SectionID.machine(MachineID("cloud")))] as? SectionHeaderRowView)
+        #expect(!cloud.showsScreenButton)
+        #expect(Self.customAction(cloud, named: Strings.viewScreen) != nil)
+        Self.lay(cloud, hovered: true)
+        #expect(cloud.showsScreenButton)
+        #expect(cloud.screenButton.tintOverride == nil)
+    }
+
     @Test(arguments: [240.0, 300.0, 360.0])
     func groupedMachineNamesKeepUsableWidthBesideScreenActions(width: Double) throws {
         _ = NSApplication.shared
@@ -93,12 +133,13 @@ import Testing
             #expect(nameAtRest.width >= 2 * SidebarStyle.controlSize, "long machine names retain usable text space")
             #expect(row.allowsAdd)
             #expect(row.showsChevron)
-            #expect(row.showsScreenButton)
+            #expect(row.hasScreenAction)
             for hovered in [false, true, false] {
                 row.isHovered = hovered
                 row.needsLayout = true
                 row.layoutSubtreeIfNeeded()
-                #expect(name.frame == nameAtRest, "showing + must not move or narrow the machine name")
+                #expect(row.showsScreenButton == hovered, "the screen button draws on hover only")
+                #expect(name.frame == nameAtRest, "showing + or the screen button must not move or narrow the machine name")
                 #expect(!row.addButton.isHidden, "Add remains visible beside the screen action at rest")
                 for frame in [row.screenButtonFrame, row.chevronFrame, row.addButton.frame] {
                     #expect(!name.frame.intersects(frame))
@@ -123,15 +164,20 @@ import Testing
         list.layoutSubtreeIfNeeded()
         for (id, expected) in [("local", SidebarIntent.shareScreen(.local)), ("mac", .viewScreen(MachineID("mac"))), ("cloud", .viewScreen(MachineID("cloud")))] {
             let row = try #require(list.rowViews[SidebarRowKey.section(SectionID.machine(MachineID(id)))] as? SectionHeaderRowView)
+            #expect(!row.showsScreenButton)
+            #expect(row.screenButton.icon == .remoteDisplay, "Share and View draw a screen, never the share arrow")
+            Self.lay(row, hovered: true)
             #expect(row.showsScreenButton)
             #expect(row.screenButton.accessibilityPerformPress())
             #expect(intents.last == expected)
             #expect(!row.screenButtonFrame.intersects(row.chevronFrame))
         }
         let offline = try #require(list.rowViews[SidebarRowKey.section(SectionID.machine(MachineID("offline")))] as? SectionHeaderRowView)
+        Self.lay(offline, hovered: true)
         #expect(offline.showsScreenButton)
         #expect(!offline.screenButton.accessibilityPerformPress())
         let linux = try #require(list.rowViews[SidebarRowKey.section(SectionID.machine(MachineID("linux")))] as? SectionHeaderRowView)
+        Self.lay(linux, hovered: true)
         #expect(!linux.showsScreenButton)
         model.sections = [Self.section("mac", name: "Now a Linux machine", kind: SidebarMachine.Kind.ssh)]
         list.reload(animated: false)
@@ -165,6 +211,10 @@ import Testing
         let offline = SidebarScreenActions(macs: HubDevice.macScreenAvailability(in: [HubDevice(id: deviceID, name: "Mac", platform: .macos)]), aliases: aliases).applying(to: input)
         #expect(offline[0].machine?.screenDeviceID == deviceID)
         #expect(offline[0].machine?.screenAvailable == false)
+        let local = [Self.section("local", name: "This Mac", kind: SidebarMachine.Kind.local)]
+        #expect(SidebarScreenActions(macs: [:], aliases: [:], sharing: true).applying(to: local)[0].machine?.screenShared == true)
+        #expect(SidebarScreenActions(macs: [:], aliases: [:]).applying(to: local)[0].machine?.screenShared == false)
+        #expect(result.allSatisfy { $0.machine?.screenShared == false }, "only the local machine carries sharing")
 
         _ = NSApplication.shared
         let model = SidebarModel(sections: result)
@@ -176,6 +226,7 @@ import Testing
         list.reload(animated: false)
         list.layoutSubtreeIfNeeded()
         let mac = try #require(list.rowViews[SidebarRowKey.section(SectionID.machine(MachineID(routeID)))] as? SectionHeaderRowView)
+        Self.lay(mac, hovered: true)
         #expect(mac.screenButton.accessibilityPerformPress())
         #expect(intents == [.viewScreen(MachineID(routeID))])
         let linux = try #require(list.rowViews[SidebarRowKey.section(SectionID.machine(MachineID("linux")))] as? SectionHeaderRowView)
