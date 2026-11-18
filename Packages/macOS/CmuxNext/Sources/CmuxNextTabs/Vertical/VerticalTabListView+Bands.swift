@@ -1,5 +1,5 @@
-import AppKit
-import CmuxNextDesign
+public import AppKit
+public import CmuxNextDesign
 import QuartzCore
 
 /// The vertical tab list's rows on scrolling layers. The content is cut into bands one row pitch tall, aligned to the rows, each a layer drawn once from what lies in it. A scroll moves
