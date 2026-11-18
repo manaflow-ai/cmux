@@ -39,7 +39,7 @@ public final class SettingsMcpServers: PageProvider {
 
     private(set) var rows: [Row] = []
     private(set) var loading = false
-    /// `unavailable` (this build has no optchat-chief) or `failed` (the list did not answer).
+    /// `unavailable` (no executable optchat-chief beside the CLI) or `failed` (the list did not answer).
     private(set) var problem: String?
     @ObservationIgnored private let chief: @MainActor () async -> URL?
     @ObservationIgnored private let runCLI: @Sendable (URL, [String]) async throws -> (Int32, Data, Data)
@@ -50,7 +50,7 @@ public final class SettingsMcpServers: PageProvider {
 
     /// The helper beside the bundled cmux CLI that `cli` finds; a sign-in page opens through `openPage`.
     public convenience init(cli: @escaping @MainActor () async -> URL?, openPage: @escaping @MainActor (URL) -> Void) {
-        self.init(chief: { Self.chief(besideCLI: await cli()) }, openPage: openPage)
+        self.init(chief: { await Self.chief(besideCLI: await cli()) }, openPage: openPage)
     }
 
     public init(chief: @escaping @MainActor () async -> URL?,

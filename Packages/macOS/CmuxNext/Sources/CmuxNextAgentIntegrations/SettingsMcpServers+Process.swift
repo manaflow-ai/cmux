@@ -22,9 +22,11 @@ extension SettingsMcpServers {
         return result?.status ?? -1
     }
 
-    /// The Chief helper the app ships beside its cmux CLI (every build carries both). Not probed
-    /// here: a build without it fails the list's run, which the page shows as `failed`.
-    nonisolated static func chief(besideCLI cli: URL?) -> URL? {
-        cli?.deletingLastPathComponent().appending(path: "optchat-chief", directoryHint: .notDirectory)
+    /// The Chief helper the app ships beside its cmux CLI, when it is there and executable: a build
+    /// without it gets nil, which the page shows as `unavailable`. One `access(2)`, off the main actor.
+    @concurrent nonisolated static func chief(besideCLI cli: URL?) async -> URL? {
+        guard let helper = cli?.deletingLastPathComponent().appending(path: "optchat-chief", directoryHint: .notDirectory)
+        else { return nil }
+        return access(helper.path, X_OK) == 0 ? helper : nil
     }
 }
