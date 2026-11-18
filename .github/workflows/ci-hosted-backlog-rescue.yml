@@ -44,7 +44,13 @@ concurrency:
 jobs:
   backlog:
     if: github.repository == 'manaflow-ai/cmux' && vars.CI_HOSTED_LIGHT_RESCUE_DISABLED != '1'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: Actions write stays on a fresh runner; never an owned label, never the hosted queue it drains
+    # The queue janitor's route: RUNNER_POOLS.linux (runner_pools.py mirrors the live ephemeral member), then
+    # LINUX_RUNNER, then 4 vCPU, all within the Blacksmith sizes below. On 2026-11-18 the old default,
+    # blacksmith-2vcpu-ubuntu-2404, served almost nothing: dispatch 44329775782 waited 14:56Z to 16:12Z for a runner,
+    # schedule 44341743063 queued from 16:13Z and held this workflow's concurrency group, every newer pass was
+    # replaced while pending, and #46167's runs (queued on ubuntu-24.04 since 09:58Z) were never rescued, while
+    # blacksmith-4vcpu-ubuntu-2404 started jobs within minutes.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux) && fromJSON(vars.RUNNER_POOLS || '{}').linux || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: Actions write stays on a fresh runner; never an owned label, never the hosted queue it drains
     timeout-minutes: 10
     permissions:
       actions: write
