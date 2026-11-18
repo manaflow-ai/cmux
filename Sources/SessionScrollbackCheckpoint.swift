@@ -371,6 +371,21 @@ struct SessionScrollbackCheckpointStore: Sendable {
     }
 }
 
+/// Runs the launch-time stale-checkpoint delete.
+///
+/// Extracted from `prepareSessionScrollbackCheckpointsForLaunch` so which
+/// thread the directory delete runs on is a testable decision: the caller is
+/// on the main actor during startup snapshot preparation, where `removeItem`
+/// walking the checkpoint directory is a launch-time stall.
+struct SessionScrollbackCheckpointLaunchCleanup: Sendable {
+    let store: SessionScrollbackCheckpointStore
+    let queue: DispatchQueue
+
+    func run() {
+        store.prepareForLaunch(previousLaunchWasUnclean: false)
+    }
+}
+
 enum SessionScrollbackCheckpointMerge {
     /// Chooses between the snapshot's own scrollback and a checkpoint.
     ///

@@ -18,7 +18,11 @@ extension AppDelegate {
     ) {
         guard !SessionRestorePolicy.isRunningUnderAutomatedTests(environment: environment) else { return }
         guard environment["CMUX_DISABLE_SESSION_RESTORE"] == "1" || !previousLaunchWasUnclean else { return }
-        sessionScrollbackCheckpointStore()?.prepareForLaunch(previousLaunchWasUnclean: false)
+        guard let store = sessionScrollbackCheckpointStore() else { return }
+        SessionScrollbackCheckpointLaunchCleanup(
+            store: store,
+            queue: sessionScrollbackCheckpointQueue
+        ).run()
     }
 
     func startSessionScrollbackCheckpointsIfNeeded(environment: [String: String]) {
