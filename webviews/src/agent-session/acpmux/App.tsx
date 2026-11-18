@@ -120,13 +120,7 @@ import {
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import { heldPick, withCloudStartFolder, withDraftFolder } from "./newtab/draftFolder";
-import {
-  cloudModePickFor as cloudModeFor,
-  cloudSendAgent,
-  cloudStartModePick,
-  holdCloudModePick,
-  useCloudModePick,
-} from "./cloudModePick";
+import { cloudModePickFor as cloudModeFor, cloudSendAgent, holdCloudModePick, useCloudModePick } from "./cloudModePick";
 import { configurationSessionMatches, pickEffort } from "./configurationActions";
 import { rememberRecentFolders } from "./newtab/recentProject";
 import { rememberStartedProject } from "./newtab/startedProject";
@@ -4845,11 +4839,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// before anything is said. Cloud is still this chat's choice: its first Send starts the chat on a
   /// Cloud machine, and the host closes this tab with the empty chat (`replacesChat`, AgentPaneHandOff).
   /// Sandboxed is not: its run's result would be this chat's, which already is one.
+  /// A model pick of another agent on the empty chat (GPT-6.1 Sol on a Claude page) opens that agent's session here
+  /// at once, and the switch stays in flight until it settles: the chat is still empty and still this one's to replace,
+  /// so Cloud stays picked through it. Before, a Send in that window went to the new local session (cmux#45774).
   const emptyLocalChat =
     freshChat &&
     Boolean(snapshot.sessionId) &&
-    snapshot.summary?.sessionId === snapshot.sessionId &&
-    snapshot.switching === undefined &&
+    (snapshot.summary?.sessionId === snapshot.sessionId || snapshot.switching !== undefined) &&
+    snapshot.switching?.phase !== "failed" &&
     sessionSelection?.state !== "pending" &&
     surface !== "quick" &&
     !snapshot.summary?.peer &&
@@ -12772,13 +12769,25 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   (projectDraft ? cloudStartFolder(projectDraft) : composerCloudStartFolder(composerSnapshot.summary));
                 // Each send records its complete folder, so a Retry repeats this send's folder, never an older one's.
                 cloudRetryFolder.current = folder;
+                const held = heldPick(composerSnapshot);
+                const shownModel = composerSnapshot.summary?.model;
+                const cloudShownAgent = {
+                  harness: held.harness ?? composerSnapshot.summary?.harness ?? healthHarness,
+                  model: held.model ?? (shownModel && shownModel !== "default" ? shownModel : undefined),
+                };
                 const started = sendToCloud(
                   text,
                   shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
                   {
                     ...folder,
-                    ...heldPick(composerSnapshot),
-                    ...cloudStartModePick(composerSnapshot.summary?.harness),
+                    // The agent and model the composer shows, as the New Tab page's Cloud send names them
+                    // (cloudSendAgent): a pick held by a switch, else the chat's, else the picker's face. Before,
+                    // only a switch's pick went, so a page showing GPT-6.1 Sol started Claude on the machine.
+                    ...cloudSendAgent(
+                      composerSnapshot.catalog.find((entry) => entry.id === cloudShownAgent.harness)?.family,
+                      cloudShownAgent.harness ?? "",
+                      cloudShownAgent.model,
+                    ),
                     // The picker's effort and account go with its model (cmux-tui/docs/model-connections.md).
                     ...cloudPickExtras(composerSnapshot.summary),
                   },
