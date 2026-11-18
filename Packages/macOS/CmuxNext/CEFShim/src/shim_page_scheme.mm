@@ -128,7 +128,7 @@ class DynamicResource : public CefResourceHandler {
   const int browser_id_;
   const std::string url_;
   const std::string csp_;
-  // The own-renderer headers of an agent chat's top document (OwnRendererHeaders).
+  // The own-renderer headers of an agent chat response (OwnRendererHeaders).
   const std::vector<std::pair<std::string, std::string>> extra_headers_;
   std::mutex mutex_;
   CefRefPtr<CefCallback> callback_;
@@ -495,6 +495,8 @@ class PageFactory : public CefSchemeHandlerFactory {
       headers.emplace("Cache-Control", "no-store");
       headers.emplace("X-Content-Type-Options", "nosniff");
       headers.emplace("Referrer-Policy", "no-referrer");
+      // A cross-origin isolated chat (OwnRendererHeaders) loads this frame only with a COEP of its own.
+      for (auto& [name, value] : OwnRendererHeaders(domain_, false, 0, 0)) headers.emplace(name, value);
       return Respond(200, "OK", "text/html", headers, kArtifactDocument, sizeof(kArtifactDocument) - 1);
     }
     // An agent chat's top document is answered after one UI turn: whether it gets a renderer of its
@@ -550,7 +552,9 @@ class PageFactory : public CefSchemeHandlerFactory {
     const bool parsed = CefParseURL(request->GetURL(), parts);
     if (parsed && IsDynamicPagePath(CefString(&parts.path).ToString(), dynamic_prefixes_)) {
       // A generated file of one page view: only a page in a browser can ask.
-      if (browser) return new DynamicResource(NextToken(), browser->GetIdentifier(), request->GetURL().ToString(), csp_);
+      if (browser)
+        return new DynamicResource(NextToken(), browser->GetIdentifier(), request->GetURL().ToString(), csp_,
+                                   own_renderer);
       static char kBody[] = "Not Found";
       return Respond(404, "Not Found", "text/plain", Headers(), kBody, sizeof(kBody) - 1);
     }

@@ -307,23 +307,35 @@ inline std::vector<std::pair<std::string, std::string>> PageResponseHeaders(cons
 // (`cmux-process-per-site-schemes`), so a key typed in one chat waited on that renderer's main
 // thread behind every other chat's stream work (key to the page's listener p95 31-37 ms on
 // cmux20-bench while the app's main thread was mostly idle). Chromium keys that one renderer by the
-// whole SiteInfo, which includes an origin's opt-in origin isolation: a document answered with
-// `Origin-Agent-Cluster: ?1` goes to the site's isolated renderer, one more renderer whatever number
-// of documents land there, and documents without it keep sharing. The opt-in is fixed per browsing
-// context group, so `Cross-Origin-Opener-Policy: same-origin` (which differs from the shared
-// documents' default) makes the load start a new group: a chat reloaded into, or out of, the own
-// renderer moves. Same origin, so storage and BroadcastChannel stay shared.
+// whole SiteInfo, which includes the document's cross-origin isolation (WebExposedIsolationInfo): a
+// document answered with `Cross-Origin-Opener-Policy: same-origin` and
+// `Cross-Origin-Embedder-Policy: credentialless` is cross-origin isolated, so it goes to the site's
+// isolated renderer, one more renderer whatever number of documents land there, while documents
+// without them keep sharing. Same origin, so localStorage and BroadcastChannel stay shared.
+//
+// Never `Origin-Agent-Cluster: ?1` here: Chromium honors that opt-in only for HTTP(S) origins, yet
+// still registers it for a cmux-page document, and ChildProcessSecurityPolicy CHECKs ("Trying to
+// isolate invalid origin") in the browser process: the app died on the first chat opened so. COOP
+// alone isolates nothing (the new browsing context group finds the same SiteInfo's renderer).
+//
+// An isolated document may embed only frames and workers that answer with a COEP of their own, so
+// every other `cmux.agent` response (the page's module workers, its `__artifact` frame) carries
+// `Cross-Origin-Embedder-Policy: credentialless`; for a shared chat that only keeps those workers'
+// own cross-origin no-cors requests uncredentialed. A top document of another chat gets nothing.
 //
 // `owner_browser_id` is the browser the app names (cmux_shim_page_own_renderer): the most recently
-// focused agent chat. Only that browser's top-level document gets the headers.
+// focused agent chat.
 inline constexpr char kOwnRendererPageId[] = "cmux.agent";
+inline constexpr char kOwnRendererEmbedderPolicy[] = "credentialless";
 
 inline std::vector<std::pair<std::string, std::string>> OwnRendererHeaders(const std::string& domain, bool main_frame,
                                                                            int browser_id, int owner_browser_id) {
-  if (domain != kOwnRendererPageId || !main_frame || browser_id <= 0 || browser_id != owner_browser_id) return {};
+  if (domain != kOwnRendererPageId) return {};
+  if (!main_frame) return {{"Cross-Origin-Embedder-Policy", kOwnRendererEmbedderPolicy}};
+  if (browser_id <= 0 || browser_id != owner_browser_id) return {};
   return {
       {"Cross-Origin-Opener-Policy", "same-origin"},
-      {"Origin-Agent-Cluster", "?1"},
+      {"Cross-Origin-Embedder-Policy", kOwnRendererEmbedderPolicy},
   };
 }
 
