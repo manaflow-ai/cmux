@@ -123,6 +123,15 @@ export const COMMAND_LABELS_KEY = "agentPane.display.commandLabels";
 /// (conversation/PromptCoachCard.tsx). Off, the page asks acpmux for no rewrite and draws no card.
 /// Not part of ChatDisplay.
 export const PROMPT_COACH_KEY = "agentPane.display.promptCoach";
+/// Settings > Agent Chat > Environment Card, off by default: a floating card at the chat's top right
+/// with its changes, branch or worktree, Commit or push and Create PR (session-info/EnvironmentCard.tsx),
+/// after the Codex app's Environment panel. A look turns it on. Not part of ChatDisplay: switching it
+/// measures no transcript row again.
+export const ENVIRONMENT_CARD_KEY = "agentPane.display.environmentCard";
+/// Settings > Agent Chat > Changes Pill, off by default: "1 file changed +2 -2" over the composer
+/// (session-info/EnvironmentCard.tsx ChangesPill), which opens the diff beside the chat. Not part of
+/// ChatDisplay.
+export const CHANGES_PILL_KEY = "agentPane.display.changesPill";
 
 /// Settings > Agent Chat > Transcript View (conversation/transcriptView.ts): how much of each turn a
 /// chat without a view of its own shows. Not part of ChatDisplay: a switch measures no row again by
@@ -351,6 +360,8 @@ let presentation: Presentation = "transcript";
 let featureTipsOn = true;
 let commandLabels = "null";
 let promptCoachOn = true;
+let environmentCardOn = false;
+let changesPillOn = false;
 const listeners = new Set<() => void>();
 
 /// Sets the variables on `root` (the document's root in the page).
@@ -381,6 +392,8 @@ export function setChatDisplay(value: unknown): void {
   const tips = raw[FEATURE_TIPS_KEY] !== false;
   const labels = JSON.stringify(raw[COMMAND_LABELS_KEY] ?? null);
   const coach = raw[PROMPT_COACH_KEY] !== false;
+  const environmentCard = raw[ENVIRONMENT_CARD_KEY] === true;
+  const changesPill = raw[CHANGES_PILL_KEY] === true;
   const same = JSON.stringify(next) === JSON.stringify(current);
   if (
     same &&
@@ -394,11 +407,15 @@ export function setChatDisplay(value: unknown): void {
     nextPresentation === presentation &&
     tips === featureTipsOn &&
     labels === commandLabels &&
-    coach === promptCoachOn
+    coach === promptCoachOn &&
+    environmentCard === environmentCardOn &&
+    changesPill === changesPillOn
   )
     return;
   commandLabels = labels;
   promptCoachOn = coach;
+  environmentCardOn = environmentCard;
+  changesPillOn = changesPill;
   minimapOn = minimap;
   pinnedPlanOn = pinnedPlan;
   trayTuckedOn = trayTucked;
@@ -512,6 +529,14 @@ export const promptCoachEnabled = (): boolean => promptCoachOn;
 const promptCoachSnapshot = () => promptCoachOn;
 export const usePromptCoachOn = (): boolean =>
   useSyncExternalStore(subscribe, promptCoachSnapshot, promptCoachSnapshot);
+const environmentCardSnapshot = () => environmentCardOn;
+/// Whether the chat draws its Environment card at its top right (ENVIRONMENT_CARD_KEY).
+export const useEnvironmentCardOn = (): boolean =>
+  useSyncExternalStore(subscribe, environmentCardSnapshot, environmentCardSnapshot);
+const changesPillSnapshot = () => changesPillOn;
+/// Whether the chat draws its changes pill over the composer (CHANGES_PILL_KEY).
+export const useChangesPillOn = (): boolean =>
+  useSyncExternalStore(subscribe, changesPillSnapshot, changesPillSnapshot);
 const pinnedPlanSnapshot = () => pinnedPlanOn;
 /// Whether the running turn's todo list is pinned in the transcript (PINNED_PLAN_KEY) instead of the hat.
 export const useChatPinnedPlan = (): boolean => useSyncExternalStore(subscribe, pinnedPlanSnapshot, pinnedPlanSnapshot);

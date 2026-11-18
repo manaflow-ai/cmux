@@ -48,6 +48,26 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 keywords: ["agent", "chat", "acp", "display", "reading", "plan", "task", "tasks", "todo", "checklist", "pin", "pinned", "list", "progress"]
             ),
             SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.environmentCardPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.environmentCard", "Environment Card"),
+                help: SettingsText.keyed("settings.agentPane.display.environmentCard.help", "A card at the chat's top right with its changes, branch, commit and pull request."),
+                kind: .toggle,
+                default: .bool(AgentPaneDisplaySettingsSchema.environmentCardDefault),
+                keywords: ["agent", "chat", "display", "environment", "card", "panel", "changes", "branch", "worktree", "commit", "push", "pull", "request", "git", "codex"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.changesPillPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.changesPill", "Changes Pill"),
+                help: SettingsText.keyed("settings.agentPane.display.changesPill.help", "A pill over the composer with how many files the chat changed."),
+                kind: .toggle,
+                default: .bool(AgentPaneDisplaySettingsSchema.changesPillDefault),
+                keywords: ["agent", "chat", "display", "changes", "pill", "files", "changed", "diff", "composer", "codex"]
+            ),
+            SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.finishSoundPath,
                 section: .appearance,
                 group: group,
