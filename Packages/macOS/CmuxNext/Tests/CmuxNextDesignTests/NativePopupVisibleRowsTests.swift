@@ -53,6 +53,38 @@ struct NativePopupVisibleRowsTests {
         #expect(content.rowViewsAlive <= fixture.viewportRows * 3 + 2)
     }
 
+    /// The walk the baseline names (`items walked`): the page sends the whole model each revision, and the content
+    /// compares it with the shown one. It reads every row but makes, configures and lays out none. Measured at the
+    /// cap (1,000 rows a list, `NativePopupModel+Validation`) and 200 items a menu (`WebPopupHost.Model`), it prints
+    /// the cost per revision in microseconds.
+    @Test func theWalkPerRevisionAtTheCap() async throws {
+        let popup = try await PagePopupRows(rows: 1_000)
+        defer { popup.close() }
+        let menu = try await PageMenuRows(rows: 200)
+        defer { menu.close() }
+        let clock = ContinuousClock()
+        let rounds = 200
+        var model = popup.model
+        _ = popup.content.listWork.take()
+        let popupTime = clock.measure {
+            for _ in 0..<rounds { model.revision += 1; popup.content.update(model) }
+        }
+        let popupWork = popup.content.listWork.take()
+        _ = menu.rows.listWork.take()
+        let menuTime = clock.measure {
+            for index in 0..<rounds { menu.rows.update(menu.items, highlighted: "\(index % 2)") }
+        }
+        let menuWork = menu.rows.listWork.take()
+        func micros(_ duration: Duration) -> Double {
+            Double(duration.components.seconds) * 1e6 / Double(rounds) + Double(duration.components.attoseconds) / 1e12 / Double(rounds)
+        }
+        print("visible-rows page popup walk n=1000: \(String(format: "%.1f", micros(popupTime))) us per revision, "
+              + "work per revision: configured \(popupWork.rowsConfigured / rounds), laid out \(popupWork.rowsLaidOut / rounds)")
+        print("visible-rows page menu walk n=200: \(String(format: "%.1f", micros(menuTime))) us per update, "
+              + "work per update: configured \(menuWork.rowsConfigured / rounds), laid out \(menuWork.rowsLaidOut / rounds)")
+        #expect(popupWork.rowsConfigured == 0 && popupWork.rowsLaidOut == 0, "a revision with no change makes and frames no row")
+    }
+
     /// An update keeps every unchanged row's view; the changed row gets a new one with its text.
     @Test func anUpdateKeepsTheUnchangedRowsViews() async throws {
         let fixture = try await PagePopupRows(rows: 100)
