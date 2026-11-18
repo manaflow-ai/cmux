@@ -67,9 +67,11 @@ public final class TabStripModel {
     /// Takes the App's new `tabs`. A tab that leaves the list while `movedAway` says that another pane holds it
     /// left by a move, not a close (a move that another client of the daemon made marks nothing here before the
     /// store reports it): it joins ``departures``, so its strip drops it at once and keeps it for no leaving pane.
+    /// A tab that comes into the list is no departure: one that moved away and came back before a sync loses its mark.
     public func take(_ items: [TabItem], movedAway: (TabID) -> Bool) {
-        let kept = Set(items.map(\.id))
-        for tab in tabs where !kept.contains(tab.id) && movedAway(tab.id) { departures.insert(tab.id) }
+        let had = Set(tabs.map(\.id)), kept = Set(items.map(\.id))
+        departures.subtract(kept.subtracting(had))
+        for id in had.subtracting(kept) where movedAway(id) { departures.insert(id) }
         tabs = items
     }
 
