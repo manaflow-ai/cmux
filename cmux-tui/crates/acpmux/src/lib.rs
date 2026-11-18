@@ -266,6 +266,8 @@ pub mod share_approval;
 /// The share host: a joined Mac's daemon serves screen shares with no app running (`share_host/`).
 pub mod share_host;
 pub mod viewer_grant;
+/// The host gate for viewer Touch ID grants (`viewer_grant_host.rs`).
+pub mod viewer_grant_host;
 // The shadow admission verdict beside each placement and create (cmuxterm-hq#7342).
 pub mod memory_inbox;
 pub mod prompt_coach;
