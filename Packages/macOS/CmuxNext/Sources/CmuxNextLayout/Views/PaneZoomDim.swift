@@ -130,7 +130,7 @@ final class PaneZoomDim {
         view.fadeOut(continuing: zoomDimShowed)
         if let before, started?.act == .unzoom {
             // The hole goes with the pane that closes to its place: the dim never covers that pane.
-            let spring = PaneCommitMotion.Act.unzoom.spring
+            let spring = PaneCommitMotion.Spring(.unzoom)
             view.moveHole(from: before) { part, origin, size in motion.move(part, spring, origin: origin, size: size) }
         }
         phase = .going
@@ -149,7 +149,7 @@ final class PaneZoomDim {
         guard let view = place(around: zoom.host.pane, on: screen) else { return leave() }
         view.fadeIn(continuing: continuing)
         if let before {
-            let spring = PaneCommitMotion.Act.zoom.spring
+            let spring = PaneCommitMotion.Spring(.zoom)
             view.moveHole(from: before) { part, origin, size in motion.move(part, spring, origin: origin, size: size) }
         }
         phase = .zooming
