@@ -23,10 +23,13 @@ import Testing
     /// The most frame ticks the test steps before it says that the close never showed.
     static let frames = 8
 
-    @Test(.timeLimit(.minutes(1)))
-    func aClosingPaneShowsItsLastTabInEachFrameThatShowsThePane() async throws {
+    /// `moves`: the fixture asks for the panes' move at a close (`PaneCommitMotion`). The closing pane then stays, under
+    /// the panes that take its room, to the frame that ends the move: its tab shows in each of those frames too.
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func aClosingPaneShowsItsLastTabInEachFrameThatShowsThePane(moves: Bool) async throws {
         let app = try await Fixture()
         defer { app.close() }
+        if moves { app.root.context.commitMotionOverride = true }
         // The columns that stay share the window after a close: the close changes a pane's size, so it shows at a
         // frame tick and not in the key's own turn.
         app.content.layoutModel.newColumnWidthModeOverride = .fitScreen
@@ -57,7 +60,9 @@ import Testing
         // Each frame tick until the one that hides the pane: while the pane shows, so does its tab.
         var bare: [Int] = []
         var hidden: Int?
-        for frame in 1...Self.frames {
+        // A close's move is over in 0.08 s (10 frames): the frame that ends it hides the pane.
+        let most = moves ? Self.frames + 24 : Self.frames
+        for frame in 1...most {
             _ = app.root.advanceFrame(ClosedPaneContentStaysUntilLandingTests.dt)
             if host.isHidden || host.superview == nil {
                 hidden = frame
@@ -66,8 +71,10 @@ import Testing
             strip.syncFromModel()
             if strip.cells[tab] == nil { bare.append(frame) }
         }
-        _ = try #require(hidden, "SETUP: no frame of \(Self.frames) hid the closing pane")
+        let at = try #require(hidden, "SETUP: no frame of \(most) hid the closing pane")
         #expect(bare.isEmpty, "the closing pane shows with an empty tab bar in the frames \(bare) after the key")
+        // Without this the row with the move proves no more than the row without it.
+        if moves { #expect(at > 3, "SETUP: the pane hid in frame \(at): no pane moved at this close") }
     }
 
     /// A move of a pane's last tab into another pane: the tab shows in one tab bar only, the new one.
