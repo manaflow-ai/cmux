@@ -19,9 +19,10 @@ async function endedDetail(d: Device, sid: string): Promise<string> {
 describe("permissions are set by the host only", () => {
   it("refuses a viewer raising its own permission", async () => {
     const { host, viewer } = await setup();
+    await host.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "view" });
     const res = await viewer.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "full" });
     expect([res.status, res.json.error.code]).toEqual([403, "not_host"]);
-    expect((await viewer.call("GET", `/v1/permissions?host=${host.id}`)).json.permissions[0].scope).toBe("ask");
+    expect((await viewer.call("GET", `/v1/permissions?host=${host.id}`)).json.permissions[0].scope).toBe("view");
     expect((await host.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "full" })).status).toBe(200);
   });
 });
