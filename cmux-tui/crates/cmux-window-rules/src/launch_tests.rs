@@ -210,6 +210,7 @@ fn pending(window_open: bool, home_ready: bool, moved: bool, active: Option<&str
         window_open,
         home_ready,
         moved,
+        moved_since_restore: moved,
     }
 }
 

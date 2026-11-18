@@ -111,17 +111,20 @@ extension WindowRules {
     }
 
     /// What a relaunch's pending Home landing reads (cmux-window-rules `launch::pending_home`): the saved front window
-    /// it is for, the active window, whether the front window is open, Home's workspace is listed, and the person
-    /// picked another workspace or page in the front window since the restore.
+    /// it is for, the active window, whether the front window is open, Home's workspace is listed, and whether the front
+    /// window shows another workspace or page than the restore did, now (`moved`) or at any time since
+    /// (`movedSinceRestore`, latched by the window: leaving and coming back still drops the landing).
     public nonisolated struct PendingHome: Encodable, Equatable, Sendable {
         public var window: String
         public var active: String?
         public var windowOpen: Bool
         public var homeReady: Bool
         public var moved: Bool
+        public var movedSinceRestore: Bool
 
-        public init(window: String, active: String?, windowOpen: Bool, homeReady: Bool, moved: Bool) {
-            (self.window, self.active, self.windowOpen, self.homeReady, self.moved) = (window, active, windowOpen, homeReady, moved)
+        public init(window: String, active: String?, windowOpen: Bool, homeReady: Bool, moved: Bool, movedSinceRestore: Bool) {
+            (self.window, self.active, self.windowOpen, self.homeReady) = (window, active, windowOpen, homeReady)
+            (self.moved, self.movedSinceRestore) = (moved, movedSinceRestore)
         }
     }
 
