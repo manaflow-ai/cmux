@@ -7,6 +7,7 @@ import { highlightsCode } from "./highlightLimits";
 import { PlainCode, PlainCodeLines } from "./StreamingCode";
 import { loadHighlightedCode } from "./codeBlockModel";
 import type { LineWindow } from "./lineWindow";
+import type { PierreLineWindow } from "./usePierreCode";
 
 export type CodeBlockProps = {
   code: string;
@@ -27,17 +28,28 @@ const HighlightedLines = lazy(() =>
 
 /// A file's bare lines (a read's peek, FileResultCard.tsx), highlighted by `path`'s language in the
 /// same chunk as the fenced card; plain while it loads and past the highlight limits, where `lineWindow`
-/// names the lines its box shows (lineWindow.ts).
-export function CodeLines({ code, path, lineWindow }: { code: string; path: string; lineWindow?: LineWindow }) {
+/// names the lines its box shows (lineWindow.ts). Highlighted, `pierreWindow` has Pierre mount only
+/// the lines in the box's view (usePierreCode.ts).
+export function CodeLines({
+  code,
+  path,
+  lineWindow,
+  pierreWindow,
+}: {
+  code: string;
+  path: string;
+  lineWindow?: LineWindow;
+  pierreWindow?: PierreLineWindow;
+}) {
   const highlighted = highlightsCode(code);
   const plain = (
     <div className="cv-filepeek__lines">
-      <PlainCodeLines code={code} lineWindow={highlighted ? undefined : lineWindow} />
+      <PlainCodeLines code={code} lineWindow={lineWindow} />
     </div>
   );
   return highlighted ? (
     <Suspense fallback={plain}>
-      <HighlightedLines code={code} path={path} />
+      <HighlightedLines code={code} path={path} lineWindow={lineWindow} pierreWindow={pierreWindow} />
     </Suspense>
   ) : (
     plain

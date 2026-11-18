@@ -2,7 +2,7 @@
 // Long blocks inside a transcript column (transcript-block-lines-window-browser.test.ts): a finished
 // Shell block whose output wraps, a call's output and a read past the highlight limits, each in its
 // own eight-line box, with a reader's row under them in a scrolling column, as a transcript holds
-// them. `window.__blockLines.draw(kind, lines)` draws one; the test scrolls its box and reads the
+// them; and a read within the limits ("code"), which Pierre highlights in its shadow root. `window.__blockLines.draw(kind, lines)` draws one; the test scrolls its box and reads the
 // page back.
 import { createRoot } from "react-dom/client";
 import { ShellBlock } from "../../src/agent-session/acpmux/conversation/ShellBlock";
@@ -15,18 +15,38 @@ import "../../src/agent-session/shared/styles.css";
 import "../../src/agent-session/acpmux/styles.css";
 import "../../src/agent-session/acpmux/conversation/conversation.css";
 
-export type BlockKind = "shell" | "output" | "read";
+export type BlockKind = "shell" | "output" | "read" | "code";
 
 /// Every seventh line is long enough to wrap in the column, so a wrapped output's lines differ in height.
 export const sourceLine = (index: number) =>
   index % 7 === 3 ? `line ${index} ${"wrapped words ".repeat(14)}`.trimEnd() : `line ${index}`;
 const source = (lines: number) => Array.from({ length: lines }, (_, index) => sourceLine(index)).join("\n");
 
+/// A highlighted read's line `index`: TypeScript with a block comment over three lines in every
+/// hundred, so a line inside one is colored as a comment only when the lines before it were read.
+export const codeLine = (index: number) =>
+  index % 100 === 40
+    ? `/* comment ${index} opens`
+    : index % 100 === 41
+      ? `const inside${index} = ${index};`
+      : index % 100 === 42
+        ? `closes ${index} */`
+        : `const line${index} = ${index};`;
+const codeSource = (lines: number) => Array.from({ length: lines }, (_, index) => codeLine(index)).join("\n");
+
 /// `reveal` is Find in Chat's: a new one opens the block whole (blockPartsModel.ts `usePreview`).
 function Block({ kind, lines, reveal }: { kind: BlockKind; lines: number; reveal: number }) {
   const text = source(lines);
   if (kind === "shell") return <ShellBlock command="seq" output={`${text}\n`} reveal={reveal} />;
   if (kind === "output") return <ToolOutput result={{ text, lang: "text" }} reveal={reveal} />;
+  if (kind === "code")
+    return (
+      <FileResultCard
+        id="read"
+        reveal={reveal}
+        card={{ kind: "read", read: { path: "/tmp/big.ts", start: 1, end: lines, code: codeSource(lines) } }}
+      />
+    );
   return (
     <FileResultCard
       id="read"

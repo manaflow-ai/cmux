@@ -20,6 +20,10 @@ await mock.module("../src/agent-session/acpmux/conversation/highlightPool", () =
 await mock.module("@pierre/diffs", () => ({
   DIFFS_TAG_NAME: "diffs-container",
   registerCustomTheme: () => {},
+  // A long read's windowed lines (usePierreCode.ts); a fenced card never makes them.
+  DEFAULT_VIRTUAL_FILE_METRICS: {},
+  Virtualizer: class {},
+  VirtualizedFile: class {},
   File: class {
     options: Record<string, unknown>;
     constructor(options: Record<string, unknown>) {

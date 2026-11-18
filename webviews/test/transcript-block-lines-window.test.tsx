@@ -32,7 +32,16 @@ beforeEach(() => {
   dom = new JSDOM("<!doctype html><div id=root></div>", { url: "cmux-page://cmux.agent/", pretendToBeVisual: true });
   const window = dom.window;
   const scope = globalThis as Record<string, unknown>;
-  const keys = ["window", "document", "navigator", "HTMLElement", "Node", "getSelection", "IS_REACT_ACT_ENVIRONMENT"];
+  const keys = [
+    "window",
+    "document",
+    "navigator",
+    "HTMLElement",
+    "Node",
+    "getSelection",
+    "customElements",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ];
   const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
   Object.assign(scope, {
     window,
@@ -41,6 +50,8 @@ beforeEach(() => {
     HTMLElement: window.HTMLElement,
     Node: window.Node,
     getSelection: window.getSelection.bind(window),
+    // A highlighted read's chunk loads Pierre, which defines its element.
+    customElements: window.customElements,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   installLayout(window);
@@ -161,6 +172,28 @@ for (const [name, view, whole] of [
     expect(Math.abs(nodes[1]! - nodes[0]!)).toBeLessThanOrEqual(nodes[0]! * 0.1);
   });
 }
+
+test("a read within the highlight limits mounts only its box's lines while they draw plain (before Pierre, or without it)", async () => {
+  const counts: number[] = [];
+  for (const lines of [200, 2_000]) {
+    // jsdom runs no highlight worker: the read's lines stay plain, as they are until Pierre paints;
+    // first while the highlighted lines' chunk loads, then in it (HighlightedLines.tsx).
+    draw(read(lines));
+    expect(mounted().length).toBeLessThanOrEqual(MOUNTED_MAX);
+    await act(async () => {
+      await import("../src/agent-session/acpmux/conversation/HighlightedLines");
+    });
+    counts.push(mounted().length);
+    scrollTo(Math.floor(lines / 2) * LINE);
+    expect(mounted().length).toBeLessThanOrEqual(MOUNTED_MAX);
+    expect(lineAtTop()).toBe(`line ${Math.floor(lines / 2)}`);
+    const numbers = document.querySelector<HTMLElement>(".cv-filepeek__gutter")!.textContent!.split("\n");
+    expect(numbers.length).toBe(mounted().length);
+    draw(null);
+  }
+  expect(counts[0]).toBeLessThanOrEqual(MOUNTED_MAX);
+  expect(counts[1]).toBe(counts[0]);
+});
 
 test("a scroll step swaps at most one chunk, keeps every other line's node, and holds the line at the top", () => {
   draw(shell(10_000));
