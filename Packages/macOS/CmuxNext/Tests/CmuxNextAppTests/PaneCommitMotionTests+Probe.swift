@@ -1,0 +1,79 @@
+import AppKit
+import CmuxNextDesign
+import CmuxNextTestSupport
+@testable import CmuxNextLayout
+import Testing
+
+/// What a probe reads of the panes' move while `debug.motion` records: one sample `layout.commit` for each frame tick
+/// with a move in flight, and one note for each change that the motion decides on. A pane's move runs on the render
+/// server and steps no spring of the layout, so the layout's own samples (`layout.travel`) say nothing of it.
+///
+/// The trace is one static of the process. Each test starts it when its screen rests and stops it at its end, and
+/// has no suspension point, so no other test on the main actor runs in between.
+extension PaneCommitMotionTests {
+    /// The commit motion's samples and notes from the trace's start on.
+    private static func traced() -> (samples: [Double], notes: [String]) {
+        (MotionTrace.samples.filter { $0.name == "layout.commit" }.map { $0.value },
+         MotionTrace.notes.map { $0.text }.filter { $0.hasPrefix("layout.commit") })
+    }
+
+    /// The frame that begins an act's move writes one note of it, each frame tick of the move gives one sample above
+    /// zero, and a frame after the move's end gives none.
+    @Test(arguments: acts)
+    func aProbeCountsEachFrameOfTheMove(_ act: Act) throws {
+        defer { MotionTrace.stop() }
+        let begun = try Self.begin(act) { _ in MotionTrace.start() }
+        defer { begun.harness.window.closeAfterTest() }
+        try #require(Self.inFlight(begun.screen), "no pane moves: the act shows in one frame")
+        let notes = Self.traced().notes
+        #expect(notes.count == 1 && notes[0].contains(" moves "), "the frame that begins the move did not write one note of it: \(notes)")
+        let ticks = Self.toTheEnd(begun.harness, begun.screen).ticks
+        let samples = Self.traced().samples
+        #expect(samples.count == ticks, "the \(ticks) frames of the move gave \(samples.count) samples")
+        #expect(samples.allSatisfy { $0 > 0 }, "a frame with a move in flight gave a sample that is not above zero: \(samples)")
+        _ = begun.harness.root.advanceFrame(Self.dt)
+        #expect(Self.traced().samples.count == ticks, "a frame after the move's end gave a sample")
+    }
+
+    /// With the motion off an act gives no sample, and one note that says that the panes do not move at a commit.
+    @Test(arguments: acts)
+    func aProbeSaysWhyAnActShowsInOneFrame(_ act: Act) throws {
+        defer { MotionTrace.stop() }
+        let begun = try Self.begin(act, off: "Reduce Motion") { _ in MotionTrace.start() }
+        defer { begun.harness.window.closeAfterTest() }
+        _ = begun.harness.root.advanceFrame(Self.dt)
+        let traced = Self.traced()
+        #expect(traced.samples.isEmpty, "an act with the motion off gave samples of a move: \(traced.samples)")
+        #expect(traced.notes.count == 1 && traced.notes[0].contains("the panes move at a commit: false"),
+                "an act with the motion off did not write one note of its cause: \(traced.notes)")
+    }
+
+    /// A view of a kind that does not ride: a page's stand-in, with a class name that a note can tell.
+    final class StandInPage: NSView {}
+
+    /// An act with a pane that does not ride gives no sample, and one note that names the class of the top view
+    /// that stopped the move.
+    @Test(arguments: [PaneCommitMotionTests.split, PaneCommitMotionTests.close])
+    func aProbeNamesTheKindThatDoesNotRide(_ act: Act) throws {
+        defer { MotionTrace.stop() }
+        var placed = false
+        let begun = try Self.begin(act) { harness in
+            guard let content = harness.provider.contents[Commit.left] else { return }
+            let area = PaneContentAreaView(frame: content.bounds)
+            area.autoresizingMask = [.width, .height]
+            let page = StandInPage(frame: area.bounds)
+            page.autoresizingMask = [.width, .height]
+            area.addSubview(page)
+            content.addSubview(area)
+            placed = true
+            MotionTrace.start()
+        }
+        defer { begun.harness.window.closeAfterTest() }
+        try #require(placed, "SETUP: the pane has no content")
+        _ = begun.harness.root.advanceFrame(Self.dt)
+        let traced = Self.traced()
+        #expect(traced.samples.isEmpty, "an act with a pane that does not ride gave samples of a move: \(traced.samples)")
+        #expect(traced.notes.count == 1 && traced.notes[0].contains("each rides: false, the top view that does not ride: StandInPage"),
+                "an act with a pane that does not ride did not write one note with the kind: \(traced.notes)")
+    }
+}
