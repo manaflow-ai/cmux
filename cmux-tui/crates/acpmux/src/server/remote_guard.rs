@@ -533,7 +533,12 @@ async fn check_inner(
                         Ok(made) => made,
                         Err(Some(e)) => return Err(e),
                         Err(None) => {
-                            return Err(outside_told(cwd, &told, needs_checkout(hub, params)).await);
+                            return Err(outside_told(
+                                cwd,
+                                &told,
+                                told.is_some() && needs_checkout(hub, params).await,
+                            )
+                            .await);
                         }
                     }
                 }
@@ -541,7 +546,12 @@ async fn check_inner(
             };
             if let Some(canonical) = canonical {
                 if !inside(&canonical) {
-                    return Err(outside_told(cwd, &told, needs_checkout(hub, params)).await);
+                    return Err(outside_told(
+                        cwd,
+                        &told,
+                        told.is_some() && needs_checkout(hub, params).await,
+                    )
+                    .await);
                 }
                 params.set("cwd", Value::String(canonical));
             }
