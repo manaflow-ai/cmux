@@ -42,7 +42,10 @@ const rows = [
   ...middle,
   user("Run the fetch tests and show me the log", 6),
   activity(
-    [command("Run the fetch tests", "bun test fetch", log), command("Show the test log", "tail -n 12 fetch.log", log)],
+    [
+      command("Run the fetch tests", "bun test fetch", log),
+      command("Show the test log", "bun run fetch-log --tail 12", log),
+    ],
     5,
     { id: "expand-at-bottom-run" },
   ),
@@ -93,7 +96,10 @@ const tallRows = [
   ...middle,
   user("Run every fetch test and show me the whole log", 6),
   activity(
-    [command("Run the fetch tests", "bun test fetch", log), command("Show the whole log", "cat fetch.log", tallLog)],
+    [
+      command("Run the fetch tests", "bun test fetch", log),
+      command("Show the whole log", "bun run fetch-log", tallLog),
+    ],
     5,
     { id: "expand-at-bottom-run" },
   ),
@@ -251,7 +257,7 @@ const RUNNING_ARM = { "live-turn-work": "line" };
 const runningHead = [...earlier, ...middle, user("Run the fetch tests and show me the log", 6)];
 const runCommands = [
   command("Run the fetch tests", "bun test fetch", log),
-  command("Show the test log", "tail -n 12 fetch.log", log),
+  command("Show the test log", "bun run fetch-log --tail 12", log),
 ];
 const slowCommand = tool("bun test fetch --slow", "execute", "in_progress", {
   command: "bun test fetch --slow",

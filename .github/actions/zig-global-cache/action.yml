@@ -1,0 +1,89 @@
+name: Zig global cache
+description: >-
+  Restore Zig's global cache (where setup-zig points every build's local cache, so it holds the
+  compiled Ghostty and its packages) under a stable, weekly key. Only a feat-cmux-next push saves it,
+  once per key; every other run restores only. Use it right after mlugg/setup-zig with
+  `use-cache: false`: setup-zig's own cache saves a new entry of up to 2 GiB on every run of every
+  branch (`setup-zig-cache-<job>-<tarball>--<run_id>-<attempt>`), and on 2026-11-18 those filled the
+  repository's 10 GB store and evicted the cargo caches. tests/test_ci_no_run_scoped_cache_keys.py
+  rejects a setup-zig step that keeps its own cache.
+
+inputs:
+  key:
+    description: >-
+      Extra key part for a job whose matrix legs build different things on one OS and
+      architecture. The job id, OS and architecture are already in the key.
+    required: false
+    default: ""
+  size-limit-mib:
+    description: >-
+      A feat-cmux-next push starts the cache over when what it restored is larger than this, so
+      the weekly save does not grow without bound (setup-zig's own default).
+    required: false
+    default: "2048"
+
+runs:
+  using: composite
+  steps:
+    # The directory `zig env` names (ZIG_GLOBAL_CACHE_DIR, else Zig's default). A machine that
+    # keeps it between jobs (an owned mini) already has it and neither restores nor saves.
+    - name: Find the Zig global cache
+      id: probe
+      shell: bash
+      run: |
+        set -euo pipefail
+        env_out="$(zig env)"
+        if [[ "${env_out:0:1}" == "{" ]]; then
+          dir="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["global_cache_dir"])' <<<"$env_out")"
+        else
+          dir="$(sed -n 's/^[[:space:]]*\.global_cache_dir = "\(.*\)",$/\1/p' <<<"$env_out" | sed 's/\\\\/\\/g')"
+        fi
+        [[ -n "$dir" ]] || { echo "::error::could not read global_cache_dir from zig env"; exit 1; }
+        kept=false
+        if [[ -d "$dir" ]] && find "$dir" -mindepth 1 -maxdepth 1 ! -name p -print -quit | grep -q .; then kept=true; fi
+        echo "Zig global cache: $dir (already on this machine: $kept)"
+        {
+          echo "dir=$dir"
+          echo "kept=$kept"
+          echo "zig=$(zig version)"
+          echo "week=$(date -u +%G-W%V)"
+        } >> "$GITHUB_OUTPUT"
+
+    # feat-cmux-next pushes: restore, and save at the job's end when the week's key missed.
+    - name: Restore and later save the Zig global cache
+      id: seed
+      if: ${{ steps.probe.outputs.kept != 'true' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      with:
+        path: ${{ steps.probe.outputs.dir }}
+        key: zig-global-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}${{ inputs.key }}-zig${{ steps.probe.outputs.zig }}-${{ steps.probe.outputs.week }}
+        restore-keys: |
+          zig-global-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}${{ inputs.key }}-zig${{ steps.probe.outputs.zig }}-
+
+    - name: Start the Zig global cache over when it is too large
+      if: ${{ steps.seed.outcome == 'success' && steps.seed.outputs.cache-hit != 'true' }}
+      shell: bash
+      env:
+        DIR: ${{ steps.probe.outputs.dir }}
+        LIMIT_MIB: ${{ inputs.size-limit-mib }}
+      run: |
+        set -euo pipefail
+        [[ -d "$DIR" ]] || exit 0
+        mib="$(du -sm "$DIR" | cut -f1)"
+        echo "Restored Zig global cache: ${mib} MiB (limit ${LIMIT_MIB} MiB)"
+        if (( LIMIT_MIB > 0 && mib > LIMIT_MIB )); then
+          find "$DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          echo "Started it over; this week's save holds only what this run builds."
+        fi
+
+    # Everything else: pull requests read feat-cmux-next's entry (a pull request's base scope);
+    # other branches read their own and the default branch's. Never saves.
+    - name: Restore the Zig global cache
+      if: ${{ steps.probe.outputs.kept != 'true' && !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') }}
+      continue-on-error: true
+      uses: ./.github/actions/cache-restore
+      with:
+        path: ${{ steps.probe.outputs.dir }}
+        key: zig-global-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}${{ inputs.key }}-zig${{ steps.probe.outputs.zig }}-${{ steps.probe.outputs.week }}
+        restore-keys: |
+          zig-global-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}${{ inputs.key }}-zig${{ steps.probe.outputs.zig }}-
