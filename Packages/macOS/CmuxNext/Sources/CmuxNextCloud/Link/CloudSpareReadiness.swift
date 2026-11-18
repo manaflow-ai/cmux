@@ -70,6 +70,8 @@ public final class CloudSpareReadiness {
     /// When a key ahead of `machine` last did not key it: not tried again for ``keyRetry``, so a spare whose daemon is
     /// busy or too old is not read (or restarted) on every app activation.
     private var keyMissed: [String: ContinuousClock.Instant] = [:]
+    /// Counts ``reset()``: a key ahead that was running across one records nothing.
+    private var resets = 0
     /// How long after a key ahead that keyed nothing the next one waits.
     public static let keyRetry: Duration = .seconds(60)
     public var now: @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now }
@@ -124,6 +126,7 @@ public final class CloudSpareReadiness {
         links = [:]
         keyed = [:]
         keyMissed = [:]
+        resets += 1
     }
 
     private func primed(_ machine: String, team: String?, scope: Scope) async {
@@ -136,7 +139,11 @@ public final class CloudSpareReadiness {
         guard !isKeyed(machine, scope: scope, instance: dependencies.keyedInstance(machine)) else { return }
         if let missed = keyMissed[machine], now() < missed.advanced(by: Self.keyRetry) { return }
         keyMissed[machine] = nil
-        guard let instance = await dependencies.key(machine, scope), dependencies.scope() == scope else {
+        let resets = resets
+        let instance = await dependencies.key(machine, scope)
+        // Forgotten meanwhile (Cloud turned off, signed out): nothing of this run is written back.
+        guard resets == self.resets else { return }
+        guard let instance, dependencies.scope() == scope else {
             keyMissed[machine] = now()
             Self.log.info("cloud spare \(machine, privacy: .public): not keyed ahead (its daemon is not idle or not up yet, or the account changed); the start keys it")
             return

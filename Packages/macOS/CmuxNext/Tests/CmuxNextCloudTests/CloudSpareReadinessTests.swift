@@ -71,6 +71,22 @@ import Testing
         #expect(!readiness.isKeyed("vm_spare", scope: ["user_a", "team_a"], instance: "run-1"), "the stale entry is dropped")
     }
 
+    @Test func aKeyAheadRunningAcrossAResetRecordsNothing() async {
+        let world = World(), readiness = CloudSpareReadiness(world.dependencies())
+        // Cloud is turned off while the keyed start runs: its answer comes back to a store that forgot everything.
+        world.during = { readiness.reset() }
+        readiness.prime("vm_spare", team: "team_a")
+        await readiness.settled("vm_spare")
+        #expect(world.keys == ["vm_spare"])
+        #expect(!readiness.isKeyed("vm_spare", scope: ["user_a", "team_a"], instance: "run-1"))
+        // And a miss across a reset holds nothing back: the next prime keys at once.
+        world.during = {}
+        readiness.prime("vm_spare", team: "team_a")
+        await readiness.settled("vm_spare")
+        #expect(world.keys == ["vm_spare", "vm_spare"])
+        #expect(readiness.isKeyed("vm_spare", scope: ["user_a", "team_a"], instance: "run-1"))
+    }
+
     @Test func anotherScopeOrSignedOutReadsAsNotKeyed() async {
         let world = World(), readiness = CloudSpareReadiness(world.dependencies())
         readiness.prime("vm_spare", team: "team_a")
