@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// The sidebar list's scroll view. A two-finger horizontal trackpad swipe
 /// over it switches profiles instead of scrolling; vertical scrolling
@@ -14,7 +15,7 @@ import AppKit
 /// event by event, until it shows its direction (unless its first event already does): sideways
 /// pages the spaces to the gesture's end; otherwise the list scrolls by the movement held back
 /// and AppKit takes the gesture from there.
-final class SidebarScrollView: NSScrollView {
+final class SidebarScrollView: OverlayScrollView {
     /// Called with -1 (previous) or +1 (next) once per qualifying swipe.
     var onHorizontalSwipe: ((Int) -> Void)?
     /// A horizontal gesture 1:1 (R99): its phase, finger dx and time. When

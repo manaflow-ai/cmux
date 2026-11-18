@@ -69,7 +69,7 @@
 .disclosure-gallery-panel {
   display: grid;
   gap: 12px;
-  padding: 2px 12px 14px;
+  padding: var(--grid-half-step) 12px 14px;
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 72%, transparent));
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
