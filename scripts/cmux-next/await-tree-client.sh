@@ -24,7 +24,7 @@
 # and then pin-cmux-tui.sh active-publisher <key>, and two answers
 # in a row of "no active cmux-tui artifacts run has this tree" end the wait
 # (an unreadable runs list keeps waiting). An active run counts only while it makes
-# progress (pin-cmux-tui.sh run-progress): a failed build, or a job queued with no runner
+# progress (pin-cmux-tui.sh run-progress): a build failed on its last retry attempt, or a job queued with no runner
 # past CMUX_TUI_TREE_RUNNER_STALL_SECONDS (default 900), is "not building" too. Otherwise it waits up to
 # CMUX_TUI_TREE_CLIENT_WAIT_SECONDS (default 2700), checking every
 # CMUX_TUI_TREE_CLIENT_POLL_SECONDS (default 20).
@@ -85,7 +85,7 @@ while :; do
     # The candidates' own runs first (a filtered read each), then the newest runs of any
     # commit with this tree: 50 newer runs elsewhere must not hide a candidate's publisher.
     # An active run counts only while its jobs make progress (pin-cmux-tui.sh run-progress):
-    # one whose build failed, or whose job has sat queued with no runner past
+    # one whose build failed on its last retry attempt, or whose job has sat queued with no runner past
     # CMUX_TUI_TREE_RUNNER_STALL_SECONDS (default 900), is passed over for another same-key
     # run, and when none is left the wait ends at the second check instead of the 45 min
     # limit (2026-11-18: owner 44240874997's Linux build failed and the takeover run's Linux
