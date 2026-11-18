@@ -140,6 +140,7 @@ import { screenTemplate, shownTemplate, pageStyle, pickNewTabStyle } from "./new
 import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { holdNewTabAttachments } from "./newtab/remoteAttachmentDraft";
 import { startNewTabTransition } from "./newtab/startTransition";
+import { drawPaneSnapshot, PendingPaneDraw } from "./paneSnapshotLane";
 import {
   folderFields,
   isAgentHome,
@@ -6586,6 +6587,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const toolOutputEpoch = useRef(0);
   // The pane drew a new snapshot: its rows hold every call's output as of that draw again.
   useLayoutEffect(() => liveToolOutput.settle(toolOutputEpoch.current), [clientSnapshot]);
+  /// The pane's transition draw of a snapshot that has not committed yet (paneSnapshotLane.ts).
+  const [pendingPaneDraw] = useState(() => new PendingPaneDraw());
+  useLayoutEffect(() => pendingPaneDraw.committed(clientSnapshot), [pendingPaneDraw, clientSnapshot]);
   /// The newest snapshot, for host requests that read it (pane.context).
   const snapshotRef = useRef<AcpmuxSnapshot | undefined>(initialChat?.snapshot);
   const readSendAgain = useCallback((): SendPromptAgainState => {
@@ -8618,24 +8622,33 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             }
             // Only a running command's output grew: the row that draws it reads it
             // (liveToolOutput.ts); the pane, its header and Session Info keep what they drew.
-            const call = drawn && received && !streamingRowBlocked() ? toolOutputOnly(received, next) : undefined;
+            // Not while the pane's own draw is pending (paneSnapshotLane.ts `PendingPaneDraw`).
+            const call =
+              drawn && received && !streamingRowBlocked() && !pendingPaneDraw.pending
+                ? toolOutputOnly(received, next)
+                : undefined;
             if (call) {
               liveToolOutput.set(call.id, call.output, call.before);
               return;
             }
             streamingRow.clear();
             toolOutputEpoch.current = liveToolOutput.redraw();
+            // A redraw of the whole pane is a transition a key can go before, unless it answers what
+            // the person just did or opens another chat (paneSnapshotLane.ts).
+            const drewBefore = drawnSnapshot.current;
             drawnSnapshot.current = next;
-            setSnapshot((previous) => {
-              if (
-                next.canHandoff &&
-                !next.handoff?.ready &&
-                next.sessionId === previous.sessionId &&
-                previous.handoff?.record
-              )
-                return { ...next, handoff: { ...next.handoff, record: previous.handoff.record } };
-              return next;
-            });
+            drawPaneSnapshot(drewBefore, next, pendingPaneDraw, () =>
+              setSnapshot((previous) => {
+                if (
+                  next.canHandoff &&
+                  !next.handoff?.ready &&
+                  next.sessionId === previous.sessionId &&
+                  previous.handoff?.record
+                )
+                  return { ...next, handoff: { ...next.handoff, record: previous.handoff.record } };
+                return next;
+              }),
+            );
           },
           () => {
             // The daemon went away. Ask Swift again: a restarted daemon has a new port and token.
