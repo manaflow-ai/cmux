@@ -38,6 +38,7 @@ import type { PermissionClientState } from "./permissions/protocol";
 import type { AgentQuestion } from "./question/model";
 import type { NextStepAsk } from "./conversation/nextStepAsk";
 import { webSources } from "./conversation/webSourceList";
+import { outputTail, stripAnsi } from "./conversation/toolOutputModel";
 import type { WatchedAsk } from "./needsYou/model";
 import type { PermissionDecision } from "./permissions/record";
 import type { HandoffClientState } from "./handoff/client";
@@ -1912,7 +1913,9 @@ function openThoughtBody(text: string, width: number): number {
 /// card (ShellBlock.tsx, conversation.css `.cv-shell`): 4px above and 8px below it, 12px of padding,
 /// the 20px "Shell" label, the command's 18px lines 8px under it (8px and the rule below them), the
 /// exit code's 20px line 8px under that when it failed, and its output's 18px lines 8px under that,
-/// at most PREVIEW_LINES of them before the box scrolls. Closed, nothing.
+/// at most PREVIEW_LINES of them before the box scrolls; a long output's Show all under the box
+/// (toolOutputModel.ts `outputTail`, ShellBlock.tsx `OutputMore`), 4px over a 16px detail line, its
+/// height the same shown or not. Closed, nothing.
 const SHELL_LINE = 18;
 function openShellBody(tool: NonNullable<AcpmuxActivity["tool"]>, width: number, sessionId?: string): number {
   if (!tool.command || !disclosureOpen(sessionId, callDisclosureKey(tool.id))) return 0;
@@ -1926,7 +1929,8 @@ function openShellBody(tool: NonNullable<AcpmuxActivity["tool"]>, width: number,
   const lines = output ? Math.min(PREVIEW_LINES, output.split("\n").length) : 0;
   const failed = tool.exitCode !== undefined && tool.exitCode !== 0;
   const card = 12 + 20 + 8 + command * SHELL_LINE + 9 + (failed ? 28 : 0) + (lines ? 8 + lines * SHELL_LINE : 0) + 12;
-  return (gridLength("base") + 4 + 8) * chromeScale + card;
+  const more = output && outputTail(stripAnsi(output)) !== undefined ? gridLength("base") + 16 : 0;
+  return (gridLength("base") + 4 + 8 + more) * chromeScale + card;
 }
 
 /// An `acpmux send` the reader opened (SentMessageLine.tsx, its `send:` disclosure): the message whole

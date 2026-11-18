@@ -10,7 +10,7 @@
 // drew them in the papercut pane (test/support/papercutChat.ts) from the same fixture, the reader's
 // clicks made in the page (an untracked bench script, bench/reader-state-heights.ts, that reads each
 // `article.acpmux-row`'s box). Before this change: the long prompt opened estimated 499 (drawn 958),
-// the opened thought 26 (86), the opened commands 22 (269, 207), the opened message 22 (139.5), and
+// the opened thought 26 (86), the opened commands 22 (269, 207, and 289 for 1,000 lines of output), the opened message 22 (139.5), and
 // the edited-files card 150 and 78 whatever the reader had opened (drawn 70 shut, 142 open, 70).
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
@@ -184,6 +184,12 @@ test("a command the reader opened is estimated with its Shell card (ToolRow.tsx 
   near(lint, 207);
   await setLine(callDisclosureKey("cmd-1"), false);
   near(tests, 22);
+  // Past 400 lines its end is shown, with Show all under the box: drawn 289.
+  const long = step("long", [
+    shell("cmd-4", "bun test", Array.from({ length: 1_000 }, (_, n) => `✓ case ${n + 1}`).join("\n")),
+  ]);
+  await setLine(callDisclosureKey("cmd-4"), true);
+  near(long, 289);
 });
 
 test("an `acpmux send` the reader opened is estimated with its message's card (SentMessageLine.tsx `send:`)", async () => {
