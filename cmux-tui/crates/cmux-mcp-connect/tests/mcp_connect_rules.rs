@@ -545,7 +545,7 @@ fn mcp_connect_live_linear_401_names_its_metadata_and_scopes() {
 }
 
 #[test]
-fn the_shared_store_is_one_place_for_every_chief_and_agent() {
+fn mcp_connect_shared_store_is_one_place_for_every_chief_and_agent() {
     use cmux_mcp_connect::shared;
     let acpmux_home = std::path::Path::new("/Users/p/acpmux-home");
     let none = |_: &str| None;
