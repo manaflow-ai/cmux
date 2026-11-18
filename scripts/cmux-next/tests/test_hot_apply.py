@@ -8,6 +8,8 @@ runs from it, so the swap is the file alone.
 
     python3 -m unittest scripts/cmux-next/tests/test_hot_apply.py
 """
+import argparse
+import contextlib
 import hashlib
 import json
 import os
@@ -1102,6 +1104,27 @@ class PinCompatibility(unittest.TestCase):
             plan = self.hot._plan(self.repo, self.repo / "unused.app", branch, True, self.added)
             self.assertNotIn("ffi", plan["parts"])
             self.assertNotIn("rust", plan["parts"])
+
+    def test_rust_alone_is_held_back_until_the_release_it_rides_with_is_in(self):
+        # Review of cmux#46195: `cmux app try` applies --parts rust only. A plan that puts the fork's release in
+        # beside the daemon must not swap the daemon alone onto the app's old library; the look says --ffi-in.
+        planned = {"head": "h" * 40, "parts": ["ffi", "rust"], "left": {}, "notes": [], "tree_key": "k" * 64,
+                   "ffi": {"source": "c" * 40, "app_pin_source": "a" * 40, "release": "cmux-app-ffi-" + "c" * 40}}
+        args = argparse.Namespace(command="apply", repo=str(self.repo), app=str(self.repo / "unused.app"),
+                                  sha="h" * 40, branch=True, base=None, unsigned_daemon=False, parts="rust",
+                                  dry_run=False, ffi_in=False, binary=None, socket=None)
+        fetched = mock.Mock(side_effect=RuntimeError("stop at the fetch"))
+        with mock.patch.dict(os.environ, {"CMUX_HOT_APPLY_STATE_DIR": str(self.repo / "state")}), \
+                mock.patch.object(self.hot, "plan", side_effect=lambda *_a: json.loads(json.dumps(planned))), \
+                mock.patch.object(self.hot, "fetch_build", fetched), \
+                mock.patch.object(self.hot, "put_back", return_value={}), \
+                mock.patch("builtins.print"):
+            self.assertEqual(self.hot.command_apply(args), 3)
+            fetched.assert_not_called()
+            args.ffi_in = True
+            with contextlib.suppress(Exception):
+                self.hot.command_apply(args)
+            fetched.assert_called_once()
 
 
 class WebCache(unittest.TestCase):

@@ -279,6 +279,35 @@ class PlanTest(unittest.TestCase):
         self.assertNotIn("ffi_baseline", planned)
         self.assertTrue(any("drops ffi_old()" in note for note in planned["notes"]), planned["notes"])
 
+    def test_a_repin_the_app_lacks_with_rust_the_swift_build_reads_still_needs_a_build(self):
+        # Review of cmux#46195: the fork's release brings the library up, not what the Swift build reads itself;
+        # hot-apply leaves that, then holds the daemon back, so the look would end in exit 3 again.
+        self.fx.base = self.fx.commit({hv.FFI_PIN_FILE: self.PIN % ("a" * 40, "0" * 64)}, "pin",
+                                      parent=self.fx.base)
+        tip = self.advance_base({hv.FFI_PIN_FILE: self.PIN % ("b" * 40, "1" * 64)})
+        head = self.fx.commit({"cmux-tui/crates/cmux-tui/src/main.rs": "fn main() { println!(\"mine\"); }\n"},
+                              "change", parent=tip)
+        h = hv.hot()
+        with unittest.mock.patch.object(h.ffi_part, "additive", return_value=[]), \
+                unittest.mock.patch.object(h, "swift_read_rust", return_value=["cmux-tui/include/cmux.h"]):
+            planned = self.plan(head)
+        self.assertTrue(planned["needs_build"], planned)
+        self.assertIn("Rust the app links (FFI), in the commits the app lacks", planned["build"])
+        self.assertNotIn("ffi_baseline", planned)
+
+    def test_a_repin_of_the_same_release_is_no_release_change(self):
+        # Review of cmux#46195: a pin file that only rewrites the checksum names the library the app has; hot-apply
+        # compares the release's commit, so the plan does too.
+        self.fx.base = self.fx.commit({hv.FFI_PIN_FILE: self.PIN % ("a" * 40, "0" * 64)}, "pin",
+                                      parent=self.fx.base)
+        tip = self.advance_base({hv.FFI_PIN_FILE: self.PIN % ("a" * 40, "1" * 64)})
+        head = self.fx.commit({"cmux-tui/crates/cmux-tui/src/main.rs": "fn main() { println!(\"mine\"); }\n"},
+                              "change", parent=tip)
+        planned = self.plan(head)
+        self.assertEqual(planned["layers"], ["rust"], planned)
+        self.assertFalse(planned["needs_build"], planned["build"])
+        self.assertNotIn("ffi_baseline", planned)
+
     def test_a_change_branched_before_an_app_a_repin_ahead_needs_a_build(self):
         # cmux#44876's look: the change forked before the NIGHTLY, which pinned a newer release; hot-apply holds the
         # daemon back (an older release does not go in), so the plan must not say `rust`.

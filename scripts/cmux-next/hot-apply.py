@@ -1737,6 +1737,14 @@ def command_apply(args) -> int:
     receipt = {"action": args.command if args.dry_run and args.command == "prefetch" else
                "dry-run" if args.dry_run else "apply", **planned, "applied": [], "rolled_back": False,
                "steps": {}, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    if ("rust" in parts and "ffi" in planned["parts"] and "ffi" not in parts and not args.ffi_in
+            and planned["ffi"]["source"] != planned["ffi"]["app_pin_source"]):
+        # The daemon rides with the app FFI release the plan puts in (#44525): --parts rust alone would pair it with
+        # the app's old library. hot-verify's look puts the release in first and says so with --ffi-in.
+        planned["left"] = {**planned["left"], "Rust the app links (FFI)": [
+            f"the daemon needs the app FFI release {planned['ffi']['release']} in first: apply --parts ffi too"]}
+        receipt["left"] = planned["left"]
+        parts = [p for p in parts if p != "rust"]
     if not parts:
         receipt["seconds"] = round(time.monotonic() - t0, 3)
         record(state, receipt, last=False)  # nothing changed: `rollback` still puts back the last apply
@@ -1971,7 +1979,7 @@ def command_rollback(args) -> int:
 
 def command_prefetch(args) -> int:
     """`apply --dry-run` under its own name: fetch and check what SHA's apply needs, and keep it."""
-    args.dry_run, args.parts, args.binary = True, "web,rust,ffi", None
+    args.dry_run, args.parts, args.binary, args.ffi_in = True, "web,rust,ffi", None, False
     args.sign_identity, args.reseal = None, False
     args.socket, args.acpmux_home, args.restart_acpmux, args.restart_sessions = None, [], False, False
     return command_apply(args)
@@ -2012,6 +2020,9 @@ def main(argv=None) -> int:
                            help="ffi: a Developer ID app takes an ad hoc library by being signed ad hoc too "
                                 "(it starts signed out of its Keychain items; rollback puts the signature back)")
             p.add_argument("--binary", help="the cmux binary to swap in, instead of the one published for SHA")
+            p.add_argument("--ffi-in", action="store_true",
+                           help="the app FFI release the plan names is already in the app (an earlier --parts ffi): "
+                                "--parts rust alone may then put the daemon in")
             p.add_argument("--socket")
             p.add_argument("--acpmux-home", action="append", default=[])
             p.add_argument("--restart-acpmux", action="store_true",

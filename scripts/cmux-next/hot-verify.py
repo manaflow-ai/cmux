@@ -409,10 +409,12 @@ def plan(repo: Path, source: str, app: str | None = None, base: str | None = Non
                 f"the app's commit {base[:12]} has cmux-tui changes the change (branched at {fork[:12]}) lacks: "
                 "rebase it onto the app's commit, or build it"]
         elif behind and (pinned := lag_pins_daemon(h, repo, base, fork)) and not (
-                baseline := lag_ffi_baseline(h, rules, the_app, head, base, out)):
-            # The head's daemon carries the lagging commits' FFI changes, which the app does not link.
+                not h.swift_read_rust(repo, [p for p in pinned if p != FFI_PIN_FILE])
+                and (baseline := lag_ffi_baseline(h, rules, the_app, head, base, out))):
+            # The head's daemon carries the lagging commits' FFI changes, which the app does not link. The fork's
+            # release brings the library up; Rust the Swift build reads itself still needs a new app.
             out["build"]["Rust the app links (FFI), in the commits the app lacks"] = pinned
-        elif not behind and pins_differ(repo, base, head) and not (
+        elif not behind and pins_differ(h, repo, base, head) and not (
                 baseline := lag_ffi_baseline(h, rules, the_app, head, base, out)):
             # A change branched before the app's commit on another app FFI release: hot-apply holds its daemon back
             # (cmux#44876's look, 2026-11-18: the NIGHTLY was a repin ahead, and that release does not go back).
@@ -460,8 +462,8 @@ def lag_pins_daemon(h, repo: Path, base: str, fork: str) -> list[str]:
     Two different pins name the pin file too, as pins_daemon does: hot-apply holds the head's daemon back from an
     app on another release (#44525), so a look that planned it anyway ended `hot-apply.py apply --parts rust exited
     3` (7 of 8 failed Rust looks, 2026-11-17). lag_ffi_baseline then puts the fork's release into the copy."""
-    pins = [git(repo, "rev-parse", "--verify", "--quiet", f"{c}:{FFI_PIN_FILE}", check=False) for c in (base, fork)]
-    if all(SHA.fullmatch(p or "") for p in pins) and pins[0] == pins[1]:
+    pins = [pin_source(h, repo, c) for c in (base, fork)]
+    if all(pins) and pins[0] == pins[1]:
         return []
     files = h.live_apply.classify_range(str(repo), base, fork)["files"]
     # As pins_daemon: since #43797 classify puts cmux-tui's own C, Objective-C and Zig in "daemon" too.
@@ -469,10 +471,19 @@ def lag_pins_daemon(h, repo: Path, base: str, fork: str) -> list[str]:
     return moved + h.linked_rust(repo, sorted(set(files.get("daemon", []))))
 
 
-def pins_differ(repo: Path, base: str, head: str) -> bool:
-    """The app's commit BASE and HEAD pin different app FFI releases (app-ffi-pin.json at both, other blobs)."""
-    pins = [git(repo, "rev-parse", "--verify", "--quiet", f"{c}:{FFI_PIN_FILE}", check=False) for c in (base, head)]
-    return all(SHA.fullmatch(p or "") for p in pins) and pins[0] != pins[1]
+def pin_source(h, repo: Path, sha: str) -> str | None:
+    """The source commit of the app FFI release SHA pins (hot-apply's pinned_ffi_source); None with no pin or an
+    unreadable one. The release, not the file: a repin that only rewrites checksums names the same library."""
+    try:
+        return h.pinned_ffi_source(repo, sha)
+    except (RuntimeError, ValueError, KeyError):
+        return None
+
+
+def pins_differ(h, repo: Path, base: str, head: str) -> bool:
+    """The app's commit BASE and HEAD pin different app FFI releases (their source commits, as hot-apply reads)."""
+    pins = [pin_source(h, repo, c) for c in (base, head)]
+    return all(pins) and pins[0] != pins[1]
 
 
 def lag_ffi_baseline(h, rules: Path, the_app: Path | None, head: str, base: str, out: dict) -> dict | None:
@@ -1282,6 +1293,8 @@ def apply_rust(rules: Path, planned: dict, src_tree: Path | None, side: Side, sc
     cmux-tui tree, else a local cargo build of a dir: source."""
     argv = [sys.executable, str(rules / "scripts/cmux-next/hot-apply.py"), "apply", planned["head"], "--branch",
             "--parts", "rust", "--app", str(side.app()), "--repo", str(rules)]
+    if planned.get("ffi_baseline"):
+        argv.append("--ffi-in")  # apply_ffi_baseline put the release in before the copy opened
     binary = None
     if src_tree is not None and (src_tree / "cmux-tui/Cargo.toml").is_file() and shutil.which("cargo"):
         published = hot().published(planned["tree_key"]) if planned.get("tree_key") else False
