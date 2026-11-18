@@ -464,9 +464,35 @@ fn forget_sign_in(dir: &std::path::Path) -> Res<()> {
     Ok(())
 }
 
+/// Who a live join signed this desktop in as: Some while the join's credential is still there
+/// (from [`machine::JOINED_FILE`], or `ACPMUX_HOME` when the join has not signed it in yet).
+/// The account is the hub's user id, or "this machine's account" before the first sign-in.
+fn join_owner(dir: &std::path::Path) -> Res<Option<String>> {
+    let recorded = match machine::Joined::load(dir)? {
+        Some(joined) => machine::load(&joined.acpmux_home)?.is_some(),
+        None => false,
+    };
+    if !recorded && machine::current()?.is_none() {
+        return Ok(None);
+    }
+    let account = match (recorded, Account::load(dir)?) {
+        (true, Some(account)) => account.user_id,
+        _ => "this machine's account".to_owned(),
+    };
+    Ok(Some(account))
+}
+
 /// Signs in, registers this desktop (a new identity when the hub refuses the old one), anchors
 /// it, installs the encoder and turns sharing on; the device and the encoder's line.
 fn sign_in_and_register(args: &Args, dir: &std::path::Path) -> Res<(Device, String)> {
+    // A joined machine's host is the joiner's (#45369): a person's own sign-in here would make
+    // it theirs until the next daemon start. Refused before any token is read.
+    if let Some(account) = join_owner(dir)? {
+        return Err(format!(
+            "this machine is joined to {account}; run `acpmux machine leave` first"
+        )
+        .into());
+    }
     let token = stack_token(args)?;
     let hub_url = match (args.get("hub"), Account::load(dir)?) {
         (Some(url), _) => url.to_owned(),
@@ -1262,6 +1288,9 @@ mod tests {
             Some(machine::Joined { acpmux_home: home.clone() })
         );
         assert_eq!(Account::load(&dir).unwrap().unwrap().user_id, "p:b");
+        // After `acpmux machine leave` (the credential gone) a person may enable it again.
+        std::fs::remove_file(home.join(machine::CREDENTIAL_FILE)).unwrap();
+        assert_eq!(join_owner(&dir).unwrap(), None);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
