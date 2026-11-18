@@ -142,7 +142,9 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
   // Where the rows start in the scroller: its padding and the header row (none when a narrow pane
   // hides it), read again when the header resizes.
   const [scrollMargin, setScrollMargin] = useState(SCROLL_PAD + HEAD_ESTIMATE);
+  const tbody = useRef<HTMLTableSectionElement | null>(null);
   const body = useCallback((node: HTMLTableSectionElement | null) => {
+    tbody.current = node;
     if (!node) return;
     const read = () => setScrollMargin(SCROLL_PAD + node.offsetTop);
     read();
@@ -150,7 +152,10 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
     if (typeof ResizeObserver === "undefined" || !head) return;
     const observer = new ResizeObserver(read);
     observer.observe(head);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      tbody.current = null;
+    };
   }, []);
   // One function per list: TanStack measures every row again when it changes.
   const rowKey = useCallback((index: number) => list.ids[index]!, [list]);
@@ -174,14 +179,25 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
       return indexes;
     },
   });
+  // A row's place (`data-index`, which TanStack measures it by, and `aria-rowindex`) is written on
+  // its element here, not drawn by the row: removing a row moves every later row up one place, and
+  // that redraws none of them. `places` is the current list's, read by the rows' ref as they mount.
+  const places = useRef(list.index);
+  places.current = list.index;
   const measure = useCallback(
     (node: HTMLElement | null) => {
+      if (node) place(node, places.current);
       const kind = node?.dataset.size as SizeKind | undefined;
       if (node && kind && node.offsetHeight > 0) sizes.current.set(kind, node.offsetHeight);
       virtualizer.measureElement(node);
     },
     [virtualizer],
   );
+  // The rows already mounted take their new places when the list changes (only the mounted rows).
+  useLayoutEffect(() => {
+    for (const node of tbody.current?.querySelectorAll<HTMLElement>(":scope > .keys-row") ?? [])
+      place(node, list.index);
+  }, [list]);
   // A new selection scrolls its row into view (each row did this as it mounted selected when every
   // row was mounted); the selected row is always mounted, at its place among the spacers.
   const revealed = useRef<string | undefined>(undefined);
@@ -415,7 +431,6 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
                   return (
                     <BindingRow
                       key={row}
-                      index={index}
                       row={row}
                       measure={measure}
                       binding={binding}
@@ -482,6 +497,16 @@ function nextWithControls(
   for (let index = from + step; index >= 0 && index < rows.length; index += step)
     if (hasControls(rows[index]!, resettable)) return index;
   return -1;
+}
+
+/** Writes a row element's place: `data-index` (its index among the shown rows, which TanStack
+ *  measures it by) and `aria-rowindex` (among every row, the header first: the screen reader's
+ *  "row 3 of 1001"). */
+function place(node: HTMLElement, places: ReadonlyMap<string, number>): void {
+  const index = places.get(node.dataset.row ?? "");
+  if (index === undefined || node.dataset.index === String(index)) return;
+  node.dataset.index = String(index);
+  node.setAttribute("aria-rowindex", String(index + 2));
 }
 
 const Spacer = memo(function Spacer({ height }: { height: number }) {
@@ -725,8 +750,6 @@ function Recorder({
 }
 
 interface RowProps {
-  /** The row's place in the shown rows (TanStack measures it by `data-index`). */
-  index: number;
   /** Its identity (`model.identity`), which the page tracks focus by. */
   row: string;
   measure: (element: HTMLElement | null) => void;
@@ -741,7 +764,6 @@ interface RowProps {
 }
 
 const BindingRow = memo(function BindingRow({
-  index,
   row,
   measure,
   binding,
@@ -762,10 +784,8 @@ const BindingRow = memo(function BindingRow({
     <tr
       className={classes.filter(Boolean).join(" ")}
       aria-selected={selected}
-      // Its place among every row, the header first: the screen reader's "row 3 of 1001".
-      aria-rowindex={index + 2}
+      // `data-index` and `aria-rowindex` are written by the page (`place`), not drawn here.
       ref={measure}
-      data-index={index}
       data-size={rowSize(binding)}
       data-row={row}
       onClick={() => store.select(row)}

@@ -306,3 +306,55 @@ test("Tab walks every row's controls, past the mounted rows, and Shift-Tab walks
     dom.window.HTMLElement.prototype.scrollIntoView = original;
   }
 }, 60_000);
+
+test("removing an action redraws none of the other mounted rows, though every later id moves", async () => {
+  const { provider, store } = await mount(1_000);
+  // Two actions on the same keys: their `conflicts` name each other by id, which moves too.
+  const pair = (at: number, other: number) => ({ ...provider.table[at]!, conflicts: [other] });
+  provider.table[10] = pair(10, 20);
+  provider.table[20] = pair(20, 10);
+  await act(async () => store.reload());
+  const titles = () => [...host.querySelectorAll(".keys-row .keys-command-title")].map((title) => title.textContent);
+  const before = titles();
+  expect(before).toContain("Action 00003");
+
+  // The rows mounted before the removal, other than the removed one (a removal also brings one row
+  // in at the window's end: that one mounts).
+  const stayed = new Set(before.filter((title) => title !== "Action 00003"));
+  const stayedRenders = mountedRowRenders(
+    () =>
+      [...host.querySelectorAll(".keys-row")].filter((row) =>
+        stayed.has(row.querySelector(".keys-command-title")?.textContent ?? ""),
+      ),
+    "BindingRow",
+  );
+  stayedRenders.mark();
+  renders.mark();
+  // The app lists the table again without the fourth action: ids are positions, so each later one
+  // is one less, and so are the conflicts that name them.
+  const at = (id: number) => (id > 3 ? id - 1 : id);
+  provider.table = provider.table
+    .filter((binding) => binding.id !== 3)
+    .map((binding) => ({ ...binding, id: at(binding.id), conflicts: binding.conflicts.map(at) }));
+  await act(async () => store.reload());
+  expect(stayedRenders.since()).toBe(0);
+  expect(renders.since()).toBeLessThanOrEqual(1);
+
+  // The row is gone, and the rows after it moved up one place, for the screen reader too.
+  expect(titles()).not.toContain("Action 00003");
+  expect(titles().slice(0, 10)).toEqual(before.filter((title) => title !== "Action 00003").slice(0, 10));
+  const rowOf = (title: string) =>
+    [...host.querySelectorAll<HTMLElement>(".keys-row")].find(
+      (row) => row.querySelector(".keys-command-title")?.textContent === title,
+    )!;
+  expect(rowOf("Action 00010").getAttribute("aria-rowindex")).toBe("11");
+  expect(rowOf("Action 00010").dataset.index).toBe("9");
+  expect(host.querySelector(".keys-table")?.getAttribute("aria-rowcount")).toBe("1000");
+  // The two conflicting actions still name each other.
+  const { bindings } = store.getSnapshot();
+  const ten = bindings.find((binding) => binding.title === "Action 00010")!;
+  const twenty = bindings.find((binding) => binding.title === "Action 00020")!;
+  expect(ten.conflicts).toEqual([twenty.id]);
+  expect(twenty.conflicts).toEqual([ten.id]);
+  expect(new Set(bindings.map((binding) => binding.id)).size).toBe(bindings.length);
+});
