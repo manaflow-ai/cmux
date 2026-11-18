@@ -388,7 +388,7 @@ final class TopHomePageView: NSView {
         view.autoresizingMask = [.width, .height]
         transcriptColumn.addSubview(view)
         host = view
-        services.home.homeDidOpen(asked: true)
+        HomeShownWatch.startChief(for: view, from: "home_page") { [weak services] in services?.home.homeDidOpen(asked: true) }
         if window.map({ ($0.firstResponder === $0 || $0.firstResponder == nil) && !$0.pendingCreationOwnsKeyboard }) ?? true { focusPrimaryInput() } // unasked
     }
 
