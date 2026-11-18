@@ -72,7 +72,7 @@ import CmuxNextTestSupport
     @Test func aDownloadsMenuRowsRunTheirPaletteActions() throws {
         let list = BrowserDownloadList()
         let registry = Self.registry()
-        BrowserMenuRowHandlers.bindDownloads(into: registry, list: { list })
+        BrowserToolbarHandlers.bindDownloads(into: registry, list: { list })
         let file = FileManager.default.temporaryDirectory.appending(path: "menu-rows-\(UUID().uuidString).pdf")
         list.add(.ended(sourceURL: URL(string: "https://example.com/report.pdf"), filename: "report.pdf", destination: file,
                         status: .finished, receivedBytes: 10, totalBytes: 10), tab: "tab-a") { _ in }
@@ -81,7 +81,7 @@ import CmuxNextTestSupport
         let listed = registry.argumentSuggestions?(ActionSuggestions.browserDownloads) ?? []
         #expect(listed.map(\.value) == [download.id.uuidString])
 
-        let recorders = BrowserMenuRowHandlers.downloadActions.map { ($0, Recorder($0, in: registry)) }
+        let recorders = BrowserToolbarHandlers.downloadActions.map { ($0, Recorder($0, in: registry)) }
         let menu = try #require(BrowserDownloadsMenu.actions(download, list: list, registry: registry))
         let rows = menu.items.filter { !$0.isSeparatorItem }
         #expect(rows.count == 3, "a finished web download offers Open, Show in Finder and Copy Download Link")
@@ -121,7 +121,7 @@ import CmuxNextTestSupport
         #expect(!tab.commands.contains(.goToEntry(-2)), "the row went there itself instead of through the action")
 
         let registry = Self.registry()
-        BrowserMenuRowHandlers.bindBackForward(into: registry, page: { _ in tab })
+        BrowserToolbarHandlers.bindBackForward(into: registry, page: { _ in tab })
         let listed = registry.argumentSuggestions?(ActionSuggestions.browserBackForwardEntries) ?? []
         #expect(listed.map(\.value) == ["-1", "-2"])
         #expect(listed.map(\.title) == ["https://b.example", "A"])

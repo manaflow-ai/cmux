@@ -13,7 +13,7 @@ import Testing
     @Test func aDownloadRowsMenuIsThemedWithIconsAndItsRowsRun() throws {
         let list = BrowserDownloadList()
         let registry = ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
-        BrowserMenuRowHandlers.bindDownloads(into: registry, list: { list })
+        BrowserToolbarHandlers.bindDownloads(into: registry, list: { list })
         let file = FileManager.default.temporaryDirectory.appending(path: "report-\(UUID().uuidString).pdf")
         list.add(.ended(sourceURL: URL(string: "https://example.com/report.pdf"), filename: "report.pdf", destination: file,
                         status: .finished, receivedBytes: 10, totalBytes: 10), tab: "tab-a") { _ in }
