@@ -9,18 +9,23 @@
 // settles records the boxes of the composer, its field and the sent prompt's row
 // (helpers/layoutShift.ts); none may jump between two frames in a row.
 // Locally: CMUX_BROWSER_TESTS=1 bun test test/new-chat-start-no-shift.test.ts
-import { afterAll, beforeAll, describe, setDefaultTimeout, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import {
+  describeJumps,
   describeLayoutShifts,
   describeTeleport,
+  expectNoJumpAt,
   expectNoLayoutShift,
   expectNoTeleport,
+  findJumpsAt,
   findLayoutShifts,
   findTeleport,
   installLayoutBoxes,
   type LayoutFrame,
+  type TeleportMeasure,
+  type TeleportOptions,
 } from "./helpers/layoutShift";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
@@ -50,6 +55,8 @@ await requireBrowserLane("new-chat-start-no-shift.test.ts", async () => {
   const PARTS: Record<string, string> = {
     box: ".nt-composer, .acpmux-composer",
     typing: '.nt-field [contenteditable="true"], .acpmux-composer [contenteditable="true"]',
+    /// The glass card the person sees around the field: New Tab's `.nt-box`, the chat's composer box.
+    card: ".nt-box, .acpmux-composer > .acpmux-composer-box",
     composer: ".acpmux-composer",
     field: '.acpmux-composer [contenteditable="true"]',
     newTabComposer: ".nt-composer",
@@ -249,11 +256,46 @@ await requireBrowserLane("new-chat-start-no-shift.test.ts", async () => {
       last = now;
     }
     console.log(describeLayoutShifts(findLayoutShifts(frames, Object.keys(PARTS), 1)).join("\n") || "no shifts");
-    for (const part of ["box", "typing"])
-      console.log(describeTeleport(findTeleport(frames, part)).join("\n") || `${part}: no teleport`);
-    // The box and its field go from New Tab's place to the dock by moving, not in one frame.
-    expectNoTeleport(frames, "box");
-    expectNoTeleport(frames, "typing");
+    // The field's offset inside the card the person sees.
+    const fieldInCard = (frame: LayoutFrame) =>
+      frame.boxes.typing && frame.boxes.card ? frame.boxes.typing.y - frame.boxes.card.y : undefined;
+    const fieldLeftInCard = (frame: LayoutFrame) =>
+      frame.boxes.typing && frame.boxes.card ? frame.boxes.typing.x - frame.boxes.card.x : undefined;
+    const checks: [string, TeleportOptions][] = [
+      ["box", {}],
+      ["typing", {}],
+      ["card", { measure: "top" }],
+      ["card", { measure: "left" }],
+      ["card", { measure: "width" }],
+      ["card", { measure: "height" }],
+      ["fieldInCard", { measure: fieldInCard }],
+      ["fieldLeftInCard", { measure: fieldLeftInCard }],
+    ];
+    for (const [part, options] of checks)
+      console.log(describeTeleport(findTeleport(frames, part, options)).join("\n") || `${part}: no teleport`);
+    // The frame where the chat's composer takes over from New Tab's draws the card, its size and the
+    // field where New Tab left them: the handover itself moves nothing.
+    const handover = frames.findIndex(
+      (frame, index) => index > 0 && frame.boxes.composer && !frame.boxes.newTabComposer,
+    );
+    const atHandover: [string, TeleportMeasure][] = [
+      ["card", "top"],
+      ["card", "left"],
+      ["card", "width"],
+      ["card", "height"],
+      ["typing", "top"],
+      ["typing", "left"],
+      ["fieldInCard", fieldInCard],
+      ["fieldLeftInCard", fieldLeftInCard],
+    ];
+    console.log(
+      describeJumps(findJumpsAt(frames, handover, atHandover, 1.5)).join("\n") || `handover frame ${handover}: no jump`,
+    );
+    // The box, its card and its field go from New Tab's place and size to the dock's by moving, not
+    // in one frame (Leo, 2026-11-17: "chats settle with no unnecessary layout shifts after they start").
+    expect(handover).toBeGreaterThan(0);
+    expectNoJumpAt(frames, handover, atHandover, 1.5);
+    for (const [part, options] of checks) expectNoTeleport(frames, part, options);
     // The sent prompt's row never jumps once it drew.
     expectNoLayoutShift(frames, ["prompt"], 1);
   });
