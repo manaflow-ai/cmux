@@ -2208,8 +2208,31 @@ function shapeTurn(
     shaped.push(
       ...liveTurn({ ...summary, at: since }, answered, clockOffset, sessionStatus, trayAgents, turnStartedAtMs),
     );
-  else shaped.push(...(live ? answered : answered.flatMap(withoutDrafts).map(endedPlan)));
+  else shaped.push(...(live ? answered : endedTail(answered)));
   return shaped;
+}
+
+/// An ended tail (the turns the agent ran on its own after the prompt's turn, with no turn running now)
+/// as the running turn's shape draws its ended part (`codexRuns`): each run folded into its summary
+/// line. While any later turn ran, `liveTurn` folded these runs; once the chat stopped they drew
+/// unfolded, every group of calls on its own line, and folded again when the next background turn
+/// started. A coordinator woken by background tasks every few seconds read its earlier turns
+/// collapse and expand, the rows under them jumping and the turn's end fold drawing its copies over
+/// them (cmux#45943: "content loads/unloads and blinks while the agent writes or thinks"; the
+/// doubled, overlapping paragraphs of the same report). A run whose own row stays (a change awaiting
+/// its permission, a call that keeps its own row while it runs) stays as `codexRuns` keeps it.
+function endedTail(rows: readonly AcpmuxRow[]): AcpmuxRow[] {
+  const out: AcpmuxRow[] = [];
+  for (const row of rows) {
+    const items = row.items ?? [];
+    // A row with no calls (a background turn's bare activity) has no run to fold and draws as it came.
+    const folds =
+      row.kind === "activity" &&
+      items.length > 0 &&
+      !items.some((item) => awaitsPermission(item.tool) || (keepsOwnRow(item.tool) && isRunning(item.tool!)));
+    for (const drawn of folds ? earlierRun(row, undefined) : withoutDrafts(row)) out.push(endedPlan(drawn));
+  }
+  return out;
 }
 
 /// `tail` with each of its summaries carrying the reply of the turn it ends and the turn to copy, as

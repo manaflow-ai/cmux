@@ -157,6 +157,42 @@ export function grantedCloudStart(
   );
 }
 
+/// How long a Cloud start waits for the local start a pick on its page began (``pickedChatCloudCall``).
+/// Bounded well under the Send gesture's 30 s life: past it the start goes as it is.
+export const PICK_SESSION_WAIT_MS = 8000;
+
+/// A Cloud start from a new chat that holds an agent or model pick (GPT-6.1 Sol picked on a Claude
+/// page): that pick started a local session the page never showed, and the host counts it as a chat
+/// opened in this tab. The start waits for that session (`pickSession`, bounded) and names it as the
+/// chat it replaces, so the host lets the Cloud start go instead of refusing it as "A chat is already
+/// starting in this tab" (cmux#45946). A start that already names one, or a page with no pick, goes as is.
+export function pickedChatCloudCall(
+  call: (method: string, params?: Record<string, unknown>) => Promise<unknown>,
+  pickSession: (timeoutMs: number) => Promise<string | undefined>,
+): (method: string, params?: Record<string, unknown>) => Promise<unknown> {
+  return async (method, params = {}) => {
+    if (method !== "cloud.startChat" || typeof params.replacesChat === "string") return call(method, params);
+    const picked = await pickSession(PICK_SESSION_WAIT_MS);
+    return call(method, picked ? { ...params, replacesChat: picked } : params);
+  };
+}
+
+/// A new chat whose only start is the person's agent or model pick (a harness switch on a page with no
+/// chat yet): Cloud is still where it runs. The pick goes with the Cloud start (`heldPick`) and the
+/// local session it began is the one the start replaces (``pickedChatCloudCall``).
+export function pickOnlyNewChat(page: {
+  fresh: boolean;
+  sessionId?: string;
+  summarySessionId?: string;
+  switching: boolean;
+  selectionPending: boolean;
+  quick: boolean;
+}): boolean {
+  return (
+    page.fresh && !page.sessionId && !page.summarySessionId && page.switching && !page.selectionPending && !page.quick
+  );
+}
+
 /// The host's answer: ok, or a code with the host's own words when it has them.
 /// `retryable`: another try of the same start can help (the machine didn't connect, a copy timed out), so the card offers Retry.
 export type CloudStartAnswer =
