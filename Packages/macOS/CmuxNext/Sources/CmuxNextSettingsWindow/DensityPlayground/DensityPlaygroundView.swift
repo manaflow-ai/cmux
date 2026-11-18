@@ -89,6 +89,7 @@ struct DensityPlaygroundView: View {
                 .accessibilityIdentifier("cmux.densityPlayground.picker")
                 TextField(DensityPlaygroundStrings.name, text: $nameText)
                     .textFieldStyle(.roundedBorder)
+                    .focusEffectDisabled()
                     .focused($nameFocused)
                     .onSubmit { model.rename(nameText) }
                     .onChange(of: nameFocused) { if !nameFocused { model.rename(nameText) } }
@@ -241,6 +242,7 @@ private struct DensityPlaygroundRow: View {
                 .accessibilityLabel(entry.label)
             TextField("", text: $text)
                 .textFieldStyle(.roundedBorder)
+                .focusEffectDisabled()
                 .multilineTextAlignment(.trailing)
                 .monospacedDigit()
                 .frame(width: Size.field)

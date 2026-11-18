@@ -92,8 +92,26 @@ struct CloudGitHubReposTests {
         #expect(CloudGitHubPicker.connectFromStatus(status: 200, body: status(#"{"status":"active","repos":null}"#)) == .connected)
         #expect(CloudGitHubPicker.connectFromStatus(status: 200, body: status(#"{"status":"active","configure_url":"https://example.com/x"}"#)) == .connected)
         #expect(CloudGitHubPicker.connectFromStatus(status: 200, body: status("null")) == nil)
-        #expect(CloudGitHubPicker.connectFromStatus(status: 200, body: Self.body(#"{"configured":false}"#)) == .unavailable)
-        #expect(CloudGitHubPicker.connectFromStatus(status: 503, body: Data()) == .unavailable)
+        #expect(CloudGitHubPicker.connectFromStatus(status: 200, body: Self.body(#"{"configured":false}"#)) == .unavailable(.notConfigured))
+        #expect(CloudGitHubPicker.connectFromStatus(status: 503, body: Data()) == .unavailable(.unreachable))
+    }
+
+    /// `github.status` for a signed-in person: unavailable says whether this deployment has no App or nothing answered.
+    @Test func theStatusSaysWhyGitHubIsUnavailable() {
+        #expect(CloudGitHubPicker.Status(.ready, reposScope: "selected") == .ready(reposScope: "selected"))
+        #expect(CloudGitHubPicker.Status(.notConnected, reposScope: nil) == .notConnected)
+        #expect(CloudGitHubPicker.Status(.notConfigured, reposScope: nil) == .unavailable(.notConfigured))
+        #expect(CloudGitHubPicker.Status(.unknown, reposScope: nil) == .unavailable(.unreachable))
+        #expect(CloudGitHubPicker.Status.ready(reposScope: "all").state == "ready")
+        #expect(CloudGitHubPicker.Status.ready(reposScope: "all").reposScope == "all")
+        #expect(CloudGitHubPicker.Status.ready(reposScope: "all").reason == nil)
+        #expect(CloudGitHubPicker.Status.notConnected.state == "not_connected")
+        #expect(CloudGitHubPicker.Status.notConnected.reposScope == nil)
+        #expect(CloudGitHubPicker.Status.unavailable(.signedOut).state == "unavailable")
+        #expect(CloudGitHubPicker.Status.unavailable(.signedOut).reason?.rawValue == "signed_out")
+        #expect(CloudGitHubPicker.Status.unavailable(.notConfigured).reason?.rawValue == "not_configured")
+        #expect(CloudGitHubPicker.Status.unavailable(.unreachable).reason?.rawValue == "unreachable")
+        #expect(CloudGitHubPicker.Status.unavailable(.unreachable).reposScope == nil)
     }
 
     /// A connect beside a pending connection (Settings', another launch's) would add a second: the picker reads
