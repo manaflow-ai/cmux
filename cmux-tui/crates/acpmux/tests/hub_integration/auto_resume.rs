@@ -15,6 +15,9 @@ mod context;
 #[path = "auto_resume_rate_hold.rs"]
 mod rate_hold;
 
+#[path = "auto_resume_429_storm.rs"]
+mod storm_429;
+
 #[path = "auto_resume_limits.rs"]
 mod limits;
 

@@ -92,6 +92,10 @@ little of the CPU takes much longer to start.
 Exactly-once across restarts (tests/durable_agents/restart_exactly_once.rs):
 FAKE_WIRE_LOG=<path>: append one JSON line {"pid", "id", "method", "session"} for every line the
 agent reads (a response has "method": null), so a test counts what reached the agent itself.
+
+A rate-limit storm (tests/hub_integration/auto_resume_429_storm.rs):
+FAKE_RATE_LIMIT_FILE=<path>: while <path> exists, every prompt fails with the account's 429, naming
+no reset, as a model endpoint that refuses every request on a spent account limit.
 """
 import base64
 import hashlib
@@ -643,6 +647,10 @@ def handle_prompt(rid, params):
     if sid in net_flaky:
         net_flaky.discard(sid)
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
+        return
+    limit_file = os.environ.get("FAKE_RATE_LIMIT_FILE")
+    if limit_file and os.path.exists(limit_file):
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "API Error: Request rejected (429) · This request would exceed your account's rate limit"}})
         return
     # Recovery fixtures: preserve the session, fail the first turn with the supplied
     # provider error, then answer the continuation normally.
