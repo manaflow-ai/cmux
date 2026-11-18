@@ -2,7 +2,7 @@
 // badge, the category bar and the detail page's sections. Every listing draws through these, so
 // a new app looks like the others and a new surface is a few lines. Apps only: cmux's own
 // features stay in Settings (apps-web-DESIGN.md).
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import type { Strings } from "../shared/i18n";
 import { categoryLabel, isRemovable, itemState, TierLabel, type CardStyle } from "./model";
 import { AppIcon, Badge, Switch } from "./parts";
@@ -94,15 +94,19 @@ function descriptionId(app: CatalogApp): string {
  * A listing as a card. `standard` (the default) is the catalog card: icon, name, publisher, a
  * two-line description, tier/category/state badges, Preview and the action. `compact` is one line
  * of description and the action only; `artwork` leads with the icon on a tinted panel. The
- * non-default styles are DEV variants (`card=` in the route, the gallery).
+ * non-default styles are DEV variants (`card=` in the route, the gallery). Memoized: the windowed
+ * catalog draws a card again only when its own listing changes. `position` and `count` place it
+ * among every listing for a screen reader when only the cards near the viewport are mounted.
  */
-export function ItemCard({
+export const ItemCard = memo(function ItemCard({
   app,
   store,
   strings,
   style,
   featured = false,
-}: ItemProps & { style: CardStyle; featured?: boolean }) {
+  position,
+  count,
+}: ItemProps & { style: CardStyle; featured?: boolean; position?: number; count?: number }) {
   const { t } = strings;
   const id = descriptionId(app);
   const classes = `apps-card${featured ? " featured" : ""}${style === "standard" ? "" : ` ${style}`}`;
@@ -132,7 +136,14 @@ export function ItemCard({
     </button>
   );
   return (
-    <article className={classes} data-card-style={style} data-item-state={itemState(app)}>
+    <article
+      className={classes}
+      data-card-style={style}
+      data-item-state={itemState(app)}
+      data-app={app.id}
+      aria-posinset={position}
+      aria-setsize={count}
+    >
       {style === "compact" ? (
         <div className="apps-card-line">
           {open}
@@ -157,10 +168,10 @@ export function ItemCard({
       )}
     </article>
   );
-}
+});
 
-/** A listing as a list row (the list and split layouts). */
-export function ItemRow({ app, selected, store, strings }: ItemProps & { selected: boolean }) {
+/** A listing as a list row (the list and split layouts); memoized like the card. */
+export const ItemRow = memo(function ItemRow({ app, selected, store, strings }: ItemProps & { selected: boolean }) {
   return (
     <div className={`apps-row${selected ? " selected" : ""}`} data-item-state={itemState(app)}>
       <button type="button" className="apps-row-open" onClick={() => void store.select(app.id)} aria-label={app.name}>
@@ -175,7 +186,7 @@ export function ItemRow({ app, selected, store, strings }: ItemProps & { selecte
       <ItemAction app={app} store={store} strings={strings} />
     </div>
   );
-}
+});
 
 /** All, then each category present in the catalog; the selected one is pressed. */
 export function CategoryBar({
