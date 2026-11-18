@@ -6464,6 +6464,8 @@ a.cv-sha:focus-visible {
   border-radius: 8px;
   box-shadow: inset 0 0 0 1px var(--cv-card-ring);
   overflow: hidden;
+  /* A sized chart's box reads the block's width (`cqw`, below). */
+  container-type: inline-size;
 }
 .cv-diagram__bar {
   display: flex;
@@ -6497,12 +6499,29 @@ a.cv-sha:focus-visible {
 }
 .cv-diagram__chart {
   min-height: 120px;
-  padding: 12px;
+  --cv-chart-pad: 12px;
+  padding: var(--cv-chart-pad);
   overflow-x: auto;
 }
 .cv-diagram__chart svg {
   max-width: 100%;
   height: auto;
+}
+/* A chart whose spec names its whole size (DiagramBlock, diagramBlockModel.ts `sizedChart`): its box is
+   that size before Vega loads, scaled down with the column as the drawn SVG is (its `max-width`), so the
+   reply row mounts at its final height and nothing moves when the chart lands
+   (schemas/layout-motion/contract.json). */
+.cv-diagram__chart[data-sized] {
+  box-sizing: border-box;
+  min-height: 0;
+  height: calc(
+    min(var(--cv-chart-w) * 1px, 100cqw - 2 * var(--cv-chart-pad)) * var(--cv-chart-h) / var(--cv-chart-w) +
+      2 * var(--cv-chart-pad)
+  );
+  overflow: hidden;
+}
+.cv-diagram__chart[data-sized] svg {
+  display: block;
 }
 /* Ondine's monochrome diagrams take the pane's colors (its defaults are black on white). */
 .cv-diagram__chart svg.ondine {

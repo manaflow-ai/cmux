@@ -6,14 +6,16 @@
 // Mermaid 11 as fallback, and the SVG is cleaned before it is shown. The block draws once it nears the
 // viewport; Code shows the source. A source the renderer refuses shows the source and why. A ```chart
 // fence (small JSON, chartSpec.ts) compiles to a Vega-Lite spec and draws the same way; Code shows what
-// the agent wrote.
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+// the agent wrote. A Vega-Lite chart that names its size draws into a box of that size, reserved
+// before Vega loads (diagramBlockModel.ts `sizedChart`), so the reply never grows when it draws.
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { cancelDiagram, DiagramLibraries, renderMermaid, renderVega } from "../../../pages/markdown/diagrams";
 import { useT } from "../i18n";
 import { useNearViewport } from "../useNearViewport";
 import { postNative } from "../native";
 import { copyText } from "./clipboard";
 import { chartSpec } from "./chartSpec";
+import { sizedChart } from "./diagramBlockModel";
 import { CodeBlock } from "./CodeBlock";
 import { Check, SaveTray } from "./icons";
 const libraries = new DiagramLibraries((name) => new URL(`__lib/${name}.js`, document.baseURI).href);
@@ -30,7 +32,10 @@ export function DiagramBlock({ lang, code, actions }: { lang: string; code: stri
   const language = lang.toLowerCase();
   const mode = language === "mermaid" ? "mermaid" : language === "vega" ? "vega" : "vega-lite";
   const label = language === "chart" ? "chart" : mode;
-  const spec = useMemo(() => (language === "chart" ? (chartSpec(code) ?? code) : code), [language, code]);
+  const { spec, box } = useMemo(() => {
+    const written = language === "chart" ? (chartSpec(code) ?? code) : code;
+    return mode === "mermaid" ? { spec: written, box: undefined } : sizedChart(mode, written);
+  }, [language, mode, code]);
 
   useEffect(() => {
     const target = chart.current;
@@ -96,7 +101,13 @@ export function DiagramBlock({ lang, code, actions }: { lang: string; code: stri
         {actions}
       </div>
       {failure && <div className="cv-diagram__error">{t("diagram.failed", { reason: failure })}</div>}
-      <div ref={chart} className="cv-diagram__chart" hidden={showCode || Boolean(failure)} />
+      <div
+        ref={chart}
+        className="cv-diagram__chart"
+        hidden={showCode || Boolean(failure)}
+        data-sized={box ? "" : undefined}
+        style={box ? ({ "--cv-chart-w": box.width, "--cv-chart-h": box.height } as CSSProperties) : undefined}
+      />
       {(showCode || failure) && <CodeBlock code={code} lang={mode === "mermaid" ? "mermaid" : "json"} />}
     </div>
   );
