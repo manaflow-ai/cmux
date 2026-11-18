@@ -527,6 +527,44 @@ mac_open''', {'CMUX_NEXT_CLOUD_ENV': 'prod', 'CMUX_NEXT_CLOUD_BACKEND': 'https:/
         self.assertNotIn('CMUX_NEXT_CLOUD', seen)
         self.assertIn('-g --env CMUX_NEXT_NO_ACTIVATE=1 /x/cmux DEV t.app', args)
 
+    def test_approve_first_starts_the_mac_with_its_auto_approve_off(self):
+        with tempfile.TemporaryDirectory() as temp:
+            bin_dir = Path(temp) / 'bin'
+            bin_dir.mkdir()
+            (bin_dir / 'open').write_text('#!/bin/sh\necho "$@" >> "%s/args"\ntouch "%s/running"\n' % (temp, temp))
+            (bin_dir / 'open').chmod(0o755)
+            (Path(temp) / 'running').write_text('')  # a copy of the tag already runs (auto-approve on)
+            r = bash(f'''source "{REVIEW}"; MAC_APP="{temp}/cmux DEV t.app"; MAC_OPEN="{bin_dir}/open"; MAC_SOCKET=/x
+PHONE_MODE=approve PERSONAL_ACCOUNT=me@example.com REPORT_MAC=built
+mac_py() {{
+  echo "$1" >> "{temp}/calls"
+  case "$1" in
+    wait-socket) [ -e "{temp}/running" ] ;;
+    quit) rm -f "{temp}/running" ;;
+    account) echo me@example.com ;;
+    mac-id) echo mac-tagged ;;
+  esac
+}}
+mac_start; echo "MAC=$MAC_DEVICE_ID REPORT=$REPORT_MAC"''')
+            self.assertEqual(r.returncode, 0, r.stderr)
+            args = (Path(temp) / 'args').read_text()
+            calls = (Path(temp) / 'calls').read_text().split()
+        self.assertIn('MAC=mac-tagged REPORT=built', r.stdout)
+        self.assertIn('-g --env CMUX_NEXT_NO_ACTIVATE=1 --env CMUX_NEXT_IPHONE_APPROVE_FIRST=1 ', args)
+        self.assertLess(calls.index('quit'), calls.index('account'))
+
+    def test_the_default_mac_launch_keeps_its_auto_approve(self):
+        with tempfile.TemporaryDirectory() as temp:
+            bin_dir = Path(temp) / 'bin'
+            bin_dir.mkdir()
+            (bin_dir / 'open').write_text('#!/bin/sh\necho "$@" > "%s/args"\n' % temp)
+            (bin_dir / 'open').chmod(0o755)
+            for mode in ('paired', 'manual', 'none'):
+                r = bash(f'''source "{REVIEW}"; MAC_APP="/x/cmux DEV t.app"; MAC_OPEN="{bin_dir}/open"; PHONE_MODE={mode}
+mac_open''')
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertNotIn('APPROVE_FIRST', (Path(temp) / 'args').read_text(), mode)
+
     def test_review_never_builds_or_boots_a_simulator_here(self):
         text = REVIEW.read_text()
         self.assertIn('--sign-in agent', text)
@@ -829,7 +867,9 @@ if args[:3] == ['devicectl', 'device', 'process']:
     else:
         source = 'signed_out'
     signed_in = source != 'signed_out'
-    paired = signed_in and (bool(env.get('DEVICECTL_CHILD_CMUX_MOBILE_PAIR_URL')) or os.path.exists(os.path.join(root, 'paired')))
+    # 'allowed': the person pressed Allow on the Mac (--approve-first).
+    paired = signed_in and (bool(env.get('DEVICECTL_CHILD_CMUX_MOBILE_PAIR_URL')) or os.path.exists(os.path.join(root, 'paired'))
+                            or os.path.exists(os.path.join(root, 'allowed')))
     if paired:
         open(os.path.join(root, 'paired'), 'w').write('1')
     receipt = dict(schema=1, nonce=env.get('DEVICECTL_CHILD_CMUX_DOGFOOD_READINESS_NONCE'),
@@ -847,9 +887,11 @@ if args[:3] == ['devicectl', 'device', 'copy']:
 sys.exit(1)
 """
 
-    def review(self, mode, stored=False):
+    def review(self, mode, stored=False, allowed=False):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
+            if allowed:
+                (root / 'allowed').write_text('1')
             (root / 'bin').mkdir()
             (root / 'bin/xcrun').write_text(self.PHONE_PY.replace('TAGX', TAG).replace('SHAX', SHA))
             (root / 'bin/xcrun').chmod(0o755)
@@ -863,7 +905,7 @@ sys.exit(1)
 set -euo pipefail
 source "{REVIEW}"
 PHONE_MODE={mode} BUNDLE_ID=dev.cmux.mobile.{TAG} SHA={SHA} SLUG={TAG} STATE="{root}" TAG_STATE="{root}"
-REPO_ROOT="{root}" MAC_SOCKET=/x MAC_DEVICE_ID=mac-tagged CNX_REVIEW_RECEIPT_TIMEOUT=2
+REPO_ROOT="{root}" MAC_SOCKET=/x MAC_DEVICE_ID=mac-tagged CNX_REVIEW_RECEIPT_TIMEOUT=2 CNX_REVIEW_ALLOW_TIMEOUT=2
 PERSONAL_EMAIL=me@example.com PERSONAL_PASSWORD=pw-secret PERSONAL_ACCOUNT=me@example.com
 sign_app() {{ echo '{{}}'; }}
 mac_py() {{
@@ -905,6 +947,28 @@ if phone_review {PHONE} "iPhone (iPhone 16 Plus, {PHONE})"; then echo "LINE: $PH
             self.assertNotIn('DEVICECTL_CHILD_CMUX_MOBILE_PAIR_URL', launch['env'])
         self.assertEqual(launches[0]['env']['DEVICECTL_CHILD_CMUX_MOBILE_STACK_PASSWORD'], 'pw-secret')
         self.assertNotIn('DEVICECTL_CHILD_CMUX_MOBILE_STACK_PASSWORD', launches[1]['env'])
+
+    def test_approve_first_hands_over_no_code_and_waits_for_the_macs_allow(self):
+        r, launches, calls, stored = self.review('approve', allowed=True)
+        self.assertIn('waiting for Allow on the Mac', r.stdout, r.stderr)
+        self.assertIn('LINE: iPhone (iPhone 16 Plus, ', r.stdout, r.stderr)
+        self.assertIn('installed, signed in (auto_login), paired and linked with cmux DEV x (allowed on the Mac, '
+                      '--approve-first); Mac sees it paired and connected; credential-free relaunch: signed in '
+                      '(restored), paired and linked', r.stdout)
+        self.assertNotIn('PAIR_URL_FETCHED', calls)
+        self.assertNotIn('MARK_USED', calls)
+        self.assertEqual(len(launches), 2)
+        for launch in launches:
+            self.assertNotIn('DEVICECTL_CHILD_CMUX_MOBILE_PAIR_URL', launch['env'])
+        self.assertEqual(launches[0]['env']['DEVICECTL_CHILD_CMUX_MOBILE_STACK_PASSWORD'], 'pw-secret')
+        self.assertNotIn('DEVICECTL_CHILD_CMUX_MOBILE_STACK_PASSWORD', launches[1]['env'])
+
+    def test_approve_first_without_the_allow_reports_waiting_for_it(self):
+        r, launches, calls, _ = self.review('approve')
+        self.assertIn('FAIL: waiting for Allow on the Mac: not paired in time (--approve-first; auto_login launch: ',
+                      r.stdout, r.stderr)
+        self.assertIn('(after 2 s)', r.stdout)
+        self.assertNotIn('PAIR_URL_FETCHED', calls)
 
     def test_no_auth_clears_a_stored_session_and_stays_signed_out(self):
         r, launches, calls, stored = self.review('none', stored=True)
@@ -956,6 +1020,9 @@ main --tag t {' '.join(flags)}""")
         self.assertIn('MODE=paired RETRY=cmux-next-ios/scripts/review.sh --tag t', self.mode())
         self.assertIn('MODE=manual RETRY=cmux-next-ios/scripts/review.sh --tag t --manual-pairing', self.mode('--manual-pairing'))
         self.assertIn('MODE=none RETRY=cmux-next-ios/scripts/review.sh --tag t --no-auth', self.mode('--no-auth'))
+        self.assertIn('MODE=approve RETRY=cmux-next-ios/scripts/review.sh --tag t --approve-first', self.mode('--approve-first'))
+        self.assertIn('MODE=none', self.mode('--approve-first', '--no-auth'))
+        self.assertIn('MODE=none', self.mode('--no-auth', '--approve-first'))
         # --no-auth implies no pairing, in either order.
         self.assertIn('MODE=none', self.mode('--no-auth', '--manual-pairing'))
         self.assertIn('MODE=none', self.mode('--manual-pairing', '--no-auth'))
