@@ -32,7 +32,6 @@ struct IntroStep: View {
             PrimaryCapsule("Continue", action: next)
                 .accessibilityIdentifier("setup.intro.continue")
         }
-        .accessibilityIdentifier("setup.intro")
         #if DEBUG
         .onChange(of: DemoDirector.shared.serial) { if DemoDirector.shared.command == .setupContinue { next() } }
         #endif
@@ -73,6 +72,8 @@ struct FirstChatStep: View {
             }
             .scrollBounceBehavior(.basedOnSize)
             .scrollDismissesKeyboard(.interactively)
+            // On the scroll view only: an identifier on the whole page replaces its buttons' own.
+            .accessibilityIdentifier("setup.first-chat")
             VStack(spacing: 6) {
                 field
                 TextCTA("Skip for now") {
@@ -88,7 +89,6 @@ struct FirstChatStep: View {
             .padding(.bottom, 12)
         }
         .background(theme.colors.bg.color.ignoresSafeArea())
-        .accessibilityIdentifier("setup.first-chat")
         #if DEBUG
         .onChange(of: DemoDirector.shared.serial) {
             switch DemoDirector.shared.command {
@@ -205,12 +205,17 @@ private struct MacStatusChip: View {
 /// A starter: its symbol, a title and a line, on `surfaceRaised`.
 private struct StarterCard: View {
     let starter: FirstChatSuggestion
+    /// The symbol grows with the text (capped); its slot is one height for
+    /// every symbol, so the titles of a row line up.
+    @ScaledMetric(relativeTo: .body) private var iconSize: CGFloat = 18
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let icon = min(iconSize, 32)
+        return VStack(alignment: .leading, spacing: 10) {
             Image(systemName: starter.symbol)
-                .font(.system(size: 18, weight: .medium))
+                .font(.system(size: icon, weight: .medium))
                 .foregroundStyle(theme.colors.label)
+                .frame(height: icon + 4, alignment: .leading)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(LocalizedStringKey(starter.title))
