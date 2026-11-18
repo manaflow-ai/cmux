@@ -418,10 +418,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn(f"name: {switch.PROBE_JOB}\n", self.text)
 
     def test_watch_runs_off_blacksmith_and_passes_every_switched_variable(self) -> None:
-        # Off the hosted pool too: it started nothing for hours on 2026-11-18. Main's ephemeral selector.
-        self.assertNotIn("runs-on: ubuntu-24.04", self.text)
-        self.assertIn("contains(fromJSON('[\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-8vcpu-ubuntu-2404\"]'), "
-                      "vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}", self.text)
+        # It detects a Blacksmith outage, so it never runs on Blacksmith (review of #46492, F1).
+        self.assertIn("runs-on: ubuntu-24.04 # github-hosted-required:", self.text)
         names = set(switch.SWITCHED_VARIABLES) | {switch.RECORD_VARIABLE, switch.OVERRIDES_VARIABLE,
                                                   "CMUX_CI_XCODE_APP_PR"}
         for name in names:
