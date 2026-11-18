@@ -17,16 +17,15 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane } from "./support/papercutChat";
 import { TRANSCRIPT_ROW } from "../src/agent-session/acpmux/transcriptSelectors";
 
-const NOTICES = {
-  // PaneNoticeCard's markup: an app notice about the chat's agent service, with its button.
-  paneNotice:
-    '<output class="acpmux-host-error acpmux-harness-notice" data-pane-notice="test" data-test-dock-notice=""><div class="acpmux-host-error-card"><p class="acpmux-host-error-message">The agent service restarted.</p><p class="acpmux-host-error-hint">Approvals wait until it is back.</p><div class="acpmux-host-error-actions"><button type="button">Retry</button></div></div></output>',
-  // AutoResumeNotice's markup: the daemon waits to retry the turn.
-  autoResume:
-    '<output class="acpmux-switch-notice" data-auto-resume="waiting" data-test-dock-notice="">Retrying in 5s…</output>',
-} as const;
-
 await requireBrowserLane("agent-pane-dock-notice-still.test.ts", async () => {
+  const NOTICES = {
+    // PaneNoticeCard's markup: an app notice about the chat's agent service, with its button.
+    paneNotice:
+      '<output class="acpmux-host-error acpmux-harness-notice" data-pane-notice="test" data-test-dock-notice=""><div class="acpmux-host-error-card"><p class="acpmux-host-error-message">The agent service restarted.</p><p class="acpmux-host-error-hint">Approvals wait until it is back.</p><div class="acpmux-host-error-actions"><button type="button">Retry</button></div></div></output>',
+    // AutoResumeNotice's markup: the daemon waits to retry the turn.
+    autoResume:
+      '<output class="acpmux-switch-notice" data-auto-resume="waiting" data-test-dock-notice="">Retrying in 5s…</output>',
+  } as const;
   setDefaultTimeout(300_000);
   let browser: Browser;
   let pane: Awaited<ReturnType<typeof papercutPane>>;
