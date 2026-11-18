@@ -109,7 +109,7 @@ extension NewTabKeySessionWalkTests {
     @Test func withTheNativePageSettingAPageGetsTheWholeListsOfTheWalk() async throws {
         try await Self.withPane(native: true) { start in
             let cap = AgentPaneOmnibar.maximumEntries
-            let walk = Self.walkAtTheDecision(start.services)
+            let walk = Self.walkBeforeTheKeptRows(start.services)
             try #require(walk.tabs.count > cap && walk.workspaces.count > cap,
                          "setup: the walk's lists are \(Self.text(walk.tabs, walk.workspaces)): no list is over the limit of \(cap)")
             let page = NewTabPage.places(start.services, excluding: nil)
@@ -237,6 +237,8 @@ extension NewTabKeySessionWalkTests {
                          "setup: the 2 New Tab keys added \(firstKey.made) and \(secondKey.made) tabs; the first opened \(afterFirst.count) pages")
             let first = afterFirst[0].key
             let valueInTurn = (tabs.newTabPages[first]?.page.omnibar.tabs ?? []).contains(where: { $0.title == "spare row" })
+            try #require(!valueInTurn,
+                         "setup: the first key's page value has the change in the key's turn, so no page value here is of before the change")
 
             // The kept rows get the change, and a frame after the keys shows the second key's tab.
             await LargeSessionWindowFixture.drainMain()
@@ -299,7 +301,7 @@ extension NewTabKeySessionWalkTests {
             _ = start.visits.take()
             let page = NewTabPage.places(services, excluding: nil)
             let atRead = start.visits.take()
-            let walk = Self.walkAtTheDecision(services)
+            let walk = Self.walkBeforeTheKeptRows(services)
             let withIcon = page.tabs.filter { $0.icon != nil }.map(\.id)
             print("new tab key, \(start.workspaces) workspaces: a page lists \(page.tabs.count) tab rows, \(withIcon.count) with an icon; "
                 + "the read mapped \(atRead.workspaces) workspaces")

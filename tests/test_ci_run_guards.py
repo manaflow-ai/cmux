@@ -193,28 +193,86 @@ class PlanRefusesWhatItCannotRun(unittest.TestCase):
         units = run_ci_guards.plan(self.workflow(literal), "base", "head")
         self.assertEqual(units[0].steps[1].run, "echo head")
 
-    def test_a_submodule_checkout_runs_before_its_group(self) -> None:
-        """A submodule init hands the next steps the checkout only, so it is setup: it runs alone first and the
-        group's other steps then run in parallel (release-notary's ghostty-next init; release-tooling's ghostty init
-        before the Zig version sync, which failed run first in #23534)."""
-        for init in ("git submodule update --init vendor/bonsplit", "bash scripts/ci/init-submodule.sh ghostty"):
-            with self.subTest(init=init):
-                unit = run_ci_guards.Unit("j", "g", [
-                    run_ci_guards.Step("init", init, {}, None),
-                    run_ci_guards.Step("use", "./tests/test_ghostty_zig_version_sync.sh", {}, None),
-                ])
-                self.assertFalse(run_ci_guards.is_stateful(unit))
-                self.assertEqual([step.name for step in run_ci_guards.setup_steps(unit)], ["init"])
+    def test_a_submodule_checkout_makes_its_group_sequential(self) -> None:
+        unit = run_ci_guards.Unit("j", "g", [
+            run_ci_guards.Step("init", "git submodule update --init vendor/bonsplit", {}, None),
+            run_ci_guards.Step("use", "python3 lint.py", {}, None),
+        ])
+        self.assertTrue(run_ci_guards.is_stateful(unit))
 
-    def test_a_sandbox_hand_off_still_makes_its_group_sequential(self) -> None:
-        for step in (run_ci_guards.Step("env", 'echo X=1 >> "$GITHUB_ENV"', {}, None),
-                     run_ci_guards.Step("path", 'echo /x >> "$GITHUB_PATH"', {}, None),
-                     run_ci_guards.Step("install", "bun install", {}, "agent-chat"),
-                     run_ci_guards.Step("both", 'git submodule update --init x; echo X=1 >> "$GITHUB_ENV"', {}, None)):
-            with self.subTest(step=step.name):
-                unit = run_ci_guards.Unit("j", "g", [step, run_ci_guards.Step("use", "true", {}, None)])
-                self.assertTrue(run_ci_guards.is_stateful(unit))
-                self.assertEqual(run_ci_guards.setup_steps(unit), [])
+    def test_the_submodule_init_script_makes_its_group_sequential(self) -> None:
+        """release-tooling initializes ghostty with scripts/ci/init-submodule.sh before the Zig version
+        sync reads ghostty/build.zig.zon; run in parallel, the sync ran first and failed (#23534)."""
+        unit = run_ci_guards.Unit("j", "g", [
+            run_ci_guards.Step("init", "bash scripts/ci/init-submodule.sh ghostty", {}, None),
+            run_ci_guards.Step("use", "./tests/test_ghostty_zig_version_sync.sh", {}, None),
+        ])
+        self.assertTrue(run_ci_guards.is_stateful(unit))
+
+    def test_only_a_stateful_groups_head_runs_in_order(self) -> None:
+        """release-notary initializes ghostty-next first and hands nothing on after it; its other 123
+        steps ran one by one, the CI guard group's longest chain. They wait for the head, then run in
+        parallel. A group passing GITHUB_ENV keeps every step in order (each task has its own sandbox)."""
+        Step, Unit = run_ci_guards.Step, run_ci_guards.Unit
+        unit = Unit("j", "g", [
+            Step("init", "bash scripts/ci/init-submodule.sh ghostty", {}, None),
+            Step("use a", "python3 a.py", {}, None),
+            Step("use b", "python3 b.py", {}, None),
+        ])
+        self.assertEqual(run_ci_guards.ordered_split(unit), 1)
+        env_unit = Unit("j", "g", [
+            Step("bind", 'echo X=1 >> "$GITHUB_ENV"', {}, None),
+            Step("init", "git submodule update --init vendor/x", {}, None),
+            Step("use", "python3 a.py", {}, None),
+        ])
+        self.assertEqual(run_ci_guards.ordered_split(env_unit), 3)
+        planned = run_ci_guards.plan(run_ci_guards.load_yaml(run_ci_guards.WORKFLOW), "base", "head")
+        by_group = {u.group or u.job: u for u in planned}
+        self.assertEqual(run_ci_guards.ordered_split(by_group["release-notary"]), 1)
+        self.assertEqual(run_ci_guards.ordered_split(by_group["preflight-agent-chat"]), 2)
+
+    def test_a_stateful_groups_tail_waits_for_its_head_then_runs_together(self) -> None:
+        import contextlib  # noqa: PLC0415
+        import io  # noqa: PLC0415
+        import threading  # noqa: PLC0415
+        import time  # noqa: PLC0415
+
+        Step, Unit = run_ci_guards.Step, run_ci_guards.Unit
+        tail = [Step(f"use {n}", f"python3 {n}.py", {}, None) for n in "abcd"]
+        units = [Unit("workflow-guard-tests", "ci", [
+            Step("Initialize ghostty-next", "git submodule update --init ghostty-next", {}, None), *tail,
+        ])]
+        events: list[tuple[str, str]] = []
+        lock = threading.Lock()
+
+        def fake_run_steps(unit, steps, base_env, base_sha, keep_going, on_result=None):
+            results = []
+            for step in steps:
+                with lock:
+                    events.append(("start", step.name))
+                time.sleep(0.2)
+                with lock:
+                    events.append(("end", step.name))
+                results.append(run_ci_guards.StepResult(unit, step, True, 0.2, ""))
+            return results
+
+        saved = run_ci_guards.plan, run_ci_guards.run_steps
+        run_ci_guards.plan = lambda workflow, base_sha, head_sha: units
+        run_ci_guards.run_steps = fake_run_steps
+        try:
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                code = run_ci_guards.main(["--group", "ci", "--jobs", "4", "--no-stamp"])
+        finally:
+            run_ci_guards.plan, run_ci_guards.run_steps = saved
+
+        self.assertEqual(code, 0)
+        head_end = events.index(("end", "Initialize ghostty-next"))
+        self.assertEqual([n for k, n in events[:head_end] if k == "start"], ["Initialize ghostty-next"])
+        starts = [n for k, n in events[head_end:] if k == "start"]
+        self.assertEqual(sorted(starts), sorted(s.name for s in tail))
+        first_tail_end = next(i for i, (k, n) in enumerate(events) if k == "end" and i > head_end)
+        started_together = [n for k, n in events[head_end:first_tail_end] if k == "start"]
+        self.assertEqual(len(started_together), 4, f"the tail ran one by one: {events}")
 
     def test_the_zig_installer_test_keeps_its_github_env_to_itself(self) -> None:
         """Run in order, release-tooling's Zig download test published its fake zig through the job's
@@ -572,8 +630,8 @@ class DeterminismGateReportsEachFinding(unittest.TestCase):
 
 class CheckoutSetupRunsFirst(unittest.TestCase):
     """release-notary ran as one ordered task because its first step initializes ghostty-next: 124 steps one after
-    another, 915 s on 4 vCPU, past nightly-guards' 15-minute job on every push (run 44110521024). The init now runs
-    alone first and the rest share the pool."""
+    another, 915 s on 4 vCPU, past nightly-guards' 15-minute job on every push (run 44110521024). Through main(),
+    the init runs alone first and every other step then shares the pool (ordered_split)."""
 
     def run_main(self, units, jobs="4"):
         import contextlib  # noqa: PLC0415

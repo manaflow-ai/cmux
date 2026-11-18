@@ -112,7 +112,7 @@ final class HoverCardPanel: NSPanel {
     init() {
         // `PopupHostView` resets an overlay card to the popup radius; the host's radius below sets it back.
         // Bare themed glass, no solid card fill (`Glass.makeOverlayPanel`'s `cardFill`).
-        glass = Glass.makeOverlayPanel(cornerRadius: Self.cornerRadius, cardFill: false)
+        glass = Glass.makeOverlayPanel(cornerRadius: Self.cornerRadius, tone: .neutralGlass(.transient))
         // The card is its clear window's whole content: before macOS 26 its blur samples what is
         // behind the window (the sidebar, a terminal), as its Liquid Glass refracts it.
         glass.samplesBehindWindow = true
@@ -383,7 +383,7 @@ final class HoverCardPanel: NSPanel {
         finishMorph()
         place()
         // The same morph a retarget to another size runs: the mask grows or folds about the fixed corner.
-        if let previous { _ = morph(from: previous) }
+        if let previous { _ = morph(from: previous, folds: true) }
     }
 
     /// Lays the card out for its anchor and size. `appliesFrame` false: the rest frame is worked out

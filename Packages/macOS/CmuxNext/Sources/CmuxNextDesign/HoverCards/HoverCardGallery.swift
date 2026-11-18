@@ -32,6 +32,7 @@ public struct HoverCardGallery {
         window = nil
         if set == "none" { return ["ok": "true", "set": set] }
         #if DEBUG
+        if set.hasPrefix("transient-") { TransientMaterialGallery.register() }
         guard let cards = sets[set]?(),
               let parent = NSApp.mainWindow ?? NSApp.windows.first(where: { $0.isVisible && $0.parent == nil }),
               let content = parent.contentView else { return ["ok": "false", "set": set] }

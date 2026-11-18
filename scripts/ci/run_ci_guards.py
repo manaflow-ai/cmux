@@ -149,9 +149,10 @@ def stop_running() -> None:
             pass
 
 
+
 def interrupt_on_term(signum, frame) -> None:
-    """SIGTERM (a caller's `timeout`) stops the run as Ctrl-C does. Steps run in their own sessions, so without this
-    a timed-out run left its steps running: the guard group's base re-run is bounded by `timeout`."""
+    """SIGTERM (a caller's `timeout`) stops the run as Ctrl-C does: the running steps'
+    process groups are killed, not left behind as orphans."""
     raise KeyboardInterrupt
 
 
@@ -359,24 +360,24 @@ def hands_state(step: Step) -> bool:
     )
 
 
-def checkout_setup(step: Step) -> bool:
-    """A step whose only hand-off is the shared checkout (a submodule init): no GITHUB_ENV, GITHUB_PATH or folder."""
-    return hands_state(step) and not (
-        step.working_directory or "GITHUB_ENV" in step.run or "GITHUB_PATH" in step.run
-    )
-
-
 def is_stateful(unit: Unit) -> bool:
-    """Steps that hand state to later steps through the job's sandbox must run in order. A group whose only hand-off
-    is a submodule init (release-notary's ghostty-next, release-tooling's ghostty) is not: the init changes the
-    shared checkout, so it runs first (setup_steps) and the rest run in parallel. Run as one ordered task,
-    release-notary's 124 steps took 915 s on a 4 vCPU runner, past nightly-guards' 15-minute job."""
-    return any(hands_state(step) and not checkout_setup(step) for step in unit.steps)
+    """Steps that hand state to later steps must run in order."""
+    return any(hands_state(step) for step in unit.steps)
 
 
-def setup_steps(unit: Unit) -> list[Step]:
-    """A stateless unit's checkout setup steps, run alone and in order before any of its other steps."""
-    return [] if is_stateful(unit) else [step for step in unit.steps if checkout_setup(step)]
+def ordered_split(unit: Unit) -> int:
+    """How many of a stateful group's steps run in order; the rest run in parallel after them.
+
+    A step reads what the steps before it handed on, so the steps up to the last one that hands state
+    keep their order. After it, a step hands nothing on, so the rest are independent, as a stateless
+    group's are, and wait only for that ordered head. release-notary initializes ghostty-next in its
+    first step and nothing after it hands state, yet ran its 124 steps one by one, the guard group's
+    longest chain. State passed through GITHUB_ENV or GITHUB_PATH lives in the ordered head's own
+    sandbox, so such a group keeps every step in order."""
+    if any("GITHUB_ENV" in step.run or "GITHUB_PATH" in step.run for step in unit.steps):
+        return len(unit.steps)
+    last = max(index for index, step in enumerate(unit.steps) if hands_state(step))
+    return last + 1
 
 
 def needs_clean_tree(steps: list[Step]) -> bool:
@@ -724,9 +725,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--results", help="write {step name: passed} as JSON to this file")
     parser.add_argument(
         "--deadline", type=float, metavar="SECONDS",
-        help="stop every step after SECONDS and exit 124; --results then has the finished steps and is marked "
-             "incomplete (guards_new_reds.py --tip reports a timeout)",
-    )
+        help="stop every step after SECONDS and exit 124; --results then has the finished steps and is "
+             "marked incomplete (guards_new_reds.py --tip reports a timeout)")
     parser.add_argument("--json", dest="json_path", help="write the plan and every step's result to this file")
     parser.add_argument(
         "--feat-routes", metavar="FILE",
@@ -812,21 +812,22 @@ def main(argv: list[str]) -> int:
     )
     # A stateless group's steps are independent tasks; a group whose steps
     # pass state along (GITHUB_ENV, GITHUB_PATH, a bun install) is one task.
+    # A stateful group's steps after its last state-handing step are that ordered head's
+    # follow-ups: each is its own task, queued once the head has run (ordered_split).
     tasks: list[tuple[Unit, list[Step]]] = []
-    setups: list[tuple[Unit, list[Step]]] = []
+    follow_ups: dict[int, list[tuple[Unit, list[Step]]]] = {}
     for unit in units:
         if is_stateful(unit):
-            tasks.append((unit, unit.steps))
-            continue
-        setup = setup_steps(unit)
-        if setup:
-            setups.append((unit, setup))
-        tasks.extend((unit, [step]) for step in unit.steps if step not in setup)
+            split = ordered_split(unit)
+            head = (unit, unit.steps[:split])
+            tasks.append(head)
+            if split < len(unit.steps):
+                follow_ups[id(head)] = [(unit, [step]) for step in unit.steps[split:]]
+        else:
+            tasks.extend((unit, [step]) for step in unit.steps)
     tasks.sort(key=lambda task: -len(task[1]))
-    # Tasks that need a clean checkout run one at a time first, then each checkout setup (a submodule init: two at
-    # once would race on .git/config), then the rest share the pool.
+    # Tasks that need a clean checkout run one at a time first; then the rest share the pool.
     batches = [[task] for task in tasks if needs_clean_tree(task[1])]
-    batches.extend([task] for task in setups)
     batches.append([task for task in tasks if not needs_clean_tree(task[1])])
     results: list[StepResult] = []
     writer = IncrementalResults(Path(args.results), ROOT) if args.results else None
@@ -837,11 +838,32 @@ def main(argv: list[str]) -> int:
         deadline.start()
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs))
     try:
+        def submit(task: tuple[Unit, list[Step]]) -> concurrent.futures.Future:
+            future = pool.submit(run_steps, task[0], task[1], env, base_sha, args.keep_going,
+                                 writer.add if writer is not None else None)
+            pending[future] = task
+            return future
+
+        def finished():
+            """Each task as it ends; an ordered head that ends queues its follow-ups (a failed
+            head without --keep-going stops its group there, as an in-order run does)."""
+            while pending:
+                done, _ = concurrent.futures.wait(pending, return_when=concurrent.futures.FIRST_COMPLETED)
+                for future in done:
+                    task = pending.pop(future)
+                    step_results = future.result()
+                    head_ok = len(step_results) == len(task[1]) and all(r.ok is not False for r in step_results)
+                    if head_ok or args.keep_going:
+                        for follow_up in follow_ups.get(id(task), ()):
+                            submit(follow_up)
+                    yield step_results
+
+        pending: dict[concurrent.futures.Future, tuple[Unit, list[Step]]] = {}
         for batch in batches:
-            futures = [pool.submit(run_steps, unit, steps, env, base_sha, args.keep_going,
-                                    writer.add if writer is not None else None) for unit, steps in batch]
-            for future in concurrent.futures.as_completed(futures):
-                for result in future.result():
+            for task in batch:
+                submit(task)
+            for step_results in finished():
+                for result in step_results:
                     results.append(result)
                     if result.ok is False:
                         safe_print(f"  FAIL {result.seconds:6.1f}s  {result.unit.label}: {result.step.name}", flush=True)
@@ -856,9 +878,8 @@ def main(argv: list[str]) -> int:
         pool.shutdown(wait=False, cancel_futures=True)
         stop_running()
         if TIMED_OUT.is_set():
-            # stdout, beside the FAIL lines: the steps still running were stopped, not failed, and have no result.
-            safe_print(f"cmux guards: timed out after {args.deadline:.0f}s: {len(results)} steps finished, the "
-                       "running ones were stopped and have no result", flush=True)
+            safe_print(f"cmux guards: timed out after {args.deadline:.0f}s: {len(results)} steps finished, "
+                       "the running ones were stopped and have no result", flush=True)
             return 124
         safe_print("cmux guards: interrupted", file=sys.stderr)
         return 130

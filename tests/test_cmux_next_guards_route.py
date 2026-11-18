@@ -76,7 +76,9 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
                                                               and not a.startswith("--results")
                                                               and "release-notary.json" not in a]), 0)
         listed = out.getvalue().splitlines()
-        self.assertEqual(listed[0], f"workflow-guard-tests / release-notary: {len(group_steps)} steps, in parallel")
+        # "in order" names the group's ordered head (its ghostty-next init); the rest still share the pool
+        # (ordered_split; test_ci_run_guards.CheckoutSetupRunsFirst runs it through main()).
+        self.assertTrue(listed[0].startswith(f"workflow-guard-tests / release-notary: {len(group_steps)} steps, "), listed[0])
         self.assertEqual([line[4:] for line in listed[1:]], group_steps)
 
     def test_a_pull_request_runs_release_notary_against_its_base(self):
