@@ -115,6 +115,37 @@ export function headingTargets(doc: ProseNode): readonly HeadingTarget[] {
   return out;
 }
 
+/** The anchor (`githubSlug`, before `-1` suffixes) of each heading in `from`..`to` of `doc`, in order. */
+export function headingAnchorsBetween(doc: ProseNode, from: number, to: number): string[] {
+  const out: string[] = [];
+  doc.nodesBetween(from, to, (node) => {
+    if (node.type.name !== "heading") return !node.isTextblock;
+    out.push(githubSlug(node.textContent));
+    return false;
+  });
+  return out;
+}
+
+/** Each document's heading slugs (`hasHeading`); an edit that kept the headings passes them on (`keepHeadings`). */
+const slugsByDoc = new WeakMap<ProseNode, ReadonlySet<string>>();
+
+/** Whether a heading of `doc` has the anchor `anchor`, as `findHeading` finds one. */
+export function hasHeading(doc: ProseNode, anchor: string): boolean {
+  let slugs = slugsByDoc.get(doc);
+  if (!slugs) {
+    slugs = new Set(headingTargets(doc).map((target) => target.slug));
+    slugsByDoc.set(doc, slugs);
+  }
+  const wanted = anchor.trim();
+  return slugs.has(wanted) || slugs.has(githubSlug(wanted));
+}
+
+/** `after` has the same heading anchors as `before` (an edit kept them): `hasHeading` needs no walk of it. */
+export function keepHeadings(before: ProseNode, after: ProseNode): void {
+  const slugs = slugsByDoc.get(before);
+  if (slugs) slugsByDoc.set(after, slugs);
+}
+
 /** The heading an anchor names (exact slug, then case-insensitive), or undefined. */
 export function findHeading(doc: ProseNode, anchor: string): HeadingTarget | undefined {
   const targets = headingTargets(doc);
