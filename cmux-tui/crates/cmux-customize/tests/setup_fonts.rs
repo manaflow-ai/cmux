@@ -130,7 +130,10 @@ fn a_setup_installs_its_fonts_and_remove_takes_them_out() {
     assert_eq!(fs::read(folder.join("OFL.txt")).unwrap(), OFL, "the license text is copied");
     assert!(!folder.join("README.md").exists(), "only fonts and license texts are copied");
     let live = fs::read_to_string(home.config("themes/type.json")).unwrap();
-    assert!(live.contains("\"file:../fonts/setup-alice-type-look/pack-sans-italic.woff2\""), "{live}");
+    assert!(
+        live.contains("\"file:../fonts/setup-alice-type-look/pack-sans-italic.woff2\""),
+        "{live}"
+    );
 
     customize.record_setup(receipt(&read, &installed)).unwrap();
     let found = customize.setup("alice/type-look").unwrap().unwrap();
@@ -164,7 +167,8 @@ fn an_update_replaces_the_fonts_and_a_failed_one_keeps_the_old() {
     // A new commit whose theme cannot be written (a folder is in its place):
     // the update fails after the old setup came off, and the old fonts stay.
     let old = customize.setups().unwrap().remove(0);
-    let mut next = setup::read_dir(&repo(root, SETUP, &[("fonts/pack-sans.woff2", WOFF2_V2)])).unwrap();
+    let mut next =
+        setup::read_dir(&repo(root, SETUP, &[("fonts/pack-sans.woff2", WOFF2_V2)])).unwrap();
     next.profile.files.insert("themes/later.json".to_owned(), "{ \"name\": \"Later\" }\n".into());
     fs::create_dir_all(home.config("themes/later.json/inside")).unwrap();
     assert!(customize.replace_setup(&old, &next, "setup v2", "cli", 20).is_err());
@@ -216,8 +220,11 @@ fn a_setup_font_pack_follows_the_community_theme_rule() {
 
     let mut big = WOFF2.to_vec();
     big.resize(usize::try_from(cmux_config::font_faces::MAX_FACE_BYTES).unwrap() + 1, 0);
-    let why =
-        refusal(&repo(tempfile::tempdir().unwrap().path(), SETUP, &[("fonts/pack-sans.woff2", &big)]));
+    let why = refusal(&repo(
+        tempfile::tempdir().unwrap().path(),
+        SETUP,
+        &[("fonts/pack-sans.woff2", &big)],
+    ));
     assert!(why.contains("larger than 2 MiB"), "{why}");
 
     let names: Vec<String> =
