@@ -204,7 +204,11 @@ import Testing
         cache.flush()
         let whole = try #require(onDisk(cache.file(for: key)), "the whole copy written again")
         let head = try #require(onDisk(cache.headFile(for: key)), "the head written again")
-        #expect(seqs(whole) == Array(wholeFrom...615))
+        // The whole copy keeps at most `recordLimit` records, from a prompt: of 615, seq 16 (turn
+        // 3's prompt) on. Each turn is five records, its prompt at 5n+1.
+        let bound = max(wholeFrom, ((615 - cache.recordLimit + 1) + 3) / 5 * 5 + 1)
+        #expect(seqs(whole) == Array(bound...615))
+        #expect(whole.earlier == (bound > 1))
         #expect(head.lastSeq == 615)
         #expect(seqs(whole).suffix(head.records.count) == seqs(head)[...])
         #expect(AgentTranscriptCache.isPrompt(try #require(whole.records.first)))
