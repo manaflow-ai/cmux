@@ -557,11 +557,13 @@ class Case(unittest.TestCase):
             stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
             yield
 
-    def rows(self, world, rounds=1, form="one-key", film=None, sample=0):
-        """`run()` on the fake app: the report. `sample`: the seconds of --sample-s."""
+    def rows(self, world, rounds=1, form="one-key", film=None, sample=0, recent=(0, 0)):
+        """`run()` on the fake app: the report. `sample`: the seconds of --sample-s. `recent`: --recent-sites and
+        --recent-pages."""
         opts = argparse.Namespace(workspaces=3, live_shells=0, page_url="http://127.0.0.1:9/", seed_deadline=1.0, out=self.out,
                                   neighbours=2, rounds=rounds, film=film, keys="app-queue", hold_ms=3000.0, every_ms=500.0,
-                                  repeat_delay_ms=0.0, repeat_ms=0.0, deadline=1.0, sample_s=sample)
+                                  repeat_delay_ms=0.0, repeat_ms=0.0, deadline=1.0, sample_s=sample,
+                                  recent_sites=recent[0], recent_pages=recent[1], recent_deadline=600.0)
         app = argparse.Namespace(rpc=world.rpc, socket="/fake-app.sock", process=argparse.Namespace(pid=1))
         report = {"rows": [], "failures": []}
         with self.fakes(world):
@@ -1805,6 +1807,79 @@ class Launch(unittest.TestCase):
         self.assertEqual([line for line in lines if line.startswith("PREFLIGHT page engine:")],
                          ["PREFLIGHT page engine: engine=chromium default_engine=chromium chromium_state=ready unavailable=none webkit_fallbacks=0"])
         self.assertEqual(code, 0)
+
+
+class Recent:
+    """recent-pages.py as `run()` uses it: each call of `seed`, and what the fake app had at the call."""
+
+    def __init__(self, world, invalid=()):
+        self.world, self.invalid, self.calls = world, list(invalid), []
+
+    def seed(self, builder, state, sites, pages, seconds, wait):
+        before = len(self.world.calls)
+        state()
+        self.calls.append({"sites": sites, "pages": pages, "seconds": seconds, "rows_workspace": self.world.space,
+                           "state_calls": self.world.calls[before:], "builder": type(builder).__name__, "wait": wait is Stress.wait})
+        return {"asked": {"sites": sites, "pages": pages}, "visits_seen": pages, "state_reads": pages + 1, "invalid": list(self.invalid)}
+
+
+class RecentPages(Case):
+    """--recent-sites and --recent-pages: `run()` gives the session its recent pages before the rows' workspace, the
+    report has what the option read, and a run with no option is the run of before."""
+    TODAY = ["failures", "rows", "session"]  # the keys of the report of `run()` before the option
+
+    def test_a_run_with_no_option_has_the_report_of_before_and_no_call_of_the_option(self):
+        world = World()
+        recent = Recent(world)
+        with mock.patch.object(M, "RECENT", recent, create=True):
+            report = self.rows(world)
+        self.assertEqual((sorted(report), recent.calls), (self.TODAY, []))
+
+    def test_the_option_gives_the_pages_before_the_rows_workspace_and_the_report_has_them(self):
+        world = World()
+        recent = Recent(world)
+        with mock.patch.object(M, "RECENT", recent, create=True):
+            report = self.rows(world, recent=(2, 4))
+        self.assertEqual(len(recent.calls), 1, "the option was not run")
+        call = recent.calls[0]
+        self.assertEqual((call["sites"], call["pages"], call["seconds"]), (2, 4, 600.0))
+        self.assertIsNone(call["rows_workspace"])  # the rows' workspace is made after the pages' workspace is closed
+        self.assertEqual((call["builder"], call["wait"]), ("Builder", True))
+        self.assertEqual(call["state_calls"], [("debug.new_tab", "state")])  # the option's read of the app's list
+        self.assertEqual(report.get("recent_pages"), {"asked": {"sites": 2, "pages": 4}, "visits_seen": 4, "state_reads": 5, "invalid": []})
+        self.assertEqual(sorted(report), sorted(self.TODAY + ["recent_pages"]))
+        self.assertEqual([why for why in report["failures"] if "recent pages" in why], [])
+        self.assertEqual(len(report["rows"]), 4)
+
+    def test_an_invalid_option_is_a_failure_of_the_run_and_the_rows_still_run(self):
+        world = World()
+        with mock.patch.object(M, "RECENT", Recent(world, invalid=["after the close: 3 of those 4 pages have no icon"]), create=True):
+            report = self.rows(world, recent=(2, 4))
+        self.assertEqual([why for why in report["failures"] if "recent pages" in why],
+                         ["recent pages: INVALID FOR THE OPTION (these rows are not rows of a session with recent pages): "
+                          "after the close: 3 of those 4 pages have no icon"])
+        self.assertEqual(len(report["rows"]), 4)
+
+    def refused(self, *args):
+        """`main()` with `args`: (its exit code, or the words of an argument parser that stopped; the printed lines)."""
+        said = io.StringIO()
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(mock.patch.object(M, "hid_grant", lambda: True))
+            stack.enter_context(mock.patch.object(sys, "argv", ["held-new-tab.py", "--app", BUNDLE, "--out", self.out, *args]))
+            stack.enter_context(contextlib.redirect_stdout(said))
+            stack.enter_context(contextlib.redirect_stderr(said))
+            try:
+                code = M.main()
+            except SystemExit as stop:
+                code = f"the argument parser stopped with {stop.code}"
+        return code, said.getvalue().splitlines()
+
+    def test_an_option_that_cannot_run_is_not_run_before_a_launch(self):
+        for args in (("--recent-sites", "3", "--recent-pages", "2"), ("--recent-pages", "5"), ("--recent-sites", "-1", "--recent-pages", "5")):
+            code, lines = self.refused(*args)
+            self.assertEqual(code, 3, (args, lines))
+            self.assertTrue([line for line in lines if line.startswith("held-new-tab: NOT RUN: --recent-sites")], (args, lines))
+            self.assertFalse(os.path.exists(os.path.join(self.out, "report.json")))
 
 
 class Engine(unittest.TestCase):
