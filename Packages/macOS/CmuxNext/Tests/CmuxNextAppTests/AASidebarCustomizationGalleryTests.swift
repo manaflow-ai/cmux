@@ -62,11 +62,11 @@ import Testing
         scope.root(root)
         root.layer?.backgroundColor = scope.perform { Palette.windowBackground.withAlphaComponent(1) }.cgColor
 
-        let sections = variant.threads ? SidebarThreadsLookTests.sections(now: Date()) : sections()
-        let model = SidebarModel(sections: sections)
+        let rows = variant.threads ? SidebarThreadsLookTests.sections(now: Date()) : Self.sections()
+        let model = SidebarModel(sections: rows)
         if variant.threads { SidebarThreadsLookTests.applyLook(model) }
         model.sectionCustomization = variant.settings
-        model.setSections(sections)
+        model.setSections(rows)
         let sidebar = SidebarView(model: model, design: DesignSettings())
         sidebar.frame = root.bounds
         root.addSubview(sidebar)
