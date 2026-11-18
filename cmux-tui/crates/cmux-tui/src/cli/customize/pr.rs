@@ -653,6 +653,18 @@ pub(super) fn use_code(
     let mut app = App::find();
     let http = Http::new()?;
     app.full_commit(&http);
+    use_with(customize, &http, &app, source, origin, now_ms)
+}
+
+/// [`use_code`] for app `app`, through `http`.
+pub(super) fn use_with(
+    customize: &Customize,
+    http: &Http,
+    app: &App,
+    source: Source,
+    origin: &str,
+    now_ms: u64,
+) -> Result<Answer, Failure> {
     let published = match source {
         Source::Pr(pr) => Published::Pr(pr),
         Source::Branch(name) => Published::Ref { kind: CodeKind::Branch, name },
@@ -722,9 +734,68 @@ pub(super) fn use_code(
             request_publish(&published, Some(commit)).unwrap_or_default()
         ));
     }
-    install(customize, &http, &layer)?;
-    let answer = put_on(customize, layer, lines, origin, now_ms)?;
+    // A look's settings, checked against layer.json's sha256 before
+    // the code is fetched or anything written.
+    let profile = fork_profile(http, &published, &pointer)?;
+    install(customize, http, &layer)?;
+    // The settings preview first: the engine checks the profile whole and
+    // writes nothing when it refuses, so a refused look leaves no code on.
+    let previewed = match &profile {
+        Some(profile) => {
+            let begun = customize.preview_profile(profile, origin, now_ms)?;
+            lines.push(format!(
+                "its settings are a preview: profile {} ({}); `cmux customize apply` keeps them, `cmux customize discard` takes them back",
+                profile.name,
+                cmux_customize::count(profile.settings.len() + profile.files.len(), "change")
+            ));
+            Some(json!({ "name": profile.name, "begun": begun }))
+        }
+        None => None,
+    };
+    let mut answer = put_on(customize, layer, lines, origin, now_ms)?;
+    if let (Some(previewed), Answer::Library { json, .. }) = (previewed, &mut answer) {
+        json["profile"] = previewed;
+    }
     Ok(answer)
+}
+
+/// The largest profile.json a look's layer may carry.
+const MAX_PROFILE: u64 = 4 * 1024 * 1024;
+
+/// The profile a fork's layer.json names (`"profile": "profile.json"` and
+/// `"profile_sha256"`), fetched from the same release and checked against
+/// that sha256: `None` when the layer carries none. Our own PR, branch and
+/// commit layers come from another workflow, which publishes none.
+pub(super) fn fork_profile(
+    http: &Http,
+    source: &Published,
+    pointer: &Value,
+) -> Result<Option<cmux_customize::profile::Profile>, Failure> {
+    if !matches!(source, Published::Fork { .. }) {
+        return Ok(None);
+    }
+    let Some(name) = pointer.get("profile").and_then(Value::as_str) else { return Ok(None) };
+    let shown = format!("{}: {name}", source.source_text());
+    let plain = name.ends_with(".json")
+        && name.len() <= 64
+        && name.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b));
+    let want = pointer.get("profile_sha256").and_then(Value::as_str).unwrap_or_default();
+    if !plain || want.len() != 64 {
+        return Err(failure(format!("{shown}: layer.json names no plain profile file and sha256")));
+    }
+    let bytes = fork_asset(http, source, name, MAX_PROFILE)?
+        .ok_or_else(|| failure(format!("{shown}: not found")))?;
+    let got = hex(&Sha256::digest(&bytes));
+    if got != want {
+        return Err(failure(format!("{shown}: sha256 {got}, the fork's layer.json says {want}")));
+    }
+    serde_json::from_slice(&bytes).map(Some).map_err(|error| {
+        failure(format!(
+            "{shown}: not a cmux profile (line {}, column {})",
+            error.line(),
+            error.column()
+        ))
+    })
 }
 
 /// Puts `layer` on top of the library and says what happened.
@@ -908,6 +979,10 @@ pub(super) fn refresh(customize: &Customize, origin: &str, now_ms: u64) -> Resul
     }
     Ok(Answer::Library { json: json!({ "refreshed": results }), human })
 }
+
+#[cfg(test)]
+#[path = "pr_look_tests.rs"]
+mod look_tests;
 
 #[cfg(test)]
 mod tests {
