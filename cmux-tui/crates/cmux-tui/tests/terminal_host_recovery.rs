@@ -5472,3 +5472,6 @@ mod restart_host_leak;
 
 #[path = "terminal_host_recovery/output_store.rs"]
 mod output_store;
+
+#[path = "terminal_host_recovery/template_binding.rs"]
+mod template_binding;

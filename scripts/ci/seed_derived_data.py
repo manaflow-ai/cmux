@@ -49,9 +49,9 @@ which still beats a cold build.
 
 An owned Mac downloads a seed at about a third of Blacksmith's speed (about
 190 s against 64 s on 2026-09-25). With CMUX_SEED_LOCAL_CACHE set, `adopt`
-clones the seed it just restored into that directory, keeping as many as the
-disk holds (prune_local), and `start` and `adopt` clone an exact key from there instead of
-downloading it. A clone shares blocks on APFS, so it costs seconds.
+clones the seed it just restored into that directory, keeping each root's
+newest seed and any seed a job used in the last LOCAL_USED_SECONDS (prune_local),
+and `start` and `adopt` clone an exact key from there instead of downloading it. A clone shares blocks on APFS, so it costs seconds.
 owned_build_state.py `prefer` reads the same cache. The cache is this Mac's
 own state, like its kept DerivedData: nothing in it is uploaded.
 
@@ -63,9 +63,10 @@ on that root recorded (SEED_SOURCE in STORE, written by owned_build_state.py
 STORE/seeds when it is not there yet. It runs outside any job, from glaeda on
 the Mac, with no credentials: the bucket is publicly readable, and REVISION's
 history comes from a local git directory (CMUX_SEED_GIT_DIR) instead of the
-GitHub API. Nothing a job is cloning is pruned under it: `adopt` touches the
-seed before cloning, and the prune spares seeds touched in the last
-PRUNE_GRACE_SECONDS.
+GitHub API. Nothing a job is cloning is pruned under it: `start`, `adopt` and
+owned_build_state.py `prefer` mark the seed they pick as used (mark_used) before
+anything clones it, and the prune spares every seed marked in the last
+LOCAL_USED_SECONDS and every seed touched in the last PRUNE_GRACE_SECONDS.
 
 Only jobs holding the bucket credentials can write R2 objects or pointers, and
 only the main-branch seeder is given them, so a pull request can read the seed
@@ -111,28 +112,23 @@ ANCESTOR_LIMIT = 50
 SEEDED_JOB_WIDTHS = (12, 6, 14)
 USER_AGENT = "cmux-ci-seed-derived-data"
 # Seeds each canonical root keeps in its CMUX_SEED_LOCAL_CACHE (roots do not
-# share seeds: the keys carry the root). The disk is there to use: a kept seed
-# clones in 14 to 42 s where a download takes 180 to 280 s, and main moves 5 to
-# 8 commits per seed, so every seed within ANCESTOR_LIMIT commits of a job's
-# base can be its cheapest start. Keep up to LOCAL_KEEP per root, and drop the
-# oldest seeds on the whole Mac, whichever root holds them, while free space is
-# under LOCAL_KEEP_MIN_FREE_BYTES: glaeda's job admission floor (100 GiB free,
-# cmuxterm-hq build-fleet/mini-fleet.json disk.min_free_gib) plus the most one
-# mini's disk shrank within an hour, 50 GiB (glaeda-disk's 15-minute free-space
-# log on 12 owned minis, 2026-09-26; seed downloads included, since this prune
-# runs only when a seed lands, not while jobs grow the disk). So seeds fill the
-# disk down to where the busiest hour still leaves every new job admitted. At
-# the old 170 GiB most roots kept only their newest two seeds, while no mini
-# fell below 127 GiB free. glaeda-disk's pressure trigger (15% of the disk, 69
-# GiB on a mini) stays well below. Each root keeps its newest
-# LOCAL_KEEP_LOW_DISK whatever the disk says.
-LOCAL_KEEP = 48
-LOCAL_KEEP_LOW_DISK = 2
-LOCAL_KEEP_MIN_FREE_BYTES = 150 * 1024**3
-# Seeds are APFS clones of DerivedData that jobs also clone, so deleting one
-# may free little. Under pressure, stop once a delete frees less than this.
-PRUNE_MIN_FREED_BYTES = 1024**3
-# A seed touched this recently may be mid-clone by a job; the prune spares it.
+# share seeds: the keys carry the root): its newest one, whatever the disk says.
+# A seed is up to 12 GiB raw and a busy root lands about four an hour, so the
+# old rule (up to 48 per root while more than 150 GiB was free) let seeds alone
+# fill a Mac down to that floor. A seed past the newest sits behind every new
+# base, and one that is missing comes back from the LAN archive in about 25 s.
+# glaeda-disk keeps the same one seed per root.
+LOCAL_KEEP = 1
+# A seed a job picked (mark_used) stays this long after, newest or not: the job
+# may still be resolving packages before it clones it, and a rerun of that job
+# starts from the same base. glaeda-disk's idle sweep keeps a seed a job used
+# for the same twelve hours (IDLE_SEED_HOURS).
+LOCAL_USED_SECONDS = 12 * 3600
+# Use marks sit beside the seeds in this dot directory, which no seed listing
+# reads. A seed's own mtime cannot say it: landing a seed touches it too.
+USED_MARKS = ".used"
+# A seed touched this recently may have just landed for a concurrent job (a
+# stash on another root, or a prefetch); the prune spares it.
 PRUNE_GRACE_SECONDS = 600
 # owned_build_state.py `check` records here which seeds this root adopts.
 SEED_SOURCE = "seed-source.json"
@@ -361,12 +357,37 @@ def age(path: Path) -> float:
         return 0.0
 
 
-def free_bytes(cache: Path) -> int:
-    """Free space on CACHE's volume; 0 when it cannot be read, so the prune stays conservative."""
+def landed(path: Path) -> float:
+    """When seed PATH landed in its cache: its birth time where the volume keeps one (APFS),
+    else its mtime. A job touching an older seed must not make it outrank the seed that
+    landed after it."""
     try:
-        return shutil.disk_usage(cache).free
+        info = path.stat()
     except OSError:
-        return 0
+        return time.time()
+    return getattr(info, "st_birthtime", info.st_mtime)
+
+
+def mark_used(path: Path) -> None:
+    """Record that a job picked seed PATH, so the prune spares it for LOCAL_USED_SECONDS.
+
+    Also touches PATH itself, which glaeda-disk and owned_build_state.py `warm-keys`
+    read as its last use. Best effort: a missing mark costs a download, never a build.
+    """
+    with contextlib.suppress(OSError):
+        os.utime(path)
+    with contextlib.suppress(OSError):
+        marks = path.parent / USED_MARKS
+        marks.mkdir(exist_ok=True)
+        (marks / path.name).touch()
+
+
+def used_recently(path: Path) -> bool:
+    mark = path.parent / USED_MARKS / path.name
+    try:
+        return time.time() - mark.stat().st_mtime < LOCAL_USED_SECONDS
+    except OSError:
+        return False
 
 
 def seed_caches(cache: Path) -> list[Path]:
@@ -384,32 +405,25 @@ def seed_caches(cache: Path) -> list[Path]:
 
 
 def prune_local(cache: Path, spare: Path | None = None) -> None:
-    """Drop each root's seeds past LOCAL_KEEP, then the Mac's oldest while the disk is short.
+    """Drop every seed past each root's newest LOCAL_KEEP, on every root of this Mac.
 
-    Every root keeps its newest LOCAL_KEEP_LOW_DISK. A seed touched in the last
-    PRUNE_GRACE_SECONDS (a job may be cloning it) and SPARE always stay.
+    A seed a job used in the last LOCAL_USED_SECONDS (mark_used), one touched in
+    the last PRUNE_GRACE_SECONDS, and SPARE always stay. Free space plays no part.
     """
-    candidates = []
     for root in seed_caches(cache):
         try:
             entries = [entry for entry in root.iterdir() if entry.is_dir() and not entry.name.startswith(".")]
         except OSError:
             continue
-        newest_first = sorted(entries, key=age)
+        newest_first = sorted(entries, key=landed, reverse=True)
         for index, entry in enumerate(newest_first):
-            if index < LOCAL_KEEP_LOW_DISK or entry == spare or age(entry) <= PRUNE_GRACE_SECONDS:
+            if index < LOCAL_KEEP or entry == spare or age(entry) <= PRUNE_GRACE_SECONDS or used_recently(entry):
                 continue
-            if index >= LOCAL_KEEP:
-                shutil.rmtree(entry, ignore_errors=True)
-            else:
-                candidates.append(entry)
-    for entry in sorted(candidates, key=age, reverse=True):  # oldest first, across roots
-        before = free_bytes(cache)
-        if before >= LOCAL_KEEP_MIN_FREE_BYTES:
-            break
-        shutil.rmtree(entry, ignore_errors=True)
-        if free_bytes(cache) - before < PRUNE_MIN_FREED_BYTES:
-            break
+            shutil.rmtree(entry, ignore_errors=True)
+        with contextlib.suppress(OSError):
+            for mark in (root / USED_MARKS).iterdir():
+                if not (root / mark.name).is_dir() or not used_recently(root / mark.name):
+                    mark.unlink(missing_ok=True)
 
 
 def keep_local(cache: Path, incoming: Path, key: str) -> None:
@@ -504,7 +518,10 @@ def start(derived: Path, exact: str, prefix: str, revision: str = "", distance: 
     Mac keeps (CMUX_SEED_LOCAL_CACHE) needs no download: `adopt` clones it.
     """
     clear_download(derived)
-    if cached(exact):
+    local = cached(exact)
+    if local:
+        # Packages resolve before adopt clones it: a seed landing meanwhile must not prune this one.
+        mark_used(local)
         print(f"This Mac keeps {exact}; adopt clones it instead of downloading")
         return
     derived.parent.mkdir(parents=True, exist_ok=True)
@@ -611,7 +628,7 @@ def adopt(source: Path, derived: Path, exact: str, prefix: str) -> dict[str, obj
         if local:
             # Nothing was started for it; a leftover ticket is another job's.
             clear_download(derived)
-            os.utime(local)  # before the clone: the prune spares seeds touched just now
+            mark_used(local)  # before the clone: the prune spares a seed a job picked
             clone_tree(local, staging)
             key = exact
         else:
