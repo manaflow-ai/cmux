@@ -20,6 +20,8 @@ type Attempt = {
   intentAt: number;
   /// Reserves for this key that failed in a row (none: the last one answered, or is out).
   failures: number;
+  /// The empty local chat this compose's Send would replace (App.tsx `emptyLocalChat`), named on each reserve.
+  replacesChat?: string;
 };
 
 /// While the person still means to send (Cloud picked, typing), the same compose key is reserved
@@ -52,9 +54,13 @@ export class CloudComposeReservation {
     private readonly newKey: () => string = () => crypto.randomUUID(),
   ) {}
 
-  selected(): void {
+  /// `replacesChat`: the empty local chat the Send would replace (the host reserves for a pane with a chat only
+  /// while it shows that chat); none: a compose with no chat. A compose for another chat gives its machine back.
+  selected(replacesChat?: string): void {
     this.stopRelease();
     const now = this.clock.now();
+    const before = this.attempt;
+    if (before && !before.transferred && !before.abandoned && before.replacesChat !== replacesChat) this.abandon();
     const live = this.attempt;
     if (live && !live.abandoned && !live.released) {
       live.intentAt = now;
@@ -75,6 +81,7 @@ export class CloudComposeReservation {
       reservedAt: now,
       intentAt: now,
       failures: 0,
+      ...(replacesChat ? { replacesChat } : {}),
     };
     this.attempt = attempt;
     this.reserve(attempt, Promise.resolve());
@@ -87,7 +94,12 @@ export class CloudComposeReservation {
   private reserve(attempt: Attempt, after: Promise<unknown>): void {
     attempt.reservedAt = this.clock.now();
     attempt.ready = after
-      .then(() => this.call("cloud.reserve", { composeKey: attempt.key }))
+      .then(() =>
+        this.call("cloud.reserve", {
+          composeKey: attempt.key,
+          ...(attempt.replacesChat ? { replacesChat: attempt.replacesChat } : {}),
+        }),
+      )
       .then(
         () => true,
         () => false,
@@ -114,9 +126,9 @@ export class CloudComposeReservation {
     }, ms);
   }
 
-  typed(text: string): void {
+  typed(text: string, replacesChat?: string): void {
     if (text.trim()) {
-      this.selected();
+      this.selected(replacesChat);
     } else if (this.attempt && !this.attempt.transferred && !this.cancelRelease) {
       this.cancelRelease = this.clock.schedule(() => {
         this.cancelRelease = undefined;
