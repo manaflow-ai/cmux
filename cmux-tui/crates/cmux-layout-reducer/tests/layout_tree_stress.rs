@@ -250,6 +250,7 @@ fn optimistic_requests(screen: &Screen) -> Vec<(&'static str, Vec<u8>)> {
         column: None,
         row: None,
         around: None,
+        before: false,
     };
     let remove = Request::RemovePane { screen: screen.clone(), pane: deepest };
     vec![
