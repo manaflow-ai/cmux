@@ -35,6 +35,16 @@ fn may_shrink_panes(operation: ResourceOperation) -> bool {
             | ResourceOperation::PaneViewportWidthSet
             | ResourceOperation::ColumnUpdate
             | ResourceOperation::WorkspaceLayoutApply
+            | ResourceOperation::ScreenLayoutUndo
+    )
+}
+
+/// The operations that set one size value with one plan: when one is
+/// refused or its plan does not commit, no pane changed.
+fn sets_one_size_value(operation: ResourceOperation) -> bool {
+    matches!(
+        operation,
+        ResourceOperation::PaneSplitRatioSet | ResourceOperation::PaneViewportWidthSet
     )
 }
 
@@ -141,6 +151,23 @@ impl Mux {
         let mut sizing = self.client_sizing.lock().unwrap_or_else(PoisonError::into_inner);
         let marked = marks.placements(&sizing);
         marks.take_back(&mut sizing, marked);
+    }
+
+    /// After `operation` returned `result`: a change that committed keeps
+    /// its marks on its workspace. A size value that failed changed no pane,
+    /// so it holds no report. Another operation can fail after its effect
+    /// ran: its marks stay until the window ends.
+    pub(in crate::mux) fn settle_agent_layout_marks(
+        &self,
+        marks: &AgentLayoutMarks,
+        operation: ResourceOperation,
+        result: &anyhow::Result<ResourcePatchCommit>,
+    ) {
+        match result {
+            Ok(commit) => self.narrow_agent_layout_marks(marks, &commit.result),
+            Err(_) if sets_one_size_value(operation) => self.drop_agent_layout_marks(marks),
+            Err(_) => {}
+        }
     }
 
     fn workspace_of_topology_result(&self, result: &Value) -> Option<WorkspaceId> {
