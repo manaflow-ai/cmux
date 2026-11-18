@@ -55,9 +55,10 @@ public actor AgentSessionAttachClient {
     /// only on the owner's own Cloud VM, so it is no ``DaemonCapability`` case: this Mac's bundled daemon never lists it.
     public static let startCredentialsCapability = "agent-session-start-credentials-v1"
     /// The machine takes ``codexLoginCredential`` (cmux-tui `AGENT_SESSION_START_CODEX_LOGIN_CAPABILITY`,
-    /// cmux#45774). A daemon before it named that credential otherwise and refuses the whole start as a bad
-    /// request, so ``start(cwd:harness:homeConfirmed:personKey:ownerLink:model:permissionMode:startMode:credentials:)``
-    /// refuses it here first with ``credentialUpdateNeeded``, which updates the machine and starts again.
+    /// cmux#45774). A daemon older than that credential (it named it `CMUX_CHATGPT_ACCESS_TOKEN`) refuses the whole
+    /// start as `agent_session.bad_request`; a daemon that took the name before it said so takes it without this word.
+    /// So the start always goes out, and a bad request from a daemon without the word, for a start carrying that
+    /// token, becomes ``credentialUpdateNeeded``: the machine is updated and the chat starts again.
     public static let startCodexLoginCapability = "agent-session-start-codex-login-v1"
     /// The access token of a ChatGPT sign-in on Codex's client (Sign in with ChatGPT or the Mac's `codex login`).
     public static let codexLoginCredential = "CMUX_CODEX_ACCESS_TOKEN"
@@ -232,9 +233,6 @@ public actor AgentSessionAttachClient {
             guard model == nil || served.model else {
                 throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not support choosing a start model")
             }
-            guard Self.takes(credentials, served: served) else {
-                throw AgentSessionAttachError(code: Self.credentialUpdateNeeded, message: "the machine's cmux does not take this sign-in yet")
-            }
         }
         let params = Self.startParams(cwd: cwd, harness: harness, homeConfirmed: homeConfirmed, personKey: personKey,
                                       servesKeyedReason: served.keyedReason, callerOwnsVM: callerOwnsVM, servesVMKind: served.vmKind,
@@ -244,7 +242,12 @@ public actor AgentSessionAttachClient {
         guard !transport.isClosed else {
             throw AgentSessionAttachError(code: "agent_session.closed", message: "the connection ended before the start was sent")
         }
-        let data = try await call("agent-session-start", params, timeout: Self.startTimeout, on: transport)
+        let data: Data
+        do { data = try await call("agent-session-start", params, timeout: Self.startTimeout, on: transport) }
+        catch let error as AgentSessionAttachError where Self.olderCredentialRefusal(error.code, credentials: credentials,
+                                                                                      servesCodexLogin: served.codexLogin) {
+            throw AgentSessionAttachError(code: Self.credentialUpdateNeeded, message: "the machine's cmux does not take this sign-in yet")
+        }
         guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let session = object["session"] as? String, !session.isEmpty else {
             throw AgentSessionAttachError(code: "agent_session.refused", message: "agent-session-start answered no session")
@@ -369,15 +372,10 @@ public actor AgentSessionAttachClient {
         return ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["restart"] as? String
     }
 
-    /// Whether a daemon serving `served` takes `credentials`: a ChatGPT sign-in's token only where it says
-    /// ``startCodexLoginCapability`` (cmux#45774); a daemon that takes no credential drops it, as before.
-    private static func takes(_ credentials: [String: String]?, served: Served) -> Bool {
-        takesCredentials(credentials, servesCredentials: served.credentials, servesCodexLogin: served.codexLogin)
-    }
-
-    static func takesCredentials(_ credentials: [String: String]?, servesCredentials: Bool, servesCodexLogin: Bool) -> Bool {
-        guard servesCredentials, credentials?[codexLoginCredential] != nil else { return true }
-        return servesCodexLogin
+    /// Whether a start's refusal `code` is an older daemon's refusal of the ChatGPT sign-in's token
+    /// (``startCodexLoginCapability``): a bad request, for a start carrying that token, from a daemon without the word.
+    static func olderCredentialRefusal(_ code: String, credentials: [String: String]?, servesCodexLogin: Bool) -> Bool {
+        code == "agent_session.bad_request" && !servesCodexLogin && credentials?[codexLoginCredential] != nil
     }
 
     /// How many times ``ownedConnection(_:check:)`` reads the owner answer around a connection.

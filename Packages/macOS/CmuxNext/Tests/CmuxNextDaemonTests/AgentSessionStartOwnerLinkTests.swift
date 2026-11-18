@@ -21,9 +21,9 @@ import Testing
 
     /// The client's refusal code, if any, and the `agent-session-start` frame the daemon got.
     private func start(serving extra: [String], ownerLink: AgentSessionAttachClient.OwnerLink?,
-                       credentials: [String: String]? = nil) async throws
+                       credentials: [String: String]? = nil, refusing: [String: String] = [:]) async throws
         -> (refusal: String?, frame: [String: Any]?) {
-        let daemon = try PresenceDaemon(capabilities: ["agent-session-attach-v1", "agent-session-start-v1"] + extra)
+        let daemon = try PresenceDaemon(capabilities: ["agent-session-attach-v1", "agent-session-start-v1"] + extra, refusing: refusing)
         defer { daemon.stop() }
         let client = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }
         var refusal: String?
@@ -60,25 +60,30 @@ import Testing
         #expect(older.frame?["vm_kind"] == nil)
     }
 
-    /// cmux#45774: a Cloud Codex start carrying a ChatGPT sign-in's token (`CMUX_CODEX_ACCESS_TOKEN`) never goes to a
-    /// machine whose cmux names that credential otherwise: that daemon refused the whole start as a bad request, so a
-    /// Home composer Cloud Codex chat never started while Settings said ChatGPT was connected. The app refuses it first
-    /// with a code that updates the machine and starts again; a Claude token still goes to that daemon.
-    @Test func aChatGPTSignInTokenGoesOnlyToAMachineThatTakesIt() async throws {
+    /// cmux#45774: a Cloud Codex start carrying a ChatGPT sign-in's token (`CMUX_CODEX_ACCESS_TOKEN`) that a machine's
+    /// older cmux refuses as a bad request (it named that credential `CMUX_CHATGPT_ACCESS_TOKEN`) is refused with a code
+    /// that updates the machine and starts again: before, a Home composer Cloud Codex chat never started while Settings
+    /// said ChatGPT was connected. A daemon that takes the token without saying so still gets the start, and a bad
+    /// request from a daemon that says it takes the token, or of a start without it, stays what it is.
+    @Test func anOlderDaemonsRefusalOfTheChatGPTSignInUpdatesTheMachine() async throws {
         let owner: [String] = [DaemonCapability.agentSessionStartVMKind.rawValue, AgentSessionAttachClient.startCredentialsCapability]
         let codex = [AgentSessionAttachClient.codexLoginCredential: "eyJ.codex.token"]
+        let badRequest = ["agent-session-start": "agent_session.bad_request"]
 
-        let older = try await start(serving: owner, ownerLink: link(3, 3), credentials: codex)
+        let older = try await start(serving: owner, ownerLink: link(3, 3), credentials: codex, refusing: badRequest)
         #expect(older.refusal == AgentSessionAttachClient.credentialUpdateNeeded)
-        #expect(older.frame == nil, "the token went to a daemon that refuses it")
 
-        let current = try await start(serving: owner + [AgentSessionAttachClient.startCodexLoginCapability], ownerLink: link(3, 3), credentials: codex)
-        #expect(current.refusal != AgentSessionAttachClient.credentialUpdateNeeded)
-        #expect((current.frame?["credentials"] as? [String: Any])?["env"] as? [String: String] == codex)
+        // A daemon that takes the token but predates the word: the start goes out with it.
+        let unsaid = try await start(serving: owner, ownerLink: link(3, 3), credentials: codex)
+        #expect(unsaid.refusal != AgentSessionAttachClient.credentialUpdateNeeded)
+        #expect((unsaid.frame?["credentials"] as? [String: Any])?["env"] as? [String: String] == codex)
 
-        let claude = try await start(serving: owner, ownerLink: link(3, 3), credentials: ["CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-x"])
-        #expect(claude.refusal != AgentSessionAttachClient.credentialUpdateNeeded)
-        #expect(claude.frame?["credentials"] != nil)
+        let current = try await start(serving: owner + [AgentSessionAttachClient.startCodexLoginCapability], ownerLink: link(3, 3),
+                                      credentials: codex, refusing: badRequest)
+        #expect(current.refusal == "agent_session.bad_request")
+        let claude = try await start(serving: owner, ownerLink: link(3, 3), credentials: ["CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-x"],
+                                     refusing: badRequest)
+        #expect(claude.refusal == "agent_session.bad_request")
     }
 
     /// A new Cloud machine's first start (or a down machine that reconnects on use): its link was

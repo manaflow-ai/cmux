@@ -110,8 +110,8 @@ fn a_codex_cli_login_token_is_relayed_with_the_agent_launch() {
 
 /// cmux#45774: the owner's own Cloud VM says it takes `CMUX_CODEX_ACCESS_TOKEN`
 /// (`agent-session-start-codex-login-v1`) beside the credential capability. A daemon before it
-/// refused a start carrying that token as a bad request, so the app updates a machine that lacks the
-/// word before it sends a Cloud Codex start; a Mac or SSH host lists neither.
+/// refused a start carrying that token as a bad request, which the app reads from a daemon without the
+/// word as one a machine update cures; a Mac or SSH host lists neither.
 #[test]
 fn the_owners_cloud_vm_says_it_takes_the_codex_login_credential() {
     let capabilities = |label: &str, host: AgentStartHost| -> Vec<Value> {

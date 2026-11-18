@@ -120,8 +120,8 @@ pub const AGENT_SESSION_START_CREDENTIALS_CAPABILITY: &str = "agent-session-star
 
 /// This daemon's credential names include `CMUX_CODEX_ACCESS_TOKEN`, the access token of a ChatGPT
 /// sign-in on Codex's client (cmux#45774). A daemon before it took `CMUX_CHATGPT_ACCESS_TOKEN`
-/// instead and refuses the whole start (`agent_session.bad_request`), so the app updates such a
-/// machine before it sends that credential. Advertised beside
+/// instead and refuses the whole start (`agent_session.bad_request`): the app reads that refusal from
+/// a daemon without this word as one an update cures, updates the machine and starts again. Advertised beside
 /// [`AGENT_SESSION_START_CREDENTIALS_CAPABILITY`].
 pub const AGENT_SESSION_START_CODEX_LOGIN_CAPABILITY: &str = "agent-session-start-codex-login-v1";
 
