@@ -378,6 +378,50 @@ body {
   margin: 0;
 }
 
+/* Each top-level block is its own layout root, so a keystroke lays out the block it is in, not
+   the blocks around it (bench/markdown-keystroke.bench.ts, 10,000 lines: keydown to paint p95
+   about a quarter lower, a resize step about a fifth). Layout and style containment only:
+   nothing is clipped or skipped, so comment markers, find and scrolling read real boxes. A
+   contained block's children's margins no longer collapse through it, so a top-level list takes
+   its items' margins itself and its first and last items (down five list levels) drop theirs:
+   the spacing is what it was without containment. A blockquote's children have margins of every
+   kind, so it stays uncontained. */
+.md-prose > :not(blockquote) {
+  contain: layout style;
+}
+
+.md-prose > :is(ul, ol),
+.md-prose > :first-child:is(ul, ol) {
+  margin-top: var(--cmux-md-list-spacing);
+  margin-bottom: max(var(--cmux-md-paragraph-spacing), var(--cmux-md-list-spacing));
+}
+
+.md-prose > :is(ul, ol) > :first-child,
+.md-prose > :is(ul, ol) > :first-child > :first-child,
+.md-prose > :is(ul, ol) > :first-child > :first-child > :first-child,
+.md-prose > :is(ul, ol) > :first-child > :first-child > :first-child > :first-child,
+.md-prose > :is(ul, ol) > :first-child > :first-child > :first-child > :first-child > :first-child,
+.md-prose > :is(ul, ol) > :first-child > :first-child > :first-child > :first-child > :first-child > :first-child,
+.md-prose > :is(ul, ol) > :first-child > :first-child > :first-child > :first-child > :first-child > :first-child > :first-child,
+.md-prose > :is(ul, ol) > :first-child > :first-child > :first-child > :first-child > :first-child > :first-child > :first-child > :first-child,
+.md-prose > :is(ul, ol) > :first-child > :first-child > :first-child > :first-child > :first-child > :first-child > :first-child > :first-child > :first-child,
+.md-prose > :is(ul, ol) > :first-child > :first-child > :first-child > :first-child > :first-child > :first-child > :first-child > :first-child > :first-child > :first-child {
+  margin-top: 0;
+}
+
+.md-prose > :is(ul, ol) > :last-child,
+.md-prose > :is(ul, ol) > :last-child > :last-child,
+.md-prose > :is(ul, ol) > :last-child > :last-child > :last-child,
+.md-prose > :is(ul, ol) > :last-child > :last-child > :last-child > :last-child,
+.md-prose > :is(ul, ol) > :last-child > :last-child > :last-child > :last-child > :last-child,
+.md-prose > :is(ul, ol) > :last-child > :last-child > :last-child > :last-child > :last-child > :last-child,
+.md-prose > :is(ul, ol) > :last-child > :last-child > :last-child > :last-child > :last-child > :last-child > :last-child,
+.md-prose > :is(ul, ol) > :last-child > :last-child > :last-child > :last-child > :last-child > :last-child > :last-child > :last-child,
+.md-prose > :is(ul, ol) > :last-child > :last-child > :last-child > :last-child > :last-child > :last-child > :last-child > :last-child > :last-child,
+.md-prose > :is(ul, ol) > :last-child > :last-child > :last-child > :last-child > :last-child > :last-child > :last-child > :last-child > :last-child > :last-child {
+  margin-bottom: 0;
+}
+
 .md-prose li[data-item-type="task"] {
   list-style: none;
   position: relative;
