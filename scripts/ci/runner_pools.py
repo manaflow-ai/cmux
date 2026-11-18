@@ -67,7 +67,9 @@ which then read the pool's new member.
 
 RUNNER_POOLS never names a reused machine: every member is an ephemeral Blacksmith label, so a
 job reading it can never land on an owned Mac, whoever started it (a fork's pull request
-included). Owned Macs come first through a picker's output (the routing order: owned Macs, then
+included). The one other member is FLEET_LINUX, our own GCP runners, ephemeral the same way (one
+VM per job, then deleted), listed last in the x64 Linux pools and only while FLEET_STATE says it
+is alive (fleet_linux_alive()). Owned Macs come first through a picker's output (the routing order: owned Macs, then
 Blacksmith macOS), never through a pool, and signing jobs move through the signing picker. A pool
 that must run GitHub-hosted (npm and PyPI provenance accept only GitHub's OIDC) says
 `"hosted": true` with its reason; no other pool may name a GitHub-hosted label.
@@ -169,6 +171,24 @@ HOSTED_OVERRIDE = "CI_LINUX_HOSTED_RUNNER"
 HOSTED_OVERRIDE_POOL = re.compile(r"^(?:linux(?:_\d+)?|promotion)$")
 HOSTED_OVERRIDE_LABEL = re.compile(r"^ubuntu-\d+\.\d+$")
 X64_UBUNTU = re.compile(r"^blacksmith-\d+vcpu-ubuntu-\d+$")
+# Our own ephemeral GCP Actions runners (cmuxterm-hq build-fleet/swift-linux-builder/gha-runners: one JIT runner per
+# VM, one job, then the VM is deleted; 16 vCPU Ubuntu 24.04). The one pool member that is not a Blacksmith label, and
+# only while it is alive (fleet_linux_alive()): load_pools() then lists it last in each x64 Linux pool, so a pool
+# takes it only once every Blacksmith member is marked dead, before the release valve. On 2026-11-18 RUNNER_POOLS
+# marked 8, 16 and 32 vCPU dead and every Linux pool sat on Blacksmith with nowhere else to go, while required checks
+# waited 90+ minutes. The label had no runner at all from 2026-11-01 (its GCP credential exchange, HQ
+# reconciler state credential_provider_broken), and a job bound to it sat 13 h on 2026-11-16, so a reading that is
+# missing, stale, not ready or with no runner online lists nothing: the pools stay as declared and a value naming the
+# label is reset (parse_value()), the mirror following it back (mirror_writes()).
+FLEET_LINUX = "cmux-fleet-linux-x64"
+# The fleet's liveness, JSON {"label": FLEET_LINUX, "ready": true, "online": N, "at": zoned time}, written by the fleet
+# side (the HQ gha-runners reconciler's report, published as this repository variable).
+FLEET_STATE = "CI_FLEET_LINUX_STATE"
+# The reconciler reports every 5 minutes; a reading older than this is from a reconciler that stopped.
+FLEET_STATE_MAX_AGE = dt.timedelta(minutes=15)
+# The pools whose jobs a 16 vCPU Ubuntu VM fits: the x64 Linux pools the outage override also leads.
+FLEET_POOL = HOSTED_OVERRIDE_POOL
+FLEET_VCPU = 16
 
 
 def iso(moment: dt.datetime) -> str:
@@ -192,19 +212,52 @@ def hosted_override(env: Mapping[str, str] | None = None) -> str | None:
     return raw if HOSTED_OVERRIDE_LABEL.match(raw) else None
 
 
-def load_pools(path: Path = RUNNERS, env: Mapping[str, str] | None = None) -> dict[str, dict[str, Any]]:
-    """The declared pools, with the outage override (hosted_override()) first in each x64 Linux pool."""
+def fleet_linux_alive(raw: str | None, *, now: dt.datetime) -> bool:
+    """Whether FLEET_STATE's value shows FLEET_LINUX able to start jobs now: its label, `ready` true, at least one
+    runner `online`, and `at` at most FLEET_STATE_MAX_AGE old (and not ahead of now by more than a minute).
+    Anything else, unreadable included, is not alive."""
+    try:
+        state = json.loads(raw or "")
+    except ValueError:
+        return False
+    if not isinstance(state, dict) or state.get("label") != FLEET_LINUX or state.get("ready") is not True:
+        return False
+    online = state.get("online")
+    if not isinstance(online, int) or isinstance(online, bool) or online <= 0:
+        return False
+    at = parse_time(state.get("at"))
+    return at is not None and dt.timedelta(minutes=-1) <= now - at <= FLEET_STATE_MAX_AGE
+
+
+def fleet_fits(name: str, spec: Mapping[str, Any]) -> bool:
+    """Whether FLEET_LINUX may be a member of this pool: an x64 Linux pool (FLEET_POOL) of x64 Ubuntu labels whose
+    jobs fit FLEET_VCPU (memory_floor())."""
+    listed = [m for m in spec.get("members") or () if m != FLEET_LINUX]
+    return bool(FLEET_POOL.match(name)) and bool(listed) \
+        and all(isinstance(m, str) and (X64_UBUNTU.match(m) or HOSTED_OVERRIDE_LABEL.match(m)) for m in listed) \
+        and memory_floor(spec) <= FLEET_VCPU
+
+
+def load_pools(path: Path = RUNNERS, env: Mapping[str, str] | None = None,
+               now: dt.datetime | None = None) -> dict[str, dict[str, Any]]:
+    """The declared pools, with the outage override (hosted_override()) first in each x64 Linux pool, and FLEET_LINUX
+    last in each pool it fits (fleet_fits()) while fleet_linux_alive()."""
     pools = json.loads(path.read_text(encoding="utf-8"))["pools"]
     declared = {name: spec for name, spec in pools.items() if not name.startswith("$")}
     label = hosted_override(env)
-    if label is None:
-        return declared
-    for name, spec in declared.items():
-        listed = spec.get("members")
-        if HOSTED_OVERRIDE_POOL.match(name) and isinstance(listed, list) and listed \
-                and all(isinstance(m, str) and X64_UBUNTU.match(m) for m in listed):
-            declared[name] = {**spec, "members": [label, *listed], "hosted": True,
-                              "hosted_why": f"{HOSTED_OVERRIDE} is set: Blacksmith Linux outage override"}
+    if label is not None:
+        for name, spec in declared.items():
+            listed = spec.get("members")
+            if HOSTED_OVERRIDE_POOL.match(name) and isinstance(listed, list) and listed \
+                    and all(isinstance(m, str) and X64_UBUNTU.match(m) for m in listed):
+                declared[name] = {**spec, "members": [label, *listed], "hosted": True,
+                                  "hosted_why": f"{HOSTED_OVERRIDE} is set: Blacksmith Linux outage override"}
+    state = (os.environ if env is None else env).get(FLEET_STATE)
+    if fleet_linux_alive(state, now=now or dt.datetime.now(UTC)):
+        for name, spec in declared.items():
+            listed = spec.get("members")
+            if isinstance(listed, list) and FLEET_LINUX not in listed and fleet_fits(name, spec):
+                declared[name] = {**spec, "members": [*listed, FLEET_LINUX]}
     return declared
 
 
@@ -242,7 +295,7 @@ def valve_labels(spec: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]
     about 23:12Z (488 jobs queued, none running, at 01:01Z), so the pool sat on a dead label with required checks
     (clippy, acpmux tests) queued behind it, while 8 vCPU kept starting jobs. A value outside the members was reset
     by the next pass, so it could not be set by hand either."""
-    sizes = [X64_SIZE.match(label) for label in members(spec)]
+    sizes = [X64_SIZE.match(label) for label in members(spec) if label != FLEET_LINUX]
     if not sizes or not all(sizes):
         return []
     images = {match.group(2) for match in sizes}
@@ -280,6 +333,11 @@ def spec_problems(pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
             if HOSTED.match(member):
                 if not spec.get("hosted"):
                     found.append(f"{where}: {member} is GitHub-hosted, which is not in the runner set")
+            elif member == FLEET_LINUX:
+                # Ephemeral too (one VM per job), but Linux x64 at 16 vCPU only.
+                if not fleet_fits(name, spec):
+                    found.append(f"{where}: {member} (our GCP Linux x64 runners, {FLEET_VCPU} vCPU) fits only an x64 "
+                                 "Linux pool of Ubuntu labels whose min_vcpu it meets")
             elif not EPHEMERAL.match(member):
                 found.append(f"{where}: {member} is not an ephemeral Blacksmith label; owned Macs come only "
                              "through a picker, never a pool")
@@ -296,7 +354,7 @@ def spec_problems(pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
                 found.append(f"{where}: {member} is below its min_vcpu ({least}); the pool's jobs do not fit there")
         if spec.get("hosted") and not str(spec.get("hosted_why", "")).strip():
             found.append(f"{where}: a hosted pool names why it cannot run on the set (hosted_why)")
-        grows = grows_before_shrinking(listed)
+        grows = grows_before_shrinking([member for member in listed if member != FLEET_LINUX])
         if grows:
             found.append(f"{where}: lists {grows} after a larger failover or out of size order; Blacksmith caps the org on vCPUs at "
                          "once, so a stalled size moves down first (list smaller sizes, largest first, before larger)")
@@ -434,7 +492,9 @@ def mirror_writes(value: Mapping[str, Any], live: Mapping[str, str | None], *,
         # A hosted Ubuntu label is the outage override's footprint (HOSTED_OVERRIDE): while it is set the pool's
         # live member is that label, so nothing moves; once it is deleted the mirror follows the pool back to
         # Blacksmith, so deleting the variable is the whole revert (router-review F1 on cmux#45710).
-        if current and not EPHEMERAL.match(current) and not HOSTED_OVERRIDE_LABEL.match(current):
+        # The fleet label likewise: once its gate closes the mirror follows the pool back to Blacksmith.
+        if current and not EPHEMERAL.match(current) and not HOSTED_OVERRIDE_LABEL.match(current) \
+                and current != FLEET_LINUX:
             continue
         writes.append((name, want))
     writes += [(name, target) for name, target, _current, _why in raw_writes(value, live, owned=owned)]
@@ -781,7 +841,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                         default=(env.get("DRY_RUN", "").strip().lower() in {"1", "true", "yes"}))
     args = parser.parse_args(argv)
     now = now or dt.datetime.now(UTC)
-    pools = load_pools(env=env)
+    pools = load_pools(env=env, now=now)
     if hosted_override(env):
         print(f"::notice title=Runner pools::{HOSTED_OVERRIDE}={hosted_override(env)}: the x64 Linux pools lead with it "
               f"(Blacksmith outage override); delete the variable to return them to Blacksmith")

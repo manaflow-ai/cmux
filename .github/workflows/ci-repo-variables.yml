@@ -137,6 +137,9 @@ jobs:
           LINUX_RUNNER: ${{ vars.LINUX_RUNNER }}
           CI_CLOUD_OVERFLOW_SAVED: ${{ vars.CI_CLOUD_OVERFLOW_SAVED }}
           CI_LINUX_HOSTED_RUNNER: ${{ vars.CI_LINUX_HOSTED_RUNNER }}
+          # Our GCP Linux runners' liveness (runner_pools.FLEET_STATE): while it reads alive, the x64 Linux pools list
+          # cmux-fleet-linux-x64 after their Blacksmith members; unset or stale lists nothing.
+          CI_FLEET_LINUX_STATE: ${{ vars.CI_FLEET_LINUX_STATE }}
         run: python3 scripts/ci/runner_pools.py --check
 
       # No runs-on waits on one machine through a variable's value
