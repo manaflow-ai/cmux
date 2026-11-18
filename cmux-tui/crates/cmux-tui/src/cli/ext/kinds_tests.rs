@@ -409,7 +409,11 @@ fn scene_tree(ops: &Value) -> Value {
     root.map(|id| walk(&id, &nodes)).unwrap_or(Value::Null)
 }
 
-/// The gallery's `apps.ext-new-templates` entry draws each view kind's template from
+/// The view kinds the gallery's `apps.ext-new-templates` entry draws. A widget is not one of them:
+/// it draws the clock (`ctx.now()`), so no fixed scene can match it.
+const GALLERY_KINDS: [&str; 4] = ["sidebar", "session-info", "pane", "newtab"];
+
+/// The gallery's `apps.ext-new-templates` entry draws each of `GALLERY_KINDS`' templates from
 /// `webviews/src/apps/scene/extTemplateScenes.json` (`KIND-shipped`): this keeps that fixture the
 /// scene the template really draws. On a difference it prints the template's ops to put there.
 #[test]
@@ -424,10 +428,7 @@ fn every_view_kind_draws_the_scene_its_gallery_entry_shows() {
     };
     let gallery: Value = serde_json::from_str(&text).expect("the gallery fixture is JSON");
     let mut stale = Vec::new();
-    for (kind, view) in KINDS {
-        if !view {
-            continue;
-        }
+    for kind in GALLERY_KINDS {
         let ops = template_scene(kind).unwrap_or_else(|problem| panic!("{kind}: {problem}"));
         let key = format!("{kind}-shipped");
         if scene_tree(&ops) != scene_tree(&gallery[&key]) {
