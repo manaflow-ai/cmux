@@ -1,15 +1,19 @@
 /* Harness updates available (HarnessUpdates.tsx): the model menus' update footer. The reference's
    order: a heading with Update all, one row per agent CLI split by hairlines, the reason under them.
-   It stays put while the model list above it scrolls. */
+   It stays put while the model list above it scrolls. However many agents are outdated it shows at
+   most three rows; the rest scroll inside the list (cmux#45713), so the model list keeps the menu. */
 .acpmux-harness-updates {
   flex: none;
+  /* Never widens the menu: the footer takes the panel's width, not its own content's. */
+  inline-size: 0;
+  min-inline-size: 100%;
+  max-inline-size: 100%;
   border-block-start: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   color: var(--agent-muted);
   font-size: var(--text-caption);
   letter-spacing: var(--text-caption--letter-spacing);
 }
-.acpmux-harness-updates-head,
-.acpmux-harness-update {
+.acpmux-harness-updates-head {
   display: flex;
   align-items: center;
   gap: var(--ds-space-2);
@@ -23,11 +27,25 @@
   font-weight: 600;
 }
 .acpmux-harness-updates-list {
+  /* Three rows and their hairlines; a fourth agent scrolls into view. */
+  max-block-size: calc(3 * (var(--ds-control-row) + var(--cmux-hairline, 0.5px)));
   margin: 0;
   padding: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
   list-style: none;
 }
-.acpmux-harness-update { border-block-start: var(--cmux-hairline, 0.5px) solid var(--agent-border); }
+.acpmux-harness-update {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  box-sizing: border-box;
+  min-height: var(--ds-control-row);
+  padding: var(--ds-space-1) var(--ds-space-2) var(--ds-space-1) var(--ds-space-3);
+  border-block-start: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+}
 .acpmux-harness-update-name {
   flex: 1;
   min-width: 0;
@@ -37,8 +55,8 @@
   white-space: nowrap;
 }
 .acpmux-harness-update-versions {
+  /* The versions are the point of the item: the name gives way first. */
   flex: none;
-  max-width: 50%;
   overflow: hidden;
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
@@ -46,6 +64,7 @@
 }
 .acpmux-harness-update[data-phase="failed"] .acpmux-harness-update-versions { color: var(--agent-danger, var(--agent-muted)); }
 .acpmux-harness-updates-all,
+.acpmux-harness-updates-dismiss,
 .acpmux-harness-update-skip,
 .acpmux-harness-update-run {
   flex: none;
@@ -65,12 +84,19 @@
   background: color-mix(in srgb, var(--agent-text) 10%, transparent);
   color: var(--agent-text);
 }
+.acpmux-harness-updates-dismiss {
+  width: var(--ds-control-icon);
+  padding: 0;
+}
 .acpmux-harness-updates-all:hover,
+.acpmux-harness-updates-dismiss:hover,
 .acpmux-harness-update-skip:hover { background: var(--acpmux-menu-hover); color: var(--agent-text); }
 .acpmux-harness-update-run:hover:not(:disabled) { background: color-mix(in srgb, var(--agent-text) 16%, transparent); }
 .acpmux-harness-updates :is(button):disabled { opacity: 0.6; }
 .acpmux-harness-updates-hint {
   margin: 0;
-  padding: var(--ds-space-2) var(--ds-space-3);
-  border-block-start: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  overflow: hidden;
+  padding: var(--ds-space-1) var(--ds-space-3) var(--ds-space-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

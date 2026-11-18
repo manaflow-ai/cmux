@@ -8,7 +8,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { HarnessUpdatesSection } from "./HarnessUpdates";
 import { type HarnessHealth, SKIPPED, type UpdateOffer } from "./harnessHealthNoticeModel";
-import { outdatedHarnesses, useHarnessUpdateList } from "./harnessUpdateList";
+import { DISMISSED, outdatedHarnesses, useHarnessUpdateList } from "./harnessUpdateList";
 import { agentDisplayName } from "./agents";
 import { settleReact } from "../../../test/support/domTeardown";
 
@@ -211,4 +211,47 @@ test("one outdated agent has no Update all; a version skipped in this profile is
   localStorage.setItem(SKIPPED, JSON.stringify({ codex: "0.167.2" }));
   await view.draw([codex, opencode]);
   expect(view.names()).toEqual(["opencode"]);
+});
+
+test("many outdated agents stay in one capped list, and × closes the footer until a newer version (cmux#45713)", async () => {
+  // Eight agents outdated at once took over the model menu. They stay rows of one list, which
+  // harnessUpdates.css caps at three visible rows (layout is checked in the gallery, not jsdom).
+  const many = [
+    codex,
+    opencode,
+    outdated("amp", "1.0.0", "1.1.0"),
+    outdated("gemini", "0.9.0", "0.10.0"),
+    outdated("pi", "1.0.0", "1.2.0"),
+    outdated("goose", "1.0.0", "1.4.0"),
+    outdated("cursor", "1.0.0", "1.3.0"),
+    outdated("qwen", "0.1.0", "0.2.0"),
+  ];
+  const view = await mount(many);
+  const lists = view.container.querySelectorAll(".acpmux-harness-updates-list");
+  expect(lists).toHaveLength(1);
+  expect(view.names()).toHaveLength(8);
+  expect(lists[0]!.children).toHaveLength(8);
+
+  // Another chat's pane closed its own list earlier; this closing adds to it.
+  localStorage.setItem(DISMISSED, JSON.stringify({ claude: "2.1.34" }));
+  const close = view.container.querySelector<HTMLButtonElement>(".acpmux-harness-updates-dismiss");
+  expect(close?.getAttribute("aria-label")).toBe("Dismiss Updates");
+  await view.click(close);
+  expect(view.container.querySelector(".acpmux-harness-updates")).toBeNull();
+  // Nothing ran: closing is not skipping or updating.
+  expect(view.calls).toHaveLength(0);
+  expect(JSON.parse(localStorage.getItem(DISMISSED)!)).toMatchObject({ claude: "2.1.34", codex: "0.167.2" });
+
+  // A fresh health read with the same versions, and a new pane in this profile, stay closed.
+  await view.draw([...many]);
+  expect(view.container.querySelector(".acpmux-harness-updates")).toBeNull();
+  if (root) await act(async () => root!.unmount());
+  root = undefined;
+  await view.draw([...many]);
+  expect(view.container.querySelector(".acpmux-harness-updates")).toBeNull();
+
+  // One agent's newer version brings the footer back, with every outdated agent on it.
+  await view.draw([outdated("codex", "0.164.0", "0.168.0"), ...many.slice(1)]);
+  expect(view.container.querySelector(".acpmux-harness-updates")).not.toBeNull();
+  expect(view.names()).toHaveLength(8);
 });

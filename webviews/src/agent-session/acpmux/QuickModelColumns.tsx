@@ -1460,14 +1460,16 @@ function Columns({
           className="acpmux-cols-frame"
           onKeyDown={keyDown}
           // A press anywhere but the avatar and its card closes the card. No press takes the keyboard
-          // from the search field (a caption, a note, a gap), except on a column's scroll bar.
+          // from the search field (a caption, a note, a gap), except on a column's scroll bar or the
+          // update footer's list.
           onPointerDown={(event) => {
             const target = event.target as Element;
             if (profileOpen && !target.closest?.(".acpmux-cols-corner")) setProfileOpen(false);
             if (
               target !== field.current &&
               !target.classList?.contains("acpmux-cols-list") &&
-              !target.classList?.contains("acpmux-cols-tune-scroll")
+              !target.classList?.contains("acpmux-cols-tune-scroll") &&
+              !target.classList?.contains("acpmux-harness-updates-list")
             )
               event.preventDefault();
           }}
@@ -1794,6 +1796,7 @@ function Columns({
             <HarnessUpdatesSection
               updates={menu.updates}
               onOwnUpdate={close}
+              onDismiss={() => field.current?.focus()}
               firstAction={updateAction}
               onFirstKeyDown={(event) => {
                 if (event.key !== "ArrowUp") return;

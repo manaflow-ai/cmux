@@ -6,7 +6,7 @@ import { useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import { HarnessUpdatesSection } from "./HarnessUpdates";
 import { type HarnessHealth, type UpdateOffer } from "./harnessHealthNoticeModel";
-import { useHarnessUpdateList } from "./harnessUpdateList";
+import { DISMISSED, useHarnessUpdateList } from "./harnessUpdateList";
 import { agentDisplayName } from "./agents";
 
 const row = (id: string, version: string, latest: string, command: string): HarnessHealth => ({
@@ -18,6 +18,16 @@ const row = (id: string, version: string, latest: string, command: string): Harn
 });
 const codex = row("codex", "0.164.0", "0.167.2", "npm install -g @openai/codex@latest");
 const opencode = row("opencode", "1.19.0", "1.19.5", "npm install -g opencode-ai@latest");
+/// Every agent outdated at once (cmux#45713): more than the footer's three rows hold.
+const many = [
+  codex,
+  opencode,
+  row("amp", "1.0.0", "1.1.0", "npm install -g @sourcegraph/amp@latest"),
+  row("gemini", "0.9.0", "0.10.0", "npm install -g @google/gemini-cli@latest"),
+  row("goose", "1.0.0", "1.4.0", "brew upgrade goose"),
+  row("qwen", "0.1.0", "0.2.0", "npm install -g @qwen-code/qwen-code@latest"),
+  row("pi", "1.0.0", "1.2.0", "npm install -g @mariozechner/pi@latest"),
+];
 
 type Props = {
   /// The chat's own agent's offer (Claude Code), when it has one.
@@ -29,6 +39,8 @@ type Props = {
 
 function GalleryHarnessUpdates({ own = false, rows, updater = "ok" }: Props) {
   const [calls, setCalls] = useState<string[]>([]);
+  // Each variant starts open: a closing in another variant of this gallery profile does not carry over.
+  useState(() => globalThis.localStorage?.removeItem(DISMISSED));
   const offer: UpdateOffer | undefined = own
     ? {
         harness: "claude",
@@ -79,6 +91,18 @@ export default componentEntry<Props>({
     "reference-pair": {
       note: "The reference's pair, Codex and OpenCode, in a chat whose own agent is current.",
       props: { rows: [codex, opencode] },
+    },
+    "many-harnesses": {
+      note: "Every agent outdated: three rows show and the rest scroll inside the list; the menu keeps its width.",
+      props: { own: true, rows: many },
+    },
+    dismissed: {
+      note: "× closes the footer; it stays closed until an agent has a newer version than the ones closed.",
+      props: { own: true, rows: many },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-harness-updates-dismiss" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-harness-updates") === null);
+      },
     },
     "one-harness": {
       note: "One outdated agent: no Update all, the row's Update is the whole action.",

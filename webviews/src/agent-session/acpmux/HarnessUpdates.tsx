@@ -2,6 +2,9 @@
 // agent CLI on one row each (its mark, its name, the installed and newest versions, Update), Update
 // all in the heading once there are two, and the reason under them. The reference (Leo 2026-11-12)
 // listed Codex and OpenCode; it is the same list for Claude Code and every other harness.
+// With many agents outdated the list took over the menu (cmux#45713): it now shows at most three
+// rows and scrolls the rest, never widens the menu, and × closes the footer until a newer version
+// shows up.
 import type { KeyboardEvent, Ref } from "react";
 import { AgentMark } from "../shared/AgentMark";
 import { Spinner } from "./conversation/icons";
@@ -12,6 +15,7 @@ import "./harnessUpdates.css";
 export function HarnessUpdatesSection({
   updates,
   onOwnUpdate,
+  onDismiss,
   firstAction,
   onFirstKeyDown,
 }: {
@@ -22,10 +26,14 @@ export function HarnessUpdatesSection({
   onFirstKeyDown?: (event: KeyboardEvent<HTMLButtonElement>) => void;
   /// The chat's own agent's Update ran: its progress shows in the composer's notice, so the menu closes.
   onOwnUpdate?: () => void;
+  /// × closed the footer: its button leaves, so the menu takes focus back (default: the nearest
+  /// focusable menu or dialog around it, so the keyboard keeps working).
+  onDismiss?: () => void;
 }) {
   const t = useT();
   const title = t("harness.updatesAvailable");
   const all = updates.rows.length > 1;
+  if (updates.dismissed) return null;
   const run = (row: HarnessUpdateRow) => {
     row.update();
     if (row.skip) onOwnUpdate?.();
@@ -49,6 +57,24 @@ export function HarnessUpdatesSection({
             {t("harness.updateAll")}
           </button>
         )}
+        <button
+          type="button"
+          className="acpmux-harness-updates-dismiss"
+          aria-label={t("harness.dismissUpdates")}
+          title={t("harness.dismissUpdates")}
+          onClick={(event) => {
+            const host = event.currentTarget.parentElement?.closest<HTMLElement>(
+              '[role="menu"], [role="dialog"], [tabindex]',
+            );
+            updates.dismiss();
+            if (onDismiss) onDismiss();
+            else host?.focus();
+          }}
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+            <path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+          </svg>
+        </button>
       </div>
       <ul className="acpmux-harness-updates-list">
         {updates.rows.map((row, index) => (
@@ -59,7 +85,9 @@ export function HarnessUpdatesSection({
             data-phase={row.phase}
           >
             <AgentMark agent={row.harness} size={16} reserve />
-            <span className="acpmux-harness-update-name">{row.agent}</span>
+            <span className="acpmux-harness-update-name" title={row.agent}>
+              {row.agent}
+            </span>
             {row.phase === "failed" ? (
               <span className="acpmux-harness-update-versions">
                 {t("harness.updateFailedShort", { agent: row.agent })}
