@@ -30,12 +30,6 @@ pub enum Outbound {
         url: String,
         view_request_id: Option<Value>,
     },
-    /// `ui/update-model-context`: content that reaches the model.
-    ModelContext {
-        surface_id: String,
-        content: Value,
-        view_request_id: Option<Value>,
-    },
 }
 
 impl Outbound {
@@ -51,7 +45,6 @@ impl Outbound {
             }
             Self::ToolCall { tool, arguments, .. } => serde_json::json!([tool, arguments]),
             Self::OpenLink { url, .. } => serde_json::json!([url]),
-            Self::ModelContext { content, .. } => content.clone(),
         }
     }
 

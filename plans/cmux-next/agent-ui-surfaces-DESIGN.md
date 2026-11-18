@@ -87,11 +87,11 @@ current field values it holds, keyed by `bind`. Rust answers with a `Pending`:
 ```jsonc
 { "requestId": "r7", "actionId": "a3", "summary": "Send \"submit\" to the agent with: name = Ada, seat = window",
   "sends": [ { "label": "name", "value": "Ada" } ],
-  "target": "agent" | "tool:get-time" | "link:https://..." | "model-context" }
+  "target": "agent" | "tool:get-time" | "link:https://..." }
 ```
 
 Additions to the contract made while building the prototype: `source.claimed` (bool, omitted when
-false), `field.secure`, `review.bind` and `review.selected`, the `model-context` target. Node ids are
+false), `field.secure`, `review.bind` and `review.selected`. Node ids are
 the A2UI component ids; a node a `children` template repeats gets `#<index>` (nested `#i.j`), and an
 action's id is its button's node id (`<id>.approve`, `<id>.deny`, `<id>.submit` on cards). A text
 component whose string starts with Markdown `#`..`######` becomes `style: heading` without the marks.
@@ -131,8 +131,15 @@ renderers: `tests/golden/*.json` (one per quickstart sample, plus `cmux-catalog-
 
 - The daemon's tap writes the surface into the logged tool update as `_meta.acpmux.uiSurface`;
   the translator puts it on the tool row as body field `uiSurface` (an object, replaced whole).
+- An MCP App's tools and `ui://` resources are fetched at the call's first update (on the hub's
+  scope). A view that comes after the call's result is logged as a `ui_surface` mux record
+  `{toolCallId, kind, status, tool, title, rawInput, content, surface}`: the translator puts it on
+  the open row, or patches the settled one (a patch replaces the whole body, so the record sends
+  the row's other parts again). So a tool's first call draws. The translator holds the 32 newest
+  settled tool rows for this, outside its checkpoint; a call with terminal output or a part over
+  256 KB gets no late surface.
 - RPC: `_acpmux/ui_surface_action {sessionId, surfaceId, actionId, values}` -> Pending;
-  `_acpmux/ui_surface_confirm {sessionId, surfaceId, requestId, values?}` -> `{sent: agent|tool|link|none,
+  `_acpmux/ui_surface_confirm {sessionId, surfaceId, requestId, values?}` -> `{sent: agent|tool|link,
   reply?, openUrl?}` (person or authenticated remote only); `_acpmux/ui_surface_cancel {sessionId,
   surfaceId, requestId}` -> `{cancelled}`; `_acpmux/ui_surface_bridge {sessionId, surfaceId, message}`
   -> `{reply?, notify?[], height?, blocked?, pending?, draft?}`.
@@ -169,7 +176,7 @@ Return confirms, Escape cancels.
 | `tools/call` | refused unless the tool's `visibility` includes `"app"`; otherwise a Pending with the tool name and arguments, sent only on Confirm |
 | `ui/message` | fills the composer; the person presses Send (6236-31 "draft prompt") |
 | `ui/open-link` | Pending, `https` only |
-| `ui/update-model-context` | Pending (it reaches the model) |
+| `ui/update-model-context` | refused with its reason: ACP cannot add context to the next turn without starting one, so a Confirm would send nothing; the view drafts with `ui/message` instead |
 | `resources/read` | allowed for `ui://` on the same server only |
 | `sampling/createMessage`, `ui/download-file`, anything else | refused, logged, the card says "blocked" |
 

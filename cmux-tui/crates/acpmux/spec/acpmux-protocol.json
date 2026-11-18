@@ -7880,7 +7880,7 @@
           "type": "string"
         },
         "target": {
-          "description": "`agent`, `tool:<name>`, `link:<https url>` or `model-context`.",
+          "description": "`agent`, `tool:<name>` or `link:<https url>`.",
           "type": "string"
         }
       },

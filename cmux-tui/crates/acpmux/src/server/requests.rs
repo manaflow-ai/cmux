@@ -3546,15 +3546,16 @@ async fn dispatch_request_with_identity(
                     let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
                     let opts = crate::hub::PromptOptions { control, ..Default::default() };
                     let blocks = vec![json!({"type": "text", "text": text})];
-                    let (hub, session) = (hub.clone(), s.clone());
-                    // The turn runs as long as the agent works: answer the page now.
-                    tokio::spawn(async move {
+                    let (task_hub, session) = (hub.clone(), s.clone());
+                    // The turn runs as long as the agent works: answer the page now. The hub's
+                    // scope owns the task.
+                    drop(hub.scope.spawn_named("ui-surface-confirm", async move {
                         if let Err(e) =
-                            hub.prompt_with(&session, blocks, "ui-surface", false, opts).await
+                            task_hub.prompt_with(&session, blocks, "ui-surface", false, opts).await
                         {
                             tracing::warn!(session = %session.id, "ui surface confirm prompt failed: {e:?}");
                         }
-                    });
+                    }));
                     Ok(json!({"sent": "agent"}))
                 }
                 Confirmed::ToolCall { server, tool, arguments, view_request_id } => {
@@ -3569,8 +3570,6 @@ async fn dispatch_request_with_identity(
                     Ok(json!({"sent": "link", "openUrl": url,
                     "reply": view_reply(view_request_id.as_ref(), Ok(json!({})))}))
                 }
-                Confirmed::ModelContext { view_request_id } => Ok(json!({"sent": "none",
-                    "reply": view_reply(view_request_id.as_ref(), Ok(json!({})))})),
             }
         }
         method::MUX_PERMISSION_RESPOND => {

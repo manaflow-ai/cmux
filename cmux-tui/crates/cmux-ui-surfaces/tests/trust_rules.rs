@@ -392,12 +392,14 @@ fn mcp_app_bridge_follows_the_table() {
     assert!(
         matches!(out, Outbound::ToolCall { ref tool, view_request_id: Some(_), .. } if tool == "refresh")
     );
-    let Bridge::NeedsConfirm(p) =
+    // Model context is refused with its reason, never held for a Confirm that sends nothing.
+    let Bridge::Refused(why) =
         s.bridge("app", &rpc("ui/update-model-context", json!({"content": []}))).unwrap()
     else {
         panic!()
     };
-    assert_eq!(p.target, "model-context");
+    assert_eq!(why, mcp_apps::MODEL_CONTEXT_REFUSED);
+    assert!(s.surface("app").unwrap().pending.is_none());
 }
 
 #[test]

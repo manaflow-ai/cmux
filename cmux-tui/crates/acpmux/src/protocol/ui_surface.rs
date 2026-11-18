@@ -25,7 +25,7 @@ pub struct UiSurfacePending {
     pub action_id: String,
     pub summary: String,
     pub sends: Vec<UiSurfaceSend>,
-    /// `agent`, `tool:<name>`, `link:<https url>` or `model-context`.
+    /// `agent`, `tool:<name>` or `link:<https url>`.
     pub target: String,
 }
 

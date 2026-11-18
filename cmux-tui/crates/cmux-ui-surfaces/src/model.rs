@@ -329,6 +329,6 @@ pub struct Pending {
     pub action_id: String,
     pub summary: String,
     pub sends: Vec<Send>,
-    /// `agent`, `tool:<name>`, `link:<https url>` or `model-context`.
+    /// `agent`, `tool:<name>` or `link:<https url>`.
     pub target: String,
 }

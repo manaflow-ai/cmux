@@ -306,6 +306,10 @@ pub(super) const MUX: &[Kind] = &[
     not("turn_silent", LIVE),
     code("turn_started", "names the running turn (State::turn_key)"),
     not("turn_stop_requested", UNREAD),
+    code(
+        "ui_surface",
+        "an MCP App's late view: its tool row's `uiSurface`, a patch once settled (State::late_surface)",
+    ),
     not("unstuck", UNREAD),
     not("usage_stats", UNREAD),
     code("user_message", "a user row, and a new turn's group row (State::prompt)"),

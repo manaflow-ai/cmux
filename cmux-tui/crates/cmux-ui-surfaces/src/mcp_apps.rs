@@ -257,8 +257,11 @@ pub enum Allowed {
 pub enum Proposal {
     ToolCall { tool: String, arguments: Value },
     OpenLink { url: String },
-    ModelContext { content: Value },
 }
+
+/// Why `ui/update-model-context` is refused: the view's error message.
+pub const MODEL_CONTEXT_REFUSED: &str = "cmux does not take model context from an app: the agent \
+    reads only what the person sends. Use ui/message to draft a message for the person to send";
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ViewDecision {
@@ -346,12 +349,11 @@ pub fn classify_view_message(ctx: ViewContext<'_>, msg: &Value) -> ViewDecision 
             Some(_) => not_ready(),
             None => ViewDecision::Refused("only https links open".into()),
         },
-        "ui/update-model-context" => {
-            if !ctx.initialized {
-                return not_ready();
-            }
-            ViewDecision::NeedsConfirm(Proposal::ModelContext { content: params })
-        }
+        // Refused, not held for a Confirm: ACP has no way to add context to an agent's next turn
+        // without starting one, and a confirmed send that the agent never reads would tell the
+        // person it was given. A view that wants the agent to know something asks with
+        // `ui/message`, which drafts it into the composer for the person to send.
+        "ui/update-model-context" => ViewDecision::Refused(MODEL_CONTEXT_REFUSED.into()),
         "resources/read" => match params.get("uri").and_then(Value::as_str) {
             Some(uri) if uri.starts_with("ui://") => {
                 ViewDecision::Allowed(Allowed::ResourceRead { uri: uri.to_string() })

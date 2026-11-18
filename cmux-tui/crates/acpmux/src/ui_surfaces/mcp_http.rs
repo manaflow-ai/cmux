@@ -64,7 +64,17 @@ fn key(harness: &str, cwd: &Path, server: &str) -> String {
     format!("{harness}\u{0}{}\u{0}{server}", cwd.display())
 }
 
+/// Servers a test names, read before the agent's config.
+#[cfg(test)]
+pub(crate) static TEST_CONF: Mutex<Vec<(String, ServerConf)>> = Mutex::new(Vec::new());
+
 fn find_conf(harness: &str, cwd: &Path, server: &str) -> Option<ServerConf> {
+    #[cfg(test)]
+    if let Some((_, conf)) =
+        TEST_CONF.lock().unwrap_or_else(|e| e.into_inner()).iter().find(|(s, _)| s == server)
+    {
+        return Some(conf.clone());
+    }
     let env = crate::desktop_link::Env::current().ok()?;
     server_conf(&crate::desktop_link::read_mcp_server(&env, harness, cwd, server)?)
 }
@@ -92,8 +102,9 @@ fn now_ms() -> u64 {
 }
 
 /// Start fetching `server`'s tools and every `ui://` resource they name, unless that is cached,
-/// running, or failed in the last minute. Returns at once.
-pub(crate) fn prefetch(harness: &str, cwd: &Path, server: &str) {
+/// running, or failed in the last minute. Returns at once: the fetch runs on `spawn`'s owner
+/// (the hub's scope), and a fetch its owner drops before it ends leaves the server unfetched.
+pub(crate) fn prefetch(harness: &str, cwd: &Path, server: &str, spawn: &super::Spawn) {
     let k = key(harness, cwd, server);
     {
         let mut c = cache().lock().unwrap_or_else(|e| e.into_inner());
@@ -103,30 +114,43 @@ pub(crate) fn prefetch(harness: &str, cwd: &Path, server: &str) {
         }
         e.inflight = true;
     }
-    let Ok(rt) = tokio::runtime::Handle::try_current() else {
-        if let Some(e) = cache().lock().unwrap_or_else(|e| e.into_inner()).get_mut(&k) {
-            e.inflight = false;
+    /// Clears the server's `inflight` however its fetch ends, a drop included.
+    struct Inflight(String);
+    impl Drop for Inflight {
+        fn drop(&mut self) {
+            if let Some(e) = cache().lock().unwrap_or_else(|e| e.into_inner()).get_mut(&self.0) {
+                e.inflight = false;
+            }
         }
-        return;
-    };
+    }
+    let inflight = Inflight(k.clone());
     let (harness, cwd, server) = (harness.to_string(), cwd.to_path_buf(), server.to_string());
-    rt.spawn(async move {
+    spawn(Box::pin(async move {
+        let _inflight = inflight;
         let fetched = fetch_all(&harness, &cwd, &server).await;
-        let mut c = cache().lock().unwrap_or_else(|e| e.into_inner());
-        let e = c.entry(k).or_default();
-        e.inflight = false;
-        match fetched {
-            Ok((conf, tools, resources)) => {
-                e.conf = Some(conf);
-                e.tools = Some(tools);
-                e.resources = resources;
+        let ok = {
+            let mut c = cache().lock().unwrap_or_else(|e| e.into_inner());
+            let e = c.entry(k).or_default();
+            e.inflight = false;
+            match fetched {
+                Ok((conf, tools, resources)) => {
+                    e.conf = Some(conf);
+                    e.tools = Some(tools);
+                    e.resources = resources;
+                    true
+                }
+                Err(err) => {
+                    tracing::info!(server, err, "ui surface: MCP App fetch failed");
+                    e.failed_at = now_ms();
+                    false
+                }
             }
-            Err(err) => {
-                tracing::info!(server, err, "ui surface: MCP App fetch failed");
-                e.failed_at = now_ms();
-            }
+        };
+        if ok {
+            // The calls that waited for this server's views draw now (a late surface).
+            super::late_views();
         }
-    });
+    }));
 }
 
 type Fetched = (ServerConf, Vec<ToolInfo>, HashMap<String, ResourceView>);

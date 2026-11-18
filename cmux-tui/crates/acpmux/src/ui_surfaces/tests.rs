@@ -30,6 +30,11 @@ fn meta() -> (String, PathBuf) {
     ("claude".into(), PathBuf::from("/tmp"))
 }
 
+/// A host that logs nothing and runs no fetch.
+fn host() -> Host {
+    Host { deliver: std::sync::Arc::new(|_| {}), spawn: std::sync::Arc::new(|_| {}) }
+}
+
 #[test]
 fn names() {
     for n in [
@@ -53,16 +58,16 @@ fn names() {
 fn a_ui_surface_call_carries_its_surface_in_the_logged_update() {
     let _g = on();
     let mut u = update("call-a", "pending", json!({"messages": messages(), "title": "Ship"}));
-    assert!(annotate("sess-a", &mut u, meta));
+    assert!(annotate("sess-a", &mut u, meta, host));
     let s = &u["_meta"]["acpmux"]["uiSurface"];
     assert_eq!(s["schema"], "cmux.ui-surface/1");
     assert_eq!(s["status"], "streaming");
     assert_eq!(s["title"], "Ship");
     // A second update within the same frame may be held; the last one always carries.
     let mut u2 = update("call-a", "in_progress", json!({"messages": messages()}));
-    annotate("sess-a", &mut u2, meta);
+    annotate("sess-a", &mut u2, meta, host);
     let mut done = update("call-a", "completed", json!({"messages": messages()}));
-    assert!(annotate("sess-a", &mut done, meta));
+    assert!(annotate("sess-a", &mut done, meta, host));
     assert_eq!(done["_meta"]["acpmux"]["uiSurface"]["status"], "ready");
 
     // The page's button press: a Pending, nothing sent; confirm makes the prompt text.
@@ -84,7 +89,7 @@ fn other_tools_are_untouched() {
     let _g = on();
     let mut u = json!({"sessionUpdate": "tool_call", "toolCallId": "x", "title": "Read", "rawInput": {"path": "/a"}});
     let before = u.clone();
-    assert!(!annotate("sess-b", &mut u, meta));
+    assert!(!annotate("sess-b", &mut u, meta, host));
     assert_eq!(u, before);
 }
 
@@ -95,7 +100,7 @@ fn an_a2ui_resource_in_a_tool_result_draws() {
     let mut u = json!({"sessionUpdate": "tool_call_update", "toolCallId": "r1", "status": "completed",
         "title": "mcp__recipes__show",
         "content": [{"type": "content", "content": {"type": "resource", "resource": {"uri": "a2ui://r", "mimeType": "application/a2ui+json", "text": text}}}]});
-    assert!(annotate("sess-c", &mut u, meta));
+    assert!(annotate("sess-c", &mut u, meta, host));
     assert_eq!(u["_meta"]["acpmux"]["uiSurface"]["source"]["server"], "recipes");
 }
 
@@ -104,7 +109,7 @@ fn flag_off_builds_nothing() {
     let _g = FLAG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     set_enabled_for_test(false);
     let mut u = update("call-off", "completed", json!({"messages": messages()}));
-    assert!(!annotate("sess-off", &mut u, meta));
+    assert!(!annotate("sess-off", &mut u, meta, host));
     assert!(u["_meta"].get("acpmux").is_none());
     assert!(action("sess-off", &json!({"surfaceId": "s1", "actionId": "b"})).is_err());
     set_enabled_for_test(true);
@@ -128,6 +133,10 @@ fn http_servers_only_and_sse_answers() {
 }
 
 #[tokio::test]
+#[allow(
+    clippy::await_holding_lock,
+    reason = "the flag lock serializes the process-wide flag across tests; only this test's task holds it, and no task it awaits takes it"
+)]
 async fn bridge_refuses_before_initialized_and_answers_the_view() {
     let _g = on();
     with_session("sess-d", |s| {
@@ -150,4 +159,129 @@ async fn bridge_refuses_before_initialized_and_answers_the_view() {
     assert_eq!(r["height"], 40);
     let r = bridge("sess-d", &msg("sampling/createMessage", json!({}))).await.unwrap();
     assert!(r["blocked"].is_string());
+}
+
+/// A streamable-HTTP MCP server shaped like ext-apps `examples/quickstart`: one tool, `get-time`,
+/// whose `_meta.ui.resourceUri` names an HTML view. Its `tools/list` answer waits for `gate`, so
+/// the call's result reaches the tap before the fetch ends. Answers in SSE, as the SDK does.
+async fn quickstart_server(gate: std::sync::Arc<tokio::sync::Notify>) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://127.0.0.1:{}/mcp", listener.local_addr().unwrap().port());
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut sock, _)) = listener.accept().await else { return };
+            let gate = gate.clone();
+            tokio::spawn(async move {
+                let mut buf = Vec::new();
+                let mut chunk = [0u8; 4096];
+                let (head_end, len) = loop {
+                    let n = sock.read(&mut chunk).await.unwrap_or(0);
+                    if n == 0 {
+                        return;
+                    }
+                    buf.extend_from_slice(&chunk[..n]);
+                    if let Some(at) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                        let head = String::from_utf8_lossy(&buf[..at]).to_ascii_lowercase();
+                        let len = head
+                            .lines()
+                            .find_map(|l| l.strip_prefix("content-length:"))
+                            .and_then(|v| v.trim().parse::<usize>().ok())
+                            .unwrap_or(0);
+                        break (at + 4, len);
+                    }
+                };
+                while buf.len() < head_end + len {
+                    let n = sock.read(&mut chunk).await.unwrap_or(0);
+                    if n == 0 {
+                        return;
+                    }
+                    buf.extend_from_slice(&chunk[..n]);
+                }
+                let req: Value = serde_json::from_slice(&buf[head_end..head_end + len]).unwrap();
+                let method = req["method"].as_str().unwrap_or("");
+                let result = match method {
+                    "initialize" => {
+                        json!({"protocolVersion": "2025-06-18", "capabilities": {"tools": {}, "resources": {}}, "serverInfo": {"name": "Quickstart MCP App Server", "version": "1.0.0"}})
+                    }
+                    "tools/list" => {
+                        gate.notified().await;
+                        json!({"tools": [{"name": "get-time", "description": "Returns the current server time.", "inputSchema": {"type": "object"}, "_meta": {"ui": {"resourceUri": "ui://get-time/mcp-app.html"}}}]})
+                    }
+                    "resources/read" => {
+                        json!({"contents": [{"uri": "ui://get-time/mcp-app.html", "mimeType": "text/html;profile=mcp-app", "text": "<!doctype html><p id=\"server-time\">get-time view</p>"}]})
+                    }
+                    _ => Value::Null,
+                };
+                let (ctype, body) = if req.get("id").is_none() {
+                    ("application/json", String::new())
+                } else {
+                    let answer = json!({"jsonrpc": "2.0", "id": req["id"], "result": result});
+                    ("text/event-stream", format!("event: message\ndata: {answer}\n\n"))
+                };
+                let status = if body.is_empty() { "202 Accepted" } else { "200 OK" };
+                let resp = format!(
+                    "HTTP/1.1 {status}\r\ncontent-type: {ctype}\r\nmcp-session-id: s-1\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = sock.write_all(resp.as_bytes()).await;
+            });
+        }
+    });
+    url
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(
+    clippy::await_holding_lock,
+    reason = "the flag lock serializes the process-wide flag across tests; only this test's task holds it, and no task it awaits takes it"
+)]
+async fn an_mcp_app_draws_on_its_first_call_when_its_view_comes_after_the_result() {
+    let _g = on();
+    let gate = std::sync::Arc::new(tokio::sync::Notify::new());
+    let url = quickstart_server(gate.clone()).await;
+    mcp_http::TEST_CONF
+        .lock()
+        .unwrap()
+        .push(("quickstart-late".into(), mcp_http::ServerConf { url, headers: Vec::new() }));
+    let sent = std::sync::Arc::new(Mutex::new(Vec::<Value>::new()));
+    let host = {
+        let sent = sent.clone();
+        move || Host {
+            deliver: std::sync::Arc::new(move |m| sent.lock().unwrap().push(m)),
+            spawn: std::sync::Arc::new(|f| drop(tokio::spawn(f))),
+        }
+    };
+    let name = "mcp__quickstart-late__get-time";
+    let mut start = json!({"sessionUpdate": "tool_call", "toolCallId": "t1", "status": "pending",
+        "title": name, "kind": "other", "rawInput": {}, "_meta": {"claude": {"toolName": name, "tool": name}}});
+    assert!(!annotate("sess-late", &mut start, meta, host.clone()), "not fetched yet");
+    let mut done = json!({"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "completed",
+        "content": [{"type": "content", "content": {"type": "text", "text": "2026-11-18T12:00:00Z"}}]});
+    assert!(!annotate("sess-late", &mut done, meta, host.clone()), "the result came first");
+    assert!(sent.lock().unwrap().is_empty());
+    gate.notify_one();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while sent.lock().unwrap().is_empty() {
+        assert!(std::time::Instant::now() < deadline, "no late surface");
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    let msg = sent.lock().unwrap()[0].clone();
+    assert_eq!(msg["toolCallId"], "t1");
+    assert_eq!(msg["status"], "completed");
+    assert_eq!(msg["kind"], "other");
+    assert_eq!(msg["tool"], name);
+    assert_eq!(msg["title"], name);
+    assert_eq!(msg["rawInput"], json!({}));
+    assert_eq!(msg["content"][0]["content"]["text"], "2026-11-18T12:00:00Z");
+    let s = &msg["surface"];
+    assert_eq!(s["status"], "ready");
+    assert_eq!(s["source"]["kind"], "mcp-app");
+    assert_eq!(s["source"]["resourceUri"], "ui://get-time/mcp-app.html");
+    assert!(s["frame"]["html"].as_str().is_some_and(|h| h.contains("get-time view")), "{s}");
+    // Its second call draws from the cache, on its own update.
+    let mut again = json!({"sessionUpdate": "tool_call", "toolCallId": "t2", "status": "pending",
+        "title": name, "_meta": {"claude": {"toolName": name}}});
+    assert!(annotate("sess-late", &mut again, meta, host.clone()));
+    assert_eq!(sent.lock().unwrap().len(), 1, "one late record");
 }

@@ -760,19 +760,6 @@ impl SurfaceStore {
                         vec![Send { label: "link".into(), value: url.clone() }],
                         format!("link:{url}"),
                     ),
-                    Proposal::ModelContext { content } => {
-                        let shown = text::clean(&content.to_string());
-                        (
-                            Outbound::ModelContext {
-                                surface_id: sid,
-                                content,
-                                view_request_id: view_id,
-                            },
-                            format!("Give the agent this context from the app: {}", short(&shown)),
-                            vec![Send { label: "context".into(), value: shown }],
-                            "model-context".into(),
-                        )
-                    }
                 };
                 let pending =
                     Pending { request_id, action_id: "bridge".into(), summary, sends, target };

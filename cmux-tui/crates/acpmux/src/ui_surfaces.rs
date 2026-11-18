@@ -86,7 +86,74 @@ struct Call {
     /// (`ui/notifications/tool-input`, `tool-result`): the agent saw both already.
     input: Option<Value>,
     result: Option<Value>,
+    /// An MCP App call drawn without its view, which a fetch started for: `(server, tool)`.
+    waiting: Option<(String, String)>,
+    /// The tool row's other parts, as the translator reads them: a late surface sends them again.
+    row: RowParts,
 }
+
+/// A tool row's parts a late surface's patch sends again (acpmux-book `v1.rs` `late_surface`).
+#[derive(Default)]
+struct RowParts {
+    kind: String,
+    status: String,
+    tool: String,
+    title: Option<Value>,
+    raw_input: Option<Value>,
+    content: Option<Value>,
+    /// A part past [`MAX_PART_BYTES`] was not kept: a patch would drop it, so none is sent.
+    lossy: bool,
+}
+
+impl RowParts {
+    /// Takes an update's parts the way the translator does: each present one replaces the last.
+    fn take(&mut self, update: &Value) {
+        let text = |k: &str| update.get(k).and_then(Value::as_str).filter(|s| !s.is_empty());
+        for (slot, k) in [(&mut self.kind, "kind"), (&mut self.status, "status")] {
+            if let Some(v) = text(k) {
+                *slot = v.to_string();
+            }
+        }
+        if let Some(v) = update.pointer("/_meta/claude/tool").and_then(Value::as_str) {
+            self.tool = v.to_string();
+        }
+        let mut keep = |slot: &mut Option<Value>, k: &str| {
+            let Some(v) = update.get(k).filter(|v| !v.is_null()) else { return };
+            if v.to_string().len() > MAX_PART_BYTES {
+                self.lossy = true;
+            } else {
+                *slot = Some(v.clone());
+            }
+        };
+        keep(&mut self.title, "title");
+        keep(&mut self.raw_input, "rawInput");
+        keep(&mut self.content, "content");
+        if update.pointer("/_meta/terminal_output/data").is_some() {
+            // Appended terminal text is not kept: a patch would drop it.
+            self.lossy = true;
+        }
+    }
+}
+
+/// The most bytes of one tool row part kept for a late surface.
+const MAX_PART_BYTES: usize = 256 * 1024;
+
+/// What a chat's tap lends its surfaces: `deliver` appends a mux record to the chat's log and
+/// `spawn` runs a fetch on the hub's task scope (its owner, which closes it). Both hold the hub
+/// and chat weakly, so the surfaces registry keeps neither alive.
+#[derive(Clone)]
+pub struct Host {
+    pub deliver: std::sync::Arc<dyn Fn(Value) + Send + Sync>,
+    pub spawn: Spawn,
+}
+
+/// Runs a fetch on its owner's scope (`hub.scope`); a gone owner drops it.
+pub type Spawn = std::sync::Arc<
+    dyn Fn(std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>) + Send + Sync,
+>;
+
+/// The mux kind of a late surface (acpmux-book `v1.rs` `late_surface`).
+pub const LATE_KIND: &str = "ui_surface";
 
 #[derive(Default)]
 struct SessionSurfaces {
@@ -96,6 +163,8 @@ struct SessionSurfaces {
     coalescer: Coalescer<String>,
     harness: String,
     cwd: PathBuf,
+    /// Logs a late surface into the session (set by the tap on its first MCP App call).
+    host: Option<Host>,
 }
 
 impl SessionSurfaces {
@@ -195,13 +264,105 @@ fn surface_id_for(call_id: &str) -> String {
     format!("app-{clean}")
 }
 
+/// Draw an MCP App call from its server's cached view: a frame for an HTML resource, the A2UI
+/// surface for an `application/a2ui+json` one. False when the view is not cached (or not one).
+fn attach_view(s: &mut SessionSurfaces, call_id: &str, server: &str, tool: &str) -> bool {
+    let Some((resource_uri, view, tools)) = mcp_http::cached_view(&s.harness, &s.cwd, server, tool)
+    else {
+        return false;
+    };
+    let source = Source {
+        kind: SourceKind::McpApp,
+        server: Some(server.to_string()),
+        tool: Some(tool.to_string()),
+        resource_uri: Some(resource_uri),
+        ..Default::default()
+    };
+    let id = match view {
+        ResourceView::Html { html, csp } => {
+            let id = surface_id_for(call_id);
+            s.store.put_frame(&id, source, html, csp, tools).ok().map(|_| id)
+        }
+        ResourceView::A2ui(v) => s.store.apply_value(&v, &source, true).changed.first().cloned(),
+    };
+    let Some(id) = id else { return false };
+    s.call(call_id).surfaces.push(id);
+    true
+}
+
+/// A fetch of MCP App views finished (`mcp_http::prefetch`): every call that waited for one and
+/// now has it is drawn, and its surface logged as a `ui_surface` mux record with the row's other
+/// parts (acpmux-book `v1.rs` `late_surface`: a body on the open row, else a patch of the settled
+/// one). So the first call to a tool draws even when its result came before the fetch did.
+pub(crate) fn late_views() {
+    if !enabled() {
+        return;
+    }
+    let mut sends: Vec<(Host, Value)> = Vec::new();
+    {
+        let mut guard = registry().lock().unwrap_or_else(|e| e.into_inner());
+        for s in guard.0.values_mut() {
+            let Some(host) = s.host.clone() else { continue };
+            let waiting: Vec<(String, String, String)> = s
+                .calls
+                .iter()
+                .filter(|(_, c)| c.surfaces.is_empty())
+                .filter_map(|(id, c)| c.waiting.clone().map(|(sv, t)| (id.clone(), sv, t)))
+                .collect();
+            for (call_id, server, tool) in waiting {
+                if !attach_view(s, &call_id, &server, &tool) {
+                    continue;
+                }
+                let call = s.call(&call_id);
+                call.waiting = None;
+                let (ended, failed) = (call.ended, call.row.status == "failed");
+                if call.row.lossy {
+                    continue;
+                }
+                let ids = call.surfaces.clone();
+                if ended {
+                    let st = if failed { Status::Error } else { Status::Ready };
+                    for id in &ids {
+                        if s.store.surface(id).is_some_and(|x| x.status == Status::Streaming) {
+                            s.store.set_status(id, st, None);
+                        }
+                    }
+                }
+                let Some(surface) = ids.iter().find_map(|id| s.store.surface(id)) else { continue };
+                let Ok(surface) = serde_json::to_value(&surface) else { continue };
+                let row = &s.call(&call_id).row;
+                let mut msg = json!({"toolCallId": call_id, "surface": surface});
+                for (k, v) in [("kind", &row.kind), ("status", &row.status), ("tool", &row.tool)] {
+                    if !v.is_empty() {
+                        msg[k] = json!(v);
+                    }
+                }
+                for (k, v) in
+                    [("title", &row.title), ("rawInput", &row.raw_input), ("content", &row.content)]
+                {
+                    if let Some(v) = v {
+                        msg[k] = v.clone();
+                    }
+                }
+                sends.push((host.clone(), msg));
+            }
+        }
+    }
+    for (host, msg) in sends {
+        (host.deliver)(msg);
+    }
+}
+
 /// Run the session's store for one live tool update and, when a surface is due, write it into
 /// the update's `_meta.acpmux.uiSurface`. `meta` gives the chat's harness and folder, read only
-/// when an MCP App lookup needs them. Never blocks on I/O: a fetch is spawned.
+/// when an MCP App lookup needs them; `host` logs a late surface into the chat and runs the fetch,
+/// asked for only
+/// when a fetch starts. Never blocks on I/O: a fetch is spawned.
 pub fn annotate(
     session_id: &str,
     update: &mut Value,
     meta: impl FnOnce() -> (String, PathBuf),
+    host: impl FnOnce() -> Host,
 ) -> bool {
     let kind = update.get("sessionUpdate").and_then(Value::as_str).unwrap_or("");
     if !matches!(kind, "tool_call" | "tool_call_update") || !enabled() {
@@ -267,38 +428,20 @@ pub fn annotate(
             if s.harness.is_empty() {
                 (s.harness, s.cwd) = meta();
             }
-            match mcp_http::cached_view(&s.harness, &s.cwd, &server, &tool) {
-                Some((resource_uri, view, tools)) => {
-                    let id = surface_id_for(&call_id);
-                    let source = Source {
-                        kind: SourceKind::McpApp,
-                        server: Some(server.clone()),
-                        tool: Some(tool.clone()),
-                        resource_uri: Some(resource_uri),
-                        ..Default::default()
-                    };
-                    let ok = match view {
-                        ResourceView::Html { html, csp } => {
-                            s.store.put_frame(&id, source, html, csp, tools).is_ok()
-                        }
-                        ResourceView::A2ui(v) => {
-                            let out = s.store.apply_value(&v, &source, true);
-                            if let Some(first) = out.changed.first() {
-                                s.call(&call_id).surfaces.push(first.clone());
-                            }
-                            false
-                        }
-                    };
-                    if ok {
-                        s.call(&call_id).surfaces.push(id);
-                    }
-                    touched = true;
-                }
-                None => mcp_http::prefetch(&s.harness, &s.cwd, &server),
+            if attach_view(s, &call_id, &server, &tool) {
+                touched = true;
+                s.call(&call_id).waiting = None;
+            } else {
+                // Not fetched yet: the fetch starts now, at the call's first update, and a view it
+                // brings after this call's row settled is logged as a late surface.
+                s.call(&call_id).waiting = Some((server.clone(), tool));
+                let spawn = s.host.get_or_insert_with(host).spawn.clone();
+                mcp_http::prefetch(&s.harness, &s.cwd, &server, &spawn);
             }
         }
         let call = s.call(&call_id);
         if mcp_parts(&call.name).is_some() {
+            call.row.take(update);
             let small = |v: &&Value| !v.is_null() && v.to_string().len() <= 256 * 1024;
             if let Some(input) = update.get("rawInput").filter(small) {
                 call.input = Some(input.clone());
@@ -398,8 +541,6 @@ pub enum Confirmed {
     },
     /// The page opens the link.
     OpenLink { url: String, view_request_id: Option<Value> },
-    /// Context for the model: not delivered in the prototype.
-    ModelContext { view_request_id: Option<Value> },
 }
 
 /// `_acpmux/ui_surface_confirm {sessionId, surfaceId, requestId, values?}`.
@@ -419,9 +560,6 @@ pub fn confirm(session_id: &str, params: &Value) -> Result<Confirmed, crate::rpc
         }
         Outbound::OpenLink { url, view_request_id, .. } => {
             Confirmed::OpenLink { url, view_request_id }
-        }
-        Outbound::ModelContext { view_request_id, .. } => {
-            Confirmed::ModelContext { view_request_id }
         }
     })
 }

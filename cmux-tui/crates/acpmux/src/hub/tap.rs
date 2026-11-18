@@ -354,10 +354,41 @@ impl Hub {
                 if !kind.ends_with(".replay")
                     && let Some(update) = params.get_mut("update")
                 {
-                    crate::ui_surfaces::annotate(&tap_session.id, update, || {
-                        let m = tap_session.meta.lock().unwrap_or_else(|e| e.into_inner());
-                        (m.harness.clone(), m.cwd.clone())
-                    });
+                    crate::ui_surfaces::annotate(
+                        &tap_session.id,
+                        update,
+                        || {
+                            let m = tap_session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                            (m.harness.clone(), m.cwd.clone())
+                        },
+                        || {
+                            // A late MCP App view is logged into this chat as a mux record, and
+                            // the fetch runs on the hub's scope. Held weakly, so the surfaces
+                            // registry keeps neither the hub nor the chat.
+                            let hub = Arc::downgrade(&tap_hub);
+                            let session = Arc::downgrade(&tap_session);
+                            let spawn_hub = hub.clone();
+                            crate::ui_surfaces::Host {
+                                deliver: Arc::new(move |msg| {
+                                    if let (Some(hub), Some(session)) =
+                                        (hub.upgrade(), session.upgrade())
+                                    {
+                                        hub.append(
+                                            &session,
+                                            "mux",
+                                            crate::ui_surfaces::LATE_KIND,
+                                            msg,
+                                        );
+                                    }
+                                }),
+                                spawn: Arc::new(move |fetch| {
+                                    if let Some(hub) = spawn_hub.upgrade() {
+                                        drop(hub.scope.spawn_named("ui-surface-fetch", fetch));
+                                    }
+                                }),
+                            }
+                        },
+                    );
                 }
                 // The chat's own thread is never one of its subagents. Seed the
                 // native roots (the current one and the earlier ones a daemon restart
