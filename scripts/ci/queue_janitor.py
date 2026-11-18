@@ -2002,7 +2002,9 @@ def classify_lost(
 # branch, by the same cancel and carried re-run of failed jobs as category e,
 # where that re-run leaves the owned label (owned_pool_rescue.
 # bot_rerun_leaves_owned(); a side lane's attempt 2 takes its Blacksmith
-# macOS default).
+# macOS default). cmux-next's re-run leaves only while vars.CI_BLACKSMITH_MACOS
+# is `on` (STALL_BLACKSMITH_MACOS, owned_pool_rescue.rerun_side_label()); else
+# it takes CI_SIDE_LANE_RUNNER on every attempt and only rejoins the queue.
 
 
 def pool_wait_p90(*maps: Mapping[int, Sequence[Mapping[str, Any]]] | None) -> dict[str, int]:
@@ -2221,7 +2223,8 @@ def classify_unclaimed(
     elif bot_rerun(run):
         return LostVerdict("skip", f"{evidence}; {why}", f"attempt {attempt} is a bot's re-run, left to the "
                                                          "owned-pool rescue and the orphan pass", pr=pr)
-    elif not rescue.bot_rerun_leaves_owned(str(run.get("path") or ""), attempt):
+    elif not rescue.bot_rerun_leaves_owned(str(run.get("path") or ""), attempt,
+                                           side_label=rescue.rerun_side_label(os.environ)):
         return LostVerdict("skip", f"{evidence}; {why}", f"a re-run of attempt {attempt} would stay on the owned "
                                                          "label; left to the owned-pool rescue", pr=pr)
     if any(job.get("status") == "completed" and job.get("conclusion") == "failure" for job in run_jobs):
@@ -2263,7 +2266,8 @@ def branch_head_lookups(runs: Iterable[Mapping[str, Any]], run_ids: Iterable[int
                 or branch in seen or (bot_rerun(run) and not stale_eligible):
             continue
         if run.get("id") in in_f and not stale_eligible and not rescue.bot_rerun_leaves_owned(
-                str(run.get("path") or ""), int(run.get("run_attempt") or 1)):
+                str(run.get("path") or ""), int(run.get("run_attempt") or 1),
+                side_label=rescue.rerun_side_label(os.environ)):
             continue
         if not stale_eligible and jobs_by_run is not None and any(
                 job.get("status") == "completed" and job.get("conclusion") == "failure"
@@ -2934,7 +2938,7 @@ def render_lost_reruns(decisions: Sequence[LostRerun], *, dry_run: bool,
 # GitHub (or Blacksmith behind it) sometimes loses a job's runner assignment:
 # the job stays `queued` with no runner_name while its pool is idle, and the
 # run never finishes. It burns nothing, but it can hold a concurrency group
-# (ios-appstore-upload.yml's `ios-app-store-production`), and a stuck
+# (ios-appstore-upload.yml's `ios-testflight-classic`), and a stuck
 # required job such as `ci-status` blocks its pull request forever. This is a
 # separate category from the backlog policy above: it is not gated on a pool
 # being backed up, has its own small cap, and reads only the runs and jobs the

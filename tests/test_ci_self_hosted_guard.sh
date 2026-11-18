@@ -334,8 +334,9 @@ check_ios_runner_routing() {
   # every macOS job reads its answer, and a re-run attempt its retry answer.
   # mobile-core-package needs no simulator, so it reads package_runs_on; the
   # ios-simulator matrix reads sim_runs_on (glaeda's sim-first label when the
-  # picker chose it), falling back to runs_on.
-  if [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}" "$IOS_FILE")" -ne 1 ]] ||
+  # picker chose it), falling back to runs_on; ios-simulator-build reads
+  # build_runs_on (the sim-first label when one is idle), falling back to runs_on.
+  if [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.build_runs_on || needs.runner.outputs.runs_on) }}" "$IOS_FILE")" -ne 1 ]] ||
      [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.sim_runs_on || needs.runner.outputs.runs_on) }}" "$IOS_FILE")" -ne 1 ]] ||
      [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.package_runs_on) }}" "$IOS_FILE")" -ne 1 ]]; then
     echo "FAIL: all macOS iOS test jobs must take the runner job's pool, which honors the dispatch runner override"
@@ -1879,7 +1880,7 @@ GUARDED = (
     " || 'blacksmith-6vcpu-macos-15')",
     # A side lane: the side label of the pool first, when the picker named one.
     "github.event_name == 'pull_request' && ((" + lane_side("claude-wrapper") + ")"
-    " || needs.changes.outputs.macos_pr_runner || vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER"
+    " || needs.changes.outputs.macos_pr_runner || vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER)"
     " || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15')",
     # The bot's re-run past attempt 2 on an owned-pool run, or a job the picker did not
     # place on the owned pool: the Blacksmith pool the picker named for it.

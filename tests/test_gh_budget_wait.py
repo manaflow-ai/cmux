@@ -291,5 +291,58 @@ class AutoResumeTests(unittest.TestCase):
             self.assertGreaterEqual(int(job.get("timeout-minutes", 360)), 120, name)
 
 
+class PinnedAssetPublishTests(unittest.TestCase):
+    """The cmux-next pinned-asset publish workflows wait through rate limits.
+
+    Run 43888568476 (2026-11-16) of cmux-next-cua-helper-dev-sign.yml died in
+    its first gh read with "API rate limit exceeded for installation", so a
+    fix that needed a rebuilt cmux Remote could not even start.
+    """
+
+    GH_CALL = re.compile(r"(^|[\s;(|&`$!])gh\s")
+    # Each job's timeout before the wrapper; the wrapper may add an hour.
+    JOBS = {
+        "cmux-next-cua-helper-dev-sign.yml": {"sdk": 10, "pin-pr": 10},
+        "cmux-next-cef-publish.yml": {"resolve": 10, "publish": 45},
+        "cmux-next-remote-browser-host-publish.yml": {"resolve": 5, "publish": 15},
+    }
+
+    def uses_gh(self, step: dict) -> bool:
+        return "run" in step and (
+            bool(self.GH_CALL.search(step["run"])) or "GH_TOKEN" in (step.get("env") or {})
+        )
+
+    def test_every_job_with_a_gh_call_installs_the_wrapper_first(self) -> None:
+        import yaml
+        for workflow, budgets in self.JOBS.items():
+            doc = yaml.safe_load((ROOT / ".github" / "workflows" / workflow).read_text(encoding="utf-8"))
+            using = {name for name, job in doc["jobs"].items() if any(self.uses_gh(s) for s in job.get("steps", []))}
+            self.assertEqual(using, set(budgets), workflow)
+            for name, before in budgets.items():
+                where = f"{workflow}:{name}"
+                job = doc["jobs"][name]
+                steps = job["steps"]
+                runs = [step.get("run", "").strip() for step in steps]
+                install = runs.index("bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install")
+                tooling = steps[install - 1]
+                self.assertTrue(tooling.get("uses", "").startswith("actions/checkout@"), where)
+                self.assertEqual(tooling["with"]["ref"], "${{ github.sha }}", where)
+                self.assertEqual(tooling["with"]["path"], ".gh-budget-tooling", where)
+                self.assertEqual(tooling["with"]["persist-credentials"], False, where)
+                self.assertIn("scripts/ci/gh_budget_wait.sh", tooling["with"]["sparse-checkout"].split(), where)
+                first = min(i for i, step in enumerate(steps) if self.uses_gh(step))
+                self.assertLess(install, first, where)
+                self.assertGreaterEqual(int(job["timeout-minutes"]), before + 60, where)
+
+    def test_the_best_effort_approval_notice_does_not_wait(self) -> None:
+        # Its failed read only skips a notice, and the steps after it wait for
+        # the same budget anyway: one refused try, not up to the job's hour.
+        import yaml
+        doc = yaml.safe_load((ROOT / ".github" / "workflows" / "cmux-next-cua-helper-dev-sign.yml").read_text(encoding="utf-8"))
+        step = next(s for s in doc["jobs"]["sdk"]["steps"] if s.get("name") == "Name runs still waiting for a publish approval")
+        self.assertIn("|| exit 0", step["run"])
+        self.assertEqual(step["env"].get("GH_BUDGET_WAIT_ATTEMPTS"), "1")
+
+
 if __name__ == "__main__":
     unittest.main()
