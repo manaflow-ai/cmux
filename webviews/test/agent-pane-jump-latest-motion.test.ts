@@ -19,6 +19,7 @@ import { chromium, webkit, type Browser, type BrowserType, type Page } from "pla
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { JUMP_LATEST, JUMP_LATEST_SHOWN } from "../src/agent-session/acpmux/transcriptSelectors";
 
 await requireBrowserLane("agent-pane-jump-latest-motion.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -216,62 +217,64 @@ await requireBrowserLane("agent-pane-jump-latest-motion.test.ts", async () => {
   /// Records the offset, the content's height, the distance from the end and the last row's place
   /// over the card after every painted frame, and when the jump was clicked, until `stopFrames`.
   const startFrames = (page: Page) =>
-    page.evaluate(() => {
-      const holder = window as unknown as { __frames?: Frame[]; __clickedAt?: number };
-      const frames: Frame[] = [];
-      holder.__frames = frames;
-      holder.__clickedAt = undefined;
-      document.addEventListener(
-        "click",
-        (event) => {
-          if ((event.target as Element | null)?.closest?.(".acpmux-jump-latest:not(.acpmux-jump-up)"))
-            holder.__clickedAt ??= performance.now();
-        },
-        { capture: true },
-      );
-      // Read as the frame paints: in a ResizeObserver made after the pane's, on a probe resized in
-      // each frame's callbacks, so the read comes after the frame's layout and the pane's own
-      // observer, right before the paint. A read in a task after the frame (cmuxAfterPaint) could
-      // come after an already-queued task grew the streaming reply: a state no frame painted, the
-      // reply a paragraph longer than its placement (-36 px under the card, CI's Chromium).
-      const probe = document.createElement("div");
-      probe.style.cssText = "position:fixed;left:0;top:0;height:1px;width:1px;pointer-events:none;visibility:hidden";
-      document.body.append(probe);
-      let wide = false;
-      const read = (frame: number) => {
-        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-        const card = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
-        const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")];
-        const last = rows.reduce((a, b) =>
-          Number(b.getAttribute("aria-posinset")) > Number(a.getAttribute("aria-posinset")) ? b : a,
+    page.evaluate(
+      ({ JUMP_LATEST }) => {
+        const holder = window as unknown as { __frames?: Frame[]; __clickedAt?: number };
+        const frames: Frame[] = [];
+        holder.__frames = frames;
+        holder.__clickedAt = undefined;
+        document.addEventListener(
+          "click",
+          (event) => {
+            if ((event.target as Element | null)?.closest?.(JUMP_LATEST)) holder.__clickedAt ??= performance.now();
+          },
+          { capture: true },
         );
-        // Where the row is laid out: a row that arrives live rises 4px into place (`cv-enter`'s
-        // translate, #20003), which draws it and never moves layout, so it is not read as the row
-        // under the card. The turn's footer arrives so as the glide lands.
-        const rise = parseFloat(getComputedStyle(last).translate.split(" ")[1] ?? "0") || 0;
-        frames.push({
-          at: frame,
-          top: scroller.scrollTop,
-          height: scroller.scrollHeight,
-          fromEnd: Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight),
-          rowAboveCard: Math.round(card.top - (last.getBoundingClientRect().bottom - rise)),
-        });
-      };
-      const observer = new ResizeObserver(() => read(performance.now()));
-      observer.observe(probe);
-      window.cmuxAfterPaint(
-        () => {
-          if (holder.__frames === frames) return;
-          observer.disconnect();
-          probe.remove();
-          return false;
-        },
-        () => {
-          wide = !wide;
-          probe.style.width = wide ? "2px" : "1px";
-        },
-      );
-    });
+        // Read as the frame paints: in a ResizeObserver made after the pane's, on a probe resized in
+        // each frame's callbacks, so the read comes after the frame's layout and the pane's own
+        // observer, right before the paint. A read in a task after the frame (cmuxAfterPaint) could
+        // come after an already-queued task grew the streaming reply: a state no frame painted, the
+        // reply a paragraph longer than its placement (-36 px under the card, CI's Chromium).
+        const probe = document.createElement("div");
+        probe.style.cssText = "position:fixed;left:0;top:0;height:1px;width:1px;pointer-events:none;visibility:hidden";
+        document.body.append(probe);
+        let wide = false;
+        const read = (frame: number) => {
+          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+          const card = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
+          const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")];
+          const last = rows.reduce((a, b) =>
+            Number(b.getAttribute("aria-posinset")) > Number(a.getAttribute("aria-posinset")) ? b : a,
+          );
+          // Where the row is laid out: a row that arrives live rises 4px into place (`cv-enter`'s
+          // translate, #20003), which draws it and never moves layout, so it is not read as the row
+          // under the card. The turn's footer arrives so as the glide lands.
+          const rise = parseFloat(getComputedStyle(last).translate.split(" ")[1] ?? "0") || 0;
+          frames.push({
+            at: frame,
+            top: scroller.scrollTop,
+            height: scroller.scrollHeight,
+            fromEnd: Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight),
+            rowAboveCard: Math.round(card.top - (last.getBoundingClientRect().bottom - rise)),
+          });
+        };
+        const observer = new ResizeObserver(() => read(performance.now()));
+        observer.observe(probe);
+        window.cmuxAfterPaint(
+          () => {
+            if (holder.__frames === frames) return;
+            observer.disconnect();
+            probe.remove();
+            return false;
+          },
+          () => {
+            wide = !wide;
+            probe.style.width = wide ? "2px" : "1px";
+          },
+        );
+      },
+      { JUMP_LATEST },
+    );
   /// The frames painted after the jump was clicked, and the click's time.
   const stopFrames = (page: Page) =>
     page.evaluate(() => {
@@ -295,7 +298,7 @@ await requireBrowserLane("agent-pane-jump-latest-motion.test.ts", async () => {
       await page.keyboard.press("Shift+Enter");
     }
     await untilStill(page);
-    await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]").waitFor();
+    await page.locator(JUMP_LATEST_SHOWN).waitFor();
   }
   /// Wait for the browser's scroll completion event, then confirm the landing frame is at the
   /// current end. A streamed reply can move the end after an earlier scrollend, so scroll events
@@ -312,10 +315,20 @@ await requireBrowserLane("agent-pane-jump-latest-motion.test.ts", async () => {
           let still = 0;
           const atEnd = () => scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= 1;
           const running = () =>
-            [...scroller.getAnimations({ subtree: true })].some(
-              (animation) =>
-                animation.playState === "running" && animation.effect?.getComputedTiming().endTime !== Infinity,
-            );
+            [...document.getAnimations()].some((animation) => {
+              const target = (animation.effect as KeyframeEffect | null)?.target;
+              // Document-wide enumeration also includes pseudo-element targets; map those back to
+              // their owning element so the footer's entrance cannot be missed by an engine's
+              // subtree implementation.
+              const element =
+                target instanceof Node ? target : (target as { parentElement?: Element | null } | null)?.parentElement;
+              return (
+                element instanceof Node &&
+                scroller.contains(element) &&
+                animation.playState === "running" &&
+                animation.effect?.getComputedTiming().endTime !== Infinity
+              );
+            });
           const finish = () => {
             if (!ended || !atEnd() || running()) {
               still = 0;
@@ -353,7 +366,7 @@ await requireBrowserLane("agent-pane-jump-latest-motion.test.ts", async () => {
       const start = (await measure(page)).top;
       await startFrames(page);
       const settled = waitForJumpSettle(page);
-      await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)").click();
+      await page.locator(JUMP_LATEST).click();
       await settled;
       const frames = await stopFrames(page);
       const end = await measure(page);
@@ -379,7 +392,7 @@ await requireBrowserLane("agent-pane-jump-latest-motion.test.ts", async () => {
       const start = await measure(page);
       await startFrames(page);
       const settled = waitForJumpSettle(page);
-      await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)").click();
+      await page.locator(JUMP_LATEST).click();
       // The reply: a paragraph every frame painted, starting with the glide.
       send(record("mux", "turn_started", {}));
       for (let index = 1; index <= 12; index++) {
@@ -430,12 +443,12 @@ await requireBrowserLane("agent-pane-jump-latest-motion.test.ts", async () => {
     await page.mouse.move(view.x + view.width / 2, view.y + 120);
     await page.mouse.wheel(0, -900);
     await untilStill(page);
-    await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]").waitFor();
+    await page.locator(JUMP_LATEST_SHOWN).waitFor();
     const capture = process.env.CMUX_JUMP_CAPTURE_DIR;
     if (capture) await page.screenshot({ path: path.join(capture, `${name}-before.png`) });
     await startFrames(page);
     const settled = waitForJumpSettle(page);
-    await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)").click();
+    await page.locator(JUMP_LATEST).click();
     send(record("mux", "turn_started", {}));
     for (let index = 1; index <= 12; index++) {
       send(
@@ -479,15 +492,15 @@ await requireBrowserLane("agent-pane-jump-latest-motion.test.ts", async () => {
     await page.mouse.move(view.x + view.width / 2, view.y + 120);
     await page.mouse.wheel(0, -900);
     await untilStill(page);
-    await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]").waitFor();
-    await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)").click();
+    await page.locator(JUMP_LATEST_SHOWN).waitFor();
+    await page.locator(JUMP_LATEST).click();
     // Menu/key-equivalent commands are bridged on window while focus remains in the composer.
     await page.locator(".acpmux-md").focus();
     await page.evaluate(() => window.dispatchEvent(new Event("cmux-acpmux-previousTurn")));
     await untilStill(page);
     const stopped = await measure(page);
     expect(stopped.fromEnd).toBeGreaterThan(80);
-    await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]").waitFor();
+    await page.locator(JUMP_LATEST_SHOWN).waitFor();
     // An unrelated render must not revive the cancelled bottom-follow owner.
     send(record("mux", "turn_started", {}));
     send(record("in", "agent_message_chunk", chunk("A reply arriving after native turn navigation.")));

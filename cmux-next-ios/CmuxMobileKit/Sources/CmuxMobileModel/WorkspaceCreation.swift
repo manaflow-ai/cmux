@@ -12,6 +12,18 @@ public enum NewWorkspaceStart: Hashable, Sendable {
     case browser
 }
 
+/// What a plain tap on New Workspace starts, and in which folder (nil: the Mac's default).
+public struct NewWorkspaceTap: Hashable, Sendable {
+    public var start: NewWorkspaceStart
+    public var directory: String?
+    public init(start: NewWorkspaceStart, directory: String?) {
+        self.start = start
+        self.directory = directory
+    }
+    /// The tap opens an agent chat (else a terminal).
+    public var opensAgentChat: Bool { if case .agent = start { true } else { false } }
+}
+
 /// One request to create a workspace.
 public struct NewWorkspaceRequest: Hashable, Sendable {
     public var macID: String
@@ -654,6 +666,41 @@ public final class WorkspaceCreator {
         return Array(result.prefix(RecentDirectories.limit))
     }
 
+    /// What a plain tap on New Workspace makes on a Mac (Aziz, 2026-11-17: an agent chat,
+    /// not a terminal): a chat with the Mac's default agent (`""`, else the first agent it
+    /// offers) in its most recent project folder that is open on the Mac now, the same start
+    /// as New Agent Chat › that folder. A terminal at the default folder when the Mac can't
+    /// start an agent from a phone now, or has no such folder (a chat never starts in the
+    /// home folder, and the Mac refuses a folder it has no workspace in).
+    public func tapStart(on macID: String) -> NewWorkspaceTap {
+        let options = options(on: macID)
+        let terminal = NewWorkspaceTap(start: .terminal, directory: nil)
+        guard let harness = options.agents.contains("") ? "" : options.agents.first else { return terminal }
+        // The folders used from this phone first, then the Mac's by activity; only one open on the
+        // Mac now counts, so a closed recent folder never hides an open one.
+        let used = recents.load(macID: macID)
+        let seen = seenDirectories(on: macID, limit: RecentDirectories.limit + used.count)
+        let open = Set(seen)
+        guard options.directories,
+              let folder = (used + seen).first(where: { open.contains($0) && Self.isProjectFolder($0) }) else {
+            return terminal
+        }
+        return NewWorkspaceTap(start: .agent(harness), directory: folder)
+    }
+
+    /// Whether an agent chat may start in `path`: not the home folder or above it
+    /// (`~`, `/`, `/Users/<name>`, `/var/root`), as the Mac's own guard says.
+    nonisolated public static func isProjectFolder(_ path: String) -> Bool {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(separator: "/").map(String.init)
+        if parts.isEmpty || parts == ["~"] { return false }
+        if trimmed.hasPrefix("/") {
+            if parts == ["var"] || parts == ["var", "root"] { return false }
+            if parts.first == "Users", parts.count <= 2, parts.last != "Shared" { return false }
+        }
+        return true
+    }
+
     /// The directory a plain tap uses: the last one used on that Mac, else
     /// its home. Nil when the Mac picks (the backend cannot choose).
     public func defaultDirectory(on macID: String) -> String? {
@@ -908,6 +955,8 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
     public var failNextForPerson = false
     /// What Jump to Latest Unread and Jump to Last Prompt find (`TabAttentionBackend`).
     public var attention: (unread: TabAttentionPlace?, prompt: TabAttentionPlace?) = (nil, nil)
+    /// Where Toggle Terminal and Chat's pairings and faces are kept (the shell's; none keeps nothing).
+    public var keeping: (any TerminalChatKeeping)?
     private let clock: any Clock<Duration>
     private let latency: Duration
 
@@ -1215,6 +1264,31 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
             throw WorkspaceCreationError(message, isForPerson: failNextForPerson)
         }
     }
+}
+
+/// Toggle Terminal and Chat on mock data (`CMUX_MOBILE_MOCK_TERMINAL_AGENTS=1` lists terminals
+/// running Claude Code and Codex): the Mac's View Only chat opens at once, and what the phone
+/// keeps goes to `keeping`, which the shell gives the file a signed-in account keeps
+/// (`KeptTerminalChats`), so a relaunch reads the pairings and faces through the real code.
+extension MockWorkspaceCreationBackend: TerminalChatBackend {
+    public func terminalChatListings(on macID: String) -> [TerminalChatListing] { [] }
+    public func openTerminalChat(harness: String, session: String, terminalTabID: String, on macID: String) async throws -> TerminalChatOpen {
+        .chat("mock-view-only-\(session)")
+    }
+    public func keptTerminalChat(harness: String, session: String, on macID: String) -> String? {
+        keeping?.keptTerminalChat(harness: harness, session: session, on: macID)
+    }
+    public func keepTerminalChat(_ chat: String?, harness: String, session: String, on macID: String) {
+        keeping?.keepTerminalChat(chat, harness: harness, session: session, on: macID)
+    }
+    public func keptTerminalChatFace(tabID: String, on macID: String) -> Bool? {
+        keeping?.keptTerminalChatFace(tabID: tabID, on: macID)
+    }
+    public func keepTerminalChatFace(_ showsChat: Bool, tabID: String, on macID: String) {
+        keeping?.keepTerminalChatFace(showsChat, tabID: tabID, on: macID)
+    }
+    public var keptTerminalChatsLoaded: Bool { keeping?.keptTerminalChatsLoaded ?? true }
+    public func loadKeptTerminalChats() async { await keeping?.loadKeptTerminalChats() }
 }
 #endif
 

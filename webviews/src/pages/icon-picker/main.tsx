@@ -2,6 +2,7 @@
 // browser (`/icon-picker/?mock`) the in-memory mock host stands in.
 // DESKTOP-FEEL (R139): the shared desktop layer loads first.
 import "../shared/desktop";
+import "../shared/transientMaterial";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { mountIconPicker, type MountedPicker } from "./mount";
 import { MockIconPickerHost } from "./mockHost";

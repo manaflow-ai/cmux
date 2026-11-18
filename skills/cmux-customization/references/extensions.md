@@ -16,6 +16,17 @@ errors and `scene` (an outline of what rendered). Before saying it is done, it r
 `cmux ext shot --json` and looks at `shot.path`, a picture of the cmux window that
 shows the extension ([docs/cmux-next/extensions/dev-loop.md](../../../docs/cmux-next/extensions/dev-loop.md)).
 
+To share it from a git repository, scaffold with `cmux ext new NAME --repo OWNER/REPO`
+(or inside a clone of the person's empty GitHub repository, whose `origin` names it): the
+id becomes `owner/NAME`, the manifest gets `repository`, and the README carries the
+"Get it on cmux" badge and the install line `cmux apps install github.com/OWNER/REPO`.
+`cmux ext dev` still loads it as `local/NAME`. `cmux ext publish --json` (no network
+writes) checks it is ready to list (manifest, id, badge, repository, an icon or
+screenshot; `--write-badge` adds the badge) and prints the steps: push, `cmux ext pack`
+and a release tagged with the manifest's version carrying its two files, and a pull
+request to manaflow-ai/cmux-extensions adding the entry it prints. Pushing, releasing and
+the registry PR are the person's to do; ask before running them.
+
 ## Start from a template
 
 Each folder in [`../templates/`](../templates/) is a complete customize app
@@ -89,17 +100,21 @@ views" in the Command Palette (no scope), `cmux action run app.open --app local/
 | A Session Info section | `implements["cmux.session.info.section/1"]`; render gets `{ session_id, cwd, branch?, harness? }` | none |
 | Decorate workspace rows | `implements["cmux.sidebar.rows/1"]` (customize app only) | none |
 | A pane (a tab) | `implements["cmux.pane/1"]`, opened as above | none |
+| A whole New Tab page | `implements["cmux.newtab/1"]`; shows only once the person runs `cmux settings set tabs.newTabApp <app id>` (unset: cmux's own page; a missing, hidden or failing app: cmux's own page); render gets `{ surface: "newTab", cwd? }`. The web page only, not `tabs.nativeNewTabPage`. | none |
+| A widget (New Tab grid, sidebar) | `implements["cmux.widget/1"]` with `options.sizes` (`small`, `medium`, `large`), `refresh.everySeconds` (at least 60) and `places` (`newtab`, `sidebar`; missing means both); the person adds it from Edit Widgets > Add Widget; render gets `{ surface: "widget", place, size, instance, settings, refresh, now() }`. Scaffold: `cmux ext new NAME --kind widget`; layout helpers `WidgetFrame`, `BigNumber`, `RowList` in cmux-extension-sdk | none |
 | Look like cmux | `Panel`, `Row`, `Button`, `Menu`, `Toggle`, `Slider`, `TextField`, `Badge`, `EmptyState`, `ProgressView`, `cmux.theme` tones, `cmux.toast` ([the kit](local-app-views.md#matching-the-app)) | none |
 | Run my own command | `cmux.actions.run("cmuxConfig.<name>")` from a click | `actions:run` |
 | Run a built-in action | `cmux.actions.run(id, args)` from a click; ids from `cmux.actions.list()`. Actions that sign in, quit, change the system or act on live input are refused | `actions:run` |
 | Read the current workspace, pane, tab | `cmux.workspace.list()`, `cmux.pane.list({ workspace })`, `cmux.tab.list({ workspace })`; each row has `focused` | `workspace:read` |
 | Follow changes | `cmux.events.on("workspace.changed" \| "pane.changed" \| "tab.changed" \| "terminal.changed", fn)`; `cmux.live(op)` re-reads on `<family>.changed` | the op's read scope |
-| Show live data | `cmux.watch(name, params)` reads a signal source (`github.pulls`, `workspace.list`, `agent.list`; the list is `CmuxSignalMap` in `generated/cmux-app.d.ts`): one read per (name, params) for every section, re-read on push, polled behind the signal only when nothing pushes, the last value kept while it re-reads. Use it instead of `cmux.timer.every` polling. Recipe: `examples/extensions/pr-list` | the source's scopes |
+| Show live data | `cmux.watch(name, params)` reads a signal source (`github.pulls`, `workspace.list`, `agent.list`, `http.json` for JSON at a URL: one cached request per URL for every extension, needs `net:<host>`; the list is `CmuxSignalMap` in `generated/cmux-app.d.ts`): one read per (name, params) for every section, re-read on push, polled behind the signal only when nothing pushes, the last value kept while it re-reads. Use it instead of `cmux.timer.every` polling. Recipe: `examples/extensions/pr-list` | the source's scopes |
 | Focus, rename, split | `cmux.tab.focus`, `cmux.workspace.rename`, `cmux.pane.split`, ... | `workspace:write` |
 | Run a shell command in a new terminal | `cmux.pane.run({ pane, argv })`, `cmux.workspace.run({ workspace, argv })` | `workspace:execute` |
 | Type into a terminal | `cmux.terminal.input.write` | `terminal:execute` |
 | Agents, git, GitHub, notes, the feed | `cmux.agent.list`, `cmux.git.*`, `cmux.integrations.github.request`, `cmux.notes.*`, `cmux.feed.*` | each family's read or write scope |
 | Keep state, call a server | `cmux.storage.*`, `cmux.net.fetch`, `cmux.timer.*`, `cmux.clipboard` | `storage:local`, `net:<host>`, none, `clipboard:write` |
+| Read a browser page (reader mode) | `cmux.page.read({ tab? })`: the page's url and title, its main text as blocks (heading, paragraph, list_item, quote, code, image) with title, byline and site, and its links. No `tab`: the focused browser tab | `page:read` (highlighted on the consent sheet) |
+| Link hints on a browser page | `cmux.page.hints({ action: "show" \| "clear", tab? })` draws the built-in `f` labels and answers `{tab, hints: [{label, text, href}]}`; `cmux.page.follow({ label, new_split?, tab? })` clicks the hint's element, or opens its link in a new split (`F`). Both need a gesture (a key or a click) | `page:write` |
 | Errors | `cmux raw command --request-json '{"cmd":"apps-logs","app":"local/customize"}'` | |
 
 The whole op list with scopes is `cmux-tui/crates/cmux-app-host/generated/cmux-app.d.ts`

@@ -47,7 +47,7 @@ pub(super) const ROLLED_BACK: &str = "rolled-back";
 
 /// A channel file as CI writes it.
 #[derive(Debug, Deserialize)]
-pub(super) struct Channel {
+pub(crate) struct Channel {
     /// The tree whose folder (`cmux-tui/tree/<key>/`) holds the binaries.
     pub(super) key: String,
     /// The channel commit the tree was tested for. The binaries may report an
@@ -59,7 +59,7 @@ pub(super) struct Channel {
 
 impl Channel {
     /// A channel file's contents, its key and commit full lowercase hashes.
-    pub(super) fn parse(body: &[u8]) -> Result<Channel> {
+    pub(crate) fn parse(body: &[u8]) -> Result<Channel> {
         let channel: Channel =
             serde_json::from_slice(body).context("the channel file is not a channel")?;
         if !lower_hex(&channel.key, 40) {
@@ -72,7 +72,7 @@ impl Channel {
     }
 
     /// The sha256 of the acpmux build for `target`.
-    pub(super) fn sha256_for(&self, target: &str) -> Result<&str> {
+    pub(crate) fn sha256_for(&self, target: &str) -> Result<&str> {
         let name = format!("cmux-tui-acpmux-{target}");
         let sha = self
             .binaries
@@ -84,7 +84,7 @@ impl Channel {
         Ok(sha)
     }
 
-    fn binary_url(&self, target: &str) -> String {
+    pub(crate) fn binary_url(&self, target: &str) -> String {
         format!("{FILES}/tree/{}/cmux-tui-acpmux-{target}", self.key)
     }
 }
@@ -95,7 +95,7 @@ fn lower_hex(text: &str, len: usize) -> bool {
 }
 
 /// The URL of a channel's file; a channel is lowercase letters, digits and `-`.
-pub(super) fn channel_url(channel: &str) -> Result<String> {
+pub(crate) fn channel_url(channel: &str) -> Result<String> {
     let plain = !channel.is_empty()
         && channel.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
     if !plain {
@@ -338,8 +338,17 @@ fn keep(dir: &Path, target: &str, bytes: &[u8]) -> Result<()> {
 /// alone and restarts one that is not, so an update stopped between the
 /// install and the restart is finished by the next run (review of #24232). A
 /// build whose daemon was rolled back is marked, so the next run leaves it
-/// alone; when the mark cannot be written, the row says so.
-pub(super) fn apply(remote: &dyn Remote, plan: &Plan, target: &'static str) -> PeerUpdate {
+/// alone; when the mark cannot be written, the row says so. Unless `now`, a
+/// daemon an update restarted within the host's restart window (this timer's
+/// or a `host update` from another machine: one stamp on the host) is left
+/// alone, and nothing is installed: the first run after the window brings
+/// the newest build.
+pub(super) fn apply(
+    remote: &dyn Remote,
+    plan: &Plan,
+    target: &'static str,
+    now: bool,
+) -> PeerUpdate {
     let (dir, installed) = match &plan.step {
         Step::Current(build) => (&plan.dir, build.as_deref()),
         Step::Install(dir) => (dir, None),
@@ -348,7 +357,11 @@ pub(super) fn apply(remote: &dyn Remote, plan: &Plan, target: &'static str) -> P
         binary_dir: Some(dir.clone()),
         if_idle: false,
         keep_newer: false,
+        // The channel names the build this host runs (an older one too, when
+        // it pulls a bad build back); only pushes from elsewhere are refused.
+        allow_downgrade: true,
         caller: None,
+        now,
     };
     let mut up = update_peer(&plan.lease.fence(remote), &opts);
     up.target.get_or_insert(target);
@@ -436,7 +449,7 @@ impl Remote for LocalRemote {
 /// Exits 1 when the row failed. The channel decides: a build pushed by hand
 /// with `host update` is replaced by the channel's at the next run, unless
 /// automatic updates are off.
-pub(crate) async fn self_update(channel: &str, json_out: bool) -> Result<()> {
+pub(crate) async fn self_update(channel: &str, now: bool, json_out: bool) -> Result<()> {
     if std::env::consts::OS != "linux" {
         bail!(
             "host self-update keeps a Linux host's own daemon updated; update another machine with `acpmux machine update NAME`"
@@ -463,7 +476,7 @@ pub(crate) async fn self_update(channel: &str, json_out: bool) -> Result<()> {
         }
         Prepared::Ready(plan) => plan,
     };
-    let up = apply(&LocalRemote, &plan, paths.target);
+    let up = apply(&LocalRemote, &plan, paths.target, now);
     let name = crate::hand::pair::hostname();
     if json_out {
         print_json(&json!({

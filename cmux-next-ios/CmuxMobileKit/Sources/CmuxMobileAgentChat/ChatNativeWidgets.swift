@@ -88,7 +88,7 @@ struct ChatNativeWidgets {
     /// `UserBubble`: body text with 4 pt line spacing in the bubble color, 16/11 pt padding,
     /// radius 20, at most 80% of the column (`UserBubble.maxWidth`), on the trailing edge.
     private func prompt(_ prompt: String) -> Layout {
-        let attributed = text(prompt, styles.font(.body), .label, lineBreak: .byWordWrapping, lineSpacing: 4)
+        let attributed = text(prompt, styles.font(.body), .cmuxMobileChatBubbleText, lineBreak: .byWordWrapping, lineSpacing: 4)
         let maxText = UserBubble.maxWidth(in: width) - 32
         // The height UILabel draws: n lines 4 pt apart, a fallback font's taller line (emoji, CJK in
         // a pasted log) at its own height, no font leading anywhere (CMUX-54). `measure` adds the
@@ -99,7 +99,7 @@ struct ChatNativeWidgets {
         let bubble = CGSize(width: min(measured.width, maxText) + 32, height: textHeight + 22)
         let x = width - bubble.width
         var drawn = Drawn()
-        drawn.boxes.append(.init(frame: CGRect(x: x, y: 0, width: bubble.width, height: bubble.height), fill: .cmuxMobileBubble, radius: 20))
+        drawn.boxes.append(.init(frame: CGRect(x: x, y: 0, width: bubble.width, height: bubble.height), fill: .cmuxMobileChatBubble, radius: 20))
         drawn.texts.append(.init(text: attributed, frame: CGRect(x: x + 16, y: 11, width: bubble.width - 32, height: textHeight)))
         return Layout(content: .drawn(drawn), height: bubble.height)
     }

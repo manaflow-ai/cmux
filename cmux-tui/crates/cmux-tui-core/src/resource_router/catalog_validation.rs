@@ -94,7 +94,7 @@ pub(super) fn validate_catalog_params(
                 validate_catalog_value(
                     value,
                     &field["type"],
-                    &format!("{operation_name}.{name}"),
+                    ValuePath::root(&operation_name).field(name),
                     &HashMap::new(),
                 )?;
                 fields.insert(name.clone(), value.clone());
@@ -145,13 +145,9 @@ pub(super) fn validate_operation_result(
     result: &Value,
 ) -> Result<(), ResourceError> {
     let (operation_name, descriptor) = operation_descriptor(operation)?;
-    validate_catalog_value(
-        result,
-        &descriptor["result"],
-        &format!("{operation_name}.result"),
-        &HashMap::new(),
-    )
-    .map_err(|violation| contract_failure(&operation_name, "result", &violation))
+    let root = ValuePath::root(&operation_name);
+    validate_catalog_value(result, &descriptor["result"], root.field("result"), &HashMap::new())
+        .map_err(|violation| contract_failure(&operation_name, "result", &violation))
 }
 
 pub(crate) fn validate_operation_error(
@@ -180,10 +176,13 @@ pub(crate) fn validate_operation_error(
         );
     };
     let retryable_matches = error_descriptor["retryable"].as_bool() == Some(error.retryable);
+    let root = ValuePath::root(&operation_name);
+    let of_error = root.field("error");
+    let of_code = of_error.field(&error.code);
     let details = validate_catalog_value(
         &error.details,
         &error_descriptor["details"],
-        &format!("{operation_name}.error.{}.details", error.code),
+        of_code.field("details"),
         &HashMap::new(),
     );
     if retryable_matches && details.is_ok() {
@@ -212,53 +211,148 @@ pub(crate) fn validate_operation_outcome(
     }
 }
 
+/// Where a checked value is in its document: the steps from the root, each one borrowed from the
+/// caller that made it. The path's text (`workspace.list.result.items[3].id`) is written only for
+/// a value that fails, so the check of a value that passes builds no path string, whatever the
+/// number of its fields and items.
+///
+/// A union tries its value against each variant only to count the variants that pass. Such a
+/// trial is `quiet`: a failure in it makes no error value and no text.
+#[derive(Clone, Copy)]
+pub(super) struct ValuePath<'a> {
+    parent: Option<&'a ValuePath<'a>>,
+    step: PathStep<'a>,
+    quiet: bool,
+}
+
+#[derive(Clone, Copy)]
+enum PathStep<'a> {
+    Root(&'a str),
+    Field(&'a str),
+    Index(usize),
+}
+
+/// A value that fails its catalog type.
+enum Fault {
+    Told(ResourceError),
+    /// From a quiet path: the caller reads only that the value failed.
+    Quiet,
+}
+
+impl From<ResourceError> for Fault {
+    fn from(error: ResourceError) -> Self {
+        Self::Told(error)
+    }
+}
+
+impl<'a> ValuePath<'a> {
+    pub(super) fn root(name: &'a str) -> Self {
+        Self { parent: None, step: PathStep::Root(name), quiet: false }
+    }
+
+    /// The path of the field `name` of the value at this path.
+    pub(super) fn field<'b>(&'b self, name: &'b str) -> ValuePath<'b> {
+        ValuePath { parent: Some(self), step: PathStep::Field(name), quiet: self.quiet }
+    }
+
+    /// The path of the item `index` of the array at this path.
+    fn index(&self, index: usize) -> ValuePath<'_> {
+        ValuePath { parent: Some(self), step: PathStep::Index(index), quiet: self.quiet }
+    }
+
+    /// This path for a trial whose failure nobody reads.
+    fn quiet(self) -> Self {
+        Self { quiet: true, ..self }
+    }
+
+    /// The path's text, as the errors of the check name it.
+    fn text(&self) -> String {
+        let mut text = String::new();
+        self.write(&mut text);
+        text
+    }
+
+    fn write(&self, text: &mut String) {
+        if let Some(parent) = self.parent {
+            parent.write(text);
+        }
+        match self.step {
+            PathStep::Root(name) => text.push_str(name),
+            PathStep::Field(name) => {
+                text.push('.');
+                text.push_str(name);
+            }
+            PathStep::Index(index) => {
+                text.push('[');
+                text.push_str(&index.to_string());
+                text.push(']');
+            }
+        }
+    }
+
+    /// The fault of the value at this path: `error` makes its error from the path's text, and
+    /// does not run on a quiet path.
+    fn fault(&self, error: impl FnOnce(&str) -> ResourceError) -> Fault {
+        if self.quiet { Fault::Quiet } else { Fault::Told(error(&self.text())) }
+    }
+
+    fn invalid(&self, message: &str) -> Fault {
+        self.fault(|path| invalid_value(path, message))
+    }
+
+    fn malformed(&self, field: &str) -> Fault {
+        self.fault(|path| malformed_catalog(path, field))
+    }
+}
+
 pub(super) fn validate_catalog_value(
     value: &Value,
     descriptor: &Value,
-    path: &str,
+    path: ValuePath<'_>,
     parameters: &HashMap<String, Value>,
 ) -> Result<(), ResourceError> {
+    check_value(value, descriptor, path, parameters).map_err(|fault| match fault {
+        Fault::Told(error) => error,
+        // Only a quiet path makes this fault, and no caller of this function gives one.
+        Fault::Quiet => invalid_value(&path.text(), "value does not match its catalog type"),
+    })
+}
+
+fn check_value(
+    value: &Value,
+    descriptor: &Value,
+    path: ValuePath<'_>,
+    parameters: &HashMap<String, Value>,
+) -> Result<(), Fault> {
     let kind = descriptor["kind"].as_str().ok_or_else(|| {
-        ResourceError::operation_failed(
-            "catalog.validate",
-            "catalog type omitted its kind",
-            json!({"path":path}),
-        )
+        path.fault(|path| {
+            ResourceError::operation_failed(
+                "catalog.validate",
+                "catalog type omitted its kind",
+                json!({"path":path}),
+            )
+        })
     })?;
     match kind {
-        "primitive" => validate_primitive(value, descriptor, path),
+        "primitive" => check_primitive(value, descriptor, path),
         "enum" => {
             let matches =
                 descriptor["values"].as_array().is_some_and(|values| values.contains(value));
-            matches
-                .then_some(())
-                .ok_or_else(|| invalid_value(path, "value is outside the allowed enum"))
+            matches.then_some(()).ok_or_else(|| path.invalid("value is outside the allowed enum"))
         }
         "array" => {
-            let values =
-                value.as_array().ok_or_else(|| invalid_value(path, "value must be an array"))?;
-            validate_length(values.len(), descriptor, path, "items")?;
+            let values = value.as_array().ok_or_else(|| path.invalid("value must be an array"))?;
+            check_length(values.len(), descriptor, path, "items")?;
             for (index, item) in values.iter().enumerate() {
-                validate_catalog_value(
-                    item,
-                    &descriptor["items"],
-                    &format!("{path}[{index}]"),
-                    parameters,
-                )?;
+                check_value(item, &descriptor["items"], path.index(index), parameters)?;
             }
             Ok(())
         }
         "map" => {
-            let values = value
-                .as_object()
-                .ok_or_else(|| invalid_value(path, "value must be an object map"))?;
+            let values =
+                value.as_object().ok_or_else(|| path.invalid("value must be an object map"))?;
             for (name, item) in values {
-                validate_catalog_value(
-                    item,
-                    &descriptor["values"],
-                    &format!("{path}.{name}"),
-                    parameters,
-                )?;
+                check_value(item, &descriptor["values"], path.field(name), parameters)?;
             }
             Ok(())
         }
@@ -266,168 +360,161 @@ pub(super) fn validate_catalog_value(
             if value.is_null() {
                 Ok(())
             } else {
-                validate_catalog_value(value, &descriptor["value"], path, parameters)
+                check_value(value, &descriptor["value"], path, parameters)
             }
         }
-        "object" => validate_catalog_object(value, descriptor, path, parameters),
+        "object" => check_object(value, descriptor, path, parameters),
         "ref" => {
-            let name =
-                descriptor["name"].as_str().ok_or_else(|| malformed_catalog(path, "ref.name"))?;
-            let target = operation_catalog()["types"]
-                .get(name)
-                .ok_or_else(|| malformed_catalog(path, name))?;
-            validate_catalog_value(value, target, path, parameters)
+            let name = descriptor["name"].as_str().ok_or_else(|| path.malformed("ref.name"))?;
+            let target =
+                operation_catalog()["types"].get(name).ok_or_else(|| path.malformed(name))?;
+            check_value(value, target, path, parameters)
         }
         "apply" => {
-            let name =
-                descriptor["name"].as_str().ok_or_else(|| malformed_catalog(path, "apply.name"))?;
-            let generic = operation_catalog()["generics"]
-                .get(name)
-                .ok_or_else(|| malformed_catalog(path, name))?;
+            let name = descriptor["name"].as_str().ok_or_else(|| path.malformed("apply.name"))?;
+            let generic =
+                operation_catalog()["generics"].get(name).ok_or_else(|| path.malformed(name))?;
             let names = generic["parameters"]
                 .as_array()
-                .ok_or_else(|| malformed_catalog(path, "generic.parameters"))?;
+                .ok_or_else(|| path.malformed("generic.parameters"))?;
             let arguments = descriptor["arguments"]
                 .as_array()
-                .ok_or_else(|| malformed_catalog(path, "apply.arguments"))?;
+                .ok_or_else(|| path.malformed("apply.arguments"))?;
             if names.len() != arguments.len() {
-                return Err(malformed_catalog(path, "generic argument count"));
+                return Err(path.malformed("generic argument count"));
             }
             let mut bindings = parameters.clone();
             for (name, argument) in names.iter().zip(arguments) {
-                let name =
-                    name.as_str().ok_or_else(|| malformed_catalog(path, "generic parameter"))?;
+                let name = name.as_str().ok_or_else(|| path.malformed("generic parameter"))?;
                 bindings.insert(name.to_string(), argument.clone());
             }
-            validate_catalog_value(value, &generic["body"], path, &bindings)
+            check_value(value, &generic["body"], path, &bindings)
         }
         "parameter" => {
-            let name = descriptor["name"]
-                .as_str()
-                .ok_or_else(|| malformed_catalog(path, "parameter.name"))?;
-            let target = parameters.get(name).ok_or_else(|| malformed_catalog(path, name))?;
-            validate_catalog_value(value, target, path, parameters)
+            let name =
+                descriptor["name"].as_str().ok_or_else(|| path.malformed("parameter.name"))?;
+            let target = parameters.get(name).ok_or_else(|| path.malformed(name))?;
+            check_value(value, target, path, parameters)
         }
         "selector" => {
-            let raw =
-                value.as_str().ok_or_else(|| invalid_value(path, "selector must be a string"))?;
-            Selector::parse(raw).map(|_| ())
+            let raw = value.as_str().ok_or_else(|| path.invalid("selector must be a string"))?;
+            Selector::parse(raw)?;
+            Ok(())
         }
-        "resource_id" => validate_resource_id(value, descriptor, path),
+        "resource_id" => check_resource_id(value, descriptor, path),
         "union" => {
             let variants = descriptor["variants"]
                 .as_array()
-                .ok_or_else(|| malformed_catalog(path, "union.variants"))?;
+                .ok_or_else(|| path.malformed("union.variants"))?;
+            // Each trial is quiet: the union reads only how many variants pass.
+            let trial = path.quiet();
             let successes = variants
                 .iter()
-                .filter(|variant| validate_catalog_value(value, variant, path, parameters).is_ok())
+                .filter(|variant| check_value(value, variant, trial, parameters).is_ok())
                 .count();
             if successes == 1 {
                 Ok(())
             } else {
-                Err(invalid_value(path, "value must match exactly one union variant"))
+                Err(path.invalid("value must match exactly one union variant"))
             }
         }
-        _ => Err(malformed_catalog(path, kind)),
+        _ => Err(path.malformed(kind)),
     }
 }
 
-pub(super) fn validate_primitive(
-    value: &Value,
-    descriptor: &Value,
-    path: &str,
-) -> Result<(), ResourceError> {
-    let name =
-        descriptor["name"].as_str().ok_or_else(|| malformed_catalog(path, "primitive.name"))?;
+fn check_primitive(value: &Value, descriptor: &Value, path: ValuePath<'_>) -> Result<(), Fault> {
+    let name = descriptor["name"].as_str().ok_or_else(|| path.malformed("primitive.name"))?;
     match name {
         "json" => Ok(()),
         "string" => {
-            let raw =
-                value.as_str().ok_or_else(|| invalid_value(path, "value must be a string"))?;
-            validate_length(raw.len(), descriptor, path, "UTF-8 bytes")
+            let raw = value.as_str().ok_or_else(|| path.invalid("value must be a string"))?;
+            check_length(raw.len(), descriptor, path, "UTF-8 bytes")
         }
         "base64" => {
-            let raw = value
-                .as_str()
-                .ok_or_else(|| invalid_value(path, "value must be a base64 string"))?;
+            let raw =
+                value.as_str().ok_or_else(|| path.invalid("value must be a base64 string"))?;
             base64::engine::general_purpose::STANDARD
                 .decode(raw)
                 .map(|_| ())
-                .map_err(|_| invalid_value(path, "value must use canonical base64"))
+                .map_err(|_| path.invalid("value must use canonical base64"))
         }
-        "boolean" => value
-            .is_boolean()
-            .then_some(())
-            .ok_or_else(|| invalid_value(path, "value must be a boolean")),
-        "decimal" => serde_json::from_value::<WireDecimal>(value.clone())
+        "boolean" => {
+            value.is_boolean().then_some(()).ok_or_else(|| path.invalid("value must be a boolean"))
+        }
+        // The text is read where it is: no copy of the value for the parse.
+        "decimal" => value
+            .as_str()
+            .and_then(WireDecimal::parse)
             .map(|_| ())
-            .map_err(|_| invalid_value(path, "value must be an unsigned decimal string")),
+            .ok_or_else(|| path.invalid("value must be an unsigned decimal string")),
         "float64" => {
             let number = value
                 .as_f64()
                 .filter(|number| number.is_finite())
-                .ok_or_else(|| invalid_value(path, "value must be a finite number"))?;
-            validate_number(number, descriptor, path)
+                .ok_or_else(|| path.invalid("value must be a finite number"))?;
+            check_number(number, descriptor, path)
         }
         "uint16" => {
             let number = value
                 .as_u64()
                 .filter(|number| *number <= u16::MAX.into())
-                .ok_or_else(|| invalid_value(path, "value must be an unsigned 16-bit integer"))?;
-            validate_number(number as f64, descriptor, path)
+                .ok_or_else(|| path.invalid("value must be an unsigned 16-bit integer"))?;
+            check_number(number as f64, descriptor, path)
         }
         "uint32" => {
             let number = value
                 .as_u64()
                 .filter(|number| *number <= u32::MAX.into())
-                .ok_or_else(|| invalid_value(path, "value must be an unsigned 32-bit integer"))?;
-            validate_number(number as f64, descriptor, path)
+                .ok_or_else(|| path.invalid("value must be an unsigned 32-bit integer"))?;
+            check_number(number as f64, descriptor, path)
         }
         "int32" => {
             let number = value
                 .as_i64()
                 .filter(|number| i32::try_from(*number).is_ok())
-                .ok_or_else(|| invalid_value(path, "value must be a signed 32-bit integer"))?;
-            validate_number(number as f64, descriptor, path)
+                .ok_or_else(|| path.invalid("value must be a signed 32-bit integer"))?;
+            check_number(number as f64, descriptor, path)
         }
-        _ => Err(malformed_catalog(path, name)),
+        _ => Err(path.malformed(name)),
     }
 }
 
-pub(super) fn validate_catalog_object(
+fn check_object(
     value: &Value,
     descriptor: &Value,
-    path: &str,
+    path: ValuePath<'_>,
     parameters: &HashMap<String, Value>,
-) -> Result<(), ResourceError> {
-    let object = value.as_object().ok_or_else(|| invalid_value(path, "value must be an object"))?;
-    let fields =
-        descriptor["fields"].as_object().ok_or_else(|| malformed_catalog(path, "object.fields"))?;
-    if descriptor["extra"] == Value::Bool(false) {
-        let mut unknown =
-            object.keys().filter(|name| !fields.contains_key(*name)).cloned().collect::<Vec<_>>();
-        unknown.sort();
-        if !unknown.is_empty() {
-            return Err(validation_error(
+) -> Result<(), Fault> {
+    let object = value.as_object().ok_or_else(|| path.invalid("value must be an object"))?;
+    let fields = descriptor["fields"].as_object().ok_or_else(|| path.malformed("object.fields"))?;
+    if descriptor["extra"] == Value::Bool(false)
+        && object.keys().any(|name| !fields.contains_key(name))
+    {
+        // The list of the unknown fields is made for the error only.
+        return Err(path.fault(|path| {
+            let mut unknown = object
+                .keys()
+                .filter(|name| !fields.contains_key(*name))
+                .cloned()
+                .collect::<Vec<_>>();
+            unknown.sort();
+            validation_error(
                 "object contains unknown fields",
                 json!({"path":path,"fields":unknown}),
-            ));
-        }
+            )
+        }));
     }
     for (name, field) in fields {
-        let field = field.as_object().ok_or_else(|| malformed_catalog(path, name))?;
+        let field = field.as_object().ok_or_else(|| path.malformed(name))?;
         match object.get(name) {
-            Some(value) => validate_catalog_value(
-                value,
-                &field["type"],
-                &format!("{path}.{name}"),
-                parameters,
-            )?,
+            Some(value) => check_value(value, &field["type"], path.field(name), parameters)?,
             None if field["required"] == Value::Bool(true) => {
-                return Err(validation_error(
-                    "required object field is missing",
-                    json!({"path":path,"field":name}),
-                ));
+                return Err(path.fault(|path| {
+                    validation_error(
+                        "required object field is missing",
+                        json!({"path":path,"field":name}),
+                    )
+                }));
             }
             None => {}
         }
@@ -435,14 +522,9 @@ pub(super) fn validate_catalog_object(
     Ok(())
 }
 
-pub(super) fn validate_resource_id(
-    value: &Value,
-    descriptor: &Value,
-    path: &str,
-) -> Result<(), ResourceError> {
-    let resource = descriptor["resource"]
-        .as_str()
-        .ok_or_else(|| malformed_catalog(path, "resource_id.resource"))?;
+fn check_resource_id(value: &Value, descriptor: &Value, path: ValuePath<'_>) -> Result<(), Fault> {
+    let resource =
+        descriptor["resource"].as_str().ok_or_else(|| path.malformed("resource_id.resource"))?;
     let prefix = match resource {
         "workspace" => "ws",
         "terminal" => "term",
@@ -450,51 +532,48 @@ pub(super) fn validate_resource_id(
         "pairing_request" => "pairing",
         other => other,
     };
-    let raw = value.as_str().ok_or_else(|| invalid_value(path, "resource id must be a string"))?;
+    let raw = value.as_str().ok_or_else(|| path.invalid("resource id must be a string"))?;
     let payload = raw
-        .strip_prefix(&format!("{prefix}_"))
-        .ok_or_else(|| invalid_value(path, "resource id has the wrong type prefix"))?;
+        .strip_prefix(prefix)
+        .and_then(|rest| rest.strip_prefix('_'))
+        .ok_or_else(|| path.invalid("resource id has the wrong type prefix"))?;
     if payload.len() == 32
         && payload.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
     {
         Ok(())
     } else {
-        Err(invalid_value(path, "resource id must contain 32 lowercase hex digits"))
+        Err(path.invalid("resource id must contain 32 lowercase hex digits"))
     }
 }
 
-pub(super) fn validate_length(
+fn check_length(
     length: usize,
     descriptor: &Value,
-    path: &str,
+    path: ValuePath<'_>,
     unit: &str,
-) -> Result<(), ResourceError> {
+) -> Result<(), Fault> {
     if descriptor["min_length"]
         .as_u64()
         .or_else(|| descriptor["min_items"].as_u64())
         .is_some_and(|minimum| length < minimum as usize)
     {
-        return Err(invalid_value(path, &format!("value has too few {unit}")));
+        return Err(path.fault(|path| invalid_value(path, &format!("value has too few {unit}"))));
     }
     if descriptor["max_length"]
         .as_u64()
         .or_else(|| descriptor["max_items"].as_u64())
         .is_some_and(|maximum| length > maximum as usize)
     {
-        return Err(invalid_value(path, &format!("value has too many {unit}")));
+        return Err(path.fault(|path| invalid_value(path, &format!("value has too many {unit}"))));
     }
     Ok(())
 }
 
-pub(super) fn validate_number(
-    number: f64,
-    descriptor: &Value,
-    path: &str,
-) -> Result<(), ResourceError> {
+fn check_number(number: f64, descriptor: &Value, path: ValuePath<'_>) -> Result<(), Fault> {
     if descriptor["minimum"].as_f64().is_some_and(|minimum| number < minimum)
         || descriptor["maximum"].as_f64().is_some_and(|maximum| number > maximum)
     {
-        return Err(invalid_value(path, "number is outside its allowed range"));
+        return Err(path.invalid("number is outside its allowed range"));
     }
     Ok(())
 }

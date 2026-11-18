@@ -122,7 +122,7 @@ async fn a_draft_and_a_name_are_answered_before_their_sync_and_survive_a_kill() 
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     let journal = SimStorage::new(63);
     // No idle-time sync of the draft's record between the two requests: on a loaded machine the
-    // pause between them can pass the 10 ms quiet time, and the rename's write would then wait
+    // pause between them can pass the kept quiet time, and the rename's write would then wait
     // behind that (simulated 400 ms) sync. Review of #37174, finding 1.
     let (hub, _) = hub_and_durability(home.path(), &journal, Duration::from_secs(60));
     let (input, mut outgoing) = connect(&hub).await;
@@ -196,18 +196,16 @@ async fn kept_changes_are_synced_in_idle_time_before_the_next_acked_change() {
     assert!(renamed.get("error").is_none(), "rename: {renamed}");
     let kept = durability.kept.load(std::sync::atomic::Ordering::SeqCst);
     assert!(kept > 0, "the drafts and the name appended no kept record");
-    // No acknowledged change comes. Within 300 ms of idle time (well inside the 1 s stream sync
-    // delay) the kept records are synced on their own.
+    // No acknowledged change comes. Once the journal is quiet for the kept quiet time (500 ms,
+    // inside the 1 s stream sync delay), the kept records are synced on their own.
     let mut durable = durability.durable.clone();
-    let synced =
-        tokio::time::timeout(Duration::from_millis(300), durable.wait_for(|lsn| *lsn >= kept))
-            .await
-            .is_ok();
+    let window = quiet + Duration::from_millis(300);
+    let synced = tokio::time::timeout(window, durable.wait_for(|lsn| *lsn >= kept)).await.is_ok();
     let at = *durable.borrow();
     assert!(
         synced,
-        "kept records up to LSN {kept} were not synced in 300 ms of idle time (durable: {at}): \
-         the next acked change would sync them in its own turn"
+        "kept records up to LSN {kept} were not synced in {window:?} of idle time (durable: \
+         {at}): the next acked change would sync them in its own turn"
     );
 }
 
@@ -313,7 +311,7 @@ async fn a_replay_never_sends_a_line_before_its_record() {
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     let journal = SimStorage::new(63);
     // No idle-time sync of the draft's record between the two requests: on a loaded machine the
-    // pause between them can pass the 10 ms quiet time, and the rename's write would then wait
+    // pause between them can pass the kept quiet time, and the rename's write would then wait
     // behind that (simulated 400 ms) sync. Review of #37174, finding 1.
     let (hub, _) = hub_and_durability(home.path(), &journal, Duration::from_secs(60));
     let session = hub.resolve(CHAT).unwrap_or_else(|e| panic!("{e:?}"));

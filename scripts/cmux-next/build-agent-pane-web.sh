@@ -55,10 +55,12 @@ LOADER="$(bun scripts/pages/split-strings.mjs "$SRC/acpmux/generated/strings.jso
 # --css-inputs lists the stylesheets the pane imports; the bundle drops them, so each must be
 # one of the sheets the page's pane.css is written from (checked below).
 # --preload-list names the chunks pane.js imports statically: the page preloads them with it.
+# --frame-sites writes chunks/frame-sites.js, the source file behind each stretch of pane.js and its
+# chunks (agent-pane/frameSites.mjs): `cmux app chat perf` names a frame owner's file with it.
 if [ -n "$REPORT_DIR" ]; then
-  bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split --css-inputs "$WORK/imported-sheets" --preload-list "$WORK/preload-chunks" --metafile "$REPORT_DIR/agent-pane.json"
+  bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split --css-inputs "$WORK/imported-sheets" --preload-list "$WORK/preload-chunks" --frame-sites "$WORK/pane/chunks/frame-sites.js" --metafile "$REPORT_DIR/agent-pane.json" --artifact-metafile "$REPORT_DIR/agent-pane-artifact-runtime.json"
 else
-  bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split --css-inputs "$WORK/imported-sheets" --preload-list "$WORK/preload-chunks"
+  bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split --css-inputs "$WORK/imported-sheets" --preload-list "$WORK/preload-chunks" --frame-sites "$WORK/pane/chunks/frame-sites.js"
 fi
 # Code highlighting runs in a worker beside the page (conversation/highlightPool.ts): Pierre's
 # worker, bundled with the same trimmed shiki. It is the entry point itself because the package

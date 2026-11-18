@@ -224,7 +224,7 @@ struct TaskComposerDraftsSheet: View {
                             } label: {
                                 TaskComposerDraftRow(draft: draft)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.cmuxPressFill)
                             .accessibilityIdentifier("taskComposer.draftRow")
                         }
                         .onDelete { offsets in

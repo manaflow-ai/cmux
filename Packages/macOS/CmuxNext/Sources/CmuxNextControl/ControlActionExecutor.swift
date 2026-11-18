@@ -24,7 +24,7 @@ extension ControlActionExecutor {
 }
 
 /// `settings.get` / `settings.set` storage. `CmuxConfigFile` conforms, so
-/// writes land in cmux.json and the settings watcher applies them.
+/// writes go to the daemon's settings owner and the settings watcher applies them.
 public protocol ControlSettingsStore: Sendable {
     func value(at path: [String]) async throws -> JSONValue?
     func set(_ value: JSONValue, at path: [String]) async throws
