@@ -137,7 +137,7 @@ type Run = {
   last: { active: Element | null; within: boolean; inactive: boolean };
   focusBefore: { area: string; within: boolean };
   inactiveBefore: boolean;
-  type: { text: string[]; typed: string; count: number; stopped: string | null } | undefined;
+  type: { text: string[]; asked: number; typed: string; count: number; stopped: string | null } | undefined;
   /// Our own execCommand is running: its trusted input events are not the person's.
   typingNow: boolean;
   personTypedAt: number | undefined;
@@ -214,6 +214,15 @@ const IDLE_COST =
   "At rest the composer's render pays one null check (composerProbe.render) and nothing else runs; the frame loop, observers and listeners exist only between begin and end, or until the page's own end seconds + 2 s in.";
 
 /** The page's one drive. */
+/// Why typing stopped short, if it did: its own reason; else a person's key the next frame had not
+/// acted on yet (the person goes first); else text left when the run ended (its `seconds`, or a
+/// throttled display's slow frames) is `time_up`. A run that typed it all has none.
+function typeStopped(typing: NonNullable<Run["type"]>, run: Run): { type_stopped?: string } {
+  if (typing.stopped) return { type_stopped: typing.stopped };
+  if (typing.text.length === 0) return {};
+  return { type_stopped: run.personTypedAt !== undefined ? "person" : "time_up" };
+}
+
 export class ChatDrive {
   private run: Run | undefined;
   /// The last run's target, so `state()` still reads it after `end()` (the host releases its hover
@@ -302,7 +311,7 @@ export class ChatDrive {
       last: { active: document.activeElement, within: within(composer), inactive: pageInactive() },
       focusBefore: { area: focusedArea(document.activeElement), within: within(composer) },
       inactiveBefore: pageInactive(),
-      type: typing ? { text, typed: "", count: 0, stopped: null } : undefined,
+      type: typing ? { text, asked: text.length, typed: "", count: 0, stopped: null } : undefined,
       typingNow: false,
       personTypedAt: undefined,
       personActive: null,
@@ -529,6 +538,18 @@ export class ChatDrive {
       typing.stopped = "focus_refused";
       return;
     }
+    // The first character goes after the draft, never over a selection in it: an insert replaces what
+    // is selected, and with allow_draft that is the person's text.
+    if (typing.count === 0) {
+      const selection = document.getSelection();
+      if (selection) {
+        const end = document.createRange();
+        end.selectNodeContents(editor);
+        end.collapse(false);
+        selection.removeAllRanges();
+        selection.addRange(end);
+      }
+    }
     const char = typing.text.shift()!;
     run.typingNow = true;
     try {
@@ -593,8 +614,10 @@ export class ChatDrive {
       // How many characters (graphemes) the run typed; they stay in the draft, nothing is restored.
       // A count, never the text: the report goes to the CLI's output and to logs.
       typed: typing ? typing.count : null,
+      // How many were asked for: with `typed`, a caller tells a run that typed it all from one cut off.
+      type_asked: typing ? typing.asked : null,
       draft_left: typing ? typing.typed.length > 0 : false,
-      ...(typing?.stopped ? { type_stopped: typing.stopped } : {}),
+      ...(typing ? typeStopped(typing, run) : {}),
       // The hover and card as the run ended; the host's own release comes after (`state()`).
       card_open: cardOpen(run.target),
       scrolled_into_view: run.scrolledIntoView,
