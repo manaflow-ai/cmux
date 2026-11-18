@@ -223,6 +223,35 @@ fn toggle_swaps_a_session_between_its_terminal_and_its_chat() {
     );
 }
 
+// Leo, 2026-11-17: "why is this even a behaviour that happens / just... stop showijg the toggle
+// on gui." A chat no terminal runs, on a device that cannot start one, is only a chat: the
+// route refuses it (no toggle), never a face that answers "No terminal runs this chat".
+#[test]
+fn a_chat_no_terminal_runs_where_none_can_start_offers_no_toggle() {
+    let chat = ToggleFacts {
+        chat: true,
+        agent: Some("codex".into()),
+        session: Some("s".into()),
+        cannot_start_terminal: true,
+        ..Default::default()
+    };
+    assert_eq!(terminal_chat_toggle(&chat), TerminalChatToggle::NoTerminal);
+    assert_eq!(
+        terminal_chat_toggle(&ToggleFacts { busy: true, ..chat.clone() }),
+        TerminalChatToggle::NoTerminal
+    );
+    // A terminal that runs the session still shows: the toggle stays where it works.
+    assert_eq!(
+        terminal_chat_toggle(&ToggleFacts { running: true, ..chat.clone() }),
+        TerminalChatToggle::ToTerminal { harness: "codex".into(), session: "s".into() }
+    );
+    // A terminal reads none of it: its chat face is the toggle that works.
+    assert_eq!(
+        terminal_chat_toggle(&ToggleFacts { terminal: true, chat: false, ..chat }),
+        TerminalChatToggle::ToChat { harness: "codex".into(), session: "s".into() }
+    );
+}
+
 #[test]
 fn toggle_from_a_chat_shows_its_terminal_or_hands_the_session_to_a_new_one() {
     let chat = ToggleFacts {

@@ -140,6 +140,11 @@ public struct WindowRegistry: Equatable, Sendable {
 
     public var openWindows: [Window] { windows.filter(\.isOpen) }
 
+    /// The front open window `shows` accepts (a saved window that can show a workspace now).
+    public func frontOpen(where shows: (Window) -> Bool) -> String? {
+        recency.first { id in window(id).map { $0.isOpen && shows($0) } == true }
+    }
+
     /// The most recently active open window, excluding `excluded`.
     /// `incognito` picks the kind: normal windows unless true.
     public func mostRecentOpen(excluding excluded: Set<String> = [], incognito wanted: Bool = false) -> String? {
@@ -429,6 +434,19 @@ public struct WindowRegistry: Equatable, Sendable {
             windows = grown
         }
         changes.emptied = closeEmptied()
+        return changes
+    }
+
+    /// A gather (Move Space to This Window): `move`s `workspaceIDs` into window `id`, then removes those of `givers` (the
+    /// windows that owned them) that own no workspace any more, as `closeEmptied` does with an empty one: a window left
+    /// listing only guests (another window's workspaces it shows) does not stay open for them. A view that never owned
+    /// one (`openView`) is no giver and stays.
+    @discardableResult
+    public mutating func gather(_ workspaceIDs: [String], to id: String, from givers: [String]) -> Changes {
+        var changes = move(workspaceIDs, to: id)
+        let emptied = givers.filter { $0 != id && window($0)?.ownedIDs.isEmpty == true }
+        for giver in emptied { remove(giver) }
+        changes.emptied += emptied
         return changes
     }
 

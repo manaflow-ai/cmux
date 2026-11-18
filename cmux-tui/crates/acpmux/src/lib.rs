@@ -23,6 +23,7 @@ pub mod adopt_live;
 pub mod adopt_replay;
 pub mod adopt_tools;
 pub mod agent;
+pub mod agent_credentials;
 pub mod agent_displays;
 pub mod agent_guidance;
 pub mod agent_host;
@@ -44,6 +45,7 @@ pub mod byo_endpoint;
 pub mod capabilities;
 pub mod catalog;
 pub mod chat_fork;
+pub mod chatgpt;
 pub mod chats;
 pub mod claude_auth;
 mod claude_cloud_auth;
@@ -55,6 +57,7 @@ pub mod client;
 pub mod clock;
 pub(crate) mod clock_text;
 pub mod cloud_host;
+pub mod cloud_model_plane;
 pub mod cloud_repo_mcp;
 pub mod cloud_rewind;
 /// The cmux-tui remote daemon this machine serves to its other machines (`cmux_tui_service.rs`).
@@ -81,6 +84,7 @@ pub mod deliver;
 pub mod deps;
 pub mod desktop_bridge;
 pub mod desktop_link;
+pub mod directory_input;
 pub mod folder_instructions;
 #[cfg(all(test, unix))]
 mod fork_tests;
@@ -134,10 +138,12 @@ pub mod hub;
 #[cfg(feature = "hub-carrier")]
 pub mod hub_carrier;
 pub mod hunk_summary;
+pub mod idempotency;
 #[cfg(windows)]
 mod job;
 pub mod launch_credential;
 pub mod launch_policy;
+pub mod left_on_mac;
 pub mod link_v2;
 #[cfg(target_os = "linux")]
 pub(crate) mod linux_sandbox;
@@ -309,7 +315,11 @@ pub mod touched_files;
 pub mod transcript;
 pub mod trust;
 pub mod trust_auto;
+/// The ratatui terminal UI (feature `tui`, off by default: acpmux is headless; the `cmux` multicall
+/// binary turns it on). Its entry for the CLI is `tui_entry`.
+#[cfg(feature = "tui")]
 pub mod tui;
+pub mod tui_entry;
 pub mod turn_attestation;
 pub(crate) mod turn_errors;
 pub(crate) mod uniichat_endpoint;
