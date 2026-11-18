@@ -17,6 +17,10 @@ public nonisolated struct AgentPaneDisplaySetting: Sendable, Hashable {
     /// The app keys the chat follows: Minimal Mode (``SidebarSectionsSetting/minimalPath``) and
     /// Show Feature Tips (``UpdatesSettings/showFeatureTipsPath``; webviews featureTips.tsx).
     public static let followedAppPaths: [[String]] = [SidebarSectionsSetting.minimalPath, UpdatesSettings.showFeatureTipsPath]
+    /// The theme slot rows (`appearance.slots.<slot id>`, schemas/theme/slots.json): the variant each
+    /// slot of the chat draws (webviews src/slots/registry.ts). Read from the effective settings, so a
+    /// theme file's `"slots"` reaches the chat as well as cmux.json's value.
+    public static let slotRows: [SettingDescriptor] = SettingsSchema.all.filter { $0.path.starts(with: ["appearance", "slots"]) }
 
     /// The accepted values by dotted key.
     public var values: [String: JSONValue]
@@ -34,8 +38,10 @@ public nonisolated struct AgentPaneDisplaySetting: Sendable, Hashable {
     /// Reads the chat's keys and the followed Markdown viewer keys from a cmux.json root, keeping
     /// each value its row accepts and dropping the rest.
     ///
-    /// - Parameter fileRoot: The settings file's root object.
-    public init(fileRoot: JSONValue, managedHarnessPlacement: JSONValue? = nil) {
+    /// - Parameters:
+    ///   - fileRoot: The settings file's root object.
+    ///   - effectiveRoot: The effective settings (the theme file applied), for ``slotRows``; nil reads them from `fileRoot`.
+    public init(fileRoot: JSONValue, managedHarnessPlacement: JSONValue? = nil, effectiveRoot: JSONValue? = nil) {
         var values: [String: JSONValue] = [:]
         let followed = Set(Self.followedMarkdownPaths.map { $0.joined(separator: ".") })
         let rows = AgentPaneDisplaySettingsSchema.descriptors
@@ -48,6 +54,10 @@ public nonisolated struct AgentPaneDisplaySetting: Sendable, Hashable {
                   stored != .null,
                   let value = AgentPaneDisplaySettingsSchema.pageValue(descriptor.id, stored), descriptor.accepts(value)
             else { continue }
+            values[descriptor.id] = value
+        }
+        for descriptor in Self.slotRows {
+            guard let value = (effectiveRoot ?? fileRoot).value(at: descriptor.path), value != .null, descriptor.accepts(value) else { continue }
             values[descriptor.id] = value
         }
         values["agentPane.display.harnessPlacement.managed"] = managedHarnessPlacement

@@ -406,3 +406,150 @@ fn with_no_theme_file_nothing_changes() {
     assert_eq!(state.effective().root, plain.root);
     assert!(state.theme_file().is_none());
 }
+
+// Theme slots (`"slots"`, schemas/theme/slots.json): each slot is the setting
+// `appearance.slots.<slot id>`, checked on its own.
+
+const APPEARANCE_SOURCE: &str =
+    include_str!("../../../../../schemas/settings/source/appearance.json");
+
+/// The `appearance.slots.*` rows of the settings source, in source order.
+fn slot_source_rows() -> Vec<Value> {
+    let source: Value = serde_json::from_str(APPEARANCE_SOURCE).expect("appearance.json parses");
+    source["lists"]
+        .as_array()
+        .expect("lists")
+        .iter()
+        .flat_map(|list| list["rows"].as_array().expect("rows").iter())
+        .filter(|row| row["key"].as_str().is_some_and(|key| key.starts_with(slots::SETTING_PREFIX)))
+        .cloned()
+        .collect()
+}
+
+/// The embedded export with the slot rows its sources declare, so these tests
+/// hold before the export is regenerated on a Mac: each missing row is
+/// `appearance.borders` (a portable choice look row) with the slot's key and
+/// choices.
+fn slot_schema() -> &'static Schema {
+    static SCHEMA: std::sync::OnceLock<Schema> = std::sync::OnceLock::new();
+    SCHEMA.get_or_init(|| {
+        let text = include_str!("../../../../../schemas/settings/settings-schema.json");
+        let mut export: Value = serde_json::from_str(text).expect("export parses");
+        let rows = export["rows"].as_array_mut().expect("rows");
+        let template = rows
+            .iter()
+            .find(|row| row["key"] == "appearance.borders")
+            .cloned()
+            .expect("appearance.borders row");
+        for source in slot_source_rows() {
+            let key = source["key"].as_str().expect("key").to_string();
+            if rows.iter().any(|row| row["key"] == key.as_str()) {
+                continue;
+            }
+            let mut row = template.clone();
+            let choices = source["choices"].clone();
+            let values: Vec<Value> =
+                choices.as_array().expect("choices").iter().map(|c| c["value"].clone()).collect();
+            row["key"] = json!(key);
+            row["path"] = json!(key_path(&key));
+            row["choices"] = choices;
+            row["accepts"] = json!(values);
+            row["default"] = source["default"].clone();
+            rows.push(row);
+        }
+        Schema::parse(&serde_json::to_string(&export).expect("export")).expect("schema")
+    })
+}
+
+fn slot_overlay(text: &str) -> ThemeFile {
+    ThemeFile::read("tokyo", Some(Ok(text)), &json!({}), None, slot_schema(), &Domains::default())
+}
+
+#[test]
+fn every_shipped_slot_has_a_setting_whose_choices_are_its_variants() {
+    let rows = slot_source_rows();
+    assert!(!slots::shipped().is_empty());
+    assert_eq!(rows.len(), slots::shipped().len(), "one appearance.slots.* row per slot");
+    for slot in slots::shipped() {
+        let key = slots::setting_key(&slot.id);
+        let row = rows
+            .iter()
+            .find(|row| row["key"] == key.as_str())
+            .unwrap_or_else(|| panic!("{key}: no row in schemas/settings/source/appearance.json"));
+        let choices: Vec<&str> = row["choices"]
+            .as_array()
+            .expect("choices")
+            .iter()
+            .map(|choice| choice["value"].as_str().expect("value"))
+            .collect();
+        assert_eq!(choices, slot.variants, "{key}: choices are the slot's variants in order");
+        assert_eq!(row["default"], json!(slot.default_variant), "{key}: default");
+        let schema_row = slot_schema().row_at(&key_path(&key)).expect("row");
+        assert!(is_look(schema_row), "{key}: a theme file may set it");
+    }
+}
+
+#[test]
+fn a_theme_file_picks_a_slot_variant() {
+    let file = slot_overlay(
+        r#"{ "slots": { "chat.thinkingIndicator": "counting-dots", "chat.jumpToBottom": "bob" } }"#,
+    );
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    assert_eq!(
+        file.keys(),
+        vec!["appearance.slots.chat.jumpToBottom", "appearance.slots.chat.thinkingIndicator"]
+    );
+    let root = file.applied(&json!({}), &none());
+    assert_eq!(at(&root, "appearance.slots.chat.thinkingIndicator"), Some(&json!("counting-dots")));
+    assert_eq!(at(&root, "appearance.slots.chat.jumpToBottom"), Some(&json!("bob")));
+}
+
+#[test]
+fn the_slot_settings_read_nested_too() {
+    let file = slot_overlay(
+        r#"{ "appearance": { "slots": { "chat": { "thinkingIndicator": "caret" } } } }"#,
+    );
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    assert_eq!(file.keys(), vec!["appearance.slots.chat.thinkingIndicator"]);
+}
+
+#[test]
+fn an_unknown_slot_or_variant_is_dropped_with_a_notice_and_the_rest_applies() {
+    let file = slot_overlay(
+        "{\n  \"appearance.accent\": \"blue\",\n  \"slots\": {\n    \"chat.thinkingIndicator\": \"sparkles\",\n    \"chat.nope\": \"pulse\",\n    \"chat.jumpToBottom\": \"cascade\"\n  }\n}",
+    );
+    assert_eq!(file.keys(), vec!["appearance.accent", "appearance.slots.chat.jumpToBottom"]);
+    let lines: Vec<String> = file.diagnostics.iter().map(ThemeDiagnostic::display).collect();
+    assert_eq!(file.diagnostics.len(), 2, "{lines:?}");
+    assert!(file.diagnostics.iter().all(|d| d.kind == ThemeDiagnosticKind::InvalidValue));
+    let unknown_slot = file.diagnostics.iter().find(|d| d.path == "slots.chat.nope").expect("slot");
+    assert_eq!(unknown_slot.line, Some(5));
+    assert!(unknown_slot.message.contains("no theme slot chat.nope"), "{lines:?}");
+    assert!(unknown_slot.message.contains("chat.thinkingIndicator"), "{lines:?}");
+    let unknown_variant = file
+        .diagnostics
+        .iter()
+        .find(|d| d.path == "slots.chat.thinkingIndicator")
+        .expect("variant");
+    assert_eq!(unknown_variant.line, Some(4));
+    assert_eq!(unknown_variant.value.as_deref(), Some("\"sparkles\""));
+    assert_eq!(
+        unknown_variant.message,
+        "expected one of default, counting-dots, pulse, caret, blocks"
+    );
+    assert_eq!(
+        unknown_variant.display(),
+        "themes/tokyo.json:4: slots.chat.thinkingIndicator = \"sparkles\": expected one of default, counting-dots, pulse, caret, blocks"
+    );
+}
+
+#[test]
+fn slots_that_are_no_object_are_one_notice() {
+    let file = slot_overlay(r#"{ "slots": "pulse", "appearance.accent": "blue" }"#);
+    assert_eq!(file.keys(), vec!["appearance.accent"]);
+    assert_eq!(file.diagnostics.len(), 1);
+    assert_eq!(file.diagnostics[0].path, "slots");
+    let number = slot_overlay(r#"{ "slots": { "chat.jumpToBottom": 3 } }"#);
+    assert!(number.keys().is_empty());
+    assert_eq!(number.diagnostics[0].path, "slots.chat.jumpToBottom");
+}

@@ -229,6 +229,14 @@
     },
     {
       "agent": "settable",
+      "why": "The variant each theme slot draws (schemas/theme/slots.json; looks only)",
+      "keys": [
+        "appearance.slots.chat.thinkingIndicator",
+        "appearance.slots.chat.jumpToBottom"
+      ]
+    },
+    {
+      "agent": "settable",
       "why": "Starred themes and their rotation (looks only)",
       "keys": [
         "appearance.favoriteThemes",

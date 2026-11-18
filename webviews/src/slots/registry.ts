@@ -13,9 +13,11 @@
 //   1. an override the host installs before the page loads (`globalThis.cmuxSlots`: the gallery or a
 //      dev harness);
 //   2. the debug key `cmux.slots` in localStorage, a JSON object `{ "<slot id>": "<variant id>" }`;
-//   3. the theme look's `slots` map: the agent pane's theme push (`applyAgentTheme`) or the shared web
+//   3. the settings `appearance.slots.<slot id>`: a theme file's `"slots"` or cmux.json's value, which
+//      the chat gets in its `display` event (chatDisplay.ts `setChatDisplay`, `configureSettingsSlots`);
+//   4. the theme look's `slots` map: the agent pane's theme push (`applyAgentTheme`) or the shared web
 //      theme (`window.cmuxTheme.current.slots`);
-//   4. the slot's default variant.
+//   5. the slot's default variant.
 // A source naming a variant no one registered falls through to the next, so a stale theme or key never
 // blanks a slot. A variant that throws while rendering is caught per slot (Slot.tsx) and the default
 // draws in its place.
@@ -25,6 +27,8 @@ import slotsSchema from "../../../schemas/theme/slots.json";
 export const SLOT_ID = /^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/;
 export const VARIANT_ID = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 export const SLOTS_STORAGE_KEY = "cmux.slots";
+/** The settings that pick a slot's variant: `appearance.slots.<slot id>` (schemas/settings/source/appearance.json). */
+export const SLOT_SETTING_PREFIX = "appearance.slots.";
 
 /** One slot's entry in schemas/theme/slots.json. */
 export type SlotSpec = (typeof slotsSchema.slots)[number];
@@ -61,6 +65,7 @@ export function defineSlot<Props>(
 const variants = new Map<string, Map<string, ComponentType<never>>>();
 const failures = new Map<string, { variant: string; error: unknown }>();
 let themeSlots: SlotMap | undefined;
+let settingsSlots: SlotMap | undefined;
 let version = 0;
 const listeners = new Set<() => void>();
 
@@ -104,6 +109,19 @@ export function configureThemeSlots(value: unknown): void {
   changed();
 }
 
+/** The settings the host sent (the chat's `display` map, by dotted key): every `appearance.slots.*` value
+ * picks its slot's variant. A key it leaves out clears that slot's choice. */
+export function configureSettingsSlots(values: Record<string, unknown> | undefined): void {
+  const next: SlotMap = {};
+  for (const [key, variant] of Object.entries(values ?? {}))
+    if (key.startsWith(SLOT_SETTING_PREFIX) && typeof variant === "string")
+      next[key.slice(SLOT_SETTING_PREFIX.length)] = variant;
+  const value = Object.keys(next).length > 0 ? next : undefined;
+  if (JSON.stringify(value) === JSON.stringify(settingsSlots)) return;
+  settingsSlots = value;
+  changed();
+}
+
 let stored: SlotMap | undefined;
 
 /** The debug key, read once per page (set it in the web inspector and reload, as `cmux.experiments`). */
@@ -126,7 +144,7 @@ function hostThemeSlots(): SlotMap | undefined {
   return slotMap(host?.current?.slots);
 }
 
-export type SlotSources = { overrides?: SlotMap; stored?: SlotMap; theme?: SlotMap };
+export type SlotSources = { overrides?: SlotMap; stored?: SlotMap; settings?: SlotMap; theme?: SlotMap };
 
 /** The variant id `slot` draws: the first source naming a registered variant, else the default. */
 export function selectedSlotVariant(slot: SlotDefinition<unknown>, sources: SlotSources = {}): string {
@@ -134,6 +152,7 @@ export function selectedSlotVariant(slot: SlotDefinition<unknown>, sources: Slot
   const candidates = [
     (sources.overrides ?? globalThis.cmuxSlots)?.[slot.id],
     (sources.stored ?? storedSlots())[slot.id],
+    (sources.settings ?? settingsSlots)?.[slot.id],
     (sources.theme ?? themeSlots ?? hostThemeSlots())?.[slot.id],
   ];
   for (const id of candidates) if (id !== undefined && registered?.has(id)) return id;
@@ -182,6 +201,7 @@ export function resetSlotsForTest(): void {
   variants.clear();
   failures.clear();
   themeSlots = undefined;
+  settingsSlots = undefined;
   stored = undefined;
   changed();
 }

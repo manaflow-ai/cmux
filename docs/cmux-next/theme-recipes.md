@@ -57,11 +57,36 @@ A theme file costs nothing per frame: it's read once on each save. Code you add 
 different matter. [modding-kit.md](modding-kit.md) lists the rules the dev server checks on save and
 the primitives that keep a mod fast.
 
+## Pick the chat's little motions
+
+A theme slot is a small part of the agent chat that comes in several looks
+([schemas/theme/slots.json](../../schemas/theme/slots.json) lists every slot and its variants). A
+theme file picks one per slot under `"slots"`:
+
+```json
+{
+  "slots": {
+    "chat.thinkingIndicator": "counting-dots",
+    "chat.jumpToBottom": "bob"
+  }
+}
+```
+
+| Slot | What it is | Variants (the first is the default) |
+|---|---|---|
+| `chat.thinkingIndicator` | the live line while a turn thinks | `default` (a shimmer), `counting-dots`, `pulse`, `caret`, `blocks` |
+| `chat.jumpToBottom` | the arrow on the Jump to Latest button | `default` (a still arrow), `nudge`, `bob`, `cascade` |
+
+Each slot is the setting `appearance.slots.<slot>`, so
+`cmux settings set appearance.slots.chat.jumpToBottom bob`, the palette and the Settings page
+change it too. cmux checks each slot on its own. An unknown slot or variant is dropped with a toast
+that names it, that slot keeps its default, and the rest of the file still applies. Reduce Motion
+and static status indicators stop every variant's motion.
+
 ## Not in a theme file yet
 
 These parts of a look are still built into the app:
 
-- the thinking indicator's look in the agent pane (a Debug setting today, `StatusWorkingLook`)
-- the motion of the jump to latest button
+- how running tool rows show work in the agent pane (a Debug setting today, `StatusWorkingLook`)
 - shared looks and views from a vetted source; [the extension RFC](../rfcs/extension-ecosystem.md)
   proposes packs with exact-source trust

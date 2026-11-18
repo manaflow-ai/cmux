@@ -14,11 +14,13 @@
 //!
 //! Besides settings, a file may carry its own terminal colors (`"colors"`
 //! or a `"ghostty"` block), which become `appearance.themeEdits` of the
-//! terminal theme it names ([`colors`]). [`render`] writes the current look
+//! terminal theme it names ([`colors`]), and the variant each theme slot
+//! draws (`"slots"`, [`slots`]). [`render`] writes the current look
 //! as a theme file: applying it changes nothing.
 
 mod colors;
 pub mod render;
+pub mod slots;
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -45,7 +47,8 @@ pub const SETTING_KEY: &str = "appearance.themeFile";
 pub const SCHEMA_FILE_NAME: &str = ".schema.json";
 
 /// Keys a theme file reads that are not settings.
-pub const RESERVED_KEYS: [&str; 5] = ["name", "description", "$schema", "colors", "ghostty"];
+pub const RESERVED_KEYS: [&str; 6] =
+    ["name", "description", "$schema", "colors", "ghostty", slots::KEY];
 /// Look keys that are no part of a look: the theme file itself, the star
 /// list and its rotation, per-machine and per-display maps, the sun location
 /// (where this Mac is), and the saved
@@ -377,6 +380,9 @@ impl<'a> Reader<'a> {
             self.walk(value, key_path(key));
         }
         colors::read(self, &members, base);
+        if let Some(written) = members.get(slots::KEY) {
+            self.read_slots(written);
+        }
         true
     }
 
@@ -468,6 +474,11 @@ impl<'a> Reader<'a> {
 
     fn refuse(&mut self, path: &str, value: Option<&Value>, message: &str) {
         let line = line_of_key(self.text, path);
+        self.refuse_at(path, line, value, message);
+    }
+
+    /// [`Reader::refuse`] at a line the caller found.
+    fn refuse_at(&mut self, path: &str, line: Option<usize>, value: Option<&Value>, message: &str) {
         self.diagnostics.push(ThemeDiagnostic {
             kind: ThemeDiagnosticKind::InvalidValue,
             path: path.to_string(),

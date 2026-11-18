@@ -379,6 +379,130 @@
           ]
         },
         {
+          "key": "appearance.slots.chat.thinkingIndicator",
+          "name": "thinkingIndicatorSlot",
+          "note": "The theme slot chat.thinkingIndicator (schemas/theme/slots.json): the variant the agent chat's live line draws while a turn thinks. A theme file writes it as \"slots\": {\"chat.thinkingIndicator\": \"pulse\"}. The choices are the slot's variants in slots.json order (cmux-config theme_file tests hold the two equal); the chat page (webviews src/slots/registry.ts) draws the default for a variant it has not registered.",
+          "title": {
+            "key": "settings.appearance.slots.thinkingIndicator",
+            "text": "Thinking Indicator"
+          },
+          "help": {
+            "key": "settings.appearance.slots.thinkingIndicator.help",
+            "text": "How the agent chat shows a turn is thinking before it names a step."
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "ThemeFileSetting",
+            "prefixed": true
+          },
+          "choices": [
+            {
+              "value": "default",
+              "title": {
+                "key": "settings.choice.shimmer",
+                "text": "Shimmer"
+              }
+            },
+            {
+              "value": "counting-dots",
+              "title": {
+                "key": "settings.choice.countingDots",
+                "text": "Counting Dots"
+              }
+            },
+            {
+              "value": "pulse",
+              "title": {
+                "key": "settings.choice.pulse",
+                "text": "Pulse"
+              }
+            },
+            {
+              "value": "caret",
+              "title": {
+                "key": "settings.choice.caret",
+                "text": "Caret"
+              }
+            },
+            {
+              "value": "blocks",
+              "title": {
+                "key": "settings.choice.blocks",
+                "text": "Blocks"
+              }
+            }
+          ],
+          "default": "default",
+          "keywords": [
+            "theme slot",
+            "slot",
+            "thinking",
+            "indicator",
+            "working",
+            "spinner",
+            "animation",
+            "agent chat"
+          ]
+        },
+        {
+          "key": "appearance.slots.chat.jumpToBottom",
+          "name": "jumpToBottomSlot",
+          "note": "The theme slot chat.jumpToBottom (schemas/theme/slots.json): the mark inside the agent chat's Jump to latest button. A theme file writes it as \"slots\": {\"chat.jumpToBottom\": \"bob\"}. The choices are the slot's variants in slots.json order (cmux-config theme_file tests hold the two equal).",
+          "title": {
+            "key": "settings.appearance.slots.jumpToBottom",
+            "text": "Jump to Latest Arrow"
+          },
+          "help": {
+            "key": "settings.appearance.slots.jumpToBottom.help",
+            "text": "How the arrow on the agent chat's Jump to Latest button moves."
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "ThemeFileSetting",
+            "prefixed": true
+          },
+          "choices": [
+            {
+              "value": "default",
+              "title": {
+                "key": "settings.choice.arrow",
+                "text": "Arrow"
+              }
+            },
+            {
+              "value": "nudge",
+              "title": {
+                "key": "settings.choice.nudge",
+                "text": "Nudge"
+              }
+            },
+            {
+              "value": "bob",
+              "title": {
+                "key": "settings.choice.bob",
+                "text": "Bob"
+              }
+            },
+            {
+              "value": "cascade",
+              "title": {
+                "key": "settings.choice.cascade",
+                "text": "Cascade"
+              }
+            }
+          ],
+          "default": "default",
+          "keywords": [
+            "theme slot",
+            "slot",
+            "jump to latest",
+            "scroll to bottom",
+            "arrow",
+            "animation",
+            "agent chat"
+          ]
+        },
+        {
           "key": "appearance.highlightColor",
           "title": {
             "key": "settings.appearance.highlightColor",

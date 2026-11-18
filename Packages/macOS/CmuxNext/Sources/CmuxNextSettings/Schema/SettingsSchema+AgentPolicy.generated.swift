@@ -73,6 +73,8 @@ extension SettingsSchema {
         "appearance.themeEdits",
         // The theme file whose look applies (looks only)
         "appearance.themeFile",
+        // The variant each theme slot draws (schemas/theme/slots.json; looks only)
+        "appearance.slots.chat.thinkingIndicator", "appearance.slots.chat.jumpToBottom",
         // Starred themes and their rotation (looks only)
         "appearance.favoriteThemes", "appearance.rotateFavoriteThemes",
         // The color of each machine's marks (looks only)

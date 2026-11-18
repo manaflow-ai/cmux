@@ -133,6 +133,17 @@ struct AgentPaneDisplaySettingTests {
         #expect(AgentPaneDisplaySetting(fileRoot: .object([:])) == .fallback)
     }
 
+    /// The theme slot rows reach the chat from the effective settings, so a theme file's `"slots"` does too;
+    /// a variant its row refuses is left out (the chat then draws the slot's default).
+    @Test func slotVariantsComeFromTheEffectiveSettings() {
+        let effective = JSONValue.object(["appearance": .object(["slots": .object(["chat": .object([
+            "thinkingIndicator": .string("pulse"), "jumpToBottom": .string("sparkles"),
+        ])])])])
+        let display = AgentPaneDisplaySetting(fileRoot: .object([:]), effectiveRoot: effective)
+        #expect(display.values == ["appearance.slots.chat.thinkingIndicator": .string("pulse")])
+        #expect(AgentPaneDisplaySetting.slotRows.map(\.path) == [ThemeFileSetting.thinkingIndicatorSlotPath, ThemeFileSetting.jumpToBottomSlotPath])
+    }
+
     /// `agentPane.display.minimap` was an on/off toggle before it was the Rail / Full Map / Off choice.
     /// A settings file the toggle wrote keeps its meaning on the way to the page: `true` (the full
     /// map) arrives as `"full"`, and `false` (the experiment decides) arrives as no value at all,

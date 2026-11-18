@@ -43,6 +43,21 @@ import Testing
         #expect(message.hasPrefix("themes/tokyo.json: appearance.accent = \"purple\" was ignored"))
     }
 
+    /// `"slots"` (schemas/theme/slots.json): each slot is `appearance.slots.<slot id>`, checked on its own, so an
+    /// unknown slot or variant is dropped with its notice and the rest of the file applies (cmux-config's
+    /// `an_unknown_slot_or_variant_is_dropped_with_a_notice_and_the_rest_applies`).
+    @Test func slotsPickVariantsOneSlotAtATime() {
+        let overlay = Self.overlay(#"{ "appearance.accent": "blue", "slots": { "chat.thinkingIndicator": "sparkles", "chat.nope": "pulse", "chat.jumpToBottom": "cascade" } }"#)
+        #expect(Set(overlay.values.map(\.path)) == [Self.accent, ThemeFileSetting.jumpToBottomSlotPath])
+        #expect(overlay.applied(to: .object([:])).value(at: ThemeFileSetting.jumpToBottomSlotPath) == "cascade")
+        #expect(overlay.diagnostics.contains { $0.path == "slots.chat.nope" && $0.message == "no theme slot chat.nope" })
+        #expect(overlay.diagnostics.contains { $0.path == "appearance.slots.chat.thinkingIndicator" && $0.message.hasPrefix("expected one of") })
+        #expect(overlay.diagnostics.count == 2)
+        let nested = Self.overlay(#"{ "appearance": { "slots": { "chat": { "thinkingIndicator": "caret" } } } }"#)
+        #expect(nested.diagnostics.isEmpty)
+        #expect(nested.values.map(\.path) == [ThemeFileSetting.thinkingIndicatorSlotPath])
+    }
+
     @Test func aMissingOrBrokenFileIsReportedAtTheSetting() throws {
         let missing = ThemeFileOverlay(name: "gone", source: nil, base: .object([:]))
         #expect(!missing.isLoaded)

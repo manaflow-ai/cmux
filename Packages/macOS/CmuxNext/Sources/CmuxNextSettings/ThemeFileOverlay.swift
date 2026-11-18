@@ -16,6 +16,11 @@ public import Foundation
 /// - `"ghostty"`: a Ghostty theme block (a string or a list of lines: `background = #1a1b26`,
 ///   `palette = 4=#7aa2f7`), read as Ghostty theme files are (`ThemeFileColors`).
 ///
+/// `"slots"` picks the variant each theme slot draws (schemas/theme/slots.json):
+/// `{"chat.thinkingIndicator": "pulse"}` is the setting `appearance.slots.chat.thinkingIndicator`.
+/// Each slot is checked on its own, so an unknown slot or variant is dropped with its diagnostic and
+/// the chat draws that slot's default (cmux-config `theme_file::slots` reads it the same way).
+///
 /// A background picture may be relative (`"file:harbor.jpg"`, `"folder:walls"`) or start at `~`: it
 /// resolves against the themes folder, so a theme and its pictures move together as one folder.
 ///
@@ -39,7 +44,9 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
     public let corrected: [String]
 
     /// Keys a theme file reads that are not settings.
-    static let reservedKeys: Set<String> = ["name", "description", "$schema", "colors", "ghostty"]
+    static let reservedKeys: Set<String> = ["name", "description", "$schema", "colors", "ghostty", slotsKey]
+    /// The theme file key whose members are `appearance.slots.<slot id>` settings.
+    static let slotsKey = "slots"
     /// Look keys that are no part of a look: the theme file itself, the star list and its rotation,
     /// per-machine and per-display maps, the sun location (where this Mac is), and the saved custom densities.
     static let excludedKeys: Set<String> = [
@@ -131,8 +138,24 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
             for (key, value) in members.sorted(by: { $0.key < $1.key }) where !ThemeFileOverlay.reservedKeys.contains(key) {
                 walk(value, path: CmuxConfigFile.keyPath(from: key))
             }
+            if let slots = members[ThemeFileOverlay.slotsKey] { readSlots(slots) }
             readColors(members, base: base)
             return true
+        }
+
+        /// `"slots"`: each member is the setting `appearance.slots.<slot id>`, taken on its own.
+        mutating func readSlots(_ written: JSONValue) {
+            guard case .object(let slots) = written else {
+                return refuse(ThemeFileOverlay.slotsKey, written, "expected an object of slot ids and variant ids")
+            }
+            for (slot, variant) in slots.sorted(by: { $0.key < $1.key }) {
+                let path = ["appearance", "slots"] + CmuxConfigFile.keyPath(from: slot)
+                guard let descriptor = SettingsSchema.descriptor(for: path) else {
+                    refuse("\(ThemeFileOverlay.slotsKey).\(slot)", variant, "no theme slot \(slot)")
+                    continue
+                }
+                take(descriptor, variant)
+            }
         }
 
         mutating func walk(_ value: JSONValue, path: [String]) {
