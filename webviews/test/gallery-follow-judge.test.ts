@@ -63,6 +63,138 @@ test("two rows that move by different amounts in one frame are a stray move, nam
   expect(judged.worst).toBe(8);
 });
 
+test("a row that grows moves the rows past it by its growth: the rows stay packed, no stray move", () => {
+  // A reply's new line over a bottom-pinned live line: the rows above rise, the line holds.
+  const streamed = judgeFollowFrames(
+    frames(
+      [
+        [1, row("user", 100)],
+        [2, row("reply", 200)],
+        [3, row("thinking-live", 300)],
+      ],
+      [
+        [1, row("user", 77)],
+        [2, row("reply", 177, { box: { x: 0, y: 177, width: 800, height: 63 } })],
+        [3, row("thinking-live", 300)],
+      ],
+    ),
+  );
+  expect(streamed).toMatchObject({ movingFrames: 1, followFrames: 1, strayFrames: 0, stray: [] });
+  // A call opened in place: the rows under it go down by its height, the rows over it hold.
+  const opened = judgeFollowFrames(
+    frames(
+      [
+        [1, row("call", 100)],
+        [2, row("answer", 200)],
+        [3, row("thinking-live", 300)],
+      ],
+      [
+        [1, row("call", 100, { box: { x: 0, y: 100, width: 800, height: 287 } })],
+        [2, row("answer", 447)],
+        [3, row("thinking-live", 547)],
+      ],
+    ),
+  );
+  expect(opened).toMatchObject({ followFrames: 1, strayFrames: 0, stray: [] });
+  // The same call as the click's target: not judged itself, still the row its push is measured from.
+  const clicked = judgeFollowFrames(
+    frames(
+      [
+        [0, row("user", 20)],
+        [1, row("call", 100, { targeted: true })],
+        [2, row("answer", 200)],
+      ],
+      [
+        [0, row("user", 20)],
+        [1, row("call", 100, { targeted: true, box: { x: 0, y: 100, width: 800, height: 287 } })],
+        [2, row("answer", 447)],
+      ],
+    ),
+  );
+  expect(clicked).toMatchObject({ strayFrames: 0, stray: [] });
+});
+
+test("a reply's line landing in the live line's room, then the follow, is no stray move", () => {
+  // streaming-text#codex, painted: the reply grows 23 px over the quiet live line's room, then the
+  // rows rise by that line a frame later and the line holds; their gap is back at its rest.
+  const reply = (y: number, height: number) => row("reply", y, { box: { x: 0, y, width: 800, height } });
+  const judged = judgeFollowFrames(
+    frames(
+      [
+        [1, row("user", 296)],
+        [2, reply(371, 23)],
+        [3, row("thinking-live", 402)],
+      ],
+      [
+        [1, row("user", 296)],
+        [2, reply(371, 46)],
+        [3, row("thinking-live", 402)],
+      ],
+      [
+        [1, row("user", 273)],
+        [2, reply(348, 46)],
+        [3, row("thinking-live", 402)],
+      ],
+    ),
+  );
+  expect(judged).toMatchObject({ strayFrames: 0, stray: [] });
+  // The same gap opened past its rest is a stray move: the line dropped away from the reply.
+  const dropped = judgeFollowFrames(
+    frames(
+      [
+        [1, row("user", 296)],
+        [2, reply(371, 23)],
+        [3, row("thinking-live", 402)],
+      ],
+      [
+        [1, row("user", 273)],
+        [2, reply(348, 23)],
+        [3, row("thinking-live", 402)],
+      ],
+    ),
+  );
+  expect(dropped.stray).toEqual([
+    { label: "article.acpmux-row[row thinking-live]", frame: 1, dx: 0, dy: 0, follow: -23 },
+  ]);
+});
+
+test("a row arriving over the live line moves the rows over it, not the line: no stray move", () => {
+  const judged = judgeFollowFrames(
+    frames(
+      [
+        [1, row("user", 220)],
+        [3, row("thinking-live", 362)],
+      ],
+      [
+        [1, row("user", 181)],
+        [2, row("answer", 300)],
+        [3, row("thinking-live", 362)],
+      ],
+    ),
+  );
+  expect(judged).toMatchObject({ movingFrames: 1, strayFrames: 0, stray: [] });
+});
+
+test("a row that jumps away from its packed neighbour with nothing grown is a stray move", () => {
+  const judged = judgeFollowFrames(
+    frames(
+      [
+        [1, row("call", 100)],
+        [2, row("answer", 200)],
+        [3, row("thinking-live", 300)],
+      ],
+      [
+        [1, row("call", 100)],
+        [2, row("answer", 200)],
+        [3, row("thinking-live", 547)],
+      ],
+    ),
+  );
+  expect(judged.stray).toEqual([
+    { label: "article.acpmux-row[row thinking-live]", frame: 1, dx: 0, dy: 247, follow: 0 },
+  ]);
+});
+
 test("a settle after the follow stopped is a stray move: the rows move again, by a follow of their own", () => {
   // A glide lands, the rows hold, then one row under the place moves 8 px while the rest hold.
   const judged = judgeFollowFrames(
