@@ -1,3 +1,4 @@
+import CmuxNextAgentActivity
 @testable import CmuxNextAgentLanes
 import CmuxNextBridge
 import Foundation
@@ -44,5 +45,19 @@ struct KeepAwakeLocalAgentsTests {
         feed.handle(try Self.change("peer-s1", indicator: "idle", peer: "lab"))
         feed.handle(try Self.change("peer-s1", indicator: "working", peer: "lab"))
         #expect(!turns.hasWorkingSession, "a peer's next turn kept this Mac awake")
+    }
+
+    /// A follow reply (the watch reconnected) that says a peer's turn ended, or its chat went,
+    /// leaves no working state behind: the page sets the session's state as a push of that row does.
+    @Test func aFollowReplyEndsAPeersTurn() throws {
+        func object(_ json: String) throws -> [String: Any] {
+            try #require(try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
+        }
+        var page = AgentWatchPage(result: try object(#"{"sessions":[{"sessionId":"peer-s1","indicator":"working","peer":"lab"},{"sessionId":"peer-s2","indicator":"working","peer":"lab"}]}"#))
+        let follow = try #require(AgentWatchFollow(result: try object(#"{"follow":true,"listSeq":7,"listEpoch":"e1","sessions":[{"sessionId":"peer-s1","indicator":"idle","peer":"lab"}],"gone":[{"sessionId":"peer-s2","peer":"lab"}]}"#)))
+        page.lay(follow)
+        let turns = AgentTurnStateStore()
+        turns.replace(states: page.states, lastMessages: [:], muted: [], titles: [:], details: [:], peers: page.peers)
+        #expect(!turns.hasWorkingSession, "a peer turn that a follow reply ended kept this Mac awake")
     }
 }
