@@ -116,3 +116,22 @@ test("new chats start on this Mac by default; Cloud only when the setting says s
   expect(readComposerSettings({ newChatsIn: "Cloud" }).newChatsIn).toBe("local");
   expect(readComposerSettings({ newChatsIn: true }).newChatsIn).toBe("local");
 });
+
+// agentPane.composerLook and agentPane.emptyChatComposerPosition: a cmuxProfile can carry both; the
+// defaults are the page's behaviour before them (the dots' stored look; the composer at the bottom).
+test("the composer look setting is auto by default; codex and claude are the set looks", () => {
+  expect(DEFAULT_COMPOSER.composerLook).toBe("auto");
+  expect(readComposerSettings({}).composerLook).toBe("auto");
+  expect(readComposerSettings({ composerLook: "codex" }).composerLook).toBe("codex");
+  expect(readComposerSettings({ composerLook: "claude" }).composerLook).toBe("claude");
+  for (const bad of ["Claude", "t3", true, null])
+    expect(readComposerSettings({ composerLook: bad }).composerLook).toBe("auto");
+});
+
+test("an empty chat's composer sits at the bottom by default; center only when the setting says so", () => {
+  expect(DEFAULT_COMPOSER.emptyChatComposerPosition).toBe("bottom");
+  expect(readComposerSettings({}).emptyChatComposerPosition).toBe("bottom");
+  expect(readComposerSettings({ emptyChatComposerPosition: "center" }).emptyChatComposerPosition).toBe("center");
+  for (const bad of ["Center", "middle", true])
+    expect(readComposerSettings({ emptyChatComposerPosition: bad }).emptyChatComposerPosition).toBe("bottom");
+});

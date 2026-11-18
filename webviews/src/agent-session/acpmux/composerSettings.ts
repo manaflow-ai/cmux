@@ -38,6 +38,13 @@
 // read: the chord the host sends, empty for the app's own. Anything else reads as "cmux".
 // `newChatsIn` is `agentPane.newChatsIn` ("Start New Chats In", "local" by default): "cloud" makes a
 // new chat's run location Cloud unless its composer picks another (runLocationDefault.ts).
+// `composerLook` is `agentPane.composerLook` ("auto" by default): "codex" or "claude" draws that look
+// in every chat over the look dots' stored choice (composerLook.ts); "auto" keeps the dots' choice,
+// else Codex's. Picking a dot while a look is set asks the host to write it (`pane.setComposerLook
+// {look}`). The New Tab page always draws Claude's look. Anything else reads as "auto".
+// `emptyChatComposerPosition` is `agentPane.emptyChatComposerPosition` ("bottom" by default): "center"
+// sits a chat's composer in the middle of the pane until its first message (styles.css,
+// [data-empty-chat-composer="center"]). Anything else reads as "bottom".
 // `cloudEnvironments` is the launch flag CLOUD_ENVIRONMENTS_ENABLED (Swift
 // AgentPaneCloudEnvironmentsFlag, read from the bundle's LSEnvironment, else the launch
 // environment; no cmux.json key): on, picking Cloud in a new
@@ -53,6 +60,8 @@ export type ReasoningSliderStyle = "accent" | "minimal";
 export type AttachmentView = "inline" | "strip" | "both";
 export type NewChatPlace = "local" | "cloud";
 export type ComposerRing = "context" | "planUsage";
+export type ComposerLookSetting = "auto" | "codex" | "claude";
+export type EmptyChatComposerPosition = "bottom" | "center";
 export const DICTATION_SOURCES = ["cmux", "macos", "chatgpt", "claude", "gemini", "wisprFlow", "superwhisper"] as const;
 export type DictationSource = (typeof DICTATION_SOURCES)[number];
 export type ComposerSettings = {
@@ -71,6 +80,8 @@ export type ComposerSettings = {
   showMachineLoadWarnings: boolean;
   newChatsIn: NewChatPlace;
   composerRing: ComposerRing;
+  composerLook: ComposerLookSetting;
+  emptyChatComposerPosition: EmptyChatComposerPosition;
   cloudEnvironments: boolean;
 };
 
@@ -90,6 +101,8 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   showMachineLoadWarnings: true,
   newChatsIn: "local",
   composerRing: "context",
+  composerLook: "auto",
+  emptyChatComposerPosition: "bottom",
   cloudEnvironments: false,
 };
 const KEYS = Object.keys(DEFAULT_COMPOSER) as (keyof ComposerSettings)[];
@@ -132,6 +145,8 @@ export function readComposerSettings(value: unknown): ComposerSettings {
     showMachineLoadWarnings: flag("showMachineLoadWarnings"),
     newChatsIn: raw.newChatsIn === "cloud" ? "cloud" : "local",
     composerRing: raw.composerRing === "planUsage" ? "planUsage" : "context",
+    composerLook: raw.composerLook === "codex" || raw.composerLook === "claude" ? raw.composerLook : "auto",
+    emptyChatComposerPosition: raw.emptyChatComposerPosition === "center" ? "center" : "bottom",
     cloudEnvironments: flag("cloudEnvironments"),
   };
 }
@@ -169,12 +184,15 @@ export function setComposerSettings(value: unknown) {
   publishComposerSettings(value);
 }
 
+/// Calls `listener` on every change of the page's composer settings; returns the unsubscribe.
+export function subscribeComposerSettings(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
 export function useComposerSettings(): ComposerSettings {
   return useSyncExternalStore(
-    (listener) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
+    subscribeComposerSettings,
     () => current,
     // A static render (a sent bubble's markup, renderToStaticMarkup) reads the same page value.
     () => current,

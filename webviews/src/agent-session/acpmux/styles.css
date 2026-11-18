@@ -553,6 +553,12 @@
 /* A new chat: the composer docks at the bottom and the hero centers in the space above it. */
 .acpmux-main[data-new-chat]>.acpmux-stage{flex:1 1 0;min-height:0}
 .acpmux-main[data-new-chat] .acpmux-empty{justify-content:center;padding-bottom:6%}
+/* Settings' Empty Chat Message Box set to Center (agentPane.emptyChatComposerPosition, App.tsx
+   data-empty-chat-composer): the composer sits in the pane's middle with the hero just over it, as
+   the New Tab page sets its own. An empty last item takes the same share of the room as the stage
+   above the composer, so the two split it evenly. Absent, the composer docks at the bottom (above). */
+.acpmux-main[data-new-chat][data-empty-chat-composer="center"]::after{content:"";flex:1 1 0;min-height:0}
+.acpmux-main[data-new-chat][data-empty-chat-composer="center"] .acpmux-empty{justify-content:flex-end;padding-bottom:var(--ds-space-6,24px)}
 /* Home lists (HomeLists.tsx): the welcome lists between the hero and the docked composer, in its column; they scroll when tall. */
 .acpmux-main[data-new-chat]>.acpmux-dock>.acpmux-home-area{flex:0 1 auto;min-height:0;max-height:50%}
 /* The hero (header, glyph and title) keeps its room on a short pane; the lists, which scroll, give way first. */
