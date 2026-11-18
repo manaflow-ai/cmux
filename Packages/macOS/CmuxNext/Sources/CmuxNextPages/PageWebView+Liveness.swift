@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// The page's half of the agent-chat liveness watchdog (App Health's `liveness` parts, whose rule
 /// is cmux-health-core's): a host-to-page ping that needs no input, and the end of a renderer it
