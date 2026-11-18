@@ -154,6 +154,37 @@ def nightly_reservation(term: str) -> bool:
                              "vars.CI_NIGHTLY_ONLY_RUNNER"])
 
 
+NEXT_PUSH_POOL = "fromJSON(vars.RUNNER_POOLS).linux_2"
+NEXT_PUSH_ROUTES = (NEXT_PUSH_POOL, f"(github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER || {NEXT_PUSH_POOL})")
+
+
+def next_push_reservation(term: str) -> bool:
+    """A feat-cmux-next push's arm on the NEXT nightly's path (tests/test_ci_nightly_path_keeps_its_size.py).
+
+    It names the owned nightly-only pool on attempt one, whose variable runner_label_policy.py holds to its one
+    label or unset (unset falls to the next term), then the small reconciled Linux pool; or that pool alone. A
+    pull request never takes it, so its own hosted route after the arm is unchanged.
+    """
+    parts = [part.strip() for part in _split_top(term, "&&")]
+    return (len(parts) == 3 and parts[:2] == ["github.event_name == 'push'", "github.ref == 'refs/heads/feat-cmux-next'"]
+            and parts[2] in NEXT_PUSH_ROUTES)
+
+
+def next_push_reserved(runs_on: str) -> bool:
+    """Whether a cmux-next route reaches a Mac only through the push arm's nightly-only pool.
+
+    Like the nightly reservation, that pool needs no picker in front of it; any other Mac label in the
+    route keeps the fixed-label and portable-order checks.
+    """
+    text = json.loads(runs_on) if runs_on.startswith('"') else runs_on
+    expressions = EXPRESSION.findall(text)
+    if len(expressions) != 1:
+        return False
+    alternatives = [part.strip() for part in _split_top(expressions[0].strip(), "||")]
+    rest = [part for part in alternatives if not next_push_reservation(part)]
+    return len(rest) < len(alternatives) and not routes_to_macos({"runs-on": "${{ " + " || ".join(rest) + " }}"})
+
+
 def nightly_only_pool(runs_on: str) -> bool:
     """Whether a nightly route ends on the nightly-only Mac pool (its variable, then its literal).
 
@@ -618,6 +649,8 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
                 alternatives = alternatives[1:]
             if path.name == "nightly.yml" and alternatives and nightly_reservation(alternatives[0]):
                 alternatives = alternatives[1:]
+            if path.name == "cmux-next.yml":
+                alternatives = [part for part in alternatives if not next_push_reservation(part)]
             text = " || ".join(alternatives)
             if re.search(r"(?<![a-z-])macos-", text):
                 problems.append(f"hosted_light_jobs[{key!r}] never permits hosted macOS")
@@ -740,8 +773,9 @@ def check(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) -> list[str]:
         elif entry.get("placement_followup") and not bypass:
             problems.append(f"{job.key} no longer bypasses placement; remove its placement_followup")
         # A bypass is already one pin, recorded by its placement_followup.
-        reserved = job.key.startswith("nightly.yml#") and (has_nightly_reservation(job.runs_on)
-                                                           or nightly_only_pool(job.runs_on))
+        reserved = ((job.key.startswith("nightly.yml#") and (has_nightly_reservation(job.runs_on)
+                                                             or nightly_only_pool(job.runs_on)))
+                    or (job.key.startswith("cmux-next.yml#") and next_push_reserved(job.runs_on)))
         pin = not bypass and not job.from_picker and not reserved
         if pin and not entry.get("picker_followup"):
             problems.append(
@@ -753,7 +787,7 @@ def check(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) -> list[str]:
             )
         elif entry.get("picker_followup") and not pin:
             problems.append(f"{job.key} no longer runs on a fixed label; remove its picker_followup")
-        if spec["needs"] == "any":
+        if spec["needs"] == "any" and not (reserved and job.key.startswith("cmux-next.yml#")):
             why = portable_order(job.runs_on, nightly=job.key.startswith("nightly.yml#"), pools=pools)
             if why:
                 problems.append(f"{job.key} is class {entry['class']!r} (fleet Linux, then a free mini, then "

@@ -131,7 +131,7 @@ def problems(jobs: dict) -> list[str]:
         for why, pattern in SHARED_ROUTES.items():
             if pattern.search(before) or pattern.search(label):
                 out.append(f"{where}: a feat-cmux-next push reads {why}; the nightly path takes its measured small pool")
-        owned_first = "'glaeda-" in label or bool(PLACED.search(before))
+        owned_first = "'glaeda-" in label or "vars.CI_NIGHTLY_ONLY_RUNNER" in label or bool(PLACED.search(before))
         if owned_first and name in LINUX_ONLY:
             out.append(f"{where}: starts on our Macs now; drop it from LINUX_ONLY")
         if not owned_first and name not in LINUX_ONLY:
@@ -157,7 +157,7 @@ class NightlyPathKeepsItsSize(unittest.TestCase):
             self.assertIn(name, names)
 
     def test_the_checker_flags_each_shared_route_and_an_unexplained_linux_job(self) -> None:
-        good = ("${{ " + PUSH_ARM + "(github.run_attempt == 1 && 'glaeda-nightly-only-m4pro' || "
+        good = ("${{ " + PUSH_ARM + "(github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER || "
                 "fromJSON(vars.RUNNER_POOLS).linux_2) || fromJSON(vars.RUNNER_POOLS).linux_8 }}")
         cases = {
             "the overflow upsize": "${{ " + PUSH_ARM + "vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16"
@@ -180,9 +180,11 @@ class NightlyPathKeepsItsSize(unittest.TestCase):
     def test_owned_first_routes_and_the_pull_request_tail_pass(self) -> None:
         tail = "vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}"
         jobs = {root: {"runs-on": "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + PUSH_ARM
-                       + "(github.run_attempt == 1 && 'glaeda-nightly-only-m4pro' || fromJSON(vars.RUNNER_POOLS).linux_2) || "
+                       + "(github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_2) || "
                        + tail}
                 for root in PATH_ROOTS}
+        # A LINUX_ONLY job takes its small pool on the push arm.
+        jobs["request-nightly-next"] = {"runs-on": "${{ " + PUSH_ARM + "fromJSON(vars.RUNNER_POOLS).linux_4 || " + tail}
         jobs["checks"] = {"runs-on": "${{ contains(needs.portable-placement.outputs.mini_jobs, ' checks ') && "
                                      "needs.portable-placement.outputs.mini_runner || " + PUSH_ARM
                                      + "fromJSON(vars.RUNNER_POOLS).linux_8 || github.run_attempt == 1 && 'ubuntu-24.04' || "

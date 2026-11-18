@@ -82,6 +82,22 @@ class RoutingTableTests(unittest.TestCase):
             with self.subTest(old=old, new=new):
                 self.assertFalse(table.nightly_reservation(term.replace(old, new)))
 
+    def test_next_push_reservation_takes_only_the_nightly_only_pool_then_the_small_pool(self):
+        arm = "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && "
+        owned = arm + "(github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_2)"
+        self.assertTrue(table.next_push_reservation(owned))
+        self.assertTrue(table.next_push_reservation(arm + "fromJSON(vars.RUNNER_POOLS).linux_2"))
+        for old, new in (("refs/heads/feat-cmux-next", "refs/heads/main"), ("'push'", "'pull_request'"),
+                         ("github.run_attempt == 1", "github.run_attempt >= 1"),
+                         ("vars.CI_NIGHTLY_ONLY_RUNNER", "'glaeda-std'"), ("linux_2", "linux_16")):
+            with self.subTest(old=old, new=new):
+                self.assertFalse(table.next_push_reservation(owned.replace(old, new)))
+        prefix = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+        self.assertTrue(table.next_push_reserved(prefix + owned + " || fromJSON(vars.RUNNER_POOLS).linux_4 }}"))
+        # Another Mac label after the arm is still a fixed label.
+        self.assertFalse(table.next_push_reserved(prefix + owned + " || 'glaeda-std' }}"))
+        self.assertFalse(table.next_push_reserved(prefix + "fromJSON(vars.RUNNER_POOLS).linux_4 }}"))
+
     def test_portable_bootstrap_exception_requires_read_only_secretless_route(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
