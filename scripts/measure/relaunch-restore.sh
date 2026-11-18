@@ -23,6 +23,7 @@ for arg in "$@"; do
     budget_ms=*) extra+=(--budget-ms "${arg#budget_ms=}") ;;
     fronts=*) extra+=(--fronts "${arg#fronts=}") ;;
     config=bench|config=Release|config=Debug) config="${arg#config=}" ;;
+    alloy=1) export CMUX_CHAT_ALLOY=1 ;;  # experiment: the Alloy-style chat browser (lane/rtc-alloy-experiment)
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done

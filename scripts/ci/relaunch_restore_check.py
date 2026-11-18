@@ -357,6 +357,9 @@ def launch(app: Path, env: dict, out_log: Path) -> tuple[subprocess.Popen, int, 
     import fresh_home_launch_smoke as smoke
     marks_read, marks_write = os.pipe()
     env = {**env, "CMUX_NEXT_LAUNCH_MARKS_FD": str(marks_write)}
+    # Experiment (lane/rtc-alloy-experiment): the Alloy-style chat browser switch reaches the relaunched app.
+    if os.environ.get("CMUX_CHAT_ALLOY"):
+        env["CMUX_CHAT_ALLOY"] = os.environ["CMUX_CHAT_ALLOY"]
     _, executable = smoke.bundle_info(app)
     with open(out_log, "ab") as handle:
         process = subprocess.Popen([str(app / "Contents" / "MacOS" / executable), "-ApplePersistenceIgnoreState", "YES"],
@@ -557,6 +560,17 @@ def round_once(n: int, process, inst: Instance, app: Path, env: dict, before: di
     row["usable"] = ok
     row["quit_to_usable_ms"] = round((done - asked) * 1000) if ok else None
     row["launch_to_usable_ms"] = round((done - launched) * 1000) if ok else None
+    # Experiment: Chromium's start steps (debug.cef start_steps: create_window, pump, first_window) as
+    # [name, ms since the first step, duration ms].
+    cef = call(inst.sock, "debug.cef", {}, timeout=10)
+    steps = cef.get("start_steps") if isinstance(cef, dict) else None
+    if isinstance(steps, list) and steps:
+        t0 = min(s.get("start_uptime_ns", 0) for s in steps)
+        row["cef_start_steps"] = [[s.get("name"), round((s.get("start_uptime_ns", 0) - t0) / 1e6, 1), round(s.get("ms", 0), 1)]
+                                  for s in steps]
+        row["cef_engine_start_main_ms"] = cef.get("engine_start_main_ms")
+    else:
+        row["cef_start_steps"] = cef.get("error") if isinstance(cef, dict) else None
     row["state_after"] = now if now is not None else state(inst)
     failures = row.setdefault("failures", [])
     if process.poll() is not None:
