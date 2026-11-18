@@ -72,54 +72,49 @@ public struct HomeLaunchChiefSource: HomeSource {
 /// once: every held send then goes to the Chief through `deliver` with its own key, one at a time
 /// in order, and exactly once (a resend of a key already handed over gets the same answer).
 /// Cancelled before that (the page went), the held parts come back to the caller, never dropped.
+/// The rules are Rust's (``LaunchDraftCore``); this class keeps who waits and runs the deliver loop.
 @MainActor
 public final class LaunchChiefHold {
     /// Posts one held send to the real Chief under its original key (the real store owns it from
     /// there: its offline queue and Not Delivered state).
     public typealias Deliver = @MainActor (_ chief: ConversationID, _ parts: [MessagePart], _ key: IdempotencyKey) async -> Void
 
-    private struct Held {
-        let key: IdempotencyKey
-        let parts: [MessagePart]
-        var waiters: [CheckedContinuation<HomeOpResult, any Error>]
-    }
-
-    private var held: [Held] = []
-    /// Each key handed to `deliver`, with the answer its sender got.
-    private var delivered: [IdempotencyKey: HomeOpResult] = [:]
+    private let core = LaunchDraftCore()
+    /// Who waits on each held send, by its key.
+    private var waiters: [IdempotencyKey: [CheckedContinuation<HomeOpResult, any Error>]] = [:]
     private var deliver: Deliver?
     private var draining = false
     /// Who waits for the Chief to be named (``resolved()``).
     private var resolveWaiters: [CheckedContinuation<ConversationID?, Never>] = []
-    /// The real Chief, once named.
-    public private(set) var chief: ConversationID?
-    public private(set) var isCancelled = false
 
     public init() {}
 
+    /// The real Chief, once named.
+    public var chief: ConversationID? { core.chief.map { ConversationID($0) } }
+    public var isCancelled: Bool { core.isCancelled }
+
     /// The sends still waiting for the Chief, in order.
-    public var heldParts: [[MessagePart]] { held.map(\.parts) }
+    public var heldParts: [[MessagePart]] { core.held.map(\.parts) }
 
     /// Keeps `parts` under `key` until the Chief is named, then answers with the Chief's
     /// conversation once it was handed over. Throws when the hold was cancelled first.
     public func hold(_ parts: [MessagePart], key: IdempotencyKey) async throws -> HomeOpResult {
-        if let answer = delivered[key] { return answer }
-        guard !isCancelled else { throw HomeRejection.invalid("launch_chief.cancelled") }
-        return try await withCheckedThrowingContinuation { continuation in
-            if let index = held.firstIndex(where: { $0.key == key }) {
-                held[index].waiters.append(continuation)
-            } else {
-                held.append(Held(key: key, parts: parts, waiters: [continuation]))
+        switch core.hold(parts, key: key.rawValue) {
+        case .alreadyDelivered(let chief): return HomeOpResult(rev: 0, conversation: ConversationID(chief))
+        case .cancelled: throw HomeRejection.invalid("launch_chief.cancelled")
+        case .invalid: throw HomeRejection.invalid("launch_chief.invalid")
+        case .held, .joined:
+            return try await withCheckedThrowingContinuation { continuation in
+                waiters[key, default: []].append(continuation)
+                drain()
             }
-            drain()
         }
     }
 
     /// The real Chief is `chief`: each held send goes to it through `deliver`, in order. Once;
     /// a later call, or one after ``cancel()``, does nothing.
     public func resolve(_ chief: ConversationID, deliver: @escaping Deliver) {
-        guard self.chief == nil, !isCancelled else { return }
-        self.chief = chief
+        guard core.resolve(chief.rawValue) else { return }
         self.deliver = deliver
         drain()
         endWaits(with: chief)
@@ -145,35 +140,46 @@ public final class LaunchChiefHold {
     /// held sends are the Chief's already) and this returns none.
     @discardableResult
     public func cancel() -> [[MessagePart]] {
-        guard chief == nil, !isCancelled else { return [] }
-        isCancelled = true
-        let parts = held.map(\.parts)
-        let waiters = held.flatMap(\.waiters)
-        held = []
-        for waiter in waiters { waiter.resume(throwing: HomeRejection.invalid("launch_chief.cancelled")) }
-        endWaits(with: nil)
+        let parts = core.cancel().map(\.parts)
+        refuseIfCancelled()
         return parts
     }
 
-    /// The text of `parts`, one held send per paragraph (what a cancel gives back to the draft).
-    public static func text(of parts: [[MessagePart]]) -> String {
-        parts.map { send in
-            send.compactMap { part in if case .text(let text, _) = part { text } else { nil } }.joined()
-        }.filter { !$0.isEmpty }.joined(separator: "\n")
+    /// Quit's save step: the held sends' text, then `typed`, a line apart. The hold goes on.
+    func keptText(typed: String) -> String { core.savedText(typed: typed) }
+
+    /// Released before the Chief was named: ends the hold as ``cancel()`` does and returns the held
+    /// sends' text, then `typed`, a line apart (after a resolve, `typed` alone).
+    func park(typed: String) -> String {
+        let text = core.parkedText(typed: typed)
+        refuseIfCancelled()
+        return text
     }
 
+    /// The hold was cancelled: every waiting send is refused, and so is a wait for the Chief.
+    private func refuseIfCancelled() {
+        guard isCancelled else { return }
+        let refused = waiters.values.flatMap { $0 }
+        waiters = [:]
+        for waiter in refused { waiter.resume(throwing: HomeRejection.invalid("launch_chief.cancelled")) }
+        endWaits(with: nil)
+    }
+
+    /// The text of `parts`, one held send per paragraph (what a cancel gives back to the draft).
+    public static func text(of parts: [[MessagePart]]) -> String { LaunchDraftCore.text(of: parts) }
+
     private func drain() {
-        guard let chief, let deliver, !draining, !held.isEmpty else { return }
+        guard let chief, let deliver, !draining, core.next != nil else { return }
         draining = true
         // task-owner: one pass over the held sends; ends when none is left (main actor: this class's)
         Task {
-            while let next = held.first {
-                await deliver(chief, next.parts, next.key)
+            while let next = core.next {
+                let key = IdempotencyKey(next.key)
+                await deliver(chief, next.parts, key)
+                core.delivered(next.key)
                 let answer = HomeOpResult(rev: 0, conversation: chief)
-                delivered[next.key] = answer
-                // A resend of the same key that arrived meanwhile waits on this entry too.
-                let done = held.removeFirst()
-                for waiter in done.waiters { waiter.resume(returning: answer) }
+                // A resend of the same key that arrived meanwhile waits on this send too.
+                for waiter in waiters.removeValue(forKey: key) ?? [] { waiter.resume(returning: answer) }
             }
             draining = false
         }

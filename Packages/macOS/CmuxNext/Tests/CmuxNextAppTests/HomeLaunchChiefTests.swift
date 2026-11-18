@@ -84,6 +84,21 @@ struct HomeLaunchChiefTests {
         #expect(delivered.all.isEmpty)
     }
 
+    @Test func heldPartsComeBackAsSentAndOnlyTheirTextIsKept() async throws {
+        let hold = LaunchChiefHold()
+        let mention = Mention(start: 0, length: 5, participant: HomeLaunchChiefSource.chiefID)
+        let file = AttachmentRef(hash: "h", name: "a.png", mimeType: "image/png", byteCount: 3, width: 2, height: 1)
+        let parts: [MessagePart] = [.text("Chief, look", mentions: [mention]), .attachment(file)]
+        let send = Task { try await hold.hold(parts, key: .make()) }
+        for _ in 0..<100 where hold.heldParts.isEmpty { await Task.yield() }
+        // The parts cross to the Rust rules and back unchanged.
+        #expect(hold.heldParts == [parts])
+        #expect(LaunchChiefHold.text(of: [parts, [.attachment(file)], [.text("two")]]) == "Chief, look\ntwo")
+        #expect(hold.cancel() == [parts])
+        await #expect(throws: HomeRejection.self) { try await send.value }
+        #expect(hold.isCancelled)
+    }
+
     // MARK: The page
 
     @Test func aDraftTypedBeforeResolveEndsAppendedToTheChiefsDraft() {

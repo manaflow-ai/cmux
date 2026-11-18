@@ -101,20 +101,19 @@ public final class HomeLaunchComposer {
     /// Quit's save step, before Home's cache is written: the held sends' text, then what was typed,
     /// as Home's draft of the launch conversation. The page goes on as it was (a quit can be cancelled).
     public func saveForQuit() {
-        home.setDraft(Self.keptText(store, held: hold.heldParts), for: Self.conversation)
+        home.setDraft(Self.keptText(store, hold: hold), for: Self.conversation)
     }
 
     /// The held sends' text, then the draft of `launch`, a line apart.
-    static func keptText(_ launch: HomeStore, held: [[MessagePart]]) -> String {
-        [LaunchChiefHold.text(of: held), launch.draft(for: conversation) ?? ""].filter { !$0.isEmpty }.joined(separator: "\n")
+    static func keptText(_ launch: HomeStore, hold: LaunchChiefHold) -> String {
+        hold.keptText(typed: launch.draft(for: conversation) ?? "")
     }
 
     /// `text` after `id`'s own draft in `store`, on a line of its own; false when there was none.
     @discardableResult
     public static func appendDraft(_ text: String, to id: ConversationID, store: HomeStore) -> Bool {
-        guard !text.isEmpty else { return false }
-        let own = store.draft(for: id) ?? ""
-        store.setDraft(own.isEmpty ? text : own + "\n" + text, for: id)
+        guard let draft = LaunchDraftCore.append(text, after: store.draft(for: id) ?? "") else { return false }
+        store.setDraft(draft, for: id)
         return true
     }
 
@@ -138,7 +137,7 @@ public final class HomeLaunchComposer {
     /// Released before the Chief answered: the held sends are refused, and their text, then what was
     /// typed, are kept as `home`'s draft of the launch conversation. After a hand-off nothing is left.
     public static func park(_ launch: HomeStore, hold: LaunchChiefHold, in home: HomeStore) {
-        appendDraft(keptText(launch, held: hold.cancel()), to: conversation, store: home)
+        appendDraft(hold.park(typed: launch.draft(for: conversation) ?? ""), to: conversation, store: home)
         launch.setDraft("", for: conversation)
     }
 }

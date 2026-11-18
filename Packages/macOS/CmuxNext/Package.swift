@@ -49,7 +49,8 @@ import PackageDescription
 //     outcomes, pins, dock mode, chat colours; no views, no MessagesLab, no daemon)
 //   CmuxNextHome -> Compat, Design, Dictation, HomeModel, Wakeups, MessagesLabHome (the Home transcript: MessagesLabAppKitNative's
 //     vendored code over the shared HomeStore; no daemon; plans/cmux-next/home-mac.md),
-//     MessagesLabSidebar (MessagesLab's conversation list, the v1 sidebar seam)
+//     MessagesLabSidebar (MessagesLab's conversation list, the v1 sidebar seam), CCmuxAppFFI (a bare launch's
+//     held message box: cmux-launch-draft)
 //   CmuxNextHomeEngine -> AgentPane, Actions, Cloud, Compat, Daemon, Design, Home, HomeModel, Icons, Wakeups,
 //     CmuxHomeCore, CmuxHomeRender, CmuxAgentQuestion (Home sources, Chief host and migration, Home strings; the App
 //     supplies HomeService over AppServices)
@@ -869,6 +870,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextHome",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                // A bare launch's held message box: its rules run in-process (cmux-launch-draft, CCmuxLaunchDraftFFI).
+                "CCmuxAppFFI",
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextDesignTokens",

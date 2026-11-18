@@ -132,7 +132,7 @@ public final class HomeLaunchEarly {
     /// launch conversation, which the next launch's page starts with. The box goes on (a quit can be cancelled).
     public func saveForQuit(in home: HomeStore) {
         guard let box else { return }
-        let text = HomeLaunchComposer.keptText(box.store, held: box.hold.heldParts)
+        let text = HomeLaunchComposer.keptText(box.store, hold: box.hold)
         home.setDraft(text, for: HomeLaunchChiefSource.conversation)
     }
 }
