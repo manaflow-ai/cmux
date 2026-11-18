@@ -340,6 +340,15 @@ def blacksmith_overflow(variable: str, snapshot: Mapping[str, Any] | None, now: 
     labels = picker.candidates(variable)
     stuck = picker.stalled(snapshot, labels, now)
     label, why = picker.pick(variable, snapshot, now)
+    # A label queued at its slot count or more is no overflow (cascade.queued_full()): the compile takes another
+    # size that is neither full nor stalled, else waits on the owned DEV slot.
+    full = picker.cascade.queued_full(snapshot, now)
+    if label in full:
+        other = next((candidate for candidate in labels
+                      if candidate not in full and candidate not in (stuck or ())), "")
+        if not other:
+            return "", f"every Blacksmith macOS label is queued at its slot count ({', '.join(sorted(full))})", True
+        label, why = other, f"`{other}`, past `{label}` queued at its slot count"
     return label, why, bool(stuck) and all(candidate in stuck for candidate in labels)
 
 

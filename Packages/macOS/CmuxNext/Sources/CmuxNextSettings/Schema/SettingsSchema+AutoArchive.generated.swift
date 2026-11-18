@@ -22,7 +22,7 @@ nonisolated enum AutoArchiveSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.autoArchive.style", "Idle Workspaces"),
-                help: SettingsText.keyed("settings.autoArchive.style.help", "What cmux does with workspaces you have not used for a while. Archived workspaces stay in their group, dimmed and last, and come back when you open them."),
+                help: SettingsText.keyed("settings.autoArchive.style.help", "Archived workspaces stay dimmed in their group and come back when opened."),
                 kind: .choice([
                     SettingChoice(AutoArchiveStyle.suggest.rawValue, SettingsText.keyed("settings.choice.autoArchiveSuggest", "Suggest Archiving")),
                     SettingChoice(AutoArchiveStyle.quiet.rawValue, SettingsText.keyed("settings.choice.autoArchiveQuiet", "Archive Automatically")),
@@ -38,7 +38,7 @@ nonisolated enum AutoArchiveSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.autoArchive.idleDays", "Idle For"),
-                help: SettingsText.keyed("settings.autoArchive.idleDays.help", "A workspace counts as idle when you have not opened it and nothing in it changed for this many days. Pinned workspaces, running commands and workspaces that need you never archive."),
+                help: SettingsText.keyed("settings.autoArchive.idleDays.help", "Days unopened and unchanged. Pinned, running and waiting workspaces never archive."),
                 kind: .number(SettingNumber(AutoArchiveSettings.idleDaysRange, step: 1, unit: .days)),
                 default: .number(AutoArchiveSettings.idleDaysDefault),
                 keywords: ["archive", "idle", "days", "age", "old"]
