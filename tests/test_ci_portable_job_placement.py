@@ -609,8 +609,9 @@ class Wiring(unittest.TestCase):
         config = bootstrap["steps"][-1]["env"]
         self.assertNotIn("ROUTE_TOKEN", config)
         self.assertNotIn("ROUTE_TOKEN_FALLBACK", config)
+        # Not a hosted exception any more: it runs on Blacksmith on every attempt (cmux#45735).
         runners = json.loads((ROOT / ".github/runners.json").read_text())
-        self.assertNotIn("allowed_secrets", runners["hosted_light_jobs"]["cmux-next.yml#portable-placement"])
+        self.assertNotIn("cmux-next.yml#portable-placement", runners["hosted_light_jobs"])
 
     def test_next_secretless_bootstrap_uses_only_fresh_registered_capacity(self):
         bootstrap = jobs("cmux-next.yml")["portable-placement"]
@@ -847,7 +848,8 @@ class Wiring(unittest.TestCase):
                 if workflow == "web-validation.yml":
                     self.assertIn("github.event_name != 'merge_group'", placement_if)
                 route = "\n".join(routes(placement_job, "portable-placement"))
-                self.assertIn("github.run_attempt == 1 && 'ubuntu-24.04'", route)
+                # Blacksmith on every attempt: GitHub-hosted Ubuntu left these queued for hours (cmux#45735).
+                self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", route)
                 self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_2", route)
                 self.assertNotIn("vars.CI_LIGHT_LANE_RUNNER", route)
                 self.assertNotIn("vars.CI_SIDE_LANE_RUNNER", route)

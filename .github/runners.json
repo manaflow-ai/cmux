@@ -484,6 +484,7 @@
     "nightly.yml#report-visual-gate-nightly": {"class": "portable-checks"},
     "nightly.yml#report-nightly-failure": {"class": "portable-checks"},
     "nightly.yml#republish-nightly-next": {"class": "portable-checks"},
+    "nightly.yml#runner-preflight": {"class": "portable-checks"},
     "nightly.yml#decide": {"class": "portable-checks"},
     "nightly.yml#await-release-surface-ack": {"class": "portable-checks"},
     "nightly.yml#pick-nightly-sign-runner": {"class": "portable-checks"},
@@ -621,7 +622,6 @@
     "pr-checks.yml#ui-review": {"class": "portable-checks", "reason": "report step: one file-list read and an advisory warning, 4 s of work (run 41394554327)"},
     "web-validation.yml#web-validation": {"class": "portable-checks", "reason": "status rollup: accepts selected web results"},
     "cmux-next.yml#path_route": {"class": "portable-checks", "reason": "router: classifies the PR's paths and probes the published tree, 32-51 s of work (runs 41394344151, 41393817927)"},
-    "cmux-next.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap: starts independently of the labels it validates"},
     "ci-web.yml#web-subarea-scope": {"class": "portable-checks", "reason": "router: classifies the webview subareas and hands the shards their duration manifest, 29 s of work (run 41762274751)"},
     "ci-web.yml#webviews-test-durations": {"class": "portable-checks", "reason": "bookkeeping: merges and saves the shard duration manifest beside web-subarea-scope's restore, 5 s of work (run 41761413284)"},
     "resolve-runners.yml#resolve": {"class": "portable-checks", "reason": "resolver: prints the runner capability map, 5 s of work (run 41762274751)"}
@@ -648,15 +648,9 @@
   },
   "portable_light_jobs": {
     "$comment": [
-      "Secretless placement bootstraps are admitted as light jobs so their short runner-state read cannot queue behind the paid overflow.",
-      "They fail open to the workflow's existing hosted or Blacksmith fallback when CI_RUNNER_STATE is stale or unavailable."
-    ],
-    "pr-red-checks-comment.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"},
-    "ci-guards.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap after guard completion"},
-    "pr-checks.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"},
-    "cmux-next-fast-gates.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"},
-    "web-validation.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"},
-    "ci.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"}
+      "Empty: the placement bootstraps run on the Blacksmith pool (RUNNER_POOLS.linux_2) on every attempt, never GitHub-hosted Ubuntu (Lawrence: Blacksmith for all CI).",
+      "GitHub-hosted Ubuntu left them queued for hours with no runner (cmux#45735, 2026-11-18), so they are no longer hosted exceptions."
+    ]
   },
   "linux_sizes": {
     "$comment": [
