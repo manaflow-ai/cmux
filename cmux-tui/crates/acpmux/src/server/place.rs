@@ -586,3 +586,18 @@ pub(super) async fn auto_input(
     power.sleeping |= hub.chat_place.sleeping();
     crate::chat_place::Input { local, peers, registry, power, folder, needs, cloud }
 }
+
+/// Auto chat placement's requests, one arm in `dispatch_request` (its poll frame grows with each
+/// arm, and the request path stays inside a 2 MiB worker stack).
+pub(super) async fn request(
+    hub: &Hub,
+    method: &str,
+    origin: Origin,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    match method {
+        "_acpmux/place_chat" => chat_place(hub, origin, params).await,
+        "_acpmux/place_chat_event" => chat_place_event(hub, origin, params).await,
+        _ => place_chat_settled(hub, origin, params).await,
+    }
+}

@@ -2674,12 +2674,8 @@ async fn dispatch_request_with_identity(
         // Auto chat placement (`chat_place.rs`): the same origins as `_acpmux/place` (checked in
         // `place.rs`), since the verdict names every machine and its numbers. Boxed: its future
         // holds the whole input (`heap_future.rs`).
-        "_acpmux/place_chat" => heap(|| super::place::chat_place(hub, conn.origin, &params)).await,
-        "_acpmux/place_chat_event" => {
-            heap(|| super::place::chat_place_event(hub, conn.origin, &params)).await
-        }
-        "_acpmux/place_chat_settled" => {
-            heap(|| super::place::place_chat_settled(hub, conn.origin, &params)).await
+        "_acpmux/place_chat" | "_acpmux/place_chat_event" | "_acpmux/place_chat_settled" => {
+            heap(|| super::place::request(hub, m, conn.origin, &params)).await
         }
         "_acpmux/directories" => {
             let home = dirs::home_dir().unwrap_or_default();
