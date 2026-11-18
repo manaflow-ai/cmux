@@ -1083,6 +1083,7 @@ impl Spawner {
                 .collect(),
             fast: false,
             peer: peer.clone(),
+            stop_condition: None,
         };
         // The folder the host made for its subagents is trusted up front, so
         // the user's first message in a subagent's pane is never held behind
