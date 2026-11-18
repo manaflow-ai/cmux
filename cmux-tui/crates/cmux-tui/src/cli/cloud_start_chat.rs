@@ -1755,24 +1755,32 @@ fn send_prompt(
     // the send's own exec waits for its turn too ([`turn_wait_script`]), so a short turn costs one Cloud
     // round trip. The baseline is then `@@before`, since the wait's own `@@history` follows.
     let first_wait = request.wait && one_exec && tab.is_none();
-    let then_wait = if first_wait {
-        let slice = deadline
-            .bound(runner, Duration::from_secs(WAIT_SLICE_SECONDS - SEND_IN_SLICE_SECONDS))
-            .as_secs();
-        if slice == 0 {
-            String::new()
-        } else {
-            format!("if [ \"$x\" = 0 ]; then {}fi", turn_wait_script(session, slice, false))
-        }
+    // The exec's whole slice runs from its first command (`$e`): the send, its `acp ls` and the
+    // history read spend it first, and the wait gets only what is left. With less than a second left the exec
+    // skips its wait and the later reads in [`wait_turn`] take over, so a slow send never runs the exec past the
+    // Cloud's own 25 s limit (a killed exec would report a delivered prompt as a send failure).
+    let budget = if first_wait {
+        deadline.bound(runner, Duration::from_secs(WAIT_SLICE_SECONDS)).as_secs()
     } else {
-        String::new()
+        0
+    };
+    let (clock, then_wait) = if budget == 0 {
+        (String::new(), String::new())
+    } else {
+        (
+            format!("e=$(( $(date +%s) + {budget} )); "),
+            format!(
+                "s=$(( e - $(date +%s) )); if [ \"$x\" = 0 ] && [ \"$s\" -ge 1 ]; then {}; fi",
+                sent_turn_wait_script(session)
+            ),
+        )
     };
     let before = if then_wait.is_empty() { "history" } else { "before" };
     // The uploaded prompt's file words, when the prompt went to a file.
     let mut uploaded = None;
     let send = if quoted.len() <= INLINE_PROMPT_BYTES {
         format!(
-            "{GUEST_PRELUDE}echo @@{before}; \"$c\" acp history {sid} --json -n 1 2>&1; echo @@send; \
+            "{clock}{GUEST_PRELUDE}echo @@{before}; \"$c\" acp history {sid} --json -n 1 2>&1; echo @@send; \
              printf '%s' {quoted} | \"$c\" acp send --no-wait {sid} - 2>&1; x=$?; echo \"@@exit $x\"; \
              {SESSION_CWD}{then_wait}",
             sid = shell_quote(session),
@@ -1801,7 +1809,7 @@ fn send_prompt(
         }
         uploaded = Some(file.clone());
         format!(
-            "{GUEST_PRELUDE}{file}echo @@{before}; \"$c\" acp history {sid} --json -n 1 2>&1; \
+            "{clock}{GUEST_PRELUDE}{file}echo @@{before}; \"$c\" acp history {sid} --json -n 1 2>&1; \
              echo @@send; \"$c\" acp send --no-wait {sid} - < \"$f\" 2>&1; x=$?; echo \"@@exit $x\"; \
              rm -f \"$f\"; {SESSION_CWD}{then_wait}",
             sid = shell_quote(session),
@@ -1972,9 +1980,6 @@ fn wait_turn(
 /// A script's `@@name` sections ([`sections`]).
 type Sections = std::collections::HashMap<String, String>;
 
-/// The seconds of a send's own exec ([`send_prompt`]) that its send and its bounded `acp ls` take before its wait.
-const SEND_IN_SLICE_SECONDS: u64 = 5;
-
 /// One wait for the turn a send started, inside one `cloud exec` (after [`GUEST_PRELUDE`]), in at most `slice`
 /// seconds, then its `@@history` and `@@last`.
 ///
@@ -1986,22 +1991,38 @@ const SEND_IN_SLICE_SECONDS: u64 = 5;
 /// [`waited_for_start`] whether the machine's CLI serves it; an older one refuses `--until running` at once and
 /// the caller falls back to pausing between reads. Each `acp wait` blocks on the daemon's events, never a poll.
 pub(super) fn turn_wait_script(session: &str, slice: u64, seen: bool) -> String {
-    let sid = shell_quote(session);
-    let (start, end) = if seen {
-        (String::new(), slice.to_string())
+    if seen {
+        turn_end_script(session, &slice.to_string())
     } else {
-        (
-            format!(
-                "e=$(( $(date +%s) + {slice} )); \
-                 o=$(\"$c\" acp wait {sid} --timeout {slice} --until running 2>/dev/null); \
-                 echo \"@@startedexit $?\"; echo @@started; printf '%s\\n' \"$o\" | head -c 512; \
-                 s=$(( e - $(date +%s) )); [ \"$s\" -ge 1 ] || s=1; "
-            ),
-            "\"$s\"".to_owned(),
+        format!(
+            "e=$(( $(date +%s) + {slice} )); {}",
+            start_then_end_script(session, &slice.to_string())
         )
-    };
+    }
+}
+
+/// The send's own wait ([`send_prompt`]): [`turn_wait_script`] for a turn not seen yet, ending at the send exec's
+/// `$e`, set by its first command, with `$s` the seconds left of it when the wait starts (at least one).
+fn sent_turn_wait_script(session: &str) -> String {
+    start_then_end_script(session, "\"$s\"")
+}
+
+/// The wait for the sent turn to start in at most `first` seconds, then for its end before `$e`.
+fn start_then_end_script(session: &str, first: &str) -> String {
+    let sid = shell_quote(session);
     format!(
-        "{start}\"$c\" acp wait {sid} --timeout {end} >/dev/null 2>&1; \
+        "o=$(\"$c\" acp wait {sid} --timeout {first} --until running 2>/dev/null); \
+         echo \"@@startedexit $?\"; echo @@started; printf '%s\\n' \"$o\" | head -c 512; \
+         s=$(( e - $(date +%s) )); [ \"$s\" -ge 1 ] || s=1; {}",
+        turn_end_script(session, "\"$s\"")
+    )
+}
+
+/// The wait for the turn's end in at most `timeout` seconds, then its `@@history` and `@@last`.
+fn turn_end_script(session: &str, timeout: &str) -> String {
+    let sid = shell_quote(session);
+    format!(
+        "\"$c\" acp wait {sid} --timeout {timeout} >/dev/null 2>&1; \
          echo \"@@wait $?\"; echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; \
          echo @@last; \"$c\" acp last {sid} --json 2>&1; echo \"@@lastexit $?\""
     )

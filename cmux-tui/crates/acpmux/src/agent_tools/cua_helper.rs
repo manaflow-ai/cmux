@@ -2,13 +2,19 @@
 
 use std::path::{Path, PathBuf};
 
-#[cfg(any(target_os = "macos", test))]
-const HELPER_APP: &str = "cmux Computer Use.app";
-#[cfg(any(target_os = "macos", test))]
-const HELPER_BINARY: &str = "Contents/MacOS/cmux-cua";
+/// The Computer Use helper bundle. Release, NIGHTLY and RC also carry the Screen Sharing
+/// executable in it (`share_host::helper`), so macOS asks for and names one app's grants.
+#[cfg(any(unix, test))]
+pub(crate) const HELPER_APP: &str = "cmux Computer Use.app";
+/// The helper's main executable (its `CFBundleExecutable`).
+#[cfg(any(unix, test))]
+pub(crate) const HELPER_BINARY: &str = "Contents/MacOS/cmux-cua";
+/// The helper's bundle id and signing identifier (the one in [`REQUIREMENT`]).
+#[cfg(unix)]
+pub(crate) const BUNDLE_ID: &str = "com.cmuxterm.cua";
 // Keep equal to CuaHelperIdentity.requirement in CmuxNextAgentActivity.
-#[cfg(target_os = "macos")]
-const REQUIREMENT: &str = concat!(
+#[cfg(unix)]
+pub(crate) const REQUIREMENT: &str = concat!(
     "identifier \"com.cmuxterm.cua\" and anchor apple generic",
     " and certificate 1[field.1.2.840.113635.100.6.2.6]",
     " and certificate leaf[field.1.2.840.113635.100.6.1.13]",
