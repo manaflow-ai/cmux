@@ -66,11 +66,13 @@ public final class CloudSpareReadiness {
     private let dependencies: Dependencies
     private var keyed: [String: Keyed] = [:]
     private var links: [String: Held] = [:]
-    private var primes: [String: Task<Void, Never>] = [:]
+    /// The prime running for each machine, with the ``resets`` it started under: one from before a reset writes
+    /// nothing, so a prime after that reset starts its own.
+    private var primes: [String: (resets: Int, task: Task<Void, Never>)] = [:]
     /// When a key ahead of `machine` last did not key it: not tried again for ``keyRetry``, so a spare whose daemon is
     /// busy or too old is not read (or restarted) on every app activation.
     private var keyMissed: [String: ContinuousClock.Instant] = [:]
-    /// Counts ``reset()``: a key ahead that was running across one records nothing.
+    /// Counts ``reset()``: a prime that started before one records nothing after it, neither a key nor a link.
     private var resets = 0
     /// How long after a key ahead that keyed nothing the next one waits.
     public static let keyRetry: Duration = .seconds(60)
@@ -95,16 +97,17 @@ public final class CloudSpareReadiness {
     public func prime(_ machine: String, team: String?) {
         let scope = dependencies.scope()
         sweep()
-        guard Self.signedIn(scope), !machine.isEmpty, primes[machine] == nil else { return }
+        let resets = resets
+        guard Self.signedIn(scope), !machine.isEmpty, primes[machine]?.resets != resets else { return }
         // task-owner: primes[machine]; one bounded prime (the keyed start's and the link's own deadlines end it), removed when it ends
-        primes[machine] = Task { [weak self] in
-            await self?.primed(machine, team: team, scope: scope)
-            self?.primes[machine] = nil
-        }
+        primes[machine] = (resets, Task { [weak self] in
+            await self?.primed(machine, team: team, scope: scope, resets: resets)
+            if self?.primes[machine]?.resets == resets { self?.primes[machine] = nil }
+        })
     }
 
     /// Waits for `machine`'s prime to end (tests).
-    public func settled(_ machine: String) async { await primes[machine]?.value }
+    public func settled(_ machine: String) async { await primes[machine]?.task.value }
 
     /// The link made ahead for `machine`, for its session to take, when it is still for the scope signed in, `team` and
     /// not past ``linkKept``; else nil, and a link that no longer fits is ended. Taken once.
@@ -129,19 +132,19 @@ public final class CloudSpareReadiness {
         resets += 1
     }
 
-    private func primed(_ machine: String, team: String?, scope: Scope) async {
-        async let linked: Void = linkAhead(machine, team: team, scope: scope)
-        await keyAhead(machine, scope: scope)
+    private func primed(_ machine: String, team: String?, scope: Scope, resets: Int) async {
+        async let linked: Void = linkAhead(machine, team: team, scope: scope, resets: resets)
+        await keyAhead(machine, scope: scope, resets: resets)
         await linked
     }
 
-    private func keyAhead(_ machine: String, scope: Scope) async {
-        guard !isKeyed(machine, scope: scope, instance: dependencies.keyedInstance(machine)) else { return }
+    /// `resets` is the count its prime started under: forgotten since (Cloud turned off, signed out), it keys nothing.
+    private func keyAhead(_ machine: String, scope: Scope, resets: Int) async {
+        guard resets == self.resets, !isKeyed(machine, scope: scope, instance: dependencies.keyedInstance(machine)) else { return }
         if let missed = keyMissed[machine], now() < missed.advanced(by: Self.keyRetry) { return }
         keyMissed[machine] = nil
-        let resets = resets
         let instance = await dependencies.key(machine, scope)
-        // Forgotten meanwhile (Cloud turned off, signed out): nothing of this run is written back.
+        // Forgotten while it ran: nothing of this run is written back.
         guard resets == self.resets else { return }
         guard let instance, dependencies.scope() == scope else {
             keyMissed[machine] = now()
@@ -154,7 +157,9 @@ public final class CloudSpareReadiness {
 
     private static let log = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.spare")
 
-    private func linkAhead(_ machine: String, team: String?, scope: Scope) async {
+    private func linkAhead(_ machine: String, team: String?, scope: Scope, resets: Int) async {
+        // Forgotten since its prime (the scope may still be the same one: Cloud turned off): no link is made or held.
+        guard resets == self.resets else { return }
         if let held = links[machine], fits(held, scope: scope), held.team == team { return }
         if let stale = links.removeValue(forKey: machine) { end(stale.link) }
         guard let link = dependencies.link(machine, team) else { return }
