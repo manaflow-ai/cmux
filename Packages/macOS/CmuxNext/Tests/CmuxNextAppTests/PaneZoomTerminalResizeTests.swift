@@ -114,9 +114,9 @@ struct PaneZoomTerminalResizeTests {
     /// p1 | p2.
     static let pair: SplitNode = .split("h", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2"))
 
-    /// The zoom's own turn reports no grid, and neither does a frame in which the dim comes over the other
-    /// panes (the pane keeps its slot in them); the one frame that shows the zoom reports the zoomed pane's
-    /// final grid; no frame after it reports another.
+    /// The zoom's own turn reports no grid, and neither does a frame in which the zoom waits for its panes
+    /// (the pane keeps its slot in them); the one frame that shows the zoom reports the zoomed pane's
+    /// final grid; no frame after it reports another. This fixture asks for no move of its panes.
     @Test(arguments: ["p1", "p2", "p3", "p4"])
     func aZoomInA2x2ReportsTheTerminalGridOnceInTheFrameThatShowsIt(pane: String) throws {
         let screen = Screen(Self.grid2)
@@ -125,7 +125,7 @@ struct PaneZoomTerminalResizeTests {
         let before = probe.reports.count
         screen.zoom(PaneID(pane))
         #expect(probe.reports.count == before, "the zoom's own turn reported a grid: it goes with the frame that shows the zoom")
-        // Each frame of the dim asks for the next one; the frame that shows the zoom asks for no more.
+        // A frame in which the zoom waits asks for the next one; the frame that shows the zoom asks for no more.
         var waited = 0
         while waited < 40, screen.root.advanceFrame(1.0 / 120) {
             waited += 1
